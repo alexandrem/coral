@@ -1,0 +1,222 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/coral-io/coral/internal/constants"
+)
+
+// Loader handles loading and saving configuration files.
+type Loader struct {
+	homeDir string
+}
+
+// NewLoader creates a new config loader.
+func NewLoader() (*Loader, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	return &Loader{
+		homeDir: homeDir,
+	}, nil
+}
+
+// GlobalConfigPath returns the path to the global config file.
+func (l *Loader) GlobalConfigPath() string {
+	return filepath.Join(l.homeDir, constants.DefaultDir, constants.ConfigFile)
+}
+
+// ColonyConfigPath returns the path to a colony's config file.
+func (l *Loader) ColonyConfigPath(colonyID string) string {
+	return filepath.Join(l.homeDir, constants.DefaultDir, "colonies", fmt.Sprintf("%s.yaml", colonyID))
+}
+
+// ColoniesDir returns the path to the colonies directory.
+func (l *Loader) ColoniesDir() string {
+	return filepath.Join(l.homeDir, constants.DefaultDir, "colonies")
+}
+
+// LoadGlobalConfig loads the global configuration.
+// Returns default config if file doesn't exist.
+func (l *Loader) LoadGlobalConfig() (*GlobalConfig, error) {
+	path := l.GlobalConfigPath()
+
+	// Return default if file doesn't exist
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return DefaultGlobalConfig(), nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read global config: %w", err)
+	}
+
+	var config GlobalConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse global config: %w", err)
+	}
+
+	return &config, nil
+}
+
+// SaveGlobalConfig saves the global configuration.
+func (l *Loader) SaveGlobalConfig(config *GlobalConfig) error {
+	path := l.GlobalConfigPath()
+
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal global config: %w", err)
+	}
+
+	// Global config is not as sensitive, use 0644
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write global config: %w", err)
+	}
+
+	return nil
+}
+
+// LoadColonyConfig loads a colony configuration by ID.
+func (l *Loader) LoadColonyConfig(colonyID string) (*ColonyConfig, error) {
+	path := l.ColonyConfigPath(colonyID)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("colony %q not found", colonyID)
+		}
+		return nil, fmt.Errorf("failed to read colony config: %w", err)
+	}
+
+	var config ColonyConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse colony config: %w", err)
+	}
+
+	return &config, nil
+}
+
+// SaveColonyConfig saves a colony configuration.
+// Uses 0600 permissions to protect secrets.
+func (l *Loader) SaveColonyConfig(config *ColonyConfig) error {
+	path := l.ColonyConfigPath(config.ColonyID)
+
+	// Ensure colonies directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create colonies directory: %w", err)
+	}
+
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal colony config: %w", err)
+	}
+
+	// Use 0600 for colony configs (contain secrets)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("failed to write colony config: %w", err)
+	}
+
+	return nil
+}
+
+// ListColonies returns all configured colony IDs.
+func (l *Loader) ListColonies() ([]string, error) {
+	coloniesDir := l.ColoniesDir()
+
+	// Return empty list if directory doesn't exist
+	if _, err := os.Stat(coloniesDir); os.IsNotExist(err) {
+		return []string{}, nil
+	}
+
+	entries, err := os.ReadDir(coloniesDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read colonies directory: %w", err)
+	}
+
+	var colonyIDs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if filepath.Ext(name) == ".yaml" {
+			colonyID := name[:len(name)-5] // Remove .yaml extension
+			colonyIDs = append(colonyIDs, colonyID)
+		}
+	}
+
+	return colonyIDs, nil
+}
+
+// DeleteColonyConfig removes a colony configuration file.
+func (l *Loader) DeleteColonyConfig(colonyID string) error {
+	path := l.ColonyConfigPath(colonyID)
+
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("colony %q not found", colonyID)
+		}
+		return fmt.Errorf("failed to delete colony config: %w", err)
+	}
+
+	return nil
+}
+
+// LoadProjectConfig loads the project-local configuration.
+// Looks for .coral/config.yaml in the current directory.
+func LoadProjectConfig(projectDir string) (*ProjectConfig, error) {
+	path := filepath.Join(projectDir, constants.DefaultDir, constants.ConfigFile)
+
+	// Return nil if file doesn't exist (project config is optional)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read project config: %w", err)
+	}
+
+	var config ProjectConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse project config: %w", err)
+	}
+
+	return &config, nil
+}
+
+// SaveProjectConfig saves the project-local configuration.
+func SaveProjectConfig(projectDir string, config *ProjectConfig) error {
+	dir := filepath.Join(projectDir, constants.DefaultDir)
+	path := filepath.Join(dir, constants.ConfigFile)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create .coral directory: %w", err)
+	}
+
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal project config: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write project config: %w", err)
+	}
+
+	return nil
+}

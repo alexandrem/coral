@@ -1,0 +1,51 @@
+syntax = "proto3";
+package coral.mesh.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/coral-io/coral/coral/mesh/v1;meshv1";
+
+// Agent authentication during registration
+message RegisterRequest {
+  // Agent identification
+  string agent_id = 1;
+  string component_name = 2;  // "frontend", "api", "database"
+
+  // Authentication (RFD 002)
+  string colony_id = 3;       // Must match colony's ID
+  string colony_secret = 4;   // Shared secret for auth
+
+  // Agent metadata
+  string version = 5;
+  map<string, string> labels = 6;
+
+  // WireGuard (for mesh coordination)
+  string wireguard_pubkey = 7;
+}
+
+message RegisterResponse {
+  // Authentication result
+  bool accepted = 1;
+  string reason = 2;  // If rejected: "invalid_secret", "wrong_colony", "unauthorized"
+
+  // Mesh assignment (if accepted)
+  string assigned_ip = 3;      // Agent's IP in WireGuard mesh (e.g., "10.100.0.42")
+  string mesh_subnet = 4;      // Colony's mesh subnet (e.g., "10.100.0.0/16")
+  repeated PeerInfo peers = 5; // Other agents in mesh
+
+  // Colony info
+  google.protobuf.Timestamp registered_at = 6;
+}
+
+message PeerInfo {
+  string agent_id = 1;
+  string component_name = 2;
+  string mesh_ip = 3;
+  string wireguard_pubkey = 4;
+}
+
+// MeshService handles agent registration and mesh coordination
+service MeshService {
+  // Register an agent with the colony
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+}

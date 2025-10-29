@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -13,9 +15,14 @@ import (
 	"github.com/coral-io/coral/internal/discovery/registry"
 )
 
+// testLogger returns a noop logger for tests.
+func testLogger() zerolog.Logger {
+	return zerolog.New(io.Discard)
+}
+
 func TestServer_RegisterColony(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version")
+	srv := New(reg, "test-version", testLogger())
 	ctx := context.Background()
 
 	t.Run("successful registration", func(t *testing.T) {
@@ -83,7 +90,7 @@ func TestServer_RegisterColony(t *testing.T) {
 
 	t.Run("update existing registration", func(t *testing.T) {
 		reg := registry.New(5 * time.Minute)
-		srv := New(reg, "test-version")
+		srv := New(reg, "test-version", testLogger())
 
 		// First registration
 		req1 := connect.NewRequest(&discoveryv1.RegisterColonyRequest{
@@ -114,7 +121,7 @@ func TestServer_RegisterColony(t *testing.T) {
 
 func TestServer_LookupColony(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version")
+	srv := New(reg, "test-version", testLogger())
 	ctx := context.Background()
 
 	// Register a colony first
@@ -171,7 +178,7 @@ func TestServer_LookupColony(t *testing.T) {
 
 	t.Run("lookup expired colony", func(t *testing.T) {
 		reg := registry.New(50 * time.Millisecond)
-		srv := New(reg, "test-version")
+		srv := New(reg, "test-version", testLogger())
 
 		// Register with short TTL
 		regReq := connect.NewRequest(&discoveryv1.RegisterColonyRequest{
@@ -200,7 +207,7 @@ func TestServer_LookupColony(t *testing.T) {
 
 func TestServer_Health(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "v1.2.3")
+	srv := New(reg, "v1.2.3", testLogger())
 	ctx := context.Background()
 
 	t.Run("health check with no colonies", func(t *testing.T) {

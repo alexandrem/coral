@@ -6,6 +6,7 @@ import (
 	"github.com/coral-io/coral/internal/cli/agent"
 	"github.com/coral-io/coral/internal/cli/ask"
 	"github.com/coral-io/coral/internal/cli/colony"
+	initcmd "github.com/coral-io/coral/internal/cli/init"
 	"github.com/coral-io/coral/pkg/version"
 )
 
@@ -25,6 +26,7 @@ Coral provides application-scoped intelligence through:
 
 func init() {
 	// Add subcommands
+	rootCmd.AddCommand(initcmd.NewInitCmd())
 	rootCmd.AddCommand(colony.NewColonyCmd())
 	rootCmd.AddCommand(agent.NewConnectCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())
