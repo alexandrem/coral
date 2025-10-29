@@ -85,7 +85,7 @@ creates persistent application identity:
     - Public key registered with discovery service (RFD 001), private key never
       leaves colony
 
-- **Export/import workflow**: `coral colonies export` generates env vars for
+- **Export/import workflow**: `coral colony export` generates env vars for
   remote deployment
     - Supports Kubernetes secrets, systemd environment files, docker-compose
     - Secrets never stored in version control
@@ -118,7 +118,7 @@ creates persistent application identity:
 │  │          - wireguard_public_key: <key>         │    │    │
 │  └────────────────────────────────────────────────────┘    │
 │                                                      │       │
-│  $ coral colonies export my-shop-production         │       │
+│  $ coral colony export my-shop-production         │       │
 │  > CORAL_COLONY_ID=my-shop-production-a3f2e1        │       │
 │  > CORAL_COLONY_SECRET=<secret>                     │       │
 │                                                      │       │
@@ -191,11 +191,11 @@ Layer 3: Colony secret authentication (RFD 002)
 
 1. **CLI** (new commands):
     - `coral init <app-name>`: Initialize new colony with identity
-    - `coral colonies list`: List all configured colonies
-    - `coral colonies use <colony-id>`: Set default colony
-    - `coral colonies export <colony-id>`: Export credentials for remote
+    - `coral colony list`: List all configured colonies
+    - `coral colony use <colony-id>`: Set default colony
+    - `coral colony export <colony-id>`: Export credentials for remote
       deployment
-    - `coral colonies import`: Import colony from credentials
+    - `coral colony import`: Import colony from credentials
 
 2. **Configuration System** (new):
     - Global config loader (`~/.coral/config.yaml`)
@@ -435,16 +435,16 @@ To connect agents:
   coral connect <service> --colony my-shop-production-a3f2e1
 
 For remote agents (Kubernetes, VMs), export credentials:
-  coral colonies export my-shop-production-a3f2e1
+  coral colony export my-shop-production-a3f2e1
 
 ---
 
 # List configured colonies
-coral colonies list [flags]
+coral colony list [flags]
   --json    # Output as JSON
 
 # Example output:
-$ coral colonies list
+$ coral colony list
 
 Configured Colonies:
   my-shop-production-a3f2e1 (production) [default]
@@ -460,20 +460,20 @@ Configured Colonies:
 ---
 
 # Set default colony
-coral colonies use <colony-id>
+coral colony use <colony-id>
 
 # Example output:
-$ coral colonies use my-shop-production-a3f2e1
+$ coral colony use my-shop-production-a3f2e1
 
 ✓ Default colony set to: my-shop-production-a3f2e1
 
 ---
 
 # Show current default colony
-coral colonies current
+coral colony current
 
 # Example output:
-$ coral colonies current
+$ coral colony current
 
 Current Colony:
   ID: my-shop-production-a3f2e1
@@ -485,11 +485,11 @@ Current Colony:
 ---
 
 # Export colony credentials for remote deployment
-coral colonies export <colony-id> [flags]
+coral colony export <colony-id> [flags]
   --format <format>    # env (default), yaml, json, k8s
 
 # Example output (env format):
-$ coral colonies export my-shop-production-a3f2e1 --format env
+$ coral colony export my-shop-production-a3f2e1 --format env
 
 # Coral Colony Credentials
 # Generated: 2025-10-28 15:30:00
@@ -500,10 +500,10 @@ export CORAL_COLONY_SECRET="abc123-secure-random-token-xyz789"
 export CORAL_DISCOVERY_ENDPOINT="https://discovery.coral.io"
 
 # To use in your shell:
-#   eval $(coral colonies export my-shop-production-a3f2e1)
+#   eval $(coral colony export my-shop-production-a3f2e1)
 
 # Example output (k8s format):
-$ coral colonies export my-shop-production-a3f2e1 --format k8s
+$ coral colony export my-shop-production-a3f2e1 --format k8s
 
 apiVersion: v1
 kind: Secret
@@ -519,20 +519,21 @@ stringData:
 ---
 
 # Import colony from credentials (for remote systems)
-coral colonies import [flags]
+coral colony import [flags]
   --colony-id <id>      # Colony ID
   --secret <secret>     # Colony secret
   --stdin               # Read from stdin (for piping)
 
 # Example:
-$ coral colonies import \
+$ coral colony import \
     --colony-id my-shop-production-a3f2e1 \
     --secret abc123-secure-random-token-xyz789
 
 ✓ Colony configuration imported
 ✓ Saved to ~/.coral/colonies/my-shop-production-a3f2e1.yaml
 
-Note: WireGuard keys will be retrieved from discovery service on first connection.
+Note: The colony's WireGuard public key will be retrieved from discovery service on first connection.
+      The colony's private key never leaves the colony and is not needed by agents.
 ```
 
 ### Environment Variable Support
@@ -588,11 +589,11 @@ spec:
 ### Phase 2: CLI Commands
 
 - [ ] Implement `coral init` command
-- [ ] Implement `coral colonies list` command
-- [ ] Implement `coral colonies use` command
-- [ ] Implement `coral colonies current` command
-- [ ] Implement `coral colonies export` with multiple formats
-- [ ] Implement `coral colonies import` command
+- [ ] Implement `coral colony list` command
+- [ ] Implement `coral colony use` command
+- [ ] Implement `coral colony current` command
+- [ ] Implement `coral colony export` with multiple formats
+- [ ] Implement `coral colony import` command
 - [ ] Add environment variable override support
 
 ### Phase 3: Colony Integration
@@ -635,7 +636,7 @@ spec:
 ### Integration Tests
 
 - `coral init` creates valid config files
-- `coral colonies export/import` round-trip
+- `coral colony export/import` round-trip
 - Colony startup loads correct config from default/specified colony
 - Agent authentication with valid/invalid secrets
 - Public key verification during handshake
@@ -658,7 +659,7 @@ coral connect frontend --port 3000
 
 ```bash
 # Developer exports credentials
-coral colonies export my-app-prod --format k8s > secret.yaml
+coral colony export my-app-prod --format k8s > secret.yaml
 
 # Apply to cluster
 kubectl apply -f secret.yaml
@@ -746,7 +747,7 @@ CORAL_COLONY_SECRET=wrong-secret coral connect api
 
 **Production:**
 
-- Export credentials using `coral colonies export`
+- Export credentials using `coral colony export`
 - Store in secure secret management system (Vault, AWS Secrets Manager)
 - Inject into containers/VMs via environment variables
 - Rotate colony_secret periodically (manual process initially)
@@ -781,13 +782,13 @@ kubectl create secret generic coral-secrets \
 - RFD 001 discovery service unchanged (mesh_id → colony_id)
 - Existing mesh_id values can be used as colony_id
 - Migration path:
-  `coral colonies import --colony-id <old-mesh-id> --secret <new-secret>`
+  `coral colony import --colony-id <old-mesh-id> --secret <new-secret>`
 
 ## Future Enhancements
 
 ### Credential Rotation
 
-- `coral colonies rotate-secret <colony-id>`: Generate new colony_secret
+- `coral colony rotate-secret <colony-id>`: Generate new colony_secret
 - Graceful rotation: Support old + new secret during transition period
 - Automated rotation policies (e.g., every 90 days)
 
@@ -856,7 +857,7 @@ coral ask "any errors in prod?" --group all-prod
 
 ### Team Sharing
 
-- `coral colonies share <colony-id> <user>`: Generate user-specific tokens
+- `coral colony share <colony-id> <user>`: Generate user-specific tokens
 - Role-based access control (read-only vs full access)
 - Audit logging for credential access
 
@@ -926,27 +927,27 @@ RFD 001 defined `mesh_id` as the discovery namespace. RFD 002 defines
 ```go
 // Colony registration with discovery (RFD 001)
 func (c *Colony) registerWithDiscovery() error {
-req := &discoverypb.RegisterColonyRequest{
-MeshID:    c.config.ColonyID, // RFD 002 colony_id used as RFD 001 mesh_id
-PubKey:    c.wireguard.PublicKey,
-Endpoints: c.wireguard.Endpoints,
-}
-return c.discoveryClient.RegisterColony(req)
+    req := &discoverypb.RegisterColonyRequest{
+        MeshID:    c.config.ColonyID, // RFD 002 colony_id used as RFD 001 mesh_id
+        PubKey:    c.wireguard.PublicKey,
+        Endpoints: c.wireguard.Endpoints,
+    }
+    return c.discoveryClient.RegisterColony(req)
 }
 
 // Agent lookup (RFD 001)
 func (a *Agent) lookupColony() error {
-req := &discoverypb.LookupColonyRequest{
-MeshID: a.config.ColonyID, // RFD 002 colony_id used as RFD 001 mesh_id
-}
-resp, err := a.discoveryClient.LookupColony(req)
+    req := &discoverypb.LookupColonyRequest{
+        MeshID: a.config.ColonyID, // RFD 002 colony_id used as RFD 001 mesh_id
+    }
+    resp, err := a.discoveryClient.LookupColony(req)
 
-// Verify public key (RFD 002 security)
-if !bytes.Equal(resp.PubKey, a.expectedPubKey) {
-return ErrColonyImpersonation
-}
+    // Verify public key (RFD 002 security)
+    if !bytes.Equal(resp.PubKey, a.expectedPubKey) {
+        return ErrColonyImpersonation
+    }
 
-return nil
+    return nil
 }
 ```
 
@@ -982,10 +983,10 @@ coral ask "is everything healthy?"
 ```bash
 # Team lead initializes colony
 coral init team-app --env dev
-coral colonies export team-app-dev > credentials.env
+coral colony export team-app-dev > credentials.env
 
 # Team members import (via secure channel, not git)
-coral colonies import --stdin < credentials.env
+coral colony import --stdin < credentials.env
 coral colony start  # Everyone uses same colony
 ```
 
@@ -993,7 +994,7 @@ coral colony start  # Everyone uses same colony
 
 ```bash
 # DevOps engineer exports credentials
-coral colonies export my-app-prod --format k8s > k8s-secret.yaml
+coral colony export my-app-prod --format k8s > k8s-secret.yaml
 
 # Apply via CI/CD (not committed to git)
 kubectl apply -f k8s-secret.yaml

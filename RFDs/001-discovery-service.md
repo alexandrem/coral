@@ -417,17 +417,17 @@ buf curl --protocol grpc \
 ```go
 // In-memory registry
 type Registry struct {
-mu      sync.RWMutex
-entries map[string]*Entry
+    mu      sync.RWMutex
+    entries map[string]*Entry
 }
 
 type Entry struct {
-MeshID    string    `json:"mesh_id"`
-PubKey    string    `json:"pubkey"`
-Endpoints []string  `json:"endpoints"`
-Metadata  map[string]string `json:"metadata"`
-LastSeen  time.Time `json:"last_seen"`
-ExpiresAt time.Time `json:"expires_at"`
+    MeshID    string    `json:"mesh_id"`
+    PubKey    string    `json:"pubkey"`
+    Endpoints []string  `json:"endpoints"`
+    Metadata  map[string]string `json:"metadata"`
+    LastSeen  time.Time `json:"last_seen"`
+    ExpiresAt time.Time `json:"expires_at"`
 }
 ```
 
