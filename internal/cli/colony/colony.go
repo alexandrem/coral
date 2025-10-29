@@ -13,7 +13,7 @@ import (
 
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/constants"
-	"github.com/coral-io/coral/internal/discovery/client"
+	"github.com/coral-io/coral/internal/discovery/registration"
 	"github.com/coral-io/coral/internal/logging"
 )
 
@@ -116,10 +116,7 @@ The colony to start is determined by (in priority order):
 			// - Start HTTP server for dashboard on cfg.Dashboard.Port
 			// - Start gRPC server for agent registration (using MeshService from auth.proto)
 
-			// Register with discovery service
-			logger.Info().Msg("Registering with discovery service")
-
-			// Load global config to get discovery settings
+			// Load global config and colony config to get discovery settings
 			loader, err := config.NewLoader()
 			if err != nil {
 				return fmt.Errorf("failed to create config loader: %w", err)
@@ -129,62 +126,46 @@ The colony to start is determined by (in priority order):
 				return fmt.Errorf("failed to load global config: %w", err)
 			}
 
-			// Create discovery client
-			discoveryClient := client.New(globalConfig.Discovery.Endpoint, globalConfig.Discovery.Timeout)
+			// Load colony config to get discovery settings
+			colonyConfig, err := loader.LoadColonyConfig(cfg.ColonyID)
+			if err != nil {
+				return fmt.Errorf("failed to load colony config: %w", err)
+			}
 
-			// Check discovery service health first
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
+			// Create and start registration manager for continuous auto-registration
+			logger.Info().Msg("Starting registration manager")
 
-			if err := discoveryClient.Health(ctx); err != nil {
+			// Build endpoints list (for now, just the WireGuard port)
+			// TODO: Add proper IP detection and multiple endpoints
+			endpoints := []string{
+				fmt.Sprintf(":%d", cfg.WireGuard.Port),
+			}
+
+			metadata := map[string]string{
+				"application": cfg.ApplicationName,
+				"environment": cfg.Environment,
+			}
+
+			regConfig := registration.Config{
+				Enabled:           colonyConfig.Discovery.Enabled,
+				AutoRegister:      colonyConfig.Discovery.AutoRegister,
+				RegisterInterval:  colonyConfig.Discovery.RegisterInterval,
+				MeshID:            cfg.ColonyID,
+				PublicKey:         cfg.WireGuard.PublicKey,
+				Endpoints:         endpoints,
+				Metadata:          metadata,
+				DiscoveryEndpoint: globalConfig.Discovery.Endpoint,
+				DiscoveryTimeout:  globalConfig.Discovery.Timeout,
+			}
+
+			regManager := registration.NewManager(regConfig, logger)
+
+			// Start registration manager (performs initial registration and starts heartbeat)
+			ctx := context.Background()
+			if err := regManager.Start(ctx); err != nil {
 				logger.Warn().
 					Err(err).
-					Str("discovery_endpoint", globalConfig.Discovery.Endpoint).
-					Msg("Discovery service health check failed - colony will start without registration")
-			} else {
-				// Register colony
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-
-				// Build endpoints list (for now, just the WireGuard port)
-				// TODO: Add proper IP detection and multiple endpoints
-				endpoints := []string{
-					fmt.Sprintf(":%d", cfg.WireGuard.Port),
-				}
-
-				metadata := map[string]string{
-					"application": cfg.ApplicationName,
-					"environment": cfg.Environment,
-				}
-
-				regReq := &client.RegisterColonyRequest{
-					MeshID:    cfg.ColonyID,
-					PublicKey: cfg.WireGuard.PublicKey,
-					Endpoints: endpoints,
-					Metadata:  metadata,
-				}
-
-				logger.Debug().
-					Str("mesh_id", regReq.MeshID).
-					Str("pubkey", regReq.PublicKey).
-					Strs("endpoints", regReq.Endpoints).
-					Interface("metadata", regReq.Metadata).
-					Msg("Sending registration request")
-
-				regResp, err := discoveryClient.RegisterColony(ctx, regReq)
-				if err != nil {
-					return fmt.Errorf("failed to register with discovery service: %w", err)
-				}
-
-				if regResp.Success {
-					logger.Info().
-						Int32("ttl_seconds", regResp.TTL).
-						Time("expires_at", regResp.ExpiresAt).
-						Str("mesh_id", cfg.ColonyID).
-						Msg("Successfully registered with discovery service")
-				} else {
-					logger.Warn().Msg("Discovery registration returned success=false")
-				}
+					Msg("Failed to start registration manager, will retry in background")
 			}
 
 			logger.Info().
@@ -201,6 +182,13 @@ The colony to start is determined by (in priority order):
 				<-sigChan
 
 				fmt.Println("\n\nShutting down colony...")
+
+				// Stop registration manager
+				if err := regManager.Stop(); err != nil {
+					logger.Warn().
+						Err(err).
+						Msg("Error stopping registration manager")
+				}
 			}
 
 			return nil
