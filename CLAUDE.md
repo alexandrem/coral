@@ -24,6 +24,6 @@
 
 **Testing**: All tests must pass (`make test`) before commits.
 
-**Code**: Follow Effective Go conventions, Go Doc Comments style.
+**Code**: Follow Effective Go conventions, Go Doc Comments style, end comments with a dot.
 
 **Files**: NEVER create files unless absolutely necessary. ALWAYS prefer editing existing files.
