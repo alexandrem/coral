@@ -1,0 +1,85 @@
+syntax = "proto3";
+package coral.discovery.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Note: While this is a separate binary, the proto package is still in the coral monorepo
+option go_package = "github.com/coral-io/coral/proto/discovery/v1;discoverypb";
+
+// Discovery service for colony and agent coordination
+service DiscoveryService {
+  // Register or update a colony's information
+  rpc RegisterColony(RegisterColonyRequest) returns (RegisterColonyResponse);
+
+  // Lookup colony information by mesh ID
+  rpc LookupColony(LookupColonyRequest) returns (LookupColonyResponse);
+
+  // Health check
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// Registration request
+message RegisterColonyRequest {
+  // Unique mesh identifier for this colony
+  string mesh_id = 1;
+
+  // WireGuard public key (base64 encoded)
+  string pubkey = 2;
+
+  // Colony endpoints (IP:port pairs)
+  repeated string endpoints = 3;
+
+  // Optional metadata
+  map<string, string> metadata = 4;
+}
+
+message RegisterColonyResponse {
+  // Registration successful
+  bool success = 1;
+
+  // TTL for this registration in seconds
+  int32 ttl = 2;
+
+  // When this registration expires
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+// Lookup request
+message LookupColonyRequest {
+  // Mesh ID to look up
+  string mesh_id = 1;
+}
+
+message LookupColonyResponse {
+  // Mesh ID
+  string mesh_id = 1;
+
+  // WireGuard public key
+  string pubkey = 2;
+
+  // Colony endpoints
+  repeated string endpoints = 3;
+
+  // Metadata
+  map<string, string> metadata = 4;
+
+  // Last seen timestamp
+  google.protobuf.Timestamp last_seen = 5;
+}
+
+// Health check
+message HealthRequest {}
+
+message HealthResponse {
+  // Service status
+  string status = 1;
+
+  // Service version
+  string version = 2;
+
+  // Uptime in seconds
+  int64 uptime_seconds = 3;
+
+  // Number of registered colonies
+  int32 registered_colonies = 4;
+}
