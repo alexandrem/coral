@@ -38,7 +38,7 @@ install: build ## Install the binary to $GOPATH/bin
 
 test: ## Run tests
 	@echo "Running tests..."
-	go test -v ./...
+	go test ./...
 
 run: build ## Build and run the CLI
 	@$(BUILD_DIR)/$(BINARY_NAME)
