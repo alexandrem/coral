@@ -8,6 +8,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Logger is an alias for zerolog.Logger for convenience.
+type Logger = zerolog.Logger
+
 // Config contains logger configuration.
 type Config struct {
 	// Level sets the logging level (debug, info, warn, error).

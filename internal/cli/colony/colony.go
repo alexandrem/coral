@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,10 +12,15 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"connectrpc.com/connect"
+	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
+	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/discovery/registration"
 	"github.com/coral-io/coral/internal/logging"
+	"github.com/coral-io/coral/internal/wireguard"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // NewColonyCmd creates the colony command and its subcommands
@@ -112,9 +118,21 @@ The colony to start is determined by (in priority order):
 
 			// TODO: Implement remaining colony startup tasks
 			// - Initialize DuckDB storage at cfg.StoragePath
-			// - Configure WireGuard with cfg.WireGuard keys
 			// - Start HTTP server for dashboard on cfg.Dashboard.Port
-			// - Start gRPC server for agent registration (using MeshService from auth.proto)
+
+			// Initialize WireGuard device
+			wgDevice, err := initializeWireGuard(cfg, logger)
+			if err != nil {
+				return fmt.Errorf("failed to initialize WireGuard: %w", err)
+			}
+			defer wgDevice.Stop()
+
+			// Start gRPC/Connect server for agent registration
+			meshServer, err := startMeshServer(cfg, wgDevice, logger)
+			if err != nil {
+				return fmt.Errorf("failed to start mesh server: %w", err)
+			}
+			defer meshServer.Close()
 
 			// Load global config and colony config to get discovery settings
 			loader, err := config.NewLoader()
@@ -239,32 +257,147 @@ func newStopCmd() *cobra.Command {
 }
 
 func newStatusCmd() *cobra.Command {
-	var jsonOutput bool
+	var (
+		jsonOutput bool
+		colonyID   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show colony status",
-		Long:  `Display the current status of the colony and connected agents.`,
+		Short: "Show colony status and WireGuard configuration",
+		Long: `Display the current status of the colony including:
+- Basic colony information
+- WireGuard configuration (public key, mesh IPs, ports)
+- Discovery service endpoint
+- Connected peers (when colony is running)
+
+This command is useful for troubleshooting connectivity issues.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Create resolver
+			resolver, err := config.NewResolver()
+			if err != nil {
+				return fmt.Errorf("failed to create config resolver: %w", err)
+			}
+
+			// Resolve colony ID
+			if colonyID == "" {
+				colonyID, err = resolver.ResolveColonyID()
+				if err != nil {
+					return fmt.Errorf("failed to resolve colony: %w\n\nRun 'coral init <app-name>' to create a colony", err)
+				}
+			}
+
+			// Load colony configuration
+			loader := resolver.GetLoader()
+			colonyConfig, err := loader.LoadColonyConfig(colonyID)
+			if err != nil {
+				return fmt.Errorf("failed to load colony config: %w", err)
+			}
+
+			// Load global config
+			globalConfig, err := loader.LoadGlobalConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load global config: %w", err)
+			}
+
+			// Get connect port
+			connectPort := colonyConfig.Services.ConnectPort
+			if connectPort == 0 {
+				connectPort = 9000
+			}
+
 			if jsonOutput {
-				// TODO: Output JSON format
-				fmt.Println(`{"status":"running","agents":0,"uptime":"1h23m"}`)
+				output := map[string]interface{}{
+					"colony_id":    colonyConfig.ColonyID,
+					"application":  colonyConfig.ApplicationName,
+					"environment":  colonyConfig.Environment,
+					"status":       "configured", // TODO: Check if actually running
+					"storage_path": colonyConfig.StoragePath,
+					"wireguard": map[string]interface{}{
+						"public_key":        colonyConfig.WireGuard.PublicKey,
+						"port":              colonyConfig.WireGuard.Port,
+						"mesh_ipv4":         colonyConfig.WireGuard.MeshIPv4,
+						"mesh_ipv6":         colonyConfig.WireGuard.MeshIPv6,
+						"mesh_network_ipv4": colonyConfig.WireGuard.MeshNetworkIPv4,
+						"mesh_network_ipv6": colonyConfig.WireGuard.MeshNetworkIPv6,
+						"mtu":               colonyConfig.WireGuard.MTU,
+					},
+					"discovery_endpoint": globalConfig.Discovery.Endpoint,
+					"connect_port":       connectPort,
+				}
+
+				data, err := json.MarshalIndent(output, "", "  ")
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(data))
 				return nil
 			}
 
-			// TODO: Query actual colony status
-			fmt.Println("Colony Status:")
-			fmt.Println("  Status: Running")
-			fmt.Println("  Uptime: 1h 23m")
-			fmt.Println("  Connected agents: 0")
-			fmt.Printf("  Dashboard: http://localhost:%d\n", constants.DefaultDashboardPort)
-			fmt.Printf("  Storage: %s/ (124 MB)\n", constants.DefaultDir)
+			// Human-readable output
+			fmt.Println("Colony Status")
+			fmt.Println("=============")
+			fmt.Println()
+			fmt.Printf("Colony ID:     %s\n", colonyConfig.ColonyID)
+			fmt.Printf("Application:   %s\n", colonyConfig.ApplicationName)
+			fmt.Printf("Environment:   %s\n", colonyConfig.Environment)
+			fmt.Printf("Storage:       %s\n", colonyConfig.StoragePath)
+			fmt.Println()
+
+			fmt.Println("WireGuard Mesh Configuration:")
+			fmt.Printf("  Public Key:     %s\n", colonyConfig.WireGuard.PublicKey)
+			fmt.Printf("  Listen Port:    %d (UDP)\n", colonyConfig.WireGuard.Port)
+
+			// Show interface name - use stored name if available, otherwise predict
+			if colonyConfig.WireGuard.InterfaceName != "" {
+				fmt.Printf("  Interface:      %s (last used)\n", colonyConfig.WireGuard.InterfaceName)
+			} else {
+				interfaceInfo := getInterfaceInfo()
+				fmt.Printf("  Interface:      %s\n", interfaceInfo)
+			}
+
+			fmt.Printf("  Mesh IPv4:      %s\n", colonyConfig.WireGuard.MeshIPv4)
+			if colonyConfig.WireGuard.MeshIPv6 != "" {
+				fmt.Printf("  Mesh IPv6:      %s\n", colonyConfig.WireGuard.MeshIPv6)
+			}
+			fmt.Printf("  Mesh Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv4)
+			if colonyConfig.WireGuard.MeshNetworkIPv6 != "" {
+				fmt.Printf("  IPv6 Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv6)
+			}
+			fmt.Printf("  MTU:            %d\n", colonyConfig.WireGuard.MTU)
+			fmt.Println()
+
+			fmt.Println("Services:")
+			fmt.Printf("  Discovery:      %s\n", globalConfig.Discovery.Endpoint)
+			fmt.Printf("  Agent Connect:  %s:%d (gRPC/Connect)\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
+			fmt.Printf("  Dashboard:      http://localhost:%d (planned)\n", constants.DefaultDashboardPort)
+			fmt.Println()
+
+			fmt.Println("Agent Connection Info:")
+			fmt.Println("  1. Agents query discovery service:")
+			fmt.Printf("     Mesh ID: %s\n", colonyConfig.ColonyID)
+			fmt.Println()
+			fmt.Println("  2. Discovery returns WireGuard endpoint:")
+			fmt.Printf("     Public Key: %s\n", colonyConfig.WireGuard.PublicKey)
+			fmt.Printf("     UDP Port:   %d\n", colonyConfig.WireGuard.Port)
+			fmt.Println()
+			fmt.Println("  3. Agents establish WireGuard tunnel, then register:")
+			fmt.Printf("     Colony Mesh IP: %s:%d\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
+			fmt.Println()
+
+			fmt.Println("Status: Colony is configured (not running)")
+			fmt.Println()
+			fmt.Println("To start the colony:")
+			fmt.Println("  coral colony start")
+			fmt.Println()
+			fmt.Println("Note: Connected peers are only visible when colony is running.")
 
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (overrides auto-detection)")
 
 	return cmd
 }
@@ -619,4 +752,231 @@ Note: The colony's WireGuard public key will be retrieved from discovery service
 	cmd.Flags().BoolVar(&useStdin, "stdin", false, "Read from stdin")
 
 	return cmd
+}
+
+// initializeWireGuard creates and starts the WireGuard device for the colony.
+func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wireguard.Device, error) {
+	logger.Info().
+		Str("mesh_ipv4", cfg.WireGuard.MeshIPv4).
+		Int("port", cfg.WireGuard.Port).
+		Msg("Initializing WireGuard device")
+
+	wgDevice, err := wireguard.NewDevice(&cfg.WireGuard)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create WireGuard device: %w", err)
+	}
+
+	if err := wgDevice.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start WireGuard device: %w", err)
+	}
+
+	logger.Info().
+		Str("interface", wgDevice.InterfaceName()).
+		Str("mesh_ip", cfg.WireGuard.MeshIPv4).
+		Msg("WireGuard device started successfully")
+
+	// Save the assigned interface name to config for future reference
+	interfaceName := wgDevice.InterfaceName()
+	if interfaceName != "" {
+		loader, err := config.NewLoader()
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to create config loader to save interface name")
+		} else {
+			colonyConfig, err := loader.LoadColonyConfig(cfg.ColonyID)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to load colony config to save interface name")
+			} else {
+				colonyConfig.WireGuard.InterfaceName = interfaceName
+				if err := loader.SaveColonyConfig(colonyConfig); err != nil {
+					logger.Warn().Err(err).Msg("Failed to save interface name to config")
+				} else {
+					logger.Debug().
+						Str("interface", interfaceName).
+						Msg("Saved interface name to colony config")
+				}
+			}
+		}
+	}
+
+	return wgDevice, nil
+}
+
+// startMeshServer starts the HTTP/Connect server for agent registration.
+func startMeshServer(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, logger logging.Logger) (*http.Server, error) {
+	// Get connect port from config or use default
+	loader, err := config.NewLoader()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create config loader: %w", err)
+	}
+
+	colonyConfig, err := loader.LoadColonyConfig(cfg.ColonyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load colony config: %w", err)
+	}
+
+	connectPort := colonyConfig.Services.ConnectPort
+	if connectPort == 0 {
+		connectPort = 9000 // Default Buf Connect port
+	}
+
+	// Create mesh service handler
+	meshHandler := &meshServiceHandler{
+		cfg:      cfg,
+		wgDevice: wgDevice,
+		logger:   logger,
+	}
+
+	// Register the handler
+	path, handler := meshv1connect.NewMeshServiceHandler(meshHandler)
+
+	// Create HTTP server
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+
+	addr := fmt.Sprintf(":%d", connectPort)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	// Start server in background
+	go func() {
+		logger.Info().
+			Int("port", connectPort).
+			Msg("Mesh service listening for agent connections")
+
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error().
+				Err(err).
+				Msg("Mesh server error")
+		}
+	}()
+
+	return server, nil
+}
+
+// meshServiceHandler implements the MeshService RPC handler.
+type meshServiceHandler struct {
+	cfg      *config.ResolvedConfig
+	wgDevice *wireguard.Device
+	logger   logging.Logger
+}
+
+// Register handles agent registration requests.
+func (h *meshServiceHandler) Register(
+	ctx context.Context,
+	req *connect.Request[meshv1.RegisterRequest],
+) (*connect.Response[meshv1.RegisterResponse], error) {
+	h.logger.Info().
+		Str("agent_id", req.Msg.AgentId).
+		Str("component_name", req.Msg.ComponentName).
+		Msg("Agent registration request received")
+
+	// Validate colony_id and colony_secret (RFD 002)
+	if req.Msg.ColonyId != h.cfg.ColonyID {
+		h.logger.Warn().
+			Str("agent_id", req.Msg.AgentId).
+			Str("expected_colony_id", h.cfg.ColonyID).
+			Str("received_colony_id", req.Msg.ColonyId).
+			Msg("Agent registration rejected: wrong colony ID")
+
+		return connect.NewResponse(&meshv1.RegisterResponse{
+			Accepted: false,
+			Reason:   "wrong_colony",
+		}), nil
+	}
+
+	if req.Msg.ColonySecret != h.cfg.ColonySecret {
+		h.logger.Warn().
+			Str("agent_id", req.Msg.AgentId).
+			Msg("Agent registration rejected: invalid colony secret")
+
+		return connect.NewResponse(&meshv1.RegisterResponse{
+			Accepted: false,
+			Reason:   "invalid_secret",
+		}), nil
+	}
+
+	// Validate WireGuard public key
+	if req.Msg.WireguardPubkey == "" {
+		h.logger.Warn().
+			Str("agent_id", req.Msg.AgentId).
+			Msg("Agent registration rejected: missing WireGuard public key")
+
+		return connect.NewResponse(&meshv1.RegisterResponse{
+			Accepted: false,
+			Reason:   "missing_wireguard_pubkey",
+		}), nil
+	}
+
+	// Allocate mesh IP for the agent
+	allocator := h.wgDevice.Allocator()
+	meshIP, err := allocator.Allocate(req.Msg.AgentId)
+	if err != nil {
+		h.logger.Error().
+			Err(err).
+			Str("agent_id", req.Msg.AgentId).
+			Msg("Failed to allocate mesh IP")
+
+		return connect.NewResponse(&meshv1.RegisterResponse{
+			Accepted: false,
+			Reason:   "ip_allocation_failed",
+		}), nil
+	}
+
+	h.logger.Info().
+		Str("agent_id", req.Msg.AgentId).
+		Str("mesh_ip", meshIP.String()).
+		Msg("Allocated mesh IP for agent")
+
+	// Add agent as WireGuard peer
+	peerConfig := &wireguard.PeerConfig{
+		PublicKey:           req.Msg.WireguardPubkey,
+		AllowedIPs:          []string{meshIP.String() + "/32"},
+		PersistentKeepalive: 25, // Keep NAT mappings alive
+	}
+
+	if err := h.wgDevice.AddPeer(peerConfig); err != nil {
+		h.logger.Error().
+			Err(err).
+			Str("agent_id", req.Msg.AgentId).
+			Msg("Failed to add agent as WireGuard peer")
+
+		// Release the allocated IP since we couldn't add the peer
+		allocator.Release(meshIP)
+
+		return connect.NewResponse(&meshv1.RegisterResponse{
+			Accepted: false,
+			Reason:   "peer_add_failed",
+		}), nil
+	}
+
+	h.logger.Info().
+		Str("agent_id", req.Msg.AgentId).
+		Str("component_name", req.Msg.ComponentName).
+		Str("mesh_ip", meshIP.String()).
+		Msg("Agent registered successfully")
+
+	// Build list of existing peers (excluding this agent)
+	peers := []*meshv1.PeerInfo{}
+	for _, peer := range h.wgDevice.ListPeers() {
+		if peer.PublicKey != req.Msg.WireguardPubkey {
+			// Get the IP from allowed IPs
+			if len(peer.AllowedIPs) > 0 {
+				peers = append(peers, &meshv1.PeerInfo{
+					WireguardPubkey: peer.PublicKey,
+					MeshIp:          peer.AllowedIPs[0],
+				})
+			}
+		}
+	}
+
+	// Return successful registration response
+	return connect.NewResponse(&meshv1.RegisterResponse{
+		Accepted:     true,
+		AssignedIp:   meshIP.String(),
+		MeshSubnet:   h.cfg.WireGuard.MeshNetworkIPv4,
+		Peers:        peers,
+		RegisteredAt: timestamppb.Now(),
+	}), nil
 }

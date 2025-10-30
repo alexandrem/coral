@@ -62,13 +62,16 @@ type ServicesConfig struct {
 
 // WireGuardConfig contains WireGuard mesh configuration.
 type WireGuardConfig struct {
-	PrivateKey      string `yaml:"private_key"`
-	PublicKey       string `yaml:"public_key"`
-	Port            int    `yaml:"port"`
-	MeshIPv4        string `yaml:"mesh_ipv4,omitempty"`
-	MeshIPv6        string `yaml:"mesh_ipv6,omitempty"`
-	MeshNetworkIPv4 string `yaml:"mesh_network_ipv4,omitempty"`
-	MeshNetworkIPv6 string `yaml:"mesh_network_ipv6,omitempty"`
+	PrivateKey          string `yaml:"private_key"`
+	PublicKey           string `yaml:"public_key"`
+	Port                int    `yaml:"port"`
+	InterfaceName       string `yaml:"interface_name,omitempty"`
+	MeshIPv4            string `yaml:"mesh_ipv4,omitempty"`
+	MeshIPv6            string `yaml:"mesh_ipv6,omitempty"`
+	MeshNetworkIPv4     string `yaml:"mesh_network_ipv4,omitempty"`
+	MeshNetworkIPv6     string `yaml:"mesh_network_ipv6,omitempty"`
+	MTU                 int    `yaml:"mtu,omitempty"`
+	PersistentKeepalive int    `yaml:"persistent_keepalive,omitempty"`
 }
 
 // DiscoveryColony contains colony-specific discovery settings.
@@ -138,7 +141,13 @@ func DefaultColonyConfig(colonyID, appName, env string) *ColonyConfig {
 		ApplicationName: appName,
 		Environment:     env,
 		WireGuard: WireGuardConfig{
-			Port: constants.DefaultWireGuardPort,
+			Port:                constants.DefaultWireGuardPort,
+			MeshIPv4:            "10.42.0.1",    // Colony's mesh IPv4 address
+			MeshIPv6:            "fd42::1",      // Colony's mesh IPv6 address
+			MeshNetworkIPv4:     "10.42.0.0/16", // IPv4 subnet for mesh network
+			MeshNetworkIPv6:     "fd42::/48",    // IPv6 subnet for mesh network
+			MTU:                 1420,           // Default MTU for WireGuard (1500 - 80 overhead)
+			PersistentKeepalive: 25,             // Keep NAT mappings alive (seconds)
 		},
 		Discovery: DiscoveryColony{
 			Enabled:          true,
