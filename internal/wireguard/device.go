@@ -2,16 +2,21 @@ package wireguard
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/coral-io/coral/internal/config"
+	"github.com/coral-io/coral/internal/constants"
 )
 
 // Device represents a WireGuard device instance.
@@ -91,9 +96,13 @@ func (d *Device) Start() error {
 		return fmt.Errorf("device already started")
 	}
 
-	// Create TUN interface
+	// Create TUN interface.
 	iface, err := CreateTUN("wg0", d.cfg.MTU)
 	if err != nil {
+		// Check if this is a permission error.
+		if isPermissionError(err) {
+			return d.wrapPermissionError(err)
+		}
 		return fmt.Errorf("failed to create TUN interface: %w", err)
 	}
 	d.iface = iface
@@ -293,4 +302,58 @@ func (d *Device) buildPeerUAPI(peerConfig *PeerConfig) string {
 	}
 
 	return uapiConfig.String()
+}
+
+// isPermissionError checks if an error is related to insufficient privileges.
+func isPermissionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Define known permission errors.
+	known := []error{os.ErrPermission, syscall.EPERM, syscall.EACCES}
+	for _, e := range known {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+
+	// Fallback to message (case-insensitive).
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "operation not permitted") ||
+		strings.Contains(msg, "access denied")
+}
+
+// wrapPermissionError wraps a permission error with a helpful message.
+func (d *Device) wrapPermissionError(err error) error {
+	binaryPath, _ := os.Executable()
+	if binaryPath == "" {
+		binaryPath = constants.DefaultBinaryPath
+	}
+
+	var helpMsg strings.Builder
+	helpMsg.WriteString(fmt.Sprintf("Failed to create TUN device: %v\n\n", err))
+	helpMsg.WriteString("TUN device creation requires elevated privileges. Choose one of:\n\n")
+
+	if runtime.GOOS == "linux" {
+		helpMsg.WriteString("  1. Install capabilities (Linux only, recommended):\n")
+		helpMsg.WriteString(fmt.Sprintf("     sudo setcap cap_net_admin+ep %s\n\n", binaryPath))
+		helpMsg.WriteString("  2. Run with sudo:\n")
+		helpMsg.WriteString("     sudo coral colony start\n\n")
+		helpMsg.WriteString("  3. Make binary setuid (use with caution):\n")
+		helpMsg.WriteString(fmt.Sprintf("     sudo chown root:root %s\n", binaryPath))
+		helpMsg.WriteString(fmt.Sprintf("     sudo chmod u+s %s\n\n", binaryPath))
+	} else {
+		// macOS and other platforms.
+		helpMsg.WriteString("  1. Run with sudo:\n")
+		helpMsg.WriteString("     sudo coral colony start\n\n")
+		helpMsg.WriteString("  2. Make binary setuid (use with caution):\n")
+		helpMsg.WriteString(fmt.Sprintf("     sudo chown root:root %s\n", binaryPath))
+		helpMsg.WriteString(fmt.Sprintf("     sudo chmod u+s %s\n\n", binaryPath))
+	}
+
+	helpMsg.WriteString("For more information, see: docs/INSTALLATION.md")
+
+	return fmt.Errorf("%s", helpMsg.String())
 }

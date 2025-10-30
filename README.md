@@ -24,25 +24,32 @@ Coral: "Rolling back API to v2.2.5... Done. Memory stable at 240MB."
 ## The Problem
 
 Your app runs across laptop, VMs, and Kubernetes. When you need to:
+
 - **Debug an issue** → Check logs, metrics, traces across multiple dashboards
 - **Toggle a feature** → Open LaunchDarkly, update config, redeploy
 - **Rollback a deployment** → `kubectl rollout undo` or manual ops
 - **Profile performance** → Set up profiler, SSH to servers, inspect traffic
-- **Understand what's happening** → Piece it together manually from scattered tools
+- **Understand what's happening** → Piece it together manually from scattered
+  tools
 
-You're juggling terminals, dashboards, and tools. Context is fragmented. **Coral unifies this.**
+You're juggling terminals, dashboards, and tools. Context is fragmented. **Coral
+unifies this.**
 
 ## The Solution
 
 Coral gives you **one interface for distributed app operations**:
 
 ### 🔍 Observe
+
 See health, connections, and resource usage across all services in one place.
 
 ### 🐛 Debug
-Ask questions in natural language. Get AI-powered insights from your system's behavior.
+
+Ask questions in natural language. Get AI-powered insights from your system's
+behavior.
 
 ### 🎛️ Control
+
 - **Feature flags**: Toggle features across services
 - **Traffic inspection**: Sample and inspect live requests
 - **Profiling**: Start/stop profilers remotely
@@ -56,7 +63,8 @@ Coral offers **two integration levels**:
 
 ### Passive Mode (No Code Changes)
 
-Agents observe processes, connections, and health. Get basic observability and AI debugging without touching your code.
+Agents observe processes, connections, and health. Get basic observability and
+AI debugging without touching your code.
 
 ```bash
 # Start the colony (central coordinator)
@@ -72,11 +80,13 @@ coral ask "Why is checkout slow?"
 coral ask "What changed in the last hour?"
 ```
 
-**You get:** Process monitoring, connection mapping, AI-powered debugging insights.
+**You get:** Process monitoring, connection mapping, AI-powered debugging
+insights.
 
 ### SDK-Integrated Mode (Full Control)
 
-Integrate the Coral SDK for feature flags, traffic inspection, profiling, and more.
+Integrate the Coral SDK for feature flags, traffic inspection, profiling, and
+more.
 
 ```go
 // In your application
@@ -139,6 +149,7 @@ coral rollback api --to-version v2.2.5
 ```
 
 **Key principles:**
+
 - **Control plane only** - Agents never proxy/intercept application traffic
 - **Application-scoped** - One colony per app (not infrastructure-wide)
 - **Self-sufficient** - Works standalone, no external dependencies
@@ -152,11 +163,80 @@ coral rollback api --to-version v2.2.5
 make build
 ```
 
+### Installation & Permissions
+
+Coral creates a WireGuard mesh network for secure communication between colony
+and agents. This requires elevated privileges for TUN device creation.
+
+**Choose one installation method:**
+
+#### Option 1: Linux Capabilities (Recommended)
+
+Grant only the `CAP_NET_ADMIN` capability to the binary:
+
+```bash
+sudo setcap cap_net_admin+ep ./bin/coral
+```
+
+**Why this is preferred:**
+
+- Only grants the specific permission needed (network administration)
+- Process runs as your regular user (not root)
+- No password prompts after initial setup
+- Most secure option (Linux only)
+
+#### Option 2: Run with sudo
+
+Run Coral with sudo when starting the colony:
+
+```bash
+sudo ./bin/coral colony start
+```
+
+**Trade-offs:**
+
+- ✅ Coral automatically preserves file ownership (configs stay user-owned)
+- ⚠️ Entire colony process initially runs as root
+- ⚠️ Requires password entry on each start
+- Works on all platforms (Linux, macOS)
+
+> **Note:** While the whole process starts as root, Coral detects `SUDO_USER`
+> and ensures all config files in `~/.coral/` remain owned by your regular user
+> account.
+
+#### Option 3: Setuid Binary (Convenience vs. Security)
+
+**Security: ⭐ Use with caution** | **UX: ⭐⭐⭐⭐⭐ Seamless**
+
+Make the binary setuid root:
+
+```bash
+sudo chown root:root ./bin/coral
+sudo chmod u+s ./bin/coral
+```
+
+**Trade-offs:**
+
+- ✅ No password prompts, seamless experience
+- ✅ Config files remain user-owned
+- ⚠️ Any vulnerability in the binary could be exploited for privilege escalation
+- ⚠️ All users on the system can run it with elevated privileges
+- ⚠️ Only recommended for single-user development machines
+
+> **Future Enhancement:** A privileged helper subprocess approach is in
+> development (see [RFD 008](RFDs/008-privilege-separation.md)) which will
+> provide the UX of Option 3 with security closer to Option 1. The helper will
+> spawn only for TUN creation, minimizing the privilege window.
+
 ### Run
 
 ```bash
 # Start the colony (central brain)
+# With capabilities installed (Option 1):
 ./bin/coral colony start
+
+# Or with sudo (Option 2):
+sudo ./bin/coral colony start
 
 # In another terminal, connect agents to observe services
 ./bin/coral connect frontend --port 3000
@@ -165,6 +245,10 @@ make build
 # Ask questions about your system
 ./bin/coral ask "Are there any issues?"
 ```
+
+**Troubleshooting:** If you see a permission error when starting the colony, you
+need to grant TUN device creation privileges. See the
+[Installation & Permissions](#installation--permissions) section above.
 
 ## CLI Commands
 
@@ -248,6 +332,7 @@ coral version
 ## Use Cases
 
 ### Debug Production Issues
+
 ```bash
 coral ask "Why are users seeing 500 errors?"
 # → Identifies spike in DB connection timeouts after recent deploy
@@ -256,6 +341,7 @@ coral rollback api
 ```
 
 ### Feature Flag Management
+
 ```bash
 coral flags enable new-checkout --gradual 10%
 # → Roll out gradually to 10% of traffic
@@ -266,6 +352,7 @@ coral flags enable new-checkout --gradual 100%
 ```
 
 ### Performance Investigation
+
 ```bash
 coral ask "Why is checkout slow?"
 # → Suggests memory pressure in payment service
@@ -275,6 +362,7 @@ coral traffic sample payment --rate 0.1
 ```
 
 ### Dependency Mapping
+
 ```bash
 coral ask "Show me service dependencies"
 # → Auto-discovered from observed connections
@@ -284,22 +372,75 @@ coral ask "What depends on the database?"
 
 ## What Makes Coral Different?
 
-- **Unified interface** - One tool for observing, debugging, and controlling (not another dashboard to check)
-- **AI-powered insights** - Ask questions in natural language, get intelligent answers (<1s from local data)
-- **Two-tier integration** - Works passively (no code changes) or SDK-integrated (full control)
-- **Self-sufficient** - Standalone intelligence from local data, optionally enriched via MCP (Grafana/Sentry)
+- **Unified interface** - One tool for observing, debugging, and controlling (
+  not another dashboard to check)
+- **AI-powered insights** - Ask questions in natural language, get intelligent
+  answers (<1s from local data)
+- **Two-tier integration** - Works passively (no code changes) or
+  SDK-integrated (full control)
+- **Self-sufficient** - Standalone intelligence from local data, optionally
+  enriched via MCP (Grafana/Sentry)
 - **Control plane only** - Can't break your apps, zero performance impact
 - **Application-scoped** - One colony per app, scales from laptop to production
 - **User-controlled** - Self-hosted, your AI keys, your data stays local
 
 ## Development
 
+### Quick Start (Development Build)
+
+For the best development experience, use `make build-dev` which builds the
+binary and automatically grants the necessary TUN device creation privileges:
+
+```bash
+# Build with privileges (one command)
+make build-dev
+
+# Now run without sudo:
+./bin/coral colony start
+```
+
+**What it does:**
+
+- **Linux**: Applies `CAP_NET_ADMIN` capability to the binary (secure,
+  recommended)
+- **macOS**: Applies setuid root (requires password, works seamlessly)
+
+### Development Workflow Options
+
+**Option 1: Build + Capabilities (Recommended)**
+
+```bash
+# Initial build with privileges
+make build-dev
+
+# Edit code, rebuild (reapplies privileges automatically)
+make build-dev
+
+# Run without sudo
+./bin/coral colony start
+```
+
+**Option 2: Use `go run` with sudo**
+
+```bash
+# Quick testing (requires sudo each time)
+sudo go run ./cmd/coral colony start
+
+# Note: Capabilities/setuid don't work with go run
+# But configs will remain user-owned (SUDO_USER detection)
+```
+
+### Standard Development Commands
+
 ```bash
 # Install dependencies
 make mod-tidy
 
-# Build
+# Build (without privileges)
 make build
+
+# Build with privileges (development)
+make build-dev
 
 # Run tests
 make test
@@ -318,10 +459,13 @@ make install
 
 - [CONCEPT.md](CONCEPT.md) - High-level vision and principles
 - [CLAUDE.md](CLAUDE.md) - Project instructions
-- [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) - Technical implementation details
+- [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) - Technical implementation
+  details
 - [docs/STORAGE.md](docs/STORAGE.md) - Storage architecture
 - [docs/SDK.md](docs/SDK.md) - SDK integration guide
 - [docs/EXAMPLES.md](docs/EXAMPLES.md) - Use case examples
+- [RFDs/008-privilege-separation.md](RFDs/008-privilege-separation.md) -
+  Privilege separation design (TUN device creation)
 
 ## License
 

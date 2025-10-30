@@ -1,4 +1,4 @@
-.PHONY: build clean init install install-tools test run help
+.PHONY: build build-dev clean init install install-tools test run help
 
 # Build variables
 BINARY_NAME=coral
@@ -28,6 +28,24 @@ build: ## Build the coral binary
 	@echo "Building coral-discovery..."
 	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-discovery ./cmd/discovery
 	@echo "✓ Built $(BUILD_DIR)/coral-discovery"
+
+build-dev: build ## Build and grant TUN creation privileges (Linux: capabilities, macOS: setuid)
+	@echo "Granting TUN device creation privileges..."
+	@if [ "$$(uname)" = "Linux" ]; then \
+		echo "  Linux detected: applying CAP_NET_ADMIN capability"; \
+		sudo setcap cap_net_admin+ep $(BUILD_DIR)/$(BINARY_NAME) 2>/dev/null || \
+			(echo "  ⚠️  setcap failed. Install libcap2-bin or use sudo to run coral."; exit 0); \
+		echo "  ✓ Capabilities applied to $(BUILD_DIR)/$(BINARY_NAME)"; \
+	elif [ "$$(uname)" = "Darwin" ]; then \
+		echo "  macOS detected: applying setuid (requires password)"; \
+		sudo chown root:wheel $(BUILD_DIR)/$(BINARY_NAME) && \
+		sudo chmod u+s $(BUILD_DIR)/$(BINARY_NAME); \
+		echo "  ✓ Setuid applied to $(BUILD_DIR)/$(BINARY_NAME)"; \
+		echo "  ⚠️  Note: setuid grants elevated privileges to all users"; \
+	else \
+		echo "  ⚠️  Unknown platform. You may need to run with sudo."; \
+	fi
+	@echo "✓ Development build complete. Run without sudo: ./$(BUILD_DIR)/$(BINARY_NAME) colony start"
 
 clean: ## Remove build artifacts
 	@echo "Cleaning..."

@@ -1,7 +1,7 @@
 ---
 rfd: "008"
 title: "Privilege Separation for TUN Device Creation"
-state: "draft"
+state: "partial"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,21 +13,54 @@ areas: [ "networking", "security", "cli", "configuration" ]
 
 # RFD 008 - Privilege Separation for TUN Device Creation
 
-**Status:** 🚧 Draft
+**Status:** ⚠️ Partially Implemented
+
+## Implementation Status
+
+### ✅ Completed (Phase 1)
+
+- **Config file ownership preservation** - Automatically detects `SUDO_USER` and
+  ensures all files in `~/.coral/` remain owned by the original user, not root
+  (`internal/privilege/privilege.go`, `internal/config/loader.go`)
+- **Permission error handling** - Clear, platform-specific error messages with
+  installation instructions when TUN creation fails
+  (`internal/wireguard/device.go`)
+- **Helper infrastructure** - Complete implementation of subprocess spawning,
+  Unix socket IPC, and FD passing via `SCM_RIGHTS`
+  (`internal/wireguard/helper.go`, `internal/cli/tun_helper/tun_helper.go`)
+- **Documentation** - Installation guide in README.md with security tradeoffs
+
+### 🚧 Not Yet Integrated
+
+- **Automatic helper fallback** - Direct TUN creation → helper subprocess
+  fallback is prepared but not integrated into the device startup flow
+- **FD-to-Interface conversion** - Clean conversion from received file
+  descriptor to `*wireguard.Interface` wrapper needs implementation
+
+**Current behavior:** Users must choose one of three methods (capabilities,
+sudo, or setuid) documented in README.md. The subprocess helper is ready but
+requires manual invocation.
+
+**Future work:** Integrate automatic fallback when direct TUN creation fails due
+to permissions (see Implementation Plan below).
 
 ## Summary
 
 This RFD addresses the privilege separation issue where creating WireGuard TUN
 devices requires elevated privileges (root or capabilities), but configuration
-files should remain owned by the regular user. Currently, running
-`sudo coral init` or `sudo coral colony start` creates root-owned config files
-in `~/.coral/`, causing permission errors when subsequent commands run as a
-regular user.
+files should remain owned by the regular user. Running `sudo coral init` or
+`sudo coral colony start` previously created root-owned config files in
+`~/.coral/`, causing permission errors when subsequent commands ran as a regular
+user.
 
 The solution implements an internal subprocess-based privilege escalation
 mechanism within the single `coral` binary, allowing TUN device creation with
 minimal privilege exposure while keeping all configuration and state files
 user-owned.
+
+**Note:** Phase 1 (file ownership preservation and error handling) is complete
+and solves the immediate DevEx issue. The subprocess helper is implemented but
+not yet auto-invoked.
 
 ## Problem
 
@@ -440,6 +473,49 @@ else
     sudo chmod u+s /usr/local/bin/coral
 fi
 ```
+
+### Implementation Status Summary
+
+**✅ Phase 1: Partially Complete**
+- Helper infrastructure (`internal/wireguard/helper.go`) - Complete
+- Helper command (`internal/cli/tun_helper/tun_helper.go`) - Complete
+- Command registration (`internal/cli/root.go`) - Complete
+- ⚠️ **Not integrated**: Device startup flow does not automatically invoke helper
+
+**✅ Phase 2: Not Implemented**
+- Privilege method detection logic not implemented
+- Automatic fallback sequence not implemented
+
+**✅ Phase 3: Complete**
+- User detection via `SUDO_USER`/`SUDO_UID`/`SUDO_GID` - Complete
+  (`internal/privilege/privilege.go`)
+- File ownership preservation in config loader - Complete
+  (`internal/config/loader.go`)
+
+**✅ Phase 4: Complete**
+- README.md updated with installation instructions
+- Security tradeoffs documented
+- Platform-specific guidance provided
+
+**Remaining Work (Future Enhancement):**
+
+1. **FD-to-Interface Conversion** - Implement clean conversion from received
+   file descriptor to `*wireguard.Interface` wrapper. The challenge is that
+   `CreateTUN` returns an `Interface` but the helper returns a raw FD.
+
+2. **Automatic Fallback Integration** - Modify `device.go:Start()` to:
+   ```go
+   iface, err := CreateTUN("wg0", mtu)
+   if isPermissionError(err) {
+       fd, helperErr := createTUNWithHelper("wg0", mtu)
+       if helperErr == nil {
+           iface = createInterfaceFromFD(fd, "wg0", mtu)
+       }
+   }
+   ```
+
+3. **Privilege Method Detection** - Implement `detectPrivilegeMethod()` to
+   determine the best escalation approach before attempting TUN creation.
 
 ## Testing Strategy
 

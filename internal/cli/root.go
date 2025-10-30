@@ -8,6 +8,7 @@ import (
 	"github.com/coral-io/coral/internal/cli/colony"
 	initcmd "github.com/coral-io/coral/internal/cli/init"
 	"github.com/coral-io/coral/internal/cli/proxy"
+	"github.com/coral-io/coral/internal/cli/tun_helper"
 	"github.com/coral-io/coral/pkg/version"
 )
 
@@ -33,6 +34,9 @@ func init() {
 	rootCmd.AddCommand(ask.NewAskCmd())
 	rootCmd.AddCommand(proxy.Command())
 	rootCmd.AddCommand(newVersionCmd())
+
+	// Add internal commands (hidden from help)
+	rootCmd.AddCommand(tun_helper.New())
 }
 
 func newVersionCmd() *cobra.Command {

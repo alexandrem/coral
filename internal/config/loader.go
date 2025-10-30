@@ -2,12 +2,14 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-io/coral/internal/constants"
+	"github.com/coral-io/coral/internal/privilege"
 )
 
 // Loader handles loading and saving configuration files.
@@ -75,6 +77,13 @@ func (l *Loader) SaveGlobalConfig(config *GlobalConfig) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
+	// Fix directory ownership if running as root via sudo.
+	if privilege.IsRoot() {
+		if err := privilege.FixFileOwnership(dir); err != nil {
+			log.Printf("warning: failed to fix directory ownership: %v", err)
+		}
+	}
+
 	data, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal global config: %w", err)
@@ -83,6 +92,13 @@ func (l *Loader) SaveGlobalConfig(config *GlobalConfig) error {
 	// Global config is not as sensitive, use 0644
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write global config: %w", err)
+	}
+
+	// Fix file ownership if running as root via sudo.
+	if privilege.IsRoot() {
+		if err := privilege.FixFileOwnership(path); err != nil {
+			log.Printf("warning: failed to fix file ownership: %v", err)
+		}
 	}
 
 	return nil
@@ -119,6 +135,13 @@ func (l *Loader) SaveColonyConfig(config *ColonyConfig) error {
 		return fmt.Errorf("failed to create colonies directory: %w", err)
 	}
 
+	// Fix directory ownership if running as root via sudo.
+	if privilege.IsRoot() {
+		if err := privilege.FixFileOwnership(dir); err != nil {
+			log.Printf("warning: failed to fix directory ownership: %v", err)
+		}
+	}
+
 	data, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal colony config: %w", err)
@@ -127,6 +150,13 @@ func (l *Loader) SaveColonyConfig(config *ColonyConfig) error {
 	// Use 0600 for colony configs (contain secrets)
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write colony config: %w", err)
+	}
+
+	// Fix file ownership if running as root via sudo.
+	if privilege.IsRoot() {
+		if err := privilege.FixFileOwnership(path); err != nil {
+			log.Printf("warning: failed to fix file ownership: %v", err)
+		}
 	}
 
 	return nil
