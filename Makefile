@@ -25,6 +25,9 @@ build: ## Build the coral binary
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral
 	@echo "✓ Built $(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "Building coral-discovery..."
+	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-discovery ./cmd/discovery
+	@echo "✓ Built $(BUILD_DIR)/coral-discovery"
 
 clean: ## Remove build artifacts
 	@echo "Cleaning..."
