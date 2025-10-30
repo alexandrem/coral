@@ -13,14 +13,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
+	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-io/coral/internal/colony/registry"
+	"github.com/coral-io/coral/internal/colony/server"
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/discovery/registration"
 	"github.com/coral-io/coral/internal/logging"
 	"github.com/coral-io/coral/internal/wireguard"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // NewColonyCmd creates the colony command and its subcommands
@@ -35,6 +40,7 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newStartCmd())
 	cmd.AddCommand(newStopCmd())
 	cmd.AddCommand(newStatusCmd())
+	cmd.AddCommand(newAgentsCmd())
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newUseCmd())
 	cmd.AddCommand(newCurrentCmd())
@@ -96,7 +102,7 @@ The colony to start is determined by (in priority order):
 
 			// Initialize logger
 			logger := logging.NewWithComponent(logging.Config{
-				Level:  "info",
+				Level:  "debug",
 				Pretty: true,
 			}, "colony")
 
@@ -127,10 +133,13 @@ The colony to start is determined by (in priority order):
 			}
 			defer wgDevice.Stop()
 
-			// Start gRPC/Connect server for agent registration
-			meshServer, err := startMeshServer(cfg, wgDevice, logger)
+			// Create agent registry for tracking connected agents.
+			agentRegistry := registry.New()
+
+			// Start gRPC/Connect server for agent registration and colony management.
+			meshServer, err := startServers(cfg, wgDevice, agentRegistry, logger)
 			if err != nil {
-				return fmt.Errorf("failed to start mesh server: %w", err)
+				return fmt.Errorf("failed to start servers: %w", err)
 			}
 			defer meshServer.Close()
 
@@ -306,12 +315,44 @@ This command is useful for troubleshooting connectivity issues.`,
 				connectPort = 9000
 			}
 
+			// Try to query running colony for real-time status
+			// First try localhost (for querying from the same host where colony runs)
+			// If that fails, try the mesh IP (for remote queries through the mesh)
+			var runtimeStatus *colonyv1.GetStatusResponse
+
+			// Try localhost first
+			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
+			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			req := connect.NewRequest(&colonyv1.GetStatusRequest{})
+			resp, err := client.GetStatus(ctx, req)
+			if err == nil {
+				runtimeStatus = resp.Msg
+			} else {
+				// Try mesh IP as fallback (for remote queries)
+				meshIP := colonyConfig.WireGuard.MeshIPv4
+				if meshIP == "" {
+					meshIP = "10.42.0.1"
+				}
+				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
+				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel2()
+
+				if resp2, err2 := client.GetStatus(ctx2, connect.NewRequest(&colonyv1.GetStatusRequest{})); err2 == nil {
+					runtimeStatus = resp2.Msg
+				}
+			}
+
 			if jsonOutput {
 				output := map[string]interface{}{
 					"colony_id":    colonyConfig.ColonyID,
 					"application":  colonyConfig.ApplicationName,
 					"environment":  colonyConfig.Environment,
-					"status":       "configured", // TODO: Check if actually running
 					"storage_path": colonyConfig.StoragePath,
 					"wireguard": map[string]interface{}{
 						"public_key":        colonyConfig.WireGuard.PublicKey,
@@ -324,6 +365,18 @@ This command is useful for troubleshooting connectivity issues.`,
 					},
 					"discovery_endpoint": globalConfig.Discovery.Endpoint,
 					"connect_port":       connectPort,
+				}
+
+				// Add runtime status if colony is running
+				if runtimeStatus != nil {
+					output["status"] = runtimeStatus.Status
+					output["uptime_seconds"] = runtimeStatus.UptimeSeconds
+					output["agent_count"] = runtimeStatus.AgentCount
+					output["storage_bytes"] = runtimeStatus.StorageBytes
+					output["dashboard_url"] = runtimeStatus.DashboardUrl
+					output["started_at"] = runtimeStatus.StartedAt.AsTime().Format(time.RFC3339)
+				} else {
+					output["status"] = "configured"
 				}
 
 				data, err := json.MarshalIndent(output, "", "  ")
@@ -342,6 +395,24 @@ This command is useful for troubleshooting connectivity issues.`,
 			fmt.Printf("Application:   %s\n", colonyConfig.ApplicationName)
 			fmt.Printf("Environment:   %s\n", colonyConfig.Environment)
 			fmt.Printf("Storage:       %s\n", colonyConfig.StoragePath)
+
+			// Show runtime status if colony is running
+			if runtimeStatus != nil {
+				fmt.Println()
+				fmt.Println("Runtime Status:")
+				fmt.Printf("  Status:        %s\n", runtimeStatus.Status)
+				fmt.Printf("  Uptime:        %s\n", formatDuration(time.Duration(runtimeStatus.UptimeSeconds)*time.Second))
+				fmt.Printf("  Agents:        %d connected\n", runtimeStatus.AgentCount)
+
+				if runtimeStatus.StorageBytes > 0 {
+					fmt.Printf("  Storage Used:  %s\n", formatBytes(runtimeStatus.StorageBytes))
+				}
+
+				if runtimeStatus.DashboardUrl != "" {
+					fmt.Printf("  Dashboard:     %s\n", runtimeStatus.DashboardUrl)
+				}
+			}
+
 			fmt.Println()
 
 			fmt.Println("WireGuard Mesh Configuration:")
@@ -385,12 +456,142 @@ This command is useful for troubleshooting connectivity issues.`,
 			fmt.Printf("     Colony Mesh IP: %s:%d\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
 			fmt.Println()
 
-			fmt.Println("Status: Colony is configured (not running)")
+			if runtimeStatus != nil {
+				fmt.Printf("Status: Colony is running (%s)\n", runtimeStatus.Status)
+			} else {
+				fmt.Println("Status: Colony is configured (not running)")
+				fmt.Println()
+				fmt.Println("To start the colony:")
+				fmt.Println("  coral colony start")
+			}
 			fmt.Println()
-			fmt.Println("To start the colony:")
-			fmt.Println("  coral colony start")
-			fmt.Println()
-			fmt.Println("Note: Connected peers are only visible when colony is running.")
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (overrides auto-detection)")
+
+	return cmd
+}
+
+func newAgentsCmd() *cobra.Command {
+	var (
+		jsonOutput bool
+		colonyID   string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "agents",
+		Short: "List connected agents",
+		Long: `Display all agents currently connected to the colony.
+
+This command queries the running colony to retrieve real-time agent information including:
+- Agent ID and component name
+- Mesh IP addresses (IPv4 and IPv6)
+- Connection status (healthy, degraded, unhealthy)
+- Last seen timestamp
+
+Note: The colony must be running for this command to work.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Create resolver
+			resolver, err := config.NewResolver()
+			if err != nil {
+				return fmt.Errorf("failed to create config resolver: %w", err)
+			}
+
+			// Resolve colony ID
+			if colonyID == "" {
+				colonyID, err = resolver.ResolveColonyID()
+				if err != nil {
+					return fmt.Errorf("failed to resolve colony: %w\n\nRun 'coral init <app-name>' to create a colony", err)
+				}
+			}
+
+			// Load colony configuration
+			loader := resolver.GetLoader()
+			colonyConfig, err := loader.LoadColonyConfig(colonyID)
+			if err != nil {
+				return fmt.Errorf("failed to load colony config: %w", err)
+			}
+
+			// Get connect port
+			connectPort := colonyConfig.Services.ConnectPort
+			if connectPort == 0 {
+				connectPort = 9000
+			}
+
+			// Create RPC client - try localhost first, then mesh IP
+			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
+			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+
+			// Call ListAgents RPC
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
+			resp, err := client.ListAgents(ctx, req)
+			if err != nil {
+				// Try mesh IP as fallback
+				meshIP := colonyConfig.WireGuard.MeshIPv4
+				if meshIP == "" {
+					meshIP = "10.42.0.1"
+				}
+				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
+				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel2()
+
+				resp, err = client.ListAgents(ctx2, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
+				if err != nil {
+					return fmt.Errorf("failed to list agents (is colony running?): %w", err)
+				}
+			}
+
+			agents := resp.Msg.Agents
+
+			if jsonOutput {
+				data, err := json.MarshalIndent(agents, "", "  ")
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(data))
+				return nil
+			}
+
+			// Human-readable output
+			if len(agents) == 0 {
+				fmt.Println("No agents connected.")
+				return nil
+			}
+
+			fmt.Printf("Connected Agents (%d):\n\n", len(agents))
+			fmt.Printf("%-20s %-15s %-18s %-10s %s\n", "AGENT ID", "COMPONENT", "MESH IP", "STATUS", "LAST SEEN")
+			fmt.Println("------------------------------------------------------------------------------")
+
+			for _, agent := range agents {
+				// Format last seen as relative time
+				lastSeen := agent.LastSeen.AsTime()
+				elapsed := time.Since(lastSeen)
+				var lastSeenStr string
+				if elapsed < time.Minute {
+					lastSeenStr = fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
+				} else if elapsed < time.Hour {
+					lastSeenStr = fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
+				} else {
+					lastSeenStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
+				}
+
+				fmt.Printf("%-20s %-15s %-18s %-10s %s\n",
+					agent.AgentId,
+					agent.ComponentName,
+					agent.MeshIpv4,
+					agent.Status,
+					lastSeenStr,
+				)
+			}
 
 			return nil
 		},
@@ -801,8 +1002,8 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 	return wgDevice, nil
 }
 
-// startMeshServer starts the HTTP/Connect server for agent registration.
-func startMeshServer(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, logger logging.Logger) (*http.Server, error) {
+// startServers starts the HTTP/Connect servers for agent registration and colony management.
+func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, logger logging.Logger) (*http.Server, error) {
 	// Get connect port from config or use default
 	loader, err := config.NewLoader()
 	if err != nil {
@@ -819,22 +1020,40 @@ func startMeshServer(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, log
 		connectPort = 9000 // Default Buf Connect port
 	}
 
+	dashboardPort := colonyConfig.Services.DashboardPort
+	if dashboardPort == 0 {
+		dashboardPort = constants.DefaultDashboardPort
+	}
+
 	// Create mesh service handler
-	meshHandler := &meshServiceHandler{
+	meshSvc := &meshServiceHandler{
 		cfg:      cfg,
 		wgDevice: wgDevice,
+		registry: agentRegistry,
 		logger:   logger,
 	}
 
-	// Register the handler
-	path, handler := meshv1connect.NewMeshServiceHandler(meshHandler)
+	// Create colony service handler
+	colonyServerConfig := server.Config{
+		ColonyID:        cfg.ColonyID,
+		ApplicationName: cfg.ApplicationName,
+		Environment:     cfg.Environment,
+		DashboardPort:   dashboardPort,
+		StoragePath:     cfg.StoragePath,
+	}
+	colonySvc := server.New(agentRegistry, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
+
+	// Register the handlers
+	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(meshSvc)
+	colonyPath, colonyHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)
 
 	// Create HTTP server
 	mux := http.NewServeMux()
-	mux.Handle(path, handler)
+	mux.Handle(meshPath, meshHandler)
+	mux.Handle(colonyPath, colonyHandler)
 
 	addr := fmt.Sprintf(":%d", connectPort)
-	server := &http.Server{
+	httpServer := &http.Server{
 		Addr:    addr,
 		Handler: mux,
 	}
@@ -843,22 +1062,23 @@ func startMeshServer(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, log
 	go func() {
 		logger.Info().
 			Int("port", connectPort).
-			Msg("Mesh service listening for agent connections")
+			Msg("Mesh and Colony services listening")
 
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error().
 				Err(err).
-				Msg("Mesh server error")
+				Msg("Server error")
 		}
 	}()
 
-	return server, nil
+	return httpServer, nil
 }
 
 // meshServiceHandler implements the MeshService RPC handler.
 type meshServiceHandler struct {
 	cfg      *config.ResolvedConfig
 	wgDevice *wireguard.Device
+	registry *registry.Registry
 	logger   logging.Logger
 }
 
@@ -951,6 +1171,15 @@ func (h *meshServiceHandler) Register(
 		}), nil
 	}
 
+	// Register agent in the registry for tracking.
+	// Note: We don't have IPv6 mesh IP yet (future enhancement).
+	if _, err := h.registry.Register(req.Msg.AgentId, req.Msg.ComponentName, meshIP.String(), ""); err != nil {
+		h.logger.Warn().
+			Err(err).
+			Str("agent_id", req.Msg.AgentId).
+			Msg("Failed to register agent in registry (non-fatal)")
+	}
+
 	h.logger.Info().
 		Str("agent_id", req.Msg.AgentId).
 		Str("component_name", req.Msg.ComponentName).
@@ -979,4 +1208,33 @@ func (h *meshServiceHandler) Register(
 		Peers:        peers,
 		RegisteredAt: timestamppb.Now(),
 	}), nil
+}
+
+// formatDuration formats a duration in a human-readable format.
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		minutes := int(d.Minutes())
+		seconds := int(d.Seconds()) % 60
+		return fmt.Sprintf("%dm %ds", minutes, seconds)
+	}
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+	return fmt.Sprintf("%dh %dm", hours, minutes)
+}
+
+// formatBytes formats bytes in a human-readable format.
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

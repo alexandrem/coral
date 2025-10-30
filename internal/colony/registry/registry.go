@@ -1,0 +1,165 @@
+package registry
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+const (
+	// Status thresholds based on last_seen timestamp.
+	StatusHealthyThreshold  = 30 * time.Second
+	StatusDegradedThreshold = 2 * time.Minute
+)
+
+// AgentStatus represents the health status of an agent.
+type AgentStatus string
+
+const (
+	StatusHealthy   AgentStatus = "healthy"
+	StatusDegraded  AgentStatus = "degraded"
+	StatusUnhealthy AgentStatus = "unhealthy"
+)
+
+// Entry represents a registered agent in the colony.
+type Entry struct {
+	AgentID       string
+	ComponentName string
+	MeshIPv4      string
+	MeshIPv6      string
+	RegisteredAt  time.Time
+	LastSeen      time.Time
+}
+
+// Registry is an in-memory store for agent registrations.
+type Registry struct {
+	mu      sync.RWMutex
+	entries map[string]*Entry
+}
+
+// New creates a new Registry.
+func New() *Registry {
+	return &Registry{
+		entries: make(map[string]*Entry),
+	}
+}
+
+// Register adds or updates an agent registration.
+func (r *Registry) Register(agentID, componentName, meshIPv4, meshIPv6 string) (*Entry, error) {
+	if agentID == "" {
+		return nil, fmt.Errorf("agent_id cannot be empty")
+	}
+	if componentName == "" {
+		return nil, fmt.Errorf("component_name cannot be empty")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+
+	// Check if agent already exists.
+	if existing, ok := r.entries[agentID]; ok {
+		// Update existing entry.
+		existing.ComponentName = componentName
+		existing.MeshIPv4 = meshIPv4
+		existing.MeshIPv6 = meshIPv6
+		existing.LastSeen = now
+		return existing, nil
+	}
+
+	// Create new entry.
+	entry := &Entry{
+		AgentID:       agentID,
+		ComponentName: componentName,
+		MeshIPv4:      meshIPv4,
+		MeshIPv6:      meshIPv6,
+		RegisteredAt:  now,
+		LastSeen:      now,
+	}
+
+	r.entries[agentID] = entry
+	return entry, nil
+}
+
+// UpdateHeartbeat updates the last_seen timestamp for an agent.
+func (r *Registry) UpdateHeartbeat(agentID string) error {
+	if agentID == "" {
+		return fmt.Errorf("agent_id cannot be empty")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry, ok := r.entries[agentID]
+	if !ok {
+		return fmt.Errorf("agent not found: %s", agentID)
+	}
+
+	entry.LastSeen = time.Now()
+	return nil
+}
+
+// Get retrieves an agent registration by agent ID.
+func (r *Registry) Get(agentID string) (*Entry, error) {
+	if agentID == "" {
+		return nil, fmt.Errorf("agent_id cannot be empty")
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entry, ok := r.entries[agentID]
+	if !ok {
+		return nil, fmt.Errorf("agent not found: %s", agentID)
+	}
+
+	return entry, nil
+}
+
+// ListAll returns all registered agents.
+func (r *Registry) ListAll() []*Entry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entries := make([]*Entry, 0, len(r.entries))
+	for _, entry := range r.entries {
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// CountActive returns the number of agents with healthy or degraded status.
+func (r *Registry) CountActive() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	now := time.Now()
+	count := 0
+	for _, entry := range r.entries {
+		status := DetermineStatus(entry.LastSeen, now)
+		if status == StatusHealthy || status == StatusDegraded {
+			count++
+		}
+	}
+	return count
+}
+
+// Count returns the total number of registered agents.
+func (r *Registry) Count() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.entries)
+}
+
+// DetermineStatus calculates agent status based on last_seen timestamp.
+func DetermineStatus(lastSeen, now time.Time) AgentStatus {
+	elapsed := now.Sub(lastSeen)
+
+	if elapsed < StatusHealthyThreshold {
+		return StatusHealthy
+	} else if elapsed < StatusDegradedThreshold {
+		return StatusDegraded
+	}
+	return StatusUnhealthy
+}
