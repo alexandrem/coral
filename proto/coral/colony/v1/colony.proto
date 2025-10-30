@@ -47,6 +47,25 @@ message GetStatusResponse {
 
   // Storage size in bytes.
   int64 storage_bytes = 9;
+
+  // Network endpoint information.
+  // WireGuard listen port (UDP).
+  int32 wireguard_port = 10;
+
+  // WireGuard public key.
+  string wireguard_public_key = 11;
+
+  // WireGuard registered endpoints (e.g., ":51820").
+  repeated string wireguard_endpoints = 12;
+
+  // Buf Connect service port (TCP).
+  int32 connect_port = 13;
+
+  // Colony mesh IPv4 address.
+  string mesh_ipv4 = 14;
+
+  // Colony mesh IPv6 address.
+  string mesh_ipv6 = 15;
 }
 
 message ListAgentsRequest {}

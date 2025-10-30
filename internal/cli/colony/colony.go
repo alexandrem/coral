@@ -136,8 +136,14 @@ The colony to start is determined by (in priority order):
 			// Create agent registry for tracking connected agents.
 			agentRegistry := registry.New()
 
+			// Build endpoints list (for now, just the WireGuard port)
+			// TODO: Add proper IP detection and multiple endpoints
+			endpoints := []string{
+				fmt.Sprintf(":%d", cfg.WireGuard.Port),
+			}
+
 			// Start gRPC/Connect server for agent registration and colony management.
-			meshServer, err := startServers(cfg, wgDevice, agentRegistry, logger)
+			meshServer, err := startServers(cfg, wgDevice, agentRegistry, endpoints, logger)
 			if err != nil {
 				return fmt.Errorf("failed to start servers: %w", err)
 			}
@@ -157,12 +163,6 @@ The colony to start is determined by (in priority order):
 			colonyConfig, err := loader.LoadColonyConfig(cfg.ColonyID)
 			if err != nil {
 				return fmt.Errorf("failed to load colony config: %w", err)
-			}
-
-			// Build endpoints list (for now, just the WireGuard port)
-			// TODO: Add proper IP detection and multiple endpoints
-			endpoints := []string{
-				fmt.Sprintf(":%d", cfg.WireGuard.Port),
 			}
 
 			metadata := map[string]string{
@@ -375,6 +375,15 @@ This command is useful for troubleshooting connectivity issues.`,
 					output["storage_bytes"] = runtimeStatus.StorageBytes
 					output["dashboard_url"] = runtimeStatus.DashboardUrl
 					output["started_at"] = runtimeStatus.StartedAt.AsTime().Format(time.RFC3339)
+
+					// Add network endpoint information from runtime
+					output["network_endpoints"] = map[string]interface{}{
+						"local_endpoint":       fmt.Sprintf("http://localhost:%d", runtimeStatus.ConnectPort),
+						"mesh_endpoint":        fmt.Sprintf("http://%s:%d", runtimeStatus.MeshIpv4, runtimeStatus.ConnectPort),
+						"wireguard_port":       runtimeStatus.WireguardPort,
+						"wireguard_public_key": runtimeStatus.WireguardPublicKey,
+						"wireguard_endpoints":  runtimeStatus.WireguardEndpoints,
+					}
 				} else {
 					output["status"] = "configured"
 				}
@@ -410,6 +419,20 @@ This command is useful for troubleshooting connectivity issues.`,
 
 				if runtimeStatus.DashboardUrl != "" {
 					fmt.Printf("  Dashboard:     %s\n", runtimeStatus.DashboardUrl)
+				}
+
+				// Show network endpoints
+				fmt.Println()
+				fmt.Println("Network Endpoints (Running):")
+				fmt.Printf("  Local (CLI):       http://localhost:%d\n", runtimeStatus.ConnectPort)
+				fmt.Printf("  Mesh (Agents):     http://%s:%d\n", runtimeStatus.MeshIpv4, runtimeStatus.ConnectPort)
+				fmt.Printf("  WireGuard Listen:  udp://0.0.0.0:%d\n", runtimeStatus.WireguardPort)
+				fmt.Printf("  WireGuard Pubkey:  %s\n", truncateKey(runtimeStatus.WireguardPublicKey))
+				if len(runtimeStatus.WireguardEndpoints) > 0 {
+					fmt.Printf("  Registered Endpoints: %s\n", runtimeStatus.WireguardEndpoints[0])
+					for _, ep := range runtimeStatus.WireguardEndpoints[1:] {
+						fmt.Printf("                        %s\n", ep)
+					}
 				}
 			}
 
@@ -634,12 +657,18 @@ func newListCmd() *cobra.Command {
 
 			if jsonOutput {
 				type colonyInfo struct {
-					ColonyID    string `json:"colony_id"`
-					Application string `json:"application"`
-					Environment string `json:"environment"`
-					IsDefault   bool   `json:"is_default"`
-					CreatedAt   string `json:"created_at"`
-					StoragePath string `json:"storage_path"`
+					ColonyID      string `json:"colony_id"`
+					Application   string `json:"application"`
+					Environment   string `json:"environment"`
+					IsDefault     bool   `json:"is_default"`
+					CreatedAt     string `json:"created_at"`
+					StoragePath   string `json:"storage_path"`
+					WireGuardPort int    `json:"wireguard_port"`
+					ConnectPort   int    `json:"connect_port"`
+					MeshIPv4      string `json:"mesh_ipv4"`
+					Running       bool   `json:"running"`
+					LocalEndpoint string `json:"local_endpoint,omitempty"`
+					MeshEndpoint  string `json:"mesh_endpoint,omitempty"`
 				}
 
 				colonies := []colonyInfo{}
@@ -648,14 +677,36 @@ func newListCmd() *cobra.Command {
 					if err != nil {
 						continue
 					}
-					colonies = append(colonies, colonyInfo{
-						ColonyID:    cfg.ColonyID,
-						Application: cfg.ApplicationName,
-						Environment: cfg.Environment,
-						IsDefault:   cfg.ColonyID == globalConfig.DefaultColony,
-						CreatedAt:   cfg.CreatedAt.Format(time.RFC3339),
-						StoragePath: cfg.StoragePath,
-					})
+
+					connectPort := cfg.Services.ConnectPort
+					if connectPort == 0 {
+						connectPort = 9000
+					}
+
+					info := colonyInfo{
+						ColonyID:      cfg.ColonyID,
+						Application:   cfg.ApplicationName,
+						Environment:   cfg.Environment,
+						IsDefault:     cfg.ColonyID == globalConfig.DefaultColony,
+						CreatedAt:     cfg.CreatedAt.Format(time.RFC3339),
+						StoragePath:   cfg.StoragePath,
+						WireGuardPort: cfg.WireGuard.Port,
+						ConnectPort:   connectPort,
+						MeshIPv4:      cfg.WireGuard.MeshIPv4,
+					}
+
+					// Try to query running status (with quick timeout)
+					baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
+					client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+					ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+					if resp, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err == nil {
+						info.Running = true
+						info.LocalEndpoint = fmt.Sprintf("http://localhost:%d", resp.Msg.ConnectPort)
+						info.MeshEndpoint = fmt.Sprintf("http://%s:%d", resp.Msg.MeshIpv4, resp.Msg.ConnectPort)
+					}
+					cancel()
+
+					colonies = append(colonies, info)
 				}
 
 				data, err := json.MarshalIndent(colonies, "", "  ")
@@ -679,10 +730,30 @@ func newListCmd() *cobra.Command {
 					defaultMarker = " [default]"
 				}
 
-				fmt.Printf("  %s (%s)%s\n", cfg.ColonyID, cfg.Environment, defaultMarker)
+				// Get connect port
+				connectPort := cfg.Services.ConnectPort
+				if connectPort == 0 {
+					connectPort = 9000
+				}
+
+				// Check if colony is running
+				runningStatus := ""
+				baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
+				client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+				if resp, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err == nil {
+					runningStatus = fmt.Sprintf(" [%s]", resp.Msg.Status)
+				}
+				cancel()
+
+				fmt.Printf("  %s (%s)%s%s\n", cfg.ColonyID, cfg.Environment, defaultMarker, runningStatus)
 				fmt.Printf("    Application: %s\n", cfg.ApplicationName)
 				fmt.Printf("    Created: %s\n", cfg.CreatedAt.Format("2006-01-02 15:04:05"))
 				fmt.Printf("    Storage: %s\n", cfg.StoragePath)
+				fmt.Printf("    Network: WireGuard=%d, Connect=%d, Mesh=%s\n", cfg.WireGuard.Port, connectPort, cfg.WireGuard.MeshIPv4)
+				if runningStatus != "" {
+					fmt.Printf("    Endpoints: http://localhost:%d (local), http://%s:%d (mesh)\n", connectPort, cfg.WireGuard.MeshIPv4, connectPort)
+				}
 				fmt.Println()
 			}
 
@@ -1003,7 +1074,7 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 }
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
-func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, logger logging.Logger) (*http.Server, error) {
+func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, endpoints []string, logger logging.Logger) (*http.Server, error) {
 	// Get connect port from config or use default
 	loader, err := config.NewLoader()
 	if err != nil {
@@ -1035,11 +1106,17 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 	// Create colony service handler
 	colonyServerConfig := server.Config{
-		ColonyID:        cfg.ColonyID,
-		ApplicationName: cfg.ApplicationName,
-		Environment:     cfg.Environment,
-		DashboardPort:   dashboardPort,
-		StoragePath:     cfg.StoragePath,
+		ColonyID:           cfg.ColonyID,
+		ApplicationName:    cfg.ApplicationName,
+		Environment:        cfg.Environment,
+		DashboardPort:      dashboardPort,
+		StoragePath:        cfg.StoragePath,
+		WireGuardPort:      cfg.WireGuard.Port,
+		WireGuardPublicKey: cfg.WireGuard.PublicKey,
+		WireGuardEndpoints: endpoints,
+		ConnectPort:        connectPort,
+		MeshIPv4:           cfg.WireGuard.MeshIPv4,
+		MeshIPv6:           cfg.WireGuard.MeshIPv6,
 	}
 	colonySvc := server.New(agentRegistry, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
@@ -1237,4 +1314,12 @@ func formatBytes(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// truncateKey truncates a WireGuard public key for display.
+func truncateKey(key string) string {
+	if len(key) <= 16 {
+		return key
+	}
+	return key[:12] + "..." + key[len(key)-4:]
 }

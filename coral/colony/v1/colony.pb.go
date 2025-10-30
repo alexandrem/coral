@@ -78,7 +78,20 @@ type GetStatusResponse struct {
 	// Dashboard URL.
 	DashboardUrl string `protobuf:"bytes,8,opt,name=dashboard_url,json=dashboardUrl,proto3" json:"dashboard_url,omitempty"`
 	// Storage size in bytes.
-	StorageBytes  int64 `protobuf:"varint,9,opt,name=storage_bytes,json=storageBytes,proto3" json:"storage_bytes,omitempty"`
+	StorageBytes int64 `protobuf:"varint,9,opt,name=storage_bytes,json=storageBytes,proto3" json:"storage_bytes,omitempty"`
+	// Network endpoint information.
+	// WireGuard listen port (UDP).
+	WireguardPort int32 `protobuf:"varint,10,opt,name=wireguard_port,json=wireguardPort,proto3" json:"wireguard_port,omitempty"`
+	// WireGuard public key.
+	WireguardPublicKey string `protobuf:"bytes,11,opt,name=wireguard_public_key,json=wireguardPublicKey,proto3" json:"wireguard_public_key,omitempty"`
+	// WireGuard registered endpoints (e.g., ":51820").
+	WireguardEndpoints []string `protobuf:"bytes,12,rep,name=wireguard_endpoints,json=wireguardEndpoints,proto3" json:"wireguard_endpoints,omitempty"`
+	// Buf Connect service port (TCP).
+	ConnectPort int32 `protobuf:"varint,13,opt,name=connect_port,json=connectPort,proto3" json:"connect_port,omitempty"`
+	// Colony mesh IPv4 address.
+	MeshIpv4 string `protobuf:"bytes,14,opt,name=mesh_ipv4,json=meshIpv4,proto3" json:"mesh_ipv4,omitempty"`
+	// Colony mesh IPv6 address.
+	MeshIpv6      string `protobuf:"bytes,15,opt,name=mesh_ipv6,json=meshIpv6,proto3" json:"mesh_ipv6,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -174,6 +187,48 @@ func (x *GetStatusResponse) GetStorageBytes() int64 {
 		return x.StorageBytes
 	}
 	return 0
+}
+
+func (x *GetStatusResponse) GetWireguardPort() int32 {
+	if x != nil {
+		return x.WireguardPort
+	}
+	return 0
+}
+
+func (x *GetStatusResponse) GetWireguardPublicKey() string {
+	if x != nil {
+		return x.WireguardPublicKey
+	}
+	return ""
+}
+
+func (x *GetStatusResponse) GetWireguardEndpoints() []string {
+	if x != nil {
+		return x.WireguardEndpoints
+	}
+	return nil
+}
+
+func (x *GetStatusResponse) GetConnectPort() int32 {
+	if x != nil {
+		return x.ConnectPort
+	}
+	return 0
+}
+
+func (x *GetStatusResponse) GetMeshIpv4() string {
+	if x != nil {
+		return x.MeshIpv4
+	}
+	return ""
+}
+
+func (x *GetStatusResponse) GetMeshIpv6() string {
+	if x != nil {
+		return x.MeshIpv6
+	}
+	return ""
 }
 
 type ListAgentsRequest struct {
@@ -513,7 +568,7 @@ var File_coral_colony_v1_colony_proto protoreflect.FileDescriptor
 const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\n" +
 	"\x1ccoral/colony/v1/colony.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x12\n" +
-	"\x10GetStatusRequest\"\xd2\x02\n" +
+	"\x10GetStatusRequest\"\xb9\x04\n" +
 	"\x11GetStatusResponse\x12\x1b\n" +
 	"\tcolony_id\x18\x01 \x01(\tR\bcolonyId\x12\x19\n" +
 	"\bapp_name\x18\x02 \x01(\tR\aappName\x12 \n" +
@@ -525,7 +580,14 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\vagent_count\x18\a \x01(\x05R\n" +
 	"agentCount\x12#\n" +
 	"\rdashboard_url\x18\b \x01(\tR\fdashboardUrl\x12#\n" +
-	"\rstorage_bytes\x18\t \x01(\x03R\fstorageBytes\"\x13\n" +
+	"\rstorage_bytes\x18\t \x01(\x03R\fstorageBytes\x12%\n" +
+	"\x0ewireguard_port\x18\n" +
+	" \x01(\x05R\rwireguardPort\x120\n" +
+	"\x14wireguard_public_key\x18\v \x01(\tR\x12wireguardPublicKey\x12/\n" +
+	"\x13wireguard_endpoints\x18\f \x03(\tR\x12wireguardEndpoints\x12!\n" +
+	"\fconnect_port\x18\r \x01(\x05R\vconnectPort\x12\x1b\n" +
+	"\tmesh_ipv4\x18\x0e \x01(\tR\bmeshIpv4\x12\x1b\n" +
+	"\tmesh_ipv6\x18\x0f \x01(\tR\bmeshIpv6\"\x13\n" +
 	"\x11ListAgentsRequest\"D\n" +
 	"\x12ListAgentsResponse\x12.\n" +
 	"\x06agents\x18\x01 \x03(\v2\x16.coral.colony.v1.AgentR\x06agents\"\xd4\x01\n" +
