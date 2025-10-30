@@ -1,7 +1,7 @@
 ---
 rfd: "001"
 title: "Discovery Service (Prototype)"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "networking", "discovery", "infrastructure" ]
 
 # RFD 001 - Discovery Service (Prototype)
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 

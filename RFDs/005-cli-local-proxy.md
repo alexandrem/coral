@@ -1,7 +1,7 @@
 ---
 rfd: "005"
 title: "CLI Access via Local Proxy"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "cli", "networking", "security" ]
 
 # RFD 005 - CLI Access via Local Proxy
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
