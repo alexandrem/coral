@@ -17,11 +17,17 @@ import (
 
 // Config contains configuration for the colony server.
 type Config struct {
-	ColonyID        string
-	ApplicationName string
-	Environment     string
-	DashboardPort   int
-	StoragePath     string
+	ColonyID           string
+	ApplicationName    string
+	Environment        string
+	DashboardPort      int
+	StoragePath        string
+	WireGuardPort      int
+	WireGuardPublicKey string
+	WireGuardEndpoints []string
+	ConnectPort        int
+	MeshIPv4           string
+	MeshIPv6           string
 }
 
 // Server implements the ColonyService.
@@ -78,15 +84,21 @@ func (s *Server) GetStatus(
 
 	// Build response.
 	resp := &colonyv1.GetStatusResponse{
-		ColonyId:      s.config.ColonyID,
-		AppName:       s.config.ApplicationName,
-		Environment:   s.config.Environment,
-		Status:        status,
-		StartedAt:     timestamppb.New(s.startTime),
-		UptimeSeconds: uptimeSeconds,
-		AgentCount:    agentCount,
-		DashboardUrl:  dashboardURL,
-		StorageBytes:  storageBytes,
+		ColonyId:           s.config.ColonyID,
+		AppName:            s.config.ApplicationName,
+		Environment:        s.config.Environment,
+		Status:             status,
+		StartedAt:          timestamppb.New(s.startTime),
+		UptimeSeconds:      uptimeSeconds,
+		AgentCount:         agentCount,
+		DashboardUrl:       dashboardURL,
+		StorageBytes:       storageBytes,
+		WireguardPort:      int32(s.config.WireGuardPort),
+		WireguardPublicKey: s.config.WireGuardPublicKey,
+		WireguardEndpoints: s.config.WireGuardEndpoints,
+		ConnectPort:        int32(s.config.ConnectPort),
+		MeshIpv4:           s.config.MeshIPv4,
+		MeshIpv6:           s.config.MeshIPv6,
 	}
 
 	s.logger.Debug().

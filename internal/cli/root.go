@@ -29,6 +29,7 @@ Coral provides application-scoped intelligence through:
 func init() {
 	// Add subcommands
 	rootCmd.AddCommand(initcmd.NewInitCmd())
+	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(colony.NewColonyCmd())
 	rootCmd.AddCommand(agent.NewConnectCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())
