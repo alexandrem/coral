@@ -169,7 +169,7 @@ func DefaultProjectConfig(colonyID string) *ProjectConfig {
 			Enabled: true,
 		},
 		Storage: ProjectStorage{
-			Path: constants.DefaultColonyDatabasePath,
+			Path: constants.DefaultDir,
 		},
 	}
 }

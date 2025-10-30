@@ -205,7 +205,7 @@ func TestSaveAndLoadProjectConfig(t *testing.T) {
 			Enabled: true,
 		},
 		Storage: ProjectStorage{
-			Path: constants.DefaultColonyDatabasePath,
+			Path: constants.DefaultDir,
 		},
 	}
 

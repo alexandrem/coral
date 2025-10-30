@@ -19,6 +19,7 @@ import (
 	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/colony/server"
 	"github.com/coral-io/coral/internal/config"
@@ -122,8 +123,14 @@ The colony to start is determined by (in priority order):
 				Int("wireguard_port", cfg.WireGuard.Port).
 				Msg("Colony configuration loaded")
 
+			// Initialize DuckDB storage.
+			db, err := database.New(cfg.StoragePath, cfg.ColonyID, logger)
+			if err != nil {
+				return fmt.Errorf("failed to initialize database: %w", err)
+			}
+			defer db.Close()
+
 			// TODO: Implement remaining colony startup tasks
-			// - Initialize DuckDB storage at cfg.StoragePath
 			// - Start HTTP server for dashboard on cfg.Dashboard.Port
 
 			// Initialize WireGuard device
