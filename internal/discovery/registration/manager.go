@@ -32,6 +32,15 @@ type Config struct {
 	// Endpoints are the WireGuard endpoints.
 	Endpoints []string
 
+	// MeshIPv4 is the colony's mesh IPv4 address.
+	MeshIPv4 string
+
+	// MeshIPv6 is the colony's mesh IPv6 address.
+	MeshIPv6 string
+
+	// ConnectPort is the Buf Connect HTTP/2 port.
+	ConnectPort uint32
+
 	// Metadata contains additional colony information.
 	Metadata map[string]string
 
@@ -212,16 +221,22 @@ func (m *Manager) register(ctx context.Context) error {
 	defer regCancel()
 
 	req := &client.RegisterColonyRequest{
-		MeshID:    m.config.MeshID,
-		PublicKey: m.config.PublicKey,
-		Endpoints: m.config.Endpoints,
-		Metadata:  m.config.Metadata,
+		MeshID:      m.config.MeshID,
+		PublicKey:   m.config.PublicKey,
+		Endpoints:   m.config.Endpoints,
+		MeshIPv4:    m.config.MeshIPv4,
+		MeshIPv6:    m.config.MeshIPv6,
+		ConnectPort: m.config.ConnectPort,
+		Metadata:    m.config.Metadata,
 	}
 
 	m.logger.Debug().
 		Str("mesh_id", req.MeshID).
 		Str("pubkey", req.PublicKey).
 		Strs("endpoints", req.Endpoints).
+		Str("mesh_ipv4", req.MeshIPv4).
+		Str("mesh_ipv6", req.MeshIPv6).
+		Uint32("connect_port", req.ConnectPort).
 		Interface("metadata", req.Metadata).
 		Msg("Sending registration request")
 

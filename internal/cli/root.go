@@ -7,6 +7,7 @@ import (
 	"github.com/coral-io/coral/internal/cli/ask"
 	"github.com/coral-io/coral/internal/cli/colony"
 	initcmd "github.com/coral-io/coral/internal/cli/init"
+	"github.com/coral-io/coral/internal/cli/proxy"
 	"github.com/coral-io/coral/pkg/version"
 )
 
@@ -30,6 +31,7 @@ func init() {
 	rootCmd.AddCommand(colony.NewColonyCmd())
 	rootCmd.AddCommand(agent.NewConnectCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())
+	rootCmd.AddCommand(proxy.Command())
 	rootCmd.AddCommand(newVersionCmd())
 }
 

@@ -29,8 +29,17 @@ message RegisterColonyRequest {
   // Colony endpoints (IP:port pairs)
   repeated string endpoints = 3;
 
+  // Private mesh IPv4 address (e.g., "10.42.0.1")
+  string mesh_ipv4 = 4;
+
+  // Private mesh IPv6 address (e.g., "fd42::1")
+  string mesh_ipv6 = 5;
+
+  // Buf Connect HTTP/2 port (e.g., 9000)
+  uint32 connect_port = 6;
+
   // Optional metadata
-  map<string, string> metadata = 4;
+  map<string, string> metadata = 7;
 }
 
 message RegisterColonyResponse {
@@ -60,11 +69,20 @@ message LookupColonyResponse {
   // Colony endpoints
   repeated string endpoints = 3;
 
+  // Private mesh IPv4 address (e.g., "10.42.0.1")
+  string mesh_ipv4 = 4;
+
+  // Private mesh IPv6 address (e.g., "fd42::1")
+  string mesh_ipv6 = 5;
+
+  // Buf Connect HTTP/2 port (e.g., 9000)
+  uint32 connect_port = 6;
+
   // Metadata
-  map<string, string> metadata = 4;
+  map<string, string> metadata = 7;
 
   // Last seen timestamp
-  google.protobuf.Timestamp last_seen = 5;
+  google.protobuf.Timestamp last_seen = 8;
 }
 
 // Health check

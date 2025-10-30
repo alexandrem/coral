@@ -59,6 +59,9 @@ func (s *Server) RegisterColony(
 		Str("mesh_id", req.Msg.MeshId).
 		Str("pubkey", req.Msg.Pubkey).
 		Strs("endpoints", req.Msg.Endpoints).
+		Str("mesh_ipv4", req.Msg.MeshIpv4).
+		Str("mesh_ipv6", req.Msg.MeshIpv6).
+		Uint32("connect_port", req.Msg.ConnectPort).
 		Interface("metadata", req.Msg.Metadata).
 		Msg("Colony registration request received")
 
@@ -67,6 +70,9 @@ func (s *Server) RegisterColony(
 		req.Msg.MeshId,
 		req.Msg.Pubkey,
 		req.Msg.Endpoints,
+		req.Msg.MeshIpv4,
+		req.Msg.MeshIpv6,
+		req.Msg.ConnectPort,
 		req.Msg.Metadata,
 	)
 	if err != nil {
@@ -119,11 +125,14 @@ func (s *Server) LookupColony(
 
 	// Build response
 	resp := &discoveryv1.LookupColonyResponse{
-		MeshId:    entry.MeshID,
-		Pubkey:    entry.PubKey,
-		Endpoints: entry.Endpoints,
-		Metadata:  entry.Metadata,
-		LastSeen:  timestamppb.New(entry.LastSeen),
+		MeshId:      entry.MeshID,
+		Pubkey:      entry.PubKey,
+		Endpoints:   entry.Endpoints,
+		MeshIpv4:    entry.MeshIPv4,
+		MeshIpv6:    entry.MeshIPv6,
+		ConnectPort: entry.ConnectPort,
+		Metadata:    entry.Metadata,
+		LastSeen:    timestamppb.New(entry.LastSeen),
 	}
 
 	s.logger.Debug().

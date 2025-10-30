@@ -30,12 +30,20 @@ func New(endpoint string, timeout time.Duration) *Client {
 	}
 }
 
+// NewDiscoveryClient creates a new discovery client with default timeout.
+func NewDiscoveryClient(endpoint string) *Client {
+	return New(endpoint, 10*time.Second)
+}
+
 // RegisterColonyRequest contains the information needed to register a colony.
 type RegisterColonyRequest struct {
-	MeshID    string
-	PublicKey string
-	Endpoints []string
-	Metadata  map[string]string
+	MeshID      string
+	PublicKey   string
+	Endpoints   []string
+	MeshIPv4    string
+	MeshIPv6    string
+	ConnectPort uint32
+	Metadata    map[string]string
 }
 
 // RegisterColonyResponse contains the registration response.
@@ -48,10 +56,13 @@ type RegisterColonyResponse struct {
 // RegisterColony registers a colony with the discovery service.
 func (c *Client) RegisterColony(ctx context.Context, req *RegisterColonyRequest) (*RegisterColonyResponse, error) {
 	protoReq := &discoveryv1.RegisterColonyRequest{
-		MeshId:    req.MeshID,
-		Pubkey:    req.PublicKey,
-		Endpoints: req.Endpoints,
-		Metadata:  req.Metadata,
+		MeshId:      req.MeshID,
+		Pubkey:      req.PublicKey,
+		Endpoints:   req.Endpoints,
+		MeshIpv4:    req.MeshIPv4,
+		MeshIpv6:    req.MeshIPv6,
+		ConnectPort: req.ConnectPort,
+		Metadata:    req.Metadata,
 	}
 
 	resp, err := c.client.RegisterColony(ctx, connect.NewRequest(protoReq))
@@ -68,6 +79,46 @@ func (c *Client) RegisterColony(ctx context.Context, req *RegisterColonyRequest)
 		Success:   resp.Msg.Success,
 		TTL:       resp.Msg.Ttl,
 		ExpiresAt: expiresAt,
+	}, nil
+}
+
+// LookupColonyResponse contains the colony lookup response.
+type LookupColonyResponse struct {
+	MeshID      string
+	Pubkey      string
+	Endpoints   []string
+	MeshIPv4    string
+	MeshIPv6    string
+	ConnectPort uint32
+	Metadata    map[string]string
+	LastSeen    time.Time
+}
+
+// LookupColony looks up a colony by mesh ID.
+func (c *Client) LookupColony(ctx context.Context, meshID string) (*LookupColonyResponse, error) {
+	protoReq := &discoveryv1.LookupColonyRequest{
+		MeshId: meshID,
+	}
+
+	resp, err := c.client.LookupColony(ctx, connect.NewRequest(protoReq))
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup colony: %w", err)
+	}
+
+	var lastSeen time.Time
+	if resp.Msg.LastSeen != nil {
+		lastSeen = resp.Msg.LastSeen.AsTime()
+	}
+
+	return &LookupColonyResponse{
+		MeshID:      resp.Msg.MeshId,
+		Pubkey:      resp.Msg.Pubkey,
+		Endpoints:   resp.Msg.Endpoints,
+		MeshIPv4:    resp.Msg.MeshIpv4,
+		MeshIPv6:    resp.Msg.MeshIpv6,
+		ConnectPort: resp.Msg.ConnectPort,
+		Metadata:    resp.Msg.Metadata,
+		LastSeen:    lastSeen,
 	}, nil
 }
 

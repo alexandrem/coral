@@ -6,14 +6,17 @@ import (
 	"time"
 )
 
-// Entry represents a registered colony in the discovery service
+// Entry represents a registered colony in the discovery service.
 type Entry struct {
-	MeshID    string
-	PubKey    string
-	Endpoints []string
-	Metadata  map[string]string
-	LastSeen  time.Time
-	ExpiresAt time.Time
+	MeshID      string
+	PubKey      string
+	Endpoints   []string
+	MeshIPv4    string
+	MeshIPv6    string
+	ConnectPort uint32
+	Metadata    map[string]string
+	LastSeen    time.Time
+	ExpiresAt   time.Time
 }
 
 // Registry is an in-memory store for colony registrations
@@ -31,8 +34,8 @@ func New(ttl time.Duration) *Registry {
 	}
 }
 
-// Register adds or updates a colony registration
-func (r *Registry) Register(meshID, pubkey string, endpoints []string, metadata map[string]string) (*Entry, error) {
+// Register adds or updates a colony registration.
+func (r *Registry) Register(meshID, pubkey string, endpoints []string, meshIPv4, meshIPv6 string, connectPort uint32, metadata map[string]string) (*Entry, error) {
 	if meshID == "" {
 		return nil, fmt.Errorf("mesh_id cannot be empty")
 	}
@@ -48,12 +51,15 @@ func (r *Registry) Register(meshID, pubkey string, endpoints []string, metadata 
 
 	now := time.Now()
 	entry := &Entry{
-		MeshID:    meshID,
-		PubKey:    pubkey,
-		Endpoints: endpoints,
-		Metadata:  metadata,
-		LastSeen:  now,
-		ExpiresAt: now.Add(r.ttl),
+		MeshID:      meshID,
+		PubKey:      pubkey,
+		Endpoints:   endpoints,
+		MeshIPv4:    meshIPv4,
+		MeshIPv6:    meshIPv6,
+		ConnectPort: connectPort,
+		Metadata:    metadata,
+		LastSeen:    now,
+		ExpiresAt:   now.Add(r.ttl),
 	}
 
 	r.entries[meshID] = entry

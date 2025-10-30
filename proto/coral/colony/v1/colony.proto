@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package coral.colony.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/coral-io/coral/proto/colony/v1;colonypb";
+
+// Colony management service exposed on mesh network.
+service ColonyService {
+  // Get colony status and health.
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+  // List connected agents.
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+
+  // Get network topology.
+  rpc GetTopology(GetTopologyRequest) returns (GetTopologyResponse);
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  // Colony identifier.
+  string colony_id = 1;
+
+  // Application name.
+  string app_name = 2;
+
+  // Environment (e.g., "production", "staging").
+  string environment = 3;
+
+  // Status ("running", "degraded", "unhealthy").
+  string status = 4;
+
+  // When the colony started.
+  google.protobuf.Timestamp started_at = 5;
+
+  // Uptime in seconds.
+  int64 uptime_seconds = 6;
+
+  // Number of connected agents.
+  int32 agent_count = 7;
+
+  // Dashboard URL.
+  string dashboard_url = 8;
+
+  // Storage size in bytes.
+  int64 storage_bytes = 9;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+  repeated Agent agents = 1;
+}
+
+message Agent {
+  // Agent identifier.
+  string agent_id = 1;
+
+  // Component name.
+  string component_name = 2;
+
+  // Mesh IPv4 address.
+  string mesh_ipv4 = 3;
+
+  // Mesh IPv6 address.
+  string mesh_ipv6 = 4;
+
+  // Last seen timestamp.
+  google.protobuf.Timestamp last_seen = 5;
+
+  // Status ("healthy", "degraded", "unhealthy").
+  string status = 6;
+}
+
+message GetTopologyRequest {}
+
+message GetTopologyResponse {
+  // Colony identifier.
+  string colony_id = 1;
+
+  // List of agents.
+  repeated Agent agents = 2;
+
+  // List of connections between components.
+  repeated Connection connections = 3;
+}
+
+message Connection {
+  // Source component ID.
+  string source_id = 1;
+
+  // Target component ID.
+  string target_id = 2;
+
+  // Connection type ("http", "grpc", "database", etc.).
+  string connection_type = 3;
+}

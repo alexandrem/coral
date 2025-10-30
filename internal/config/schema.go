@@ -46,6 +46,7 @@ type ColonyConfig struct {
 	Environment     string          `yaml:"environment"`
 	ColonySecret    string          `yaml:"colony_secret"`
 	WireGuard       WireGuardConfig `yaml:"wireguard"`
+	Services        ServicesConfig  `yaml:"services"`
 	StoragePath     string          `yaml:"storage_path"`
 	Discovery       DiscoveryColony `yaml:"discovery"`
 	CreatedAt       time.Time       `yaml:"created_at"`
@@ -53,11 +54,21 @@ type ColonyConfig struct {
 	LastUsed        time.Time       `yaml:"last_used,omitempty"`
 }
 
+// ServicesConfig contains service port configuration.
+type ServicesConfig struct {
+	ConnectPort   int `yaml:"connect_port"`
+	DashboardPort int `yaml:"dashboard_port"`
+}
+
 // WireGuardConfig contains WireGuard mesh configuration.
 type WireGuardConfig struct {
-	PrivateKey string `yaml:"private_key"`
-	PublicKey  string `yaml:"public_key"`
-	Port       int    `yaml:"port"`
+	PrivateKey      string `yaml:"private_key"`
+	PublicKey       string `yaml:"public_key"`
+	Port            int    `yaml:"port"`
+	MeshIPv4        string `yaml:"mesh_ipv4,omitempty"`
+	MeshIPv6        string `yaml:"mesh_ipv6,omitempty"`
+	MeshNetworkIPv4 string `yaml:"mesh_network_ipv4,omitempty"`
+	MeshNetworkIPv6 string `yaml:"mesh_network_ipv6,omitempty"`
 }
 
 // DiscoveryColony contains colony-specific discovery settings.

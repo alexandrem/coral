@@ -132,9 +132,6 @@ The colony to start is determined by (in priority order):
 				return fmt.Errorf("failed to load colony config: %w", err)
 			}
 
-			// Create and start registration manager for continuous auto-registration
-			logger.Info().Msg("Starting registration manager")
-
 			// Build endpoints list (for now, just the WireGuard port)
 			// TODO: Add proper IP detection and multiple endpoints
 			endpoints := []string{
@@ -146,6 +143,23 @@ The colony to start is determined by (in priority order):
 				"environment": cfg.Environment,
 			}
 
+			// Set default mesh IPs if not configured
+			meshIPv4 := colonyConfig.WireGuard.MeshIPv4
+			if meshIPv4 == "" {
+				meshIPv4 = "10.42.0.1" // Default colony mesh IPv4
+			}
+			meshIPv6 := colonyConfig.WireGuard.MeshIPv6
+			if meshIPv6 == "" {
+				meshIPv6 = "fd42::1" // Default colony mesh IPv6
+			}
+
+			// Set default connect port if not configured
+			connectPort := colonyConfig.Services.ConnectPort
+			if connectPort == 0 {
+				connectPort = 9000 // Default Buf Connect port
+			}
+
+			// Create and start registration manager for continuous auto-registration.
 			regConfig := registration.Config{
 				Enabled:           colonyConfig.Discovery.Enabled,
 				AutoRegister:      colonyConfig.Discovery.AutoRegister,
@@ -153,6 +167,9 @@ The colony to start is determined by (in priority order):
 				MeshID:            cfg.ColonyID,
 				PublicKey:         cfg.WireGuard.PublicKey,
 				Endpoints:         endpoints,
+				MeshIPv4:          meshIPv4,
+				MeshIPv6:          meshIPv6,
+				ConnectPort:       uint32(connectPort),
 				Metadata:          metadata,
 				DiscoveryEndpoint: globalConfig.Discovery.Endpoint,
 				DiscoveryTimeout:  globalConfig.Discovery.Timeout,

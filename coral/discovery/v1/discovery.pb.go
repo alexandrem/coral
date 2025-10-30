@@ -31,8 +31,14 @@ type RegisterColonyRequest struct {
 	Pubkey string `protobuf:"bytes,2,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
 	// Colony endpoints (IP:port pairs)
 	Endpoints []string `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	// Private mesh IPv4 address (e.g., "10.42.0.1")
+	MeshIpv4 string `protobuf:"bytes,4,opt,name=mesh_ipv4,json=meshIpv4,proto3" json:"mesh_ipv4,omitempty"`
+	// Private mesh IPv6 address (e.g., "fd42::1")
+	MeshIpv6 string `protobuf:"bytes,5,opt,name=mesh_ipv6,json=meshIpv6,proto3" json:"mesh_ipv6,omitempty"`
+	// Buf Connect HTTP/2 port (e.g., 9000)
+	ConnectPort uint32 `protobuf:"varint,6,opt,name=connect_port,json=connectPort,proto3" json:"connect_port,omitempty"`
 	// Optional metadata
-	Metadata      map[string]string `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Metadata      map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -86,6 +92,27 @@ func (x *RegisterColonyRequest) GetEndpoints() []string {
 		return x.Endpoints
 	}
 	return nil
+}
+
+func (x *RegisterColonyRequest) GetMeshIpv4() string {
+	if x != nil {
+		return x.MeshIpv4
+	}
+	return ""
+}
+
+func (x *RegisterColonyRequest) GetMeshIpv6() string {
+	if x != nil {
+		return x.MeshIpv6
+	}
+	return ""
+}
+
+func (x *RegisterColonyRequest) GetConnectPort() uint32 {
+	if x != nil {
+		return x.ConnectPort
+	}
+	return 0
 }
 
 func (x *RegisterColonyRequest) GetMetadata() map[string]string {
@@ -212,10 +239,16 @@ type LookupColonyResponse struct {
 	Pubkey string `protobuf:"bytes,2,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
 	// Colony endpoints
 	Endpoints []string `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	// Private mesh IPv4 address (e.g., "10.42.0.1")
+	MeshIpv4 string `protobuf:"bytes,4,opt,name=mesh_ipv4,json=meshIpv4,proto3" json:"mesh_ipv4,omitempty"`
+	// Private mesh IPv6 address (e.g., "fd42::1")
+	MeshIpv6 string `protobuf:"bytes,5,opt,name=mesh_ipv6,json=meshIpv6,proto3" json:"mesh_ipv6,omitempty"`
+	// Buf Connect HTTP/2 port (e.g., 9000)
+	ConnectPort uint32 `protobuf:"varint,6,opt,name=connect_port,json=connectPort,proto3" json:"connect_port,omitempty"`
 	// Metadata
-	Metadata map[string]string `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Metadata map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Last seen timestamp
-	LastSeen      *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	LastSeen      *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -269,6 +302,27 @@ func (x *LookupColonyResponse) GetEndpoints() []string {
 		return x.Endpoints
 	}
 	return nil
+}
+
+func (x *LookupColonyResponse) GetMeshIpv4() string {
+	if x != nil {
+		return x.MeshIpv4
+	}
+	return ""
+}
+
+func (x *LookupColonyResponse) GetMeshIpv6() string {
+	if x != nil {
+		return x.MeshIpv6
+	}
+	return ""
+}
+
+func (x *LookupColonyResponse) GetConnectPort() uint32 {
+	if x != nil {
+		return x.ConnectPort
+	}
+	return 0
 }
 
 func (x *LookupColonyResponse) GetMetadata() map[string]string {
@@ -398,12 +452,15 @@ var File_coral_discovery_v1_discovery_proto protoreflect.FileDescriptor
 
 const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\n" +
-	"\"coral/discovery/v1/discovery.proto\x12\x12coral.discovery.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf8\x01\n" +
+	"\"coral/discovery/v1/discovery.proto\x12\x12coral.discovery.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd5\x02\n" +
 	"\x15RegisterColonyRequest\x12\x17\n" +
 	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x16\n" +
 	"\x06pubkey\x18\x02 \x01(\tR\x06pubkey\x12\x1c\n" +
-	"\tendpoints\x18\x03 \x03(\tR\tendpoints\x12S\n" +
-	"\bmetadata\x18\x04 \x03(\v27.coral.discovery.v1.RegisterColonyRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\tendpoints\x18\x03 \x03(\tR\tendpoints\x12\x1b\n" +
+	"\tmesh_ipv4\x18\x04 \x01(\tR\bmeshIpv4\x12\x1b\n" +
+	"\tmesh_ipv6\x18\x05 \x01(\tR\bmeshIpv6\x12!\n" +
+	"\fconnect_port\x18\x06 \x01(\rR\vconnectPort\x12S\n" +
+	"\bmetadata\x18\a \x03(\v27.coral.discovery.v1.RegisterColonyRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x7f\n" +
@@ -413,13 +470,16 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\".\n" +
 	"\x13LookupColonyRequest\x12\x17\n" +
-	"\amesh_id\x18\x01 \x01(\tR\x06meshId\"\xaf\x02\n" +
+	"\amesh_id\x18\x01 \x01(\tR\x06meshId\"\x8c\x03\n" +
 	"\x14LookupColonyResponse\x12\x17\n" +
 	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x16\n" +
 	"\x06pubkey\x18\x02 \x01(\tR\x06pubkey\x12\x1c\n" +
-	"\tendpoints\x18\x03 \x03(\tR\tendpoints\x12R\n" +
-	"\bmetadata\x18\x04 \x03(\v26.coral.discovery.v1.LookupColonyResponse.MetadataEntryR\bmetadata\x127\n" +
-	"\tlast_seen\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x1a;\n" +
+	"\tendpoints\x18\x03 \x03(\tR\tendpoints\x12\x1b\n" +
+	"\tmesh_ipv4\x18\x04 \x01(\tR\bmeshIpv4\x12\x1b\n" +
+	"\tmesh_ipv6\x18\x05 \x01(\tR\bmeshIpv6\x12!\n" +
+	"\fconnect_port\x18\x06 \x01(\rR\vconnectPort\x12R\n" +
+	"\bmetadata\x18\a \x03(\v26.coral.discovery.v1.LookupColonyResponse.MetadataEntryR\bmetadata\x127\n" +
+	"\tlast_seen\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x0f\n" +

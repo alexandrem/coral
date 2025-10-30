@@ -12,30 +12,33 @@ func TestRegistry_Register(t *testing.T) {
 	reg := New(5 * time.Minute)
 
 	t.Run("successful registration", func(t *testing.T) {
-		entry, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, map[string]string{"env": "prod"})
+		entry, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, map[string]string{"env": "prod"})
 		require.NoError(t, err)
 		assert.Equal(t, "mesh-1", entry.MeshID)
 		assert.Equal(t, "pubkey-1", entry.PubKey)
 		assert.Equal(t, []string{"10.0.0.1:41820"}, entry.Endpoints)
+		assert.Equal(t, "10.42.0.1", entry.MeshIPv4)
+		assert.Equal(t, "fd42::1", entry.MeshIPv6)
+		assert.Equal(t, uint32(9000), entry.ConnectPort)
 		assert.Equal(t, "prod", entry.Metadata["env"])
 		assert.False(t, entry.LastSeen.IsZero())
 		assert.False(t, entry.ExpiresAt.IsZero())
 	})
 
 	t.Run("empty mesh_id", func(t *testing.T) {
-		_, err := reg.Register("", "pubkey-1", []string{"10.0.0.1:41820"}, nil)
+		_, err := reg.Register("", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "mesh_id cannot be empty")
 	})
 
 	t.Run("empty pubkey", func(t *testing.T) {
-		_, err := reg.Register("mesh-1", "", []string{"10.0.0.1:41820"}, nil)
+		_, err := reg.Register("mesh-1", "", []string{"10.0.0.1:41820"}, "", "", 0, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "pubkey cannot be empty")
 	})
 
 	t.Run("no endpoints", func(t *testing.T) {
-		_, err := reg.Register("mesh-1", "pubkey-1", []string{}, nil)
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{}, "", "", 0, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "at least one endpoint is required")
 	})
@@ -44,13 +47,13 @@ func TestRegistry_Register(t *testing.T) {
 		reg := New(5 * time.Minute)
 
 		// Initial registration
-		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, nil)
+		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, nil)
 		require.NoError(t, err)
 
 		time.Sleep(10 * time.Millisecond)
 
 		// Update registration
-		entry2, err := reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, map[string]string{"updated": "true"})
+		entry2, err := reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "10.42.0.2", "fd42::2", 9001, map[string]string{"updated": "true"})
 		require.NoError(t, err)
 
 		assert.Equal(t, "pubkey-2", entry2.PubKey)
@@ -63,7 +66,7 @@ func TestRegistry_Lookup(t *testing.T) {
 	reg := New(5 * time.Minute)
 
 	t.Run("lookup existing colony", func(t *testing.T) {
-		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, map[string]string{"env": "prod"})
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, map[string]string{"env": "prod"})
 		require.NoError(t, err)
 
 		entry, err := reg.Lookup("mesh-1")
@@ -88,7 +91,7 @@ func TestRegistry_Lookup(t *testing.T) {
 	t.Run("lookup expired colony", func(t *testing.T) {
 		reg := New(50 * time.Millisecond)
 
-		_, err := reg.Register("mesh-expire", "pubkey-1", []string{"10.0.0.1:41820"}, nil)
+		_, err := reg.Register("mesh-expire", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil)
 		require.NoError(t, err)
 
 		// Wait for expiration
@@ -105,10 +108,10 @@ func TestRegistry_Count(t *testing.T) {
 
 	assert.Equal(t, 0, reg.Count())
 
-	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, nil)
+	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil)
 	assert.Equal(t, 1, reg.Count())
 
-	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, nil)
+	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil)
 	assert.Equal(t, 2, reg.Count())
 }
 
@@ -116,8 +119,8 @@ func TestRegistry_CountActive(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register two colonies
-	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, nil)
-	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, nil)
+	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil)
+	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil)
 
 	assert.Equal(t, 2, reg.CountActive())
 
@@ -131,8 +134,8 @@ func TestRegistry_Cleanup(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register two colonies
-	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, nil)
-	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, nil)
+	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil)
+	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil)
 
 	assert.Equal(t, 2, reg.Count())
 
@@ -149,8 +152,8 @@ func TestRegistry_StartCleanup(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register colonies
-	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, nil)
-	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, nil)
+	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil)
+	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil)
 
 	assert.Equal(t, 2, reg.Count())
 
@@ -180,6 +183,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 				"mesh-concurrent",
 				"pubkey",
 				[]string{"10.0.0.1:41820"},
+				"", "", 0,
 				nil,
 			)
 			done <- true
