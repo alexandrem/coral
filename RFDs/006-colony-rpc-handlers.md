@@ -1,7 +1,7 @@
 ---
 rfd: "006"
 title: "Colony RPC Handler Implementation"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "colony", "rpc", "observability" ]
 
 # RFD 006 - Colony RPC Handler Implementation
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
