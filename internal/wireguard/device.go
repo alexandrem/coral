@@ -63,8 +63,7 @@ func NewDevice(cfg *config.WireGuardConfig) (*Device, error) {
 		}
 		subnet = ipNet
 	} else {
-		// Default to 10.42.0.0/16
-		_, subnet, _ = net.ParseCIDR("10.42.0.0/16")
+		_, subnet, _ = net.ParseCIDR(constants.DefaultColonyMeshIPv4Subnet)
 	}
 
 	// Create IP allocator

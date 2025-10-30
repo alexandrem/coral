@@ -173,11 +173,11 @@ The colony to start is determined by (in priority order):
 			// Set default mesh IPs if not configured
 			meshIPv4 := colonyConfig.WireGuard.MeshIPv4
 			if meshIPv4 == "" {
-				meshIPv4 = "10.42.0.1" // Default colony mesh IPv4
+				meshIPv4 = constants.DefaultColonyMeshIPv4
 			}
 			meshIPv6 := colonyConfig.WireGuard.MeshIPv6
 			if meshIPv6 == "" {
-				meshIPv6 = "fd42::1" // Default colony mesh IPv6
+				meshIPv6 = constants.DefaultColonyMeshIPv6
 			}
 
 			// Set default connect port if not configured
@@ -335,7 +335,7 @@ This command is useful for troubleshooting connectivity issues.`,
 				// Try mesh IP as fallback (for remote queries)
 				meshIP := colonyConfig.WireGuard.MeshIPv4
 				if meshIP == "" {
-					meshIP = "10.42.0.1"
+					meshIP = constants.DefaultColonyMeshIPv4
 				}
 				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
 				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)

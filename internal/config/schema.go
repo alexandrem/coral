@@ -142,12 +142,12 @@ func DefaultColonyConfig(colonyID, appName, env string) *ColonyConfig {
 		Environment:     env,
 		WireGuard: WireGuardConfig{
 			Port:                constants.DefaultWireGuardPort,
-			MeshIPv4:            "10.42.0.1",    // Colony's mesh IPv4 address
-			MeshIPv6:            "fd42::1",      // Colony's mesh IPv6 address
-			MeshNetworkIPv4:     "10.42.0.0/16", // IPv4 subnet for mesh network
-			MeshNetworkIPv6:     "fd42::/48",    // IPv6 subnet for mesh network
-			MTU:                 1420,           // Default MTU for WireGuard (1500 - 80 overhead)
-			PersistentKeepalive: 25,             // Keep NAT mappings alive (seconds)
+			MeshIPv4:            constants.DefaultColonyMeshIPv4,
+			MeshIPv6:            constants.DefaultColonyMeshIPv6,
+			MeshNetworkIPv4:     constants.DefaultColonyMeshIPv4Subnet,
+			MeshNetworkIPv6:     constants.DefaultColonyMeshIPv6Subnet,
+			MTU:                 constants.DefaultWireGuardMTU,
+			PersistentKeepalive: constants.DefaultWireGuardKeepaliveSeconds,
 		},
 		Discovery: DiscoveryColony{
 			Enabled:          true,
