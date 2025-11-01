@@ -23,11 +23,92 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Service information for multi-service agents.
+type ServiceInfo struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ComponentName  string                 `protobuf:"bytes,1,opt,name=component_name,json=componentName,proto3" json:"component_name,omitempty"`                                        // "frontend", "redis", "metrics"
+	Port           int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`                                                                              // Service port number
+	HealthEndpoint string                 `protobuf:"bytes,3,opt,name=health_endpoint,json=healthEndpoint,proto3" json:"health_endpoint,omitempty"`                                     // Optional: "/health", "/metrics", ""
+	ServiceType    string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`                                              // Optional: "http", "redis", "postgres", "prometheus"
+	Labels         map[string]string      `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Additional metadata
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ServiceInfo) Reset() {
+	*x = ServiceInfo{}
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceInfo) ProtoMessage() {}
+
+func (x *ServiceInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceInfo.ProtoReflect.Descriptor instead.
+func (*ServiceInfo) Descriptor() ([]byte, []int) {
+	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ServiceInfo) GetComponentName() string {
+	if x != nil {
+		return x.ComponentName
+	}
+	return ""
+}
+
+func (x *ServiceInfo) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *ServiceInfo) GetHealthEndpoint() string {
+	if x != nil {
+		return x.HealthEndpoint
+	}
+	return ""
+}
+
+func (x *ServiceInfo) GetServiceType() string {
+	if x != nil {
+		return x.ServiceType
+	}
+	return ""
+}
+
+func (x *ServiceInfo) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
 // Agent authentication during registration
 type RegisterRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Agent identification
-	AgentId       string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	AgentId string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// DEPRECATED: Legacy single-service field (for backward compatibility).
+	// Use 'services' field for new deployments.
+	//
+	// Deprecated: Marked as deprecated in coral/mesh/v1/auth.proto.
 	ComponentName string `protobuf:"bytes,2,opt,name=component_name,json=componentName,proto3" json:"component_name,omitempty"` // "frontend", "api", "database"
 	// Authentication (RFD 002)
 	ColonyId     string `protobuf:"bytes,3,opt,name=colony_id,json=colonyId,proto3" json:"colony_id,omitempty"`             // Must match colony's ID
@@ -37,13 +118,16 @@ type RegisterRequest struct {
 	Labels  map[string]string `protobuf:"bytes,6,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// WireGuard (for mesh coordination)
 	WireguardPubkey string `protobuf:"bytes,7,opt,name=wireguard_pubkey,json=wireguardPubkey,proto3" json:"wireguard_pubkey,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// NEW: Multi-service support (RFD 011).
+	// One or more services monitored by this agent.
+	Services      []*ServiceInfo `protobuf:"bytes,10,rep,name=services,proto3" json:"services,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RegisterRequest) Reset() {
 	*x = RegisterRequest{}
-	mi := &file_coral_mesh_v1_auth_proto_msgTypes[0]
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -55,7 +139,7 @@ func (x *RegisterRequest) String() string {
 func (*RegisterRequest) ProtoMessage() {}
 
 func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_auth_proto_msgTypes[0]
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -68,7 +152,7 @@ func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{0}
+	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RegisterRequest) GetAgentId() string {
@@ -78,6 +162,7 @@ func (x *RegisterRequest) GetAgentId() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in coral/mesh/v1/auth.proto.
 func (x *RegisterRequest) GetComponentName() string {
 	if x != nil {
 		return x.ComponentName
@@ -120,6 +205,13 @@ func (x *RegisterRequest) GetWireguardPubkey() string {
 	return ""
 }
 
+func (x *RegisterRequest) GetServices() []*ServiceInfo {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
 type RegisterResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Authentication result
@@ -137,7 +229,7 @@ type RegisterResponse struct {
 
 func (x *RegisterResponse) Reset() {
 	*x = RegisterResponse{}
-	mi := &file_coral_mesh_v1_auth_proto_msgTypes[1]
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -149,7 +241,7 @@ func (x *RegisterResponse) String() string {
 func (*RegisterResponse) ProtoMessage() {}
 
 func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_auth_proto_msgTypes[1]
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -162,7 +254,7 @@ func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResponse.ProtoReflect.Descriptor instead.
 func (*RegisterResponse) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{1}
+	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RegisterResponse) GetAccepted() bool {
@@ -219,7 +311,7 @@ type PeerInfo struct {
 
 func (x *PeerInfo) Reset() {
 	*x = PeerInfo{}
-	mi := &file_coral_mesh_v1_auth_proto_msgTypes[2]
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -231,7 +323,7 @@ func (x *PeerInfo) String() string {
 func (*PeerInfo) ProtoMessage() {}
 
 func (x *PeerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_auth_proto_msgTypes[2]
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -244,7 +336,7 @@ func (x *PeerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerInfo.ProtoReflect.Descriptor instead.
 func (*PeerInfo) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{2}
+	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PeerInfo) GetAgentId() string {
@@ -279,15 +371,26 @@ var File_coral_mesh_v1_auth_proto protoreflect.FileDescriptor
 
 const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd9\x02\n" +
+	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8f\x02\n" +
+	"\vServiceInfo\x12%\n" +
+	"\x0ecomponent_name\x18\x01 \x01(\tR\rcomponentName\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
+	"\x0fhealth_endpoint\x18\x03 \x01(\tR\x0ehealthEndpoint\x12!\n" +
+	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12>\n" +
+	"\x06labels\x18\x05 \x03(\v2&.coral.mesh.v1.ServiceInfo.LabelsEntryR\x06labels\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x95\x03\n" +
 	"\x0fRegisterRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
-	"\x0ecomponent_name\x18\x02 \x01(\tR\rcomponentName\x12\x1b\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12)\n" +
+	"\x0ecomponent_name\x18\x02 \x01(\tB\x02\x18\x01R\rcomponentName\x12\x1b\n" +
 	"\tcolony_id\x18\x03 \x01(\tR\bcolonyId\x12#\n" +
 	"\rcolony_secret\x18\x04 \x01(\tR\fcolonySecret\x12\x18\n" +
 	"\aversion\x18\x05 \x01(\tR\aversion\x12B\n" +
 	"\x06labels\x18\x06 \x03(\v2*.coral.mesh.v1.RegisterRequest.LabelsEntryR\x06labels\x12)\n" +
-	"\x10wireguard_pubkey\x18\a \x01(\tR\x0fwireguardPubkey\x1a9\n" +
+	"\x10wireguard_pubkey\x18\a \x01(\tR\x0fwireguardPubkey\x126\n" +
+	"\bservices\x18\n" +
+	" \x03(\v2\x1a.coral.mesh.v1.ServiceInfoR\bservices\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf8\x01\n" +
@@ -321,25 +424,29 @@ func file_coral_mesh_v1_auth_proto_rawDescGZIP() []byte {
 	return file_coral_mesh_v1_auth_proto_rawDescData
 }
 
-var file_coral_mesh_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_coral_mesh_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_coral_mesh_v1_auth_proto_goTypes = []any{
-	(*RegisterRequest)(nil),       // 0: coral.mesh.v1.RegisterRequest
-	(*RegisterResponse)(nil),      // 1: coral.mesh.v1.RegisterResponse
-	(*PeerInfo)(nil),              // 2: coral.mesh.v1.PeerInfo
-	nil,                           // 3: coral.mesh.v1.RegisterRequest.LabelsEntry
-	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
+	(*ServiceInfo)(nil),           // 0: coral.mesh.v1.ServiceInfo
+	(*RegisterRequest)(nil),       // 1: coral.mesh.v1.RegisterRequest
+	(*RegisterResponse)(nil),      // 2: coral.mesh.v1.RegisterResponse
+	(*PeerInfo)(nil),              // 3: coral.mesh.v1.PeerInfo
+	nil,                           // 4: coral.mesh.v1.ServiceInfo.LabelsEntry
+	nil,                           // 5: coral.mesh.v1.RegisterRequest.LabelsEntry
+	(*timestamppb.Timestamp)(nil), // 6: google.protobuf.Timestamp
 }
 var file_coral_mesh_v1_auth_proto_depIdxs = []int32{
-	3, // 0: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
-	2, // 1: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
-	4, // 2: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
-	0, // 3: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
-	1, // 4: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
-	4, // [4:5] is the sub-list for method output_type
-	3, // [3:4] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	4, // 0: coral.mesh.v1.ServiceInfo.labels:type_name -> coral.mesh.v1.ServiceInfo.LabelsEntry
+	5, // 1: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
+	0, // 2: coral.mesh.v1.RegisterRequest.services:type_name -> coral.mesh.v1.ServiceInfo
+	3, // 3: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
+	6, // 4: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
+	1, // 5: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
+	2, // 6: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
+	6, // [6:7] is the sub-list for method output_type
+	5, // [5:6] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_coral_mesh_v1_auth_proto_init() }
@@ -353,7 +460,7 @@ func file_coral_mesh_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_mesh_v1_auth_proto_rawDesc), len(file_coral_mesh_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

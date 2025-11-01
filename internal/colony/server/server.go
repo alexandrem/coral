@@ -135,6 +135,7 @@ func (s *Server) ListAgents(
 			MeshIpv6:      entry.MeshIPv6,
 			LastSeen:      timestamppb.New(entry.LastSeen),
 			Status:        string(status),
+			Services:      entry.Services, // RFD 011: Multi-service support
 		}
 		agents = append(agents, agent)
 	}
@@ -174,6 +175,7 @@ func (s *Server) GetTopology(
 			MeshIpv6:      entry.MeshIPv6,
 			LastSeen:      timestamppb.New(entry.LastSeen),
 			Status:        string(status),
+			Services:      entry.Services, // RFD 011: Multi-service support
 		}
 		agents = append(agents, agent)
 	}

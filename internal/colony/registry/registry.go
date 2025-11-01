@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 )
 
 const (
@@ -24,11 +26,12 @@ const (
 // Entry represents a registered agent in the colony.
 type Entry struct {
 	AgentID       string
-	ComponentName string
+	ComponentName string // Deprecated: Use Services field for multi-service agents
 	MeshIPv4      string
 	MeshIPv6      string
 	RegisteredAt  time.Time
 	LastSeen      time.Time
+	Services      []*meshv1.ServiceInfo // RFD 011: Multi-service support
 }
 
 // Registry is an in-memory store for agent registrations.
@@ -45,12 +48,16 @@ func New() *Registry {
 }
 
 // Register adds or updates an agent registration.
-func (r *Registry) Register(agentID, componentName, meshIPv4, meshIPv6 string) (*Entry, error) {
+// For backward compatibility, componentName can be provided for single-service agents.
+// Multi-service agents should provide services instead.
+func (r *Registry) Register(agentID, componentName, meshIPv4, meshIPv6 string, services []*meshv1.ServiceInfo) (*Entry, error) {
 	if agentID == "" {
 		return nil, fmt.Errorf("agent_id cannot be empty")
 	}
-	if componentName == "" {
-		return nil, fmt.Errorf("component_name cannot be empty")
+
+	// Validate that either componentName or services is provided
+	if componentName == "" && len(services) == 0 {
+		return nil, fmt.Errorf("either component_name or services must be provided")
 	}
 
 	r.mu.Lock()
@@ -65,6 +72,7 @@ func (r *Registry) Register(agentID, componentName, meshIPv4, meshIPv6 string) (
 		existing.MeshIPv4 = meshIPv4
 		existing.MeshIPv6 = meshIPv6
 		existing.LastSeen = now
+		existing.Services = services
 		return existing, nil
 	}
 
@@ -76,6 +84,7 @@ func (r *Registry) Register(agentID, componentName, meshIPv4, meshIPv6 string) (
 		MeshIPv6:      meshIPv6,
 		RegisteredAt:  now,
 		LastSeen:      now,
+		Services:      services,
 	}
 
 	r.entries[agentID] = entry

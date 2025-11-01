@@ -61,8 +61,8 @@ func TestServer_GetStatus(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register healthy agents.
-		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2")
-		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3")
+		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
 
 		req := connect.NewRequest(&colonyv1.GetStatusRequest{})
 		resp, err := server.GetStatus(context.Background(), req)
@@ -83,8 +83,8 @@ func TestServer_GetStatus(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register agents and manipulate their LastSeen.
-		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2")
-		server.registry.Register("agent-degraded", "api", "10.42.0.3", "fd42::3")
+		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2", nil)
+		server.registry.Register("agent-degraded", "api", "10.42.0.3", "fd42::3", nil)
 
 		// Manually set LastSeen to make one degraded.
 		entries := server.registry.ListAll()
@@ -114,8 +114,8 @@ func TestServer_GetStatus(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register agents and manipulate their LastSeen.
-		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2")
-		server.registry.Register("agent-unhealthy", "api", "10.42.0.3", "fd42::3")
+		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2", nil)
+		server.registry.Register("agent-unhealthy", "api", "10.42.0.3", "fd42::3", nil)
 
 		// Manually set LastSeen to make one unhealthy.
 		entries := server.registry.ListAll()
@@ -204,9 +204,9 @@ func TestServer_ListAgents(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register multiple agents.
-		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2")
-		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3")
-		server.registry.Register("agent-3", "worker", "10.42.0.4", "fd42::4")
+		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
+		server.registry.Register("agent-3", "worker", "10.42.0.4", "fd42::4", nil)
 
 		req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
 		resp, err := server.ListAgents(context.Background(), req)
@@ -236,9 +236,9 @@ func TestServer_ListAgents(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register agents.
-		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2")
-		server.registry.Register("agent-degraded", "api", "10.42.0.3", "fd42::3")
-		server.registry.Register("agent-unhealthy", "worker", "10.42.0.4", "fd42::4")
+		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2", nil)
+		server.registry.Register("agent-degraded", "api", "10.42.0.3", "fd42::3", nil)
+		server.registry.Register("agent-unhealthy", "worker", "10.42.0.4", "fd42::4", nil)
 
 		// Manually set LastSeen timestamps.
 		entries := server.registry.ListAll()
@@ -298,8 +298,8 @@ func TestServer_GetTopology(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register agents.
-		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2")
-		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3")
+		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
 
 		req := connect.NewRequest(&colonyv1.GetTopologyRequest{})
 		resp, err := server.GetTopology(context.Background(), req)
@@ -335,16 +335,16 @@ func TestServer_determineColonyStatus(t *testing.T) {
 		{
 			name: "all healthy agents",
 			setupAgents: func(reg *registry.Registry) {
-				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2")
-				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3")
+				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
 			},
 			expectedStatus: "running",
 		},
 		{
 			name: "one degraded agent",
 			setupAgents: func(reg *registry.Registry) {
-				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2")
-				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3")
+				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
 
 				// Make agent-2 degraded.
 				entries := reg.ListAll()
@@ -360,8 +360,8 @@ func TestServer_determineColonyStatus(t *testing.T) {
 		{
 			name: "one unhealthy agent",
 			setupAgents: func(reg *registry.Registry) {
-				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2")
-				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3")
+				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
 
 				// Make agent-2 unhealthy.
 				entries := reg.ListAll()

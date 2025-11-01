@@ -5,11 +5,23 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/coral-io/coral/coral/mesh/v1;meshv1";
 
+// Service information for multi-service agents.
+message ServiceInfo {
+  string component_name = 1;     // "frontend", "redis", "metrics"
+  int32 port = 2;                // Service port number
+  string health_endpoint = 3;    // Optional: "/health", "/metrics", ""
+  string service_type = 4;       // Optional: "http", "redis", "postgres", "prometheus"
+  map<string, string> labels = 5; // Additional metadata
+}
+
 // Agent authentication during registration
 message RegisterRequest {
   // Agent identification
   string agent_id = 1;
-  string component_name = 2;  // "frontend", "api", "database"
+
+  // DEPRECATED: Legacy single-service field (for backward compatibility).
+  // Use 'services' field for new deployments.
+  string component_name = 2 [deprecated = true];  // "frontend", "api", "database"
 
   // Authentication (RFD 002)
   string colony_id = 3;       // Must match colony's ID
@@ -21,6 +33,10 @@ message RegisterRequest {
 
   // WireGuard (for mesh coordination)
   string wireguard_pubkey = 7;
+
+  // NEW: Multi-service support (RFD 011).
+  // One or more services monitored by this agent.
+  repeated ServiceInfo services = 10;
 }
 
 message RegisterResponse {

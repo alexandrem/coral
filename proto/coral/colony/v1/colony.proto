@@ -3,6 +3,7 @@ syntax = "proto3";
 package coral.colony.v1;
 
 import "google/protobuf/timestamp.proto";
+import "coral/mesh/v1/auth.proto";
 
 option go_package = "github.com/coral-io/coral/proto/colony/v1;colonypb";
 
@@ -78,8 +79,9 @@ message Agent {
   // Agent identifier.
   string agent_id = 1;
 
-  // Component name.
-  string component_name = 2;
+  // DEPRECATED: Component name (single-service mode).
+  // Use 'services' field for multi-service agents.
+  string component_name = 2 [deprecated = true];
 
   // Mesh IPv4 address.
   string mesh_ipv4 = 3;
@@ -92,6 +94,9 @@ message Agent {
 
   // Status ("healthy", "degraded", "unhealthy").
   string status = 6;
+
+  // Services monitored by this agent (RFD 011).
+  repeated coral.mesh.v1.ServiceInfo services = 7;
 }
 
 message GetTopologyRequest {}

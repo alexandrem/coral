@@ -1257,18 +1257,24 @@ func (h *meshServiceHandler) Register(
 
 	// Register agent in the registry for tracking.
 	// Note: We don't have IPv6 mesh IP yet (future enhancement).
-	if _, err := h.registry.Register(req.Msg.AgentId, req.Msg.ComponentName, meshIP.String(), ""); err != nil {
+	if _, err := h.registry.Register(req.Msg.AgentId, req.Msg.ComponentName, meshIP.String(), "", req.Msg.Services); err != nil {
 		h.logger.Warn().
 			Err(err).
 			Str("agent_id", req.Msg.AgentId).
 			Msg("Failed to register agent in registry (non-fatal)")
 	}
 
-	h.logger.Info().
+	// Log registration with service details
+	logEvent := h.logger.Info().
 		Str("agent_id", req.Msg.AgentId).
 		Str("component_name", req.Msg.ComponentName).
-		Str("mesh_ip", meshIP.String()).
-		Msg("Agent registered successfully")
+		Str("mesh_ip", meshIP.String())
+
+	if len(req.Msg.Services) > 0 {
+		logEvent.Int("service_count", len(req.Msg.Services))
+	}
+
+	logEvent.Msg("Agent registered successfully")
 
 	// Build list of existing peers (excluding this agent)
 	peers := []*meshv1.PeerInfo{}
