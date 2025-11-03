@@ -1257,7 +1257,7 @@ func (h *meshServiceHandler) Register(
 
 	// Register agent in the registry for tracking.
 	// Note: We don't have IPv6 mesh IP yet (future enhancement).
-	if _, err := h.registry.Register(req.Msg.AgentId, req.Msg.ComponentName, meshIP.String(), "", req.Msg.Services); err != nil {
+	if _, err := h.registry.Register(req.Msg.AgentId, req.Msg.ComponentName, meshIP.String(), "", req.Msg.Services, req.Msg.RuntimeContext, req.Msg.ProtocolVersion); err != nil {
 		h.logger.Warn().
 			Err(err).
 			Str("agent_id", req.Msg.AgentId).

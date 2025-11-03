@@ -7,13 +7,13 @@
 package meshv1
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
+	v1 "github.com/coral-io/coral/coral/agent/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -120,9 +120,13 @@ type RegisterRequest struct {
 	WireguardPubkey string `protobuf:"bytes,7,opt,name=wireguard_pubkey,json=wireguardPubkey,proto3" json:"wireguard_pubkey,omitempty"`
 	// NEW: Multi-service support (RFD 011).
 	// One or more services monitored by this agent.
-	Services      []*ServiceInfo `protobuf:"bytes,10,rep,name=services,proto3" json:"services,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Services []*ServiceInfo `protobuf:"bytes,10,rep,name=services,proto3" json:"services,omitempty"`
+	// NEW: Runtime context (RFD 018).
+	RuntimeContext *v1.RuntimeContextResponse `protobuf:"bytes,11,opt,name=runtime_context,json=runtimeContext,proto3" json:"runtime_context,omitempty"`
+	// Protocol version (RFD 018).
+	ProtocolVersion string `protobuf:"bytes,12,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RegisterRequest) Reset() {
@@ -210,6 +214,20 @@ func (x *RegisterRequest) GetServices() []*ServiceInfo {
 		return x.Services
 	}
 	return nil
+}
+
+func (x *RegisterRequest) GetRuntimeContext() *v1.RuntimeContextResponse {
+	if x != nil {
+		return x.RuntimeContext
+	}
+	return nil
+}
+
+func (x *RegisterRequest) GetProtocolVersion() string {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return ""
 }
 
 type RegisterResponse struct {
@@ -371,7 +389,7 @@ var File_coral_mesh_v1_auth_proto protoreflect.FileDescriptor
 
 const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8f\x02\n" +
+	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\x8f\x02\n" +
 	"\vServiceInfo\x12%\n" +
 	"\x0ecomponent_name\x18\x01 \x01(\tR\rcomponentName\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
@@ -380,7 +398,7 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\x06labels\x18\x05 \x03(\v2&.coral.mesh.v1.ServiceInfo.LabelsEntryR\x06labels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x95\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x91\x04\n" +
 	"\x0fRegisterRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12)\n" +
 	"\x0ecomponent_name\x18\x02 \x01(\tB\x02\x18\x01R\rcomponentName\x12\x1b\n" +
@@ -390,7 +408,9 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\x06labels\x18\x06 \x03(\v2*.coral.mesh.v1.RegisterRequest.LabelsEntryR\x06labels\x12)\n" +
 	"\x10wireguard_pubkey\x18\a \x01(\tR\x0fwireguardPubkey\x126\n" +
 	"\bservices\x18\n" +
-	" \x03(\v2\x1a.coral.mesh.v1.ServiceInfoR\bservices\x1a9\n" +
+	" \x03(\v2\x1a.coral.mesh.v1.ServiceInfoR\bservices\x12O\n" +
+	"\x0fruntime_context\x18\v \x01(\v2&.coral.agent.v1.RuntimeContextResponseR\x0eruntimeContext\x12)\n" +
+	"\x10protocol_version\x18\f \x01(\tR\x0fprotocolVersion\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf8\x01\n" +
@@ -426,27 +446,29 @@ func file_coral_mesh_v1_auth_proto_rawDescGZIP() []byte {
 
 var file_coral_mesh_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_coral_mesh_v1_auth_proto_goTypes = []any{
-	(*ServiceInfo)(nil),           // 0: coral.mesh.v1.ServiceInfo
-	(*RegisterRequest)(nil),       // 1: coral.mesh.v1.RegisterRequest
-	(*RegisterResponse)(nil),      // 2: coral.mesh.v1.RegisterResponse
-	(*PeerInfo)(nil),              // 3: coral.mesh.v1.PeerInfo
-	nil,                           // 4: coral.mesh.v1.ServiceInfo.LabelsEntry
-	nil,                           // 5: coral.mesh.v1.RegisterRequest.LabelsEntry
-	(*timestamppb.Timestamp)(nil), // 6: google.protobuf.Timestamp
+	(*ServiceInfo)(nil),               // 0: coral.mesh.v1.ServiceInfo
+	(*RegisterRequest)(nil),           // 1: coral.mesh.v1.RegisterRequest
+	(*RegisterResponse)(nil),          // 2: coral.mesh.v1.RegisterResponse
+	(*PeerInfo)(nil),                  // 3: coral.mesh.v1.PeerInfo
+	nil,                               // 4: coral.mesh.v1.ServiceInfo.LabelsEntry
+	nil,                               // 5: coral.mesh.v1.RegisterRequest.LabelsEntry
+	(*v1.RuntimeContextResponse)(nil), // 6: coral.agent.v1.RuntimeContextResponse
+	(*timestamppb.Timestamp)(nil),     // 7: google.protobuf.Timestamp
 }
 var file_coral_mesh_v1_auth_proto_depIdxs = []int32{
 	4, // 0: coral.mesh.v1.ServiceInfo.labels:type_name -> coral.mesh.v1.ServiceInfo.LabelsEntry
 	5, // 1: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
 	0, // 2: coral.mesh.v1.RegisterRequest.services:type_name -> coral.mesh.v1.ServiceInfo
-	3, // 3: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
-	6, // 4: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
-	1, // 5: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
-	2, // 6: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
-	6, // [6:7] is the sub-list for method output_type
-	5, // [5:6] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	6, // 3: coral.mesh.v1.RegisterRequest.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
+	3, // 4: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
+	7, // 5: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
+	1, // 6: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
+	2, // 7: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
+	7, // [7:8] is the sub-list for method output_type
+	6, // [6:7] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_coral_mesh_v1_auth_proto_init() }

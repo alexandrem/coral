@@ -12,7 +12,7 @@ func TestRegistry_Register(t *testing.T) {
 	reg := New()
 
 	t.Run("successful registration", func(t *testing.T) {
-		entry, err := reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+		entry, err := reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
 		require.NoError(t, err)
 		assert.Equal(t, "agent-1", entry.AgentID)
 		assert.Equal(t, "frontend", entry.ComponentName)
@@ -24,13 +24,13 @@ func TestRegistry_Register(t *testing.T) {
 	})
 
 	t.Run("empty agent_id", func(t *testing.T) {
-		_, err := reg.Register("", "frontend", "10.42.0.2", "fd42::2", nil)
+		_, err := reg.Register("", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "agent_id cannot be empty")
 	})
 
 	t.Run("empty component_name", func(t *testing.T) {
-		_, err := reg.Register("agent-1", "", "10.42.0.2", "fd42::2", nil)
+		_, err := reg.Register("agent-1", "", "10.42.0.2", "fd42::2", nil, nil, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "either component_name or services must be provided")
 	})
@@ -39,7 +39,7 @@ func TestRegistry_Register(t *testing.T) {
 		reg := New()
 
 		// Initial registration.
-		entry1, err := reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+		entry1, err := reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
 		require.NoError(t, err)
 
 		initialLastSeen := entry1.LastSeen
@@ -48,7 +48,7 @@ func TestRegistry_Register(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Update registration (re-register with new IPs).
-		entry2, err := reg.Register("agent-1", "frontend-v2", "10.42.0.3", "fd42::3", nil)
+		entry2, err := reg.Register("agent-1", "frontend-v2", "10.42.0.3", "fd42::3", nil, nil, "")
 		require.NoError(t, err)
 
 		assert.Equal(t, "frontend-v2", entry2.ComponentName)
@@ -63,7 +63,7 @@ func TestRegistry_UpdateHeartbeat(t *testing.T) {
 	reg := New()
 
 	t.Run("update existing agent", func(t *testing.T) {
-		entry, err := reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+		entry, err := reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
 		require.NoError(t, err)
 
 		originalLastSeen := entry.LastSeen
@@ -94,7 +94,7 @@ func TestRegistry_Get(t *testing.T) {
 	reg := New()
 
 	t.Run("get existing agent", func(t *testing.T) {
-		_, err := reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+		_, err := reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
 		require.NoError(t, err)
 
 		entry, err := reg.Get("agent-1")
@@ -125,9 +125,9 @@ func TestRegistry_ListAll(t *testing.T) {
 	})
 
 	t.Run("multiple agents", func(t *testing.T) {
-		reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
-		reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
-		reg.Register("agent-3", "worker", "10.42.0.4", "fd42::4", nil)
+		reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
+		reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+		reg.Register("agent-3", "worker", "10.42.0.4", "fd42::4", nil, nil, "")
 
 		entries := reg.ListAll()
 		assert.Len(t, entries, 3)
@@ -148,14 +148,14 @@ func TestRegistry_Count(t *testing.T) {
 
 	assert.Equal(t, 0, reg.Count())
 
-	reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+	reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
 	assert.Equal(t, 1, reg.Count())
 
-	reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
+	reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
 	assert.Equal(t, 2, reg.Count())
 
 	// Re-registering same agent shouldn't increase count.
-	reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
+	reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
 	assert.Equal(t, 2, reg.Count())
 }
 
@@ -163,8 +163,8 @@ func TestRegistry_CountActive(t *testing.T) {
 	reg := New()
 
 	t.Run("all healthy agents", func(t *testing.T) {
-		reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil)
-		reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil)
+		reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
+		reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
 
 		assert.Equal(t, 2, reg.CountActive())
 	})
@@ -173,9 +173,9 @@ func TestRegistry_CountActive(t *testing.T) {
 		reg := New()
 
 		// Register agents.
-		reg.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2", nil)
-		reg.Register("agent-degraded", "api", "10.42.0.3", "fd42::3", nil)
-		reg.Register("agent-unhealthy", "worker", "10.42.0.4", "fd42::4", nil)
+		reg.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
+		reg.Register("agent-degraded", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+		reg.Register("agent-unhealthy", "worker", "10.42.0.4", "fd42::4", nil, nil, "")
 
 		// Manually adjust LastSeen timestamps to simulate different statuses.
 		now := time.Now()
@@ -203,7 +203,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	// Concurrent writes.
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			reg.Register("agent-concurrent", "frontend", "10.42.0.2", "fd42::2", nil)
+			reg.Register("agent-concurrent", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
 			done <- true
 		}(i)
 	}
