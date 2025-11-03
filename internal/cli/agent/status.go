@@ -1,0 +1,229 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/spf13/cobra"
+
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
+)
+
+// NewStatusCmd creates the agent status command.
+func NewStatusCmd() *cobra.Command {
+	var (
+		jsonOutput bool
+		agentURL   string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show agent status and runtime context",
+		Long: `Display detailed information about the local Coral agent.
+
+This command shows:
+- Agent platform and version information
+- Runtime context (Native, Docker, K8s, etc.)
+- Available capabilities (run, exec, shell, connect)
+- Visibility scope and container access
+- Colony connection status
+
+The agent must be running and accessible at the specified URL.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Default agent URL (typically on localhost)
+			if agentURL == "" {
+				agentURL = "http://localhost:9001"
+			}
+
+			// Create agent client
+			client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
+
+			// Query runtime context
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			req := connect.NewRequest(&agentv1.GetRuntimeContextRequest{})
+			resp, err := client.GetRuntimeContext(ctx, req)
+			if err != nil {
+				return fmt.Errorf("failed to get agent status: %w\n\nIs the agent running? Try: coral connect <service>", err)
+			}
+
+			runtimeCtx := resp.Msg
+
+			// Output in requested format
+			if jsonOutput {
+				return outputAgentStatusJSON(runtimeCtx)
+			}
+
+			return outputAgentStatusTable(runtimeCtx)
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().StringVar(&agentURL, "agent-url", "", "Agent URL (default: http://localhost:9001)")
+
+	return cmd
+}
+
+// outputAgentStatusJSON outputs agent status in JSON format.
+func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse) error {
+	data, err := json.MarshalIndent(ctx, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	fmt.Println(string(data))
+	return nil
+}
+
+// outputAgentStatusTable outputs agent status in human-readable format.
+func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
+	fmt.Println()
+	fmt.Println("Agent Status")
+	fmt.Println("============")
+	fmt.Println()
+
+	// Platform section
+	fmt.Println("Platform:")
+	fmt.Printf("  OS:           %s (%s)\n", ctx.Platform.Os, ctx.Platform.OsVersion)
+	fmt.Printf("  Architecture: %s\n", ctx.Platform.Arch)
+	fmt.Printf("  Kernel:       %s\n", ctx.Platform.Kernel)
+	fmt.Printf("  Agent:        %s\n", ctx.Version)
+	fmt.Println()
+
+	// Runtime section
+	fmt.Println("Runtime:")
+	fmt.Printf("  Type:         %s\n", formatRuntimeType(ctx.RuntimeType))
+
+	if ctx.SidecarMode != agentv1.SidecarMode_SIDECAR_MODE_UNKNOWN {
+		fmt.Printf("  Mode:         %s\n", formatSidecarMode(ctx.SidecarMode))
+	}
+
+	if ctx.CriSocket != nil {
+		fmt.Printf("  CRI Socket:   %s\n", ctx.CriSocket.Path)
+		fmt.Printf("  CRI Runtime:  %s", ctx.CriSocket.Type)
+		if ctx.CriSocket.Version != "" {
+			fmt.Printf(" v%s", ctx.CriSocket.Version)
+		}
+		fmt.Println()
+	}
+
+	if ctx.DetectedAt != nil {
+		fmt.Printf("  Detected:     %s\n", ctx.DetectedAt.AsTime().Format(time.RFC3339))
+	}
+	fmt.Println()
+
+	// Capabilities section
+	fmt.Println("Capabilities:")
+	fmt.Printf("  %s coral connect   %s\n", formatCapability(ctx.Capabilities.CanConnect), "Monitor and observe")
+	fmt.Printf("  %s coral exec      %s\n", formatCapability(ctx.Capabilities.CanExec), "Execute in containers")
+	fmt.Printf("  %s coral shell     %s\n", formatCapability(ctx.Capabilities.CanShell), "Interactive shell")
+	fmt.Printf("  %s coral run       %s\n", formatCapability(ctx.Capabilities.CanRun), "Launch new containers")
+	fmt.Println()
+
+	// Visibility section
+	fmt.Println("Visibility:")
+	fmt.Printf("  Scope:            %s\n", formatVisibilityScope(ctx))
+	fmt.Printf("  Namespace:        %s\n", ctx.Visibility.Namespace)
+
+	if len(ctx.Visibility.ContainerIds) > 0 {
+		fmt.Printf("  Target Containers: %d\n", len(ctx.Visibility.ContainerIds))
+		for i, id := range ctx.Visibility.ContainerIds {
+			if i < 5 {
+				fmt.Printf("    - %s\n", truncateContainerID(id))
+			}
+		}
+		if len(ctx.Visibility.ContainerIds) > 5 {
+			fmt.Printf("    ... and %d more\n", len(ctx.Visibility.ContainerIds)-5)
+		}
+	}
+	fmt.Println()
+
+	// Show warnings for limited capabilities
+	if ctx.SidecarMode == agentv1.SidecarMode_SIDECAR_MODE_PASSIVE {
+		fmt.Println("⚠️  Warning: Agent running in PASSIVE mode")
+		fmt.Println("    Limited functionality - no exec/shell support")
+		fmt.Println()
+		fmt.Println("    To enable full capabilities:")
+		fmt.Println("    1. Mount CRI socket (recommended):")
+		fmt.Println("       volumes:")
+		fmt.Println("         - name: cri-sock")
+		fmt.Println("           hostPath:")
+		fmt.Println("             path: /var/run/containerd/containerd.sock")
+		fmt.Println("       volumeMounts:")
+		fmt.Println("         - name: cri-sock")
+		fmt.Println("           mountPath: /var/run/containerd/containerd.sock")
+		fmt.Println()
+		fmt.Println("    2. Or enable shareProcessNamespace:")
+		fmt.Println("       spec:")
+		fmt.Println("         shareProcessNamespace: true")
+		fmt.Println()
+	}
+
+	return nil
+}
+
+// formatRuntimeType formats runtime type for display.
+func formatRuntimeType(rt agentv1.RuntimeContext) string {
+	switch rt {
+	case agentv1.RuntimeContext_RUNTIME_CONTEXT_NATIVE:
+		return "Native"
+	case agentv1.RuntimeContext_RUNTIME_CONTEXT_DOCKER:
+		return "Docker Container"
+	case agentv1.RuntimeContext_RUNTIME_CONTEXT_K8S_SIDECAR:
+		return "Kubernetes Sidecar"
+	case agentv1.RuntimeContext_RUNTIME_CONTEXT_K8S_DAEMONSET:
+		return "Kubernetes DaemonSet"
+	default:
+		return "Unknown"
+	}
+}
+
+// formatSidecarMode formats sidecar mode for display.
+func formatSidecarMode(sm agentv1.SidecarMode) string {
+	switch sm {
+	case agentv1.SidecarMode_SIDECAR_MODE_CRI:
+		return "CRI (recommended)"
+	case agentv1.SidecarMode_SIDECAR_MODE_SHARED_NS:
+		return "Shared Process Namespace"
+	case agentv1.SidecarMode_SIDECAR_MODE_PASSIVE:
+		return "Passive (limited)"
+	default:
+		return "Unknown"
+	}
+}
+
+// formatCapability formats capability status.
+func formatCapability(supported bool) string {
+	if supported {
+		return "✅"
+	}
+	return "❌"
+}
+
+// formatVisibilityScope formats visibility scope for display.
+func formatVisibilityScope(ctx *agentv1.RuntimeContextResponse) string {
+	if ctx.Visibility.AllPids {
+		return "All host processes"
+	}
+	if ctx.Visibility.AllContainers {
+		return "All containers"
+	}
+	if ctx.Visibility.PodScope {
+		return "Pod only"
+	}
+	return "Limited"
+}
+
+// truncateContainerID truncates container ID for display.
+func truncateContainerID(id string) string {
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
+}

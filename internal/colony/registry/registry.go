@@ -26,15 +26,15 @@ const (
 
 // Entry represents a registered agent in the colony.
 type Entry struct {
-	AgentID        string
-	ComponentName  string // Deprecated: Use Services field for multi-service agents
-	MeshIPv4       string
-	MeshIPv6       string
-	RegisteredAt   time.Time
-	LastSeen       time.Time
-	Services       []*meshv1.ServiceInfo               // RFD 011: Multi-service support
-	RuntimeContext *agentv1.RuntimeContextResponse     // RFD 018: Runtime context
-	ProtocolVersion string                             // RFD 018: Protocol version
+	AgentID         string
+	ComponentName   string // Deprecated: Use Services field for multi-service agents
+	MeshIPv4        string
+	MeshIPv6        string
+	RegisteredAt    time.Time
+	LastSeen        time.Time
+	Services        []*meshv1.ServiceInfo           // RFD 011: Multi-service support
+	RuntimeContext  *agentv1.RuntimeContextResponse // RFD 018: Runtime context
+	ProtocolVersion string                          // RFD 018: Protocol version
 }
 
 // Registry is an in-memory store for agent registrations.

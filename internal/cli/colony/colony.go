@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
 	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
@@ -509,6 +510,7 @@ This command is useful for troubleshooting connectivity issues.`,
 func newAgentsCmd() *cobra.Command {
 	var (
 		jsonOutput bool
+		verbose    bool
 		colonyID   string
 	)
 
@@ -522,6 +524,7 @@ This command queries the running colony to retrieve real-time agent information 
 - Mesh IP addresses (IPv4 and IPv6)
 - Connection status (healthy, degraded, unhealthy)
 - Last seen timestamp
+- Runtime context (with --verbose)
 
 Note: The colony must be running for this command to work.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -597,9 +600,13 @@ Note: The colony must be running for this command to work.`,
 				return nil
 			}
 
+			if verbose {
+				return outputAgentsVerbose(agents)
+			}
+
 			fmt.Printf("Connected Agents (%d):\n\n", len(agents))
-			fmt.Printf("%-20s %-15s %-18s %-10s %s\n", "AGENT ID", "COMPONENT", "MESH IP", "STATUS", "LAST SEEN")
-			fmt.Println("------------------------------------------------------------------------------")
+			fmt.Printf("%-20s %-15s %-20s %-10s %-10s %s\n", "AGENT ID", "COMPONENT", "RUNTIME", "MESH IP", "STATUS", "LAST SEEN")
+			fmt.Println("-----------------------------------------------------------------------------------------------")
 
 			for _, agent := range agents {
 				// Format last seen as relative time
@@ -614,9 +621,19 @@ Note: The colony must be running for this command to work.`,
 					lastSeenStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
 				}
 
-				fmt.Printf("%-20s %-15s %-18s %-10s %s\n",
-					agent.AgentId,
-					agent.ComponentName,
+				// Format runtime type
+				runtimeStr := "-"
+				if agent.RuntimeContext != nil {
+					runtimeStr = formatRuntimeTypeShort(agent.RuntimeContext.RuntimeType)
+					if agent.RuntimeContext.SidecarMode != 0 && agent.RuntimeContext.SidecarMode != 1 {
+						runtimeStr += fmt.Sprintf(" (%s)", formatSidecarModeShort(agent.RuntimeContext.SidecarMode))
+					}
+				}
+
+				fmt.Printf("%-20s %-15s %-20s %-10s %-10s %s\n",
+					truncate(agent.AgentId, 20),
+					truncate(agent.ComponentName, 15),
+					truncate(runtimeStr, 20),
 					agent.MeshIpv4,
 					agent.Status,
 					lastSeenStr,
@@ -628,6 +645,7 @@ Note: The colony must be running for this command to work.`,
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show detailed runtime context for each agent")
 	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (overrides auto-detection)")
 
 	return cmd
@@ -1335,4 +1353,146 @@ func truncateKey(key string) string {
 		return key
 	}
 	return key[:12] + "..." + key[len(key)-4:]
+}
+
+// truncate truncates a string to a maximum length.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// formatRuntimeTypeShort formats runtime type in short form.
+func formatRuntimeTypeShort(rt agentv1.RuntimeContext) string {
+	switch rt {
+	case agentv1.RuntimeContext_RUNTIME_CONTEXT_NATIVE:
+		return "Native"
+	case agentv1.RuntimeContext_RUNTIME_CONTEXT_DOCKER:
+		return "Docker"
+	case agentv1.RuntimeContext_RUNTIME_CONTEXT_K8S_SIDECAR:
+		return "K8s Sidecar"
+	case agentv1.RuntimeContext_RUNTIME_CONTEXT_K8S_DAEMONSET:
+		return "K8s DaemonSet"
+	default:
+		return "Unknown"
+	}
+}
+
+// formatSidecarModeShort formats sidecar mode in short form.
+func formatSidecarModeShort(sm agentv1.SidecarMode) string {
+	switch sm {
+	case agentv1.SidecarMode_SIDECAR_MODE_CRI:
+		return "CRI"
+	case agentv1.SidecarMode_SIDECAR_MODE_SHARED_NS:
+		return "SharedNS"
+	case agentv1.SidecarMode_SIDECAR_MODE_PASSIVE:
+		return "Passive"
+	default:
+		return ""
+	}
+}
+
+// outputAgentsVerbose outputs agents in verbose format with full runtime context.
+func outputAgentsVerbose(agents []*colonyv1.Agent) error {
+	fmt.Printf("Connected Agents (%d):\n\n", len(agents))
+
+	for i, agent := range agents {
+		if i > 0 {
+			fmt.Println()
+		}
+
+		fmt.Printf("┌─ %s ", agent.AgentId)
+		for j := 0; j < 50-len(agent.AgentId); j++ {
+			fmt.Print("─")
+		}
+		fmt.Println("┐")
+
+		fmt.Printf("│ Component:  %-45s│\n", agent.ComponentName)
+		fmt.Printf("│ Status:     %-45s│\n", formatAgentStatus(agent))
+		fmt.Printf("│ Mesh IP:    %-45s│\n", agent.MeshIpv4)
+		fmt.Println("│                                                                │")
+
+		if agent.RuntimeContext != nil {
+			rc := agent.RuntimeContext
+			fmt.Printf("│ Runtime:    %-45s│\n", formatRuntimeTypeShort(rc.RuntimeType))
+			if rc.SidecarMode != agentv1.SidecarMode_SIDECAR_MODE_UNKNOWN {
+				fmt.Printf("│ Mode:       %-45s│\n", formatSidecarModeShort(rc.SidecarMode))
+			}
+			if rc.Platform != nil {
+				fmt.Printf("│ Platform:   %s (%s) %-27s│\n", rc.Platform.Os, rc.Platform.Arch, "")
+			}
+			if rc.CriSocket != nil {
+				fmt.Printf("│ CRI:        %-45s│\n", rc.CriSocket.Type)
+			}
+			fmt.Println("│                                                                │")
+
+			// Capabilities
+			fmt.Println("│ Capabilities:                                                  │")
+			fmt.Printf("│   %s connect  %s exec  %s shell  %s run                    │\n",
+				formatCapabilitySymbol(rc.Capabilities.CanConnect),
+				formatCapabilitySymbol(rc.Capabilities.CanExec),
+				formatCapabilitySymbol(rc.Capabilities.CanShell),
+				formatCapabilitySymbol(rc.Capabilities.CanRun))
+			fmt.Println("│                                                                │")
+
+			// Visibility
+			fmt.Printf("│ Visibility: %-45s│\n", formatVisibilityShort(rc.Visibility))
+		} else {
+			fmt.Println("│ Runtime:    Unknown (legacy agent)                            │")
+		}
+
+		fmt.Println("└────────────────────────────────────────────────────────────────┘")
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// formatAgentStatus formats agent status with last seen time.
+func formatAgentStatus(agent *colonyv1.Agent) string {
+	lastSeen := agent.LastSeen.AsTime()
+	elapsed := time.Since(lastSeen)
+	var lastSeenStr string
+	if elapsed < time.Minute {
+		lastSeenStr = fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
+	} else if elapsed < time.Hour {
+		lastSeenStr = fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
+	} else {
+		lastSeenStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
+	}
+
+	statusSymbol := "✅"
+	if agent.Status == "degraded" {
+		statusSymbol = "⚠️"
+	} else if agent.Status == "unhealthy" {
+		statusSymbol = "❌"
+	}
+
+	return fmt.Sprintf("%s %s (%s)", statusSymbol, agent.Status, lastSeenStr)
+}
+
+// formatCapabilitySymbol formats capability as a checkmark or X.
+func formatCapabilitySymbol(supported bool) string {
+	if supported {
+		return "✅"
+	}
+	return "❌"
+}
+
+// formatVisibilityShort formats visibility scope in short form.
+func formatVisibilityShort(vis *agentv1.VisibilityScope) string {
+	if vis.AllPids {
+		return "All host processes"
+	}
+	if vis.AllContainers {
+		return "All containers"
+	}
+	if vis.PodScope {
+		return "Pod only"
+	}
+	return "Limited"
 }
