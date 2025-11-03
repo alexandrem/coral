@@ -4,6 +4,7 @@ package coral.colony.v1;
 
 import "google/protobuf/timestamp.proto";
 import "coral/mesh/v1/auth.proto";
+import "coral/agent/v1/agent.proto";
 
 option go_package = "github.com/coral-io/coral/proto/colony/v1;colonypb";
 
@@ -97,6 +98,9 @@ message Agent {
 
   // Services monitored by this agent (RFD 011).
   repeated coral.mesh.v1.ServiceInfo services = 7;
+
+  // NEW: Runtime context (RFD 018).
+  coral.agent.v1.RuntimeContextResponse runtime_context = 8;
 }
 
 message GetTopologyRequest {}

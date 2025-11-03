@@ -129,13 +129,14 @@ func (s *Server) ListAgents(
 		status := registry.DetermineStatus(entry.LastSeen, now)
 
 		agent := &colonyv1.Agent{
-			AgentId:       entry.AgentID,
-			ComponentName: entry.ComponentName,
-			MeshIpv4:      entry.MeshIPv4,
-			MeshIpv6:      entry.MeshIPv6,
-			LastSeen:      timestamppb.New(entry.LastSeen),
-			Status:        string(status),
-			Services:      entry.Services, // RFD 011: Multi-service support
+			AgentId:        entry.AgentID,
+			ComponentName:  entry.ComponentName,
+			MeshIpv4:       entry.MeshIPv4,
+			MeshIpv6:       entry.MeshIPv6,
+			LastSeen:       timestamppb.New(entry.LastSeen),
+			Status:         string(status),
+			Services:       entry.Services,       // RFD 011: Multi-service support
+			RuntimeContext: entry.RuntimeContext, // RFD 018: Runtime context
 		}
 		agents = append(agents, agent)
 	}
@@ -169,13 +170,14 @@ func (s *Server) GetTopology(
 		status := registry.DetermineStatus(entry.LastSeen, now)
 
 		agent := &colonyv1.Agent{
-			AgentId:       entry.AgentID,
-			ComponentName: entry.ComponentName,
-			MeshIpv4:      entry.MeshIPv4,
-			MeshIpv6:      entry.MeshIPv6,
-			LastSeen:      timestamppb.New(entry.LastSeen),
-			Status:        string(status),
-			Services:      entry.Services, // RFD 011: Multi-service support
+			AgentId:        entry.AgentID,
+			ComponentName:  entry.ComponentName,
+			MeshIpv4:       entry.MeshIPv4,
+			MeshIpv6:       entry.MeshIPv6,
+			LastSeen:       timestamppb.New(entry.LastSeen),
+			Status:         string(status),
+			Services:       entry.Services,       // RFD 011: Multi-service support
+			RuntimeContext: entry.RuntimeContext, // RFD 018: Runtime context
 		}
 		agents = append(agents, agent)
 	}

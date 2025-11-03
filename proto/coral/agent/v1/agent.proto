@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package coral.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/coral-io/coral/coral/agent/v1;agentv1";
+
+// Agent service for runtime context and operations.
+service AgentService {
+  // Get runtime context information.
+  rpc GetRuntimeContext(GetRuntimeContextRequest) returns (RuntimeContextResponse);
+}
+
+message GetRuntimeContextRequest {
+  // Empty - returns current runtime context.
+}
+
+message RuntimeContextResponse {
+  // Platform information.
+  PlatformInfo platform = 1;
+
+  // Runtime type.
+  RuntimeContext runtime_type = 2;
+
+  // Sidecar mode (if K8s).
+  SidecarMode sidecar_mode = 3;
+
+  // CRI socket info.
+  CRISocketInfo cri_socket = 4;
+
+  // Capabilities.
+  Capabilities capabilities = 5;
+
+  // Visibility scope.
+  VisibilityScope visibility = 6;
+
+  // Detection metadata.
+  google.protobuf.Timestamp detected_at = 7;
+
+  // Agent version.
+  string version = 8;
+}
+
+message PlatformInfo {
+  // Operating system: "linux", "darwin", "windows".
+  string os = 1;
+
+  // Architecture: "amd64", "arm64".
+  string arch = 2;
+
+  // OS version: "Ubuntu 22.04", "macOS 14.2".
+  string os_version = 3;
+
+  // Kernel version: "6.5.0-35-generic", "Darwin 23.3.0".
+  string kernel = 4;
+}
+
+message CRISocketInfo {
+  // Socket path: "/var/run/containerd/containerd.sock".
+  string path = 1;
+
+  // Runtime type: "containerd", "crio", "docker".
+  string type = 2;
+
+  // Runtime version: "1.7.0".
+  string version = 3;
+}
+
+message VisibilityScope {
+  // Can see all host PIDs.
+  bool all_pids = 1;
+
+  // Can see all containers.
+  bool all_containers = 2;
+
+  // Limited to pod scope.
+  bool pod_scope = 3;
+
+  // Explicit target container IDs.
+  repeated string container_ids = 4;
+
+  // Namespace type: "host", "container", "pod", "node".
+  string namespace = 5;
+}
+
+message Capabilities {
+  // Can run new containers/processes.
+  bool can_run = 1;
+
+  // Can exec into existing containers/processes.
+  bool can_exec = 2;
+
+  // Can open interactive shell.
+  bool can_shell = 3;
+
+  // Can monitor/observe (always true).
+  bool can_connect = 4;
+}
+
+enum RuntimeContext {
+  // Unknown runtime.
+  RUNTIME_CONTEXT_UNKNOWN = 0;
+
+  // Native process on host.
+  RUNTIME_CONTEXT_NATIVE = 1;
+
+  // Docker container.
+  RUNTIME_CONTEXT_DOCKER = 2;
+
+  // Kubernetes sidecar.
+  RUNTIME_CONTEXT_K8S_SIDECAR = 3;
+
+  // Kubernetes DaemonSet.
+  RUNTIME_CONTEXT_K8S_DAEMONSET = 4;
+}
+
+enum SidecarMode {
+  // Unknown sidecar mode.
+  SIDECAR_MODE_UNKNOWN = 0;
+
+  // CRI socket available.
+  SIDECAR_MODE_CRI = 1;
+
+  // Shared process namespace.
+  SIDECAR_MODE_SHARED_NS = 2;
+
+  // Passive mode (limited capabilities).
+  SIDECAR_MODE_PASSIVE = 3;
+}

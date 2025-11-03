@@ -11,6 +11,7 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
+	v11 "github.com/coral-io/coral/coral/agent/v1"
 	v1 "github.com/coral-io/coral/coral/mesh/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -330,9 +331,11 @@ type Agent struct {
 	// Status ("healthy", "degraded", "unhealthy").
 	Status string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
 	// Services monitored by this agent (RFD 011).
-	Services      []*v1.ServiceInfo `protobuf:"bytes,7,rep,name=services,proto3" json:"services,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Services []*v1.ServiceInfo `protobuf:"bytes,7,rep,name=services,proto3" json:"services,omitempty"`
+	// NEW: Runtime context (RFD 018).
+	RuntimeContext *v11.RuntimeContextResponse `protobuf:"bytes,8,opt,name=runtime_context,json=runtimeContext,proto3" json:"runtime_context,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -411,6 +414,13 @@ func (x *Agent) GetStatus() string {
 func (x *Agent) GetServices() []*v1.ServiceInfo {
 	if x != nil {
 		return x.Services
+	}
+	return nil
+}
+
+func (x *Agent) GetRuntimeContext() *v11.RuntimeContextResponse {
+	if x != nil {
+		return x.RuntimeContext
 	}
 	return nil
 }
@@ -581,7 +591,7 @@ var File_coral_colony_v1_colony_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\n" +
-	"\x1ccoral/colony/v1/colony.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18coral/mesh/v1/auth.proto\"\x12\n" +
+	"\x1ccoral/colony/v1/colony.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18coral/mesh/v1/auth.proto\x1a\x1acoral/agent/v1/agent.proto\"\x12\n" +
 	"\x10GetStatusRequest\"\xb9\x04\n" +
 	"\x11GetStatusResponse\x12\x1b\n" +
 	"\tcolony_id\x18\x01 \x01(\tR\bcolonyId\x12\x19\n" +
@@ -604,7 +614,7 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\tmesh_ipv6\x18\x0f \x01(\tR\bmeshIpv6\"\x13\n" +
 	"\x11ListAgentsRequest\"D\n" +
 	"\x12ListAgentsResponse\x12.\n" +
-	"\x06agents\x18\x01 \x03(\v2\x16.coral.colony.v1.AgentR\x06agents\"\x90\x02\n" +
+	"\x06agents\x18\x01 \x03(\v2\x16.coral.colony.v1.AgentR\x06agents\"\xe1\x02\n" +
 	"\x05Agent\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12)\n" +
 	"\x0ecomponent_name\x18\x02 \x01(\tB\x02\x18\x01R\rcomponentName\x12\x1b\n" +
@@ -612,7 +622,8 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\tmesh_ipv6\x18\x04 \x01(\tR\bmeshIpv6\x127\n" +
 	"\tlast_seen\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12\x16\n" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x126\n" +
-	"\bservices\x18\a \x03(\v2\x1a.coral.mesh.v1.ServiceInfoR\bservices\"\x14\n" +
+	"\bservices\x18\a \x03(\v2\x1a.coral.mesh.v1.ServiceInfoR\bservices\x12O\n" +
+	"\x0fruntime_context\x18\b \x01(\v2&.coral.agent.v1.RuntimeContextResponseR\x0eruntimeContext\"\x14\n" +
 	"\x12GetTopologyRequest\"\xa1\x01\n" +
 	"\x13GetTopologyResponse\x12\x1b\n" +
 	"\tcolony_id\x18\x01 \x01(\tR\bcolonyId\x12.\n" +
@@ -644,35 +655,37 @@ func file_coral_colony_v1_colony_proto_rawDescGZIP() []byte {
 
 var file_coral_colony_v1_colony_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_coral_colony_v1_colony_proto_goTypes = []any{
-	(*GetStatusRequest)(nil),      // 0: coral.colony.v1.GetStatusRequest
-	(*GetStatusResponse)(nil),     // 1: coral.colony.v1.GetStatusResponse
-	(*ListAgentsRequest)(nil),     // 2: coral.colony.v1.ListAgentsRequest
-	(*ListAgentsResponse)(nil),    // 3: coral.colony.v1.ListAgentsResponse
-	(*Agent)(nil),                 // 4: coral.colony.v1.Agent
-	(*GetTopologyRequest)(nil),    // 5: coral.colony.v1.GetTopologyRequest
-	(*GetTopologyResponse)(nil),   // 6: coral.colony.v1.GetTopologyResponse
-	(*Connection)(nil),            // 7: coral.colony.v1.Connection
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
-	(*v1.ServiceInfo)(nil),        // 9: coral.mesh.v1.ServiceInfo
+	(*GetStatusRequest)(nil),           // 0: coral.colony.v1.GetStatusRequest
+	(*GetStatusResponse)(nil),          // 1: coral.colony.v1.GetStatusResponse
+	(*ListAgentsRequest)(nil),          // 2: coral.colony.v1.ListAgentsRequest
+	(*ListAgentsResponse)(nil),         // 3: coral.colony.v1.ListAgentsResponse
+	(*Agent)(nil),                      // 4: coral.colony.v1.Agent
+	(*GetTopologyRequest)(nil),         // 5: coral.colony.v1.GetTopologyRequest
+	(*GetTopologyResponse)(nil),        // 6: coral.colony.v1.GetTopologyResponse
+	(*Connection)(nil),                 // 7: coral.colony.v1.Connection
+	(*timestamppb.Timestamp)(nil),      // 8: google.protobuf.Timestamp
+	(*v1.ServiceInfo)(nil),             // 9: coral.mesh.v1.ServiceInfo
+	(*v11.RuntimeContextResponse)(nil), // 10: coral.agent.v1.RuntimeContextResponse
 }
 var file_coral_colony_v1_colony_proto_depIdxs = []int32{
-	8, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
-	4, // 1: coral.colony.v1.ListAgentsResponse.agents:type_name -> coral.colony.v1.Agent
-	8, // 2: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
-	9, // 3: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo
-	4, // 4: coral.colony.v1.GetTopologyResponse.agents:type_name -> coral.colony.v1.Agent
-	7, // 5: coral.colony.v1.GetTopologyResponse.connections:type_name -> coral.colony.v1.Connection
-	0, // 6: coral.colony.v1.ColonyService.GetStatus:input_type -> coral.colony.v1.GetStatusRequest
-	2, // 7: coral.colony.v1.ColonyService.ListAgents:input_type -> coral.colony.v1.ListAgentsRequest
-	5, // 8: coral.colony.v1.ColonyService.GetTopology:input_type -> coral.colony.v1.GetTopologyRequest
-	1, // 9: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
-	3, // 10: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
-	6, // 11: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
-	9, // [9:12] is the sub-list for method output_type
-	6, // [6:9] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	8,  // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
+	4,  // 1: coral.colony.v1.ListAgentsResponse.agents:type_name -> coral.colony.v1.Agent
+	8,  // 2: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
+	9,  // 3: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo
+	10, // 4: coral.colony.v1.Agent.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
+	4,  // 5: coral.colony.v1.GetTopologyResponse.agents:type_name -> coral.colony.v1.Agent
+	7,  // 6: coral.colony.v1.GetTopologyResponse.connections:type_name -> coral.colony.v1.Connection
+	0,  // 7: coral.colony.v1.ColonyService.GetStatus:input_type -> coral.colony.v1.GetStatusRequest
+	2,  // 8: coral.colony.v1.ColonyService.ListAgents:input_type -> coral.colony.v1.ListAgentsRequest
+	5,  // 9: coral.colony.v1.ColonyService.GetTopology:input_type -> coral.colony.v1.GetTopologyRequest
+	1,  // 10: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
+	3,  // 11: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
+	6,  // 12: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
+	10, // [10:13] is the sub-list for method output_type
+	7,  // [7:10] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_coral_colony_v1_colony_proto_init() }

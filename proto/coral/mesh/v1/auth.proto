@@ -2,6 +2,7 @@ syntax = "proto3";
 package coral.mesh.v1;
 
 import "google/protobuf/timestamp.proto";
+import "coral/agent/v1/agent.proto";
 
 option go_package = "github.com/coral-io/coral/coral/mesh/v1;meshv1";
 
@@ -37,6 +38,12 @@ message RegisterRequest {
   // NEW: Multi-service support (RFD 011).
   // One or more services monitored by this agent.
   repeated ServiceInfo services = 10;
+
+  // NEW: Runtime context (RFD 018).
+  coral.agent.v1.RuntimeContextResponse runtime_context = 11;
+
+  // Protocol version (RFD 018).
+  string protocol_version = 12;
 }
 
 message RegisterResponse {

@@ -1,7 +1,7 @@
 ---
 rfd: "018"
 title: "Agent Runtime Context Reporting"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -14,7 +14,12 @@ areas: [ "agent", "colony", "cli", "observability", "routing" ]
 
 # RFD 018 - Agent Runtime Context Reporting
 
-**Status:** 🚧 Draft
+**Status:** ✅ Implemented (Core Functionality)
+
+**Implementation Date:** 2025-11-02
+
+**Note:** Core runtime context reporting is complete. Advanced features (
+capability-aware routing, pre-flight checks) are deferred to future RFDs.
 
 ## Summary
 
@@ -457,7 +462,7 @@ $ coral agent list --verbose
 
 ┌─ frontend-001 ────────────────────────────────────┐
 │ Component:    frontend                            │
-│ Status:       ✅ healthy (2s ago)                  │
+│ Status:       ✅ healthy (2s ago)                 │
 │ Version:      v2.1.0                              │
 │                                                   │
 │ Platform:     Linux (Ubuntu 22.04) amd64          │
@@ -469,7 +474,7 @@ $ coral agent list --verbose
 │ Detected:     2024-03-15 10:23:45 UTC             │
 │                                                   │
 │ Capabilities:                                     │
-│   ✅ connect  ✅ exec  ✅ shell  ❌ run            │
+│   ✅ connect  ✅ exec  ✅ shell  ❌ run          │
 │                                                   │
 │ Visibility:                                       │
 │   Scope:      Pod only                            │
@@ -488,11 +493,11 @@ $ coral agent list --verbose
 │               Kernel 6.5.0-35-generic             │
 │                                                   │
 │ Runtime:      Kubernetes Sidecar (PASSIVE mode)   │
-│ CRI:          ❌ Not available                     │
+│ CRI:          ❌ Not available                    │
 │ Detected:     2024-03-15 08:15:22 UTC             │
 │                                                   │
 │ Capabilities:                                     │
-│   ✅ connect  ❌ exec  ❌ shell  ❌ run            │
+│   ✅ connect  ❌ exec  ❌ shell  ❌ run          │
 │                                                   │
 │ Visibility:                                       │
 │   Scope:      Pod only                            │
@@ -520,7 +525,7 @@ $ coral agent list --verbose
 
 ┌─ dev-local ───────────────────────────────────────┐
 │ Component:    dev                                 │
-│ Status:       ✅ healthy (8s ago)                  │
+│ Status:       ✅ healthy (8s ago)                 │
 │ Version:      v2.1.0                              │
 │                                                   │
 │ Platform:     macOS 14.2 arm64                    │
@@ -532,7 +537,7 @@ $ coral agent list --verbose
 │ Detected:     2024-03-15 09:42:10 UTC             │
 │                                                   │
 │ Capabilities:                                     │
-│   ✅ connect  ✅ exec  ✅ shell  ✅ run            │
+│   ✅ connect  ✅ exec  ✅ shell  ✅ run          │
 │   (run forced to container mode on macOS)         │
 │                                                   │
 │ Visibility:                                       │
@@ -975,60 +980,102 @@ colony:
 
 ## Implementation Plan
 
-### Phase 1: Runtime Detection
+### Phase 1: Runtime Detection ✅ COMPLETED
 
-- [ ] Implement runtime context detection in agent
-- [ ] Platform detection (OS, arch, version)
-- [ ] Runtime type detection (reuse RFD 016 logic)
-- [ ] Sidecar mode detection (CRI vs SharedNS vs Passive)
-- [ ] CRI socket probing
-- [ ] Container discovery via CRI API
-- [ ] Capability determination logic
-- [ ] Visibility scope calculation
-- [ ] Periodic refresh background task
-- [ ] Change detection for re-registration
-- [ ] Re-registration when context changes
-- [ ] Unit tests for all detection paths
+- ✅ Implement runtime context detection in agent
+- ✅ Platform detection (OS, arch, version)
+- ✅ Runtime type detection (Native, Docker, K8s)
+- ✅ Sidecar mode detection (CRI vs SharedNS vs Passive)
+- ✅ CRI socket probing
+- ⏭️ Container discovery via CRI API (deferred - basic detection works)
+- ✅ Capability determination logic
+- ✅ Visibility scope calculation
+- ✅ Periodic refresh background task
+- ✅ Change detection for re-registration
+- ✅ Re-registration when context changes
+- ✅ Unit tests for all detection paths
 
-### Phase 2: Agent API
+**Implementation:**
 
-- [ ] Add `GetRuntimeContext` RPC to agent service
-- [ ] Implement RPC handler
-- [ ] Cache runtime context in agent struct
-- [ ] Return context on RPC call
-- [ ] Integration tests
+- `internal/runtime/detector.go` - Main detection logic
+- `internal/runtime/platform_*.go` - OS-specific detection (Linux, macOS,
+  Windows)
 
-### Phase 3: Registration Integration
+### Phase 2: Agent API ✅ COMPLETED
 
-- [ ] Extend `RegisterRequest` with runtime context
-- [ ] Agent sends runtime context on registration
-- [ ] Colony stores in agent registry
-- [ ] Heartbeats don't resend (optimization)
-- [ ] Handle legacy agents without runtime context
+- ✅ Add `GetRuntimeContext` RPC to agent service
+- ✅ Implement RPC handler
+- ✅ Cache runtime context in agent struct
+- ✅ Return context on RPC call
+- ✅ Integration tests
 
-### Phase 4: Colony Storage and API
+**Implementation:**
 
-- [ ] Extend `Agent` message with runtime context
-- [ ] Update agent registry to store runtime info
-- [ ] Include in `ListAgents` response
-- [ ] Query optimization (index by runtime type)
-- [ ] Unit tests for registry operations
+- `proto/coral/agent/v1/agent.proto` - Protocol definitions
+- `internal/agent/runtime_service.go` - RPC implementation
 
-### Phase 5: Status Commands
+### Phase 3: Registration Integration ✅ COMPLETED
 
-- [ ] `coral agent status` - display runtime context
-- [ ] `coral colony status` - show all agents + distribution
-- [ ] `coral agent list --verbose` - detailed per-agent view
-- [ ] Formatting and colors for terminal output
-- [ ] JSON output mode (`--json` flag)
+- ✅ Extend `RegisterRequest` with runtime context
+- ✅ Agent sends runtime context on registration
+- ✅ Colony stores in agent registry
+- ✅ Heartbeats don't resend (optimization)
+- ✅ Handle legacy agents without runtime context
 
-### Phase 6: Routing Integration
+**Implementation:**
+
+- `proto/coral/mesh/v1/auth.proto` - Extended RegisterRequest
+- `internal/cli/colony/colony.go` - Registration handler updated
+
+### Phase 4: Colony Storage and API ✅ COMPLETED
+
+- ✅ Extend `Agent` message with runtime context
+- ✅ Update agent registry to store runtime info
+- ✅ Include in `ListAgents` response
+- ⏭️ Query optimization (index by runtime type) - not needed yet
+- ✅ Unit tests for registry operations
+
+**Implementation:**
+
+- `proto/coral/colony/v1/colony.proto` - Extended Agent message
+- `internal/colony/registry/registry.go` - Runtime context storage
+- `internal/colony/server/server.go` - ListAgents includes runtime context
+
+### Phase 5: Status Commands ✅ COMPLETED
+
+- ✅ `coral agent status` - display runtime context
+- ✅ `coral colony agents` - show all agents + runtime info
+- ✅ `coral colony agents --verbose` - detailed per-agent view
+- ✅ Formatting and colors for terminal output
+- ✅ JSON output mode (`--json` flag)
+
+**Implementation:**
+
+- `internal/cli/agent/status.go` - Agent status command
+- `internal/cli/agent/agent.go` - Agent command group
+- `internal/cli/colony/colony.go` - Enhanced agents command with verbose mode
+
+**Note:** Implemented with box-formatted verbose output instead of exact RFD
+examples. Format differs slightly but provides all required information.
+
+### Phase 6: Routing Integration ⏭️ DEFERRED
+
+**Status:** Not implemented - deferred to future RFD
+
+**Remaining Work:**
 
 - [ ] Implement capability checking in Colony routing
 - [ ] Filter agents by capability before routing
 - [ ] Build detailed error messages with suggestions
 - [ ] CLI pre-flight checks
 - [ ] Integration tests for capability routing
+
+**Rationale for Deferral:**
+
+- Core reporting infrastructure is complete and functional
+- Routing integration requires exec/shell command implementation (RFD 017)
+- Better suited as separate RFD focused on command routing
+- Current implementation provides all visibility needed for manual operation
 
 ## Testing Strategy
 
@@ -1199,34 +1246,6 @@ rbac:
 
 ## Integration with Existing RFDs
 
-### RFD 006 - Colony RPC Handler Implementation (Implemented)
-
-**Reference only** (no modifications to implemented RFD):
-
-- RFD 018 extends `Agent` message returned by `ListAgents`
-- Runtime context stored in agent registry (existing pattern)
-- Status calculations can use runtime info for health
-
-**Integration:**
-
-- Colony registry stores `AgentRuntimeContext` per agent
-- `ListAgents` includes runtime context in response
-- Dashboard queries `ListAgents` to show runtime distribution
-
-### RFD 007 - WireGuard Mesh Implementation (Implemented)
-
-**Reference only** (no modifications to implemented RFD):
-
-- RFD 018 extends `RegisterRequest` in mesh service
-- Runtime context sent during initial registration
-- Heartbeats don't resend (bandwidth optimization)
-
-**Integration:**
-
-- Agent includes runtime context in `MeshService.Register` call
-- Colony validates and stores context
-- Subsequent heartbeats only update `last_seen`
-
 ### RFD 016 - Unified Operations UX Architecture (Draft)
 
 **Coordination** (both in draft, can reference each other):
@@ -1320,6 +1339,46 @@ INFO  Routing to: [api-001, api-003]
 
 ---
 
+## Implementation Summary
+
+### What Was Implemented (2025-11-02)
+
+**Core Runtime Reporting (Phases 1-5):**
+
+- ✅ Complete runtime detection with platform-specific code
+- ✅ Agent RPC service for querying runtime context
+- ✅ Runtime context included in agent registration
+- ✅ Colony stores and returns runtime context in ListAgents
+- ✅ CLI commands for displaying runtime information
+- ✅ Periodic refresh with change detection
+- ✅ All tests passing
+
+### What Remains (Future Work)
+
+**Capability-Aware Routing (Phase 6):**
+
+- Command filtering based on agent capabilities
+- Pre-flight checks in CLI
+- Enhanced error messages with runtime-specific suggestions
+- Should be separate RFD as it requires RFD 017 (exec/shell commands)
+
+**Advanced Features:**
+
+- CRI API integration for actual container discovery
+- Runtime context history tracking in database
+- Dashboard visualization
+- Capability-based RBAC policies
+- Alerting on capability degradation
+
+### Migration Notes
+
+**Backward Compatibility:**
+
+- Legacy agents without runtime context are accepted
+- Colony logs warnings for legacy agents
+- Future enforcement via `legacy_agent_policy` configuration
+- Three-phase rollout plan defined in RFD (not yet implemented)
+
 ## Notes
 
 **Why a Separate RFD:**
@@ -1338,13 +1397,5 @@ INFO  Routing to: [api-001, api-003]
 
 **Implementation Priority:**
 
-Phase 1-3 (detection, API, registration) are **MVP** for runtime visibility.
-Phase 4-6 (storage, status, routing) required for **production operations**.
-
-à envoyer
-
-- quittance
-- paie du 31 dec 2024 environ
-- dernier relevé paie avant fin
-
-
+Phase 1-5 (detection, API, registration, storage, status) are **COMPLETE**.
+Phase 6 (routing) is **DEFERRED** to future RFD focused on command routing.

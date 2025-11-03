@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 )
 
@@ -25,13 +26,15 @@ const (
 
 // Entry represents a registered agent in the colony.
 type Entry struct {
-	AgentID       string
-	ComponentName string // Deprecated: Use Services field for multi-service agents
-	MeshIPv4      string
-	MeshIPv6      string
-	RegisteredAt  time.Time
-	LastSeen      time.Time
-	Services      []*meshv1.ServiceInfo // RFD 011: Multi-service support
+	AgentID         string
+	ComponentName   string // Deprecated: Use Services field for multi-service agents
+	MeshIPv4        string
+	MeshIPv6        string
+	RegisteredAt    time.Time
+	LastSeen        time.Time
+	Services        []*meshv1.ServiceInfo           // RFD 011: Multi-service support
+	RuntimeContext  *agentv1.RuntimeContextResponse // RFD 018: Runtime context
+	ProtocolVersion string                          // RFD 018: Protocol version
 }
 
 // Registry is an in-memory store for agent registrations.
@@ -50,12 +53,17 @@ func New() *Registry {
 // Register adds or updates an agent registration.
 // For backward compatibility, componentName can be provided for single-service agents.
 // Multi-service agents should provide services instead.
-func (r *Registry) Register(agentID, componentName, meshIPv4, meshIPv6 string, services []*meshv1.ServiceInfo) (*Entry, error) {
+func (r *Registry) Register(
+	agentID, componentName, meshIPv4, meshIPv6 string,
+	services []*meshv1.ServiceInfo,
+	runtimeContext *agentv1.RuntimeContextResponse,
+	protocolVersion string,
+) (*Entry, error) {
 	if agentID == "" {
 		return nil, fmt.Errorf("agent_id cannot be empty")
 	}
 
-	// Validate that either componentName or services is provided
+	// Validate that either componentName or services is provided.
 	if componentName == "" && len(services) == 0 {
 		return nil, fmt.Errorf("either component_name or services must be provided")
 	}
@@ -73,18 +81,22 @@ func (r *Registry) Register(agentID, componentName, meshIPv4, meshIPv6 string, s
 		existing.MeshIPv6 = meshIPv6
 		existing.LastSeen = now
 		existing.Services = services
+		existing.RuntimeContext = runtimeContext
+		existing.ProtocolVersion = protocolVersion
 		return existing, nil
 	}
 
 	// Create new entry.
 	entry := &Entry{
-		AgentID:       agentID,
-		ComponentName: componentName,
-		MeshIPv4:      meshIPv4,
-		MeshIPv6:      meshIPv6,
-		RegisteredAt:  now,
-		LastSeen:      now,
-		Services:      services,
+		AgentID:         agentID,
+		ComponentName:   componentName,
+		MeshIPv4:        meshIPv4,
+		MeshIPv6:        meshIPv6,
+		RegisteredAt:    now,
+		LastSeen:        now,
+		Services:        services,
+		RuntimeContext:  runtimeContext,
+		ProtocolVersion: protocolVersion,
 	}
 
 	r.entries[agentID] = entry
