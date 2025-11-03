@@ -1,0 +1,322 @@
+# Coral Agent Sidecar - eBPF Privileged Mode (Maximum Compatibility)
+# This provides MAXIMUM eBPF support with full privileges
+#
+# Security Profile: 'privileged' (bypasses most security controls)
+# eBPF Support: ✅ Full (all collectors, all kernels)
+# Use Case: Maximum compatibility for eBPF observability
+#
+# Requirements:
+#   - Linux kernel 4.1+ (minimal eBPF support)
+#   - privileged: true (disables most security restrictions)
+#
+# Supported Operations:
+#   ✅ coral connect container://app   - Monitor containers
+#   ✅ coral shell                     - Interactive shell
+#   ✅ coral exec "command"            - Execute commands
+#   ✅ eBPF http_latency               - HTTP latency histograms
+#   ✅ eBPF tcp_metrics                - TCP retransmits, RTT
+#   ✅ eBPF syscall_stats              - Syscall counts
+#   ✅ eBPF cpu_profile                - CPU profiling with perf events
+#   ❌ coral run                       - Disabled (sidecar mode)
+#
+# Recommended For:
+#   - Development/testing environments
+#   - Proof-of-concept deployments
+#   - Legacy systems with custom kernel patches
+#   - When security policies allow privileged containers
+#
+# ⚠️ SECURITY WARNING ⚠️
+#   This configuration grants the container nearly unrestricted access to the host:
+#   - Full access to all devices (/dev/*)
+#   - All Linux capabilities
+#   - Can load kernel modules
+#   - Can access host filesystem
+#   - Bypasses most security controls
+#
+#   DO NOT USE IN PRODUCTION unless:
+#   - You understand the security implications
+#   - Your security policy explicitly allows privileged containers
+#   - You have compensating controls (network policies, admission controllers)
+#   - This is a dedicated monitoring/observability namespace
+#
+# Alternative: Use DaemonSet mode instead (agent-daemonset.yaml)
+#   - Better isolation (one agent per node)
+#   - More efficient resource usage
+#   - Easier to audit and control
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-coral-ebpf-privileged
+  namespace: default
+  labels:
+    app: example-app
+    coral.io/mode: ebpf-privileged
+  annotations:
+    # WARNING annotations for security audits
+    coral.io/security-warning: "Privileged container - review security policy"
+    coral.io/audit-required: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: example-app
+  template:
+    metadata:
+      labels:
+        app: example-app
+        coral.io/monitored: "true"
+        coral.io/ebpf-enabled: "true"
+        coral.io/ebpf-mode: "privileged"
+      annotations:
+        coral.io/security-profile: privileged
+        coral.io/kernel-requirement: "4.1+"
+        # Explicit warning for security scanners
+        coral.io/privileged: "true"
+    spec:
+      shareProcessNamespace: true
+      # Allow pod to bind to host ports if needed
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+
+      initContainers:
+        - name: coral-agent
+          image: coral/agent:latest
+          imagePullPolicy: IfNotPresent
+          command: ["coral", "agent", "start"]
+          args:
+            - --connect=container://app
+          env:
+            - name: CORAL_COLONY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_id
+            - name: CORAL_COLONY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_secret
+            - name: CORAL_LOG_LEVEL
+              value: "info"
+            - name: CORAL_LOG_FORMAT
+              value: "json"
+            # Enable privileged eBPF mode
+            - name: CORAL_EBPF_ENABLED
+              value: "true"
+            - name: CORAL_EBPF_MODE
+              value: "privileged"
+            # All collectors available
+            - name: CORAL_EBPF_COLLECTORS
+              value: "http_latency,tcp_metrics,syscall_stats,cpu_profile"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            # PRIVILEGED MODE - grants nearly all host access
+            privileged: true
+            # Keep read-only root filesystem where possible
+            readOnlyRootFilesystem: true
+            # Run as root for maximum compatibility
+            runAsUser: 0
+            runAsGroup: 0
+            # All capabilities are granted by privileged: true
+            # But we can explicitly list for documentation
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - NET_ADMIN
+                - SYS_RESOURCE
+                - SYS_PTRACE
+                - IPC_LOCK
+                - BPF
+                - PERFMON
+          volumeMounts:
+            - name: cri-sock
+              mountPath: /var/run/containerd/containerd.sock
+              readOnly: true
+            # With privileged mode, we have full host filesystem access
+            - name: bpf-fs
+              mountPath: /sys/fs/bpf
+            - name: sys-kernel-debug
+              mountPath: /sys/kernel/debug
+            - name: sys-kernel-tracing
+              mountPath: /sys/kernel/tracing
+            - name: sys-kernel-btf
+              mountPath: /sys/kernel/btf
+              readOnly: true
+            # Can also mount /proc and /sys for deeper introspection
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          restartPolicy: Always
+
+      containers:
+        - name: app
+          image: your-app:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # Application container should remain unprivileged
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        - name: cri-sock
+          hostPath:
+            path: /var/run/containerd/containerd.sock
+            type: Socket
+        - name: bpf-fs
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        - name: sys-kernel-debug
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+        - name: sys-kernel-tracing
+          hostPath:
+            path: /sys/kernel/tracing
+            type: Directory
+        - name: sys-kernel-btf
+          hostPath:
+            path: /sys/kernel/btf
+            type: DirectoryOrCreate
+        # Full host /proc access
+        - name: proc
+          hostPath:
+            path: /proc
+            type: Directory
+        # Full host /sys access
+        - name: sys
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: tmp
+          emptyDir: {}
+
+---
+# PodSecurityPolicy (deprecated but still in use in some clusters)
+# Uncomment if your cluster still uses PSP
+#
+# apiVersion: policy/v1beta1
+# kind: PodSecurityPolicy
+# metadata:
+#   name: coral-agent-privileged
+# spec:
+#   privileged: true
+#   allowPrivilegeEscalation: true
+#   allowedCapabilities:
+#     - '*'
+#   volumes:
+#     - '*'
+#   hostNetwork: false
+#   hostPorts:
+#     - min: 0
+#       max: 65535
+#   hostIPC: false
+#   hostPID: false
+#   runAsUser:
+#     rule: 'RunAsAny'
+#   seLinux:
+#     rule: 'RunAsAny'
+#   supplementalGroups:
+#     rule: 'RunAsAny'
+#   fsGroup:
+#     rule: 'RunAsAny'
+
+---
+# Validation: Test eBPF functionality
+# kubectl exec -it <pod-name> -c coral-agent -- sh -c "
+#   echo '=== System Info ===';
+#   uname -a;
+#   echo '';
+#   echo '=== Capabilities ===';
+#   grep Cap /proc/self/status;
+#   echo '';
+#   echo '=== eBPF Filesystem ===';
+#   ls -la /sys/fs/bpf 2>/dev/null && echo 'BPF FS: OK' || echo 'BPF FS: MISSING';
+#   echo '';
+#   echo '=== Kernel Debug ===';
+#   ls -la /sys/kernel/debug/tracing 2>/dev/null && echo 'Tracing: OK' || echo 'Tracing: MISSING';
+#   echo '';
+#   echo '=== BTF Support ===';
+#   ls -la /sys/kernel/btf/vmlinux 2>/dev/null && echo 'BTF: YES' || echo 'BTF: NO';
+#   echo '';
+#   echo '=== Test eBPF Program Load ===';
+#   # This would attempt to load a simple eBPF program to verify permissions
+#   # Actual test depends on eBPF tooling availability in container
+# "
+
+---
+# Security Recommendations:
+#
+# 1. Use NetworkPolicy to restrict agent egress
+# 2. Deploy in dedicated namespace (e.g., coral-system)
+# 3. Use PodSecurityPolicy/PodSecurity to enforce admission control
+# 4. Enable audit logging for privileged containers
+# 5. Consider OPA/Kyverno policies to gate privileged deployments
+# 6. Monitor for anomalous behavior (unexpected syscalls, network connections)
+# 7. Rotate colony secrets regularly
+# 8. Limit RBAC permissions for service account
+#
+# Example NetworkPolicy:
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: NetworkPolicy
+# metadata:
+#   name: coral-agent-egress
+# spec:
+#   podSelector:
+#     matchLabels:
+#       coral.io/ebpf-mode: privileged
+#   policyTypes:
+#     - Egress
+#   egress:
+#     # Allow DNS
+#     - to:
+#       - namespaceSelector:
+#           matchLabels:
+#             name: kube-system
+#       ports:
+#       - protocol: UDP
+#         port: 53
+#     # Allow colony connection only
+#     - to:
+#       - podSelector:
+#           matchLabels:
+#             app: coral-colony
+#       ports:
+#       - protocol: TCP
+#         port: 9000

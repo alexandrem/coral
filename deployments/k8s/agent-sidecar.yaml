@@ -1,0 +1,211 @@
+# Coral Agent Sidecar - Pod-level observability
+# Example deployment showing how to add Coral agent as a sidecar
+#
+# ⚠️ IMPORTANT: This file contains EXAMPLE configurations only
+#
+# For production deployments, use the appropriate variant:
+#   - agent-sidecar-restricted.yaml       - Most secure (no eBPF)
+#   - agent-sidecar-ebpf-minimal.yaml     - Modern K8s (kernel 5.8+)
+#   - agent-sidecar-ebpf-full.yaml        - Legacy K8s (kernel 4.7+)
+#   - agent-sidecar-ebpf-privileged.yaml  - Development only
+#
+# See README.md for detailed comparison and deployment guide
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-app-with-coral
+  namespace: default
+  labels:
+    app: example-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: example-app
+  template:
+    metadata:
+      labels:
+        app: example-app
+        coral.io/monitored: "true"
+    spec:
+      # Enable shared process namespace for sidecar visibility.
+      # This allows the agent to see processes in the app container.
+      # Requires 'baseline' PodSecurity policy.
+      shareProcessNamespace: true
+
+      initContainers:
+        # Coral agent runs as an init container with restartPolicy: Always.
+        # This makes it a long-running sidecar.
+        - name: coral-agent
+          image: coral/agent:latest
+          imagePullPolicy: IfNotPresent
+          command: ["coral", "agent", "start"]
+          args:
+            # Monitor the main app container.
+            - --connect=container://app
+          env:
+            - name: CORAL_COLONY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_id
+            - name: CORAL_COLONY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_secret
+            - name: CORAL_LOG_LEVEL
+              value: "info"
+            - name: CORAL_LOG_FORMAT
+              value: "json"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            # Restricted policy compatible - no privileged mode needed.
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: cri-sock
+              mountPath: /var/run/containerd/containerd.sock
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          # restartPolicy: Always makes this init container a sidecar.
+          restartPolicy: Always
+
+      containers:
+        # Your application container.
+        - name: app
+          image: your-app:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+      volumes:
+        # CRI socket for agent to interact with containers.
+        - name: cri-sock
+          hostPath:
+            path: /var/run/containerd/containerd.sock
+            type: Socket
+        # Temporary storage for agent.
+        - name: tmp
+          emptyDir: {}
+---
+# Alternative: Sidecar with CRI socket (recommended for 'restricted' PodSecurity)
+# This version mounts the CRI socket for explicit container targeting.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-app-with-coral-cri
+  namespace: default
+  labels:
+    app: example-app-cri
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: example-app-cri
+  template:
+    metadata:
+      labels:
+        app: example-app-cri
+        coral.io/monitored: "true"
+    spec:
+      # No shareProcessNamespace needed - works with 'restricted' PodSecurity!
+
+      initContainers:
+        - name: coral-agent
+          image: coral/agent:latest
+          imagePullPolicy: IfNotPresent
+          command: ["coral", "agent", "start"]
+          args:
+            # Explicitly target containers by name.
+            - --connect=container://app
+            - --connect=container://nginx
+          env:
+            - name: CORAL_COLONY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_id
+            - name: CORAL_COLONY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_secret
+            - name: CORAL_LOG_LEVEL
+              value: "info"
+            - name: CORAL_LOG_FORMAT
+              value: "json"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            # Fully 'restricted' PodSecurity compatible.
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: cri-sock
+              mountPath: /var/run/containerd/containerd.sock
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          restartPolicy: Always
+
+      containers:
+        - name: app
+          image: your-app:latest
+          ports:
+            - name: http
+              containerPort: 8080
+
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - name: http
+              containerPort: 80
+
+      volumes:
+        - name: cri-sock
+          hostPath:
+            path: /var/run/containerd/containerd.sock
+            type: Socket
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,34 @@
+[Unit]
+Description=Coral Agent - Unified Operations Observer
+Documentation=https://coral.io/docs/agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/coral agent start --config /etc/coral/agent.yaml
+Restart=on-failure
+RestartSec=10s
+
+# Security hardening.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/coral /var/log/coral
+
+# Logging.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=coral-agent
+
+# Resource limits.
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# User and permissions.
+User=coral
+Group=coral
+
+[Install]
+WantedBy=multi-user.target

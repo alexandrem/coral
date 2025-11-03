@@ -1,0 +1,107 @@
+# Coral Agent DaemonSet - Node-level observability
+# Deploys one agent per node for full node visibility
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: coral-agent
+  namespace: coral-system
+  labels:
+    app: coral-agent
+    component: agent
+spec:
+  selector:
+    matchLabels:
+      app: coral-agent
+  template:
+    metadata:
+      labels:
+        app: coral-agent
+        component: agent
+    spec:
+      serviceAccountName: coral-agent
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        # Run on all nodes including masters.
+        - effect: NoSchedule
+          operator: Exists
+      containers:
+        - name: coral-agent
+          image: coral/agent:latest
+          imagePullPolicy: IfNotPresent
+          command: ["coral", "agent", "start"]
+          env:
+            - name: CORAL_COLONY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_id
+            - name: CORAL_COLONY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_secret
+            - name: CORAL_LOG_LEVEL
+              value: "info"
+            - name: CORAL_LOG_FORMAT
+              value: "json"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_ADMIN
+          volumeMounts:
+            - name: cri-sock
+              mountPath: /var/run/containerd/containerd.sock
+              readOnly: true
+            - name: coral-data
+              mountPath: /var/lib/coral
+      volumes:
+        - name: cri-sock
+          hostPath:
+            path: /var/run/containerd/containerd.sock
+            type: Socket
+        - name: coral-data
+          hostPath:
+            path: /var/lib/coral
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: coral-agent
+  namespace: coral-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: coral-agent
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: coral-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: coral-agent
+subjects:
+  - kind: ServiceAccount
+    name: coral-agent
+    namespace: coral-system

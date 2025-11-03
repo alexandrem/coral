@@ -1,0 +1,164 @@
+# Coral Agent Sidecar - Restricted Mode (No eBPF)
+# This is the MOST SECURE deployment mode
+#
+# Security Profile: 'restricted' PodSecurity compatible
+# eBPF Support: ❌ None
+# Use Case: Passive monitoring, coral connect/shell/exec only
+#
+# Supported Operations:
+#   ✅ coral connect container://app   - Monitor containers via CRI
+#   ✅ coral shell                     - Interactive shell via CRI
+#   ✅ coral exec "command"            - Execute commands via CRI
+#   ❌ coral run                       - Disabled (sidecar mode)
+#   ❌ eBPF collectors                 - No permissions
+#
+# Recommended For:
+#   - Production workloads with strict security policies
+#   - Multi-tenant environments
+#   - Compliance-heavy industries (finance, healthcare)
+#   - When eBPF is not required
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-coral-restricted
+  namespace: default
+  labels:
+    app: example-app
+    coral.io/mode: restricted
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: example-app
+  template:
+    metadata:
+      labels:
+        app: example-app
+        coral.io/monitored: "true"
+        coral.io/ebpf-enabled: "false"
+      annotations:
+        # Explicitly declare no eBPF for policy enforcement
+        coral.io/security-profile: restricted
+    spec:
+      # Shared namespace for process visibility (requires 'baseline' PodSecurity)
+      # Set to false for full 'restricted' compliance
+      shareProcessNamespace: true
+
+      initContainers:
+        - name: coral-agent
+          image: coral/agent:latest
+          imagePullPolicy: IfNotPresent
+          command: ["coral", "agent", "start"]
+          args:
+            # Explicitly target containers by name
+            - --connect=container://app
+          env:
+            - name: CORAL_COLONY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_id
+            - name: CORAL_COLONY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_secret
+            - name: CORAL_LOG_LEVEL
+              value: "info"
+            - name: CORAL_LOG_FORMAT
+              value: "json"
+            # Explicitly disable eBPF
+            - name: CORAL_EBPF_ENABLED
+              value: "false"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            # MOST RESTRICTIVE - 'restricted' PodSecurity compatible
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: cri-sock
+              mountPath: /var/run/containerd/containerd.sock
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          restartPolicy: Always
+
+      containers:
+        - name: app
+          image: your-app:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        - name: cri-sock
+          hostPath:
+            # Auto-detect CRI socket (adjust for your runtime)
+            path: /var/run/containerd/containerd.sock
+            type: Socket
+        - name: tmp
+          emptyDir: {}
+
+      securityContext:
+        # Pod-level security context
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 1000
+
+---
+# Alternative: Full 'restricted' mode (no shareProcessNamespace)
+# Uncomment below for strictest security
+#
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: app-with-coral-ultra-restricted
+# spec:
+#   template:
+#     spec:
+#       # NO shareProcessNamespace for full 'restricted' compliance
+#       shareProcessNamespace: false
+#
+#       # Agent relies purely on CRI socket for container interaction
+#       # This is the MOST secure but limits some debugging capabilities

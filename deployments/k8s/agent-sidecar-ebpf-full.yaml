@@ -1,0 +1,223 @@
+# Coral Agent Sidecar - eBPF Full Mode (All Kernels)
+# This provides FULL eBPF support for older kernels
+#
+# Security Profile: 'baseline' PodSecurity (due to CAP_SYS_ADMIN)
+# eBPF Support: ✅ Full (all collectors)
+# Use Case: eBPF observability on legacy infrastructure
+#
+# Requirements:
+#   - Linux kernel 4.7+ (minimum for eBPF tracepoints)
+#   - CAP_SYS_ADMIN capability (broad privilege)
+#   - Must run as root (UID 0)
+#
+# Supported Operations:
+#   ✅ coral connect container://app   - Monitor containers
+#   ✅ coral shell                     - Interactive shell
+#   ✅ coral exec "command"            - Execute commands
+#   ✅ eBPF http_latency               - HTTP latency histograms
+#   ✅ eBPF tcp_metrics                - TCP retransmits, RTT
+#   ✅ eBPF syscall_stats              - Syscall counts
+#   ✅ eBPF cpu_profile                - CPU profiling with perf events
+#   ❌ coral run                       - Disabled (sidecar mode)
+#
+# Recommended For:
+#   - Legacy Kubernetes clusters (kernel < 5.8)
+#   - RHEL 7/CentOS 7 based nodes (kernel 3.10 with backports)
+#   - Ubuntu 18.04 (kernel 4.15)
+#   - When full eBPF capabilities are required
+#
+# Security Considerations:
+#   ⚠️  Grants CAP_SYS_ADMIN (very powerful capability)
+#   ⚠️  Must run as root (UID 0)
+#   ⚠️  Consider using DaemonSet mode instead for better isolation
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-coral-ebpf-full
+  namespace: default
+  labels:
+    app: example-app
+    coral.io/mode: ebpf-full
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: example-app
+  template:
+    metadata:
+      labels:
+        app: example-app
+        coral.io/monitored: "true"
+        coral.io/ebpf-enabled: "true"
+        coral.io/ebpf-mode: "full"
+      annotations:
+        coral.io/security-profile: baseline
+        coral.io/kernel-requirement: "4.7+"
+        # Warning annotation for security audits
+        coral.io/privileged-caps: "SYS_ADMIN,NET_ADMIN,BPF,PERFMON"
+    spec:
+      shareProcessNamespace: true
+
+      initContainers:
+        - name: coral-agent
+          image: coral/agent:latest
+          imagePullPolicy: IfNotPresent
+          command: ["coral", "agent", "start"]
+          args:
+            - --connect=container://app
+          env:
+            - name: CORAL_COLONY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_id
+            - name: CORAL_COLONY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_secret
+            - name: CORAL_LOG_LEVEL
+              value: "info"
+            - name: CORAL_LOG_FORMAT
+              value: "json"
+            # Enable full eBPF mode
+            - name: CORAL_EBPF_ENABLED
+              value: "true"
+            - name: CORAL_EBPF_MODE
+              value: "full"
+            # All collectors available
+            - name: CORAL_EBPF_COLLECTORS
+              value: "http_latency,tcp_metrics,syscall_stats,cpu_profile"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 100m        # eBPF cpu_profile adds overhead
+              memory: 256Mi    # More memory for perf buffers
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            # Security context for older kernels (requires SYS_ADMIN)
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false              # MUST be false for SYS_ADMIN
+            runAsUser: 0                     # MUST run as root
+            runAsGroup: 0
+            allowPrivilegeEscalation: true   # Required for eBPF
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+              add:
+                # Full eBPF capabilities for kernel < 5.8
+                - SYS_ADMIN     # Required for eBPF on older kernels
+                - NET_ADMIN     # Network eBPF programs
+                - BPF           # If kernel 5.8+ (ignored on older kernels)
+                - PERFMON       # If kernel 5.8+ (ignored on older kernels)
+                - SYS_RESOURCE  # For adjusting rlimits (locked memory)
+          volumeMounts:
+            - name: cri-sock
+              mountPath: /var/run/containerd/containerd.sock
+              readOnly: true
+            - name: bpf-fs
+              mountPath: /sys/fs/bpf
+            - name: sys-kernel-debug
+              mountPath: /sys/kernel/debug
+              readOnly: true
+            - name: sys-kernel-tracing
+              mountPath: /sys/kernel/tracing
+              readOnly: true
+            # BTF may not exist on older kernels (optional)
+            - name: sys-kernel-btf
+              mountPath: /sys/kernel/btf
+              readOnly: true
+            # Perf events for CPU profiling
+            - name: sys-kernel-perf
+              mountPath: /sys/kernel/debug/tracing/events
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          restartPolicy: Always
+
+      containers:
+        - name: app
+          image: your-app:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        - name: cri-sock
+          hostPath:
+            path: /var/run/containerd/containerd.sock
+            type: Socket
+        # BPF filesystem
+        - name: bpf-fs
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        # Kernel debug filesystem (legacy location)
+        - name: sys-kernel-debug
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+        # Modern tracing filesystem (kernel 4.1+)
+        - name: sys-kernel-tracing
+          hostPath:
+            path: /sys/kernel/tracing
+            type: Directory
+        # BTF (optional, may not exist on older kernels)
+        - name: sys-kernel-btf
+          hostPath:
+            path: /sys/kernel/btf
+            type: DirectoryOrCreate
+        # Perf events
+        - name: sys-kernel-perf
+          hostPath:
+            path: /sys/kernel/debug/tracing/events
+            type: Directory
+        - name: tmp
+          emptyDir: {}
+
+      securityContext:
+        # Pod-level security context
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 0  # Root group for file access
+
+---
+# Validation: Check kernel version and eBPF support
+# kubectl exec -it <pod-name> -c coral-agent -- sh -c "
+#   echo 'Kernel:' $(uname -r);
+#   echo 'eBPF support:' $(ls /sys/kernel/debug/tracing 2>/dev/null && echo 'YES' || echo 'NO');
+#   echo 'BTF support:' $(ls /sys/kernel/btf/vmlinux 2>/dev/null && echo 'YES' || echo 'NO');
+#   grep CONFIG_BPF /boot/config-$(uname -r) 2>/dev/null | head -5
+# "
+#
+# Security Audit:
+# kubectl get pod <pod-name> -o jsonpath='{.spec.containers[0].securityContext}' | jq
+#
+# Should show: runAsUser: 0, capabilities.add: ["SYS_ADMIN", ...]

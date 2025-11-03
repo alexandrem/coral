@@ -17,6 +17,7 @@ Use these commands to check agent status, connect agents to services, and more.`
 
 	// Add subcommands.
 	cmd.AddCommand(NewConnectCmd())
+	cmd.AddCommand(NewStartCmd())
 	cmd.AddCommand(NewStatusCmd())
 
 	return cmd

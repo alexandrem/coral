@@ -1,0 +1,192 @@
+# Coral Agent Sidecar - eBPF Minimal Mode (Kernel 5.8+)
+# This provides BASIC eBPF support with minimal privilege escalation
+#
+# Security Profile: 'baseline' PodSecurity (due to CAP_BPF, CAP_PERFMON)
+# eBPF Support: ✅ Partial (modern kernels only)
+# Use Case: eBPF observability on modern infrastructure
+#
+# Requirements:
+#   - Linux kernel 5.8+ with BTF enabled
+#   - /sys/kernel/btf/vmlinux must exist
+#   - CAP_BPF capability support in kernel
+#
+# Supported Operations:
+#   ✅ coral connect container://app   - Monitor containers
+#   ✅ coral shell                     - Interactive shell
+#   ✅ coral exec "command"            - Execute commands
+#   ✅ eBPF http_latency               - HTTP latency histograms
+#   ✅ eBPF tcp_metrics                - TCP retransmits, RTT
+#   ✅ eBPF syscall_stats              - Syscall counts
+#   ⚠️  eBPF cpu_profile               - May require SYS_ADMIN on some kernels
+#   ❌ coral run                       - Disabled (sidecar mode)
+#
+# Recommended For:
+#   - Modern Kubernetes clusters (1.20+)
+#   - GKE Autopilot, EKS (Bottlerocket 1.9+), AKS (Ubuntu 20.04+)
+#   - Development/staging environments
+#   - When detailed observability is needed with minimal security impact
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-coral-ebpf-minimal
+  namespace: default
+  labels:
+    app: example-app
+    coral.io/mode: ebpf-minimal
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: example-app
+  template:
+    metadata:
+      labels:
+        app: example-app
+        coral.io/monitored: "true"
+        coral.io/ebpf-enabled: "true"
+        coral.io/ebpf-mode: "minimal"
+      annotations:
+        coral.io/security-profile: baseline
+        coral.io/kernel-requirement: "5.8+"
+    spec:
+      shareProcessNamespace: true
+
+      initContainers:
+        - name: coral-agent
+          image: coral/agent:latest
+          imagePullPolicy: IfNotPresent
+          command: ["coral", "agent", "start"]
+          args:
+            - --connect=container://app
+          env:
+            - name: CORAL_COLONY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_id
+            - name: CORAL_COLONY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coral-colony-secret
+                  key: colony_secret
+            - name: CORAL_LOG_LEVEL
+              value: "info"
+            - name: CORAL_LOG_FORMAT
+              value: "json"
+            # Enable eBPF with minimal collectors
+            - name: CORAL_EBPF_ENABLED
+              value: "true"
+            - name: CORAL_EBPF_MODE
+              value: "minimal"
+            # Only enable collectors that work without SYS_ADMIN
+            - name: CORAL_EBPF_COLLECTORS
+              value: "http_latency,tcp_metrics,syscall_stats"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 100m        # Increased for eBPF overhead
+              memory: 128Mi    # eBPF maps require more memory
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            # Security context for kernel 5.8+ with CAP_BPF
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: true  # Required for eBPF attachment
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+              add:
+                # Modern eBPF capabilities (kernel 5.8+)
+                - BPF           # Core eBPF operations
+                - PERFMON       # Performance monitoring events
+                - NET_ADMIN     # Network eBPF programs (tcp_metrics)
+          volumeMounts:
+            - name: cri-sock
+              mountPath: /var/run/containerd/containerd.sock
+              readOnly: true
+            - name: bpf-fs
+              mountPath: /sys/fs/bpf
+            - name: sys-kernel-debug
+              mountPath: /sys/kernel/debug
+              readOnly: true
+            - name: sys-kernel-btf
+              mountPath: /sys/kernel/btf
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          restartPolicy: Always
+
+      containers:
+        - name: app
+          image: your-app:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        - name: cri-sock
+          hostPath:
+            path: /var/run/containerd/containerd.sock
+            type: Socket
+        # BPF filesystem for pinned maps/programs
+        - name: bpf-fs
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        # Kernel debug for tracepoints
+        - name: sys-kernel-debug
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+        # BTF (BPF Type Format) for CO-RE
+        - name: sys-kernel-btf
+          hostPath:
+            path: /sys/kernel/btf
+            type: Directory
+        - name: tmp
+          emptyDir: {}
+
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 1000
+
+---
+# Validation: Check if kernel supports this mode
+# kubectl debug node/<node-name> -it --image=busybox -- sh -c "uname -r; ls -la /sys/kernel/btf/vmlinux"
+#
+# Expected output:
+#   5.8.0-63-generic (or higher)
+#   -r--r--r-- 1 root root <size> <date> /sys/kernel/btf/vmlinux
+#
+# If /sys/kernel/btf/vmlinux is missing, use agent-sidecar-ebpf-full.yaml instead
