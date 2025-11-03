@@ -95,46 +95,46 @@ routing integration.
 
 ```go
 type AgentRuntimeContext struct {
-// Platform information
-Platform PlatformInfo
+    // Platform information
+    Platform PlatformInfo
 
-// Runtime context
-RuntimeType  RuntimeContext // NATIVE, DOCKER, K8S_SIDECAR, K8S_DAEMONSET
-SidecarMode  *SidecarMode   // CRI, SHARED_NS, PASSIVE (K8s only)
+    // Runtime context
+    RuntimeType  RuntimeContext // NATIVE, DOCKER, K8S_SIDECAR, K8S_DAEMONSET
+    SidecarMode  *SidecarMode   // CRI, SHARED_NS, PASSIVE (K8s only)
 
-// Container runtime
-CRISocket *CRISocketInfo
+    // Container runtime
+    CRISocket *CRISocketInfo
 
-// Capabilities (what commands work)
-Capabilities Capabilities
+    // Capabilities (what commands work)
+    Capabilities Capabilities
 
-// Visibility scope
-Visibility VisibilityScope
+    // Visibility scope
+    Visibility VisibilityScope
 
-// Detection metadata
-DetectedAt time.Time
-Version    string // Agent version
+    // Detection metadata
+    DetectedAt time.Time
+    Version    string // Agent version
 }
 
 type PlatformInfo struct {
-OS        string // "linux", "darwin", "windows"
-Arch      string // "amd64", "arm64"
-OSVersion string // "Ubuntu 22.04", "macOS 14.2"
-Kernel    string // "6.5.0-35-generic"
+    OS        string // "linux", "darwin", "windows"
+    Arch      string // "amd64", "arm64"
+    OSVersion string // "Ubuntu 22.04", "macOS 14.2"
+    Kernel    string // "6.5.0-35-generic"
 }
 
 type CRISocketInfo struct {
-Path    string // "/var/run/containerd/containerd.sock"
-Type    string // "containerd", "crio", "docker"
-Version string // "1.7.0"
+    Path    string // "/var/run/containerd/containerd.sock"
+    Type    string // "containerd", "crio", "docker"
+    Version string // "1.7.0"
 }
 
 type VisibilityScope struct {
-AllPIDs        bool // Can see all host PIDs
-AllContainers  bool // Can see all containers
-PodScope       bool // Limited to pod
-ContainerIDs   []string // Explicit targets (sidecar CRI mode)
-Namespace      string   // "host", "container", "pod"
+    AllPIDs        bool // Can see all host PIDs
+    AllContainers  bool // Can see all containers
+    PodScope       bool // Limited to pod
+    ContainerIDs   []string // Explicit targets (sidecar CRI mode)
+    Namespace      string   // "host", "container", "pod"
 }
 ```
 
@@ -462,7 +462,7 @@ $ coral agent list --verbose
 
 ┌─ frontend-001 ────────────────────────────────────┐
 │ Component:    frontend                            │
-│ Status:       ✅ healthy (2s ago)                  │
+│ Status:       ✅ healthy (2s ago)                 │
 │ Version:      v2.1.0                              │
 │                                                   │
 │ Platform:     Linux (Ubuntu 22.04) amd64          │
@@ -474,7 +474,7 @@ $ coral agent list --verbose
 │ Detected:     2024-03-15 10:23:45 UTC             │
 │                                                   │
 │ Capabilities:                                     │
-│   ✅ connect  ✅ exec  ✅ shell  ❌ run            │
+│   ✅ connect  ✅ exec  ✅ shell  ❌ run          │
 │                                                   │
 │ Visibility:                                       │
 │   Scope:      Pod only                            │
@@ -493,11 +493,11 @@ $ coral agent list --verbose
 │               Kernel 6.5.0-35-generic             │
 │                                                   │
 │ Runtime:      Kubernetes Sidecar (PASSIVE mode)   │
-│ CRI:          ❌ Not available                     │
+│ CRI:          ❌ Not available                    │
 │ Detected:     2024-03-15 08:15:22 UTC             │
 │                                                   │
 │ Capabilities:                                     │
-│   ✅ connect  ❌ exec  ❌ shell  ❌ run            │
+│   ✅ connect  ❌ exec  ❌ shell  ❌ run          │
 │                                                   │
 │ Visibility:                                       │
 │   Scope:      Pod only                            │
@@ -525,7 +525,7 @@ $ coral agent list --verbose
 
 ┌─ dev-local ───────────────────────────────────────┐
 │ Component:    dev                                 │
-│ Status:       ✅ healthy (8s ago)                  │
+│ Status:       ✅ healthy (8s ago)                 │
 │ Version:      v2.1.0                              │
 │                                                   │
 │ Platform:     macOS 14.2 arm64                    │
@@ -537,7 +537,7 @@ $ coral agent list --verbose
 │ Detected:     2024-03-15 09:42:10 UTC             │
 │                                                   │
 │ Capabilities:                                     │
-│   ✅ connect  ✅ exec  ✅ shell  ✅ run            │
+│   ✅ connect  ✅ exec  ✅ shell  ✅ run          │
 │   (run forced to container mode on macOS)         │
 │                                                   │
 │ Visibility:                                       │
