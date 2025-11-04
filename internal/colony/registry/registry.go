@@ -53,6 +53,7 @@ func New() *Registry {
 // Register adds or updates an agent registration.
 // For backward compatibility, componentName can be provided for single-service agents.
 // Multi-service agents should provide services instead.
+// Agents can register without services and add them later.
 func (r *Registry) Register(
 	agentID, componentName, meshIPv4, meshIPv6 string,
 	services []*meshv1.ServiceInfo,
@@ -61,11 +62,6 @@ func (r *Registry) Register(
 ) (*Entry, error) {
 	if agentID == "" {
 		return nil, fmt.Errorf("agent_id cannot be empty")
-	}
-
-	// Validate that either componentName or services is provided.
-	if componentName == "" && len(services) == 0 {
-		return nil, fmt.Errorf("either component_name or services must be provided")
 	}
 
 	r.mu.Lock()

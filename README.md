@@ -93,18 +93,18 @@ more.
 import "github.com/coral-io/coral-go"
 
 func main() {
-    coral.RegisterService("api", coral.Options{
-        Port: 8080,
-        HealthEndpoint: "/health",
-    })
+coral.RegisterService("api", coral.Options{
+Port: 8080,
+HealthEndpoint: "/health",
+})
 
-    // Feature flags
-    if coral.IsEnabled("new-checkout") {
-        useNewCheckout()
-    }
+// Feature flags
+if coral.IsEnabled("new-checkout") {
+useNewCheckout()
+}
 
-    // Enable profiling endpoint
-    coral.EnableProfiling()
+// Enable profiling endpoint
+coral.EnableProfiling()
 }
 ```
 
@@ -281,6 +281,9 @@ coral connect database --port 5432 --health http://localhost:5432/health
 
 # Connect to a specific colony
 coral connect api --port 8080 --colony-id my-app-prod
+
+> **Note:** The agent always uses discovery-provided WireGuard endpoints.
+> For local testing, ensure discovery advertises a reachable address (for example `127.0.0.1:41580`)
 ```
 
 ### AI Queries

@@ -23,7 +23,7 @@ var (
 
 	DefaultDiscoveryEndpoint = "http://localhost:8080"
 
-	// DefaultWireGuardPort is the default wireguard peering port.
+	// DefaultWireGuardPort is the default WireGuard peering port for colonies.
 	DefaultWireGuardPort = 41580
 
 	DefaultWireGuardKeepaliveSeconds = 25

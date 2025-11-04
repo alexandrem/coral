@@ -29,10 +29,14 @@ func TestRegistry_Register(t *testing.T) {
 		assert.Contains(t, err.Error(), "agent_id cannot be empty")
 	})
 
-	t.Run("empty component_name", func(t *testing.T) {
-		_, err := reg.Register("agent-1", "", "10.42.0.2", "fd42::2", nil, nil, "")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "either component_name or services must be provided")
+	t.Run("empty component_name and services", func(t *testing.T) {
+		// Agents can register without services - they may add them later.
+		entry, err := reg.Register("agent-1", "", "10.42.0.2", "fd42::2", nil, nil, "")
+		assert.NoError(t, err)
+		assert.NotNil(t, entry)
+		assert.Equal(t, "agent-1", entry.AgentID)
+		assert.Equal(t, "", entry.ComponentName)
+		assert.Equal(t, 0, len(entry.Services))
 	})
 
 	t.Run("update existing registration", func(t *testing.T) {

@@ -57,8 +57,6 @@ func (i *Interface) Close() error {
 }
 
 // AssignIP assigns an IP address to the interface using the platform-specific method.
-// Note: This is a placeholder. Actual IP assignment depends on the platform
-// and typically requires additional system calls or external commands.
 func (i *Interface) AssignIP(ip net.IP, subnet *net.IPNet) error {
 	if ip == nil {
 		return fmt.Errorf("IP is nil")
@@ -67,17 +65,14 @@ func (i *Interface) AssignIP(ip net.IP, subnet *net.IPNet) error {
 		return fmt.Errorf("subnet is nil")
 	}
 
-	// TODO: Implement platform-specific IP assignment
-	// On Linux: use netlink (github.com/vishvananda/netlink)
-	// On macOS: use ifconfig system call
-	// On Windows: use netsh or Windows API
-	//
-	// For now, this is a no-op as wireguard-go handles most of the networking
-	// and the actual IP assignment can be handled by the calling code using
-	// platform-specific utilities.
-
-	return nil
+	// Call platform-specific implementation
+	return i.AssignIPPlatform(ip, subnet)
 }
+
+// AssignIPPlatform is implemented in platform-specific files:
+// - interface_darwin.go for macOS (using ifconfig)
+// - interface_linux.go for Linux (using netlink or ip command)
+// This allows for platform-specific IP assignment methods.
 
 // SetMTU updates the interface MTU.
 func (i *Interface) SetMTU(mtu int) error {

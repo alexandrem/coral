@@ -72,6 +72,8 @@ In a new terminal, initialize a colony configuration:
 
 Start the colony with automatic discovery registration:
 
+### Local Development (same machine)
+
 ```bash
 ./bin/coral colony start
 ```
@@ -79,6 +81,7 @@ Start the colony with automatic discovery registration:
 **What it does:**
 - Loads colony configuration
 - Registers with discovery service every 60 seconds
+- Advertises WireGuard endpoint: `127.0.0.1:41580` (localhost)
 - Automatically sets default values:
   - `mesh_ipv4: 10.42.0.1`
   - `mesh_ipv6: fd42::1`
@@ -92,6 +95,30 @@ INF Colony started successfully colony_id=my-app-dev-a1b2c3
 
 Press Ctrl+C to stop
 ```
+
+### Production Deployment (different machines)
+
+**IMPORTANT:** For agents to connect from different machines, you **MUST** set `CORAL_PUBLIC_ENDPOINT` to your colony's publicly reachable IP or hostname:
+
+```bash
+# With public IP
+CORAL_PUBLIC_ENDPOINT=203.0.113.5:41580 ./bin/coral colony start
+
+# With hostname (recommended)
+CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 ./bin/coral colony start
+```
+
+**Why this is required:**
+- WireGuard endpoints must be reachable addresses (public IP or hostname)
+- The mesh IPs (10.42.0.1) only work **inside** the tunnel
+- Without `CORAL_PUBLIC_ENDPOINT`, agents can't establish the initial connection
+
+**Cloud deployments:**
+- AWS EC2: Use Elastic IP or public IP from instance metadata
+- GCP: Use external IP from instance metadata
+- Azure: Use public IP address
+- Behind NAT: Configure port forwarding and use public IP
+- Docker: Use host machine's public IP
 
 **Verify registration:**
 
@@ -176,7 +203,7 @@ curl -X POST http://localhost:8080/coral.discovery.v1.DiscoveryService/LookupCol
 {
   "meshId": "my-app-dev-a1b2c3",
   "pubkey": "...",
-  "endpoints": [":41580"],
+  "endpoints": [":41581"],
   "meshIpv4": "10.42.0.1",
   "meshIpv6": "fd42::1",
   "connectPort": 9000,

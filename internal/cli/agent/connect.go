@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/spf13/cobra"
+
 	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
@@ -18,9 +21,9 @@ import (
 	"github.com/coral-io/coral/internal/agent"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
+	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/logging"
 	"github.com/coral-io/coral/internal/wireguard"
-	"github.com/spf13/cobra"
 )
 
 // NewConnectCmd creates the connect command for agents
@@ -168,14 +171,53 @@ Note: Legacy flags (--port, --health) only work with single service specificatio
 
 			// Step 4: Register with colony
 			agentID := generateAgentID(serviceSpecs)
-			meshIP, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
+			registrationResult, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
 			if err != nil {
 				return fmt.Errorf("failed to register with colony: %w", err)
 			}
 
+			// Parse registration result (format: "IP|SUBNET")
+			parts := strings.Split(registrationResult, "|")
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid registration response format")
+			}
+			meshIPStr := parts[0]
+			meshSubnetStr := parts[1]
+
+			// Assign IP to the agent's WireGuard interface
+			meshIP := net.ParseIP(meshIPStr)
+			if meshIP == nil {
+				return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
+			}
+
+			_, meshSubnet, err := net.ParseCIDR(meshSubnetStr)
+			if err != nil {
+				return fmt.Errorf("invalid mesh subnet from colony: %w", err)
+			}
+
+			logger.Info().
+				Str("interface", wgDevice.InterfaceName()).
+				Str("ip", meshIP.String()).
+				Str("subnet", meshSubnet.String()).
+				Msg("Assigning IP address to agent WireGuard interface")
+
+			iface := wgDevice.Interface()
+			if iface == nil {
+				return fmt.Errorf("WireGuard device has no interface")
+			}
+
+			if err := iface.AssignIP(meshIP, meshSubnet); err != nil {
+				return fmt.Errorf("failed to assign IP to agent interface: %w", err)
+			}
+
+			logger.Info().
+				Str("interface", wgDevice.InterfaceName()).
+				Str("ip", meshIP.String()).
+				Msg("Successfully assigned IP to agent WireGuard interface")
+
 			fmt.Println("\n✓ Agent connected successfully")
 			fmt.Printf("Agent ID: %s\n", agentID)
-			fmt.Printf("Mesh IP: %s\n", meshIP)
+			fmt.Printf("Mesh IP: %s\n", meshIPStr)
 
 			if len(serviceSpecs) == 1 {
 				fmt.Printf("Observing: %s:%d\n", serviceSpecs[0].Name, serviceSpecs[0].Port)
@@ -267,8 +309,8 @@ func setupAgentWireGuard(
 	wgConfig := &config.WireGuardConfig{
 		PrivateKey: agentKeys.PrivateKey,
 		PublicKey:  agentKeys.PublicKey,
-		Port:       0, // Use random port for agent
-		MTU:        1420,
+		Port:       -1, // Use ephemeral port for agent
+		MTU:        constants.DefaultWireGuardMTU,
 	}
 
 	// Create device
@@ -286,17 +328,48 @@ func setupAgentWireGuard(
 		Str("interface", wgDevice.InterfaceName()).
 		Msg("WireGuard device started")
 
-	// Add colony as peer
-	// Use the first endpoint from discovery
+	// Select a discovery endpoint for establishing the WireGuard peer.
 	var colonyEndpoint string
-	if len(colonyInfo.Endpoints) > 0 {
-		colonyEndpoint = colonyInfo.Endpoints[0]
+	for _, ep := range colonyInfo.Endpoints {
+		if ep == "" {
+			continue
+		}
+
+		host, port, err := net.SplitHostPort(ep)
+		if err != nil {
+			logger.Warn().Err(err).Str("endpoint", ep).Msg("Invalid colony endpoint from discovery")
+			continue
+		}
+
+		if host == "" {
+			logger.Warn().Str("endpoint", ep).Msg("Skipping discovery endpoint without host")
+			continue
+		}
+
+		colonyEndpoint = net.JoinHostPort(host, port)
+		break
+	}
+
+	if colonyEndpoint == "" {
+		return nil, fmt.Errorf("discovery did not provide a usable WireGuard endpoint")
+	}
+
+	allowedIPs := make([]string, 0, 2)
+	if colonyInfo.MeshIpv4 != "" {
+		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv4+"/32")
+	}
+	if colonyInfo.MeshIpv6 != "" {
+		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv6+"/128")
+	}
+
+	if len(allowedIPs) == 0 {
+		return nil, fmt.Errorf("discovery response missing mesh IPs; unable to configure WireGuard peer")
 	}
 
 	peerConfig := &wireguard.PeerConfig{
 		PublicKey:           colonyInfo.Pubkey,
 		Endpoint:            colonyEndpoint,
-		AllowedIPs:          []string{colonyInfo.MeshIpv4 + "/32"},
+		AllowedIPs:          allowedIPs,
 		PersistentKeepalive: 25, // Keep NAT mapping alive
 	}
 
@@ -309,6 +382,68 @@ func setupAgentWireGuard(
 		Str("colony_endpoint", colonyEndpoint).
 		Str("colony_mesh_ip", colonyInfo.MeshIpv4).
 		Msg("Added colony as WireGuard peer")
+
+	// Assign a temporary IP to the agent interface so it can communicate with the colony.
+	// We'll use a temporary IP in the high range (.254) which will be updated after registration.
+	// Parse the colony's mesh network to determine the subnet.
+	if colonyInfo.MeshIpv4 != "" {
+		// Extract subnet from colony's mesh IP (assuming it's in the same subnet)
+		// For now, we'll use a hardcoded temporary IP in the standard range.
+		// TODO: Make this more robust by getting the subnet from discovery or config.
+		tempIP := net.ParseIP("10.42.255.254") // Temporary IP in high range
+		_, meshSubnet, err := net.ParseCIDR("10.42.0.0/16")
+		if err == nil {
+			logger.Info().
+				Str("interface", wgDevice.InterfaceName()).
+				Str("temp_ip", tempIP.String()).
+				Msg("Assigning temporary IP to agent interface for initial registration")
+
+			iface := wgDevice.Interface()
+			if iface != nil {
+				if err := iface.AssignIP(tempIP, meshSubnet); err != nil {
+					logger.Warn().Err(err).Msg("Failed to assign temporary IP to agent interface")
+				} else {
+					logger.Info().
+						Str("interface", wgDevice.InterfaceName()).
+						Str("temp_ip", tempIP.String()).
+						Msg("Temporary IP assigned successfully")
+				}
+			}
+		}
+	}
+
+	// Wait for WireGuard tunnel to establish and routes to be configured.
+	// This gives the kernel time to set up the interface and routing.
+	logger.Info().Msg("Waiting for WireGuard tunnel to establish...")
+	time.Sleep(2 * time.Second)
+
+	// Verify mesh IP is reachable via TCP connection test.
+	if colonyInfo.MeshIpv4 != "" {
+		connectPort := colonyInfo.ConnectPort
+		if connectPort == 0 {
+			connectPort = 9000 // Default connect port
+		}
+
+		meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
+		logger.Info().
+			Str("mesh_addr", meshAddr).
+			Msg("Testing connectivity to colony via mesh")
+
+		// Try to establish TCP connection to verify tunnel is working
+		conn, err := net.DialTimeout("tcp", meshAddr, 3*time.Second)
+		if err != nil {
+			logger.Warn().
+				Err(err).
+				Str("mesh_addr", meshAddr).
+				Msg("Unable to reach colony via mesh IP - tunnel may not be fully established")
+			// Don't fail here - registration will retry anyway
+		} else {
+			conn.Close()
+			logger.Info().
+				Str("mesh_addr", meshAddr).
+				Msg("Successfully verified connectivity to colony via WireGuard mesh")
+		}
+	}
 
 	return wgDevice, nil
 }
@@ -327,17 +462,19 @@ func registerWithColony(
 		Int("service_count", len(serviceSpecs)).
 		Msg("Registering with colony")
 
-	// Build mesh service URL using colony mesh IP and connect port
-	meshServiceURL := fmt.Sprintf("http://%s:%d", colonyInfo.MeshIpv4, colonyInfo.ConnectPort)
+	connectPort := colonyInfo.ConnectPort
+	if connectPort == 0 {
+		connectPort = 9000
+	}
 
-	// Create mesh service client
-	client := meshv1connect.NewMeshServiceClient(
-		http.DefaultClient,
-		meshServiceURL,
-	)
+	candidateURLs := buildMeshServiceURLs(colonyInfo, connectPort)
+	logger.Debug().
+		Strs("candidate_urls", candidateURLs).
+		Msg("Prepared colony registration endpoints")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	if len(candidateURLs) == 0 {
+		return "", fmt.Errorf("registration request failed: discovery did not provide mesh connectivity information")
+	}
 
 	// Convert service specs to protobuf ServiceInfo messages
 	services := make([]*meshv1.ServiceInfo, len(serviceSpecs))
@@ -361,25 +498,113 @@ func registerWithColony(
 		regReq.ComponentName = serviceSpecs[0].Name
 	}
 
-	req := connect.NewRequest(regReq)
+	var lastErr error
+	var attemptErrors []string
+	for _, baseURL := range candidateURLs {
+		client := meshv1connect.NewMeshServiceClient(http.DefaultClient, baseURL)
 
-	// Send registration
-	resp, err := client.Register(ctx, req)
-	if err != nil {
-		return "", fmt.Errorf("registration request failed: %w", err)
+		for attempt := 1; attempt <= 3; attempt++ {
+			logger.Info().
+				Str("agent_id", agentID).
+				Str("endpoint", baseURL).
+				Int("attempt", attempt).
+				Msg("Attempting colony registration")
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			resp, err := client.Register(ctx, connect.NewRequest(regReq))
+			cancel()
+
+			if err != nil {
+				logger.Warn().
+					Err(err).
+					Str("endpoint", baseURL).
+					Int("attempt", attempt).
+					Msg("Colony registration attempt failed")
+
+				lastErr = err
+				attemptErrors = append(attemptErrors, fmt.Sprintf("%s attempt %d: %v", baseURL, attempt, err))
+
+				if attempt < 3 {
+					time.Sleep(time.Duration(attempt) * time.Second)
+				}
+				continue
+			}
+
+			if !resp.Msg.Accepted {
+				lastErr = fmt.Errorf("registration rejected by colony: %s", resp.Msg.Reason)
+				logger.Warn().
+					Str("endpoint", baseURL).
+					Int("attempt", attempt).
+					Msg(lastErr.Error())
+
+				attemptErrors = append(attemptErrors, fmt.Sprintf("%s attempt %d: %s", baseURL, attempt, resp.Msg.Reason))
+				if attempt < 3 {
+					time.Sleep(time.Duration(attempt) * time.Second)
+				}
+				continue
+			}
+
+			logger.Info().
+				Str("assigned_ip", resp.Msg.AssignedIp).
+				Str("mesh_subnet", resp.Msg.MeshSubnet).
+				Int("peer_count", len(resp.Msg.Peers)).
+				Msg("Successfully registered with colony")
+
+			// Return both IP and subnet for interface configuration
+			result := fmt.Sprintf("%s|%s", resp.Msg.AssignedIp, resp.Msg.MeshSubnet)
+			return result, nil
+		}
 	}
 
-	if !resp.Msg.Accepted {
-		return "", fmt.Errorf("registration rejected by colony: %s", resp.Msg.Reason)
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no registration endpoints available")
 	}
 
-	logger.Info().
-		Str("assigned_ip", resp.Msg.AssignedIp).
-		Str("mesh_subnet", resp.Msg.MeshSubnet).
-		Int("peer_count", len(resp.Msg.Peers)).
-		Msg("Successfully registered with colony")
+	if len(attemptErrors) > 0 {
+		return "", fmt.Errorf("registration attempts exhausted: %w (attempts: %s)", lastErr, strings.Join(attemptErrors, "; "))
+	}
 
-	return resp.Msg.AssignedIp, nil
+	return "", fmt.Errorf("registration attempts exhausted: %w", lastErr)
+}
+
+// buildMeshServiceURLs returns candidate URLs for contacting the colony's mesh service.
+//
+// WireGuard Bootstrap Problem:
+//   - Agent needs to register to become a WireGuard peer
+//   - But agent can't reach colony through mesh until it's a peer
+//   - Solution: Initial registration uses the discovery endpoint host,
+//     then after registration all communication goes through mesh IPs
+func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectPort uint32) []string {
+	seen := make(map[string]struct{})
+	var candidates []string
+
+	add := func(host string) {
+		if host == "" {
+			return
+		}
+		url := fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%d", connectPort)))
+		if _, exists := seen[url]; exists {
+			return
+		}
+		seen[url] = struct{}{}
+		candidates = append(candidates, url)
+	}
+
+	// Extract host from discovery endpoint for bootstrap registration.
+	// This allows the agent to reach the colony before the WireGuard tunnel is established.
+	for _, ep := range colonyInfo.Endpoints {
+		if ep != "" {
+			if host, _, err := net.SplitHostPort(ep); err == nil {
+				add(host) // Use same host as WireGuard endpoint for initial registration
+			}
+		}
+	}
+
+	// Also try mesh IPs in case this is a re-registration with tunnel already established.
+	add(colonyInfo.MeshIpv4)
+	add(colonyInfo.MeshIpv6)
+
+	return candidates
 }
 
 // parseServiceSpecsWithLegacySupport parses service specs with backward compatibility.
@@ -437,15 +662,34 @@ func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHea
 	return []*ServiceSpec{spec}, nil
 }
 
-// generateAgentID generates an agent ID based on service specs.
+// generateAgentID generates a stable agent ID based on hostname and service specs.
+// The ID remains consistent across agent restarts to maintain identity in the colony.
 func generateAgentID(serviceSpecs []*ServiceSpec) string {
-	timestamp := time.Now().Format("20060102-150405")
-
-	if len(serviceSpecs) == 1 {
-		// Single service: use service name in ID
-		return fmt.Sprintf("%s-%s", serviceSpecs[0].Name, timestamp)
+	// Get hostname for stable identification
+	hostname, err := os.Hostname()
+	if err != nil {
+		// Fallback to "unknown" if hostname cannot be determined
+		hostname = "unknown"
 	}
 
-	// Multi-service: use generic name with service count
-	return fmt.Sprintf("agent-%dsvcs-%s", len(serviceSpecs), timestamp)
+	// Sanitize hostname: replace dots and underscores with hyphens
+	hostname = strings.ReplaceAll(hostname, ".", "-")
+	hostname = strings.ReplaceAll(hostname, "_", "-")
+	hostname = strings.ToLower(hostname)
+
+	if len(serviceSpecs) == 1 {
+		// Single service: hostname-servicename
+		// Example: "myserver-frontend", "myserver-api"
+		return fmt.Sprintf("%s-%s", hostname, serviceSpecs[0].Name)
+	}
+
+	if len(serviceSpecs) > 1 {
+		// Multi-service: hostname-multi
+		// Example: "myserver-multi" for an agent monitoring multiple services
+		return fmt.Sprintf("%s-multi", hostname)
+	}
+
+	// No services (daemon mode): just hostname
+	// Example: "myserver" for a standalone agent
+	return hostname
 }

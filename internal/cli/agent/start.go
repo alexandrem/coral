@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -38,8 +39,6 @@ func NewStartCmd() *cobra.Command {
 	var (
 		configFile string
 		colonyID   string
-		logLevel   string
-		logFormat  string
 		daemon     bool
 		monitorAll bool
 	)
@@ -124,11 +123,10 @@ Examples:
 			}
 
 			// Initialize logger with specified format.
-			loggerCfg := logging.Config{
-				Level:  logLevel,
-				Pretty: logFormat == "pretty",
-			}
-			logger := logging.NewWithComponent(loggerCfg, "agent")
+			logger := logging.NewWithComponent(logging.Config{
+				Level:  "debug",
+				Pretty: true,
+			}, "agent")
 
 			logger.Info().
 				Str("colony_id", cfg.ColonyID).
@@ -187,14 +185,54 @@ Examples:
 
 			// Register with colony.
 			agentID := generateAgentID(serviceSpecs)
-			meshIP, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
+			registrationResult, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
 			if err != nil {
 				return fmt.Errorf("failed to register with colony: %w", err)
 			}
 
+			// Parse registration result (format: "IP|SUBNET")
+			parts := strings.Split(registrationResult, "|")
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid registration response format")
+			}
+			meshIPStr := parts[0]
+			meshSubnetStr := parts[1]
+
+			// Assign IP to the agent's WireGuard interface
+			logger.Info().
+				Str("interface", wgDevice.InterfaceName()).
+				Str("ip", meshIPStr).
+				Str("subnet", meshSubnetStr).
+				Msg("Assigning IP address to agent WireGuard interface")
+
+			// Parse IP and subnet for interface assignment
+			meshIP := net.ParseIP(meshIPStr)
+			if meshIP == nil {
+				return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
+			}
+
+			_, meshSubnet, err := net.ParseCIDR(meshSubnetStr)
+			if err != nil {
+				return fmt.Errorf("invalid mesh subnet from colony: %w", err)
+			}
+
+			iface := wgDevice.Interface()
+			if iface == nil {
+				return fmt.Errorf("WireGuard device has no interface")
+			}
+
+			if err := iface.AssignIP(meshIP, meshSubnet); err != nil {
+				return fmt.Errorf("failed to assign IP to agent interface: %w", err)
+			}
+
+			logger.Info().
+				Str("interface", wgDevice.InterfaceName()).
+				Str("ip", meshIPStr).
+				Msg("Successfully assigned IP to agent WireGuard interface")
+
 			logger.Info().
 				Str("agent_id", agentID).
-				Str("mesh_ip", meshIP).
+				Str("mesh_ip", meshIPStr).
 				Int("service_count", len(serviceSpecs)).
 				Msg("Agent connected successfully")
 
@@ -252,8 +290,6 @@ Examples:
 
 	cmd.Flags().StringVar(&configFile, "config", "", "Path to agent configuration file (default: /etc/coral/agent.yaml)")
 	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID to connect to (overrides config file)")
-	cmd.Flags().StringVar(&logLevel, "log-level", "info", "Logging level (debug, info, warn, error)")
-	cmd.Flags().StringVar(&logFormat, "log-format", "json", "Logging format (json, pretty)")
 	cmd.Flags().BoolVar(&daemon, "daemon", false, "Run in background (requires PID file support)")
 	cmd.Flags().BoolVar(&monitorAll, "monitor-all", false, "Monitor all processes (auto-discovery mode)")
 

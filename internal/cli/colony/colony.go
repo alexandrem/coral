@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -75,7 +76,30 @@ The colony to start is determined by (in priority order):
   1. --colony flag
   2. CORAL_COLONY_ID environment variable
   3. .coral/config.yaml in current directory
-  4. Default colony in ~/.coral/config.yaml`,
+  4. Default colony in ~/.coral/config.yaml
+
+Environment Variables:
+  CORAL_COLONY_ID          - Colony ID to start (overrides config)
+  CORAL_DISCOVERY_ENDPOINT - Discovery service URL (default: http://localhost:8080)
+  CORAL_PUBLIC_ENDPOINT    - Public WireGuard endpoint for agents to connect
+                             Format: hostname:port or ip:port
+                             Examples: colony.example.com:41580, 203.0.113.5:41580
+                             Default: 127.0.0.1:<port> (local development only)
+                             Production: MUST be set to reachable public IP/hostname
+
+Production Deployment:
+  For agents to connect from different machines, you MUST set CORAL_PUBLIC_ENDPOINT
+  to your colony's publicly reachable IP address or hostname.
+
+Examples:
+  # Local development (agents on same machine)
+  coral colony start
+
+  # Production with public IP
+  CORAL_PUBLIC_ENDPOINT=203.0.113.5:41580 coral colony start
+
+  # Production with hostname
+  CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Create resolver
 			resolver, err := config.NewResolver()
@@ -144,10 +168,12 @@ The colony to start is determined by (in priority order):
 			// Create agent registry for tracking connected agents.
 			agentRegistry := registry.New()
 
-			// Build endpoints list (for now, just the WireGuard port)
-			// TODO: Add proper IP detection and multiple endpoints
-			endpoints := []string{
-				fmt.Sprintf(":%d", cfg.WireGuard.Port),
+			// Build endpoints advertised to discovery using public/reachable addresses.
+			// For local development, use empty host (":port") to let agents discover via local network.
+			// For production, configure CORAL_PUBLIC_ENDPOINT environment variable.
+			endpoints := buildWireGuardEndpoints(cfg.WireGuard.Port)
+			if len(endpoints) == 0 {
+				logger.Warn().Msg("No WireGuard endpoints could be constructed; discovery registration will fail")
 			}
 
 			// Start gRPC/Connect server for agent registration and colony management.
@@ -1072,6 +1098,39 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 		Str("mesh_ip", cfg.WireGuard.MeshIPv4).
 		Msg("WireGuard device started successfully")
 
+	// Assign mesh IP to the interface
+	if cfg.WireGuard.MeshIPv4 != "" && cfg.WireGuard.MeshNetworkIPv4 != "" {
+		meshIP := net.ParseIP(cfg.WireGuard.MeshIPv4)
+		if meshIP == nil {
+			return nil, fmt.Errorf("invalid mesh IPv4 address: %s", cfg.WireGuard.MeshIPv4)
+		}
+
+		_, meshNet, err := net.ParseCIDR(cfg.WireGuard.MeshNetworkIPv4)
+		if err != nil {
+			return nil, fmt.Errorf("invalid mesh network CIDR: %w", err)
+		}
+
+		logger.Info().
+			Str("interface", wgDevice.InterfaceName()).
+			Str("ip", meshIP.String()).
+			Str("subnet", meshNet.String()).
+			Msg("Assigning IP address to WireGuard interface")
+
+		iface := wgDevice.Interface()
+		if iface == nil {
+			return nil, fmt.Errorf("WireGuard device has no interface")
+		}
+
+		if err := iface.AssignIP(meshIP, meshNet); err != nil {
+			return nil, fmt.Errorf("failed to assign IP to interface: %w", err)
+		}
+
+		logger.Info().
+			Str("interface", wgDevice.InterfaceName()).
+			Str("ip", meshIP.String()).
+			Msg("Successfully assigned IP to WireGuard interface")
+	}
+
 	// Save the assigned interface name to config for future reference
 	interfaceName := wgDevice.InterfaceName()
 	if interfaceName != "" {
@@ -1473,6 +1532,35 @@ func formatAgentStatus(agent *colonyv1.Agent) string {
 	}
 
 	return fmt.Sprintf("%s %s (%s)", statusSymbol, agent.Status, lastSeenStr)
+}
+
+func buildWireGuardEndpoints(port int) []string {
+	var endpoints []string
+
+	// Check for explicit public endpoint configuration.
+	// Format: hostname:port or ip:port (e.g., "coral.example.com:41580" or "203.0.113.10:41580")
+	if publicEndpoint := os.Getenv("CORAL_PUBLIC_ENDPOINT"); publicEndpoint != "" {
+		// Validate endpoint has port
+		if _, _, err := net.SplitHostPort(publicEndpoint); err == nil {
+			endpoints = append(endpoints, publicEndpoint)
+			return endpoints
+		}
+		// If no port, add configured port
+		endpoints = append(endpoints, net.JoinHostPort(publicEndpoint, fmt.Sprintf("%d", port)))
+		return endpoints
+	}
+
+	// For local development: use localhost.
+	// Agents on the same machine can connect via 127.0.0.1.
+	//
+	// For production deployments:
+	// - Set CORAL_PUBLIC_ENDPOINT to your public IP or hostname
+	// - Or use NAT traversal/STUN (future feature)
+	if port > 0 {
+		endpoints = append(endpoints, net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)))
+	}
+
+	return endpoints
 }
 
 // formatCapabilitySymbol formats capability as a checkmark or X.

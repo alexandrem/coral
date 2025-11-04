@@ -46,12 +46,15 @@ func NewDevice(cfg *config.WireGuardConfig) (*Device, error) {
 	}
 
 	// Set defaults
-	if cfg.Port == 0 {
-		cfg.Port = 41580
+	if cfg.Port < 0 {
+		// Negative value signals that the caller wants an ephemeral port.
+		cfg.Port = 0
+	} else if cfg.Port == 0 {
+		cfg.Port = constants.DefaultWireGuardPort
 	}
 
 	if cfg.MTU == 0 {
-		cfg.MTU = 1420
+		cfg.MTU = constants.DefaultWireGuardMTU
 	}
 
 	// Parse mesh network CIDR for IP allocation
@@ -242,6 +245,11 @@ func (d *Device) InterfaceName() string {
 		return d.iface.Name()
 	}
 	return ""
+}
+
+// Interface returns the Interface object for this device.
+func (d *Device) Interface() *Interface {
+	return d.iface
 }
 
 // configure applies the initial device configuration via UAPI.

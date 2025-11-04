@@ -61,17 +61,28 @@ type ServicesConfig struct {
 }
 
 // WireGuardConfig contains WireGuard mesh configuration.
+//
+// For production deployments, you must set the CORAL_PUBLIC_ENDPOINT environment
+// variable to your colony's publicly reachable address. This tells agents where
+// to establish the WireGuard tunnel.
+//
+// Example production setup:
+//
+//	CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start
+//
+// The mesh IPs (mesh_ipv4, mesh_ipv6) are only used INSIDE the tunnel for
+// service communication, not for establishing the initial connection.
 type WireGuardConfig struct {
 	PrivateKey          string `yaml:"private_key"`
 	PublicKey           string `yaml:"public_key"`
-	Port                int    `yaml:"port"`
-	InterfaceName       string `yaml:"interface_name,omitempty"`
-	MeshIPv4            string `yaml:"mesh_ipv4,omitempty"`
-	MeshIPv6            string `yaml:"mesh_ipv6,omitempty"`
-	MeshNetworkIPv4     string `yaml:"mesh_network_ipv4,omitempty"`
-	MeshNetworkIPv6     string `yaml:"mesh_network_ipv6,omitempty"`
-	MTU                 int    `yaml:"mtu,omitempty"`
-	PersistentKeepalive int    `yaml:"persistent_keepalive,omitempty"`
+	Port                int    `yaml:"port"`                           // WireGuard UDP listen port
+	InterfaceName       string `yaml:"interface_name,omitempty"`       // Interface name (e.g., wg0)
+	MeshIPv4            string `yaml:"mesh_ipv4,omitempty"`            // IPv4 address inside tunnel
+	MeshIPv6            string `yaml:"mesh_ipv6,omitempty"`            // IPv6 address inside tunnel
+	MeshNetworkIPv4     string `yaml:"mesh_network_ipv4,omitempty"`    // IPv4 network CIDR
+	MeshNetworkIPv6     string `yaml:"mesh_network_ipv6,omitempty"`    // IPv6 network CIDR
+	MTU                 int    `yaml:"mtu,omitempty"`                  // Interface MTU
+	PersistentKeepalive int    `yaml:"persistent_keepalive,omitempty"` // Keepalive interval (seconds)
 }
 
 // DiscoveryColony contains colony-specific discovery settings.
