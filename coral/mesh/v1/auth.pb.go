@@ -7,14 +7,13 @@
 package meshv1
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	v1 "github.com/coral-io/coral/coral/agent/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -386,6 +385,122 @@ func (x *PeerInfo) GetWireguardPubkey() string {
 	return ""
 }
 
+// Heartbeat request from agent to keep connection alive
+type HeartbeatRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	AgentId string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// Optional: agent can report current status
+	Status string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"` // "healthy", "degraded", "unhealthy"
+	// Optional: updated service information
+	Services      []*ServiceInfo `protobuf:"bytes,3,rep,name=services,proto3" json:"services,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeartbeatRequest) Reset() {
+	*x = HeartbeatRequest{}
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeartbeatRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeartbeatRequest) ProtoMessage() {}
+
+func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
+func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
+	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *HeartbeatRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *HeartbeatRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *HeartbeatRequest) GetServices() []*ServiceInfo {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+type HeartbeatResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Ok    bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	// Colony can send commands to agent (future use)
+	Commands      []string `protobuf:"bytes,2,rep,name=commands,proto3" json:"commands,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeartbeatResponse) Reset() {
+	*x = HeartbeatResponse{}
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeartbeatResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeartbeatResponse) ProtoMessage() {}
+
+func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_mesh_v1_auth_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
+func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
+	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *HeartbeatResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *HeartbeatResponse) GetCommands() []string {
+	if x != nil {
+		return x.Commands
+	}
+	return nil
+}
+
 var File_coral_mesh_v1_auth_proto protoreflect.FileDescriptor
 
 const file_coral_mesh_v1_auth_proto_rawDesc = "" +
@@ -428,9 +543,17 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0ecomponent_name\x18\x02 \x01(\tR\rcomponentName\x12\x17\n" +
 	"\amesh_ip\x18\x03 \x01(\tR\x06meshIp\x12)\n" +
-	"\x10wireguard_pubkey\x18\x04 \x01(\tR\x0fwireguardPubkey2Z\n" +
+	"\x10wireguard_pubkey\x18\x04 \x01(\tR\x0fwireguardPubkey\"}\n" +
+	"\x10HeartbeatRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x126\n" +
+	"\bservices\x18\x03 \x03(\v2\x1a.coral.mesh.v1.ServiceInfoR\bservices\"?\n" +
+	"\x11HeartbeatResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x1a\n" +
+	"\bcommands\x18\x02 \x03(\tR\bcommands2\xaa\x01\n" +
 	"\vMeshService\x12K\n" +
-	"\bRegister\x12\x1e.coral.mesh.v1.RegisterRequest\x1a\x1f.coral.mesh.v1.RegisterResponseB\xa4\x01\n" +
+	"\bRegister\x12\x1e.coral.mesh.v1.RegisterRequest\x1a\x1f.coral.mesh.v1.RegisterResponse\x12N\n" +
+	"\tHeartbeat\x12\x1f.coral.mesh.v1.HeartbeatRequest\x1a .coral.mesh.v1.HeartbeatResponseB\xa4\x01\n" +
 	"\x11com.coral.mesh.v1B\tAuthProtoP\x01Z.github.com/coral-io/coral/coral/mesh/v1;meshv1\xa2\x02\x03CMX\xaa\x02\rCoral.Mesh.V1\xca\x02\rCoral\\Mesh\\V1\xe2\x02\x19Coral\\Mesh\\V1\\GPBMetadata\xea\x02\x0fCoral::Mesh::V1b\x06proto3"
 
 var (
@@ -445,31 +568,36 @@ func file_coral_mesh_v1_auth_proto_rawDescGZIP() []byte {
 	return file_coral_mesh_v1_auth_proto_rawDescData
 }
 
-var file_coral_mesh_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_coral_mesh_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_coral_mesh_v1_auth_proto_goTypes = []any{
 	(*ServiceInfo)(nil),               // 0: coral.mesh.v1.ServiceInfo
 	(*RegisterRequest)(nil),           // 1: coral.mesh.v1.RegisterRequest
 	(*RegisterResponse)(nil),          // 2: coral.mesh.v1.RegisterResponse
 	(*PeerInfo)(nil),                  // 3: coral.mesh.v1.PeerInfo
-	nil,                               // 4: coral.mesh.v1.ServiceInfo.LabelsEntry
-	nil,                               // 5: coral.mesh.v1.RegisterRequest.LabelsEntry
-	(*v1.RuntimeContextResponse)(nil), // 6: coral.agent.v1.RuntimeContextResponse
-	(*timestamppb.Timestamp)(nil),     // 7: google.protobuf.Timestamp
+	(*HeartbeatRequest)(nil),          // 4: coral.mesh.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),         // 5: coral.mesh.v1.HeartbeatResponse
+	nil,                               // 6: coral.mesh.v1.ServiceInfo.LabelsEntry
+	nil,                               // 7: coral.mesh.v1.RegisterRequest.LabelsEntry
+	(*v1.RuntimeContextResponse)(nil), // 8: coral.agent.v1.RuntimeContextResponse
+	(*timestamppb.Timestamp)(nil),     // 9: google.protobuf.Timestamp
 }
 var file_coral_mesh_v1_auth_proto_depIdxs = []int32{
-	4, // 0: coral.mesh.v1.ServiceInfo.labels:type_name -> coral.mesh.v1.ServiceInfo.LabelsEntry
-	5, // 1: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
+	6, // 0: coral.mesh.v1.ServiceInfo.labels:type_name -> coral.mesh.v1.ServiceInfo.LabelsEntry
+	7, // 1: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
 	0, // 2: coral.mesh.v1.RegisterRequest.services:type_name -> coral.mesh.v1.ServiceInfo
-	6, // 3: coral.mesh.v1.RegisterRequest.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
+	8, // 3: coral.mesh.v1.RegisterRequest.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
 	3, // 4: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
-	7, // 5: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
-	1, // 6: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
-	2, // 7: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	9, // 5: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
+	0, // 6: coral.mesh.v1.HeartbeatRequest.services:type_name -> coral.mesh.v1.ServiceInfo
+	1, // 7: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
+	4, // 8: coral.mesh.v1.MeshService.Heartbeat:input_type -> coral.mesh.v1.HeartbeatRequest
+	2, // 9: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
+	5, // 10: coral.mesh.v1.MeshService.Heartbeat:output_type -> coral.mesh.v1.HeartbeatResponse
+	9, // [9:11] is the sub-list for method output_type
+	7, // [7:9] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_coral_mesh_v1_auth_proto_init() }
@@ -483,7 +611,7 @@ func file_coral_mesh_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_mesh_v1_auth_proto_rawDesc), len(file_coral_mesh_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

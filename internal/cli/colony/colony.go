@@ -1084,7 +1084,7 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 		Int("port", cfg.WireGuard.Port).
 		Msg("Initializing WireGuard device")
 
-	wgDevice, err := wireguard.NewDevice(&cfg.WireGuard)
+	wgDevice, err := wireguard.NewDevice(&cfg.WireGuard, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WireGuard device: %w", err)
 	}
@@ -1248,9 +1248,16 @@ func (h *meshServiceHandler) Register(
 	ctx context.Context,
 	req *connect.Request[meshv1.RegisterRequest],
 ) (*connect.Response[meshv1.RegisterResponse], error) {
+	// Extract peer address from request headers for WireGuard endpoint detection.
+	var peerAddr string
+	if req.Peer().Addr != "" {
+		peerAddr = req.Peer().Addr
+	}
+
 	h.logger.Info().
 		Str("agent_id", req.Msg.AgentId).
 		Str("component_name", req.Msg.ComponentName).
+		Str("peer_addr", peerAddr).
 		Msg("Agent registration request received")
 
 	// Validate colony_id and colony_secret (RFD 002)
@@ -1310,12 +1317,34 @@ func (h *meshServiceHandler) Register(
 		Str("mesh_ip", meshIP.String()).
 		Msg("Allocated mesh IP for agent")
 
+	// Extract agent's source address for WireGuard endpoint.
+	// For same-host testing, we use the HTTP request source.
+	// For production, this enables NAT traversal by detecting the agent's public IP.
+	// Note: peerAddr includes the HTTP port, not the WireGuard port.
+	// For now, we'll leave endpoint empty and rely on the agent to initiate the handshake.
+	// TODO: Implement proper endpoint discovery via discovery service registration.
+	var agentEndpoint string
+	if peerAddr != "" {
+		// Extract just the IP without the port
+		if host, _, err := net.SplitHostPort(peerAddr); err == nil {
+			// Don't set endpoint for now - WireGuard will learn it from incoming packets
+			_ = host
+		}
+	}
+
 	// Add agent as WireGuard peer
 	peerConfig := &wireguard.PeerConfig{
 		PublicKey:           req.Msg.WireguardPubkey,
+		Endpoint:            agentEndpoint, // Use detected endpoint
 		AllowedIPs:          []string{meshIP.String() + "/32"},
 		PersistentKeepalive: 25, // Keep NAT mappings alive
 	}
+
+	h.logger.Info().
+		Str("agent_id", req.Msg.AgentId).
+		Str("endpoint", agentEndpoint).
+		Str("pubkey", req.Msg.WireguardPubkey[:8]+"...").
+		Msg("Adding agent as WireGuard peer")
 
 	if err := h.wgDevice.AddPeer(peerConfig); err != nil {
 		h.logger.Error().
@@ -1374,6 +1403,45 @@ func (h *meshServiceHandler) Register(
 		MeshSubnet:   h.cfg.WireGuard.MeshNetworkIPv4,
 		Peers:        peers,
 		RegisteredAt: timestamppb.Now(),
+	}), nil
+}
+
+// Heartbeat handles agent heartbeat requests to update last_seen timestamp.
+func (h *meshServiceHandler) Heartbeat(
+	ctx context.Context,
+	req *connect.Request[meshv1.HeartbeatRequest],
+) (*connect.Response[meshv1.HeartbeatResponse], error) {
+	h.logger.Debug().
+		Str("agent_id", req.Msg.AgentId).
+		Str("status", req.Msg.Status).
+		Msg("Agent heartbeat received")
+
+	// Validate agent_id
+	if req.Msg.AgentId == "" {
+		h.logger.Warn().Msg("Heartbeat rejected: missing agent_id")
+		return connect.NewResponse(&meshv1.HeartbeatResponse{
+			Ok: false,
+		}), nil
+	}
+
+	// Update heartbeat in registry
+	if err := h.registry.UpdateHeartbeat(req.Msg.AgentId); err != nil {
+		h.logger.Warn().
+			Err(err).
+			Str("agent_id", req.Msg.AgentId).
+			Msg("Failed to update agent heartbeat")
+		return connect.NewResponse(&meshv1.HeartbeatResponse{
+			Ok: false,
+		}), nil
+	}
+
+	h.logger.Debug().
+		Str("agent_id", req.Msg.AgentId).
+		Msg("Agent heartbeat updated successfully")
+
+	return connect.NewResponse(&meshv1.HeartbeatResponse{
+		Ok:       true,
+		Commands: []string{}, // Future: colony can send commands to agent
 	}), nil
 }
 

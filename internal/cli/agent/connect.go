@@ -26,6 +26,10 @@ import (
 	"github.com/coral-io/coral/internal/wireguard"
 )
 
+const (
+	heartbeat = 15 * time.Second
+)
+
 // NewConnectCmd creates the connect command for agents
 func NewConnectCmd() *cobra.Command {
 	var (
@@ -273,12 +277,19 @@ Note: Legacy flags (--port, --health) only work with single service specificatio
 
 			fmt.Println("\nPress Ctrl+C to disconnect")
 
+			// Start heartbeat loop in background
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			go startHeartbeatLoop(ctx, agentID, colonyInfo.MeshIpv4, colonyInfo.ConnectPort, heartbeat, logger)
+
 			// Wait for interrupt signal
 			sigChan := make(chan os.Signal, 1)
 			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 			<-sigChan
 
 			fmt.Println("\n\nDisconnecting agent...")
+			cancel() // Stop heartbeat loop
 			return nil
 		},
 	}
@@ -332,7 +343,7 @@ func setupAgentWireGuard(
 	}
 
 	// Create device
-	wgDevice, err := wireguard.NewDevice(wgConfig)
+	wgDevice, err := wireguard.NewDevice(wgConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WireGuard device: %w", err)
 	}
@@ -384,30 +395,10 @@ func setupAgentWireGuard(
 		return nil, fmt.Errorf("discovery response missing mesh IPs; unable to configure WireGuard peer")
 	}
 
-	peerConfig := &wireguard.PeerConfig{
-		PublicKey:           colonyInfo.Pubkey,
-		Endpoint:            colonyEndpoint,
-		AllowedIPs:          allowedIPs,
-		PersistentKeepalive: 25, // Keep NAT mapping alive
-	}
-
-	if err := wgDevice.AddPeer(peerConfig); err != nil {
-		wgDevice.Stop()
-		return nil, fmt.Errorf("failed to add colony as peer: %w", err)
-	}
-
-	logger.Info().
-		Str("colony_endpoint", colonyEndpoint).
-		Str("colony_mesh_ip", colonyInfo.MeshIpv4).
-		Msg("Added colony as WireGuard peer")
-
-	// Assign a temporary IP to the agent interface so it can communicate with the colony.
+	// Assign a temporary IP to the agent interface BEFORE adding peer.
+	// Routes can only be added after the interface has an IP address.
 	// We'll use a temporary IP in the high range (.254) which will be updated after registration.
-	// Parse the colony's mesh network to determine the subnet.
 	if colonyInfo.MeshIpv4 != "" {
-		// Extract subnet from colony's mesh IP (assuming it's in the same subnet)
-		// For now, we'll use a hardcoded temporary IP in the standard range.
-		// TODO: Make this more robust by getting the subnet from discovery or config.
 		tempIP := net.ParseIP("10.42.255.254") // Temporary IP in high range
 		_, meshSubnet, err := net.ParseCIDR("10.42.0.0/16")
 		if err == nil {
@@ -429,6 +420,24 @@ func setupAgentWireGuard(
 			}
 		}
 	}
+
+	// Now add peer - routes will be created successfully since interface has an IP.
+	peerConfig := &wireguard.PeerConfig{
+		PublicKey:           colonyInfo.Pubkey,
+		Endpoint:            colonyEndpoint,
+		AllowedIPs:          allowedIPs,
+		PersistentKeepalive: 25, // Keep NAT mapping alive
+	}
+
+	if err := wgDevice.AddPeer(peerConfig); err != nil {
+		wgDevice.Stop()
+		return nil, fmt.Errorf("failed to add colony as peer: %w", err)
+	}
+
+	logger.Info().
+		Str("colony_endpoint", colonyEndpoint).
+		Str("colony_mesh_ip", colonyInfo.MeshIpv4).
+		Msg("Added colony as WireGuard peer")
 
 	// Wait for WireGuard tunnel to establish and routes to be configured.
 	// This gives the kernel time to set up the interface and routing.
@@ -678,6 +687,70 @@ func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHea
 	}
 
 	return []*ServiceSpec{spec}, nil
+}
+
+// startHeartbeatLoop sends periodic heartbeats to the colony to keep the agent's status healthy.
+func startHeartbeatLoop(
+	ctx context.Context,
+	agentID string,
+	colonyMeshIP string,
+	connectPort uint32,
+	interval time.Duration,
+	logger logging.Logger,
+) {
+	if connectPort == 0 {
+		connectPort = 9000
+	}
+
+	colonyURL := fmt.Sprintf("http://%s", net.JoinHostPort(colonyMeshIP, fmt.Sprintf("%d", connectPort)))
+	client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
+
+	logger.Info().
+		Str("agent_id", agentID).
+		Str("colony_url", colonyURL).
+		Dur("interval", interval).
+		Msg("Starting heartbeat loop")
+
+	// Send immediate heartbeat to establish healthy status right away.
+	sendHeartbeat := func() {
+		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		resp, err := client.Heartbeat(heartbeatCtx, connect.NewRequest(&meshv1.HeartbeatRequest{
+			AgentId: agentID,
+			Status:  "healthy",
+		}))
+		cancel()
+
+		if err != nil {
+			logger.Warn().
+				Err(err).
+				Str("agent_id", agentID).
+				Msg("Failed to send heartbeat")
+		} else if !resp.Msg.Ok {
+			logger.Warn().
+				Str("agent_id", agentID).
+				Msg("Heartbeat rejected by colony")
+		} else {
+			logger.Debug().
+				Str("agent_id", agentID).
+				Msg("Heartbeat sent successfully")
+		}
+	}
+
+	// Send first heartbeat immediately.
+	sendHeartbeat()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info().Msg("Heartbeat loop stopping")
+			return
+		case <-ticker.C:
+			sendHeartbeat()
+		}
+	}
 }
 
 // generateAgentID generates a stable agent ID based on hostname and service specs.

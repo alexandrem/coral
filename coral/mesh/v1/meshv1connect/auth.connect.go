@@ -5,13 +5,12 @@
 package meshv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/coral-io/coral/coral/mesh/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/coral-io/coral/coral/mesh/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -36,12 +35,16 @@ const (
 const (
 	// MeshServiceRegisterProcedure is the fully-qualified name of the MeshService's Register RPC.
 	MeshServiceRegisterProcedure = "/coral.mesh.v1.MeshService/Register"
+	// MeshServiceHeartbeatProcedure is the fully-qualified name of the MeshService's Heartbeat RPC.
+	MeshServiceHeartbeatProcedure = "/coral.mesh.v1.MeshService/Heartbeat"
 )
 
 // MeshServiceClient is a client for the coral.mesh.v1.MeshService service.
 type MeshServiceClient interface {
 	// Register an agent with the colony
 	Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error)
+	// Send periodic heartbeat to update last_seen timestamp
+	Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error)
 }
 
 // NewMeshServiceClient constructs a client for the coral.mesh.v1.MeshService service. By default,
@@ -61,12 +64,19 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("Register")),
 			connect.WithClientOptions(opts...),
 		),
+		heartbeat: connect.NewClient[v1.HeartbeatRequest, v1.HeartbeatResponse](
+			httpClient,
+			baseURL+MeshServiceHeartbeatProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("Heartbeat")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // meshServiceClient implements MeshServiceClient.
 type meshServiceClient struct {
-	register *connect.Client[v1.RegisterRequest, v1.RegisterResponse]
+	register  *connect.Client[v1.RegisterRequest, v1.RegisterResponse]
+	heartbeat *connect.Client[v1.HeartbeatRequest, v1.HeartbeatResponse]
 }
 
 // Register calls coral.mesh.v1.MeshService.Register.
@@ -74,10 +84,17 @@ func (c *meshServiceClient) Register(ctx context.Context, req *connect.Request[v
 	return c.register.CallUnary(ctx, req)
 }
 
+// Heartbeat calls coral.mesh.v1.MeshService.Heartbeat.
+func (c *meshServiceClient) Heartbeat(ctx context.Context, req *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error) {
+	return c.heartbeat.CallUnary(ctx, req)
+}
+
 // MeshServiceHandler is an implementation of the coral.mesh.v1.MeshService service.
 type MeshServiceHandler interface {
 	// Register an agent with the colony
 	Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error)
+	// Send periodic heartbeat to update last_seen timestamp
+	Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error)
 }
 
 // NewMeshServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -93,10 +110,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("Register")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceHeartbeatHandler := connect.NewUnaryHandler(
+		MeshServiceHeartbeatProcedure,
+		svc.Heartbeat,
+		connect.WithSchema(meshServiceMethods.ByName("Heartbeat")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.mesh.v1.MeshService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshServiceRegisterProcedure:
 			meshServiceRegisterHandler.ServeHTTP(w, r)
+		case MeshServiceHeartbeatProcedure:
+			meshServiceHeartbeatHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -108,4 +133,8 @@ type UnimplementedMeshServiceHandler struct{}
 
 func (UnimplementedMeshServiceHandler) Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.MeshService.Register is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.MeshService.Heartbeat is not implemented"))
 }

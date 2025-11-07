@@ -67,8 +67,29 @@ message PeerInfo {
   string wireguard_pubkey = 4;
 }
 
+// Heartbeat request from agent to keep connection alive
+message HeartbeatRequest {
+  string agent_id = 1;
+
+  // Optional: agent can report current status
+  string status = 2;  // "healthy", "degraded", "unhealthy"
+
+  // Optional: updated service information
+  repeated ServiceInfo services = 3;
+}
+
+message HeartbeatResponse {
+  bool ok = 1;
+
+  // Colony can send commands to agent (future use)
+  repeated string commands = 2;
+}
+
 // MeshService handles agent registration and mesh coordination
 service MeshService {
   // Register an agent with the colony
   rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Send periodic heartbeat to update last_seen timestamp
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 }

@@ -1,20 +1,23 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/logging"
-	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // AgentConfig represents the agent configuration file.
@@ -318,6 +321,12 @@ Examples:
 
 			logger.Info().Msg("Agent started successfully - waiting for shutdown signal")
 
+			// Start heartbeat loop in background to keep agent status healthy
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			go startHeartbeatLoop(ctx, agentID, colonyInfo.MeshIpv4, colonyInfo.ConnectPort, 15*time.Second, logger)
+
 			// Wait for interrupt signal.
 			sigChan := make(chan os.Signal, 1)
 			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -327,6 +336,7 @@ Examples:
 				Str("signal", sig.String()).
 				Msg("Received shutdown signal - stopping agent")
 
+			cancel() // Stop heartbeat loop
 			return nil
 		},
 	}
