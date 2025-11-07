@@ -8,15 +8,14 @@ import (
 func NewAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Manage and query Coral agents",
-		Long: `Manage and query Coral agents.
+		Short: "Manage Coral agents",
+		Long: `Manage Coral agents.
 
 Agents are local observers that monitor services and report to the colony.
-Use these commands to check agent status, connect agents to services, and more.`,
+Use these commands to start, stop, and check agent status.`,
 	}
 
 	// Add subcommands.
-	cmd.AddCommand(NewConnectCmd())
 	cmd.AddCommand(NewStartCmd())
 	cmd.AddCommand(NewStatusCmd())
 

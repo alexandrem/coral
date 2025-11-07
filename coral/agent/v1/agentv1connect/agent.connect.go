@@ -5,12 +5,13 @@
 package agentv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/coral-io/coral/coral/agent/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/coral-io/coral/coral/agent/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -36,12 +37,27 @@ const (
 	// AgentServiceGetRuntimeContextProcedure is the fully-qualified name of the AgentService's
 	// GetRuntimeContext RPC.
 	AgentServiceGetRuntimeContextProcedure = "/coral.agent.v1.AgentService/GetRuntimeContext"
+	// AgentServiceConnectServiceProcedure is the fully-qualified name of the AgentService's
+	// ConnectService RPC.
+	AgentServiceConnectServiceProcedure = "/coral.agent.v1.AgentService/ConnectService"
+	// AgentServiceDisconnectServiceProcedure is the fully-qualified name of the AgentService's
+	// DisconnectService RPC.
+	AgentServiceDisconnectServiceProcedure = "/coral.agent.v1.AgentService/DisconnectService"
+	// AgentServiceListServicesProcedure is the fully-qualified name of the AgentService's ListServices
+	// RPC.
+	AgentServiceListServicesProcedure = "/coral.agent.v1.AgentService/ListServices"
 )
 
 // AgentServiceClient is a client for the coral.agent.v1.AgentService service.
 type AgentServiceClient interface {
 	// Get runtime context information.
 	GetRuntimeContext(context.Context, *connect.Request[v1.GetRuntimeContextRequest]) (*connect.Response[v1.RuntimeContextResponse], error)
+	// Dynamically connect to a service for monitoring.
+	ConnectService(context.Context, *connect.Request[v1.ConnectServiceRequest]) (*connect.Response[v1.ConnectServiceResponse], error)
+	// Disconnect from a service.
+	DisconnectService(context.Context, *connect.Request[v1.DisconnectServiceRequest]) (*connect.Response[v1.DisconnectServiceResponse], error)
+	// List currently monitored services.
+	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the coral.agent.v1.AgentService service. By
@@ -61,12 +77,33 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("GetRuntimeContext")),
 			connect.WithClientOptions(opts...),
 		),
+		connectService: connect.NewClient[v1.ConnectServiceRequest, v1.ConnectServiceResponse](
+			httpClient,
+			baseURL+AgentServiceConnectServiceProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ConnectService")),
+			connect.WithClientOptions(opts...),
+		),
+		disconnectService: connect.NewClient[v1.DisconnectServiceRequest, v1.DisconnectServiceResponse](
+			httpClient,
+			baseURL+AgentServiceDisconnectServiceProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DisconnectService")),
+			connect.WithClientOptions(opts...),
+		),
+		listServices: connect.NewClient[v1.ListServicesRequest, v1.ListServicesResponse](
+			httpClient,
+			baseURL+AgentServiceListServicesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListServices")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
 	getRuntimeContext *connect.Client[v1.GetRuntimeContextRequest, v1.RuntimeContextResponse]
+	connectService    *connect.Client[v1.ConnectServiceRequest, v1.ConnectServiceResponse]
+	disconnectService *connect.Client[v1.DisconnectServiceRequest, v1.DisconnectServiceResponse]
+	listServices      *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
 }
 
 // GetRuntimeContext calls coral.agent.v1.AgentService.GetRuntimeContext.
@@ -74,10 +111,31 @@ func (c *agentServiceClient) GetRuntimeContext(ctx context.Context, req *connect
 	return c.getRuntimeContext.CallUnary(ctx, req)
 }
 
+// ConnectService calls coral.agent.v1.AgentService.ConnectService.
+func (c *agentServiceClient) ConnectService(ctx context.Context, req *connect.Request[v1.ConnectServiceRequest]) (*connect.Response[v1.ConnectServiceResponse], error) {
+	return c.connectService.CallUnary(ctx, req)
+}
+
+// DisconnectService calls coral.agent.v1.AgentService.DisconnectService.
+func (c *agentServiceClient) DisconnectService(ctx context.Context, req *connect.Request[v1.DisconnectServiceRequest]) (*connect.Response[v1.DisconnectServiceResponse], error) {
+	return c.disconnectService.CallUnary(ctx, req)
+}
+
+// ListServices calls coral.agent.v1.AgentService.ListServices.
+func (c *agentServiceClient) ListServices(ctx context.Context, req *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error) {
+	return c.listServices.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the coral.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// Get runtime context information.
 	GetRuntimeContext(context.Context, *connect.Request[v1.GetRuntimeContextRequest]) (*connect.Response[v1.RuntimeContextResponse], error)
+	// Dynamically connect to a service for monitoring.
+	ConnectService(context.Context, *connect.Request[v1.ConnectServiceRequest]) (*connect.Response[v1.ConnectServiceResponse], error)
+	// Disconnect from a service.
+	DisconnectService(context.Context, *connect.Request[v1.DisconnectServiceRequest]) (*connect.Response[v1.DisconnectServiceResponse], error)
+	// List currently monitored services.
+	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -93,10 +151,34 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("GetRuntimeContext")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceConnectServiceHandler := connect.NewUnaryHandler(
+		AgentServiceConnectServiceProcedure,
+		svc.ConnectService,
+		connect.WithSchema(agentServiceMethods.ByName("ConnectService")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDisconnectServiceHandler := connect.NewUnaryHandler(
+		AgentServiceDisconnectServiceProcedure,
+		svc.DisconnectService,
+		connect.WithSchema(agentServiceMethods.ByName("DisconnectService")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListServicesHandler := connect.NewUnaryHandler(
+		AgentServiceListServicesProcedure,
+		svc.ListServices,
+		connect.WithSchema(agentServiceMethods.ByName("ListServices")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceGetRuntimeContextProcedure:
 			agentServiceGetRuntimeContextHandler.ServeHTTP(w, r)
+		case AgentServiceConnectServiceProcedure:
+			agentServiceConnectServiceHandler.ServeHTTP(w, r)
+		case AgentServiceDisconnectServiceProcedure:
+			agentServiceDisconnectServiceHandler.ServeHTTP(w, r)
+		case AgentServiceListServicesProcedure:
+			agentServiceListServicesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -108,4 +190,16 @@ type UnimplementedAgentServiceHandler struct{}
 
 func (UnimplementedAgentServiceHandler) GetRuntimeContext(context.Context, *connect.Request[v1.GetRuntimeContextRequest]) (*connect.Response[v1.RuntimeContextResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.GetRuntimeContext is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ConnectService(context.Context, *connect.Request[v1.ConnectServiceRequest]) (*connect.Response[v1.ConnectServiceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.ConnectService is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DisconnectService(context.Context, *connect.Request[v1.DisconnectServiceRequest]) (*connect.Response[v1.DisconnectServiceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.DisconnectService is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.ListServices is not implemented"))
 }

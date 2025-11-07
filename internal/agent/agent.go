@@ -42,10 +42,6 @@ func New(config Config) (*Agent, error) {
 		return nil, fmt.Errorf("agent_id is required")
 	}
 
-	if len(config.Services) == 0 {
-		return nil, fmt.Errorf("at least one service is required")
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	agent := &Agent{
@@ -56,7 +52,7 @@ func New(config Config) (*Agent, error) {
 		cancel:   cancel,
 	}
 
-	// Create monitors for each service.
+	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
 		monitor := NewServiceMonitor(service, config.Logger)
 		agent.monitors[service.ComponentName] = monitor
@@ -169,4 +165,49 @@ func (a *Agent) GetServiceCount() int {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return len(a.monitors)
+}
+
+// ConnectService dynamically adds a new service to monitor.
+func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Check if service already exists.
+	if _, exists := a.monitors[service.ComponentName]; exists {
+		return fmt.Errorf("service %s already connected", service.ComponentName)
+	}
+
+	// Create and start new monitor.
+	monitor := NewServiceMonitor(service, a.logger)
+	monitor.Start()
+
+	a.monitors[service.ComponentName] = monitor
+
+	a.logger.Info().
+		Str("service", service.ComponentName).
+		Int32("port", service.Port).
+		Msg("Service connected")
+
+	return nil
+}
+
+// DisconnectService removes a service from monitoring.
+func (a *Agent) DisconnectService(serviceName string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	monitor, exists := a.monitors[serviceName]
+	if !exists {
+		return fmt.Errorf("service %s not found", serviceName)
+	}
+
+	// Stop monitoring.
+	monitor.Stop()
+	delete(a.monitors, serviceName)
+
+	a.logger.Info().
+		Str("service", serviceName).
+		Msg("Service disconnected")
+
+	return nil
 }

@@ -285,29 +285,28 @@ Examples:
 				Int("service_count", len(serviceSpecs)).
 				Msg("Agent connected successfully")
 
-			// Start agent to monitor services (if any).
-			var agentInstance *agent.Agent
-			if len(serviceSpecs) > 0 || monitorAll {
-				serviceInfos := make([]*meshv1.ServiceInfo, len(serviceSpecs))
-				for i, spec := range serviceSpecs {
-					serviceInfos[i] = spec.ToProto()
-				}
+			// Start agent instance (always created, even in passive mode).
+			serviceInfos := make([]*meshv1.ServiceInfo, len(serviceSpecs))
+			for i, spec := range serviceSpecs {
+				serviceInfos[i] = spec.ToProto()
+			}
 
-				agentInstance, err = agent.New(agent.Config{
-					AgentID:  agentID,
-					Services: serviceInfos,
-					Logger:   logger,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to create agent: %w", err)
-				}
+			agentInstance, err := agent.New(agent.Config{
+				AgentID:  agentID,
+				Services: serviceInfos,
+				Logger:   logger,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to create agent: %w", err)
+			}
 
-				if err := agentInstance.Start(); err != nil {
-					return fmt.Errorf("failed to start agent: %w", err)
-				}
-				defer agentInstance.Stop()
+			if err := agentInstance.Start(); err != nil {
+				return fmt.Errorf("failed to start agent: %w", err)
+			}
+			defer agentInstance.Stop()
 
-				// Log initial status.
+			// Log initial status.
+			if len(serviceSpecs) > 0 {
 				logger.Info().
 					Str("status", string(agentInstance.GetStatus())).
 					Msg("Agent status")
@@ -319,7 +318,7 @@ Examples:
 						Msg("Service status")
 				}
 			} else {
-				logger.Info().Msg("Agent started in passive mode - waiting for service connections")
+				logger.Info().Msg("Agent started in passive mode - waiting for service connections via 'coral connect'")
 			}
 
 			// Create and start runtime service for status API.
@@ -337,9 +336,9 @@ Examples:
 			}
 			defer runtimeService.Stop()
 
-			// Create adapter and HTTP server for status API.
-			adapter := agent.NewRuntimeServiceAdapter(runtimeService)
-			path, handler := agentv1connect.NewAgentServiceHandler(adapter)
+			// Create service handler and HTTP server for gRPC API.
+			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService)
+			path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 			mux := http.NewServeMux()
 			mux.Handle(path, handler)

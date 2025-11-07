@@ -3,52 +3,36 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
-	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
-	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
-	"github.com/coral-io/coral/internal/agent"
-	"github.com/coral-io/coral/internal/auth"
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/constants"
-	"github.com/coral-io/coral/internal/logging"
-	"github.com/coral-io/coral/internal/wireguard"
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
 )
 
 const (
-	heartbeat = 15 * time.Second
+	defaultAgentPort = 9001
+	connectTimeout   = 5 * time.Second
 )
 
-// NewConnectCmd creates the connect command for agents
+// NewConnectCmd creates the connect command for attaching to services.
 func NewConnectCmd() *cobra.Command {
 	var (
 		port      int
-		colonyID  string
-		tags      []string
 		healthURL string
+		agentAddr string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "connect <service-spec>...",
-		Short: "Connect an agent to observe one or more services",
-		Long: `Connect a Coral agent to observe services or application components.
+		Short: "Connect agent to observe one or more services",
+		Long: `Connect a running Coral agent to observe services or application components.
 
-The agent will:
-- Monitor the process health and resource usage
-- Detect network connections and dependencies
-- Report observations to the colony
-- Store recent metrics locally
+The agent must already be running (via 'coral agent start') before using this command.
 
 Service Specification Format:
   name:port[:health][:type]
@@ -65,11 +49,14 @@ Examples:
   # Single service (legacy syntax, backward compatible)
   coral connect frontend --port 3000 --health /health
 
-  # Multiple services (RFD 011)
+  # Multiple services
   coral connect frontend:3000:/health redis:6379 metrics:9090:/metrics
   coral connect api:8080:/health:http cache:6379::redis worker:9000
 
-Note: Legacy flags (--port, --health) only work with single service specifications.`,
+Note:
+  - This command requires a running agent ('coral agent start')
+  - Legacy flags (--port, --health) only work with single service specifications
+  - Services are added to the agent dynamically without restart`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Parse service specifications
@@ -83,35 +70,17 @@ Note: Legacy flags (--port, --health) only work with single service specificatio
 				return fmt.Errorf("invalid service configuration: %w", err)
 			}
 
-			// Create resolver
-			resolver, err := config.NewResolver()
-			if err != nil {
-				return fmt.Errorf("failed to create config resolver: %w", err)
-			}
-
-			// Resolve colony ID
-			if colonyID == "" {
-				colonyID, err = resolver.ResolveColonyID()
+			// Discover local agent
+			if agentAddr == "" {
+				agentAddr, err = discoverLocalAgent()
 				if err != nil {
-					return fmt.Errorf("failed to resolve colony: %w\n\nRun 'coral init <app-name>' or set CORAL_COLONY_ID", err)
+					return fmt.Errorf("failed to discover local agent: %w\n\nMake sure the agent is running:\n  coral agent start", err)
 				}
 			}
 
-			// Load resolved configuration
-			cfg, err := resolver.ResolveConfig(colonyID)
-			if err != nil {
-				return fmt.Errorf("failed to load colony config: %w", err)
-			}
-
-			// Initialize logger
-			logger := logging.NewWithComponent(logging.Config{
-				Level:  "info",
-				Pretty: true,
-			}, "agent")
-
 			// Display connection information
 			if len(serviceSpecs) == 1 {
-				fmt.Printf("Connecting agent for service: %s\n", serviceSpecs[0].Name)
+				fmt.Printf("Connecting to service: %s\n", serviceSpecs[0].Name)
 				fmt.Printf("Port: %d\n", serviceSpecs[0].Port)
 				if serviceSpecs[0].HealthEndpoint != "" {
 					fmt.Printf("Health endpoint: %s\n", serviceSpecs[0].HealthEndpoint)
@@ -120,7 +89,7 @@ Note: Legacy flags (--port, --health) only work with single service specificatio
 					fmt.Printf("Service type: %s\n", serviceSpecs[0].ServiceType)
 				}
 			} else {
-				fmt.Printf("Connecting agent for %d services:\n", len(serviceSpecs))
+				fmt.Printf("Connecting to %d services:\n", len(serviceSpecs))
 				for _, spec := range serviceSpecs {
 					fmt.Printf("  • %s (port %d", spec.Name, spec.Port)
 					if spec.HealthEndpoint != "" {
@@ -133,505 +102,78 @@ Note: Legacy flags (--port, --health) only work with single service specificatio
 				}
 			}
 
-			fmt.Printf("Colony ID: %s\n", cfg.ColonyID)
-			fmt.Printf("Application: %s (%s)\n", cfg.ApplicationName, cfg.Environment)
-			fmt.Printf("Discovery: %s\n", cfg.DiscoveryURL)
+			fmt.Printf("Agent: %s\n", agentAddr)
 
-			if len(tags) > 0 {
-				fmt.Printf("Tags: %s\n", strings.Join(tags, ", "))
-			}
+			// Create gRPC client
+			client := agentv1connect.NewAgentServiceClient(
+				http.DefaultClient,
+				agentAddr,
+			)
 
-			// Step 1: Query discovery service for colony information
-			logger.Info().
-				Str("colony_id", cfg.ColonyID).
-				Msg("Querying discovery service for colony information")
-
-			colonyInfo, err := queryDiscoveryForColony(cfg, logger)
-			if err != nil {
-				return fmt.Errorf("failed to query discovery service: %w", err)
-			}
-
-			logger.Info().
-				Str("colony_pubkey", colonyInfo.Pubkey).
-				Strs("endpoints", colonyInfo.Endpoints).
-				Msg("Received colony information from discovery")
-
-			// Step 2: Generate WireGuard keys for this agent
-			agentKeys, err := auth.GenerateWireGuardKeyPair()
-			if err != nil {
-				return fmt.Errorf("failed to generate WireGuard keys: %w", err)
-			}
-
-			logger.Info().
-				Str("agent_pubkey", agentKeys.PublicKey).
-				Msg("Generated agent WireGuard keys")
-
-			// Step 3: Create and start WireGuard device
-			wgDevice, err := setupAgentWireGuard(agentKeys, colonyInfo, logger)
-			if err != nil {
-				return fmt.Errorf("failed to setup WireGuard: %w", err)
-			}
-			defer wgDevice.Stop()
-
-			// Step 4: Register with colony
-			agentID := generateAgentID(serviceSpecs)
-			registrationResult, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
-			if err != nil {
-				return fmt.Errorf("failed to register with colony: %w", err)
-			}
-
-			// Parse registration result (format: "IP|SUBNET")
-			parts := strings.Split(registrationResult, "|")
-			if len(parts) != 2 {
-				return fmt.Errorf("invalid registration response format")
-			}
-			meshIPStr := parts[0]
-			meshSubnetStr := parts[1]
-
-			// Assign IP to the agent's WireGuard interface
-			meshIP := net.ParseIP(meshIPStr)
-			if meshIP == nil {
-				return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
-			}
-
-			_, meshSubnet, err := net.ParseCIDR(meshSubnetStr)
-			if err != nil {
-				return fmt.Errorf("invalid mesh subnet from colony: %w", err)
-			}
-
-			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("ip", meshIP.String()).
-				Str("subnet", meshSubnet.String()).
-				Msg("Assigning IP address to agent WireGuard interface")
-
-			iface := wgDevice.Interface()
-			if iface == nil {
-				return fmt.Errorf("WireGuard device has no interface")
-			}
-
-			if err := iface.AssignIP(meshIP, meshSubnet); err != nil {
-				return fmt.Errorf("failed to assign IP to agent interface: %w", err)
-			}
-
-			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("ip", meshIP.String()).
-				Msg("Successfully assigned IP to agent WireGuard interface")
-
-			// Delete all existing routes for this interface to clear cached source IPs.
-			// When we used a temporary IP, the kernel cached it as the source address.
-			logger.Info().Msg("Flushing routes to clear temporary IP cache")
-			if err := wgDevice.FlushAllPeerRoutes(); err != nil {
-				logger.Warn().Err(err).Msg("Failed to flush peer routes")
-			}
-
-			// Wait for route deletion to complete.
-			time.Sleep(200 * time.Millisecond)
-
-			// Re-add peer routes with the new IP as source.
-			if err := wgDevice.RefreshPeerRoutes(); err != nil {
-				logger.Warn().Err(err).Msg("Failed to refresh peer routes after IP change")
-			}
-
-			// Wait for changes to propagate
-			time.Sleep(300 * time.Millisecond)
-
-			fmt.Println("\n✓ Agent connected successfully")
-			fmt.Printf("Agent ID: %s\n", agentID)
-			fmt.Printf("Mesh IP: %s\n", meshIPStr)
-
-			if len(serviceSpecs) == 1 {
-				fmt.Printf("Observing: %s:%d\n", serviceSpecs[0].Name, serviceSpecs[0].Port)
-			} else {
-				fmt.Printf("Observing %d services\n", len(serviceSpecs))
-			}
-
-			fmt.Printf("Authenticated with colony using colony_secret\n")
-
-			// Step 5: Start agent to monitor services
-			serviceInfos := make([]*meshv1.ServiceInfo, len(serviceSpecs))
-			for i, spec := range serviceSpecs {
-				serviceInfos[i] = spec.ToProto()
-			}
-
-			agentInstance, err := agent.New(agent.Config{
-				AgentID:  agentID,
-				Services: serviceInfos,
-				Logger:   logger,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create agent: %w", err)
-			}
-
-			if err := agentInstance.Start(); err != nil {
-				return fmt.Errorf("failed to start agent: %w", err)
-			}
-			defer agentInstance.Stop()
-
-			// Display initial status
-			fmt.Printf("\nAgent Status: %s\n", agentInstance.GetStatus())
-			for name, status := range agentInstance.GetServiceStatuses() {
-				fmt.Printf("  • %s: %s\n", name, status.Status)
-			}
-
-			fmt.Println("\nPress Ctrl+C to disconnect")
-
-			// Start heartbeat loop in background
-			ctx, cancel := context.WithCancel(context.Background())
+			// Connect each service
+			ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 			defer cancel()
 
-			go startHeartbeatLoop(ctx, agentID, colonyInfo.MeshIpv4, colonyInfo.ConnectPort, heartbeat, logger)
+			for _, spec := range serviceSpecs {
+				req := &agentv1.ConnectServiceRequest{
+					ComponentName:  spec.Name,
+					Port:           spec.Port,
+					HealthEndpoint: spec.HealthEndpoint,
+					ServiceType:    spec.ServiceType,
+					Labels:         spec.Labels,
+				}
 
-			// Wait for interrupt signal
-			sigChan := make(chan os.Signal, 1)
-			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-			<-sigChan
+				resp, err := client.ConnectService(ctx, connect.NewRequest(req))
+				if err != nil {
+					return fmt.Errorf("failed to connect service %s: %w", spec.Name, err)
+				}
 
-			fmt.Println("\n\nDisconnecting agent...")
-			cancel() // Stop heartbeat loop
+				if !resp.Msg.Success {
+					return fmt.Errorf("agent rejected service connection %s: %s", spec.Name, resp.Msg.Error)
+				}
+
+				fmt.Printf("✓ Connected: %s\n", spec.Name)
+			}
+
+			fmt.Println("\n✓ All services connected successfully")
+			fmt.Println("\nUse 'coral agent status' to view service health")
+
 			return nil
 		},
 	}
 
 	cmd.Flags().IntVarP(&port, "port", "p", 0, "Service port (legacy, only works with single service)")
-	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID to connect to (auto-discover if not set)")
-	cmd.Flags().StringSliceVarP(&tags, "tags", "t", nil, "Tags for the service (key=value)")
 	cmd.Flags().StringVar(&healthURL, "health", "", "Health check endpoint (legacy, only works with single service)")
+	cmd.Flags().StringVar(&agentAddr, "agent", "", "Agent address (default: auto-discover)")
 
 	return cmd
 }
 
-// queryDiscoveryForColony queries the discovery service for colony information.
-func queryDiscoveryForColony(cfg *config.ResolvedConfig, logger logging.Logger) (*discoverypb.LookupColonyResponse, error) {
-	// Create discovery client
-	client := discoveryv1connect.NewDiscoveryServiceClient(
-		http.DefaultClient,
-		cfg.DiscoveryURL,
-	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Lookup colony by mesh_id (which is the colony_id)
-	req := connect.NewRequest(&discoverypb.LookupColonyRequest{
-		MeshId: cfg.ColonyID,
-	})
-
-	resp, err := client.LookupColony(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("discovery lookup failed: %w", err)
+// discoverLocalAgent attempts to discover a running local agent.
+func discoverLocalAgent() (string, error) {
+	// Try common agent endpoints in order
+	candidates := []string{
+		fmt.Sprintf("http://localhost:%d", defaultAgentPort),
+		fmt.Sprintf("http://127.0.0.1:%d", defaultAgentPort),
 	}
 
-	return resp.Msg, nil
-}
+	for _, addr := range candidates {
+		// Try to connect to agent
+		client := agentv1connect.NewAgentServiceClient(
+			http.DefaultClient,
+			addr,
+		)
 
-// setupAgentWireGuard creates and configures the agent's WireGuard device.
-func setupAgentWireGuard(
-	agentKeys *auth.WireGuardKeyPair,
-	colonyInfo *discoverypb.LookupColonyResponse,
-	logger logging.Logger,
-) (*wireguard.Device, error) {
-	logger.Info().Msg("Setting up WireGuard device for agent")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_, err := client.GetRuntimeContext(ctx, connect.NewRequest(&agentv1.GetRuntimeContextRequest{}))
+		cancel()
 
-	// Create WireGuard config for agent
-	wgConfig := &config.WireGuardConfig{
-		PrivateKey: agentKeys.PrivateKey,
-		PublicKey:  agentKeys.PublicKey,
-		Port:       -1, // Use ephemeral port for agent
-		MTU:        constants.DefaultWireGuardMTU,
-	}
-
-	// Create device
-	wgDevice, err := wireguard.NewDevice(wgConfig, logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create WireGuard device: %w", err)
-	}
-
-	// Start device
-	if err := wgDevice.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start WireGuard device: %w", err)
-	}
-
-	logger.Info().
-		Str("interface", wgDevice.InterfaceName()).
-		Msg("WireGuard device started")
-
-	// Select a discovery endpoint for establishing the WireGuard peer.
-	var colonyEndpoint string
-	for _, ep := range colonyInfo.Endpoints {
-		if ep == "" {
-			continue
-		}
-
-		host, port, err := net.SplitHostPort(ep)
-		if err != nil {
-			logger.Warn().Err(err).Str("endpoint", ep).Msg("Invalid colony endpoint from discovery")
-			continue
-		}
-
-		if host == "" {
-			logger.Warn().Str("endpoint", ep).Msg("Skipping discovery endpoint without host")
-			continue
-		}
-
-		colonyEndpoint = net.JoinHostPort(host, port)
-		break
-	}
-
-	if colonyEndpoint == "" {
-		return nil, fmt.Errorf("discovery did not provide a usable WireGuard endpoint")
-	}
-
-	allowedIPs := make([]string, 0, 2)
-	if colonyInfo.MeshIpv4 != "" {
-		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv4+"/32")
-	}
-	if colonyInfo.MeshIpv6 != "" {
-		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv6+"/128")
-	}
-
-	if len(allowedIPs) == 0 {
-		return nil, fmt.Errorf("discovery response missing mesh IPs; unable to configure WireGuard peer")
-	}
-
-	// Assign a temporary IP to the agent interface BEFORE adding peer.
-	// Routes can only be added after the interface has an IP address.
-	// We'll use a temporary IP in the high range (.254) which will be updated after registration.
-	if colonyInfo.MeshIpv4 != "" {
-		tempIP := net.ParseIP("10.42.255.254") // Temporary IP in high range
-		_, meshSubnet, err := net.ParseCIDR("10.42.0.0/16")
 		if err == nil {
-			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("temp_ip", tempIP.String()).
-				Msg("Assigning temporary IP to agent interface for initial registration")
-
-			iface := wgDevice.Interface()
-			if iface != nil {
-				if err := iface.AssignIP(tempIP, meshSubnet); err != nil {
-					logger.Warn().Err(err).Msg("Failed to assign temporary IP to agent interface")
-				} else {
-					logger.Info().
-						Str("interface", wgDevice.InterfaceName()).
-						Str("temp_ip", tempIP.String()).
-						Msg("Temporary IP assigned successfully")
-				}
-			}
+			return addr, nil
 		}
 	}
 
-	// Now add peer - routes will be created successfully since interface has an IP.
-	peerConfig := &wireguard.PeerConfig{
-		PublicKey:           colonyInfo.Pubkey,
-		Endpoint:            colonyEndpoint,
-		AllowedIPs:          allowedIPs,
-		PersistentKeepalive: 25, // Keep NAT mapping alive
-	}
-
-	if err := wgDevice.AddPeer(peerConfig); err != nil {
-		wgDevice.Stop()
-		return nil, fmt.Errorf("failed to add colony as peer: %w", err)
-	}
-
-	logger.Info().
-		Str("colony_endpoint", colonyEndpoint).
-		Str("colony_mesh_ip", colonyInfo.MeshIpv4).
-		Msg("Added colony as WireGuard peer")
-
-	// Wait for WireGuard tunnel to establish and routes to be configured.
-	// This gives the kernel time to set up the interface and routing.
-	logger.Info().Msg("Waiting for WireGuard tunnel to establish...")
-	time.Sleep(2 * time.Second)
-
-	// Verify mesh IP is reachable via TCP connection test.
-	if colonyInfo.MeshIpv4 != "" {
-		connectPort := colonyInfo.ConnectPort
-		if connectPort == 0 {
-			connectPort = 9000 // Default connect port
-		}
-
-		meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
-		logger.Info().
-			Str("mesh_addr", meshAddr).
-			Msg("Testing connectivity to colony via mesh")
-
-		// Try to establish TCP connection to verify tunnel is working
-		conn, err := net.DialTimeout("tcp", meshAddr, 3*time.Second)
-		if err != nil {
-			logger.Warn().
-				Err(err).
-				Str("mesh_addr", meshAddr).
-				Msg("Unable to reach colony via mesh IP - tunnel may not be fully established")
-			// Don't fail here - registration will retry anyway
-		} else {
-			conn.Close()
-			logger.Info().
-				Str("mesh_addr", meshAddr).
-				Msg("Successfully verified connectivity to colony via WireGuard mesh")
-		}
-	}
-
-	return wgDevice, nil
-}
-
-// registerWithColony sends a registration request to the colony.
-func registerWithColony(
-	cfg *config.ResolvedConfig,
-	agentID string,
-	serviceSpecs []*ServiceSpec,
-	agentPubKey string,
-	colonyInfo *discoverypb.LookupColonyResponse,
-	logger logging.Logger,
-) (string, error) {
-	logger.Info().
-		Str("agent_id", agentID).
-		Int("service_count", len(serviceSpecs)).
-		Msg("Registering with colony")
-
-	connectPort := colonyInfo.ConnectPort
-	if connectPort == 0 {
-		connectPort = 9000
-	}
-
-	candidateURLs := buildMeshServiceURLs(colonyInfo, connectPort)
-	logger.Debug().
-		Strs("candidate_urls", candidateURLs).
-		Msg("Prepared colony registration endpoints")
-
-	if len(candidateURLs) == 0 {
-		return "", fmt.Errorf("registration request failed: discovery did not provide mesh connectivity information")
-	}
-
-	// Convert service specs to protobuf ServiceInfo messages
-	services := make([]*meshv1.ServiceInfo, len(serviceSpecs))
-	for i, spec := range serviceSpecs {
-		services[i] = spec.ToProto()
-	}
-
-	// Build registration request with multi-service support
-	regReq := &meshv1.RegisterRequest{
-		AgentId:         agentID,
-		ColonyId:        cfg.ColonyID,
-		ColonySecret:    cfg.ColonySecret,
-		WireguardPubkey: agentPubKey,
-		Version:         "0.1.0",
-		Labels:          make(map[string]string),
-		Services:        services,
-	}
-
-	// For backward compatibility, also set ComponentName if single service
-	if len(serviceSpecs) == 1 {
-		regReq.ComponentName = serviceSpecs[0].Name
-	}
-
-	var lastErr error
-	var attemptErrors []string
-	for _, baseURL := range candidateURLs {
-		client := meshv1connect.NewMeshServiceClient(http.DefaultClient, baseURL)
-
-		for attempt := 1; attempt <= 3; attempt++ {
-			logger.Info().
-				Str("agent_id", agentID).
-				Str("endpoint", baseURL).
-				Int("attempt", attempt).
-				Msg("Attempting colony registration")
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			resp, err := client.Register(ctx, connect.NewRequest(regReq))
-			cancel()
-
-			if err != nil {
-				logger.Warn().
-					Err(err).
-					Str("endpoint", baseURL).
-					Int("attempt", attempt).
-					Msg("Colony registration attempt failed")
-
-				lastErr = err
-				attemptErrors = append(attemptErrors, fmt.Sprintf("%s attempt %d: %v", baseURL, attempt, err))
-
-				if attempt < 3 {
-					time.Sleep(time.Duration(attempt) * time.Second)
-				}
-				continue
-			}
-
-			if !resp.Msg.Accepted {
-				lastErr = fmt.Errorf("registration rejected by colony: %s", resp.Msg.Reason)
-				logger.Warn().
-					Str("endpoint", baseURL).
-					Int("attempt", attempt).
-					Msg(lastErr.Error())
-
-				attemptErrors = append(attemptErrors, fmt.Sprintf("%s attempt %d: %s", baseURL, attempt, resp.Msg.Reason))
-				if attempt < 3 {
-					time.Sleep(time.Duration(attempt) * time.Second)
-				}
-				continue
-			}
-
-			logger.Info().
-				Str("assigned_ip", resp.Msg.AssignedIp).
-				Str("mesh_subnet", resp.Msg.MeshSubnet).
-				Int("peer_count", len(resp.Msg.Peers)).
-				Msg("Successfully registered with colony")
-
-			// Return both IP and subnet for interface configuration
-			result := fmt.Sprintf("%s|%s", resp.Msg.AssignedIp, resp.Msg.MeshSubnet)
-			return result, nil
-		}
-	}
-
-	if lastErr == nil {
-		lastErr = fmt.Errorf("no registration endpoints available")
-	}
-
-	if len(attemptErrors) > 0 {
-		return "", fmt.Errorf("registration attempts exhausted: %w (attempts: %s)", lastErr, strings.Join(attemptErrors, "; "))
-	}
-
-	return "", fmt.Errorf("registration attempts exhausted: %w", lastErr)
-}
-
-// buildMeshServiceURLs returns candidate URLs for contacting the colony's mesh service.
-//
-// WireGuard Bootstrap Problem:
-//   - Agent needs to register to become a WireGuard peer
-//   - But agent can't reach colony through mesh until it's a peer
-//   - Solution: Initial registration uses the discovery endpoint host,
-//     then after registration all communication goes through mesh IPs
-func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectPort uint32) []string {
-	seen := make(map[string]struct{})
-	var candidates []string
-
-	add := func(host string) {
-		if host == "" {
-			return
-		}
-		url := fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%d", connectPort)))
-		if _, exists := seen[url]; exists {
-			return
-		}
-		seen[url] = struct{}{}
-		candidates = append(candidates, url)
-	}
-
-	// Extract host from discovery endpoint for bootstrap registration.
-	// This allows the agent to reach the colony before the WireGuard tunnel is established.
-	for _, ep := range colonyInfo.Endpoints {
-		if ep != "" {
-			if host, _, err := net.SplitHostPort(ep); err == nil {
-				add(host) // Use same host as WireGuard endpoint for initial registration
-			}
-		}
-	}
-
-	// Also try mesh IPs in case this is a re-registration with tunnel already established.
-	add(colonyInfo.MeshIpv4)
-	add(colonyInfo.MeshIpv6)
-
-	return candidates
+	return "", fmt.Errorf("no agent found at common endpoints: %s", strings.Join(candidates, ", "))
 }
 
 // parseServiceSpecsWithLegacySupport parses service specs with backward compatibility.
@@ -687,100 +229,4 @@ func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHea
 	}
 
 	return []*ServiceSpec{spec}, nil
-}
-
-// startHeartbeatLoop sends periodic heartbeats to the colony to keep the agent's status healthy.
-func startHeartbeatLoop(
-	ctx context.Context,
-	agentID string,
-	colonyMeshIP string,
-	connectPort uint32,
-	interval time.Duration,
-	logger logging.Logger,
-) {
-	if connectPort == 0 {
-		connectPort = 9000
-	}
-
-	colonyURL := fmt.Sprintf("http://%s", net.JoinHostPort(colonyMeshIP, fmt.Sprintf("%d", connectPort)))
-	client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
-
-	logger.Info().
-		Str("agent_id", agentID).
-		Str("colony_url", colonyURL).
-		Dur("interval", interval).
-		Msg("Starting heartbeat loop")
-
-	// Send immediate heartbeat to establish healthy status right away.
-	sendHeartbeat := func() {
-		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		resp, err := client.Heartbeat(heartbeatCtx, connect.NewRequest(&meshv1.HeartbeatRequest{
-			AgentId: agentID,
-			Status:  "healthy",
-		}))
-		cancel()
-
-		if err != nil {
-			logger.Warn().
-				Err(err).
-				Str("agent_id", agentID).
-				Msg("Failed to send heartbeat")
-		} else if !resp.Msg.Ok {
-			logger.Warn().
-				Str("agent_id", agentID).
-				Msg("Heartbeat rejected by colony")
-		} else {
-			logger.Debug().
-				Str("agent_id", agentID).
-				Msg("Heartbeat sent successfully")
-		}
-	}
-
-	// Send first heartbeat immediately.
-	sendHeartbeat()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info().Msg("Heartbeat loop stopping")
-			return
-		case <-ticker.C:
-			sendHeartbeat()
-		}
-	}
-}
-
-// generateAgentID generates a stable agent ID based on hostname and service specs.
-// The ID remains consistent across agent restarts to maintain identity in the colony.
-func generateAgentID(serviceSpecs []*ServiceSpec) string {
-	// Get hostname for stable identification
-	hostname, err := os.Hostname()
-	if err != nil {
-		// Fallback to "unknown" if hostname cannot be determined
-		hostname = "unknown"
-	}
-
-	// Sanitize hostname: replace dots and underscores with hyphens
-	hostname = strings.ReplaceAll(hostname, ".", "-")
-	hostname = strings.ReplaceAll(hostname, "_", "-")
-	hostname = strings.ToLower(hostname)
-
-	if len(serviceSpecs) == 1 {
-		// Single service: hostname-servicename
-		// Example: "myserver-frontend", "myserver-api"
-		return fmt.Sprintf("%s-%s", hostname, serviceSpecs[0].Name)
-	}
-
-	if len(serviceSpecs) > 1 {
-		// Multi-service: hostname-multi
-		// Example: "myserver-multi" for an agent monitoring multiple services
-		return fmt.Sprintf("%s-multi", hostname)
-	}
-
-	// No services (daemon mode): just hostname
-	// Example: "myserver" for a standalone agent
-	return hostname
 }

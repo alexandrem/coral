@@ -10,6 +10,15 @@ option go_package = "github.com/coral-io/coral/coral/agent/v1;agentv1";
 service AgentService {
   // Get runtime context information.
   rpc GetRuntimeContext(GetRuntimeContextRequest) returns (RuntimeContextResponse);
+
+  // Dynamically connect to a service for monitoring.
+  rpc ConnectService(ConnectServiceRequest) returns (ConnectServiceResponse);
+
+  // Disconnect from a service.
+  rpc DisconnectService(DisconnectServiceRequest) returns (DisconnectServiceResponse);
+
+  // List currently monitored services.
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
 }
 
 message GetRuntimeContextRequest {
@@ -127,4 +136,83 @@ enum SidecarMode {
 
   // Passive mode (limited capabilities).
   SIDECAR_MODE_PASSIVE = 3;
+}
+
+// ConnectService RPC messages.
+message ConnectServiceRequest {
+  // Service name.
+  string component_name = 1;
+
+  // Service port number.
+  int32 port = 2;
+
+  // Optional health check endpoint path.
+  string health_endpoint = 3;
+
+  // Optional service type hint.
+  string service_type = 4;
+
+  // Additional metadata.
+  map<string, string> labels = 5;
+}
+
+message ConnectServiceResponse {
+  // Success indicator.
+  bool success = 1;
+
+  // Error message if not successful.
+  string error = 2;
+
+  // Service name that was connected.
+  string service_name = 3;
+}
+
+// DisconnectService RPC messages.
+message DisconnectServiceRequest {
+  // Service name to disconnect.
+  string service_name = 1;
+}
+
+message DisconnectServiceResponse {
+  // Success indicator.
+  bool success = 1;
+
+  // Error message if not successful.
+  string error = 2;
+}
+
+// ListServices RPC messages.
+message ListServicesRequest {
+  // Empty - returns all monitored services.
+}
+
+message ListServicesResponse {
+  // Currently monitored services.
+  repeated ServiceStatus services = 1;
+}
+
+message ServiceStatus {
+  // Service name.
+  string component_name = 1;
+
+  // Service port number.
+  int32 port = 2;
+
+  // Optional health check endpoint path.
+  string health_endpoint = 3;
+
+  // Optional service type hint.
+  string service_type = 4;
+
+  // Additional metadata.
+  map<string, string> labels = 5;
+
+  // Current status.
+  string status = 6;  // "healthy", "unhealthy", "unknown"
+
+  // Last check timestamp.
+  google.protobuf.Timestamp last_check = 7;
+
+  // Error message if unhealthy.
+  string error = 8;
 }

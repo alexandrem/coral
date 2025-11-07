@@ -70,9 +70,12 @@ AI debugging without touching your code.
 # Start the colony (central coordinator)
 coral colony start
 
-# Connect agents to observe services
-coral connect frontend --port 3000
-coral connect api --port 8080
+# In another terminal, start the agent daemon
+coral agent start
+
+# Connect the agent to observe services
+coral connect frontend:3000
+coral connect api:8080:/health
 
 # Ask questions about your system
 coral ask "What's happening with the API?"
@@ -231,16 +234,19 @@ sudo chmod u+s ./bin/coral
 ### Run
 
 ```bash
-# Start the colony (central brain)
+# Terminal 1: Start the colony (central brain)
 # With capabilities installed (Option 1):
 ./bin/coral colony start
 
 # Or with sudo (Option 2):
 sudo ./bin/coral colony start
 
-# In another terminal, connect agents to observe services
-./bin/coral connect frontend --port 3000
-./bin/coral connect api --port 8080
+# Terminal 2: Start the agent daemon
+./bin/coral agent start
+
+# Terminal 3: Connect the agent to observe services
+./bin/coral connect frontend:3000
+./bin/coral connect api:8080:/health
 
 # Ask questions about your system
 ./bin/coral ask "Are there any issues?"
@@ -268,22 +274,44 @@ coral colony status --json            # JSON output
 coral colony stop
 ```
 
-### Agent Connections
+### Agent Management
 
 ```bash
-# Connect an agent to observe a service
-coral connect <service-name> --port <port>
+# Start the agent daemon (required before connecting services)
+coral agent start
+coral agent start --config /etc/coral/agent.yaml
+coral agent start --colony-id my-app-prod
 
-# Examples
-coral connect frontend --port 3000
-coral connect api --port 8080 --tags version=2.1.0
-coral connect database --port 5432 --health http://localhost:5432/health
+# Check agent status
+coral agent status
 
-# Connect to a specific colony
-coral connect api --port 8080 --colony-id my-app-prod
+# Stop the agent
+coral agent stop
+```
 
-> **Note:** The agent always uses discovery-provided WireGuard endpoints.
-> For local testing, ensure discovery advertises a reachable address (for example `127.0.0.1:41580`)
+### Service Connections
+
+```bash
+# Connect the running agent to observe services
+# Format: name:port[:health][:type]
+coral connect <service-spec>...
+
+# Single service examples
+coral connect frontend:3000
+coral connect api:8080:/health:http
+coral connect database:5432
+
+# Multiple services at once
+coral connect frontend:3000:/health api:8080:/health redis:6379
+
+# Legacy syntax (still supported for single service)
+coral connect frontend --port 3000 --health /health
+
+> **Note:**
+> - The agent must be running (`coral agent start`) before using `coral connect`
+> - Services are dynamically added without restarting the agent
+> - The agent uses discovery-provided WireGuard endpoints
+> - For local testing, ensure discovery advertises a reachable address (e.g., `127.0.0.1:41580`)
 ```
 
 ### AI Queries

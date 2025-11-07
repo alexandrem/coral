@@ -61,15 +61,17 @@ func TestNew(t *testing.T) {
 		assert.Contains(t, err.Error(), "agent_id is required")
 	})
 
-	t.Run("no services", func(t *testing.T) {
-		_, err := New(Config{
+	t.Run("no services (passive mode)", func(t *testing.T) {
+		agent, err := New(Config{
 			AgentID:  "test-agent",
 			Services: []*meshv1.ServiceInfo{},
 			Logger:   logger,
 		})
 
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "at least one service is required")
+		assert.NoError(t, err)
+		assert.NotNil(t, agent)
+		assert.Equal(t, "test-agent", agent.id)
+		assert.Equal(t, 0, len(agent.monitors))
 	})
 }
 

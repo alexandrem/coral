@@ -32,6 +32,7 @@ func init() {
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(colony.NewColonyCmd())
 	rootCmd.AddCommand(agent.NewAgentCmd())
+	rootCmd.AddCommand(agent.NewConnectCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())
 	rootCmd.AddCommand(proxy.Command())
 	rootCmd.AddCommand(newVersionCmd())

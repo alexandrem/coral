@@ -7,12 +7,13 @@
 package agentv1
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -570,6 +571,441 @@ func (x *Capabilities) GetCanConnect() bool {
 	return false
 }
 
+// ConnectService RPC messages.
+type ConnectServiceRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Service name.
+	ComponentName string `protobuf:"bytes,1,opt,name=component_name,json=componentName,proto3" json:"component_name,omitempty"`
+	// Service port number.
+	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	// Optional health check endpoint path.
+	HealthEndpoint string `protobuf:"bytes,3,opt,name=health_endpoint,json=healthEndpoint,proto3" json:"health_endpoint,omitempty"`
+	// Optional service type hint.
+	ServiceType string `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
+	// Additional metadata.
+	Labels        map[string]string `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectServiceRequest) Reset() {
+	*x = ConnectServiceRequest{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectServiceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectServiceRequest) ProtoMessage() {}
+
+func (x *ConnectServiceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectServiceRequest.ProtoReflect.Descriptor instead.
+func (*ConnectServiceRequest) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ConnectServiceRequest) GetComponentName() string {
+	if x != nil {
+		return x.ComponentName
+	}
+	return ""
+}
+
+func (x *ConnectServiceRequest) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *ConnectServiceRequest) GetHealthEndpoint() string {
+	if x != nil {
+		return x.HealthEndpoint
+	}
+	return ""
+}
+
+func (x *ConnectServiceRequest) GetServiceType() string {
+	if x != nil {
+		return x.ServiceType
+	}
+	return ""
+}
+
+func (x *ConnectServiceRequest) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+type ConnectServiceResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Success indicator.
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// Error message if not successful.
+	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// Service name that was connected.
+	ServiceName   string `protobuf:"bytes,3,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectServiceResponse) Reset() {
+	*x = ConnectServiceResponse{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectServiceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectServiceResponse) ProtoMessage() {}
+
+func (x *ConnectServiceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectServiceResponse.ProtoReflect.Descriptor instead.
+func (*ConnectServiceResponse) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ConnectServiceResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ConnectServiceResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *ConnectServiceResponse) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+// DisconnectService RPC messages.
+type DisconnectServiceRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Service name to disconnect.
+	ServiceName   string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisconnectServiceRequest) Reset() {
+	*x = DisconnectServiceRequest{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisconnectServiceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisconnectServiceRequest) ProtoMessage() {}
+
+func (x *DisconnectServiceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisconnectServiceRequest.ProtoReflect.Descriptor instead.
+func (*DisconnectServiceRequest) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DisconnectServiceRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+type DisconnectServiceResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Success indicator.
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// Error message if not successful.
+	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisconnectServiceResponse) Reset() {
+	*x = DisconnectServiceResponse{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisconnectServiceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisconnectServiceResponse) ProtoMessage() {}
+
+func (x *DisconnectServiceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisconnectServiceResponse.ProtoReflect.Descriptor instead.
+func (*DisconnectServiceResponse) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DisconnectServiceResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *DisconnectServiceResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// ListServices RPC messages.
+type ListServicesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListServicesRequest) Reset() {
+	*x = ListServicesRequest{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListServicesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListServicesRequest) ProtoMessage() {}
+
+func (x *ListServicesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListServicesRequest.ProtoReflect.Descriptor instead.
+func (*ListServicesRequest) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{10}
+}
+
+type ListServicesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Currently monitored services.
+	Services      []*ServiceStatus `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListServicesResponse) Reset() {
+	*x = ListServicesResponse{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListServicesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListServicesResponse) ProtoMessage() {}
+
+func (x *ListServicesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListServicesResponse.ProtoReflect.Descriptor instead.
+func (*ListServicesResponse) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ListServicesResponse) GetServices() []*ServiceStatus {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+type ServiceStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Service name.
+	ComponentName string `protobuf:"bytes,1,opt,name=component_name,json=componentName,proto3" json:"component_name,omitempty"`
+	// Service port number.
+	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	// Optional health check endpoint path.
+	HealthEndpoint string `protobuf:"bytes,3,opt,name=health_endpoint,json=healthEndpoint,proto3" json:"health_endpoint,omitempty"`
+	// Optional service type hint.
+	ServiceType string `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
+	// Additional metadata.
+	Labels map[string]string `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Current status.
+	Status string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"` // "healthy", "unhealthy", "unknown"
+	// Last check timestamp.
+	LastCheck *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_check,json=lastCheck,proto3" json:"last_check,omitempty"`
+	// Error message if unhealthy.
+	Error         string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceStatus) Reset() {
+	*x = ServiceStatus{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceStatus) ProtoMessage() {}
+
+func (x *ServiceStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceStatus.ProtoReflect.Descriptor instead.
+func (*ServiceStatus) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ServiceStatus) GetComponentName() string {
+	if x != nil {
+		return x.ComponentName
+	}
+	return ""
+}
+
+func (x *ServiceStatus) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *ServiceStatus) GetHealthEndpoint() string {
+	if x != nil {
+		return x.HealthEndpoint
+	}
+	return ""
+}
+
+func (x *ServiceStatus) GetServiceType() string {
+	if x != nil {
+		return x.ServiceType
+	}
+	return ""
+}
+
+func (x *ServiceStatus) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *ServiceStatus) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ServiceStatus) GetLastCheck() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastCheck
+	}
+	return nil
+}
+
+func (x *ServiceStatus) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_coral_agent_v1_agent_proto_rawDesc = "" +
@@ -610,7 +1046,41 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\bcan_exec\x18\x02 \x01(\bR\acanExec\x12\x1b\n" +
 	"\tcan_shell\x18\x03 \x01(\bR\bcanShell\x12\x1f\n" +
 	"\vcan_connect\x18\x04 \x01(\bR\n" +
-	"canConnect*\xa9\x01\n" +
+	"canConnect\"\xa4\x02\n" +
+	"\x15ConnectServiceRequest\x12%\n" +
+	"\x0ecomponent_name\x18\x01 \x01(\tR\rcomponentName\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
+	"\x0fhealth_endpoint\x18\x03 \x01(\tR\x0ehealthEndpoint\x12!\n" +
+	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12I\n" +
+	"\x06labels\x18\x05 \x03(\v21.coral.agent.v1.ConnectServiceRequest.LabelsEntryR\x06labels\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"k\n" +
+	"\x16ConnectServiceResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12!\n" +
+	"\fservice_name\x18\x03 \x01(\tR\vserviceName\"=\n" +
+	"\x18DisconnectServiceRequest\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\"K\n" +
+	"\x19DisconnectServiceResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x15\n" +
+	"\x13ListServicesRequest\"Q\n" +
+	"\x14ListServicesResponse\x129\n" +
+	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xfd\x02\n" +
+	"\rServiceStatus\x12%\n" +
+	"\x0ecomponent_name\x18\x01 \x01(\tR\rcomponentName\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
+	"\x0fhealth_endpoint\x18\x03 \x01(\tR\x0ehealthEndpoint\x12!\n" +
+	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12A\n" +
+	"\x06labels\x18\x05 \x03(\v2).coral.agent.v1.ServiceStatus.LabelsEntryR\x06labels\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x129\n" +
+	"\n" +
+	"last_check\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tlastCheck\x12\x14\n" +
+	"\x05error\x18\b \x01(\tR\x05error\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xa9\x01\n" +
 	"\x0eRuntimeContext\x12\x1b\n" +
 	"\x17RUNTIME_CONTEXT_UNKNOWN\x10\x00\x12\x1a\n" +
 	"\x16RUNTIME_CONTEXT_NATIVE\x10\x01\x12\x1a\n" +
@@ -621,9 +1091,12 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x14SIDECAR_MODE_UNKNOWN\x10\x00\x12\x14\n" +
 	"\x10SIDECAR_MODE_CRI\x10\x01\x12\x1a\n" +
 	"\x16SIDECAR_MODE_SHARED_NS\x10\x02\x12\x18\n" +
-	"\x14SIDECAR_MODE_PASSIVE\x10\x032u\n" +
+	"\x14SIDECAR_MODE_PASSIVE\x10\x032\x9b\x03\n" +
 	"\fAgentService\x12e\n" +
-	"\x11GetRuntimeContext\x12(.coral.agent.v1.GetRuntimeContextRequest\x1a&.coral.agent.v1.RuntimeContextResponseB\xac\x01\n" +
+	"\x11GetRuntimeContext\x12(.coral.agent.v1.GetRuntimeContextRequest\x1a&.coral.agent.v1.RuntimeContextResponse\x12_\n" +
+	"\x0eConnectService\x12%.coral.agent.v1.ConnectServiceRequest\x1a&.coral.agent.v1.ConnectServiceResponse\x12h\n" +
+	"\x11DisconnectService\x12(.coral.agent.v1.DisconnectServiceRequest\x1a).coral.agent.v1.DisconnectServiceResponse\x12Y\n" +
+	"\fListServices\x12#.coral.agent.v1.ListServicesRequest\x1a$.coral.agent.v1.ListServicesResponseB\xac\x01\n" +
 	"\x12com.coral.agent.v1B\n" +
 	"AgentProtoP\x01Z0github.com/coral-io/coral/coral/agent/v1;agentv1\xa2\x02\x03CAX\xaa\x02\x0eCoral.Agent.V1\xca\x02\x0eCoral\\Agent\\V1\xe2\x02\x1aCoral\\Agent\\V1\\GPBMetadata\xea\x02\x10Coral::Agent::V1b\x06proto3"
 
@@ -640,33 +1113,52 @@ func file_coral_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_coral_agent_v1_agent_proto_goTypes = []any{
-	(RuntimeContext)(0),              // 0: coral.agent.v1.RuntimeContext
-	(SidecarMode)(0),                 // 1: coral.agent.v1.SidecarMode
-	(*GetRuntimeContextRequest)(nil), // 2: coral.agent.v1.GetRuntimeContextRequest
-	(*RuntimeContextResponse)(nil),   // 3: coral.agent.v1.RuntimeContextResponse
-	(*PlatformInfo)(nil),             // 4: coral.agent.v1.PlatformInfo
-	(*CRISocketInfo)(nil),            // 5: coral.agent.v1.CRISocketInfo
-	(*VisibilityScope)(nil),          // 6: coral.agent.v1.VisibilityScope
-	(*Capabilities)(nil),             // 7: coral.agent.v1.Capabilities
-	(*timestamppb.Timestamp)(nil),    // 8: google.protobuf.Timestamp
+	(RuntimeContext)(0),               // 0: coral.agent.v1.RuntimeContext
+	(SidecarMode)(0),                  // 1: coral.agent.v1.SidecarMode
+	(*GetRuntimeContextRequest)(nil),  // 2: coral.agent.v1.GetRuntimeContextRequest
+	(*RuntimeContextResponse)(nil),    // 3: coral.agent.v1.RuntimeContextResponse
+	(*PlatformInfo)(nil),              // 4: coral.agent.v1.PlatformInfo
+	(*CRISocketInfo)(nil),             // 5: coral.agent.v1.CRISocketInfo
+	(*VisibilityScope)(nil),           // 6: coral.agent.v1.VisibilityScope
+	(*Capabilities)(nil),              // 7: coral.agent.v1.Capabilities
+	(*ConnectServiceRequest)(nil),     // 8: coral.agent.v1.ConnectServiceRequest
+	(*ConnectServiceResponse)(nil),    // 9: coral.agent.v1.ConnectServiceResponse
+	(*DisconnectServiceRequest)(nil),  // 10: coral.agent.v1.DisconnectServiceRequest
+	(*DisconnectServiceResponse)(nil), // 11: coral.agent.v1.DisconnectServiceResponse
+	(*ListServicesRequest)(nil),       // 12: coral.agent.v1.ListServicesRequest
+	(*ListServicesResponse)(nil),      // 13: coral.agent.v1.ListServicesResponse
+	(*ServiceStatus)(nil),             // 14: coral.agent.v1.ServiceStatus
+	nil,                               // 15: coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	nil,                               // 16: coral.agent.v1.ServiceStatus.LabelsEntry
+	(*timestamppb.Timestamp)(nil),     // 17: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_agent_proto_depIdxs = []int32{
-	4, // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
-	0, // 1: coral.agent.v1.RuntimeContextResponse.runtime_type:type_name -> coral.agent.v1.RuntimeContext
-	1, // 2: coral.agent.v1.RuntimeContextResponse.sidecar_mode:type_name -> coral.agent.v1.SidecarMode
-	5, // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
-	7, // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
-	6, // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
-	8, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
-	2, // 7: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
-	3, // 8: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
-	8, // [8:9] is the sub-list for method output_type
-	7, // [7:8] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	4,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
+	0,  // 1: coral.agent.v1.RuntimeContextResponse.runtime_type:type_name -> coral.agent.v1.RuntimeContext
+	1,  // 2: coral.agent.v1.RuntimeContextResponse.sidecar_mode:type_name -> coral.agent.v1.SidecarMode
+	5,  // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
+	7,  // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
+	6,  // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
+	17, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
+	15, // 7: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	14, // 8: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
+	16, // 9: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
+	17, // 10: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
+	2,  // 11: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
+	8,  // 12: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
+	10, // 13: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
+	12, // 14: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
+	3,  // 15: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
+	9,  // 16: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
+	11, // 17: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
+	13, // 18: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
+	15, // [15:19] is the sub-list for method output_type
+	11, // [11:15] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_agent_proto_init() }
@@ -680,7 +1172,7 @@ func file_coral_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_agent_proto_rawDesc), len(file_coral_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   6,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
