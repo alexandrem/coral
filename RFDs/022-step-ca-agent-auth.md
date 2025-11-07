@@ -83,13 +83,23 @@ embedded `step-ca` and immediately transition to mTLS for all subsequent RPCs.
 
 **Architecture Overview**
 
-```
-Agent ──(1)→ Discovery: RequestBootstrapToken(agent_id, reef_id)
-Agent ←─(2)─ Discovery: JWT provisioner token (single use, <5 min TTL)
-Agent ──(3 over HTTPS)→ Colony(step-ca): Submit CSR + token
-Colony(step-ca) → Datastore: issue cert, log serial, persist revocation hooks
-Agent ←─(4)─ Colony(step-ca): client cert + CA chain
-Agent ──(5 mTLS)→ Colony APIs: RegisterAgent, heartbeat, WG config, etc.
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Discovery
+    participant Colony
+    participant StepCA as step-ca (embedded)
+    participant Store as DuckDB/Postgres
+
+    Agent->>Discovery: RequestBootstrapToken(agent_id, reef_id)
+    Discovery-->>Agent: JWT token (single-use, <5m TTL)
+    Agent->>Colony: HTTPS RequestCertificate(jwt, CSR)
+    Colony->>StepCA: Validate token, forward CSR
+    StepCA->>Store: Persist cert + revocation hooks
+    StepCA-->>Colony: Client certificate + CA chain
+    Colony-->>Agent: Certificate bundle
+    Agent->>Colony: mTLS RegisterAgent / heartbeats / WG config
+    Colony->>Store: Update allocator, cert status
 ```
 
 ### Component Changes
@@ -155,7 +165,7 @@ discovery:
 - [ ] Vendor `go.step.sm/crypto` and expose a Colony CA manager.
 - [ ] Implement migrations `004-step-ca-state` for CA metadata/tables.
 - [ ] Wire CA key storage to the shared DuckDB datastore (with Postgres option)
-      + optional KMS envelope.
+  + optional KMS envelope.
 
 ### Phase 2: Bootstrap Tokens
 
@@ -266,6 +276,26 @@ coral colony ca rotate --confirm
 - Agent reconnect after reboot using stored cert.
 - Renewal before expiry with existing cert (no new token).
 - Revocation causing immediate mTLS handshake failure.
+
+## CLI Local Proxy Implications
+
+RFD 005’s CLI local proxy remains the standard operator entry point. This RFD
+updates its authentication path rather than removing it:
+
+- `coral proxy start` now performs the same bootstrap flow as an agent: request
+  a single-use token, generate a CSR, obtain a certificate from the embedded
+  `step-ca`, then bring up its WireGuard interface.
+- Proxy certificates are stored and renewed under the user’s Coral state dir
+  (e.g., `~/.coral/proxy/<colony>`), sharing the lifecycle hooks described in
+  Phase 3.
+- The WireGuard registration RPC swaps the `colony_secret` payload for proof of
+  possession derived from the proxy’s certificate (CN/SAN encode proxy and
+  colony identity).
+- Operators still interact with `localhost:PORT` as before; the only visible
+  change is improved security (proxies can be revoked individually, no shared
+  secret rotation).
+- If a proxy host is compromised, the colony revokes that certificate and the
+  proxy immediately loses mesh access, keeping the private topology intact.
 
 ## Security Considerations
 
