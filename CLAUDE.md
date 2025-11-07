@@ -14,15 +14,11 @@
 - **Language**: Go • **Storage**: DuckDB + embedded • **AI**: Direct API (user keys)
 - **Network**: WireGuard mesh, gRPC • **Discovery**: Lightweight NAT traversal service
 
-## Key Principles
-
-- Unified ops (observe/debug/control), works passively or SDK-integrated for full control
-- Self-sufficient (air-gap compatible), AI recommends/human approves
-- Application-scoped, standards-first (Prometheus/OTEL), control plane only
-
 ## Critical Rules
 
 **Testing**: All tests must pass (`make test`) before commits.
+
+**RFD*: Follow guideline in RFDs/000-RFD-TEMPLATE.md
 
 **Code**: Follow Effective Go conventions, Go Doc Comments style, end comments with a dot.
 
