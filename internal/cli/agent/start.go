@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent"
 	"github.com/coral-io/coral/internal/auth"
@@ -318,6 +321,68 @@ Examples:
 			} else {
 				logger.Info().Msg("Agent started in passive mode - waiting for service connections")
 			}
+
+			// Create and start runtime service for status API.
+			runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
+				Logger:          logger,
+				Version:         "dev", // TODO: Get version from build info
+				RefreshInterval: 5 * time.Minute,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to create runtime service: %w", err)
+			}
+
+			if err := runtimeService.Start(); err != nil {
+				return fmt.Errorf("failed to start runtime service: %w", err)
+			}
+			defer runtimeService.Stop()
+
+			// Create adapter and HTTP server for status API.
+			adapter := agent.NewRuntimeServiceAdapter(runtimeService)
+			path, handler := agentv1connect.NewAgentServiceHandler(adapter)
+
+			mux := http.NewServeMux()
+			mux.Handle(path, handler)
+
+			// Add simple /status endpoint that returns JSON.
+			mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+				ctx := r.Context()
+				runtimeCtx, err := runtimeService.GetRuntimeContext(ctx, nil)
+				if err != nil {
+					http.Error(w, fmt.Sprintf("failed to get runtime context: %v", err), http.StatusInternalServerError)
+					return
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				if err := json.NewEncoder(w).Encode(runtimeCtx); err != nil {
+					logger.Error().Err(err).Msg("Failed to encode status response")
+				}
+			})
+
+			httpServer := &http.Server{
+				Addr:    ":9001",
+				Handler: mux,
+			}
+
+			// Start HTTP server in background.
+			go func() {
+				logger.Info().
+					Int("port", 9001).
+					Msg("Agent status API listening")
+
+				if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					logger.Error().
+						Err(err).
+						Msg("Status API server error")
+				}
+			}()
+			defer func() {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := httpServer.Shutdown(shutdownCtx); err != nil {
+					logger.Error().Err(err).Msg("Failed to shutdown status API server")
+				}
+			}()
 
 			logger.Info().Msg("Agent started successfully - waiting for shutdown signal")
 

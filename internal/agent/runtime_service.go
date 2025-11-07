@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
 	agentv1 "github.com/coral-io/coral/coral/agent/v1"
 	"github.com/coral-io/coral/internal/runtime"
 	"github.com/rs/zerolog"
@@ -194,4 +195,28 @@ func (s *RuntimeService) GetDetectedAt() *timestamppb.Timestamp {
 	}
 
 	return s.runtimeContext.DetectedAt
+}
+
+// RuntimeServiceAdapter adapts RuntimeService to the Connect RPC AgentServiceHandler interface.
+type RuntimeServiceAdapter struct {
+	service *RuntimeService
+}
+
+// NewRuntimeServiceAdapter creates a new adapter for the runtime service.
+func NewRuntimeServiceAdapter(service *RuntimeService) *RuntimeServiceAdapter {
+	return &RuntimeServiceAdapter{service: service}
+}
+
+// GetRuntimeContext implements the Connect RPC handler interface.
+func (a *RuntimeServiceAdapter) GetRuntimeContext(
+	ctx context.Context,
+	req *connect.Request[agentv1.GetRuntimeContextRequest],
+) (*connect.Response[agentv1.RuntimeContextResponse], error) {
+	// Call the underlying service.
+	resp, err := a.service.GetRuntimeContext(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
 }
