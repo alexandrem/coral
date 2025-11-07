@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/rs/zerolog"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -12,6 +13,7 @@ type Interface struct {
 	device tun.Device
 	name   string
 	mtu    int
+	logger zerolog.Logger
 }
 
 // CreateTUN is implemented in platform-specific files:
@@ -21,7 +23,7 @@ type Interface struct {
 
 // CreateTUNFromFD creates a TUN interface from an existing file descriptor.
 // This is used when the TUN device is created by a privileged subprocess.
-func CreateTUNFromFD(name string, mtu, fd int) (*Interface, error) {
+func CreateTUNFromFD(name string, mtu, fd int, logger zerolog.Logger) (*Interface, error) {
 	// Note: The wireguard-go library expects the device to be created via
 	// CreateTUN. For FD-based creation, we use the platform-specific
 	// CreateTUN function which will handle FD appropriately.
@@ -30,7 +32,7 @@ func CreateTUNFromFD(name string, mtu, fd int) (*Interface, error) {
 	// sophisticated FD handling, but for now we rely on CreateTUN to do the
 	// right thing when called from a process that has the necessary privileges.
 
-	return CreateTUN(name, mtu)
+	return CreateTUN(name, mtu, logger)
 }
 
 // Name returns the interface name.
@@ -87,3 +89,33 @@ func (i *Interface) SetMTU(mtu int) error {
 
 	return nil
 }
+
+// AddRoutesForPeer adds routes for a peer's AllowedIPs.
+// This is necessary for userspace WireGuard since it doesn't automatically manage routes.
+func (i *Interface) AddRoutesForPeer(allowedIPs []string) error {
+	if i.name == "" {
+		return fmt.Errorf("interface name is empty")
+	}
+
+	// Call platform-specific implementation
+	return i.AddRoutesForPeerPlatform(allowedIPs)
+}
+
+// AddRoutesForPeerPlatform is implemented in platform-specific files:
+// - interface_darwin.go for macOS (using route command)
+// - interface_linux.go for Linux (using ip route or netlink)
+
+// DeleteRoute deletes a specific route for an IP through the interface.
+// This is useful for clearing cached routes when IP addresses change.
+func (i *Interface) DeleteRoute(ip net.IP) error {
+	if ip == nil {
+		return fmt.Errorf("IP is nil")
+	}
+
+	// Call platform-specific implementation.
+	return i.DeleteRoutePlatform(ip)
+}
+
+// DeleteRoutePlatform is implemented in platform-specific files:
+// - interface_darwin.go for macOS (using route command)
+// - interface_linux.go for Linux (using ip route or netlink)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/coral-io/coral/internal/logging"
 	"github.com/coral-io/coral/internal/wireguard"
 )
 
@@ -47,14 +48,24 @@ func runTUNHelper(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid MTU: %w", err)
 	}
 
+	// Create a logger for the TUN helper.
+	logger := logging.New(logging.Config{
+		Level:  "info",
+		Pretty: false,
+		Output: os.Stderr,
+	})
+
 	// Log what we're doing (to stderr, since stdout might interfere with FD
 	// passing).
-	fmt.Fprintf(os.Stderr, "[tun-helper] Creating TUN device: %s (MTU: %d)\n", deviceName, mtu)
+	logger.Info().
+		Str("device", deviceName).
+		Int("mtu", mtu).
+		Msg("Creating TUN device")
 
 	// Create the TUN device.
-	tunDevice, err := wireguard.CreateTUN(deviceName, mtu)
+	tunDevice, err := wireguard.CreateTUN(deviceName, mtu, logger)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[tun-helper] Error: Failed to create TUN device: %v\n", err)
+		logger.Error().Err(err).Msg("Failed to create TUN device")
 		return fmt.Errorf("failed to create TUN device: %w", err)
 	}
 	defer tunDevice.Close()
@@ -62,20 +73,20 @@ func runTUNHelper(cmd *cobra.Command, args []string) error {
 	// Get the file descriptor from the underlying TUN device.
 	file := tunDevice.Device().File()
 	if file == nil {
-		fmt.Fprintf(os.Stderr, "[tun-helper] Error: TUN device file is nil\n")
+		logger.Error().Msg("TUN device file is nil")
 		return fmt.Errorf("TUN device file is nil")
 	}
 
 	fd := int(file.Fd())
-	fmt.Fprintf(os.Stderr, "[tun-helper] TUN device created successfully (FD: %d)\n", fd)
+	logger.Info().Int("fd", fd).Msg("TUN device created successfully")
 
 	// Send FD to parent via Unix socket.
-	fmt.Fprintf(os.Stderr, "[tun-helper] Sending FD to parent via %s\n", socketPath)
+	logger.Info().Str("socket", socketPath).Msg("Sending FD to parent")
 	if err := wireguard.SendFDOverSocket(fd, socketPath); err != nil {
-		fmt.Fprintf(os.Stderr, "[tun-helper] Error: Failed to send FD: %v\n", err)
+		logger.Error().Err(err).Msg("Failed to send FD")
 		return fmt.Errorf("failed to send FD to parent: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "[tun-helper] FD sent successfully, exiting\n")
+	logger.Info().Msg("FD sent successfully, exiting")
 	return nil
 }

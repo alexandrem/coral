@@ -215,6 +215,24 @@ Note: Legacy flags (--port, --health) only work with single service specificatio
 				Str("ip", meshIP.String()).
 				Msg("Successfully assigned IP to agent WireGuard interface")
 
+			// Delete all existing routes for this interface to clear cached source IPs.
+			// When we used a temporary IP, the kernel cached it as the source address.
+			logger.Info().Msg("Flushing routes to clear temporary IP cache")
+			if err := wgDevice.FlushAllPeerRoutes(); err != nil {
+				logger.Warn().Err(err).Msg("Failed to flush peer routes")
+			}
+
+			// Wait for route deletion to complete.
+			time.Sleep(200 * time.Millisecond)
+
+			// Re-add peer routes with the new IP as source.
+			if err := wgDevice.RefreshPeerRoutes(); err != nil {
+				logger.Warn().Err(err).Msg("Failed to refresh peer routes after IP change")
+			}
+
+			// Wait for changes to propagate
+			time.Sleep(300 * time.Millisecond)
+
 			fmt.Println("\n✓ Agent connected successfully")
 			fmt.Printf("Agent ID: %s\n", agentID)
 			fmt.Printf("Mesh IP: %s\n", meshIPStr)

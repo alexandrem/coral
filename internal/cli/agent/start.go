@@ -230,6 +230,49 @@ Examples:
 				Str("ip", meshIPStr).
 				Msg("Successfully assigned IP to agent WireGuard interface")
 
+			// Delete all existing routes for this interface to clear cached source IPs.
+			// When we used a temporary IP, the kernel cached it as the source address.
+			logger.Info().Msg("Flushing routes to clear temporary IP cache")
+			if err := wgDevice.FlushAllPeerRoutes(); err != nil {
+				logger.Warn().Err(err).Msg("Failed to flush peer routes")
+			}
+
+			// Wait for route deletion to complete.
+			time.Sleep(200 * time.Millisecond)
+
+			// Re-add peer routes with the new IP as source.
+			if err := wgDevice.RefreshPeerRoutes(); err != nil {
+				logger.Warn().Err(err).Msg("Failed to refresh peer routes after IP change")
+			}
+
+			// Wait briefly for IP and route changes to propagate through the kernel.
+			// Without this delay, connection attempts may fail with "can't assign requested address".
+			time.Sleep(500 * time.Millisecond)
+
+			// Trigger WireGuard handshake by attempting to connect to colony over mesh.
+			// This ensures the tunnel is established before we try to send heartbeats.
+			connectPort := colonyInfo.ConnectPort
+			if connectPort == 0 {
+				connectPort = 9000
+			}
+			meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
+			logger.Info().
+				Str("mesh_addr", meshAddr).
+				Msg("Testing connectivity to colony via mesh to establish WireGuard handshake")
+
+			conn, err := net.DialTimeout("tcp", meshAddr, 5*time.Second)
+			if err != nil {
+				logger.Warn().
+					Err(err).
+					Str("mesh_addr", meshAddr).
+					Msg("Unable to establish connection to colony via mesh - handshake may not be complete")
+			} else {
+				conn.Close()
+				logger.Info().
+					Str("mesh_addr", meshAddr).
+					Msg("Successfully established WireGuard tunnel to colony")
+			}
+
 			logger.Info().
 				Str("agent_id", agentID).
 				Str("mesh_ip", meshIPStr).

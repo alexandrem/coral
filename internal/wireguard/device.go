@@ -17,6 +17,7 @@ import (
 
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/constants"
+	"github.com/rs/zerolog"
 )
 
 // Device represents a WireGuard device instance.
@@ -28,11 +29,12 @@ type Device struct {
 	ipAllocator *IPAllocator
 	peers       map[string]*PeerConfig // publicKey -> PeerConfig
 	mu          sync.RWMutex
-	logger      *device.Logger
+	wgLogger    *device.Logger // WireGuard internal logger.
+	logger      zerolog.Logger // Application logger.
 }
 
 // NewDevice creates a new WireGuard device with the given configuration.
-func NewDevice(cfg *config.WireGuardConfig) (*Device, error) {
+func NewDevice(cfg *config.WireGuardConfig, logger zerolog.Logger) (*Device, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -75,8 +77,8 @@ func NewDevice(cfg *config.WireGuardConfig) (*Device, error) {
 		return nil, fmt.Errorf("failed to create IP allocator: %w", err)
 	}
 
-	// Create logger
-	logger := device.NewLogger(
+	// Create WireGuard internal logger.
+	wgLogger := device.NewLogger(
 		device.LogLevelError,
 		fmt.Sprintf("(%s) ", "wg0"),
 	)
@@ -85,7 +87,8 @@ func NewDevice(cfg *config.WireGuardConfig) (*Device, error) {
 		cfg:         cfg,
 		ipAllocator: allocator,
 		peers:       make(map[string]*PeerConfig),
-		logger:      logger,
+		wgLogger:    wgLogger,
+		logger:      logger.With().Str("component", "wireguard").Logger(),
 	}, nil
 }
 
@@ -99,7 +102,7 @@ func (d *Device) Start() error {
 	}
 
 	// Create TUN interface.
-	iface, err := CreateTUN("wg0", d.cfg.MTU)
+	iface, err := CreateTUN("wg0", d.cfg.MTU, d.logger)
 	if err != nil {
 		// Check if this is a permission error.
 		if isPermissionError(err) {
@@ -112,7 +115,7 @@ func (d *Device) Start() error {
 
 	// Create WireGuard device
 	bind := conn.NewDefaultBind()
-	d.wgDevice = device.NewDevice(d.tunDevice, bind, d.logger)
+	d.wgDevice = device.NewDevice(d.tunDevice, bind, d.wgLogger)
 
 	// Configure device via UAPI
 	if err := d.configure(); err != nil {
@@ -177,6 +180,26 @@ func (d *Device) AddPeer(peerConfig *PeerConfig) error {
 		return fmt.Errorf("failed to add peer: %w", err)
 	}
 
+	// Add routes for the peer's AllowedIPs.
+	// Userspace WireGuard doesn't automatically create routes, so we must do it manually.
+
+	d.logger.Debug().
+		Bool("iface_exists", d.iface != nil).
+		Strs("allowed_ips", peerConfig.AllowedIPs).
+		Msg("Adding routes for peer")
+
+	if d.iface != nil {
+		if err := d.iface.AddRoutesForPeer(peerConfig.AllowedIPs); err != nil {
+			// Log warning but don't fail - routes might already exist.
+			d.logger.Debug().
+				Err(err).
+				Msg("AddRoutesForPeer returned error")
+			_ = err
+		}
+	} else {
+		d.logger.Warn().Msg("Interface is nil, cannot add routes")
+	}
+
 	return nil
 }
 
@@ -227,6 +250,79 @@ func (d *Device) ListPeers() []*PeerConfig {
 	}
 
 	return peers
+}
+
+// FlushAllPeerRoutes deletes all routes for all peers.
+// This is useful when IP addresses change to clear cached source IPs from the kernel.
+func (d *Device) FlushAllPeerRoutes() error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if d.iface == nil {
+		return fmt.Errorf("interface not available")
+	}
+
+	d.logger.Debug().
+		Int("peer_count", len(d.peers)).
+		Msg("Flushing routes for all peers")
+
+	for pubkey, peer := range d.peers {
+		for _, allowedIP := range peer.AllowedIPs {
+			// Parse IP from CIDR.
+			ip, _, err := net.ParseCIDR(allowedIP)
+			if err != nil {
+				d.logger.Debug().
+					Err(err).
+					Str("allowed_ip", allowedIP).
+					Msg("Failed to parse CIDR")
+				continue
+			}
+
+			// Delete the route.
+			if err := d.iface.DeleteRoute(ip); err != nil {
+				// Log but don't fail - route might not exist.
+				d.logger.Debug().
+					Err(err).
+					Str("peer_pubkey", pubkey[:8]+"...").
+					Str("ip", ip.String()).
+					Msg("Error deleting route")
+			}
+		}
+	}
+
+	return nil
+}
+
+// RefreshPeerRoutes re-adds routes for all peers.
+// This is useful after IP address changes, which may delete existing routes.
+func (d *Device) RefreshPeerRoutes() error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if d.iface == nil {
+		return fmt.Errorf("interface not available")
+	}
+
+	d.logger.Debug().
+		Int("peer_count", len(d.peers)).
+		Msg("Refreshing routes for all peers")
+
+	for pubkey, peer := range d.peers {
+		d.logger.Debug().
+			Str("peer_pubkey", pubkey[:8]+"...").
+			Strs("allowed_ips", peer.AllowedIPs).
+			Msg("Re-adding routes for peer")
+
+		if err := d.iface.AddRoutesForPeer(peer.AllowedIPs); err != nil {
+			// Log but don't fail - routes might already exist.
+			d.logger.Debug().
+				Err(err).
+				Str("peer_pubkey", pubkey[:8]+"...").
+				Msg("Error adding routes for peer")
+		}
+	}
+
+	return nil
 }
 
 // Allocator returns the IP allocator for this device.
