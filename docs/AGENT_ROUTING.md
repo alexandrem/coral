@@ -43,13 +43,11 @@ CLI → Auto-discover → http://localhost:9001 (Agent)
 coral connect frontend:3000 --agent http://10.42.0.5:9001
 ```
 
-```mermaid
-graph LR
-    CLI[CLI] --> Agent[Remote Agent<br/>10.42.0.5:9001]
-    style CLI fill:#e1f5ff
-    style Agent fill:#ffcdd2
-
-    Note[❌ No security controls]
+```
+CLI → http://10.42.0.5:9001 (Remote Agent)
+      ❌ No RBAC
+      ❌ No encryption
+      ❌ No audit trail
 ```
 
 **Problem**: Direct connection bypasses all security controls.
@@ -97,29 +95,28 @@ sequenceDiagram
 
 ### Local Development
 
-```mermaid
-flowchart TD
-    Start([coral connect frontend:3000])
-    Start --> Local[No targeting flags?]
-    Local --> Agent[Direct to localhost:9001]
-
-    style Agent fill:#c8e6c9
+```
+coral connect frontend:3000
+    ↓
+No targeting flags?
+    ↓
+Direct to localhost:9001
 ```
 
 Simple and fast for local development.
 
 ### Remote Access
 
-```mermaid
-flowchart TD
-    Start([coral connect frontend:3000<br/>--agent-id prod-01])
-    Start --> Colony[Discover Colony]
-    Colony --> Resolve[Colony resolves identifier]
-    Resolve --> Route[Colony routes via mesh]
-    Route --> Agent[Agent receives command]
-
-    style Colony fill:#fff9c4
-    style Agent fill:#c8e6c9
+```
+coral connect frontend:3000 --agent-id prod-01
+    ↓
+Discover Colony
+    ↓
+Colony resolves identifier → mesh IP
+    ↓
+Colony routes via WireGuard mesh
+    ↓
+Agent receives command
 ```
 
 Colony acts as secure router for all remote access.
@@ -128,27 +125,10 @@ Colony acts as secure router for all remote access.
 
 When the CLI needs Colony, it tries these in order:
 
-```mermaid
-flowchart TD
-    Start([Need Colony])
-    Start --> Local{Local Colony<br/>:9000?}
-    Local -->|Yes| UseLocal[Use local]
-    Local -->|No| Proxy{Proxy<br/>:8000?}
-    Proxy -->|Yes| UseProxy[Use proxy]
-    Proxy -->|No| Config{Config<br/>file?}
-    Config -->|Yes| UseConfig[Use config]
-    Config -->|No| Fallback[Agent-only mode]
-
-    style UseLocal fill:#c8e6c9
-    style UseProxy fill:#c8e6c9
-    style UseConfig fill:#c8e6c9
-    style Fallback fill:#ffecb3
-```
-
-1. **Local Colony** - localhost:9000, unix socket
-2. **Local Proxy** - localhost:8000 (if running)
-3. **Config/Environment** - User-specified endpoint
-4. **Fallback** - Local operations only
+1. **Local Colony** - localhost:9000, unix socket `/var/run/coral-colony.sock`
+2. **Local Proxy** - localhost:8000 (if `coral proxy` running)
+3. **Config/Environment** - `$CORAL_COLONY_URL` or `~/.coral/config.yaml`
+4. **Fallback** - Agent-only mode (local operations only)
 
 ## Remote Colony Access
 
@@ -162,29 +142,23 @@ coral proxy start https://colony.company.internal
 coral connect frontend:3000 --agent-id prod-01
 ```
 
-```mermaid
-graph TB
-    subgraph "Local Machine"
-        CLI[CLI]
-        Proxy[Proxy :8000]
-    end
+**Architecture:**
 
-    subgraph "WireGuard Mesh"
-        Colony[Colony]
-        Agent1[Agent 1]
-        Agent2[Agent 2]
-    end
-
-    CLI --> Proxy
-    Proxy -->|Encrypted tunnel| Colony
-    Colony -->|Mesh routing| Agent1
-    Colony -->|Mesh routing| Agent2
-
-    style CLI fill:#e1f5ff
-    style Proxy fill:#fff9c4
-    style Colony fill:#c8e6c9
-    style Agent1 fill:#c8e6c9
-    style Agent2 fill:#c8e6c9
+```
+┌─────────────────────┐
+│  Local Machine      │
+│                     │
+│  CLI → Proxy :8000  │──┐
+└─────────────────────┘  │
+                         │ WireGuard Tunnel (encrypted)
+                         │
+┌────────────────────────▼────────────────┐
+│  WireGuard Mesh                         │
+│                                         │
+│  Colony :9000                           │
+│     ├─→ Agent 1 (10.42.0.5:9001)        │
+│     └─→ Agent 2 (10.42.0.6:9001)        │
+└─────────────────────────────────────────┘
 ```
 
 The proxy establishes a WireGuard tunnel and provides a local endpoint.
