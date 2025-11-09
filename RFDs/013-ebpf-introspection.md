@@ -13,7 +13,17 @@ areas: ["observability", "profiling", "networking", "security"]
 
 # RFD 013 - eBPF-Based Application Introspection
 
-**Status:** 🚧 Draft
+**Status:** 🚧 Partial Implementation (Minimal MVP Complete - 2025-11-08)
+
+**Implementation Progress:**
+- ✅ Protobuf definitions and capability detection
+- ✅ Agent integration with eBPF manager
+- ✅ Status reporting in registration and runtime context
+- ❌ Real eBPF programs (stub implementation only)
+- ❌ Colony integration and storage
+- ❌ CLI/MCP integration
+
+See [Implementation Status](#implementation-status) section for details.
 
 ## Summary
 
@@ -304,54 +314,113 @@ This RFD depends on RFDs 007, 011, and 012. Here's why:
 **Alternative**: Implement eBPF in privileged sidecar mode first (simpler),
 migrate to node agents later (better resource efficiency).
 
-## Implementation Plan
+## Implementation Status
 
-### Phase 1: Foundations
+**Status**: Minimal working implementation complete (2025-11-08)
 
-- [ ] Package curated CO-RE eBPF programs and loader scaffolding.
-- [ ] Define RPC messages for starting/stopping collectors and streaming results.
-- [ ] Extend registry/storage schema for eBPF artefacts (DuckDB tables).
+### Completed (Minimal MVP)
 
-### Phase 2: Agent Integration
+**Phase 1: Foundations**
+- [x] Define RPC messages for starting/stopping collectors and streaming results (`proto/coral/mesh/v1/ebpf.proto`, `proto/coral/agent/v1/agent.proto`)
+- [x] Define capability detection messages (`EbpfCapabilities`, `EbpfCollectorKind`)
 
-- [ ] Implement eBPF manager in agent (load/unload, map polling).
-- [ ] Support capability checks (`CAP_BPF`, `CAP_SYS_ADMIN`, kernel version
-      gating).
-- [ ] Implement aggregation pipeline per collector (histograms, top stacks).
-- [ ] Handle fallback to user-space sampling when eBPF unavailable.
+**Phase 2: Agent Integration**
+- [x] Implement eBPF manager in agent (`internal/agent/ebpf/manager.go`)
+- [x] Support capability checks (kernel version, BTF, `CAP_BPF` detection in `internal/agent/ebpf/capabilities.go`)
+- [x] Stub syscall stats collector (`internal/agent/ebpf/syscall_stats.go`)
+- [x] Collector interface (`internal/agent/ebpf/collector.go`)
+- [x] Manager lifecycle (start/stop, auto-expiration, cleanup)
+- [x] Integration into agent (`internal/agent/agent.go`)
 
-### Phase 3: Colony & Control Plane
+**Agent Status Reporting**
+- [x] eBPF capabilities reported in `RegisterRequest` (agent registration)
+- [x] eBPF capabilities in `RuntimeContextResponse` (agent status API)
+- [x] CLI status display (`coral agent status` shows eBPF section)
 
-- [ ] Add colony RPC handlers (`StartEbpfCollector`, `StopEbpfCollector`,
-      streaming `EbpfEvent`).
-- [ ] Persist summaries in DuckDB (`ebpf_http_latency`, `ebpf_cpu_flamegraph`,
-      etc.).
-- [ ] Update AI analysis pipeline to reference eBPF datasets.
+**Testing**
+- [x] Unit tests for manager and collectors (`internal/agent/ebpf/*_test.go`)
+- [x] Example usage (`internal/agent/ebpf/example_test.go`)
+- [x] Documentation (`internal/agent/ebpf/README.md`)
 
-### Phase 4: CLI / MCP UX
+### Remaining Work
 
-- [ ] Extend `coral tap` with eBPF data source flags (`--http-latency`,
-      `--cpu-profile`, `--tcp-metrics`, `--analysis`).
-- [ ] Implement `coral query ebpf` for historical data retrieval.
-- [ ] Add AI query pattern matching to auto-select eBPF collectors.
-- [ ] Add MCP tool definitions: `coral_start_tap` (with eBPF options),
-      `coral_get_ebpf_summary`, `coral_query_performance`.
-- [ ] Update `coral ask` to automatically trigger eBPF collection for
-      performance-related queries.
+**Phase 1: Real eBPF Programs** (Not Started)
+- [ ] Package curated CO-RE eBPF programs using libbpf
+- [ ] Implement actual syscall stats BPF program (replace stub)
+- [ ] Add HTTP latency BPF program
+- [ ] Add CPU profiling BPF program
+- [ ] Add TCP metrics BPF program
+- [ ] Implement symbolization (DWARF/ELF parsing)
+- [ ] Container-aware symbolization (access container filesystems)
 
-### Phase 5: Security & Hardening
+**Phase 2: Aggregation & Processing** (Not Started)
+- [ ] Implement aggregation pipeline per collector (histograms, top stacks)
+- [ ] Handle fallback to user-space sampling when eBPF unavailable
+- [ ] Implement event batching/streaming
 
-- [ ] Enforce collector allowlist and duration limits.
-- [ ] Add audit logging for collector lifecycle events.
-- [ ] Support observe-only mode that excludes privileged collectors.
-- [ ] Provide kernel compatibility matrix and detection.
+**Phase 3: Colony & Storage** (Not Started)
+- [ ] Add colony RPC handlers (`StartEbpfCollector`, `StopEbpfCollector`, streaming `EbpfEvent`)
+- [ ] Persist summaries in DuckDB (`ebpf_http_latency`, `ebpf_cpu_flamegraph`, etc.)
+- [ ] Implement retention policies and data management
+- [ ] Update AI analysis pipeline to reference eBPF datasets
 
-### Phase 6: Testing & Documentation
+**Phase 4: CLI / MCP UX** (Not Started)
+- [ ] Extend `coral tap` with eBPF data source flags (`--http-latency`, `--cpu-profile`, `--tcp-metrics`, `--analysis`)
+- [ ] Implement `coral query ebpf` for historical data retrieval
+- [ ] Add AI query pattern matching to auto-select eBPF collectors
+- [ ] Add MCP tool definitions: `coral_start_tap` (with eBPF options), `coral_get_ebpf_summary`, `coral_query_performance`
+- [ ] Update `coral ask` to automatically trigger eBPF collection for performance-related queries
 
-- [ ] Unit tests: config parsing, aggregation math, error handling.
-- [ ] Integration tests: run collectors in Kind/minikube, validate outputs.
-- [ ] Performance tests: measure overhead on representative workloads.
-- [ ] Documentation: README/USAGE updates, troubleshooting, kernel requirements.
+**Phase 5: Configuration & Modes** (Not Started)
+- [ ] Implement continuous collector mode (background, low-overhead)
+- [ ] Implement on-demand collector mode (triggered by tap/AI)
+- [ ] Add agent configuration for eBPF settings (`agent-config.yaml`)
+- [ ] Add colony configuration for retention/quotas (`colony-config.yaml`)
+
+**Phase 6: Security & Hardening** (Partial - Basic Capability Detection Only)
+- [x] Kernel version detection and compatibility checking
+- [ ] Enforce collector allowlist and duration limits
+- [ ] Add audit logging for collector lifecycle events
+- [ ] Support observe-only mode that excludes privileged collectors
+- [ ] Implement per-agent resource quotas (CPU, memory, event rate)
+- [ ] Add verifier rejection handling and retry logic
+
+**Phase 7: Testing & Documentation** (Partial - Basic Tests Only)
+- [x] Unit tests: manager lifecycle, capability detection
+- [ ] Unit tests: config parsing, aggregation math, error handling
+- [ ] Integration tests: run collectors in Kind/minikube, validate outputs
+- [ ] Performance tests: measure overhead on representative workloads
+- [ ] E2E tests: full CLI workflow with real eBPF programs
+- [ ] Documentation: README/USAGE updates, troubleshooting, kernel requirements
+
+### Current Limitations
+
+The current implementation is a **minimal working prototype** with these limitations:
+
+1. **No Real eBPF Programs**: The syscall stats collector generates synthetic data. Actual BPF programs using libbpf are not implemented.
+
+2. **No Colony Integration**: Colony cannot request collectors or receive events. The RPC service definitions exist but handlers are not implemented.
+
+3. **No Storage**: eBPF events are not persisted to DuckDB. The schema is defined but not created.
+
+4. **No CLI Commands**: `coral tap` and `coral query ebpf` do not support eBPF data sources yet.
+
+5. **Single Collector Only**: Only syscall stats collector is stubbed. HTTP latency, CPU profiling, and TCP metrics are not implemented.
+
+6. **No Symbolization**: Stack traces would show raw addresses, not function names.
+
+7. **No Resource Limits**: Per-agent quotas and safety limits are not enforced.
+
+8. **macOS/Windows**: eBPF is detected as unsupported (Linux-only) but no fallback mechanisms exist.
+
+### Next Steps
+
+To complete the implementation:
+
+1. **Immediate** (Week 1-2): Implement real eBPF programs using libbpf for syscall stats
+2. **Short-term** (Week 3-4): Add colony RPC handlers and DuckDB storage
+3. **Medium-term** (Month 2): Integrate with `coral tap` CLI and implement remaining collectors
+4. **Long-term** (Month 3+): AI-driven collector selection and advanced features
 
 ## API Changes
 
