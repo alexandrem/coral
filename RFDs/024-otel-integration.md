@@ -320,6 +320,8 @@ message TelemetryBatch {
     int64 bucket_end = 4;
     int32 dropped_spans = 5;
     int32 dropped_metrics = 6;
+    string batch_id = 7; // UUID for ack correlation
+    int32 ntp_offset_ms = 8; // NTP offset in milliseconds for clock skew correction
 }
 
 message TelemetryBatchAck {
@@ -345,8 +347,8 @@ Policies embed CEL expressions evaluated per span/metric:
 
 ```yaml
 filters:
-    -   name: checkout_latency
-        expression: service_name == "checkout" && attributes["http.status_code"] >= "500"
+    -   name: checkout_errors
+        expression: service_name == "checkout" && int(attributes["http.status_code"]) >= 500
     -   name: high_latency
         expression: duration_ms > 500 && span_kind == "SPAN_KIND_SERVER"
 ```
