@@ -15,6 +15,7 @@ import (
 	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-io/coral/internal/agent/ebpf"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/constants"
@@ -229,15 +230,25 @@ func registerWithColony(
 		services[i] = spec.ToProto()
 	}
 
+	// Detect eBPF capabilities.
+	ebpfCaps := ebpf.DetectCapabilities()
+	logger.Info().
+		Bool("ebpf_supported", ebpfCaps.Supported).
+		Str("kernel_version", ebpfCaps.KernelVersion).
+		Bool("btf_available", ebpfCaps.BtfAvailable).
+		Int("available_collectors", len(ebpfCaps.AvailableCollectors)).
+		Msg("Detected eBPF capabilities")
+
 	// Build registration request with multi-service support
 	regReq := &meshv1.RegisterRequest{
-		AgentId:         agentID,
-		ColonyId:        cfg.ColonyID,
-		ColonySecret:    cfg.ColonySecret,
-		WireguardPubkey: agentPubKey,
-		Version:         "0.1.0",
-		Labels:          make(map[string]string),
-		Services:        services,
+		AgentId:          agentID,
+		ColonyId:         cfg.ColonyID,
+		ColonySecret:     cfg.ColonySecret,
+		WireguardPubkey:  agentPubKey,
+		Version:          "0.1.0",
+		Labels:           make(map[string]string),
+		Services:         services,
+		EbpfCapabilities: ebpfCaps,
 	}
 
 	// For backward compatibility, also set ComponentName if single service

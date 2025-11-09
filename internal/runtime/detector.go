@@ -9,6 +9,7 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	"github.com/coral-io/coral/internal/agent/ebpf"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -55,15 +56,19 @@ func (d *Detector) Detect(ctx context.Context) (*agentv1.RuntimeContextResponse,
 	// Calculate visibility scope.
 	visibility := d.calculateVisibility(runtimeType, sidecarMode, criSocket)
 
+	// Detect eBPF capabilities.
+	ebpfCapabilities := ebpf.DetectCapabilities()
+
 	response := &agentv1.RuntimeContextResponse{
-		Platform:     platform,
-		RuntimeType:  runtimeType,
-		SidecarMode:  sidecarMode,
-		CriSocket:    criSocket,
-		Capabilities: capabilities,
-		Visibility:   visibility,
-		DetectedAt:   timestamppb.New(time.Now()),
-		Version:      d.version,
+		Platform:         platform,
+		RuntimeType:      runtimeType,
+		SidecarMode:      sidecarMode,
+		CriSocket:        criSocket,
+		Capabilities:     capabilities,
+		Visibility:       visibility,
+		DetectedAt:       timestamppb.New(time.Now()),
+		Version:          d.version,
+		EbpfCapabilities: ebpfCapabilities,
 	}
 
 	d.logDetectionResults(response)
@@ -299,6 +304,7 @@ func (d *Detector) logDetectionResults(response *agentv1.RuntimeContextResponse)
 		Bool("can_exec", response.Capabilities.CanExec).
 		Bool("can_shell", response.Capabilities.CanShell).
 		Str("visibility", response.Visibility.Namespace).
+		Bool("ebpf_supported", response.EbpfCapabilities != nil && response.EbpfCapabilities.Supported).
 		Msg("Runtime context detected")
 }
 

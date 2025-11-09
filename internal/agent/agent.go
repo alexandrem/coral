@@ -7,6 +7,7 @@ import (
 	"time"
 
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
+	"github.com/coral-io/coral/internal/agent/ebpf"
 	"github.com/rs/zerolog"
 )
 
@@ -21,12 +22,13 @@ const (
 
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
-	id       string
-	monitors map[string]*ServiceMonitor
-	logger   zerolog.Logger
-	mu       sync.RWMutex
-	ctx      context.Context
-	cancel   context.CancelFunc
+	id          string
+	monitors    map[string]*ServiceMonitor
+	ebpfManager *ebpf.Manager
+	logger      zerolog.Logger
+	mu          sync.RWMutex
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // Config contains agent configuration.
@@ -44,12 +46,18 @@ func New(config Config) (*Agent, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Initialize eBPF manager.
+	ebpfManager := ebpf.NewManager(ebpf.Config{
+		Logger: config.Logger,
+	})
+
 	agent := &Agent{
-		id:       config.AgentID,
-		monitors: make(map[string]*ServiceMonitor),
-		logger:   config.Logger.With().Str("agent_id", config.AgentID).Logger(),
-		ctx:      ctx,
-		cancel:   cancel,
+		id:          config.AgentID,
+		monitors:    make(map[string]*ServiceMonitor),
+		ebpfManager: ebpfManager,
+		logger:      config.Logger.With().Str("agent_id", config.AgentID).Logger(),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	// Create monitors for each service (if any provided).
@@ -83,6 +91,13 @@ func (a *Agent) Stop() error {
 	// Stop all service monitors.
 	for _, monitor := range a.monitors {
 		monitor.Stop()
+	}
+
+	// Stop eBPF manager.
+	if a.ebpfManager != nil {
+		if err := a.ebpfManager.Stop(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to stop eBPF manager")
+		}
 	}
 
 	a.cancel()
@@ -210,4 +225,9 @@ func (a *Agent) DisconnectService(serviceName string) error {
 		Msg("Service disconnected")
 
 	return nil
+}
+
+// GetEbpfManager returns the eBPF manager for this agent.
+func (a *Agent) GetEbpfManager() *ebpf.Manager {
+	return a.ebpfManager
 }

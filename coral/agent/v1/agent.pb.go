@@ -139,6 +139,62 @@ func (SidecarMode) EnumDescriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{1}
 }
 
+// EbpfCollectorKind defines the type of eBPF collector (RFD 013).
+type EbpfCollectorKind int32
+
+const (
+	EbpfCollectorKind_EBPF_COLLECTOR_KIND_UNSPECIFIED   EbpfCollectorKind = 0
+	EbpfCollectorKind_EBPF_COLLECTOR_KIND_SYSCALL_STATS EbpfCollectorKind = 1
+	EbpfCollectorKind_EBPF_COLLECTOR_KIND_HTTP_LATENCY  EbpfCollectorKind = 2
+	EbpfCollectorKind_EBPF_COLLECTOR_KIND_CPU_PROFILE   EbpfCollectorKind = 3
+	EbpfCollectorKind_EBPF_COLLECTOR_KIND_TCP_METRICS   EbpfCollectorKind = 4
+)
+
+// Enum value maps for EbpfCollectorKind.
+var (
+	EbpfCollectorKind_name = map[int32]string{
+		0: "EBPF_COLLECTOR_KIND_UNSPECIFIED",
+		1: "EBPF_COLLECTOR_KIND_SYSCALL_STATS",
+		2: "EBPF_COLLECTOR_KIND_HTTP_LATENCY",
+		3: "EBPF_COLLECTOR_KIND_CPU_PROFILE",
+		4: "EBPF_COLLECTOR_KIND_TCP_METRICS",
+	}
+	EbpfCollectorKind_value = map[string]int32{
+		"EBPF_COLLECTOR_KIND_UNSPECIFIED":   0,
+		"EBPF_COLLECTOR_KIND_SYSCALL_STATS": 1,
+		"EBPF_COLLECTOR_KIND_HTTP_LATENCY":  2,
+		"EBPF_COLLECTOR_KIND_CPU_PROFILE":   3,
+		"EBPF_COLLECTOR_KIND_TCP_METRICS":   4,
+	}
+)
+
+func (x EbpfCollectorKind) Enum() *EbpfCollectorKind {
+	p := new(EbpfCollectorKind)
+	*p = x
+	return p
+}
+
+func (x EbpfCollectorKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EbpfCollectorKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_coral_agent_v1_agent_proto_enumTypes[2].Descriptor()
+}
+
+func (EbpfCollectorKind) Type() protoreflect.EnumType {
+	return &file_coral_agent_v1_agent_proto_enumTypes[2]
+}
+
+func (x EbpfCollectorKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EbpfCollectorKind.Descriptor instead.
+func (EbpfCollectorKind) EnumDescriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+}
+
 type GetRuntimeContextRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -192,9 +248,11 @@ type RuntimeContextResponse struct {
 	// Detection metadata.
 	DetectedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=detected_at,json=detectedAt,proto3" json:"detected_at,omitempty"`
 	// Agent version.
-	Version       string `protobuf:"bytes,8,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Version string `protobuf:"bytes,8,opt,name=version,proto3" json:"version,omitempty"`
+	// eBPF capabilities (RFD 013).
+	EbpfCapabilities *EbpfCapabilities `protobuf:"bytes,9,opt,name=ebpf_capabilities,json=ebpfCapabilities,proto3" json:"ebpf_capabilities,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RuntimeContextResponse) Reset() {
@@ -281,6 +339,13 @@ func (x *RuntimeContextResponse) GetVersion() string {
 		return x.Version
 	}
 	return ""
+}
+
+func (x *RuntimeContextResponse) GetEbpfCapabilities() *EbpfCapabilities {
+	if x != nil {
+		return x.EbpfCapabilities
+	}
+	return nil
 }
 
 type PlatformInfo struct {
@@ -1006,12 +1071,89 @@ func (x *ServiceStatus) GetError() string {
 	return ""
 }
 
+// EbpfCapabilities describes what eBPF features are supported on an agent (RFD 013).
+type EbpfCapabilities struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Supported           bool                   `protobuf:"varint,1,opt,name=supported,proto3" json:"supported,omitempty"`                             // overall eBPF support
+	KernelVersion       string                 `protobuf:"bytes,2,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"` // e.g., "5.15.0"
+	BtfAvailable        bool                   `protobuf:"varint,3,opt,name=btf_available,json=btfAvailable,proto3" json:"btf_available,omitempty"`   // BTF/CO-RE support
+	CapBpf              bool                   `protobuf:"varint,4,opt,name=cap_bpf,json=capBpf,proto3" json:"cap_bpf,omitempty"`                     // CAP_BPF capability
+	AvailableCollectors []EbpfCollectorKind    `protobuf:"varint,5,rep,packed,name=available_collectors,json=availableCollectors,proto3,enum=coral.agent.v1.EbpfCollectorKind" json:"available_collectors,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *EbpfCapabilities) Reset() {
+	*x = EbpfCapabilities{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EbpfCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EbpfCapabilities) ProtoMessage() {}
+
+func (x *EbpfCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EbpfCapabilities.ProtoReflect.Descriptor instead.
+func (*EbpfCapabilities) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *EbpfCapabilities) GetSupported() bool {
+	if x != nil {
+		return x.Supported
+	}
+	return false
+}
+
+func (x *EbpfCapabilities) GetKernelVersion() string {
+	if x != nil {
+		return x.KernelVersion
+	}
+	return ""
+}
+
+func (x *EbpfCapabilities) GetBtfAvailable() bool {
+	if x != nil {
+		return x.BtfAvailable
+	}
+	return false
+}
+
+func (x *EbpfCapabilities) GetCapBpf() bool {
+	if x != nil {
+		return x.CapBpf
+	}
+	return false
+}
+
+func (x *EbpfCapabilities) GetAvailableCollectors() []EbpfCollectorKind {
+	if x != nil {
+		return x.AvailableCollectors
+	}
+	return nil
+}
+
 var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"\x1acoral/agent/v1/agent.proto\x12\x0ecoral.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x1a\n" +
-	"\x18GetRuntimeContextRequest\"\xed\x03\n" +
+	"\x18GetRuntimeContextRequest\"\xbc\x04\n" +
 	"\x16RuntimeContextResponse\x128\n" +
 	"\bplatform\x18\x01 \x01(\v2\x1c.coral.agent.v1.PlatformInfoR\bplatform\x12A\n" +
 	"\fruntime_type\x18\x02 \x01(\x0e2\x1e.coral.agent.v1.RuntimeContextR\vruntimeType\x12>\n" +
@@ -1024,7 +1166,8 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"visibility\x12;\n" +
 	"\vdetected_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"detectedAt\x12\x18\n" +
-	"\aversion\x18\b \x01(\tR\aversion\"i\n" +
+	"\aversion\x18\b \x01(\tR\aversion\x12M\n" +
+	"\x11ebpf_capabilities\x18\t \x01(\v2 .coral.agent.v1.EbpfCapabilitiesR\x10ebpfCapabilities\"i\n" +
 	"\fPlatformInfo\x12\x0e\n" +
 	"\x02os\x18\x01 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x02 \x01(\tR\x04arch\x12\x1d\n" +
@@ -1080,7 +1223,13 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x05error\x18\b \x01(\tR\x05error\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xa9\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xeb\x01\n" +
+	"\x10EbpfCapabilities\x12\x1c\n" +
+	"\tsupported\x18\x01 \x01(\bR\tsupported\x12%\n" +
+	"\x0ekernel_version\x18\x02 \x01(\tR\rkernelVersion\x12#\n" +
+	"\rbtf_available\x18\x03 \x01(\bR\fbtfAvailable\x12\x17\n" +
+	"\acap_bpf\x18\x04 \x01(\bR\x06capBpf\x12T\n" +
+	"\x14available_collectors\x18\x05 \x03(\x0e2!.coral.agent.v1.EbpfCollectorKindR\x13availableCollectors*\xa9\x01\n" +
 	"\x0eRuntimeContext\x12\x1b\n" +
 	"\x17RUNTIME_CONTEXT_UNKNOWN\x10\x00\x12\x1a\n" +
 	"\x16RUNTIME_CONTEXT_NATIVE\x10\x01\x12\x1a\n" +
@@ -1091,7 +1240,13 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x14SIDECAR_MODE_UNKNOWN\x10\x00\x12\x14\n" +
 	"\x10SIDECAR_MODE_CRI\x10\x01\x12\x1a\n" +
 	"\x16SIDECAR_MODE_SHARED_NS\x10\x02\x12\x18\n" +
-	"\x14SIDECAR_MODE_PASSIVE\x10\x032\x9b\x03\n" +
+	"\x14SIDECAR_MODE_PASSIVE\x10\x03*\xcf\x01\n" +
+	"\x11EbpfCollectorKind\x12#\n" +
+	"\x1fEBPF_COLLECTOR_KIND_UNSPECIFIED\x10\x00\x12%\n" +
+	"!EBPF_COLLECTOR_KIND_SYSCALL_STATS\x10\x01\x12$\n" +
+	" EBPF_COLLECTOR_KIND_HTTP_LATENCY\x10\x02\x12#\n" +
+	"\x1fEBPF_COLLECTOR_KIND_CPU_PROFILE\x10\x03\x12#\n" +
+	"\x1fEBPF_COLLECTOR_KIND_TCP_METRICS\x10\x042\x9b\x03\n" +
 	"\fAgentService\x12e\n" +
 	"\x11GetRuntimeContext\x12(.coral.agent.v1.GetRuntimeContextRequest\x1a&.coral.agent.v1.RuntimeContextResponse\x12_\n" +
 	"\x0eConnectService\x12%.coral.agent.v1.ConnectServiceRequest\x1a&.coral.agent.v1.ConnectServiceResponse\x12h\n" +
@@ -1112,53 +1267,57 @@ func file_coral_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_coral_agent_v1_agent_proto_rawDescData
 }
 
-var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(RuntimeContext)(0),               // 0: coral.agent.v1.RuntimeContext
 	(SidecarMode)(0),                  // 1: coral.agent.v1.SidecarMode
-	(*GetRuntimeContextRequest)(nil),  // 2: coral.agent.v1.GetRuntimeContextRequest
-	(*RuntimeContextResponse)(nil),    // 3: coral.agent.v1.RuntimeContextResponse
-	(*PlatformInfo)(nil),              // 4: coral.agent.v1.PlatformInfo
-	(*CRISocketInfo)(nil),             // 5: coral.agent.v1.CRISocketInfo
-	(*VisibilityScope)(nil),           // 6: coral.agent.v1.VisibilityScope
-	(*Capabilities)(nil),              // 7: coral.agent.v1.Capabilities
-	(*ConnectServiceRequest)(nil),     // 8: coral.agent.v1.ConnectServiceRequest
-	(*ConnectServiceResponse)(nil),    // 9: coral.agent.v1.ConnectServiceResponse
-	(*DisconnectServiceRequest)(nil),  // 10: coral.agent.v1.DisconnectServiceRequest
-	(*DisconnectServiceResponse)(nil), // 11: coral.agent.v1.DisconnectServiceResponse
-	(*ListServicesRequest)(nil),       // 12: coral.agent.v1.ListServicesRequest
-	(*ListServicesResponse)(nil),      // 13: coral.agent.v1.ListServicesResponse
-	(*ServiceStatus)(nil),             // 14: coral.agent.v1.ServiceStatus
-	nil,                               // 15: coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	nil,                               // 16: coral.agent.v1.ServiceStatus.LabelsEntry
-	(*timestamppb.Timestamp)(nil),     // 17: google.protobuf.Timestamp
+	(EbpfCollectorKind)(0),            // 2: coral.agent.v1.EbpfCollectorKind
+	(*GetRuntimeContextRequest)(nil),  // 3: coral.agent.v1.GetRuntimeContextRequest
+	(*RuntimeContextResponse)(nil),    // 4: coral.agent.v1.RuntimeContextResponse
+	(*PlatformInfo)(nil),              // 5: coral.agent.v1.PlatformInfo
+	(*CRISocketInfo)(nil),             // 6: coral.agent.v1.CRISocketInfo
+	(*VisibilityScope)(nil),           // 7: coral.agent.v1.VisibilityScope
+	(*Capabilities)(nil),              // 8: coral.agent.v1.Capabilities
+	(*ConnectServiceRequest)(nil),     // 9: coral.agent.v1.ConnectServiceRequest
+	(*ConnectServiceResponse)(nil),    // 10: coral.agent.v1.ConnectServiceResponse
+	(*DisconnectServiceRequest)(nil),  // 11: coral.agent.v1.DisconnectServiceRequest
+	(*DisconnectServiceResponse)(nil), // 12: coral.agent.v1.DisconnectServiceResponse
+	(*ListServicesRequest)(nil),       // 13: coral.agent.v1.ListServicesRequest
+	(*ListServicesResponse)(nil),      // 14: coral.agent.v1.ListServicesResponse
+	(*ServiceStatus)(nil),             // 15: coral.agent.v1.ServiceStatus
+	(*EbpfCapabilities)(nil),          // 16: coral.agent.v1.EbpfCapabilities
+	nil,                               // 17: coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	nil,                               // 18: coral.agent.v1.ServiceStatus.LabelsEntry
+	(*timestamppb.Timestamp)(nil),     // 19: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_agent_proto_depIdxs = []int32{
-	4,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
+	5,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
 	0,  // 1: coral.agent.v1.RuntimeContextResponse.runtime_type:type_name -> coral.agent.v1.RuntimeContext
 	1,  // 2: coral.agent.v1.RuntimeContextResponse.sidecar_mode:type_name -> coral.agent.v1.SidecarMode
-	5,  // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
-	7,  // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
-	6,  // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
-	17, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
-	15, // 7: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	14, // 8: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
-	16, // 9: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
-	17, // 10: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
-	2,  // 11: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
-	8,  // 12: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
-	10, // 13: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
-	12, // 14: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
-	3,  // 15: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
-	9,  // 16: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
-	11, // 17: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
-	13, // 18: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
-	15, // [15:19] is the sub-list for method output_type
-	11, // [11:15] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	6,  // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
+	8,  // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
+	7,  // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
+	19, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
+	16, // 7: coral.agent.v1.RuntimeContextResponse.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
+	17, // 8: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	15, // 9: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
+	18, // 10: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
+	19, // 11: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
+	2,  // 12: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
+	3,  // 13: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
+	9,  // 14: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
+	11, // 15: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
+	13, // 16: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
+	4,  // 17: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
+	10, // 18: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
+	12, // 19: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
+	14, // 20: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
+	17, // [17:21] is the sub-list for method output_type
+	13, // [13:17] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_agent_proto_init() }
@@ -1171,8 +1330,8 @@ func file_coral_agent_v1_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_agent_proto_rawDesc), len(file_coral_agent_v1_agent_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   15,
+			NumEnums:      3,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

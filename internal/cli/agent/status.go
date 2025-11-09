@@ -126,6 +126,19 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
 	fmt.Printf("  %s coral run       %s\n", formatCapability(ctx.Capabilities.CanRun), "Launch new containers")
 	fmt.Println()
 
+	// eBPF capabilities section
+	if ctx.EbpfCapabilities != nil {
+		fmt.Println("eBPF:")
+		fmt.Printf("  Supported:        %s\n", formatCapability(ctx.EbpfCapabilities.Supported))
+		fmt.Printf("  Kernel:           %s\n", ctx.EbpfCapabilities.KernelVersion)
+		if ctx.EbpfCapabilities.Supported {
+			fmt.Printf("  BTF Available:    %s\n", formatCapability(ctx.EbpfCapabilities.BtfAvailable))
+			fmt.Printf("  CAP_BPF:          %s\n", formatCapability(ctx.EbpfCapabilities.CapBpf))
+			fmt.Printf("  Collectors:       %d available\n", len(ctx.EbpfCapabilities.AvailableCollectors))
+		}
+		fmt.Println()
+	}
+
 	// Visibility section
 	fmt.Println("Visibility:")
 	fmt.Printf("  Scope:            %s\n", formatVisibilityScope(ctx))
