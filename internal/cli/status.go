@@ -246,13 +246,11 @@ func outputTable(globalConfig *config.GlobalConfig, colonies []colonyStatusInfo,
 
 	// Table header
 	if verbose {
-		fmt.Printf("%-16s %-8s %-11s %-9s %-7s %-14s %-12s %-20s\n",
+		fmt.Printf("%-25s %-8s %-11s %-9s %-7s %-14s %-12s %-20s\n",
 			"COLONY ID", "ENV", "STATUS", "UPTIME", "AGENTS", "NETWORK", "MESH IP", "PUBLIC KEY")
-		fmt.Println("-------------------------------------------------------------------------------------------------------------------------------------")
 	} else {
-		fmt.Printf("%-16s %-8s %-11s %-9s %-7s %-14s %s\n",
+		fmt.Printf("%-25s %-8s %-11s %-9s %-7s %-14s %s\n",
 			"COLONY ID", "ENV", "STATUS", "UPTIME", "AGENTS", "NETWORK", "ENDPOINTS")
-		fmt.Println("------------------------------------------------------------------------------------------------------------------")
 	}
 
 	// Table rows
@@ -263,8 +261,8 @@ func outputTable(globalConfig *config.GlobalConfig, colonies []colonyStatusInfo,
 		}
 
 		// Truncate colony ID if too long
-		if len(colonyIDDisplay) > 16 {
-			colonyIDDisplay = colonyIDDisplay[:13] + "..."
+		if len(colonyIDDisplay) > 25 {
+			colonyIDDisplay = colonyIDDisplay[:22] + "..."
 		}
 
 		// Format uptime
@@ -300,7 +298,7 @@ func outputTable(globalConfig *config.GlobalConfig, colonies []colonyStatusInfo,
 				pubkey = truncateKey(info.WireGuardPubkey)
 			}
 
-			fmt.Printf("%-16s %-8s %-11s %-9s %-7s %-14s %-12s %-20s\n",
+			fmt.Printf("%-25s %-8s %-11s %-9s %-7s %-14s %-12s %-20s\n",
 				colonyIDDisplay, envStr, info.Status, uptimeStr, agentsStr, networkStr, meshIP, pubkey)
 		} else {
 			// Normal mode: show endpoints
@@ -309,7 +307,7 @@ func outputTable(globalConfig *config.GlobalConfig, colonies []colonyStatusInfo,
 				endpointsStr = fmt.Sprintf("localhost:%d, %s:%d", info.ConnectPort, info.MeshIPv4, info.ConnectPort)
 			}
 
-			fmt.Printf("%-16s %-8s %-11s %-9s %-7s %-14s %s\n",
+			fmt.Printf("%-25s %-8s %-11s %-9s %-7s %-14s %s\n",
 				colonyIDDisplay, envStr, info.Status, uptimeStr, agentsStr, networkStr, endpointsStr)
 		}
 	}
