@@ -67,9 +67,10 @@ replacement for primary observability.
    buckets before forwarding. Colony stores summaries (not raw spans) alongside
    eBPF data, enabling correlation via `(agent_id, timestamp)`.
 
-4. **Standard OTel exporters for serverless**: No custom SDK. Lambda functions
-   and Cloud Run services use standard OTel libraries pointed at the colony's
-   public OTLP endpoint (via step-ca mTLS).
+4. **Regional agent forwarders for serverless**: Persistent agents deployed in
+   each serverless region act as OTLP collectors. Lambda and Cloud Run functions
+   export to regional agents via VPC private endpoints, agents forward to colony
+   via WireGuard mesh.
 
 **Benefits:**
 
@@ -81,26 +82,28 @@ replacement for primary observability.
 **Architecture Overview:**
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph Host["VM/Container with Agent"]
         App["App + OTel"]
-        Agent["Coral Agent"]
-        App -->|OTLP localhost:4317| Agent
+        Agent["Coral Agent<br/>(eBPF + OTLP)"]
+        App -->|localhost:4317| Agent
     end
 
-    subgraph Serverless["Lambda/Cloud Run"]
-        Func["Function + OTel"]
+    subgraph ServerlessRegion["AWS us-east-1 / GCP us-east1"]
+        Lambda["Lambda/Cloud Run<br/>+ OTel"]
+        Forwarder["Regional Agent Forwarder<br/>(OTLP only)"]
+        Lambda -->|VPC endpoint| Forwarder
     end
 
-    Agent -->|Filtered summaries| Colony
-    Func -->|Direct OTLP via mTLS| Colony
+    Agent -->|WireGuard mesh| Colony["Colony<br/>(Private)"]
+    Forwarder -->|WireGuard mesh| Colony
 
-    subgraph Colony
-        DB[(DuckDB: otel_spans + ebpf_stats)]
+    subgraph ColonyDB["Colony Storage"]
+        DB[(DuckDB:<br/>otel_spans + ebpf_stats)]
     end
 
     Colony --> DB
-    DB -->|Correlated insights| AI["AI Queries"]
+    DB -->|Correlation queries| AI["coral ask"]
 ```
 
 ## Component Changes
@@ -116,12 +119,21 @@ flowchart LR
 
 2. **Colony**
     - Add `otel_spans` DuckDB table (schema below) with 24-hour TTL.
-    - Accept OTLP data directly from serverless functions via public endpoint (
-      reuse step-ca auth).
+    - Receive aggregated OTel buckets from agents over WireGuard mesh (existing
+      RPC channels).
     - Expose correlation queries to AI: "SELECT otel + eBPF WHERE agent_id = X
       AND bucket = Y".
 
-3. **CLI**
+3. **Regional Agent Forwarder** (for serverless environments)
+    - Lightweight agent deployment (OTLP collection only, no eBPF).
+    - Deploy per cloud region (e.g., `agent-forwarder-us-east-1`).
+    - Expose OTLP endpoint via VPC PrivateLink (AWS) or Private Service Connect
+      (GCP).
+    - Apply same static filters as regular agents.
+    - Forward aggregated buckets to colony via WireGuard mesh.
+    - Stateless and horizontally scalable.
+
+4. **CLI**
     - `coral ask` queries include OTel citations when available: "checkout p99
       latency = 950ms (trace abc123)".
     - No new commands; OTel data appears automatically in responses.
@@ -179,18 +191,21 @@ WHERE o.service_name = 'checkout'
 - [ ] Aggregate spans into 1-minute buckets per service.
 - [ ] Write `007-otel-basic` migration.
 
-### Phase 2: Colony Ingestion
+### Phase 2: Colony Storage & Correlation
 
-- [ ] Add OTLP handler to colony (reuse agent aggregation logic).
-- [ ] Store aggregated data in `otel_spans` table.
+- [ ] Add `otel_spans` DuckDB table to colony.
+- [ ] Implement gRPC handler to receive aggregated buckets from agents.
 - [ ] Implement 24-hour TTL cleanup job.
-- [ ] Add correlation query helpers for AI context.
+- [ ] Add correlation query helpers for AI context (join otel_spans +
+  ebpf_stats).
 
-### Phase 3: Serverless Support
+### Phase 3: Regional Forwarder for Serverless
 
-- [ ] Document standard OTel exporter config for Lambda/Cloud Run.
-- [ ] Test direct OTLP export to colony via step-ca mTLS (RFD 022).
-- [ ] Provide Terraform examples for IAM/secrets management.
+- [ ] Add `--mode=forwarder` flag to agent binary (OTLP only, no eBPF).
+- [ ] Document regional forwarder deployment (AWS PrivateLink, GCP PSC).
+- [ ] Provide Terraform modules for regional forwarder + VPC endpoints.
+- [ ] Test Lambda → VPC endpoint → forwarder → colony mesh flow.
+- [ ] Document OTel exporter config for serverless functions.
 
 ### Phase 4: Testing & Documentation
 
@@ -266,22 +281,39 @@ service:
 **For serverless functions:**
 
 ```python
-# Python Lambda example
+# Python Lambda example (AWS us-east-1)
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import
     OTLPSpanExporter
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-# Export to both Honeycomb and Coral
+# Export to both Honeycomb and Coral regional forwarder
 exporter_honeycomb = OTLPSpanExporter(endpoint="https://api.honeycomb.io")
+
+# Regional agent forwarder endpoint (via VPC PrivateLink)
+# Endpoint created via: aws ec2 create-vpc-endpoint --service-name coral-agent-forwarder-us-east-1
 exporter_coral = OTLPSpanExporter(
-    endpoint="https://colony.example.com:4317",
-    credentials=ChannelCredentials(  # Uses step-ca cert from env
-        root_certificates=os.getenv("CORAL_CA_CERT")
-    )
+    endpoint="coral-forwarder-us-east-1.vpce-1234567890abcdef0.vpce-svc-1234567890abcdef0.us-east-1.vpce.amazonaws.com:4317",
+    insecure=True  # Within VPC, agent forwarder handles mTLS to colony
 )
 
 tracer_provider.add_span_processor(BatchSpanProcessor(exporter_honeycomb))
 tracer_provider.add_span_processor(BatchSpanProcessor(exporter_coral))
+```
+
+**Regional forwarder deployment** (one per cloud region):
+
+```bash
+# Deploy agent forwarder in AWS us-east-1
+coral agent serve \
+  --mode=forwarder \
+  --telemetry.enabled=true \
+  --telemetry.endpoint=0.0.0.0:4317 \
+  --colony.endpoint=<colony-wireguard-ip>:9000
+
+# Expose via VPC PrivateLink for Lambda functions
+aws ec2 create-vpc-endpoint-service-configuration \
+  --network-load-balancer-arns <nlb-arn> \
+  --acceptance-required
 ```
 
 ## Testing Strategy
@@ -300,10 +332,12 @@ tracer_provider.add_span_processor(BatchSpanProcessor(exporter_coral))
 
 ### E2E Tests
 
-- Instrumented app sends spans to localhost:4317.
+- Instrumented app on VM sends spans to localhost:4317, agent forwards to
+  colony.
 - `coral ask "why is checkout slow"` returns: "checkout p99=950ms at 14:23 (
   traces: abc, def), CPU 85% on agent-xyz".
-- Serverless function exports directly to colony, data appears in queries.
+- Lambda function exports to regional forwarder via VPC endpoint, forwarder
+  forwards to colony via mesh, data appears in AI queries.
 
 ## Security Considerations
 
@@ -311,8 +345,10 @@ tracer_provider.add_span_processor(BatchSpanProcessor(exporter_coral))
   access requires explicit config and firewall rules.
 - **PII in spans**: Document attribute scrubbing patterns. Agents can drop
   attributes matching regex (e.g., `email`, `ssn`).
-- **Serverless authentication**: Functions use step-ca client certs (RFD 022).
-  No shared secrets or API keys.
+- **Serverless authentication**: Serverless functions export to regional
+  forwarders via VPC endpoints (no authentication needed within VPC). Forwarders
+  authenticate to colony using step-ca client certs (RFD 022) over WireGuard
+  mesh.
 - **Data retention**: 24-hour TTL minimizes exposure. No long-term PII storage.
 
 ## Migration Strategy
@@ -321,15 +357,21 @@ tracer_provider.add_span_processor(BatchSpanProcessor(exporter_coral))
     - Deploy agents with `telemetry.enabled: false` (no behavior change).
     - Operators opt in per agent/environment by setting `enabled: true`.
     - Update app OTel configs to add `localhost:4317` as export target.
+    - **(Optional) Serverless**: Deploy regional forwarders in each cloud
+      region,
+      configure VPC endpoints, update Lambda/Cloud Run OTel exporters.
 
 2. **Backward compatibility**:
     - No breaking changes. Agents without telemetry config continue eBPF-only
       operation.
     - Colony gracefully handles agents with/without OTel data.
+    - Regional forwarders are optional; deploy only if serverless workloads
+      exist.
 
 3. **Rollback**:
     - Set `telemetry.enabled: false` and restart agents.
     - Remove OTLP exporter from app configs.
+    - Tear down regional forwarders (if deployed).
     - Data ages out in 24 hours; no manual cleanup needed.
 
 ## Future Enhancements
