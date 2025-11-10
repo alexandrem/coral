@@ -350,6 +350,8 @@ rejected"
 ## References
 
 - [RFD 016: Unified Operations UX](../../RFDs/016-unified-operations-ux.md)
+- [RFD 017: Exec Command Implementation](../../RFDs/017-exec-command-implementation.md)
+- [RFD 026: Shell Command Implementation](../../RFDs/026-shell-command-implementation.md)
 - [RFD 013: eBPF-Based Introspection](../../RFDs/013-ebpf-introspection.md)
 - [RFD 012: Kubernetes Node Agent](../../RFDs/012-kubernetes-node-agent.md)
 - [Kubernetes PodSecurity Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
