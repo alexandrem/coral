@@ -1,7 +1,8 @@
 ---
 rfd: "024"
 title: "CoralTel: OpenTelemetry Fan-Out for Coral AI"
-state: "draft"
+state: "superseded"
+superseded_by: "025"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +14,12 @@ areas: [ "observability", "ai" ]
 
 # RFD 024 - OpenTelemetry Fan-Out for Coral AI
 
-**Status:** 🚧 Draft
+**Status:** ❌ Superseded by RFD 025
+
+**Reason:** This RFD proposed complex adaptive sampling and control loops. RFD
+025 takes a simpler approach with static filtering, which is more operationally
+viable and easier to reason about. The core value (OTel ingestion for AI
+correlation) is preserved in RFD 025 with reduced complexity.
 
 ## Summary
 
