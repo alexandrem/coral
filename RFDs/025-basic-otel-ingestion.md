@@ -996,5 +996,3 @@ This RFD intentionally omits complexity from RFD 024:
 
 **Goal**: Prove correlation value with minimal operational burden. Add
 complexity only when usage demonstrates clear need.
-P
-

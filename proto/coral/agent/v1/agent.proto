@@ -49,6 +49,9 @@ message RuntimeContextResponse {
 
   // Agent version.
   string version = 8;
+
+  // eBPF capabilities (RFD 013).
+  EbpfCapabilities ebpf_capabilities = 9;
 }
 
 message PlatformInfo {
@@ -216,3 +219,22 @@ message ServiceStatus {
   // Error message if unhealthy.
   string error = 8;
 }
+
+// EbpfCollectorKind defines the type of eBPF collector (RFD 013).
+enum EbpfCollectorKind {
+  EBPF_COLLECTOR_KIND_UNSPECIFIED = 0;
+  EBPF_COLLECTOR_KIND_SYSCALL_STATS = 1;
+  EBPF_COLLECTOR_KIND_HTTP_LATENCY = 2;
+  EBPF_COLLECTOR_KIND_CPU_PROFILE = 3;
+  EBPF_COLLECTOR_KIND_TCP_METRICS = 4;
+}
+
+// EbpfCapabilities describes what eBPF features are supported on an agent (RFD 013).
+message EbpfCapabilities {
+  bool supported = 1;               // overall eBPF support
+  string kernel_version = 2;        // e.g., "5.15.0"
+  bool btf_available = 3;           // BTF/CO-RE support
+  bool cap_bpf = 4;                 // CAP_BPF capability
+  repeated EbpfCollectorKind available_collectors = 5;
+}
+

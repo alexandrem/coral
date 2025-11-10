@@ -44,6 +44,9 @@ message RegisterRequest {
 
   // Protocol version (RFD 018).
   string protocol_version = 12;
+
+  // NEW: eBPF capabilities (RFD 013).
+  coral.agent.v1.EbpfCapabilities ebpf_capabilities = 13;
 }
 
 message RegisterResponse {

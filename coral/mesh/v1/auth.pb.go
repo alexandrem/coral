@@ -126,8 +126,10 @@ type RegisterRequest struct {
 	RuntimeContext *v1.RuntimeContextResponse `protobuf:"bytes,11,opt,name=runtime_context,json=runtimeContext,proto3" json:"runtime_context,omitempty"`
 	// Protocol version (RFD 018).
 	ProtocolVersion string `protobuf:"bytes,12,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// NEW: eBPF capabilities (RFD 013).
+	EbpfCapabilities *v1.EbpfCapabilities `protobuf:"bytes,13,opt,name=ebpf_capabilities,json=ebpfCapabilities,proto3" json:"ebpf_capabilities,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RegisterRequest) Reset() {
@@ -229,6 +231,13 @@ func (x *RegisterRequest) GetProtocolVersion() string {
 		return x.ProtocolVersion
 	}
 	return ""
+}
+
+func (x *RegisterRequest) GetEbpfCapabilities() *v1.EbpfCapabilities {
+	if x != nil {
+		return x.EbpfCapabilities
+	}
+	return nil
 }
 
 type RegisterResponse struct {
@@ -515,7 +524,7 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\x06labels\x18\x05 \x03(\v2&.coral.mesh.v1.ServiceInfo.LabelsEntryR\x06labels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x91\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe0\x04\n" +
 	"\x0fRegisterRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12)\n" +
 	"\x0ecomponent_name\x18\x02 \x01(\tB\x02\x18\x01R\rcomponentName\x12\x1b\n" +
@@ -527,7 +536,8 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\bservices\x18\n" +
 	" \x03(\v2\x1a.coral.mesh.v1.ServiceInfoR\bservices\x12O\n" +
 	"\x0fruntime_context\x18\v \x01(\v2&.coral.agent.v1.RuntimeContextResponseR\x0eruntimeContext\x12)\n" +
-	"\x10protocol_version\x18\f \x01(\tR\x0fprotocolVersion\x1a9\n" +
+	"\x10protocol_version\x18\f \x01(\tR\x0fprotocolVersion\x12M\n" +
+	"\x11ebpf_capabilities\x18\r \x01(\v2 .coral.agent.v1.EbpfCapabilitiesR\x10ebpfCapabilities\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf8\x01\n" +
@@ -580,25 +590,27 @@ var file_coral_mesh_v1_auth_proto_goTypes = []any{
 	nil,                               // 6: coral.mesh.v1.ServiceInfo.LabelsEntry
 	nil,                               // 7: coral.mesh.v1.RegisterRequest.LabelsEntry
 	(*v1.RuntimeContextResponse)(nil), // 8: coral.agent.v1.RuntimeContextResponse
-	(*timestamppb.Timestamp)(nil),     // 9: google.protobuf.Timestamp
+	(*v1.EbpfCapabilities)(nil),       // 9: coral.agent.v1.EbpfCapabilities
+	(*timestamppb.Timestamp)(nil),     // 10: google.protobuf.Timestamp
 }
 var file_coral_mesh_v1_auth_proto_depIdxs = []int32{
-	6, // 0: coral.mesh.v1.ServiceInfo.labels:type_name -> coral.mesh.v1.ServiceInfo.LabelsEntry
-	7, // 1: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
-	0, // 2: coral.mesh.v1.RegisterRequest.services:type_name -> coral.mesh.v1.ServiceInfo
-	8, // 3: coral.mesh.v1.RegisterRequest.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
-	3, // 4: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
-	9, // 5: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
-	0, // 6: coral.mesh.v1.HeartbeatRequest.services:type_name -> coral.mesh.v1.ServiceInfo
-	1, // 7: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
-	4, // 8: coral.mesh.v1.MeshService.Heartbeat:input_type -> coral.mesh.v1.HeartbeatRequest
-	2, // 9: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
-	5, // 10: coral.mesh.v1.MeshService.Heartbeat:output_type -> coral.mesh.v1.HeartbeatResponse
-	9, // [9:11] is the sub-list for method output_type
-	7, // [7:9] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	6,  // 0: coral.mesh.v1.ServiceInfo.labels:type_name -> coral.mesh.v1.ServiceInfo.LabelsEntry
+	7,  // 1: coral.mesh.v1.RegisterRequest.labels:type_name -> coral.mesh.v1.RegisterRequest.LabelsEntry
+	0,  // 2: coral.mesh.v1.RegisterRequest.services:type_name -> coral.mesh.v1.ServiceInfo
+	8,  // 3: coral.mesh.v1.RegisterRequest.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
+	9,  // 4: coral.mesh.v1.RegisterRequest.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
+	3,  // 5: coral.mesh.v1.RegisterResponse.peers:type_name -> coral.mesh.v1.PeerInfo
+	10, // 6: coral.mesh.v1.RegisterResponse.registered_at:type_name -> google.protobuf.Timestamp
+	0,  // 7: coral.mesh.v1.HeartbeatRequest.services:type_name -> coral.mesh.v1.ServiceInfo
+	1,  // 8: coral.mesh.v1.MeshService.Register:input_type -> coral.mesh.v1.RegisterRequest
+	4,  // 9: coral.mesh.v1.MeshService.Heartbeat:input_type -> coral.mesh.v1.HeartbeatRequest
+	2,  // 10: coral.mesh.v1.MeshService.Register:output_type -> coral.mesh.v1.RegisterResponse
+	5,  // 11: coral.mesh.v1.MeshService.Heartbeat:output_type -> coral.mesh.v1.HeartbeatResponse
+	10, // [10:12] is the sub-list for method output_type
+	8,  // [8:10] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_coral_mesh_v1_auth_proto_init() }
