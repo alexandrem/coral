@@ -446,8 +446,10 @@ Or use DaemonSet mode for full node-level operations.
 - Sidecar (Shared NS): Executes in same pod via shared namespace
 - DaemonSet: Executes in **target pod** via CRI or K8s API (via `--pod` flag)
 
-**Note**: Implementation details for `shell` and `exec` commands (CRI
-integration, session management, audit) are covered in **RFD 017**.
+**Note**: Implementation details for `exec` command (CRI integration, app
+container access) are covered in **RFD 017**. Implementation details for
+`shell` command (agent debug environment, session management, audit) are covered
+in **RFD 026**.
 
 ### Decision 4: Agent-First, Colony-Enhanced
 

@@ -769,18 +769,6 @@ Architecture**:
 - **Mutating webhook**: Auto-inject sidecar per namespace for zero-config
   deployment
 
-**Relationship to RFD 011:**
-
-This RFD builds directly on **RFD 011 - Multi-Service Agent Support**, which
-established the foundational protocol and agent runtime for monitoring multiple
-services. Specifically:
-
-- **Protocol foundation**: Uses the `ServiceInfo` message and
-  `repeated ServiceInfo services` field from RFD 011
-- **Agent runtime**: Leverages the concurrent health checking and status
-  aggregation logic implemented in RFD 011
-- **Backward compatibility**: Maintains compatibility with explicit
-  (sidecar-based) service specifications from RFD 011
 
 **Relationship to RFD 016:**
 
@@ -794,6 +782,17 @@ This RFD implements the Kubernetes-specific deployment patterns described in *
   execution, remote ops)
 - **Unified UX**: Provides consistent experience across local dev, Docker, and
   Kubernetes
+
+**Relationship to RFD 017 and RFD 026:**
+
+This RFD enables both execution commands in K8s environments:
+
+- **`coral exec` (RFD 017)**: Execs into application containers via CRI API for
+  app-scoped debugging
+- **`coral shell` (RFD 026)**: Opens debug shell in agent environment with
+  bundled troubleshooting tools
+
+Both DaemonSet and Sidecar modes support these commands with CRI integration.
 
 This RFD expands RFD 011's Phase 5 (Passive Discovery) into a full-featured
 specification with:
