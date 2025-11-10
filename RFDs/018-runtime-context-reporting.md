@@ -7,7 +7,7 @@ testing_required: true
 database_changes: false
 api_changes: true
 dependencies: [ "006", "007", "016", "017" ]
-related_rfds: [ "011", "012", "013" ]
+related_rfds: [ "011", "012", "013", "026" ]
 database_migrations: [ ]
 areas: [ "agent", "colony", "cli", "observability", "routing" ]
 ---
