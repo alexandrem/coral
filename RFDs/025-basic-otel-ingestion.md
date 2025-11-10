@@ -106,11 +106,383 @@ flowchart TB
     DB -->|Correlation queries| AI["coral ask"]
 ```
 
+## Deployment Patterns
+
+Coral supports three distinct OTel ingestion patterns optimized for different
+environments.
+
+### Architecture Overview
+
+**Key principle:** Coral receives OTel data via OTLP endpoints, not per-pod
+sidecars.
+
+**Integration options:**
+
+1. **Direct export**: Applications fan-out to [Honeycomb, Coral] directly
+2. **Via existing collector**: App → Your OTel Collector → [Honeycomb, Coral]
+
+**Deployment patterns:**
+
+- **Native/VM**: Agent on each host, apps export to `localhost:4317`
+- **Kubernetes**: Centralized collector service, apps export to
+  `coral-otel.namespace:4317`
+- **Serverless**: Regional forwarders (per AWS region), functions export via VPC
+  endpoint
+
+---
+
+### Pattern 1: Native/VM Deployments (localhost)
+
+**Use case:** Traditional VMs, bare metal, development machines
+
+```
+┌─────────────────────────────────────┐
+│ Host                                │
+│  ┌──────────┐    localhost:4317     │
+│  │   app    │ ─────────────────>    │
+│  └──────────┘                       │
+│  ┌──────────────────┐               │
+│  │ coral-agent      │               │
+│  │ (eBPF + OTLP)    │               │
+│  └──────────────────┘               │
+└─────────────────────────────────────┘
+```
+
+**Integration:** Applications with OTel SDK export directly to local agent:
+
+```yaml
+# Application OTel SDK config
+exporters:
+    otlp/honeycomb:
+        endpoint: api.honeycomb.io:443
+    otlp/coral:
+        endpoint: localhost:4317 # Local Coral agent
+        tls:
+            insecure: true
+
+service:
+    pipelines:
+        traces:
+            exporters: [ otlp/honeycomb, otlp/coral ]
+```
+
+**Why this works:** Coral agent runs on same host, localhost networking is
+available. No existing OTel Collector needed - applications fan-out directly to
+both backends.
+
+---
+
+### Pattern 2: Kubernetes Deployments (cluster-wide service)
+
+**Use case:** Containerized apps in Kubernetes (preferred for K8s)
+
+```
+┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
+│ Pod 1: app       │   │ Pod 2: app       │   │ Pod 3: app       │
+└────────┬─────────┘   └────────┬─────────┘   └────────┬─────────┘
+         │                      │                       │
+         └──────────────────────┴───────────────────────┘
+                                │
+                    coral-otel.coral-system:4317
+                                │
+                    ┌───────────▼────────────┐
+                    │ Kubernetes Service     │
+                    └───────────┬────────────┘
+                                │
+                    ┌───────────▼────────────┐
+                    │ OTel Collector Pool    │
+                    │ (Deployment/StatefulSet│
+                    └───────────┬────────────┘
+                                │
+                                │ WireGuard mesh
+                                ▼
+                    ┌────────────────────────┐
+                    │       Colony           │
+                    └────────────────────────┘
+```
+
+**Installation:**
+
+```yaml
+# Deploy cluster-wide OTel collector
+apiVersion: v1
+kind: Service
+metadata:
+    name: coral-otel
+    namespace: coral-system
+spec:
+    selector:
+        app: coral-otel-collector
+    ports:
+        -   name: otlp-grpc
+            port: 4317
+        -   name: otlp-http
+            port: 4318
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: coral-otel-collector
+    namespace: coral-system
+spec:
+    template:
+        spec:
+            containers:
+                -   name: collector
+                    image: coral-io/agent:latest
+                    args:
+                        - agent
+                        - serve
+                        - --mode=otel-collector
+                        - --telemetry.enabled=true
+                        - --telemetry.endpoint=0.0.0.0:4317
+                        - --colony.endpoint=colony.coral-system:9000
+                    ports:
+                        -   containerPort: 4317
+                        -   containerPort: 4318
+```
+
+**Integration patterns:**
+
+There are two ways to integrate Coral OTel collector with your existing
+observability stack:
+
+```
+Option A: Direct Export (Greenfield)
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Pod 1   │     │ Pod 2   │     │ Pod 3   │
+│ + OTel  │     │ + OTel  │     │ + OTel  │
+└────┬────┘     └────┬────┘     └────┬────┘
+     ├───────────────┼───────────────┤
+     ↓               ↓               ↓
+ Honeycomb       Coral OTel      Honeycomb
+                 Collector
+
+Apps fan-out to both backends directly
+
+
+Option B: Via Existing OTel Collector (Recommended)
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Pod 1   │     │ Pod 2   │     │ Pod 3   │
+│ + OTel  │     │ + OTel  │     │ + OTel  │
+└────┬────┘     └────┬────┘     └────┬────┘
+     └───────────────┼───────────────┘
+                     ↓
+         ┌───────────────────────┐
+         │ Existing OTel         │
+         │ Collector             │
+         │ (monitoring namespace)│
+         └───────────┬───────────┘
+                     ├───────────────┐
+                     ↓               ↓
+                 Honeycomb       Coral OTel
+                                 Collector
+
+Apps → Existing collector → Fan-out
+```
+
+#### Option A: Direct Application Export (Greenfield)
+
+Applications with OTel SDK export directly to both backends:
+
+```yaml
+# Application OTel SDK config (Go, Python, Java, etc.)
+exporters:
+    otlp/honeycomb:
+        endpoint: api.honeycomb.io:443
+    otlp/coral:
+        endpoint: coral-otel.coral-system:4317 # Coral collector
+        tls:
+            insecure: true # Within cluster
+
+service:
+    pipelines:
+        traces:
+            exporters: [ otlp/honeycomb, otlp/coral ]
+```
+
+**Use when:**
+
+- No existing OTel Collector in cluster
+- Greenfield deployments
+- Applications already using OTel SDK
+
+#### Option B: Via Existing OTel Collector (Recommended)
+
+If you already have an OTel Collector, add Coral as an additional exporter:
+
+```yaml
+# Existing OTel Collector config (NOT Coral collector)
+# File: otel-collector-config.yaml
+receivers:
+    otlp:
+        protocols:
+            grpc: { }
+            http: { }
+
+exporters:
+    otlp/honeycomb: # Existing exporter
+        endpoint: api.honeycomb.io:443
+        headers:
+            x-honeycomb-team: ${HONEYCOMB_API_KEY}
+
+    otlp/coral: # NEW: Add Coral
+        endpoint: coral-otel.coral-system:4317
+        tls:
+            insecure: true
+
+service:
+    pipelines:
+        traces:
+            receivers: [ otlp ]
+            exporters: [ otlp/honeycomb, otlp/coral ] # Fan-out
+```
+
+**Applications remain unchanged:**
+
+```yaml
+# Apps continue sending to existing collector
+exporters:
+    otlp:
+        endpoint: otel-collector.monitoring:4317 # Existing collector
+```
+
+**Use when:**
+
+- OTel Collector already deployed (most production clusters)
+- Centralized telemetry configuration
+- Don't want to modify application configs
+
+---
+
+**Key distinction:**
+
+- **Coral OTel Collector** (`coral-otel.coral-system:4317`): Coral agent running
+  in `--mode=otel-collector`. Receives OTLP, filters, aggregates, forwards to
+  Colony.
+- **Existing OTel Collector** (e.g., `otel-collector.monitoring:4317`): Your
+  existing collector (vanilla OTel, Grafana Agent, etc.). Add Coral as an
+  exporter.
+
+**Both collectors can coexist:** Existing collector fans out to Honeycomb +
+Coral collector. Coral collector then forwards to Colony.
+
+---
+
+**Why NOT per-pod sidecars:**
+
+- ❌ High overhead: 50MB per pod × N pods
+- ❌ Many agents: N agents instead of 1
+- ❌ Redundant: OTel collection doesn't need per-pod isolation
+- ✅ Centralized: Handles entire cluster efficiently
+- ✅ Lower cost: ~150MB total vs 50MB × N
+
+**Note:** This pattern is ONLY for OTel ingestion. If you need exec/shell
+capabilities, those still require per-pod sidecars (see RFD 027 -
+Client-Side K8s Installation).
+
+---
+
+### Pattern 3: Serverless Deployments (regional forwarder)
+
+**Use case:** AWS Lambda, Google Cloud Run, Azure Functions
+
+```
+┌────────────────────────────────────────────┐
+│ AWS us-east-1 VPC                          │
+│  ┌──────────────┐   ┌──────────────┐      │
+│  │ Lambda 1     │   │ Lambda 2     │      │
+│  └─────┬────────┘   └─────┬────────┘      │
+│        │                  │                │
+│        └──────────────────┘                │
+│                │                           │
+│    VPC Endpoint (PrivateLink)              │
+│                │                           │
+│  ┌─────────────▼──────────────┐           │
+│  │ Regional Agent Forwarder   │           │
+│  │ (ECS/EKS, 2 replicas)      │           │
+│  └─────────────┬──────────────┘           │
+└────────────────┼───────────────────────────┘
+                 │
+                 │ WireGuard mesh
+                 ▼
+     ┌────────────────────────┐
+     │       Colony           │
+     └────────────────────────┘
+```
+
+**Lambda function config:**
+
+```python
+# Python Lambda example
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import
+    OTLPSpanExporter
+
+# Primary observability (Honeycomb)
+exporter_honeycomb = OTLPSpanExporter(
+    endpoint="https://api.honeycomb.io"
+)
+
+# Coral regional forwarder (via VPC PrivateLink)
+exporter_coral = OTLPSpanExporter(
+    endpoint="coral-forwarder-us-east-1.vpce-abc123.vpce-svc-xyz789.us-east-1.vpce.amazonaws.com:4317",
+    insecure=True  # Within VPC
+)
+
+tracer_provider.add_span_processor(BatchSpanProcessor(exporter_honeycomb))
+tracer_provider.add_span_processor(BatchSpanProcessor(exporter_coral))
+```
+
+**Regional forwarder deployment:**
+
+```bash
+# Deploy regional forwarder (one per AWS region)
+coral agent serve \
+  --mode=forwarder \
+  --telemetry.enabled=true \
+  --telemetry.endpoint=0.0.0.0:4317 \
+  --colony.endpoint=<colony-wireguard-ip>:9000
+
+# Expose via AWS PrivateLink
+aws ec2 create-vpc-endpoint-service-configuration \
+  --network-load-balancer-arns <nlb-arn> \
+  --acceptance-required
+```
+
+**Why regional forwarders:**
+
+- Lambda/Cloud Run cannot run persistent agents
+- Outbound-only networking (cannot receive connections)
+- VPC endpoints keep traffic private
+- Regional deployment reduces latency
+- Stateless and horizontally scalable
+
+---
+
+### Pattern Comparison
+
+| Pattern         | Use Case   | Endpoint                        | Overhead     | HA    |
+|-----------------|------------|---------------------------------|--------------|-------|
+| **localhost**   | Native/VM  | `localhost:4317`                | 50MB/host    | N/A   |
+| **K8s Service** | Kubernetes | `coral-otel.namespace:4317`     | 150MB total  | ✅ Yes |
+| **Regional**    | Serverless | `forwarder-region.vpc.aws:4317` | 100MB/region | ✅ Yes |
+| ~~K8s Sidecar~~ | ❌ Not rec  | `localhost:4317`                | 50MB × pods  | ❌ No  |
+
+**Key Decision:** For Kubernetes environments, always use Pattern 2 (
+cluster-wide service) for OTel ingestion. Per-pod sidecars are only needed for
+exec/shell capabilities (RFD 027), not for telemetry collection.
+
 ## Component Changes
 
 1. **Agent**
     - Embed OTLP gRPC/HTTP receiver (using `go.opentelemetry.io/collector`),
       disabled by default via `agent.telemetry.enabled: false`.
+    - Support multiple operation modes:
+        - `--mode=agent` (default): Full agent with optional OTel receiver
+        - `--mode=otel-collector`: OTel-only mode (no eBPF, for K8s service
+          deployment)
+        - `--mode=forwarder`: OTel-only mode for serverless regional forwarders
     - Apply static filters (configured in `agent.yaml`): error spans,
       high-latency spans, sample rate for normal spans.
     - Aggregate spans into 1-minute buckets:
@@ -124,16 +496,25 @@ flowchart TB
     - Expose correlation queries to AI: "SELECT otel + eBPF WHERE agent_id = X
       AND bucket = Y".
 
-3. **Regional Agent Forwarder** (for serverless environments)
-    - Lightweight agent deployment (OTLP collection only, no eBPF).
-    - Deploy per cloud region (e.g., `agent-forwarder-us-east-1`).
-    - Expose OTLP endpoint via VPC PrivateLink (AWS) or Private Service Connect
-      (GCP).
+3. **Kubernetes OTel Collector** (for K8s environments)
+    - Centralized collector deployment (optional: 3 replicas for HA).
+    - Exposed via Kubernetes Service (ClusterIP).
+    - Runs agent in `--mode=otel-collector` (OTLP only, no eBPF).
     - Apply same static filters as regular agents.
     - Forward aggregated buckets to colony via WireGuard mesh.
     - Stateless and horizontally scalable.
 
-4. **CLI**
+4. **Regional Agent Forwarder** (for serverless environments)
+    - Lightweight agent deployment (OTLP collection only, no eBPF).
+    - Deploy per cloud region (e.g., `agent-forwarder-us-east-1`).
+    - Expose OTLP endpoint via VPC PrivateLink (AWS) or Private Service Connect
+      (GCP).
+    - Runs agent in `--mode=forwarder` (same as otel-collector).
+    - Apply same static filters as regular agents.
+    - Forward aggregated buckets to colony via WireGuard mesh.
+    - Stateless and horizontally scalable.
+
+5. **CLI**
     - `coral ask` queries include OTel citations when available: "checkout p99
       latency = 950ms (trace abc123)".
     - No new commands; OTel data appears automatically in responses.
@@ -199,7 +580,16 @@ WHERE o.service_name = 'checkout'
 - [ ] Add correlation query helpers for AI context (join otel_spans +
   ebpf_stats).
 
-### Phase 3: Regional Forwarder for Serverless
+### Phase 3: Kubernetes Collector Deployment
+
+- [ ] Add `--mode=otel-collector` flag to agent binary (OTLP only, no eBPF).
+- [ ] Create Kubernetes manifests (Service + Deployment) for cluster-wide
+  collector.
+- [ ] Document K8s collector installation (Helm chart optional).
+- [ ] Test app pod → coral-otel.namespace:4317 → colony flow.
+- [ ] Provide deployment examples for different namespaces.
+
+### Phase 4: Regional Forwarder for Serverless
 
 - [ ] Add `--mode=forwarder` flag to agent binary (OTLP only, no eBPF).
 - [ ] Document regional forwarder deployment (AWS PrivateLink, GCP PSC).
@@ -207,7 +597,7 @@ WHERE o.service_name = 'checkout'
 - [ ] Test Lambda → VPC endpoint → forwarder → colony mesh flow.
 - [ ] Document OTel exporter config for serverless functions.
 
-### Phase 4: Testing & Documentation
+### Phase 5: Testing & Documentation
 
 - [ ] Unit tests for filtering and aggregation logic.
 - [ ] Integration test: app → agent → colony → DuckDB.
@@ -283,7 +673,8 @@ service:
 ```python
 # Python Lambda example (AWS us-east-1)
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import
-    OTLPSpanExporter
+
+OTLPSpanExporter
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 # Export to both Honeycomb and Coral regional forwarder
@@ -378,14 +769,213 @@ aws ec2 create-vpc-endpoint-service-configuration \
 
 **Deferred to later RFDs:**
 
-- **Adaptive sampling**: Dynamic sampling based on AI query patterns (RFD 024
-  concept).
+### Endpoint Discovery via Discovery Service (High Priority)
+
+**Problem:** Currently, applications must hardcode Coral OTel collector
+endpoints:
+
+```yaml
+# Current: Manual configuration
+exporters:
+    otlp/coral:
+        endpoint: coral-otel.coral-system:4317  # Hardcoded
+```
+
+For serverless, this is even more complex:
+
+```python
+# Lambda: Hardcoded VPC endpoint URL
+exporter_coral = OTLPSpanExporter(
+    endpoint="coral-forwarder-us-east-1.vpce-abc123.vpce-svc-xyz789.us-east-1.vpce.amazonaws.com:4317"
+)
+```
+
+**Solution:** Extend discovery service (RFD 001/023) to provide OTLP endpoint
+discovery.
+
+**How it would work:**
+
+```bash
+# App startup: Query discovery service
+curl https://discovery.coral.io/v1/otlp-endpoint \
+  -H "Authorization: Bearer ${CORAL_BOOTSTRAP_TOKEN}"
+
+# Response:
+{
+  "endpoint": "coral-forwarder-us-east-1.vpce-abc123:4317",
+  "protocol": "grpc",
+  "tls": {
+    "insecure": true,  # Within VPC
+    "ca_cert": null
+  },
+  "region": "us-east-1",
+  "selection_reason": "closest_forwarder"
+}
+```
+
+**Application config becomes:**
+
+```yaml
+# Environment variable set by startup script
+exporters:
+    otlp/coral:
+        endpoint: ${CORAL_OTLP_ENDPOINT}  # From discovery
+```
+
+**Discovery logic:**
+
+```
+User location: AWS Lambda us-east-1
+    ↓
+Discovery service checks:
+    1. Same region forwarder exists? → coral-forwarder-us-east-1
+    2. Fallback to nearest region? → coral-forwarder-us-west-2
+    3. Direct to colony? → colony.coral.io:4317
+    ↓
+Returns: coral-forwarder-us-east-1.vpce-abc123:4317
+```
+
+**Benefits:**
+
+- ✅ **Zero hardcoded endpoints**: Apps query discovery, get dynamic endpoint
+- ✅ **Multi-region support**: Discovery returns closest forwarder automatically
+- ✅ **Environment-aware**: Returns `localhost:4317` for native, cluster service
+  for K8s, forwarder for serverless
+- ✅ **Failover**: Discovery can redirect to backup forwarder if primary down
+- ✅ **Load balancing**: Discovery can distribute load across multiple forwarders
+
+**Implementation sketch:**
+
+```go
+// Discovery service extension
+type OTLPEndpointRequest struct {
+Environment  string // "lambda", "kubernetes", "native"
+Region       string // "us-east-1"
+BootstrapToken string
+}
+
+type OTLPEndpointResponse struct {
+Endpoint string // "coral-forwarder-us-east-1.vpce-xyz:4317"
+Protocol string // "grpc" | "http"
+TLS      TLSConfig
+Region   string
+SelectionReason string // "closest_forwarder", "direct_to_colony"
+}
+
+func (d *DiscoveryService) GetOTLPEndpoint(req OTLPEndpointRequest) (*OTLPEndpointResponse, error) {
+// Validate bootstrap token
+// Query registry for available forwarders in region
+// Return closest/healthiest endpoint
+}
+```
+
+**Client-side helper:**
+
+```python
+# Coral SDK helper (future)
+from coral import get_otlp_endpoint
+
+# Automatically queries discovery, caches result
+endpoint = get_otlp_endpoint(
+    bootstrap_token=os.getenv("CORAL_BOOTSTRAP_TOKEN")
+)
+
+exporter_coral = OTLPSpanExporter(endpoint=endpoint)
+```
+
+**Kubernetes integration:**
+
+```yaml
+# Init container queries discovery, writes endpoint to shared volume
+apiVersion: v1
+kind: Pod
+metadata:
+    name: myapp
+spec:
+    initContainers:
+        -   name: coral-discover
+            image: coral-io/discover:latest
+            command: [ "coral", "discover", "otlp" ]
+            env:
+                -   name: CORAL_BOOTSTRAP_TOKEN
+                    valueFrom:
+                        secretKeyRef:
+                            name: coral-bootstrap
+                            key: token
+            volumeMounts:
+                -   name: coral-config
+                    mountPath: /coral
+    containers:
+        -   name: app
+            env:
+                # Read endpoint discovered by init container
+                -   name: CORAL_OTLP_ENDPOINT
+                    value: "$(cat /coral/otlp-endpoint)"
+            volumeMounts:
+                -   name: coral-config
+                    mountPath: /coral
+    volumes:
+        -   name: coral-config
+            emptyDir: { }
+```
+
+**This should be a high-priority enhancement** as it dramatically simplifies
+operational complexity, especially for multi-region and serverless deployments.
+
+---
+
+### Other Future Enhancements
+
+- **Adaptive sampling**: Dynamic sampling based on AI query patterns (concept
+  from superseded RFD 024, may be revisited).
 - **Metrics ingestion**: Currently traces only; add OTLP metrics support.
 - **Logs correlation**: Ingest OTLP logs and link to traces/metrics.
 - **Multi-language SDKs**: If standard exporters prove insufficient for
   serverless.
 - **Real-time streaming**: Current design batches every 60s; explore sub-second
   latency.
+
+---
+
+## Relationship to Client-Side K8s Installation (RFD 027)
+
+**Important**: This RFD (025) defines OpenTelemetry ingestion architecture. RFD
+027 covers sidecar injection for exec/shell capabilities. These are
+**complementary but separate concerns**.
+
+### Why Separate Concerns?
+
+**OTel ingestion (RFD 025)** uses:
+
+- Cluster-wide collector service (`coral-otel.namespace:4317`)
+- Centralized deployment (optional: 3 replicas, HA)
+- Efficient: ~150MB total for entire cluster
+- All applications export to same service
+
+**Exec/shell capabilities (RFD 027)** require:
+
+- Per-pod sidecars (with `shareProcessNamespace` or CRI socket)
+- Process-level visibility within each pod
+- `CAP_SYS_PTRACE` capability (Baseline PodSecurity)
+- Necessary for: `coral exec`, `coral shell`
+
+### Deployment Best Practice
+
+For complete Coral functionality in Kubernetes:
+
+1. **Deploy OTel collector once** (this RFD):
+   ```yaml
+   kubectl apply -f https://coral.io/k8s/otel-collector.yaml
+   ```
+
+2. **Inject sidecars only where exec/shell needed** (RFD 027):
+   ```bash
+   # Only for workloads needing exec/shell
+   coral inject deployment.yaml --profile=standard | kubectl apply -f -
+   ```
+
+Most applications only need #1 (OTel ingestion). Only deploy sidecars (#2) for
+workloads requiring interactive debugging capabilities.
 
 ---
 
@@ -406,3 +996,4 @@ This RFD intentionally omits complexity from RFD 024:
 
 **Goal**: Prove correlation value with minimal operational burden. Add
 complexity only when usage demonstrates clear need.
+P
