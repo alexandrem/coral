@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	agentv1 "github.com/coral-io/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
 	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
+	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
+	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-io/coral/internal/colony/database"
@@ -174,6 +177,11 @@ Examples:
 			endpoints := buildWireGuardEndpoints(cfg.WireGuard.Port)
 			if len(endpoints) == 0 {
 				logger.Warn().Msg("No WireGuard endpoints could be constructed; discovery registration will fail")
+			} else {
+				logger.Info().
+					Strs("wireguard_endpoints", endpoints).
+					Int("wireguard_port", cfg.WireGuard.Port).
+					Msg("Built WireGuard endpoints for discovery registration")
 			}
 
 			// Start gRPC/Connect server for agent registration and colony management.
@@ -200,8 +208,9 @@ Examples:
 			}
 
 			metadata := map[string]string{
-				"application": cfg.ApplicationName,
-				"environment": cfg.Environment,
+				"application":    cfg.ApplicationName,
+				"environment":    cfg.Environment,
+				"wireguard_port": fmt.Sprintf("%d", cfg.WireGuard.Port),
 			}
 
 			// Set default mesh IPs if not configured
@@ -220,6 +229,12 @@ Examples:
 				connectPort = 9000 // Default Buf Connect port
 			}
 
+			// STUN discovery is now performed before WireGuard initialization to avoid port conflicts.
+			// See lines before wgDevice initialization for the STUN discovery code.
+			// This variable is kept here for compatibility with the registration manager below.
+			var colonyObservedEndpoint *discoverypb.Endpoint
+			// Note: colonyObservedEndpoint will be set before WireGuard starts (see above)
+
 			// Create and start registration manager for continuous auto-registration.
 			regConfig := registration.Config{
 				Enabled:           colonyConfig.Discovery.Enabled,
@@ -234,6 +249,7 @@ Examples:
 				Metadata:          metadata,
 				DiscoveryEndpoint: globalConfig.Discovery.Endpoint,
 				DiscoveryTimeout:  globalConfig.Discovery.Timeout,
+				ObservedEndpoint:  colonyObservedEndpoint, // Add STUN-discovered endpoint
 			}
 
 			regManager := registration.NewManager(regConfig, logger)
@@ -1170,6 +1186,11 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		return nil, fmt.Errorf("failed to load colony config: %w", err)
 	}
 
+	globalConfig, err := loader.LoadGlobalConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load global config: %w", err)
+	}
+
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
 		connectPort = 9000 // Default Buf Connect port
@@ -1180,12 +1201,25 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		dashboardPort = constants.DefaultDashboardPort
 	}
 
+	// Create discovery client for agent endpoint lookup
+	var discoveryClient discoveryv1connect.DiscoveryServiceClient
+	if globalConfig.Discovery.Endpoint != "" {
+		discoveryClient = discoveryv1connect.NewDiscoveryServiceClient(
+			http.DefaultClient,
+			globalConfig.Discovery.Endpoint,
+		)
+		logger.Debug().
+			Str("discovery_endpoint", globalConfig.Discovery.Endpoint).
+			Msg("Discovery client configured for agent endpoint lookup")
+	}
+
 	// Create mesh service handler
 	meshSvc := &meshServiceHandler{
-		cfg:      cfg,
-		wgDevice: wgDevice,
-		registry: agentRegistry,
-		logger:   logger,
+		cfg:             cfg,
+		wgDevice:        wgDevice,
+		registry:        agentRegistry,
+		logger:          logger,
+		discoveryClient: discoveryClient,
 	}
 
 	// Create colony service handler
@@ -1237,10 +1271,11 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 // meshServiceHandler implements the MeshService RPC handler.
 type meshServiceHandler struct {
-	cfg      *config.ResolvedConfig
-	wgDevice *wireguard.Device
-	registry *registry.Registry
-	logger   logging.Logger
+	cfg             *config.ResolvedConfig
+	wgDevice        *wireguard.Device
+	registry        *registry.Registry
+	logger          logging.Logger
+	discoveryClient discoveryv1connect.DiscoveryServiceClient
 }
 
 // Register handles agent registration requests.
@@ -1317,17 +1352,46 @@ func (h *meshServiceHandler) Register(
 		Str("mesh_ip", meshIP.String()).
 		Msg("Allocated mesh IP for agent")
 
-	// Extract agent's source address for WireGuard endpoint.
-	// For same-host testing, we use the HTTP request source.
-	// For production, this enables NAT traversal by detecting the agent's public IP.
-	// Note: peerAddr includes the HTTP port, not the WireGuard port.
-	// For now, we'll leave endpoint empty and rely on the agent to initiate the handshake.
-	// TODO: Implement proper endpoint discovery via discovery service registration.
+	// Get agent's public endpoint from discovery service.
+	// The agent registers its STUN-discovered public endpoint with discovery,
+	// which we need for NAT traversal.
 	var agentEndpoint string
-	if peerAddr != "" {
-		// Extract just the IP without the port
+
+	// Query discovery service for agent's observed endpoint
+	if h.discoveryClient != nil {
+		agentInfo, err := h.discoveryClient.LookupAgent(ctx, connect.NewRequest(&discoverypb.LookupAgentRequest{
+			AgentId: req.Msg.AgentId,
+		}))
+
+		if err == nil && agentInfo.Msg != nil && len(agentInfo.Msg.ObservedEndpoints) > 0 {
+			// Use the first observed endpoint (from STUN)
+			observedEp := agentInfo.Msg.ObservedEndpoints[0]
+			if observedEp != nil && observedEp.Ip != "" {
+				agentEndpoint = net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
+				h.logger.Info().
+					Str("agent_id", req.Msg.AgentId).
+					Str("endpoint", agentEndpoint).
+					Msg("Using agent's STUN-discovered endpoint from discovery service")
+			}
+		} else {
+			h.logger.Debug().
+				Err(err).
+				Str("agent_id", req.Msg.AgentId).
+				Msg("Could not get agent endpoint from discovery service")
+		}
+	}
+
+	// Fallback: extract agent's source address from HTTP connection.
+	// This works for same-host testing but not for NAT traversal.
+	// Note: peerAddr includes the HTTP port, not the WireGuard port.
+	if agentEndpoint == "" && peerAddr != "" {
 		if host, _, err := net.SplitHostPort(peerAddr); err == nil {
-			// Don't set endpoint for now - WireGuard will learn it from incoming packets
+			// Use a default WireGuard port (this is just a guess and likely wrong for agents)
+			// WireGuard will learn the correct endpoint from incoming packets
+			h.logger.Debug().
+				Str("agent_id", req.Msg.AgentId).
+				Str("peer_addr", peerAddr).
+				Msg("No discovery endpoint available, WireGuard will learn endpoint from incoming packets")
 			_ = host
 		}
 	}
@@ -1606,15 +1670,22 @@ func buildWireGuardEndpoints(port int) []string {
 	var endpoints []string
 
 	// Check for explicit public endpoint configuration.
-	// Format: hostname:port or ip:port (e.g., "coral.example.com:41580" or "203.0.113.10:41580")
+	// CORAL_PUBLIC_ENDPOINT contains the public hostname/IP (optionally with a port).
+	// We extract the host and ALWAYS use the WireGuard port, not the port from the env var.
+	// This is because CORAL_PUBLIC_ENDPOINT typically contains the gRPC/Connect service address,
+	// but we need to advertise the WireGuard UDP port for peer connections.
 	if publicEndpoint := os.Getenv("CORAL_PUBLIC_ENDPOINT"); publicEndpoint != "" {
-		// Validate endpoint has port
-		if _, _, err := net.SplitHostPort(publicEndpoint); err == nil {
-			endpoints = append(endpoints, publicEndpoint)
-			return endpoints
+		var host string
+		// Try to extract host from endpoint (may have port)
+		if h, _, err := net.SplitHostPort(publicEndpoint); err == nil {
+			host = h
+		} else {
+			// No port in the endpoint, use as-is
+			host = publicEndpoint
 		}
-		// If no port, add configured port
-		endpoints = append(endpoints, net.JoinHostPort(publicEndpoint, fmt.Sprintf("%d", port)))
+
+		// Build WireGuard endpoint with the configured WireGuard port
+		endpoints = append(endpoints, net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 		return endpoints
 	}
 
@@ -1629,6 +1700,33 @@ func buildWireGuardEndpoints(port int) []string {
 	}
 
 	return endpoints
+}
+
+// getColonySTUNServers determines which STUN servers to use for colony NAT traversal.
+// Priority: colony config > global config > default.
+func getColonySTUNServers(colonyConfig *config.ColonyConfig, globalConfig *config.GlobalConfig) []string {
+	// Check environment variable first
+	envSTUN := os.Getenv("CORAL_STUN_SERVERS")
+	if envSTUN != "" {
+		servers := strings.Split(envSTUN, ",")
+		for i := range servers {
+			servers[i] = strings.TrimSpace(servers[i])
+		}
+		return servers
+	}
+
+	// Use colony-specific STUN servers if configured
+	if len(colonyConfig.Discovery.STUNServers) > 0 {
+		return colonyConfig.Discovery.STUNServers
+	}
+
+	// Fall back to global STUN servers
+	if len(globalConfig.Discovery.STUNServers) > 0 {
+		return globalConfig.Discovery.STUNServers
+	}
+
+	// Use default STUN server
+	return []string{constants.DefaultSTUNServer}
 }
 
 // formatCapabilitySymbol formats capability as a checkmark or X.

@@ -39,10 +39,23 @@ func TestRegistry_Register(t *testing.T) {
 		assert.Contains(t, err.Error(), "pubkey cannot be empty")
 	})
 
-	t.Run("no endpoints", func(t *testing.T) {
+	t.Run("no endpoints and no observed endpoint", func(t *testing.T) {
 		_, err := reg.Register("mesh-1", "pubkey-1", []string{}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "at least one endpoint is required")
+		assert.Contains(t, err.Error(), "at least one endpoint or observed endpoint is required")
+	})
+
+	t.Run("no endpoints but has observed endpoint", func(t *testing.T) {
+		observedEndpoint := &discoveryv1.Endpoint{
+			Ip:       "1.2.3.4",
+			Port:     51820,
+			Protocol: "udp",
+		}
+		entry, err := reg.Register("agent-1", "pubkey-agent", []string{}, "", "", 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE)
+		assert.NoError(t, err)
+		assert.NotNil(t, entry)
+		assert.Equal(t, "agent-1", entry.MeshID)
+		assert.Equal(t, observedEndpoint, entry.ObservedEndpoint)
 	})
 
 	t.Run("update existing registration", func(t *testing.T) {

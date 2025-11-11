@@ -1,11 +1,15 @@
 package wireguard
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/pion/stun"
+	"golang.org/x/sys/unix"
 
 	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
 	"github.com/coral-io/coral/internal/logging"
@@ -19,30 +23,66 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 		return nil
 	}
 
-	// Create a UDP connection bound to the local WireGuard port
+	// Create a UDP connection bound to the local WireGuard port.
+	// Use SO_REUSEADDR and SO_REUSEPORT to allow sharing the port with WireGuard.
 	localAddr := &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: localPort,
 	}
 
-	conn, err := net.ListenUDP("udp4", localAddr)
+	lc := &net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var sockoptErr error
+			if err := c.Control(func(fd uintptr) {
+				// Set SO_REUSEADDR to allow multiple sockets to bind to the same address.
+				if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
+					sockoptErr = fmt.Errorf("SO_REUSEADDR: %w", err)
+					return
+				}
+
+				// Set SO_REUSEPORT (Linux/BSD/macOS) to allow multiple sockets to bind to the same port.
+				// This is critical for sharing the port with WireGuard.
+				if runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
+					if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
+						sockoptErr = fmt.Errorf("SO_REUSEPORT: %w", err)
+						return
+					}
+				}
+			}); err != nil {
+				return err
+			}
+			return sockoptErr
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := lc.ListenPacket(ctx, "udp4", localAddr.String())
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to create UDP connection for STUN")
 		return nil
 	}
 	defer conn.Close()
 
-	// Set read timeout
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	udpConn, ok := conn.(*net.UDPConn)
+	if !ok {
+		logger.Warn().Msg("Failed to cast connection to UDPConn")
+		return nil
+	}
 
-	// Try each STUN server
+	// Try each STUN server with individual timeouts
 	for _, stunServer := range stunServers {
 		logger.Debug().
 			Str("stun_server", stunServer).
 			Int("local_port", localPort).
 			Msg("Attempting STUN discovery")
 
-		endpoint, err := querySTUNServer(conn, stunServer, logger)
+		// Set a fresh deadline for each attempt (3 seconds per server)
+		deadline := time.Now().Add(3 * time.Second)
+		udpConn.SetReadDeadline(deadline)
+
+		endpoint, err := querySTUNServer(udpConn, stunServer, logger)
 		if err != nil {
 			logger.Warn().
 				Err(err).
@@ -68,26 +108,36 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 // querySTUNServer sends a STUN binding request to the specified server.
 func querySTUNServer(conn *net.UDPConn, stunServer string, logger logging.Logger) (*discoveryv1.Endpoint, error) {
 	// Resolve STUN server address
+	logger.Debug().Str("stun_server", stunServer).Msg("Resolving STUN server address")
 	serverAddr, err := net.ResolveUDPAddr("udp4", stunServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve STUN server: %w", err)
 	}
+	logger.Debug().Str("resolved_addr", serverAddr.String()).Msg("STUN server address resolved")
 
 	// Create STUN binding request
 	message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+	logger.Debug().Int("request_size", len(message.Raw)).Msg("Created STUN binding request")
 
 	// Send request
-	_, err = conn.WriteToUDP(message.Raw, serverAddr)
+	n, err := conn.WriteToUDP(message.Raw, serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send STUN request: %w", err)
 	}
+	logger.Debug().Int("bytes_sent", n).Msg("Sent STUN request")
 
 	// Read response
+	logger.Debug().Msg("Waiting for STUN response...")
 	buf := make([]byte, 1024)
-	n, _, err := conn.ReadFromUDP(buf)
+	n, fromAddr, err := conn.ReadFromUDP(buf)
 	if err != nil {
+		logger.Debug().Err(err).Msg("Read error occurred")
 		return nil, fmt.Errorf("failed to read STUN response: %w", err)
 	}
+	logger.Debug().
+		Int("bytes_received", n).
+		Str("from_addr", fromAddr.String()).
+		Msg("Received STUN response")
 
 	// Parse STUN response
 	var stunResp stun.Message
@@ -118,32 +168,65 @@ func ClassifyNAT(stunServers []string, localPort int, logger logging.Logger) dis
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
 
-	// Create UDP connection
+	// Create UDP connection with SO_REUSEADDR/SO_REUSEPORT to share the port with WireGuard.
 	localAddr := &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: localPort,
 	}
 
-	conn, err := net.ListenUDP("udp4", localAddr)
+	lc := &net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var sockoptErr error
+			if err := c.Control(func(fd uintptr) {
+				// Set SO_REUSEADDR to allow multiple sockets to bind to the same address.
+				if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
+					sockoptErr = fmt.Errorf("SO_REUSEADDR: %w", err)
+					return
+				}
+
+				// Set SO_REUSEPORT (Linux/BSD/macOS) to allow multiple sockets to bind to the same port.
+				if runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
+					if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
+						sockoptErr = fmt.Errorf("SO_REUSEPORT: %w", err)
+						return
+					}
+				}
+			}); err != nil {
+				return err
+			}
+			return sockoptErr
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := lc.ListenPacket(ctx, "udp4", localAddr.String())
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to create UDP connection for NAT classification")
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
 	defer conn.Close()
 
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-
-	// Query first STUN server
-	endpoint1, err := querySTUNServer(conn, stunServers[0], logger)
-	if err != nil || endpoint1 == nil {
-		logger.Debug().Msg("Failed to query first STUN server for NAT classification")
+	udpConn, ok := conn.(*net.UDPConn)
+	if !ok {
+		logger.Warn().Msg("Failed to cast connection to UDPConn for NAT classification")
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
 
-	// Query second STUN server
-	endpoint2, err := querySTUNServer(conn, stunServers[1], logger)
+	// Query first STUN server with timeout
+	udpConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	endpoint1, err := querySTUNServer(udpConn, stunServers[0], logger)
+	if err != nil || endpoint1 == nil {
+		logger.Debug().Err(err).Msg("Failed to query first STUN server for NAT classification")
+		return discoveryv1.NatHint_NAT_UNKNOWN
+	}
+
+	// Query second STUN server with fresh timeout
+	udpConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	endpoint2, err := querySTUNServer(udpConn, stunServers[1], logger)
 	if err != nil || endpoint2 == nil {
-		logger.Debug().Msg("Failed to query second STUN server for NAT classification")
+		logger.Debug().Err(err).Msg("Failed to query second STUN server for NAT classification")
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
 

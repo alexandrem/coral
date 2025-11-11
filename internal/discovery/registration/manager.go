@@ -49,6 +49,9 @@ type Config struct {
 
 	// DiscoveryTimeout is the timeout for discovery requests.
 	DiscoveryTimeout time.Duration
+
+	// ObservedEndpoint is the colony's observed public endpoint from STUN.
+	ObservedEndpoint interface{} // *discoveryv1.Endpoint (avoiding import cycle)
 }
 
 // Manager handles continuous registration and reconnection.
@@ -220,14 +223,21 @@ func (m *Manager) register(ctx context.Context) error {
 	regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer regCancel()
 
+	// Convert observed endpoint (avoid import cycle by using interface{})
+	var observedEndpoint interface{}
+	if m.config.ObservedEndpoint != nil {
+		observedEndpoint = m.config.ObservedEndpoint
+	}
+
 	req := &client.RegisterColonyRequest{
-		MeshID:      m.config.MeshID,
-		PublicKey:   m.config.PublicKey,
-		Endpoints:   m.config.Endpoints,
-		MeshIPv4:    m.config.MeshIPv4,
-		MeshIPv6:    m.config.MeshIPv6,
-		ConnectPort: m.config.ConnectPort,
-		Metadata:    m.config.Metadata,
+		MeshID:           m.config.MeshID,
+		PublicKey:        m.config.PublicKey,
+		Endpoints:        m.config.Endpoints,
+		MeshIPv4:         m.config.MeshIPv4,
+		MeshIPv6:         m.config.MeshIPv6,
+		ConnectPort:      m.config.ConnectPort,
+		Metadata:         m.config.Metadata,
+		ObservedEndpoint: observedEndpoint,
 	}
 
 	m.logger.Debug().

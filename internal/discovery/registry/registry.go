@@ -55,15 +55,25 @@ func New(ttl time.Duration) *Registry {
 }
 
 // Register adds or updates a colony registration.
-func (r *Registry) Register(meshID, pubkey string, endpoints []string, meshIPv4, meshIPv6 string, connectPort uint32, metadata map[string]string, observedEndpoint *discoveryv1.Endpoint, natHint discoveryv1.NatHint) (*Entry, error) {
+func (r *Registry) Register(
+	meshID, pubkey string,
+	endpoints []string,
+	meshIPv4, meshIPv6 string,
+	connectPort uint32,
+	metadata map[string]string,
+	observedEndpoint *discoveryv1.Endpoint,
+	natHint discoveryv1.NatHint,
+) (*Entry, error) {
 	if meshID == "" {
 		return nil, fmt.Errorf("mesh_id cannot be empty")
 	}
 	if pubkey == "" {
 		return nil, fmt.Errorf("pubkey cannot be empty")
 	}
-	if len(endpoints) == 0 {
-		return nil, fmt.Errorf("at least one endpoint is required")
+	// Require at least one endpoint OR an observed endpoint (for agents behind NAT).
+	// Colonies should have static endpoints, but agents may only have observed endpoints from STUN.
+	if len(endpoints) == 0 && observedEndpoint == nil {
+		return nil, fmt.Errorf("at least one endpoint or observed endpoint is required")
 	}
 
 	r.mu.Lock()

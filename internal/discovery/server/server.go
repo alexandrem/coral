@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -81,7 +82,8 @@ func (s *Server) RegisterColony(
 		Str("mesh_ipv6", req.Msg.MeshIpv6).
 		Uint32("connect_port", req.Msg.ConnectPort).
 		Interface("metadata", req.Msg.Metadata).
-		Interface("observed_endpoint", observedEndpoint).
+		Interface("client_observed_endpoint", req.Msg.ObservedEndpoint).
+		Interface("http_observed_endpoint", observedEndpoint).
 		Msg("Colony registration request received")
 
 	// Register the colony
@@ -330,52 +332,120 @@ func (s *Server) extractObservedEndpoint(req *connect.Request[discoveryv1.Regist
 		parts := strings.Split(xForwardedFor, ",")
 		clientIP := strings.TrimSpace(parts[0])
 
-		s.logger.Debug().
-			Str("x_forwarded_for", xForwardedFor).
-			Str("extracted_ip", clientIP).
-			Msg("Extracted IP from X-Forwarded-For header")
+		// Validate and filter the extracted IP
+		if !isValidPublicIPv4(clientIP, s.logger) {
+			s.logger.Debug().
+				Str("x_forwarded_for", xForwardedFor).
+				Str("rejected_ip", clientIP).
+				Msg("Rejected invalid/private IP from X-Forwarded-For header")
+		} else {
+			s.logger.Debug().
+				Str("x_forwarded_for", xForwardedFor).
+				Str("extracted_ip", clientIP).
+				Msg("Extracted IP from X-Forwarded-For header")
 
-		// For X-Forwarded-For, we don't know the port, so use 0
-		return &discoveryv1.Endpoint{
-			Ip:       clientIP,
-			Port:     0, // Unknown port when behind proxy
-			Protocol: "udp",
-			ViaRelay: false,
+			// For X-Forwarded-For, we don't know the port, so use 0
+			return &discoveryv1.Endpoint{
+				Ip:       clientIP,
+				Port:     0, // Unknown port when behind proxy
+				Protocol: "udp",
+				ViaRelay: false,
+			}
 		}
 	}
 
 	// Check X-Real-IP header (common with nginx)
 	xRealIP := req.Header().Get("X-Real-IP")
 	if xRealIP != "" {
-		s.logger.Debug().
-			Str("x_real_ip", xRealIP).
-			Msg("Extracted IP from X-Real-IP header")
+		if !isValidPublicIPv4(xRealIP, s.logger) {
+			s.logger.Debug().
+				Str("x_real_ip", xRealIP).
+				Msg("Rejected invalid/private IP from X-Real-IP header")
+		} else {
+			s.logger.Debug().
+				Str("x_real_ip", xRealIP).
+				Msg("Extracted IP from X-Real-IP header")
 
-		return &discoveryv1.Endpoint{
-			Ip:       xRealIP,
-			Port:     0, // Unknown port when behind proxy
-			Protocol: "udp",
-			ViaRelay: false,
+			return &discoveryv1.Endpoint{
+				Ip:       xRealIP,
+				Port:     0, // Unknown port when behind proxy
+				Protocol: "udp",
+				ViaRelay: false,
+			}
 		}
 	}
 
 	// Check our custom X-Observed-Addr header (set by middleware)
 	xObservedAddr := req.Header().Get("X-Observed-Addr")
 	if xObservedAddr != "" {
-		s.logger.Debug().
-			Str("x_observed_addr", xObservedAddr).
-			Msg("Extracted IP from X-Observed-Addr header")
+		if !isValidPublicIPv4(xObservedAddr, s.logger) {
+			s.logger.Debug().
+				Str("x_observed_addr", xObservedAddr).
+				Msg("Rejected invalid/private IP from X-Observed-Addr header")
+		} else {
+			s.logger.Debug().
+				Str("x_observed_addr", xObservedAddr).
+				Msg("Extracted IP from X-Observed-Addr header")
 
-		return &discoveryv1.Endpoint{
-			Ip:       xObservedAddr,
-			Port:     0, // Port not known from HTTP connection
-			Protocol: "udp",
-			ViaRelay: false,
+			return &discoveryv1.Endpoint{
+				Ip:       xObservedAddr,
+				Port:     0, // Port not known from HTTP connection
+				Protocol: "udp",
+				ViaRelay: false,
+			}
 		}
 	}
 
-	s.logger.Debug().Msg("Could not extract observed endpoint from request")
+	s.logger.Debug().Msg("Could not extract valid observed endpoint from request")
 	return nil
+}
+
+// isValidPublicIPv4 checks if an IP address is a valid public IPv4 address.
+// It rejects IPv6, loopback, private, and other non-routable addresses.
+func isValidPublicIPv4(ipStr string, logger zerolog.Logger) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		logger.Debug().Str("ip", ipStr).Msg("Failed to parse IP address")
+		return false
+	}
+
+	// Reject IPv6 addresses
+	if ip.To4() == nil {
+		logger.Debug().Str("ip", ipStr).Msg("Rejecting IPv6 address")
+		return false
+	}
+
+	// Reject loopback addresses (127.0.0.0/8)
+	if ip.IsLoopback() {
+		logger.Debug().Str("ip", ipStr).Msg("Rejecting loopback address")
+		return false
+	}
+
+	// Reject private addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+	if ip.IsPrivate() {
+		logger.Debug().Str("ip", ipStr).Msg("Rejecting private address")
+		return false
+	}
+
+	// Reject link-local addresses (169.254.0.0/16)
+	if ip.IsLinkLocalUnicast() {
+		logger.Debug().Str("ip", ipStr).Msg("Rejecting link-local address")
+		return false
+	}
+
+	// Reject multicast addresses
+	if ip.IsMulticast() {
+		logger.Debug().Str("ip", ipStr).Msg("Rejecting multicast address")
+		return false
+	}
+
+	// Reject unspecified address (0.0.0.0)
+	if ip.IsUnspecified() {
+		logger.Debug().Str("ip", ipStr).Msg("Rejecting unspecified address")
+		return false
+	}
+
+	return true
 }
 
 // RegisterAgent handles agent registration requests.
@@ -417,7 +487,8 @@ func (s *Server) RegisterAgent(
 		Str("mesh_id", req.Msg.MeshId).
 		Str("pubkey", req.Msg.Pubkey).
 		Strs("endpoints", req.Msg.Endpoints).
-		Interface("observed_endpoint", observedEndpoint).
+		Interface("client_observed_endpoint", req.Msg.ObservedEndpoint).
+		Interface("http_observed_endpoint", observedEndpoint).
 		Msg("Agent registration request received")
 
 	// Register the agent (reuse colony registration for now, we'll extend later)
@@ -440,13 +511,13 @@ func (s *Server) RegisterAgent(
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	// Build response
+	// Build response (return the client-provided observed endpoint, not HTTP-extracted)
 	ttlSeconds := int32(entry.ExpiresAt.Sub(entry.LastSeen).Seconds())
 	resp := &discoveryv1.RegisterAgentResponse{
 		Success:          true,
 		Ttl:              ttlSeconds,
 		ExpiresAt:        timestamppb.New(entry.ExpiresAt),
-		ObservedEndpoint: observedEndpoint,
+		ObservedEndpoint: clientObservedEndpoint, // Return what was actually stored
 		StunServers:      s.stunServers,
 	}
 
@@ -454,6 +525,7 @@ func (s *Server) RegisterAgent(
 		Str("agent_id", req.Msg.AgentId).
 		Int32("ttl_seconds", ttlSeconds).
 		Time("expires_at", entry.ExpiresAt).
+		Interface("stored_observed_endpoint", entry.ObservedEndpoint).
 		Msg("Agent registered successfully")
 
 	return connect.NewResponse(resp), nil
@@ -509,36 +581,56 @@ func (s *Server) LookupAgent(
 
 // extractAgentObservedEndpoint extracts the agent's observed public endpoint from the request.
 func (s *Server) extractAgentObservedEndpoint(req *connect.Request[discoveryv1.RegisterAgentRequest]) *discoveryv1.Endpoint {
-	// Same logic as colony extraction
+	// Same logic as colony extraction with validation
 	xForwardedFor := req.Header().Get("X-Forwarded-For")
 	if xForwardedFor != "" {
 		parts := strings.Split(xForwardedFor, ",")
 		clientIP := strings.TrimSpace(parts[0])
-		return &discoveryv1.Endpoint{
-			Ip:       clientIP,
-			Port:     0,
-			Protocol: "udp",
-			ViaRelay: false,
+
+		if !isValidPublicIPv4(clientIP, s.logger) {
+			s.logger.Debug().
+				Str("x_forwarded_for", xForwardedFor).
+				Str("rejected_ip", clientIP).
+				Msg("Rejected invalid/private agent IP from X-Forwarded-For")
+		} else {
+			return &discoveryv1.Endpoint{
+				Ip:       clientIP,
+				Port:     0,
+				Protocol: "udp",
+				ViaRelay: false,
+			}
 		}
 	}
 
 	xRealIP := req.Header().Get("X-Real-IP")
 	if xRealIP != "" {
-		return &discoveryv1.Endpoint{
-			Ip:       xRealIP,
-			Port:     0,
-			Protocol: "udp",
-			ViaRelay: false,
+		if !isValidPublicIPv4(xRealIP, s.logger) {
+			s.logger.Debug().
+				Str("x_real_ip", xRealIP).
+				Msg("Rejected invalid/private agent IP from X-Real-IP")
+		} else {
+			return &discoveryv1.Endpoint{
+				Ip:       xRealIP,
+				Port:     0,
+				Protocol: "udp",
+				ViaRelay: false,
+			}
 		}
 	}
 
 	xObservedAddr := req.Header().Get("X-Observed-Addr")
 	if xObservedAddr != "" {
-		return &discoveryv1.Endpoint{
-			Ip:       xObservedAddr,
-			Port:     0,
-			Protocol: "udp",
-			ViaRelay: false,
+		if !isValidPublicIPv4(xObservedAddr, s.logger) {
+			s.logger.Debug().
+				Str("x_observed_addr", xObservedAddr).
+				Msg("Rejected invalid/private agent IP from X-Observed-Addr")
+		} else {
+			return &discoveryv1.Endpoint{
+				Ip:       xObservedAddr,
+				Port:     0,
+				Protocol: "udp",
+				ViaRelay: false,
+			}
 		}
 	}
 
