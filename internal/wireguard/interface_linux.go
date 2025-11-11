@@ -5,6 +5,8 @@ package wireguard
 import (
 	"fmt"
 	"net"
+	"os/exec"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"golang.zx2c4.com/wireguard/tun"
@@ -41,21 +43,142 @@ func CreateTUN(name string, mtu int, logger zerolog.Logger) (*Interface, error) 
 	}, nil
 }
 
-// AssignIPPlatform assigns an IP address to the interface on Linux.
-// TODO: Implement using netlink or ip command.
+// AssignIPPlatform assigns an IP address to the interface on Linux using ip command.
+// If the interface already has an IP address, it will be replaced.
 func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
-	return fmt.Errorf("IP assignment not yet implemented for Linux (interface: %s, IP: %s)",
-		i.name, ip.String())
+	if i.name == "" {
+		return fmt.Errorf("interface name is empty")
+	}
+
+	// First, bring the interface up.
+	upCmd := exec.Command("ip", "link", "set", "dev", i.name, "up")
+	if output, err := upCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to bring up interface %s: %w (output: %s)",
+			i.name, err, string(output))
+	}
+
+	// Flush any existing IPv4 addresses on the interface.
+	// This allows us to replace an existing IP (e.g., temporary IP with assigned IP).
+	// We ignore errors here because the interface might not have an IP yet.
+	flushCmd := exec.Command("ip", "addr", "flush", "dev", i.name)
+	_ = flushCmd.Run() // Ignore error - interface might not have an IP.
+
+	// Calculate the prefix length from the subnet mask.
+	ones, _ := subnet.Mask.Size()
+
+	// Assign the IP address with /32 netmask to create only a host route.
+	// This prevents subnet-wide routing that would conflict when multiple WireGuard
+	// instances run on the same host. Peer-specific routes are added separately
+	// via AddRoutesForPeer.
+	//
+	// On Linux we use: ip addr add <ip>/32 dev <interface>
+	ipWithPrefix := fmt.Sprintf("%s/32", ip.String())
+	args := []string{"addr", "add", ipWithPrefix, "dev", i.name}
+
+	cmd := exec.Command("ip", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Ignore "File exists" errors (IP already assigned).
+		if !strings.Contains(string(output), "File exists") {
+			return fmt.Errorf("failed to assign IP %s to interface %s: %w (output: %s)",
+				ip.String(), i.name, err, string(output))
+		}
+	}
+
+	i.logger.Debug().
+		Str("ip", ip.String()).
+		Int("prefix", ones).
+		Str("interface", i.name).
+		Msg("Assigned IP address to interface")
+
+	// Note: We do NOT add a blanket subnet route here.
+	// WireGuard peers will be configured with specific AllowedIPs, and routes for those
+	// specific IPs should be added when peers are configured (via AddPeer).
+	// This avoids routing conflicts when multiple WireGuard instances run on the same host.
+
+	return nil
 }
 
 // AddRoutesForPeerPlatform adds routes for a peer's AllowedIPs on Linux.
-// TODO: Implement using netlink or ip route command.
 func (i *Interface) AddRoutesForPeerPlatform(allowedIPs []string) error {
-	return fmt.Errorf("route management not yet implemented for Linux (interface: %s)", i.name)
+	i.logger.Debug().
+		Strs("allowed_ips", allowedIPs).
+		Msg("Adding routes for peer")
+
+	for _, allowedIP := range allowedIPs {
+		// Parse the CIDR to determine if it's a host (/32) or subnet.
+		_, ipNet, err := net.ParseCIDR(allowedIP)
+		if err != nil {
+			// Try as plain IP and convert to /32.
+			ip := net.ParseIP(allowedIP)
+			if ip == nil {
+				return fmt.Errorf("invalid allowed IP %q", allowedIP)
+			}
+			// Convert to /32 or /128.
+			mask := net.CIDRMask(32, 32)
+			if ip.To4() == nil {
+				mask = net.CIDRMask(128, 128)
+			}
+			ipNet = &net.IPNet{IP: ip, Mask: mask}
+		}
+
+		// Add route for this specific IP/subnet through our interface.
+		// On Linux: ip route add <cidr> dev <interface>
+		routeCmd := exec.Command("ip", "route", "add", ipNet.String(), "dev", i.name)
+
+		i.logger.Debug().
+			Strs("command", routeCmd.Args).
+			Msg("Running route command")
+
+		output, err := routeCmd.CombinedOutput()
+
+		i.logger.Debug().
+			Str("output", string(output)).
+			Err(err).
+			Msg("Route command result")
+
+		if err != nil {
+			// Ignore "File exists" errors (route already present).
+			if !strings.Contains(string(output), "File exists") {
+				return fmt.Errorf("failed to add route for %s on %s: %w (output: %s)",
+					allowedIP, i.name, err, string(output))
+			}
+		}
+	}
+
+	return nil
 }
 
 // DeleteRoutePlatform deletes a specific route for an IP on Linux.
-// TODO: Implement using netlink or ip route command.
 func (i *Interface) DeleteRoutePlatform(ip net.IP) error {
-	return fmt.Errorf("route deletion not yet implemented for Linux (interface: %s)", i.name)
+	i.logger.Debug().
+		Str("ip", ip.String()).
+		Msg("Deleting route")
+
+	// On Linux: ip route del <ip>
+	deleteCmd := exec.Command("ip", "route", "del", ip.String())
+	output, err := deleteCmd.CombinedOutput()
+
+	if err != nil {
+		// Ignore "No such process" or "not found" errors (route doesn't exist).
+		outputStr := string(output)
+		if !strings.Contains(outputStr, "No such process") &&
+			!strings.Contains(outputStr, "not found") {
+			i.logger.Debug().
+				Err(err).
+				Str("output", outputStr).
+				Msg("Failed to delete route")
+			return fmt.Errorf("failed to delete route for %s: %w (output: %s)",
+				ip.String(), err, outputStr)
+		}
+		i.logger.Debug().
+			Str("ip", ip.String()).
+			Msg("Route not found (already deleted or never existed)")
+	} else {
+		i.logger.Debug().
+			Str("ip", ip.String()).
+			Msg("Route deleted successfully")
+	}
+
+	return nil
 }
