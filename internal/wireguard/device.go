@@ -348,6 +348,19 @@ func (d *Device) Interface() *Interface {
 	return d.iface
 }
 
+// ListenPort returns the UDP port the WireGuard device is listening on.
+// Returns 0 if the device is not started or port is unknown.
+func (d *Device) ListenPort() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if d.cfg == nil {
+		return 0
+	}
+
+	return d.cfg.Port
+}
+
 // configure applies the initial device configuration via UAPI.
 func (d *Device) configure() error {
 	// Decode private key from base64

@@ -16,11 +16,14 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
+	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
+	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/logging"
+	"github.com/coral-io/coral/internal/wireguard"
 )
 
 // AgentConfig represents the agent configuration file.
@@ -31,6 +34,10 @@ type AgentConfig struct {
 			ID           string `yaml:"id"`
 			AutoDiscover bool   `yaml:"auto_discover"`
 		} `yaml:"colony"`
+		NAT struct {
+			STUNServers []string `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
+			EnableRelay bool     `yaml:"enable_relay,omitempty"` // Enable relay fallback
+		} `yaml:"nat,omitempty"`
 	} `yaml:"agent"`
 	Services []struct {
 		Name           string `yaml:"name"`
@@ -108,7 +115,7 @@ Examples:
   coral agent start --config ./agent.yaml --log-format=pretty`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load configuration
-			cfg, serviceSpecs, err := loadAgentConfig(configFile, colonyID)
+			cfg, serviceSpecs, agentCfg, err := loadAgentConfig(configFile, colonyID)
 			if err != nil {
 				return fmt.Errorf("failed to load agent configuration: %w", err)
 			}
@@ -182,15 +189,43 @@ Examples:
 				Str("agent_pubkey", agentKeys.PublicKey).
 				Msg("Generated agent WireGuard keys")
 
+			// Get STUN servers for NAT traversal
+			stunServers := getSTUNServers(agentCfg, colonyInfo)
+			if len(stunServers) > 0 {
+				logger.Info().
+					Strs("stun_servers", stunServers).
+					Msg("STUN servers configured for NAT traversal")
+			}
+
+			// Check if relay is enabled
+			enableRelay := agentCfg.Agent.NAT.EnableRelay
+			if envRelay := os.Getenv("CORAL_ENABLE_RELAY"); envRelay != "" {
+				enableRelay = envRelay == "true" || envRelay == "1"
+			}
+
 			// Create and start WireGuard device.
-			wgDevice, err := setupAgentWireGuard(agentKeys, colonyInfo, logger)
+			wgDevice, err := setupAgentWireGuard(agentKeys, colonyInfo, stunServers, enableRelay, logger)
 			if err != nil {
 				return fmt.Errorf("failed to setup WireGuard: %w", err)
 			}
 			defer wgDevice.Stop()
 
-			// Register with colony.
+			// Generate agent ID early so we can use it for registration
 			agentID := generateAgentID(serviceSpecs)
+
+			// Discover agent's public endpoint via STUN (if configured)
+			var agentObservedEndpoint *discoverypb.Endpoint
+			if len(stunServers) > 0 {
+				localPort := wgDevice.ListenPort()
+				agentObservedEndpoint = wireguard.DiscoverPublicEndpoint(stunServers, localPort, logger)
+			}
+
+			// Register agent with discovery service
+			if err := registerAgentWithDiscovery(cfg, agentID, agentKeys.PublicKey, agentObservedEndpoint, logger); err != nil {
+				logger.Warn().Err(err).Msg("Failed to register agent with discovery service (continuing anyway)")
+			}
+
+			// Register with colony.
 			registrationResult, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
 			if err != nil {
 				return fmt.Errorf("failed to register with colony: %w", err)
@@ -414,8 +449,8 @@ Examples:
 }
 
 // loadAgentConfig loads agent configuration from file and environment variables.
-func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfig, []*ServiceSpec, error) {
-	var agentCfg AgentConfig
+func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfig, []*ServiceSpec, *AgentConfig, error) {
+	agentCfg := &AgentConfig{}
 	var serviceSpecs []*ServiceSpec
 
 	// Try to load config file.
@@ -436,11 +471,11 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 	if configFile != "" {
 		data, err := os.ReadFile(configFile)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read config file %s: %w", configFile, err)
+			return nil, nil, nil, fmt.Errorf("failed to read config file %s: %w", configFile, err)
 		}
 
-		if err := yaml.Unmarshal(data, &agentCfg); err != nil {
-			return nil, nil, fmt.Errorf("failed to parse config file %s: %w", configFile, err)
+		if err := yaml.Unmarshal(data, agentCfg); err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to parse config file %s: %w", configFile, err)
 		}
 
 		// Parse services from config file.
@@ -473,7 +508,7 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 		// Format: name:port[:health][:type],name:port[:health][:type],...
 		envSpecs, err := ParseMultipleServiceSpecs(strings.Split(envServices, ","))
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse CORAL_SERVICES: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to parse CORAL_SERVICES: %w", err)
 		}
 		// Environment services override config file services.
 		serviceSpecs = envSpecs
@@ -482,7 +517,7 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 	// Resolve colony configuration.
 	resolver, err := config.NewResolver()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create config resolver: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create config resolver: %w", err)
 	}
 
 	// Determine colony ID.
@@ -490,15 +525,40 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 	if colonyID == "" {
 		colonyID, err = resolver.ResolveColonyID()
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to resolve colony ID: %w\n\nRun 'coral init <app-name>' or set CORAL_COLONY_ID", err)
+			return nil, nil, nil, fmt.Errorf("failed to resolve colony ID: %w\n\nRun 'coral init <app-name>' or set CORAL_COLONY_ID", err)
 		}
 	}
 
 	// Load resolved configuration.
 	cfg, err := resolver.ResolveConfig(colonyID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load colony config: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to load colony config: %w", err)
 	}
 
-	return cfg, serviceSpecs, nil
+	return cfg, serviceSpecs, agentCfg, nil
+}
+
+// getSTUNServers determines which STUN servers to use for NAT traversal.
+// Priority: env variable > agent config > discovery response > default.
+func getSTUNServers(agentCfg *AgentConfig, colonyInfo *discoverypb.LookupColonyResponse) []string {
+	// Check environment variable first
+	envSTUN := os.Getenv("CORAL_STUN_SERVERS")
+	if envSTUN != "" {
+		servers := strings.Split(envSTUN, ",")
+		for i := range servers {
+			servers[i] = strings.TrimSpace(servers[i])
+		}
+		return servers
+	}
+
+	// Check agent config
+	if len(agentCfg.Agent.NAT.STUNServers) > 0 {
+		return agentCfg.Agent.NAT.STUNServers
+	}
+
+	// Use STUN servers from discovery response (not yet implemented in response)
+	// This would be added when colonies register with their STUN servers
+
+	// Fall back to default
+	return []string{constants.DefaultSTUNServer}
 }

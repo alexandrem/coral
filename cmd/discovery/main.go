@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,10 +16,12 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
+	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/discovery/registry"
 	"github.com/coral-io/coral/internal/discovery/server"
 	"github.com/coral-io/coral/internal/logging"
 	"github.com/coral-io/coral/pkg/version"
+	"github.com/rs/zerolog"
 )
 
 func main() {
@@ -27,8 +31,27 @@ func main() {
 		ttlSeconds      = flag.Int("ttl", 300, "Registration TTL in seconds")
 		cleanupInterval = flag.Int("cleanup-interval", 60, "Cleanup interval in seconds")
 		logLevel        = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+		stunServersFlag = flag.String("stun-servers", "", "Comma-separated list of STUN servers (e.g., stun1.example.com:3478,stun2.example.com:3478)")
 	)
 	flag.Parse()
+
+	// Get STUN servers from environment variable (overrides flag)
+	stunServersEnv := os.Getenv("CORAL_STUN_SERVERS")
+	var stunServers []string
+	if stunServersEnv != "" {
+		stunServers = strings.Split(stunServersEnv, ",")
+		for i := range stunServers {
+			stunServers[i] = strings.TrimSpace(stunServers[i])
+		}
+	} else if *stunServersFlag != "" {
+		stunServers = strings.Split(*stunServersFlag, ",")
+		for i := range stunServers {
+			stunServers[i] = strings.TrimSpace(stunServers[i])
+		}
+	} else {
+		// Use default STUN server
+		stunServers = []string{constants.DefaultSTUNServer}
+	}
 
 	// Initialize logger
 	logger := logging.NewWithComponent(logging.Config{
@@ -41,6 +64,7 @@ func main() {
 		Int("port", *port).
 		Int("ttl_seconds", *ttlSeconds).
 		Int("cleanup_interval_seconds", *cleanupInterval).
+		Strs("stun_servers", stunServers).
 		Msg("Starting Discovery Service")
 
 	// Create registry
@@ -51,12 +75,15 @@ func main() {
 	go reg.StartCleanup(time.Duration(*cleanupInterval)*time.Second, stopCh)
 
 	// Create server
-	srv := server.New(reg, version.Version, logger)
+	srv := server.New(reg, version.Version, logger, stunServers)
 
 	// Create HTTP handler
 	mux := http.NewServeMux()
 	path, handler := discoveryv1connect.NewDiscoveryServiceHandler(srv)
-	mux.Handle(path, handler)
+
+	// Wrap handler with middleware to inject remote address
+	wrappedHandler := remoteAddrMiddleware(handler, logger)
+	mux.Handle(path, wrappedHandler)
 
 	// Add basic health endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -96,4 +123,31 @@ func main() {
 	}
 
 	logger.Info().Msg("Server stopped")
+}
+
+// remoteAddrMiddleware adds the remote address to the request headers.
+// This allows the gRPC handler to extract the client's observed IP address.
+func remoteAddrMiddleware(next http.Handler, logger zerolog.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Add the remote address as a custom header
+		// RemoteAddr format is "IP:port"
+		remoteAddr := r.RemoteAddr
+
+		// Strip port if present
+		if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+			remoteAddr = host
+		}
+
+		// Set custom header for the handler to read
+		r.Header.Set("X-Observed-Addr", remoteAddr)
+
+		logger.Debug().
+			Str("remote_addr", r.RemoteAddr).
+			Str("observed_addr", remoteAddr).
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Msg("Request received")
+
+		next.ServeHTTP(w, r)
+	})
 }

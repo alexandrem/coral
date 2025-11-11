@@ -47,10 +47,54 @@ func queryDiscoveryForColony(cfg *config.ResolvedConfig, logger logging.Logger) 
 	return resp.Msg, nil
 }
 
+// registerAgentWithDiscovery registers the agent with the discovery service.
+func registerAgentWithDiscovery(
+	cfg *config.ResolvedConfig,
+	agentID string,
+	agentPubKey string,
+	observedEndpoint *discoverypb.Endpoint,
+	logger logging.Logger,
+) error {
+	// Create discovery client
+	client := discoveryv1connect.NewDiscoveryServiceClient(
+		http.DefaultClient,
+		cfg.DiscoveryURL,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Register agent
+	req := connect.NewRequest(&discoverypb.RegisterAgentRequest{
+		AgentId:          agentID,
+		MeshId:           cfg.ColonyID,
+		Pubkey:           agentPubKey,
+		Endpoints:        []string{}, // Agents typically don't have static endpoints
+		ObservedEndpoint: observedEndpoint,
+		Metadata:         make(map[string]string),
+	})
+
+	resp, err := client.RegisterAgent(ctx, req)
+	if err != nil {
+		return fmt.Errorf("agent registration with discovery failed: %w", err)
+	}
+
+	logger.Info().
+		Str("agent_id", agentID).
+		Bool("success", resp.Msg.Success).
+		Int32("ttl", resp.Msg.Ttl).
+		Interface("observed_endpoint", resp.Msg.ObservedEndpoint).
+		Msg("Agent registered with discovery service")
+
+	return nil
+}
+
 // setupAgentWireGuard creates and configures the agent's WireGuard device.
 func setupAgentWireGuard(
 	agentKeys *auth.WireGuardKeyPair,
 	colonyInfo *discoverypb.LookupColonyResponse,
+	stunServers []string,
+	enableRelay bool,
 	logger logging.Logger,
 ) (*wireguard.Device, error) {
 	logger.Info().Msg("Setting up WireGuard device for agent")
@@ -78,30 +122,84 @@ func setupAgentWireGuard(
 		Str("interface", wgDevice.InterfaceName()).
 		Msg("WireGuard device started")
 
-	// Select a discovery endpoint for establishing the WireGuard peer.
+	// Discover agent's public endpoint via STUN if servers are configured
+	var agentPublicEndpoint *discoverypb.Endpoint
+	if len(stunServers) > 0 {
+		localPort := wgConfig.Port
+		if localPort <= 0 {
+			// Get the actual ephemeral port assigned
+			localPort = wgDevice.ListenPort()
+		}
+
+		agentPublicEndpoint = wireguard.DiscoverPublicEndpoint(stunServers, localPort, logger)
+		if agentPublicEndpoint != nil {
+			logger.Info().
+				Str("public_ip", agentPublicEndpoint.Ip).
+				Uint32("public_port", agentPublicEndpoint.Port).
+				Msg("Agent public endpoint discovered via STUN")
+		}
+	}
+
+	// Select colony endpoint for establishing the WireGuard peer.
+	// Priority: observed endpoints (for NAT traversal) > regular endpoints
 	var colonyEndpoint string
-	for _, ep := range colonyInfo.Endpoints {
-		if ep == "" {
+
+	// Try observed endpoints first (these are the colony's public NAT addresses)
+	for _, observedEp := range colonyInfo.ObservedEndpoints {
+		if observedEp == nil || observedEp.Ip == "" {
 			continue
 		}
 
-		host, port, err := net.SplitHostPort(ep)
-		if err != nil {
-			logger.Warn().Err(err).Str("endpoint", ep).Msg("Invalid colony endpoint from discovery")
-			continue
-		}
-
-		if host == "" {
-			logger.Warn().Str("endpoint", ep).Msg("Skipping discovery endpoint without host")
-			continue
-		}
-
-		colonyEndpoint = net.JoinHostPort(host, port)
+		colonyEndpoint = net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
+		logger.Info().
+			Str("endpoint", colonyEndpoint).
+			Msg("Using colony's observed public endpoint for NAT traversal")
 		break
 	}
 
+	// Fall back to regular discovery endpoints
 	if colonyEndpoint == "" {
-		return nil, fmt.Errorf("discovery did not provide a usable WireGuard endpoint")
+		for _, ep := range colonyInfo.Endpoints {
+			if ep == "" {
+				continue
+			}
+
+			host, port, err := net.SplitHostPort(ep)
+			if err != nil {
+				logger.Warn().Err(err).Str("endpoint", ep).Msg("Invalid colony endpoint from discovery")
+				continue
+			}
+
+			if host == "" {
+				logger.Warn().Str("endpoint", ep).Msg("Skipping discovery endpoint without host")
+				continue
+			}
+
+			colonyEndpoint = net.JoinHostPort(host, port)
+			logger.Info().
+				Str("endpoint", colonyEndpoint).
+				Msg("Using colony's regular endpoint")
+			break
+		}
+	}
+
+	// If still no endpoint and relay is enabled, request a relay
+	if colonyEndpoint == "" && enableRelay && len(colonyInfo.Relays) > 0 {
+		logger.Info().Msg("No direct colony endpoint available, attempting relay allocation")
+
+		relayEndpoint, err := requestRelayAllocation(colonyInfo, agentKeys.PublicKey, logger)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to allocate relay")
+		} else if relayEndpoint != nil {
+			colonyEndpoint = net.JoinHostPort(relayEndpoint.Ip, fmt.Sprintf("%d", relayEndpoint.Port))
+			logger.Info().
+				Str("relay_endpoint", colonyEndpoint).
+				Msg("Using relay endpoint for NAT traversal")
+		}
+	}
+
+	if colonyEndpoint == "" {
+		return nil, fmt.Errorf("no usable colony endpoint available (tried: observed, direct, relay)")
 	}
 
 	allowedIPs := make([]string, 0, 2)
@@ -459,4 +557,46 @@ func generateAgentID(serviceSpecs []*ServiceSpec) string {
 	// No services (daemon mode): just hostname
 	// Example: "myserver" for a standalone agent
 	return hostname
+}
+
+// requestRelayAllocation requests a relay allocation from the discovery service.
+func requestRelayAllocation(
+	colonyInfo *discoverypb.LookupColonyResponse,
+	agentPubKey string,
+	logger logging.Logger,
+) (*discoverypb.Endpoint, error) {
+	// Get discovery URL from environment or use default
+	discoveryURL := os.Getenv("CORAL_DISCOVERY_URL")
+	if discoveryURL == "" {
+		discoveryURL = constants.DefaultDiscoveryEndpoint
+	}
+
+	// Create discovery client
+	client := discoveryv1connect.NewDiscoveryServiceClient(
+		http.DefaultClient,
+		discoveryURL,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Request relay allocation
+	req := connect.NewRequest(&discoverypb.RequestRelayRequest{
+		MeshId:       colonyInfo.MeshId,
+		AgentPubkey:  agentPubKey,
+		ColonyPubkey: colonyInfo.Pubkey,
+	})
+
+	resp, err := client.RequestRelay(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("relay request failed: %w", err)
+	}
+
+	logger.Info().
+		Str("session_id", resp.Msg.SessionId).
+		Str("relay_id", resp.Msg.RelayId).
+		Time("expires_at", resp.Msg.ExpiresAt.AsTime()).
+		Msg("Relay allocated successfully")
+
+	return resp.Msg.RelayEndpoint, nil
 }

@@ -14,6 +14,18 @@ service DiscoveryService {
   // Lookup colony information by mesh ID
   rpc LookupColony(LookupColonyRequest) returns (LookupColonyResponse);
 
+  // Register or update an agent's information
+  rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
+
+  // Lookup agent information by agent ID
+  rpc LookupAgent(LookupAgentRequest) returns (LookupAgentResponse);
+
+  // Request a relay allocation for NAT traversal
+  rpc RequestRelay(RequestRelayRequest) returns (RequestRelayResponse);
+
+  // Release a relay allocation
+  rpc ReleaseRelay(ReleaseRelayRequest) returns (ReleaseRelayResponse);
+
   // Health check
   rpc Health(HealthRequest) returns (HealthResponse);
 }
@@ -40,6 +52,9 @@ message RegisterColonyRequest {
 
   // Optional metadata
   map<string, string> metadata = 7;
+
+  // Observed endpoint from external STUN server (optional)
+  Endpoint observed_endpoint = 8;
 }
 
 message RegisterColonyResponse {
@@ -51,6 +66,12 @@ message RegisterColonyResponse {
 
   // When this registration expires
   google.protobuf.Timestamp expires_at = 3;
+
+  // Observed public endpoint as seen by Discovery
+  Endpoint observed_endpoint = 4;
+
+  // Suggested STUN servers for NAT discovery
+  repeated string stun_servers = 5;
 }
 
 // Lookup request
@@ -83,6 +104,15 @@ message LookupColonyResponse {
 
   // Last seen timestamp
   google.protobuf.Timestamp last_seen = 8;
+
+  // Observed public endpoints for NAT traversal
+  repeated Endpoint observed_endpoints = 9;
+
+  // NAT type hint for connection strategy
+  NatHint nat = 10;
+
+  // Available relay options for fallback
+  repeated RelayOption relays = 11;
 }
 
 // Health check
@@ -100,4 +130,160 @@ message HealthResponse {
 
   // Number of registered colonies
   int32 registered_colonies = 4;
+}
+
+// NAT traversal types
+
+// Endpoint represents a network endpoint for connectivity.
+message Endpoint {
+  // IP address (IPv4 or IPv6)
+  string ip = 1;
+
+  // Port number
+  uint32 port = 2;
+
+  // Protocol (typically "udp")
+  string protocol = 3;
+
+  // Whether this endpoint is via a relay
+  bool via_relay = 4;
+}
+
+// NAT type classification for connection strategy.
+enum NatHint {
+  NAT_UNKNOWN = 0;
+  NAT_CONE = 1;
+  NAT_RESTRICTED = 2;
+  NAT_SYMMETRIC = 3;
+}
+
+// RelayOption describes an available relay server.
+message RelayOption {
+  // Relay server endpoint
+  Endpoint endpoint = 1;
+
+  // Relay identifier
+  string relay_id = 2;
+
+  // Geographic region (for latency optimization)
+  string region = 3;
+
+  // Current load (0-100)
+  uint32 load = 4;
+}
+
+// RequestRelayRequest initiates a relay allocation.
+message RequestRelayRequest {
+  // Mesh ID for the colony
+  string mesh_id = 1;
+
+  // Agent's WireGuard public key (base64 encoded)
+  string agent_pubkey = 2;
+
+  // Colony's WireGuard public key (base64 encoded)
+  string colony_pubkey = 3;
+}
+
+// RequestRelayResponse returns relay allocation details.
+message RequestRelayResponse {
+  // Assigned relay endpoint
+  Endpoint relay_endpoint = 1;
+
+  // Session identifier for this relay allocation
+  string session_id = 2;
+
+  // Expiration time for this relay session
+  google.protobuf.Timestamp expires_at = 3;
+
+  // Relay server identifier
+  string relay_id = 4;
+}
+
+// ReleaseRelayRequest releases a relay allocation.
+message ReleaseRelayRequest {
+  // Session identifier to release
+  string session_id = 1;
+
+  // Mesh ID
+  string mesh_id = 2;
+}
+
+// ReleaseRelayResponse confirms relay release.
+message ReleaseRelayResponse {
+  // Release successful
+  bool success = 1;
+}
+
+// Agent registration
+
+// RegisterAgentRequest registers or updates an agent.
+message RegisterAgentRequest {
+  // Agent ID
+  string agent_id = 1;
+
+  // Colony/Mesh ID the agent belongs to
+  string mesh_id = 2;
+
+  // WireGuard public key (base64 encoded)
+  string pubkey = 3;
+
+  // Agent endpoints (for reverse connectivity)
+  repeated string endpoints = 4;
+
+  // Observed endpoint from external STUN server (optional)
+  Endpoint observed_endpoint = 5;
+
+  // Optional metadata
+  map<string, string> metadata = 6;
+}
+
+// RegisterAgentResponse returns registration result.
+message RegisterAgentResponse {
+  // Registration successful
+  bool success = 1;
+
+  // TTL for this registration in seconds
+  int32 ttl = 2;
+
+  // When this registration expires
+  google.protobuf.Timestamp expires_at = 3;
+
+  // Observed public endpoint as seen by Discovery
+  Endpoint observed_endpoint = 4;
+
+  // Suggested STUN servers for NAT discovery
+  repeated string stun_servers = 5;
+}
+
+// LookupAgentRequest looks up an agent.
+message LookupAgentRequest {
+  // Agent ID to look up
+  string agent_id = 1;
+}
+
+// LookupAgentResponse returns agent information.
+message LookupAgentResponse {
+  // Agent ID
+  string agent_id = 1;
+
+  // Mesh ID
+  string mesh_id = 2;
+
+  // WireGuard public key
+  string pubkey = 3;
+
+  // Agent endpoints
+  repeated string endpoints = 4;
+
+  // Observed public endpoints for NAT traversal
+  repeated Endpoint observed_endpoints = 5;
+
+  // NAT type hint
+  NatHint nat = 6;
+
+  // Metadata
+  map<string, string> metadata = 7;
+
+  // Last seen timestamp
+  google.protobuf.Timestamp last_seen = 8;
 }

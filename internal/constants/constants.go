@@ -23,6 +23,9 @@ var (
 
 	DefaultDiscoveryEndpoint = "http://localhost:8080"
 
+	// DefaultSTUNServer is the default STUN server for NAT traversal.
+	DefaultSTUNServer = "stun.cloudflare.com:3478"
+
 	// DefaultWireGuardPort is the default WireGuard peering port for colonies.
 	DefaultWireGuardPort = 41580
 

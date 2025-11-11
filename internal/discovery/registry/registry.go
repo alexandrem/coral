@@ -4,38 +4,58 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
 )
 
 // Entry represents a registered colony in the discovery service.
 type Entry struct {
-	MeshID      string
-	PubKey      string
-	Endpoints   []string
-	MeshIPv4    string
-	MeshIPv6    string
-	ConnectPort uint32
-	Metadata    map[string]string
-	LastSeen    time.Time
-	ExpiresAt   time.Time
+	MeshID           string
+	PubKey           string
+	Endpoints        []string
+	MeshIPv4         string
+	MeshIPv6         string
+	ConnectPort      uint32
+	Metadata         map[string]string
+	LastSeen         time.Time
+	ExpiresAt        time.Time
+	ObservedEndpoint *discoveryv1.Endpoint // NAT traversal: observed public endpoint
+	NatHint          discoveryv1.NatHint   // NAT traversal: detected NAT type
 }
 
-// Registry is an in-memory store for colony registrations
+// RelaySession represents an active relay allocation.
+type RelaySession struct {
+	SessionID     string
+	MeshID        string
+	AgentPubKey   string
+	ColonyPubKey  string
+	RelayEndpoint *discoveryv1.Endpoint
+	RelayID       string
+	CreatedAt     time.Time
+	ExpiresAt     time.Time
+}
+
+// Registry is an in-memory store for colony registrations and relay sessions.
 type Registry struct {
-	mu      sync.RWMutex
-	entries map[string]*Entry
-	ttl     time.Duration
+	mu            sync.RWMutex
+	entries       map[string]*Entry
+	relaySessions map[string]*RelaySession // keyed by session ID
+	ttl           time.Duration
+	relayTTL      time.Duration
 }
 
-// New creates a new Registry with the specified TTL
+// New creates a new Registry with the specified TTL.
 func New(ttl time.Duration) *Registry {
 	return &Registry{
-		entries: make(map[string]*Entry),
-		ttl:     ttl,
+		entries:       make(map[string]*Entry),
+		relaySessions: make(map[string]*RelaySession),
+		ttl:           ttl,
+		relayTTL:      30 * time.Minute, // Default relay session TTL
 	}
 }
 
 // Register adds or updates a colony registration.
-func (r *Registry) Register(meshID, pubkey string, endpoints []string, meshIPv4, meshIPv6 string, connectPort uint32, metadata map[string]string) (*Entry, error) {
+func (r *Registry) Register(meshID, pubkey string, endpoints []string, meshIPv4, meshIPv6 string, connectPort uint32, metadata map[string]string, observedEndpoint *discoveryv1.Endpoint, natHint discoveryv1.NatHint) (*Entry, error) {
 	if meshID == "" {
 		return nil, fmt.Errorf("mesh_id cannot be empty")
 	}
@@ -51,15 +71,17 @@ func (r *Registry) Register(meshID, pubkey string, endpoints []string, meshIPv4,
 
 	now := time.Now()
 	entry := &Entry{
-		MeshID:      meshID,
-		PubKey:      pubkey,
-		Endpoints:   endpoints,
-		MeshIPv4:    meshIPv4,
-		MeshIPv6:    meshIPv6,
-		ConnectPort: connectPort,
-		Metadata:    metadata,
-		LastSeen:    now,
-		ExpiresAt:   now.Add(r.ttl),
+		MeshID:           meshID,
+		PubKey:           pubkey,
+		Endpoints:        endpoints,
+		MeshIPv4:         meshIPv4,
+		MeshIPv6:         meshIPv6,
+		ConnectPort:      connectPort,
+		Metadata:         metadata,
+		LastSeen:         now,
+		ExpiresAt:        now.Add(r.ttl),
+		ObservedEndpoint: observedEndpoint,
+		NatHint:          natHint,
 	}
 
 	r.entries[meshID] = entry
@@ -126,7 +148,7 @@ func (r *Registry) Cleanup() int {
 	return removed
 }
 
-// StartCleanup runs periodic cleanup in the background
+// StartCleanup runs periodic cleanup in the background.
 func (r *Registry) StartCleanup(interval time.Duration, stopCh <-chan struct{}) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -135,12 +157,97 @@ func (r *Registry) StartCleanup(interval time.Duration, stopCh <-chan struct{}) 
 		select {
 		case <-ticker.C:
 			removed := r.Cleanup()
-			if removed > 0 {
+			relayRemoved := r.CleanupRelaySessions()
+			if removed > 0 || relayRemoved > 0 {
 				// Could add logging here
 				_ = removed
+				_ = relayRemoved
 			}
 		case <-stopCh:
 			return
 		}
 	}
+}
+
+// AllocateRelay creates a new relay session.
+func (r *Registry) AllocateRelay(sessionID, meshID, agentPubKey, colonyPubKey string, relayEndpoint *discoveryv1.Endpoint, relayID string) (*RelaySession, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session_id cannot be empty")
+	}
+	if meshID == "" {
+		return nil, fmt.Errorf("mesh_id cannot be empty")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	session := &RelaySession{
+		SessionID:     sessionID,
+		MeshID:        meshID,
+		AgentPubKey:   agentPubKey,
+		ColonyPubKey:  colonyPubKey,
+		RelayEndpoint: relayEndpoint,
+		RelayID:       relayID,
+		CreatedAt:     now,
+		ExpiresAt:     now.Add(r.relayTTL),
+	}
+
+	r.relaySessions[sessionID] = session
+	return session, nil
+}
+
+// LookupRelaySession retrieves a relay session by session ID.
+func (r *Registry) LookupRelaySession(sessionID string) (*RelaySession, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session_id cannot be empty")
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	session, ok := r.relaySessions[sessionID]
+	if !ok {
+		return nil, fmt.Errorf("relay session not found: %s", sessionID)
+	}
+
+	// Check if session has expired
+	if time.Now().After(session.ExpiresAt) {
+		return nil, fmt.Errorf("relay session expired: %s", sessionID)
+	}
+
+	return session, nil
+}
+
+// ReleaseRelay removes a relay session.
+func (r *Registry) ReleaseRelay(sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("session_id cannot be empty")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.relaySessions[sessionID]; !ok {
+		return fmt.Errorf("relay session not found: %s", sessionID)
+	}
+
+	delete(r.relaySessions, sessionID)
+	return nil
+}
+
+// CleanupRelaySessions removes expired relay sessions.
+func (r *Registry) CleanupRelaySessions() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	removed := 0
+	for sessionID, session := range r.relaySessions {
+		if now.After(session.ExpiresAt) {
+			delete(r.relaySessions, sessionID)
+			removed++
+		}
+	}
+	return removed
 }

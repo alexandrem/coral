@@ -23,6 +23,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// NAT type classification for connection strategy.
+type NatHint int32
+
+const (
+	NatHint_NAT_UNKNOWN    NatHint = 0
+	NatHint_NAT_CONE       NatHint = 1
+	NatHint_NAT_RESTRICTED NatHint = 2
+	NatHint_NAT_SYMMETRIC  NatHint = 3
+)
+
+// Enum value maps for NatHint.
+var (
+	NatHint_name = map[int32]string{
+		0: "NAT_UNKNOWN",
+		1: "NAT_CONE",
+		2: "NAT_RESTRICTED",
+		3: "NAT_SYMMETRIC",
+	}
+	NatHint_value = map[string]int32{
+		"NAT_UNKNOWN":    0,
+		"NAT_CONE":       1,
+		"NAT_RESTRICTED": 2,
+		"NAT_SYMMETRIC":  3,
+	}
+)
+
+func (x NatHint) Enum() *NatHint {
+	p := new(NatHint)
+	*p = x
+	return p
+}
+
+func (x NatHint) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NatHint) Descriptor() protoreflect.EnumDescriptor {
+	return file_coral_discovery_v1_discovery_proto_enumTypes[0].Descriptor()
+}
+
+func (NatHint) Type() protoreflect.EnumType {
+	return &file_coral_discovery_v1_discovery_proto_enumTypes[0]
+}
+
+func (x NatHint) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NatHint.Descriptor instead.
+func (NatHint) EnumDescriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{0}
+}
+
 // Registration request
 type RegisterColonyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -39,9 +92,11 @@ type RegisterColonyRequest struct {
 	// Buf Connect HTTP/2 port (e.g., 9000)
 	ConnectPort uint32 `protobuf:"varint,6,opt,name=connect_port,json=connectPort,proto3" json:"connect_port,omitempty"`
 	// Optional metadata
-	Metadata      map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Metadata map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Observed endpoint from external STUN server (optional)
+	ObservedEndpoint *Endpoint `protobuf:"bytes,8,opt,name=observed_endpoint,json=observedEndpoint,proto3" json:"observed_endpoint,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RegisterColonyRequest) Reset() {
@@ -123,6 +178,13 @@ func (x *RegisterColonyRequest) GetMetadata() map[string]string {
 	return nil
 }
 
+func (x *RegisterColonyRequest) GetObservedEndpoint() *Endpoint {
+	if x != nil {
+		return x.ObservedEndpoint
+	}
+	return nil
+}
+
 type RegisterColonyResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Registration successful
@@ -130,7 +192,11 @@ type RegisterColonyResponse struct {
 	// TTL for this registration in seconds
 	Ttl int32 `protobuf:"varint,2,opt,name=ttl,proto3" json:"ttl,omitempty"`
 	// When this registration expires
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// Observed public endpoint as seen by Discovery
+	ObservedEndpoint *Endpoint `protobuf:"bytes,4,opt,name=observed_endpoint,json=observedEndpoint,proto3" json:"observed_endpoint,omitempty"`
+	// Suggested STUN servers for NAT discovery
+	StunServers   []string `protobuf:"bytes,5,rep,name=stun_servers,json=stunServers,proto3" json:"stun_servers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -182,6 +248,20 @@ func (x *RegisterColonyResponse) GetTtl() int32 {
 func (x *RegisterColonyResponse) GetExpiresAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *RegisterColonyResponse) GetObservedEndpoint() *Endpoint {
+	if x != nil {
+		return x.ObservedEndpoint
+	}
+	return nil
+}
+
+func (x *RegisterColonyResponse) GetStunServers() []string {
+	if x != nil {
+		return x.StunServers
 	}
 	return nil
 }
@@ -249,7 +329,13 @@ type LookupColonyResponse struct {
 	// Metadata
 	Metadata map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Last seen timestamp
-	LastSeen      *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	LastSeen *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	// Observed public endpoints for NAT traversal
+	ObservedEndpoints []*Endpoint `protobuf:"bytes,9,rep,name=observed_endpoints,json=observedEndpoints,proto3" json:"observed_endpoints,omitempty"`
+	// NAT type hint for connection strategy
+	Nat NatHint `protobuf:"varint,10,opt,name=nat,proto3,enum=coral.discovery.v1.NatHint" json:"nat,omitempty"`
+	// Available relay options for fallback
+	Relays        []*RelayOption `protobuf:"bytes,11,rep,name=relays,proto3" json:"relays,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -336,6 +422,27 @@ func (x *LookupColonyResponse) GetMetadata() map[string]string {
 func (x *LookupColonyResponse) GetLastSeen() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastSeen
+	}
+	return nil
+}
+
+func (x *LookupColonyResponse) GetObservedEndpoints() []*Endpoint {
+	if x != nil {
+		return x.ObservedEndpoints
+	}
+	return nil
+}
+
+func (x *LookupColonyResponse) GetNat() NatHint {
+	if x != nil {
+		return x.Nat
+	}
+	return NatHint_NAT_UNKNOWN
+}
+
+func (x *LookupColonyResponse) GetRelays() []*RelayOption {
+	if x != nil {
+		return x.Relays
 	}
 	return nil
 }
@@ -449,11 +556,723 @@ func (x *HealthResponse) GetRegisteredColonies() int32 {
 	return 0
 }
 
+// Endpoint represents a network endpoint for connectivity.
+type Endpoint struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// IP address (IPv4 or IPv6)
+	Ip string `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
+	// Port number
+	Port uint32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	// Protocol (typically "udp")
+	Protocol string `protobuf:"bytes,3,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// Whether this endpoint is via a relay
+	ViaRelay      bool `protobuf:"varint,4,opt,name=via_relay,json=viaRelay,proto3" json:"via_relay,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Endpoint) Reset() {
+	*x = Endpoint{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Endpoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Endpoint) ProtoMessage() {}
+
+func (x *Endpoint) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Endpoint.ProtoReflect.Descriptor instead.
+func (*Endpoint) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Endpoint) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
+}
+
+func (x *Endpoint) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *Endpoint) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *Endpoint) GetViaRelay() bool {
+	if x != nil {
+		return x.ViaRelay
+	}
+	return false
+}
+
+// RelayOption describes an available relay server.
+type RelayOption struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Relay server endpoint
+	Endpoint *Endpoint `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	// Relay identifier
+	RelayId string `protobuf:"bytes,2,opt,name=relay_id,json=relayId,proto3" json:"relay_id,omitempty"`
+	// Geographic region (for latency optimization)
+	Region string `protobuf:"bytes,3,opt,name=region,proto3" json:"region,omitempty"`
+	// Current load (0-100)
+	Load          uint32 `protobuf:"varint,4,opt,name=load,proto3" json:"load,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayOption) Reset() {
+	*x = RelayOption{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayOption) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayOption) ProtoMessage() {}
+
+func (x *RelayOption) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayOption.ProtoReflect.Descriptor instead.
+func (*RelayOption) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RelayOption) GetEndpoint() *Endpoint {
+	if x != nil {
+		return x.Endpoint
+	}
+	return nil
+}
+
+func (x *RelayOption) GetRelayId() string {
+	if x != nil {
+		return x.RelayId
+	}
+	return ""
+}
+
+func (x *RelayOption) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *RelayOption) GetLoad() uint32 {
+	if x != nil {
+		return x.Load
+	}
+	return 0
+}
+
+// RequestRelayRequest initiates a relay allocation.
+type RequestRelayRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Mesh ID for the colony
+	MeshId string `protobuf:"bytes,1,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	// Agent's WireGuard public key (base64 encoded)
+	AgentPubkey string `protobuf:"bytes,2,opt,name=agent_pubkey,json=agentPubkey,proto3" json:"agent_pubkey,omitempty"`
+	// Colony's WireGuard public key (base64 encoded)
+	ColonyPubkey  string `protobuf:"bytes,3,opt,name=colony_pubkey,json=colonyPubkey,proto3" json:"colony_pubkey,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestRelayRequest) Reset() {
+	*x = RequestRelayRequest{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestRelayRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestRelayRequest) ProtoMessage() {}
+
+func (x *RequestRelayRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestRelayRequest.ProtoReflect.Descriptor instead.
+func (*RequestRelayRequest) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RequestRelayRequest) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
+	}
+	return ""
+}
+
+func (x *RequestRelayRequest) GetAgentPubkey() string {
+	if x != nil {
+		return x.AgentPubkey
+	}
+	return ""
+}
+
+func (x *RequestRelayRequest) GetColonyPubkey() string {
+	if x != nil {
+		return x.ColonyPubkey
+	}
+	return ""
+}
+
+// RequestRelayResponse returns relay allocation details.
+type RequestRelayResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Assigned relay endpoint
+	RelayEndpoint *Endpoint `protobuf:"bytes,1,opt,name=relay_endpoint,json=relayEndpoint,proto3" json:"relay_endpoint,omitempty"`
+	// Session identifier for this relay allocation
+	SessionId string `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Expiration time for this relay session
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// Relay server identifier
+	RelayId       string `protobuf:"bytes,4,opt,name=relay_id,json=relayId,proto3" json:"relay_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestRelayResponse) Reset() {
+	*x = RequestRelayResponse{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestRelayResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestRelayResponse) ProtoMessage() {}
+
+func (x *RequestRelayResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestRelayResponse.ProtoReflect.Descriptor instead.
+func (*RequestRelayResponse) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RequestRelayResponse) GetRelayEndpoint() *Endpoint {
+	if x != nil {
+		return x.RelayEndpoint
+	}
+	return nil
+}
+
+func (x *RequestRelayResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *RequestRelayResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *RequestRelayResponse) GetRelayId() string {
+	if x != nil {
+		return x.RelayId
+	}
+	return ""
+}
+
+// ReleaseRelayRequest releases a relay allocation.
+type ReleaseRelayRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Session identifier to release
+	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Mesh ID
+	MeshId        string `protobuf:"bytes,2,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseRelayRequest) Reset() {
+	*x = ReleaseRelayRequest{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseRelayRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseRelayRequest) ProtoMessage() {}
+
+func (x *ReleaseRelayRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseRelayRequest.ProtoReflect.Descriptor instead.
+func (*ReleaseRelayRequest) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ReleaseRelayRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ReleaseRelayRequest) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
+	}
+	return ""
+}
+
+// ReleaseRelayResponse confirms relay release.
+type ReleaseRelayResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Release successful
+	Success       bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseRelayResponse) Reset() {
+	*x = ReleaseRelayResponse{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseRelayResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseRelayResponse) ProtoMessage() {}
+
+func (x *ReleaseRelayResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseRelayResponse.ProtoReflect.Descriptor instead.
+func (*ReleaseRelayResponse) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ReleaseRelayResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+// RegisterAgentRequest registers or updates an agent.
+type RegisterAgentRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Agent ID
+	AgentId string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// Colony/Mesh ID the agent belongs to
+	MeshId string `protobuf:"bytes,2,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	// WireGuard public key (base64 encoded)
+	Pubkey string `protobuf:"bytes,3,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
+	// Agent endpoints (for reverse connectivity)
+	Endpoints []string `protobuf:"bytes,4,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	// Observed endpoint from external STUN server (optional)
+	ObservedEndpoint *Endpoint `protobuf:"bytes,5,opt,name=observed_endpoint,json=observedEndpoint,proto3" json:"observed_endpoint,omitempty"`
+	// Optional metadata
+	Metadata      map[string]string `protobuf:"bytes,6,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterAgentRequest) Reset() {
+	*x = RegisterAgentRequest{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterAgentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterAgentRequest) ProtoMessage() {}
+
+func (x *RegisterAgentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterAgentRequest.ProtoReflect.Descriptor instead.
+func (*RegisterAgentRequest) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RegisterAgentRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetPubkey() string {
+	if x != nil {
+		return x.Pubkey
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetEndpoints() []string {
+	if x != nil {
+		return x.Endpoints
+	}
+	return nil
+}
+
+func (x *RegisterAgentRequest) GetObservedEndpoint() *Endpoint {
+	if x != nil {
+		return x.ObservedEndpoint
+	}
+	return nil
+}
+
+func (x *RegisterAgentRequest) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+// RegisterAgentResponse returns registration result.
+type RegisterAgentResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Registration successful
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// TTL for this registration in seconds
+	Ttl int32 `protobuf:"varint,2,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	// When this registration expires
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// Observed public endpoint as seen by Discovery
+	ObservedEndpoint *Endpoint `protobuf:"bytes,4,opt,name=observed_endpoint,json=observedEndpoint,proto3" json:"observed_endpoint,omitempty"`
+	// Suggested STUN servers for NAT discovery
+	StunServers   []string `protobuf:"bytes,5,rep,name=stun_servers,json=stunServers,proto3" json:"stun_servers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterAgentResponse) Reset() {
+	*x = RegisterAgentResponse{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterAgentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterAgentResponse) ProtoMessage() {}
+
+func (x *RegisterAgentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterAgentResponse.ProtoReflect.Descriptor instead.
+func (*RegisterAgentResponse) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RegisterAgentResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RegisterAgentResponse) GetTtl() int32 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+func (x *RegisterAgentResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *RegisterAgentResponse) GetObservedEndpoint() *Endpoint {
+	if x != nil {
+		return x.ObservedEndpoint
+	}
+	return nil
+}
+
+func (x *RegisterAgentResponse) GetStunServers() []string {
+	if x != nil {
+		return x.StunServers
+	}
+	return nil
+}
+
+// LookupAgentRequest looks up an agent.
+type LookupAgentRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Agent ID to look up
+	AgentId       string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LookupAgentRequest) Reset() {
+	*x = LookupAgentRequest{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LookupAgentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LookupAgentRequest) ProtoMessage() {}
+
+func (x *LookupAgentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LookupAgentRequest.ProtoReflect.Descriptor instead.
+func (*LookupAgentRequest) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *LookupAgentRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+// LookupAgentResponse returns agent information.
+type LookupAgentResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Agent ID
+	AgentId string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// Mesh ID
+	MeshId string `protobuf:"bytes,2,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	// WireGuard public key
+	Pubkey string `protobuf:"bytes,3,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
+	// Agent endpoints
+	Endpoints []string `protobuf:"bytes,4,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	// Observed public endpoints for NAT traversal
+	ObservedEndpoints []*Endpoint `protobuf:"bytes,5,rep,name=observed_endpoints,json=observedEndpoints,proto3" json:"observed_endpoints,omitempty"`
+	// NAT type hint
+	Nat NatHint `protobuf:"varint,6,opt,name=nat,proto3,enum=coral.discovery.v1.NatHint" json:"nat,omitempty"`
+	// Metadata
+	Metadata map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Last seen timestamp
+	LastSeen      *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LookupAgentResponse) Reset() {
+	*x = LookupAgentResponse{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LookupAgentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LookupAgentResponse) ProtoMessage() {}
+
+func (x *LookupAgentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LookupAgentResponse.ProtoReflect.Descriptor instead.
+func (*LookupAgentResponse) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *LookupAgentResponse) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *LookupAgentResponse) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
+	}
+	return ""
+}
+
+func (x *LookupAgentResponse) GetPubkey() string {
+	if x != nil {
+		return x.Pubkey
+	}
+	return ""
+}
+
+func (x *LookupAgentResponse) GetEndpoints() []string {
+	if x != nil {
+		return x.Endpoints
+	}
+	return nil
+}
+
+func (x *LookupAgentResponse) GetObservedEndpoints() []*Endpoint {
+	if x != nil {
+		return x.ObservedEndpoints
+	}
+	return nil
+}
+
+func (x *LookupAgentResponse) GetNat() NatHint {
+	if x != nil {
+		return x.Nat
+	}
+	return NatHint_NAT_UNKNOWN
+}
+
+func (x *LookupAgentResponse) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *LookupAgentResponse) GetLastSeen() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastSeen
+	}
+	return nil
+}
+
 var File_coral_discovery_v1_discovery_proto protoreflect.FileDescriptor
 
 const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\n" +
-	"\"coral/discovery/v1/discovery.proto\x12\x12coral.discovery.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd5\x02\n" +
+	"\"coral/discovery/v1/discovery.proto\x12\x12coral.discovery.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x03\n" +
 	"\x15RegisterColonyRequest\x12\x17\n" +
 	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x16\n" +
 	"\x06pubkey\x18\x02 \x01(\tR\x06pubkey\x12\x1c\n" +
@@ -461,17 +1280,20 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\tmesh_ipv4\x18\x04 \x01(\tR\bmeshIpv4\x12\x1b\n" +
 	"\tmesh_ipv6\x18\x05 \x01(\tR\bmeshIpv6\x12!\n" +
 	"\fconnect_port\x18\x06 \x01(\rR\vconnectPort\x12S\n" +
-	"\bmetadata\x18\a \x03(\v27.coral.discovery.v1.RegisterColonyRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\a \x03(\v27.coral.discovery.v1.RegisterColonyRequest.MetadataEntryR\bmetadata\x12I\n" +
+	"\x11observed_endpoint\x18\b \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x7f\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xed\x01\n" +
 	"\x16RegisterColonyResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x10\n" +
 	"\x03ttl\x18\x02 \x01(\x05R\x03ttl\x129\n" +
 	"\n" +
-	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\".\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12I\n" +
+	"\x11observed_endpoint\x18\x04 \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x12!\n" +
+	"\fstun_servers\x18\x05 \x03(\tR\vstunServers\".\n" +
 	"\x13LookupColonyRequest\x12\x17\n" +
-	"\amesh_id\x18\x01 \x01(\tR\x06meshId\"\x8c\x03\n" +
+	"\amesh_id\x18\x01 \x01(\tR\x06meshId\"\xc1\x04\n" +
 	"\x14LookupColonyResponse\x12\x17\n" +
 	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x16\n" +
 	"\x06pubkey\x18\x02 \x01(\tR\x06pubkey\x12\x1c\n" +
@@ -480,7 +1302,11 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\tmesh_ipv6\x18\x05 \x01(\tR\bmeshIpv6\x12!\n" +
 	"\fconnect_port\x18\x06 \x01(\rR\vconnectPort\x12R\n" +
 	"\bmetadata\x18\a \x03(\v26.coral.discovery.v1.LookupColonyResponse.MetadataEntryR\bmetadata\x127\n" +
-	"\tlast_seen\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x1a;\n" +
+	"\tlast_seen\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12K\n" +
+	"\x12observed_endpoints\x18\t \x03(\v2\x1c.coral.discovery.v1.EndpointR\x11observedEndpoints\x12-\n" +
+	"\x03nat\x18\n" +
+	" \x01(\x0e2\x1b.coral.discovery.v1.NatHintR\x03nat\x127\n" +
+	"\x06relays\x18\v \x03(\v2\x1f.coral.discovery.v1.RelayOptionR\x06relays\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x0f\n" +
@@ -489,10 +1315,77 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12%\n" +
 	"\x0euptime_seconds\x18\x03 \x01(\x03R\ruptimeSeconds\x12/\n" +
-	"\x13registered_colonies\x18\x04 \x01(\x05R\x12registeredColonies2\xaf\x02\n" +
+	"\x13registered_colonies\x18\x04 \x01(\x05R\x12registeredColonies\"g\n" +
+	"\bEndpoint\x12\x0e\n" +
+	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\rR\x04port\x12\x1a\n" +
+	"\bprotocol\x18\x03 \x01(\tR\bprotocol\x12\x1b\n" +
+	"\tvia_relay\x18\x04 \x01(\bR\bviaRelay\"\x8e\x01\n" +
+	"\vRelayOption\x128\n" +
+	"\bendpoint\x18\x01 \x01(\v2\x1c.coral.discovery.v1.EndpointR\bendpoint\x12\x19\n" +
+	"\brelay_id\x18\x02 \x01(\tR\arelayId\x12\x16\n" +
+	"\x06region\x18\x03 \x01(\tR\x06region\x12\x12\n" +
+	"\x04load\x18\x04 \x01(\rR\x04load\"v\n" +
+	"\x13RequestRelayRequest\x12\x17\n" +
+	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12!\n" +
+	"\fagent_pubkey\x18\x02 \x01(\tR\vagentPubkey\x12#\n" +
+	"\rcolony_pubkey\x18\x03 \x01(\tR\fcolonyPubkey\"\xd0\x01\n" +
+	"\x14RequestRelayResponse\x12C\n" +
+	"\x0erelay_endpoint\x18\x01 \x01(\v2\x1c.coral.discovery.v1.EndpointR\rrelayEndpoint\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x129\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x19\n" +
+	"\brelay_id\x18\x04 \x01(\tR\arelayId\"M\n" +
+	"\x13ReleaseRelayRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
+	"\amesh_id\x18\x02 \x01(\tR\x06meshId\"0\n" +
+	"\x14ReleaseRelayResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xdc\x02\n" +
+	"\x14RegisterAgentRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x17\n" +
+	"\amesh_id\x18\x02 \x01(\tR\x06meshId\x12\x16\n" +
+	"\x06pubkey\x18\x03 \x01(\tR\x06pubkey\x12\x1c\n" +
+	"\tendpoints\x18\x04 \x03(\tR\tendpoints\x12I\n" +
+	"\x11observed_endpoint\x18\x05 \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x12R\n" +
+	"\bmetadata\x18\x06 \x03(\v26.coral.discovery.v1.RegisterAgentRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xec\x01\n" +
+	"\x15RegisterAgentResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x10\n" +
+	"\x03ttl\x18\x02 \x01(\x05R\x03ttl\x129\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12I\n" +
+	"\x11observed_endpoint\x18\x04 \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x12!\n" +
+	"\fstun_servers\x18\x05 \x03(\tR\vstunServers\"/\n" +
+	"\x12LookupAgentRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\xc4\x03\n" +
+	"\x13LookupAgentResponse\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x17\n" +
+	"\amesh_id\x18\x02 \x01(\tR\x06meshId\x12\x16\n" +
+	"\x06pubkey\x18\x03 \x01(\tR\x06pubkey\x12\x1c\n" +
+	"\tendpoints\x18\x04 \x03(\tR\tendpoints\x12K\n" +
+	"\x12observed_endpoints\x18\x05 \x03(\v2\x1c.coral.discovery.v1.EndpointR\x11observedEndpoints\x12-\n" +
+	"\x03nat\x18\x06 \x01(\x0e2\x1b.coral.discovery.v1.NatHintR\x03nat\x12Q\n" +
+	"\bmetadata\x18\a \x03(\v25.coral.discovery.v1.LookupAgentResponse.MetadataEntryR\bmetadata\x127\n" +
+	"\tlast_seen\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*O\n" +
+	"\aNatHint\x12\x0f\n" +
+	"\vNAT_UNKNOWN\x10\x00\x12\f\n" +
+	"\bNAT_CONE\x10\x01\x12\x12\n" +
+	"\x0eNAT_RESTRICTED\x10\x02\x12\x11\n" +
+	"\rNAT_SYMMETRIC\x10\x032\xbb\x05\n" +
 	"\x10DiscoveryService\x12g\n" +
 	"\x0eRegisterColony\x12).coral.discovery.v1.RegisterColonyRequest\x1a*.coral.discovery.v1.RegisterColonyResponse\x12a\n" +
-	"\fLookupColony\x12'.coral.discovery.v1.LookupColonyRequest\x1a(.coral.discovery.v1.LookupColonyResponse\x12O\n" +
+	"\fLookupColony\x12'.coral.discovery.v1.LookupColonyRequest\x1a(.coral.discovery.v1.LookupColonyResponse\x12d\n" +
+	"\rRegisterAgent\x12(.coral.discovery.v1.RegisterAgentRequest\x1a).coral.discovery.v1.RegisterAgentResponse\x12^\n" +
+	"\vLookupAgent\x12&.coral.discovery.v1.LookupAgentRequest\x1a'.coral.discovery.v1.LookupAgentResponse\x12a\n" +
+	"\fRequestRelay\x12'.coral.discovery.v1.RequestRelayRequest\x1a(.coral.discovery.v1.RequestRelayResponse\x12a\n" +
+	"\fReleaseRelay\x12'.coral.discovery.v1.ReleaseRelayRequest\x1a(.coral.discovery.v1.ReleaseRelayResponse\x12O\n" +
 	"\x06Health\x12!.coral.discovery.v1.HealthRequest\x1a\".coral.discovery.v1.HealthResponseB\xcc\x01\n" +
 	"\x16com.coral.discovery.v1B\x0eDiscoveryProtoP\x01Z8github.com/coral-io/coral/coral/discovery/v1;discoveryv1\xa2\x02\x03CDX\xaa\x02\x12Coral.Discovery.V1\xca\x02\x12Coral\\Discovery\\V1\xe2\x02\x1eCoral\\Discovery\\V1\\GPBMetadata\xea\x02\x14Coral::Discovery::V1b\x06proto3"
 
@@ -508,34 +1401,72 @@ func file_coral_discovery_v1_discovery_proto_rawDescGZIP() []byte {
 	return file_coral_discovery_v1_discovery_proto_rawDescData
 }
 
-var file_coral_discovery_v1_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_coral_discovery_v1_discovery_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_coral_discovery_v1_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_coral_discovery_v1_discovery_proto_goTypes = []any{
-	(*RegisterColonyRequest)(nil),  // 0: coral.discovery.v1.RegisterColonyRequest
-	(*RegisterColonyResponse)(nil), // 1: coral.discovery.v1.RegisterColonyResponse
-	(*LookupColonyRequest)(nil),    // 2: coral.discovery.v1.LookupColonyRequest
-	(*LookupColonyResponse)(nil),   // 3: coral.discovery.v1.LookupColonyResponse
-	(*HealthRequest)(nil),          // 4: coral.discovery.v1.HealthRequest
-	(*HealthResponse)(nil),         // 5: coral.discovery.v1.HealthResponse
-	nil,                            // 6: coral.discovery.v1.RegisterColonyRequest.MetadataEntry
-	nil,                            // 7: coral.discovery.v1.LookupColonyResponse.MetadataEntry
-	(*timestamppb.Timestamp)(nil),  // 8: google.protobuf.Timestamp
+	(NatHint)(0),                   // 0: coral.discovery.v1.NatHint
+	(*RegisterColonyRequest)(nil),  // 1: coral.discovery.v1.RegisterColonyRequest
+	(*RegisterColonyResponse)(nil), // 2: coral.discovery.v1.RegisterColonyResponse
+	(*LookupColonyRequest)(nil),    // 3: coral.discovery.v1.LookupColonyRequest
+	(*LookupColonyResponse)(nil),   // 4: coral.discovery.v1.LookupColonyResponse
+	(*HealthRequest)(nil),          // 5: coral.discovery.v1.HealthRequest
+	(*HealthResponse)(nil),         // 6: coral.discovery.v1.HealthResponse
+	(*Endpoint)(nil),               // 7: coral.discovery.v1.Endpoint
+	(*RelayOption)(nil),            // 8: coral.discovery.v1.RelayOption
+	(*RequestRelayRequest)(nil),    // 9: coral.discovery.v1.RequestRelayRequest
+	(*RequestRelayResponse)(nil),   // 10: coral.discovery.v1.RequestRelayResponse
+	(*ReleaseRelayRequest)(nil),    // 11: coral.discovery.v1.ReleaseRelayRequest
+	(*ReleaseRelayResponse)(nil),   // 12: coral.discovery.v1.ReleaseRelayResponse
+	(*RegisterAgentRequest)(nil),   // 13: coral.discovery.v1.RegisterAgentRequest
+	(*RegisterAgentResponse)(nil),  // 14: coral.discovery.v1.RegisterAgentResponse
+	(*LookupAgentRequest)(nil),     // 15: coral.discovery.v1.LookupAgentRequest
+	(*LookupAgentResponse)(nil),    // 16: coral.discovery.v1.LookupAgentResponse
+	nil,                            // 17: coral.discovery.v1.RegisterColonyRequest.MetadataEntry
+	nil,                            // 18: coral.discovery.v1.LookupColonyResponse.MetadataEntry
+	nil,                            // 19: coral.discovery.v1.RegisterAgentRequest.MetadataEntry
+	nil,                            // 20: coral.discovery.v1.LookupAgentResponse.MetadataEntry
+	(*timestamppb.Timestamp)(nil),  // 21: google.protobuf.Timestamp
 }
 var file_coral_discovery_v1_discovery_proto_depIdxs = []int32{
-	6, // 0: coral.discovery.v1.RegisterColonyRequest.metadata:type_name -> coral.discovery.v1.RegisterColonyRequest.MetadataEntry
-	8, // 1: coral.discovery.v1.RegisterColonyResponse.expires_at:type_name -> google.protobuf.Timestamp
-	7, // 2: coral.discovery.v1.LookupColonyResponse.metadata:type_name -> coral.discovery.v1.LookupColonyResponse.MetadataEntry
-	8, // 3: coral.discovery.v1.LookupColonyResponse.last_seen:type_name -> google.protobuf.Timestamp
-	0, // 4: coral.discovery.v1.DiscoveryService.RegisterColony:input_type -> coral.discovery.v1.RegisterColonyRequest
-	2, // 5: coral.discovery.v1.DiscoveryService.LookupColony:input_type -> coral.discovery.v1.LookupColonyRequest
-	4, // 6: coral.discovery.v1.DiscoveryService.Health:input_type -> coral.discovery.v1.HealthRequest
-	1, // 7: coral.discovery.v1.DiscoveryService.RegisterColony:output_type -> coral.discovery.v1.RegisterColonyResponse
-	3, // 8: coral.discovery.v1.DiscoveryService.LookupColony:output_type -> coral.discovery.v1.LookupColonyResponse
-	5, // 9: coral.discovery.v1.DiscoveryService.Health:output_type -> coral.discovery.v1.HealthResponse
-	7, // [7:10] is the sub-list for method output_type
-	4, // [4:7] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	17, // 0: coral.discovery.v1.RegisterColonyRequest.metadata:type_name -> coral.discovery.v1.RegisterColonyRequest.MetadataEntry
+	7,  // 1: coral.discovery.v1.RegisterColonyRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
+	21, // 2: coral.discovery.v1.RegisterColonyResponse.expires_at:type_name -> google.protobuf.Timestamp
+	7,  // 3: coral.discovery.v1.RegisterColonyResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
+	18, // 4: coral.discovery.v1.LookupColonyResponse.metadata:type_name -> coral.discovery.v1.LookupColonyResponse.MetadataEntry
+	21, // 5: coral.discovery.v1.LookupColonyResponse.last_seen:type_name -> google.protobuf.Timestamp
+	7,  // 6: coral.discovery.v1.LookupColonyResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
+	0,  // 7: coral.discovery.v1.LookupColonyResponse.nat:type_name -> coral.discovery.v1.NatHint
+	8,  // 8: coral.discovery.v1.LookupColonyResponse.relays:type_name -> coral.discovery.v1.RelayOption
+	7,  // 9: coral.discovery.v1.RelayOption.endpoint:type_name -> coral.discovery.v1.Endpoint
+	7,  // 10: coral.discovery.v1.RequestRelayResponse.relay_endpoint:type_name -> coral.discovery.v1.Endpoint
+	21, // 11: coral.discovery.v1.RequestRelayResponse.expires_at:type_name -> google.protobuf.Timestamp
+	7,  // 12: coral.discovery.v1.RegisterAgentRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
+	19, // 13: coral.discovery.v1.RegisterAgentRequest.metadata:type_name -> coral.discovery.v1.RegisterAgentRequest.MetadataEntry
+	21, // 14: coral.discovery.v1.RegisterAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
+	7,  // 15: coral.discovery.v1.RegisterAgentResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
+	7,  // 16: coral.discovery.v1.LookupAgentResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
+	0,  // 17: coral.discovery.v1.LookupAgentResponse.nat:type_name -> coral.discovery.v1.NatHint
+	20, // 18: coral.discovery.v1.LookupAgentResponse.metadata:type_name -> coral.discovery.v1.LookupAgentResponse.MetadataEntry
+	21, // 19: coral.discovery.v1.LookupAgentResponse.last_seen:type_name -> google.protobuf.Timestamp
+	1,  // 20: coral.discovery.v1.DiscoveryService.RegisterColony:input_type -> coral.discovery.v1.RegisterColonyRequest
+	3,  // 21: coral.discovery.v1.DiscoveryService.LookupColony:input_type -> coral.discovery.v1.LookupColonyRequest
+	13, // 22: coral.discovery.v1.DiscoveryService.RegisterAgent:input_type -> coral.discovery.v1.RegisterAgentRequest
+	15, // 23: coral.discovery.v1.DiscoveryService.LookupAgent:input_type -> coral.discovery.v1.LookupAgentRequest
+	9,  // 24: coral.discovery.v1.DiscoveryService.RequestRelay:input_type -> coral.discovery.v1.RequestRelayRequest
+	11, // 25: coral.discovery.v1.DiscoveryService.ReleaseRelay:input_type -> coral.discovery.v1.ReleaseRelayRequest
+	5,  // 26: coral.discovery.v1.DiscoveryService.Health:input_type -> coral.discovery.v1.HealthRequest
+	2,  // 27: coral.discovery.v1.DiscoveryService.RegisterColony:output_type -> coral.discovery.v1.RegisterColonyResponse
+	4,  // 28: coral.discovery.v1.DiscoveryService.LookupColony:output_type -> coral.discovery.v1.LookupColonyResponse
+	14, // 29: coral.discovery.v1.DiscoveryService.RegisterAgent:output_type -> coral.discovery.v1.RegisterAgentResponse
+	16, // 30: coral.discovery.v1.DiscoveryService.LookupAgent:output_type -> coral.discovery.v1.LookupAgentResponse
+	10, // 31: coral.discovery.v1.DiscoveryService.RequestRelay:output_type -> coral.discovery.v1.RequestRelayResponse
+	12, // 32: coral.discovery.v1.DiscoveryService.ReleaseRelay:output_type -> coral.discovery.v1.ReleaseRelayResponse
+	6,  // 33: coral.discovery.v1.DiscoveryService.Health:output_type -> coral.discovery.v1.HealthResponse
+	27, // [27:34] is the sub-list for method output_type
+	20, // [20:27] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_coral_discovery_v1_discovery_proto_init() }
@@ -548,13 +1479,14 @@ func file_coral_discovery_v1_discovery_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_discovery_v1_discovery_proto_rawDesc), len(file_coral_discovery_v1_discovery_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   8,
+			NumEnums:      1,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_coral_discovery_v1_discovery_proto_goTypes,
 		DependencyIndexes: file_coral_discovery_v1_discovery_proto_depIdxs,
+		EnumInfos:         file_coral_discovery_v1_discovery_proto_enumTypes,
 		MessageInfos:      file_coral_discovery_v1_discovery_proto_msgTypes,
 	}.Build()
 	File_coral_discovery_v1_discovery_proto = out.File

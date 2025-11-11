@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
+	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/discovery/registry"
 )
 
@@ -20,9 +21,14 @@ func testLogger() zerolog.Logger {
 	return zerolog.New(io.Discard)
 }
 
+// testSTUNServers returns default STUN servers for tests.
+func testSTUNServers() []string {
+	return []string{constants.DefaultSTUNServer}
+}
+
 func TestServer_RegisterColony(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger())
+	srv := New(reg, "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	t.Run("successful registration", func(t *testing.T) {
@@ -90,7 +96,7 @@ func TestServer_RegisterColony(t *testing.T) {
 
 	t.Run("update existing registration", func(t *testing.T) {
 		reg := registry.New(5 * time.Minute)
-		srv := New(reg, "test-version", testLogger())
+		srv := New(reg, "test-version", testLogger(), testSTUNServers())
 
 		// First registration
 		req1 := connect.NewRequest(&discoveryv1.RegisterColonyRequest{
@@ -121,7 +127,7 @@ func TestServer_RegisterColony(t *testing.T) {
 
 func TestServer_LookupColony(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger())
+	srv := New(reg, "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	// Register a colony first
@@ -178,7 +184,7 @@ func TestServer_LookupColony(t *testing.T) {
 
 	t.Run("lookup expired colony", func(t *testing.T) {
 		reg := registry.New(50 * time.Millisecond)
-		srv := New(reg, "test-version", testLogger())
+		srv := New(reg, "test-version", testLogger(), testSTUNServers())
 
 		// Register with short TTL
 		regReq := connect.NewRequest(&discoveryv1.RegisterColonyRequest{
@@ -207,7 +213,7 @@ func TestServer_LookupColony(t *testing.T) {
 
 func TestServer_Health(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "v1.2.3", testLogger())
+	srv := New(reg, "v1.2.3", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	t.Run("health check with no colonies", func(t *testing.T) {
