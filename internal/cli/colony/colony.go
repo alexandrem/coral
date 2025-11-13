@@ -229,11 +229,10 @@ Examples:
 				connectPort = 9000 // Default Buf Connect port
 			}
 
-			// STUN discovery is now performed before WireGuard initialization to avoid port conflicts.
-			// See lines before wgDevice initialization for the STUN discovery code.
-			// This variable is kept here for compatibility with the registration manager below.
+			// TODO: Implement STUN discovery before WireGuard initialization.
+			// For now, colonies rely on configured endpoints or agents discovering them via STUN.
+			// See RFD 029 for planned colony-based STUN enhancement.
 			var colonyObservedEndpoint *discoverypb.Endpoint
-			// Note: colonyObservedEndpoint will be set before WireGuard starts (see above)
 
 			// Create and start registration manager for continuous auto-registration.
 			regConfig := registration.Config{

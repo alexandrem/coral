@@ -24,7 +24,9 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 	}
 
 	// Create a UDP connection bound to the local WireGuard port.
-	// Use SO_REUSEADDR and SO_REUSEPORT to allow sharing the port with WireGuard.
+	// Use SO_REUSEADDR and SO_REUSEPORT to allow:
+	// - Binding to the same port WireGuard will use (when STUN runs before WireGuard)
+	// - Sharing the port with WireGuard (when STUN runs after WireGuard starts, e.g., ephemeral ports)
 	localAddr := &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: localPort,
@@ -41,7 +43,7 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 				}
 
 				// Set SO_REUSEPORT (Linux/BSD/macOS) to allow multiple sockets to bind to the same port.
-				// This is critical for sharing the port with WireGuard.
+				// Required for STUN discovery on the WireGuard port.
 				if runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
 					if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
 						sockoptErr = fmt.Errorf("SO_REUSEPORT: %w", err)
@@ -168,7 +170,7 @@ func ClassifyNAT(stunServers []string, localPort int, logger logging.Logger) dis
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
 
-	// Create UDP connection with SO_REUSEADDR/SO_REUSEPORT to share the port with WireGuard.
+	// Create UDP connection with SO_REUSEADDR/SO_REUSEPORT to bind to the WireGuard port.
 	localAddr := &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: localPort,

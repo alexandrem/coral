@@ -16,6 +16,7 @@ import (
 
 // StdNetBind is a custom implementation of conn.Bind that sets SO_REUSEADDR and SO_REUSEPORT.
 // This allows STUN discovery to share the same UDP port with the WireGuard device.
+// Currently unused - reserved for future colony-based STUN implementation (see RFD 029).
 type StdNetBind struct {
 	mu     sync.Mutex // protects following fields
 	ipv4   *net.UDPConn
@@ -84,7 +85,7 @@ func listenNet(network string, port int) (*net.UDPConn, int, error) {
 				}
 
 				// Set SO_REUSEPORT to allow multiple sockets to bind to the same port.
-				// This is critical for sharing the port with STUN discovery.
+				// Reserved for future colony-based STUN (RFD 029).
 				if runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
 					if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
 						sockoptErr = err

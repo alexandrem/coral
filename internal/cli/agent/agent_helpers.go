@@ -136,7 +136,6 @@ func setupAgentWireGuard(
 		Msg("Setting up WireGuard device for agent")
 
 	// Perform STUN discovery BEFORE starting WireGuard to avoid port conflicts.
-	// With SO_REUSEPORT, responses might go to the wrong socket if both are listening.
 	var agentPublicEndpoint *discoverypb.Endpoint
 	if len(stunServers) > 0 && wgPort > 0 {
 		// Only do STUN discovery if we have a configured port (not ephemeral).
@@ -177,19 +176,18 @@ func setupAgentWireGuard(
 		Str("interface", wgDevice.InterfaceName()).
 		Msg("WireGuard device started")
 
-	// LIMITATION: STUN discovery with ephemeral ports is unreliable.
-	// When using SO_REUSEPORT, the kernel distributes UDP packets across multiple
-	// sockets listening on the same port. STUN responses may be delivered to the
-	// WireGuard socket instead of the STUN socket, causing intermittent failures.
-	// RECOMMENDATION: Always use a configured port (not ephemeral) for agents that
-	// need NAT traversal. If you must use ephemeral ports, expect STUN discovery
-	// to fail occasionally and handle graceful degradation.
+	// LIMITATION: STUN discovery with ephemeral ports requires binding first.
+	// Since we perform STUN before starting WireGuard, ephemeral ports require
+	// a second STUN attempt after the WireGuard device is started to discover
+	// the actual assigned port.
+	// RECOMMENDATION: Use a configured port (not ephemeral) for agents that need
+	// NAT traversal to ensure reliable STUN discovery.
 	if agentPublicEndpoint == nil && len(stunServers) > 0 {
 		localPort := wgDevice.ListenPort()
 		if localPort > 0 {
 			logger.Warn().
 				Int("port", localPort).
-				Msg("STUN discovery with ephemeral port may be unreliable due to port sharing (SO_REUSEPORT)")
+				Msg("Performing STUN discovery after WireGuard started with ephemeral port")
 
 			agentPublicEndpoint = wireguard.DiscoverPublicEndpoint(stunServers, localPort, logger)
 			if agentPublicEndpoint != nil {

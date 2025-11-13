@@ -116,7 +116,7 @@ func (d *Device) Start() error {
 	d.tunDevice = iface.Device()
 
 	// Create WireGuard device with default bind.
-	// We no longer need SO_REUSEPORT because STUN discovery runs before WireGuard starts.
+	// STUN discovery runs before WireGuard starts to avoid port conflicts.
 	bind := conn.NewDefaultBind()
 	d.wgDevice = device.NewDevice(d.tunDevice, bind, d.wgLogger)
 
