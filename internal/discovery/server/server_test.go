@@ -94,7 +94,7 @@ func TestServer_RegisterColony(t *testing.T) {
 		assert.Contains(t, connectErr.Message(), "at least one endpoint is required")
 	})
 
-	t.Run("update existing registration", func(t *testing.T) {
+	t.Run("update with same pubkey succeeds (renewal)", func(t *testing.T) {
 		reg := registry.New(5 * time.Minute)
 		srv := New(reg, "test-version", testLogger(), testSTUNServers())
 
@@ -110,10 +110,10 @@ func TestServer_RegisterColony(t *testing.T) {
 
 		time.Sleep(10 * time.Millisecond)
 
-		// Second registration (update)
+		// Second registration with same pubkey (renewal - should succeed)
 		req2 := connect.NewRequest(&discoveryv1.RegisterColonyRequest{
 			MeshId:    "update-mesh",
-			Pubkey:    "pubkey-2",
+			Pubkey:    "pubkey-1",
 			Endpoints: []string{"10.0.0.2:41820"},
 		})
 		resp2, err := srv.RegisterColony(ctx, req2)

@@ -58,7 +58,7 @@ func TestRegistry_Register(t *testing.T) {
 		assert.Equal(t, observedEndpoint, entry.ObservedEndpoint)
 	})
 
-	t.Run("update existing registration", func(t *testing.T) {
+	t.Run("update with same pubkey succeeds (renewal)", func(t *testing.T) {
 		reg := New(5 * time.Minute)
 
 		// Initial registration
@@ -67,11 +67,11 @@ func TestRegistry_Register(t *testing.T) {
 
 		time.Sleep(10 * time.Millisecond)
 
-		// Update registration
-		entry2, err := reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "10.42.0.2", "fd42::2", 9001, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		// Update with same pubkey (should succeed - this is a renewal)
+		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "10.42.0.2", "fd42::2", 9001, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 
-		assert.Equal(t, "pubkey-2", entry2.PubKey)
+		assert.Equal(t, "pubkey-1", entry2.PubKey)
 		assert.Equal(t, []string{"10.0.0.2:41820"}, entry2.Endpoints)
 		assert.True(t, entry2.LastSeen.After(entry1.LastSeen))
 	})
