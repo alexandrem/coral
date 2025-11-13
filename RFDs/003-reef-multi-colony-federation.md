@@ -24,6 +24,8 @@ multiple colonies (using ClickHouse for scale) and hosts an enterprise-grade LLM
 service (via Genkit) that provides consistent, server-side intelligence through
 both Buf Connect RPC (for `coral reef` commands) and MCP server (for external tools).
 
+Reef exposes a dual interface: **private WireGuard mesh** for querying colonies, and **public HTTPS endpoint** for external clients (Slack bots, GitHub Actions, mobile apps, etc.), enabling broad ecosystem integration without requiring VPN access.
+
 ## Problem
 
 **Current behavior/limitations:**
@@ -87,6 +89,12 @@ provides unified intelligence:
   - LLM queries ClickHouse for context (federated metrics, correlations, deployment timeline)
   - No client-side LLM required (unlike `coral ask` which uses local Genkit)
 
+- **Dual network interface**: Reef operates in two network contexts
+  - **Private WireGuard mesh**: For querying colonies (encrypted, authenticated)
+  - **Public HTTPS endpoint**: For external integrations (Slack bots, CI/CD, mobile apps)
+  - Aggregated data only (no real-time sensitive data like colonies have)
+  - Standard authentication (API tokens, JWT, mTLS)
+
 - **Backward compatible**: Colonies work standalone, Reef is optional
   - Existing colonies continue working without Reef
   - Reef can be added later without migration
@@ -102,14 +110,35 @@ provides unified intelligence:
 **Architecture Overview:**
 
 ```
+External Clients (Public Internet)
+│
+├─ Slack Bot ──────────┐
+├─ GitHub Actions ─────┤
+├─ Mobile Apps ────────┤  HTTPS (TLS + Auth)
+├─ PagerDuty ──────────┤  https://reef.example.com
+├─ Claude Desktop ─────┤  API: Buf Connect RPC + MCP/SSE
+└─ Custom Scripts ─────┘
+                       │
+                       ▼
 ┌────────────────────────────────────────────────────────────┐
 │  Reef (Meta-Colony)                                        │
 │  Location: Central infrastructure (cluster deployment)     │
 │                                                            │
-│  WireGuard Interfaces:                                    │
-│  ├─ coral-prod0:   10.42.0.100 (prod colony mesh)        │
-│  ├─ coral-staging0: 10.43.0.100 (staging colony mesh)    │
-│  └─ coral-payments0: 10.44.0.100 (payments colony mesh)  │
+│  ┌────────────────────────────────────────────────────┐   │
+│  │  Public HTTPS Endpoint (External Interface)        │   │
+│  │  - Domain: reef.example.com                        │   │
+│  │  - Buf Connect RPC: /coral.reef.v1.ReefLLM        │   │
+│  │  - MCP over SSE: /mcp/sse                         │   │
+│  │  - Auth: API tokens, JWT, mTLS                    │   │
+│  │  - RBAC: Per-user, per-reef permissions           │   │
+│  └────────────────────────────────────────────────────┘   │
+│                                                            │
+│  ┌────────────────────────────────────────────────────┐   │
+│  │  Private WireGuard Interfaces (Colony Interface)   │   │
+│  │  ├─ coral-prod0:   10.42.0.100                    │   │
+│  │  ├─ coral-staging0: 10.43.0.100                   │   │
+│  │  └─ coral-payments0: 10.44.0.100                  │   │
+│  └────────────────────────────────────────────────────┘   │
 │                                                            │
 │  ┌──────────────────────────────────────────────────────┐ │
 │  │  ClickHouse: Federated Storage (Distributed)         │ │
@@ -126,13 +155,8 @@ provides unified intelligence:
 │  │                                                       │ │
 │  │  - Enterprise-grade model (consistent across org)    │ │
 │  │  - Queries ClickHouse for context                    │ │
-│  │  - Buf Connect RPC: coral reef analyze <question>    │ │
-│  │  - MCP Server: for external tools (Claude Desktop)   │ │
-│  │                                                       │ │
-│  │  Analysis Examples:                                  │ │
-│  │  - "Staging deploy predicted prod issue"             │ │
-│  │  - "Payment API affecting checkout performance"      │ │
-│  │  - "Database connection pool exhaustion pattern"     │ │
+│  │  - Delegates MCP calls to colonies (via mesh)        │ │
+│  │  - Returns unified analysis to external clients      │ │
 │  └──────────────────────────────────────────────────────┘ │
 │                                                            │
 │  ┌──────────────────────────────────────────────────────┐ │
@@ -143,7 +167,7 @@ provides unified intelligence:
 │  └──────────────────────────────────────────────────────┘ │
 └──────────────┬──────────────┬──────────────┬─────────────┘
                │              │              │
-    WireGuard  │   WireGuard  │   WireGuard  │  (Encrypted tunnels)
+    WireGuard  │   WireGuard  │   WireGuard  │  (Private encrypted tunnels)
      Mesh      │     Mesh     │     Mesh     │
                │              │              │
       ┌────────▼────┐  ┌──────▼──────┐  ┌───▼──────────┐
@@ -155,7 +179,8 @@ provides unified intelligence:
       │ - Agents    │  │ - Agents    │  │ - Agents     │
       │ - DuckDB or │  │ - DuckDB or │  │ - DuckDB or  │
       │   ClickHouse│  │   ClickHouse│  │   ClickHouse │
-      │   (config)  │  │   (config)  │  │   (config)   │
+      │   (mesh only│  │   (mesh only│  │   (mesh only │
+      │    access)  │  │    access)  │  │    access)   │
       └─────────────┘  └─────────────┘  └──────────────┘
 ```
 
@@ -249,6 +274,78 @@ storage:
     aggregated_metrics: 90d  # Keep 90 days of federated metrics
     correlations: 1y         # Keep correlation patterns for 1 year
     deployment_timeline: 2y  # Keep deployment history for 2 years
+
+# Public endpoint (for external integrations)
+public_endpoint:
+  enabled: true
+  host: 0.0.0.0
+  port: 443
+  domain: reef.example.com
+  tls:
+    cert: /etc/reef/tls/cert.pem
+    key: /etc/reef/tls/key.pem
+    # Optional: Auto-cert via Let's Encrypt
+    # acme:
+    #   enabled: true
+    #   email: ops@example.com
+
+# MCP server (public access via SSE)
+mcp_server:
+  enabled: true
+  transport: sse          # HTTP-based for public access
+  path: /mcp/sse
+  auth: required          # Require authentication for all MCP requests
+
+# Authentication & Authorization
+auth:
+  # API token-based auth (for bots, CI/CD)
+  api_tokens:
+    - token_id: slackbot-token
+      token_hash: <bcrypt-hash>  # Actual token provided securely
+      permissions: [analyze, compare]
+      rate_limit: 100/hour
+      scopes: [my-infrastructure]
+
+    - token_id: github-actions
+      token_hash: <bcrypt-hash>
+      permissions: [analyze, deploy_status]
+      rate_limit: 500/hour
+      scopes: [my-infrastructure]
+
+  # JWT-based auth (for user sessions, web dashboard)
+  jwt:
+    enabled: true
+    issuer: https://reef.example.com
+    signing_key_env: REEF_JWT_SECRET
+    token_ttl: 1h
+    refresh_token_ttl: 30d
+
+  # mTLS auth (for trusted service-to-service)
+  mtls:
+    enabled: false
+    ca_cert: /etc/reef/ca/ca.pem
+    require_client_cert: true
+
+# RBAC (Role-Based Access Control)
+rbac:
+  roles:
+    - name: admin
+      permissions: ["*"]  # All permissions
+
+    - name: developer
+      permissions: [analyze, compare, deploy_status, correlations]
+
+    - name: readonly
+      permissions: [analyze, compare]
+
+  users:
+    - email: alice@example.com
+      role: admin
+      reefs: [my-infrastructure]
+
+    - email: bob@example.com
+      role: developer
+      reefs: [my-infrastructure]
 
 # Data collection
 collection:
@@ -1015,6 +1112,99 @@ coral ask "compare staging vs prod latency" --reef my-infra
 - Reef can be unpeer'd by colony (revoke access)
 - Future: Read-only reef_secret separate from colony_secret
 
+### Public Endpoint Security
+
+**Why public access is safe for Reef:**
+
+Reef stores **aggregated, summarized data** only:
+- ✅ P95/P99 latency metrics (no individual request data)
+- ✅ Deployment timeline (public info anyway)
+- ✅ Correlation patterns (high-level insights)
+- ✅ Service topology (service names and relationships)
+- ❌ NOT raw traces (stay in colonies, mesh-only)
+- ❌ NOT detailed logs (summarized only)
+- ❌ NOT API keys or secrets
+- ❌ NOT colony mesh IPs or internal topology
+
+**Authentication mechanisms:**
+
+1. **API Tokens** (for bots, CI/CD):
+   - Scoped to specific reefs and permissions
+   - Rate-limited per token
+   - Can be revoked instantly
+   - Audit trail of all token usage
+
+2. **JWT** (for user sessions):
+   - Short-lived access tokens (1h)
+   - Long-lived refresh tokens (30d)
+   - User identity tracked in all requests
+   - Integrates with SSO/OAuth providers
+
+3. **mTLS** (for trusted services):
+   - Client certificate verification
+   - Mutual TLS authentication
+   - Service identity via cert CN/SAN
+   - No bearer tokens to leak
+
+**Rate limiting:**
+
+```yaml
+# Per-token rate limits
+api_tokens:
+  - token_id: slackbot
+    rate_limit: 100/hour  # Prevents abuse
+    burst: 20             # Allow brief spikes
+
+# Per-IP rate limits (unauthenticated)
+public_endpoint:
+  rate_limit:
+    unauthenticated: 10/hour
+    authenticated: 1000/hour
+```
+
+**RBAC enforcement:**
+
+Every request checked against user/token permissions:
+- `analyze`: Can query ReefLLM.Analyze()
+- `compare`: Can query ReefLLM.CompareEnvironments()
+- `deploy_status`: Can query deployment timeline
+- `correlations`: Can access correlation data
+- `admin`: Can modify reef configuration
+
+**Audit logging:**
+
+All public API requests logged:
+```
+timestamp: 2024-11-13T14:35:22Z
+client_ip: 203.0.113.42
+auth_method: api_token
+token_id: slackbot-token
+user: slackbot@example.com
+endpoint: /coral.reef.v1.ReefLLM/Analyze
+request: {"question": "is production healthy?"}
+response_status: 200
+response_time_ms: 450
+tokens_used: 2341
+```
+
+**Network security:**
+
+- TLS 1.3 only (no older versions)
+- Strong cipher suites only
+- HSTS headers (force HTTPS)
+- Optional: IP allowlist for sensitive operations
+- Optional: DDoS protection via CDN (Cloudflare, etc.)
+
+**Comparison: Colony vs Reef access model:**
+
+| Aspect | Colony | Reef |
+|--------|--------|------|
+| **Access** | WireGuard mesh only | Mesh (private) + HTTPS (public) |
+| **Data sensitivity** | Real-time app data, PII | Aggregated metrics, no PII |
+| **Authentication** | Mesh peer only | Multi-method (tokens, JWT, mTLS) |
+| **Use case** | Operational control | Intelligence consumption |
+| **Exposure risk** | High (control plane) | Low (read-only insights) |
+
 ## Migration Strategy
 
 **Reef is optional - colonies work without it:**
@@ -1028,6 +1218,350 @@ coral ask "compare staging vs prod latency" --reef my-infra
 2. Initialize Reef on central infrastructure or laptop
 3. Add colonies to Reef one by one
 4. Start using `--reef` flag for cross-colony queries
+
+## External Integration Examples
+
+### Slack Bot Integration
+
+```python
+# Slack bot server (serverless or traditional server)
+import requests
+import os
+
+REEF_URL = "https://reef.example.com"
+REEF_TOKEN = os.environ["REEF_API_TOKEN"]
+
+@slack_command("/coral-status")
+def handle_coral_status(command):
+    """User types: /coral-status is production healthy?"""
+
+    # Call Reef's public API
+    response = requests.post(
+        f"{REEF_URL}/coral.reef.v1.ReefLLM/Analyze",
+        headers={
+            "Authorization": f"Bearer {REEF_TOKEN}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "reef_id": "my-infrastructure",
+            "question": command.text
+        }
+    )
+
+    data = response.json()
+
+    # Post response back to Slack
+    return {
+        "response_type": "in_channel",
+        "text": data["answer"],
+        "attachments": [{
+            "text": f"Analyzed by: {data['metadata']['model_used']}\n"
+                   f"Confidence: {data['metadata']['confidence_score']}"
+        }]
+    }
+```
+
+**User experience in Slack:**
+```
+User: /coral-status is production healthy?
+
+CoralBot:
+Production Status: Healthy ✅
+
+Services (12):
+- All healthy, no degraded services
+- CPU: 45% (normal range)
+- Memory: 62% (normal range)
+- Last deploy: 3 days ago (v2.1.0)
+
+No alerts or incidents detected.
+
+Analyzed by: anthropic:claude-3-5-sonnet-20241022
+Confidence: 0.95
+```
+
+### GitHub Actions Pre-Deployment Check
+
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  check-production-health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check production health
+        id: health_check
+        run: |
+          RESPONSE=$(curl -X POST https://reef.example.com/coral.reef.v1.ReefLLM/Analyze \
+            -H "Authorization: Bearer ${{ secrets.REEF_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "reef_id": "my-infrastructure",
+              "question": "Is production ready for deployment? Check health, recent deploys, and current load."
+            }')
+
+          echo "response=$RESPONSE" >> $GITHUB_OUTPUT
+
+          # Extract confidence score (jq required)
+          CONFIDENCE=$(echo "$RESPONSE" | jq -r '.metadata.confidence_score')
+          if (( $(echo "$CONFIDENCE < 0.8" | bc -l) )); then
+            echo "::error::Low confidence in production health ($CONFIDENCE)"
+            exit 1
+          fi
+
+      - name: Deploy
+        if: success()
+        run: ./scripts/deploy.sh
+```
+
+### Mobile App (iOS/Android)
+
+```swift
+// iOS app - SRE on-call monitoring
+import Foundation
+
+class ReefClient {
+    let baseURL = "https://reef.example.com"
+    let apiToken: String
+
+    func checkProductionHealth() async throws -> HealthStatus {
+        let url = URL(string: "\(baseURL)/coral.reef.v1.ReefLLM/Analyze")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = [
+            "reef_id": "my-infrastructure",
+            "question": "What's the current production status?"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode(HealthStatus.self, from: data)
+    }
+}
+
+// Usage in SwiftUI
+struct ProductionStatusView: View {
+    @State private var status: String = "Loading..."
+
+    var body: some View {
+        VStack {
+            Text("Production Status")
+                .font(.title)
+            Text(status)
+                .padding()
+        }
+        .task {
+            let client = ReefClient(apiToken: apiToken)
+            if let health = try? await client.checkProductionHealth() {
+                status = health.answer
+            }
+        }
+    }
+}
+```
+
+### PagerDuty Integration
+
+```javascript
+// PagerDuty webhook handler (Node.js/Lambda)
+const axios = require('axios');
+
+exports.handler = async (event) => {
+    const incident = JSON.parse(event.body);
+
+    // When incident is triggered, get Coral's analysis
+    if (incident.event === 'incident.triggered') {
+        const analysis = await axios.post(
+            'https://reef.example.com/coral.reef.v1.ReefLLM/Analyze',
+            {
+                reef_id: 'my-infrastructure',
+                question: `Analyze the incident: ${incident.data.title}. What's happening in production right now?`,
+                time_window: '1h'
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.REEF_API_TOKEN}`
+                }
+            }
+        );
+
+        // Add Coral's analysis as incident note
+        await pagerduty.addNoteToIncident(incident.data.id, {
+            content: `Coral Analysis:\n\n${analysis.data.answer}\n\nEvidence: ${JSON.stringify(analysis.data.evidence, null, 2)}`
+        });
+    }
+
+    return { statusCode: 200 };
+};
+```
+
+### Custom Dashboard (React)
+
+```typescript
+// React component for custom ops dashboard
+import React, { useEffect, useState } from 'react';
+
+interface ReefAnalysis {
+  answer: string;
+  evidence: Array<{ type: string; description: string }>;
+  metadata: {
+    model_used: string;
+    confidence_score: number;
+  };
+}
+
+export function ProductionHealthWidget() {
+  const [analysis, setAnalysis] = useState<ReefAnalysis | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchHealth() {
+      const response = await fetch('https://reef.example.com/coral.reef.v1.ReefLLM/Analyze', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_REEF_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          reef_id: 'my-infrastructure',
+          question: 'Summarize production health and any anomalies'
+        })
+      });
+
+      const data = await response.json();
+      setAnalysis(data);
+      setLoading(false);
+    }
+
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 60000); // Refresh every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading) return <div>Loading production status...</div>;
+
+  return (
+    <div className="reef-widget">
+      <h2>Production Health</h2>
+      <p>{analysis?.answer}</p>
+      <div className="confidence">
+        Confidence: {(analysis?.metadata.confidence_score * 100).toFixed(0)}%
+      </div>
+      <div className="evidence">
+        {analysis?.evidence.map((e, i) => (
+          <div key={i} className="evidence-item">
+            <strong>{e.type}:</strong> {e.description}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### CLI Tool (Python)
+
+```python
+#!/usr/bin/env python3
+# coral-reef-cli: Simple CLI for querying Reef from scripts
+
+import click
+import requests
+import os
+import json
+
+REEF_URL = os.environ.get("CORAL_REEF_URL", "https://reef.example.com")
+REEF_TOKEN = os.environ.get("CORAL_REEF_TOKEN")
+
+@click.group()
+def cli():
+    """Coral Reef CLI - Query production intelligence"""
+    if not REEF_TOKEN:
+        click.echo("Error: CORAL_REEF_TOKEN environment variable not set", err=True)
+        exit(1)
+
+@cli.command()
+@click.argument('question')
+@click.option('--reef', default='my-infrastructure', help='Reef ID')
+@click.option('--json-output', is_flag=True, help='Output as JSON')
+def ask(question, reef, json_output):
+    """Ask a question about your infrastructure"""
+    response = requests.post(
+        f"{REEF_URL}/coral.reef.v1.ReefLLM/Analyze",
+        headers={"Authorization": f"Bearer {REEF_TOKEN}"},
+        json={"reef_id": reef, "question": question}
+    )
+
+    data = response.json()
+
+    if json_output:
+        click.echo(json.dumps(data, indent=2))
+    else:
+        click.echo(data['answer'])
+        if data.get('evidence'):
+            click.echo("\nEvidence:")
+            for e in data['evidence']:
+                click.echo(f"  - {e['description']}")
+
+@cli.command()
+@click.option('--reef', default='my-infrastructure', help='Reef ID')
+def health(reef):
+    """Quick production health check"""
+    response = requests.post(
+        f"{REEF_URL}/coral.reef.v1.ReefLLM/Analyze",
+        headers={"Authorization": f"Bearer {REEF_TOKEN}"},
+        json={
+            "reef_id": reef,
+            "question": "Is production healthy? Brief summary."
+        }
+    )
+
+    data = response.json()
+    confidence = data['metadata']['confidence_score']
+
+    if confidence > 0.8:
+        click.secho("✓ Production is healthy", fg='green')
+    elif confidence > 0.5:
+        click.secho("⚠ Production has some issues", fg='yellow')
+    else:
+        click.secho("✗ Production has critical issues", fg='red')
+
+    click.echo(f"\n{data['answer']}")
+
+if __name__ == '__main__':
+    cli()
+```
+
+**Usage:**
+```bash
+# Install
+pip install click requests
+
+# Set credentials
+export CORAL_REEF_TOKEN=reef_prod_abc123...
+export CORAL_REEF_URL=https://reef.example.com
+
+# Quick health check
+./coral-reef-cli health
+✓ Production is healthy
+
+All services operational. CPU at 45%, memory at 62%.
+Last deploy was 3 days ago. No incidents detected.
+
+# Ask custom question
+./coral-reef-cli ask "Why was there a latency spike at 3pm?"
+
+# JSON output for scripting
+./coral-reef-cli ask "list unhealthy services" --json-output
+```
 
 ## Future Enhancements
 
