@@ -87,48 +87,27 @@ Discovery service:
 
 **Architecture Overview**
 
-```
-┌─────────────┐                    ┌──────────────────┐
-│   Colony    │                    │  STUN Server     │
-│ (behind NAT)│                    │ (Cloudflare)     │
-└──────┬──────┘                    └────────┬─────────┘
-       │                                    │
-       │ 1. STUN Binding Request            │
-       │────────────────────────────────────>│
-       │                                    │
-       │ 2. STUN Response                   │
-       │    (Your public IP: 203.0.113.45   │
-       │<────  port: 41820)─────────────────┘
-       │
-       │         ┌──────────────────┐
-       │         │   Discovery      │
-       │         │    Service       │
-       │         └────────┬─────────┘
-       │                  │
-       │ 3. RegisterColony│
-       │    (mesh_id, pubkey,
-       │     observed: 203.0.113.45:41820)
-       ├──────────────────>│
-       │                  │
-       │ 4. Success       │
-       │<──────────────────┤
-       │                  │
-                          │
-              ┌───────────┴────────┐
-              │                    │
-              │                    │  5. LookupColony(mesh_id)
-              │                    │<───────────────────┐
-              │                    │                    │
-              │ 6. Colony Info:    │                ┌───┴────┐
-              │    endpoints:      │                │ Agent  │
-              │    observed: 203.0.113.45:41820     └───┬────┘
-              │────────────────────>│                    │
-                                   │                    │
-                                   │ 7. WireGuard       │
-                                   │    Handshake       │
-                                   │<────────────────────┤
-                                   │    (to observed     │
-                                   │     endpoint)       │
+```mermaid
+sequenceDiagram
+    participant Colony as Colony<br/>(behind NAT)
+    participant STUN as STUN Server<br/>(Cloudflare)
+    participant Discovery as Discovery<br/>Service
+    participant Agent as Agent
+
+    Note over Colony,STUN: 1. Endpoint Discovery
+    Colony->>STUN: STUN Binding Request
+    STUN-->>Colony: STUN Response<br/>(public IP: 203.0.113.45, port: 41820)
+
+    Note over Colony,Discovery: 2. Registration
+    Colony->>Discovery: RegisterColony<br/>(mesh_id, pubkey, observed: 203.0.113.45:41820)
+    Discovery-->>Colony: Success
+
+    Note over Agent,Discovery: 3. Peer Discovery
+    Agent->>Discovery: LookupColony(mesh_id)
+    Discovery-->>Agent: Colony Info<br/>(observed: 203.0.113.45:41820)
+
+    Note over Agent,Colony: 4. Direct Connection
+    Agent->>Colony: WireGuard Handshake<br/>(to observed endpoint)
 ```
 
 ## Component Changes
