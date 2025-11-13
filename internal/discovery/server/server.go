@@ -22,7 +22,7 @@ type Server struct {
 	version     string
 	startTime   time.Time
 	logger      zerolog.Logger
-	stunServers []string
+	stunServers []string // Recommended fallback STUN servers (optional, clients may ignore)
 }
 
 // New creates a new discovery server.
@@ -113,7 +113,7 @@ func (s *Server) RegisterColony(
 		Ttl:              ttlSeconds,
 		ExpiresAt:        timestamppb.New(entry.ExpiresAt),
 		ObservedEndpoint: observedEndpoint,
-		StunServers:      s.stunServers,
+		StunServers:      s.stunServers, // Recommended fallback STUN servers (optional)
 	}
 
 	// Log successful registration
@@ -523,7 +523,7 @@ func (s *Server) RegisterAgent(
 		Ttl:              ttlSeconds,
 		ExpiresAt:        timestamppb.New(entry.ExpiresAt),
 		ObservedEndpoint: clientObservedEndpoint, // Return what was actually stored
-		StunServers:      s.stunServers,
+		StunServers:      s.stunServers,          // Recommended fallback STUN servers (optional)
 	}
 
 	s.logger.Info().

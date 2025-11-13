@@ -31,11 +31,14 @@ func main() {
 		ttlSeconds      = flag.Int("ttl", 300, "Registration TTL in seconds")
 		cleanupInterval = flag.Int("cleanup-interval", 60, "Cleanup interval in seconds")
 		logLevel        = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-		stunServersFlag = flag.String("stun-servers", "", "Comma-separated list of STUN servers (e.g., stun1.example.com:3478,stun2.example.com:3478)")
+		stunServersFlag = flag.String("stun-servers", "", "Comma-separated list of recommended fallback STUN servers returned to clients (e.g., stun.cloudflare.com:3478,stun.l.google.com:19302)")
 	)
 	flag.Parse()
 
-	// Get STUN servers from environment variable (overrides flag)
+	// Parse STUN servers from environment variable (overrides flag).
+	// These are recommended fallback STUN servers returned to clients during registration.
+	// Clients may ignore these and use their own configured STUN servers.
+	// Primary STUN mechanism is colony-based STUN (RFD 029), not public STUN servers.
 	stunServersEnv := os.Getenv("CORAL_STUN_SERVERS")
 	var stunServers []string
 	if stunServersEnv != "" {
