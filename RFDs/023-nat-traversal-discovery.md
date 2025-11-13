@@ -251,3 +251,98 @@ message RequestRelayResponse {
 3. Enable relay fallback per colony via configuration flag once confidence is
    high.
 4. Eventually mark static-endpoint-only mode as deprecated.
+
+## Current Implementation Status
+
+**Phase 1 Complete:** STUN-lite endpoint discovery is implemented and functional.
+
+### What's Implemented
+
+- **STUN Discovery**: Agents and colonies can discover their public IP and port using external STUN servers
+- **Default STUN Servers**: Cloudflare STUN servers (`stun.cloudflare.com:3478`) configured by default
+- **Configuration**: STUN servers configurable via CLI flags or environment variables
+- **Proto Support**: Full proto definitions for `RegisterAgent`, `LookupAgent`, `RequestRelay`, `ReleaseRelay`
+- **Registry Management**: Discovery service tracks observed endpoints with TTL-based expiration
+- **Split-Brain Detection**: Prevents duplicate registrations with different cryptographic identities
+- **Endpoint Validation**: Rejects invalid endpoint configurations
+
+### What's NOT Implemented (Future Phases)
+
+**Phase 2 - Coordinated Hole Punching:**
+- No `InitiatePunch` RPC for coordinating simultaneous WireGuard handshakes
+- No keepalive mechanism to maintain NAT mappings during bootstrap
+- Hole punching must be manually orchestrated by clients
+
+**Phase 3 - Relay Support:**
+- Relay APIs exist (`RequestRelay`, `ReleaseRelay`) but return placeholder responses
+- No actual relay server implementation (`coral-relay` binary doesn't exist)
+- No packet forwarding between peers
+- No relay allocation or session management
+
+**Phase 4 - Client Integration:**
+- Basic integration in agents and colonies
+- No sophisticated fallback logic (direct → relay)
+- No relay bandwidth management or rate limiting
+
+### Known Limitations
+
+1. **Symmetric NAT Support**: Current implementation uses public STUN servers (like Cloudflare) to discover the agent's public endpoint. However, with symmetric NAT, the discovered port is destination-specific:
+   - STUN query to `stun.cloudflare.com` might discover port `54321`
+   - But when colony connects from a different IP, symmetric NAT may assign a different port
+   - **Result**: Direct connections may fail with symmetric NAT
+   - **Workaround**: See RFD 028 for colony-based STUN solution
+
+2. **Port Sharing Unreliability**: The current implementation uses `SO_REUSEPORT` to allow STUN and WireGuard to share the same UDP port:
+   - Kernel may deliver STUN responses to the WireGuard socket (race condition)
+   - Causes intermittent STUN discovery failures
+   - Platform-specific (Linux/BSD/macOS only, not Windows)
+   - **Code Location**: `internal/wireguard/bind.go`, `internal/wireguard/stun.go`
+   - **Recommendation**: Consider removing SO_REUSEPORT (see RFD 028)
+
+3. **IPv6 Not Supported**: All NAT traversal currently IPv4-only:
+   - IPv6 addresses discovered by STUN are ignored
+   - No dual-stack support
+   - **Code Location**: `internal/cli/agent/agent_helpers.go`
+
+4. **No Relay Fallback**: When direct connection fails, there's no working relay mechanism:
+   - Placeholder relay APIs return hardcoded, non-functional endpoints
+   - Agents/colonies behind restrictive NAT cannot connect
+   - **Workaround**: Use VPN or port forwarding until Phase 3 is complete
+
+5. **NAT Mapping Expiration**: No keepalive mechanism to maintain NAT holes:
+   - STUN-discovered mappings typically expire after 30-60 seconds
+   - If colony doesn't connect quickly, mapping may be lost
+   - WireGuard's own keepalive (every 25 seconds) only works after connection established
+
+6. **No NAT Type Detection**: Basic NAT classification implemented but not fully utilized:
+   - `ClassifyNAT()` function exists in `internal/wireguard/stun.go`
+   - Requires multiple STUN servers (at least 2)
+   - Discovery service doesn't use NAT hints for intelligent routing decisions
+
+### Configuration
+
+**STUN Servers:**
+```bash
+# Discovery service
+coral discovery start --stun-servers=stun.cloudflare.com:3478,stun.l.google.com:19302
+
+# Environment variable
+export CORAL_STUN_SERVERS=stun.cloudflare.com:3478,stun.l.google.com:19302
+```
+
+**WireGuard Port:**
+```bash
+# Agent with configured port (required for reliable STUN)
+coral agent start --wg-port=51821
+
+# Ephemeral port (STUN may be unreliable due to SO_REUSEPORT)
+coral agent start  # port auto-assigned
+```
+
+### Next Steps
+
+For complete NAT traversal support:
+- **Phase 2**: Implement coordinated hole punching (see Implementation Plan above)
+- **Phase 3**: Build actual relay server and allocation logic
+- **Phase 4**: Integrate sophisticated fallback in clients
+- **Consider RFD 028**: Colony-based STUN to solve symmetric NAT issues
