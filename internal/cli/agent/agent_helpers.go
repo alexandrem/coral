@@ -176,27 +176,17 @@ func setupAgentWireGuard(
 		Str("interface", wgDevice.InterfaceName()).
 		Msg("WireGuard device started")
 
-	// LIMITATION: STUN discovery with ephemeral ports requires binding first.
-	// Since we perform STUN before starting WireGuard, ephemeral ports require
-	// a second STUN attempt after the WireGuard device is started to discover
-	// the actual assigned port.
-	// RECOMMENDATION: Use a configured port (not ephemeral) for agents that need
-	// NAT traversal to ensure reliable STUN discovery.
-	if agentPublicEndpoint == nil && len(stunServers) > 0 {
-		localPort := wgDevice.ListenPort()
-		if localPort > 0 {
-			logger.Warn().
-				Int("port", localPort).
-				Msg("Performing STUN discovery after WireGuard started with ephemeral port")
-
-			agentPublicEndpoint = wireguard.DiscoverPublicEndpoint(stunServers, localPort, logger)
-			if agentPublicEndpoint != nil {
-				logger.Info().
-					Str("public_ip", agentPublicEndpoint.Ip).
-					Uint32("public_port", agentPublicEndpoint.Port).
-					Msg("Agent public endpoint discovered via STUN (ephemeral port)")
-			}
-		}
+	// LIMITATION: STUN discovery with ephemeral ports is not supported.
+	// Since we perform STUN before starting WireGuard, we cannot discover ephemeral ports
+	// (the port is assigned when WireGuard starts, after STUN completes).
+	// Attempting STUN after WireGuard starts would fail because both would try to bind
+	// to the same port without SO_REUSEPORT.
+	// RECOMMENDATION: Always use a configured port (not ephemeral) for agents that need
+	// NAT traversal.
+	if agentPublicEndpoint == nil && len(stunServers) > 0 && wgDevice.ListenPort() > 0 {
+		logger.Warn().
+			Int("ephemeral_port", wgDevice.ListenPort()).
+			Msg("STUN discovery skipped: ephemeral ports not supported (use --wg-port to configure)")
 	}
 
 	// Select colony endpoint for establishing the WireGuard peer.

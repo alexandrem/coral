@@ -1,15 +1,11 @@
 package wireguard
 
 import (
-	"context"
 	"fmt"
 	"net"
-	"runtime"
-	"syscall"
 	"time"
 
 	"github.com/pion/stun"
-	"golang.org/x/sys/unix"
 
 	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
 	"github.com/coral-io/coral/internal/logging"
@@ -24,54 +20,19 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 	}
 
 	// Create a UDP connection bound to the local WireGuard port.
-	// Use SO_REUSEADDR and SO_REUSEPORT to allow:
-	// - Binding to the same port WireGuard will use (when STUN runs before WireGuard)
-	// - Sharing the port with WireGuard (when STUN runs after WireGuard starts, e.g., ephemeral ports)
+	// STUN runs before WireGuard starts, so we bind to the port exclusively.
+	// The socket is closed before WireGuard is initialized.
 	localAddr := &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: localPort,
 	}
 
-	lc := &net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var sockoptErr error
-			if err := c.Control(func(fd uintptr) {
-				// Set SO_REUSEADDR to allow multiple sockets to bind to the same address.
-				if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
-					sockoptErr = fmt.Errorf("SO_REUSEADDR: %w", err)
-					return
-				}
-
-				// Set SO_REUSEPORT (Linux/BSD/macOS) to allow multiple sockets to bind to the same port.
-				// Required for STUN discovery on the WireGuard port.
-				if runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
-					if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
-						sockoptErr = fmt.Errorf("SO_REUSEPORT: %w", err)
-						return
-					}
-				}
-			}); err != nil {
-				return err
-			}
-			return sockoptErr
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := lc.ListenPacket(ctx, "udp4", localAddr.String())
+	conn, err := net.ListenUDP("udp4", localAddr)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to create UDP connection for STUN")
 		return nil
 	}
 	defer conn.Close()
-
-	udpConn, ok := conn.(*net.UDPConn)
-	if !ok {
-		logger.Warn().Msg("Failed to cast connection to UDPConn")
-		return nil
-	}
 
 	// Try each STUN server with individual timeouts
 	for _, stunServer := range stunServers {
@@ -82,9 +43,9 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 
 		// Set a fresh deadline for each attempt (3 seconds per server)
 		deadline := time.Now().Add(3 * time.Second)
-		udpConn.SetReadDeadline(deadline)
+		conn.SetReadDeadline(deadline)
 
-		endpoint, err := querySTUNServer(udpConn, stunServer, logger)
+		endpoint, err := querySTUNServer(conn, stunServer, logger)
 		if err != nil {
 			logger.Warn().
 				Err(err).
@@ -164,69 +125,37 @@ func querySTUNServer(conn *net.UDPConn, stunServer string, logger logging.Logger
 
 // ClassifyNAT attempts to determine the NAT type using STUN.
 // This is a simplified classification - full RFC 5780 classification would require more tests.
+// STUN runs before WireGuard starts, so we bind to the port exclusively.
 func ClassifyNAT(stunServers []string, localPort int, logger logging.Logger) discoveryv1.NatHint {
 	if len(stunServers) < 2 {
 		logger.Debug().Msg("Need at least 2 STUN servers for NAT classification")
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
 
-	// Create UDP connection with SO_REUSEADDR/SO_REUSEPORT to bind to the WireGuard port.
+	// Create UDP connection bound to the WireGuard port (before WireGuard starts).
 	localAddr := &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: localPort,
 	}
 
-	lc := &net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var sockoptErr error
-			if err := c.Control(func(fd uintptr) {
-				// Set SO_REUSEADDR to allow multiple sockets to bind to the same address.
-				if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
-					sockoptErr = fmt.Errorf("SO_REUSEADDR: %w", err)
-					return
-				}
-
-				// Set SO_REUSEPORT (Linux/BSD/macOS) to allow multiple sockets to bind to the same port.
-				if runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
-					if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
-						sockoptErr = fmt.Errorf("SO_REUSEPORT: %w", err)
-						return
-					}
-				}
-			}); err != nil {
-				return err
-			}
-			return sockoptErr
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := lc.ListenPacket(ctx, "udp4", localAddr.String())
+	conn, err := net.ListenUDP("udp4", localAddr)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to create UDP connection for NAT classification")
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
 	defer conn.Close()
 
-	udpConn, ok := conn.(*net.UDPConn)
-	if !ok {
-		logger.Warn().Msg("Failed to cast connection to UDPConn for NAT classification")
-		return discoveryv1.NatHint_NAT_UNKNOWN
-	}
-
 	// Query first STUN server with timeout
-	udpConn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	endpoint1, err := querySTUNServer(udpConn, stunServers[0], logger)
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	endpoint1, err := querySTUNServer(conn, stunServers[0], logger)
 	if err != nil || endpoint1 == nil {
 		logger.Debug().Err(err).Msg("Failed to query first STUN server for NAT classification")
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
 
 	// Query second STUN server with fresh timeout
-	udpConn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	endpoint2, err := querySTUNServer(udpConn, stunServers[1], logger)
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	endpoint2, err := querySTUNServer(conn, stunServers[1], logger)
 	if err != nil || endpoint2 == nil {
 		logger.Debug().Err(err).Msg("Failed to query second STUN server for NAT classification")
 		return discoveryv1.NatHint_NAT_UNKNOWN
