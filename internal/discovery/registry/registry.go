@@ -76,10 +76,37 @@ func (r *Registry) Register(
 		return nil, fmt.Errorf("at least one endpoint or observed endpoint is required")
 	}
 
+	// If no static endpoints, validate that observed endpoint has a port.
+	// HTTP-extracted endpoints (from X-Forwarded-For) don't have port info.
+	// Only STUN-discovered endpoints have valid port information.
+	if len(endpoints) == 0 && observedEndpoint != nil && observedEndpoint.Port == 0 {
+		return nil, fmt.Errorf("observed endpoint must have a valid port when no static endpoints are provided (use STUN discovery, not HTTP headers)")
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	now := time.Now()
+
+	// Check for existing active registration (split-brain detection).
+	// Allow updates to expired registrations or same pubkey (renewal/update).
+	if existing, ok := r.entries[meshID]; ok {
+		if now.Before(existing.ExpiresAt) {
+			// Active registration exists. Allow update if same pubkey (renewal).
+			if existing.PubKey != pubkey {
+				return nil, fmt.Errorf(
+					"colony/agent '%s' already registered with different public key until %v (existing: %s, new: %s). "+
+						"This may indicate a split-brain scenario. Wait for lease expiration or use a different ID",
+					meshID,
+					existing.ExpiresAt,
+					existing.PubKey,
+					pubkey,
+				)
+			}
+			// Same pubkey - this is a renewal/update, allow it to proceed.
+		}
+	}
+
 	entry := &Entry{
 		MeshID:           meshID,
 		PubKey:           pubkey,

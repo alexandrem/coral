@@ -58,7 +58,7 @@ func TestRegistry_Register(t *testing.T) {
 		assert.Equal(t, observedEndpoint, entry.ObservedEndpoint)
 	})
 
-	t.Run("update existing registration", func(t *testing.T) {
+	t.Run("update with same pubkey succeeds (renewal)", func(t *testing.T) {
 		reg := New(5 * time.Minute)
 
 		// Initial registration
@@ -67,11 +67,11 @@ func TestRegistry_Register(t *testing.T) {
 
 		time.Sleep(10 * time.Millisecond)
 
-		// Update registration
-		entry2, err := reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "10.42.0.2", "fd42::2", 9001, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		// Update with same pubkey (should succeed - this is a renewal)
+		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "10.42.0.2", "fd42::2", 9001, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 
-		assert.Equal(t, "pubkey-2", entry2.PubKey)
+		assert.Equal(t, "pubkey-1", entry2.PubKey)
 		assert.Equal(t, []string{"10.0.0.2:41820"}, entry2.Endpoints)
 		assert.True(t, entry2.LastSeen.After(entry1.LastSeen))
 	})
@@ -227,4 +227,186 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 
 	// Should have exactly 1 entry (all writes to same mesh_id)
 	assert.Equal(t, 1, reg.Count())
+}
+
+func TestRegistry_SplitBrainDetection(t *testing.T) {
+	reg := New(5 * time.Minute)
+
+	t.Run("prevent duplicate registration with different pubkey", func(t *testing.T) {
+		// First registration
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		require.NoError(t, err)
+
+		// Try to register same mesh_id with different pubkey (should fail)
+		_, err = reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "already registered with different public key")
+		assert.Contains(t, err.Error(), "split-brain")
+	})
+
+	t.Run("allow update with same pubkey (renewal)", func(t *testing.T) {
+		reg := New(5 * time.Minute)
+
+		// First registration
+		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		require.NoError(t, err)
+
+		time.Sleep(10 * time.Millisecond)
+
+		// Update with same pubkey (should succeed)
+		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "", "", 0, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		require.NoError(t, err)
+		assert.Equal(t, "pubkey-1", entry2.PubKey)
+		assert.Equal(t, []string{"10.0.0.2:41820"}, entry2.Endpoints)
+		assert.True(t, entry2.LastSeen.After(entry1.LastSeen))
+	})
+
+	t.Run("allow registration after expiration", func(t *testing.T) {
+		reg := New(50 * time.Millisecond)
+
+		// First registration
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		require.NoError(t, err)
+
+		// Wait for expiration
+		time.Sleep(100 * time.Millisecond)
+
+		// Register with different pubkey (should succeed after expiration)
+		_, err = reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		assert.NoError(t, err)
+	})
+}
+
+func TestRegistry_EndpointValidation(t *testing.T) {
+	reg := New(5 * time.Minute)
+
+	t.Run("reject observed endpoint with port 0 and no static endpoints", func(t *testing.T) {
+		// HTTP-extracted endpoint without port info
+		observedEndpoint := &discoveryv1.Endpoint{
+			Ip:       "1.2.3.4",
+			Port:     0, // No port info from HTTP headers
+			Protocol: "udp",
+		}
+
+		_, err := reg.Register("agent-1", "pubkey-1", []string{}, "", "", 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "observed endpoint must have a valid port")
+		assert.Contains(t, err.Error(), "STUN discovery")
+	})
+
+	t.Run("accept observed endpoint with valid port and no static endpoints", func(t *testing.T) {
+		// STUN-discovered endpoint with port info
+		observedEndpoint := &discoveryv1.Endpoint{
+			Ip:       "1.2.3.4",
+			Port:     51820,
+			Protocol: "udp",
+		}
+
+		entry, err := reg.Register("agent-1", "pubkey-1", []string{}, "", "", 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE)
+		assert.NoError(t, err)
+		assert.NotNil(t, entry)
+		assert.Equal(t, observedEndpoint, entry.ObservedEndpoint)
+	})
+
+	t.Run("accept static endpoints even with observed endpoint port 0", func(t *testing.T) {
+		// Colonies can have static endpoints + HTTP-extracted observed endpoint
+		observedEndpoint := &discoveryv1.Endpoint{
+			Ip:       "1.2.3.4",
+			Port:     0,
+			Protocol: "udp",
+		}
+
+		entry, err := reg.Register("colony-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE)
+		assert.NoError(t, err)
+		assert.NotNil(t, entry)
+	})
+}
+
+func TestRegistry_RelayManagement(t *testing.T) {
+	reg := New(5 * time.Minute)
+
+	t.Run("allocate and lookup relay session", func(t *testing.T) {
+		relayEndpoint := &discoveryv1.Endpoint{
+			Ip:       "relay.example.com",
+			Port:     3478,
+			Protocol: "udp",
+			ViaRelay: true,
+		}
+
+		session, err := reg.AllocateRelay("session-1", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
+		require.NoError(t, err)
+		assert.Equal(t, "session-1", session.SessionID)
+		assert.Equal(t, "mesh-1", session.MeshID)
+		assert.Equal(t, relayEndpoint, session.RelayEndpoint)
+
+		// Lookup the session
+		found, err := reg.LookupRelaySession("session-1")
+		require.NoError(t, err)
+		assert.Equal(t, session.SessionID, found.SessionID)
+	})
+
+	t.Run("release relay session", func(t *testing.T) {
+		relayEndpoint := &discoveryv1.Endpoint{
+			Ip:       "relay.example.com",
+			Port:     3478,
+			Protocol: "udp",
+		}
+
+		_, err := reg.AllocateRelay("session-2", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
+		require.NoError(t, err)
+
+		// Release the session
+		err = reg.ReleaseRelay("session-2")
+		assert.NoError(t, err)
+
+		// Lookup should fail
+		_, err = reg.LookupRelaySession("session-2")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("lookup expired relay session", func(t *testing.T) {
+		// Create registry with short relay TTL
+		reg := New(5 * time.Minute)
+		reg.relayTTL = 50 * time.Millisecond
+
+		relayEndpoint := &discoveryv1.Endpoint{
+			Ip:       "relay.example.com",
+			Port:     3478,
+			Protocol: "udp",
+		}
+
+		_, err := reg.AllocateRelay("session-3", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
+		require.NoError(t, err)
+
+		// Wait for expiration
+		time.Sleep(100 * time.Millisecond)
+
+		// Lookup should fail
+		_, err = reg.LookupRelaySession("session-3")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "expired")
+	})
+
+	t.Run("cleanup expired relay sessions", func(t *testing.T) {
+		reg := New(5 * time.Minute)
+		reg.relayTTL = 50 * time.Millisecond
+
+		relayEndpoint := &discoveryv1.Endpoint{
+			Ip:       "relay.example.com",
+			Port:     3478,
+			Protocol: "udp",
+		}
+
+		// Allocate multiple sessions
+		reg.AllocateRelay("session-4", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
+		reg.AllocateRelay("session-5", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
+
+		// Wait for expiration
+		time.Sleep(100 * time.Millisecond)
+
+		// Cleanup
+		removed := reg.CleanupRelaySessions()
+		assert.Equal(t, 2, removed)
+	})
 }

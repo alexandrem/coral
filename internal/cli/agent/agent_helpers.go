@@ -177,14 +177,19 @@ func setupAgentWireGuard(
 		Str("interface", wgDevice.InterfaceName()).
 		Msg("WireGuard device started")
 
-	// For ephemeral ports, discover STUN endpoint after WireGuard starts.
-	// Note: This may have reliability issues due to SO_REUSEPORT packet distribution.
+	// LIMITATION: STUN discovery with ephemeral ports is unreliable.
+	// When using SO_REUSEPORT, the kernel distributes UDP packets across multiple
+	// sockets listening on the same port. STUN responses may be delivered to the
+	// WireGuard socket instead of the STUN socket, causing intermittent failures.
+	// RECOMMENDATION: Always use a configured port (not ephemeral) for agents that
+	// need NAT traversal. If you must use ephemeral ports, expect STUN discovery
+	// to fail occasionally and handle graceful degradation.
 	if agentPublicEndpoint == nil && len(stunServers) > 0 {
 		localPort := wgDevice.ListenPort()
 		if localPort > 0 {
 			logger.Warn().
 				Int("port", localPort).
-				Msg("STUN discovery with ephemeral port may be unreliable due to port sharing")
+				Msg("STUN discovery with ephemeral port may be unreliable due to port sharing (SO_REUSEPORT)")
 
 			agentPublicEndpoint = wireguard.DiscoverPublicEndpoint(stunServers, localPort, logger)
 			if agentPublicEndpoint != nil {
@@ -206,10 +211,13 @@ func setupAgentWireGuard(
 			continue
 		}
 
-		// Skip invalid IPv6 endpoints (::, ::1) that would cause connection failures
+		// LIMITATION: IPv6 support is not yet implemented.
+		// IPv6 addresses are skipped in favor of IPv4 for NAT traversal.
+		// TODO: Add proper IPv6 support with dual-stack handling.
+		// For now, only IPv4 endpoints are used for agent-colony connectivity.
 		ip := net.ParseIP(observedEp.Ip)
 		if ip != nil && ip.To4() == nil {
-			// This is an IPv6 address - skip it for now as we only support IPv4
+			// This is an IPv6 address - skip it for now as we only support IPv4.
 			logger.Debug().
 				Str("ipv6_endpoint", observedEp.Ip).
 				Msg("Skipping IPv6 observed endpoint (IPv4-only mode)")
