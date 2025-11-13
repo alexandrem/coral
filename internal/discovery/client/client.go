@@ -37,13 +37,14 @@ func NewDiscoveryClient(endpoint string) *Client {
 
 // RegisterColonyRequest contains the information needed to register a colony.
 type RegisterColonyRequest struct {
-	MeshID      string
-	PublicKey   string
-	Endpoints   []string
-	MeshIPv4    string
-	MeshIPv6    string
-	ConnectPort uint32
-	Metadata    map[string]string
+	MeshID           string
+	PublicKey        string
+	Endpoints        []string
+	MeshIPv4         string
+	MeshIPv6         string
+	ConnectPort      uint32
+	Metadata         map[string]string
+	ObservedEndpoint interface{} // *discoveryv1.Endpoint (using interface{} to avoid import issues)
 }
 
 // RegisterColonyResponse contains the registration response.
@@ -55,14 +56,23 @@ type RegisterColonyResponse struct {
 
 // RegisterColony registers a colony with the discovery service.
 func (c *Client) RegisterColony(ctx context.Context, req *RegisterColonyRequest) (*RegisterColonyResponse, error) {
+	// Convert observed endpoint if provided
+	var observedEndpoint *discoveryv1.Endpoint
+	if req.ObservedEndpoint != nil {
+		if ep, ok := req.ObservedEndpoint.(*discoveryv1.Endpoint); ok {
+			observedEndpoint = ep
+		}
+	}
+
 	protoReq := &discoveryv1.RegisterColonyRequest{
-		MeshId:      req.MeshID,
-		Pubkey:      req.PublicKey,
-		Endpoints:   req.Endpoints,
-		MeshIpv4:    req.MeshIPv4,
-		MeshIpv6:    req.MeshIPv6,
-		ConnectPort: req.ConnectPort,
-		Metadata:    req.Metadata,
+		MeshId:           req.MeshID,
+		Pubkey:           req.PublicKey,
+		Endpoints:        req.Endpoints,
+		MeshIpv4:         req.MeshIPv4,
+		MeshIpv6:         req.MeshIPv6,
+		ConnectPort:      req.ConnectPort,
+		Metadata:         req.Metadata,
+		ObservedEndpoint: observedEndpoint,
 	}
 
 	resp, err := c.client.RegisterColony(ctx, connect.NewRequest(protoReq))

@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,11 +18,14 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
+	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
+	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/logging"
+	"github.com/coral-io/coral/internal/wireguard"
 )
 
 // AgentConfig represents the agent configuration file.
@@ -31,6 +36,10 @@ type AgentConfig struct {
 			ID           string `yaml:"id"`
 			AutoDiscover bool   `yaml:"auto_discover"`
 		} `yaml:"colony"`
+		NAT struct {
+			STUNServers []string `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
+			EnableRelay bool     `yaml:"enable_relay,omitempty"` // Enable relay fallback
+		} `yaml:"nat,omitempty"`
 	} `yaml:"agent"`
 	Services []struct {
 		Name           string `yaml:"name"`
@@ -108,7 +117,7 @@ Examples:
   coral agent start --config ./agent.yaml --log-format=pretty`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load configuration
-			cfg, serviceSpecs, err := loadAgentConfig(configFile, colonyID)
+			cfg, serviceSpecs, agentCfg, err := loadAgentConfig(configFile, colonyID)
 			if err != nil {
 				return fmt.Errorf("failed to load agent configuration: %w", err)
 			}
@@ -182,15 +191,65 @@ Examples:
 				Str("agent_pubkey", agentKeys.PublicKey).
 				Msg("Generated agent WireGuard keys")
 
+			// Get STUN servers for NAT traversal
+			stunServers := getSTUNServers(agentCfg, colonyInfo)
+			if len(stunServers) > 0 {
+				logger.Info().
+					Strs("stun_servers", stunServers).
+					Msg("STUN servers configured for NAT traversal")
+			}
+
+			// Check if relay is enabled
+			enableRelay := agentCfg.Agent.NAT.EnableRelay
+			if envRelay := os.Getenv("CORAL_ENABLE_RELAY"); envRelay != "" {
+				enableRelay = envRelay == "true" || envRelay == "1"
+			}
+
+			// Get WireGuard port from environment or use ephemeral (-1).
+			// For Docker deployments with NAT, use a static port (e.g., 51821) and map it in docker-compose.
+			// Example: CORAL_WIREGUARD_PORT=51821
+			wgPort := -1 // Default: ephemeral port
+			if envPort := os.Getenv("CORAL_WIREGUARD_PORT"); envPort != "" {
+				if port, err := strconv.Atoi(envPort); err == nil && port > 0 && port < 65536 {
+					wgPort = port
+					logger.Info().
+						Int("port", wgPort).
+						Msg("Using configured WireGuard port")
+				} else {
+					logger.Warn().
+						Str("port", envPort).
+						Msg("Invalid CORAL_WIREGUARD_PORT value, using ephemeral port")
+				}
+			}
+
 			// Create and start WireGuard device.
-			wgDevice, err := setupAgentWireGuard(agentKeys, colonyInfo, logger)
+			// This also performs STUN discovery before starting WireGuard to avoid port conflicts.
+			wgDevice, agentObservedEndpoint, err := setupAgentWireGuard(agentKeys, colonyInfo, stunServers, enableRelay, wgPort, logger)
 			if err != nil {
 				return fmt.Errorf("failed to setup WireGuard: %w", err)
 			}
 			defer wgDevice.Stop()
 
-			// Register with colony.
+			// Generate agent ID early so we can use it for registration
 			agentID := generateAgentID(serviceSpecs)
+
+			// Register agent with discovery service using the observed endpoint from STUN.
+			// Skip registration if we don't have an observed endpoint (STUN failed or not configured).
+			if agentObservedEndpoint != nil {
+				logger.Info().
+					Str("agent_id", agentID).
+					Str("public_ip", agentObservedEndpoint.Ip).
+					Uint32("public_port", agentObservedEndpoint.Port).
+					Msg("Registering agent with discovery service")
+
+				if err := registerAgentWithDiscovery(cfg, agentID, agentKeys.PublicKey, agentObservedEndpoint, logger); err != nil {
+					logger.Warn().Err(err).Msg("Failed to register agent with discovery service (continuing anyway)")
+				}
+			} else {
+				logger.Info().Msg("No observed endpoint available (STUN not configured or failed), skipping discovery service registration")
+			}
+
+			// Register with colony.
 			registrationResult, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
 			if err != nil {
 				return fmt.Errorf("failed to register with colony: %w", err)
@@ -343,7 +402,7 @@ Examples:
 			mux := http.NewServeMux()
 			mux.Handle(path, handler)
 
-			// Add simple /status endpoint that returns JSON.
+			// Add /status endpoint that returns JSON with mesh network info for debugging.
 			mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 				ctx := r.Context()
 				runtimeCtx, err := runtimeService.GetRuntimeContext(ctx, nil)
@@ -352,8 +411,17 @@ Examples:
 					return
 				}
 
+				// Gather mesh network information for debugging
+				meshInfo := gatherMeshNetworkInfo(wgDevice, meshIPStr, meshSubnetStr, colonyInfo, agentID, logger)
+
+				// Combine runtime context with mesh info
+				status := map[string]interface{}{
+					"runtime": runtimeCtx,
+					"mesh":    meshInfo,
+				}
+
 				w.Header().Set("Content-Type", "application/json")
-				if err := json.NewEncoder(w).Encode(runtimeCtx); err != nil {
+				if err := json.NewEncoder(w).Encode(status); err != nil {
 					logger.Error().Err(err).Msg("Failed to encode status response")
 				}
 			})
@@ -414,8 +482,8 @@ Examples:
 }
 
 // loadAgentConfig loads agent configuration from file and environment variables.
-func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfig, []*ServiceSpec, error) {
-	var agentCfg AgentConfig
+func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfig, []*ServiceSpec, *AgentConfig, error) {
+	agentCfg := &AgentConfig{}
 	var serviceSpecs []*ServiceSpec
 
 	// Try to load config file.
@@ -436,11 +504,11 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 	if configFile != "" {
 		data, err := os.ReadFile(configFile)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read config file %s: %w", configFile, err)
+			return nil, nil, nil, fmt.Errorf("failed to read config file %s: %w", configFile, err)
 		}
 
-		if err := yaml.Unmarshal(data, &agentCfg); err != nil {
-			return nil, nil, fmt.Errorf("failed to parse config file %s: %w", configFile, err)
+		if err := yaml.Unmarshal(data, agentCfg); err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to parse config file %s: %w", configFile, err)
 		}
 
 		// Parse services from config file.
@@ -473,7 +541,7 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 		// Format: name:port[:health][:type],name:port[:health][:type],...
 		envSpecs, err := ParseMultipleServiceSpecs(strings.Split(envServices, ","))
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse CORAL_SERVICES: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to parse CORAL_SERVICES: %w", err)
 		}
 		// Environment services override config file services.
 		serviceSpecs = envSpecs
@@ -482,7 +550,7 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 	// Resolve colony configuration.
 	resolver, err := config.NewResolver()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create config resolver: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create config resolver: %w", err)
 	}
 
 	// Determine colony ID.
@@ -490,15 +558,171 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 	if colonyID == "" {
 		colonyID, err = resolver.ResolveColonyID()
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to resolve colony ID: %w\n\nRun 'coral init <app-name>' or set CORAL_COLONY_ID", err)
+			return nil, nil, nil, fmt.Errorf("failed to resolve colony ID: %w\n\nRun 'coral init <app-name>' or set CORAL_COLONY_ID", err)
 		}
 	}
 
 	// Load resolved configuration.
 	cfg, err := resolver.ResolveConfig(colonyID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load colony config: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to load colony config: %w", err)
 	}
 
-	return cfg, serviceSpecs, nil
+	return cfg, serviceSpecs, agentCfg, nil
+}
+
+// getSTUNServers determines which STUN servers to use for NAT traversal.
+// Priority: env variable > agent config > discovery response > default.
+func getSTUNServers(agentCfg *AgentConfig, colonyInfo *discoverypb.LookupColonyResponse) []string {
+	// Check environment variable first
+	envSTUN := os.Getenv("CORAL_STUN_SERVERS")
+	if envSTUN != "" {
+		servers := strings.Split(envSTUN, ",")
+		for i := range servers {
+			servers[i] = strings.TrimSpace(servers[i])
+		}
+		return servers
+	}
+
+	// Check agent config
+	if len(agentCfg.Agent.NAT.STUNServers) > 0 {
+		return agentCfg.Agent.NAT.STUNServers
+	}
+
+	// Use STUN servers from discovery response (not yet implemented in response)
+	// This would be added when colonies register with their STUN servers
+
+	// Fall back to default
+	return []string{constants.DefaultSTUNServer}
+}
+
+// gatherMeshNetworkInfo collects mesh network debugging information.
+func gatherMeshNetworkInfo(
+	wgDevice *wireguard.Device,
+	meshIP, meshSubnet string,
+	colonyInfo *discoverypb.LookupColonyResponse,
+	agentID string,
+	logger logging.Logger,
+) map[string]interface{} {
+	info := make(map[string]interface{})
+
+	// Basic mesh info
+	info["agent_id"] = agentID
+	info["mesh_ip"] = meshIP
+	info["mesh_subnet"] = meshSubnet
+
+	// WireGuard interface info
+	if wgDevice != nil {
+		wgInfo := make(map[string]interface{})
+		wgInfo["interface_name"] = wgDevice.InterfaceName()
+		wgInfo["listen_port"] = wgDevice.ListenPort()
+
+		// Get interface status
+		iface := wgDevice.Interface()
+		if iface != nil {
+			wgInfo["interface_exists"] = true
+
+			// Try to get IP addresses
+			if addrs, err := exec.Command("ip", "addr", "show", wgDevice.InterfaceName()).Output(); err == nil {
+				wgInfo["ip_addresses"] = string(addrs)
+			}
+
+			// Try to get link status
+			if link, err := exec.Command("ip", "link", "show", wgDevice.InterfaceName()).Output(); err == nil {
+				wgInfo["link_status"] = string(link)
+			}
+		} else {
+			wgInfo["interface_exists"] = false
+		}
+
+		// Get peer information
+		peers := wgDevice.ListPeers()
+		peerInfos := make([]map[string]interface{}, 0, len(peers))
+		for _, peer := range peers {
+			peerInfo := make(map[string]interface{})
+			peerInfo["public_key"] = peer.PublicKey[:16] + "..."
+			peerInfo["endpoint"] = peer.Endpoint
+			peerInfo["allowed_ips"] = peer.AllowedIPs
+			peerInfo["persistent_keepalive"] = peer.PersistentKeepalive
+			peerInfos = append(peerInfos, peerInfo)
+		}
+		wgInfo["peers"] = peerInfos
+		wgInfo["peer_count"] = len(peers)
+
+		info["wireguard"] = wgInfo
+	}
+
+	// Colony info
+	if colonyInfo != nil {
+		colonyInfoMap := make(map[string]interface{})
+		colonyInfoMap["mesh_ipv4"] = colonyInfo.MeshIpv4
+		colonyInfoMap["mesh_ipv6"] = colonyInfo.MeshIpv6
+		colonyInfoMap["connect_port"] = colonyInfo.ConnectPort
+		colonyInfoMap["endpoints"] = colonyInfo.Endpoints
+
+		// Add observed endpoints
+		observedEps := make([]map[string]interface{}, 0, len(colonyInfo.ObservedEndpoints))
+		for _, ep := range colonyInfo.ObservedEndpoints {
+			if ep != nil {
+				observedEps = append(observedEps, map[string]interface{}{
+					"ip":       ep.Ip,
+					"port":     ep.Port,
+					"protocol": ep.Protocol,
+				})
+			}
+		}
+		colonyInfoMap["observed_endpoints"] = observedEps
+
+		info["colony"] = colonyInfoMap
+	}
+
+	// Route information
+	if wgDevice != nil && wgDevice.Interface() != nil {
+		routes, err := exec.Command("ip", "route", "show", "dev", wgDevice.InterfaceName()).Output()
+		if err == nil {
+			info["routes"] = string(routes)
+		} else {
+			info["routes_error"] = err.Error()
+		}
+
+		// Also get all routes for reference
+		allRoutes, err := exec.Command("ip", "route", "show").Output()
+		if err == nil {
+			info["all_routes"] = string(allRoutes)
+		}
+	}
+
+	// Connectivity test to colony mesh IP
+	if colonyInfo != nil && colonyInfo.MeshIpv4 != "" {
+		connectPort := colonyInfo.ConnectPort
+		if connectPort == 0 {
+			connectPort = 9000
+		}
+		meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
+
+		connTest := make(map[string]interface{})
+		connTest["target"] = meshAddr
+
+		// Quick connectivity check
+		conn, err := net.DialTimeout("tcp", meshAddr, 2*time.Second)
+		if err != nil {
+			connTest["reachable"] = false
+			connTest["error"] = err.Error()
+		} else {
+			connTest["reachable"] = true
+			conn.Close()
+		}
+
+		info["colony_connectivity"] = connTest
+
+		// Ping test (if available)
+		if pingOut, err := exec.Command("ping", "-c", "1", "-W", "1", colonyInfo.MeshIpv4).CombinedOutput(); err == nil {
+			info["ping_result"] = string(pingOut)
+		} else {
+			info["ping_error"] = err.Error()
+			info["ping_output"] = string(pingOut)
+		}
+	}
+
+	return info
 }

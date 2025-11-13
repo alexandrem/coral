@@ -15,9 +15,10 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 
+	"github.com/rs/zerolog"
+
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/constants"
-	"github.com/rs/zerolog"
 )
 
 // Device represents a WireGuard device instance.
@@ -31,6 +32,7 @@ type Device struct {
 	mu          sync.RWMutex
 	wgLogger    *device.Logger // WireGuard internal logger.
 	logger      zerolog.Logger // Application logger.
+	actualPort  int            // Actual bound UDP port (for ephemeral ports).
 }
 
 // NewDevice creates a new WireGuard device with the given configuration.
@@ -113,7 +115,8 @@ func (d *Device) Start() error {
 	d.iface = iface
 	d.tunDevice = iface.Device()
 
-	// Create WireGuard device
+	// Create WireGuard device with default bind.
+	// STUN discovery runs before WireGuard starts to avoid port conflicts.
 	bind := conn.NewDefaultBind()
 	d.wgDevice = device.NewDevice(d.tunDevice, bind, d.wgLogger)
 
@@ -125,6 +128,19 @@ func (d *Device) Start() error {
 
 	// Bring up the device
 	d.wgDevice.Up()
+
+	// Query the actual listen port from the device.
+	// This is important for ephemeral ports (when cfg.Port was 0 or negative).
+	actualPort, err := d.queryListenPort()
+	if err != nil {
+		d.logger.Warn().Err(err).Msg("Failed to query actual listen port, using configured port")
+		d.actualPort = d.cfg.Port
+	} else {
+		d.actualPort = actualPort
+		// Update the config with the actual port for consistency.
+		d.cfg.Port = actualPort
+		d.logger.Debug().Int("actual_port", actualPort).Msg("Queried actual WireGuard listen port")
+	}
 
 	return nil
 }
@@ -174,6 +190,8 @@ func (d *Device) AddPeer(peerConfig *PeerConfig) error {
 
 	// Build UAPI configuration for the peer
 	uapiConfig := d.buildPeerUAPI(peerConfig)
+
+	d.logger.Info().Msg("calling ipcset")
 
 	// Apply peer configuration
 	if err := d.wgDevice.IpcSet(uapiConfig); err != nil {
@@ -346,6 +364,54 @@ func (d *Device) InterfaceName() string {
 // Interface returns the Interface object for this device.
 func (d *Device) Interface() *Interface {
 	return d.iface
+}
+
+// ListenPort returns the UDP port the WireGuard device is listening on.
+// Returns 0 if the device is not started or port is unknown.
+func (d *Device) ListenPort() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	// Return the actual bound port (which may differ from cfg.Port for ephemeral ports).
+	if d.actualPort > 0 {
+		return d.actualPort
+	}
+
+	// Fall back to configured port if actual port is not available.
+	if d.cfg == nil {
+		return 0
+	}
+
+	return d.cfg.Port
+}
+
+// queryListenPort queries the actual listen port from the WireGuard device via UAPI.
+func (d *Device) queryListenPort() (int, error) {
+	if d.wgDevice == nil {
+		return 0, fmt.Errorf("device not started")
+	}
+
+	// Query device configuration via UAPI.
+	uapiResponse, err := d.wgDevice.IpcGet()
+	if err != nil {
+		return 0, fmt.Errorf("IpcGet failed: %w", err)
+	}
+
+	// Parse the response to find listen_port.
+	// Format: "listen_port=12345\n..."
+	lines := strings.Split(uapiResponse, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "listen_port=") {
+			portStr := strings.TrimPrefix(line, "listen_port=")
+			port := 0
+			if _, err := fmt.Sscanf(portStr, "%d", &port); err != nil {
+				return 0, fmt.Errorf("failed to parse listen_port: %w", err)
+			}
+			return port, nil
+		}
+	}
+
+	return 0, fmt.Errorf("listen_port not found in UAPI response")
 }
 
 // configure applies the initial device configuration via UAPI.

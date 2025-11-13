@@ -21,8 +21,9 @@ type GlobalConfig struct {
 
 // DiscoveryGlobal contains global discovery settings.
 type DiscoveryGlobal struct {
-	Endpoint string        `yaml:"endpoint"`
-	Timeout  time.Duration `yaml:"timeout"`
+	Endpoint    string        `yaml:"endpoint"`
+	Timeout     time.Duration `yaml:"timeout"`
+	STUNServers []string      `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
 }
 
 // AIConfig contains AI provider configuration.
@@ -91,6 +92,7 @@ type DiscoveryColony struct {
 	MeshID           string        `yaml:"mesh_id"` // Should match colony_id
 	AutoRegister     bool          `yaml:"auto_register"`
 	RegisterInterval time.Duration `yaml:"register_interval"`
+	STUNServers      []string      `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
 }
 
 // ProjectConfig represents <project>/.coral/config.yaml config file.
@@ -130,8 +132,9 @@ func DefaultGlobalConfig() *GlobalConfig {
 	return &GlobalConfig{
 		Version: SchemaVersion,
 		Discovery: DiscoveryGlobal{
-			Endpoint: constants.DefaultDiscoveryEndpoint,
-			Timeout:  10 * time.Second,
+			Endpoint:    constants.DefaultDiscoveryEndpoint,
+			Timeout:     10 * time.Second,
+			STUNServers: []string{constants.DefaultSTUNServer},
 		},
 		AI: AIConfig{
 			Provider:     "anthropic",
@@ -165,6 +168,7 @@ func DefaultColonyConfig(colonyID, appName, env string) *ColonyConfig {
 			MeshID:           colonyID, // mesh_id = colony_id
 			AutoRegister:     true,
 			RegisterInterval: 60 * time.Second,
+			STUNServers:      []string{constants.DefaultSTUNServer},
 		},
 		CreatedAt: time.Now(),
 	}

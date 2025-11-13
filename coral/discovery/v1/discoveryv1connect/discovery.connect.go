@@ -40,6 +40,18 @@ const (
 	// DiscoveryServiceLookupColonyProcedure is the fully-qualified name of the DiscoveryService's
 	// LookupColony RPC.
 	DiscoveryServiceLookupColonyProcedure = "/coral.discovery.v1.DiscoveryService/LookupColony"
+	// DiscoveryServiceRegisterAgentProcedure is the fully-qualified name of the DiscoveryService's
+	// RegisterAgent RPC.
+	DiscoveryServiceRegisterAgentProcedure = "/coral.discovery.v1.DiscoveryService/RegisterAgent"
+	// DiscoveryServiceLookupAgentProcedure is the fully-qualified name of the DiscoveryService's
+	// LookupAgent RPC.
+	DiscoveryServiceLookupAgentProcedure = "/coral.discovery.v1.DiscoveryService/LookupAgent"
+	// DiscoveryServiceRequestRelayProcedure is the fully-qualified name of the DiscoveryService's
+	// RequestRelay RPC.
+	DiscoveryServiceRequestRelayProcedure = "/coral.discovery.v1.DiscoveryService/RequestRelay"
+	// DiscoveryServiceReleaseRelayProcedure is the fully-qualified name of the DiscoveryService's
+	// ReleaseRelay RPC.
+	DiscoveryServiceReleaseRelayProcedure = "/coral.discovery.v1.DiscoveryService/ReleaseRelay"
 	// DiscoveryServiceHealthProcedure is the fully-qualified name of the DiscoveryService's Health RPC.
 	DiscoveryServiceHealthProcedure = "/coral.discovery.v1.DiscoveryService/Health"
 )
@@ -50,6 +62,14 @@ type DiscoveryServiceClient interface {
 	RegisterColony(context.Context, *connect.Request[v1.RegisterColonyRequest]) (*connect.Response[v1.RegisterColonyResponse], error)
 	// Lookup colony information by mesh ID
 	LookupColony(context.Context, *connect.Request[v1.LookupColonyRequest]) (*connect.Response[v1.LookupColonyResponse], error)
+	// Register or update an agent's information
+	RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error)
+	// Lookup agent information by agent ID
+	LookupAgent(context.Context, *connect.Request[v1.LookupAgentRequest]) (*connect.Response[v1.LookupAgentResponse], error)
+	// Request a relay allocation for NAT traversal
+	RequestRelay(context.Context, *connect.Request[v1.RequestRelayRequest]) (*connect.Response[v1.RequestRelayResponse], error)
+	// Release a relay allocation
+	ReleaseRelay(context.Context, *connect.Request[v1.ReleaseRelayRequest]) (*connect.Response[v1.ReleaseRelayResponse], error)
 	// Health check
 	Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error)
 }
@@ -77,6 +97,30 @@ func NewDiscoveryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(discoveryServiceMethods.ByName("LookupColony")),
 			connect.WithClientOptions(opts...),
 		),
+		registerAgent: connect.NewClient[v1.RegisterAgentRequest, v1.RegisterAgentResponse](
+			httpClient,
+			baseURL+DiscoveryServiceRegisterAgentProcedure,
+			connect.WithSchema(discoveryServiceMethods.ByName("RegisterAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		lookupAgent: connect.NewClient[v1.LookupAgentRequest, v1.LookupAgentResponse](
+			httpClient,
+			baseURL+DiscoveryServiceLookupAgentProcedure,
+			connect.WithSchema(discoveryServiceMethods.ByName("LookupAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		requestRelay: connect.NewClient[v1.RequestRelayRequest, v1.RequestRelayResponse](
+			httpClient,
+			baseURL+DiscoveryServiceRequestRelayProcedure,
+			connect.WithSchema(discoveryServiceMethods.ByName("RequestRelay")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseRelay: connect.NewClient[v1.ReleaseRelayRequest, v1.ReleaseRelayResponse](
+			httpClient,
+			baseURL+DiscoveryServiceReleaseRelayProcedure,
+			connect.WithSchema(discoveryServiceMethods.ByName("ReleaseRelay")),
+			connect.WithClientOptions(opts...),
+		),
 		health: connect.NewClient[v1.HealthRequest, v1.HealthResponse](
 			httpClient,
 			baseURL+DiscoveryServiceHealthProcedure,
@@ -90,6 +134,10 @@ func NewDiscoveryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 type discoveryServiceClient struct {
 	registerColony *connect.Client[v1.RegisterColonyRequest, v1.RegisterColonyResponse]
 	lookupColony   *connect.Client[v1.LookupColonyRequest, v1.LookupColonyResponse]
+	registerAgent  *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
+	lookupAgent    *connect.Client[v1.LookupAgentRequest, v1.LookupAgentResponse]
+	requestRelay   *connect.Client[v1.RequestRelayRequest, v1.RequestRelayResponse]
+	releaseRelay   *connect.Client[v1.ReleaseRelayRequest, v1.ReleaseRelayResponse]
 	health         *connect.Client[v1.HealthRequest, v1.HealthResponse]
 }
 
@@ -103,6 +151,26 @@ func (c *discoveryServiceClient) LookupColony(ctx context.Context, req *connect.
 	return c.lookupColony.CallUnary(ctx, req)
 }
 
+// RegisterAgent calls coral.discovery.v1.DiscoveryService.RegisterAgent.
+func (c *discoveryServiceClient) RegisterAgent(ctx context.Context, req *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error) {
+	return c.registerAgent.CallUnary(ctx, req)
+}
+
+// LookupAgent calls coral.discovery.v1.DiscoveryService.LookupAgent.
+func (c *discoveryServiceClient) LookupAgent(ctx context.Context, req *connect.Request[v1.LookupAgentRequest]) (*connect.Response[v1.LookupAgentResponse], error) {
+	return c.lookupAgent.CallUnary(ctx, req)
+}
+
+// RequestRelay calls coral.discovery.v1.DiscoveryService.RequestRelay.
+func (c *discoveryServiceClient) RequestRelay(ctx context.Context, req *connect.Request[v1.RequestRelayRequest]) (*connect.Response[v1.RequestRelayResponse], error) {
+	return c.requestRelay.CallUnary(ctx, req)
+}
+
+// ReleaseRelay calls coral.discovery.v1.DiscoveryService.ReleaseRelay.
+func (c *discoveryServiceClient) ReleaseRelay(ctx context.Context, req *connect.Request[v1.ReleaseRelayRequest]) (*connect.Response[v1.ReleaseRelayResponse], error) {
+	return c.releaseRelay.CallUnary(ctx, req)
+}
+
 // Health calls coral.discovery.v1.DiscoveryService.Health.
 func (c *discoveryServiceClient) Health(ctx context.Context, req *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error) {
 	return c.health.CallUnary(ctx, req)
@@ -114,6 +182,14 @@ type DiscoveryServiceHandler interface {
 	RegisterColony(context.Context, *connect.Request[v1.RegisterColonyRequest]) (*connect.Response[v1.RegisterColonyResponse], error)
 	// Lookup colony information by mesh ID
 	LookupColony(context.Context, *connect.Request[v1.LookupColonyRequest]) (*connect.Response[v1.LookupColonyResponse], error)
+	// Register or update an agent's information
+	RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error)
+	// Lookup agent information by agent ID
+	LookupAgent(context.Context, *connect.Request[v1.LookupAgentRequest]) (*connect.Response[v1.LookupAgentResponse], error)
+	// Request a relay allocation for NAT traversal
+	RequestRelay(context.Context, *connect.Request[v1.RequestRelayRequest]) (*connect.Response[v1.RequestRelayResponse], error)
+	// Release a relay allocation
+	ReleaseRelay(context.Context, *connect.Request[v1.ReleaseRelayRequest]) (*connect.Response[v1.ReleaseRelayResponse], error)
 	// Health check
 	Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error)
 }
@@ -137,6 +213,30 @@ func NewDiscoveryServiceHandler(svc DiscoveryServiceHandler, opts ...connect.Han
 		connect.WithSchema(discoveryServiceMethods.ByName("LookupColony")),
 		connect.WithHandlerOptions(opts...),
 	)
+	discoveryServiceRegisterAgentHandler := connect.NewUnaryHandler(
+		DiscoveryServiceRegisterAgentProcedure,
+		svc.RegisterAgent,
+		connect.WithSchema(discoveryServiceMethods.ByName("RegisterAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	discoveryServiceLookupAgentHandler := connect.NewUnaryHandler(
+		DiscoveryServiceLookupAgentProcedure,
+		svc.LookupAgent,
+		connect.WithSchema(discoveryServiceMethods.ByName("LookupAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	discoveryServiceRequestRelayHandler := connect.NewUnaryHandler(
+		DiscoveryServiceRequestRelayProcedure,
+		svc.RequestRelay,
+		connect.WithSchema(discoveryServiceMethods.ByName("RequestRelay")),
+		connect.WithHandlerOptions(opts...),
+	)
+	discoveryServiceReleaseRelayHandler := connect.NewUnaryHandler(
+		DiscoveryServiceReleaseRelayProcedure,
+		svc.ReleaseRelay,
+		connect.WithSchema(discoveryServiceMethods.ByName("ReleaseRelay")),
+		connect.WithHandlerOptions(opts...),
+	)
 	discoveryServiceHealthHandler := connect.NewUnaryHandler(
 		DiscoveryServiceHealthProcedure,
 		svc.Health,
@@ -149,6 +249,14 @@ func NewDiscoveryServiceHandler(svc DiscoveryServiceHandler, opts ...connect.Han
 			discoveryServiceRegisterColonyHandler.ServeHTTP(w, r)
 		case DiscoveryServiceLookupColonyProcedure:
 			discoveryServiceLookupColonyHandler.ServeHTTP(w, r)
+		case DiscoveryServiceRegisterAgentProcedure:
+			discoveryServiceRegisterAgentHandler.ServeHTTP(w, r)
+		case DiscoveryServiceLookupAgentProcedure:
+			discoveryServiceLookupAgentHandler.ServeHTTP(w, r)
+		case DiscoveryServiceRequestRelayProcedure:
+			discoveryServiceRequestRelayHandler.ServeHTTP(w, r)
+		case DiscoveryServiceReleaseRelayProcedure:
+			discoveryServiceReleaseRelayHandler.ServeHTTP(w, r)
 		case DiscoveryServiceHealthProcedure:
 			discoveryServiceHealthHandler.ServeHTTP(w, r)
 		default:
@@ -166,6 +274,22 @@ func (UnimplementedDiscoveryServiceHandler) RegisterColony(context.Context, *con
 
 func (UnimplementedDiscoveryServiceHandler) LookupColony(context.Context, *connect.Request[v1.LookupColonyRequest]) (*connect.Response[v1.LookupColonyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.LookupColony is not implemented"))
+}
+
+func (UnimplementedDiscoveryServiceHandler) RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.RegisterAgent is not implemented"))
+}
+
+func (UnimplementedDiscoveryServiceHandler) LookupAgent(context.Context, *connect.Request[v1.LookupAgentRequest]) (*connect.Response[v1.LookupAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.LookupAgent is not implemented"))
+}
+
+func (UnimplementedDiscoveryServiceHandler) RequestRelay(context.Context, *connect.Request[v1.RequestRelayRequest]) (*connect.Response[v1.RequestRelayResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.RequestRelay is not implemented"))
+}
+
+func (UnimplementedDiscoveryServiceHandler) ReleaseRelay(context.Context, *connect.Request[v1.ReleaseRelayRequest]) (*connect.Response[v1.ReleaseRelayResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.ReleaseRelay is not implemented"))
 }
 
 func (UnimplementedDiscoveryServiceHandler) Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error) {
