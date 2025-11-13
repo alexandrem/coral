@@ -30,6 +30,8 @@ and **public HTTPS endpoint** for external clients (Slack bots, GitHub Actions,
 mobile apps, etc.), enabling broad ecosystem integration without requiring VPN
 access.
 
+Reef exposes a dual interface: **private WireGuard mesh** for querying colonies, and **public HTTPS endpoint** for external clients (Slack bots, GitHub Actions, mobile apps, etc.), enabling broad ecosystem integration without requiring VPN access.
+
 ## Problem
 
 **Current behavior/limitations:**
@@ -118,6 +120,12 @@ provides unified intelligence:
   - Dual interface: Buf Connect RPC (for `coral reef` commands) + MCP server (for external tools)
   - LLM queries ClickHouse for context (federated metrics, correlations, deployment timeline)
   - No client-side LLM required (unlike `coral ask` which uses local Genkit)
+
+- **Dual network interface**: Reef operates in two network contexts
+  - **Private WireGuard mesh**: For querying colonies (encrypted, authenticated)
+  - **Public HTTPS endpoint**: For external integrations (Slack bots, CI/CD, mobile apps)
+  - Aggregated data only (no real-time sensitive data like colonies have)
+  - Standard authentication (API tokens, JWT, mTLS)
 
 - **Backward compatible**: Colonies work standalone, Reef is optional
     - Existing colonies continue working without Reef
@@ -371,6 +379,78 @@ rbac:
         -   email: bob@example.com
             role: developer
             reefs: [ my-infrastructure ]
+
+# Public endpoint (for external integrations)
+public_endpoint:
+  enabled: true
+  host: 0.0.0.0
+  port: 443
+  domain: reef.example.com
+  tls:
+    cert: /etc/reef/tls/cert.pem
+    key: /etc/reef/tls/key.pem
+    # Optional: Auto-cert via Let's Encrypt
+    # acme:
+    #   enabled: true
+    #   email: ops@example.com
+
+# MCP server (public access via SSE)
+mcp_server:
+  enabled: true
+  transport: sse          # HTTP-based for public access
+  path: /mcp/sse
+  auth: required          # Require authentication for all MCP requests
+
+# Authentication & Authorization
+auth:
+  # API token-based auth (for bots, CI/CD)
+  api_tokens:
+    - token_id: slackbot-token
+      token_hash: <bcrypt-hash>  # Actual token provided securely
+      permissions: [analyze, compare]
+      rate_limit: 100/hour
+      scopes: [my-infrastructure]
+
+    - token_id: github-actions
+      token_hash: <bcrypt-hash>
+      permissions: [analyze, deploy_status]
+      rate_limit: 500/hour
+      scopes: [my-infrastructure]
+
+  # JWT-based auth (for user sessions, web dashboard)
+  jwt:
+    enabled: true
+    issuer: https://reef.example.com
+    signing_key_env: REEF_JWT_SECRET
+    token_ttl: 1h
+    refresh_token_ttl: 30d
+
+  # mTLS auth (for trusted service-to-service)
+  mtls:
+    enabled: false
+    ca_cert: /etc/reef/ca/ca.pem
+    require_client_cert: true
+
+# RBAC (Role-Based Access Control)
+rbac:
+  roles:
+    - name: admin
+      permissions: ["*"]  # All permissions
+
+    - name: developer
+      permissions: [analyze, compare, deploy_status, correlations]
+
+    - name: readonly
+      permissions: [analyze, compare]
+
+  users:
+    - email: alice@example.com
+      role: admin
+      reefs: [my-infrastructure]
+
+    - email: bob@example.com
+      role: developer
+      reefs: [my-infrastructure]
 
 # Data collection
 collection:
