@@ -65,8 +65,12 @@ Augment Discovery with three capabilities:
 - **Discovery as rendezvous**: Keep a single logical control plane; agents and
   colonies already trust Discovery for bootstrap, so extending it avoids extra
   services.
-- **Token-bound sessions**: Use the same bootstrap tokens/certificates from RFD
-  022 to authenticate STUN/TURN requests, preventing open relays.
+- **Public STUN for Phase 1**: Use external public STUN servers (Cloudflare,
+  Google) for initial endpoint discovery. No authentication required as STUN is
+  a read-only protocol that reveals public IP/port.
+- **Token-bound relay sessions (Phase 3)**: When implementing relay fallback,
+  use bootstrap tokens/certificates from RFD 022 to authenticate relay
+  allocation, preventing open relay abuse.
 - **Relay neutrality**: Relays never decrypt payloads—WireGuard packets stay
   end-to-end encrypted. Relays track usage for billing/rate limiting.
 - **Config discovery**: CLI proxy and agents learn about available relays via
@@ -235,8 +239,13 @@ message RequestRelayResponse {
 
 ## Security Considerations
 
-- All STUN/TURN requests require valid bootstrap tokens/certificates (per RFD
-    022) to prevent anonymous abuse.
+- **Phase 1 (Public STUN)**: External STUN servers (Cloudflare, Google) are
+  public by design and require no authentication. STUN is a read-only protocol
+  that only reveals the requester's public IP/port, which is necessary for NAT
+  traversal.
+- **Phase 3 (Relay/TURN)**: Coral-operated relay servers will require valid
+  bootstrap tokens/certificates (per RFD 022) to prevent anonymous abuse and
+  open relay attacks.
 - Relays never decrypt WireGuard payloads; they simply forward UDP datagrams.
 - Discovery enforces rate limits per `mesh_id` and per certificate to avoid DoS.
 - Session metadata (public IPs, ports) is stored with short TTLs and removed
@@ -318,6 +327,13 @@ message RequestRelayResponse {
    - `ClassifyNAT()` function exists in `internal/wireguard/stun.go`
    - Requires multiple STUN servers (at least 2)
    - Discovery service doesn't use NAT hints for intelligent routing decisions
+
+7. **No STUN Authentication**: Phase 1 uses public STUN servers which don't require or support authentication:
+   - STUN protocol (RFC 5389) is intentionally unauthenticated for endpoint discovery
+   - Public STUN servers are operated by third parties (Cloudflare, Google)
+   - No protection against STUN server impersonation or response tampering
+   - **Note**: Authentication will be added in Phase 3 for relay allocation only
+   - **Security Impact**: Minimal - STUN only reveals public IP/port, no sensitive data exposed
 
 ### Configuration
 
