@@ -138,7 +138,6 @@ Colony STUN discovers correct port (54322) for Colony's IP
     - Metrics: STUN requests received, STUN responses sent, malformed packets
 
 2. **Agent**
-    - Remove SO_REUSEPORT from agent side (simplification)
     - Add colony STUN discovery phase before WireGuard connection
     - Query colony's IP:port with STUN Binding Request from WireGuard socket (no
       separate socket needed)
@@ -158,7 +157,6 @@ Colony STUN discovers correct port (54322) for Colony's IP
       STUN (0x00 or 0x01) from WireGuard (0x01-0x04)
     - STUN packets dispatched to STUN handler
     - WireGuard packets handled by existing bind
-    - Agent bind simplified (remove SO_REUSEPORT logic)
 
 **Configuration Example:**
 
