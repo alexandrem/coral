@@ -6,7 +6,7 @@ breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
-dependencies: ["001", "002", "003"]
+dependencies: ["001", "002", "003", "030"]
 database_migrations: []
 areas: ["mcp", "ai", "integration"]
 ---
@@ -22,6 +22,8 @@ Enable Coral colonies and reefs to expose their data as Model Context Protocol
 other LLMs) to query distributed system state, metrics, and insights directly.
 This transforms Coral from a standalone tool into a universal context provider
 for AI-powered operations.
+
+> **Architectural Note**: Colony acts as a lightweight MCP gateway (no embedded LLM), exposing data access tools. Reef hosts a server-side LLM service (RFD 003) and can provide AI-powered analysis tools. External LLMs (via `coral ask` with local Genkit per RFD 030, or Claude Desktop) consume these MCP tools for reasoning.
 
 ## Problem
 
@@ -101,12 +103,16 @@ operational data through standardized MCP tools:
   - No custom protocol needed
 
 - **Tool-based interface**: Expose Coral queries as MCP tools
-  - `coral_get_health`: Get current system health
-  - `coral_get_metrics`: Query specific metrics
-  - `coral_query_events`: Search events/incidents
-  - `coral_get_topology`: Get service dependency graph
-  - `coral_ask`: Natural language query (AI-powered)
-  - `coral_compare_environments`: Compare prod vs staging (reef only)
+  - Colony tools (data access):
+    - `coral_get_health`: Get current system health
+    - `coral_get_metrics`: Query specific metrics
+    - `coral_query_events`: Search events/incidents
+    - `coral_get_topology`: Get service dependency graph
+    - `coral_query_traces`: Query distributed traces
+  - Reef tools (data + AI analysis):
+    - `coral_reef_analyze`: AI-powered cross-colony analysis (uses Reef LLM)
+    - `coral_compare_environments`: Compare prod vs staging
+    - `coral_get_correlations`: Cross-colony correlation patterns
 
 - **Local-first**: MCP server runs locally, queries local colony/reef
   - No external service needed
@@ -154,7 +160,8 @@ operational data through standardized MCP tools:
 ┌─────────┐ ┌─────────┐ ┌──────────┐
 │ Colony  │ │ Colony  │ │   Reef   │
 │ Prod    │ │ Staging │ │ (RFD 003)│
-│ DuckDB  │ │ DuckDB  │ │  DuckDB  │
+│ DuckDB/ │ │ DuckDB/ │ │ ClickHouse│
+│ ClickH  │ │ ClickH  │ │ +LLM Svc │
 └─────────┘ └─────────┘ └──────────┘
 ```
 
@@ -323,31 +330,26 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
       }
     },
     {
-      "name": "coral_ask",
-      "description": "Natural language query about system state (AI-powered)",
+      "name": "coral_query_traces",
+      "description": "Query distributed traces for debugging",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "question": {
+          "service": {
             "type": "string",
-            "description": "Natural language question about the system"
+            "description": "Service to query traces for"
+          },
+          "time_range": {
+            "type": "string",
+            "description": "Time range (e.g., '1h', '24h')",
+            "default": "1h"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Optional filter expression"
           }
         },
-        "required": ["question"]
-      }
-    },
-    {
-      "name": "coral_get_insights",
-      "description": "Get AI-generated insights and anomalies",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "priority": {
-            "type": "string",
-            "description": "Filter by priority (high, medium, low)",
-            "enum": ["high", "medium", "low"]
-          }
-        }
+        "required": ["service"]
       }
     }
   ]
@@ -356,9 +358,30 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
 
 **Reef MCP Tools (additional):**
 
+> **Note**: Reef hosts a server-side LLM service (RFD 003), enabling AI-powered analysis tools. Colony MCP tools are data-only (no embedded LLM), while Reef MCP tools can include AI-generated insights.
+
 ```json
 {
   "tools": [
+    {
+      "name": "coral_reef_analyze",
+      "description": "AI-powered analysis across all colonies (uses Reef's server-side LLM)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "Natural language question about cross-colony state"
+          },
+          "time_window": {
+            "type": "string",
+            "description": "Analysis time window (e.g., '1h', '24h', '7d')",
+            "default": "24h"
+          }
+        },
+        "required": ["question"]
+      }
+    },
     {
       "name": "coral_compare_environments",
       "description": "Compare metrics across environments (prod vs staging)",
@@ -457,7 +480,7 @@ Coral implements MCP using JSON-RPC 2.0:
 }
 ```
 
-**Example natural language query:**
+**Example Reef AI-powered query:**
 
 ```json
 {
@@ -465,15 +488,16 @@ Coral implements MCP using JSON-RPC 2.0:
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "coral_ask",
+    "name": "coral_reef_analyze",
     "arguments": {
-      "question": "Are there any memory leaks in the last 24 hours?"
+      "question": "Are there any memory leaks across environments in the last 24 hours?",
+      "time_window": "24h"
     }
   }
 }
 ```
 
-**Response:**
+**Response (from Reef's server-side LLM):**
 
 ```json
 {
@@ -483,7 +507,7 @@ Coral implements MCP using JSON-RPC 2.0:
     "content": [
       {
         "type": "text",
-        "text": "Memory Analysis (Last 24h):\n\nNo memory leaks detected.\n\nMemory trends:\n- api: Stable at ~2.1GB (±50MB variance)\n- frontend: Stable at ~512MB (normal for React app)\n- database: Gradual increase from 4.2GB → 4.5GB (normal cache growth)\n\nRecommendation: No action needed. All services within normal parameters."
+        "text": "Memory Analysis Across Environments (Last 24h):\n\nNo memory leaks detected in any environment.\n\nProduction:\n- api: Stable at ~2.1GB (±50MB variance)\n- frontend: Stable at ~512MB (normal for React app)\n- database: Gradual increase from 4.2GB → 4.5GB (normal cache growth)\n\nStaging:\n- api: Similar pattern, ~1.8GB (lower traffic)\n- frontend: Stable at ~480MB\n- database: Stable at ~3.2GB\n\nRecommendation: No action needed. All services within normal parameters across all environments.\n\nModel: anthropic:claude-3-5-sonnet-20241022\nConfidence: 0.94"
       }
     ]
   }
@@ -538,12 +562,9 @@ coral_query_events
 coral_get_topology
   Get service dependency graph and topology
 
-coral_ask
-  Natural language query about system state (AI-powered)
-  Required: question
-
-coral_get_insights
-  Get AI-generated insights and anomalies
+coral_query_traces
+  Query distributed traces for debugging
+  Required: service
 
 ---
 
@@ -625,11 +646,11 @@ export CORAL_DEFAULT_COLONY=my-shop-production
 - [ ] Implement `coral_get_metrics` tool
 - [ ] Implement `coral_query_events` tool
 - [ ] Implement `coral_get_topology` tool
-- [ ] Implement `coral_ask` tool (delegates to AI)
-- [ ] Implement `coral_get_insights` tool
+- [ ] Implement `coral_query_traces` tool
 
 ### Phase 3: Reef MCP Tools
 
+- [ ] Implement `coral_reef_analyze` tool (uses Reef's server-side LLM from RFD 003)
 - [ ] Implement `coral_compare_environments` tool
 - [ ] Implement `coral_get_correlations` tool
 - [ ] Implement `coral_get_deployment_timeline` tool
@@ -809,7 +830,7 @@ Provide pre-built prompts for common operations:
 
 ### Streaming Responses
 
-For long-running queries (coral_ask), use MCP streaming:
+For long-running queries (coral_reef_analyze), use MCP streaming:
 
 ```json
 {
@@ -817,8 +838,8 @@ For long-running queries (coral_ask), use MCP streaming:
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "coral_ask",
-    "arguments": {"question": "Analyze last week's incidents"}
+    "name": "coral_reef_analyze",
+    "arguments": {"question": "Analyze last week's incidents across all environments"}
   }
 }
 
@@ -863,7 +884,7 @@ Developer in Claude Desktop:
 Claude:
 [Calls coral_get_health]
 [Calls coral_query_events(event_type=deploy)]
-[Calls coral_get_insights]
+[Calls coral_get_metrics(service=all)]
 
 "Based on production state:
 - All services healthy ✓
@@ -1019,8 +1040,16 @@ func main() {
 
 - RFD 001: Discovery service (unchanged)
 - RFD 002: Application identity (MCP server uses colony config)
-- RFD 003: Reef federation (Reef can expose MCP server too)
-- IMPLEMENTATION.md: Already mentions MCP server, this RFD expands it
+- RFD 003: Reef federation (Reef exposes MCP server with AI-powered tools via server-side LLM)
+- RFD 014: Abandoned (Colony-embedded LLM approach replaced; Colony is now MCP gateway only)
+- RFD 030: Coral ask CLI (local Genkit agent can consume Colony/Reef MCP tools)
+
+**LLM Architecture Integration:**
+
+- **Colony MCP**: Data-only tools (metrics, events, topology, traces) - no embedded LLM
+- **Reef MCP**: Data tools + AI-powered analysis (via server-side Genkit LLM service)
+- **External LLM clients**: Claude Desktop, custom tools, or local Genkit agents (RFD 030) consume MCP tools
+- **Three-tier model**: Colony (control plane) → Reef (enterprise intelligence) → Developer agents (exploration)
 
 **Why this is powerful:**
 

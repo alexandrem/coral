@@ -15,7 +15,7 @@ areas: [ "ai", "cli", "storage", "observability" ]
 
 **Status:** ❌ Abandoned
 
-> **DEPRECATION NOTICE**: This RFD has been abandoned in favor of the architectural direction outlined in ARCHITECTURE.MD. The design proposed here (embedding LLM orchestration inside the colony) has been superseded by a separated LLM architecture where Colony acts as an MCP gateway only.
+> **DEPRECATION NOTICE**: This RFD has been abandoned in favor of a separated LLM architecture. The design proposed here (embedding LLM orchestration inside the colony) has been superseded by an approach where Colony acts as an MCP gateway only, with LLM functionality separated into developer-side agents (RFD 030) and Reef's server-side service (RFD 003).
 >
 > **Replacement**: See RFD 030 for the new `coral ask` CLI design using local Genkit integration, and updates to RFD 003 for Reef's server-side LLM service.
 >
