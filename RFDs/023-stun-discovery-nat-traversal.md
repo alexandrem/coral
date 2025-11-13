@@ -7,7 +7,7 @@ testing_required: true
 database_changes: false
 api_changes: true
 dependencies: [ "001" ]
-database_migrations: []
+database_migrations: [ ]
 areas: [ "networking", "discovery" ]
 ---
 
@@ -17,20 +17,29 @@ areas: [ "networking", "discovery" ]
 
 ## Summary
 
-Enable colonies and agents behind NAT to discover their public IP addresses and ports using external STUN servers (Cloudflare, Google). The Discovery service tracks these observed endpoints and provides them to peers attempting to establish WireGuard connections. This allows direct peer-to-peer connectivity for cone NAT scenarios without requiring port forwarding or VPN tunnels. For symmetric NAT environments, see RFD 028 (colony-based STUN) as the next enhancement.
+Enable colonies and agents behind NAT to discover their public IP addresses
+and ports using external STUN servers (Cloudflare, Google). The Discovery
+service tracks these observed endpoints and provides them to peers attempting to
+establish WireGuard connections. This allows direct peer-to-peer connectivity
+for cone NAT scenarios without requiring port forwarding or VPN tunnels. For
+symmetric NAT environments, see RFD 029 (colony-based STUN) as the next
+enhancement.
 
 ## Problem
 
 - **Current behavior/limitations**:
     - Discovery only records static endpoints supplied by colonies/agents
-    - When a colony or agent is behind NAT with only private addresses, remote peers cannot reach it
-    - Operators must manually configure port forwarding or use VPN to enable connectivity
+    - When a colony or agent is behind NAT with only private addresses, remote
+      peers cannot reach it
+    - Operators must manually configure port forwarding or use VPN to enable
+      connectivity
     - No automatic discovery of public-facing endpoints
 
 - **Why this matters**:
     - Self-hosted colonies on home networks or laptops are a primary use case
     - Requiring manual port forwarding increases deployment complexity
-    - Many users operate behind NAT without public IP addresses (CGNAT, corporate networks)
+    - Many users operate behind NAT without public IP addresses (CGNAT,
+      corporate networks)
     - Dynamic IPs change frequently, breaking static endpoint configurations
 
 - **Use cases affected**:
@@ -40,25 +49,37 @@ Enable colonies and agents behind NAT to discover their public IP addresses and 
 
 ## Solution
 
-Use external STUN servers to discover public endpoints, then track them in the Discovery service:
+Use external STUN servers to discover public endpoints, then track them in the
+Discovery service:
 
-1. **STUN Query**: Colonies and agents query public STUN servers (Cloudflare, Google) from their WireGuard port to discover their public IP:port
-2. **Endpoint Registration**: Discovered endpoints are sent to Discovery service during registration
-3. **Endpoint Lookup**: Peers query Discovery to retrieve observed endpoints for connection targets
-4. **Direct Connection**: WireGuard uses observed endpoints for direct peer-to-peer connectivity
+1. **STUN Query**: Colonies and agents query public STUN servers (Cloudflare,
+   Google) from their WireGuard port to discover their public IP:port
+2. **Endpoint Registration**: Discovered endpoints are sent to Discovery service
+   during registration
+3. **Endpoint Lookup**: Peers query Discovery to retrieve observed endpoints for
+   connection targets
+4. **Direct Connection**: WireGuard uses observed endpoints for direct
+   peer-to-peer connectivity
 
 **Key Design Decisions**
 
-- **External STUN Servers**: Use well-known public STUN infrastructure (Cloudflare: `stun.cloudflare.com:3478`) instead of self-hosting
-- **No Authentication Required**: STUN is a read-only protocol that only reveals public IP/port; no sensitive data exposed
-- **Configurable STUN Servers**: Allow operators to specify custom STUN servers via CLI flags or environment variables
-- **TTL-Based Expiration**: Observed endpoints expire after configurable TTL (default 5 minutes) to handle dynamic IPs
-- **Split-Brain Detection**: Prevent duplicate registrations with different WireGuard public keys using the same mesh ID
-- **Endpoint Validation**: Reject invalid endpoint configurations (e.g., port 0 with no static endpoints)
+- **External STUN Servers**: Use well-known public STUN infrastructure (
+  Cloudflare: `stun.cloudflare.com:3478`) instead of self-hosting
+- **No Authentication Required**: STUN is a read-only protocol that only reveals
+  public IP/port; no sensitive data exposed
+- **Configurable STUN Servers**: Allow operators to specify custom STUN servers
+  via CLI flags or environment variables
+- **TTL-Based Expiration**: Observed endpoints expire after configurable TTL (
+  default 5 minutes) to handle dynamic IPs
+- **Split-Brain Detection**: Prevent duplicate registrations with different
+  WireGuard public keys using the same mesh ID
+- **Endpoint Validation**: Reject invalid endpoint configurations (e.g., port 0
+  with no static endpoints)
 
 **Benefits**
 
-- Zero-config NAT traversal for cone NAT environments (most home/small office routers)
+- Zero-config NAT traversal for cone NAT environments (most home/small office
+  routers)
 - No port forwarding required for colonies behind NAT
 - Automatic handling of dynamic IP addresses
 - Works with existing WireGuard implementation (no protocol changes)
@@ -120,15 +141,18 @@ Use external STUN servers to discover public endpoints, then track them in the D
 
 2. **Discovery Registry** (`internal/discovery/registry/`)
     - Stores observed endpoints with TTL-based expiration
-    - Implements split-brain detection (prevents duplicate mesh_id with different pubkeys)
-    - Validates endpoint configurations (rejects port 0 without static endpoints)
+    - Implements split-brain detection (prevents duplicate mesh_id with
+      different pubkeys)
+    - Validates endpoint configurations (rejects port 0 without static
+      endpoints)
     - Returns observed endpoints in `LookupColony` and `LookupAgent` responses
 
 3. **Discovery Proto** (`proto/coral/discovery/v1/discovery.proto`)
     - Added `Endpoint` message with `ip`, `port`, `protocol` fields
     - Added `observed_endpoints` field to registration requests/responses
     - Added `NatHint` enum for NAT type classification
-    - Added placeholder APIs for future relay support (`RequestRelay`, `ReleaseRelay`)
+    - Added placeholder APIs for future relay support (`RequestRelay`,
+      `ReleaseRelay`)
 
 4. **Colony STUN Integration** (`internal/cli/colony/`)
     - Discovers public endpoint before registering with Discovery
@@ -139,22 +163,8 @@ Use external STUN servers to discover public endpoints, then track them in the D
     - Discovers public endpoint before registering with Discovery
     - Includes observed endpoint in `RegisterAgent` request
     - Retrieves colony observed endpoints via `LookupColony`
-    - Attempts connection to observed endpoints first, falls back to static endpoints
-
-## Implementation
-
-Implementation completed in branch `feat/discovery-nat`:
-
-- [x] STUN client library (`internal/wireguard/stun.go`)
-- [x] Discovery service registry with observed endpoint tracking
-- [x] Proto definitions for observed endpoints and NAT hints
-- [x] Colony STUN discovery and registration
-- [x] Agent STUN discovery and registration
-- [x] Split-brain detection in registry
-- [x] Endpoint validation logic
-- [x] Comprehensive test coverage (registry, server, STUN)
-- [x] Configuration via CLI flags and environment variables
-- [x] Documentation in code comments
+    - Attempts connection to observed endpoints first, falls back to static
+      endpoints
 
 ## API Changes
 
@@ -218,7 +228,7 @@ coral agent start --wg-port=51821
 
 ## Testing Strategy
 
-### Unit Tests (Implemented)
+### Unit Tests
 
 - STUN Binding Request/Response parsing (RFC 5389)
 - NAT type classification logic
@@ -226,10 +236,11 @@ coral agent start --wg-port=51821
 - Endpoint validation (port 0, missing endpoints)
 - TTL-based expiration
 
-### Integration Tests (Implemented)
+### Integration Tests
 
 - Registry operations: register, lookup, update, expiration
-- Discovery service RPCs: RegisterColony, RegisterAgent, LookupColony, LookupAgent
+- Discovery service RPCs: RegisterColony, RegisterAgent, LookupColony,
+  LookupAgent
 - Split-brain scenarios (duplicate mesh_id with different pubkeys)
 - Endpoint validation edge cases
 
@@ -241,25 +252,37 @@ coral agent start --wg-port=51821
 
 ## Security Considerations
 
-- **Public STUN Servers**: Use external third-party STUN servers (Cloudflare, Google) which are public by design and require no authentication. STUN is a read-only protocol that only reveals the requester's public IP:port.
-- **Information Disclosure**: STUN necessarily reveals public endpoints, but this contains no sensitive application data. Only IP addresses and UDP ports are exposed.
-- **Third-Party Trust**: Reliance on external STUN servers means trusting Cloudflare/Google infrastructure. Operators can configure alternative STUN servers if desired.
-- **Split-Brain Protection**: Registry prevents duplicate mesh_id registrations with different WireGuard public keys, protecting against identity conflicts.
-- **TTL-Based Expiration**: Observed endpoints expire after 5 minutes by default, limiting exposure of stale endpoint data.
-- **WireGuard Security Unchanged**: STUN is pre-authentication; actual WireGuard connections still require valid cryptographic keys.
+- **Public STUN Servers**: Use external third-party STUN servers (Cloudflare,
+  Google) which are public by design and require no authentication. STUN is a
+  read-only protocol that only reveals the requester's public IP:port.
+- **Information Disclosure**: STUN necessarily reveals public endpoints, but
+  this contains no sensitive application data. Only IP addresses and UDP ports
+  are exposed.
+- **Third-Party Trust**: Reliance on external STUN servers means trusting
+  Cloudflare/Google infrastructure. Operators can configure alternative STUN
+  servers if desired.
+- **Split-Brain Protection**: Registry prevents duplicate mesh_id registrations
+  with different WireGuard public keys, protecting against identity conflicts.
+- **TTL-Based Expiration**: Observed endpoints expire after 5 minutes by
+  default, limiting exposure of stale endpoint data.
+- **WireGuard Security Unchanged**: STUN is pre-authentication; actual WireGuard
+  connections still require valid cryptographic keys.
 
 ## Known Limitations and Future Work
 
 ### 1. Symmetric NAT Compatibility
 
-**Issue**: Public STUN servers discover destination-specific ports that don't work for other peers.
+**Issue**: Public STUN servers discover destination-specific ports that don't
+work for other peers.
 
 With symmetric NAT (common in corporate networks, mobile carriers, CGNAT):
+
 - STUN query to `stun.cloudflare.com` discovers port `54321`
 - But when colony connects from different IP, NAT assigns port `54322`
 - Direct connections fail because colony tries the wrong port
 
-**Solution**: See **RFD 028** for colony-based STUN that discovers the correct destination-specific port.
+**Solution**: See **RFD 029** for colony-based STUN that discovers the
+correct destination-specific port.
 
 ### 2. IPv6 Not Supported
 
@@ -279,17 +302,20 @@ With symmetric NAT (common in corporate networks, mobile carriers, CGNAT):
 - Requires querying multiple STUN servers
 - Discovery service stores NAT hint but doesn't use it for routing decisions
 
-**Future Work**: Use NAT classification to skip STUN for full-cone NAT or suggest relay for symmetric NAT.
+**Future Work**: Use NAT classification to skip STUN for full-cone NAT or
+suggest relay for symmetric NAT.
 
 ### 4. No Relay Fallback
 
-**Issue**: When direct connection fails (firewall, symmetric NAT), no fallback mechanism exists.
+**Issue**: When direct connection fails (firewall, symmetric NAT), no fallback
+mechanism exists.
 
-- Placeholder relay APIs (`RequestRelay`, `ReleaseRelay`) exist in proto but return dummy data
+- Placeholder relay APIs (`RequestRelay`, `ReleaseRelay`) exist in proto but
+  return dummy data
 - No actual relay server implementation
 - Users must manually configure VPN or port forwarding
 
-**Future Work**: See **RFD 028** for relay architecture and implementation plan.
+**Future Work**: See **RFD 029** for relay architecture and implementation plan.
 
 ### 5. NAT Mapping Timeout Handling
 
@@ -299,4 +325,5 @@ With symmetric NAT (common in corporate networks, mobile carriers, CGNAT):
 - If peer lookup or connection is delayed, mapping may be lost
 - WireGuard's own keepalive (25 seconds) only works after handshake completes
 
-**Future Work**: Add lightweight UDP keepalive packets to maintain NAT holes during connection setup.
+**Future Work**: Add lightweight UDP keepalive packets to maintain NAT holes
+during connection setup.
