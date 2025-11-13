@@ -239,10 +239,15 @@ func (s *Server) RequestRelay(
 	// Generate session ID
 	sessionID := fmt.Sprintf("relay-%d", time.Now().UnixNano())
 
-	// For now, use a default relay endpoint
-	// In production, this would select from available relay servers
+	// LIMITATION: Relay implementation is currently a placeholder.
+	// This returns a hardcoded relay endpoint that does not actually exist.
+	// TODO (RFD 023 Phase 3): Implement actual relay server with:
+	//   - Real relay selection logic based on load and region.
+	//   - Actual packet forwarding between agent and colony.
+	//   - Dedicated coral-relay binary for relay operations.
+	// For now, this API exists to test the discovery service flow.
 	relayEndpoint := &discoveryv1.Endpoint{
-		Ip:       "relay.coral.io", // Placeholder
+		Ip:       "relay.coral.io", // PLACEHOLDER: This endpoint does not exist yet.
 		Port:     3478,
 		Protocol: "udp",
 		ViaRelay: true,
