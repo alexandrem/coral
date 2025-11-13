@@ -94,7 +94,6 @@ func (r *Registry) Register(
 		if now.Before(existing.ExpiresAt) {
 			// Active registration exists. Allow update if same pubkey (renewal).
 			if existing.PubKey != pubkey {
-				r.mu.Unlock()
 				return nil, fmt.Errorf(
 					"colony/agent '%s' already registered with different public key until %v (existing: %s, new: %s). "+
 						"This may indicate a split-brain scenario. Wait for lease expiration or use a different ID",
