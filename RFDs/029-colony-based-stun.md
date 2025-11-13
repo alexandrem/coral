@@ -68,7 +68,8 @@ NAT hole as a side effect.
 
 - **Colony-side STUN**: Each colony runs a STUN server on the same UDP port as
   WireGuard, eliminating port-restricted cone NAT issues
-- **Single socket with `SO_REUSEPORT` on colony only**: Colony needs port sharing
+- **Single socket with `SO_REUSEPORT` on colony only**: Colony needs port
+  sharing
   between STUN and WireGuard; agents don't need `SO_REUSEPORT`
 - **Fast handshake path**: Agent immediately sends WireGuard handshake after
   STUN to prevent NAT mapping expiration (30-60 second timeout)
@@ -193,7 +194,6 @@ agent:
 ### Phase 2: Agent Colony-STUN Client
 
 - [ ] Modify agent STUN discovery to query colony IP first
-- [ ] Remove SO_REUSEPORT from agent bind implementation
 - [ ] Add immediate WireGuard handshake after STUN response
 - [ ] Implement fallback to public STUN if colony STUN fails
 - [ ] Add timeout and retry logic
@@ -215,7 +215,6 @@ agent:
 ### Phase 5: Documentation & Migration
 
 - [ ] Update NAT traversal documentation with symmetric NAT support
-- [ ] Migration guide from SO_REUSEPORT agent implementation
 - [ ] Configuration best practices (when to use separate STUN port)
 - [ ] Troubleshooting guide for NAT-related connection failures
 
@@ -352,7 +351,7 @@ coral discovery start --enable-stun --stun-port=3478
 coral agent start --wg-port=51821 --stun-servers=stun.cloudflare.com:3478
 ```
 
-**After (RFD 028 - Colony STUN preferred):**
+**After (RFD 029 - Colony STUN preferred):**
 
 ```bash
 coral agent start --wg-port=51821
@@ -375,7 +374,7 @@ coral agent start --wg-port=51821
 - **Decision**: Colony STUN is simpler and more reliable; pursue as primary
   solution
 
-### Alternative 2: Always Use Relay (RFD 023 Phase 3)
+### Alternative 2: Always Use Relay
 
 - **Approach**: Skip NAT traversal, always route through TURN relay
 - **Pros**: Guaranteed connectivity; no NAT detection needed
