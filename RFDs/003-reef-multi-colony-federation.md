@@ -113,6 +113,12 @@ provides unified intelligence:
     - Aggregated data only (no real-time sensitive data like colonies have)
     - Standard authentication (API tokens, JWT, mTLS)
 
+- **Server-side LLM service**: Reef hosts enterprise Genkit-powered LLM
+  - Provides consistent, audited AI analysis across the organization
+  - Dual interface: Buf Connect RPC (for `coral reef` commands) + MCP server (for external tools)
+  - LLM queries ClickHouse for context (federated metrics, correlations, deployment timeline)
+  - No client-side LLM required (unlike `coral ask` which uses local Genkit)
+
 - **Backward compatible**: Colonies work standalone, Reef is optional
     - Existing colonies continue working without Reef
     - Reef can be added later without migration
@@ -387,6 +393,11 @@ ai:
     rate_limit:
         requests_per_user_per_hour: 100
         max_concurrent_requests: 10
+
+  # Rate limiting for coral reef commands
+  rate_limit:
+    requests_per_user_per_hour: 100
+    max_concurrent_requests: 10
 
 # Dashboard
 dashboard:
