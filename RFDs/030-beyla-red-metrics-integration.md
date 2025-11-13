@@ -17,7 +17,7 @@ areas: ["observability", "ebpf", "metrics", "tracing"]
 
 ## Summary
 
-Integrate Grafana Beyla, a battle-tested eBPF-based auto-instrumentation tool, into Coral agents to provide production-ready RED (Rate, Errors, Duration) metrics collection for HTTP, gRPC, databases, and message queues. Beyla will serve as the foundation for application observability, supplemented by custom eBPF programs (detailed in a future RFD) for Coral-specific insights like multi-service correlation and AI-driven diagnostics.
+Integrate Beyla, an OpenTelemetry eBPF-based auto-instrumentation tool (originally developed by Grafana Labs, now donated to the CNCF OpenTelemetry project), into Coral agents to provide production-ready RED (Rate, Errors, Duration) metrics collection for HTTP, gRPC, databases, and message queues. Beyla will serve as the foundation for application observability, supplemented by custom eBPF programs (detailed in a future RFD) for Coral-specific insights like multi-service correlation and AI-driven diagnostics.
 
 ## Problem
 
@@ -47,7 +47,7 @@ RFD 013 proposes building eBPF instrumentation from scratch, which presents seve
 
 ## Solution
 
-Embed Grafana Beyla as a library component within Coral agents to handle standard RED metrics collection for common protocols (HTTP/1.1, HTTP/2, gRPC, Kafka, Redis, PostgreSQL, MySQL). Beyla provides battle-tested, production-ready instrumentation maintained by a large open-source community. Coral agents will:
+Embed Beyla as a library component within Coral agents to handle standard RED metrics collection for common protocols (HTTP/1.1, HTTP/2, gRPC, Kafka, Redis, PostgreSQL, MySQL). Beyla provides battle-tested, production-ready instrumentation maintained by the OpenTelemetry community under CNCF governance. Coral agents will:
 
 1. **Use Beyla for baseline RED metrics**: Leverage Beyla's mature protocol parsers, kernel compatibility matrix, and extensive testing.
 2. **Supplement with custom eBPF programs**: Add Coral-specific collectors for advanced use cases (detailed in a future RFD) such as:
@@ -71,9 +71,9 @@ This hybrid approach combines the reliability of a proven tool with the flexibil
 
 - **Faster time-to-production**: Beyla is production-ready today, supporting 10+ protocols and 7+ language runtimes. No months-long stabilization cycle.
 - **Broad compatibility**: Beyla handles kernel 4.18+ (RHEL 8), 5.8+ (Ubuntu 20.04), and gracefully degrades on older kernels. Covers 95%+ of production Linux environments.
-- **Community-driven maintenance**: Grafana Labs and contributors continuously update Beyla for new kernel versions, protocol changes, and runtime updates (e.g., Go 1.23, Java 21 virtual threads).
+- **CNCF/OpenTelemetry governance**: As part of the OpenTelemetry project under CNCF, Beyla benefits from vendor-neutral governance, broad industry adoption, and long-term sustainability. The OpenTelemetry community continuously updates Beyla for new kernel versions, protocol changes, and runtime updates (e.g., Go 1.23, Java 21 virtual threads).
 - **Rich protocol support**: Out-of-the-box instrumentation for HTTP/1.1, HTTP/2, gRPC (unary + streaming), Kafka, Redis (RESP2/RESP3), PostgreSQL, MySQL, SQL Server.
-- **Distributed tracing**: Beyla propagates W3C Trace Context and Baggage headers, enabling end-to-end trace correlation across polyglot microservices.
+- **Native OpenTelemetry integration**: Beyla natively exports OpenTelemetry metrics and traces, providing seamless integration with the broader OTEL ecosystem and propagating W3C Trace Context and Baggage headers for end-to-end trace correlation.
 - **Resource efficiency**: Beyla uses CO-RE (Compile Once, Run Everywhere) eBPF programs, minimizing memory footprint and CPU overhead (<2% in typical workloads).
 - **Focus engineering on differentiation**: Coral team can prioritize AI orchestration, multi-colony federation, and advanced correlation instead of reinventing protocol parsers.
 
@@ -114,7 +114,7 @@ This hybrid approach combines the reliability of a proven tool with the flexibil
 ### Component Changes
 
 1. **Agent (node & multi-service)**
-   - Embed Beyla as a Go module dependency (`github.com/grafana/beyla`).
+   - Embed Beyla as a Go module dependency (OpenTelemetry eBPF instrumentation library).
    - Configure Beyla to instrument target processes (all containers on node agent, specific services on multi-service agent).
    - Consume Beyla's internal metrics pipeline (bypassing OTel exporter overhead) to get raw RED data.
    - Merge Beyla metrics with custom eBPF events in unified aggregator.
@@ -611,7 +611,7 @@ ai:
 - Container runtime insights (cgroup throttling, OOM events, CPU/memory pressure).
 
 **Beyla enhancements**:
-- Contribute Coral-specific features back to Grafana Beyla (e.g., custom attribute injection for colony ID).
+- Contribute Coral-specific features back to the OpenTelemetry Beyla project (e.g., custom attribute injection for colony ID).
 - Explore Beyla's roadmap for new protocols (WebSockets, QUIC/HTTP3, MQTT, NATS).
 
 **Advanced tracing**:
@@ -628,19 +628,19 @@ ai:
 | **Protocol support** | 10+ protocols out-of-box | Implement each protocol manually |
 | **Kernel compatibility** | Tested on 100+ kernel versions | Requires extensive testing |
 | **Runtime support** | 7+ languages (Go, Java, Python, etc.) | Language-specific unwinders needed |
-| **Maintenance burden** | Community-maintained, automatic updates | Coral team maintains all code |
+| **Maintenance burden** | CNCF/OpenTelemetry community-maintained | Coral team maintains all code |
 | **Customization** | Limited (fork required) | Full control over implementation |
 | **Coral-specific features** | Not available (mesh correlation, AI orchestration) | Designed for Coral architecture |
-| **Production readiness** | Battle-tested in Grafana Cloud | Requires stabilization period |
+| **Production readiness** | Battle-tested across OTEL ecosystem | Requires stabilization period |
 
 **Conclusion**: Use Beyla for commodity observability (RED metrics, traces), custom eBPF for differentiation (WireGuard stats, AI profiling, multi-colony correlation).
 
 ### Beyla References
 
-- **Official repository**: https://github.com/grafana/beyla
-- **Documentation**: https://grafana.com/docs/beyla/latest/
-- **Supported protocols**: https://grafana.com/docs/beyla/latest/configure/
-- **OpenTelemetry integration**: https://grafana.com/docs/beyla/latest/tutorial/getting-started/
+- **Official repository**: https://github.com/open-telemetry/opentelemetry-ebpf (OpenTelemetry eBPF project, includes Beyla)
+- **Legacy repository**: https://github.com/grafana/beyla (original Grafana repository, may redirect)
+- **OpenTelemetry documentation**: https://opentelemetry.io/docs/
+- **Note**: As Beyla was recently donated to OpenTelemetry, documentation and repository locations may be in transition. Check the OpenTelemetry project for the most current information.
 
 ### Example Beyla Configuration (Standalone)
 
