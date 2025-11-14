@@ -122,3 +122,21 @@ func (h *ServiceHandler) ListServices(
 		Services: serviceStatuses,
 	}), nil
 }
+
+// QueryTelemetry retrieves filtered telemetry spans from the agent's local storage.
+// This is part of RFD 025 pull-based telemetry model.
+func (h *ServiceHandler) QueryTelemetry(
+	ctx context.Context,
+	req *connect.Request[agentv1.QueryTelemetryRequest],
+) (*connect.Response[agentv1.QueryTelemetryResponse], error) {
+	// TODO: Implement telemetry querying from local storage (RFD 025).
+	// This will query the agent's local telemetry store for spans matching the criteria:
+	// - Time range: req.Msg.StartTime to req.Msg.EndTime
+	// - Service names: req.Msg.ServiceNames (filter by these if provided)
+	// Return filtered spans that the colony requested.
+
+	return connect.NewResponse(&agentv1.QueryTelemetryResponse{
+		Spans:      []*agentv1.TelemetrySpan{},
+		TotalSpans: 0,
+	}), nil
+}

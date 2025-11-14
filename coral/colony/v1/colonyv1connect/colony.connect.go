@@ -42,9 +42,9 @@ const (
 	// ColonyServiceGetTopologyProcedure is the fully-qualified name of the ColonyService's GetTopology
 	// RPC.
 	ColonyServiceGetTopologyProcedure = "/coral.colony.v1.ColonyService/GetTopology"
-	// ColonyServiceIngestTelemetryProcedure is the fully-qualified name of the ColonyService's
-	// IngestTelemetry RPC.
-	ColonyServiceIngestTelemetryProcedure = "/coral.colony.v1.ColonyService/IngestTelemetry"
+	// ColonyServiceQueryTelemetryProcedure is the fully-qualified name of the ColonyService's
+	// QueryTelemetry RPC.
+	ColonyServiceQueryTelemetryProcedure = "/coral.colony.v1.ColonyService/QueryTelemetry"
 )
 
 // ColonyServiceClient is a client for the coral.colony.v1.ColonyService service.
@@ -55,8 +55,8 @@ type ColonyServiceClient interface {
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	// Get network topology.
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
-	// Ingest telemetry data from agents (RFD 025).
-	IngestTelemetry(context.Context, *connect.Request[v1.IngestTelemetryRequest]) (*connect.Response[v1.IngestTelemetryResponse], error)
+	// Query telemetry data from agent (RFD 025 - pull-based).
+	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 }
 
 // NewColonyServiceClient constructs a client for the coral.colony.v1.ColonyService service. By
@@ -88,10 +88,10 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("GetTopology")),
 			connect.WithClientOptions(opts...),
 		),
-		ingestTelemetry: connect.NewClient[v1.IngestTelemetryRequest, v1.IngestTelemetryResponse](
+		queryTelemetry: connect.NewClient[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse](
 			httpClient,
-			baseURL+ColonyServiceIngestTelemetryProcedure,
-			connect.WithSchema(colonyServiceMethods.ByName("IngestTelemetry")),
+			baseURL+ColonyServiceQueryTelemetryProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("QueryTelemetry")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -99,10 +99,10 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // colonyServiceClient implements ColonyServiceClient.
 type colonyServiceClient struct {
-	getStatus       *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
-	listAgents      *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	getTopology     *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
-	ingestTelemetry *connect.Client[v1.IngestTelemetryRequest, v1.IngestTelemetryResponse]
+	getStatus      *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
+	listAgents     *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	getTopology    *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
+	queryTelemetry *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -120,9 +120,9 @@ func (c *colonyServiceClient) GetTopology(ctx context.Context, req *connect.Requ
 	return c.getTopology.CallUnary(ctx, req)
 }
 
-// IngestTelemetry calls coral.colony.v1.ColonyService.IngestTelemetry.
-func (c *colonyServiceClient) IngestTelemetry(ctx context.Context, req *connect.Request[v1.IngestTelemetryRequest]) (*connect.Response[v1.IngestTelemetryResponse], error) {
-	return c.ingestTelemetry.CallUnary(ctx, req)
+// QueryTelemetry calls coral.colony.v1.ColonyService.QueryTelemetry.
+func (c *colonyServiceClient) QueryTelemetry(ctx context.Context, req *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
+	return c.queryTelemetry.CallUnary(ctx, req)
 }
 
 // ColonyServiceHandler is an implementation of the coral.colony.v1.ColonyService service.
@@ -133,8 +133,8 @@ type ColonyServiceHandler interface {
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	// Get network topology.
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
-	// Ingest telemetry data from agents (RFD 025).
-	IngestTelemetry(context.Context, *connect.Request[v1.IngestTelemetryRequest]) (*connect.Response[v1.IngestTelemetryResponse], error)
+	// Query telemetry data from agent (RFD 025 - pull-based).
+	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 }
 
 // NewColonyServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -162,10 +162,10 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("GetTopology")),
 		connect.WithHandlerOptions(opts...),
 	)
-	colonyServiceIngestTelemetryHandler := connect.NewUnaryHandler(
-		ColonyServiceIngestTelemetryProcedure,
-		svc.IngestTelemetry,
-		connect.WithSchema(colonyServiceMethods.ByName("IngestTelemetry")),
+	colonyServiceQueryTelemetryHandler := connect.NewUnaryHandler(
+		ColonyServiceQueryTelemetryProcedure,
+		svc.QueryTelemetry,
+		connect.WithSchema(colonyServiceMethods.ByName("QueryTelemetry")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/coral.colony.v1.ColonyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -176,8 +176,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceListAgentsHandler.ServeHTTP(w, r)
 		case ColonyServiceGetTopologyProcedure:
 			colonyServiceGetTopologyHandler.ServeHTTP(w, r)
-		case ColonyServiceIngestTelemetryProcedure:
-			colonyServiceIngestTelemetryHandler.ServeHTTP(w, r)
+		case ColonyServiceQueryTelemetryProcedure:
+			colonyServiceQueryTelemetryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -199,6 +199,6 @@ func (UnimplementedColonyServiceHandler) GetTopology(context.Context, *connect.R
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.GetTopology is not implemented"))
 }
 
-func (UnimplementedColonyServiceHandler) IngestTelemetry(context.Context, *connect.Request[v1.IngestTelemetryRequest]) (*connect.Response[v1.IngestTelemetryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.IngestTelemetry is not implemented"))
+func (UnimplementedColonyServiceHandler) QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryTelemetry is not implemented"))
 }

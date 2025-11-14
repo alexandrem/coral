@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func TestInsertTelemetryBuckets(t *testing.T) {
+func TestInsertTelemetrySummaries(t *testing.T) {
 	// Create temporary database.
 	tmpDir := t.TempDir()
 	db, err := New(tmpDir, "test-colony", zerolog.Nop())
@@ -19,9 +19,9 @@ func TestInsertTelemetryBuckets(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create test buckets.
+	// Create test summaries.
 	now := time.Now().Truncate(time.Minute)
-	buckets := []TelemetryBucket{
+	summaries := []TelemetrySummary{
 		{
 			BucketTime:   now,
 			AgentID:      "agent-1",
@@ -48,35 +48,35 @@ func TestInsertTelemetryBuckets(t *testing.T) {
 		},
 	}
 
-	// Insert buckets.
-	err = db.InsertTelemetryBuckets(ctx, buckets)
+	// Insert summaries.
+	err = db.InsertTelemetrySummaries(ctx, summaries)
 	if err != nil {
-		t.Fatalf("Failed to insert buckets: %v", err)
+		t.Fatalf("Failed to insert summaries: %v", err)
 	}
 
-	// Query buckets back.
-	retrieved, err := db.QueryTelemetryBuckets(ctx, "agent-1", now.Add(-1*time.Minute), now.Add(1*time.Minute))
+	// Query summaries back.
+	retrieved, err := db.QueryTelemetrySummaries(ctx, "agent-1", now.Add(-1*time.Minute), now.Add(1*time.Minute))
 	if err != nil {
-		t.Fatalf("Failed to query buckets: %v", err)
+		t.Fatalf("Failed to query summaries: %v", err)
 	}
 
 	if len(retrieved) != 2 {
-		t.Errorf("Expected 2 buckets, got %d", len(retrieved))
+		t.Errorf("Expected 2 summaries, got %d", len(retrieved))
 	}
 
-	// Verify first bucket.
+	// Verify first summary.
 	if len(retrieved) > 0 {
-		bucket := retrieved[0]
-		if bucket.ServiceName != "payment" && bucket.ServiceName != "checkout" {
-			t.Errorf("Unexpected service name: %s", bucket.ServiceName)
+		summary := retrieved[0]
+		if summary.ServiceName != "payment" && summary.ServiceName != "checkout" {
+			t.Errorf("Unexpected service name: %s", summary.ServiceName)
 		}
-		if bucket.AgentID != "agent-1" {
-			t.Errorf("Expected agent_id='agent-1', got '%s'", bucket.AgentID)
+		if summary.AgentID != "agent-1" {
+			t.Errorf("Expected agent_id='agent-1', got '%s'", summary.AgentID)
 		}
 	}
 }
 
-func TestInsertTelemetryBuckets_Upsert(t *testing.T) {
+func TestInsertTelemetrySummaries_Upsert(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := New(tmpDir, "test-colony", zerolog.Nop())
 	if err != nil {
@@ -87,8 +87,8 @@ func TestInsertTelemetryBuckets_Upsert(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Minute)
 
-	// Insert initial bucket.
-	initial := []TelemetryBucket{
+	// Insert initial summary.
+	initial := []TelemetrySummary{
 		{
 			BucketTime:   now,
 			AgentID:      "agent-1",
@@ -103,13 +103,13 @@ func TestInsertTelemetryBuckets_Upsert(t *testing.T) {
 		},
 	}
 
-	err = db.InsertTelemetryBuckets(ctx, initial)
+	err = db.InsertTelemetrySummaries(ctx, initial)
 	if err != nil {
-		t.Fatalf("Failed to insert initial bucket: %v", err)
+		t.Fatalf("Failed to insert initial summary: %v", err)
 	}
 
 	// Update with new values (same key: bucket_time, agent_id, service_name, span_kind).
-	updated := []TelemetryBucket{
+	updated := []TelemetrySummary{
 		{
 			BucketTime:   now,
 			AgentID:      "agent-1",
@@ -124,31 +124,31 @@ func TestInsertTelemetryBuckets_Upsert(t *testing.T) {
 		},
 	}
 
-	err = db.InsertTelemetryBuckets(ctx, updated)
+	err = db.InsertTelemetrySummaries(ctx, updated)
 	if err != nil {
-		t.Fatalf("Failed to upsert bucket: %v", err)
+		t.Fatalf("Failed to upsert summary: %v", err)
 	}
 
 	// Query and verify update.
-	retrieved, err := db.QueryTelemetryBuckets(ctx, "agent-1", now.Add(-1*time.Minute), now.Add(1*time.Minute))
+	retrieved, err := db.QueryTelemetrySummaries(ctx, "agent-1", now.Add(-1*time.Minute), now.Add(1*time.Minute))
 	if err != nil {
-		t.Fatalf("Failed to query buckets: %v", err)
+		t.Fatalf("Failed to query summaries: %v", err)
 	}
 
 	if len(retrieved) != 1 {
-		t.Errorf("Expected 1 bucket after upsert, got %d", len(retrieved))
+		t.Errorf("Expected 1 summary after upsert, got %d", len(retrieved))
 	}
 
 	if len(retrieved) > 0 {
-		bucket := retrieved[0]
-		if bucket.P50Ms != 150.0 {
-			t.Errorf("Expected p50=150.0 after upsert, got %f", bucket.P50Ms)
+		summary := retrieved[0]
+		if summary.P50Ms != 150.0 {
+			t.Errorf("Expected p50=150.0 after upsert, got %f", summary.P50Ms)
 		}
-		if bucket.ErrorCount != 10 {
-			t.Errorf("Expected error_count=10 after upsert, got %d", bucket.ErrorCount)
+		if summary.ErrorCount != 10 {
+			t.Errorf("Expected error_count=10 after upsert, got %d", summary.ErrorCount)
 		}
-		if bucket.TotalSpans != 200 {
-			t.Errorf("Expected total_spans=200 after upsert, got %d", bucket.TotalSpans)
+		if summary.TotalSpans != 200 {
+			t.Errorf("Expected total_spans=200 after upsert, got %d", summary.TotalSpans)
 		}
 	}
 }
@@ -163,9 +163,9 @@ func TestCleanupOldTelemetry(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Insert buckets with different ages.
+	// Insert summaries with different ages.
 	now := time.Now().Truncate(time.Minute)
-	buckets := []TelemetryBucket{
+	summaries := []TelemetrySummary{
 		{
 			BucketTime:   now.Add(-25 * time.Hour), // Old (>24 hours).
 			AgentID:      "agent-1",
@@ -204,9 +204,9 @@ func TestCleanupOldTelemetry(t *testing.T) {
 		},
 	}
 
-	err = db.InsertTelemetryBuckets(ctx, buckets)
+	err = db.InsertTelemetrySummaries(ctx, summaries)
 	if err != nil {
-		t.Fatalf("Failed to insert buckets: %v", err)
+		t.Fatalf("Failed to insert summaries: %v", err)
 	}
 
 	// Run cleanup with 24-hour retention.
@@ -219,25 +219,25 @@ func TestCleanupOldTelemetry(t *testing.T) {
 		t.Errorf("Expected 1 deleted row, got %d", deleted)
 	}
 
-	// Verify only recent and current buckets remain.
-	retrieved, err := db.QueryTelemetryBuckets(ctx, "agent-1", now.Add(-30*time.Hour), now.Add(1*time.Hour))
+	// Verify only recent and current summaries remain.
+	retrieved, err := db.QueryTelemetrySummaries(ctx, "agent-1", now.Add(-30*time.Hour), now.Add(1*time.Hour))
 	if err != nil {
-		t.Fatalf("Failed to query buckets: %v", err)
+		t.Fatalf("Failed to query summaries: %v", err)
 	}
 
 	if len(retrieved) != 2 {
-		t.Errorf("Expected 2 remaining buckets, got %d", len(retrieved))
+		t.Errorf("Expected 2 remaining summaries, got %d", len(retrieved))
 	}
 
-	// Verify old bucket is gone.
-	for _, bucket := range retrieved {
-		if bucket.ServiceName == "old-service" {
-			t.Error("Old bucket should have been deleted")
+	// Verify old summary is gone.
+	for _, summary := range retrieved {
+		if summary.ServiceName == "old-service" {
+			t.Error("Old summary should have been deleted")
 		}
 	}
 }
 
-func TestQueryTelemetryBuckets_TimeRange(t *testing.T) {
+func TestQueryTelemetrySummaries_TimeRange(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := New(tmpDir, "test-colony", zerolog.Nop())
 	if err != nil {
@@ -248,8 +248,8 @@ func TestQueryTelemetryBuckets_TimeRange(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Minute)
 
-	// Insert buckets at different times.
-	buckets := []TelemetryBucket{
+	// Insert summaries at different times.
+	summaries := []TelemetrySummary{
 		{
 			BucketTime:   now.Add(-60 * time.Minute),
 			AgentID:      "agent-1",
@@ -288,19 +288,19 @@ func TestQueryTelemetryBuckets_TimeRange(t *testing.T) {
 		},
 	}
 
-	err = db.InsertTelemetryBuckets(ctx, buckets)
+	err = db.InsertTelemetrySummaries(ctx, summaries)
 	if err != nil {
-		t.Fatalf("Failed to insert buckets: %v", err)
+		t.Fatalf("Failed to insert summaries: %v", err)
 	}
 
-	// Query only the middle bucket.
-	retrieved, err := db.QueryTelemetryBuckets(ctx, "agent-1", now.Add(-45*time.Minute), now.Add(-15*time.Minute))
+	// Query only the middle summary.
+	retrieved, err := db.QueryTelemetrySummaries(ctx, "agent-1", now.Add(-45*time.Minute), now.Add(-15*time.Minute))
 	if err != nil {
-		t.Fatalf("Failed to query buckets: %v", err)
+		t.Fatalf("Failed to query summaries: %v", err)
 	}
 
 	if len(retrieved) != 1 {
-		t.Errorf("Expected 1 bucket in time range, got %d", len(retrieved))
+		t.Errorf("Expected 1 summary in time range, got %d", len(retrieved))
 	}
 
 	if len(retrieved) > 0 && retrieved[0].ServiceName != "service-2" {
@@ -308,7 +308,7 @@ func TestQueryTelemetryBuckets_TimeRange(t *testing.T) {
 	}
 }
 
-func TestQueryTelemetryBuckets_DifferentAgents(t *testing.T) {
+func TestQueryTelemetrySummaries_DifferentAgents(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := New(tmpDir, "test-colony", zerolog.Nop())
 	if err != nil {
@@ -319,8 +319,8 @@ func TestQueryTelemetryBuckets_DifferentAgents(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Minute)
 
-	// Insert buckets for different agents.
-	buckets := []TelemetryBucket{
+	// Insert summaries for different agents.
+	summaries := []TelemetrySummary{
 		{
 			BucketTime:   now,
 			AgentID:      "agent-1",
@@ -347,19 +347,19 @@ func TestQueryTelemetryBuckets_DifferentAgents(t *testing.T) {
 		},
 	}
 
-	err = db.InsertTelemetryBuckets(ctx, buckets)
+	err = db.InsertTelemetrySummaries(ctx, summaries)
 	if err != nil {
-		t.Fatalf("Failed to insert buckets: %v", err)
+		t.Fatalf("Failed to insert summaries: %v", err)
 	}
 
 	// Query agent-1 only.
-	retrieved, err := db.QueryTelemetryBuckets(ctx, "agent-1", now.Add(-1*time.Minute), now.Add(1*time.Minute))
+	retrieved, err := db.QueryTelemetrySummaries(ctx, "agent-1", now.Add(-1*time.Minute), now.Add(1*time.Minute))
 	if err != nil {
-		t.Fatalf("Failed to query buckets: %v", err)
+		t.Fatalf("Failed to query summaries: %v", err)
 	}
 
 	if len(retrieved) != 1 {
-		t.Errorf("Expected 1 bucket for agent-1, got %d", len(retrieved))
+		t.Errorf("Expected 1 summary for agent-1, got %d", len(retrieved))
 	}
 
 	if len(retrieved) > 0 && retrieved[0].AgentID != "agent-1" {

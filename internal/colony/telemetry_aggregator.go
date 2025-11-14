@@ -19,14 +19,14 @@ type TelemetryAggregator struct {
 
 // bucketData holds raw data for aggregation.
 type bucketData struct {
-	agentID      string
-	bucketTime   time.Time
-	serviceName  string
-	spanKind     string
-	durations    []float64
-	traces       []string
-	errors       int32
-	total        int32
+	agentID     string
+	bucketTime  time.Time
+	serviceName string
+	spanKind    string
+	durations   []float64
+	traces      []string
+	errors      int32
+	total       int32
 }
 
 // NewTelemetryAggregator creates a new telemetry aggregator.

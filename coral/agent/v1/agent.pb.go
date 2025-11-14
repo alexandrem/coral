@@ -1148,6 +1148,261 @@ func (x *EbpfCapabilities) GetAvailableCollectors() []EbpfCollectorKind {
 	return nil
 }
 
+// TelemetrySpan represents a filtered OpenTelemetry span stored locally on agents.
+type TelemetrySpan struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Span timestamp (Unix milliseconds).
+	Timestamp int64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// OpenTelemetry trace ID.
+	TraceId string `protobuf:"bytes,2,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	// OpenTelemetry span ID.
+	SpanId string `protobuf:"bytes,3,opt,name=span_id,json=spanId,proto3" json:"span_id,omitempty"`
+	// Service name from span attributes.
+	ServiceName string `protobuf:"bytes,4,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	// Span kind (CLIENT, SERVER, INTERNAL, PRODUCER, CONSUMER).
+	SpanKind string `protobuf:"bytes,5,opt,name=span_kind,json=spanKind,proto3" json:"span_kind,omitempty"`
+	// Span duration in milliseconds.
+	DurationMs float64 `protobuf:"fixed64,6,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	// Whether this span represents an error.
+	IsError bool `protobuf:"varint,7,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	// HTTP status code (if applicable).
+	HttpStatus int32 `protobuf:"varint,8,opt,name=http_status,json=httpStatus,proto3" json:"http_status,omitempty"`
+	// HTTP method (if applicable).
+	HttpMethod string `protobuf:"bytes,9,opt,name=http_method,json=httpMethod,proto3" json:"http_method,omitempty"`
+	// HTTP route (if applicable).
+	HttpRoute string `protobuf:"bytes,10,opt,name=http_route,json=httpRoute,proto3" json:"http_route,omitempty"`
+	// Additional span attributes (key-value pairs).
+	Attributes    map[string]string `protobuf:"bytes,11,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TelemetrySpan) Reset() {
+	*x = TelemetrySpan{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetrySpan) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetrySpan) ProtoMessage() {}
+
+func (x *TelemetrySpan) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetrySpan.ProtoReflect.Descriptor instead.
+func (*TelemetrySpan) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *TelemetrySpan) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *TelemetrySpan) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+func (x *TelemetrySpan) GetSpanId() string {
+	if x != nil {
+		return x.SpanId
+	}
+	return ""
+}
+
+func (x *TelemetrySpan) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *TelemetrySpan) GetSpanKind() string {
+	if x != nil {
+		return x.SpanKind
+	}
+	return ""
+}
+
+func (x *TelemetrySpan) GetDurationMs() float64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *TelemetrySpan) GetIsError() bool {
+	if x != nil {
+		return x.IsError
+	}
+	return false
+}
+
+func (x *TelemetrySpan) GetHttpStatus() int32 {
+	if x != nil {
+		return x.HttpStatus
+	}
+	return 0
+}
+
+func (x *TelemetrySpan) GetHttpMethod() string {
+	if x != nil {
+		return x.HttpMethod
+	}
+	return ""
+}
+
+func (x *TelemetrySpan) GetHttpRoute() string {
+	if x != nil {
+		return x.HttpRoute
+	}
+	return ""
+}
+
+func (x *TelemetrySpan) GetAttributes() map[string]string {
+	if x != nil {
+		return x.Attributes
+	}
+	return nil
+}
+
+// QueryTelemetryRequest is sent from colony to agent to query recent telemetry.
+type QueryTelemetryRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Start time for query range (Unix seconds).
+	StartTime int64 `protobuf:"varint,1,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	// End time for query range (Unix seconds).
+	EndTime int64 `protobuf:"varint,2,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
+	// Filter by service names (empty = all services).
+	ServiceNames  []string `protobuf:"bytes,3,rep,name=service_names,json=serviceNames,proto3" json:"service_names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryTelemetryRequest) Reset() {
+	*x = QueryTelemetryRequest{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryTelemetryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryTelemetryRequest) ProtoMessage() {}
+
+func (x *QueryTelemetryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryTelemetryRequest.ProtoReflect.Descriptor instead.
+func (*QueryTelemetryRequest) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *QueryTelemetryRequest) GetStartTime() int64 {
+	if x != nil {
+		return x.StartTime
+	}
+	return 0
+}
+
+func (x *QueryTelemetryRequest) GetEndTime() int64 {
+	if x != nil {
+		return x.EndTime
+	}
+	return 0
+}
+
+func (x *QueryTelemetryRequest) GetServiceNames() []string {
+	if x != nil {
+		return x.ServiceNames
+	}
+	return nil
+}
+
+// QueryTelemetryResponse contains filtered spans from agent's local storage.
+type QueryTelemetryResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Filtered spans matching the query.
+	Spans []*TelemetrySpan `protobuf:"bytes,1,rep,name=spans,proto3" json:"spans,omitempty"`
+	// Total number of spans returned.
+	TotalSpans    int32 `protobuf:"varint,2,opt,name=total_spans,json=totalSpans,proto3" json:"total_spans,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryTelemetryResponse) Reset() {
+	*x = QueryTelemetryResponse{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryTelemetryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryTelemetryResponse) ProtoMessage() {}
+
+func (x *QueryTelemetryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryTelemetryResponse.ProtoReflect.Descriptor instead.
+func (*QueryTelemetryResponse) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *QueryTelemetryResponse) GetSpans() []*TelemetrySpan {
+	if x != nil {
+		return x.Spans
+	}
+	return nil
+}
+
+func (x *QueryTelemetryResponse) GetTotalSpans() int32 {
+	if x != nil {
+		return x.TotalSpans
+	}
+	return 0
+}
+
 var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_coral_agent_v1_agent_proto_rawDesc = "" +
@@ -1229,7 +1484,38 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x0ekernel_version\x18\x02 \x01(\tR\rkernelVersion\x12#\n" +
 	"\rbtf_available\x18\x03 \x01(\bR\fbtfAvailable\x12\x17\n" +
 	"\acap_bpf\x18\x04 \x01(\bR\x06capBpf\x12T\n" +
-	"\x14available_collectors\x18\x05 \x03(\x0e2!.coral.agent.v1.EbpfCollectorKindR\x13availableCollectors*\xa9\x01\n" +
+	"\x14available_collectors\x18\x05 \x03(\x0e2!.coral.agent.v1.EbpfCollectorKindR\x13availableCollectors\"\xcc\x03\n" +
+	"\rTelemetrySpan\x12\x1c\n" +
+	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12\x19\n" +
+	"\btrace_id\x18\x02 \x01(\tR\atraceId\x12\x17\n" +
+	"\aspan_id\x18\x03 \x01(\tR\x06spanId\x12!\n" +
+	"\fservice_name\x18\x04 \x01(\tR\vserviceName\x12\x1b\n" +
+	"\tspan_kind\x18\x05 \x01(\tR\bspanKind\x12\x1f\n" +
+	"\vduration_ms\x18\x06 \x01(\x01R\n" +
+	"durationMs\x12\x19\n" +
+	"\bis_error\x18\a \x01(\bR\aisError\x12\x1f\n" +
+	"\vhttp_status\x18\b \x01(\x05R\n" +
+	"httpStatus\x12\x1f\n" +
+	"\vhttp_method\x18\t \x01(\tR\n" +
+	"httpMethod\x12\x1d\n" +
+	"\n" +
+	"http_route\x18\n" +
+	" \x01(\tR\thttpRoute\x12M\n" +
+	"\n" +
+	"attributes\x18\v \x03(\v2-.coral.agent.v1.TelemetrySpan.AttributesEntryR\n" +
+	"attributes\x1a=\n" +
+	"\x0fAttributesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"v\n" +
+	"\x15QueryTelemetryRequest\x12\x1d\n" +
+	"\n" +
+	"start_time\x18\x01 \x01(\x03R\tstartTime\x12\x19\n" +
+	"\bend_time\x18\x02 \x01(\x03R\aendTime\x12#\n" +
+	"\rservice_names\x18\x03 \x03(\tR\fserviceNames\"n\n" +
+	"\x16QueryTelemetryResponse\x123\n" +
+	"\x05spans\x18\x01 \x03(\v2\x1d.coral.agent.v1.TelemetrySpanR\x05spans\x12\x1f\n" +
+	"\vtotal_spans\x18\x02 \x01(\x05R\n" +
+	"totalSpans*\xa9\x01\n" +
 	"\x0eRuntimeContext\x12\x1b\n" +
 	"\x17RUNTIME_CONTEXT_UNKNOWN\x10\x00\x12\x1a\n" +
 	"\x16RUNTIME_CONTEXT_NATIVE\x10\x01\x12\x1a\n" +
@@ -1246,12 +1532,13 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"!EBPF_COLLECTOR_KIND_SYSCALL_STATS\x10\x01\x12$\n" +
 	" EBPF_COLLECTOR_KIND_HTTP_LATENCY\x10\x02\x12#\n" +
 	"\x1fEBPF_COLLECTOR_KIND_CPU_PROFILE\x10\x03\x12#\n" +
-	"\x1fEBPF_COLLECTOR_KIND_TCP_METRICS\x10\x042\x9b\x03\n" +
+	"\x1fEBPF_COLLECTOR_KIND_TCP_METRICS\x10\x042\xfc\x03\n" +
 	"\fAgentService\x12e\n" +
 	"\x11GetRuntimeContext\x12(.coral.agent.v1.GetRuntimeContextRequest\x1a&.coral.agent.v1.RuntimeContextResponse\x12_\n" +
 	"\x0eConnectService\x12%.coral.agent.v1.ConnectServiceRequest\x1a&.coral.agent.v1.ConnectServiceResponse\x12h\n" +
 	"\x11DisconnectService\x12(.coral.agent.v1.DisconnectServiceRequest\x1a).coral.agent.v1.DisconnectServiceResponse\x12Y\n" +
-	"\fListServices\x12#.coral.agent.v1.ListServicesRequest\x1a$.coral.agent.v1.ListServicesResponseB\xac\x01\n" +
+	"\fListServices\x12#.coral.agent.v1.ListServicesRequest\x1a$.coral.agent.v1.ListServicesResponse\x12_\n" +
+	"\x0eQueryTelemetry\x12%.coral.agent.v1.QueryTelemetryRequest\x1a&.coral.agent.v1.QueryTelemetryResponseB\xac\x01\n" +
 	"\x12com.coral.agent.v1B\n" +
 	"AgentProtoP\x01Z0github.com/coral-io/coral/coral/agent/v1;agentv1\xa2\x02\x03CAX\xaa\x02\x0eCoral.Agent.V1\xca\x02\x0eCoral\\Agent\\V1\xe2\x02\x1aCoral\\Agent\\V1\\GPBMetadata\xea\x02\x10Coral::Agent::V1b\x06proto3"
 
@@ -1268,7 +1555,7 @@ func file_coral_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(RuntimeContext)(0),               // 0: coral.agent.v1.RuntimeContext
 	(SidecarMode)(0),                  // 1: coral.agent.v1.SidecarMode
@@ -1287,9 +1574,13 @@ var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(*ListServicesResponse)(nil),      // 14: coral.agent.v1.ListServicesResponse
 	(*ServiceStatus)(nil),             // 15: coral.agent.v1.ServiceStatus
 	(*EbpfCapabilities)(nil),          // 16: coral.agent.v1.EbpfCapabilities
-	nil,                               // 17: coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	nil,                               // 18: coral.agent.v1.ServiceStatus.LabelsEntry
-	(*timestamppb.Timestamp)(nil),     // 19: google.protobuf.Timestamp
+	(*TelemetrySpan)(nil),             // 17: coral.agent.v1.TelemetrySpan
+	(*QueryTelemetryRequest)(nil),     // 18: coral.agent.v1.QueryTelemetryRequest
+	(*QueryTelemetryResponse)(nil),    // 19: coral.agent.v1.QueryTelemetryResponse
+	nil,                               // 20: coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	nil,                               // 21: coral.agent.v1.ServiceStatus.LabelsEntry
+	nil,                               // 22: coral.agent.v1.TelemetrySpan.AttributesEntry
+	(*timestamppb.Timestamp)(nil),     // 23: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	5,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
@@ -1298,26 +1589,30 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	6,  // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
 	8,  // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
 	7,  // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
-	19, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
+	23, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
 	16, // 7: coral.agent.v1.RuntimeContextResponse.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
-	17, // 8: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	20, // 8: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
 	15, // 9: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
-	18, // 10: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
-	19, // 11: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
+	21, // 10: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
+	23, // 11: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
 	2,  // 12: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
-	3,  // 13: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
-	9,  // 14: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
-	11, // 15: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
-	13, // 16: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
-	4,  // 17: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
-	10, // 18: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
-	12, // 19: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
-	14, // 20: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
-	17, // [17:21] is the sub-list for method output_type
-	13, // [13:17] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	22, // 13: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
+	17, // 14: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
+	3,  // 15: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
+	9,  // 16: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
+	11, // 17: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
+	13, // 18: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
+	18, // 19: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
+	4,  // 20: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
+	10, // 21: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
+	12, // 22: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
+	14, // 23: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
+	19, // 24: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
+	20, // [20:25] is the sub-list for method output_type
+	15, // [15:20] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_agent_proto_init() }
@@ -1331,7 +1626,7 @@ func file_coral_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_agent_proto_rawDesc), len(file_coral_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   16,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
