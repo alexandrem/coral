@@ -41,7 +41,7 @@ Coral gives you **one interface for distributed app operations**:
 ### 🔍 Observe
 
 Four complementary mechanisms provide complete visibility:
-- **OpenTelemetry eBPF**: Zero-config RED metrics (no code changes)
+- **eBPF probes**: Zero-config RED metrics (no code changes)
 - **OTLP ingestion**: For apps using OpenTelemetry
 - **Shell/exec**: Run diagnostic tools (netstat, tcpdump, etc.)
 - **Connection mapping**: Auto-discovered service dependencies
@@ -57,6 +57,12 @@ Get AI-powered insights from your Colony's observability data.
 - Zero overhead when not debugging
 - Works across your entire distributed app
 
+### 🎛️ Control
+
+- **Traffic inspection**: Sample and inspect live requests (via eBPF)
+- **Profiling**: On-demand CPU/memory profiling (via eBPF)
+- **Live probes**: Attach/detach debugging hooks on-demand
+
 All from a single binary. No complex setup. Works on laptop, VMs, or Kubernetes.
 
 ## How It Works
@@ -65,8 +71,8 @@ Coral offers **two integration levels**:
 
 ### Passive Mode (No Code Changes)
 
-Agents use **OpenTelemetry eBPF instrumentation** to capture RED metrics (Rate,
-Errors, Duration) with zero configuration. No code changes needed.
+Agents use **eBPF probes** to capture RED metrics (Rate, Errors, Duration) with
+zero configuration. No code changes needed.
 
 ```bash
 # Start the colony (central coordinator)
@@ -88,8 +94,8 @@ coral ask "Why is checkout slow?"
 coral ask "What changed in the last hour?"
 ```
 
-**You get:** RED metrics (via OpenTelemetry eBPF), connection mapping, AI-powered
-analysis using your own LLM.
+**You get:** RED metrics (via eBPF), connection mapping, AI-powered analysis
+using your own LLM.
 
 **Optionally:** Apps using OpenTelemetry can also send telemetry to the agent's
 OTLP endpoint for richer trace correlation.
@@ -132,21 +138,21 @@ coral exec api "lsof -i :8080"
 
 Coral provides comprehensive observability through four complementary mechanisms:
 
-### 1. OpenTelemetry eBPF Instrumentation (Zero Config)
+### 1. eBPF Probes (Zero Config)
 
-Agents use [OpenTelemetry eBPF instrumentation](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation)
-(formerly Grafana Beyla) to capture RED metrics (Rate, Errors, Duration) with
+Agents use **eBPF probes** to capture RED metrics (Rate, Errors, Duration) with
 **zero configuration**:
 
 - **No code changes** - Works with any HTTP/gRPC service
 - **No SDK required** - Attaches to running processes via eBPF
 - **Automatic instrumentation** - Request rates, error rates, latency percentiles
 - **Low overhead** - eBPF runs in kernel space, minimal performance impact
+- **Combined approach** - Uses OpenTelemetry eBPF + custom Coral eBPF programs
 
 ```bash
 # Just connect - metrics start flowing automatically
 coral connect api:8080
-# → OpenTelemetry eBPF probes attach and collect RED metrics
+# → eBPF probes attach and collect RED metrics
 ```
 
 ### 2. OTLP Ingestion (OpenTelemetry)
@@ -210,7 +216,7 @@ See "Live Debugging: The Killer Feature" section below for details.
 
 **How they work together:**
 
-1. **OpenTelemetry eBPF** provides baseline RED metrics (always on, low overhead)
+1. **eBPF probes** provide baseline RED metrics (always on, low overhead)
 2. **OTLP** adds rich trace context from instrumented apps (if using OpenTelemetry)
 3. **Shell/exec** runs diagnostic tools when LLM needs system-level data
 4. **SDK probes** instrument code when deeper investigation is needed
@@ -596,7 +602,7 @@ Coral intelligently escalates through its four observability pillars:
 ```bash
 coral ask "Why is checkout taking 3 seconds?"
 
-🤖 Step 1: Checking OpenTelemetry eBPF metrics...
+🤖 Step 1: Checking eBPF metrics...
    ✓ checkout service: P95 latency 2.8s (baseline: 150ms)
    ✓ payment service: P95 latency 45ms (normal)
    → High latency confirmed in checkout, payment is normal
@@ -630,7 +636,7 @@ coral ask "Why is checkout taking 3 seconds?"
 ```
 
 **The LLM orchestrates all four pillars** based on what's needed:
-1. Starts with OpenTelemetry eBPF (always available)
+1. Starts with eBPF metrics (always available)
 2. Checks OTLP traces if app is instrumented
 3. Runs diagnostic commands for system-level insights
 4. Attaches live probes when deeper investigation is required
