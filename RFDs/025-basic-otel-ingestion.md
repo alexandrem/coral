@@ -15,6 +15,8 @@ areas: [ "observability", "ai", "correlation" ]
 
 **Status:** ✅ Implemented
 
+**Date:** 2025-11-14
+
 ## Summary
 
 Enable Coral agents to accept OpenTelemetry (OTel) data alongside eBPF signals,
