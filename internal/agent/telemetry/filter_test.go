@@ -7,9 +7,9 @@ import (
 
 func TestFilter_ShouldCapture_Errors(t *testing.T) {
 	config := FilterConfig{
-		AlwaysCaptureErrors: true,
-		LatencyThresholdMs:  500.0,
-		SampleRate:          0.0, // No sampling for normal spans.
+		AlwaysCaptureErrors:    true,
+		HighLatencyThresholdMs: 500.0,
+		SampleRate:             0.0, // No sampling for normal spans.
 	}
 
 	filter := NewFilter(config)
@@ -45,9 +45,9 @@ func TestFilter_ShouldCapture_Errors(t *testing.T) {
 
 func TestFilter_ShouldCapture_HighLatency(t *testing.T) {
 	config := FilterConfig{
-		AlwaysCaptureErrors: true,
-		LatencyThresholdMs:  500.0,
-		SampleRate:          0.0,
+		AlwaysCaptureErrors:    true,
+		HighLatencyThresholdMs: 500.0,
+		SampleRate:             0.0,
 	}
 
 	filter := NewFilter(config)
@@ -83,9 +83,9 @@ func TestFilter_ShouldCapture_HighLatency(t *testing.T) {
 
 func TestFilter_ShouldCapture_SampleRate(t *testing.T) {
 	config := FilterConfig{
-		AlwaysCaptureErrors: false,
-		LatencyThresholdMs:  1000.0, // High threshold.
-		SampleRate:          1.0,    // 100% sampling.
+		AlwaysCaptureErrors:    false,
+		HighLatencyThresholdMs: 1000.0, // High threshold.
+		SampleRate:             1.0,    // 100% sampling.
 	}
 
 	filter := NewFilter(config)

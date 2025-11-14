@@ -48,7 +48,7 @@ func (r *Receiver) Start(ctx context.Context) error {
 	}
 
 	r.logger.Info().
-		Str("endpoint", r.config.Endpoint).
+		Str("grpc_endpoint", r.config.GRPCEndpoint).
 		Msg("Starting OTLP receiver")
 
 	// Start cleanup goroutine for local storage (~1 hour retention).

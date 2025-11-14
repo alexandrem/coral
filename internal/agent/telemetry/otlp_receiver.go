@@ -15,25 +15,26 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
-	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlpresource "go.opentelemetry.io/proto/otlp/resource/v1"
 	otlptrace "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
 // OTLPReceiver implements the OTLP gRPC and HTTP receivers.
 type OTLPReceiver struct {
-	config      Config
-	filter      *Filter
-	storage     *Storage
-	logger      zerolog.Logger
-	grpcServer  *grpc.Server
-	httpServer  *http.Server
-	grpcLis     net.Listener
-	httpLis     net.Listener
-	running     bool
-	mu          sync.Mutex
-	wg          sync.WaitGroup
+	otlptracev1.UnimplementedTraceServiceServer
+	config     Config
+	filter     *Filter
+	storage    *Storage
+	logger     zerolog.Logger
+	grpcServer *grpc.Server
+	httpServer *http.Server
+	grpcLis    net.Listener
+	httpLis    net.Listener
+	running    bool
+	mu         sync.Mutex
+	wg         sync.WaitGroup
 }
 
 // NewOTLPReceiver creates a new OTLP receiver.
