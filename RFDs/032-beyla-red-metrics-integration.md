@@ -314,69 +314,73 @@ ebpf:
 
 ### Deployment Examples
 
-Beyla works in any environment where the agent has eBPF capabilities. Here are common deployment patterns:
+Beyla works in any environment where the agent has eBPF capabilities. Here are
+common deployment patterns:
 
 **Docker Compose**:
+
 ```yaml
 # docker-compose.yml
 version: '3.8'
 services:
-  # Your application services
-  web:
-    image: myapp:latest
-    ports:
-      - "8080:8080"
+    # Your application services
+    web:
+        image: myapp:latest
+        ports:
+            - "8080:8080"
 
-  api:
-    image: myapi:latest
-    ports:
-      - "9090:9090"
+    api:
+        image: myapi:latest
+        ports:
+            - "9090:9090"
 
-  postgres:
-    image: postgres:15
-    ports:
-      - "5432:5432"
+    postgres:
+        image: postgres:15
+        ports:
+            - "5432:5432"
 
-  # Coral agent with Beyla
-  coral-agent:
-    image: coral/agent:latest
-    privileged: true  # Required for eBPF (or use cap_add: [SYS_ADMIN, BPF])
-    network_mode: "host"  # Access to host network for process discovery
-    pid: "host"  # Access to host PID namespace
-    volumes:
-      - /sys/kernel/debug:/sys/kernel/debug:ro  # For eBPF
-      - ./agent-config.yaml:/etc/coral/agent.yaml
-    environment:
-      - COLONY_URL=https://colony.example.com
-      - AGENT_ID=docker-compose-stack
-    command:
-      - --config=/etc/coral/agent.yaml
-      - --discover=ports:8080,9090,5432  # Discover services by port
+    # Coral agent with Beyla
+    coral-agent:
+        image: coral/agent:latest
+        privileged: true  # Required for eBPF (or use cap_add: [SYS_ADMIN, BPF])
+        network_mode: "host"  # Access to host network for process discovery
+        pid: "host"  # Access to host PID namespace
+        volumes:
+            - /sys/kernel/debug:/sys/kernel/debug:ro  # For eBPF
+            - ./agent-config.yaml:/etc/coral/agent.yaml
+        environment:
+            - COLONY_URL=https://colony.example.com
+            - AGENT_ID=docker-compose-stack
+        command:
+            - --config=/etc/coral/agent.yaml
+            - --discover=ports:8080,9090,5432  # Discover services by port
 ```
 
 **Agent config for docker-compose** (`agent-config.yaml`):
+
 ```yaml
 beyla:
-  enabled: true
-  discovery:
-    services:
-      - name: "web"
-        open_port: 8080
-      - name: "api"
-        open_port: 9090
-      - name: "postgres"
-        open_port: 5432
-  protocols:
-    http:
-      enabled: true
-    sql:
-      enabled: true
-  attributes:
-    environment: "local"
-    stack: "docker-compose"
+    enabled: true
+    discovery:
+        services:
+            -   name: "web"
+                open_port: 8080
+            -   name: "api"
+                open_port: 9090
+            -   name: "postgres"
+                open_port: 5432
+    protocols:
+        http:
+            enabled: true
+        sql:
+            enabled: true
+    attributes:
+        environment: "local"
+        stack: "docker-compose"
 ```
 
 **systemd Service**:
+
 ```ini
 # /etc/systemd/system/coral-agent.service
 [Unit]
@@ -400,32 +404,34 @@ WantedBy=multi-user.target
 ```
 
 **Kubernetes (without RFD 012)**:
+
 ```yaml
 # Privileged sidecar example
 apiVersion: v1
 kind: Pod
 metadata:
-  name: myapp
+    name: myapp
 spec:
-  shareProcessNamespace: true
-  containers:
-  - name: app
-    image: myapp:latest
-    ports:
-    - containerPort: 8080
+    shareProcessNamespace: true
+    containers:
+        -   name: app
+            image: myapp:latest
+            ports:
+                -   containerPort: 8080
 
-  - name: coral-agent
-    image: coral/agent:latest
-    securityContext:
-      privileged: true  # Required for eBPF
-    env:
-    - name: BEYLA_DISCOVER_PORTS
-      value: "8080"
-    - name: COLONY_URL
-      value: "https://colony.example.com"
+        -   name: coral-agent
+            image: coral/agent:latest
+            securityContext:
+                privileged: true  # Required for eBPF
+            env:
+                -   name: BEYLA_DISCOVER_PORTS
+                    value: "8080"
+                -   name: COLONY_URL
+                    value: "https://colony.example.com"
 ```
 
 **Bare Metal**:
+
 ```bash
 # Run agent with CAP_BPF (kernel 5.8+)
 sudo setcap cap_bpf,cap_perfmon,cap_net_admin+eip /usr/local/bin/coral-agent
@@ -436,9 +442,13 @@ sudo coral-agent --config=/etc/coral/agent.yaml --discover=ports:8080,9090
 ```
 
 **Key requirements across all deployments**:
-1. **eBPF capabilities**: `CAP_BPF` + `CAP_PERFMON` (kernel 5.8+) or `CAP_SYS_ADMIN` (older kernels)
-2. **Host network access**: To discover processes by port (or use process names, container runtime APIs)
-3. **Kernel headers**: Not required with CO-RE (kernel 5.2+), but may be needed on older kernels
+
+1. **eBPF capabilities**: `CAP_BPF` + `CAP_PERFMON` (kernel 5.8+) or
+   `CAP_SYS_ADMIN` (older kernels)
+2. **Host network access**: To discover processes by port (or use process names,
+   container runtime APIs)
+3. **Kernel headers**: Not required with CO-RE (kernel 5.2+), but may be needed
+   on older kernels
 
 ### Beyla Capabilities Matrix
 
@@ -538,37 +548,51 @@ Recommendation: Check card-validation-svc health and network path.
 This RFD depends on RFDs 011, 013, and 025. Here's why:
 
 **RFD 011 (Multi-service agents)**:
+
 - Beyla can discover and instrument multiple processes/services per agent.
-- Multi-service agents provide the architectural foundation for process discovery and isolation.
-- **Works in any environment**: docker-compose (one agent monitors multiple containers), systemd (one agent monitors multiple services), Kubernetes (sidecar or DaemonSet), bare metal, etc.
-- **Not a hard blocker**: Beyla can work with single-service agents initially, but multi-service support maximizes efficiency.
+- Multi-service agents provide the architectural foundation for process
+  discovery and isolation.
+- **Works in any environment**: docker-compose (one agent monitors multiple
+  containers), systemd (one agent monitors multiple services), Kubernetes (
+  sidecar or DaemonSet), bare metal, etc.
+- **Not a hard blocker**: Beyla can work with single-service agents initially,
+  but multi-service support maximizes efficiency.
 
 **RFD 013 (eBPF introspection)**:
-- Establishes eBPF infrastructure patterns (capability detection, manager lifecycle, safety limits).
+
+- Establishes eBPF infrastructure patterns (capability detection, manager
+  lifecycle, safety limits).
 - Beyla and custom eBPF programs coexist within the same agent architecture.
-- **Complementary**: RFD 013's custom collectors supplement Beyla's commodity protocol support.
+- **Complementary**: RFD 013's custom collectors supplement Beyla's commodity
+  protocol support.
 
 **RFD 025 (Basic OpenTelemetry Ingestion)** - **Critical dependency**:
+
 - Provides OTLP receiver infrastructure in Coral agents.
 - Beyla exports metrics/traces via OTLP (OpenTelemetry Protocol).
 - Agents consume Beyla's OTLP exports using the receiver established by RFD 025.
-- **Hard blocker**: Without OTLP receiver infrastructure, agents cannot consume Beyla's output.
+- **Hard blocker**: Without OTLP receiver infrastructure, agents cannot consume
+  Beyla's output.
 
 **NOT dependent on RFD 012 (Kubernetes node agents)**:
+
 - RFD 012 is Kubernetes-specific deployment patterns (DaemonSet vs Sidecar).
 - Beyla works in **any environment** where the agent has eBPF capabilities:
-  - **docker-compose**: Agent container with `--privileged` or `CAP_BPF`
-  - **systemd**: Agent service running with appropriate capabilities
-  - **Kubernetes**: DaemonSet (RFD 012) or privileged sidecar
-  - **Bare metal**: Agent process with `CAP_BPF` or `CAP_SYS_ADMIN`
-- Process discovery works via port numbers, process names, or container runtime APIs (not just K8s API).
+    - **docker-compose**: Agent container with `--privileged` or `CAP_BPF`
+    - **systemd**: Agent service running with appropriate capabilities
+    - **Kubernetes**: DaemonSet (RFD 012) or privileged sidecar
+    - **Bare metal**: Agent process with `CAP_BPF` or `CAP_SYS_ADMIN`
+- Process discovery works via port numbers, process names, or container runtime
+  APIs (not just K8s API).
 
 **Recommended implementation order**:
+
 1. RFD 025 (OTLP ingestion) → establishes receiver infrastructure
 2. RFD 011 (multi-service) → enables multi-process discovery
 3. RFD 032 (Beyla) → leverages OTLP receiver and multi-service architecture
 4. RFD 013 (custom eBPF) + RFD 032 → combined observability stack
-5. RFD 012 (K8s deployment patterns) → optional, for Kubernetes-specific deployments
+5. RFD 012 (K8s deployment patterns) → optional, for Kubernetes-specific
+   deployments
 
 ### Kernel Compatibility & Fallback Strategy
 
