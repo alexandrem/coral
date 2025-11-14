@@ -1,7 +1,7 @@
 ---
 rfd: "025"
 title: "OpenTelemetry Ingestion for Observability Correlation"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "observability", "ai", "correlation" ]
 
 # RFD 025 - OpenTelemetry Ingestion for Observability Correlation
 
-**Status:** 🚧 Draft
+**Status:** ✅ Implemented
 
 ## Summary
 
@@ -517,46 +517,40 @@ WHERE o.service_name = 'checkout'
 
 ## Implementation Plan
 
-### Phase 1: Agent OTLP Receiver
+### Phase 1: Agent OTLP Receiver ✅ Complete
 
-- [ ] Embed OTel Collector receiver components in agent.
-- [ ] Add config schema: `agent.telemetry.enabled`, `agent.telemetry.filters`.
-- [ ] Implement static filtering: errors, latency threshold, sample rate.
-- [ ] Aggregate spans into 1-minute buckets per service.
-- [ ] Write `007-otel-basic` migration.
+- [x] Embed OTel Collector receiver components in agent
+- [x] Add config schema: `agent.telemetry.disabled`, `agent.telemetry.filters`
+- [x] Implement static filtering: errors, latency threshold, sample rate
+- [x] Local storage with ~1 hour retention
+- [x] Agent `QueryTelemetry` RPC handler
 
-### Phase 2: Colony Storage & Correlation
+### Phase 2: Colony Storage & Correlation ✅ Complete
 
-- [ ] Add `otel_spans` DuckDB table to colony.
-- [ ] Implement gRPC handler to receive aggregated buckets from agents.
-- [ ] Implement 24-hour TTL cleanup job.
-- [ ] Add correlation query helpers for AI context (join otel_spans +
-  ebpf_stats).
+- [x] Add `otel_summaries` DuckDB table to colony
+- [x] Implement pull-based query mechanism (colony → agent)
+- [x] Implement 24-hour TTL cleanup job
+- [x] Add aggregation logic with percentiles (p50, p95, p99)
+- [x] E2E test validating full query flow
 
-### Phase 3: Kubernetes Collector Deployment
+### Phase 3: Kubernetes Collector Deployment ⏸️ Deferred
 
-- [ ] Add `--mode=otel-collector` flag to agent binary (OTLP only, no eBPF).
-- [ ] Create Kubernetes manifests (Service + Deployment) for cluster-wide
-  collector.
-- [ ] Document K8s collector installation (Helm chart optional).
-- [ ] Test app pod → coral-otel.namespace:4317 → colony flow.
-- [ ] Provide deployment examples for different namespaces.
+- [ ] Add `--mode=otel-collector` flag to agent binary
+- [ ] Create Kubernetes manifests (Service + Deployment)
+- [ ] Document K8s collector installation
 
-### Phase 4: Beyla Integration & Correlation
+### Phase 4: Beyla Integration & Correlation ⏸️ Deferred
 
-- [ ] Test Beyla → agent OTLP ingestion flow (RFD 032).
-- [ ] Implement correlation query helpers (join otel_spans + ebpf_stats).
-- [ ] Add AI context builders that combine OTel + eBPF data.
-- [ ] Validate RED metrics correlation (HTTP latency + CPU/network).
-- [ ] Document Beyla → Coral integration pattern.
+- [ ] Test Beyla → agent OTLP ingestion flow
+- [ ] Add AI context builders combining OTel + eBPF data
+- [ ] Validate RED metrics correlation
+- [ ] Document Beyla integration pattern
 
-### Phase 5: Testing & Documentation
+### Phase 5: Testing & Documentation ✅ Complete
 
-- [ ] Unit tests for filtering and aggregation logic.
-- [ ] Integration test: app → agent → colony → DuckDB.
-- [ ] E2E test: "checkout slow" query returns OTel + eBPF correlation.
-- [ ] Beyla correlation test: HTTP RED metrics joined with infrastructure data.
-- [ ] Tutorial: "Add Coral to existing OTel setup".
+- [x] Unit tests for filtering and aggregation
+- [x] Integration tests for database operations
+- [x] E2E test for pull-based flow
 
 ## API Changes
 
@@ -837,3 +831,29 @@ This RFD intentionally omits complexity from RFD 024:
 
 **Goal**: Prove correlation value with minimal operational burden. Add
 complexity only when usage demonstrates clear need.
+
+---
+
+## Implementation Status
+
+**Core Capability:** ✅ Complete
+
+Agents accept OTLP traces (gRPC/HTTP), filter and store spans locally, and
+respond to colony queries. Colony polls agents, aggregates spans into 1-minute
+summaries, and stores in DuckDB with 24-hour retention.
+
+**Architecture Note:** Implemented as pull-based (colony queries agents) rather
+than push-based, aligning with Coral's distributed storage model.
+
+## Deferred Features
+
+The following features are deferred to future work as they build on the core
+foundation but are not required for basic functionality:
+
+- **Kubernetes Collector Deployment** (Phase 3): Cluster-wide collector with
+  `--mode=otel-collector` flag
+- **Beyla Integration** (Phase 4): Integration testing and correlation queries (
+  requires RFD 032)
+- **AI Correlation Layer** (Phase 4): Context builders that combine OTel + eBPF
+  data
+- **Extended Documentation** (Phase 5): Production guides and tutorials
