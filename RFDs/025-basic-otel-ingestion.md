@@ -17,51 +17,85 @@ areas: [ "observability", "ai", "correlation" ]
 
 ## Summary
 
-Enable Coral agents to accept OpenTelemetry (OTel) data alongside eBPF signals, providing a unified data foundation for AI-driven correlation. Agents expose OTLP endpoints with static filtering and aggregation, allowing queries like "Why is checkout slow?" to combine application-level traces (from OTel SDKs and Beyla) with infrastructure metrics (from custom eBPF collectors).
+Enable Coral agents to accept OpenTelemetry (OTel) data alongside eBPF signals,
+providing a unified data foundation for AI-driven correlation. Agents expose
+OTLP endpoints with static filtering and aggregation, allowing queries like "Why
+is checkout slow?" to combine application-level traces (from OTel SDKs and
+Beyla) with infrastructure metrics (from custom eBPF collectors).
 
 ## Problem
 
 - **Current behavior/limitations**:
-    - Coral collects eBPF metrics (network, CPU, syscalls) but lacks visibility into application-level behavior
-    - Beyla (RFD 032) emits OpenTelemetry data, but Coral has no way to ingest it
-    - Application traces from OTel SDKs cannot be correlated with Coral's eBPF data
-    - The AI cannot answer questions like "Which API endpoint caused the CPU spike?" because it lacks application context
+    - Coral collects eBPF metrics (network, CPU, syscalls) but lacks visibility
+      into application-level behavior
+    - Beyla (RFD 032) emits OpenTelemetry data, but Coral has no way to ingest
+      it
+    - Application traces from OTel SDKs cannot be correlated with Coral's eBPF
+      data
+    - The AI cannot answer questions like "Which API endpoint caused the CPU
+      spike?" because it lacks application context
 
 - **Why this matters**:
-    - **Data correlation is Coral's core value**: Combining eBPF infrastructure metrics with application traces enables AI to diagnose issues that span multiple layers
-    - **Beyla integration depends on this**: RFD 032's Beyla integration requires OTLP ingestion to receive RED (Rate, Errors, Duration) metrics
-    - **Existing instrumentation reuse**: Teams already emit OTel from their applications; Coral should leverage this data rather than requiring separate instrumentation
-    - **Unified observability pipeline**: Store eBPF and OTel data together in DuckDB, enabling powerful correlation queries
+    - **Data correlation is Coral's core value**: Combining eBPF infrastructure
+      metrics with application traces enables AI to diagnose issues that span
+      multiple layers
+    - **Beyla integration depends on this**: RFD 032's Beyla integration
+      requires OTLP ingestion to receive RED (Rate, Errors, Duration) metrics
+    - **Existing instrumentation reuse**: Teams already emit OTel from their
+      applications; Coral should leverage this data rather than requiring
+      separate instrumentation
+    - **Unified observability pipeline**: Store eBPF and OTel data together in
+      DuckDB, enabling powerful correlation queries
 
 - **Use cases affected**:
-    - **"Why is checkout slow?"** - AI needs both application span latency (OTel) and host CPU/network metrics (eBPF) to diagnose root cause
-    - **Beyla RED metrics** - Ingest HTTP/gRPC latency and error rates from Beyla's OTLP export
-    - **Custom application traces** - Correlate business transactions (e.g., "payment processing") with infrastructure events
-    - **Multi-layer diagnostics** - Link "service X is slow" (app layer) to "disk I/O contention" (infrastructure layer)
+    - **"Why is checkout slow?"** - AI needs both application span latency (
+      OTel) and host CPU/network metrics (eBPF) to diagnose root cause
+    - **Beyla RED metrics** - Ingest HTTP/gRPC latency and error rates from
+      Beyla's OTLP export
+    - **Custom application traces** - Correlate business transactions (e.g., "
+      payment processing") with infrastructure events
+    - **Multi-layer diagnostics** - Link "service X is slow" (app layer) to "
+      disk I/O contention" (infrastructure layer)
 
 ## Solution
 
-**Core principle:** Accept OTel data as an *additional* signal alongside eBPF metrics. Agents expose OTLP endpoints, apply static filtering, aggregate into time-aligned buckets, and store in DuckDB for correlation queries.
+**Core principle:** Accept OTel data as an *additional* signal alongside eBPF
+metrics. Agents expose OTLP endpoints, apply static filtering, aggregate into
+time-aligned buckets, and store in DuckDB for correlation queries.
 
 **Key Design Decisions:**
 
-1. **OTLP endpoints**: Agents expose `localhost:4317` (gRPC) and `localhost:4318` (HTTP). Applications and Beyla export OTLP data to the local agent.
+1. **OTLP endpoints**: Agents expose `localhost:4317` (gRPC) and
+   `localhost:4318` (HTTP). Applications and Beyla export OTLP data to the local
+   agent.
 
-2. **Static filtering**: Simple rules (errors always captured, latency >500ms always captured, 10% sampling for normal spans). No adaptive sampling or control loops—predictable and debuggable.
+2. **Static filtering**: Simple rules (errors always captured, latency >500ms
+   always captured, 10% sampling for normal spans). No adaptive sampling or
+   control loops—predictable and debuggable.
 
-3. **Time-bucketed aggregation**: Agents aggregate spans into 1-minute buckets with percentiles (p50, p95, p99) before forwarding to colony. This reduces data volume by ~95% while preserving correlation fidelity.
+3. **Time-bucketed aggregation**: Agents aggregate spans into 1-minute buckets
+   with percentiles (p50, p95, p99) before forwarding to colony. This reduces
+   data volume by ~95% while preserving correlation fidelity.
 
-4. **Unified storage**: Colony stores OTel buckets alongside eBPF metrics in DuckDB, indexed by `(agent_id, timestamp, service_name)` for efficient correlation queries.
+4. **Unified storage**: Colony stores OTel buckets alongside eBPF metrics in
+   DuckDB, indexed by `(agent_id, timestamp, service_name)` for efficient
+   correlation queries.
 
-5. **Fan-out architecture**: Applications continue sending full traces to primary observability (Honeycomb, Grafana), while Coral receives filtered/aggregated copies for correlation.
+5. **Fan-out architecture**: Applications continue sending full traces to
+   primary observability (Honeycomb, Grafana), while Coral receives
+   filtered/aggregated copies for correlation.
 
 **Benefits:**
 
-- **Beyla integration**: RFD 032's Beyla can export RED metrics via OTLP to Coral agents
-- **Application correlation**: AI can link "checkout API p99 latency = 950ms" (OTel) with "database connection pool exhausted" (eBPF)
+- **Beyla integration**: RFD 032's Beyla can export RED metrics via OTLP to
+  Coral agents
+- **Application correlation**: AI can link "checkout API p99 latency = 950ms" (
+  OTel) with "database connection pool exhausted" (eBPF)
 - **Existing instrumentation**: Reuse OTel SDKs already deployed in applications
-- **Zero disruption**: Coral is an additional export target, not a replacement for existing observability
-- **Efficient storage**: 1-minute aggregation reduces colony storage by 95% vs. storing raw spans
+- **Zero disruption**: Coral is an additional export target, not a replacement
+  for existing observability
+- **Efficient storage**: 1-minute aggregation reduces colony storage by 95% vs.
+  storing raw spans
 
 **Architecture Overview:**
 
@@ -90,6 +124,7 @@ flowchart TB
 ```
 
 **Data flow:**
+
 1. Application emits OTel traces → Coral agent (localhost:4317)
 2. Beyla emits HTTP/gRPC RED metrics via OTLP → Coral agent (localhost:4317)
 3. Agent filters + aggregates into 1-minute buckets
@@ -99,7 +134,8 @@ flowchart TB
 
 ## Deployment Patterns
 
-Coral supports two primary OTLP ingestion patterns. For serverless environments (Lambda, Cloud Run), see RFD 034.
+Coral supports two primary OTLP ingestion patterns. For serverless
+environments (Lambda, Cloud Run), see RFD 034.
 
 ### Architecture Overview
 
@@ -114,9 +150,11 @@ sidecars.
 **Deployment patterns:**
 
 - **Native/VM**: Agent on each host, apps and Beyla export to `localhost:4317`
-- **Kubernetes**: Centralized collector service, apps export to `coral-otel.namespace:4317`
+- **Kubernetes**: Centralized collector service, apps export to
+  `coral-otel.namespace:4317`
 
-**Note:** For serverless (AWS Lambda, Cloud Run, Azure Functions), see **RFD 034: Serverless OTLP Forwarding**
+**Note:** For serverless (AWS Lambda, Cloud Run, Azure Functions), see **RFD
+034: Serverless OTLP Forwarding**
 
 ---
 
@@ -382,30 +420,42 @@ Client-Side K8s Installation).
 | ~~K8s Sidecar~~ | ❌ Not rec  | `localhost:4317`            | 50MB × pods | ❌ No  |
 
 **Key Decisions:**
-- **Kubernetes**: Always use Pattern 2 (cluster-wide service) for OTel ingestion. Per-pod sidecars are only needed for exec/shell capabilities (RFD 027), not for telemetry collection.
-- **Serverless** (Lambda, Cloud Run): See **RFD 034: Serverless OTLP Forwarding** for regional forwarder architecture.
+
+- **Kubernetes**: Always use Pattern 2 (cluster-wide service) for OTel
+  ingestion. Per-pod sidecars are only needed for exec/shell capabilities (RFD
+  027), not for telemetry collection.
+- **Serverless** (Lambda, Cloud Run): See **RFD 034: Serverless OTLP Forwarding
+  ** for regional forwarder architecture.
 
 ## Component Changes
 
 1. **Agent**
-    - Embed OTLP gRPC/HTTP receiver (using `go.opentelemetry.io/collector`), disabled by default via `agent.telemetry.enabled: false`
+    - Embed OTLP gRPC/HTTP receiver (using `go.opentelemetry.io/collector`),
+      disabled by default via `agent.telemetry.enabled: false`
     - Support multiple operation modes:
-        - `--mode=agent` (default): Full agent with optional OTLP receiver + eBPF collectors
-        - `--mode=otel-collector`: OTLP-only mode (no eBPF, for K8s cluster-wide deployment)
+        - `--mode=agent` (default): Full agent with optional OTLP receiver +
+          eBPF collectors
+        - `--mode=otel-collector`: OTLP-only mode (no eBPF, for K8s cluster-wide
+          deployment)
     - Accept OTLP data from:
         - Application OTel SDKs (traces)
         - Beyla (HTTP/gRPC RED metrics via OTLP)
         - Other OTel collectors (fan-out)
-    - Apply static filters (configured in `agent.yaml`): error spans, high-latency spans (>500ms), sample rate for normal spans (10%)
-    - Aggregate spans into 1-minute buckets with percentiles: `(service, p50/p95/p99 latency, error_count, trace_ids[])`
+    - Apply static filters (configured in `agent.yaml`): error spans,
+      high-latency spans (>500ms), sample rate for normal spans (10%)
+    - Aggregate spans into 1-minute buckets with percentiles:
+      `(service, p50/p95/p99 latency, error_count, trace_ids[])`
     - Forward aggregated buckets to colony over WireGuard mesh (RFD 022)
 
 2. **Colony**
     - Add `otel_spans` DuckDB table (schema below) with 24-hour TTL
-    - Receive aggregated OTel buckets from agents over WireGuard mesh (existing RPC channels)
+    - Receive aggregated OTel buckets from agents over WireGuard mesh (existing
+      RPC channels)
     - Store OTel data alongside eBPF metrics for correlation
-    - Expose correlation queries to AI: "SELECT otel.p99_ms, ebpf.cpu_pct FROM otel_spans JOIN ebpf_stats WHERE agent_id = X AND bucket_time = Y"
-    - Enable multi-layer diagnostics: link application latency with infrastructure metrics
+    - Expose correlation queries to AI: "SELECT otel.p99_ms, ebpf.cpu_pct FROM
+      otel_spans JOIN ebpf_stats WHERE agent_id = X AND bucket_time = Y"
+    - Enable multi-layer diagnostics: link application latency with
+      infrastructure metrics
 
 3. **Kubernetes OTel Collector** (for K8s environments)
     - Centralized collector deployment (optional: 3 replicas for HA)
@@ -416,9 +466,11 @@ Client-Side K8s Installation).
     - Stateless and horizontally scalable
 
 4. **CLI**
-    - `coral ask` queries include OTel citations when available: "checkout p99 latency = 950ms (trace abc123, errors: 5)"
+    - `coral ask` queries include OTel citations when available: "checkout p99
+      latency = 950ms (trace abc123, errors: 5)"
     - No new commands; OTel data appears automatically in AI responses
-    - Correlation examples: "checkout p99=950ms + CPU 85% on agent-xyz" or "payment errors coincide with database connection timeouts"
+    - Correlation examples: "checkout p99=950ms + CPU 85% on agent-xyz" or "
+      payment errors coincide with database connection timeouts"
 
 ## Database Schema
 
@@ -588,7 +640,9 @@ service:
             exporters: [ otlp/honeycomb, otlp/coral ]
 ```
 
-**For serverless functions (Lambda, Cloud Run, Azure Functions):** See **RFD 034: Serverless OTLP Forwarding** for regional forwarder deployment and configuration.
+**For serverless functions (Lambda, Cloud Run, Azure Functions):** See **RFD
+034: Serverless OTLP Forwarding** for regional forwarder deployment and
+configuration.
 
 ## Testing Strategy
 
@@ -610,16 +664,19 @@ service:
   colony.
 - `coral ask "why is checkout slow"` returns: "checkout p99=950ms at 14:23 (
   traces: abc, def), CPU 85% on agent-xyz".
-- Beyla exports HTTP RED metrics to agent OTLP endpoint, data correlates with eBPF network metrics in AI queries.
+- Beyla exports HTTP RED metrics to agent OTLP endpoint, data correlates with
+  eBPF network metrics in AI queries.
 
 ## Security Considerations
 
 - **Localhost binding**: OTLP receiver binds to `127.0.0.1` by default. Remote
   access requires explicit config and firewall rules.
-- **Kubernetes cluster-internal**: Coral OTel collector service uses ClusterIP (not LoadBalancer), accessible only within cluster network.
+- **Kubernetes cluster-internal**: Coral OTel collector service uses ClusterIP (
+  not LoadBalancer), accessible only within cluster network.
 - **PII in spans**: Document attribute scrubbing patterns. Agents can drop
   attributes matching regex (e.g., `email`, `ssn`).
-- **Agent-to-colony authentication**: Agents authenticate to colony using step-ca client certs (RFD 022) over WireGuard mesh.
+- **Agent-to-colony authentication**: Agents authenticate to colony using
+  step-ca client certs (RFD 022) over WireGuard mesh.
 - **Data retention**: 24-hour TTL minimizes exposure. No long-term PII storage.
 
 ## Migration Strategy
@@ -627,14 +684,17 @@ service:
 1. **Rollout**:
     - Deploy agents with `telemetry.enabled: false` (no behavior change).
     - Operators opt in per agent/environment by setting `enabled: true`.
-    - Update app OTel configs to add `localhost:4317` (VM/native) or `coral-otel.namespace:4317` (Kubernetes) as export target.
-    - Enable Beyla OTLP export to Coral agents for HTTP/gRPC RED metrics (see RFD 032).
+    - Update app OTel configs to add `localhost:4317` (VM/native) or
+      `coral-otel.namespace:4317` (Kubernetes) as export target.
+    - Enable Beyla OTLP export to Coral agents for HTTP/gRPC RED metrics (see
+      RFD 032).
 
 2. **Backward compatibility**:
     - No breaking changes. Agents without telemetry config continue eBPF-only
       operation.
     - Colony gracefully handles agents with/without OTel data.
-    - Correlation queries degrade gracefully when OTel data is unavailable (fall back to eBPF-only insights).
+    - Correlation queries degrade gracefully when OTel data is unavailable (fall
+      back to eBPF-only insights).
 
 3. **Rollback**:
     - Set `telemetry.enabled: false` and restart agents.
@@ -647,7 +707,8 @@ service:
 
 ### Endpoint Discovery via Discovery Service
 
-**Problem:** Applications must currently hardcode Coral OTel collector endpoints:
+**Problem:** Applications must currently hardcode Coral OTel collector
+endpoints:
 
 ```yaml
 # Current: Manual configuration
@@ -658,7 +719,8 @@ exporters:
         endpoint: coral-otel.coral-system:4317  # Kubernetes
 ```
 
-**Solution:** Extend discovery service (RFD 001/023) to provide environment-aware OTLP endpoint discovery.
+**Solution:** Extend discovery service (RFD 001/023) to provide
+environment-aware OTLP endpoint discovery.
 
 **How it would work:**
 
@@ -694,11 +756,14 @@ curl https://discovery.coral.io/v1/otlp-endpoint \
 **Benefits:**
 
 - ✅ **Zero hardcoded endpoints**: Apps query discovery, get dynamic endpoint
-- ✅ **Environment-aware**: Returns `localhost:4317` for native/VM, cluster service DNS for Kubernetes
+- ✅ **Environment-aware**: Returns `localhost:4317` for native/VM, cluster
+  service DNS for Kubernetes
 - ✅ **Failover**: Discovery can redirect to backup collector if primary down
-- ✅ **Simplified configuration**: Same application code works across environments
+- ✅ **Simplified configuration**: Same application code works across
+  environments
 
-**Note:** For serverless endpoint discovery (regional forwarders, VPC endpoints), see **RFD 034: Serverless OTLP Forwarding**.
+**Note:** For serverless endpoint discovery (regional forwarders, VPC
+endpoints), see **RFD 034: Serverless OTLP Forwarding**.
 
 ---
 

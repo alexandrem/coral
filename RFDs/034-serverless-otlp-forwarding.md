@@ -16,30 +16,45 @@ areas: [ "observability", "serverless", "networking" ]
 
 ## Summary
 
-Enable Coral to observe serverless workloads (AWS Lambda, Google Cloud Run, Azure Functions) by deploying regional OTLP forwarders that receive telemetry from functions via VPC private endpoints and relay it to colonies over WireGuard mesh. This extends RFD 025's OTLP ingestion to environments where persistent agents cannot run.
+Enable Coral to observe serverless workloads (AWS Lambda, Google Cloud Run,
+Azure Functions) by deploying regional OTLP forwarders that receive telemetry
+from functions via VPC private endpoints and relay it to colonies over WireGuard
+mesh. This extends RFD 025's OTLP ingestion to environments where persistent
+agents cannot run.
 
 ## Problem
 
 - **Current behavior/limitations**:
-    - Serverless functions cannot run persistent Coral agents (Lambda/Cloud Run are stateless, ephemeral)
-    - Functions have outbound-only networking with no ability to receive incoming connections
+    - Serverless functions cannot run persistent Coral agents (Lambda/Cloud Run
+      are stateless, ephemeral)
+    - Functions have outbound-only networking with no ability to receive
+      incoming connections
     - eBPF is unavailable in Lambda, Cloud Run, and Fargate
-    - Teams with mixed architectures (VMs + Kubernetes + serverless) cannot get unified Coral insights across their entire stack
+    - Teams with mixed architectures (VMs + Kubernetes + serverless) cannot get
+      unified Coral insights across their entire stack
 
 - **Why this matters**:
-    - Modern deployments increasingly use serverless (30-50% of workloads in cloud-native environments)
+    - Modern deployments increasingly use serverless (30-50% of workloads in
+      cloud-native environments)
     - Serverless-heavy architectures currently have zero Coral visibility
-    - Functions already emit OpenTelemetry data; teams need a way to funnel it to their Coral colony
-    - Manual correlation between serverless traces and infrastructure metrics is time-consuming
+    - Functions already emit OpenTelemetry data; teams need a way to funnel it
+      to their Coral colony
+    - Manual correlation between serverless traces and infrastructure metrics is
+      time-consuming
 
 - **Use cases affected**:
-    - "Why is the Lambda checkout handler slow?" queries that need both application traces and downstream infrastructure metrics
-    - Event-driven architectures where Lambda triggers impact services monitored by Coral
-    - Multi-region serverless deployments requiring local collection with centralized analysis
+    - "Why is the Lambda checkout handler slow?" queries that need both
+      application traces and downstream infrastructure metrics
+    - Event-driven architectures where Lambda triggers impact services monitored
+      by Coral
+    - Multi-region serverless deployments requiring local collection with
+      centralized analysis
 
 ## Solution
 
-Deploy **regional agent forwarders** in each cloud region where serverless workloads run. These are lightweight, stateless Coral agents running in `--mode=forwarder` that:
+Deploy **regional agent forwarders** in each cloud region where serverless
+workloads run. These are lightweight, stateless Coral agents running in
+`--mode=forwarder` that:
 
 1. Accept OTLP data from Lambda/Cloud Run functions via VPC private endpoints
 2. Apply the same static filtering and aggregation as regular agents (RFD 025)
@@ -74,11 +89,16 @@ Deploy **regional agent forwarders** in each cloud region where serverless workl
 
 **Key Design Decisions:**
 
-1. **Regional deployment**: One forwarder cluster per cloud region (e.g., us-east-1, eu-west-1) to minimize latency
-2. **VPC private endpoints**: Functions reach forwarders via PrivateLink (AWS) or Private Service Connect (GCP), keeping traffic private
-3. **Stateless and scalable**: Forwarders are horizontally scalable with no local storage; they immediately forward to colony
-4. **Same filtering/aggregation**: Reuse RFD 025's static filtering and 1-minute bucketing logic
-5. **Mesh connectivity**: Forwarders join the WireGuard mesh like regular agents, authenticate via step-ca (RFD 022)
+1. **Regional deployment**: One forwarder cluster per cloud region (e.g.,
+   us-east-1, eu-west-1) to minimize latency
+2. **VPC private endpoints**: Functions reach forwarders via PrivateLink (AWS)
+   or Private Service Connect (GCP), keeping traffic private
+3. **Stateless and scalable**: Forwarders are horizontally scalable with no
+   local storage; they immediately forward to colony
+4. **Same filtering/aggregation**: Reuse RFD 025's static filtering and 1-minute
+   bucketing logic
+5. **Mesh connectivity**: Forwarders join the WireGuard mesh like regular
+   agents, authenticate via step-ca (RFD 022)
 
 ## Application Integration
 
@@ -88,7 +108,8 @@ Deploy **regional agent forwarders** in each cloud region where serverless workl
 
 ```python
 # Python Lambda example
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import
+    OTLPSpanExporter
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 # Primary observability (Honeycomb)
@@ -99,7 +120,8 @@ exporter_honeycomb = OTLPSpanExporter(
 # Coral regional forwarder (via VPC PrivateLink)
 # Endpoint URL provided by VPC endpoint DNS
 exporter_coral = OTLPSpanExporter(
-    endpoint=os.getenv("CORAL_OTLP_ENDPOINT"),  # e.g., "vpce-abc123.execute-api.us-east-1.vpce.amazonaws.com:4317"
+    endpoint=os.getenv("CORAL_OTLP_ENDPOINT"),
+    # e.g., "vpce-abc123.execute-api.us-east-1.vpce.amazonaws.com:4317"
     insecure=True  # Within VPC
 )
 
@@ -108,6 +130,7 @@ tracer_provider.add_span_processor(BatchSpanProcessor(exporter_coral))
 ```
 
 **Requirements:**
+
 - Lambda must be attached to a VPC with access to the VPC endpoint
 - VPC endpoint must be configured to route to the forwarder service
 - Environment variable `CORAL_OTLP_ENDPOINT` set to VPC endpoint DNS name
@@ -118,19 +141,20 @@ tracer_provider.add_span_processor(BatchSpanProcessor(exporter_coral))
 
 ```javascript
 // Node.js Cloud Run example
-const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
+const {OTLPTraceExporter} = require('@opentelemetry/exporter-trace-otlp-grpc');
 const grpc = require('@grpc/grpc-js');
 
 // Coral forwarder (via Private Service Connect)
 const coralExporter = new OTLPTraceExporter({
-  url: process.env.CORAL_OTLP_ENDPOINT,  // PSC endpoint
-  credentials: grpc.credentials.createInsecure() // Within VPC
+    url: process.env.CORAL_OTLP_ENDPOINT,  // PSC endpoint
+    credentials: grpc.credentials.createInsecure() // Within VPC
 });
 
 provider.addSpanProcessor(new BatchSpanProcessor(coralExporter));
 ```
 
 **Requirements:**
+
 - Cloud Run service must have VPC connector configured
 - Private Service Connect endpoint must be accessible from the VPC
 - Environment variable `CORAL_OTLP_ENDPOINT` set to PSC endpoint
@@ -151,6 +175,7 @@ var coralExporter = new OtlpExporter(new OtlpExporterOptions
 ```
 
 **Requirements:**
+
 - Function must be integrated with a Virtual Network
 - Azure Private Link endpoint configured
 - Environment variable `CORAL_OTLP_ENDPOINT` set to Private Link DNS
@@ -164,30 +189,30 @@ Add `--mode=forwarder` flag to agent binary:
 ```go
 // cmd/coral/agent.go
 func NewServeCommand() *cobra.Command {
-    var mode string
+var mode string
 
-    cmd := &cobra.Command{
-        Use:   "serve",
-        Short: "Start Coral agent",
-        RunE: func(cmd *cobra.Command, args []string) error {
-            switch mode {
-            case "agent":
-                // Full agent with eBPF + OTLP (RFD 025)
-                return startFullAgent(cfg)
-            case "otel-collector":
-                // K8s collector - OTLP only, no eBPF (RFD 025)
-                return startOTLPCollector(cfg)
-            case "forwarder":
-                // Serverless forwarder - OTLP only, no eBPF, no local storage (RFD 034)
-                return startForwarder(cfg)
-            default:
-                return fmt.Errorf("unknown mode: %s", mode)
-            }
-        },
-    }
+cmd := &cobra.Command{
+Use:   "serve",
+Short: "Start Coral agent",
+RunE: func (cmd *cobra.Command, args []string) error {
+switch mode {
+case "agent":
+// Full agent with eBPF + OTLP (RFD 025)
+return startFullAgent(cfg)
+case "otel-collector":
+// K8s collector - OTLP only, no eBPF (RFD 025)
+return startOTLPCollector(cfg)
+case "forwarder":
+// Serverless forwarder - OTLP only, no eBPF, no local storage (RFD 034)
+return startForwarder(cfg)
+default:
+return fmt.Errorf("unknown mode: %s", mode)
+}
+},
+}
 
-    cmd.Flags().StringVar(&mode, "mode", "agent", "Agent mode: agent, otel-collector, forwarder")
-    return cmd
+cmd.Flags().StringVar(&mode, "mode", "agent", "Agent mode: agent, otel-collector, forwarder")
+return cmd
 }
 ```
 
@@ -278,48 +303,49 @@ func (f *Forwarder) forwardLoop(ctx context.Context) {
 ```yaml
 # forwarder-us-east-1.yaml
 agent:
-  mode: forwarder
-  region: us-east-1  # For discovery service integration
+    mode: forwarder
+    region: us-east-1  # For discovery service integration
 
 telemetry:
-  enabled: true
-  endpoint: "0.0.0.0:4317"  # Accept from all VPC IPs
-  filters:
-    always_capture_errors: true
-    latency_threshold_ms: 500
-    sample_rate: 0.10
+    enabled: true
+    endpoint: "0.0.0.0:4317"  # Accept from all VPC IPs
+    filters:
+        always_capture_errors: true
+        latency_threshold_ms: 500
+        sample_rate: 0.10
 
 colony:
-  endpoint: "10.42.0.1:9000"  # Colony WireGuard mesh IP
+    endpoint: "10.42.0.1:9000"  # Colony WireGuard mesh IP
 
 wireguard:
-  enabled: true
-  private_key_file: /etc/coral/wireguard.key
-  public_key: ${WIREGUARD_PUBLIC_KEY}
+    enabled: true
+    private_key_file: /etc/coral/wireguard.key
+    public_key: ${WIREGUARD_PUBLIC_KEY}
 
 discovery:
-  enabled: true
-  endpoint: "https://discovery.coral.io"
-  bootstrap_token_file: /etc/coral/bootstrap.token
+    enabled: true
+    endpoint: "https://discovery.coral.io"
+    bootstrap_token_file: /etc/coral/bootstrap.token
 ```
 
 **Configuration differences from regular agent:**
 
-| Setting                | Regular Agent      | Forwarder            |
-|------------------------|--------------------|----------------------|
-| `agent.mode`           | `agent`            | `forwarder`          |
-| eBPF collectors        | Enabled            | Disabled             |
-| OTLP receiver          | Optional           | Required             |
-| Local storage          | Yes (DuckDB)       | No                   |
-| WireGuard mesh         | Yes                | Yes                  |
-| Telemetry forwarding   | Every 1 minute     | Every 1 minute       |
+| Setting              | Regular Agent  | Forwarder      |
+|----------------------|----------------|----------------|
+| `agent.mode`         | `agent`        | `forwarder`    |
+| eBPF collectors      | Enabled        | Disabled       |
+| OTLP receiver        | Optional       | Required       |
+| Local storage        | Yes (DuckDB)   | No             |
+| WireGuard mesh       | Yes            | Yes            |
+| Telemetry forwarding | Every 1 minute | Every 1 minute |
 
 ## Implementation Plan
 
 ### Phase 1: Forwarder Mode Implementation
 
 - [ ] Add `--mode=forwarder` flag to agent CLI
-- [ ] Implement `forwarder.Forwarder` type (stateless OTLP receiver + colony client)
+- [ ] Implement `forwarder.Forwarder` type (stateless OTLP receiver + colony
+  client)
 - [ ] Disable eBPF initialization when `mode=forwarder`
 - [ ] Disable local storage (no DuckDB) when `mode=forwarder`
 - [ ] Reuse RFD 025's telemetry filtering and aggregation logic
@@ -336,7 +362,8 @@ discovery:
 ### Phase 3: Endpoint Discovery Integration
 
 - [ ] Extend discovery service (RFD 001/023) to return forwarder endpoints
-- [ ] Functions query discovery at startup: "Give me nearest OTLP endpoint for my region"
+- [ ] Functions query discovery at startup: "Give me nearest OTLP endpoint for
+  my region"
 - [ ] Discovery returns region-specific forwarder VPC endpoint URL
 - [ ] Eliminate hardcoded endpoints from function code
 - [ ] Document discovery-based configuration pattern
@@ -348,30 +375,30 @@ discovery:
 ```go
 // internal/config/schema.go
 type AgentConfig struct {
-    Mode     string           // "agent", "otel-collector", "forwarder"
-    Region   string           // For discovery integration
-    // ... existing fields
+Mode     string // "agent", "otel-collector", "forwarder"
+Region   string // For discovery integration
+// ... existing fields
 }
 
 // Validation
 func (c *AgentConfig) Validate() error {
-    switch c.Mode {
-    case "agent", "otel-collector", "forwarder":
-        // Valid
-    default:
-        return fmt.Errorf("invalid mode: %s", c.Mode)
-    }
+switch c.Mode {
+case "agent", "otel-collector", "forwarder":
+// Valid
+default:
+return fmt.Errorf("invalid mode: %s", c.Mode)
+}
 
-    if c.Mode == "forwarder" {
-        if c.Telemetry.Enabled == false {
-            return fmt.Errorf("forwarder mode requires telemetry.enabled=true")
-        }
-        if c.Colony.Endpoint == "" {
-            return fmt.Errorf("forwarder mode requires colony.endpoint")
-        }
-    }
+if c.Mode == "forwarder" {
+if c.Telemetry.Enabled == false {
+return fmt.Errorf("forwarder mode requires telemetry.enabled=true")
+}
+if c.Colony.Endpoint == "" {
+return fmt.Errorf("forwarder mode requires colony.endpoint")
+}
+}
 
-    return nil
+return nil
 }
 ```
 
@@ -380,72 +407,92 @@ func (c *AgentConfig) Validate() error {
 ```go
 // cmd/coral/agent.go
 func startForwarder(cfg *config.AgentConfig) error {
-    logger := log.NewLogger(cfg.LogLevel)
+logger := log.NewLogger(cfg.LogLevel)
 
-    // Create forwarder (OTLP receiver + colony client)
-    fwd, err := forwarder.New(cfg, logger)
-    if err != nil {
-        return fmt.Errorf("failed to create forwarder: %w", err)
-    }
+// Create forwarder (OTLP receiver + colony client)
+fwd, err := forwarder.New(cfg, logger)
+if err != nil {
+return fmt.Errorf("failed to create forwarder: %w", err)
+}
 
-    ctx := context.Background()
-    return fwd.Start(ctx)
+ctx := context.Background()
+return fwd.Start(ctx)
 }
 ```
 
 ## Security Considerations
 
-- **VPC isolation**: Forwarders accept traffic only from VPC private endpoints, not the public internet
-- **Authentication**: Forwarders authenticate to colony using step-ca client certificates (RFD 022)
+- **VPC isolation**: Forwarders accept traffic only from VPC private endpoints,
+  not the public internet
+- **Authentication**: Forwarders authenticate to colony using step-ca client
+  certificates (RFD 022)
 - **Encryption**: All traffic encrypted via WireGuard mesh
 - **PII handling**: Same 24-hour TTL and filtering rules as RFD 025
-- **Access control**: VPC endpoint policies restrict which Lambda functions/service accounts can connect
+- **Access control**: VPC endpoint policies restrict which Lambda
+  functions/service accounts can connect
 - **No local storage**: Forwarders are stateless; no telemetry persisted locally
 
 ## Operational Characteristics
 
 **Deployment:**
+
 - One forwarder cluster per region per colony
-- Example naming: `coral-forwarder-us-east-1-prod`, `coral-forwarder-eu-west-1-prod`
+- Example naming: `coral-forwarder-us-east-1-prod`,
+  `coral-forwarder-eu-west-1-prod`
 
 **Scaling:**
+
 - Horizontal scaling based on OTLP request rate
 - Typical: 2-3 replicas per region for high availability
 - Forwarders are stateless; can scale up/down without data loss
 - Autoscaling trigger: CPU > 70% or request queue depth > threshold
 
 **Monitoring:**
+
 - Forwarders emit their own telemetry to colony (meta-observability)
-- Metrics: OTLP requests/sec, forwarding latency, colony connectivity status, bucket drop rate
+- Metrics: OTLP requests/sec, forwarding latency, colony connectivity status,
+  bucket drop rate
 - Alerts: Colony connection loss, high rejection rate, VPC endpoint unreachable
 
 **Failure Modes:**
-- **Forwarder down**: Functions cannot send OTLP; data lost until forwarder recovers (stateless)
+
+- **Forwarder down**: Functions cannot send OTLP; data lost until forwarder
+  recovers (stateless)
 - **Colony unreachable**: Forwarder drops buckets; no local buffering
-- **VPC endpoint unreachable**: Functions see OTLP export errors; primary observability (Honeycomb) unaffected
+- **VPC endpoint unreachable**: Functions see OTLP export errors; primary
+  observability (Honeycomb) unaffected
 
 ## Relationship to Other RFDs
 
 - **RFD 025**: Forwarders reuse OTLP ingestion, filtering, and aggregation logic
-- **RFD 022**: Forwarders authenticate to colony via step-ca certificates over WireGuard mesh
+- **RFD 022**: Forwarders authenticate to colony via step-ca certificates over
+  WireGuard mesh
 - **RFD 023**: Discovery service can provide forwarder endpoints (Phase 3)
 - **RFD 027**: Serverless functions cannot use sidecars (different concern)
-- **RFD 032**: Beyla cannot run in serverless; forwarders only handle application OTel
+- **RFD 032**: Beyla cannot run in serverless; forwarders only handle
+  application OTel
 
 ## Future Enhancements
 
-- **Multi-region failover**: If regional forwarder is down, discovery service redirects to nearest healthy region
-- **Buffering**: Optional local buffering (Redis/Memcached) for temporary colony unavailability
-- **Protocol translation**: Support AWS Kinesis, GCP Pub/Sub as alternative ingestion methods
-- **Batching optimization**: Intelligent batching based on function invocation patterns
-- **Cost optimization**: Adaptive sampling based on function invocation frequency
+- **Multi-region failover**: If regional forwarder is down, discovery service
+  redirects to nearest healthy region
+- **Buffering**: Optional local buffering (Redis/Memcached) for temporary colony
+  unavailability
+- **Protocol translation**: Support AWS Kinesis, GCP Pub/Sub as alternative
+  ingestion methods
+- **Batching optimization**: Intelligent batching based on function invocation
+  patterns
+- **Cost optimization**: Adaptive sampling based on function invocation
+  frequency
 
 ## Pattern Comparison
 
-| Pattern         | Use Case   | Endpoint                          | Overhead     | HA    | Local State |
-|-----------------|------------|-----------------------------------|--------------|-------|-------------|
-| **localhost**   | Native/VM  | `localhost:4317`                  | 50MB/host    | N/A   | ✅ Yes       |
-| **K8s Service** | Kubernetes | `coral-otel.namespace:4317`       | 150MB total  | ✅ Yes | ❌ No        |
-| **Regional**    | Serverless | `vpce-*.vpce.amazonaws.com:4317`  | 100MB/region | ✅ Yes | ❌ No        |
+| Pattern         | Use Case   | Endpoint                         | Overhead     | HA    | Local State |
+|-----------------|------------|----------------------------------|--------------|-------|-------------|
+| **localhost**   | Native/VM  | `localhost:4317`                 | 50MB/host    | N/A   | ✅ Yes       |
+| **K8s Service** | Kubernetes | `coral-otel.namespace:4317`      | 150MB total  | ✅ Yes | ❌ No        |
+| **Regional**    | Serverless | `vpce-*.vpce.amazonaws.com:4317` | 100MB/region | ✅ Yes | ❌ No        |
 
-Serverless forwarders are the only viable option for Lambda/Cloud Run/Azure Functions, as these platforms do not support persistent agents or eBPF instrumentation.
+Serverless forwarders are the only viable option for Lambda/Cloud Run/Azure
+Functions, as these platforms do not support persistent agents or eBPF
+instrumentation.
