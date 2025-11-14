@@ -37,8 +37,8 @@ func TestQueryTelemetry_Success(t *testing.T) {
 		AgentID:  "test-agent",
 		Endpoint: "127.0.0.1:4317",
 		Filters: telemetry.FilterConfig{
-			HighLatencyThresholdMs: 500.0,
-			SampleRate:             0.1,
+			LatencyThresholdMs: 500.0,
+			SampleRate:         0.1,
 		},
 	}
 

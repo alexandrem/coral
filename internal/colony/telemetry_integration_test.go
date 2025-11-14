@@ -181,7 +181,9 @@ func TestPullBasedTelemetry_EndToEnd(t *testing.T) {
 
 	// === Verify Stored Summaries ===
 	// Query summaries from colony database.
-	bucketTime := now.Truncate(time.Minute)
+	// Calculate the actual bucket time from the first span to handle edge cases.
+	firstSpanTime := now.Add(-30 * time.Second)
+	bucketTime := firstSpanTime.Truncate(time.Minute)
 	storedSummaries, err := colonyDB.QueryTelemetrySummaries(ctx, "agent-1", bucketTime, bucketTime.Add(1*time.Minute))
 	if err != nil {
 		t.Fatalf("Failed to query summaries: %v", err)

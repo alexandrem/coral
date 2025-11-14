@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -83,13 +84,16 @@ func (s *Storage) StoreSpan(ctx context.Context, span Span) error {
 		ON CONFLICT (trace_id, span_id) DO NOTHING
 	`
 
-	// Convert attributes to JSON (simplified - in production use proper JSON encoding).
-	attributesJSON := "{}"
-	if len(span.Attributes) > 0 {
-		attributesJSON = fmt.Sprintf("%v", span.Attributes)
+	// Convert attributes to JSON.
+	attributesJSON, err := json.Marshal(span.Attributes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attributes: %w", err)
+	}
+	if len(span.Attributes) == 0 {
+		attributesJSON = []byte("{}")
 	}
 
-	_, err := s.db.ExecContext(
+	_, err = s.db.ExecContext(
 		ctx,
 		query,
 		span.Timestamp,
@@ -119,7 +123,7 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 
 	query := `
 		SELECT timestamp, trace_id, span_id, service_name, span_kind,
-		       duration_ms, is_error, http_status, http_method, http_route
+		       duration_ms, is_error, http_status, http_method, http_route, attributes
 		FROM otel_spans_local
 		WHERE timestamp >= ? AND timestamp < ?
 	`
@@ -154,6 +158,7 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 		var httpStatus sql.NullInt32
 		var httpMethod sql.NullString
 		var httpRoute sql.NullString
+		var attributesJSON []byte
 
 		err := rows.Scan(
 			&span.Timestamp,
@@ -166,6 +171,7 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 			&httpStatus,
 			&httpMethod,
 			&httpRoute,
+			&attributesJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan span: %w", err)
@@ -179,6 +185,13 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 		}
 		if httpRoute.Valid {
 			span.HTTPRoute = httpRoute.String
+		}
+
+		// Unmarshal attributes.
+		if len(attributesJSON) > 0 {
+			if err := json.Unmarshal(attributesJSON, &span.Attributes); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal attributes: %w", err)
+			}
 		}
 
 		spans = append(spans, span)
