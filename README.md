@@ -320,10 +320,11 @@ Claude Desktop, Cursor, etc.) can trigger debugging sessions:
 
 Coral provides comprehensive observability through four complementary mechanisms:
 
-### 1. Beyla eBPF Probes (Zero Config)
+### 1. OpenTelemetry eBPF Instrumentation (Zero Config)
 
-Agents use [Beyla](https://github.com/grafana/beyla) eBPF probes to capture RED
-metrics (Rate, Errors, Duration) with **zero configuration**:
+Agents use [OpenTelemetry eBPF instrumentation](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation)
+(formerly Grafana Beyla) to capture RED metrics (Rate, Errors, Duration) with
+**zero configuration**:
 
 - **No code changes** - Works with any HTTP/gRPC service
 - **No SDK required** - Attaches to running processes via eBPF
@@ -333,7 +334,7 @@ metrics (Rate, Errors, Duration) with **zero configuration**:
 ```bash
 # Just connect - metrics start flowing automatically
 coral connect api:8080
-# → Beyla eBPF probes attach and collect RED metrics
+# → OpenTelemetry eBPF probes attach and collect RED metrics
 ```
 
 ### 2. OTLP Ingestion (OpenTelemetry)
@@ -389,11 +390,15 @@ The most advanced pillar - **on-demand eBPF uprobes** for live debugging:
 
 See "Live Debugging: The Killer Feature" section below for details.
 
+**Future eBPF Capabilities** (planned):
+- **Traffic inspection**: eBPF probes to capture HTTP request/response data at syscall level
+- **Continuous profiling**: On-demand CPU/memory profiling via eBPF (language-agnostic)
+
 ---
 
 **How they work together:**
 
-1. **Beyla eBPF** provides baseline RED metrics (always on, low overhead)
+1. **OpenTelemetry eBPF** provides baseline RED metrics (always on, low overhead)
 2. **OTLP** adds rich trace context from instrumented apps (if using OpenTelemetry)
 3. **Shell/exec** runs diagnostic tools when LLM needs system-level data
 4. **SDK probes** instrument code when deeper investigation is needed
