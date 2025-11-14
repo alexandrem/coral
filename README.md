@@ -564,7 +564,6 @@ Developer Workstation               Enterprise (Optional)
 - **Control plane only** - Agents never proxy/intercept application traffic
 - **Application-scoped** - One mesh per app (not infrastructure-wide)
 - **SDK optional** - Basic observability works without code changes
-- **Optional federation** - Reef provides cross-colony analysis for enterprises
 
 ## Quick Start
 
