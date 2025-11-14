@@ -8,12 +8,11 @@ instrument your code on-demand.
 ```
 You: "What's wrong with the API?"
 
-Coral: "API crashed with OOM 3 minutes ago. Memory grew 250MB→512MB
-       after v2.3.0 deployed 10 min ago. Connection pool leak (85%
-       confidence). Recommend rollback to v2.2.5."
+Coral: "API latency spiked 3 minutes ago. P95 went from 150ms to 2.3s.
+       95% of time spent in db.QueryOrders(). Query doing sequential
+       scan of 234k rows. Missing index on orders.user_id (85% confidence).
 
-You: "Do it"
-Coral: "Rolling back API to v2.2.5... Done. Memory stable at 240MB."
+       Recommendation: CREATE INDEX idx_orders_user_id ON orders(user_id);"
 
 ⏱️  <1 second analysis using your own LLM (OpenAI/Anthropic/Ollama)
 ```
@@ -42,7 +41,7 @@ Coral gives you **one interface for distributed app operations**:
 ### 🔍 Observe
 
 Four complementary mechanisms provide complete visibility:
-- **Beyla eBPF**: Zero-config RED metrics (no code changes)
+- **OpenTelemetry eBPF**: Zero-config RED metrics (no code changes)
 - **OTLP ingestion**: For apps using OpenTelemetry
 - **Shell/exec**: Run diagnostic tools (netstat, tcpdump, etc.)
 - **Connection mapping**: Auto-discovered service dependencies
@@ -58,13 +57,6 @@ Get AI-powered insights from your Colony's observability data.
 - Zero overhead when not debugging
 - Works across your entire distributed app
 
-### 🎛️ Control
-
-- **Traffic inspection**: Sample and inspect live requests
-- **Profiling**: Start/stop profilers remotely
-- **Rollbacks**: Revert deployments with one command
-- **Live probes**: Attach/detach debugging hooks on-demand
-
 All from a single binary. No complex setup. Works on laptop, VMs, or Kubernetes.
 
 ## How It Works
@@ -73,8 +65,8 @@ Coral offers **two integration levels**:
 
 ### Passive Mode (No Code Changes)
 
-Agents use **Beyla eBPF probes** to capture RED metrics (Rate, Errors, Duration)
-with zero configuration. No code changes needed.
+Agents use **OpenTelemetry eBPF instrumentation** to capture RED metrics (Rate,
+Errors, Duration) with zero configuration. No code changes needed.
 
 ```bash
 # Start the colony (central coordinator)
@@ -96,16 +88,15 @@ coral ask "Why is checkout slow?"
 coral ask "What changed in the last hour?"
 ```
 
-**You get:** RED metrics (via Beyla eBPF), connection mapping, AI-powered
+**You get:** RED metrics (via OpenTelemetry eBPF), connection mapping, AI-powered
 analysis using your own LLM.
 
 **Optionally:** Apps using OpenTelemetry can also send telemetry to the agent's
-OTLP endpoint for correlation with eBPF data.
+OTLP endpoint for richer trace correlation.
 
 ### SDK-Integrated Mode (Full Control)
 
-Integrate the Coral SDK for live debugging, traffic inspection, profiling, and
-runtime monitoring.
+Integrate the Coral SDK for live debugging and runtime monitoring.
 
 ```go
 // In your application
@@ -120,38 +111,32 @@ func main() {
 	// Enable runtime monitoring for live debugging
 	// Launches goroutine that bridges with agent's eBPF probes
 	coral.EnableRuntimeMonitoring()
-
-	// Enable profiling endpoint
-	coral.EnableProfiling()
 }
 ```
 
 ```bash
-# Control from CLI
-coral traffic sample api --rate 0.1 --duration 5m
-coral traffic inspect api --filter "path=/checkout"
-
-coral profile start api --type cpu --duration 60s
-coral profile start frontend --type heap
-
 # Live debugging - attach probes on-demand
 coral debug attach api --function handleCheckout --duration 60s
 coral debug trace api --path "/api/checkout" --duration 5m
+coral debug list api  # Show active probes
+coral debug detach api --all
 
-coral rollback api
-coral rollback api --to-version v2.2.5
+# Diagnostic commands (shell/exec)
+coral exec api "netstat -an | grep ESTABLISHED"
+coral exec api "lsof -i :8080"
 ```
 
-**You get:** Full operations control + all passive mode capabilities.
+**You get:** On-demand live debugging + all passive mode capabilities.
 
 ## Four Observability Pillars
 
 Coral provides comprehensive observability through four complementary mechanisms:
 
-### 1. Beyla eBPF Probes (Zero Config)
+### 1. OpenTelemetry eBPF Instrumentation (Zero Config)
 
-Agents use [Beyla](https://github.com/grafana/beyla) eBPF probes to capture RED
-metrics (Rate, Errors, Duration) with **zero configuration**:
+Agents use [OpenTelemetry eBPF instrumentation](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation)
+(formerly Grafana Beyla) to capture RED metrics (Rate, Errors, Duration) with
+**zero configuration**:
 
 - **No code changes** - Works with any HTTP/gRPC service
 - **No SDK required** - Attaches to running processes via eBPF
@@ -161,7 +146,7 @@ metrics (Rate, Errors, Duration) with **zero configuration**:
 ```bash
 # Just connect - metrics start flowing automatically
 coral connect api:8080
-# → Beyla eBPF probes attach and collect RED metrics
+# → OpenTelemetry eBPF probes attach and collect RED metrics
 ```
 
 ### 2. OTLP Ingestion (OpenTelemetry)
@@ -217,11 +202,15 @@ The most advanced pillar - **on-demand eBPF uprobes** for live debugging:
 
 See "Live Debugging: The Killer Feature" section below for details.
 
+**Future eBPF Capabilities** (planned):
+- **Traffic inspection**: eBPF probes to capture HTTP request/response data at syscall level
+- **Continuous profiling**: On-demand CPU/memory profiling via eBPF (language-agnostic)
+
 ---
 
 **How they work together:**
 
-1. **Beyla eBPF** provides baseline RED metrics (always on, low overhead)
+1. **OpenTelemetry eBPF** provides baseline RED metrics (always on, low overhead)
 2. **OTLP** adds rich trace context from instrumented apps (if using OpenTelemetry)
 3. **Shell/exec** runs diagnostic tools when LLM needs system-level data
 4. **SDK probes** instrument code when deeper investigation is needed
@@ -550,7 +539,7 @@ coral ask cost
 - Uses **your own LLM API keys** (OpenAI, Anthropic, or local Ollama)
 - You control model choice, costs, and data privacy
 
-### Live Debugging & Control Operations (SDK-integrated mode)
+### Live Debugging (SDK-integrated mode)
 
 ```bash
 # Live debugging - attach probes on-demand
@@ -558,20 +547,7 @@ coral debug attach <service> --function <func-name> --duration 60s
 coral debug trace <service> --path "/api/endpoint" --duration 5m
 coral debug list <service>  # Show active probes
 coral debug detach <service> --all
-
-# Traffic inspection
-coral traffic sample <service> --rate 0.1 --duration 5m
-coral traffic inspect <service> --filter "path=/api"
-
-# Profiling
-coral profile start <service> --type cpu --duration 60s
-coral profile start <service> --type heap
-coral profile stop <service>
-coral profile download <service> --output profile.pprof
-
-# Rollbacks
-coral rollback <service>
-coral rollback <service> --to-version v2.2.5
+coral debug logs <service>  # View collected probe data
 ```
 
 ### Diagnostic Commands
@@ -608,9 +584,9 @@ coral version
 
 ```bash
 coral ask "Why are users seeing 500 errors?"
-# → Identifies spike in DB connection timeouts after recent deploy
-coral rollback api
-# → Returns to stable version
+# → Identifies spike in DB connection timeouts
+# → Analyzes metrics, traces, and system state
+# → Recommends: Increase connection pool size from 10 to 50
 ```
 
 ### LLM-Orchestrated Live Debugging
@@ -620,7 +596,7 @@ Coral intelligently escalates through its four observability pillars:
 ```bash
 coral ask "Why is checkout taking 3 seconds?"
 
-🤖 Step 1: Checking Beyla eBPF metrics...
+🤖 Step 1: Checking OpenTelemetry eBPF metrics...
    ✓ checkout service: P95 latency 2.8s (baseline: 150ms)
    ✓ payment service: P95 latency 45ms (normal)
    → High latency confirmed in checkout, payment is normal
@@ -654,7 +630,7 @@ coral ask "Why is checkout taking 3 seconds?"
 ```
 
 **The LLM orchestrates all four pillars** based on what's needed:
-1. Starts with Beyla eBPF (always available)
+1. Starts with OpenTelemetry eBPF (always available)
 2. Checks OTLP traces if app is instrumented
 3. Runs diagnostic commands for system-level insights
 4. Attaches live probes when deeper investigation is required
@@ -672,16 +648,6 @@ coral debug logs api
 
 # Cleanup when done
 coral debug detach api --all
-```
-
-### Performance Investigation
-
-```bash
-coral ask "Why is checkout slow?"
-# → AI suggests memory pressure in payment service
-coral profile start payment --type heap --duration 60s
-coral traffic sample payment --rate 0.1
-# → Capture data for analysis
 ```
 
 ### Dependency Mapping
