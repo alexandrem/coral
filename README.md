@@ -316,6 +316,91 @@ Claude Desktop, Cursor, etc.) can trigger debugging sessions:
 }
 ```
 
+## Four Observability Pillars
+
+Coral provides comprehensive observability through four complementary mechanisms:
+
+### 1. Beyla eBPF Probes (Zero Config)
+
+Agents use [Beyla](https://github.com/grafana/beyla) eBPF probes to capture RED
+metrics (Rate, Errors, Duration) with **zero configuration**:
+
+- **No code changes** - Works with any HTTP/gRPC service
+- **No SDK required** - Attaches to running processes via eBPF
+- **Automatic instrumentation** - Request rates, error rates, latency percentiles
+- **Low overhead** - eBPF runs in kernel space, minimal performance impact
+
+```bash
+# Just connect - metrics start flowing automatically
+coral connect api:8080
+# → Beyla eBPF probes attach and collect RED metrics
+```
+
+### 2. OTLP Ingestion (OpenTelemetry)
+
+Each agent exposes an **OTLP ingestion endpoint** for apps using OpenTelemetry:
+
+- **Additional sink** - Coral receives telemetry alongside your existing exporters
+- **Short-term memory** - Agent stores recent data for live introspection
+- **Correlation** - Combines OTLP traces with eBPF metrics and live probes
+- **Not a replacement** - Keep your existing OTLP exporters (Jaeger, Tempo, etc.)
+
+```go
+// In your OpenTelemetry-instrumented app
+// Add Coral agent as additional OTLP endpoint
+exporter := otlptrace.New(ctx,
+    otlptracehttp.NewClient(
+        otlptracehttp.WithEndpoint("localhost:4318"), // Coral agent OTLP
+    ),
+)
+```
+
+### 3. Agent Shell/Exec Commands (Diagnostic Tooling)
+
+Agents can run diagnostic commands on the host where your app runs:
+
+- **Remote execution** - Run `ps`, `netstat`, `tcpdump`, etc. via agent
+- **LLM-orchestrated** - AI decides which diagnostics to run based on analysis
+- **MCP-exposed** - Accessible via `coral_agent_exec` MCP tool
+- **Manual or automated** - Developers can run directly or let LLM orchestrate
+
+```bash
+# Manual diagnostic commands
+coral exec api "netstat -an | grep ESTABLISHED"
+coral exec api "ps aux | grep node"
+coral exec api "tcpdump -i any port 8080 -c 100"
+
+# Or let LLM decide what to run
+coral ask "Why is the API not responding?"
+# → LLM may run: netstat, lsof, strace, etc. to diagnose
+```
+
+**Security**: Shell commands run with agent's permissions. Configure allowed
+commands via agent policy.
+
+### 4. SDK Live Probes (Runtime Debugging)
+
+The most advanced pillar - **on-demand eBPF uprobes** for live debugging:
+
+- **Runtime instrumentation** - Attach probes to function entry points
+- **No redeployment** - Debug running code without restarts
+- **LLM-orchestrated** - AI decides which functions to probe
+- **Zero standing overhead** - Probes only exist during debugging sessions
+
+See "Live Debugging: The Killer Feature" section below for details.
+
+---
+
+**How they work together:**
+
+1. **Beyla eBPF** provides baseline RED metrics (always on, low overhead)
+2. **OTLP** adds rich trace context from instrumented apps (if using OpenTelemetry)
+3. **Shell/exec** runs diagnostic tools when LLM needs system-level data
+4. **SDK probes** instrument code when deeper investigation is needed
+
+The LLM orchestrates all four pillars based on what's needed to answer your
+question.
+
 ## Live Debugging: The Killer Feature
 
 **Coral can debug your running code without redeploying.**
