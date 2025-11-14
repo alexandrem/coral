@@ -25,8 +25,8 @@ type Receiver struct {
 
 // NewReceiver creates a new OTLP receiver.
 func NewReceiver(config Config, storage *Storage, logger zerolog.Logger) (*Receiver, error) {
-	if !config.Enabled {
-		return nil, fmt.Errorf("telemetry is not enabled")
+	if config.Disabled {
+		return nil, fmt.Errorf("telemetry is disabled")
 	}
 
 	return &Receiver{

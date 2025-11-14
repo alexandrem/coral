@@ -33,7 +33,7 @@ func TestQueryTelemetry_Success(t *testing.T) {
 
 	// Create receiver with storage.
 	config := telemetry.Config{
-		Enabled:      true,
+		Disabled:     false,
 		AgentID:      "test-agent",
 		GRPCEndpoint: "127.0.0.1:4317",
 		Filters: telemetry.FilterConfig{
@@ -178,7 +178,7 @@ func TestQueryTelemetry_ServiceFilter(t *testing.T) {
 
 	// Create receiver.
 	config := telemetry.Config{
-		Enabled:      true,
+		Disabled:     false,
 		AgentID:      "test-agent",
 		GRPCEndpoint: "127.0.0.1:4317",
 	}
@@ -267,7 +267,7 @@ func TestQueryTelemetry_TimeRange(t *testing.T) {
 
 	// Create receiver.
 	config := telemetry.Config{
-		Enabled:      true,
+		Disabled:     false,
 		AgentID:      "test-agent",
 		GRPCEndpoint: "127.0.0.1:4317",
 	}
@@ -350,7 +350,7 @@ func TestQueryTelemetry_EmptyResult(t *testing.T) {
 
 	// Create receiver.
 	config := telemetry.Config{
-		Enabled:      true,
+		Disabled:     false,
 		AgentID:      "test-agent",
 		GRPCEndpoint: "127.0.0.1:4317",
 	}

@@ -121,8 +121,8 @@ OpenTelemetry openTelemetry = OpenTelemetrySdk.builder()
 
 ```yaml
 telemetry:
-  # Enable telemetry collection.
-  enabled: true
+  # Disable telemetry collection (default: enabled)
+  disabled: true
 
   # OTLP gRPC receiver endpoint.
   # Standard port: 4317

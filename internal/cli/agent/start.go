@@ -42,7 +42,7 @@ type AgentConfig struct {
 		} `yaml:"nat,omitempty"`
 	} `yaml:"agent"`
 	Telemetry struct {
-		Enabled               bool   `yaml:"enabled"`
+		Disabled              bool   `yaml:"disabled"`
 		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
 		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
 		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
@@ -379,13 +379,14 @@ Examples:
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			// Start OTLP receiver if telemetry is enabled (RFD 025).
+			// Start OTLP receiver if telemetry is not disabled (RFD 025).
+			// Telemetry is enabled by default.
 			var otlpReceiver *agent.TelemetryReceiver
-			if agentCfg.Telemetry.Enabled {
-				logger.Info().Msg("Telemetry collection enabled - starting OTLP receiver")
+			if !agentCfg.Telemetry.Disabled {
+				logger.Info().Msg("Starting OTLP receiver for telemetry collection")
 
 				telemetryConfig := agent.TelemetryConfig{
-					Enabled:               agentCfg.Telemetry.Enabled,
+					Disabled:              agentCfg.Telemetry.Disabled,
 					GRPCEndpoint:          agentCfg.Telemetry.GRPCEndpoint,
 					HTTPEndpoint:          agentCfg.Telemetry.HTTPEndpoint,
 					StorageRetentionHours: agentCfg.Telemetry.StorageRetentionHours,
@@ -444,7 +445,7 @@ Examples:
 					}
 				}
 			} else {
-				logger.Debug().Msg("Telemetry collection disabled")
+				logger.Info().Msg("Telemetry collection is disabled")
 			}
 
 			// Log initial status.

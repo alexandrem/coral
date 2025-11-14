@@ -14,7 +14,7 @@ import (
 
 // TelemetryConfig contains telemetry configuration.
 type TelemetryConfig struct {
-	Enabled               bool
+	Disabled              bool
 	GRPCEndpoint          string
 	HTTPEndpoint          string
 	StorageRetentionHours int
@@ -39,8 +39,8 @@ type TelemetryReceiver struct {
 
 // NewTelemetryReceiver creates a new telemetry receiver.
 func NewTelemetryReceiver(config TelemetryConfig, logger zerolog.Logger) (*TelemetryReceiver, error) {
-	if !config.Enabled {
-		return nil, fmt.Errorf("telemetry is not enabled")
+	if config.Disabled {
+		return nil, fmt.Errorf("telemetry is disabled")
 	}
 
 	// Create in-memory DuckDB for span storage.
@@ -58,7 +58,7 @@ func NewTelemetryReceiver(config TelemetryConfig, logger zerolog.Logger) (*Telem
 
 	// Create telemetry config.
 	telemetryConfig := telemetry.Config{
-		Enabled:               config.Enabled,
+		Disabled:              config.Disabled,
 		GRPCEndpoint:          config.GRPCEndpoint,
 		HTTPEndpoint:          config.HTTPEndpoint,
 		StorageRetentionHours: config.StorageRetentionHours,
