@@ -10,8 +10,7 @@ import (
 )
 
 // Receiver handles OTLP data ingestion, filtering, and local storage.
-// This is a placeholder for the actual OTLP receiver implementation.
-// The full implementation would integrate with go.opentelemetry.io/collector.
+// DEPRECATED: Use OTLPReceiver for production. This is kept for testing compatibility.
 // Receiver stores filtered spans locally; colony queries on-demand (RFD 025).
 type Receiver struct {
 	config  Config

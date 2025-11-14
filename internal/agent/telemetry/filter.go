@@ -26,7 +26,7 @@ func (f *Filter) ShouldCapture(span Span) bool {
 	}
 
 	// Rule 2: Always capture high-latency spans.
-	if span.DurationMs > f.config.LatencyThresholdMs {
+	if span.DurationMs > f.config.HighLatencyThresholdMs {
 		return true
 	}
 
