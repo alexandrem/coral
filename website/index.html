@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coral - Application Intelligence Mesh</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="nav">
+                <div class="logo">
+                    <span class="logo-icon">🪸</span>
+                    <span class="logo-text">Coral</span>
+                </div>
+                <nav class="nav-links">
+                    <a href="#features">Features</a>
+                    <a href="#how-it-works">How It Works</a>
+                    <a href="https://github.com/coral-io/coral" target="_blank" class="btn-secondary">GitHub</a>
+                    <a href="#get-started" class="btn-primary">Get Started</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">🚧 Early Development</div>
+                <h1 class="hero-title">
+                    LLM-orchestrated debugging for <span class="gradient-text">distributed apps</span>
+                </h1>
+                <p class="hero-subtitle">
+                    Observe, analyze, and instrument your code on-demand. One binary. One interface. Your distributed app becomes understandable and controllable.
+                </p>
+                <div class="hero-cta">
+                    <a href="#get-started" class="btn-large btn-primary">Get Started</a>
+                    <a href="https://github.com/coral-io/coral" target="_blank" class="btn-large btn-secondary">View on GitHub</a>
+                </div>
+            </div>
+
+            <!-- Terminal Demo -->
+            <div class="terminal">
+                <div class="terminal-header">
+                    <div class="terminal-buttons">
+                        <span class="btn-circle red"></span>
+                        <span class="btn-circle yellow"></span>
+                        <span class="btn-circle green"></span>
+                    </div>
+                    <div class="terminal-title">terminal</div>
+                </div>
+                <div class="terminal-body">
+                    <div class="terminal-line">
+                        <span class="prompt">$</span>
+                        <span class="command">coral ask "What's wrong with the API?"</span>
+                    </div>
+                    <div class="terminal-output">
+                        <div class="output-line">
+                            <span class="robot">🤖</span> <span class="analyzing">Analyzing...</span>
+                        </div>
+                        <div class="output-line">
+                            API latency spiked 3 minutes ago. P95 went from 150ms to 2.3s.
+                        </div>
+                        <div class="output-line">
+                            95% of time spent in <span class="highlight">db.QueryOrders()</span>
+                        </div>
+                        <div class="output-line">
+                            Query doing sequential scan of 234k rows.
+                        </div>
+                        <div class="output-line">
+                            Missing index on <span class="highlight">orders.user_id</span> (85% confidence)
+                        </div>
+                        <div class="output-line recommendation">
+                            <br>
+                            <span class="label">Recommendation:</span><br>
+                            <span class="code">CREATE INDEX idx_orders_user_id ON orders(user_id);</span>
+                        </div>
+                        <div class="output-line time">
+                            ⏱️  &lt;1 second analysis using your own LLM
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problem/Solution Section -->
+    <section class="problem-solution">
+        <div class="container">
+            <div class="section-header">
+                <h2>The Problem</h2>
+                <p class="section-subtitle">
+                    Your app runs across fragmented infrastructure: laptop, VMs, Kubernetes clusters, multiple clouds, VPCs, on-prem.
+                </p>
+            </div>
+
+            <div class="pain-points">
+                <div class="pain-point">
+                    <div class="pain-icon">🔍</div>
+                    <h3>Debug an issue</h3>
+                    <p>Check logs, metrics, traces across multiple dashboards</p>
+                </div>
+                <div class="pain-point">
+                    <div class="pain-icon">🐛</div>
+                    <h3>Find the root cause</h3>
+                    <p>Add logging, redeploy, wait for it to happen again</p>
+                </div>
+                <div class="pain-point">
+                    <div class="pain-icon">🌐</div>
+                    <h3>Debug across environments</h3>
+                    <p>Can't correlate laptop dev with prod K8s cluster</p>
+                </div>
+                <div class="pain-point">
+                    <div class="pain-icon">🔐</div>
+                    <h3>Run diagnostics</h3>
+                    <p>SSH to different networks, navigate firewalls, VPN chaos</p>
+                </div>
+            </div>
+
+            <div class="solution-banner">
+                <h2>Coral unifies this with a <span class="gradient-text">WireGuard mesh</span></h2>
+                <p>One interface for distributed app operations</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>One Interface for Everything</h2>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">👁️</div>
+                    <h3>Observe</h3>
+                    <p>Four complementary mechanisms provide complete visibility:</p>
+                    <ul>
+                        <li><strong>eBPF probes:</strong> Zero-config RED metrics (no code changes)</li>
+                        <li><strong>OTLP ingestion:</strong> For apps using OpenTelemetry</li>
+                        <li><strong>Shell/exec:</strong> Run diagnostic tools</li>
+                        <li><strong>Connection mapping:</strong> Auto-discovered service dependencies</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🐛</div>
+                    <h3>Debug</h3>
+                    <p>Ask questions in natural language using your own LLM:</p>
+                    <ul>
+                        <li><strong>Live debugging</strong> with on-demand instrumentation</li>
+                        <li><strong>Attach eBPF uprobes</strong> to running code without redeploying</li>
+                        <li><strong>LLM orchestrates</strong> where to probe based on analysis</li>
+                        <li><strong>Zero overhead</strong> when not debugging</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🎛️</div>
+                    <h3>Control</h3>
+                    <p>Act on insights from a single interface:</p>
+                    <ul>
+                        <li><strong>Traffic inspection:</strong> Sample and inspect live requests</li>
+                        <li><strong>Profiling:</strong> On-demand CPU/memory profiling</li>
+                        <li><strong>Live probes:</strong> Attach/detach debugging hooks on-demand</li>
+                        <li><strong>All from a single binary</strong> - no complex setup</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- What Makes It Different -->
+    <section class="differentiators">
+        <div class="container">
+            <div class="section-header">
+                <h2>What Makes Coral Different?</h2>
+                <p class="section-subtitle">The first LLM-orchestrated debugging mesh for distributed apps</p>
+            </div>
+
+            <div class="diff-grid">
+                <div class="diff-card">
+                    <div class="diff-number">01</div>
+                    <h3>WireGuard Mesh Across Infrastructure</h3>
+                    <p>Debug apps running on laptop ↔ AWS VPC ↔ GKE cluster ↔ on-prem VM with the same commands. No VPN config, no firewall rules, no per-environment tooling.</p>
+                </div>
+
+                <div class="diff-card">
+                    <div class="diff-number">02</div>
+                    <h3>On-Demand Live Debugging</h3>
+                    <p>Attach eBPF uprobes to running code without redeploying. LLM decides where to probe based on analysis. Zero overhead when not debugging.</p>
+                </div>
+
+                <div class="diff-card">
+                    <div class="diff-number">03</div>
+                    <h3>You Own the AI</h3>
+                    <p>Use your own LLM API keys (OpenAI/Anthropic/Ollama). We never see your data or telemetry. You control the model, costs, and data.</p>
+                </div>
+
+                <div class="diff-card">
+                    <div class="diff-number">04</div>
+                    <h3>Decentralized Architecture</h3>
+                    <p>No Coral servers to depend on. Colony runs wherever you want: laptop, VM, Kubernetes. Your observability data stays local.</p>
+                </div>
+
+                <div class="diff-card">
+                    <div class="diff-number">05</div>
+                    <h3>Control Plane Only</h3>
+                    <p>Can't break your apps, zero baseline overhead. Probes only when debugging. Mesh is for orchestration, never touches data plane.</p>
+                </div>
+
+                <div class="diff-card">
+                    <div class="diff-number">06</div>
+                    <h3>Application-Scoped</h3>
+                    <p>One mesh per app (not infrastructure-wide monitoring). Scales from single laptop to multi-cloud production.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="how-it-works">
+        <div class="container">
+            <div class="section-header">
+                <h2>How It Works</h2>
+            </div>
+
+            <div class="architecture">
+                <div class="arch-diagram">
+                    <div class="arch-layer">
+                        <div class="arch-box colony">
+                            <h4>Colony</h4>
+                            <p>Central coordinator with AI-powered analysis</p>
+                        </div>
+                    </div>
+                    <div class="mesh-lines"></div>
+                    <div class="arch-layer">
+                        <div class="arch-box agent">
+                            <h4>Agent</h4>
+                            <p>Frontend</p>
+                        </div>
+                        <div class="arch-box agent">
+                            <h4>Agent</h4>
+                            <p>API</p>
+                        </div>
+                        <div class="arch-box agent">
+                            <h4>Agent</h4>
+                            <p>Database</p>
+                        </div>
+                    </div>
+                    <div class="mesh-lines"></div>
+                    <div class="arch-layer">
+                        <div class="arch-box service">
+                            <p>Your Frontend</p>
+                        </div>
+                        <div class="arch-box service">
+                            <p>Your API</p>
+                        </div>
+                        <div class="arch-box service">
+                            <p>Your DB</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="arch-description">
+                    <h3>Three-Tier Architecture</h3>
+                    <ul>
+                        <li><strong>Colony:</strong> Central coordinator that aggregates data and runs AI analysis</li>
+                        <li><strong>Agents:</strong> Local observers that watch processes and connections</li>
+                        <li><strong>SDK:</strong> Optional integration for advanced control features</li>
+                    </ul>
+                    <p class="arch-note">All connected via an encrypted WireGuard mesh that works across any network boundary.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Get Started -->
+    <section id="get-started" class="get-started">
+        <div class="container">
+            <div class="section-header">
+                <h2>Get Started in Minutes</h2>
+            </div>
+
+            <div class="install-steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Build Coral</h3>
+                        <div class="code-block">
+                            <code>make build</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Start the Colony</h3>
+                        <div class="code-block">
+                            <code>coral colony start</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Start Agent & Connect Services</h3>
+                        <div class="code-block">
+                            <code>coral agent start<br>coral connect frontend:3000 api:8080</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h3>Ask Questions</h3>
+                        <div class="code-block">
+                            <code>coral ask "What's happening with the API?"</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cta-banner">
+                <h2>Ready to get started?</h2>
+                <p>Coral is open source and in early development. Join us in building the future of distributed operations.</p>
+                <div class="cta-buttons">
+                    <a href="https://github.com/coral-io/coral" target="_blank" class="btn-large btn-primary">Star on GitHub</a>
+                    <a href="https://github.com/coral-io/coral/blob/main/README.md" target="_blank" class="btn-large btn-secondary">Read the Docs</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <div class="logo">
+                        <span class="logo-icon">🪸</span>
+                        <span class="logo-text">Coral</span>
+                    </div>
+                    <p>Application Intelligence Mesh</p>
+                </div>
+                <div class="footer-links">
+                    <div class="footer-column">
+                        <h4>Product</h4>
+                        <a href="#features">Features</a>
+                        <a href="#how-it-works">How It Works</a>
+                        <a href="https://github.com/coral-io/coral/blob/main/README.md">Documentation</a>
+                    </div>
+                    <div class="footer-column">
+                        <h4>Resources</h4>
+                        <a href="https://github.com/coral-io/coral">GitHub</a>
+                        <a href="https://github.com/coral-io/coral/blob/main/docs/CONCEPT.md">Concept</a>
+                        <a href="https://github.com/coral-io/coral/blob/main/docs/IMPLEMENTATION.md">Architecture</a>
+                    </div>
+                    <div class="footer-column">
+                        <h4>Community</h4>
+                        <a href="https://github.com/coral-io/coral/issues">Issues</a>
+                        <a href="https://github.com/coral-io/coral/discussions">Discussions</a>
+                        <a href="https://github.com/coral-io/coral/blob/main/LICENSE">License</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Coral. Open Source Project.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
