@@ -1,8 +1,9 @@
 # Coral
 
-**Unified Operations for Distributed Apps**
+**Application Intelligence Mesh**
 
-One binary. One interface. Observe, debug, and control your distributed app.
+LLM-orchestrated debugging for distributed apps. Observe, analyze, and
+instrument your code on-demand.
 
 ```
 You: "What's wrong with the API?"
@@ -26,11 +27,10 @@ Coral: "Rolling back API to v2.2.5... Done. Memory stable at 240MB."
 Your app runs across laptop, VMs, and Kubernetes. When you need to:
 
 - **Debug an issue** → Check logs, metrics, traces across multiple dashboards
-- **Toggle a feature** → Open LaunchDarkly, update config, redeploy
-- **Rollback a deployment** → `kubectl rollout undo` or manual ops
-- **Profile performance** → Set up profiler, SSH to servers, inspect traffic
-- **Understand what's happening** → Piece it together manually from scattered
-  tools
+- **Find the root cause** → Add logging, redeploy, wait for it to happen again
+- **Understand performance** → Set up profilers, SSH to servers, inspect traffic
+- **Debug distributed issues** → Correlate data across services manually
+- **Profile production** → Either always-on overhead or can't debug when needed
 
 You're juggling terminals, dashboards, and tools. Context is fragmented. **Coral
 unifies this.**
@@ -48,12 +48,18 @@ See health, connections, and resource usage across all services in one place.
 Ask questions in natural language using your own LLM (OpenAI/Anthropic/Ollama).
 Get AI-powered insights from your Colony's observability data.
 
+**Live debugging** with on-demand instrumentation:
+- Attach eBPF uprobes to running code without redeploying
+- LLM orchestrates where to probe based on analysis
+- Zero overhead when not debugging
+- Works across your entire distributed app
+
 ### 🎛️ Control
 
-- **Feature flags**: Toggle features across services
 - **Traffic inspection**: Sample and inspect live requests
 - **Profiling**: Start/stop profilers remotely
 - **Rollbacks**: Revert deployments with one command
+- **Live probes**: Attach/detach debugging hooks on-demand
 
 All from a single binary. No complex setup. Works on laptop, VMs, or Kubernetes.
 
@@ -91,45 +97,134 @@ your own LLM.
 
 ### SDK-Integrated Mode (Full Control)
 
-Integrate the Coral SDK for feature flags, traffic inspection, profiling, and
-more.
+Integrate the Coral SDK for live debugging, traffic inspection, profiling, and
+runtime monitoring.
 
 ```go
 // In your application
 import "github.com/coral-io/coral-go"
 
 func main() {
-coral.RegisterService("api", coral.Options{
-Port: 8080,
-HealthEndpoint: "/health",
-})
+	coral.RegisterService("api", coral.Options{
+		Port:           8080,
+		HealthEndpoint: "/health",
+	})
 
-// Feature flags
-if coral.IsEnabled("new-checkout") {
-useNewCheckout()
-}
+	// Enable runtime monitoring for live debugging
+	// Launches goroutine that bridges with agent's eBPF probes
+	coral.EnableRuntimeMonitoring()
 
-// Enable profiling endpoint
-coral.EnableProfiling()
+	// Enable profiling endpoint
+	coral.EnableProfiling()
 }
 ```
 
 ```bash
 # Control from CLI
-coral flags enable new-checkout
-coral flags disable legacy-payment --gradual 10%
-
 coral traffic sample api --rate 0.1 --duration 5m
 coral traffic inspect api --filter "path=/checkout"
 
 coral profile start api --type cpu --duration 60s
 coral profile start frontend --type heap
 
+# Live debugging - attach probes on-demand
+coral debug attach api --function handleCheckout --duration 60s
+coral debug trace api --path "/api/checkout" --duration 5m
+
 coral rollback api
 coral rollback api --to-version v2.2.5
 ```
 
 **You get:** Full operations control + all passive mode capabilities.
+
+## Live Debugging: The Killer Feature
+
+**Coral can debug your running code without redeploying.**
+
+Unlike traditional observability (metrics, logs, traces), Coral can **actively
+instrument** your code on-demand using eBPF uprobes:
+
+### How It Works
+
+1. **SDK Integration**: `coral.EnableRuntimeMonitoring()` launches a goroutine
+   that bridges with the agent's eBPF subsystem
+
+2. **On-Demand Probes**: When debugging is needed, the agent attaches eBPF
+   uprobes to function entry points in your running process
+
+3. **Live Data Collection**: Capture function calls, arguments, execution time,
+   call stacks - all without modifying your code
+
+4. **LLM Orchestration**: The AI decides which functions to probe based on
+   metrics analysis. Attach probes → collect data → analyze → detach
+
+5. **Zero Standing Overhead**: Probes only exist during debugging sessions. No
+   always-on instrumentation tax.
+
+### Example: LLM-Orchestrated Debugging
+
+```bash
+$ coral ask "Why is the payment API slow?"
+
+🤖 Analyzing payment service metrics...
+   P95 latency: 2.3s (baseline: 150ms)
+
+   Root cause unclear from metrics. Attaching live probes...
+
+   ✓ Uprobe attached: payment.ProcessPayment() [offset 0x4a20]
+   ✓ Uprobe attached: payment.ValidateCard() [offset 0x4c80]
+   ✓ Uprobe attached: db.QueryTransactions() [offset 0x3f10]
+
+   Collecting traces for 30 seconds...
+
+   Analysis:
+     • ProcessPayment(): 2.1s avg (2,847 calls)
+       └─ db.QueryTransactions(): 2.0s (95% of time)
+          └─ Query plan: Sequential scan (234,891 rows)
+          └─ Missing index on transactions.user_id
+
+     • ValidateCard(): 12ms avg (normal)
+
+   Root Cause: Missing database index causing slow queries
+
+   Recommendation:
+     CREATE INDEX idx_transactions_user_id ON transactions(user_id);
+
+   Detaching probes...
+   ✓ Cleanup complete (zero overhead restored)
+```
+
+### Why This Is Different
+
+| Traditional Tools | Coral |
+|-------------------|-------|
+| Pre-defined metrics only | On-demand code instrumentation |
+| Add logging → redeploy → wait | Attach probes → get data → detach |
+| Always-on overhead | Zero overhead when not debugging |
+| Single-process debuggers (delve, gdb) | Distributed debugging across mesh |
+| Manual investigation | LLM orchestrates where to probe |
+
+**This doesn't exist in the market.** Coral is the first tool that combines:
+- LLM-driven analysis
+- On-demand eBPF instrumentation
+- Distributed debugging
+- Zero standing overhead
+
+### MCP Integration
+
+The live debugging capability is exposed as MCP tools, so any AI assistant (
+Claude Desktop, Cursor, etc.) can trigger debugging sessions:
+
+```json
+{
+  "tool": "coral_debug_attach",
+  "arguments": {
+    "service": "payment",
+    "function": "ProcessPayment",
+    "duration": "60s"
+  }
+}
+```
 
 ## Architecture
 
@@ -363,14 +458,14 @@ coral ask cost
 - Uses **your own LLM API keys** (OpenAI, Anthropic, or local Ollama)
 - You control model choice, costs, and data privacy
 
-### Control Operations (SDK-integrated mode)
+### Live Debugging & Control Operations (SDK-integrated mode)
 
 ```bash
-# Feature flags
-coral flags list
-coral flags enable <flag-name>
-coral flags disable <flag-name>
-coral flags enable <flag-name> --gradual 25%  # Gradual rollout
+# Live debugging - attach probes on-demand
+coral debug attach <service> --function <func-name> --duration 60s
+coral debug trace <service> --path "/api/endpoint" --duration 5m
+coral debug list <service>  # Show active probes
+coral debug detach <service> --all
 
 # Traffic inspection
 coral traffic sample <service> --rate 0.1 --duration 5m
@@ -404,22 +499,45 @@ coral rollback api
 # → Returns to stable version
 ```
 
-### Feature Flag Management
+### LLM-Orchestrated Live Debugging
 
 ```bash
-coral flags enable new-checkout --gradual 10%
-# → Roll out gradually to 10% of traffic
-coral ask "Any issues with new-checkout?"
-# → AI monitors and reports anomalies
-coral flags enable new-checkout --gradual 100%
-# → Full rollout after validation
+coral ask "Why is checkout taking 3 seconds?"
+
+# Coral's LLM analyzes metrics, then decides to attach live probes:
+🤖 Analyzing checkout service...
+   Metrics unclear - attaching probes to investigate...
+   ✓ Uprobe attached: payment.ProcessPayment()
+   ✓ Uprobe attached: db.QueryOrders()
+
+   Analysis: db.QueryOrders() taking 2.8s (95% of latency)
+   Root cause: Missing index on orders.user_id
+
+   Recommendation: CREATE INDEX idx_orders_user_id ON orders(user_id)
+
+   Detaching probes... ✓ Done (zero overhead restored)
+```
+
+### Manual Live Debugging
+
+```bash
+# Attach probes manually for investigation
+coral debug attach api --function handleCheckout --duration 60s
+coral debug trace api --path "/api/checkout" --duration 5m
+
+# View live execution data
+coral debug logs api
+# → Shows function calls, arguments, execution time
+
+# Cleanup when done
+coral debug detach api --all
 ```
 
 ### Performance Investigation
 
 ```bash
 coral ask "Why is checkout slow?"
-# → Suggests memory pressure in payment service
+# → AI suggests memory pressure in payment service
 coral profile start payment --type heap --duration 60s
 coral traffic sample payment --rate 0.1
 # → Capture data for analysis
@@ -436,20 +554,36 @@ coral ask "What depends on the database?"
 
 ## What Makes Coral Different?
 
+**The first LLM-orchestrated debugging mesh for distributed apps.**
+
+- **On-demand live debugging** - Attach eBPF uprobes to running code without
+  redeploying. **No existing tool does this.** LLM decides where to probe based
+  on analysis. Zero overhead when not debugging.
+
+- **Active, not passive** - Coral doesn't just collect metrics - it can
+  instrument your code on-demand to find root causes. Like delve for distributed
+  apps.
+
+- **Intelligence-driven operations** - Ask questions in natural language using
+  **your own LLM** (OpenAI/Anthropic/Ollama). The AI orchestrates debugging
+  probes automatically.
+
 - **Unified interface** - One tool for observing, debugging, and controlling (
-  not another dashboard to check)
-- **AI-powered insights** - Ask questions in natural language using **your own
-  LLM** (OpenAI/Anthropic/Ollama)
-- **Two-tier integration** - Works passively (no code changes) or
-  SDK-integrated (full control)
-- **Separated LLM architecture** - Colony is MCP gateway only, you control the
-  AI layer
-- **User-controlled AI** - Your API keys, your model choice, your cost control
-- **Control plane only** - Can't break your apps, zero performance impact
-- **Application-scoped** - One colony per app, scales from laptop to production
-- **Data privacy** - Self-hosted, observability data stays in your Colony
+  not another dashboard to check). CLI, IDE integration, or API.
+
+- **User-controlled AI** - Your API keys, your model choice, your cost control.
+  Colony is MCP gateway only - you control the intelligence layer.
+
+- **Control plane only** - Can't break your apps, zero baseline overhead. Probes
+  only when debugging.
+
+- **Application-scoped** - One colony per app, scales from laptop to production.
+  Not infrastructure-wide monitoring.
+
+- **Data privacy** - Self-hosted, observability data stays in your Colony.
+
 - **Enterprise-ready** - Optional Reef layer for multi-colony federation with
-  server-side LLM
+  server-side LLM and policy-based debugging.
 
 ## Multi-Colony Federation (Reef)
 
