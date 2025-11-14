@@ -316,6 +316,12 @@ Claude Desktop, Cursor, etc.) can trigger debugging sessions:
 
 ## Architecture
 
+**Decentralized, self-hosted, user-controlled.**
+
+Coral is **fully decentralized** - no Coral-owned servers, no telemetry sent to
+us, no vendor lock-in. You run the Colony wherever you want (laptop, VM, K8s),
+and you use **your own LLM API keys**. Your data stays on your infrastructure.
+
 **Three-tier design with WireGuard mesh substrate:**
 
 Coral creates a **secure WireGuard mesh** that connects all your infrastructure -
@@ -367,11 +373,15 @@ Developer Workstation               Enterprise (Optional)
 
 - **WireGuard mesh substrate** - Connects fragmented infrastructure (laptop,
   clouds, K8s, VPCs) into one unified control plane
+- **Decentralized by design** - No central servers (except optional Reef).
+  Colony runs where you want it. Your data stays local.
+- **You own the AI** - Use your own LLM API keys (OpenAI/Anthropic/Ollama). No
+  vendor lock-in, no sending telemetry to Coral servers. You control the model,
+  costs, and data.
 - **Works anywhere** - Same debugging commands whether app runs on laptop, AWS,
   GKE, or on-prem
 - **Control plane only** - Agents never proxy/intercept application traffic
 - **Application-scoped** - One mesh per app (not infrastructure-wide)
-- **Separated LLM** - Colony is MCP gateway only, AI at developer and Reef layers
 - **SDK optional** - Basic observability works without code changes
 
 ## Quick Start
@@ -724,8 +734,13 @@ coral ask "What depends on the database?"
   not another dashboard to check). CLI, IDE integration, or API. Same commands
   everywhere.
 
-- **User-controlled AI** - Your API keys, your model choice, your cost control.
-  Colony is MCP gateway only - you control the intelligence layer.
+- **You own the AI, not us** - Use **your own LLM API keys** (OpenAI/Anthropic/
+  Ollama). We never see your data or telemetry. You control the model, costs,
+  and data. No vendor lock-in. Switch providers anytime.
+
+- **Decentralized architecture** - No Coral servers to depend on (except optional
+  Reef for enterprises). Colony runs wherever you want: laptop, VM, Kubernetes.
+  Your observability data stays local. No cloud vendor required.
 
 - **Control plane only** - Can't break your apps, zero baseline overhead. Probes
   only when debugging. Mesh is for orchestration, never touches data plane.
@@ -733,16 +748,21 @@ coral ask "What depends on the database?"
 - **Application-scoped** - One mesh per app (not infrastructure-wide monitoring).
   Scales from single laptop to multi-cloud production.
 
-- **Data privacy** - Self-hosted, observability data stays in your Colony.
-
 - **Enterprise-ready** - Optional Reef layer for multi-colony federation with
   server-side LLM and policy-based debugging.
 
 ## Multi-Colony Federation (Reef)
 
+**Optional centralized layer for enterprises.**
+
 For enterprises managing multiple environments (dev, staging, prod) or multiple
 applications, Coral offers **Reef** - a federation layer that aggregates data
 across colonies.
+
+**Note:** Reef is the **only centralized component** in Coral, and it's
+**optional**. Most users run Coral fully decentralized (just Colony + Agents).
+Reef is for enterprises that need cross-colony analysis and want to provide a
+centralized LLM for their organization.
 
 ### Architecture
 
