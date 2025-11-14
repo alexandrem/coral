@@ -1,12 +1,14 @@
 # Coral User Experience
 
-This document covers both the **current implementation** (what works today) and the **vision** (planned features) for Coral's user experience.
+This document covers both the **current implementation** (what works today) and
+the **vision** (planned features) for Coral's user experience.
 
 ---
 
 ## Getting Started (Current Implementation)
 
-This section describes Coral as it exists today. Follow these steps to run Coral components and test the functionality.
+This section describes Coral as it exists today. Follow these steps to run Coral
+components and test the functionality.
 
 ### Prerequisites
 
@@ -17,29 +19,35 @@ make build
 ```
 
 This creates:
+
 - `bin/coral` - Main CLI with all commands
 - `bin/coral-discovery` - Discovery service
 
 ### Step 1: Start the Discovery Service
 
-The discovery service enables colonies to announce themselves and be discovered by proxies or external integrations.
+The discovery service enables colonies to announce themselves and be discovered
+by proxies or external integrations.
 
 ```bash
 ./bin/coral-discovery --port 8080 --ttl 300 --cleanup-interval 60
 ```
 
 **Options:**
+
 - `--port`: HTTP port for the discovery service (default: 8080)
 - `--ttl`: Time-to-live for registrations in seconds (default: 300)
-- `--cleanup-interval`: How often to clean up expired entries in seconds (default: 60)
+- `--cleanup-interval`: How often to clean up expired entries in seconds (
+  default: 60)
 - `--log-level`: Logging level: debug, info, warn, error (default: info)
 
 **What it does:**
+
 - Provides a registry for colonies to announce themselves
 - Stores colony metadata: mesh IPs, WireGuard public keys, endpoints
 - Automatically expires stale registrations
 
 **Expected output:**
+
 ```
 INF Starting discovery service port=8080 ttl=300s version=dev
 INF Discovery service listening addr=:8080
@@ -56,15 +64,18 @@ In a new terminal, initialize a colony configuration:
 ```
 
 **Prompts:**
+
 - Application name (e.g., `my-app`)
 - Environment (e.g., `dev`, `prod`)
 
 **What it does:**
+
 - Generates WireGuard keypair
 - Creates `~/.coral/colonies/<colony-id>.yaml`
 - Configures discovery settings
 
 **Example output:**
+
 ```
 ✓ Colony initialized: my-app-dev-a1b2c3
   Config: /Users/you/.coral/colonies/my-app-dev-a1b2c3.yaml
@@ -81,15 +92,17 @@ Start the colony with automatic discovery registration.
 ```
 
 **What it does:**
+
 - Loads colony configuration
 - Registers with discovery service every 60 seconds
 - Advertises WireGuard endpoint: `127.0.0.1:41580` (localhost)
 - Automatically sets default values:
-  - `mesh_ipv4: 10.42.0.1`
-  - `mesh_ipv6: fd42::1`
-  - `connect_port: 9000`
+    - `mesh_ipv4: 10.42.0.1`
+    - `mesh_ipv6: fd42::1`
+    - `connect_port: 9000`
 
 **Expected output:**
+
 ```
 INF Starting registration manager mesh_id=my-app-dev-a1b2c3
 INF Successfully registered with discovery service ttl_seconds=300
@@ -100,7 +113,8 @@ Press Ctrl+C to stop
 
 #### Production Deployment (different machines)
 
-**IMPORTANT:** For agents to connect from different machines, you **MUST** set `CORAL_PUBLIC_ENDPOINT` to your colony's publicly reachable IP or hostname:
+**IMPORTANT:** For agents to connect from different machines, you **MUST** set
+`CORAL_PUBLIC_ENDPOINT` to your colony's publicly reachable IP or hostname:
 
 ```bash
 # With public IP
@@ -111,11 +125,13 @@ CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 ./bin/coral colony start
 ```
 
 **Why this is required:**
+
 - WireGuard endpoints must be reachable addresses (public IP or hostname)
 - The mesh IPs (10.42.0.1) only work **inside** the tunnel
 - Without `CORAL_PUBLIC_ENDPOINT`, agents can't establish the initial connection
 
 **Cloud deployments:**
+
 - AWS EC2: Use Elastic IP or public IP from instance metadata
 - GCP: Use external IP from instance metadata
 - Azure: Use public IP address
@@ -134,7 +150,10 @@ Keep the colony running in this terminal.
 
 ### Step 4: Start the Proxy (Optional)
 
-> **Note:** With RFD 031 (Colony dual interface), colonies can optionally expose a public HTTPS endpoint like Reef does. When enabled, the proxy is only needed for mesh-only access scenarios. This step describes the current proxy-based approach.
+> **Note:** With RFD 031 (Colony dual interface), colonies can optionally expose
+> a public HTTPS endpoint like Reef does. When enabled, the proxy is only needed
+> for mesh-only access scenarios. This step describes the current proxy-based
+> approach.
 
 In a new terminal, start the proxy to access the colony:
 
@@ -145,12 +164,14 @@ In a new terminal, start the proxy to access the colony:
 Replace `my-app-dev-a1b2c3` with your actual colony ID from step 2.
 
 **What it does:**
+
 - Queries discovery service to find the colony
 - Retrieves colony's mesh IPs and connect port
 - Starts HTTP/2 reverse proxy on `localhost:8000`
 - Forwards requests to colony over mesh network
 
 **Expected output:**
+
 ```
 INF Starting coral proxy mesh_id=my-app-dev-a1b2c3
 INF Looking up colony in discovery service
@@ -163,6 +184,7 @@ Press Ctrl+C to stop proxy
 ```
 
 **Options:**
+
 - `--listen`: Local address to bind to (default: `localhost:8000`)
 - `--discovery`: Discovery service endpoint (default: `http://localhost:8080`)
 
@@ -179,12 +201,13 @@ curl -X POST http://localhost:8080/coral.discovery.v1.DiscoveryService/Health \
 ```
 
 **Expected response:**
+
 ```json
 {
-  "status": "ok",
-  "version": "dev",
-  "uptimeSeconds": "123",
-  "registeredColonies": 1
+    "status": "ok",
+    "version": "dev",
+    "uptimeSeconds": "123",
+    "registeredColonies": 1
 }
 ```
 
@@ -197,19 +220,22 @@ curl -X POST http://localhost:8080/coral.discovery.v1.DiscoveryService/LookupCol
 ```
 
 **Expected response:**
+
 ```json
 {
-  "meshId": "my-app-dev-a1b2c3",
-  "pubkey": "...",
-  "endpoints": [":41581"],
-  "meshIpv4": "10.42.0.1",
-  "meshIpv6": "fd42::1",
-  "connectPort": 9000,
-  "metadata": {
-    "application": "my-app",
-    "environment": "dev"
-  },
-  "lastSeen": "2025-10-29T20:50:00Z"
+    "meshId": "my-app-dev-a1b2c3",
+    "pubkey": "...",
+    "endpoints": [
+        ":41581"
+    ],
+    "meshIpv4": "10.42.0.1",
+    "meshIpv6": "fd42::1",
+    "connectPort": 9000,
+    "metadata": {
+        "application": "my-app",
+        "environment": "dev"
+    },
+    "lastSeen": "2025-10-29T20:50:00Z"
 }
 ```
 
@@ -306,9 +332,11 @@ curl -X POST http://localhost:8000/coral.colony.v1.ColonyService/GetStatus \
 
 #### Discovery service not reachable
 
-**Error:** `failed to lookup colony: Post "http://localhost:8080": connection refused`
+**Error:**
+`failed to lookup colony: Post "http://localhost:8080": connection refused`
 
 **Solution:** Start the discovery service first:
+
 ```bash
 ./bin/coral-discovery --port 8080
 ```
@@ -318,8 +346,10 @@ curl -X POST http://localhost:8000/coral.colony.v1.ColonyService/GetStatus \
 **Error:** `colony not found: my-app-dev-a1b2c3`
 
 **Solutions:**
+
 1. Verify colony is running: `./bin/coral colony status`
-2. Check discovery registration: `curl http://localhost:8080/coral.discovery.v1.DiscoveryService/Health`
+2. Check discovery registration:
+   `curl http://localhost:8080/coral.discovery.v1.DiscoveryService/Health`
 3. Wait up to 60 seconds for next heartbeat
 4. Check colony logs for registration errors
 
@@ -328,6 +358,7 @@ curl -X POST http://localhost:8000/coral.colony.v1.ColonyService/GetStatus \
 **Error:** `failed to start proxy server: no colony mesh IP configured`
 
 **Solutions:**
+
 1. Colony is running older code without mesh IP defaults
 2. Restart colony with latest binary: `./bin/coral colony start`
 3. Manually add to colony config file:
@@ -344,6 +375,7 @@ curl -X POST http://localhost:8000/coral.colony.v1.ColonyService/GetStatus \
 **Error:** `failed to listen on localhost:8000: address already in use`
 
 **Solution:** Use a different port:
+
 ```bash
 ./bin/coral proxy start <colony-id> --listen localhost:8001
 ```
@@ -353,29 +385,36 @@ curl -X POST http://localhost:8000/coral.colony.v1.ColonyService/GetStatus \
 The current implementation follows **RFD 005: CLI Access via Local Proxy**:
 
 **Flow:**
+
 1. Colony registers with discovery service (mesh IPs, connect port)
 2. Proxy queries discovery to find colony
 3. Proxy starts local HTTP/2 server (localhost:8000)
 4. CLI tools query proxy instead of colony directly
-5. Proxy forwards requests to colony over mesh network (future: via WireGuard tunnel)
+5. Proxy forwards requests to colony over mesh network (future: via WireGuard
+   tunnel)
 
 **Benefits:**
+
 - CLI tools don't need WireGuard logic
 - Centralized access point for multiple colonies
 - Works across NATs and firewalls
 - Foundation for future features (agent queries, multi-colony federation)
 
-**Future:** RFD 031 introduces optional public endpoints for Colony (like Reef), making the proxy optional for many scenarios.
+**Future:** RFD 031 introduces optional public endpoints for Colony (like Reef),
+making the proxy optional for many scenarios.
 
 ---
 
 ## Vision: Future User Experience
 
-This section describes Coral's planned user experience with full agent support, LLM integration, and observability features. These capabilities are under active development.
+This section describes Coral's planned user experience with full agent support,
+LLM integration, and observability features. These capabilities are under active
+development.
 
 ### Setup Flow
 
 **Step 1: Install Coral**
+
 ```bash
 # Single command install
 $ curl -fsSL coral.io/install.sh | sh
@@ -384,6 +423,7 @@ $ curl -fsSL coral.io/install.sh | sh
 ```
 
 **Step 2: Initialize Colony for Your App**
+
 ```bash
 $ cd ~/projects/my-shop
 $ coral colony init
@@ -414,6 +454,7 @@ Configure AI for debugging (optional):
 ```
 
 **Step 3: Start Colony (Runs Locally)**
+
 ```bash
 $ coral colony start
 
@@ -427,6 +468,7 @@ Ready to connect your app components!
 ```
 
 **Step 4: Connect Your App Components**
+
 ```bash
 # Terminal 1: Start your frontend
 $ npm run dev
@@ -458,6 +500,7 @@ Agent running. Press Ctrl+C to disconnect.
 ```
 
 **Now Your App is Alive!**
+
 ```bash
 # Open the dashboard
 $ open http://localhost:3000
@@ -512,6 +555,7 @@ Ready to use:
 ```
 
 **How it works:**
+
 - Runs a local Genkit agent on your workstation
 - Connects to Colony as MCP server to fetch observability data
 - Uses **your own LLM account** (you pay, you control)
@@ -519,6 +563,7 @@ Ready to use:
 - Switch models anytime: `coral ask config --model openai:gpt-4o`
 
 **Cost tracking:**
+
 ```bash
 $ coral ask cost
 
@@ -543,6 +588,7 @@ Warning threshold: $10.00/day (not exceeded today)
 ### Daily Operations
 
 **View Application Status**
+
 ```bash
 $ coral status
 
@@ -564,6 +610,7 @@ Open dashboard: coral dashboard
 ```
 
 **Ask Questions**
+
 ```bash
 $ coral ask "why did frontend restart?"
 
@@ -597,6 +644,7 @@ Similar incidents: 1 (frontend v1.7.0, 3 months ago - similar pattern)
 ```
 
 **View Insights**
+
 ```bash
 $ coral insights
 
@@ -660,6 +708,7 @@ Great job! 🎉
 ```
 
 **View Topology**
+
 ```bash
 $ coral topology
 
@@ -693,9 +742,14 @@ View visual map: coral dashboard
 Export graph: coral topology --export topology.dot
 ```
 
-**How topology is discovered**: Agents observe network connections locally (via netstat/ss) and report them to the colony. For example, if the API agent sees connections to `10.100.0.6:5000`, and the worker agent is known to be at that IP, Coral infers "api → worker". This is all observation-based - Coral is never in the request path.
+**How topology is discovered**: Agents observe network connections locally (via
+netstat/ss) and report them to the colony. For example, if the API agent sees
+connections to `10.100.0.6:5000`, and the worker agent is known to be at that
+IP, Coral infers "api → worker". This is all observation-based - Coral is never
+in the request path.
 
 **Web Dashboard**
+
 ```bash
 $ coral dashboard
 ✓ Dashboard available at http://localhost:3000
@@ -703,6 +757,7 @@ $ coral dashboard
 ```
 
 Dashboard features:
+
 - Visual topology map (interactive graph)
 - Timeline of deploys and events
 - AI insight cards (with "Apply" buttons)
@@ -721,6 +776,7 @@ provides cross-colony analysis.
 ### Setup Reef
 
 **Step 1: Initialize Reef Server**
+
 ```bash
 $ coral reef init
 
@@ -758,6 +814,7 @@ Start the reef:
 ```
 
 **Step 2: Connect Colonies to Reef**
+
 ```bash
 # On each colony machine
 $ coral colony config --reef-endpoint reef.internal:41820
@@ -775,6 +832,7 @@ $ coral colony restart
 ### Reef Operations
 
 **Cross-Environment Analysis**
+
 ```bash
 # Compare environments
 $ coral reef analyze "Compare error rates: prod vs staging"
@@ -804,6 +862,7 @@ Recommendation:
 ```
 
 **Deployment Tracking**
+
 ```bash
 # Track deployment across all environments
 $ coral reef deployment-status my-app v2.5.0
@@ -827,6 +886,7 @@ Overall: On track, no issues detected
 ```
 
 **Correlation Analysis**
+
 ```bash
 # Find patterns across all colonies
 $ coral reef correlations "slow database queries"
@@ -859,6 +919,7 @@ Reef exposes a public HTTPS endpoint for external integrations (Slack bots,
 GitHub Actions, mobile apps, etc.)
 
 **Slack Bot Example**
+
 ```bash
 # Configure Slack integration
 $ coral reef integration add slack
@@ -875,16 +936,18 @@ Test it:
 ```
 
 **GitHub Actions Integration**
+
 ```yaml
 # .github/workflows/deploy.yml
-- name: Check Reef Status
-  run: |
-    curl -H "Authorization: Bearer ${{ secrets.REEF_TOKEN }}" \
-         https://reef.mycompany.com/api/v1/analyze \
-         -d '{"question": "Is prod healthy for deployment?"}'
+-   name: Check Reef Status
+    run: |
+        curl -H "Authorization: Bearer ${{ secrets.REEF_TOKEN }}" \
+             https://reef.mycompany.com/api/v1/analyze \
+             -d '{"question": "Is prod healthy for deployment?"}'
 ```
 
 **API Access**
+
 ```bash
 # Generate API token for external clients
 $ coral reef token create --name "mobile-app" --permissions analyze,compare
@@ -924,6 +987,7 @@ Add to Claude Desktop config (~/.config/claude/claude_desktop_config.json):
 ```
 
 Now Claude Desktop can query your entire Coral infrastructure:
+
 ```
 You (in Claude Desktop): "Compare API performance across all environments"
 
@@ -940,6 +1004,7 @@ Claude: [Uses coral-reef MCP server to query all colonies]
 ### When to Use Reef
 
 Use Reef when you need:
+
 - **Multiple environments**: dev, staging, prod management
 - **Cross-colony analysis**: Compare metrics and deployments
 - **External integrations**: Slack bots, CI/CD, mobile apps
@@ -949,6 +1014,7 @@ Use Reef when you need:
 ### When NOT to Use Reef
 
 Skip Reef if you have:
+
 - **Single colony**: One developer, one environment
 - **Local-only**: All operations on your workstation
 - **No federation needs**: Colony-level data is sufficient
