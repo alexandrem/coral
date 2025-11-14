@@ -767,13 +767,13 @@ Dashboard features:
 
 ---
 
-## Enterprise: Multi-Colony Federation (Reef)
+## Advanced: Multi-Colony Federation (Reef)
 
-For organizations managing multiple colonies (dev, staging, prod, multiple
+For more advanced use cases managing multiple colonies (dev, staging, prod, multiple
 apps), Coral offers **Reef** - a federation layer that aggregates data and
 provides cross-colony analysis.
 
-### Setup Reef
+### Setup Reef (not yet available)
 
 **Step 1: Initialize Reef Server**
 
