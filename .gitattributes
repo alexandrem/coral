@@ -1,0 +1,4 @@
+# Mark buf proto generated code as generated
+# This causes GitHub to collapse these files in PR diffs
+coral/**/*.pb.go linguist-generated
+coral/**/*.connect.go linguist-generated
