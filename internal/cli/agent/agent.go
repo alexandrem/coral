@@ -18,6 +18,7 @@ Use these commands to start, stop, and check agent status.`,
 	// Add subcommands.
 	cmd.AddCommand(NewStartCmd())
 	cmd.AddCommand(NewStatusCmd())
+	cmd.AddCommand(NewShellCmd())
 
 	return cmd
 }

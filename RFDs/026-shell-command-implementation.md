@@ -120,31 +120,46 @@ Session ended. Audit ID: sh-abc123
 
 ### 2. Agent Environment
 
-**Alpine-based container image** with debugging utilities bundled:
+**Debian Bookworm-based container image** with debugging utilities bundled:
+
+> **Note**: We use Debian Bookworm instead of Alpine due to CGO dependencies
+> required by DuckDB. The go-duckdb driver requires a C compiler and glibc,
+> which makes Debian a better fit than Alpine's musl libc.
 
 #### Container Image
 
 ```dockerfile
-FROM alpine:3.19
+FROM debian:bookworm-slim
 
 # Install debugging utilities
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     curl \
     tcpdump \
-    bind-tools \  # dig, nslookup
+    dnsutils \
     netcat-openbsd \
-    iproute2 \    # ip, ss
-    procps \      # ps, top
-    coreutils \   # Standard Unix tools
-    sqlite \      # Query DuckDB files
-    vim
+    iproute2 \
+    procps \
+    coreutils \
+    vim-tiny \
+    ca-certificates \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install DuckDB CLI
+RUN wget -q https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-amd64.zip \
+    && unzip duckdb_cli-linux-amd64.zip \
+    && mv duckdb /usr/local/bin/duckdb \
+    && chmod +x /usr/local/bin/duckdb \
+    && rm duckdb_cli-linux-amd64.zip
 
 # Install coral agent binary
 COPY coral-agent /app/coral-agent
 
 # Create non-root user
-RUN adduser -D -u 1000 coral
+RUN groupadd -g 1000 coral && \
+    useradd -m -u 1000 -g coral coral
 
 USER coral
 WORKDIR /app
@@ -162,7 +177,7 @@ ENTRYPOINT ["/app/coral-agent"]
 | `dig/nslookup` | DNS debugging                | `dig postgres.svc.cluster.local`  |
 | `ps`           | Process inspection           | `ps aux` (shared PID namespace)   |
 | `ip/ss`        | Network configuration        | `ip addr`, `ss -tulpn`            |
-| `sqlite`       | Query agent's DuckDB         | `sqlite3 /var/lib/coral/agent.db` |
+| `duckdb`       | Query agent's DuckDB         | `duckdb /var/lib/coral/agent.db`  |
 
 #### Native Environment
 
@@ -175,11 +190,15 @@ For native (non-containerized) agents:
 
 **Option 2: Embedded shell** (future enhancement)
 
-- Bundle lightweight shell (like busybox) in agent binary
+- Bundle lightweight shell in agent binary
 - Portable across environments
 - Consistent tooling
 
 **Initial implementation uses Option 1** (system shell).
+
+> **Implementation Note**: The existing Dockerfile already uses Debian Bookworm
+> as the base image (`debian:bookworm-slim`). This RFD aligns with and extends
+> that choice by adding debugging utilities to support the shell command.
 
 ### 3. Execution Architecture
 
@@ -635,7 +654,7 @@ coral shell                 # Shell in current context agent
 
 **Deployment scenarios:**
 
-1. **Containerized agent**: Shell in alpine container
+1. **Containerized agent**: Shell in Debian Bookworm container
 2. **Native agent**: Shell in host environment
 3. **K8s sidecar**: Shell with CRI socket access
 
@@ -644,7 +663,7 @@ coral shell                 # Shell in current context agent
 1. Interactive commands (ls, cat, vi)
 2. Network debugging (tcpdump, netcat, curl)
 3. Process inspection (ps, top)
-4. DuckDB queries (sqlite3)
+4. DuckDB queries (duckdb CLI)
 5. Long-running session (> 1 hour)
 
 **Security scenarios:**

@@ -480,8 +480,11 @@ Examples:
 			}
 			defer runtimeService.Stop()
 
+			// Create shell handler (RFD 026).
+			shellHandler := agent.NewShellHandler(logger)
+
 			// Create service handler and HTTP server for gRPC API.
-			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver)
+			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler)
 			path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 			mux := http.NewServeMux()

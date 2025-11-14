@@ -16,14 +16,16 @@ type ServiceHandler struct {
 	agent             *Agent
 	runtimeService    *RuntimeService
 	telemetryReceiver *TelemetryReceiver
+	shellHandler      *ShellHandler
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver) *ServiceHandler {
+func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler) *ServiceHandler {
 	return &ServiceHandler{
 		agent:             agent,
 		runtimeService:    runtimeService,
 		telemetryReceiver: telemetryReceiver,
+		shellHandler:      shellHandler,
 	}
 }
 
@@ -292,4 +294,36 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 	response.TotalMetrics = int32(len(response.HttpMetrics) + len(response.GrpcMetrics) + len(response.SqlMetrics))
 
 	return connect.NewResponse(response), nil
+}
+
+// Shell implements the Shell RPC (RFD 026).
+func (h *ServiceHandler) Shell(
+	ctx context.Context,
+	stream *connect.BidiStream[agentv1.ShellRequest, agentv1.ShellResponse],
+) error {
+	return h.shellHandler.Shell(ctx, stream)
+}
+
+// ResizeShellTerminal implements the ResizeShellTerminal RPC (RFD 026).
+func (h *ServiceHandler) ResizeShellTerminal(
+	ctx context.Context,
+	req *connect.Request[agentv1.ResizeShellTerminalRequest],
+) (*connect.Response[agentv1.ResizeShellTerminalResponse], error) {
+	return h.shellHandler.ResizeShellTerminal(ctx, req)
+}
+
+// SendShellSignal implements the SendShellSignal RPC (RFD 026).
+func (h *ServiceHandler) SendShellSignal(
+	ctx context.Context,
+	req *connect.Request[agentv1.SendShellSignalRequest],
+) (*connect.Response[agentv1.SendShellSignalResponse], error) {
+	return h.shellHandler.SendShellSignal(ctx, req)
+}
+
+// KillShellSession implements the KillShellSession RPC (RFD 026).
+func (h *ServiceHandler) KillShellSession(
+	ctx context.Context,
+	req *connect.Request[agentv1.KillShellSessionRequest],
+) (*connect.Response[agentv1.KillShellSessionResponse], error) {
+	return h.shellHandler.KillShellSession(ctx, req)
 }
