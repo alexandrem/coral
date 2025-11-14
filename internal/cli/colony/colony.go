@@ -1307,6 +1307,44 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	mux.Handle(meshPath, meshHandler)
 	mux.Handle(colonyPath, colonyHandler)
 
+	// Add simple HTTP /status endpoint (similar to agent).
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Call the colony service's GetStatus method.
+		req := connect.NewRequest(&colonyv1.GetStatusRequest{})
+		resp, err := colonySvc.GetStatus(ctx, req)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to get colony status: %v", err), http.StatusInternalServerError)
+			logger.Error().Err(err).Msg("Failed to get colony status")
+			return
+		}
+
+		// Convert the protobuf response to a JSON-friendly map.
+		status := map[string]interface{}{
+			"colony_id":            resp.Msg.ColonyId,
+			"app_name":             resp.Msg.AppName,
+			"environment":          resp.Msg.Environment,
+			"status":               resp.Msg.Status,
+			"started_at":           resp.Msg.StartedAt.AsTime(),
+			"uptime_seconds":       resp.Msg.UptimeSeconds,
+			"agent_count":          resp.Msg.AgentCount,
+			"dashboard_url":        resp.Msg.DashboardUrl,
+			"storage_bytes":        resp.Msg.StorageBytes,
+			"wireguard_port":       resp.Msg.WireguardPort,
+			"wireguard_public_key": resp.Msg.WireguardPublicKey,
+			"wireguard_endpoints":  resp.Msg.WireguardEndpoints,
+			"connect_port":         resp.Msg.ConnectPort,
+			"mesh_ipv4":            resp.Msg.MeshIpv4,
+			"mesh_ipv6":            resp.Msg.MeshIpv6,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(status); err != nil {
+			logger.Error().Err(err).Msg("Failed to encode status response")
+		}
+	})
+
 	addr := fmt.Sprintf(":%d", connectPort)
 	httpServer := &http.Server{
 		Addr:    addr,
@@ -1317,6 +1355,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	go func() {
 		logger.Info().
 			Int("port", connectPort).
+			Str("status_endpoint", fmt.Sprintf("http://localhost:%d/status", connectPort)).
 			Msg("Mesh and Colony services listening")
 
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
