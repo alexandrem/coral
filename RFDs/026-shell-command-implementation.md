@@ -1,39 +1,40 @@
 ---
 rfd: "026"
 title: "Shell Command Implementation"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
 dependencies: [ "016" ]
-related_rfds: [ "017", "011", "012" ]
+related_rfds: [ "017", "011", "012", "041", "042" ]
 database_migrations: [ ]
 areas: [ "cli", "agent", "execution", "security" ]
 ---
 
 # RFD 026 - Shell Command Implementation
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
-Define the implementation for `coral shell` command, which provides an
-interactive
-debugging shell within the agent's own environment. The agent container is
-bundled
-with troubleshooting utilities (tcpdump, netcat, curl, etc.) to enable
-infrastructure
-debugging from the agent's perspective.
+Define and implement the `coral agent shell` command, which provides an
+interactive debugging shell within the agent's own environment. The agent container is
+bundled with troubleshooting utilities (tcpdump, netcat, curl, duckdb, etc.) to enable
+infrastructure debugging from the agent's perspective.
+
+**Implementation Status:** Core functionality implemented in Phases 1-3 and 5.
+Security and audit features (Phase 4) split into separate RFDs:
+- **RFD 041**: Shell Session Audit and Recording
+- **RFD 042**: Shell RBAC and Approval Workflows
 
 **Key concepts:**
 
 - **Agent-scoped shell**: Runs in agent's environment, not application container
-- **Bundled toolbox**: Alpine-based image with debugging utilities
+- **Bundled toolbox**: Debian Bookworm-based image with debugging utilities
 - **Simple implementation**: No CRI complexity, just shell in agent process
-- **Elevated privileges**: Agent may have access to CRI socket, host network,
-  etc.
-- **Heavy audit**: Full session recording due to elevated access
+- **Elevated privileges**: Agent may have access to CRI socket, host network, etc.
+- **Audit requirements**: Full session recording and RBAC (see RFD 041, 042)
 
 ## Problem
 
@@ -580,49 +581,56 @@ coral shell                 # Shell in current context agent
 
 ## Implementation Plan
 
-### Phase 1: Basic Shell Implementation
+### Phase 1: Basic Shell Implementation ✅ COMPLETED
 
-- [ ] Fork shell process (/bin/bash, /bin/sh)
-- [ ] PTY allocation and management
-- [ ] I/O streaming (stdin, stdout, stderr)
-- [ ] Basic session lifecycle
-- [ ] Exit code capture
-- [ ] Unit tests
+- [x] Fork shell process (/bin/bash, /bin/sh)
+- [x] PTY allocation and management
+- [x] I/O streaming (stdin, stdout, stderr)
+- [x] Basic session lifecycle
+- [x] Exit code capture
+- [x] Unit tests
 
-### Phase 2: Terminal Management
+### Phase 2: Terminal Management ✅ COMPLETED
 
-- [ ] Terminal resize handling (SIGWINCH)
-- [ ] Signal forwarding (SIGINT, SIGTERM, SIGTSTP)
-- [ ] Raw terminal mode setup
-- [ ] Terminal restoration on exit
-- [ ] Integration tests
+- [x] Terminal resize handling (SIGWINCH)
+- [x] Signal forwarding (SIGINT, SIGTERM, SIGTSTP)
+- [x] Raw terminal mode setup
+- [x] Terminal restoration on exit
+- [x] Integration tests
 
-### Phase 3: CLI Implementation
+### Phase 3: CLI Implementation ✅ COMPLETED
 
-- [ ] `coral shell` command
-- [ ] Target resolution (app name → agent ID)
-- [ ] Interactive terminal setup
-- [ ] Warning message and confirmation
-- [ ] Error handling and help text
+- [x] `coral agent shell` command
+- [x] Target resolution (auto-discover local agent)
+- [x] Interactive terminal setup
+- [x] Warning message and confirmation
+- [x] Error handling and help text
 
-### Phase 4: Security and Audit
+### Phase 4: Security and Audit → **Moved to RFD 041 (Session Audit) and RFD 042 (RBAC)**
 
+**See RFD 041 - Shell Session Audit and Recording:**
 - [ ] Session transcript recording
 - [ ] DuckDB audit schema
 - [ ] Transcript compression and storage
+- [ ] Audit query interface
+- [ ] Retention policies
+
+**See RFD 042 - Shell RBAC and Approval Workflows:**
 - [ ] RBAC enforcement (Colony-side)
 - [ ] Approval workflow integration
+- [ ] MFA requirements
+- [ ] Time-limited access
 - [ ] Security integration tests
 
-### Phase 5: Agent Container Image
+### Phase 5: Agent Container Image ✅ COMPLETED
 
-- [ ] Alpine-based Dockerfile
-- [ ] Bundle debugging utilities
-- [ ] Non-root user setup
-- [ ] Multi-arch builds (amd64, arm64)
-- [ ] Image publishing
+- [x] Debian Bookworm-based Dockerfile (changed from Alpine for DuckDB CGO)
+- [x] Bundle debugging utilities (tcpdump, netcat, curl, dnsutils, duckdb CLI)
+- [x] Non-root user setup
+- [ ] Multi-arch builds (amd64, arm64) - Future work
+- [ ] Image publishing - Future work
 
-### Phase 6: Session Management
+### Phase 6: Session Management → **Future Enhancement**
 
 - [ ] Idle timeout enforcement
 - [ ] Max duration enforcement
