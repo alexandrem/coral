@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
 	_ "github.com/marcboeker/go-duckdb"
+	"github.com/rs/zerolog"
 
 	"github.com/coral-io/coral/internal/agent/telemetry"
 )

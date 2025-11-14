@@ -42,10 +42,10 @@ type AgentConfig struct {
 		} `yaml:"nat,omitempty"`
 	} `yaml:"agent"`
 	Telemetry struct {
-		Enabled               bool    `yaml:"enabled"`
-		GRPCEndpoint          string  `yaml:"grpc_endpoint,omitempty"`
-		HTTPEndpoint          string  `yaml:"http_endpoint,omitempty"`
-		StorageRetentionHours int     `yaml:"storage_retention_hours,omitempty"`
+		Enabled               bool   `yaml:"enabled"`
+		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
+		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
+		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
 		Filters               struct {
 			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty"`
 			HighLatencyThresholdMs float64 `yaml:"high_latency_threshold_ms,omitempty"`
@@ -375,6 +375,10 @@ Examples:
 			}
 			defer agentInstance.Stop()
 
+			// Create context for background operations.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
 			// Start OTLP receiver if telemetry is enabled (RFD 025).
 			var otlpReceiver *agent.TelemetryReceiver
 			if agentCfg.Telemetry.Enabled {
@@ -533,9 +537,6 @@ Examples:
 			logger.Info().Msg("Agent started successfully - waiting for shutdown signal")
 
 			// Start heartbeat loop in background to keep agent status healthy
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
 			go startHeartbeatLoop(ctx, agentID, colonyInfo.MeshIpv4, colonyInfo.ConnectPort, 15*time.Second, logger)
 
 			// Wait for interrupt signal.
