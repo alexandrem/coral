@@ -6,9 +6,9 @@ breaking_changes: false
 testing_required: true
 database_changes: true
 api_changes: true
-dependencies: ["001", "002"]
-database_migrations: []
-areas: ["infrastructure", "federation", "ai"]
+dependencies: [ "001", "002" ]
+database_migrations: [ ]
+areas: [ "infrastructure", "federation", "ai" ]
 ---
 
 # RFD 003 - Reef: Multi-Colony Federation
@@ -22,9 +22,13 @@ persistent cross-environment correlation, historical multi-colony patterns, and
 unified AI analysis across all managed applications. A Reef aggregates data from
 multiple colonies (using ClickHouse for scale) and hosts an enterprise-grade LLM
 service (via Genkit) that provides consistent, server-side intelligence through
-both Buf Connect RPC (for `coral reef` commands) and MCP server (for external tools).
+both Buf Connect RPC (for `coral reef` commands) and MCP server (for external
+tools).
 
-Reef exposes a dual interface: **private WireGuard mesh** for querying colonies, and **public HTTPS endpoint** for external clients (Slack bots, GitHub Actions, mobile apps, etc.), enabling broad ecosystem integration without requiring VPN access.
+Reef exposes a dual interface: **private WireGuard mesh** for querying colonies,
+and **public HTTPS endpoint** for external clients (Slack bots, GitHub Actions,
+mobile apps, etc.), enabling broad ecosystem integration without requiring VPN
+access.
 
 ## Problem
 
@@ -32,19 +36,27 @@ Reef exposes a dual interface: **private WireGuard mesh** for querying colonies,
 
 With RFD 002's per-colony isolation model:
 
-- Each colony operates independently (my-shop-prod, my-shop-staging, my-shop-dev)
-- No persistent cross-environment correlation ("Does staging behavior predict prod issues?")
-- No historical multi-colony patterns ("Prod always spikes 2h after staging deploys")
-- Multi-colony queries are stateless (RFD 002 enhancement) - AI must re-analyze every time
+- Each colony operates independently (my-shop-prod, my-shop-staging,
+  my-shop-dev)
+- No persistent cross-environment correlation ("Does staging behavior predict
+  prod issues?")
+- No historical multi-colony patterns ("Prod always spikes 2h after staging
+  deploys")
+- Multi-colony queries are stateless (RFD 002 enhancement) - AI must re-analyze
+  every time
 - No unified view across all applications you manage
 
 **Why this matters:**
 
-- **Environment comparison**: "Why is prod 20% slower than staging for same load?"
-- **Deployment correlation**: "Did staging deploy cause prod errors 2 hours later?"
+- **Environment comparison**: "Why is prod 20% slower than staging for same
+  load?"
+- **Deployment correlation**: "Did staging deploy cause prod errors 2 hours
+  later?"
 - **Cross-app insights**: "Payment API slowdown is affecting checkout service"
-- **Fleet-wide health**: "Which services are running old versions across all apps?"
-- **Predictive monitoring**: "Staging shows pattern that preceded last prod outage"
+- **Fleet-wide health**: "Which services are running old versions across all
+  apps?"
+- **Predictive monitoring**: "Staging shows pattern that preceded last prod
+  outage"
 
 **Use cases affected:**
 
@@ -61,43 +73,49 @@ provides unified intelligence:
 
 **Key Design Decisions:**
 
-- **Reef as meta-colony**: Runs like a colony, but stores aggregated data from multiple child colonies
-  - Uses ClickHouse for distributed, scalable time-series storage (not DuckDB)
-  - Queries child colonies via Buf Connect (gRPC over HTTP/2)
-  - Stores summaries and cross-colony correlations with long retention (90d-1y)
+- **Reef as meta-colony**: Runs like a colony, but stores aggregated data from
+  multiple child colonies
+    - Uses ClickHouse for distributed, scalable time-series storage (not DuckDB)
+    - Queries child colonies via Buf Connect (gRPC over HTTP/2)
+    - Stores summaries and cross-colony correlations with long retention (
+      90d-1y)
 
 - **WireGuard mesh peering (RFD 005)**: Reef peers into each colony's mesh
-  - Reef generates ephemeral WireGuard keys per colony connection
-  - Each colony assigns Reef a mesh IP (e.g., 10.42.0.100)
-  - Authentication via colony_secret (same as agents/proxies)
-  - No TLS needed (WireGuard provides encryption)
-  - Unified security model across all components
+    - Reef generates ephemeral WireGuard keys per colony connection
+    - Each colony assigns Reef a mesh IP (e.g., 10.42.0.100)
+    - Authentication via colony_secret (same as agents/proxies)
+    - No TLS needed (WireGuard provides encryption)
+    - Unified security model across all components
 
 - **Pull-based federation**: Reef periodically pulls summaries from colonies
-  - Colonies push event streams to Reef (important events only)
-  - Reef queries colonies on-demand for detailed data (federated queries)
-  - All communication over encrypted WireGuard tunnels
+    - Colonies push event streams to Reef (important events only)
+    - Reef queries colonies on-demand for detailed data (federated queries)
+    - All communication over encrypted WireGuard tunnels
 
 - **AI-powered correlation**: Reef runs cross-colony correlation queries
-  - "API latency in staging predicts prod issues 2 hours later"
-  - "Database restarts in dev correlate with memory leaks in prod"
-  - "Version X deployment shows consistent pattern across environments"
+    - "API latency in staging predicts prod issues 2 hours later"
+    - "Database restarts in dev correlate with memory leaks in prod"
+    - "Version X deployment shows consistent pattern across environments"
 
 - **Server-side LLM service**: Reef hosts enterprise Genkit-powered LLM
-  - Provides consistent, audited AI analysis across the organization
-  - Dual interface: Buf Connect RPC (for `coral reef` commands) + MCP server (for external tools)
-  - LLM queries ClickHouse for context (federated metrics, correlations, deployment timeline)
-  - No client-side LLM required (unlike `coral ask` which uses local Genkit)
+    - Provides consistent, audited AI analysis across the organization
+    - Dual interface: Buf Connect RPC (for `coral reef` commands) + MCP server (
+      for external tools)
+    - LLM queries ClickHouse for context (federated metrics, correlations,
+      deployment timeline)
+    - No client-side LLM required (unlike `coral ask` which uses local Genkit)
 
 - **Dual network interface**: Reef operates in two network contexts
-  - **Private WireGuard mesh**: For querying colonies (encrypted, authenticated)
-  - **Public HTTPS endpoint**: For external integrations (Slack bots, CI/CD, mobile apps)
-  - Aggregated data only (no real-time sensitive data like colonies have)
-  - Standard authentication (API tokens, JWT, mTLS)
+    - **Private WireGuard mesh**: For querying colonies (encrypted,
+      authenticated)
+    - **Public HTTPS endpoint**: For external integrations (Slack bots, CI/CD,
+      mobile apps)
+    - Aggregated data only (no real-time sensitive data like colonies have)
+    - Standard authentication (API tokens, JWT, mTLS)
 
 - **Backward compatible**: Colonies work standalone, Reef is optional
-  - Existing colonies continue working without Reef
-  - Reef can be added later without migration
+    - Existing colonies continue working without Reef
+    - Reef can be added later without migration
 
 **Benefits:**
 
@@ -186,50 +204,51 @@ External Clients (Public Internet)
 
 **How Reef differs from Colonies:**
 
-| Feature | Colony (RFD 001/002) | Reef (RFD 003) |
-|---------|---------------------|----------------|
-| **Scope** | Single application + environment | Multiple colonies (all envs/apps) |
-| **Agents** | Connects to application agents | Connects to colonies (no agents) |
-| **Storage** | DuckDB (dev) or ClickHouse (prod) | ClickHouse (required for scale) |
-| **Retention** | Hours to days | 90d-1y (configurable) |
-| **LLM** | None (MCP gateway only) | Server-side Genkit service |
-| **AI Analysis** | Via external clients (coral ask) | Cross-colony correlation (Reef LLM) |
-| **Use Case** | "Is my API healthy?" | "Why does prod differ from staging?" |
+| Feature         | Colony (RFD 001/002)              | Reef (RFD 003)                       |
+|-----------------|-----------------------------------|--------------------------------------|
+| **Scope**       | Single application + environment  | Multiple colonies (all envs/apps)    |
+| **Agents**      | Connects to application agents    | Connects to colonies (no agents)     |
+| **Storage**     | DuckDB (dev) or ClickHouse (prod) | ClickHouse (required for scale)      |
+| **Retention**   | Hours to days                     | 90d-1y (configurable)                |
+| **LLM**         | None (MCP gateway only)           | Server-side Genkit service           |
+| **AI Analysis** | Via external clients (coral ask)  | Cross-colony correlation (Reef LLM)  |
+| **Use Case**    | "Is my API healthy?"              | "Why does prod differ from staging?" |
 
 ### Component Changes
 
 1. **Reef** (new component):
-   - Runs as a separate process (cluster deployment recommended)
-   - Manages list of child colonies (with credentials)
-   - Periodically pulls summaries from colonies
-   - Stores federated data in ClickHouse (distributed time-series storage)
-   - Hosts Genkit LLM service (server-side AI for consistent analysis)
-   - Exposes dual interface:
-     - Buf Connect RPC: ReefLLM service for `coral reef` commands
-     - MCP Server: data tools for external clients (Claude Desktop, etc.)
-   - Exposes unified dashboard and API
+    - Runs as a separate process (cluster deployment recommended)
+    - Manages list of child colonies (with credentials)
+    - Periodically pulls summaries from colonies
+    - Stores federated data in ClickHouse (distributed time-series storage)
+    - Hosts Genkit LLM service (server-side AI for consistent analysis)
+    - Exposes dual interface:
+        - Buf Connect RPC: ReefLLM service for `coral reef` commands
+        - MCP Server: data tools for external clients (Claude Desktop, etc.)
+    - Exposes unified dashboard and API
 
 2. **Colony** (reef integration):
-   - New gRPC endpoint: `GetSummary()` - Returns recent metrics/events for Reef
-   - New event stream: `StreamEvents()` - Pushes important events to Reef
-   - No breaking changes - colonies work standalone without Reef
+    - New gRPC endpoint: `GetSummary()` - Returns recent metrics/events for Reef
+    - New event stream: `StreamEvents()` - Pushes important events to Reef
+    - No breaking changes - colonies work standalone without Reef
 
 3. **CLI** (reef commands):
-   - `coral reef init <name>`: Initialize new reef
-   - `coral reef add-colony <colony-id>`: Add colony to reef
-   - `coral reef start`: Start reef process
-   - `coral reef status`: Show reef and all colonies
-   - `coral ask --reef <name>`: Query across all colonies in reef
+    - `coral reef init <name>`: Initialize new reef
+    - `coral reef add-colony <colony-id>`: Add colony to reef
+    - `coral reef start`: Start reef process
+    - `coral reef status`: Show reef and all colonies
+    - `coral ask --reef <name>`: Query across all colonies in reef
 
 4. **Dashboard** (reef view):
-   - Multi-colony view (all environments side-by-side)
-   - Cross-colony correlation graphs
-   - Deployment timeline across all colonies
-   - Unified health status
+    - Multi-colony view (all environments side-by-side)
+    - Cross-colony correlation graphs
+    - Deployment timeline across all colonies
+    - Unified health status
 
 **Configuration Example:**
 
 **Reef config** (`~/.coral/reefs/<reef-id>.yaml`):
+
 ```yaml
 # Reef identity
 reef_id: my-infrastructure-reef-x7y8z9
@@ -238,141 +257,141 @@ description: All my production infrastructure
 
 # Child colonies (Reef peers into each colony's WireGuard mesh)
 colonies:
-  - colony_id: my-shop-production-a3f2e1
-    # Mesh access (via WireGuard tunnel)
-    mesh:
-      mesh_ip: 10.42.0.1             # Colony's mesh IP
-      connect_port: 9000             # Buf Connect port on mesh
-      colony_secret: <secret>        # For authentication
-    # Reef's assigned mesh IP (from colony)
-    reef_mesh_ip: 10.42.0.100        # Assigned by colony after peering
+    -   colony_id: my-shop-production-a3f2e1
+        # Mesh access (via WireGuard tunnel)
+        mesh:
+            mesh_ip: 10.42.0.1             # Colony's mesh IP
+            connect_port: 9000             # Buf Connect port on mesh
+            colony_secret: <secret>        # For authentication
+        # Reef's assigned mesh IP (from colony)
+        reef_mesh_ip: 10.42.0.100        # Assigned by colony after peering
 
-  - colony_id: my-shop-staging-b7c8d2
-    mesh:
-      mesh_ip: 10.43.0.1
-      connect_port: 9000
-      colony_secret: <secret>
-    reef_mesh_ip: 10.43.0.100
+    -   colony_id: my-shop-staging-b7c8d2
+        mesh:
+            mesh_ip: 10.43.0.1
+            connect_port: 9000
+            colony_secret: <secret>
+        reef_mesh_ip: 10.43.0.100
 
-  - colony_id: payments-api-prod-c2d5e8
-    mesh:
-      mesh_ip: 10.44.0.1
-      connect_port: 9000
-      colony_secret: <secret>
-    reef_mesh_ip: 10.44.0.100
+    -   colony_id: payments-api-prod-c2d5e8
+        mesh:
+            mesh_ip: 10.44.0.1
+            connect_port: 9000
+            colony_secret: <secret>
+        reef_mesh_ip: 10.44.0.100
 
 # Reef storage (ClickHouse required)
 storage:
-  type: clickhouse
-  connection:
-    host: clickhouse-reef.internal
-    port: 9000
-    database: coral_reef_my_infrastructure
-    user: reef_writer
-    password_env: REEF_CLICKHOUSE_PASSWORD
-  retention:
-    aggregated_metrics: 90d  # Keep 90 days of federated metrics
-    correlations: 1y         # Keep correlation patterns for 1 year
-    deployment_timeline: 2y  # Keep deployment history for 2 years
+    type: clickhouse
+    connection:
+        host: clickhouse-reef.internal
+        port: 9000
+        database: coral_reef_my_infrastructure
+        user: reef_writer
+        password_env: REEF_CLICKHOUSE_PASSWORD
+    retention:
+        aggregated_metrics: 90d  # Keep 90 days of federated metrics
+        correlations: 1y         # Keep correlation patterns for 1 year
+        deployment_timeline: 2y  # Keep deployment history for 2 years
 
 # Public endpoint (for external integrations)
 public_endpoint:
-  enabled: true
-  host: 0.0.0.0
-  port: 443
-  domain: reef.example.com
-  tls:
-    cert: /etc/reef/tls/cert.pem
-    key: /etc/reef/tls/key.pem
-    # Optional: Auto-cert via Let's Encrypt
-    # acme:
-    #   enabled: true
-    #   email: ops@example.com
+    enabled: true
+    host: 0.0.0.0
+    port: 443
+    domain: reef.example.com
+    tls:
+        cert: /etc/reef/tls/cert.pem
+        key: /etc/reef/tls/key.pem
+        # Optional: Auto-cert via Let's Encrypt
+        # acme:
+        #   enabled: true
+        #   email: ops@example.com
 
 # MCP server (public access via SSE)
 mcp_server:
-  enabled: true
-  transport: sse          # HTTP-based for public access
-  path: /mcp/sse
-  auth: required          # Require authentication for all MCP requests
+    enabled: true
+    transport: sse          # HTTP-based for public access
+    path: /mcp/sse
+    auth: required          # Require authentication for all MCP requests
 
 # Authentication & Authorization
 auth:
-  # API token-based auth (for bots, CI/CD)
-  api_tokens:
-    - token_id: slackbot-token
-      token_hash: <bcrypt-hash>  # Actual token provided securely
-      permissions: [analyze, compare]
-      rate_limit: 100/hour
-      scopes: [my-infrastructure]
+    # API token-based auth (for bots, CI/CD)
+    api_tokens:
+        -   token_id: slackbot-token
+            token_hash: <bcrypt-hash>  # Actual token provided securely
+            permissions: [ analyze, compare ]
+            rate_limit: 100/hour
+            scopes: [ my-infrastructure ]
 
-    - token_id: github-actions
-      token_hash: <bcrypt-hash>
-      permissions: [analyze, deploy_status]
-      rate_limit: 500/hour
-      scopes: [my-infrastructure]
+        -   token_id: github-actions
+            token_hash: <bcrypt-hash>
+            permissions: [ analyze, deploy_status ]
+            rate_limit: 500/hour
+            scopes: [ my-infrastructure ]
 
-  # JWT-based auth (for user sessions, web dashboard)
-  jwt:
-    enabled: true
-    issuer: https://reef.example.com
-    signing_key_env: REEF_JWT_SECRET
-    token_ttl: 1h
-    refresh_token_ttl: 30d
+    # JWT-based auth (for user sessions, web dashboard)
+    jwt:
+        enabled: true
+        issuer: https://reef.example.com
+        signing_key_env: REEF_JWT_SECRET
+        token_ttl: 1h
+        refresh_token_ttl: 30d
 
-  # mTLS auth (for trusted service-to-service)
-  mtls:
-    enabled: false
-    ca_cert: /etc/reef/ca/ca.pem
-    require_client_cert: true
+    # mTLS auth (for trusted service-to-service)
+    mtls:
+        enabled: false
+        ca_cert: /etc/reef/ca/ca.pem
+        require_client_cert: true
 
 # RBAC (Role-Based Access Control)
 rbac:
-  roles:
-    - name: admin
-      permissions: ["*"]  # All permissions
+    roles:
+        -   name: admin
+            permissions: [ "*" ]  # All permissions
 
-    - name: developer
-      permissions: [analyze, compare, deploy_status, correlations]
+        -   name: developer
+            permissions: [ analyze, compare, deploy_status, correlations ]
 
-    - name: readonly
-      permissions: [analyze, compare]
+        -   name: readonly
+            permissions: [ analyze, compare ]
 
-  users:
-    - email: alice@example.com
-      role: admin
-      reefs: [my-infrastructure]
+    users:
+        -   email: alice@example.com
+            role: admin
+            reefs: [ my-infrastructure ]
 
-    - email: bob@example.com
-      role: developer
-      reefs: [my-infrastructure]
+        -   email: bob@example.com
+            role: developer
+            reefs: [ my-infrastructure ]
 
 # Data collection
 collection:
-  summary_interval: 60s      # Pull summaries from colonies every 60s
-  event_stream: true         # Receive real-time events from colonies
+    summary_interval: 60s      # Pull summaries from colonies every 60s
+    event_stream: true         # Receive real-time events from colonies
 
 # AI analysis (Genkit LLM service)
 ai:
-  # Server-side LLM configuration
-  llm:
-    provider: "anthropic:claude-3-5-sonnet-20241022"  # Enterprise model
-    api_key_env: ANTHROPIC_API_KEY
-    fallback_provider: "openai:gpt-4o"
+    # Server-side LLM configuration
+    llm:
+        provider: "anthropic:claude-3-5-sonnet-20241022"  # Enterprise model
+        api_key_env: ANTHROPIC_API_KEY
+        fallback_provider: "openai:gpt-4o"
 
-  # Automated correlation analysis
-  correlation_enabled: true
-  correlation_interval: 300s  # Run correlation analysis every 5 minutes
+    # Automated correlation analysis
+    correlation_enabled: true
+    correlation_interval: 300s  # Run correlation analysis every 5 minutes
 
-  # Rate limiting for coral reef commands
-  rate_limit:
-    requests_per_user_per_hour: 100
-    max_concurrent_requests: 10
+    # Rate limiting for coral reef commands
+    rate_limit:
+        requests_per_user_per_hour: 100
+        max_concurrent_requests: 10
 
 # Dashboard
 dashboard:
-  enabled: true
-  port: 3100  # Different from colony port (3000)
+    enabled: true
+    port: 3100  # Different from colony port (3000)
 ```
 
 ## API Changes
@@ -381,7 +400,9 @@ dashboard:
 
 **File: `proto/coral/reef/v1/llm.proto`**
 
-Reef exposes a server-side LLM service via Buf Connect RPC for `coral reef` commands. This provides consistent, enterprise-grade AI analysis without requiring local LLM setup.
+Reef exposes a server-side LLM service via Buf Connect RPC for `coral reef`
+commands. This provides consistent, enterprise-grade AI analysis without
+requiring local LLM setup.
 
 ```protobuf
 syntax = "proto3";
@@ -393,121 +414,121 @@ option go_package = "github.com/coral-io/coral/proto/reef/v1;reefpb";
 
 // Reef LLM Service - Server-side AI analysis
 service ReefLLM {
-  // Analyze a question across all colonies in reef
-  rpc Analyze(AnalyzeRequest) returns (AnalyzeResponse);
+    // Analyze a question across all colonies in reef
+    rpc Analyze(AnalyzeRequest) returns (AnalyzeResponse);
 
-  // Compare environments (prod vs staging, etc.)
-  rpc CompareEnvironments(CompareRequest) returns (CompareResponse);
+    // Compare environments (prod vs staging, etc.)
+    rpc CompareEnvironments(CompareRequest) returns (CompareResponse);
 
-  // Get deployment impact analysis
-  rpc AnalyzeDeployment(DeploymentRequest) returns (DeploymentResponse);
+    // Get deployment impact analysis
+    rpc AnalyzeDeployment(DeploymentRequest) returns (DeploymentResponse);
 
-  // Stream real-time analysis (for long investigations)
-  rpc StreamAnalysis(AnalyzeRequest) returns (stream AnalysisChunk);
+    // Stream real-time analysis (for long investigations)
+    rpc StreamAnalysis(AnalyzeRequest) returns (stream AnalysisChunk);
 }
 
 message AnalyzeRequest {
-  string reef_id = 1;
-  string question = 2;
+    string reef_id = 1;
+    string question = 2;
 
-  // Optional filters
-  repeated string colony_ids = 3;     // Limit to specific colonies
-  string time_window = 4;             // "1h", "24h", "7d"
-  bool include_correlations = 5;      // Include historical patterns
+    // Optional filters
+    repeated string colony_ids = 3;     // Limit to specific colonies
+    string time_window = 4;             // "1h", "24h", "7d"
+    bool include_correlations = 5;      // Include historical patterns
 }
 
 message AnalyzeResponse {
-  string answer = 1;                  // Natural language answer
+    string answer = 1;                  // Natural language answer
 
-  // Evidence from Reef's analysis
-  repeated Evidence evidence = 2;
+    // Evidence from Reef's analysis
+    repeated Evidence evidence = 2;
 
-  // Suggested actions
-  repeated Action actions = 3;
+    // Suggested actions
+    repeated Action actions = 3;
 
-  // Metadata
-  AnalysisMetadata metadata = 4;
+    // Metadata
+    AnalysisMetadata metadata = 4;
 }
 
 message Evidence {
-  string type = 1;                    // "metric", "event", "correlation"
-  string colony_id = 2;
-  string description = 3;
-  string query = 4;                   // SQL query that produced this evidence
-  map<string, string> data = 5;       // Actual data points
+    string type = 1;                    // "metric", "event", "correlation"
+    string colony_id = 2;
+    string description = 3;
+    string query = 4;                   // SQL query that produced this evidence
+    map<string, string> data = 5;       // Actual data points
 }
 
 message Action {
-  string description = 1;
-  string command = 2;                 // Optional coral command to run
-  bool requires_approval = 3;
+    string description = 1;
+    string command = 2;                 // Optional coral command to run
+    bool requires_approval = 3;
 }
 
 message AnalysisMetadata {
-  google.protobuf.Timestamp analyzed_at = 1;
-  string model_used = 2;
-  int32 colonies_queried = 3;
-  int32 tokens_used = 4;
-  float confidence_score = 5;         // 0.0-1.0
+    google.protobuf.Timestamp analyzed_at = 1;
+    string model_used = 2;
+    int32 colonies_queried = 3;
+    int32 tokens_used = 4;
+    float confidence_score = 5;         // 0.0-1.0
 }
 
 message AnalysisChunk {
-  string content = 1;                 // Partial answer (for streaming UX)
-  bool complete = 2;                  // Final chunk
+    string content = 1;                 // Partial answer (for streaming UX)
+    bool complete = 2;                  // Final chunk
 }
 
 message CompareRequest {
-  string reef_id = 1;
-  string environment_a = 2;           // "production"
-  string environment_b = 3;           // "staging"
-  string metric = 4;                  // "latency", "error_rate", "throughput"
-  string time_window = 5;
+    string reef_id = 1;
+    string environment_a = 2;           // "production"
+    string environment_b = 3;           // "staging"
+    string metric = 4;                  // "latency", "error_rate", "throughput"
+    string time_window = 5;
 }
 
 message CompareResponse {
-  string summary = 1;                 // e.g., "Production is 35% slower"
-  repeated Difference differences = 2;
-  string recommendation = 3;
+    string summary = 1;                 // e.g., "Production is 35% slower"
+    repeated Difference differences = 2;
+    string recommendation = 3;
 }
 
 message Difference {
-  string metric_name = 1;
-  double value_a = 2;
-  double value_b = 3;
-  double percent_change = 4;
-  string significance = 5;            // "critical", "warning", "info"
+    string metric_name = 1;
+    double value_a = 2;
+    double value_b = 3;
+    double percent_change = 4;
+    string significance = 5;            // "critical", "warning", "info"
 }
 
 message DeploymentRequest {
-  string reef_id = 1;
-  string deployment_id = 2;           // From Reef's deployment_timeline table
+    string reef_id = 1;
+    string deployment_id = 2;           // From Reef's deployment_timeline table
 }
 
 message DeploymentResponse {
-  string summary = 1;
-  DeploymentImpact impact = 2;
-  repeated Evidence evidence = 3;
-  string recommendation = 4;
+    string summary = 1;
+    DeploymentImpact impact = 2;
+    repeated Evidence evidence = 3;
+    string recommendation = 4;
 }
 
 message DeploymentImpact {
-  string overall_status = 1;          // "success", "degraded", "failed"
-  repeated MetricChange changes = 2;
-  repeated RelatedIncident incidents = 3;
+    string overall_status = 1;          // "success", "degraded", "failed"
+    repeated MetricChange changes = 2;
+    repeated RelatedIncident incidents = 3;
 }
 
 message MetricChange {
-  string metric_name = 1;
-  double before_value = 2;
-  double after_value = 3;
-  double percent_change = 4;
+    string metric_name = 1;
+    double before_value = 2;
+    double after_value = 3;
+    double percent_change = 4;
 }
 
 message RelatedIncident {
-  string event_id = 1;
-  google.protobuf.Timestamp occurred_at = 2;
-  string description = 3;
-  float correlation_score = 4;
+    string event_id = 1;
+    google.protobuf.Timestamp occurred_at = 2;
+    string description = 3;
+    float correlation_score = 4;
 }
 ```
 
@@ -525,176 +546,178 @@ option go_package = "github.com/coral-io/coral/proto/reef/v1;reefpb";
 
 // Colony-side service for Reef to query
 service ColonyFederation {
-  // Get recent summary (metrics, events, health)
-  rpc GetSummary(GetSummaryRequest) returns (GetSummaryResponse);
+    // Get recent summary (metrics, events, health)
+    rpc GetSummary(GetSummaryRequest) returns (GetSummaryResponse);
 
-  // Stream important events to Reef (long-lived connection)
-  rpc StreamEvents(StreamEventsRequest) returns (stream Event);
+    // Stream important events to Reef (long-lived connection)
+    rpc StreamEvents(StreamEventsRequest) returns (stream Event);
 
-  // Get detailed metrics (on-demand federated query)
-  rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
+    // Get detailed metrics (on-demand federated query)
+    rpc GetMetrics(GetMetricsRequest) returns (GetMetricsResponse);
 
-  // Get service topology
-  rpc GetTopology(GetTopologyRequest) returns (GetTopologyResponse);
+    // Get service topology
+    rpc GetTopology(GetTopologyRequest) returns (GetTopologyResponse);
 }
 
 // Summary request
 message GetSummaryRequest {
-  // Time range for summary
-  google.protobuf.Timestamp start_time = 1;
-  google.protobuf.Timestamp end_time = 2;
+    // Time range for summary
+    google.protobuf.Timestamp start_time = 1;
+    google.protobuf.Timestamp end_time = 2;
 
-  // Authentication (colony_secret verified via WireGuard peer registration)
-  // No explicit auth field needed - reef authenticated during WireGuard peering
+    // Authentication (colony_secret verified via WireGuard peer registration)
+    // No explicit auth field needed - reef authenticated during WireGuard peering
 }
 
 message GetSummaryResponse {
-  // Colony identity
-  string colony_id = 1;
-  string application_name = 2;
-  string environment = 3;
+    // Colony identity
+    string colony_id = 1;
+    string application_name = 2;
+    string environment = 3;
 
-  // Aggregated metrics
-  repeated MetricSummary metrics = 4;
+    // Aggregated metrics
+    repeated MetricSummary metrics = 4;
 
-  // Important events
-  repeated Event events = 5;
+    // Important events
+    repeated Event events = 5;
 
-  // Health status
-  HealthSummary health = 6;
+    // Health status
+    HealthSummary health = 6;
 
-  // Service topology snapshot
-  TopologySummary topology = 7;
+    // Service topology snapshot
+    TopologySummary topology = 7;
 }
 
 message MetricSummary {
-  string service_id = 1;
-  string metric_name = 2;
-  google.protobuf.Timestamp timestamp = 3;
+    string service_id = 1;
+    string metric_name = 2;
+    google.protobuf.Timestamp timestamp = 3;
 
-  // Aggregated values
-  double p50 = 4;
-  double p95 = 5;
-  double p99 = 6;
-  double mean = 7;
-  double max = 8;
-  int64 count = 9;
+    // Aggregated values
+    double p50 = 4;
+    double p95 = 5;
+    double p99 = 6;
+    double mean = 7;
+    double max = 8;
+    int64 count = 9;
 }
 
 message Event {
-  string event_id = 1;
-  google.protobuf.Timestamp timestamp = 2;
-  string event_type = 3;  // deploy, restart, crash, alert, error_spike
-  string service_id = 4;
-  string severity = 5;     // info, warning, error, critical
+    string event_id = 1;
+    google.protobuf.Timestamp timestamp = 2;
+    string event_type = 3;  // deploy, restart, crash, alert, error_spike
+    string service_id = 4;
+    string severity = 5;     // info, warning, error, critical
 
-  // Event details
-  map<string, string> metadata = 6;
-  string description = 7;
+    // Event details
+    map<string, string> metadata = 6;
+    string description = 7;
 }
 
 message HealthSummary {
-  string overall_status = 1;  // healthy, degraded, unhealthy
-  int32 total_services = 2;
-  int32 healthy_services = 3;
-  int32 degraded_services = 4;
-  int32 unhealthy_services = 5;
+    string overall_status = 1;  // healthy, degraded, unhealthy
+    int32 total_services = 2;
+    int32 healthy_services = 3;
+    int32 degraded_services = 4;
+    int32 unhealthy_services = 5;
 }
 
 message TopologySummary {
-  repeated ServiceNode services = 1;
-  repeated ServiceConnection connections = 2;
+    repeated ServiceNode services = 1;
+    repeated ServiceConnection connections = 2;
 }
 
 message ServiceNode {
-  string service_id = 1;
-  string name = 2;
-  string version = 3;
-  string status = 4;
+    string service_id = 1;
+    string name = 2;
+    string version = 3;
+    string status = 4;
 }
 
 message ServiceConnection {
-  string from_service = 1;
-  string to_service = 2;
-  string protocol = 3;
-  int64 request_count = 4;
+    string from_service = 1;
+    string to_service = 2;
+    string protocol = 3;
+    int64 request_count = 4;
 }
 
 // Event streaming
 message StreamEventsRequest {
-  // Authentication via WireGuard mesh peer (no explicit field needed)
+    // Authentication via WireGuard mesh peer (no explicit field needed)
 
-  // Filter options
-  repeated string event_types = 1;  // Only stream these event types
-  string min_severity = 2;          // Only stream events >= this severity
+    // Filter options
+    repeated string event_types = 1;  // Only stream these event types
+    string min_severity = 2;          // Only stream events >= this severity
 }
 
 // Detailed metrics request (federated query)
 message GetMetricsRequest {
-  // Authentication via WireGuard mesh peer (no explicit field needed)
+    // Authentication via WireGuard mesh peer (no explicit field needed)
 
-  string service_id = 1;
-  string metric_name = 2;
-  google.protobuf.Timestamp start_time = 3;
-  google.protobuf.Timestamp end_time = 4;
-  string resolution = 5;  // "1s", "10s", "1m"
+    string service_id = 1;
+    string metric_name = 2;
+    google.protobuf.Timestamp start_time = 3;
+    google.protobuf.Timestamp end_time = 4;
+    string resolution = 5;  // "1s", "10s", "1m"
 }
 
 message GetMetricsResponse {
-  repeated MetricPoint points = 1;
+    repeated MetricPoint points = 1;
 }
 
 message MetricPoint {
-  google.protobuf.Timestamp timestamp = 1;
-  double value = 2;
-  map<string, string> labels = 3;
+    google.protobuf.Timestamp timestamp = 1;
+    double value = 2;
+    map<string, string> labels = 3;
 }
 
 // Topology request
 message GetTopologyRequest {
-  // Authentication via WireGuard mesh peer (no explicit field needed)
+    // Authentication via WireGuard mesh peer (no explicit field needed)
 }
 
 message GetTopologyResponse {
-  TopologySummary topology = 1;
+    TopologySummary topology = 1;
 }
 ```
 
 ### Reef ClickHouse Schema
 
 **Federated metrics table:**
-```sql
-CREATE TABLE federated_metrics (
-  colony_id String,           -- Which colony this came from
-  application_name String,    -- my-shop, payments-api
-  environment String,         -- production, staging, dev
-  service_id String,
-  metric_name String,
-  timestamp DateTime,
 
-  -- Aggregated values (pre-aggregated from colony)
-  p50 Float64,
-  p95 Float64,
-  p99 Float64,
-  mean Float64,
-  max_value Float64,
-  sample_count UInt32
-)
-ENGINE = MergeTree()
+```sql
+CREATE TABLE federated_metrics
+(
+    colony_id        String, -- Which colony this came from
+    application_name String, -- my-shop, payments-api
+    environment      String, -- production, staging, dev
+    service_id       String,
+    metric_name      String,
+    timestamp        DateTime,
+
+    -- Aggregated values (pre-aggregated from colony)
+    p50              Float64,
+    p95              Float64,
+    p99              Float64,
+    mean             Float64,
+    max_value        Float64,
+    sample_count     UInt32
+) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (colony_id, application_name, metric_name, timestamp)
 SETTINGS index_granularity = 8192;
 
 -- Materialized view for fast environment comparisons
-CREATE MATERIALIZED VIEW env_metric_summary
+CREATE
+MATERIALIZED VIEW env_metric_summary
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (application_name, environment, metric_name, toStartOfHour(timestamp))
-AS SELECT
-  application_name,
-  environment,
-  metric_name,
-  toStartOfHour(timestamp) as hour,
+AS
+SELECT application_name,
+       environment,
+       metric_name,
+       toStartOfHour(timestamp) as hour,
   avgState(p95) as avg_p95,
   maxState(max_value) as max_value,
   sumState(sample_count) as total_samples
@@ -703,87 +726,90 @@ GROUP BY application_name, environment, metric_name, hour;
 ```
 
 **Cross-colony events:**
-```sql
-CREATE TABLE federated_events (
-  event_id String,
-  colony_id String,
-  application_name String,
-  environment String,
-  timestamp DateTime,
-  event_type String,      -- deploy, restart, crash, alert, error_spike
-  service_id String,
-  severity String,        -- info, warning, error, critical
-  description String,
-  metadata String,        -- JSON-encoded metadata
 
-  -- Correlation tracking
-  correlation_group String,  -- AI-assigned group for related events
-  correlation_score Float64  -- How strongly correlated (0.0-1.0)
-)
-ENGINE = MergeTree()
+```sql
+CREATE TABLE federated_events
+(
+    event_id          String,
+    colony_id         String,
+    application_name  String,
+    environment       String,
+    timestamp         DateTime,
+    event_type        String, -- deploy, restart, crash, alert, error_spike
+    service_id        String,
+    severity          String, -- info, warning, error, critical
+    description       String,
+    metadata          String, -- JSON-encoded metadata
+
+    -- Correlation tracking
+    correlation_group String, -- AI-assigned group for related events
+    correlation_score Float64 -- How strongly correlated (0.0-1.0)
+) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, application_name, event_type)
 SETTINGS index_granularity = 8192;
 ```
 
 **Cross-colony correlations:**
+
 ```sql
-CREATE TABLE correlations (
-  correlation_id String,
-  correlation_type String,  -- deployment_cascade, error_propagation, latency_correlation
+CREATE TABLE correlations
+(
+    correlation_id      String,
+    correlation_type    String,  -- deployment_cascade, error_propagation, latency_correlation
 
-  -- Source event/metric
-  source_colony_id String,
-  source_service String,
-  source_timestamp DateTime,
+    -- Source event/metric
+    source_colony_id    String,
+    source_service      String,
+    source_timestamp    DateTime,
 
-  -- Target event/metric
-  target_colony_id String,
-  target_service String,
-  target_timestamp DateTime,
+    -- Target event/metric
+    target_colony_id    String,
+    target_service      String,
+    target_timestamp    DateTime,
 
-  -- Correlation strength
-  correlation_score Float64,  -- 0.0 - 1.0
-  confidence Float64,          -- Statistical confidence
+    -- Correlation strength
+    correlation_score   Float64, -- 0.0 - 1.0
+    confidence          Float64, -- Statistical confidence
 
-  -- Time lag
-  lag_seconds Int32,  -- How long after source did target occur
+    -- Time lag
+    lag_seconds         Int32,   -- How long after source did target occur
 
-  -- AI analysis
-  pattern_description String,
-  occurrence_count UInt32,  -- How many times this pattern occurred
+    -- AI analysis
+    pattern_description String,
+    occurrence_count    UInt32,  -- How many times this pattern occurred
 
-  first_observed DateTime,
-  last_observed DateTime
-)
-ENGINE = MergeTree()
+    first_observed      DateTime,
+    last_observed       DateTime
+) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(first_observed)
 ORDER BY (correlation_type, source_colony_id, source_service, first_observed)
 SETTINGS index_granularity = 8192;
 ```
 
 **Deployment timeline:**
+
 ```sql
-CREATE TABLE deployment_timeline (
-  deployment_id String,
-  colony_id String,
-  application_name String,
-  environment String,
-  service_id String,
+CREATE TABLE deployment_timeline
+(
+    deployment_id    String,
+    colony_id        String,
+    application_name String,
+    environment      String,
+    service_id       String,
 
-  from_version String,
-  to_version String,
+    from_version     String,
+    to_version       String,
 
-  started_at DateTime,
-  completed_at DateTime,
-  status String,  -- success, failed, rolled_back
+    started_at       DateTime,
+    completed_at     DateTime,
+    status           String,        -- success, failed, rolled_back
 
-  -- Impact analysis (AI-generated)
-  impact_score Float64,           -- 0.0-1.0 (how much impact did this deploy have)
-  issues_detected Array(String),  -- ["latency_increase", "error_spike"]
-  related_events Array(String)    -- Event IDs that correlate with this deploy
-)
-ENGINE = MergeTree()
+    -- Impact analysis (AI-generated)
+    impact_score     Float64,       -- 0.0-1.0 (how much impact did this deploy have)
+    issues_detected  Array(String), -- ["latency_increase", "error_spike"]
+    related_events   Array(String)  -- Event IDs that correlate with this deploy
+) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(started_at)
 ORDER BY (application_name, environment, started_at)
 SETTINGS index_granularity = 8192;
@@ -1005,7 +1031,8 @@ Recommendation:
 ### Phase 4: Genkit LLM Service
 
 - [ ] Integrate Genkit Go SDK with Reef
-- [ ] Implement ReefLLM Buf Connect service (Analyze, CompareEnvironments, AnalyzeDeployment)
+- [ ] Implement ReefLLM Buf Connect service (Analyze, CompareEnvironments,
+  AnalyzeDeployment)
 - [ ] Build context retrieval from ClickHouse (query builder for LLM context)
 - [ ] Implement streaming analysis for long-running queries
 - [ ] Add rate limiting and cost tracking
@@ -1046,6 +1073,7 @@ Recommendation:
 ### E2E Tests
 
 **Scenario 1: Basic Reef Setup**
+
 ```bash
 # Initialize reef and add colonies
 coral reef init my-infra
@@ -1058,6 +1086,7 @@ coral reef start
 ```
 
 **Scenario 2: Cross-Environment Comparison**
+
 ```bash
 # Deploy to staging
 deploy-to-staging v2.0.0
@@ -1070,6 +1099,7 @@ coral ask "compare staging vs prod latency" --reef my-infra
 ```
 
 **Scenario 3: Correlation Detection**
+
 ```bash
 # Simulate staging deploy followed by prod error
 # Verify: Reef detects correlation after pattern repeats
@@ -1080,11 +1110,14 @@ coral ask "compare staging vs prod latency" --reef my-infra
 
 ### Reef-Colony Authentication
 
-**Problem**: Reef needs access to colony data, but colonies are security-sensitive
+**Problem**: Reef needs access to colony data, but colonies are
+security-sensitive
 
-**Solution**: WireGuard mesh peering with colony_secret authentication (same as agents/proxies)
+**Solution**: WireGuard mesh peering with colony_secret authentication (same as
+agents/proxies)
 
 **Flow:**
+
 1. User runs `coral reef add-colony my-shop-production --colony-secret <secret>`
 2. Reef queries discovery for colony endpoints
 3. Reef establishes WireGuard tunnel to colony
@@ -1093,6 +1126,7 @@ coral ask "compare staging vs prod latency" --reef my-infra
 6. Reef queries colony via Buf Connect over encrypted tunnel
 
 **Security Properties:**
+
 - Authentication via WireGuard peer verification + colony_secret
 - Encryption at network layer (no TLS needed)
 - Mesh IP identifies reef peer (auditable)
@@ -1117,6 +1151,7 @@ coral ask "compare staging vs prod latency" --reef my-infra
 **Why public access is safe for Reef:**
 
 Reef stores **aggregated, summarized data** only:
+
 - ✅ P95/P99 latency metrics (no individual request data)
 - ✅ Deployment timeline (public info anyway)
 - ✅ Correlation patterns (high-level insights)
@@ -1129,42 +1164,43 @@ Reef stores **aggregated, summarized data** only:
 **Authentication mechanisms:**
 
 1. **API Tokens** (for bots, CI/CD):
-   - Scoped to specific reefs and permissions
-   - Rate-limited per token
-   - Can be revoked instantly
-   - Audit trail of all token usage
+    - Scoped to specific reefs and permissions
+    - Rate-limited per token
+    - Can be revoked instantly
+    - Audit trail of all token usage
 
 2. **JWT** (for user sessions):
-   - Short-lived access tokens (1h)
-   - Long-lived refresh tokens (30d)
-   - User identity tracked in all requests
-   - Integrates with SSO/OAuth providers
+    - Short-lived access tokens (1h)
+    - Long-lived refresh tokens (30d)
+    - User identity tracked in all requests
+    - Integrates with SSO/OAuth providers
 
 3. **mTLS** (for trusted services):
-   - Client certificate verification
-   - Mutual TLS authentication
-   - Service identity via cert CN/SAN
-   - No bearer tokens to leak
+    - Client certificate verification
+    - Mutual TLS authentication
+    - Service identity via cert CN/SAN
+    - No bearer tokens to leak
 
 **Rate limiting:**
 
 ```yaml
 # Per-token rate limits
 api_tokens:
-  - token_id: slackbot
-    rate_limit: 100/hour  # Prevents abuse
-    burst: 20             # Allow brief spikes
+    -   token_id: slackbot
+        rate_limit: 100/hour  # Prevents abuse
+        burst: 20             # Allow brief spikes
 
 # Per-IP rate limits (unauthenticated)
 public_endpoint:
-  rate_limit:
-    unauthenticated: 10/hour
-    authenticated: 1000/hour
+    rate_limit:
+        unauthenticated: 10/hour
+        authenticated: 1000/hour
 ```
 
 **RBAC enforcement:**
 
 Every request checked against user/token permissions:
+
 - `analyze`: Can query ReefLLM.Analyze()
 - `compare`: Can query ReefLLM.CompareEnvironments()
 - `deploy_status`: Can query deployment timeline
@@ -1174,6 +1210,7 @@ Every request checked against user/token permissions:
 **Audit logging:**
 
 All public API requests logged:
+
 ```
 timestamp: 2024-11-13T14:35:22Z
 client_ip: 203.0.113.42
@@ -1197,13 +1234,13 @@ tokens_used: 2341
 
 **Comparison: Colony vs Reef access model:**
 
-| Aspect | Colony | Reef |
-|--------|--------|------|
-| **Access** | WireGuard mesh only | Mesh (private) + HTTPS (public) |
-| **Data sensitivity** | Real-time app data, PII | Aggregated metrics, no PII |
-| **Authentication** | Mesh peer only | Multi-method (tokens, JWT, mTLS) |
-| **Use case** | Operational control | Intelligence consumption |
-| **Exposure risk** | High (control plane) | Low (read-only insights) |
+| Aspect               | Colony                  | Reef                             |
+|----------------------|-------------------------|----------------------------------|
+| **Access**           | WireGuard mesh only     | Mesh (private) + HTTPS (public)  |
+| **Data sensitivity** | Real-time app data, PII | Aggregated metrics, no PII       |
+| **Authentication**   | Mesh peer only          | Multi-method (tokens, JWT, mTLS) |
+| **Use case**         | Operational control     | Intelligence consumption         |
+| **Exposure risk**    | High (control plane)    | Low (read-only insights)         |
 
 ## Migration Strategy
 
@@ -1214,6 +1251,7 @@ tokens_used: 2341
 3. Reef can be stopped without affecting colonies
 
 **Gradual rollout:**
+
 1. Deploy Reef support to colonies (new gRPC endpoints)
 2. Initialize Reef on central infrastructure or laptop
 3. Add colonies to Reef one by one
@@ -1262,6 +1300,7 @@ def handle_coral_status(command):
 ```
 
 **User experience in Slack:**
+
 ```
 User: /coral-status is production healthy?
 
@@ -1287,36 +1326,36 @@ Confidence: 0.95
 name: Deploy to Production
 
 on:
-  push:
-    branches: [main]
+    push:
+        branches: [ main ]
 
 jobs:
-  check-production-health:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check production health
-        id: health_check
-        run: |
-          RESPONSE=$(curl -X POST https://reef.example.com/coral.reef.v1.ReefLLM/Analyze \
-            -H "Authorization: Bearer ${{ secrets.REEF_API_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "reef_id": "my-infrastructure",
-              "question": "Is production ready for deployment? Check health, recent deploys, and current load."
-            }')
+    check-production-health:
+        runs-on: ubuntu-latest
+        steps:
+            -   name: Check production health
+                id: health_check
+                run: |
+                    RESPONSE=$(curl -X POST https://reef.example.com/coral.reef.v1.ReefLLM/Analyze \
+                      -H "Authorization: Bearer ${{ secrets.REEF_API_TOKEN }}" \
+                      -H "Content-Type: application/json" \
+                      -d '{
+                        "reef_id": "my-infrastructure",
+                        "question": "Is production ready for deployment? Check health, recent deploys, and current load."
+                      }')
 
-          echo "response=$RESPONSE" >> $GITHUB_OUTPUT
+                    echo "response=$RESPONSE" >> $GITHUB_OUTPUT
 
-          # Extract confidence score (jq required)
-          CONFIDENCE=$(echo "$RESPONSE" | jq -r '.metadata.confidence_score')
-          if (( $(echo "$CONFIDENCE < 0.8" | bc -l) )); then
-            echo "::error::Low confidence in production health ($CONFIDENCE)"
-            exit 1
-          fi
+                    # Extract confidence score (jq required)
+                    CONFIDENCE=$(echo "$RESPONSE" | jq -r '.metadata.confidence_score')
+                    if (( $(echo "$CONFIDENCE < 0.8" | bc -l) )); then
+                      echo "::error::Low confidence in production health ($CONFIDENCE)"
+                      exit 1
+                    fi
 
-      - name: Deploy
-        if: success()
-        run: ./scripts/deploy.sh
+            -   name: Deploy
+                if: success()
+                run: ./scripts/deploy.sh
 ```
 
 ### Mobile App (iOS/Android)
@@ -1399,7 +1438,7 @@ exports.handler = async (event) => {
         });
     }
 
-    return { statusCode: 200 };
+    return {statusCode: 200};
 };
 ```
 
@@ -1407,63 +1446,82 @@ exports.handler = async (event) => {
 
 ```typescript
 // React component for custom ops dashboard
-import React, { useEffect, useState } from 'react';
+import React, {useEffect, useState} from 'react';
 
 interface ReefAnalysis {
-  answer: string;
-  evidence: Array<{ type: string; description: string }>;
-  metadata: {
-    model_used: string;
-    confidence_score: number;
-  };
+    answer: string;
+    evidence: Array<{ type: string; description: string }>;
+    metadata: {
+        model_used: string;
+        confidence_score: number;
+    };
 }
 
 export function ProductionHealthWidget() {
-  const [analysis, setAnalysis] = useState<ReefAnalysis | null>(null);
-  const [loading, setLoading] = useState(true);
+    const [analysis, setAnalysis] = useState<ReefAnalysis | null>(null);
+    const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchHealth() {
-      const response = await fetch('https://reef.example.com/coral.reef.v1.ReefLLM/Analyze', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_REEF_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          reef_id: 'my-infrastructure',
-          question: 'Summarize production health and any anomalies'
-        })
-      });
+    useEffect(() => {
+        async function fetchHealth() {
+            const response = await fetch('https://reef.example.com/coral.reef.v1.ReefLLM/Analyze', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${import.meta.env.VITE_REEF_TOKEN}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    reef_id: 'my-infrastructure',
+                    question: 'Summarize production health and any anomalies'
+                })
+            });
 
-      const data = await response.json();
-      setAnalysis(data);
-      setLoading(false);
+            const data = await response.json();
+            setAnalysis(data);
+            setLoading(false);
+        }
+
+        fetchHealth();
+        const interval = setInterval(fetchHealth, 60000); // Refresh every minute
+        return () => clearInterval(interval);
+    }, []);
+
+    if (loading) return <div>Loading
+    production
+    status
+...
+    </div>;
+
+    return (
+        <div className = "reef-widget" >
+            <h2>Production
+    Health < /h2>
+    < p > {analysis?.answer
+}
+    </p>
+    < div
+    className = "confidence" >
+        Confidence
+:
+    {
+        (analysis?.metadata.confidence_score * 100).toFixed(0)
     }
-
-    fetchHealth();
-    const interval = setInterval(fetchHealth, 60000); // Refresh every minute
-    return () => clearInterval(interval);
-  }, []);
-
-  if (loading) return <div>Loading production status...</div>;
-
-  return (
-    <div className="reef-widget">
-      <h2>Production Health</h2>
-      <p>{analysis?.answer}</p>
-      <div className="confidence">
-        Confidence: {(analysis?.metadata.confidence_score * 100).toFixed(0)}%
-      </div>
-      <div className="evidence">
-        {analysis?.evidence.map((e, i) => (
-          <div key={i} className="evidence-item">
-            <strong>{e.type}:</strong> {e.description}
-          </div>
-        ))}
-      </div>
+%
     </div>
-  );
+    < div
+    className = "evidence" >
+        {analysis?.evidence.map((e, i) => (
+            <div key = {i}
+    className = "evidence-item" >
+        <strong>{e.type}
+:
+    </strong> {e.description}
+    < /div>
+))
+}
+    </div>
+    < /div>
+)
+    ;
 }
 ```
 
@@ -1541,6 +1599,7 @@ if __name__ == '__main__':
 ```
 
 **Usage:**
+
 ```bash
 # Install
 pip install click requests
@@ -1568,6 +1627,7 @@ Last deploy was 3 days ago. No incidents detected.
 ### Multi-Reef Support
 
 Multiple reefs for different scopes:
+
 ```bash
 # Production-only reef
 coral reef init prod-infrastructure
@@ -1583,6 +1643,7 @@ coral reef add-colony payments-dev
 ### Reef Federation
 
 Reefs can federate with other reefs (hierarchical):
+
 ```
 Global Reef (company-wide)
   ├── NA Reef (North America)
@@ -1596,21 +1657,23 @@ Global Reef (company-wide)
 ### Automated Actions
 
 Reef can trigger automated responses:
+
 ```yaml
 # Reef config
 automation:
-  - trigger: correlation_detected
-    condition: "staging_error_spike → prod_error_prediction"
-    action: notify_slack
+    -   trigger: correlation_detected
+        condition: "staging_error_spike → prod_error_prediction"
+        action: notify_slack
 
-  - trigger: pattern_match
-    condition: "deployment_correlation > 0.9"
-    action: recommend_rollback
+    -   trigger: pattern_match
+        condition: "deployment_correlation > 0.9"
+        action: recommend_rollback
 ```
 
 ### Machine Learning
 
 Train ML models on reef data:
+
 - Anomaly detection across environments
 - Deployment success prediction
 - Capacity planning across fleet
@@ -1621,44 +1684,47 @@ Train ML models on reef data:
 ### Correlation Detection Algorithms
 
 **Time-based correlation:**
+
 ```sql
 -- Find events in staging that precede production issues
-SELECT
-  staging.event_id as source_event,
-  prod.event_id as target_event,
-  (prod.timestamp - staging.timestamp) as lag
+SELECT staging.event_id                     as source_event,
+       prod.event_id                        as target_event,
+       (prod.timestamp - staging.timestamp) as lag
 FROM federated_events staging
-JOIN federated_events prod
-  ON staging.environment = 'staging'
-  AND prod.environment = 'production'
-  AND prod.timestamp > staging.timestamp
-  AND prod.timestamp < staging.timestamp + INTERVAL '4 hours'
-WHERE staging.event_type IN ('deploy', 'error_spike')
-  AND prod.event_type IN ('error_spike', 'crash')
+         JOIN federated_events prod
+              ON staging.environment = 'staging'
+                  AND prod.environment = 'production'
+                  AND prod.timestamp > staging.timestamp
+                  AND prod.timestamp < staging.timestamp + INTERVAL '4 hours'
+WHERE staging.event_type IN ('deploy'
+    , 'error_spike')
+  AND prod.event_type IN ('error_spike'
+    , 'crash')
 GROUP BY staging.event_id, prod.event_id
-HAVING COUNT(*) > 3  -- Pattern occurred at least 3 times
+HAVING COUNT (*) > 3 -- Pattern occurred at least 3 times
 ```
 
 **Metric correlation:**
+
 ```sql
 -- Find metrics that correlate across environments
-SELECT
-  s.metric_name,
-  CORR(s.p95, p.p95) as correlation_score
+SELECT s.metric_name,
+       CORR(s.p95, p.p95) as correlation_score
 FROM federated_metrics s
-JOIN federated_metrics p
-  ON s.metric_name = p.metric_name
-  AND s.timestamp = p.timestamp
-  AND s.environment = 'staging'
-  AND p.environment = 'production'
+         JOIN federated_metrics p
+              ON s.metric_name = p.metric_name
+                  AND s.timestamp = p.timestamp
+                  AND s.environment = 'staging'
+                  AND p.environment = 'production'
 WHERE s.timestamp > NOW() - INTERVAL '24 hours'
 GROUP BY s.metric_name
-HAVING CORR(s.p95, p.p95) > 0.8  -- Strong correlation
+HAVING CORR(s.p95, p.p95) > 0.8 -- Strong correlation
 ```
 
 ### Example Reef Queries
 
 **Cross-environment health check:**
+
 ```bash
 coral ask "compare health across all environments" --reef my-infra
 
@@ -1669,6 +1735,7 @@ Dev:        88% healthy (2 services restarting after code change)
 ```
 
 **Deployment impact analysis:**
+
 ```bash
 coral ask "what was the impact of the last staging deploy?" --reef my-infra
 
@@ -1683,6 +1750,7 @@ Recommendation: Investigate latency increase before prod deploy
 ```
 
 **Cross-app dependency analysis:**
+
 ```bash
 coral ask "is payment-api affecting other services?" --reef my-infra
 
@@ -1706,21 +1774,28 @@ Recommendation: Fix payment API latency or increase timeout thresholds
 - **Pull-based**: Reef pulls from colonies (not push), works across networks
 - **AI-powered**: Reef runs server-side LLM (Genkit) for consistent analysis
 - **Scalable**: Uses ClickHouse for distributed time-series storage (not DuckDB)
-- **Enterprise-grade**: Single LLM for consistent, audited analysis across organization
+- **Enterprise-grade**: Single LLM for consistent, audited analysis across
+  organization
 
 **Relationship to other RFDs:**
 
 - RFD 001: Discovery service (unchanged, colonies still use mesh_id)
 - RFD 002: Application identity (reef builds on colony concepts)
-- RFD 004: MCP server (reef exposes MCP server for external tools like Claude Desktop)
-- RFD 014: Abandoned (Colony-embedded LLM approach replaced by separated architecture)
-- RFD 030: Coral ask CLI (local Genkit for single-colony analysis vs Reef's server-side LLM)
+- RFD 004: MCP server (reef exposes MCP server for external tools like Claude
+  Desktop)
+- RFD 014: Abandoned (Colony-embedded LLM approach replaced by separated
+  architecture)
+- RFD 030: Coral ask CLI (local Genkit for single-colony analysis vs Reef's
+  server-side LLM)
 
 **LLM Integration Patterns:**
 
-- **`coral ask`** (RFD 030): Local Genkit agent, developer's LLM choice, single colony context
-- **`coral reef`** (this RFD): Server-side Genkit service, enterprise LLM, multi-colony federation
-- **`coral proxy`** (RFD 004): MCP gateway for external tools (Claude Desktop, IDEs)
+- **`coral ask`** (RFD 030): Local Genkit agent, developer's LLM choice, single
+  colony context
+- **`coral reef`** (this RFD): Server-side Genkit service, enterprise LLM,
+  multi-colony federation
+- **`coral proxy`** (RFD 004): MCP gateway for external tools (Claude Desktop,
+  IDEs)
 
 **When to use Reef:**
 

@@ -17,62 +17,83 @@ areas: ["ai", "cli", "mcp"]
 
 ## Summary
 
-Implement `coral ask` CLI command using local Genkit-powered LLM agent that connects to Colony as an MCP client. The LLM runs on the developer's machine (or cloud via API keys), while Colony provides a stateless MCP server exposing data access tools. This design offloads LLM compute from Colony, enables flexible model choice, and maintains cost control at the developer level.
+Implement `coral ask` CLI command using local Genkit-powered LLM agent that
+connects to Colony as an MCP client. The LLM runs on the developer's machine (or
+cloud via API keys), while Colony provides a stateless MCP server exposing data
+access tools. This design offloads LLM compute from Colony, enables flexible
+model choice, and maintains cost control at the developer level.
 
 ## Problem
 
 **Current behavior/limitations:**
 
 - No implemented `coral ask` command for conversational diagnostics
-- RFD 014 proposed embedding LLM in Colony, which contradicts ARCHITECTURE.MD's separated LLM architecture
-- Developers need fast, iterative debugging without deploying to Reef's enterprise LLM
+- RFD 014 proposed embedding LLM in Colony, which contradicts ARCHITECTURE.MD's
+  separated LLM architecture
+- Developers need fast, iterative debugging without deploying to Reef's
+  enterprise LLM
 - Colony should remain lightweight control plane, not bear LLM inference costs
 
 **Why this matters:**
 
-- Developers expect AI-assisted debugging: "Why is checkout slow?" should return grounded analysis
-- Colony hosting LLM creates operational overhead (model management, compute costs, scaling)
-- Different developers have different model preferences (GPT-4, Claude, local Llama)
-- Cost control requires user-level LLM ownership (developer's API keys, not colony's budget)
+- Developers expect AI-assisted debugging: "Why is checkout slow?" should return
+  grounded analysis
+- Colony hosting LLM creates operational overhead (model management, compute
+  costs, scaling)
+- Different developers have different model preferences (GPT-4, Claude, local
+  Llama)
+- Cost control requires user-level LLM ownership (developer's API keys, not
+  colony's budget)
 
 **Use cases affected:**
 
-- Quick debugging during active incidents: `coral ask "what's causing 500 errors?"`
+- Quick debugging during active incidents:
+  `coral ask "what's causing 500 errors?"`
 - Iterative exploration: `coral ask "show me top 5 slowest endpoints"`
-- Personal investigations: using local models (Ollama) for air-gapped environments
+- Personal investigations: using local models (Ollama) for air-gapped
+  environments
 - Multi-turn conversations: follow-up questions maintaining context
 
 ## Solution
 
-Implement `coral ask` as a CLI command that spawns or connects to a local Genkit agent process. The agent loads the developer's chosen LLM model (local via Ollama or cloud via API keys) and connects to the current Colony as an MCP client. Colony provides MCP tools for data access (`query_trace_data`, `get_service_topology`, etc.), and the LLM performs reasoning on the developer's machine.
+Implement `coral ask` as a CLI command that spawns or connects to a local Genkit
+agent process. The agent loads the developer's chosen LLM model (local via
+Ollama or cloud via API keys) and connects to the current Colony as an MCP
+client. Colony provides MCP tools for data access (`query_trace_data`,
+`get_service_topology`, etc.), and the LLM performs reasoning on the developer's
+machine.
 
 **Key Design Decisions:**
 
 - **Local Genkit agent**: Runs on developer machine, not in Colony server
-  - Supports both local models (Ollama) and cloud APIs (OpenAI, Anthropic, Google)
-  - Developer owns compute costs and chooses model quality/cost trade-offs
+    - Supports both local models (Ollama) and cloud APIs (OpenAI, Anthropic,
+      Google)
+    - Developer owns compute costs and chooses model quality/cost trade-offs
 
-- **Colony MCP client**: Agent connects to Colony's MCP server (already implemented via `coral proxy`)
-  - Colony is stateless gateway providing data access tools
-  - No LLM inference in Colony (keeps it lightweight)
+- **Colony MCP client**: Agent connects to Colony's MCP server (already
+  implemented via `coral proxy`)
+    - Colony is stateless gateway providing data access tools
+    - No LLM inference in Colony (keeps it lightweight)
 
 - **Flexible deployment**: Agent can run as:
-  - Ephemeral process (spawned per `coral ask` invocation)
-  - Long-running daemon (amortizes model loading overhead)
-  - In-process (embedded in CLI binary for simple cases)
+    - Ephemeral process (spawned per `coral ask` invocation)
+    - Long-running daemon (amortizes model loading overhead)
+    - In-process (embedded in CLI binary for simple cases)
 
 - **Context management**: Agent maintains conversation history locally
-  - Multi-turn interactions without re-querying Colony
-  - Context pruning based on token limits
+    - Multi-turn interactions without re-querying Colony
+    - Context pruning based on token limits
 
-- **Configuration-driven**: Developer configures preferred models, API keys, fallbacks
-  - Support for multiple providers (primary + fallbacks)
-  - Cost controls (token limits, daily budgets)
+- **Configuration-driven**: Developer configures preferred models, API keys,
+  fallbacks
+    - Support for multiple providers (primary + fallbacks)
+    - Cost controls (token limits, daily budgets)
 
 **Benefits:**
 
 - Colony remains lightweight (no LLM runtime, simpler deployment)
-- Developer flexibility (choose GPT-4 for complex analysis, Llama for quick queries)
+- Developer flexibility (choose GPT-4 for complex analysis, Llama for quick
+  queries)
 - Cost control (developer's API keys = clear cost ownership)
 - Offline support (Ollama for air-gapped environments)
 - Fast iteration (no round-trip to Reef for simple questions)
@@ -108,28 +129,28 @@ Developer Machine                      Colony (Control Plane)
 ### Component Changes
 
 1. **CLI (`internal/cli/ask`)** (new package):
-   - Implement `coral ask <question>` command
-   - Spawn or connect to Genkit agent process
-   - Stream LLM responses to terminal (progressive output)
-   - Handle conversation context (multi-turn via `--continue` flag)
+    - Implement `coral ask <question>` command
+    - Spawn or connect to Genkit agent process
+    - Stream LLM responses to terminal (progressive output)
+    - Handle conversation context (multi-turn via `--continue` flag)
 
 2. **Genkit Agent** (`internal/agent/genkit`)** (new package):
-   - Load configuration (model selection, API keys from env)
-   - Initialize Genkit runtime with configured providers
-   - Connect to Colony MCP server (via WireGuard mesh, discovered via context)
-   - Execute LLM reasoning with MCP tool calls
-   - Manage conversation context and token budgets
+    - Load configuration (model selection, API keys from env)
+    - Initialize Genkit runtime with configured providers
+    - Connect to Colony MCP server (via WireGuard mesh, discovered via context)
+    - Execute LLM reasoning with MCP tool calls
+    - Manage conversation context and token budgets
 
 3. **Configuration** (`~/.coral/config.yaml`):
-   - New `ask` section for LLM configuration
-   - Support for multiple providers with fallbacks
-   - Cost control settings (token limits, budgets)
-   - Model-specific overrides
+    - New `ask` section for LLM configuration
+    - Support for multiple providers with fallbacks
+    - Cost control settings (token limits, budgets)
+    - Model-specific overrides
 
 4. **MCP Integration** (uses existing `coral proxy` implementation):
-   - Colony already exposes MCP server (RFD 004)
-   - Agent connects as MCP client
-   - No changes needed to Colony MCP server
+    - Colony already exposes MCP server (RFD 004)
+    - Agent connects as MCP client
+    - No changes needed to Colony MCP server
 
 **Configuration Example:**
 
@@ -276,6 +297,7 @@ coral ask "status" --show-cost
 ### Configuration Changes
 
 New `ask` section in `~/.coral/config.yaml`:
+
 - `ask.default_model`: Primary model to use (Genkit provider format)
 - `ask.fallback_models`: Array of fallback models
 - `ask.api_keys`: Map of provider → env variable reference
@@ -286,8 +308,10 @@ New `ask` section in `~/.coral/config.yaml`:
 ### Genkit Provider Format
 
 Models specified as `<provider>:<model-id>`:
+
 - OpenAI: `openai:gpt-4o`, `openai:gpt-4o-mini`
-- Anthropic: `anthropic:claude-3-5-sonnet-20241022`, `anthropic:claude-3-5-haiku-20241022`
+- Anthropic: `anthropic:claude-3-5-sonnet-20241022`,
+  `anthropic:claude-3-5-haiku-20241022`
 - Google: `google:gemini-1.5-pro`, `google:gemini-1.5-flash`
 - Ollama (local): `ollama:llama3.2`, `ollama:mistral`
 
@@ -310,6 +334,7 @@ Models specified as `<provider>:<model-id>`:
 ### E2E Tests
 
 **Scenario 1: Basic Query**
+
 ```bash
 # Setup: Colony with seeded metrics (high latency)
 coral ask "why is the API slow?"
@@ -317,6 +342,7 @@ coral ask "why is the API slow?"
 ```
 
 **Scenario 2: Multi-turn Conversation**
+
 ```bash
 coral ask "what services are unhealthy?"
 coral ask "show details for payment service" --continue
@@ -324,6 +350,7 @@ coral ask "show details for payment service" --continue
 ```
 
 **Scenario 3: Fallback Model**
+
 ```bash
 # Setup: Primary model API key invalid
 coral ask "status"
@@ -331,6 +358,7 @@ coral ask "status"
 ```
 
 **Scenario 4: Cost Limit**
+
 ```bash
 # Setup: Daily cost already at $19.50 (limit: $20.00)
 coral ask "complex analysis requiring 2000 tokens"
@@ -342,12 +370,14 @@ coral ask "complex analysis requiring 2000 tokens"
 ### API Key Management
 
 **Requirements:**
+
 - NEVER store API keys in plain text config files
 - Support environment variable references: `env://VAR_NAME`
 - Support system keyring: `keyring://coral/openai_api_key`
 - Validate API keys on startup (detect misconfiguration early)
 
 **Configuration validation:**
+
 ```yaml
 # GOOD: Environment variable reference
 api_keys:
@@ -363,12 +393,14 @@ api_keys:
 **Threat:** Telemetry data sent to cloud LLM providers (OpenAI, Anthropic, etc.)
 
 **Mitigations:**
+
 - Display warning when using cloud models (first run)
 - Document data residency implications in setup guide
 - Recommend local models (Ollama) for sensitive environments
 - Support air-gapped mode (Ollama only, no internet required)
 
 **Warning message (first cloud model use):**
+
 ```
 ⚠️  Using cloud model: openai:gpt-4o-mini
 
@@ -386,9 +418,12 @@ Continue? [y/N]
 **Threat:** Malicious logs/metrics containing LLM instructions
 
 **Mitigations:**
-- Structured context format (JSON-encoded data prevents interpretation as instructions)
+
+- Structured context format (JSON-encoded data prevents interpretation as
+  instructions)
 - System prompt guardrails instructing LLM to ignore embedded commands
-- Content sanitization for suspicious patterns (optional, may have false positives)
+- Content sanitization for suspicious patterns (optional, may have false
+  positives)
 
 ### Cost Control
 
@@ -407,13 +442,16 @@ Continue? [y/N]
 
 **Rollout:**
 
-1. Deploy Colony MCP server updates (if needed, likely already implemented via `coral proxy`)
+1. Deploy Colony MCP server updates (if needed, likely already implemented via
+   `coral proxy`)
 2. Release CLI with `coral ask` command
 3. Users configure API keys in `~/.coral/config.yaml`
 4. First run prompts for model selection and API key setup
 
 **No breaking changes:**
-- Existing Colony deployments unaffected (no LLM removal needed, it was never added)
+
+- Existing Colony deployments unaffected (no LLM removal needed, it was never
+  added)
 - `coral proxy` MCP server already exists (RFD 004)
 
 ## Future Enhancements
@@ -429,12 +467,14 @@ Continue? [y/N]
 ### Agent Deployment Modes
 
 **Ephemeral Mode:**
+
 - Spawn new process per `coral ask` invocation
 - ✅ Simple (no daemon management)
 - ❌ Slow (model loading overhead each time)
 - Use case: Infrequent queries, simple deployments
 
 **Daemon Mode:**
+
 - Long-running agent process (Unix socket communication)
 - ✅ Fast (model loaded once, reused)
 - ✅ Maintains conversation context across CLI invocations
@@ -442,16 +482,19 @@ Continue? [y/N]
 - Use case: Active debugging sessions, frequent queries
 
 **Embedded Mode:**
+
 - Genkit runtime embedded in CLI binary
 - ✅ No separate process
 - ❌ Slower CLI startup (library loading)
 - Use case: Single-turn queries, minimal setup
 
-**Recommendation:** Default to daemon mode for best UX, with auto-shutdown after idle timeout.
+**Recommendation:** Default to daemon mode for best UX, with auto-shutdown after
+idle timeout.
 
 ### Genkit Go Integration
 
 **Dependencies:**
+
 ```go
 // go.mod
 require (
@@ -463,6 +506,7 @@ require (
 ```
 
 **Provider initialization example:**
+
 ```go
 // Simplified - actual implementation in internal/agent/genkit
 import (
@@ -552,11 +596,14 @@ Tools exposed by Colony MCP server (consumed by Genkit agent):
 
 **Relationship to other components:**
 
-- **RFD 003 (Reef)**: For cross-colony analysis, use `coral reef` (server-side LLM)
+- **RFD 003 (Reef)**: For cross-colony analysis, use `coral reef` (server-side
+  LLM)
 - **RFD 004 (MCP server)**: Colony already exposes MCP tools via `coral proxy`
 - **RFD 014 (abandoned)**: This RFD replaces the Colony-embedded approach
 
 **When to use `coral ask` vs `coral reef`:**
 
-- **`coral ask`**: Quick debugging, single colony, developer iteration, personal investigations
-- **`coral reef`**: Cross-environment analysis, formal RCA, enterprise consistency, historical patterns
+- **`coral ask`**: Quick debugging, single colony, developer iteration, personal
+  investigations
+- **`coral reef`**: Cross-environment analysis, formal RCA, enterprise
+  consistency, historical patterns
