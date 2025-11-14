@@ -322,19 +322,19 @@ Coral provides comprehensive observability through four complementary mechanisms
 
 ### 1. OpenTelemetry eBPF Instrumentation (Zero Config)
 
-Agents use [OpenTelemetry eBPF instrumentation](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation)
-(formerly Grafana Beyla) to capture RED metrics (Rate, Errors, Duration) with
+Agents use **eBPF probes** to capture RED metrics (Rate, Errors, Duration) with
 **zero configuration**:
 
 - **No code changes** - Works with any HTTP/gRPC service
 - **No SDK required** - Attaches to running processes via eBPF
 - **Automatic instrumentation** - Request rates, error rates, latency percentiles
 - **Low overhead** - eBPF runs in kernel space, minimal performance impact
+- **Combined approach** - Uses OpenTelemetry eBPF + custom Coral eBPF programs
 
 ```bash
 # Just connect - metrics start flowing automatically
 coral connect api:8080
-# → OpenTelemetry eBPF probes attach and collect RED metrics
+# → eBPF probes attach and collect RED metrics
 ```
 
 ### 2. OTLP Ingestion (OpenTelemetry)
@@ -398,7 +398,7 @@ See "Live Debugging: The Killer Feature" section below for details.
 
 **How they work together:**
 
-1. **OpenTelemetry eBPF** provides baseline RED metrics (always on, low overhead)
+1. **eBPF probes** provide baseline RED metrics (always on, low overhead)
 2. **OTLP** adds rich trace context from instrumented apps (if using OpenTelemetry)
 3. **Shell/exec** runs diagnostic tools when LLM needs system-level data
 4. **SDK probes** instrument code when deeper investigation is needed
