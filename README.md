@@ -19,7 +19,11 @@ Coral: "API latency spiked 3 minutes ago. P95 went from 150ms to 2.3s.
 
 ## Status
 
+[![CI](https://github.com/coral-io/coral/actions/workflows/ci.yml/badge.svg)](https://github.com/coral-io/coral/actions/workflows/ci.yml)
+
 🚧 **Early Development / Design Phase** - Implementation in progress
+
+**Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, testing guidelines, and PR best practices.
 
 ## The Problem
 
