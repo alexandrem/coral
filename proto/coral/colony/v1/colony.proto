@@ -18,6 +18,9 @@ service ColonyService {
 
   // Get network topology.
   rpc GetTopology(GetTopologyRequest) returns (GetTopologyResponse);
+
+  // Query telemetry data from agent (RFD 025 - pull-based).
+  rpc QueryTelemetry(QueryTelemetryRequest) returns (QueryTelemetryResponse);
 }
 
 message GetStatusRequest {}
@@ -125,4 +128,67 @@ message Connection {
 
   // Connection type ("http", "grpc", "database", etc.).
   string connection_type = 3;
+}
+
+// TelemetrySpan represents a filtered OpenTelemetry span stored locally on agents (RFD 025).
+message TelemetrySpan {
+  // Span timestamp (Unix milliseconds).
+  int64 timestamp = 1;
+
+  // OpenTelemetry trace ID.
+  string trace_id = 2;
+
+  // OpenTelemetry span ID.
+  string span_id = 3;
+
+  // Service name from span attributes.
+  string service_name = 4;
+
+  // Span kind (CLIENT, SERVER, INTERNAL, PRODUCER, CONSUMER).
+  string span_kind = 5;
+
+  // Span duration in milliseconds.
+  double duration_ms = 6;
+
+  // Whether this span represents an error.
+  bool is_error = 7;
+
+  // HTTP status code (if applicable).
+  int32 http_status = 8;
+
+  // HTTP method (if applicable).
+  string http_method = 9;
+
+  // HTTP route (if applicable).
+  string http_route = 10;
+
+  // Additional span attributes (key-value pairs).
+  map<string, string> attributes = 11;
+}
+
+// QueryTelemetryRequest is sent from colony to agent to query recent telemetry (RFD 025).
+message QueryTelemetryRequest {
+  // Agent identifier to query.
+  string agent_id = 1;
+
+  // Start time for query range (Unix seconds).
+  int64 start_time = 2;
+
+  // End time for query range (Unix seconds).
+  int64 end_time = 3;
+
+  // Filter by service names (empty = all services).
+  repeated string service_names = 4;
+}
+
+// QueryTelemetryResponse contains filtered spans from agent's local storage (RFD 025).
+message QueryTelemetryResponse {
+  // Agent identifier.
+  string agent_id = 1;
+
+  // Filtered spans matching the query.
+  repeated TelemetrySpan spans = 2;
+
+  // Total number of spans returned.
+  int32 total_spans = 3;
 }

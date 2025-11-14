@@ -41,6 +41,17 @@ type AgentConfig struct {
 			EnableRelay bool     `yaml:"enable_relay,omitempty"` // Enable relay fallback
 		} `yaml:"nat,omitempty"`
 	} `yaml:"agent"`
+	Telemetry struct {
+		Disabled              bool   `yaml:"disabled"`
+		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
+		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
+		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
+		Filters               struct {
+			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty"`
+			HighLatencyThresholdMs float64 `yaml:"high_latency_threshold_ms,omitempty"`
+			SampleRate             float64 `yaml:"sample_rate,omitempty"`
+		} `yaml:"filters,omitempty"`
+	} `yaml:"telemetry,omitempty"`
 	Services []struct {
 		Name           string `yaml:"name"`
 		Port           int    `yaml:"port"`
@@ -364,6 +375,79 @@ Examples:
 			}
 			defer agentInstance.Stop()
 
+			// Create context for background operations.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Start OTLP receiver if telemetry is not disabled (RFD 025).
+			// Telemetry is enabled by default.
+			var otlpReceiver *agent.TelemetryReceiver
+			if !agentCfg.Telemetry.Disabled {
+				logger.Info().Msg("Starting OTLP receiver for telemetry collection")
+
+				telemetryConfig := agent.TelemetryConfig{
+					Disabled:              agentCfg.Telemetry.Disabled,
+					GRPCEndpoint:          agentCfg.Telemetry.GRPCEndpoint,
+					HTTPEndpoint:          agentCfg.Telemetry.HTTPEndpoint,
+					StorageRetentionHours: agentCfg.Telemetry.StorageRetentionHours,
+					AgentID:               agentID,
+				}
+
+				// Set filter config with defaults if not specified.
+				if agentCfg.Telemetry.Filters.AlwaysCaptureErrors {
+					telemetryConfig.Filters.AlwaysCaptureErrors = true
+				} else {
+					telemetryConfig.Filters.AlwaysCaptureErrors = true // Default: true
+				}
+
+				if agentCfg.Telemetry.Filters.HighLatencyThresholdMs > 0 {
+					telemetryConfig.Filters.HighLatencyThresholdMs = agentCfg.Telemetry.Filters.HighLatencyThresholdMs
+				} else {
+					telemetryConfig.Filters.HighLatencyThresholdMs = 500.0 // Default: 500ms
+				}
+
+				if agentCfg.Telemetry.Filters.SampleRate > 0 {
+					telemetryConfig.Filters.SampleRate = agentCfg.Telemetry.Filters.SampleRate
+				} else {
+					telemetryConfig.Filters.SampleRate = 0.10 // Default: 10%
+				}
+
+				// Set default endpoints if not specified.
+				if telemetryConfig.GRPCEndpoint == "" {
+					telemetryConfig.GRPCEndpoint = "0.0.0.0:4317"
+				}
+				if telemetryConfig.HTTPEndpoint == "" {
+					telemetryConfig.HTTPEndpoint = "0.0.0.0:4318"
+				}
+				if telemetryConfig.StorageRetentionHours == 0 {
+					telemetryConfig.StorageRetentionHours = 1 // Default: 1 hour
+				}
+
+				otlpReceiver, err = agent.NewTelemetryReceiver(telemetryConfig, logger)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to create OTLP receiver - telemetry disabled")
+				} else {
+					if err := otlpReceiver.Start(ctx); err != nil {
+						logger.Warn().Err(err).Msg("Failed to start OTLP receiver - telemetry disabled")
+					} else {
+						logger.Info().
+							Str("grpc_endpoint", telemetryConfig.GRPCEndpoint).
+							Str("http_endpoint", telemetryConfig.HTTPEndpoint).
+							Float64("sample_rate", telemetryConfig.Filters.SampleRate).
+							Float64("latency_threshold_ms", telemetryConfig.Filters.HighLatencyThresholdMs).
+							Msg("OTLP receiver started successfully")
+
+						defer func() {
+							if err := otlpReceiver.Stop(); err != nil {
+								logger.Error().Err(err).Msg("Failed to stop OTLP receiver")
+							}
+						}()
+					}
+				}
+			} else {
+				logger.Info().Msg("Telemetry collection is disabled")
+			}
+
 			// Log initial status.
 			if len(serviceSpecs) > 0 {
 				logger.Info().
@@ -396,7 +480,7 @@ Examples:
 			defer runtimeService.Stop()
 
 			// Create service handler and HTTP server for gRPC API.
-			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService)
+			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver)
 			path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 			mux := http.NewServeMux()
@@ -454,9 +538,6 @@ Examples:
 			logger.Info().Msg("Agent started successfully - waiting for shutdown signal")
 
 			// Start heartbeat loop in background to keep agent status healthy
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
 			go startHeartbeatLoop(ctx, agentID, colonyInfo.MeshIpv4, colonyInfo.ConnectPort, 15*time.Second, logger)
 
 			// Wait for interrupt signal.

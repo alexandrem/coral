@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -12,15 +13,17 @@ import (
 
 // ServiceHandler implements the AgentService gRPC interface for managing service connections.
 type ServiceHandler struct {
-	agent          *Agent
-	runtimeService *RuntimeService
+	agent             *Agent
+	runtimeService    *RuntimeService
+	telemetryReceiver *TelemetryReceiver
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(agent *Agent, runtimeService *RuntimeService) *ServiceHandler {
+func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver) *ServiceHandler {
 	return &ServiceHandler{
-		agent:          agent,
-		runtimeService: runtimeService,
+		agent:             agent,
+		runtimeService:    runtimeService,
+		telemetryReceiver: telemetryReceiver,
 	}
 }
 
@@ -120,5 +123,55 @@ func (h *ServiceHandler) ListServices(
 
 	return connect.NewResponse(&agentv1.ListServicesResponse{
 		Services: serviceStatuses,
+	}), nil
+}
+
+// QueryTelemetry retrieves filtered telemetry spans from the agent's local storage.
+// This is part of RFD 025 pull-based telemetry model.
+// Colony calls this to query filtered spans from agent's local storage.
+func (h *ServiceHandler) QueryTelemetry(
+	ctx context.Context,
+	req *connect.Request[agentv1.QueryTelemetryRequest],
+) (*connect.Response[agentv1.QueryTelemetryResponse], error) {
+	// If telemetry is disabled, return empty response.
+	if h.telemetryReceiver == nil {
+		return connect.NewResponse(&agentv1.QueryTelemetryResponse{
+			Spans:      []*agentv1.TelemetrySpan{},
+			TotalSpans: 0,
+		}), nil
+	}
+
+	// Convert Unix seconds to time.Time.
+	startTime := time.Unix(req.Msg.StartTime, 0)
+	endTime := time.Unix(req.Msg.EndTime, 0)
+
+	// Query spans from local storage.
+	spans, err := h.telemetryReceiver.QuerySpans(ctx, startTime, endTime, req.Msg.ServiceNames)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	// Convert internal spans to protobuf spans.
+	pbSpans := make([]*agentv1.TelemetrySpan, 0, len(spans))
+	for _, span := range spans {
+		pbSpan := &agentv1.TelemetrySpan{
+			Timestamp:   span.Timestamp.UnixMilli(),
+			TraceId:     span.TraceID,
+			SpanId:      span.SpanID,
+			ServiceName: span.ServiceName,
+			SpanKind:    span.SpanKind,
+			DurationMs:  span.DurationMs,
+			IsError:     span.IsError,
+			HttpStatus:  int32(span.HTTPStatus),
+			HttpMethod:  span.HTTPMethod,
+			HttpRoute:   span.HTTPRoute,
+			Attributes:  span.Attributes,
+		}
+		pbSpans = append(pbSpans, pbSpan)
+	}
+
+	return connect.NewResponse(&agentv1.QueryTelemetryResponse{
+		Spans:      pbSpans,
+		TotalSpans: int32(len(pbSpans)),
 	}), nil
 }

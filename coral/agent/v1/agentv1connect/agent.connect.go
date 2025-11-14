@@ -46,6 +46,9 @@ const (
 	// AgentServiceListServicesProcedure is the fully-qualified name of the AgentService's ListServices
 	// RPC.
 	AgentServiceListServicesProcedure = "/coral.agent.v1.AgentService/ListServices"
+	// AgentServiceQueryTelemetryProcedure is the fully-qualified name of the AgentService's
+	// QueryTelemetry RPC.
+	AgentServiceQueryTelemetryProcedure = "/coral.agent.v1.AgentService/QueryTelemetry"
 )
 
 // AgentServiceClient is a client for the coral.agent.v1.AgentService service.
@@ -58,6 +61,8 @@ type AgentServiceClient interface {
 	DisconnectService(context.Context, *connect.Request[v1.DisconnectServiceRequest]) (*connect.Response[v1.DisconnectServiceResponse], error)
 	// List currently monitored services.
 	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
+	// Query telemetry data from agent local storage (RFD 025 - pull-based).
+	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the coral.agent.v1.AgentService service. By
@@ -95,6 +100,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListServices")),
 			connect.WithClientOptions(opts...),
 		),
+		queryTelemetry: connect.NewClient[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse](
+			httpClient,
+			baseURL+AgentServiceQueryTelemetryProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("QueryTelemetry")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -104,6 +115,7 @@ type agentServiceClient struct {
 	connectService    *connect.Client[v1.ConnectServiceRequest, v1.ConnectServiceResponse]
 	disconnectService *connect.Client[v1.DisconnectServiceRequest, v1.DisconnectServiceResponse]
 	listServices      *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
+	queryTelemetry    *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
 }
 
 // GetRuntimeContext calls coral.agent.v1.AgentService.GetRuntimeContext.
@@ -126,6 +138,11 @@ func (c *agentServiceClient) ListServices(ctx context.Context, req *connect.Requ
 	return c.listServices.CallUnary(ctx, req)
 }
 
+// QueryTelemetry calls coral.agent.v1.AgentService.QueryTelemetry.
+func (c *agentServiceClient) QueryTelemetry(ctx context.Context, req *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
+	return c.queryTelemetry.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the coral.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// Get runtime context information.
@@ -136,6 +153,8 @@ type AgentServiceHandler interface {
 	DisconnectService(context.Context, *connect.Request[v1.DisconnectServiceRequest]) (*connect.Response[v1.DisconnectServiceResponse], error)
 	// List currently monitored services.
 	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
+	// Query telemetry data from agent local storage (RFD 025 - pull-based).
+	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -169,6 +188,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListServices")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceQueryTelemetryHandler := connect.NewUnaryHandler(
+		AgentServiceQueryTelemetryProcedure,
+		svc.QueryTelemetry,
+		connect.WithSchema(agentServiceMethods.ByName("QueryTelemetry")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceGetRuntimeContextProcedure:
@@ -179,6 +204,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceDisconnectServiceHandler.ServeHTTP(w, r)
 		case AgentServiceListServicesProcedure:
 			agentServiceListServicesHandler.ServeHTTP(w, r)
+		case AgentServiceQueryTelemetryProcedure:
+			agentServiceQueryTelemetryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -202,4 +229,8 @@ func (UnimplementedAgentServiceHandler) DisconnectService(context.Context, *conn
 
 func (UnimplementedAgentServiceHandler) ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.ListServices is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QueryTelemetry is not implemented"))
 }

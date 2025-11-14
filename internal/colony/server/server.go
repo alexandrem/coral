@@ -11,6 +11,7 @@ import (
 
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
 	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/colony/storage"
 )
@@ -33,15 +34,17 @@ type Config struct {
 // Server implements the ColonyService.
 type Server struct {
 	registry  *registry.Registry
+	database  *database.Database
 	config    Config
 	startTime time.Time
 	logger    zerolog.Logger
 }
 
 // New creates a new colony server.
-func New(reg *registry.Registry, config Config, logger zerolog.Logger) *Server {
+func New(reg *registry.Registry, db *database.Database, config Config, logger zerolog.Logger) *Server {
 	return &Server{
 		registry:  reg,
+		database:  db,
 		config:    config,
 		startTime: time.Now(),
 		logger:    logger,
@@ -232,3 +235,26 @@ func (s *Server) determineColonyStatus() string {
 	// All agents are healthy.
 	return "running"
 }
+
+// QueryTelemetry retrieves telemetry summaries from the colony's database.
+// This is part of RFD 025 pull-based telemetry model.
+func (s *Server) QueryTelemetry(
+	ctx context.Context,
+	req *connect.Request[colonyv1.QueryTelemetryRequest],
+) (*connect.Response[colonyv1.QueryTelemetryResponse], error) {
+	// TODO: Implement telemetry querying from colony database (RFD 025).
+	// This will query the colony's telemetry summaries database for data matching:
+	// - Agent ID: req.Msg.AgentId
+	// - Time range: req.Msg.StartTime to req.Msg.EndTime
+	// - Service names: req.Msg.ServiceNames (filter by these if provided)
+	// Return the aggregated telemetry summaries stored in the colony database.
+
+	return connect.NewResponse(&colonyv1.QueryTelemetryResponse{
+		AgentId:    req.Msg.AgentId,
+		Spans:      []*colonyv1.TelemetrySpan{},
+		TotalSpans: 0,
+	}), nil
+}
+
+// Note: IngestTelemetry RPC was removed in favor of pull-based architecture (RFD 025).
+// Colony now queries agents on-demand using QueryTelemetry RPC and creates summaries locally.

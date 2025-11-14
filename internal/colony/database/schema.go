@@ -130,4 +130,24 @@ var schemaDDL = []string{
 
 	`CREATE INDEX IF NOT EXISTS idx_baselines_service_id ON baselines(service_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_baselines_metric_name ON baselines(metric_name)`,
+
+	// OpenTelemetry summaries - aggregated telemetry data from queried agents (RFD 025 - pull-based).
+	`CREATE TABLE IF NOT EXISTS otel_summaries (
+		bucket_time TIMESTAMP NOT NULL,
+		agent_id TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		span_kind TEXT,
+		p50_ms DOUBLE,
+		p95_ms DOUBLE,
+		p99_ms DOUBLE,
+		error_count INTEGER DEFAULT 0,
+		total_spans INTEGER DEFAULT 0,
+		sample_traces TEXT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (bucket_time, agent_id, service_name, span_kind)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_otel_summaries_lookup ON otel_summaries(agent_id, bucket_time, service_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_otel_summaries_service ON otel_summaries(service_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_otel_summaries_bucket_time ON otel_summaries(bucket_time)`,
 }
