@@ -1,4 +1,4 @@
-.PHONY: build build-dev clean init install install-tools test run help generate
+.PHONY: build build-dev clean init install install-tools test test-unit test-e2e test-e2e-verbose test-all run help generate
 
 # Build variables
 BINARY_NAME=coral
@@ -62,9 +62,22 @@ install: build ## Install the binary to $GOPATH/bin
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(shell go env GOPATH)/bin/
 	@echo "✓ Installed to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
 
-test: generate ## Run tests
-	@echo "Running tests..."
-	go test ./...
+test: test-unit ## Run unit tests (default)
+
+test-unit: generate ## Run unit tests only
+	@echo "Running unit tests..."
+	go test -short -v ./internal/... ./pkg/... ./cmd/...
+
+test-e2e: build ## Run E2E tests
+	@echo "Running E2E tests..."
+	@echo "NOTE: E2E tests require binaries to be built"
+	go test -v -timeout 10m ./tests/e2e/...
+
+test-e2e-verbose: build ## Run E2E tests with verbose output
+	@echo "Running E2E tests (verbose)..."
+	go test -v -timeout 10m -count=1 ./tests/e2e/...
+
+test-all: test-unit test-e2e ## Run all tests (unit + E2E)
 
 run: build ## Build and run the CLI
 	@$(BUILD_DIR)/$(BINARY_NAME)
@@ -95,4 +108,4 @@ lint: ## Run linter
 	@echo "Running linter..."
 	golangci-lint run
 
-all: clean build test ## Clean, build, and test
+all: clean build test-all ## Clean, build, and test everything
