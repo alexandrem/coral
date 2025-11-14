@@ -150,4 +150,73 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_otel_summaries_lookup ON otel_summaries(agent_id, bucket_time, service_name)`,
 	`CREATE INDEX IF NOT EXISTS idx_otel_summaries_service ON otel_summaries(service_name)`,
 	`CREATE INDEX IF NOT EXISTS idx_otel_summaries_bucket_time ON otel_summaries(bucket_time)`,
+
+	// Beyla HTTP metrics - RED metrics from Beyla (RFD 032).
+	`CREATE TABLE IF NOT EXISTS beyla_http_metrics (
+		timestamp TIMESTAMPTZ NOT NULL,
+		agent_id TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		http_method VARCHAR(10),
+		http_route VARCHAR(255),
+		http_status_code SMALLINT,
+		latency_bucket_ms DOUBLE NOT NULL,
+		count BIGINT NOT NULL,
+		attributes TEXT,
+		PRIMARY KEY (timestamp, agent_id, service_name, http_method, http_route, http_status_code, latency_bucket_ms)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_beyla_http_service_time ON beyla_http_metrics(service_name, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_http_route ON beyla_http_metrics(http_route, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_http_agent ON beyla_http_metrics(agent_id, timestamp DESC)`,
+
+	// Beyla gRPC metrics - gRPC method-level RED metrics (RFD 032).
+	`CREATE TABLE IF NOT EXISTS beyla_grpc_metrics (
+		timestamp TIMESTAMPTZ NOT NULL,
+		agent_id TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		grpc_method VARCHAR(255),
+		grpc_status_code SMALLINT,
+		latency_bucket_ms DOUBLE NOT NULL,
+		count BIGINT NOT NULL,
+		attributes TEXT,
+		PRIMARY KEY (timestamp, agent_id, service_name, grpc_method, grpc_status_code, latency_bucket_ms)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_beyla_grpc_service_time ON beyla_grpc_metrics(service_name, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_grpc_method ON beyla_grpc_metrics(grpc_method, timestamp DESC)`,
+
+	// Beyla SQL metrics - database query performance (RFD 032).
+	`CREATE TABLE IF NOT EXISTS beyla_sql_metrics (
+		timestamp TIMESTAMPTZ NOT NULL,
+		agent_id TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		sql_operation VARCHAR(50),
+		table_name VARCHAR(255),
+		latency_bucket_ms DOUBLE NOT NULL,
+		count BIGINT NOT NULL,
+		attributes TEXT,
+		PRIMARY KEY (timestamp, agent_id, service_name, sql_operation, table_name, latency_bucket_ms)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_beyla_sql_service_time ON beyla_sql_metrics(service_name, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_sql_operation ON beyla_sql_metrics(sql_operation, timestamp DESC)`,
+
+	// Beyla traces - distributed trace spans (RFD 032).
+	`CREATE TABLE IF NOT EXISTS beyla_traces (
+		trace_id VARCHAR(32) NOT NULL,
+		span_id VARCHAR(16) NOT NULL,
+		parent_span_id VARCHAR(16),
+		service_name TEXT NOT NULL,
+		span_name TEXT NOT NULL,
+		span_kind VARCHAR(10),
+		start_time TIMESTAMPTZ NOT NULL,
+		duration_us BIGINT NOT NULL,
+		status_code SMALLINT,
+		attributes TEXT,
+		PRIMARY KEY (trace_id, span_id)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_service_time ON beyla_traces(service_name, start_time DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_trace_id ON beyla_traces(trace_id, start_time DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_duration ON beyla_traces(duration_us DESC)`,
 }

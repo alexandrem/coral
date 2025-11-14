@@ -239,6 +239,16 @@ message EbpfCapabilities {
   bool btf_available = 3;           // BTF/CO-RE support
   bool cap_bpf = 4;                 // CAP_BPF capability
   repeated EbpfCollectorKind available_collectors = 5;
+  BeylaCapabilities beyla = 6;      // Beyla integration capabilities (RFD 032)
+}
+
+// BeylaCapabilities describes Beyla integration features (RFD 032).
+message BeylaCapabilities {
+  bool enabled = 1;
+  string version = 2;  // Beyla library version
+  repeated string supported_protocols = 3;  // ["http", "grpc", "kafka", ...]
+  repeated string supported_runtimes = 4;   // ["go", "java", "python", ...]
+  bool tracing_enabled = 5;
 }
 
 // QueryTelemetry RPC messages (RFD 025 - pull-based telemetry).

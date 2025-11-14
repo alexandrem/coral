@@ -64,6 +64,76 @@ message CpuProfileSample {
   map<string, string> labels = 3;
 }
 
+// Beyla-specific capabilities reported by agent (RFD 032).
+message BeylaCapabilities {
+  bool enabled = 1;
+  string version = 2;  // Beyla library version
+  repeated string supported_protocols = 3;  // ["http", "grpc", "kafka", ...]
+  repeated string supported_runtimes = 4;   // ["go", "java", "python", ...]
+  bool tracing_enabled = 5;
+}
+
+// Beyla HTTP metrics (aggregated by agent before sending).
+message BeylaHttpMetrics {
+  google.protobuf.Timestamp timestamp = 1;
+  string service_name = 2;
+  string http_route = 3;          // e.g., "/api/v1/users/:id"
+  string http_method = 4;         // GET, POST, etc.
+  uint32 http_status_code = 5;
+
+  // Latency histogram buckets (milliseconds).
+  repeated double latency_buckets = 6;  // [10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
+  repeated uint64 latency_counts = 7;   // Counts per bucket
+
+  uint64 request_count = 8;             // Total requests in time window
+  map<string, string> attributes = 9;   // pod, namespace, cluster, etc.
+}
+
+// Beyla gRPC metrics.
+message BeylaGrpcMetrics {
+  google.protobuf.Timestamp timestamp = 1;
+  string service_name = 2;
+  string grpc_method = 3;         // e.g., "/payments.PaymentService/Charge"
+  uint32 grpc_status_code = 4;    // 0 = OK, 1 = CANCELLED, etc.
+
+  repeated double latency_buckets = 5;
+  repeated uint64 latency_counts = 6;
+
+  uint64 request_count = 7;
+  map<string, string> attributes = 8;
+}
+
+// Beyla SQL metrics.
+message BeylaSqlMetrics {
+  google.protobuf.Timestamp timestamp = 1;
+  string service_name = 2;
+  string sql_operation = 3;       // SELECT, INSERT, UPDATE, DELETE
+  string table_name = 4;          // Extracted from query (if possible)
+
+  repeated double latency_buckets = 5;
+  repeated uint64 latency_counts = 6;
+
+  uint64 query_count = 7;
+  map<string, string> attributes = 8;
+}
+
+// Distributed trace span (OpenTelemetry-compatible).
+message BeylaTraceSpan {
+  string trace_id = 1;            // 32-char hex string
+  string span_id = 2;             // 16-char hex string
+  string parent_span_id = 3;      // Empty if root span
+
+  string service_name = 4;
+  string span_name = 5;           // e.g., "GET /api/v1/users/:id"
+  string span_kind = 6;           // "server", "client", "producer", "consumer"
+
+  google.protobuf.Timestamp start_time = 7;
+  google.protobuf.Duration duration = 8;
+
+  uint32 status_code = 9;         // HTTP/gRPC status
+  map<string, string> attributes = 10;
+}
+
 // EbpfEvent represents a single eBPF event or aggregated summary.
 message EbpfEvent {
   google.protobuf.Timestamp timestamp = 1;
@@ -75,6 +145,12 @@ message EbpfEvent {
     SyscallStats syscall_stats = 10;
     HttpLatencyHistogram http_latency = 11;
     CpuProfileSample cpu_profile = 12;
+
+    // Beyla collectors (RFD 032)
+    BeylaHttpMetrics beyla_http = 20;
+    BeylaGrpcMetrics beyla_grpc = 21;
+    BeylaSqlMetrics beyla_sql = 22;
+    BeylaTraceSpan beyla_trace = 23;
   }
 }
 
