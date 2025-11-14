@@ -1,5 +1,5 @@
 ---
-rfd: "030"
+rfd: "032"
 title: "Beyla Integration for RED Metrics Collection"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: ["ebpf_beyla_metrics", "ebpf_beyla_traces"]
 areas: ["observability", "ebpf", "metrics", "tracing"]
 ---
 
-# RFD 030 - Beyla Integration for RED Metrics Collection
+# RFD 032 - Beyla Integration for RED Metrics Collection
 
 **Status:** 🚧 Draft
 
