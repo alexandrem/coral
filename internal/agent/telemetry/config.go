@@ -2,8 +2,9 @@ package telemetry
 
 // Config contains configuration for the OTLP receiver and telemetry processing.
 type Config struct {
-	// Enabled indicates if telemetry collection is enabled.
-	Enabled bool
+	// Disabled indicates if telemetry collection is disabled.
+	// Default: false (telemetry is enabled by default).
+	Disabled bool
 
 	// GRPCEndpoint is the address to bind the OTLP gRPC receiver (e.g., "0.0.0.0:4317").
 	// Standard OTLP gRPC port is 4317.
@@ -43,7 +44,7 @@ type FilterConfig struct {
 // DefaultConfig returns a default telemetry configuration.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:               false,
+		Disabled:              false,
 		GRPCEndpoint:          "0.0.0.0:4317",
 		HTTPEndpoint:          "0.0.0.0:4318",
 		StorageRetentionHours: 1,
