@@ -6,9 +6,9 @@ breaking_changes: false
 testing_required: true
 database_changes: true
 api_changes: true
-dependencies: ["011", "012", "013"]
-database_migrations: ["ebpf_beyla_metrics", "ebpf_beyla_traces"]
-areas: ["observability", "ebpf", "metrics", "tracing"]
+dependencies: [ "011", "012", "013" ]
+database_migrations: [ "ebpf_beyla_metrics", "ebpf_beyla_traces" ]
+areas: [ "observability", "ebpf", "metrics", "tracing" ]
 ---
 
 # RFD 032 - Beyla Integration for RED Metrics Collection
@@ -17,65 +17,103 @@ areas: ["observability", "ebpf", "metrics", "tracing"]
 
 ## Summary
 
-Integrate Beyla, an OpenTelemetry eBPF-based auto-instrumentation tool (originally developed by Grafana Labs, now donated to the CNCF OpenTelemetry project), into Coral agents to provide production-ready RED (Rate, Errors, Duration) metrics collection for HTTP, gRPC, databases, and message queues. Beyla will serve as the foundation for application observability, supplemented by custom eBPF programs (detailed in a future RFD) for Coral-specific insights like multi-service correlation and AI-driven diagnostics.
+Integrate Beyla, an OpenTelemetry eBPF-based auto-instrumentation tool (
+originally developed by Grafana Labs, now donated to the CNCF OpenTelemetry
+project), into Coral agents to provide production-ready RED (Rate, Errors,
+Duration) metrics collection for HTTP, gRPC, databases, and message queues.
+Beyla will serve as the foundation for application observability, supplemented
+by custom eBPF programs (detailed in a future RFD) for Coral-specific insights
+like multi-service correlation and AI-driven diagnostics.
 
 ## Problem
 
 **Current behavior/limitations**
 
-RFD 013 proposes building eBPF instrumentation from scratch, which presents several challenges:
+RFD 013 proposes building eBPF instrumentation from scratch, which presents
+several challenges:
 
-- Writing production-ready eBPF programs requires deep kernel expertise and extensive testing across kernel versions, CPU architectures, and workload types.
-- Protocol parsers (HTTP/1.1, HTTP/2, gRPC, SQL) are complex to implement correctly and maintain as protocols evolve.
-- Supporting multiple languages and runtimes (Go, Java, Python, Node.js, Rust, C++) requires runtime-specific stack unwinding and symbolization.
-- Ensuring safety, performance, and compatibility across diverse production environments demands significant engineering effort and long stabilization cycles.
-- The initial implementation in RFD 013 is a stub with no real eBPF programs deployed.
+- Writing production-ready eBPF programs requires deep kernel expertise and
+  extensive testing across kernel versions, CPU architectures, and workload
+  types.
+- Protocol parsers (HTTP/1.1, HTTP/2, gRPC, SQL) are complex to implement
+  correctly and maintain as protocols evolve.
+- Supporting multiple languages and runtimes (Go, Java, Python, Node.js, Rust,
+  C++) requires runtime-specific stack unwinding and symbolization.
+- Ensuring safety, performance, and compatibility across diverse production
+  environments demands significant engineering effort and long stabilization
+  cycles.
+- The initial implementation in RFD 013 is a stub with no real eBPF programs
+  deployed.
 
 **Why this matters**
 
-- Coral's value proposition depends on **passive, zero-configuration observability** that works immediately without SDK integration or code changes.
-- Distributed incident response requires **reliable, comprehensive RED metrics** as the foundation for AI-driven diagnostics ("Why is checkout slow?").
-- Users expect **production-grade reliability** from day one, not beta-quality instrumentation that requires months of hardening.
-- Engineering resources are better spent on **Coral-specific innovations** (multi-service correlation, AI orchestration, cross-colony federation) rather than reimplementing commodity observability infrastructure.
+- Coral's value proposition depends on **passive, zero-configuration
+  observability** that works immediately without SDK integration or code
+  changes.
+- Distributed incident response requires **reliable, comprehensive RED metrics**
+  as the foundation for AI-driven diagnostics ("Why is checkout slow?").
+- Users expect **production-grade reliability** from day one, not beta-quality
+  instrumentation that requires months of hardening.
+- Engineering resources are better spent on **Coral-specific innovations** (
+  multi-service correlation, AI orchestration, cross-colony federation) rather
+  than reimplementing commodity observability infrastructure.
 
 **Use cases affected**
 
-- Immediate observability for legacy applications, third-party services, or polyglot stacks where SDK integration is infeasible.
-- AI queries like "Why is payments-api slow?" require accurate latency distributions, error rates, and throughput metrics as baseline evidence.
+- Immediate observability for legacy applications, third-party services, or
+  polyglot stacks where SDK integration is infeasible.
+- AI queries like "Why is payments-api slow?" require accurate latency
+  distributions, error rates, and throughput metrics as baseline evidence.
 - Real-time performance dashboards and alerting based on service-level metrics.
-- Distributed tracing for request flows across microservices (Beyla supports OpenTelemetry trace propagation).
+- Distributed tracing for request flows across microservices (Beyla supports
+  OpenTelemetry trace propagation).
 
 ## Solution
 
-Embed Beyla as a library component within Coral agents to handle standard RED metrics collection for common protocols (HTTP/1.1, HTTP/2, gRPC, Kafka, Redis, PostgreSQL, MySQL). Beyla provides battle-tested, production-ready instrumentation maintained by the OpenTelemetry community under CNCF governance.
+Embed Beyla as a library component within Coral agents to handle standard RED
+metrics collection for common protocols (HTTP/1.1, HTTP/2, gRPC, Kafka, Redis,
+PostgreSQL, MySQL). Beyla provides battle-tested, production-ready
+instrumentation maintained by the OpenTelemetry community under CNCF governance.
 
 ### Integration Architecture
 
 **How Beyla works**:
-- Beyla runs as a process/goroutine that instruments target applications using eBPF
-- It discovers processes to instrument (via port numbers, Kubernetes labels, or process names)
-- eBPF programs capture protocol-level events (HTTP requests, gRPC calls, SQL queries)
+
+- Beyla runs as a process/goroutine that instruments target applications using
+  eBPF
+- It discovers processes to instrument (via port numbers, Kubernetes labels, or
+  process names)
+- eBPF programs capture protocol-level events (HTTP requests, gRPC calls, SQL
+  queries)
 - Beyla aggregates events into OpenTelemetry metrics and traces
-- Metrics/traces are exported via **OTLP (OpenTelemetry Protocol)** to a collector endpoint
+- Metrics/traces are exported via **OTLP (OpenTelemetry Protocol)** to a
+  collector endpoint
 
 **Coral integration approach**:
 
 **Input**: Beyla configuration specifying which processes/services to instrument
+
 - Process discovery rules (port numbers, K8s pod labels, process names)
 - Protocol filters (enable HTTP, gRPC, SQL, etc.)
 - Sampling rates and cardinality controls
 
 **Processing**: Beyla runs embedded within the Coral agent process
+
 - Started as a goroutine using Beyla's Go library API
 - Configured programmatically (not via YAML files)
 - Instruments local processes using eBPF
 
 **Output**: Beyla exports OpenTelemetry metrics and traces via OTLP
-- **Option A** (recommended): Coral agent runs embedded OTLP receiver to consume Beyla's output in-process
-- **Option B**: Beyla exports to local OTLP endpoint (e.g., `localhost:4318`), agent consumes via HTTP
-- Agent transforms OTLP data → Coral's internal format → streams to Colony via gRPC
+
+- **Option A** (recommended): Coral agent runs embedded OTLP receiver to consume
+  Beyla's output in-process
+- **Option B**: Beyla exports to local OTLP endpoint (e.g., `localhost:4318`),
+  agent consumes via HTTP
+- Agent transforms OTLP data → Coral's internal format → streams to Colony via
+  gRPC
 
 **Data flow**:
+
 ```
 Target Apps → Beyla (eBPF) → OTLP metrics/traces → Agent OTLP Receiver →
 Coral Aggregator → Colony (gRPC) → DuckDB
@@ -83,33 +121,63 @@ Coral Aggregator → Colony (gRPC) → DuckDB
 
 Coral agents will:
 
-1. **Use Beyla for baseline RED metrics**: Leverage Beyla's mature protocol parsers, kernel compatibility matrix, and extensive testing.
-2. **Supplement with custom eBPF programs**: Add Coral-specific collectors for advanced use cases (detailed in a future RFD) such as:
-   - Cross-service correlation using WireGuard mesh metadata
-   - AI-triggered deep profiling (CPU flamegraphs, memory allocation tracking)
-   - Security-focused syscall monitoring and anomaly detection
-   - Custom application-specific instrumentation based on user-defined policies
+1. **Use Beyla for baseline RED metrics**: Leverage Beyla's mature protocol
+   parsers, kernel compatibility matrix, and extensive testing.
+2. **Supplement with custom eBPF programs**: Add Coral-specific collectors for
+   advanced use cases (detailed in a future RFD) such as:
+    - Cross-service correlation using WireGuard mesh metadata
+    - AI-triggered deep profiling (CPU flamegraphs, memory allocation tracking)
+    - Security-focused syscall monitoring and anomaly detection
+    - Custom application-specific instrumentation based on user-defined policies
 
-This hybrid approach combines the reliability of a proven tool with the flexibility to extend observability for Coral's unique distributed architecture.
+This hybrid approach combines the reliability of a proven tool with the
+flexibility to extend observability for Coral's unique distributed architecture.
 
 ### Key Design Decisions
 
-- **Beyla as embedded library, not sidecar**: Integrate Beyla's core logic directly into Coral agents to avoid deploying separate containers. Reduces operational complexity and resource overhead.
-- **Beyla handles commodity protocols**: HTTP, gRPC, Kafka, Redis, SQL databases benefit from Beyla's mature parsers and broad runtime support (Go, Java, Python, Node.js, Rust, .NET, Ruby).
-- **Custom eBPF for Coral innovations**: Use custom programs for features Beyla doesn't provide—multi-colony correlation, AI-orchestrated profiling, WireGuard tunnel metrics, container runtime insights.
-- **Unified data pipeline**: Beyla metrics and custom eBPF outputs flow through the same aggregation pipeline, stored in DuckDB, and surfaced via CLI/MCP.
-- **Graceful fallback**: If Beyla cannot instrument a workload (e.g., unsupported protocol, kernel version), custom eBPF or userspace polling provides partial coverage.
-- **OpenTelemetry bridge**: Beyla natively exports OpenTelemetry metrics and traces. Coral can consume these via the OTel collector integration (RFD 024/025) or directly ingest Beyla's internal data structures.
+- **Beyla as embedded library, not sidecar**: Integrate Beyla's core logic
+  directly into Coral agents to avoid deploying separate containers. Reduces
+  operational complexity and resource overhead.
+- **Beyla handles commodity protocols**: HTTP, gRPC, Kafka, Redis, SQL databases
+  benefit from Beyla's mature parsers and broad runtime support (Go, Java,
+  Python, Node.js, Rust, .NET, Ruby).
+- **Custom eBPF for Coral innovations**: Use custom programs for features Beyla
+  doesn't provide—multi-colony correlation, AI-orchestrated profiling, WireGuard
+  tunnel metrics, container runtime insights.
+- **Unified data pipeline**: Beyla metrics and custom eBPF outputs flow through
+  the same aggregation pipeline, stored in DuckDB, and surfaced via CLI/MCP.
+- **Graceful fallback**: If Beyla cannot instrument a workload (e.g.,
+  unsupported protocol, kernel version), custom eBPF or userspace polling
+  provides partial coverage.
+- **OpenTelemetry bridge**: Beyla natively exports OpenTelemetry metrics and
+  traces. Coral can consume these via the OTel collector integration (RFD
+  024/025) or directly ingest Beyla's internal data structures.
 
 ### Benefits
 
-- **Faster time-to-production**: Beyla is production-ready today, supporting 10+ protocols and 7+ language runtimes. No months-long stabilization cycle.
-- **Broad compatibility**: Beyla handles kernel 4.18+ (RHEL 8), 5.8+ (Ubuntu 20.04), and gracefully degrades on older kernels. Covers 95%+ of production Linux environments.
-- **CNCF/OpenTelemetry governance**: As part of the OpenTelemetry project under CNCF, Beyla benefits from vendor-neutral governance, broad industry adoption, and long-term sustainability. The OpenTelemetry community continuously updates Beyla for new kernel versions, protocol changes, and runtime updates (e.g., Go 1.23, Java 21 virtual threads).
-- **Rich protocol support**: Out-of-the-box instrumentation for HTTP/1.1, HTTP/2, gRPC (unary + streaming), Kafka, Redis (RESP2/RESP3), PostgreSQL, MySQL, SQL Server.
-- **Native OpenTelemetry integration**: Beyla natively exports OpenTelemetry metrics and traces, providing seamless integration with the broader OTEL ecosystem and propagating W3C Trace Context and Baggage headers for end-to-end trace correlation.
-- **Resource efficiency**: Beyla uses CO-RE (Compile Once, Run Everywhere) eBPF programs, minimizing memory footprint and CPU overhead (<2% in typical workloads).
-- **Focus engineering on differentiation**: Coral team can prioritize AI orchestration, multi-colony federation, and advanced correlation instead of reinventing protocol parsers.
+- **Faster time-to-production**: Beyla is production-ready today, supporting 10+
+  protocols and 7+ language runtimes. No months-long stabilization cycle.
+- **Broad compatibility**: Beyla handles kernel 4.18+ (RHEL 8), 5.8+ (Ubuntu
+  20.04), and gracefully degrades on older kernels. Covers 95%+ of production
+  Linux environments.
+- **CNCF/OpenTelemetry governance**: As part of the OpenTelemetry project under
+  CNCF, Beyla benefits from vendor-neutral governance, broad industry adoption,
+  and long-term sustainability. The OpenTelemetry community continuously updates
+  Beyla for new kernel versions, protocol changes, and runtime updates (e.g., Go
+  1.23, Java 21 virtual threads).
+- **Rich protocol support**: Out-of-the-box instrumentation for HTTP/1.1,
+  HTTP/2, gRPC (unary + streaming), Kafka, Redis (RESP2/RESP3), PostgreSQL,
+  MySQL, SQL Server.
+- **Native OpenTelemetry integration**: Beyla natively exports OpenTelemetry
+  metrics and traces, providing seamless integration with the broader OTEL
+  ecosystem and propagating W3C Trace Context and Baggage headers for end-to-end
+  trace correlation.
+- **Resource efficiency**: Beyla uses CO-RE (Compile Once, Run Everywhere) eBPF
+  programs, minimizing memory footprint and CPU overhead (<2% in typical
+  workloads).
+- **Focus engineering on differentiation**: Coral team can prioritize AI
+  orchestration, multi-colony federation, and advanced correlation instead of
+  reinventing protocol parsers.
 
 ### Architecture Overview
 
@@ -151,102 +219,116 @@ This hybrid approach combines the reliability of a proven tool with the flexibil
 ### Component Changes
 
 1. **Agent (node & multi-service)**
-   - Import Beyla as a Go module dependency (OpenTelemetry eBPF instrumentation library).
-   - Start Beyla as a goroutine within the agent process, configured programmatically via Go API.
-   - Configure Beyla to instrument target processes (all containers on node agent, specific services on multi-service agent).
-   - Run embedded OTLP receiver (gRPC or HTTP) to consume metrics/traces from Beyla.
-   - Transform OTLP data (protobuf format) into Coral's internal representation.
-   - Merge Beyla-sourced metrics with custom eBPF events in unified aggregator.
-   - Stream aggregated metrics to colony via gRPC over WireGuard mesh.
-   - Expose configuration for Beyla options (discovery rules, protocol filters, sampling rates, attribute enrichment).
+    - Import Beyla as a Go module dependency (OpenTelemetry eBPF instrumentation
+      library).
+    - Start Beyla as a goroutine within the agent process, configured
+      programmatically via Go API.
+    - Configure Beyla to instrument target processes (all containers on node
+      agent, specific services on multi-service agent).
+    - Run embedded OTLP receiver (gRPC or HTTP) to consume metrics/traces from
+      Beyla.
+    - Transform OTLP data (protobuf format) into Coral's internal
+      representation.
+    - Merge Beyla-sourced metrics with custom eBPF events in unified aggregator.
+    - Stream aggregated metrics to colony via gRPC over WireGuard mesh.
+    - Expose configuration for Beyla options (discovery rules, protocol filters,
+      sampling rates, attribute enrichment).
 
 2. **Colony**
-   - Extend DuckDB schema to store Beyla RED metrics (`beyla_http_requests`, `beyla_grpc_calls`, `beyla_sql_queries`, etc.).
-   - Store distributed traces from Beyla in OpenTelemetry-compatible format.
-   - Correlate Beyla metrics with custom eBPF data using service/pod identifiers.
-   - Expose unified query API: "Show me HTTP P95 latency for payments-api over last hour" retrieves Beyla data.
-   - Implement retention policies per metric type (RED metrics: 30d, traces: 7d).
+    - Extend DuckDB schema to store Beyla RED metrics (`beyla_http_requests`,
+      `beyla_grpc_calls`, `beyla_sql_queries`, etc.).
+    - Store distributed traces from Beyla in OpenTelemetry-compatible format.
+    - Correlate Beyla metrics with custom eBPF data using service/pod
+      identifiers.
+    - Expose unified query API: "Show me HTTP P95 latency for payments-api over
+      last hour" retrieves Beyla data.
+    - Implement retention policies per metric type (RED metrics: 30d, traces:
+      7d).
 
 3. **CLI / MCP**
-   - Extend `coral tap` to include Beyla metrics in output: `--beyla-http`, `--beyla-traces`.
-   - Add `coral query beyla` for historical RED metrics retrieval.
-   - Integrate with `coral ask` AI queries: "Why is checkout slow?" automatically pulls Beyla latency histograms.
-   - MCP tools: `coral_get_red_metrics`, `coral_query_traces`, `coral_analyze_performance`.
+    - Extend `coral tap` to include Beyla metrics in output: `--beyla-http`,
+      `--beyla-traces`.
+    - Add `coral query beyla` for historical RED metrics retrieval.
+    - Integrate with `coral ask` AI queries: "Why is checkout slow?"
+      automatically pulls Beyla latency histograms.
+    - MCP tools: `coral_get_red_metrics`, `coral_query_traces`,
+      `coral_analyze_performance`.
 
 **Configuration Example**
 
 ```yaml
 # agent-config.yaml excerpt
 beyla:
-  enabled: true
+    enabled: true
 
-  # Discovery: which processes to instrument
-  discovery:
-    services:
-      - name: "checkout-api"
-        open_port: 8080           # Instrument process listening on this port
-        k8s_pod_name: "checkout-*" # Kubernetes pod name pattern
-      - name: "payments-api"
-        k8s_namespace: "prod"
-        k8s_pod_label:
-          app: "payments"
+    # Discovery: which processes to instrument
+    discovery:
+        services:
+            -   name: "checkout-api"
+                open_port: 8080           # Instrument process listening on this port
+                k8s_pod_name: "checkout-*" # Kubernetes pod name pattern
+            -   name: "payments-api"
+                k8s_namespace: "prod"
+                k8s_pod_label:
+                    app: "payments"
 
-  # Protocol-specific configuration
-  protocols:
-    http:
-      enabled: true
-      capture_headers: false      # Privacy: don't store header values
-      route_patterns:             # Cardinality reduction
-        - "/api/v1/users/:id"
-        - "/api/v1/orders/:id"
-    grpc:
-      enabled: true
-    sql:
-      enabled: true
-      obfuscate_queries: true     # Replace literals with "?"
+    # Protocol-specific configuration
+    protocols:
+        http:
+            enabled: true
+            capture_headers: false      # Privacy: don't store header values
+            route_patterns: # Cardinality reduction
+                - "/api/v1/users/:id"
+                - "/api/v1/orders/:id"
+        grpc:
+            enabled: true
+        sql:
+            enabled: true
+            obfuscate_queries: true     # Replace literals with "?"
 
-  # Attributes to add to all metrics/traces
-  attributes:
-    environment: "production"
-    cluster: "us-west-2"
-    colony_id: "colony-abc123"
+    # Attributes to add to all metrics/traces
+    attributes:
+        environment: "production"
+        cluster: "us-west-2"
+        colony_id: "colony-abc123"
 
-  # Performance tuning
-  sampling:
-    rate: 1.0                     # 100% sampling (adjust if overhead too high)
+    # Performance tuning
+    sampling:
+        rate: 1.0                     # 100% sampling (adjust if overhead too high)
 
-  # Resource limits
-  limits:
-    max_traced_connections: 1000  # Prevent memory exhaustion
-    ring_buffer_size: 65536
+    # Resource limits
+    limits:
+        max_traced_connections: 1000  # Prevent memory exhaustion
+        ring_buffer_size: 65536
 
 # Custom eBPF collectors (supplementing Beyla)
 ebpf:
-  enabled: true
-  custom_collectors:
-    - name: wireguard_tunnel_stats
-      mode: continuous
-    - name: ai_deep_profiler
-      mode: on_demand
+    enabled: true
+    custom_collectors:
+        -   name: wireguard_tunnel_stats
+            mode: continuous
+        -   name: ai_deep_profiler
+            mode: on_demand
 ```
 
 ### Beyla Capabilities Matrix
 
 Beyla supports a wide range of protocols and runtimes. Here's what's available:
 
-| Protocol | Beyla Support | Metrics Collected | Trace Propagation |
-|----------|---------------|-------------------|-------------------|
-| HTTP/1.1 | ✅ Full | Request rate, latency (P50/P95/P99), status codes, routes | ✅ W3C Trace Context |
-| HTTP/2 | ✅ Full | Request rate, latency, status codes, routes | ✅ W3C Trace Context |
-| gRPC | ✅ Full | RPC rate, latency, status codes, method names | ✅ gRPC metadata propagation |
-| Kafka | ✅ Full | Message rate, partition, topic, consumer lag | ✅ Kafka headers |
-| Redis | ✅ Full (RESP2/RESP3) | Command rate, latency, command types | ⚠️ Limited |
-| PostgreSQL | ✅ Full | Query rate, latency, query patterns (obfuscated) | ⚠️ Limited |
-| MySQL | ✅ Full | Query rate, latency, query patterns (obfuscated) | ⚠️ Limited |
-| SQL Server | ✅ Partial | Basic query metrics | ❌ |
-| TCP (generic) | ✅ Fallback | Connection rate, bytes transferred | ❌ |
+| Protocol      | Beyla Support        | Metrics Collected                                         | Trace Propagation           |
+|---------------|----------------------|-----------------------------------------------------------|-----------------------------|
+| HTTP/1.1      | ✅ Full               | Request rate, latency (P50/P95/P99), status codes, routes | ✅ W3C Trace Context         |
+| HTTP/2        | ✅ Full               | Request rate, latency, status codes, routes               | ✅ W3C Trace Context         |
+| gRPC          | ✅ Full               | RPC rate, latency, status codes, method names             | ✅ gRPC metadata propagation |
+| Kafka         | ✅ Full               | Message rate, partition, topic, consumer lag              | ✅ Kafka headers             |
+| Redis         | ✅ Full (RESP2/RESP3) | Command rate, latency, command types                      | ⚠️ Limited                  |
+| PostgreSQL    | ✅ Full               | Query rate, latency, query patterns (obfuscated)          | ⚠️ Limited                  |
+| MySQL         | ✅ Full               | Query rate, latency, query patterns (obfuscated)          | ⚠️ Limited                  |
+| SQL Server    | ✅ Partial            | Basic query metrics                                       | ❌                           |
+| TCP (generic) | ✅ Fallback           | Connection rate, bytes transferred                        | ❌                           |
 
 **Runtime support** (as of Beyla 1.x):
+
 - Go (all versions)
 - Java (JVM 8+, including virtual threads in Java 21+)
 - Python (CPython 3.x)
@@ -259,41 +341,50 @@ Beyla supports a wide range of protocols and runtimes. Here's what's available:
 
 Beyla is optimized for production use with minimal overhead:
 
-| Workload Type | CPU Overhead | Memory Footprint | Latency Impact |
-|---------------|--------------|------------------|----------------|
-| **HTTP REST API** (high throughput) | 1-2% | 50-100 MB | <100μs P99 |
-| **gRPC streaming** | 1.5-3% | 60-120 MB | <200μs P99 |
-| **Database queries** (PostgreSQL/MySQL) | 0.5-1.5% | 40-80 MB | <50μs P99 |
-| **Message queues** (Kafka/Redis) | 1-2% | 50-90 MB | <100μs P99 |
-| **Mixed protocols** (typical microservice) | 2-4% | 80-150 MB | <200μs P99 |
+| Workload Type                              | CPU Overhead | Memory Footprint | Latency Impact |
+|--------------------------------------------|--------------|------------------|----------------|
+| **HTTP REST API** (high throughput)        | 1-2%         | 50-100 MB        | <100μs P99     |
+| **gRPC streaming**                         | 1.5-3%       | 60-120 MB        | <200μs P99     |
+| **Database queries** (PostgreSQL/MySQL)    | 0.5-1.5%     | 40-80 MB         | <50μs P99      |
+| **Message queues** (Kafka/Redis)           | 1-2%         | 50-90 MB         | <100μs P99     |
+| **Mixed protocols** (typical microservice) | 2-4%         | 80-150 MB        | <200μs P99     |
 
 **Compared to custom eBPF** (RFD 013 estimates):
-- Beyla overhead is **comparable or lower** than hand-written eBPF for HTTP/gRPC (due to years of optimization).
-- Beyla's CO-RE implementation ensures compatibility across kernels without runtime recompilation.
-- Combined Beyla + custom eBPF overhead: 3-6% CPU (well within acceptable limits for observability).
+
+- Beyla overhead is **comparable or lower** than hand-written eBPF for
+  HTTP/gRPC (due to years of optimization).
+- Beyla's CO-RE implementation ensures compatibility across kernels without
+  runtime recompilation.
+- Combined Beyla + custom eBPF overhead: 3-6% CPU (well within acceptable limits
+  for observability).
 
 **Mitigation strategies**:
-- Use sampling (`sampling.rate: 0.1` for 10% sampling) in extremely high-throughput services (>100k RPS).
-- Disable unused protocols (`sql.enabled: false` if no database instrumentation needed).
-- Configure cardinality limits (`route_patterns`) to prevent metric explosion from dynamic URL paths.
+
+- Use sampling (`sampling.rate: 0.1` for 10% sampling) in extremely
+  high-throughput services (>100k RPS).
+- Disable unused protocols (`sql.enabled: false` if no database instrumentation
+  needed).
+- Configure cardinality limits (`route_patterns`) to prevent metric explosion
+  from dynamic URL paths.
 
 ### Integration with RFD 013 (Custom eBPF)
 
 Beyla and custom eBPF programs are **complementary, not competitive**:
 
-| Data Source | Use Case | Collected By |
-|-------------|----------|--------------|
-| **HTTP request rate, latency, status codes** | Baseline RED metrics for all services | **Beyla** |
-| **gRPC method-level metrics** | RPC performance tracking | **Beyla** |
-| **Database query performance** | SQL latency, query patterns | **Beyla** |
-| **Distributed traces** (spans) | Request flow across services | **Beyla** |
-| **WireGuard tunnel metrics** | Mesh network performance (bytes, latency, packet loss) | **Custom eBPF** (future RFD) |
-| **Cross-colony correlation** | Multi-cluster request tracing using Coral metadata | **Custom eBPF** (future RFD) |
-| **AI-triggered deep profiling** | CPU flamegraphs, memory allocation on-demand | **Custom eBPF** (RFD 013) |
-| **Security event monitoring** | Anomalous syscalls, privilege escalation detection | **Custom eBPF** (future RFD) |
-| **Container runtime insights** | cgroup stats, OOM events, resource throttling | **Custom eBPF** (future RFD) |
+| Data Source                                  | Use Case                                               | Collected By                 |
+|----------------------------------------------|--------------------------------------------------------|------------------------------|
+| **HTTP request rate, latency, status codes** | Baseline RED metrics for all services                  | **Beyla**                    |
+| **gRPC method-level metrics**                | RPC performance tracking                               | **Beyla**                    |
+| **Database query performance**               | SQL latency, query patterns                            | **Beyla**                    |
+| **Distributed traces** (spans)               | Request flow across services                           | **Beyla**                    |
+| **WireGuard tunnel metrics**                 | Mesh network performance (bytes, latency, packet loss) | **Custom eBPF** (future RFD) |
+| **Cross-colony correlation**                 | Multi-cluster request tracing using Coral metadata     | **Custom eBPF** (future RFD) |
+| **AI-triggered deep profiling**              | CPU flamegraphs, memory allocation on-demand           | **Custom eBPF** (RFD 013)    |
+| **Security event monitoring**                | Anomalous syscalls, privilege escalation detection     | **Custom eBPF** (future RFD) |
+| **Container runtime insights**               | cgroup stats, OOM events, resource throttling          | **Custom eBPF** (future RFD) |
 
 **Example combined workflow**:
+
 ```bash
 $ coral ask "Why is payments-api slow?"
 
@@ -317,23 +408,28 @@ Recommendation: Check card-validation-svc health and network path.
 
 Beyla has extensive kernel support with graceful degradation:
 
-| Kernel Version | Beyla Support | Features Available | Notes |
-|----------------|---------------|-------------------|-------|
-| 5.8+ | ✅ Full | All protocols, CO-RE, ring buffers, BTF | **Recommended** |
-| 5.2-5.7 | ✅ Full | All protocols, CO-RE, BTF | Some performance optimizations missing |
-| 4.18-5.1 | ⚠️ Limited | HTTP/gRPC only, no BTF (pre-built programs) | RHEL 8 backports supported |
-| 4.14-4.17 | ⚠️ Degraded | HTTP/1.1 only, limited tracing | Legacy Ubuntu LTS |
-| <4.14 | ❌ Unsupported | N/A | Fall back to userspace polling |
+| Kernel Version | Beyla Support | Features Available                          | Notes                                  |
+|----------------|---------------|---------------------------------------------|----------------------------------------|
+| 5.8+           | ✅ Full        | All protocols, CO-RE, ring buffers, BTF     | **Recommended**                        |
+| 5.2-5.7        | ✅ Full        | All protocols, CO-RE, BTF                   | Some performance optimizations missing |
+| 4.18-5.1       | ⚠️ Limited    | HTTP/gRPC only, no BTF (pre-built programs) | RHEL 8 backports supported             |
+| 4.14-4.17      | ⚠️ Degraded   | HTTP/1.1 only, limited tracing              | Legacy Ubuntu LTS                      |
+| <4.14          | ❌ Unsupported | N/A                                         | Fall back to userspace polling         |
 
 **Coral fallback strategy**:
-1. **Kernel 5.8+**: Use Beyla for all protocols + custom eBPF for advanced features.
+
+1. **Kernel 5.8+**: Use Beyla for all protocols + custom eBPF for advanced
+   features.
 2. **Kernel 4.18-5.7**: Use Beyla for HTTP/gRPC + custom eBPF where supported.
-3. **Kernel <4.18**: Disable Beyla, use userspace HTTP endpoint polling + process metrics only.
+3. **Kernel <4.18**: Disable Beyla, use userspace HTTP endpoint polling +
+   process metrics only.
 
 **Detection and reporting**:
+
 - Agent detects kernel version and Beyla compatibility at startup.
 - Reports capabilities to colony in `RegisterRequest.ebpf_capabilities`.
-- CLI shows degraded mode: `⚠️ payments-api: Beyla limited (kernel 4.15), HTTP metrics only`.
+- CLI shows degraded mode:
+  `⚠️ payments-api: Beyla limited (kernel 4.15), HTTP metrics only`.
 
 ## API Changes
 
@@ -349,106 +445,109 @@ import "google/protobuf/timestamp.proto";
 
 // Beyla-specific capabilities reported by agent
 message BeylaCapabilities {
-  bool enabled = 1;
-  string version = 2;  // Beyla library version
-  repeated string supported_protocols = 3;  // ["http", "grpc", "kafka", ...]
-  repeated string supported_runtimes = 4;   // ["go", "java", "python", ...]
-  bool tracing_enabled = 5;
+    bool enabled = 1;
+    string version = 2;  // Beyla library version
+    repeated string supported_protocols = 3;  // ["http", "grpc", "kafka", ...]
+    repeated string supported_runtimes = 4;   // ["go", "java", "python", ...]
+    bool tracing_enabled = 5;
 }
 
 // Beyla RED metrics (aggregated by agent before sending)
 message BeylaHttpMetrics {
-  google.protobuf.Timestamp timestamp = 1;
-  string service_name = 2;
-  string http_route = 3;          // e.g., "/api/v1/users/:id"
-  string http_method = 4;         // GET, POST, etc.
-  uint32 http_status_code = 5;
+    google.protobuf.Timestamp timestamp = 1;
+    string service_name = 2;
+    string http_route = 3;          // e.g., "/api/v1/users/:id"
+    string http_method = 4;         // GET, POST, etc.
+    uint32 http_status_code = 5;
 
-  // Latency histogram buckets (milliseconds)
-  repeated double latency_buckets = 6;  // [10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
-  repeated uint64 latency_counts = 7;   // Counts per bucket
+    // Latency histogram buckets (milliseconds)
+    repeated double latency_buckets = 6;  // [10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
+    repeated uint64 latency_counts = 7;   // Counts per bucket
 
-  uint64 request_count = 8;             // Total requests in time window
-  map<string, string> attributes = 9;   // pod, namespace, cluster, etc.
+    uint64 request_count = 8;             // Total requests in time window
+    map<string, string> attributes = 9;   // pod, namespace, cluster, etc.
 }
 
 message BeylaGrpcMetrics {
-  google.protobuf.Timestamp timestamp = 1;
-  string service_name = 2;
-  string grpc_method = 3;         // e.g., "/payments.PaymentService/Charge"
-  uint32 grpc_status_code = 4;    // 0 = OK, 1 = CANCELLED, etc.
+    google.protobuf.Timestamp timestamp = 1;
+    string service_name = 2;
+    string grpc_method = 3;         // e.g., "/payments.PaymentService/Charge"
+    uint32 grpc_status_code = 4;    // 0 = OK, 1 = CANCELLED, etc.
 
-  repeated double latency_buckets = 5;
-  repeated uint64 latency_counts = 6;
+    repeated double latency_buckets = 5;
+    repeated uint64 latency_counts = 6;
 
-  uint64 request_count = 7;
-  map<string, string> attributes = 8;
+    uint64 request_count = 7;
+    map<string, string> attributes = 8;
 }
 
 message BeylaSqlMetrics {
-  google.protobuf.Timestamp timestamp = 1;
-  string service_name = 2;
-  string sql_operation = 3;       // SELECT, INSERT, UPDATE, DELETE
-  string table_name = 4;          // Extracted from query (if possible)
+    google.protobuf.Timestamp timestamp = 1;
+    string service_name = 2;
+    string sql_operation = 3;       // SELECT, INSERT, UPDATE, DELETE
+    string table_name = 4;          // Extracted from query (if possible)
 
-  repeated double latency_buckets = 5;
-  repeated uint64 latency_counts = 6;
+    repeated double latency_buckets = 5;
+    repeated uint64 latency_counts = 6;
 
-  uint64 query_count = 7;
-  map<string, string> attributes = 8;
+    uint64 query_count = 7;
+    map<string, string> attributes = 8;
 }
 
 // Distributed trace span (OpenTelemetry-compatible)
 message BeylaTraceSpan {
-  string trace_id = 1;            // 32-char hex string
-  string span_id = 2;             // 16-char hex string
-  string parent_span_id = 3;      // Empty if root span
+    string trace_id = 1;            // 32-char hex string
+    string span_id = 2;             // 16-char hex string
+    string parent_span_id = 3;      // Empty if root span
 
-  string service_name = 4;
-  string span_name = 5;           // e.g., "GET /api/v1/users/:id"
-  string span_kind = 6;           // "server", "client", "producer", "consumer"
+    string service_name = 4;
+    string span_name = 5;           // e.g., "GET /api/v1/users/:id"
+    string span_kind = 6;           // "server", "client", "producer", "consumer"
 
-  google.protobuf.Timestamp start_time = 7;
-  google.protobuf.Duration duration = 8;
+    google.protobuf.Timestamp start_time = 7;
+    google.protobuf.Duration duration = 8;
 
-  uint32 status_code = 9;         // HTTP/gRPC status
-  map<string, string> attributes = 10;
+    uint32 status_code = 9;         // HTTP/gRPC status
+    map<string, string> attributes = 10;
 }
 
 // Update EbpfEvent to include Beyla payloads
 message EbpfEvent {
-  google.protobuf.Timestamp timestamp = 1;
-  string collector_id = 2;
+    google.protobuf.Timestamp timestamp = 1;
+    string collector_id = 2;
 
-  oneof payload {
-    // Existing custom eBPF collectors
-    HttpLatencyHistogram http_latency = 10;
-    CpuProfileSample cpu_profile = 11;
+    oneof payload {
+        // Existing custom eBPF collectors
+        HttpLatencyHistogram http_latency = 10;
+        CpuProfileSample cpu_profile = 11;
 
-    // Beyla collectors
-    BeylaHttpMetrics beyla_http = 20;
-    BeylaGrpcMetrics beyla_grpc = 21;
-    BeylaSqlMetrics beyla_sql = 22;
-    BeylaTraceSpan beyla_trace = 23;
-  }
+        // Beyla collectors
+        BeylaHttpMetrics beyla_http = 20;
+        BeylaGrpcMetrics beyla_grpc = 21;
+        BeylaSqlMetrics beyla_sql = 22;
+        BeylaTraceSpan beyla_trace = 23;
+    }
 }
 ```
 
 ### DuckDB Storage Schema
 
 **Beyla HTTP Metrics Table**:
+
 ```sql
-CREATE TABLE beyla_http_metrics (
-  timestamp TIMESTAMPTZ NOT NULL,
-  agent_id VARCHAR NOT NULL,
-  service_name VARCHAR NOT NULL,
-  http_method VARCHAR(10),
-  http_route VARCHAR(255),
-  http_status_code SMALLINT,
-  latency_bucket_ms DOUBLE NOT NULL,
-  count BIGINT NOT NULL,
-  attributes MAP(VARCHAR, VARCHAR),
-  PRIMARY KEY (timestamp, agent_id, service_name, http_method, http_route, http_status_code, latency_bucket_ms)
+CREATE TABLE beyla_http_metrics
+(
+    timestamp        TIMESTAMPTZ NOT NULL,
+    agent_id         VARCHAR     NOT NULL,
+    service_name     VARCHAR     NOT NULL,
+    http_method      VARCHAR(10),
+    http_route       VARCHAR(255),
+    http_status_code SMALLINT,
+    latency_bucket_ms DOUBLE NOT NULL,
+    count            BIGINT      NOT NULL,
+    attributes       MAP(VARCHAR, VARCHAR),
+    PRIMARY KEY (timestamp, agent_id, service_name, http_method, http_route,
+                 http_status_code, latency_bucket_ms)
 );
 
 CREATE INDEX idx_beyla_http_service_time ON beyla_http_metrics (service_name, timestamp DESC);
@@ -456,36 +555,41 @@ CREATE INDEX idx_beyla_http_route ON beyla_http_metrics (http_route, timestamp D
 ```
 
 **Beyla gRPC Metrics Table**:
+
 ```sql
-CREATE TABLE beyla_grpc_metrics (
-  timestamp TIMESTAMPTZ NOT NULL,
-  agent_id VARCHAR NOT NULL,
-  service_name VARCHAR NOT NULL,
-  grpc_method VARCHAR(255),
-  grpc_status_code SMALLINT,
-  latency_bucket_ms DOUBLE NOT NULL,
-  count BIGINT NOT NULL,
-  attributes MAP(VARCHAR, VARCHAR),
-  PRIMARY KEY (timestamp, agent_id, service_name, grpc_method, grpc_status_code, latency_bucket_ms)
+CREATE TABLE beyla_grpc_metrics
+(
+    timestamp        TIMESTAMPTZ NOT NULL,
+    agent_id         VARCHAR     NOT NULL,
+    service_name     VARCHAR     NOT NULL,
+    grpc_method      VARCHAR(255),
+    grpc_status_code SMALLINT,
+    latency_bucket_ms DOUBLE NOT NULL,
+    count            BIGINT      NOT NULL,
+    attributes       MAP(VARCHAR, VARCHAR),
+    PRIMARY KEY (timestamp, agent_id, service_name, grpc_method,
+                 grpc_status_code, latency_bucket_ms)
 );
 
 CREATE INDEX idx_beyla_grpc_service_time ON beyla_grpc_metrics (service_name, timestamp DESC);
 ```
 
 **Beyla Traces Table** (OpenTelemetry-compatible):
+
 ```sql
-CREATE TABLE beyla_traces (
-  trace_id VARCHAR(32) NOT NULL,
-  span_id VARCHAR(16) NOT NULL,
-  parent_span_id VARCHAR(16),
-  service_name VARCHAR NOT NULL,
-  span_name VARCHAR NOT NULL,
-  span_kind VARCHAR(10),
-  start_time TIMESTAMPTZ NOT NULL,
-  duration_us BIGINT NOT NULL,
-  status_code SMALLINT,
-  attributes MAP(VARCHAR, VARCHAR),
-  PRIMARY KEY (trace_id, span_id)
+CREATE TABLE beyla_traces
+(
+    trace_id       VARCHAR(32) NOT NULL,
+    span_id        VARCHAR(16) NOT NULL,
+    parent_span_id VARCHAR(16),
+    service_name   VARCHAR     NOT NULL,
+    span_name      VARCHAR     NOT NULL,
+    span_kind      VARCHAR(10),
+    start_time     TIMESTAMPTZ NOT NULL,
+    duration_us    BIGINT      NOT NULL,
+    status_code    SMALLINT,
+    attributes     MAP(VARCHAR, VARCHAR),
+    PRIMARY KEY (trace_id, span_id)
 );
 
 CREATE INDEX idx_beyla_traces_service_time ON beyla_traces (service_name, start_time DESC);
@@ -497,6 +601,7 @@ CREATE INDEX idx_beyla_traces_trace_id ON beyla_traces (trace_id, start_time DES
 Beyla metrics are accessible through existing `coral` commands:
 
 **Query RED metrics**:
+
 ```bash
 $ coral query beyla http payments-api --since 1h
 
@@ -512,6 +617,7 @@ Overall: 61.1k requests, P95=180ms, error rate=2.8%
 ```
 
 **Query distributed traces**:
+
 ```bash
 $ coral query beyla traces --trace-id abc123def456 --format tree
 
@@ -530,6 +636,7 @@ frontend-api (1.2s, GET /checkout)
 ```
 
 **AI-driven analysis with Beyla data**:
+
 ```bash
 $ coral ask "What's the slowest API endpoint in payments-api?"
 
@@ -549,6 +656,7 @@ Evidence: ./evidence/beyla-http-payments-api-2025-11-13.json
 ```
 
 **Integration with `coral tap`**:
+
 ```bash
 $ coral tap payments-api --beyla-http --beyla-traces --duration 60s
 
@@ -571,6 +679,7 @@ Active Traces: 8
 ### Configuration Changes
 
 **Agent config** (`agent-config.yaml`):
+
 - New `beyla` section (see Configuration Example above).
 - `beyla.enabled` flag (default: `true` on supported kernels).
 - `beyla.discovery` for process/pod selection.
@@ -578,35 +687,36 @@ Active Traces: 8
 - `beyla.attributes` for custom enrichment.
 
 **Colony config** (`colony-config.yaml`):
+
 ```yaml
 storage:
-  beyla:
-    # Retention by metric type
-    retention:
-      http_metrics: 30d
-      grpc_metrics: 30d
-      sql_metrics: 14d
-      traces: 7d              # Traces are large, shorter retention
+    beyla:
+        # Retention by metric type
+        retention:
+            http_metrics: 30d
+            grpc_metrics: 30d
+            sql_metrics: 14d
+            traces: 7d              # Traces are large, shorter retention
 
-    # Compression
-    compression: zstd
+        # Compression
+        compression: zstd
 
-    # Trace sampling (reduce storage for high-volume services)
-    trace_sampling_rate: 0.1  # Keep 10% of traces
+        # Trace sampling (reduce storage for high-volume services)
+        trace_sampling_rate: 0.1  # Keep 10% of traces
 
 ai:
-  beyla_integration:
-    # AI automatically uses Beyla metrics for performance queries
-    auto_query: true
+    beyla_integration:
+        # AI automatically uses Beyla metrics for performance queries
+        auto_query: true
 
-    # Trigger patterns
-    triggers:
-      - pattern: "slow|latency|performance|p95|p99"
-        data_sources: ["beyla_http", "beyla_grpc"]
-      - pattern: "error|failing|5xx|timeout"
-        data_sources: ["beyla_http", "beyla_traces"]
-      - pattern: "trace|request flow|distributed"
-        data_sources: ["beyla_traces"]
+        # Trigger patterns
+        triggers:
+            -   pattern: "slow|latency|performance|p95|p99"
+                data_sources: [ "beyla_http", "beyla_grpc" ]
+            -   pattern: "error|failing|5xx|timeout"
+                data_sources: [ "beyla_http", "beyla_traces" ]
+            -   pattern: "trace|request flow|distributed"
+                data_sources: [ "beyla_traces" ]
 ```
 
 ## Testing Strategy
@@ -615,68 +725,96 @@ ai:
 
 - Beyla configuration parsing and validation.
 - Metric aggregation logic (histogram bucketing, attribute merging).
-- Protocol-specific metric extraction (HTTP route normalization, gRPC method parsing).
+- Protocol-specific metric extraction (HTTP route normalization, gRPC method
+  parsing).
 - Fallback behavior when Beyla unavailable (kernel version checks).
 
 ### Integration Tests
 
-- Run Beyla-instrumented agent against test HTTP server, verify metrics collected.
-- Test multi-protocol workload (HTTP + gRPC + PostgreSQL), ensure all metrics appear in DuckDB.
+- Run Beyla-instrumented agent against test HTTP server, verify metrics
+  collected.
+- Test multi-protocol workload (HTTP + gRPC + PostgreSQL), ensure all metrics
+  appear in DuckDB.
 - Verify distributed trace propagation across multiple services.
 - Test kernel compatibility matrix (5.8+, 4.18, 4.14) using VMs or containers.
 
 ### E2E Tests
 
-- Full CLI workflow: `coral query beyla http <service>`, verify output matches expected format.
-- AI query integration: `coral ask "Why is X slow?"`, verify Beyla metrics referenced in analysis.
-- Trace visualization: `coral query beyla traces --trace-id <id>`, verify span tree structure.
-- Combined Beyla + custom eBPF: Ensure both data sources coexist without conflicts.
+- Full CLI workflow: `coral query beyla http <service>`, verify output matches
+  expected format.
+- AI query integration: `coral ask "Why is X slow?"`, verify Beyla metrics
+  referenced in analysis.
+- Trace visualization: `coral query beyla traces --trace-id <id>`, verify span
+  tree structure.
+- Combined Beyla + custom eBPF: Ensure both data sources coexist without
+  conflicts.
 
 ## Security Considerations
 
-- Beyla requires `CAP_BPF` (kernel 5.8+) or `CAP_SYS_ADMIN` (older kernels). Coral agents must run with these capabilities (already required for RFD 013 custom eBPF).
-- **Privacy**: Disable header/payload capture by default (`capture_headers: false`). SQL queries are obfuscated (literals replaced with `?`).
-- **Cardinality explosion**: Enforce route patterns (`/api/v1/users/:id`) to prevent unbounded metric labels from dynamic URLs.
-- **Resource limits**: Beyla's `max_traced_connections` prevents memory exhaustion from tracking too many simultaneous connections.
-- **Audit logging**: Log Beyla lifecycle events (startup, protocol enablement, errors) for security audits.
+- Beyla requires `CAP_BPF` (kernel 5.8+) or `CAP_SYS_ADMIN` (older kernels).
+  Coral agents must run with these capabilities (already required for RFD 013
+  custom eBPF).
+- **Privacy**: Disable header/payload capture by default (
+  `capture_headers: false`). SQL queries are obfuscated (literals replaced with
+  `?`).
+- **Cardinality explosion**: Enforce route patterns (`/api/v1/users/:id`) to
+  prevent unbounded metric labels from dynamic URLs.
+- **Resource limits**: Beyla's `max_traced_connections` prevents memory
+  exhaustion from tracking too many simultaneous connections.
+- **Audit logging**: Log Beyla lifecycle events (startup, protocol enablement,
+  errors) for security audits.
 
 ## Future Enhancements
 
 **Separate RFD for custom eBPF programs**:
-- WireGuard tunnel performance monitoring (packet loss, latency, throughput per peer).
-- Multi-colony trace correlation using Coral-specific metadata (colony ID, mesh IP).
-- AI-triggered deep profiling (CPU flamegraphs, memory allocation, lock contention).
-- Security-focused collectors (anomalous syscalls, privilege escalation detection, container escape attempts).
-- Container runtime insights (cgroup throttling, OOM events, CPU/memory pressure).
+
+- WireGuard tunnel performance monitoring (packet loss, latency, throughput per
+  peer).
+- Multi-colony trace correlation using Coral-specific metadata (colony ID, mesh
+  IP).
+- AI-triggered deep profiling (CPU flamegraphs, memory allocation, lock
+  contention).
+- Security-focused collectors (anomalous syscalls, privilege escalation
+  detection, container escape attempts).
+- Container runtime insights (cgroup throttling, OOM events, CPU/memory
+  pressure).
 
 **Beyla enhancements**:
-- Contribute Coral-specific features back to the OpenTelemetry Beyla project (e.g., custom attribute injection for colony ID).
-- Explore Beyla's roadmap for new protocols (WebSockets, QUIC/HTTP3, MQTT, NATS).
+
+- Contribute Coral-specific features back to the OpenTelemetry Beyla project (
+  e.g., custom attribute injection for colony ID).
+- Explore Beyla's roadmap for new protocols (WebSockets, QUIC/HTTP3, MQTT,
+  NATS).
 
 **Advanced tracing**:
-- Integrate with external trace backends (Jaeger, Tempo) via OpenTelemetry export.
+
+- Integrate with external trace backends (Jaeger, Tempo) via OpenTelemetry
+  export.
 - Implement trace-based alerting (e.g., "Alert if trace duration >5s").
 
 ## Appendix
 
 ### Beyla vs. Custom eBPF Trade-offs
 
-| Aspect | Beyla | Custom eBPF (RFD 013) |
-|--------|-------|----------------------|
-| **Development time** | Zero (library integration) | Weeks-months per collector |
-| **Protocol support** | 10+ protocols out-of-box | Implement each protocol manually |
-| **Kernel compatibility** | Tested on 100+ kernel versions | Requires extensive testing |
-| **Runtime support** | 7+ languages (Go, Java, Python, etc.) | Language-specific unwinders needed |
-| **Maintenance burden** | CNCF/OpenTelemetry community-maintained | Coral team maintains all code |
-| **Customization** | Limited (fork required) | Full control over implementation |
-| **Coral-specific features** | Not available (mesh correlation, AI orchestration) | Designed for Coral architecture |
-| **Production readiness** | Battle-tested across OTEL ecosystem | Requires stabilization period |
+| Aspect                      | Beyla                                              | Custom eBPF (RFD 013)              |
+|-----------------------------|----------------------------------------------------|------------------------------------|
+| **Development time**        | Zero (library integration)                         | Weeks-months per collector         |
+| **Protocol support**        | 10+ protocols out-of-box                           | Implement each protocol manually   |
+| **Kernel compatibility**    | Tested on 100+ kernel versions                     | Requires extensive testing         |
+| **Runtime support**         | 7+ languages (Go, Java, Python, etc.)              | Language-specific unwinders needed |
+| **Maintenance burden**      | CNCF/OpenTelemetry community-maintained            | Coral team maintains all code      |
+| **Customization**           | Limited (fork required)                            | Full control over implementation   |
+| **Coral-specific features** | Not available (mesh correlation, AI orchestration) | Designed for Coral architecture    |
+| **Production readiness**    | Battle-tested across OTEL ecosystem                | Requires stabilization period      |
 
-**Conclusion**: Use Beyla for commodity observability (RED metrics, traces), custom eBPF for differentiation (WireGuard stats, AI profiling, multi-colony correlation).
+**Conclusion**: Use Beyla for commodity observability (RED metrics, traces),
+custom eBPF for differentiation (WireGuard stats, AI profiling, multi-colony
+correlation).
 
 ### Go Integration Example
 
-This example demonstrates how to integrate Beyla into a Coral agent using its Go library API.
+This example demonstrates how to integrate Beyla into a Coral agent using its Go
+library API.
 
 ```go
 package agent
@@ -902,12 +1040,12 @@ func ExampleIntegration() {
             GRPCEnabled: true,
             SQLEnabled:  true,
         },
-        SamplingRate: 1.0,                  // 100% sampling
-        OTLPEndpoint: "localhost:4318",     // Local OTLP receiver
+        SamplingRate: 1.0,              // 100% sampling
+        OTLPEndpoint: "localhost:4318", // Local OTLP receiver
         Attributes: map[string]string{
-            "colony.id":     "colony-abc123",
-            "agent.id":      "agent-xyz789",
-            "environment":   "production",
+            "colony.id":   "colony-abc123",
+            "agent.id":    "agent-xyz789",
+            "environment": "production",
         },
     }
 
@@ -965,50 +1103,64 @@ func sendToColony(data interface{}) {
 
 **Key integration points**:
 
-1. **Beyla runs as goroutine**: Started via `beyla.Run(ctx, config)` in the agent process
-2. **OTLP receiver consumes output**: Embedded receiver listens on `localhost:4318` for Beyla's exports
-3. **Channel-based data flow**: Metrics and traces flow through Go channels for processing
+1. **Beyla runs as goroutine**: Started via `beyla.Run(ctx, config)` in the
+   agent process
+2. **OTLP receiver consumes output**: Embedded receiver listens on
+   `localhost:4318` for Beyla's exports
+3. **Channel-based data flow**: Metrics and traces flow through Go channels for
+   processing
 4. **Programmatic configuration**: No YAML files; configure via Go structs
-5. **Transformation layer**: Convert OTLP protobuf → Coral internal format → Colony gRPC
+5. **Transformation layer**: Convert OTLP protobuf → Coral internal format →
+   Colony gRPC
 
-**Note**: The exact Beyla Go API may differ based on the final OpenTelemetry project structure. This example demonstrates the conceptual integration approach.
+**Note**: The exact Beyla Go API may differ based on the final OpenTelemetry
+project structure. This example demonstrates the conceptual integration
+approach.
 
 ### Beyla References
 
-- **Official repository**: https://github.com/open-telemetry/opentelemetry-ebpf (OpenTelemetry eBPF project, includes Beyla)
-- **Legacy repository**: https://github.com/grafana/beyla (original Grafana repository, may redirect)
+- **Official repository
+  **: https://github.com/open-telemetry/opentelemetry-ebpf (OpenTelemetry eBPF
+  project, includes Beyla)
+- **Legacy repository**: https://github.com/grafana/beyla (original Grafana
+  repository, may redirect)
 - **OpenTelemetry documentation**: https://opentelemetry.io/docs/
-- **Note**: As Beyla was recently donated to OpenTelemetry, documentation and repository locations may be in transition. Check the OpenTelemetry project for the most current information.
+- **Note**: As Beyla was recently donated to OpenTelemetry, documentation and
+  repository locations may be in transition. Check the OpenTelemetry project for
+  the most current information.
 
 ### Example Beyla Configuration (Standalone)
 
-For reference, here's how Beyla is typically configured as a standalone tool (Coral will adapt this for embedded use):
+For reference, here's how Beyla is typically configured as a standalone tool (
+Coral will adapt this for embedded use):
 
 ```yaml
 # beyla-config.yaml (standalone example, not Coral config)
 discovery:
-  services:
-    - k8s_namespace: "production"
-      k8s_pod_label:
-        app: "payments-api"
+    services:
+        -   k8s_namespace: "production"
+            k8s_pod_label:
+                app: "payments-api"
 
 attributes:
-  kubernetes:
-    enable: cluster_name
-    cluster_name: "us-west-2"
+    kubernetes:
+        enable: cluster_name
+        cluster_name: "us-west-2"
 
 routes:
-  patterns:
-    - "/api/v1/users/:id"
-    - "/api/v1/orders/:id"
+    patterns:
+        - "/api/v1/users/:id"
+        - "/api/v1/orders/:id"
 
 otel_metrics_export:
-  endpoint: http://otel-collector:4318
+    endpoint: http://otel-collector:4318
 
 otel_traces_export:
-  endpoint: http://tempo:4318
-  sampler: parentbased_traceidratio
-  sampler_arg: "0.1"
+    endpoint: http://tempo:4318
+    sampler: parentbased_traceidratio
+    sampler_arg: "0.1"
 ```
 
-Coral agents will use Beyla's Go API directly instead of YAML configuration, allowing dynamic reconfiguration and tighter integration with Coral's data pipeline.
+Coral agents will use Beyla's Go API directly instead of YAML configuration,
+allowing dynamic reconfiguration and tighter integration with Coral's data
+pipeline.
