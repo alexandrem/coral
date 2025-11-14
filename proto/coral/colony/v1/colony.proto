@@ -18,6 +18,9 @@ service ColonyService {
 
   // Get network topology.
   rpc GetTopology(GetTopologyRequest) returns (GetTopologyResponse);
+
+  // Ingest telemetry data from agents (RFD 025).
+  rpc IngestTelemetry(IngestTelemetryRequest) returns (IngestTelemetryResponse);
 }
 
 message GetStatusRequest {}
@@ -125,4 +128,51 @@ message Connection {
 
   // Connection type ("http", "grpc", "database", etc.).
   string connection_type = 3;
+}
+
+// TelemetryBucket contains aggregated OpenTelemetry data (RFD 025).
+message TelemetryBucket {
+  // Agent identifier.
+  string agent_id = 1;
+
+  // Bucket timestamp (minute-aligned, Unix seconds).
+  int64 bucket_time = 2;
+
+  // Service name from span attributes.
+  string service_name = 3;
+
+  // Span kind (CLIENT, SERVER, INTERNAL, etc.).
+  string span_kind = 4;
+
+  // Latency percentiles in milliseconds.
+  double p50_ms = 5;
+  double p95_ms = 6;
+  double p99_ms = 7;
+
+  // Error count in this bucket.
+  int32 error_count = 8;
+
+  // Total number of spans in this bucket.
+  int32 total_spans = 9;
+
+  // Sample trace IDs (max 5).
+  repeated string sample_traces = 10;
+}
+
+// IngestTelemetryRequest contains telemetry buckets from agents.
+message IngestTelemetryRequest {
+  // Aggregated telemetry buckets.
+  repeated TelemetryBucket buckets = 1;
+}
+
+// IngestTelemetryResponse confirms ingestion.
+message IngestTelemetryResponse {
+  // Number of buckets accepted.
+  int32 accepted = 1;
+
+  // Number of buckets rejected.
+  int32 rejected = 2;
+
+  // Optional error or warning message.
+  string message = 3;
 }

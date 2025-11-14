@@ -11,6 +11,7 @@ import (
 
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
 	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/colony/storage"
 )
@@ -33,15 +34,17 @@ type Config struct {
 // Server implements the ColonyService.
 type Server struct {
 	registry  *registry.Registry
+	database  *database.Database
 	config    Config
 	startTime time.Time
 	logger    zerolog.Logger
 }
 
 // New creates a new colony server.
-func New(reg *registry.Registry, config Config, logger zerolog.Logger) *Server {
+func New(reg *registry.Registry, db *database.Database, config Config, logger zerolog.Logger) *Server {
 	return &Server{
 		registry:  reg,
+		database:  db,
 		config:    config,
 		startTime: time.Now(),
 		logger:    logger,
@@ -231,4 +234,63 @@ func (s *Server) determineColonyStatus() string {
 
 	// All agents are healthy.
 	return "running"
+}
+
+// IngestTelemetry handles telemetry ingestion from agents (RFD 025).
+func (s *Server) IngestTelemetry(
+	ctx context.Context,
+	req *connect.Request[colonyv1.IngestTelemetryRequest],
+) (*connect.Response[colonyv1.IngestTelemetryResponse], error) {
+	s.logger.Debug().
+		Int("bucket_count", len(req.Msg.Buckets)).
+		Msg("Telemetry ingestion request received")
+
+	if len(req.Msg.Buckets) == 0 {
+		return connect.NewResponse(&colonyv1.IngestTelemetryResponse{
+			Accepted: 0,
+			Rejected: 0,
+			Message:  "No buckets provided",
+		}), nil
+	}
+
+	// Convert protobuf buckets to database buckets.
+	dbBuckets := make([]database.TelemetryBucket, 0, len(req.Msg.Buckets))
+	for _, pbBucket := range req.Msg.Buckets {
+		dbBucket := database.TelemetryBucket{
+			BucketTime:   time.Unix(pbBucket.BucketTime, 0),
+			AgentID:      pbBucket.AgentId,
+			ServiceName:  pbBucket.ServiceName,
+			SpanKind:     pbBucket.SpanKind,
+			P50Ms:        pbBucket.P50Ms,
+			P95Ms:        pbBucket.P95Ms,
+			P99Ms:        pbBucket.P99Ms,
+			ErrorCount:   pbBucket.ErrorCount,
+			TotalSpans:   pbBucket.TotalSpans,
+			SampleTraces: pbBucket.SampleTraces,
+		}
+		dbBuckets = append(dbBuckets, dbBucket)
+	}
+
+	// Insert buckets into database.
+	if err := s.database.InsertTelemetryBuckets(ctx, dbBuckets); err != nil {
+		s.logger.Error().
+			Err(err).
+			Msg("Failed to insert telemetry buckets")
+
+		return connect.NewResponse(&colonyv1.IngestTelemetryResponse{
+			Accepted: 0,
+			Rejected: int32(len(req.Msg.Buckets)),
+			Message:  fmt.Sprintf("Failed to insert buckets: %v", err),
+		}), nil
+	}
+
+	s.logger.Info().
+		Int("bucket_count", len(dbBuckets)).
+		Msg("Telemetry buckets ingested successfully")
+
+	return connect.NewResponse(&colonyv1.IngestTelemetryResponse{
+		Accepted: int32(len(dbBuckets)),
+		Rejected: 0,
+		Message:  "Success",
+	}), nil
 }
