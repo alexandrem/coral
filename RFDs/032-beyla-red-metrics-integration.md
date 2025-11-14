@@ -6,7 +6,7 @@ breaking_changes: false
 testing_required: true
 database_changes: true
 api_changes: true
-dependencies: [ "011", "012", "013" ]
+dependencies: [ "011", "012", "013", "025" ]
 database_migrations: [ "ebpf_beyla_metrics", "ebpf_beyla_traces" ]
 areas: [ "observability", "ebpf", "metrics", "tracing" ]
 ---
@@ -226,7 +226,8 @@ flexibility to extend observability for Coral's unique distributed architecture.
     - Configure Beyla to instrument target processes (all containers on node
       agent, specific services on multi-service agent).
     - Run embedded OTLP receiver (gRPC or HTTP) to consume metrics/traces from
-      Beyla.
+      Beyla. **Requires RFD 025** (Basic OpenTelemetry Ingestion) which
+      establishes the OTLP receiver infrastructure in agents.
     - Transform OTLP data (protobuf format) into Coral's internal
       representation.
     - Merge Beyla-sourced metrics with custom eBPF events in unified aggregator.
@@ -403,6 +404,38 @@ Analysis:
 Diagnosis: Network latency spike to card-validation-svc is causing slowdown.
 Recommendation: Check card-validation-svc health and network path.
 ```
+
+### Dependencies Clarification
+
+This RFD depends on RFDs 011, 012, 013, and 025. Here's why:
+
+**RFD 011 (Multi-service agents)**:
+- Beyla needs to discover and instrument multiple services per agent.
+- Multi-service agents provide the architectural foundation for process discovery and isolation.
+- **Not a hard blocker**: Beyla can work with single-service agents initially, but multi-service support is the primary use case.
+
+**RFD 012 (Kubernetes node agents)**:
+- Node-level agents have full host privileges required for eBPF instrumentation.
+- K8s API integration provides pod metadata (labels, namespaces) for Beyla's discovery configuration.
+- **Not a hard blocker**: Beyla can work with privileged sidecar agents, but node agents are the natural fit for cluster-wide observability.
+
+**RFD 013 (eBPF introspection)**:
+- Establishes eBPF infrastructure patterns (capability detection, manager lifecycle, safety limits).
+- Beyla and custom eBPF programs coexist within the same agent architecture.
+- **Complementary**: RFD 013's custom collectors supplement Beyla's commodity protocol support.
+
+**RFD 025 (Basic OpenTelemetry Ingestion)** - **Critical dependency**:
+- Provides OTLP receiver infrastructure in Coral agents.
+- Beyla exports metrics/traces via OTLP (OpenTelemetry Protocol).
+- Agents consume Beyla's OTLP exports using the receiver established by RFD 025.
+- **Hard blocker**: Without OTLP receiver infrastructure, agents cannot consume Beyla's output.
+
+**Recommended implementation order**:
+1. RFD 025 (OTLP ingestion) → establishes receiver infrastructure
+2. RFD 012 (node agents) → provides privileged execution context
+3. RFD 032 (Beyla) → leverages OTLP receiver and node agent privileges
+4. RFD 013 (custom eBPF) + RFD 032 → combined observability stack
+5. RFD 011 (multi-service) → enhances with cross-service correlation
 
 ### Kernel Compatibility & Fallback Strategy
 
