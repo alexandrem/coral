@@ -23,16 +23,17 @@ Coral: "API latency spiked 3 minutes ago. P95 went from 150ms to 2.3s.
 
 ## The Problem
 
-Your app runs across laptop, VMs, and Kubernetes. When you need to:
+Your app runs across **fragmented infrastructure**: laptop, VMs, Kubernetes
+clusters, multiple clouds, VPCs, on-prem. When you need to:
 
 - **Debug an issue** → Check logs, metrics, traces across multiple dashboards
 - **Find the root cause** → Add logging, redeploy, wait for it to happen again
-- **Understand performance** → Set up profilers, SSH to servers, inspect traffic
-- **Debug distributed issues** → Correlate data across services manually
-- **Profile production** → Either always-on overhead or can't debug when needed
+- **Debug across environments** → Can't correlate laptop dev with prod K8s cluster
+- **Run diagnostics** → SSH to different networks, navigate firewalls, VPN chaos
+- **Orchestrate operations** → Each environment needs different tooling
 
-You're juggling terminals, dashboards, and tools. Context is fragmented. **Coral
-unifies this.**
+Your infrastructure is scattered across networks. **Coral unifies this with a
+WireGuard mesh.**
 
 ## The Solution
 
@@ -315,6 +316,19 @@ Claude Desktop, Cursor, etc.) can trigger debugging sessions:
 
 ## Architecture
 
+**Three-tier design with WireGuard mesh substrate:**
+
+Coral creates a **secure WireGuard mesh** that connects all your infrastructure -
+laptops, VMs, Kubernetes pods, across clouds and VPCs. This mesh is the substrate
+that enables unified observability and control across fragmented environments.
+
+**Why WireGuard mesh matters:**
+- **Works anywhere** - Laptop ↔ AWS VPC ↔ GKE cluster ↔ on-prem VM
+- **Crosses network boundaries** - No VPN configuration, no firewall rules
+- **Encrypted by default** - All mesh traffic is secured with WireGuard
+- **Orchestration substrate** - Debug commands work the same everywhere
+- **Application-scoped** - One mesh per app, not infrastructure-wide
+
 **Three-tier design with separated LLM:**
 
 ```
@@ -351,12 +365,14 @@ Developer Workstation               Enterprise (Optional)
 
 **Key principles:**
 
+- **WireGuard mesh substrate** - Connects fragmented infrastructure (laptop,
+  clouds, K8s, VPCs) into one unified control plane
+- **Works anywhere** - Same debugging commands whether app runs on laptop, AWS,
+  GKE, or on-prem
 - **Control plane only** - Agents never proxy/intercept application traffic
-- **Application-scoped** - One colony per app (not infrastructure-wide)
+- **Application-scoped** - One mesh per app (not infrastructure-wide)
 - **Separated LLM** - Colony is MCP gateway only, AI at developer and Reef layers
-- **User-controlled AI** - Developers use their own LLM accounts via local Genkit
 - **SDK optional** - Basic observability works without code changes
-- **Optional federation** - Reef provides cross-colony analysis for enterprises
 
 ## Quick Start
 
@@ -586,6 +602,24 @@ coral version
 
 ## Use Cases
 
+### Debug Across Infrastructure Boundaries
+
+```bash
+# From your laptop, debug app running in AWS VPC + GKE cluster
+coral ask "Why is checkout slow in production?"
+
+# Coral's mesh reaches across:
+# - Your laptop (Colony)
+# - AWS VPC (frontend agent)
+# - GKE cluster (API agent)
+# - On-prem datacenter (database agent)
+
+# No VPN, no firewall rules, no per-environment tooling
+# → Finds bottleneck in GKE pod calling on-prem database
+# → Network latency 200ms (AWS VPC → on-prem)
+# → Recommends: Move database to cloud or add caching layer
+```
+
 ### Debug Production Issues
 
 ```bash
@@ -669,29 +703,35 @@ coral ask "What depends on the database?"
 
 **The first LLM-orchestrated debugging mesh for distributed apps.**
 
+- **WireGuard mesh across infrastructure** - Debug apps running on laptop ↔ AWS
+  VPC ↔ GKE cluster ↔ on-prem VM with the same commands. **No other tool works
+  across fragmented networks like this.** No VPN config, no firewall rules, no
+  per-environment tooling.
+
 - **On-demand live debugging** - Attach eBPF uprobes to running code without
   redeploying. **No existing tool does this.** LLM decides where to probe based
   on analysis. Zero overhead when not debugging.
 
 - **Active, not passive** - Coral doesn't just collect metrics - it can
   instrument your code on-demand to find root causes. Like delve for distributed
-  apps.
+  apps, but works across your entire mesh.
 
 - **Intelligence-driven operations** - Ask questions in natural language using
   **your own LLM** (OpenAI/Anthropic/Ollama). The AI orchestrates debugging
-  probes automatically.
+  probes automatically across any environment.
 
 - **Unified interface** - One tool for observing, debugging, and controlling (
-  not another dashboard to check). CLI, IDE integration, or API.
+  not another dashboard to check). CLI, IDE integration, or API. Same commands
+  everywhere.
 
 - **User-controlled AI** - Your API keys, your model choice, your cost control.
   Colony is MCP gateway only - you control the intelligence layer.
 
 - **Control plane only** - Can't break your apps, zero baseline overhead. Probes
-  only when debugging.
+  only when debugging. Mesh is for orchestration, never touches data plane.
 
-- **Application-scoped** - One colony per app, scales from laptop to production.
-  Not infrastructure-wide monitoring.
+- **Application-scoped** - One mesh per app (not infrastructure-wide monitoring).
+  Scales from single laptop to multi-cloud production.
 
 - **Data privacy** - Self-hosted, observability data stays in your Colony.
 
