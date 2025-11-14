@@ -41,7 +41,11 @@ Coral gives you **one interface for distributed app operations**:
 
 ### 🔍 Observe
 
-See health, connections, and resource usage across all services in one place.
+Four complementary mechanisms provide complete visibility:
+- **Beyla eBPF**: Zero-config RED metrics (no code changes)
+- **OTLP ingestion**: For apps using OpenTelemetry
+- **Shell/exec**: Run diagnostic tools (netstat, tcpdump, etc.)
+- **Connection mapping**: Auto-discovered service dependencies
 
 ### 🐛 Debug
 
@@ -69,8 +73,8 @@ Coral offers **two integration levels**:
 
 ### Passive Mode (No Code Changes)
 
-Agents observe processes, connections, and health. Get basic observability and
-AI debugging without touching your code.
+Agents use **Beyla eBPF probes** to capture RED metrics (Rate, Errors, Duration)
+with zero configuration. No code changes needed.
 
 ```bash
 # Start the colony (central coordinator)
@@ -92,8 +96,11 @@ coral ask "Why is checkout slow?"
 coral ask "What changed in the last hour?"
 ```
 
-**You get:** Process monitoring, connection mapping, AI-powered debugging using
-your own LLM.
+**You get:** RED metrics (via Beyla eBPF), connection mapping, AI-powered
+analysis using your own LLM.
+
+**Optionally:** Apps using OpenTelemetry can also send telemetry to the agent's
+OTLP endpoint for correlation with eBPF data.
 
 ### SDK-Integrated Mode (Full Control)
 
@@ -136,6 +143,91 @@ coral rollback api --to-version v2.2.5
 ```
 
 **You get:** Full operations control + all passive mode capabilities.
+
+## Four Observability Pillars
+
+Coral provides comprehensive observability through four complementary mechanisms:
+
+### 1. Beyla eBPF Probes (Zero Config)
+
+Agents use [Beyla](https://github.com/grafana/beyla) eBPF probes to capture RED
+metrics (Rate, Errors, Duration) with **zero configuration**:
+
+- **No code changes** - Works with any HTTP/gRPC service
+- **No SDK required** - Attaches to running processes via eBPF
+- **Automatic instrumentation** - Request rates, error rates, latency percentiles
+- **Low overhead** - eBPF runs in kernel space, minimal performance impact
+
+```bash
+# Just connect - metrics start flowing automatically
+coral connect api:8080
+# → Beyla eBPF probes attach and collect RED metrics
+```
+
+### 2. OTLP Ingestion (OpenTelemetry)
+
+Each agent exposes an **OTLP ingestion endpoint** for apps using OpenTelemetry:
+
+- **Additional sink** - Coral receives telemetry alongside your existing exporters
+- **Short-term memory** - Agent stores recent data for live introspection
+- **Correlation** - Combines OTLP traces with eBPF metrics and live probes
+- **Not a replacement** - Keep your existing OTLP exporters (Jaeger, Tempo, etc.)
+
+```go
+// In your OpenTelemetry-instrumented app
+// Add Coral agent as additional OTLP endpoint
+exporter := otlptrace.New(ctx,
+    otlptracehttp.NewClient(
+        otlptracehttp.WithEndpoint("localhost:4318"), // Coral agent OTLP
+    ),
+)
+```
+
+### 3. Agent Shell/Exec Commands (Diagnostic Tooling)
+
+Agents can run diagnostic commands on the host where your app runs:
+
+- **Remote execution** - Run `ps`, `netstat`, `tcpdump`, etc. via agent
+- **LLM-orchestrated** - AI decides which diagnostics to run based on analysis
+- **MCP-exposed** - Accessible via `coral_agent_exec` MCP tool
+- **Manual or automated** - Developers can run directly or let LLM orchestrate
+
+```bash
+# Manual diagnostic commands
+coral exec api "netstat -an | grep ESTABLISHED"
+coral exec api "ps aux | grep node"
+coral exec api "tcpdump -i any port 8080 -c 100"
+
+# Or let LLM decide what to run
+coral ask "Why is the API not responding?"
+# → LLM may run: netstat, lsof, strace, etc. to diagnose
+```
+
+**Security**: Shell commands run with agent's permissions. Configure allowed
+commands via agent policy.
+
+### 4. SDK Live Probes (Runtime Debugging)
+
+The most advanced pillar - **on-demand eBPF uprobes** for live debugging:
+
+- **Runtime instrumentation** - Attach probes to function entry points
+- **No redeployment** - Debug running code without restarts
+- **LLM-orchestrated** - AI decides which functions to probe
+- **Zero standing overhead** - Probes only exist during debugging sessions
+
+See "Live Debugging: The Killer Feature" section below for details.
+
+---
+
+**How they work together:**
+
+1. **Beyla eBPF** provides baseline RED metrics (always on, low overhead)
+2. **OTLP** adds rich trace context from instrumented apps (if using OpenTelemetry)
+3. **Shell/exec** runs diagnostic tools when LLM needs system-level data
+4. **SDK probes** instrument code when deeper investigation is needed
+
+The LLM orchestrates all four pillars based on what's needed to answer your
+question.
 
 ## Live Debugging: The Killer Feature
 
@@ -482,6 +574,28 @@ coral rollback <service>
 coral rollback <service> --to-version v2.2.5
 ```
 
+### Diagnostic Commands
+
+```bash
+# Run diagnostic tools on agent hosts
+coral exec <service> <command>
+
+# Examples
+coral exec api "netstat -an | grep ESTABLISHED"
+coral exec api "ps aux | grep node"
+coral exec api "lsof -i :8080"
+coral exec api "tcpdump -i any port 8080 -c 100"
+coral exec frontend "free -h"
+coral exec database "iostat -x 5 3"
+
+# LLM can orchestrate these automatically
+coral ask "Why is the API not responding?"
+# → May run: netstat, lsof, strace to diagnose
+```
+
+**Note:** Commands run with agent's permissions. Configure allowed commands via
+agent policy for security.
+
 ### Version
 
 ```bash
@@ -501,22 +615,49 @@ coral rollback api
 
 ### LLM-Orchestrated Live Debugging
 
+Coral intelligently escalates through its four observability pillars:
+
 ```bash
 coral ask "Why is checkout taking 3 seconds?"
 
-# Coral's LLM analyzes metrics, then decides to attach live probes:
-🤖 Analyzing checkout service...
-   Metrics unclear - attaching probes to investigate...
-   ✓ Uprobe attached: payment.ProcessPayment()
-   ✓ Uprobe attached: db.QueryOrders()
+🤖 Step 1: Checking Beyla eBPF metrics...
+   ✓ checkout service: P95 latency 2.8s (baseline: 150ms)
+   ✓ payment service: P95 latency 45ms (normal)
+   → High latency confirmed in checkout, payment is normal
 
-   Analysis: db.QueryOrders() taking 2.8s (95% of latency)
-   Root cause: Missing index on orders.user_id
+🤖 Step 2: Checking OTLP traces (if available)...
+   ✓ Found trace spans showing database query slowness
+   → 95% of time spent in db.QueryOrders()
 
-   Recommendation: CREATE INDEX idx_orders_user_id ON orders(user_id)
+🤖 Step 3: Running diagnostic commands...
+   $ coral exec checkout "netstat -an | grep database"
+   → 47 ESTABLISHED connections to database (normal)
+
+🤖 Step 4: Metrics unclear - attaching live probes...
+   ✓ Uprobe attached: checkout.ProcessCheckout() [offset 0x3a40]
+   ✓ Uprobe attached: db.QueryOrders() [offset 0x4f10]
+
+   Collecting traces for 30 seconds...
+
+   Analysis:
+     • ProcessCheckout(): 2.8s avg (1,243 calls)
+       └─ db.QueryOrders(): 2.7s (96% of time)
+          └─ Query plan: Sequential scan (156,892 rows)
+          └─ Missing index on orders.user_id
+
+   Root Cause: Missing database index causing slow queries
+
+   Recommendation:
+     CREATE INDEX idx_orders_user_id ON orders(user_id);
 
    Detaching probes... ✓ Done (zero overhead restored)
 ```
+
+**The LLM orchestrates all four pillars** based on what's needed:
+1. Starts with Beyla eBPF (always available)
+2. Checks OTLP traces if app is instrumented
+3. Runs diagnostic commands for system-level insights
+4. Attaches live probes when deeper investigation is required
 
 ### Manual Live Debugging
 
