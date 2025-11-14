@@ -4,35 +4,49 @@
 
 This document summarizes the implementation of RFD 025: Basic OpenTelemetry Ingestion for Mixed Environments.
 
+**Architecture**: Pull-based distributed storage (agents store locally, colony queries on-demand)
+
 ## Implementation Status
 
-**Status**: ✅ Phase 1 & 2 Complete (Core Foundation)
-**Date**: 2025-11-14
+**Status**: ✅ Phase 1 & 2 Complete (Core Foundation - Pull-based Architecture)
+**Date**: 2025-11-14 (Updated with pull-based architecture)
 **Branch**: `claude/implement-rfd-025-01Cy82FHCi2EqZmReWMdLSfA`
 
 ## What Was Implemented
 
-### 1. Protobuf Definitions (✅ Complete)
+### 1. Protobuf Definitions (✅ Complete - Pull-based)
 
-**File**: `proto/coral/colony/v1/colony.proto`
+**Files**:
+- `proto/coral/agent/v1/agent.proto` (agent exposes QueryTelemetry RPC)
+- `proto/coral/colony/v1/colony.proto` (colony removed IngestTelemetry RPC)
 
-Added messages for telemetry data exchange:
-- `TelemetryBucket`: Aggregated telemetry data structure
-- `IngestTelemetryRequest`: Request message for telemetry ingestion
-- `IngestTelemetryResponse`: Response message for ingestion confirmation
-- `IngestTelemetry` RPC method added to `ColonyService`
+**Agent RPC** (colony → agent):
+- `QueryTelemetry` RPC method added to `AgentService`
+- `TelemetrySpan`: Filtered span structure with full attributes
+- `QueryTelemetryRequest`: Time range and service filter query
+- `QueryTelemetryResponse`: Filtered spans from agent's local storage
 
-### 2. Database Schema (✅ Complete)
+**Architecture**: Colony queries agents on-demand, agents respond with filtered spans from local storage (~1 hour retention).
 
-**File**: `internal/colony/database/schema.go`
+### 2. Database Schema (✅ Complete - Pull-based)
 
-Added `otel_spans` table with:
-- 1-minute aggregated buckets
+**Files**:
+- `internal/colony/database/schema.go` (colony summaries)
+- `internal/agent/telemetry/storage.go` (agent local storage)
+
+**Agent Local Storage** (`otel_spans_local`):
+- Raw filtered spans with ~1 hour retention
+- Full span attributes for correlation
+- Indexed by timestamp and service_name
+
+**Colony Summaries** (`otel_summaries`):
+- 1-minute aggregated buckets created from queried agent data
 - Percentile metrics (p50, p95, p99)
 - Error counts and sample trace IDs
+- 24-hour retention
 - Indexes for efficient querying by agent_id, service_name, and bucket_time
 
-### 3. Telemetry Package (✅ Complete)
+### 3. Telemetry Package (✅ Complete - Pull-based)
 
 **Directory**: `internal/agent/telemetry/`
 
@@ -43,12 +57,12 @@ Implemented core telemetry processing components:
 - `FilterConfig`: Static filtering rules
 - `DefaultConfig()`: Sensible default configuration
 
-#### `aggregator.go`
-- `Aggregator`: 1-minute bucket aggregation
-- `Span`: Simplified span structure
-- `Bucket`: Aggregated bucket structure
-- Percentile calculation (p50, p95, p99)
-- Time-based bucket alignment
+#### `storage.go` (NEW - Local Storage)
+- `Storage`: Local span storage with ~1 hour retention
+- `StoreSpan()`: Stores filtered spans in local database
+- `QuerySpans()`: Queries spans by time range and service names
+- `CleanupOldSpans()`: TTL-based cleanup
+- `RunCleanupLoop()`: Periodic cleanup goroutine
 
 #### `filter.go`
 - `Filter`: Static filtering implementation
@@ -56,10 +70,11 @@ Implemented core telemetry processing components:
 - Rule 2: Always capture high-latency spans (>500ms threshold)
 - Rule 3: Sample normal spans (10% sample rate)
 
-#### `receiver.go`
+#### `receiver.go` (UPDATED - No Flushing)
 - `Receiver`: OTLP receiver placeholder
-- Span processing pipeline
-- Periodic bucket flushing (every 1 minute)
+- Span processing pipeline (filter + store locally)
+- `QuerySpans()`: Responds to colony queries
+- Cleanup loop for local storage (~1 hour retention)
 - Integration point for OTel Collector components (TODO)
 
 ### 4. Tests (✅ Complete)
@@ -75,25 +90,40 @@ Implemented core telemetry processing components:
 - Percentile calculation validation
 - Edge case handling (empty slices, single values)
 
-### 5. Colony Storage (✅ Complete)
+### 5. Colony Storage (✅ Complete - Pull-based)
 
-**File**: `internal/colony/database/telemetry.go`
+**Files**:
+- `internal/colony/database/telemetry.go` (database operations)
+- `internal/colony/telemetry_aggregator.go` (aggregation logic)
 
 Implemented database operations:
-- `InsertTelemetryBuckets()`: Batch insert with upsert logic
-- `QueryTelemetryBuckets()`: Time-range queries by agent
-- `CleanupOldTelemetry()`: 24-hour TTL cleanup
+- `InsertTelemetrySummaries()`: Batch insert of aggregated summaries
+- `QueryTelemetrySummaries()`: Time-range queries by agent
+- `CleanupOldTelemetry()`: 24-hour TTL cleanup for summaries
 - `CorrelateEbpfAndTelemetry()`: Example correlation query
 
-### 6. Colony Server Handler (✅ Complete)
+Implemented aggregation at colony level:
+- `TelemetryAggregator`: Aggregates spans queried from agents
+- `AddSpans()`: Adds spans to 1-minute buckets
+- `GetSummaries()`: Returns aggregated summaries with percentiles
+- Percentile calculation moved from agent to colony
+
+### 6. Agent Query Handler (✅ Complete - NEW)
+
+**Files**:
+- `internal/agent/telemetry_handler.go` (RPC handler)
+
+Added telemetry query RPC handler:
+- `QueryTelemetry()`: Responds to colony queries with filtered spans
+- Time range and service name filtering
+- Returns spans from local storage (~1 hour retention)
+
+### 7. Colony Server (✅ Updated - Pull-based)
 
 **File**: `internal/colony/server/server.go`
 
-Added telemetry ingestion RPC handler:
-- `IngestTelemetry()`: Receives and stores telemetry buckets
-- Protobuf to database conversion
-- Error handling and response generation
-- Updated `Server` struct to include database reference
+**Removed**: `IngestTelemetry()` RPC handler (push-based, no longer needed)
+**Architecture**: Colony now queries agents on-demand and creates summaries locally
 
 ### 7. Configuration (✅ Complete)
 
@@ -136,6 +166,20 @@ The following features are **out of scope** for this implementation and will be 
 
 ## Architecture Decisions
 
+### Pull-based Distributed Storage (CRITICAL)
+- **Decision**: Colony queries agents on-demand; agents store locally
+- **Rationale**:
+  - Aligns with Coral's distributed storage architecture (docs/CONCEPT.md)
+  - Agents maintain autonomy with local data
+  - Colony creates summaries only when needed (AI investigations)
+  - Follows cache layer pattern: agent → colony → reef
+  - Scales better than push-based (no constant network traffic)
+- **Data Flow**:
+  1. Agent receives OTLP spans → filters → stores locally (~1 hour)
+  2. Colony queries agent when AI investigates an issue
+  3. Colony aggregates queried spans into 1-minute buckets
+  4. Colony stores summaries (24-hour retention)
+
 ### Static Filtering
 - **Decision**: Use static filtering rules (no adaptive sampling)
 - **Rationale**: Predictable, debuggable, simple operational model
@@ -144,37 +188,48 @@ The following features are **out of scope** for this implementation and will be 
   2. High latency (>500ms): Always captured
   3. Normal spans: 10% sample rate
 
-### 1-Minute Aggregation
-- **Decision**: Aggregate spans into 1-minute buckets before forwarding
+### 1-Minute Aggregation at Colony
+- **Decision**: Aggregate spans into 1-minute buckets at colony level (not agent)
 - **Rationale**:
-  - Reduces network traffic by ~95%
+  - Agents store raw filtered spans for flexibility
+  - Colony creates summaries from queried data
   - Enables efficient correlation queries
-  - Keeps detailed traces in primary observability
+  - Keeps detailed traces available for investigation
 
-### 24-Hour Retention
-- **Decision**: TTL of 24 hours for telemetry data
+### Layered Retention
+- **Decision**: Agents ~1 hour, Colony 24 hours
 - **Rationale**:
-  - AI queries are investigative, not long-term analytics
-  - Minimizes PII exposure
+  - Agents provide recent high-resolution data for investigations
+  - Colony summaries enable historical trend analysis
+  - Minimizes PII exposure (short retention)
   - Primary observability (Honeycomb, Grafana) handles long-term storage
 
 ## Files Changed
 
-### Created
-- `internal/agent/telemetry/config.go`
-- `internal/agent/telemetry/aggregator.go`
-- `internal/agent/telemetry/filter.go`
-- `internal/agent/telemetry/receiver.go`
-- `internal/agent/telemetry/filter_test.go`
-- `internal/agent/telemetry/aggregator_test.go`
-- `internal/colony/database/telemetry.go`
+### Created (Pull-based Architecture)
+- `internal/agent/telemetry/config.go` (telemetry configuration)
+- `internal/agent/telemetry/filter.go` (static filtering rules)
+- `internal/agent/telemetry/receiver.go` (OTLP receiver + local storage)
+- `internal/agent/telemetry/storage.go` (NEW - local span storage ~1 hour)
+- `internal/agent/telemetry/filter_test.go` (filtering tests)
+- `internal/agent/telemetry/aggregator_test.go` (aggregation tests - to be updated)
+- `internal/agent/telemetry_handler.go` (NEW - QueryTelemetry RPC handler)
+- `internal/colony/database/telemetry.go` (database operations for summaries)
+- `internal/colony/telemetry_aggregator.go` (NEW - aggregation at colony level)
 - `RFD-025-IMPLEMENTATION.md` (this file)
 
-### Modified
-- `proto/coral/colony/v1/colony.proto`
-- `internal/colony/database/schema.go`
-- `internal/colony/server/server.go`
-- `internal/config/schema.go`
+### Modified (Pull-based Architecture)
+- `proto/coral/agent/v1/agent.proto` (added QueryTelemetry RPC)
+- `proto/coral/colony/v1/colony.proto` (removed IngestTelemetry RPC)
+- `internal/colony/database/schema.go` (otel_spans → otel_summaries)
+- `internal/colony/server/server.go` (removed IngestTelemetry handler)
+- `internal/config/schema.go` (telemetry configuration)
+- `internal/agent/telemetry/aggregator.go` (updated Span structure)
+
+### Removed (Pull-based Architecture)
+- IngestTelemetry RPC handler from colony server
+- Flush loop from agent receiver
+- Push-based architecture components
 
 ## Testing Status
 
@@ -191,14 +246,23 @@ The following features are **out of scope** for this implementation and will be 
 
 ## Next Steps (To Complete This PR)
 
-1. **Generate protobuf code**: Run `buf generate` when network connectivity is restored
-2. **Run tests**: Execute `make test` to verify all tests pass
-3. **Fix server tests**: Update `internal/colony/server/server_test.go` to pass database parameter to `New()`
-4. **Integration**: Wire agent telemetry receiver to colony RPC
-5. **OTLP receiver**: Integrate go.opentelemetry.io/collector components
-6. **TTL cleanup**: Add periodic cleanup job to colony
-7. **Kubernetes manifests**: Create deployment templates for cluster-wide collector
-8. **Documentation**: Add usage examples and configuration guides
+### Immediate (Critical for Pull-based Architecture)
+
+1. **Generate protobuf code**: Run `buf generate` to generate Go code for updated protos
+2. **Run tests**: Execute `make test` to identify failing tests
+3. **Update tests**: Fix tests that expect push-based architecture (IngestTelemetry)
+   - Update `internal/colony/server/telemetry_integration_test.go` to test pull-based flow
+   - Update agent tests to verify local storage and query handler
+4. **Wire agent handler**: Register QueryTelemetry RPC handler in agent server
+5. **Colony query logic**: Implement colony logic to query agents and create summaries
+6. **OTLP receiver**: Integrate go.opentelemetry.io/collector components in agent receiver
+7. **TTL cleanup**: Add periodic cleanup job to colony for 24-hour summaries
+
+### Future Work
+
+8. **Kubernetes manifests**: Create deployment templates for cluster-wide collector
+9. **Documentation**: Add usage examples and configuration guides
+10. **Performance testing**: Test pull-based architecture under load
 
 ## Future Work (Separate PRs/RFDs)
 
@@ -246,11 +310,41 @@ agent:
 - Regional agent forwarders
 - Lambda/Cloud Run export via VPC endpoints
 
+## Architectural Migration: Push → Pull
+
+### Initial Implementation (Push-based - INCORRECT)
+
+The initial implementation (commits before 2025-11-14) used a **push-based architecture**:
+- Agent aggregated spans into 1-minute buckets locally
+- Agent flushed buckets to colony every minute via `IngestTelemetry` RPC
+- Colony received and stored buckets in `otel_spans` table
+
+**Problem**: This violated Coral's distributed storage architecture (docs/CONCEPT.md) where agents maintain local data and respond to colony queries.
+
+### Refactored Implementation (Pull-based - CORRECT)
+
+The refactored implementation follows **pull-based distributed storage**:
+- Agent filters spans and stores raw data locally (~1 hour retention)
+- Colony queries agents on-demand via `QueryTelemetry` RPC
+- Colony aggregates queried spans into 1-minute buckets
+- Colony stores summaries in `otel_summaries` table (24-hour retention)
+
+**Benefits**:
+- Aligns with Coral's architecture (agent → colony → reef cache layers)
+- Scales better (no constant push traffic)
+- Agents maintain data autonomy
+- Colony creates summaries only when needed for AI investigations
+
+### Migration Commits
+
+1. **Initial push-based implementation**: Created aggregator at agent, flush loop, IngestTelemetry RPC
+2. **Refactor to pull-based**: Moved aggregation to colony, added local storage, added QueryTelemetry RPC
+
 ## Notes
 
 - **Proto generation blocked**: Network issues prevented `buf generate` execution. Proto files are updated and will generate correctly when connectivity is restored.
 - **Backward compatible**: All changes are additive. Agents without telemetry config continue eBPF-only operation.
-- **Colony constructor changed**: `server.New()` now requires a `*database.Database` parameter. This may require updates to existing tests.
+- **Breaking changes**: Tests that use IngestTelemetry RPC will fail and need updates.
 
 ## References
 

@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// TelemetryBucket represents an aggregated telemetry bucket for storage.
-type TelemetryBucket struct {
+// TelemetrySummary represents an aggregated telemetry summary from queried agents (RFD 025 - pull-based).
+type TelemetrySummary struct {
 	BucketTime   time.Time
 	AgentID      string
 	ServiceName  string
@@ -21,9 +21,10 @@ type TelemetryBucket struct {
 	SampleTraces []string
 }
 
-// InsertTelemetryBuckets inserts telemetry buckets into the database.
-func (d *Database) InsertTelemetryBuckets(ctx context.Context, buckets []TelemetryBucket) error {
-	if len(buckets) == 0 {
+// InsertTelemetrySummaries inserts telemetry summaries into the database.
+// Summaries are created by the colony after querying and aggregating agent data (RFD 025).
+func (d *Database) InsertTelemetrySummaries(ctx context.Context, summaries []TelemetrySummary) error {
+	if len(summaries) == 0 {
 		return nil
 	}
 
@@ -34,7 +35,7 @@ func (d *Database) InsertTelemetryBuckets(ctx context.Context, buckets []Telemet
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO otel_spans (
+		INSERT INTO otel_summaries (
 			bucket_time, agent_id, service_name, span_kind,
 			p50_ms, p95_ms, p99_ms, error_count, total_spans, sample_traces
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -51,27 +52,27 @@ func (d *Database) InsertTelemetryBuckets(ctx context.Context, buckets []Telemet
 	}
 	defer stmt.Close()
 
-	for _, bucket := range buckets {
+	for _, summary := range summaries {
 		// Convert SampleTraces to JSON for DuckDB storage.
-		sampleTracesJSON, err := json.Marshal(bucket.SampleTraces)
+		sampleTracesJSON, err := json.Marshal(summary.SampleTraces)
 		if err != nil {
 			return fmt.Errorf("failed to marshal sample traces: %w", err)
 		}
 
 		_, err = stmt.ExecContext(ctx,
-			bucket.BucketTime,
-			bucket.AgentID,
-			bucket.ServiceName,
-			bucket.SpanKind,
-			bucket.P50Ms,
-			bucket.P95Ms,
-			bucket.P99Ms,
-			bucket.ErrorCount,
-			bucket.TotalSpans,
+			summary.BucketTime,
+			summary.AgentID,
+			summary.ServiceName,
+			summary.SpanKind,
+			summary.P50Ms,
+			summary.P95Ms,
+			summary.P99Ms,
+			summary.ErrorCount,
+			summary.TotalSpans,
 			string(sampleTracesJSON),
 		)
 		if err != nil {
-			return fmt.Errorf("failed to insert bucket: %w", err)
+			return fmt.Errorf("failed to insert summary: %w", err)
 		}
 	}
 
@@ -80,43 +81,43 @@ func (d *Database) InsertTelemetryBuckets(ctx context.Context, buckets []Telemet
 	}
 
 	d.logger.Debug().
-		Int("bucket_count", len(buckets)).
-		Msg("Inserted telemetry buckets")
+		Int("summary_count", len(summaries)).
+		Msg("Inserted telemetry summaries")
 
 	return nil
 }
 
-// QueryTelemetryBuckets retrieves telemetry buckets for a given time range and agent.
-func (d *Database) QueryTelemetryBuckets(ctx context.Context, agentID string, startTime, endTime time.Time) ([]TelemetryBucket, error) {
+// QueryTelemetrySummaries retrieves telemetry summaries for a given time range and agent.
+func (d *Database) QueryTelemetrySummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]TelemetrySummary, error) {
 	query := `
 		SELECT bucket_time, agent_id, service_name, span_kind,
 		       p50_ms, p95_ms, p99_ms, error_count, total_spans, sample_traces
-		FROM otel_spans
+		FROM otel_summaries
 		WHERE agent_id = ? AND bucket_time >= ? AND bucket_time <= ?
 		ORDER BY bucket_time DESC
 	`
 
 	rows, err := d.db.QueryContext(ctx, query, agentID, startTime, endTime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query telemetry buckets: %w", err)
+		return nil, fmt.Errorf("failed to query telemetry summaries: %w", err)
 	}
 	defer rows.Close()
 
-	var buckets []TelemetryBucket
+	var summaries []TelemetrySummary
 	for rows.Next() {
-		var bucket TelemetryBucket
+		var summary TelemetrySummary
 		var sampleTracesJSON string
 
 		err := rows.Scan(
-			&bucket.BucketTime,
-			&bucket.AgentID,
-			&bucket.ServiceName,
-			&bucket.SpanKind,
-			&bucket.P50Ms,
-			&bucket.P95Ms,
-			&bucket.P99Ms,
-			&bucket.ErrorCount,
-			&bucket.TotalSpans,
+			&summary.BucketTime,
+			&summary.AgentID,
+			&summary.ServiceName,
+			&summary.SpanKind,
+			&summary.P50Ms,
+			&summary.P95Ms,
+			&summary.P99Ms,
+			&summary.ErrorCount,
+			&summary.TotalSpans,
 			&sampleTracesJSON,
 		)
 		if err != nil {
@@ -124,30 +125,30 @@ func (d *Database) QueryTelemetryBuckets(ctx context.Context, agentID string, st
 		}
 
 		// DuckDB returns times in UTC, convert to local timezone.
-		bucket.BucketTime = bucket.BucketTime.Local()
+		summary.BucketTime = summary.BucketTime.Local()
 
 		// Decode SampleTraces from JSON.
-		if err := json.Unmarshal([]byte(sampleTracesJSON), &bucket.SampleTraces); err != nil {
+		if err := json.Unmarshal([]byte(sampleTracesJSON), &summary.SampleTraces); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal sample traces: %w", err)
 		}
 
-		buckets = append(buckets, bucket)
+		summaries = append(summaries, summary)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	return buckets, nil
+	return summaries, nil
 }
 
 // CleanupOldTelemetry removes telemetry data older than the specified retention period.
-// RFD 025 specifies a 24-hour TTL for telemetry data.
+// RFD 025 specifies a 24-hour TTL for telemetry summaries.
 func (d *Database) CleanupOldTelemetry(ctx context.Context, retentionHours int) (int64, error) {
 	cutoffTime := time.Now().Add(-time.Duration(retentionHours) * time.Hour)
 
 	result, err := d.db.ExecContext(ctx, `
-		DELETE FROM otel_spans
+		DELETE FROM otel_summaries
 		WHERE bucket_time < ?
 	`, cutoffTime)
 
@@ -164,14 +165,14 @@ func (d *Database) CleanupOldTelemetry(ctx context.Context, retentionHours int) 
 		d.logger.Debug().
 			Int64("rows_deleted", rowsAffected).
 			Time("cutoff_time", cutoffTime).
-			Msg("Cleaned up old telemetry data")
+			Msg("Cleaned up old telemetry summaries")
 	}
 
 	return rowsAffected, nil
 }
 
 // CorrelateEbpfAndTelemetry runs a correlation query joining eBPF and OTel data.
-// This is an example query showing how to correlate data for AI analysis.
+// This is an example query showing how to correlate data for AI analysis (RFD 025).
 func (d *Database) CorrelateEbpfAndTelemetry(ctx context.Context, serviceName string, bucketTime time.Time) ([]map[string]interface{}, error) {
 	// This is a placeholder showing the correlation pattern described in RFD 025.
 	// The actual eBPF table structure would need to be implemented as part of RFD 013.
@@ -182,7 +183,7 @@ func (d *Database) CorrelateEbpfAndTelemetry(ctx context.Context, serviceName st
 			o.p99_ms as otel_p99_latency,
 			o.error_count,
 			o.sample_traces
-		FROM otel_spans o
+		FROM otel_summaries o
 		WHERE o.service_name = ? AND o.bucket_time = ?
 	`
 

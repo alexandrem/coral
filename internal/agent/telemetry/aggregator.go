@@ -7,14 +7,19 @@ import (
 	"time"
 )
 
-// Span represents a simplified OpenTelemetry span for aggregation.
+// Span represents a filtered OpenTelemetry span for local storage.
 type Span struct {
+	Timestamp   time.Time
+	TraceID     string
+	SpanID      string
 	ServiceName string
 	SpanKind    string
 	DurationMs  float64
 	IsError     bool
-	TraceID     string
-	Timestamp   time.Time
+	HTTPStatus  int
+	HTTPMethod  string
+	HTTPRoute   string
+	Attributes  map[string]string
 }
 
 // Bucket represents a 1-minute aggregated telemetry bucket.

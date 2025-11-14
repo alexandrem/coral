@@ -9,32 +9,33 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Receiver handles OTLP data ingestion, filtering, and aggregation.
+// Receiver handles OTLP data ingestion, filtering, and local storage.
 // This is a placeholder for the actual OTLP receiver implementation.
 // The full implementation would integrate with go.opentelemetry.io/collector.
+// Receiver stores filtered spans locally; colony queries on-demand (RFD 025).
 type Receiver struct {
-	config     Config
-	filter     *Filter
-	aggregator *Aggregator
-	logger     zerolog.Logger
-	mu         sync.Mutex
-	running    bool
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
+	config  Config
+	filter  *Filter
+	storage *Storage
+	logger  zerolog.Logger
+	mu      sync.Mutex
+	running bool
+	stopCh  chan struct{}
+	wg      sync.WaitGroup
 }
 
 // NewReceiver creates a new OTLP receiver.
-func NewReceiver(config Config, logger zerolog.Logger) (*Receiver, error) {
+func NewReceiver(config Config, storage *Storage, logger zerolog.Logger) (*Receiver, error) {
 	if !config.Enabled {
 		return nil, fmt.Errorf("telemetry is not enabled")
 	}
 
 	return &Receiver{
-		config:     config,
-		filter:     NewFilter(config.Filters),
-		aggregator: NewAggregator(config.AgentID),
-		logger:     logger.With().Str("component", "telemetry_receiver").Logger(),
-		stopCh:     make(chan struct{}),
+		config:  config,
+		filter:  NewFilter(config.Filters),
+		storage: storage,
+		logger:  logger.With().Str("component", "telemetry_receiver").Logger(),
+		stopCh:  make(chan struct{}),
 	}, nil
 }
 
@@ -51,9 +52,12 @@ func (r *Receiver) Start(ctx context.Context) error {
 		Str("endpoint", r.config.Endpoint).
 		Msg("Starting OTLP receiver")
 
-	// Start flush goroutine.
+	// Start cleanup goroutine for local storage (~1 hour retention).
 	r.wg.Add(1)
-	go r.flushLoop(ctx)
+	go func() {
+		defer r.wg.Done()
+		r.storage.RunCleanupLoop(ctx, 1*time.Hour)
+	}()
 
 	r.running = true
 
@@ -61,7 +65,7 @@ func (r *Receiver) Start(ctx context.Context) error {
 	// This would use go.opentelemetry.io/collector components.
 	// For now, this is a placeholder showing the structure.
 
-	r.logger.Info().Msg("OTLP receiver started")
+	r.logger.Info().Msg("OTLP receiver started with local storage")
 	return nil
 }
 
@@ -85,55 +89,28 @@ func (r *Receiver) Stop() error {
 	return nil
 }
 
-// ProcessSpan processes a single span through filtering and aggregation.
+// ProcessSpan processes a single span through filtering and local storage.
 // This would be called by the OTLP receiver for each span.
-func (r *Receiver) ProcessSpan(span Span) {
+func (r *Receiver) ProcessSpan(ctx context.Context, span Span) error {
 	// Apply filtering.
 	if !r.filter.ShouldCapture(span) {
-		return
+		return nil
 	}
 
-	// Add to aggregator.
-	r.aggregator.AddSpan(span)
-}
-
-// flushLoop periodically flushes aggregated buckets.
-func (r *Receiver) flushLoop(ctx context.Context) {
-	defer r.wg.Done()
-
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			buckets := r.aggregator.FlushBuckets()
-			if len(buckets) > 0 {
-				r.logger.Debug().
-					Int("bucket_count", len(buckets)).
-					Msg("Flushed telemetry buckets")
-
-				// TODO: Send buckets to colony via gRPC.
-				// This would call colony.IngestTelemetry(buckets).
-			}
-
-		case <-r.stopCh:
-			// Final flush before stopping.
-			buckets := r.aggregator.FlushBuckets()
-			if len(buckets) > 0 {
-				r.logger.Debug().
-					Int("bucket_count", len(buckets)).
-					Msg("Final flush of telemetry buckets")
-			}
-			return
-
-		case <-ctx.Done():
-			return
-		}
+	// Store in local storage.
+	if err := r.storage.StoreSpan(ctx, span); err != nil {
+		r.logger.Warn().
+			Err(err).
+			Str("trace_id", span.TraceID).
+			Msg("Failed to store span")
+		return err
 	}
+
+	return nil
 }
 
-// GetBuckets returns the current aggregated buckets (for testing).
-func (r *Receiver) GetBuckets() []Bucket {
-	return r.aggregator.FlushBuckets()
+// QuerySpans queries filtered spans from local storage.
+// This is called by the QueryTelemetry RPC handler (colony → agent).
+func (r *Receiver) QuerySpans(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]Span, error) {
+	return r.storage.QuerySpans(ctx, startTime, endTime, serviceNames)
 }

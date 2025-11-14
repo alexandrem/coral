@@ -19,6 +19,9 @@ service AgentService {
 
   // List currently monitored services.
   rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+
+  // Query telemetry data from agent local storage (RFD 025 - pull-based).
+  rpc QueryTelemetry(QueryTelemetryRequest) returns (QueryTelemetryResponse);
 }
 
 message GetRuntimeContextRequest {
@@ -236,5 +239,64 @@ message EbpfCapabilities {
   bool btf_available = 3;           // BTF/CO-RE support
   bool cap_bpf = 4;                 // CAP_BPF capability
   repeated EbpfCollectorKind available_collectors = 5;
+}
+
+// QueryTelemetry RPC messages (RFD 025 - pull-based telemetry).
+
+// TelemetrySpan represents a filtered OpenTelemetry span stored locally on agents.
+message TelemetrySpan {
+  // Span timestamp (Unix milliseconds).
+  int64 timestamp = 1;
+
+  // OpenTelemetry trace ID.
+  string trace_id = 2;
+
+  // OpenTelemetry span ID.
+  string span_id = 3;
+
+  // Service name from span attributes.
+  string service_name = 4;
+
+  // Span kind (CLIENT, SERVER, INTERNAL, PRODUCER, CONSUMER).
+  string span_kind = 5;
+
+  // Span duration in milliseconds.
+  double duration_ms = 6;
+
+  // Whether this span represents an error.
+  bool is_error = 7;
+
+  // HTTP status code (if applicable).
+  int32 http_status = 8;
+
+  // HTTP method (if applicable).
+  string http_method = 9;
+
+  // HTTP route (if applicable).
+  string http_route = 10;
+
+  // Additional span attributes (key-value pairs).
+  map<string, string> attributes = 11;
+}
+
+// QueryTelemetryRequest is sent from colony to agent to query recent telemetry.
+message QueryTelemetryRequest {
+  // Start time for query range (Unix seconds).
+  int64 start_time = 1;
+
+  // End time for query range (Unix seconds).
+  int64 end_time = 2;
+
+  // Filter by service names (empty = all services).
+  repeated string service_names = 3;
+}
+
+// QueryTelemetryResponse contains filtered spans from agent's local storage.
+message QueryTelemetryResponse {
+  // Filtered spans matching the query.
+  repeated TelemetrySpan spans = 1;
+
+  // Total number of spans returned.
+  int32 total_spans = 2;
 }
 
