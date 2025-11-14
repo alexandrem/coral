@@ -14,7 +14,7 @@ Coral: "API crashed with OOM 3 minutes ago. Memory grew 250MB→512MB
 You: "Do it"
 Coral: "Rolling back API to v2.2.5... Done. Memory stable at 240MB."
 
-⏱️  <1 second analysis, one command to fix
+⏱️  <1 second analysis using your own LLM (OpenAI/Anthropic/Ollama)
 ```
 
 ## Status
@@ -45,8 +45,8 @@ See health, connections, and resource usage across all services in one place.
 
 ### 🐛 Debug
 
-Ask questions in natural language. Get AI-powered insights from your system's
-behavior.
+Ask questions in natural language using your own LLM (OpenAI/Anthropic/Ollama).
+Get AI-powered insights from your Colony's observability data.
 
 ### 🎛️ Control
 
@@ -77,14 +77,17 @@ coral agent start
 coral connect frontend:3000
 coral connect api:8080:/health
 
-# Ask questions about your system
+# Configure AI (first time only)
+coral ask config  # Set up your LLM provider (OpenAI/Anthropic/Ollama)
+
+# Ask questions about your system (uses YOUR LLM)
 coral ask "What's happening with the API?"
 coral ask "Why is checkout slow?"
 coral ask "What changed in the last hour?"
 ```
 
-**You get:** Process monitoring, connection mapping, AI-powered debugging
-insights.
+**You get:** Process monitoring, connection mapping, AI-powered debugging using
+your own LLM.
 
 ### SDK-Integrated Mode (Full Control)
 
@@ -130,20 +133,33 @@ coral rollback api --to-version v2.2.5
 
 ## Architecture
 
-**Simple three-tier design:**
+**Three-tier design with separated LLM:**
 
 ```
-         ┌─────────────────────┐
-         │   Colony (Brain)    │  ← AI analysis, coordination
-         │   Aggregates data   │    Control plane orchestration
-         │   Answers questions │
-         └──┬────────┬─────────┘
+Developer Workstation               Enterprise (Optional)
+┌────────────────────┐             ┌──────────────────────┐
+│  coral ask         │             │   Reef               │
+│  (Local Genkit)    │             │   Multi-colony       │
+│                    │             │   Server-side LLM    │
+│  Uses your own     │             │   ClickHouse         │
+│  LLM API keys      │             │   (Aggregated data)  │
+│  (OpenAI/Anthropic │             └──────────┬───────────┘
+│   /Ollama)         │                        │
+└─────────┬──────────┘                        │ Federation
+          │ MCP Client                        │ (WireGuard)
+          ▼                                   ▼
+         ┌─────────────────────┐    ┌─────────────────────┐
+         │   Colony            │◄───┤   Colony            │
+         │   MCP Gateway       │    │   MCP Gateway       │
+         │   Aggregates data   │    │   (Production)      │
+         │   DuckDB/ClickHouse │    │   ClickHouse        │
+         └──┬────────┬─────────┘    └─────────────────────┘
             │        │
     ┌───────▼──┐  ┌──▼───────┐
     │ Agent    │  │ Agent    │      ← Local observers
     │ Frontend │  │ API      │        Watch processes, connections
     └────┬─────┘  └─────┬────┘        Coordinate control actions
-         │              │
+         │              │              Embedded DuckDB
     ┌────▼─────┐   ┌────▼─────┐
     │ Your     │   │ Your     │      ← Your services
     │ Frontend │   │ API      │        Run normally
@@ -155,8 +171,10 @@ coral rollback api --to-version v2.2.5
 
 - **Control plane only** - Agents never proxy/intercept application traffic
 - **Application-scoped** - One colony per app (not infrastructure-wide)
-- **Self-sufficient** - Works standalone, no external dependencies
+- **Separated LLM** - Colony is MCP gateway only, AI at developer and Reef layers
+- **User-controlled AI** - Developers use their own LLM accounts via local Genkit
 - **SDK optional** - Basic observability works without code changes
+- **Optional federation** - Reef provides cross-colony analysis for enterprises
 
 ## Quick Start
 
@@ -317,7 +335,12 @@ coral connect frontend --port 3000 --health /health
 ### AI Queries
 
 ```bash
-# Ask questions about your system
+# Configure your LLM (first time setup)
+coral ask config
+# Choose provider: OpenAI, Anthropic, or Ollama (local)
+# Provide API key (stored locally, never sent to Coral servers)
+
+# Ask questions about your system (uses YOUR LLM account)
 coral ask "Why is the API slow?"
 coral ask "What changed in the last hour?"
 coral ask "Are there any errors in the frontend?"
@@ -326,9 +349,19 @@ coral ask "Show me the service dependencies"
 # JSON output
 coral ask "System status?" --json
 
-# Verbose mode
-coral ask "What's happening?" --verbose
+# Use specific model
+coral ask "What's happening?" --model anthropic:claude-3-5-sonnet-20241022
+
+# Cost tracking
+coral ask cost
+# Shows your daily LLM usage and estimated costs
 ```
+
+**How it works:**
+- `coral ask` runs a local Genkit agent on your workstation
+- Connects to Colony as MCP server to access observability data
+- Uses **your own LLM API keys** (OpenAI, Anthropic, or local Ollama)
+- You control model choice, costs, and data privacy
 
 ### Control Operations (SDK-integrated mode)
 
@@ -405,15 +438,88 @@ coral ask "What depends on the database?"
 
 - **Unified interface** - One tool for observing, debugging, and controlling (
   not another dashboard to check)
-- **AI-powered insights** - Ask questions in natural language, get intelligent
-  answers (<1s from local data)
+- **AI-powered insights** - Ask questions in natural language using **your own
+  LLM** (OpenAI/Anthropic/Ollama)
 - **Two-tier integration** - Works passively (no code changes) or
   SDK-integrated (full control)
-- **Self-sufficient** - Standalone intelligence from local data, optionally
-  enriched via MCP (Grafana/Sentry)
+- **Separated LLM architecture** - Colony is MCP gateway only, you control the
+  AI layer
+- **User-controlled AI** - Your API keys, your model choice, your cost control
 - **Control plane only** - Can't break your apps, zero performance impact
 - **Application-scoped** - One colony per app, scales from laptop to production
-- **User-controlled** - Self-hosted, your AI keys, your data stays local
+- **Data privacy** - Self-hosted, observability data stays in your Colony
+- **Enterprise-ready** - Optional Reef layer for multi-colony federation with
+  server-side LLM
+
+## Multi-Colony Federation (Reef)
+
+For enterprises managing multiple environments (dev, staging, prod) or multiple
+applications, Coral offers **Reef** - a federation layer that aggregates data
+across colonies.
+
+### Architecture
+
+```
+Developer/External          Reef (Enterprise)           Colonies
+┌──────────────┐          ┌────────────────┐        ┌──────────────┐
+│ coral reef   │──HTTPS──▶│  Reef Server   │◄──────▶│ my-app-prod  │
+│ CLI          │          │                │ Mesh   │              │
+└──────────────┘          │ Server-side    │        └──────────────┘
+                          │ LLM (Genkit)   │        ┌──────────────┐
+┌──────────────┐          │                │◄──────▶│ my-app-dev   │
+│ Slack Bot    │──HTTPS──▶│ ClickHouse     │ Mesh   │              │
+└──────────────┘          │                │        └──────────────┘
+                          │ Public HTTPS + │        ┌──────────────┐
+┌──────────────┐          │ Private Mesh   │◄──────▶│ other-app    │
+│ GitHub       │──HTTPS──▶│                │ Mesh   │              │
+│ Actions      │          └────────────────┘        └──────────────┘
+└──────────────┘
+```
+
+### Key Features
+
+- **Dual Interface**: Private WireGuard mesh (colonies) + public HTTPS (
+  external integrations)
+- **Aggregated Analytics**: Query across all colonies for cross-environment
+  analysis
+- **Server-side LLM**: Reef hosts its own Genkit service with org-wide LLM
+  configuration
+- **ClickHouse Storage**: Scalable time-series database for federated metrics
+- **External Integrations**: Slack bots, GitHub Actions, mobile apps via public
+  API/MCP
+- **Authentication**: API tokens, JWT, and mTLS for secure access
+- **RBAC**: Role-based permissions for different operations
+
+### Example Usage
+
+```bash
+# Cross-environment comparison
+coral reef analyze "Compare prod vs staging error rates"
+# → Uses Reef's server-side LLM to query all colonies
+
+# Deployment analysis
+coral reef deployment-status my-app v2.3.0
+# → Shows rollout across dev, staging, prod
+
+# External integration (Slack bot)
+# Reef exposes public HTTPS endpoint for ecosystem integrations
+# See RFD 003 for API documentation
+```
+
+### When to Use Reef
+
+- **Multiple Colonies**: Managing dev, staging, prod environments
+- **Cross-environment Analysis**: Compare metrics across all colonies
+- **External Integrations**: Slack bots, CI/CD, mobile apps need access
+- **Centralized LLM**: Organization prefers managed LLM configuration
+- **Enterprise Scale**: ClickHouse for high-volume time-series data
+
+### When Not to Use Reef
+
+- **Single Colony**: Individual developers or single-app deployments
+- **Local-only**: If all operations are on your workstation, `coral ask` is
+  sufficient
+- **No Federation Needed**: Colony-level data is enough for your use case
 
 ## Development
 
