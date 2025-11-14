@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -133,15 +134,24 @@ func (a *Aggregator) FlushBuckets() []Bucket {
 
 // getBucketKey creates a unique key for a bucket.
 func getBucketKey(bucketTime time.Time, service, kind string) string {
-	return bucketTime.Format(time.RFC3339) + ":" + service + ":" + kind
+	return bucketTime.Format(time.RFC3339) + "|" + service + "|" + kind
 }
 
 // parseBucketKey parses a bucket key back into components.
-// This is a simplified implementation - in production, you'd want better parsing.
 func parseBucketKey(key string) (time.Time, string, string) {
-	// For now, return zero values - this is a helper for bucket management.
-	// In a real implementation, you'd parse the key properly.
-	return time.Time{}, "", ""
+	// Key format: "bucketTime|service|kind"
+	parts := strings.SplitN(key, "|", 3)
+	if len(parts) != 3 {
+		return time.Time{}, "", ""
+	}
+
+	// Parse the bucket time.
+	bucketTime, err := time.Parse(time.RFC3339, parts[0])
+	if err != nil {
+		return time.Time{}, "", ""
+	}
+
+	return bucketTime, parts[1], parts[2]
 }
 
 // calculatePercentiles calculates p50, p95, and p99 from a slice of durations.

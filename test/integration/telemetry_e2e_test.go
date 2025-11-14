@@ -26,7 +26,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	}
 	defer db.Close()
 
-	reg := registry.New(zerolog.Nop())
+	reg := registry.New()
 	colonyServer := server.New(reg, db, server.Config{
 		ColonyID:        "test-colony",
 		ApplicationName: "test-app",
@@ -36,9 +36,9 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	// Setup agent telemetry components.
 	agentID := "agent-1"
 	filterConfig := telemetry.FilterConfig{
-		AlwaysCaptureErrors:  true,
-		LatencyThresholdMs:   500.0,
-		SampleRate:           0.10, // 10% sampling.
+		AlwaysCaptureErrors: true,
+		LatencyThresholdMs:  500.0,
+		SampleRate:          0.10, // 10% sampling.
 	}
 	filter := telemetry.NewFilter(filterConfig)
 	aggregator := telemetry.NewAggregator(agentID)
@@ -327,7 +327,7 @@ func TestTelemetryEndToEnd_MultipleFlushes(t *testing.T) {
 	}
 	defer db.Close()
 
-	reg := registry.New(zerolog.Nop())
+	reg := registry.New()
 	colonyServer := server.New(reg, db, server.Config{
 		ColonyID: "test-colony",
 	}, zerolog.Nop())

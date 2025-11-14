@@ -1221,6 +1221,12 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		discoveryClient: discoveryClient,
 	}
 
+	// Create database for telemetry storage
+	db, err := database.New(cfg.StoragePath, cfg.ColonyID, logger.With().Str("component", "database").Logger())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database: %w", err)
+	}
+
 	// Create colony service handler
 	colonyServerConfig := server.Config{
 		ColonyID:           cfg.ColonyID,
@@ -1235,7 +1241,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		MeshIPv4:           cfg.WireGuard.MeshIPv4,
 		MeshIPv6:           cfg.WireGuard.MeshIPv6,
 	}
-	colonySvc := server.New(agentRegistry, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
+	colonySvc := server.New(agentRegistry, db, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
 	// Register the handlers
 	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(meshSvc)

@@ -11,9 +11,9 @@ func TestTelemetryPipeline(t *testing.T) {
 
 	// Create filter with strict rules.
 	filterConfig := FilterConfig{
-		AlwaysCaptureErrors:  true,
-		LatencyThresholdMs:   500.0,
-		SampleRate:           1.0, // Capture all normal spans for testing.
+		AlwaysCaptureErrors: true,
+		LatencyThresholdMs:  500.0,
+		SampleRate:          1.0, // Capture all normal spans for testing.
 	}
 	filter := NewFilter(filterConfig)
 
@@ -150,9 +150,9 @@ func TestTelemetryPipeline(t *testing.T) {
 // TestTelemetryPipeline_ErrorCapture tests that errors are always captured.
 func TestTelemetryPipeline_ErrorCapture(t *testing.T) {
 	filterConfig := FilterConfig{
-		AlwaysCaptureErrors:  true,
-		LatencyThresholdMs:   10000.0, // Very high threshold.
-		SampleRate:           0.0,     // No sampling.
+		AlwaysCaptureErrors: true,
+		LatencyThresholdMs:  10000.0, // Very high threshold.
+		SampleRate:          0.0,     // No sampling.
 	}
 	filter := NewFilter(filterConfig)
 
@@ -207,9 +207,9 @@ func TestTelemetryPipeline_ErrorCapture(t *testing.T) {
 // TestTelemetryPipeline_HighLatencyCapture tests high-latency span capture.
 func TestTelemetryPipeline_HighLatencyCapture(t *testing.T) {
 	filterConfig := FilterConfig{
-		AlwaysCaptureErrors:  false,
-		LatencyThresholdMs:   500.0,
-		SampleRate:           0.0, // No sampling.
+		AlwaysCaptureErrors: false,
+		LatencyThresholdMs:  500.0,
+		SampleRate:          0.0, // No sampling.
 	}
 	filter := NewFilter(filterConfig)
 

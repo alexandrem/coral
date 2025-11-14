@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -51,7 +52,13 @@ func (d *Database) InsertTelemetryBuckets(ctx context.Context, buckets []Telemet
 	defer stmt.Close()
 
 	for _, bucket := range buckets {
-		_, err := stmt.ExecContext(ctx,
+		// Convert SampleTraces to JSON for DuckDB storage.
+		sampleTracesJSON, err := json.Marshal(bucket.SampleTraces)
+		if err != nil {
+			return fmt.Errorf("failed to marshal sample traces: %w", err)
+		}
+
+		_, err = stmt.ExecContext(ctx,
 			bucket.BucketTime,
 			bucket.AgentID,
 			bucket.ServiceName,
@@ -61,7 +68,7 @@ func (d *Database) InsertTelemetryBuckets(ctx context.Context, buckets []Telemet
 			bucket.P99Ms,
 			bucket.ErrorCount,
 			bucket.TotalSpans,
-			bucket.SampleTraces,
+			string(sampleTracesJSON),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert bucket: %w", err)
@@ -98,6 +105,8 @@ func (d *Database) QueryTelemetryBuckets(ctx context.Context, agentID string, st
 	var buckets []TelemetryBucket
 	for rows.Next() {
 		var bucket TelemetryBucket
+		var sampleTracesJSON string
+
 		err := rows.Scan(
 			&bucket.BucketTime,
 			&bucket.AgentID,
@@ -108,11 +117,20 @@ func (d *Database) QueryTelemetryBuckets(ctx context.Context, agentID string, st
 			&bucket.P99Ms,
 			&bucket.ErrorCount,
 			&bucket.TotalSpans,
-			&bucket.SampleTraces,
+			&sampleTracesJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
+
+		// DuckDB returns times in UTC, convert to local timezone.
+		bucket.BucketTime = bucket.BucketTime.Local()
+
+		// Decode SampleTraces from JSON.
+		if err := json.Unmarshal([]byte(sampleTracesJSON), &bucket.SampleTraces); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal sample traces: %w", err)
+		}
+
 		buckets = append(buckets, bucket)
 	}
 
@@ -180,19 +198,28 @@ func (d *Database) CorrelateEbpfAndTelemetry(ctx context.Context, serviceName st
 		var bucketTime time.Time
 		var p99Latency float64
 		var errorCount int32
-		var sampleTraces []string
+		var sampleTracesJSON string
 
-		err := rows.Scan(&serviceName, &bucketTime, &p99Latency, &errorCount, &sampleTraces)
+		err := rows.Scan(&serviceName, &bucketTime, &p99Latency, &errorCount, &sampleTracesJSON)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
+		// DuckDB returns times in UTC, convert to local timezone.
+		bucketTime = bucketTime.Local()
+
+		// Decode SampleTraces from JSON.
+		var sampleTraces []string
+		if err := json.Unmarshal([]byte(sampleTracesJSON), &sampleTraces); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal sample traces: %w", err)
+		}
+
 		result := map[string]interface{}{
-			"service_name":   serviceName,
-			"bucket_time":    bucketTime,
-			"otel_p99_ms":    p99Latency,
-			"error_count":    errorCount,
-			"sample_traces":  sampleTraces,
+			"service_name":  serviceName,
+			"bucket_time":   bucketTime,
+			"otel_p99_ms":   p99Latency,
+			"error_count":   errorCount,
+			"sample_traces": sampleTraces,
 		}
 		results = append(results, result)
 	}

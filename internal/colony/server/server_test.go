@@ -13,13 +13,22 @@ import (
 	"github.com/stretchr/testify/require"
 
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
+	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 )
 
 func newTestServer(t *testing.T, config Config) *Server {
 	reg := registry.New()
 	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
-	return New(reg, config, logger)
+
+	// Create temporary database for testing
+	tmpDir := t.TempDir()
+	db, err := database.New(tmpDir, config.ColonyID, logger)
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+
+	return New(reg, db, config, logger)
 }
 
 func TestServer_GetStatus(t *testing.T) {

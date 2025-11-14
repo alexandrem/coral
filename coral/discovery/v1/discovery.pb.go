@@ -195,7 +195,9 @@ type RegisterColonyResponse struct {
 	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	// Observed public endpoint as seen by Discovery
 	ObservedEndpoint *Endpoint `protobuf:"bytes,4,opt,name=observed_endpoint,json=observedEndpoint,proto3" json:"observed_endpoint,omitempty"`
-	// Suggested STUN servers for NAT discovery
+	// Recommended fallback STUN servers for NAT discovery (optional).
+	// Primary STUN mechanism is colony-based STUN (RFD 029).
+	// Clients may ignore this list and use their own configured STUN servers.
 	StunServers   []string `protobuf:"bytes,5,rep,name=stun_servers,json=stunServers,proto3" json:"stun_servers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1042,7 +1044,9 @@ type RegisterAgentResponse struct {
 	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	// Observed public endpoint as seen by Discovery
 	ObservedEndpoint *Endpoint `protobuf:"bytes,4,opt,name=observed_endpoint,json=observedEndpoint,proto3" json:"observed_endpoint,omitempty"`
-	// Suggested STUN servers for NAT discovery
+	// Recommended fallback STUN servers for NAT discovery (optional).
+	// Primary STUN mechanism is colony-based STUN (RFD 029).
+	// Clients may ignore this list and use their own configured STUN servers.
 	StunServers   []string `protobuf:"bytes,5,rep,name=stun_servers,json=stunServers,proto3" json:"stun_servers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

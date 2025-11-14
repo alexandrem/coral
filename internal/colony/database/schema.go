@@ -142,7 +142,7 @@ var schemaDDL = []string{
 		p99_ms DOUBLE,
 		error_count INTEGER DEFAULT 0,
 		total_spans INTEGER DEFAULT 0,
-		sample_traces TEXT[],
+		sample_traces TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (bucket_time, agent_id, service_name, span_kind)
 	)`,

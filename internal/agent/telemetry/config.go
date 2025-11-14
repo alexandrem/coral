@@ -35,9 +35,9 @@ func DefaultConfig() Config {
 		Enabled:  false,
 		Endpoint: "127.0.0.1:4317",
 		Filters: FilterConfig{
-			AlwaysCaptureErrors:  true,
-			LatencyThresholdMs:   500.0,
-			SampleRate:           0.10,
+			AlwaysCaptureErrors: true,
+			LatencyThresholdMs:  500.0,
+			SampleRate:          0.10,
 		},
 	}
 }

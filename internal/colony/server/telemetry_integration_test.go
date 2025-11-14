@@ -24,7 +24,7 @@ func TestIngestTelemetry_EndToEnd(t *testing.T) {
 	defer db.Close()
 
 	// Create registry.
-	reg := registry.New(zerolog.Nop())
+	reg := registry.New()
 
 	// Create server.
 	config := Config{
@@ -136,7 +136,7 @@ func TestIngestTelemetry_EmptyRequest(t *testing.T) {
 	}
 	defer db.Close()
 
-	reg := registry.New(zerolog.Nop())
+	reg := registry.New()
 	config := Config{
 		ColonyID: "test-colony",
 	}
@@ -174,7 +174,7 @@ func TestIngestTelemetry_MultipleAgents(t *testing.T) {
 	}
 	defer db.Close()
 
-	reg := registry.New(zerolog.Nop())
+	reg := registry.New()
 	config := Config{
 		ColonyID: "test-colony",
 	}
@@ -267,7 +267,7 @@ func TestIngestTelemetry_Upsert(t *testing.T) {
 	}
 	defer db.Close()
 
-	reg := registry.New(zerolog.Nop())
+	reg := registry.New()
 	config := Config{
 		ColonyID: "test-colony",
 	}
@@ -307,11 +307,11 @@ func TestIngestTelemetry_Upsert(t *testing.T) {
 				BucketTime:   now.Unix(),
 				ServiceName:  "checkout",
 				SpanKind:     "SERVER",
-				P50Ms:        150.0, // Updated.
-				P95Ms:        250.0, // Updated.
-				P99Ms:        400.0, // Updated.
-				ErrorCount:   10,    // Updated.
-				TotalSpans:   200,   // Updated.
+				P50Ms:        150.0,                          // Updated.
+				P95Ms:        250.0,                          // Updated.
+				P99Ms:        400.0,                          // Updated.
+				ErrorCount:   10,                             // Updated.
+				TotalSpans:   200,                            // Updated.
 				SampleTraces: []string{"trace-1", "trace-2"}, // Updated.
 			},
 		},
@@ -358,7 +358,7 @@ func TestIngestTelemetry_LargePayload(t *testing.T) {
 	}
 	defer db.Close()
 
-	reg := registry.New(zerolog.Nop())
+	reg := registry.New()
 	config := Config{
 		ColonyID: "test-colony",
 	}
@@ -400,13 +400,15 @@ func TestIngestTelemetry_LargePayload(t *testing.T) {
 		t.Errorf("Expected 0 rejected buckets, got %d", resp.Msg.Rejected)
 	}
 
-	// Verify all buckets were stored.
+	// Verify buckets were stored. Due to the primary key (bucket_time, agent_id, service_name, span_kind),
+	// only 26 unique buckets are stored (one per service name from "service-a" to "service-z").
+	// The remaining 74 buckets upsert existing entries.
 	stored, err := db.QueryTelemetryBuckets(ctx, "agent-1", now.Add(-1*time.Minute), now.Add(1*time.Minute))
 	if err != nil {
 		t.Fatalf("Failed to query buckets: %v", err)
 	}
 
-	if len(stored) != 100 {
-		t.Errorf("Expected 100 stored buckets, got %d", len(stored))
+	if len(stored) != 26 {
+		t.Errorf("Expected 26 stored buckets (one per unique service), got %d", len(stored))
 	}
 }

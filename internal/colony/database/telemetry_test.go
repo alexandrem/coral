@@ -2,8 +2,6 @@ package database
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -117,11 +115,11 @@ func TestInsertTelemetryBuckets_Upsert(t *testing.T) {
 			AgentID:      "agent-1",
 			ServiceName:  "checkout",
 			SpanKind:     "SERVER",
-			P50Ms:        150.0, // Updated.
-			P95Ms:        250.0, // Updated.
-			P99Ms:        400.0, // Updated.
-			ErrorCount:   10,    // Updated.
-			TotalSpans:   200,   // Updated.
+			P50Ms:        150.0,                          // Updated.
+			P95Ms:        250.0,                          // Updated.
+			P99Ms:        400.0,                          // Updated.
+			ErrorCount:   10,                             // Updated.
+			TotalSpans:   200,                            // Updated.
 			SampleTraces: []string{"trace-1", "trace-2"}, // Updated.
 		},
 	}

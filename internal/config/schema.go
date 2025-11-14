@@ -191,23 +191,23 @@ func DefaultProjectConfig(colonyID string) *ProjectConfig {
 
 // AgentConfig represents agent-specific configuration (RFD 025).
 type AgentConfig struct {
-	Version   string           `yaml:"version"`
-	AgentID   string           `yaml:"agent_id"`
-	Telemetry TelemetryConfig  `yaml:"telemetry"`
+	Version   string          `yaml:"version"`
+	AgentID   string          `yaml:"agent_id"`
+	Telemetry TelemetryConfig `yaml:"telemetry"`
 }
 
 // TelemetryConfig contains OpenTelemetry ingestion settings (RFD 025).
 type TelemetryConfig struct {
-	Enabled  bool           `yaml:"enabled"`
-	Endpoint string         `yaml:"endpoint"`
-	Filters  FiltersConfig  `yaml:"filters"`
+	Enabled  bool          `yaml:"enabled"`
+	Endpoint string        `yaml:"endpoint"`
+	Filters  FiltersConfig `yaml:"filters"`
 }
 
 // FiltersConfig contains static filtering rules for telemetry (RFD 025).
 type FiltersConfig struct {
-	AlwaysCaptureErrors  bool    `yaml:"always_capture_errors"`
-	LatencyThresholdMs   float64 `yaml:"latency_threshold_ms"`
-	SampleRate           float64 `yaml:"sample_rate"`
+	AlwaysCaptureErrors bool    `yaml:"always_capture_errors"`
+	LatencyThresholdMs  float64 `yaml:"latency_threshold_ms"`
+	SampleRate          float64 `yaml:"sample_rate"`
 }
 
 // DefaultAgentConfig returns an agent config with sensible defaults.
@@ -219,9 +219,9 @@ func DefaultAgentConfig(agentID string) *AgentConfig {
 			Enabled:  false,
 			Endpoint: "127.0.0.1:4317",
 			Filters: FiltersConfig{
-				AlwaysCaptureErrors:  true,
-				LatencyThresholdMs:   500.0,
-				SampleRate:           0.10,
+				AlwaysCaptureErrors: true,
+				LatencyThresholdMs:  500.0,
+				SampleRate:          0.10,
 			},
 		},
 	}
