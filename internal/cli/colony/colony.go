@@ -24,6 +24,7 @@ import (
 	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-io/coral/internal/colony"
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/colony/server"
@@ -261,6 +262,23 @@ Examples:
 					Msg("Failed to start registration manager, will retry in background")
 			}
 
+			// Create and start telemetry poller for RFD 025 pull-based telemetry.
+			// Polls agents every 1 minute for recent telemetry data.
+			telemetryPoller := colony.NewTelemetryPoller(
+				agentRegistry,
+				db,
+				1*time.Minute, // Poll interval
+				logger,
+			)
+
+			if err := telemetryPoller.Start(); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to start telemetry poller")
+			} else {
+				logger.Info().Msg("Telemetry poller started - will query agents every minute")
+			}
+
 			logger.Info().
 				Str("dashboard_url", fmt.Sprintf("http://localhost:%d", cfg.Dashboard.Port)).
 				Str("colony_id", cfg.ColonyID).
@@ -275,6 +293,13 @@ Examples:
 				<-sigChan
 
 				fmt.Println("\n\nShutting down colony...")
+
+				// Stop telemetry poller
+				if err := telemetryPoller.Stop(); err != nil {
+					logger.Warn().
+						Err(err).
+						Msg("Error stopping telemetry poller")
+				}
 
 				// Stop registration manager
 				if err := regManager.Stop(); err != nil {
