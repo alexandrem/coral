@@ -264,10 +264,12 @@ Examples:
 
 			// Create and start telemetry poller for RFD 025 pull-based telemetry.
 			// Polls agents every 1 minute for recent telemetry data.
+			// Default retention: 24 hours for telemetry summaries.
 			telemetryPoller := colony.NewTelemetryPoller(
 				agentRegistry,
 				db,
 				1*time.Minute, // Poll interval
+				24,            // Retention in hours (default: 24)
 				logger,
 			)
 
@@ -277,6 +279,27 @@ Examples:
 					Msg("Failed to start telemetry poller")
 			} else {
 				logger.Info().Msg("Telemetry poller started - will query agents every minute")
+			}
+
+			// Create and start Beyla metrics poller for RFD 032.
+			// Polls agents every 1 minute for Beyla RED metrics.
+			// Default retention: 30 days HTTP/gRPC, 14 days SQL.
+			beylaPoller := colony.NewBeylaPoller(
+				agentRegistry,
+				db,
+				1*time.Minute, // Poll interval
+				30,            // HTTP retention in days (default: 30)
+				30,            // gRPC retention in days (default: 30)
+				14,            // SQL retention in days (default: 14)
+				logger,
+			)
+
+			if err := beylaPoller.Start(); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to start Beyla metrics poller")
+			} else {
+				logger.Info().Msg("Beyla metrics poller started - will query agents every minute")
 			}
 
 			logger.Info().
@@ -299,6 +322,13 @@ Examples:
 					logger.Warn().
 						Err(err).
 						Msg("Error stopping telemetry poller")
+				}
+
+				// Stop Beyla metrics poller
+				if err := beylaPoller.Stop(); err != nil {
+					logger.Warn().
+						Err(err).
+						Msg("Error stopping Beyla metrics poller")
 				}
 
 				// Stop registration manager
