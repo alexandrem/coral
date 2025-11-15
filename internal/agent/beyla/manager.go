@@ -29,6 +29,9 @@ type Manager struct {
 	storage      *telemetry.Storage
 	transformer  *Transformer
 
+	// Beyla metrics storage (local DuckDB for pull-based queries).
+	beylaStorage *BeylaStorage
+
 	// Beyla process management.
 	beylaCmd        *exec.Cmd
 	beylaBinaryPath string // Path to extracted binary (cleanup on stop)
@@ -131,6 +134,14 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 			return nil, fmt.Errorf("failed to create telemetry storage: %w", err)
 		}
 		m.storage = storage
+
+		// Initialize Beyla metrics storage (RFD 032 Phase 4).
+		beylaStorage, err := NewBeylaStorage(config.DB, logger)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create Beyla storage: %w", err)
+		}
+		m.beylaStorage = beylaStorage
 	} else {
 		m.logger.Warn().Msg("No database provided; OTLP receiver will not be available")
 	}
@@ -242,6 +253,15 @@ func (m *Manager) GetMetrics() <-chan *ebpfpb.EbpfEvent {
 	return m.metricsCh
 }
 
+// QueryHTTPMetrics queries Beyla HTTP metrics from local storage (RFD 032 Phase 4).
+// This is called by the QueryTelemetry RPC handler (colony → agent pull-based).
+func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
+	if m.beylaStorage == nil {
+		return nil, fmt.Errorf("Beyla storage not initialized")
+	}
+	return m.beylaStorage.QueryHTTPMetrics(ctx, startTime, endTime, serviceNames)
+}
+
 // IsRunning returns whether Beyla is currently running.
 func (m *Manager) IsRunning() bool {
 	m.mu.RLock()
@@ -338,6 +358,11 @@ func (m *Manager) startOTLPReceiver() error {
 	go m.consumeTraces()
 	go m.consumeMetrics()
 
+	// Start Beyla metrics cleanup loop (RFD 032 Phase 4).
+	if m.beylaStorage != nil {
+		go m.beylaStorage.RunCleanupLoop(m.ctx, 1*time.Hour)
+	}
+
 	m.logger.Info().Msg("OTLP receiver started successfully")
 	return nil
 }
@@ -431,15 +456,23 @@ func (m *Manager) consumeMetrics() {
 					continue
 				}
 
-				// Forward events to metrics channel.
+				// Store events in local DuckDB for pull-based queries (RFD 032 Phase 4).
 				for _, event := range events {
+					if m.beylaStorage != nil {
+						if err := m.beylaStorage.StoreEvent(m.ctx, event); err != nil {
+							m.logger.Error().Err(err).Msg("Failed to store Beyla metric")
+							continue
+						}
+					}
+
+					// Also send to channel for backwards compatibility.
 					select {
 					case m.metricsCh <- event:
 					case <-m.ctx.Done():
 						return
 					default:
-						// Channel full, drop metric.
-						m.logger.Warn().Msg("Metrics channel full, dropping metric")
+						// Channel full, drop metric (already stored in DB).
+						m.logger.Debug().Msg("Metrics channel full (metric already stored in DB)")
 					}
 				}
 			}
