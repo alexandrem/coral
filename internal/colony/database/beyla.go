@@ -226,13 +226,13 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 	return nil
 }
 
-// CleanupOldBeylaMetrics removes Beyla metrics older than the specified retention period.
-// RFD 032 specifies 30 days retention for HTTP/gRPC and 14 days for SQL metrics.
-func (d *Database) CleanupOldBeylaMetrics(ctx context.Context) (int64, error) {
+// CleanupOldBeylaMetrics removes Beyla metrics older than the specified retention periods.
+// Accepts retention in days for each metric type.
+func (d *Database) CleanupOldBeylaMetrics(ctx context.Context, httpRetentionDays, grpcRetentionDays, sqlRetentionDays int) (int64, error) {
 	var totalDeleted int64
 
-	// Cleanup HTTP metrics (30 days retention).
-	httpCutoff := time.Now().Add(-30 * 24 * time.Hour)
+	// Cleanup HTTP metrics.
+	httpCutoff := time.Now().Add(-time.Duration(httpRetentionDays) * 24 * time.Hour)
 	httpResult, err := d.db.ExecContext(ctx, `
 		DELETE FROM beyla_http_metrics
 		WHERE timestamp < ?
@@ -244,8 +244,8 @@ func (d *Database) CleanupOldBeylaMetrics(ctx context.Context) (int64, error) {
 		totalDeleted += httpRows
 	}
 
-	// Cleanup gRPC metrics (30 days retention).
-	grpcCutoff := time.Now().Add(-30 * 24 * time.Hour)
+	// Cleanup gRPC metrics.
+	grpcCutoff := time.Now().Add(-time.Duration(grpcRetentionDays) * 24 * time.Hour)
 	grpcResult, err := d.db.ExecContext(ctx, `
 		DELETE FROM beyla_grpc_metrics
 		WHERE timestamp < ?
@@ -257,8 +257,8 @@ func (d *Database) CleanupOldBeylaMetrics(ctx context.Context) (int64, error) {
 		totalDeleted += grpcRows
 	}
 
-	// Cleanup SQL metrics (14 days retention).
-	sqlCutoff := time.Now().Add(-14 * 24 * time.Hour)
+	// Cleanup SQL metrics.
+	sqlCutoff := time.Now().Add(-time.Duration(sqlRetentionDays) * 24 * time.Hour)
 	sqlResult, err := d.db.ExecContext(ctx, `
 		DELETE FROM beyla_sql_metrics
 		WHERE timestamp < ?

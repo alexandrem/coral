@@ -16,15 +16,18 @@ import (
 // BeylaPoller periodically queries agents for Beyla metrics data.
 // This implements the pull-based telemetry architecture from RFD 032.
 type BeylaPoller struct {
-	registry     *registry.Registry
-	db           *database.Database
-	pollInterval time.Duration
-	logger       zerolog.Logger
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	running      bool
-	mu           sync.Mutex
+	registry            *registry.Registry
+	db                  *database.Database
+	pollInterval        time.Duration
+	httpRetentionDays   int // HTTP/gRPC metrics retention in days (default: 30)
+	grpcRetentionDays   int // gRPC metrics retention in days (default: 30)
+	sqlRetentionDays    int // SQL metrics retention in days (default: 14)
+	logger              zerolog.Logger
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	wg                  sync.WaitGroup
+	running             bool
+	mu                  sync.Mutex
 }
 
 // NewBeylaPoller creates a new Beyla metrics poller.
@@ -32,17 +35,34 @@ func NewBeylaPoller(
 	registry *registry.Registry,
 	db *database.Database,
 	pollInterval time.Duration,
+	httpRetentionDays int,
+	grpcRetentionDays int,
+	sqlRetentionDays int,
 	logger zerolog.Logger,
 ) *BeylaPoller {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Apply defaults if not specified.
+	if httpRetentionDays <= 0 {
+		httpRetentionDays = 30
+	}
+	if grpcRetentionDays <= 0 {
+		grpcRetentionDays = 30
+	}
+	if sqlRetentionDays <= 0 {
+		sqlRetentionDays = 14
+	}
+
 	return &BeylaPoller{
-		registry:     registry,
-		db:           db,
-		pollInterval: pollInterval,
-		logger:       logger.With().Str("component", "beyla_poller").Logger(),
-		ctx:          ctx,
-		cancel:       cancel,
+		registry:          registry,
+		db:                db,
+		pollInterval:      pollInterval,
+		httpRetentionDays: httpRetentionDays,
+		grpcRetentionDays: grpcRetentionDays,
+		sqlRetentionDays:  sqlRetentionDays,
+		logger:            logger.With().Str("component", "beyla_poller").Logger(),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 }
 
@@ -253,9 +273,9 @@ func (p *BeylaPoller) queryAgent(
 }
 
 // runCleanup performs Beyla metrics database cleanup.
-// Removes metrics older than retention periods specified in RFD 032.
+// Removes metrics older than configured retention periods.
 func (p *BeylaPoller) runCleanup() {
-	deleted, err := p.db.CleanupOldBeylaMetrics(p.ctx)
+	deleted, err := p.db.CleanupOldBeylaMetrics(p.ctx, p.httpRetentionDays, p.grpcRetentionDays, p.sqlRetentionDays)
 	if err != nil {
 		p.logger.Error().
 			Err(err).
@@ -266,6 +286,9 @@ func (p *BeylaPoller) runCleanup() {
 	if deleted > 0 {
 		p.logger.Info().
 			Int64("deleted_count", deleted).
+			Int("http_retention_days", p.httpRetentionDays).
+			Int("grpc_retention_days", p.grpcRetentionDays).
+			Int("sql_retention_days", p.sqlRetentionDays).
 			Msg("Cleaned up old Beyla metrics")
 	}
 }
