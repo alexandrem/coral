@@ -2,9 +2,11 @@ package beyla
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog"
 )
 
@@ -12,6 +14,7 @@ func TestNewManager(t *testing.T) {
 	tests := []struct {
 		name        string
 		config      *Config
+		withDB      bool
 		wantErr     bool
 		wantEnabled bool
 	}{
@@ -29,7 +32,7 @@ func TestNewManager(t *testing.T) {
 			wantEnabled: false,
 		},
 		{
-			name: "enabled Beyla",
+			name: "enabled Beyla without DB",
 			config: &Config{
 				Enabled:      true,
 				OTLPEndpoint: "localhost:4318",
@@ -45,6 +48,28 @@ func TestNewManager(t *testing.T) {
 					"colony.id": "test-colony",
 				},
 			},
+			withDB:      false,
+			wantErr:     false,
+			wantEnabled: true,
+		},
+		{
+			name: "enabled Beyla with DB",
+			config: &Config{
+				Enabled:      true,
+				OTLPEndpoint: "localhost:4318",
+				SamplingRate: 1.0,
+				Discovery: DiscoveryConfig{
+					OpenPorts: []int{8080},
+				},
+				Protocols: ProtocolsConfig{
+					HTTPEnabled: true,
+					GRPCEnabled: true,
+				},
+				Attributes: map[string]string{
+					"colony.id": "test-colony",
+				},
+			},
+			withDB:      true,
 			wantErr:     false,
 			wantEnabled: true,
 		},
@@ -54,6 +79,16 @@ func TestNewManager(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			logger := zerolog.Nop()
+
+			// Setup database if needed.
+			if tt.withDB && tt.config != nil {
+				db, err := sql.Open("sqlite3", ":memory:")
+				if err != nil {
+					t.Fatalf("Failed to create test database: %v", err)
+				}
+				defer db.Close()
+				tt.config.DB = db
+			}
 
 			mgr, err := NewManager(ctx, tt.config, logger)
 
@@ -89,12 +124,14 @@ func TestManagerStartStop(t *testing.T) {
 		},
 	}
 
+	// Note: Starting without DB will work but OTLP receiver won't be available.
+	// This tests the graceful degradation.
 	mgr, err := NewManager(ctx, config, logger)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	// Test Start.
+	// Test Start (without OTLP receiver due to no DB).
 	if err := mgr.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -234,11 +271,6 @@ func TestManagerChannels(t *testing.T) {
 	}
 
 	// Channels should be available before Start.
-	metricsCh := mgr.GetMetrics()
-	if metricsCh == nil {
-		t.Error("GetMetrics() should return non-nil channel")
-	}
-
 	tracesCh := mgr.GetTraces()
 	if tracesCh == nil {
 		t.Error("GetTraces() should return non-nil channel")
@@ -251,8 +283,8 @@ func TestManagerChannels(t *testing.T) {
 
 	// Channels should still work after Start.
 	select {
-	case <-metricsCh:
-		// No data expected in stub implementation
+	case <-tracesCh:
+		// No data expected without OTLP receiver running
 	case <-time.After(10 * time.Millisecond):
 		// Expected - no data
 	}
@@ -264,11 +296,11 @@ func TestManagerChannels(t *testing.T) {
 
 	// Channels should be closed after Stop.
 	select {
-	case _, ok := <-metricsCh:
+	case _, ok := <-tracesCh:
 		if ok {
-			t.Error("Metrics channel should be closed after Stop()")
+			t.Error("Traces channel should be closed after Stop()")
 		}
 	case <-time.After(10 * time.Millisecond):
-		t.Error("Should receive from closed metrics channel immediately")
+		t.Error("Should receive from closed traces channel immediately")
 	}
 }

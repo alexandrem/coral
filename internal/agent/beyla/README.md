@@ -26,26 +26,35 @@ The integration consists of three main components:
 
 ## Current Status
 
-**Implementation Status**: Stub implementation
+**Implementation Status**: Phase 1 Complete (OTLP Receiver Integration)
 
-This is a foundational implementation with the following components in place:
+This implementation is progressing in phases:
 
 - ✅ Protobuf definitions for Beyla metrics and traces
-- ✅ Manager lifecycle management (stub)
+- ✅ Manager lifecycle management
 - ✅ Configuration schema and examples
 - ✅ DuckDB schema for storage
 - ✅ Agent integration hooks
 - ✅ Unit tests
-- ⚠️ OTLP receiver integration (requires RFD 025)
-- ⚠️ Beyla Go library integration (pending)
+- ✅ **Phase 1: OTLP receiver integration** (using RFD 025 infrastructure)
+- ✅ **Trace data consumer** (polls storage, transforms to BeylaTrace format)
+- ⚠️ Beyla Go library integration (waiting for library availability)
+- ⚠️ Metrics support (requires extending RFD 025 OTLPReceiver)
 - ⚠️ Transformation layer (stub)
 
 ## Dependencies
 
-This implementation assumes:
+This implementation integrates with:
 
-1. **RFD 025** (Basic OpenTelemetry Ingestion) provides the OTLP receiver infrastructure
-2. **Beyla Go library** will be integrated when the official OpenTelemetry eBPF project structure is finalized
+1. **RFD 025** (Basic OpenTelemetry Ingestion) - ✅ Integrated
+   - Provides OTLP receiver infrastructure (HTTP/gRPC endpoints)
+   - Storage backend for local span retention (~1 hour)
+   - Query API for retrieving filtered spans
+2. **Beyla Go library** - ⚠️ Pending
+   - Will be integrated when the official OpenTelemetry eBPF project structure is finalized
+3. **Database** - Required for OTLP receiver
+   - SQLite for local agent storage
+   - DuckDB for Colony storage
 
 ## Usage
 
@@ -83,12 +92,24 @@ beyla:
 ### Agent Integration
 
 ```go
-import "github.com/coral-io/coral/internal/agent/beyla"
+import (
+    "database/sql"
+    "github.com/coral-io/coral/internal/agent/beyla"
+    _ "github.com/mattn/go-sqlite3"
+)
+
+// Database is required for OTLP receiver
+db, err := sql.Open("sqlite3", "/path/to/agent.db")
+if err != nil {
+    log.Fatal(err)
+}
+defer db.Close()
 
 beylaConfig := &beyla.Config{
     Enabled:      true,
     OTLPEndpoint: "localhost:4318",
     SamplingRate: 1.0,
+    DB:           db,  // Required for OTLP receiver
     Discovery: beyla.DiscoveryConfig{
         OpenPorts: []int{8080},
     },
@@ -110,6 +131,12 @@ agent.Start()
 // Access Beyla manager
 beylaManager := agent.GetBeylaManager()
 capabilities := beylaManager.GetCapabilities()
+
+// Read traces from channel
+tracesCh := beylaManager.GetTraces()
+for trace := range tracesCh {
+    log.Printf("Received trace: %s from service %s", trace.TraceID, trace.ServiceName)
+}
 ```
 
 ## Database Schema
@@ -140,31 +167,58 @@ Tests cover:
 - Agent integration
 - Channel-based data flow
 
-## Next Steps
+## Implementation Details
+
+### Phase 1: OTLP Receiver Integration (✅ Complete)
+
+The Beyla manager now integrates with RFD 025's OTLP receiver infrastructure:
+
+1. **OTLP Receiver**:
+   - Creates `telemetry.OTLPReceiver` on startup
+   - Listens on `localhost:4318` (HTTP) and `localhost:4317` (gRPC)
+   - Stores spans in local SQLite database (~1 hour retention)
+
+2. **Trace Consumer**:
+   - Polls storage every 5 seconds for new spans
+   - Transforms OTLP spans to `BeylaTrace` format
+   - Forwards to traces channel for downstream consumers
+
+3. **Data Flow**:
+   ```
+   Beyla (eBPF) → OTLP HTTP/gRPC → OTLPReceiver → Storage (SQLite) →
+   consumeTraces() → BeylaTrace channel → Colony
+   ```
+
+### Next Steps
 
 To complete the implementation:
 
-1. **Integrate OTLP Receiver** (RFD 025):
-   - Implement `startOTLPReceiver()` in `manager.go`
-   - Use OpenTelemetry collector receiver libraries
-   - Forward metrics/traces to channels
+1. **✅ Integrate OTLP Receiver** (RFD 025) - COMPLETE
+   - ✅ Implemented `startOTLPReceiver()` in `manager.go`
+   - ✅ Integrated with RFD 025 telemetry package
+   - ✅ Added trace consumer goroutine
 
-2. **Integrate Beyla Go Library**:
+2. **⚠️ Integrate Beyla Go Library** (waiting for library):
    - Add Beyla dependency when OTEL project structure is finalized
-   - Implement `startBeyla()` in `manager.go`
+   - Implement actual Beyla startup in `startBeyla()`
    - Configure Beyla via Go API
 
-3. **Implement Transformation Layer**:
+3. **⚠️ Extend RFD 025 for Metrics**:
+   - Add OTLP metrics support to OTLPReceiver
+   - Create metrics consumer similar to trace consumer
+   - Transform OTLP metrics to Beyla metric types
+
+4. **⚠️ Implement Transformation Layer**:
    - Complete `transformer.go` OTLP-to-Coral conversion
    - Map OTLP metric names to Beyla types
    - Extract histogram buckets and attributes
 
-4. **Add Data Pipeline**:
+5. **⚠️ Add Data Pipeline**:
    - Stream metrics/traces from Beyla to Colony
    - Implement aggregation and storage
    - Add query APIs for RED metrics
 
-5. **CLI Integration**:
+6. **⚠️ CLI Integration**:
    - Add `coral query beyla` commands
    - Integrate with `coral ask` AI queries
    - Add trace visualization

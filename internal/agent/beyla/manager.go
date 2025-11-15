@@ -2,9 +2,12 @@ package beyla
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/coral-io/coral/internal/agent/telemetry"
 	"github.com/rs/zerolog"
 )
 
@@ -17,9 +20,26 @@ type Manager struct {
 	mu      sync.RWMutex
 	running bool
 
-	// Channels for OTLP data from Beyla.
-	metricsCh chan interface{} // Will be pmetric.Metrics when OTLP receiver is implemented
-	tracesCh  chan interface{} // Will be ptrace.Traces when OTLP receiver is implemented
+	// OTLP receiver from RFD 025 (receives Beyla's trace output).
+	otlpReceiver *telemetry.OTLPReceiver
+	storage      *telemetry.Storage
+
+	// Channels for processed Beyla data.
+	tracesCh chan *BeylaTrace // Beyla traces ready for Colony
+}
+
+// BeylaTrace represents a processed Beyla trace ready for Colony.
+type BeylaTrace struct {
+	TraceID      string
+	SpanID       string
+	ParentSpanID string
+	ServiceName  string
+	SpanName     string
+	SpanKind     string
+	StartTime    string // ISO 8601
+	DurationUs   int64
+	StatusCode   int
+	Attributes   map[string]string
 }
 
 // Config contains Beyla manager configuration.
@@ -40,6 +60,9 @@ type Config struct {
 
 	// Resource attributes for enrichment.
 	Attributes map[string]string
+
+	// Database for local storage (required for OTLP receiver).
+	DB *sql.DB
 }
 
 // DiscoveryConfig specifies which processes to instrument.
@@ -81,12 +104,23 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 	ctx, cancel := context.WithCancel(ctx)
 
 	m := &Manager{
-		ctx:       ctx,
-		cancel:    cancel,
-		config:    config,
-		logger:    logger.With().Str("component", "beyla_manager").Logger(),
-		metricsCh: make(chan interface{}, 100),
-		tracesCh:  make(chan interface{}, 100),
+		ctx:      ctx,
+		cancel:   cancel,
+		config:   config,
+		logger:   logger.With().Str("component", "beyla_manager").Logger(),
+		tracesCh: make(chan *BeylaTrace, 100),
+	}
+
+	// Initialize OTLP receiver storage (RFD 025).
+	if config.DB != nil {
+		storage, err := telemetry.NewStorage(config.DB, logger)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create telemetry storage: %w", err)
+		}
+		m.storage = storage
+	} else {
+		m.logger.Warn().Msg("No database provided; OTLP receiver will not be available")
 	}
 
 	return m, nil
@@ -143,11 +177,17 @@ func (m *Manager) Stop() error {
 
 	m.logger.Info().Msg("Stopping Beyla manager")
 
+	// Stop OTLP receiver.
+	if m.otlpReceiver != nil {
+		if err := m.otlpReceiver.Stop(); err != nil {
+			m.logger.Error().Err(err).Msg("Failed to stop OTLP receiver")
+		}
+	}
+
 	// Cancel context to stop all goroutines.
 	m.cancel()
 
 	// Close channels.
-	close(m.metricsCh)
 	close(m.tracesCh)
 
 	m.running = false
@@ -155,13 +195,8 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
-// GetMetrics returns a channel receiving OTLP metrics from Beyla.
-func (m *Manager) GetMetrics() <-chan interface{} {
-	return m.metricsCh
-}
-
-// GetTraces returns a channel receiving OTLP traces from Beyla.
-func (m *Manager) GetTraces() <-chan interface{} {
+// GetTraces returns a channel receiving Beyla traces ready for Colony.
+func (m *Manager) GetTraces() <-chan *BeylaTrace {
 	return m.tracesCh
 }
 
@@ -219,37 +254,124 @@ type Capabilities struct {
 	TracingEnabled     bool
 }
 
-// startOTLPReceiver starts an embedded OTLP receiver.
-// This is a stub implementation. RFD 025 provides the actual OTLP receiver infrastructure.
+// startOTLPReceiver starts an embedded OTLP receiver using RFD 025 infrastructure.
 func (m *Manager) startOTLPReceiver() error {
+	if m.storage == nil {
+		return fmt.Errorf("storage not initialized; database required for OTLP receiver")
+	}
+
 	m.logger.Info().
 		Str("endpoint", m.config.OTLPEndpoint).
-		Msg("Starting OTLP receiver (stub - requires RFD 025)")
+		Msg("Starting OTLP receiver (RFD 025)")
 
-	// TODO(RFD 032): Integrate with RFD 025 OTLP receiver.
-	// The receiver should:
-	// 1. Listen on the configured endpoint (e.g., localhost:4318)
-	// 2. Accept OTLP metrics and traces from Beyla
-	// 3. Forward to m.metricsCh and m.tracesCh channels
-	//
-	// Example integration:
-	// receiverConfig := &otlpreceiver.Config{
-	//     Protocols: otlpreceiver.Protocols{
-	//         HTTP: &otlpreceiver.HTTPConfig{
-	//             Endpoint: m.config.OTLPEndpoint,
-	//         },
-	//     },
-	// }
-	// receiver := otlpreceiver.NewFactory().CreateMetricsReceiver(...)
-	// receiver.Start(m.ctx, nil)
+	// Configure OTLP receiver to use Beyla's endpoint.
+	// Parse the endpoint to get gRPC and HTTP endpoints.
+	// Default: localhost:4318 for HTTP (Beyla default)
+	otlpConfig := telemetry.Config{
+		Disabled:              false,
+		GRPCEndpoint:          "127.0.0.1:4317", // Standard OTLP gRPC port
+		HTTPEndpoint:          m.config.OTLPEndpoint,
+		StorageRetentionHours: 1,
+		Filters: telemetry.FilterConfig{
+			AlwaysCaptureErrors:    true,
+			HighLatencyThresholdMs: 500.0,
+			SampleRate:             m.config.SamplingRate,
+		},
+	}
 
+	// Create OTLP receiver.
+	receiver, err := telemetry.NewOTLPReceiver(otlpConfig, m.storage, m.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create OTLP receiver: %w", err)
+	}
+
+	// Start receiver.
+	if err := receiver.Start(m.ctx); err != nil {
+		return fmt.Errorf("failed to start OTLP receiver: %w", err)
+	}
+
+	m.otlpReceiver = receiver
+
+	// Start trace consumer goroutine.
+	go m.consumeTraces()
+
+	m.logger.Info().Msg("OTLP receiver started successfully")
 	return nil
+}
+
+// consumeTraces consumes traces from the OTLP receiver and transforms them for Beyla.
+func (m *Manager) consumeTraces() {
+	m.logger.Info().Msg("Starting trace consumer")
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			m.logger.Info().Msg("Trace consumer stopped")
+			return
+
+		case <-ticker.C:
+			// Query recent spans from storage.
+			endTime := time.Now()
+			startTime := endTime.Add(-10 * time.Second)
+
+			spans, err := m.otlpReceiver.QuerySpans(m.ctx, startTime, endTime, nil)
+			if err != nil {
+				m.logger.Error().Err(err).Msg("Failed to query spans")
+				continue
+			}
+
+			// Transform and forward spans.
+			for i := range spans {
+				trace := m.transformSpanToBeylaTrace(&spans[i])
+				select {
+				case m.tracesCh <- trace:
+				case <-m.ctx.Done():
+					return
+				default:
+					// Channel full, drop span.
+					m.logger.Warn().Msg("Trace channel full, dropping span")
+				}
+			}
+
+			if len(spans) > 0 {
+				m.logger.Debug().Int("count", len(spans)).Msg("Processed Beyla traces")
+			}
+		}
+	}
+}
+
+// transformSpanToBeylaTrace transforms an OTLP span to Beyla trace format.
+func (m *Manager) transformSpanToBeylaTrace(span *telemetry.Span) *BeylaTrace {
+	return &BeylaTrace{
+		TraceID:      span.TraceID,
+		SpanID:       span.SpanID,
+		ParentSpanID: "", // TODO: Extract from span if available
+		ServiceName:  span.ServiceName,
+		SpanName:     span.HTTPRoute, // Use HTTP route as span name
+		SpanKind:     span.SpanKind,
+		StartTime:    span.Timestamp.Format(time.RFC3339),
+		DurationUs:   int64(span.DurationMs * 1000), // Convert ms to microseconds
+		StatusCode:   span.HTTPStatus,
+		Attributes:   span.Attributes,
+	}
 }
 
 // startBeyla configures and starts Beyla instrumentation.
 // This is a stub implementation. Full integration requires Beyla Go library.
 func (m *Manager) startBeyla() error {
 	m.logger.Info().Msg("Starting Beyla instrumentation (stub - requires Beyla library)")
+
+	// NOTE: Metrics support (RFD 032).
+	// Beyla also exports OTLP metrics (http.server.request.duration, rpc.server.duration, etc.).
+	// The current RFD 025 implementation only supports traces.
+	// Future work:
+	// 1. Extend OTLPReceiver to support OTLP metrics
+	// 2. Create metrics consumer similar to consumeTraces()
+	// 3. Transform OTLP metrics to BeylaHttpMetrics, BeylaGrpcMetrics, BeylaSqlMetrics
+	// 4. Forward to Colony for storage in beyla_*_metrics tables
 
 	// TODO(RFD 032): Integrate Beyla Go library.
 	// The integration should:
