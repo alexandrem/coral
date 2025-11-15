@@ -282,81 +282,23 @@ storage model.
 
 ### Component Changes
 
-1. **Agent (node & multi-service)** ✅ Implemented (commits 877f403, d8eb0d5,
-   82afd14)
-    - **Process Management** (`internal/agent/beyla/manager.go`):
-        - Launch Beyla as separate process via `os/exec.CommandContext`
-        - Extract embedded binary to temp directory on startup
-        - Build command-line arguments from configuration (ports, protocols,
-          OTLP endpoints)
-        - Monitor process health and log errors via zerolog integration
-        - Graceful shutdown with binary cleanup
-    - **Binary Distribution** (`scripts/download-beyla.sh`,
-      `internal/agent/beyla/embed_*.go`):
-        - Download Beyla binaries from Grafana GitHub releases during
-          `go generate`
-        - Platform-specific embedding via build tags (Linux/Darwin, amd64/arm64)
-        - Fallback hierarchy: `BEYLA_PATH` env → embedded → system PATH
-    - **OTLP Consumption** (`internal/agent/beyla/transformer.go`, RFD 025):
-        - Run embedded OTLP receiver (localhost:4317 gRPC, localhost:4318 HTTP)
-        - Transform OTLP metrics to Coral's internal protobuf format
-        - Map metric names to protocols: `http.server.request.duration` →
-          `BeylaHttpMetrics`
-        - Extract histogram buckets, status codes, routes from OTLP attributes
-    - **Local Storage** (`internal/agent/beyla/storage.go`):
-        - Store metrics in agent's local DuckDB (~1 hour retention)
-        - Tables: `beyla_http_metrics_local`, `beyla_grpc_metrics_local`,
-          `beyla_sql_metrics_local`
-        - Automatic cleanup loop removes old data
-        - Indexed by timestamp and service name for efficient queries
-    - **Query Interface** (`proto/coral/agent/v1/agent.proto`,
-      `QueryBeylaMetrics` RPC):
-        - Expose `QueryBeylaMetrics` RPC for Colony to pull metrics
-        - Return aggregated metrics grouped by (timestamp, service, method,
-          route, status)
-        - Support filtering by service names, time range, metric types
-    - **Configuration** (discovery rules, protocol filters, sampling rates,
-      attribute enrichment):
-        - Port-based discovery, Kubernetes labels, process names
-        - Enable/disable protocols (HTTP, gRPC, SQL, Kafka, Redis)
-        - Sampling rate for traces, resource attributes
+1. **Agent** (`internal/agent/beyla/`):
+   - Runs Beyla as separate process with embedded binary distribution
+   - OTLP receiver consumes Beyla metrics via localhost:4317/4318
+   - Local DuckDB storage with configurable retention (default: 1 hour)
+   - Exposes `QueryBeylaMetrics` RPC for Colony to pull metrics
+   - Supports HTTP, gRPC, and SQL protocol metrics
 
-2. **Colony** ✅ Complete (Phase 4 - commits 13f666d, 1b80568)
-    - **Storage Schema** (`internal/colony/database/schema.go`):
-        - DuckDB tables: `beyla_http_metrics`, `beyla_grpc_metrics`,
-          `beyla_sql_metrics`
-        - Retention policies: HTTP/gRPC metrics (30d), SQL metrics (14d)
-        - Indexed by service_name, timestamp, agent_id for efficient queries
-    - **Database Methods** (`internal/colony/database/beyla.go`):
-        - `InsertBeylaHTTPMetrics`: Store HTTP RED metrics from agents
-        - `InsertBeylaGRPCMetrics`: Store gRPC RED metrics from agents
-        - `InsertBeylaSQLMetrics`: Store SQL query metrics from agents
-        - `CleanupOldBeylaMetrics`: Automatic cleanup with retention policies
-    - **Poller** (`internal/colony/beyla_poller.go`):
-        - `BeylaPoller`: Periodic polling of all registered agents
-        - Queries agents via `QueryBeylaMetrics` RPC (configurable interval)
-        - Stores metrics from all agents in Colony DuckDB
-        - Automatic cleanup loop runs hourly
-    - **Out of scope for this RFD**:
-        - Advanced correlation with custom eBPF data (future RFD)
-        - Distributed trace storage (future RFD)
-        - Percentile calculations and time-series aggregation (future RFD)
-        - Integration with Colony server startup (pending)
+2. **Colony** (`internal/colony/beyla_poller.go`, `internal/colony/database/beyla.go`):
+   - Periodic poller queries all agents via `QueryBeylaMetrics` RPC
+   - DuckDB storage with 30-day retention (HTTP/gRPC) and 14-day retention (SQL)
+   - Automatic cleanup of expired metrics
 
-3. **CLI / MCP** 🔮 Deferred to Future RFDs
-    - **Rationale for deferral**:
-        - CLI integration requires broader query framework (not just Beyla)
-        - MCP integration depends on MCP server implementation (RFD 004)
-        - Testing framework needs comprehensive design (separate testing RFD)
-    - **Will be covered in**:
-        - RFD 035: "CLI Query Framework for Observability Data"
-        - RFD 004: "MCP Server Integration" (already exists)
-        - RFD 037: "Production Testing Strategy for eBPF Integration"
-    - **Minimal exposure for now**:
-        - Basic gRPC API exists for Colony to query agents
-        - Future RFDs will build user-facing interfaces on top
+3. **Protobuf API** (`proto/coral/agent/v1/agent.proto`):
+   - New `QueryBeylaMetrics` RPC with filtering by time range, service names, and metric types
+   - New message types: `BeylaHttpMetric`, `BeylaGrpcMetric`, `BeylaSqlMetric`
 
-**Configuration Example**
+**Configuration Example:**
 
 ```yaml
 # agent-config.yaml excerpt
