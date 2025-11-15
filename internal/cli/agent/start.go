@@ -489,10 +489,10 @@ Examples:
 
 			// Add /status endpoint that returns JSON with mesh network info for debugging.
 			mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
-				ctx := r.Context()
-				runtimeCtx, err := runtimeService.GetRuntimeContext(ctx, nil)
-				if err != nil {
-					http.Error(w, fmt.Sprintf("failed to get runtime context: %v", err), http.StatusInternalServerError)
+				// Get runtime context from cache directly to avoid protocol overhead.
+				runtimeCtx := runtimeService.GetCachedContext()
+				if runtimeCtx == nil {
+					http.Error(w, "runtime context not yet detected", http.StatusServiceUnavailable)
 					return
 				}
 
