@@ -283,20 +283,23 @@ storage model.
 ### Component Changes
 
 1. **Agent** (`internal/agent/beyla/`):
-   - Runs Beyla as separate process with embedded binary distribution
-   - OTLP receiver consumes Beyla metrics via localhost:4317/4318
-   - Local DuckDB storage with configurable retention (default: 1 hour)
-   - Exposes `QueryBeylaMetrics` RPC for Colony to pull metrics
-   - Supports HTTP, gRPC, and SQL protocol metrics
+    - Runs Beyla as separate process with embedded binary distribution
+    - OTLP receiver consumes Beyla metrics via localhost:4317/4318
+    - Local DuckDB storage with configurable retention (default: 1 hour)
+    - Exposes `QueryBeylaMetrics` RPC for Colony to pull metrics
+    - Supports HTTP, gRPC, and SQL protocol metrics
 
-2. **Colony** (`internal/colony/beyla_poller.go`, `internal/colony/database/beyla.go`):
-   - Periodic poller queries all agents via `QueryBeylaMetrics` RPC
-   - DuckDB storage with 30-day retention (HTTP/gRPC) and 14-day retention (SQL)
-   - Automatic cleanup of expired metrics
+2. **Colony** (`internal/colony/beyla_poller.go`,
+   `internal/colony/database/beyla.go`):
+    - Periodic poller queries all agents via `QueryBeylaMetrics` RPC
+    - DuckDB storage with 30-day retention (HTTP/gRPC) and 14-day retention (
+      SQL)
+    - Automatic cleanup of expired metrics
 
 3. **Protobuf API** (`proto/coral/agent/v1/agent.proto`):
-   - New `QueryBeylaMetrics` RPC with filtering by time range, service names, and metric types
-   - New message types: `BeylaHttpMetric`, `BeylaGrpcMetric`, `BeylaSqlMetric`
+    - New `QueryBeylaMetrics` RPC with filtering by time range, service names,
+      and metric types
+    - New message types: `BeylaHttpMetric`, `BeylaGrpcMetric`, `BeylaSqlMetric`
 
 **Configuration Example:**
 
@@ -342,7 +345,7 @@ beyla:
 
     # Local storage retention (hours)
     storage_retention_hours: 1        # How long to keep metrics in agent's local DuckDB
-                                       # Should be >= colony poll interval (default: 1 hour)
+    # Should be >= colony poll interval (default: 1 hour)
 
     # Resource limits
     limits:
@@ -358,27 +361,6 @@ ebpf:
         -   name: ai_deep_profiler
             mode: on_demand
 ```
-
----
-
-## Deferred Features
-
-The following features are deferred to future RFDs as they build on the core
-Beyla integration but are not required for basic RED metrics collection:
-
-- **CLI Query Commands** (RFD 035): Interactive queries like
-  `coral query beyla http payments-api --since 1h` with percentile calculations
-  and formatted output
-- **MCP Integration** (RFD 004): Expose Beyla metrics as MCP tools for
-  AI-driven diagnostics (e.g., `coral_query_beyla_metrics` tool)
-- **Advanced Correlation** (Future RFD): Correlation queries joining Beyla RED
-  metrics with custom eBPF data (WireGuard stats, CPU profiles, etc.)
-- **Distributed Tracing** (Future RFD): Full trace storage and visualization (
-  RFD 032 focuses on RED metrics, not traces)
-- **Production Testing** (RFD 037): Comprehensive kernel compatibility testing,
-  performance benchmarks, and canary deployment strategies
-- **Colony Server Integration** (Pending): Wire BeylaPoller into Colony startup
-  and configuration
 
 ---
 
@@ -981,7 +963,8 @@ storage:
 ## Testing Strategy
 
 > **Note:** Comprehensive testing (Phase 7) is deferred to a future testing RFD.
-> This section outlines testing approaches for reference. This RFD includes basic
+> This section outlines testing approaches for reference. This RFD includes
+> basic
 > unit tests for storage and transformation logic.
 
 ### Unit Tests
@@ -1122,5 +1105,27 @@ otel_traces_export:
 ```
 
 Coral agents run Beyla as a separate process (not as an embedded library) and
-dynamically construct command-line arguments from the agent's YAML configuration,
+dynamically construct command-line arguments from the agent's YAML
+configuration,
 providing flexibility while maintaining process isolation.
+
+---
+
+## Deferred Features
+
+The following features are deferred to future RFDs as they build on the core
+Beyla integration but are not required for basic RED metrics collection:
+
+- **CLI Query Commands** (RFD 035): Interactive queries like
+  `coral query beyla http payments-api --since 1h` with percentile calculations
+  and formatted output
+- **MCP Integration** (RFD 004): Expose Beyla metrics as MCP tools for
+  AI-driven diagnostics (e.g., `coral_query_beyla_metrics` tool)
+- **Advanced Correlation** (Future RFD): Correlation queries joining Beyla RED
+  metrics with custom eBPF data (WireGuard stats, CPU profiles, etc.)
+- **Distributed Tracing** (Future RFD): Full trace storage and visualization (
+  RFD 032 focuses on RED metrics, not traces)
+- **Production Testing** (RFD 037): Comprehensive kernel compatibility testing,
+  performance benchmarks, and canary deployment strategies
+- **Colony Server Integration** (Pending): Wire BeylaPoller into Colony startup
+  and configuration
