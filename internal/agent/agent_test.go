@@ -329,4 +329,3 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
-

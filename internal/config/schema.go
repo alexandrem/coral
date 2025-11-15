@@ -175,7 +175,7 @@ type BeylaGRPCConfig struct {
 
 // BeylaSQLConfig contains SQL-specific configuration.
 type BeylaSQLConfig struct {
-	Enabled         bool `yaml:"enabled"`
+	Enabled          bool `yaml:"enabled"`
 	ObfuscateQueries bool `yaml:"obfuscate_queries,omitempty"`
 }
 

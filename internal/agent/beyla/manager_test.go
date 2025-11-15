@@ -193,9 +193,9 @@ func TestGetCapabilities(t *testing.T) {
 	logger := zerolog.Nop()
 
 	tests := []struct {
-		name              string
-		config            *Config
-		wantProtocols     []string
+		name               string
+		config             *Config
+		wantProtocols      []string
 		wantTracingEnabled bool
 	}{
 		{
@@ -203,7 +203,7 @@ func TestGetCapabilities(t *testing.T) {
 			config: &Config{
 				Enabled: false,
 			},
-			wantProtocols:     []string{},
+			wantProtocols:      []string{},
 			wantTracingEnabled: false,
 		},
 		{
@@ -214,7 +214,7 @@ func TestGetCapabilities(t *testing.T) {
 					HTTPEnabled: true,
 				},
 			},
-			wantProtocols:     []string{"http", "http2"},
+			wantProtocols:      []string{"http", "http2"},
 			wantTracingEnabled: true,
 		},
 		{
@@ -229,7 +229,7 @@ func TestGetCapabilities(t *testing.T) {
 					RedisEnabled: true,
 				},
 			},
-			wantProtocols:     []string{"http", "http2", "grpc", "postgresql", "mysql", "kafka", "redis"},
+			wantProtocols:      []string{"http", "http2", "grpc", "postgresql", "mysql", "kafka", "redis"},
 			wantTracingEnabled: true,
 		},
 	}

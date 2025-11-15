@@ -1,9 +1,6 @@
 package beyla
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -11,7 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	ebpfpb "github.com/coral-io/coral/proto/coral/mesh/v1"
+	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 )
 
 // Transformer converts OTLP metrics and traces to Coral's internal format (RFD 032).
@@ -147,15 +144,15 @@ func (t *Transformer) transformHTTPMetric(metric pmetric.Metric, serviceName str
 
 			// Create BeylaHttpMetrics.
 			httpMetric := &ebpfpb.BeylaHttpMetrics{
-				Timestamp:       timestamppb.New(dp.Timestamp().AsTime()),
-				ServiceName:     serviceName,
-				HttpRoute:       route,
-				HttpMethod:      method,
-				HttpStatusCode:  statusCode,
-				LatencyBuckets:  buckets,
-				LatencyCounts:   counts,
-				RequestCount:    dp.Count(),
-				Attributes:      attributesToMap(dp.Attributes()),
+				Timestamp:      timestamppb.New(dp.Timestamp().AsTime()),
+				ServiceName:    serviceName,
+				HttpRoute:      route,
+				HttpMethod:     method,
+				HttpStatusCode: statusCode,
+				LatencyBuckets: buckets,
+				LatencyCounts:  counts,
+				RequestCount:   dp.Count(),
+				Attributes:     attributesToMap(dp.Attributes()),
 			}
 
 			// Wrap in EbpfEvent.
@@ -201,14 +198,14 @@ func (t *Transformer) transformGRPCMetric(metric pmetric.Metric, serviceName str
 
 			// Create BeylaGrpcMetrics.
 			grpcMetric := &ebpfpb.BeylaGrpcMetrics{
-				Timestamp:       timestamppb.New(dp.Timestamp().AsTime()),
-				ServiceName:     serviceName,
-				GrpcMethod:      method,
-				GrpcStatusCode:  statusCode,
-				LatencyBuckets:  buckets,
-				LatencyCounts:   counts,
-				RequestCount:    dp.Count(),
-				Attributes:      attributesToMap(dp.Attributes()),
+				Timestamp:      timestamppb.New(dp.Timestamp().AsTime()),
+				ServiceName:    serviceName,
+				GrpcMethod:     method,
+				GrpcStatusCode: statusCode,
+				LatencyBuckets: buckets,
+				LatencyCounts:  counts,
+				RequestCount:   dp.Count(),
+				Attributes:     attributesToMap(dp.Attributes()),
 			}
 
 			// Wrap in EbpfEvent.

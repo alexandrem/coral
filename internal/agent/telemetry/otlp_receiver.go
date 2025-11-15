@@ -15,20 +15,18 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
+	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	otlpmetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
 	otlpmetrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 	otlpresource "go.opentelemetry.io/proto/otlp/resource/v1"
 	otlptrace "go.opentelemetry.io/proto/otlp/trace/v1"
-	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 )
 
 // OTLPReceiver implements the OTLP gRPC and HTTP receivers.
 type OTLPReceiver struct {
-	otlptracev1.UnimplementedTraceServiceServer
-	otlpmetricsv1.UnimplementedMetricsServiceServer
 	config        Config
 	filter        *Filter
 	storage       *Storage
@@ -42,6 +40,18 @@ type OTLPReceiver struct {
 	running       bool
 	mu            sync.Mutex
 	wg            sync.WaitGroup
+}
+
+// traceServiceWrapper wraps OTLPReceiver to implement TraceServiceServer.
+type traceServiceWrapper struct {
+	otlptracev1.UnimplementedTraceServiceServer
+	receiver *OTLPReceiver
+}
+
+// metricsServiceWrapper wraps OTLPReceiver to implement MetricsServiceServer.
+type metricsServiceWrapper struct {
+	otlpmetricsv1.UnimplementedMetricsServiceServer
+	receiver *OTLPReceiver
 }
 
 // NewOTLPReceiver creates a new OTLP receiver.
@@ -107,9 +117,9 @@ func (r *OTLPReceiver) startGRPC() error {
 	r.grpcLis = lis
 	r.grpcServer = grpc.NewServer()
 
-	// Register OTLP trace and metrics services.
-	otlptracev1.RegisterTraceServiceServer(r.grpcServer, r)
-	otlpmetricsv1.RegisterMetricsServiceServer(r.grpcServer, r)
+	// Register OTLP trace and metrics services using wrappers.
+	otlptracev1.RegisterTraceServiceServer(r.grpcServer, &traceServiceWrapper{receiver: r})
+	otlpmetricsv1.RegisterMetricsServiceServer(r.grpcServer, &metricsServiceWrapper{receiver: r})
 
 	// Start gRPC server in background.
 	r.wg.Add(1)
@@ -195,7 +205,7 @@ func (r *OTLPReceiver) Stop() error {
 }
 
 // Export implements the OTLP gRPC TraceService.Export method.
-func (r *OTLPReceiver) Export(
+func (w *traceServiceWrapper) Export(
 	ctx context.Context,
 	req *otlptracev1.ExportTraceServiceRequest,
 ) (*otlptracev1.ExportTraceServiceResponse, error) {
@@ -217,17 +227,17 @@ func (r *OTLPReceiver) Export(
 				spansReceived++
 
 				// Convert OTLP span to internal format.
-				span := r.convertOTLPSpan(otlpSpan, serviceName)
+				span := w.receiver.convertOTLPSpan(otlpSpan, serviceName)
 
 				// Apply filtering.
-				if !r.filter.ShouldCapture(span) {
+				if !w.receiver.filter.ShouldCapture(span) {
 					spansFiltered++
 					continue
 				}
 
 				// Store in local storage.
-				if err := r.storage.StoreSpan(ctx, span); err != nil {
-					r.logger.Warn().
+				if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
+					w.receiver.logger.Warn().
 						Err(err).
 						Str("trace_id", span.TraceID).
 						Msg("Failed to store span")
@@ -236,7 +246,7 @@ func (r *OTLPReceiver) Export(
 		}
 	}
 
-	r.logger.Debug().
+	w.receiver.logger.Debug().
 		Int("received", spansReceived).
 		Int("filtered", spansFiltered).
 		Int("stored", spansReceived-spansFiltered).
@@ -267,8 +277,9 @@ func (r *OTLPReceiver) handleHTTPTraces(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Process request using gRPC handler.
-	resp, err := r.Export(req.Context(), &otlpReq)
+	// Process request using gRPC handler via wrapper.
+	wrapper := &traceServiceWrapper{receiver: r}
+	resp, err := wrapper.Export(req.Context(), &otlpReq)
 	if err != nil {
 		http.Error(w, "Failed to process traces", http.StatusInternalServerError)
 		return
@@ -405,7 +416,7 @@ func (r *OTLPReceiver) QuerySpans(ctx context.Context, startTime, endTime time.T
 }
 
 // Export implements the OTLP gRPC MetricsService.Export method.
-func (r *OTLPReceiver) Export(
+func (w *metricsServiceWrapper) Export(
 	ctx context.Context,
 	req *otlpmetricsv1.ExportMetricsServiceRequest,
 ) (*otlpmetricsv1.ExportMetricsServiceResponse, error) {
@@ -443,14 +454,14 @@ func (r *OTLPReceiver) Export(
 	}
 
 	// Store metrics in buffer.
-	r.metricsMu.Lock()
-	r.metricsBuffer = append(r.metricsBuffer, metrics)
+	w.receiver.metricsMu.Lock()
+	w.receiver.metricsBuffer = append(w.receiver.metricsBuffer, metrics)
 
 	// Keep buffer size limited (last 100 batches).
-	if len(r.metricsBuffer) > 100 {
-		r.metricsBuffer = r.metricsBuffer[len(r.metricsBuffer)-100:]
+	if len(w.receiver.metricsBuffer) > 100 {
+		w.receiver.metricsBuffer = w.receiver.metricsBuffer[len(w.receiver.metricsBuffer)-100:]
 	}
-	r.metricsMu.Unlock()
+	w.receiver.metricsMu.Unlock()
 
 	metricsCount := 0
 	for _, rm := range req.ResourceMetrics {
@@ -459,7 +470,7 @@ func (r *OTLPReceiver) Export(
 		}
 	}
 
-	r.logger.Debug().
+	w.receiver.logger.Debug().
 		Int("metrics_count", metricsCount).
 		Msg("Processed OTLP metrics export")
 
@@ -488,8 +499,9 @@ func (r *OTLPReceiver) handleHTTPMetrics(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Process request using gRPC handler.
-	resp, err := r.Export(req.Context(), &otlpReq)
+	// Process request using gRPC handler via wrapper.
+	wrapper := &metricsServiceWrapper{receiver: r}
+	resp, err := wrapper.Export(req.Context(), &otlpReq)
 	if err != nil {
 		http.Error(w, "Failed to process metrics", http.StatusInternalServerError)
 		return
@@ -536,9 +548,11 @@ func copyMetricData(src *otlpmetrics.Metric, dest pmetric.Metric) {
 
 		for _, dp := range data.Histogram.DataPoints {
 			destDP := destHist.DataPoints().AppendEmpty()
-			destDP.SetTimestamp(pmetric.Timestamp(dp.TimeUnixNano))
+			destDP.SetTimestamp(pcommon.Timestamp(dp.TimeUnixNano))
 			destDP.SetCount(dp.Count)
-			destDP.SetSum(dp.Sum)
+			if dp.Sum != nil {
+				destDP.SetSum(*dp.Sum)
+			}
 
 			if len(dp.ExplicitBounds) > 0 {
 				destDP.ExplicitBounds().FromRaw(dp.ExplicitBounds)
@@ -560,7 +574,7 @@ func copyMetricData(src *otlpmetrics.Metric, dest pmetric.Metric) {
 
 		for _, dp := range data.Sum.DataPoints {
 			destDP := destSum.DataPoints().AppendEmpty()
-			destDP.SetTimestamp(pmetric.Timestamp(dp.TimeUnixNano))
+			destDP.SetTimestamp(pcommon.Timestamp(dp.TimeUnixNano))
 
 			// Set value based on type.
 			switch v := dp.Value.(type) {
@@ -581,7 +595,7 @@ func copyMetricData(src *otlpmetrics.Metric, dest pmetric.Metric) {
 
 		for _, dp := range data.Gauge.DataPoints {
 			destDP := destGauge.DataPoints().AppendEmpty()
-			destDP.SetTimestamp(pmetric.Timestamp(dp.TimeUnixNano))
+			destDP.SetTimestamp(pcommon.Timestamp(dp.TimeUnixNano))
 
 			// Set value based on type.
 			switch v := dp.Value.(type) {

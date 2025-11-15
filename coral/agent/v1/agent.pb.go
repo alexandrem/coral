@@ -1079,6 +1079,7 @@ type EbpfCapabilities struct {
 	BtfAvailable        bool                   `protobuf:"varint,3,opt,name=btf_available,json=btfAvailable,proto3" json:"btf_available,omitempty"`   // BTF/CO-RE support
 	CapBpf              bool                   `protobuf:"varint,4,opt,name=cap_bpf,json=capBpf,proto3" json:"cap_bpf,omitempty"`                     // CAP_BPF capability
 	AvailableCollectors []EbpfCollectorKind    `protobuf:"varint,5,rep,packed,name=available_collectors,json=availableCollectors,proto3,enum=coral.agent.v1.EbpfCollectorKind" json:"available_collectors,omitempty"`
+	Beyla               *BeylaCapabilities     `protobuf:"bytes,6,opt,name=beyla,proto3" json:"beyla,omitempty"` // Beyla integration capabilities (RFD 032)
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1148,6 +1149,90 @@ func (x *EbpfCapabilities) GetAvailableCollectors() []EbpfCollectorKind {
 	return nil
 }
 
+func (x *EbpfCapabilities) GetBeyla() *BeylaCapabilities {
+	if x != nil {
+		return x.Beyla
+	}
+	return nil
+}
+
+// BeylaCapabilities describes Beyla integration features (RFD 032).
+type BeylaCapabilities struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Enabled            bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Version            string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                                                 // Beyla library version
+	SupportedProtocols []string               `protobuf:"bytes,3,rep,name=supported_protocols,json=supportedProtocols,proto3" json:"supported_protocols,omitempty"` // ["http", "grpc", "kafka", ...]
+	SupportedRuntimes  []string               `protobuf:"bytes,4,rep,name=supported_runtimes,json=supportedRuntimes,proto3" json:"supported_runtimes,omitempty"`    // ["go", "java", "python", ...]
+	TracingEnabled     bool                   `protobuf:"varint,5,opt,name=tracing_enabled,json=tracingEnabled,proto3" json:"tracing_enabled,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *BeylaCapabilities) Reset() {
+	*x = BeylaCapabilities{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BeylaCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BeylaCapabilities) ProtoMessage() {}
+
+func (x *BeylaCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BeylaCapabilities.ProtoReflect.Descriptor instead.
+func (*BeylaCapabilities) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *BeylaCapabilities) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *BeylaCapabilities) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *BeylaCapabilities) GetSupportedProtocols() []string {
+	if x != nil {
+		return x.SupportedProtocols
+	}
+	return nil
+}
+
+func (x *BeylaCapabilities) GetSupportedRuntimes() []string {
+	if x != nil {
+		return x.SupportedRuntimes
+	}
+	return nil
+}
+
+func (x *BeylaCapabilities) GetTracingEnabled() bool {
+	if x != nil {
+		return x.TracingEnabled
+	}
+	return false
+}
+
 // TelemetrySpan represents a filtered OpenTelemetry span stored locally on agents.
 type TelemetrySpan struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1179,7 +1264,7 @@ type TelemetrySpan struct {
 
 func (x *TelemetrySpan) Reset() {
 	*x = TelemetrySpan{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1191,7 +1276,7 @@ func (x *TelemetrySpan) String() string {
 func (*TelemetrySpan) ProtoMessage() {}
 
 func (x *TelemetrySpan) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1204,7 +1289,7 @@ func (x *TelemetrySpan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetrySpan.ProtoReflect.Descriptor instead.
 func (*TelemetrySpan) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TelemetrySpan) GetTimestamp() int64 {
@@ -1299,7 +1384,7 @@ type QueryTelemetryRequest struct {
 
 func (x *QueryTelemetryRequest) Reset() {
 	*x = QueryTelemetryRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1311,7 +1396,7 @@ func (x *QueryTelemetryRequest) String() string {
 func (*QueryTelemetryRequest) ProtoMessage() {}
 
 func (x *QueryTelemetryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1324,7 +1409,7 @@ func (x *QueryTelemetryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTelemetryRequest.ProtoReflect.Descriptor instead.
 func (*QueryTelemetryRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *QueryTelemetryRequest) GetStartTime() int64 {
@@ -1361,7 +1446,7 @@ type QueryTelemetryResponse struct {
 
 func (x *QueryTelemetryResponse) Reset() {
 	*x = QueryTelemetryResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1373,7 +1458,7 @@ func (x *QueryTelemetryResponse) String() string {
 func (*QueryTelemetryResponse) ProtoMessage() {}
 
 func (x *QueryTelemetryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1386,7 +1471,7 @@ func (x *QueryTelemetryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTelemetryResponse.ProtoReflect.Descriptor instead.
 func (*QueryTelemetryResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *QueryTelemetryResponse) GetSpans() []*TelemetrySpan {
@@ -1478,13 +1563,20 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x05error\x18\b \x01(\tR\x05error\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xeb\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa4\x02\n" +
 	"\x10EbpfCapabilities\x12\x1c\n" +
 	"\tsupported\x18\x01 \x01(\bR\tsupported\x12%\n" +
 	"\x0ekernel_version\x18\x02 \x01(\tR\rkernelVersion\x12#\n" +
 	"\rbtf_available\x18\x03 \x01(\bR\fbtfAvailable\x12\x17\n" +
 	"\acap_bpf\x18\x04 \x01(\bR\x06capBpf\x12T\n" +
-	"\x14available_collectors\x18\x05 \x03(\x0e2!.coral.agent.v1.EbpfCollectorKindR\x13availableCollectors\"\xcc\x03\n" +
+	"\x14available_collectors\x18\x05 \x03(\x0e2!.coral.agent.v1.EbpfCollectorKindR\x13availableCollectors\x127\n" +
+	"\x05beyla\x18\x06 \x01(\v2!.coral.agent.v1.BeylaCapabilitiesR\x05beyla\"\xd0\x01\n" +
+	"\x11BeylaCapabilities\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12/\n" +
+	"\x13supported_protocols\x18\x03 \x03(\tR\x12supportedProtocols\x12-\n" +
+	"\x12supported_runtimes\x18\x04 \x03(\tR\x11supportedRuntimes\x12'\n" +
+	"\x0ftracing_enabled\x18\x05 \x01(\bR\x0etracingEnabled\"\xcc\x03\n" +
 	"\rTelemetrySpan\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12\x19\n" +
 	"\btrace_id\x18\x02 \x01(\tR\atraceId\x12\x17\n" +
@@ -1555,7 +1647,7 @@ func file_coral_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(RuntimeContext)(0),               // 0: coral.agent.v1.RuntimeContext
 	(SidecarMode)(0),                  // 1: coral.agent.v1.SidecarMode
@@ -1574,13 +1666,14 @@ var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(*ListServicesResponse)(nil),      // 14: coral.agent.v1.ListServicesResponse
 	(*ServiceStatus)(nil),             // 15: coral.agent.v1.ServiceStatus
 	(*EbpfCapabilities)(nil),          // 16: coral.agent.v1.EbpfCapabilities
-	(*TelemetrySpan)(nil),             // 17: coral.agent.v1.TelemetrySpan
-	(*QueryTelemetryRequest)(nil),     // 18: coral.agent.v1.QueryTelemetryRequest
-	(*QueryTelemetryResponse)(nil),    // 19: coral.agent.v1.QueryTelemetryResponse
-	nil,                               // 20: coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	nil,                               // 21: coral.agent.v1.ServiceStatus.LabelsEntry
-	nil,                               // 22: coral.agent.v1.TelemetrySpan.AttributesEntry
-	(*timestamppb.Timestamp)(nil),     // 23: google.protobuf.Timestamp
+	(*BeylaCapabilities)(nil),         // 17: coral.agent.v1.BeylaCapabilities
+	(*TelemetrySpan)(nil),             // 18: coral.agent.v1.TelemetrySpan
+	(*QueryTelemetryRequest)(nil),     // 19: coral.agent.v1.QueryTelemetryRequest
+	(*QueryTelemetryResponse)(nil),    // 20: coral.agent.v1.QueryTelemetryResponse
+	nil,                               // 21: coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	nil,                               // 22: coral.agent.v1.ServiceStatus.LabelsEntry
+	nil,                               // 23: coral.agent.v1.TelemetrySpan.AttributesEntry
+	(*timestamppb.Timestamp)(nil),     // 24: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	5,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
@@ -1589,30 +1682,31 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	6,  // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
 	8,  // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
 	7,  // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
-	23, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
+	24, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
 	16, // 7: coral.agent.v1.RuntimeContextResponse.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
-	20, // 8: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	21, // 8: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
 	15, // 9: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
-	21, // 10: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
-	23, // 11: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
+	22, // 10: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
+	24, // 11: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
 	2,  // 12: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
-	22, // 13: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
-	17, // 14: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
-	3,  // 15: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
-	9,  // 16: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
-	11, // 17: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
-	13, // 18: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
-	18, // 19: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
-	4,  // 20: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
-	10, // 21: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
-	12, // 22: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
-	14, // 23: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
-	19, // 24: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
-	20, // [20:25] is the sub-list for method output_type
-	15, // [15:20] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	17, // 13: coral.agent.v1.EbpfCapabilities.beyla:type_name -> coral.agent.v1.BeylaCapabilities
+	23, // 14: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
+	18, // 15: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
+	3,  // 16: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
+	9,  // 17: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
+	11, // 18: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
+	13, // 19: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
+	19, // 20: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
+	4,  // 21: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
+	10, // 22: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
+	12, // 23: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
+	14, // 24: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
+	20, // 25: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
+	21, // [21:26] is the sub-list for method output_type
+	16, // [16:21] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_agent_proto_init() }
@@ -1626,7 +1720,7 @@ func file_coral_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_agent_proto_rawDesc), len(file_coral_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   20,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

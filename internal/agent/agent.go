@@ -35,10 +35,10 @@ type Agent struct {
 
 // Config contains agent configuration.
 type Config struct {
-	AgentID      string
-	Services     []*meshv1.ServiceInfo
-	BeylaConfig  *beyla.Config
-	Logger       zerolog.Logger
+	AgentID     string
+	Services    []*meshv1.ServiceInfo
+	BeylaConfig *beyla.Config
+	Logger      zerolog.Logger
 }
 
 // New creates a new agent.

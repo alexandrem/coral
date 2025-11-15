@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent/telemetry"
-	ebpfpb "github.com/coral-io/coral/proto/coral/mesh/v1"
 	"github.com/rs/zerolog"
 )
 
@@ -83,9 +83,9 @@ type DiscoveryConfig struct {
 
 // ProtocolsConfig enables/disables specific protocols.
 type ProtocolsConfig struct {
-	HTTPEnabled bool
-	GRPCEnabled bool
-	SQLEnabled  bool
+	HTTPEnabled  bool
+	GRPCEnabled  bool
+	SQLEnabled   bool
 	KafkaEnabled bool
 	RedisEnabled bool
 }
@@ -150,10 +150,14 @@ func (m *Manager) Start() error {
 		Float64("sampling_rate", m.config.SamplingRate).
 		Msg("Starting Beyla manager")
 
-	// TODO(RFD 032): Start OTLP receiver to consume Beyla output.
-	// This assumes RFD 025 (Basic OTLP Ingestion) is implemented.
-	if err := m.startOTLPReceiver(); err != nil {
-		return fmt.Errorf("failed to start OTLP receiver: %w", err)
+	// Start OTLP receiver to consume Beyla output (RFD 025).
+	// Only start if database was provided; otherwise skip gracefully.
+	if m.storage != nil {
+		if err := m.startOTLPReceiver(); err != nil {
+			return fmt.Errorf("failed to start OTLP receiver: %w", err)
+		}
+	} else {
+		m.logger.Warn().Msg("Skipping OTLP receiver start (no database provided)")
 	}
 
 	// TODO(RFD 032): Start Beyla instrumentation goroutine.
