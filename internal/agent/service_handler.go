@@ -177,16 +177,119 @@ func (h *ServiceHandler) QueryTelemetry(
 }
 
 // QueryBeylaMetrics retrieves Beyla metrics from the agent's local storage (RFD 032).
-// This is a stub implementation - full Beyla integration is in progress.
+// Colony calls this to query filtered Beyla metrics from agent's local DuckDB.
 func (h *ServiceHandler) QueryBeylaMetrics(
 	ctx context.Context,
 	req *connect.Request[agentv1.QueryBeylaMetricsRequest],
 ) (*connect.Response[agentv1.QueryBeylaMetricsResponse], error) {
-	// TODO: Implement Beyla metrics query (RFD 032 Phase 4).
-	// For now, return empty response.
-	return connect.NewResponse(&agentv1.QueryBeylaMetricsResponse{
+	// If Beyla is disabled, return empty response.
+	if h.agent.beylaManager == nil {
+		return connect.NewResponse(&agentv1.QueryBeylaMetricsResponse{
+			HttpMetrics:  []*agentv1.BeylaHttpMetric{},
+			GrpcMetrics:  []*agentv1.BeylaGrpcMetric{},
+			SqlMetrics:   []*agentv1.BeylaSqlMetric{},
+			TotalMetrics: 0,
+		}), nil
+	}
+
+	// Convert Unix seconds to time.Time.
+	startTime := time.Unix(req.Msg.StartTime, 0)
+	endTime := time.Unix(req.Msg.EndTime, 0)
+
+	response := &agentv1.QueryBeylaMetricsResponse{
 		HttpMetrics: []*agentv1.BeylaHttpMetric{},
 		GrpcMetrics: []*agentv1.BeylaGrpcMetric{},
 		SqlMetrics:  []*agentv1.BeylaSqlMetric{},
-	}), nil
+	}
+
+	// Determine which metric types to query.
+	queryAll := len(req.Msg.MetricTypes) == 0
+	queryHTTP := queryAll
+	queryGRPC := queryAll
+	querySQL := queryAll
+
+	if !queryAll {
+		for _, metricType := range req.Msg.MetricTypes {
+			switch metricType {
+			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_HTTP:
+				queryHTTP = true
+			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_GRPC:
+				queryGRPC = true
+			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_SQL:
+				querySQL = true
+			}
+		}
+	}
+
+	// Query HTTP metrics if requested.
+	if queryHTTP {
+		httpMetrics, err := h.agent.beylaManager.QueryHTTPMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+
+		// Convert internal protobuf format to API format.
+		for _, metric := range httpMetrics {
+			response.HttpMetrics = append(response.HttpMetrics, &agentv1.BeylaHttpMetric{
+				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+				ServiceName:    metric.ServiceName,
+				HttpMethod:     metric.HttpMethod,
+				HttpRoute:      metric.HttpRoute,
+				HttpStatusCode: metric.HttpStatusCode,
+				LatencyBuckets: metric.LatencyBuckets,
+				LatencyCounts:  metric.LatencyCounts,
+				RequestCount:   metric.RequestCount,
+				Attributes:     metric.Attributes,
+			})
+		}
+	}
+
+	// Query gRPC metrics if requested.
+	if queryGRPC {
+		grpcMetrics, err := h.agent.beylaManager.QueryGRPCMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+
+		// Convert internal protobuf format to API format.
+		for _, metric := range grpcMetrics {
+			response.GrpcMetrics = append(response.GrpcMetrics, &agentv1.BeylaGrpcMetric{
+				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+				ServiceName:    metric.ServiceName,
+				GrpcMethod:     metric.GrpcMethod,
+				GrpcStatusCode: metric.GrpcStatusCode,
+				LatencyBuckets: metric.LatencyBuckets,
+				LatencyCounts:  metric.LatencyCounts,
+				RequestCount:   metric.RequestCount,
+				Attributes:     metric.Attributes,
+			})
+		}
+	}
+
+	// Query SQL metrics if requested.
+	if querySQL {
+		sqlMetrics, err := h.agent.beylaManager.QuerySQLMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+
+		// Convert internal protobuf format to API format.
+		for _, metric := range sqlMetrics {
+			response.SqlMetrics = append(response.SqlMetrics, &agentv1.BeylaSqlMetric{
+				Timestamp:     metric.Timestamp.AsTime().UnixMilli(),
+				ServiceName:   metric.ServiceName,
+				SqlOperation:  metric.SqlOperation,
+				TableName:     metric.TableName,
+				LatencyBuckets: metric.LatencyBuckets,
+				LatencyCounts: metric.LatencyCounts,
+				QueryCount:    metric.QueryCount,
+				Attributes:    metric.Attributes,
+			})
+		}
+	}
+
+	// Calculate total metrics.
+	response.TotalMetrics = int32(len(response.HttpMetrics) + len(response.GrpcMetrics) + len(response.SqlMetrics))
+
+	return connect.NewResponse(response), nil
 }

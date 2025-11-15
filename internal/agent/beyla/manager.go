@@ -254,12 +254,30 @@ func (m *Manager) GetMetrics() <-chan *ebpfpb.EbpfEvent {
 }
 
 // QueryHTTPMetrics queries Beyla HTTP metrics from local storage (RFD 032 Phase 4).
-// This is called by the QueryTelemetry RPC handler (colony → agent pull-based).
+// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
 	if m.beylaStorage == nil {
 		return nil, fmt.Errorf("Beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryHTTPMetrics(ctx, startTime, endTime, serviceNames)
+}
+
+// QueryGRPCMetrics queries Beyla gRPC metrics from local storage (RFD 032 Phase 4).
+// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
+func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, error) {
+	if m.beylaStorage == nil {
+		return nil, fmt.Errorf("Beyla storage not initialized")
+	}
+	return m.beylaStorage.QueryGRPCMetrics(ctx, startTime, endTime, serviceNames)
+}
+
+// QuerySQLMetrics queries Beyla SQL metrics from local storage (RFD 032 Phase 4).
+// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
+func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, error) {
+	if m.beylaStorage == nil {
+		return nil, fmt.Errorf("Beyla storage not initialized")
+	}
+	return m.beylaStorage.QuerySQLMetrics(ctx, startTime, endTime, serviceNames)
 }
 
 // IsRunning returns whether Beyla is currently running.
