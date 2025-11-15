@@ -6,9 +6,9 @@ breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: false
-dependencies: ["013", "032"]
-database_migrations: []
-areas: ["testing", "ebpf", "reliability"]
+dependencies: [ "013", "032" ]
+database_migrations: [ ]
+areas: [ "testing", "ebpf", "reliability" ]
 ---
 
 # RFD 037 - Production Testing Strategy for eBPF Integration
@@ -17,9 +17,11 @@ areas: ["testing", "ebpf", "reliability"]
 
 ## Summary
 
-Define comprehensive testing strategy for eBPF-based observability features (Beyla
+Define comprehensive testing strategy for eBPF-based observability features (
+Beyla
 integration, custom eBPF collectors) to ensure reliability across diverse kernel
-versions, CPU architectures, and production workloads. This RFD establishes testing
+versions, CPU architectures, and production workloads. This RFD establishes
+testing
 frameworks, performance benchmarks, and validation criteria for eBPF features
 before production deployment.
 
@@ -51,14 +53,16 @@ before production deployment.
 
 ## Solution
 
-Establish multi-layered testing strategy covering unit, integration, performance,
+Establish multi-layered testing strategy covering unit, integration,
+performance,
 compatibility, and production validation testing.
 
 **Key Design Decisions:**
 
 - **Kernel matrix testing**: Test against kernel 4.18, 5.8, 5.15, 6.1, 6.5 in CI
 - **Architecture matrix**: Test x86_64 and ARM64 in parallel
-- **Multi-protocol workloads**: Test HTTP, gRPC, PostgreSQL, Redis simultaneously
+- **Multi-protocol workloads**: Test HTTP, gRPC, PostgreSQL, Redis
+  simultaneously
 - **Performance benchmarks**: Measure CPU, memory, network overhead continuously
 - **Production canary**: Deploy to 1% of fleet before full rollout
 - **Regression detection**: Alert on performance degradation >5%
@@ -152,10 +156,10 @@ compatibility, and production validation testing.
 - [ ] Create Docker images for kernel matrix (4.18, 5.8, 5.15, 6.1, 6.5)
 - [ ] Set up multi-arch builds (x86_64, ARM64) in CI
 - [ ] Create test workload generators:
-  - HTTP server with configurable routes and latencies
-  - gRPC server with streaming and unary calls
-  - PostgreSQL workload with SELECT/INSERT/UPDATE
-  - Redis workload with GET/SET/DEL
+    - HTTP server with configurable routes and latencies
+    - gRPC server with streaming and unary calls
+    - PostgreSQL workload with SELECT/INSERT/UPDATE
+    - Redis workload with GET/SET/DEL
 - [ ] Configure GitHub Actions workflow for matrix testing
 
 ### Phase 2: Integration Tests
@@ -180,54 +184,56 @@ compatibility, and production validation testing.
 ### Phase 4: Performance Benchmarking
 
 - [ ] Baseline measurements (no instrumentation):
-  - CPU usage under 10k, 50k, 100k req/s
-  - Memory footprint
-  - P99 latency
+    - CPU usage under 10k, 50k, 100k req/s
+    - Memory footprint
+    - P99 latency
 - [ ] Instrumented measurements (Beyla enabled):
-  - CPU overhead delta
-  - Memory overhead delta
-  - Latency impact
+    - CPU overhead delta
+    - Memory overhead delta
+    - Latency impact
 - [ ] Long-running stability tests:
-  - 24-hour run with memory leak detection
-  - File descriptor leak detection
-  - Connection pool exhaustion testing
+    - 24-hour run with memory leak detection
+    - File descriptor leak detection
+    - Connection pool exhaustion testing
 - [ ] Performance regression detection:
-  - Alert if CPU overhead > 2%
-  - Alert if memory > 150 MB
-  - Alert if P99 latency impact > 1ms
+    - Alert if CPU overhead > 2%
+    - Alert if memory > 150 MB
+    - Alert if P99 latency impact > 1ms
 
 ### Phase 5: Production Canary
 
 - [ ] Define canary deployment criteria:
-  - 1% of production fleet
-  - Mix of high-traffic and low-traffic services
-  - Geographic distribution
+    - 1% of production fleet
+    - Mix of high-traffic and low-traffic services
+    - Geographic distribution
 - [ ] Implement automated rollback triggers:
-  - Error rate increase > 1%
-  - CPU usage spike > 5%
-  - Memory leak detected (>10% growth over 1 hour)
-  - Agent crash rate > 0.1%
+    - Error rate increase > 1%
+    - CPU usage spike > 5%
+    - Memory leak detected (>10% growth over 1 hour)
+    - Agent crash rate > 0.1%
 - [ ] Create monitoring dashboards:
-  - CPU usage (baseline vs canary)
-  - Memory usage (baseline vs canary)
-  - Error rates (baseline vs canary)
-  - Beyla process health
+    - CPU usage (baseline vs canary)
+    - Memory usage (baseline vs canary)
+    - Error rates (baseline vs canary)
+    - Beyla process health
 - [ ] Define validation checklist:
-  - Verify Beyla metrics appear in Colony
-  - Verify no increase in error logs
-  - Verify performance within SLOs
-  - Wait 24 hours before full rollout
+    - Verify Beyla metrics appear in Colony
+    - Verify no increase in error logs
+    - Verify performance within SLOs
+    - Wait 24 hours before full rollout
 
 ## Test Scenarios
 
 ### Scenario 1: Multi-Protocol Workload
 
 **Setup:**
+
 - HTTP server (10k req/s, mixed routes, 10% 5xx errors)
 - gRPC server (5k req/s, streaming + unary)
 - PostgreSQL (1k queries/s, SELECT/INSERT/UPDATE)
 
 **Validation:**
+
 - All protocols instrumented correctly
 - HTTP metrics show correct error rate (10%)
 - gRPC metrics show both streaming and unary calls
@@ -238,10 +244,12 @@ compatibility, and production validation testing.
 ### Scenario 2: Kernel Version Matrix
 
 **Setup:**
+
 - Test on each kernel version in matrix
 - Run same multi-protocol workload
 
 **Validation:**
+
 - Beyla starts successfully on all kernels
 - Metrics collected on all kernels
 - BTF detection works correctly
@@ -251,10 +259,12 @@ compatibility, and production validation testing.
 ### Scenario 3: High-Throughput Service
 
 **Setup:**
+
 - HTTP server (100k req/s, simple GET endpoint)
 - 8 CPU cores, 16 GB RAM
 
 **Validation:**
+
 - CPU overhead < 2% (< 0.16 cores)
 - Memory footprint < 150 MB
 - P99 latency impact < 1ms
@@ -264,10 +274,12 @@ compatibility, and production validation testing.
 ### Scenario 4: Resource-Constrained Environment
 
 **Setup:**
+
 - VM with 1 CPU core, 2 GB RAM
 - HTTP server (1k req/s)
 
 **Validation:**
+
 - Beyla runs without OOM
 - Metrics collected correctly
 - No significant CPU contention
@@ -275,18 +287,19 @@ compatibility, and production validation testing.
 
 ## Performance Targets
 
-| Metric | Target | Measurement Method |
-|--------|--------|-------------------|
-| CPU Overhead | < 2% | `perf stat` comparison |
-| Memory Footprint | 50-150 MB | RSS monitoring |
-| P99 Latency Impact | < 1ms | Load testing comparison |
-| Startup Time | < 5 seconds | Process monitoring |
-| Storage Size | < 100 MB/hour | DuckDB file size |
-| Agent Crash Rate | < 0.01% | Production telemetry |
+| Metric             | Target        | Measurement Method      |
+|--------------------|---------------|-------------------------|
+| CPU Overhead       | < 2%          | `perf stat` comparison  |
+| Memory Footprint   | 50-150 MB     | RSS monitoring          |
+| P99 Latency Impact | < 1ms         | Load testing comparison |
+| Startup Time       | < 5 seconds   | Process monitoring      |
+| Storage Size       | < 100 MB/hour | DuckDB file size        |
+| Agent Crash Rate   | < 0.01%       | Production telemetry    |
 
 ## Rollback Criteria
 
 Automatic rollback if any of:
+
 - Error rate increase > 1% compared to baseline
 - CPU usage increase > 5% compared to baseline
 - Memory usage increase > 20% compared to baseline

@@ -6,9 +6,9 @@ breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
-dependencies: ["025", "030", "032"]
-database_migrations: []
-areas: ["cli", "observability", "query"]
+dependencies: [ "025", "030", "032" ]
+database_migrations: [ ]
+areas: [ "cli", "observability", "query" ]
 ---
 
 # RFD 035 - CLI Query Framework for Observability Data
@@ -17,7 +17,8 @@ areas: ["cli", "observability", "query"]
 
 ## Summary
 
-Create a unified CLI query framework that provides intuitive commands for querying
+Create a unified CLI query framework that provides intuitive commands for
+querying
 observability data from Coral, including Beyla RED metrics, OTLP traces, custom
 eBPF events, and service topology. This framework builds on the pull-based gRPC
 APIs established in RFD 025 (OTLP) and RFD 032 (Beyla) to deliver a consistent
@@ -54,20 +55,23 @@ user experience for exploring distributed system behavior.
 
 ## Solution
 
-Create `coral query` command framework with subcommands for different data types,
+Create `coral query` command framework with subcommands for different data
+types,
 following patterns from `kubectl`, `aws`, and other cloud CLIs.
 
 **Key Design Decisions:**
 
 - **Unified `coral query` namespace**: All observability queries use `coral query
   <data-type>` pattern for consistency
-- **Time-range expressions**: Support natural language time ranges (`--since 1h`,
+- **Time-range expressions**: Support natural language time ranges (
+  `--since 1h`,
   `--from 2025-11-15T10:00:00`, `--last 30m`)
 - **Service-centric filtering**: Default to filtering by service name, with
   optional attribute filters
 - **Multiple output formats**: Table (default), JSON, CSV for programmatic
   consumption
-- **Progressive disclosure**: Simple queries by default, advanced filters via flags
+- **Progressive disclosure**: Simple queries by default, advanced filters via
+  flags
 - **Colony-aware**: Query multiple colonies and merge results transparently
 
 **Benefits:**
@@ -146,7 +150,8 @@ coral query beyla http payments-api --colony prod-us,prod-eu --since 30m
 ### Phase 1: Core Query Framework
 
 - [ ] Create `internal/cli/query/` package structure
-- [ ] Implement time range parser (`ParseTimeRange("1h")` → start/end timestamps)
+- [ ] Implement time range parser (`ParseTimeRange("1h")` → start/end
+  timestamps)
 - [ ] Create output formatter interface (`Formatter.Format(data) → string`)
 - [ ] Implement table formatter with column alignment
 - [ ] Add JSON and CSV formatters
@@ -159,7 +164,8 @@ coral query beyla http payments-api --colony prod-us,prod-eu --since 30m
 - [ ] Calculate error rates from status code distributions
 - [ ] Add route filtering (`--route <pattern>`)
 - [ ] Add status code filtering (`--status 2xx|4xx|5xx`)
-- [ ] Format output as table with columns: Route, Requests, P50, P95, P99, Errors
+- [ ] Format output as table with columns: Route, Requests, P50, P95, P99,
+  Errors
 
 ### Phase 3: Beyla gRPC & SQL Metrics
 
