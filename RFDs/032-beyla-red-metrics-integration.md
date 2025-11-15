@@ -17,23 +17,28 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 
 ## Implementation Status
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| Phase 1-2 | ✅ Complete | OTLP receiver infrastructure (RFD 025) |
-| Phase 3 | ✅ Complete | OTLP transformation layer (transformer.go, metrics support) |
-| Binary Distribution | ✅ Complete | Process-based integration via `go generate` |
-| Phase 4 (Agent) | ✅ Complete | Agent-side Beyla metrics storage (pull-based) |
-| Phase 4 (Colony) | ✅ Complete | Colony storage schema, ingestion, and polling |
-| Phase 5 | 🔮 Deferred | CLI integration → RFD 035 |
-| Phase 6 | 🔮 Deferred | MCP integration → RFD 004 |
-| Phase 7 | 🔮 Deferred | Testing & hardening → RFD 037 |
+| Phase               | Status      | Description                                                 |
+|---------------------|-------------|-------------------------------------------------------------|
+| Phase 1-2           | ✅ Complete  | OTLP receiver infrastructure (RFD 025)                      |
+| Phase 3             | ✅ Complete  | OTLP transformation layer (transformer.go, metrics support) |
+| Binary Distribution | ✅ Complete  | Process-based integration via `go generate`                 |
+| Phase 4 (Agent)     | ✅ Complete  | Agent-side Beyla metrics storage (pull-based)               |
+| Phase 4 (Colony)    | ✅ Complete  | Colony storage schema, ingestion, and polling               |
+| Phase 5             | 🔮 Deferred | CLI integration → RFD 035                                   |
+| Phase 6             | 🔮 Deferred | MCP integration → RFD 004                                   |
+| Phase 7             | 🔮 Deferred | Testing & hardening → RFD 037                               |
 
-**Scope Note:** This RFD focuses on core Beyla integration (Phases 1-4). CLI integration (Phase 5), MCP tools (Phase 6), and comprehensive testing (Phase 7) are intentionally deferred to future RFDs as they:
-- Depend on unfinished work (RFD 004 MCP server implementation, CLI query framework)
+**Scope Note:** This RFD focuses on core Beyla integration (Phases 1-4). CLI
+integration (Phase 5), MCP tools (Phase 6), and comprehensive testing (Phase 7)
+are intentionally deferred to future RFDs as they:
+
+- Depend on unfinished work (RFD 004 MCP server implementation, CLI query
+  framework)
 - Significantly expand scope beyond core integration
 - Can be built incrementally once the foundation is complete
 
 **Recent commits:**
+
 - `1b80568` - Phase 4 (Colony): Colony-side Beyla metrics storage and polling
 - `13f666d` - Phase 4 (Agent): Complete QueryBeylaMetrics RPC handler
 - `82afd14` - Phase 4: Agent-side Beyla metrics storage (pull-based)
@@ -50,9 +55,11 @@ Beyla will serve as the foundation for application observability, supplemented
 by custom eBPF programs (detailed in a future RFD) for Coral-specific insights
 like multi-service correlation and AI-driven diagnostics.
 
-**This RFD covers:** Agent integration, local storage, pull-based data flow, and Colony ingestion.
+**This RFD covers:** Agent integration, local storage, pull-based data flow, and
+Colony ingestion.
 
-**Future RFDs will cover:** CLI integration, MCP tools, and production testing frameworks.
+**Future RFDs will cover:** CLI integration, MCP tools, and production testing
+frameworks.
 
 ## Problem
 
@@ -174,16 +181,21 @@ flexibility to extend observability for Coral's unique distributed architecture.
     - Process isolation provides better stability and resource management
     - Lower maintenance burden than forking and maintaining library integration
     - Ability to upgrade Beyla independently of Coral agent
-- **Binary distribution via `go generate`**: Beyla binaries are downloaded during
-  build-time using `go generate` and embedded using platform-specific build tags:
+- **Binary distribution via `go generate`**: Beyla binaries are downloaded
+  during
+  build-time using `go generate` and embedded using platform-specific build
+  tags:
     - Script `scripts/download-beyla.sh` fetches binaries from Grafana GitHub
       releases
-    - Platform-specific embed files (`embed_linux_amd64.go`, `embed_darwin_arm64.go`,
+    - Platform-specific embed files (`embed_linux_amd64.go`,
+      `embed_darwin_arm64.go`,
       etc.) use build tags to include only the binary for the target platform
-    - Binary extraction to temp directory on agent startup with automatic cleanup
+    - Binary extraction to temp directory on agent startup with automatic
+      cleanup
       on shutdown
     - Fallback priority: `BEYLA_PATH` env var → embedded binary → system PATH
-    - Build integration: `make build` automatically runs `go generate` to download
+    - Build integration: `make build` automatically runs `go generate` to
+      download
       binaries
 - **Pull-based data flow** (RFD 025 architecture): Colony queries agents for
   Beyla metrics on-demand via gRPC RPC, rather than agents pushing data:
@@ -276,47 +288,61 @@ flexibility to extend observability for Coral's unique distributed architecture.
 
 **Implementation Details (as of commit 82afd14):**
 
-- **Beyla Process**: Managed by agent via `os/exec`, logs integrated with zerolog
-- **Binary Embedding**: Platform-specific via build tags (`embed_linux_amd64.go`, etc.)
-- **Local Storage**: `beyla_http_metrics_local`, `beyla_grpc_metrics_local`, `beyla_sql_metrics_local` tables
-- **Pull Queries**: `QueryBeylaMetrics` RPC defined in `proto/coral/agent/v1/agent.proto`
+- **Beyla Process**: Managed by agent via `os/exec`, logs integrated with
+  zerolog
+- **Binary Embedding**: Platform-specific via build tags (
+  `embed_linux_amd64.go`, etc.)
+- **Local Storage**: `beyla_http_metrics_local`, `beyla_grpc_metrics_local`,
+  `beyla_sql_metrics_local` tables
+- **Pull Queries**: `QueryBeylaMetrics` RPC defined in
+  `proto/coral/agent/v1/agent.proto`
 - **Cleanup**: Automatic 1-hour retention cleanup loop in agent
 
 ### Component Changes
 
-1. **Agent (node & multi-service)** ✅ Implemented (commits 877f403, d8eb0d5, 82afd14)
+1. **Agent (node & multi-service)** ✅ Implemented (commits 877f403, d8eb0d5,
+   82afd14)
     - **Process Management** (`internal/agent/beyla/manager.go`):
         - Launch Beyla as separate process via `os/exec.CommandContext`
         - Extract embedded binary to temp directory on startup
-        - Build command-line arguments from configuration (ports, protocols, OTLP endpoints)
+        - Build command-line arguments from configuration (ports, protocols,
+          OTLP endpoints)
         - Monitor process health and log errors via zerolog integration
         - Graceful shutdown with binary cleanup
-    - **Binary Distribution** (`scripts/download-beyla.sh`, `internal/agent/beyla/embed_*.go`):
-        - Download Beyla binaries from Grafana GitHub releases during `go generate`
+    - **Binary Distribution** (`scripts/download-beyla.sh`,
+      `internal/agent/beyla/embed_*.go`):
+        - Download Beyla binaries from Grafana GitHub releases during
+          `go generate`
         - Platform-specific embedding via build tags (Linux/Darwin, amd64/arm64)
         - Fallback hierarchy: `BEYLA_PATH` env → embedded → system PATH
     - **OTLP Consumption** (`internal/agent/beyla/transformer.go`, RFD 025):
         - Run embedded OTLP receiver (localhost:4317 gRPC, localhost:4318 HTTP)
         - Transform OTLP metrics to Coral's internal protobuf format
-        - Map metric names to protocols: `http.server.request.duration` → `BeylaHttpMetrics`
+        - Map metric names to protocols: `http.server.request.duration` →
+          `BeylaHttpMetrics`
         - Extract histogram buckets, status codes, routes from OTLP attributes
     - **Local Storage** (`internal/agent/beyla/storage.go`):
         - Store metrics in agent's local DuckDB (~1 hour retention)
-        - Tables: `beyla_http_metrics_local`, `beyla_grpc_metrics_local`, `beyla_sql_metrics_local`
+        - Tables: `beyla_http_metrics_local`, `beyla_grpc_metrics_local`,
+          `beyla_sql_metrics_local`
         - Automatic cleanup loop removes old data
         - Indexed by timestamp and service name for efficient queries
-    - **Query Interface** (`proto/coral/agent/v1/agent.proto`, `QueryBeylaMetrics` RPC):
+    - **Query Interface** (`proto/coral/agent/v1/agent.proto`,
+      `QueryBeylaMetrics` RPC):
         - Expose `QueryBeylaMetrics` RPC for Colony to pull metrics
-        - Return aggregated metrics grouped by (timestamp, service, method, route, status)
+        - Return aggregated metrics grouped by (timestamp, service, method,
+          route, status)
         - Support filtering by service names, time range, metric types
-    - **Configuration** (discovery rules, protocol filters, sampling rates, attribute enrichment):
+    - **Configuration** (discovery rules, protocol filters, sampling rates,
+      attribute enrichment):
         - Port-based discovery, Kubernetes labels, process names
         - Enable/disable protocols (HTTP, gRPC, SQL, Kafka, Redis)
         - Sampling rate for traces, resource attributes
 
 2. **Colony** ✅ Complete (Phase 4 - commits 13f666d, 1b80568)
     - **Storage Schema** (`internal/colony/database/schema.go`):
-        - DuckDB tables: `beyla_http_metrics`, `beyla_grpc_metrics`, `beyla_sql_metrics`
+        - DuckDB tables: `beyla_http_metrics`, `beyla_grpc_metrics`,
+          `beyla_sql_metrics`
         - Retention policies: HTTP/gRPC metrics (30d), SQL metrics (14d)
         - Indexed by service_name, timestamp, agent_id for efficient queries
     - **Database Methods** (`internal/colony/database/beyla.go`):
@@ -881,7 +907,10 @@ CREATE INDEX idx_beyla_traces_trace_id ON beyla_traces (trace_id, start_time DES
 
 ### CLI Commands
 
-> **Note:** CLI integration is deferred to a future RFD (Phase 5). The examples below are illustrative of the eventual user experience but are not implemented in this RFD. This RFD implements the underlying gRPC API that future CLI commands will consume.
+> **Note:** CLI integration is deferred to a future RFD (Phase 5). The examples
+> below are illustrative of the eventual user experience but are not implemented
+> in this RFD. This RFD implements the underlying gRPC API that future CLI
+> commands will consume.
 
 Beyla metrics will eventually be accessible through `coral` commands:
 
@@ -1000,7 +1029,9 @@ storage:
 
 ## Testing Strategy
 
-> **Note:** Comprehensive testing (Phase 7) is deferred to a future testing RFD. This section outlines testing approaches for reference. This RFD includes basic unit tests for storage and transformation logic.
+> **Note:** Comprehensive testing (Phase 7) is deferred to a future testing RFD.
+> This section outlines testing approaches for reference. This RFD includes basic
+> unit tests for storage and transformation logic.
 
 ### Unit Tests
 
