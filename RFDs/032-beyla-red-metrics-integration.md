@@ -23,16 +23,20 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 | Phase 3 | ✅ Complete | OTLP transformation layer (transformer.go, metrics support) |
 | Binary Distribution | ✅ Complete | Process-based integration via `go generate` |
 | Phase 4 (Agent) | ✅ Complete | Agent-side Beyla metrics storage (pull-based) |
-| Phase 4 (Colony) | ⏳ Pending | Colony storage schema and ingestion logic |
-| Phase 5 | ⏳ Pending | CLI integration (coral query beyla, coral tap) |
-| Phase 6 | ⏳ Pending | MCP integration (coral ask with Beyla data) |
-| Phase 7 | ⏳ Pending | Testing & production hardening |
+| Phase 4 (Colony) | ⏳ In Progress | Colony storage schema and ingestion logic |
+| Phase 5 | 🔮 Deferred | CLI integration → Future RFD |
+| Phase 6 | 🔮 Deferred | MCP integration → Depends on MCP server RFD |
+| Phase 7 | 🔮 Deferred | Testing & hardening → Future testing RFD |
+
+**Scope Note:** This RFD focuses on core Beyla integration (Phases 1-4). CLI integration (Phase 5), MCP tools (Phase 6), and comprehensive testing (Phase 7) are intentionally deferred to future RFDs as they:
+- Depend on unfinished work (MCP server implementation, CLI query framework)
+- Significantly expand scope beyond core integration
+- Can be built incrementally once the foundation is complete
 
 **Recent commits:**
+- `2e0e264` - Fix: download path and protobuf generation
 - `82afd14` - Phase 4: Agent-side Beyla metrics storage (pull-based)
 - `d8eb0d5` - Beyla binary distribution via go generate
-- `8b77659` - Consolidate configs
-- `bacf694` - Fix tests
 - `877f403` - Phase 3: OTLP transformation layer
 
 ## Summary
@@ -44,6 +48,10 @@ Duration) metrics collection for HTTP, gRPC, databases, and message queues.
 Beyla will serve as the foundation for application observability, supplemented
 by custom eBPF programs (detailed in a future RFD) for Coral-specific insights
 like multi-service correlation and AI-driven diagnostics.
+
+**This RFD covers:** Agent integration, local storage, pull-based data flow, and Colony ingestion.
+
+**Future RFDs will cover:** CLI integration, MCP tools, and production testing frameworks.
 
 ## Problem
 
@@ -305,29 +313,31 @@ flexibility to extend observability for Coral's unique distributed architecture.
         - Enable/disable protocols (HTTP, gRPC, SQL, Kafka, Redis)
         - Sampling rate for traces, resource attributes
 
-2. **Colony** ⏳ Pending Implementation
-    - **Storage Schema** (to be implemented):
+2. **Colony** ⏳ In Progress (Phase 4 - Final component)
+    - **Storage Schema**:
         - Create DuckDB tables: `beyla_http_metrics`, `beyla_grpc_metrics`, `beyla_sql_metrics`
-        - Store distributed traces from Beyla in OpenTelemetry-compatible format
         - Implement retention policies: HTTP/gRPC metrics (30d), SQL metrics (14d), traces (7d)
-    - **Ingestion Logic** (to be implemented):
-        - Periodic polling of agents via `QueryBeylaMetrics` RPC (every 30s)
-        - Aggregate and store metrics from all agents in Colony DuckDB
-        - Correlate Beyla metrics with custom eBPF data using service/pod identifiers
-    - **Query API** (to be implemented):
-        - Unified query interface: "Show me HTTP P95 latency for payments-api over last hour"
-        - Support for percentile calculations from histogram buckets
-        - Time-series aggregation and downsampling
+    - **Ingestion Logic**:
+        - Periodic polling of agents via `QueryBeylaMetrics` RPC (every 30-60s)
+        - Aggregate and store metrics from all registered agents
+        - Basic query API for retrieving stored metrics
+    - **Out of scope for this RFD**:
+        - Advanced correlation with custom eBPF data (future RFD)
+        - Distributed trace storage (future RFD)
+        - Percentile calculations and time-series aggregation (future RFD)
 
-3. **CLI / MCP** ⏳ Pending Implementation (Phase 5-6)
-    - **CLI Integration**:
-        - Extend `coral tap` to include Beyla metrics: `--beyla-http`, `--beyla-traces`
-        - Add `coral query beyla` subcommand for historical RED metrics
-        - Output formatters: table views (P50/P95/P99, error rates), JSON export
-    - **AI Integration**:
-        - Integrate with `coral ask`: "Why is checkout slow?" pulls Beyla latency histograms
-        - MCP tools: `coral_get_red_metrics`, `coral_query_traces`, `coral_analyze_performance`
-        - Pattern matching triggers: "slow|latency" → query Beyla HTTP/gRPC metrics
+3. **CLI / MCP** 🔮 Deferred to Future RFDs
+    - **Rationale for deferral**:
+        - CLI integration requires broader query framework (not just Beyla)
+        - MCP integration depends on MCP server implementation (separate RFD)
+        - Testing framework needs comprehensive design (separate testing RFD)
+    - **Will be covered in**:
+        - Future RFD: "CLI Query Framework for Observability Data"
+        - Future RFD: "MCP Server for AI-Driven Diagnostics"
+        - Future RFD: "Production Testing Strategy for eBPF Integration"
+    - **Minimal exposure for now**:
+        - Basic gRPC API exists for Colony to query agents
+        - Future RFDs will build user-facing interfaces on top
 
 **Configuration Example**
 
@@ -862,7 +872,9 @@ CREATE INDEX idx_beyla_traces_trace_id ON beyla_traces (trace_id, start_time DES
 
 ### CLI Commands
 
-Beyla metrics are accessible through existing `coral` commands:
+> **Note:** CLI integration is deferred to a future RFD (Phase 5). The examples below are illustrative of the eventual user experience but are not implemented in this RFD. This RFD implements the underlying gRPC API that future CLI commands will consume.
+
+Beyla metrics will eventually be accessible through `coral` commands:
 
 **Query RED metrics**:
 
@@ -968,22 +980,18 @@ storage:
         # Trace sampling (reduce storage for high-volume services)
         trace_sampling_rate: 0.1  # Keep 10% of traces
 
-ai:
-    beyla_integration:
-        # AI automatically uses Beyla metrics for performance queries
-        auto_query: true
-
-        # Trigger patterns
-        triggers:
-            -   pattern: "slow|latency|performance|p95|p99"
-                data_sources: [ "beyla_http", "beyla_grpc" ]
-            -   pattern: "error|failing|5xx|timeout"
-                data_sources: [ "beyla_http", "beyla_traces" ]
-            -   pattern: "trace|request flow|distributed"
-                data_sources: [ "beyla_traces" ]
+# AI integration (deferred to future RFD - requires MCP server implementation)
+# ai:
+#     beyla_integration:
+#         auto_query: true
+#         triggers:
+#             - pattern: "slow|latency|performance"
+#               data_sources: ["beyla_http", "beyla_grpc"]
 ```
 
 ## Testing Strategy
+
+> **Note:** Comprehensive testing (Phase 7) is deferred to a future testing RFD. This section outlines testing approaches for reference. This RFD includes basic unit tests for storage and transformation logic.
 
 ### Unit Tests
 
