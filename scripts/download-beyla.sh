@@ -7,8 +7,11 @@ set -e
 # Beyla version to download.
 BEYLA_VERSION="${BEYLA_VERSION:-v1.8.7}"
 
-# Output directory for downloaded binaries.
-BINARIES_DIR="internal/agent/beyla/binaries"
+# Get the directory where this script is located.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Output directory for downloaded binaries (relative to script location).
+BINARIES_DIR="${SCRIPT_DIR}/../internal/agent/beyla/binaries"
 
 # GitHub release URL base.
 GITHUB_RELEASES="https://github.com/grafana/beyla/releases/download"
