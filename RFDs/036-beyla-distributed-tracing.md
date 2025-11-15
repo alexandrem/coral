@@ -6,9 +6,9 @@ breaking_changes: false
 testing_required: true
 database_changes: true
 api_changes: true
-dependencies: ["025", "032"]
-database_migrations: ["beyla_traces"]
-areas: ["observability", "tracing", "beyla"]
+dependencies: [ "025", "032" ]
+database_migrations: [ "beyla_traces" ]
+areas: [ "observability", "tracing", "beyla" ]
 ---
 
 # RFD 036 - Beyla Distributed Tracing Collection
@@ -63,7 +63,8 @@ retention policies, or integration with RED metrics.
 - **Dependency mapping**: Understanding service relationships requires analyzing
   traces to see which services call which other services.
 - **Error propagation**: When a payment fails, traces show whether the error
-  originated in payments-api, card-validator-svc, or an external payment gateway.
+  originated in payments-api, card-validator-svc, or an external payment
+  gateway.
 - **Performance profiling**: Identifying slow database queries, external API
   calls, or message queue operations within a request flow.
 
@@ -193,75 +194,76 @@ using the existing infrastructure established by RFD 025 (OTLP receiver) and RFD
 ### Component Changes
 
 1. **Agent** (`internal/agent/beyla/`):
-   - Identify Beyla-originated traces in OTLP receiver (via resource attributes
-     or instrumentation scope)
-   - Transform and store traces in `beyla_traces` table (separate from generic
-     telemetry)
-   - Extend `QueryBeylaMetrics` RPC handler to support trace queries (by trace
-     ID, time range, service name)
-   - Configurable retention for traces (default: 1 hour)
+    - Identify Beyla-originated traces in OTLP receiver (via resource attributes
+      or instrumentation scope)
+    - Transform and store traces in `beyla_traces` table (separate from generic
+      telemetry)
+    - Extend `QueryBeylaMetrics` RPC handler to support trace queries (by trace
+      ID, time range, service name)
+    - Configurable retention for traces (default: 1 hour)
 
 2. **Colony** (`internal/colony/beyla_poller.go`,
    `internal/colony/database/beyla.go`):
-   - Extend `BeylaPoller` to query traces from agents via `QueryBeylaMetrics`
-     RPC
-   - Store traces in Colony DuckDB with configurable retention (default: 7 days)
-   - Implement trace cleanup based on retention policy
+    - Extend `BeylaPoller` to query traces from agents via `QueryBeylaMetrics`
+      RPC
+    - Store traces in Colony DuckDB with configurable retention (default: 7
+      days)
+    - Implement trace cleanup based on retention policy
 
 3. **Protobuf API** (`proto/coral/agent/v1/agent.proto`):
-   - Extend `QueryBeylaMetricsRequest` with trace-specific filters (trace ID,
-     span ID, max spans)
-   - Extend `QueryBeylaMetricsResponse` to include `repeated BeylaTraceSpan
+    - Extend `QueryBeylaMetricsRequest` with trace-specific filters (trace ID,
+      span ID, max spans)
+    - Extend `QueryBeylaMetricsResponse` to include `repeated BeylaTraceSpan
      trace_spans`
-   - `BeylaTraceSpan` message already defined (RFD 032)—no new messages needed
+    - `BeylaTraceSpan` message already defined (RFD 032)—no new messages needed
 
 4. **Configuration**:
-   - Agent: `beyla.storage_retention_hours_traces` (default: 1 hour)
-   - Colony: `beyla.trace_retention_days` (default: 7 days)
-   - Colony: `beyla.trace_sampling_rate` (optional, default: 1.0 = 100%)
+    - Agent: `beyla.storage_retention_hours_traces` (default: 1 hour)
+    - Colony: `beyla.trace_retention_days` (default: 7 days)
+    - Colony: `beyla.trace_sampling_rate` (optional, default: 1.0 = 100%)
 
 **Configuration Example:**
 
 ```yaml
 # agent-config.yaml
 beyla:
-  enabled: true
+    enabled: true
 
-  # Local storage retention
-  storage_retention_hours: 1          # RED metrics retention
-  storage_retention_hours_traces: 1   # Trace retention (separate setting)
+    # Local storage retention
+    storage_retention_hours: 1          # RED metrics retention
+    storage_retention_hours_traces: 1   # Trace retention (separate setting)
 
-  # Sampling (applied by Beyla process)
-  sampling:
-    rate: 1.0                         # 100% sampling (adjust for high throughput)
+    # Sampling (applied by Beyla process)
+    sampling:
+        rate: 1.0                         # 100% sampling (adjust for high throughput)
 
-  discovery:
-    services:
-      - name: "payments-api"
-        open_port: 8080
+    discovery:
+        services:
+            -   name: "payments-api"
+                open_port: 8080
 
-  protocols:
-    http:
-      enabled: true
-    grpc:
-      enabled: true
-    sql:
-      enabled: true
+    protocols:
+        http:
+            enabled: true
+        grpc:
+            enabled: true
+        sql:
+            enabled: true
 ```
 
 ```yaml
 # colony-config.yaml (future enhancement, currently hardcoded)
 storage:
-  beyla:
-    retention:
-      http_metrics: 30d
-      grpc_metrics: 30d
-      sql_metrics: 14d
-      traces: 7d                      # Shorter retention for high-volume traces
+    beyla:
+        retention:
+            http_metrics: 30d
+            grpc_metrics: 30d
+            sql_metrics: 14d
+            traces: 7d                      # Shorter retention for high-volume traces
 
-    # Optional: reduce storage by sampling traces at Colony level
-    # (in addition to Beyla's sampling)
-    trace_sampling_rate: 1.0          # Keep 100% of traces received from agents
+        # Optional: reduce storage by sampling traces at Colony level
+        # (in addition to Beyla's sampling)
+        trace_sampling_rate: 1.0          # Keep 100% of traces received from agents
 ```
 
 ## Implementation Plan
@@ -311,51 +313,51 @@ Extend `QueryBeylaMetrics` RPC to support trace queries:
 
 // QueryBeylaMetricsRequest (extend existing message)
 message QueryBeylaMetricsRequest {
-  // Existing fields for metrics
-  int64 start_time = 1;
-  int64 end_time = 2;
-  repeated string service_names = 3;
-  repeated BeylaMetricType metric_types = 4;
+    // Existing fields for metrics
+    int64 start_time = 1;
+    int64 end_time = 2;
+    repeated string service_names = 3;
+    repeated BeylaMetricType metric_types = 4;
 
-  // New fields for trace queries
-  // Filter by specific trace ID (returns all spans in that trace)
-  string trace_id = 5;
+    // New fields for trace queries
+    // Filter by specific trace ID (returns all spans in that trace)
+    string trace_id = 5;
 
-  // Limit number of traces returned (default: 100, max: 1000)
-  int32 max_traces = 6;
+    // Limit number of traces returned (default: 100, max: 1000)
+    int32 max_traces = 6;
 
-  // Include traces in response (default: false for backward compatibility)
-  bool include_traces = 7;
+    // Include traces in response (default: false for backward compatibility)
+    bool include_traces = 7;
 }
 
 // QueryBeylaMetricsResponse (extend existing message)
 message QueryBeylaMetricsResponse {
-  // Existing fields
-  repeated BeylaHttpMetric http_metrics = 1;
-  repeated BeylaGrpcMetric grpc_metrics = 2;
-  repeated BeylaSqlMetric sql_metrics = 3;
-  int32 total_metrics = 4;
+    // Existing fields
+    repeated BeylaHttpMetric http_metrics = 1;
+    repeated BeylaGrpcMetric grpc_metrics = 2;
+    repeated BeylaSqlMetric sql_metrics = 3;
+    int32 total_metrics = 4;
 
-  // New field for traces
-  repeated BeylaTraceSpan trace_spans = 5;
-  int32 total_traces = 6;
+    // New field for traces
+    repeated BeylaTraceSpan trace_spans = 5;
+    int32 total_traces = 6;
 }
 
 // BeylaTraceSpan (already defined in RFD 032, shown for completeness)
 message BeylaTraceSpan {
-  string trace_id = 1;            // 32-char hex string
-  string span_id = 2;             // 16-char hex string
-  string parent_span_id = 3;      // Empty if root span
+    string trace_id = 1;            // 32-char hex string
+    string span_id = 2;             // 16-char hex string
+    string parent_span_id = 3;      // Empty if root span
 
-  string service_name = 4;
-  string span_name = 5;           // e.g., "GET /api/v1/users/:id"
-  string span_kind = 6;           // "server", "client", "producer", "consumer"
+    string service_name = 4;
+    string span_name = 5;           // e.g., "GET /api/v1/users/:id"
+    string span_kind = 6;           // "server", "client", "producer", "consumer"
 
-  google.protobuf.Timestamp start_time = 7;
-  google.protobuf.Duration duration = 8;
+    google.protobuf.Timestamp start_time = 7;
+    google.protobuf.Duration duration = 8;
 
-  uint32 status_code = 9;         // HTTP/gRPC status
-  map<string, string> attributes = 10;
+    uint32 status_code = 9;         // HTTP/gRPC status
+    map<string, string> attributes = 10;
 }
 ```
 
@@ -365,50 +367,86 @@ The `beyla_traces` table schema already exists (created in RFD 032):
 
 ```sql
 -- Agent local storage (internal/agent/beyla/storage.go)
-CREATE TABLE IF NOT EXISTS beyla_traces_local (
-  trace_id VARCHAR(32) NOT NULL,
-  span_id VARCHAR(16) NOT NULL,
-  parent_span_id VARCHAR(16),
-  service_name TEXT NOT NULL,
-  span_name TEXT NOT NULL,
-  span_kind VARCHAR(10),
-  start_time TIMESTAMPTZ NOT NULL,
-  duration_us BIGINT NOT NULL,
-  status_code SMALLINT,
-  attributes TEXT,                -- JSON-encoded attributes
-  PRIMARY KEY (trace_id, span_id)
-);
+CREATE TABLE IF NOT EXISTS beyla_traces_local
+(
+    trace_id
+    VARCHAR
+(
+    32
+) NOT NULL,
+    span_id VARCHAR
+(
+    16
+) NOT NULL,
+    parent_span_id VARCHAR
+(
+    16
+),
+    service_name TEXT NOT NULL,
+    span_name TEXT NOT NULL,
+    span_kind VARCHAR
+(
+    10
+),
+    start_time TIMESTAMPTZ NOT NULL,
+    duration_us BIGINT NOT NULL,
+    status_code SMALLINT,
+    attributes TEXT, -- JSON-encoded attributes
+    PRIMARY KEY
+(
+    trace_id,
+    span_id
+)
+    );
 
 CREATE INDEX idx_beyla_traces_local_service_time
-  ON beyla_traces_local(service_name, start_time DESC);
+    ON beyla_traces_local (service_name, start_time DESC);
 CREATE INDEX idx_beyla_traces_local_trace_id
-  ON beyla_traces_local(trace_id, start_time DESC);
+    ON beyla_traces_local (trace_id, start_time DESC);
 CREATE INDEX idx_beyla_traces_local_start_time
-  ON beyla_traces_local(start_time DESC);
+    ON beyla_traces_local (start_time DESC);
 
 -- Colony aggregated storage (internal/colony/database/schema.go)
 -- Same schema as agent, but with agent_id column
-CREATE TABLE IF NOT EXISTS beyla_traces (
-  trace_id VARCHAR(32) NOT NULL,
-  span_id VARCHAR(16) NOT NULL,
-  parent_span_id VARCHAR(16),
-  agent_id VARCHAR NOT NULL,      -- Which agent collected this span
-  service_name TEXT NOT NULL,
-  span_name TEXT NOT NULL,
-  span_kind VARCHAR(10),
-  start_time TIMESTAMPTZ NOT NULL,
-  duration_us BIGINT NOT NULL,
-  status_code SMALLINT,
-  attributes TEXT,
-  PRIMARY KEY (trace_id, span_id)
-);
+CREATE TABLE IF NOT EXISTS beyla_traces
+(
+    trace_id
+    VARCHAR
+(
+    32
+) NOT NULL,
+    span_id VARCHAR
+(
+    16
+) NOT NULL,
+    parent_span_id VARCHAR
+(
+    16
+),
+    agent_id VARCHAR NOT NULL, -- Which agent collected this span
+    service_name TEXT NOT NULL,
+    span_name TEXT NOT NULL,
+    span_kind VARCHAR
+(
+    10
+),
+    start_time TIMESTAMPTZ NOT NULL,
+    duration_us BIGINT NOT NULL,
+    status_code SMALLINT,
+    attributes TEXT,
+    PRIMARY KEY
+(
+    trace_id,
+    span_id
+)
+    );
 
 CREATE INDEX idx_beyla_traces_service_time
-  ON beyla_traces(service_name, start_time DESC);
+    ON beyla_traces (service_name, start_time DESC);
 CREATE INDEX idx_beyla_traces_trace_id
-  ON beyla_traces(trace_id, start_time DESC);
+    ON beyla_traces (trace_id, start_time DESC);
 CREATE INDEX idx_beyla_traces_duration
-  ON beyla_traces(duration_us DESC);
+    ON beyla_traces (duration_us DESC);
 ```
 
 ### CLI Commands (Deferred to RFD 037)
@@ -620,5 +658,6 @@ exporters.
 - **RFD 025**: Basic OpenTelemetry Ingestion (OTLP receiver infrastructure)
 - **RFD 032**: Beyla Integration for RED Metrics Collection (foundation)
 - **W3C Trace Context**: https://www.w3.org/TR/trace-context/
-- **OpenTelemetry Tracing**: https://opentelemetry.io/docs/concepts/signals/traces/
+- **OpenTelemetry Tracing
+  **: https://opentelemetry.io/docs/concepts/signals/traces/
 - **Beyla Documentation**: https://github.com/grafana/beyla/tree/main/docs
