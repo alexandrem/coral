@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 )
 
@@ -82,7 +82,7 @@ func TestNewManager(t *testing.T) {
 
 			// Setup database if needed.
 			if tt.withDB && tt.config != nil {
-				db, err := sql.Open("sqlite3", ":memory:")
+				db, err := sql.Open("duckdb", ":memory:")
 				if err != nil {
 					t.Fatalf("Failed to create test database: %v", err)
 				}

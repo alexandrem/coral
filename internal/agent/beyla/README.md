@@ -53,8 +53,8 @@ This implementation integrates with:
 2. **Beyla Go library** - ⚠️ Pending
    - Will be integrated when the official OpenTelemetry eBPF project structure is finalized
 3. **Database** - Required for OTLP receiver
-   - SQLite for local agent storage
-   - DuckDB for Colony storage
+   - DuckDB for local agent storage (~1 hour retention)
+   - DuckDB for Colony storage (long-term summaries)
 
 ## Usage
 
@@ -95,11 +95,11 @@ beyla:
 import (
     "database/sql"
     "github.com/coral-io/coral/internal/agent/beyla"
-    _ "github.com/mattn/go-sqlite3"
+    _ "github.com/marcboeker/go-duckdb"
 )
 
 // Database is required for OTLP receiver
-db, err := sql.Open("sqlite3", "/path/to/agent.db")
+db, err := sql.Open("duckdb", "/path/to/agent.db")
 if err != nil {
     log.Fatal(err)
 }
@@ -176,7 +176,7 @@ The Beyla manager now integrates with RFD 025's OTLP receiver infrastructure:
 1. **OTLP Receiver**:
    - Creates `telemetry.OTLPReceiver` on startup
    - Listens on `localhost:4318` (HTTP) and `localhost:4317` (gRPC)
-   - Stores spans in local SQLite database (~1 hour retention)
+   - Stores spans in local DuckDB database (~1 hour retention)
 
 2. **Trace Consumer**:
    - Polls storage every 5 seconds for new spans
@@ -185,7 +185,7 @@ The Beyla manager now integrates with RFD 025's OTLP receiver infrastructure:
 
 3. **Data Flow**:
    ```
-   Beyla (eBPF) → OTLP HTTP/gRPC → OTLPReceiver → Storage (SQLite) →
+   Beyla (eBPF) → OTLP HTTP/gRPC → OTLPReceiver → Storage (DuckDB) →
    consumeTraces() → BeylaTrace channel → Colony
    ```
 
