@@ -23,8 +23,6 @@ Coral: "API latency spiked 3 minutes ago. P95 went from 150ms to 2.3s.
 
 🚧 **Early Development / Design Phase** - Implementation in progress
 
-**Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, testing guidelines, and PR best practices.
-
 ## The Problem
 
 Your app runs across **fragmented infrastructure**: laptop, VMs, Kubernetes
