@@ -186,7 +186,7 @@ Examples:
 			}
 
 			// Start gRPC/Connect server for agent registration and colony management.
-			meshServer, err := startServers(cfg, wgDevice, agentRegistry, endpoints, logger)
+			meshServer, err := startServers(cfg, wgDevice, agentRegistry, db, endpoints, logger)
 			if err != nil {
 				return fmt.Errorf("failed to start servers: %w", err)
 			}
@@ -1228,7 +1228,7 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 }
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
-func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, endpoints []string, logger logging.Logger) (*http.Server, error) {
+func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, db *database.Database, endpoints []string, logger logging.Logger) (*http.Server, error) {
 	// Get connect port from config or use default
 	loader, err := config.NewLoader()
 	if err != nil {
@@ -1274,12 +1274,6 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		registry:        agentRegistry,
 		logger:          logger,
 		discoveryClient: discoveryClient,
-	}
-
-	// Create database for telemetry storage
-	db, err := database.New(cfg.StoragePath, cfg.ColonyID, logger.With().Str("component", "database").Logger())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
 	// Create colony service handler
