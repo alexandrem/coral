@@ -12,23 +12,6 @@ import (
 	"github.com/coral-io/coral/internal/agent/telemetry"
 )
 
-// TelemetryConfig contains telemetry configuration.
-type TelemetryConfig struct {
-	Disabled              bool
-	GRPCEndpoint          string
-	HTTPEndpoint          string
-	StorageRetentionHours int
-	AgentID               string
-	Filters               TelemetryFilterConfig
-}
-
-// TelemetryFilterConfig contains filtering configuration.
-type TelemetryFilterConfig struct {
-	AlwaysCaptureErrors    bool
-	HighLatencyThresholdMs float64
-	SampleRate             float64
-}
-
 // TelemetryReceiver wraps the OTLP receiver for external use.
 type TelemetryReceiver struct {
 	receiver *telemetry.OTLPReceiver
@@ -38,7 +21,7 @@ type TelemetryReceiver struct {
 }
 
 // NewTelemetryReceiver creates a new telemetry receiver.
-func NewTelemetryReceiver(config TelemetryConfig, logger zerolog.Logger) (*TelemetryReceiver, error) {
+func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*TelemetryReceiver, error) {
 	if config.Disabled {
 		return nil, fmt.Errorf("telemetry is disabled")
 	}
@@ -56,22 +39,8 @@ func NewTelemetryReceiver(config TelemetryConfig, logger zerolog.Logger) (*Telem
 		return nil, fmt.Errorf("failed to create telemetry storage: %w", err)
 	}
 
-	// Create telemetry config.
-	telemetryConfig := telemetry.Config{
-		Disabled:              config.Disabled,
-		GRPCEndpoint:          config.GRPCEndpoint,
-		HTTPEndpoint:          config.HTTPEndpoint,
-		StorageRetentionHours: config.StorageRetentionHours,
-		AgentID:               config.AgentID,
-		Filters: telemetry.FilterConfig{
-			AlwaysCaptureErrors:    config.Filters.AlwaysCaptureErrors,
-			HighLatencyThresholdMs: config.Filters.HighLatencyThresholdMs,
-			SampleRate:             config.Filters.SampleRate,
-		},
-	}
-
 	// Create OTLP receiver.
-	receiver, err := telemetry.NewOTLPReceiver(telemetryConfig, storage, logger)
+	receiver, err := telemetry.NewOTLPReceiver(config, storage, logger)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to create OTLP receiver: %w", err)

@@ -21,6 +21,7 @@ import (
 	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent"
+	"github.com/coral-io/coral/internal/agent/telemetry"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/constants"
@@ -385,7 +386,7 @@ Examples:
 			if !agentCfg.Telemetry.Disabled {
 				logger.Info().Msg("Starting OTLP receiver for telemetry collection")
 
-				telemetryConfig := agent.TelemetryConfig{
+				telemetryConfig := telemetry.Config{
 					Disabled:              agentCfg.Telemetry.Disabled,
 					GRPCEndpoint:          agentCfg.Telemetry.GRPCEndpoint,
 					HTTPEndpoint:          agentCfg.Telemetry.HTTPEndpoint,
