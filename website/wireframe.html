@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coral Landing Page - Wireframe</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .wireframe-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 0 40px rgba(0,0,0,0.1);
+        }
+
+        .wireframe-section {
+            border: 2px dashed #999;
+            padding: 20px;
+            margin: 20px;
+            position: relative;
+        }
+
+        .section-label {
+            position: absolute;
+            top: -12px;
+            left: 20px;
+            background: #fff;
+            padding: 0 10px;
+            font-weight: 700;
+            color: #6366f1;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+
+        .box {
+            border: 2px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            background: #fafafa;
+            border-radius: 4px;
+        }
+
+        .box-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .box-content {
+            color: #666;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .grid {
+            display: grid;
+            gap: 15px;
+            margin: 10px 0;
+        }
+
+        .grid-2 { grid-template-columns: 1fr 1fr; }
+        .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+        .header {
+            background: #f8f8f8;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .nav-items {
+            display: flex;
+            gap: 20px;
+        }
+
+        .nav-item {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+
+        .hero-content {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .terminal-mock {
+            background: #1e1e2e;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px auto;
+            max-width: 700px;
+        }
+
+        .terminal-header-mock {
+            background: #2a2a3a;
+            padding: 8px;
+            border-radius: 4px 4px 0 0;
+            margin: -20px -20px 10px;
+            display: flex;
+            gap: 5px;
+        }
+
+        .circle {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .red { background: #ef4444; }
+        .yellow { background: #eab308; }
+        .green { background: #22c55e; }
+
+        .terminal-line-mock {
+            color: #a1a1aa;
+            font-family: monospace;
+            font-size: 11px;
+            line-height: 1.8;
+        }
+
+        .feature-card-mock {
+            border: 2px solid #e0e0e0;
+            padding: 20px;
+            border-radius: 8px;
+            background: #fefefe;
+        }
+
+        .icon-placeholder {
+            width: 50px;
+            height: 50px;
+            background: #e0e0ff;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .arch-diagram {
+            padding: 20px;
+            text-align: center;
+        }
+
+        .arch-row {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 10px 0;
+        }
+
+        .arch-box-mock {
+            border: 2px solid #ddd;
+            padding: 15px 25px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .colony-box { background: #e0e0ff; border-color: #6366f1; }
+        .agent-box { background: #d0f0ff; border-color: #06b6d4; }
+        .service-box { background: #f0f0f0; border-color: #999; }
+
+        .connector {
+            height: 20px;
+            width: 2px;
+            background: #999;
+            margin: 0 auto;
+        }
+
+        .step-mock {
+            display: flex;
+            gap: 15px;
+            align-items: flex-start;
+        }
+
+        .step-number {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #6366f1;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .annotations {
+            position: absolute;
+            right: -180px;
+            top: 0;
+            width: 160px;
+            font-size: 11px;
+            color: #666;
+            padding: 10px;
+            background: #fffbea;
+            border: 1px dashed #fbbf24;
+            border-radius: 4px;
+        }
+
+        .annotation-title {
+            font-weight: 700;
+            color: #92400e;
+            margin-bottom: 5px;
+        }
+
+        .measurements {
+            font-size: 10px;
+            color: #999;
+            text-align: right;
+            margin-top: 5px;
+        }
+
+        h1, h2, h3 {
+            color: #333;
+        }
+
+        .page-title {
+            text-align: center;
+            padding: 30px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: -20px -20px 20px;
+        }
+
+        .spacing-guide {
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            padding: 10px;
+            margin: 20px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wireframe-container">
+        <div class="page-title">
+            <h1>🪸 Coral Landing Page Wireframe</h1>
+            <p style="margin-top: 10px; opacity: 0.9;">Layout Structure & Information Architecture</p>
+        </div>
+
+        <div class="spacing-guide">
+            <strong>Design Notes:</strong> Dark theme (#0b0b0f bg), Purple/Blue gradients (#6366f1, #8b5cf6),
+            Max-width: 1200px, Spacing: 1rem/2rem/4rem/6rem units
+        </div>
+
+        <!-- HEADER -->
+        <div class="wireframe-section" style="margin-top: 0; border-top: none;">
+            <span class="section-label">HEADER (Fixed)</span>
+            <div class="header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="font-size: 24px;">🪸</div>
+                    <strong>Coral</strong>
+                </div>
+                <div class="nav-items">
+                    <div class="nav-item">Features</div>
+                    <div class="nav-item">How It Works</div>
+                    <div class="nav-item" style="border-color: #6366f1; color: #6366f1;">GitHub</div>
+                    <div class="nav-item" style="background: #6366f1; color: white; border-color: #6366f1;">Get Started</div>
+                </div>
+            </div>
+            <div class="measurements">Height: ~60px | Fixed position with backdrop blur</div>
+        </div>
+
+        <!-- HERO SECTION -->
+        <div class="wireframe-section" style="position: relative;">
+            <span class="section-label">HERO SECTION</span>
+            <div class="annotations">
+                <div class="annotation-title">⚡ Key Goals:</div>
+                • Immediate value prop<br>
+                • Show terminal UX<br>
+                • CTA above fold<br>
+                • Badge: "Early Dev"
+            </div>
+
+            <div class="hero-content">
+                <div class="box" style="display: inline-block; border-color: #6366f1; background: #f0f0ff;">
+                    <div class="box-label">Badge</div>
+                    <div class="box-content">🚧 Early Development</div>
+                </div>
+
+                <div class="box" style="margin: 20px auto; max-width: 900px;">
+                    <div class="box-label">Main Headline (H1)</div>
+                    <h2 style="color: #333; margin-bottom: 10px;">
+                        LLM-orchestrated debugging for <span style="background: linear-gradient(135deg, #6366f1, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">distributed apps</span>
+                    </h2>
+                    <div class="box-content">Font-size: clamp(2.5rem - 4rem) | Font-weight: 800</div>
+                </div>
+
+                <div class="box" style="max-width: 700px; margin: 0 auto;">
+                    <div class="box-label">Subtitle</div>
+                    <div class="box-content">
+                        Observe, analyze, and instrument your code on-demand. One binary. One interface.
+                        Your distributed app becomes understandable and controllable.
+                    </div>
+                </div>
+
+                <div class="box" style="margin: 30px 0;">
+                    <div class="box-label">CTA Buttons (Horizontal)</div>
+                    <div style="display: flex; gap: 10px; justify-content: center;">
+                        <div class="nav-item" style="background: #6366f1; color: white; padding: 10px 30px;">Get Started</div>
+                        <div class="nav-item" style="padding: 10px 30px;">View on GitHub</div>
+                    </div>
+                </div>
+
+                <div class="terminal-mock">
+                    <div class="terminal-header-mock">
+                        <div class="circle red"></div>
+                        <div class="circle yellow"></div>
+                        <div class="circle green"></div>
+                    </div>
+                    <div class="box-label" style="color: white; margin-bottom: 15px;">Interactive Terminal Demo</div>
+                    <div class="terminal-line-mock">$ coral ask "What's wrong with the API?"</div>
+                    <div class="terminal-line-mock">🤖 Analyzing...</div>
+                    <div class="terminal-line-mock">API latency spiked 3 minutes ago. P95 went from 150ms to 2.3s.</div>
+                    <div class="terminal-line-mock">95% of time spent in db.QueryOrders()</div>
+                    <div class="terminal-line-mock" style="color: #22c55e;">Recommendation: CREATE INDEX idx_orders_user_id ON orders(user_id);</div>
+                    <div class="terminal-line-mock" style="color: #71717a; margin-top: 10px;">⏱️  &lt;1 second analysis using your own LLM</div>
+                </div>
+            </div>
+            <div class="measurements">Padding: 6rem top/bottom | Background: Radial gradient blur effect</div>
+        </div>
+
+        <!-- PROBLEM/SOLUTION -->
+        <div class="wireframe-section">
+            <span class="section-label">PROBLEM/SOLUTION SECTION</span>
+
+            <div class="box" style="text-align: center; max-width: 800px; margin: 0 auto 30px;">
+                <div class="box-label">Section Header</div>
+                <h2>The Problem</h2>
+                <div class="box-content" style="margin-top: 10px;">
+                    Your app runs across fragmented infrastructure: laptop, VMs, Kubernetes clusters, multiple clouds, VPCs, on-prem.
+                </div>
+            </div>
+
+            <div class="grid grid-4">
+                <div class="feature-card-mock">
+                    <div class="icon-placeholder">🔍</div>
+                    <div class="box-label">Debug an issue</div>
+                    <div class="box-content">Check logs, metrics, traces across multiple dashboards</div>
+                </div>
+                <div class="feature-card-mock">
+                    <div class="icon-placeholder">🐛</div>
+                    <div class="box-label">Find the root cause</div>
+                    <div class="box-content">Add logging, redeploy, wait for it to happen again</div>
+                </div>
+                <div class="feature-card-mock">
+                    <div class="icon-placeholder">🌐</div>
+                    <div class="box-label">Debug across environments</div>
+                    <div class="box-content">Can't correlate laptop dev with prod K8s cluster</div>
+                </div>
+                <div class="feature-card-mock">
+                    <div class="icon-placeholder">🔐</div>
+                    <div class="box-label">Run diagnostics</div>
+                    <div class="box-content">SSH to different networks, navigate firewalls, VPN chaos</div>
+                </div>
+            </div>
+
+            <div class="box" style="text-align: center; padding: 40px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1)); border: 2px solid #6366f1; border-radius: 12px; margin-top: 30px;">
+                <h2 style="margin-bottom: 10px;">Coral unifies this with a <span style="background: linear-gradient(135deg, #6366f1, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">WireGuard mesh</span></h2>
+                <div class="box-content">One interface for distributed app operations</div>
+            </div>
+
+            <div class="measurements">Background: var(--bg-secondary) | Grid: auto-fit minmax(250px, 1fr)</div>
+        </div>
+
+        <!-- FEATURES -->
+        <div class="wireframe-section">
+            <span class="section-label">FEATURES - One Interface for Everything</span>
+
+            <div class="box" style="text-align: center; margin-bottom: 30px;">
+                <h2>One Interface for Everything</h2>
+            </div>
+
+            <div class="grid grid-3">
+                <div class="feature-card-mock">
+                    <div class="icon-placeholder">👁️</div>
+                    <div class="box-label" style="font-size: 18px; color: #6366f1;">Observe</div>
+                    <div class="box-content" style="margin: 10px 0;">Four complementary mechanisms provide complete visibility:</div>
+                    <div class="box-content" style="font-size: 11px; line-height: 1.8;">
+                        → <strong>eBPF probes:</strong> Zero-config RED metrics<br>
+                        → <strong>OTLP ingestion:</strong> For apps using OpenTelemetry<br>
+                        → <strong>Shell/exec:</strong> Run diagnostic tools<br>
+                        → <strong>Connection mapping:</strong> Auto-discovered dependencies
+                    </div>
+                </div>
+                <div class="feature-card-mock">
+                    <div class="icon-placeholder">🐛</div>
+                    <div class="box-label" style="font-size: 18px; color: #6366f1;">Debug</div>
+                    <div class="box-content" style="margin: 10px 0;">Ask questions in natural language:</div>
+                    <div class="box-content" style="font-size: 11px; line-height: 1.8;">
+                        → <strong>Live debugging</strong> with on-demand instrumentation<br>
+                        → <strong>Attach eBPF uprobes</strong> to running code<br>
+                        → <strong>LLM orchestrates</strong> where to probe<br>
+                        → <strong>Zero overhead</strong> when not debugging
+                    </div>
+                </div>
+                <div class="feature-card-mock">
+                    <div class="icon-placeholder">🎛️</div>
+                    <div class="box-label" style="font-size: 18px; color: #6366f1;">Control</div>
+                    <div class="box-content" style="margin: 10px 0;">Act on insights from a single interface:</div>
+                    <div class="box-content" style="font-size: 11px; line-height: 1.8;">
+                        → <strong>Traffic inspection:</strong> Sample and inspect requests<br>
+                        → <strong>Profiling:</strong> On-demand CPU/memory profiling<br>
+                        → <strong>Live probes:</strong> Attach/detach debugging hooks<br>
+                        → <strong>Single binary</strong> - no complex setup
+                    </div>
+                </div>
+            </div>
+
+            <div class="measurements">Grid: 3 columns | Cards with hover lift effect and border glow</div>
+        </div>
+
+        <!-- DIFFERENTIATORS -->
+        <div class="wireframe-section">
+            <span class="section-label">WHAT MAKES CORAL DIFFERENT</span>
+
+            <div class="box" style="text-align: center; margin-bottom: 30px;">
+                <h2>What Makes Coral Different?</h2>
+                <div class="box-content" style="margin-top: 5px;">The first LLM-orchestrated debugging mesh for distributed apps</div>
+            </div>
+
+            <div class="grid grid-3">
+                <div class="feature-card-mock">
+                    <div style="font-size: 48px; font-weight: 700; color: #ddd; margin-bottom: 10px;">01</div>
+                    <div class="box-label">WireGuard Mesh Across Infrastructure</div>
+                    <div class="box-content">Debug apps running on laptop ↔ AWS VPC ↔ GKE cluster with same commands</div>
+                </div>
+                <div class="feature-card-mock">
+                    <div style="font-size: 48px; font-weight: 700; color: #ddd; margin-bottom: 10px;">02</div>
+                    <div class="box-label">On-Demand Live Debugging</div>
+                    <div class="box-content">Attach eBPF uprobes to running code without redeploying</div>
+                </div>
+                <div class="feature-card-mock">
+                    <div style="font-size: 48px; font-weight: 700; color: #ddd; margin-bottom: 10px;">03</div>
+                    <div class="box-label">You Own the AI</div>
+                    <div class="box-content">Use your own LLM API keys. We never see your data</div>
+                </div>
+                <div class="feature-card-mock">
+                    <div style="font-size: 48px; font-weight: 700; color: #ddd; margin-bottom: 10px;">04</div>
+                    <div class="box-label">Decentralized Architecture</div>
+                    <div class="box-content">No Coral servers. Colony runs wherever you want</div>
+                </div>
+                <div class="feature-card-mock">
+                    <div style="font-size: 48px; font-weight: 700; color: #ddd; margin-bottom: 10px;">05</div>
+                    <div class="box-label">Control Plane Only</div>
+                    <div class="box-content">Can't break your apps, zero baseline overhead</div>
+                </div>
+                <div class="feature-card-mock">
+                    <div style="font-size: 48px; font-weight: 700; color: #ddd; margin-bottom: 10px;">06</div>
+                    <div class="box-label">Application-Scoped</div>
+                    <div class="box-content">One mesh per app, not infrastructure-wide</div>
+                </div>
+            </div>
+
+            <div class="measurements">Background: var(--bg-secondary) | Left border accent on hover | Number opacity 0.3</div>
+        </div>
+
+        <!-- HOW IT WORKS -->
+        <div class="wireframe-section">
+            <span class="section-label">HOW IT WORKS</span>
+
+            <div class="box" style="text-align: center; margin-bottom: 30px;">
+                <h2>How It Works</h2>
+            </div>
+
+            <div class="grid grid-2" style="align-items: center;">
+                <div class="arch-diagram">
+                    <div class="box-label" style="text-align: left; margin-bottom: 15px;">Architecture Diagram</div>
+                    <div class="arch-row">
+                        <div class="arch-box-mock colony-box">Colony<br><span style="font-size: 9px; font-weight: 400;">Central coordinator with AI</span></div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="arch-row">
+                        <div class="arch-box-mock agent-box">Agent<br>Frontend</div>
+                        <div class="arch-box-mock agent-box">Agent<br>API</div>
+                        <div class="arch-box-mock agent-box">Agent<br>Database</div>
+                    </div>
+                    <div class="connector"></div>
+                    <div class="arch-row">
+                        <div class="arch-box-mock service-box">Your<br>Frontend</div>
+                        <div class="arch-box-mock service-box">Your<br>API</div>
+                        <div class="arch-box-mock service-box">Your<br>DB</div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="box">
+                        <div class="box-label" style="font-size: 18px;">Three-Tier Architecture</div>
+                        <div class="box-content" style="margin-top: 10px; line-height: 1.8;">
+                            • <strong>Colony:</strong> Central coordinator that aggregates data and runs AI analysis<br>
+                            • <strong>Agents:</strong> Local observers that watch processes and connections<br>
+                            • <strong>SDK:</strong> Optional integration for advanced control features
+                        </div>
+                        <div class="box-content" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd; font-style: italic; color: #999;">
+                            All connected via an encrypted WireGuard mesh that works across any network boundary.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="measurements">2-column grid | Diagram shows visual hierarchy with color coding</div>
+        </div>
+
+        <!-- GET STARTED -->
+        <div class="wireframe-section">
+            <span class="section-label">GET STARTED</span>
+
+            <div class="box" style="text-align: center; margin-bottom: 30px;">
+                <h2>Get Started in Minutes</h2>
+            </div>
+
+            <div class="grid grid-4">
+                <div class="step-mock">
+                    <div class="step-number">1</div>
+                    <div>
+                        <div class="box-label">Build Coral</div>
+                        <div class="box" style="margin-top: 10px; background: #1e1e2e; color: #22c55e; font-family: monospace; font-size: 11px;">
+                            make build
+                        </div>
+                    </div>
+                </div>
+                <div class="step-mock">
+                    <div class="step-number">2</div>
+                    <div>
+                        <div class="box-label">Start the Colony</div>
+                        <div class="box" style="margin-top: 10px; background: #1e1e2e; color: #22c55e; font-family: monospace; font-size: 11px;">
+                            coral colony start
+                        </div>
+                    </div>
+                </div>
+                <div class="step-mock">
+                    <div class="step-number">3</div>
+                    <div>
+                        <div class="box-label">Start Agent & Connect</div>
+                        <div class="box" style="margin-top: 10px; background: #1e1e2e; color: #22c55e; font-family: monospace; font-size: 11px;">
+                            coral agent start<br>coral connect...
+                        </div>
+                    </div>
+                </div>
+                <div class="step-mock">
+                    <div class="step-number">4</div>
+                    <div>
+                        <div class="box-label">Ask Questions</div>
+                        <div class="box" style="margin-top: 10px; background: #1e1e2e; color: #22c55e; font-family: monospace; font-size: 11px;">
+                            coral ask "..."
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="box" style="margin-top: 40px; text-align: center; padding: 40px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1)); border: 2px solid #6366f1; border-radius: 12px;">
+                <div class="box-label" style="font-size: 24px; margin-bottom: 10px;">Ready to get started?</div>
+                <div class="box-content" style="margin-bottom: 20px;">
+                    Coral is open source and in early development. Join us in building the future of distributed operations.
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <div class="nav-item" style="background: #6366f1; color: white; padding: 12px 35px; font-size: 13px; font-weight: 600;">Star on GitHub</div>
+                    <div class="nav-item" style="padding: 12px 35px; font-size: 13px; font-weight: 600;">Read the Docs</div>
+                </div>
+            </div>
+
+            <div class="measurements">Background: var(--bg-secondary) | Gradient blur effects in CTA banner</div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="wireframe-section">
+            <span class="section-label">FOOTER</span>
+
+            <div class="grid grid-4">
+                <div class="box">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <div style="font-size: 24px;">🪸</div>
+                        <strong>Coral</strong>
+                    </div>
+                    <div class="box-content">Application Intelligence Mesh</div>
+                </div>
+                <div class="box">
+                    <div class="box-label">Product</div>
+                    <div class="box-content" style="line-height: 2;">
+                        Features<br>
+                        How It Works<br>
+                        Documentation
+                    </div>
+                </div>
+                <div class="box">
+                    <div class="box-label">Resources</div>
+                    <div class="box-content" style="line-height: 2;">
+                        GitHub<br>
+                        Concept<br>
+                        Architecture
+                    </div>
+                </div>
+                <div class="box">
+                    <div class="box-label">Community</div>
+                    <div class="box-content" style="line-height: 2;">
+                        Issues<br>
+                        Discussions<br>
+                        License
+                    </div>
+                </div>
+            </div>
+
+            <div class="box" style="text-align: center; margin-top: 20px; border-top: 2px solid #ddd; padding-top: 20px;">
+                <div class="box-content">© 2024 Coral. Open Source Project.</div>
+            </div>
+
+            <div class="measurements">4-column grid | Border-top separator for copyright</div>
+        </div>
+
+        <div style="padding: 40px 20px; text-align: center; background: #f8f8f8; margin: 20px; border-radius: 8px;">
+            <h3 style="margin-bottom: 15px; color: #6366f1;">📐 Wireframe Notes</h3>
+            <div style="font-size: 13px; color: #666; line-height: 1.8; max-width: 800px; margin: 0 auto; text-align: left;">
+                <strong>Visual Hierarchy:</strong> Hero → Problem → Features → Differentiators → Architecture → Getting Started → Footer<br>
+                <strong>Key Interactions:</strong> Smooth scroll, hover effects on cards, sticky header with backdrop blur<br>
+                <strong>Responsive Breakpoints:</strong> 640px (mobile), 968px (tablet), 1200px (desktop)<br>
+                <strong>Performance:</strong> Static HTML/CSS, minimal JS, optimized for fast load times<br>
+                <strong>Accessibility:</strong> Semantic HTML, proper heading hierarchy, sufficient color contrast
+            </div>
+        </div>
+    </div>
+</body>
+</html>
