@@ -115,6 +115,91 @@ type ProjectStorage struct {
 	Path string `yaml:"path"` // Relative to project root
 }
 
+// BeylaConfig contains Beyla integration configuration (RFD 032).
+type BeylaConfig struct {
+	Enabled bool `yaml:"enabled"`
+
+	// Discovery configuration.
+	Discovery BeylaDiscoveryConfig `yaml:"discovery"`
+
+	// Protocol-specific configuration.
+	Protocols BeylaProtocolsConfig `yaml:"protocols"`
+
+	// Attributes to add to all metrics/traces.
+	Attributes map[string]string `yaml:"attributes,omitempty"`
+
+	// Performance tuning.
+	Sampling BeylaSamplingConfig `yaml:"sampling,omitempty"`
+
+	// Resource limits.
+	Limits BeylaLimitsConfig `yaml:"limits,omitempty"`
+
+	// OTLP endpoint for Beyla output.
+	OTLPEndpoint string `yaml:"otlp_endpoint,omitempty"`
+}
+
+// BeylaDiscoveryConfig specifies which processes to instrument.
+type BeylaDiscoveryConfig struct {
+	Services []BeylaServiceConfig `yaml:"services,omitempty"`
+}
+
+// BeylaServiceConfig defines a service to instrument.
+type BeylaServiceConfig struct {
+	Name         string            `yaml:"name"`
+	OpenPort     int               `yaml:"open_port,omitempty"`
+	K8sPodName   string            `yaml:"k8s_pod_name,omitempty"`
+	K8sNamespace string            `yaml:"k8s_namespace,omitempty"`
+	K8sPodLabel  map[string]string `yaml:"k8s_pod_label,omitempty"`
+}
+
+// BeylaProtocolsConfig enables/disables specific protocols.
+type BeylaProtocolsConfig struct {
+	HTTP  BeylaHTTPConfig  `yaml:"http,omitempty"`
+	GRPC  BeylaGRPCConfig  `yaml:"grpc,omitempty"`
+	SQL   BeylaSQLConfig   `yaml:"sql,omitempty"`
+	Kafka BeylaKafkaConfig `yaml:"kafka,omitempty"`
+	Redis BeylaRedisConfig `yaml:"redis,omitempty"`
+}
+
+// BeylaHTTPConfig contains HTTP-specific configuration.
+type BeylaHTTPConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	CaptureHeaders bool     `yaml:"capture_headers,omitempty"`
+	RoutePatterns  []string `yaml:"route_patterns,omitempty"`
+}
+
+// BeylaGRPCConfig contains gRPC-specific configuration.
+type BeylaGRPCConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// BeylaSQLConfig contains SQL-specific configuration.
+type BeylaSQLConfig struct {
+	Enabled          bool `yaml:"enabled"`
+	ObfuscateQueries bool `yaml:"obfuscate_queries,omitempty"`
+}
+
+// BeylaKafkaConfig contains Kafka-specific configuration.
+type BeylaKafkaConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// BeylaRedisConfig contains Redis-specific configuration.
+type BeylaRedisConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// BeylaSamplingConfig contains sampling configuration.
+type BeylaSamplingConfig struct {
+	Rate float64 `yaml:"rate,omitempty"` // 0.0-1.0, default 1.0
+}
+
+// BeylaLimitsConfig contains resource limits.
+type BeylaLimitsConfig struct {
+	MaxTracedConnections int `yaml:"max_traced_connections,omitempty"`
+	RingBufferSize       int `yaml:"ring_buffer_size,omitempty"`
+}
+
 // ResolvedConfig is the final merged configuration after resolution.
 type ResolvedConfig struct {
 	ColonyID        string

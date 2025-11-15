@@ -22,6 +22,9 @@ service AgentService {
 
   // Query telemetry data from agent local storage (RFD 025 - pull-based).
   rpc QueryTelemetry(QueryTelemetryRequest) returns (QueryTelemetryResponse);
+
+  // Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
+  rpc QueryBeylaMetrics(QueryBeylaMetricsRequest) returns (QueryBeylaMetricsResponse);
 }
 
 message GetRuntimeContextRequest {
@@ -239,6 +242,16 @@ message EbpfCapabilities {
   bool btf_available = 3;           // BTF/CO-RE support
   bool cap_bpf = 4;                 // CAP_BPF capability
   repeated EbpfCollectorKind available_collectors = 5;
+  BeylaCapabilities beyla = 6;      // Beyla integration capabilities (RFD 032)
+}
+
+// BeylaCapabilities describes Beyla integration features (RFD 032).
+message BeylaCapabilities {
+  bool enabled = 1;
+  string version = 2;  // Beyla library version
+  repeated string supported_protocols = 3;  // ["http", "grpc", "kafka", ...]
+  repeated string supported_runtimes = 4;   // ["go", "java", "python", ...]
+  bool tracing_enabled = 5;
 }
 
 // QueryTelemetry RPC messages (RFD 025 - pull-based telemetry).
@@ -298,5 +311,129 @@ message QueryTelemetryResponse {
 
   // Total number of spans returned.
   int32 total_spans = 2;
+}
+
+// QueryBeylaMetrics RPC messages (RFD 032 Phase 4 - pull-based).
+
+// QueryBeylaMetricsRequest is sent from colony to agent to query Beyla metrics.
+message QueryBeylaMetricsRequest {
+  // Start time for query range (Unix seconds).
+  int64 start_time = 1;
+
+  // End time for query range (Unix seconds).
+  int64 end_time = 2;
+
+  // Filter by service names (empty = all services).
+  repeated string service_names = 3;
+
+  // Metric types to query (empty = all types).
+  repeated BeylaMetricType metric_types = 4;
+}
+
+// BeylaMetricType specifies which Beyla metrics to query.
+enum BeylaMetricType {
+  BEYLA_METRIC_TYPE_UNSPECIFIED = 0;
+  BEYLA_METRIC_TYPE_HTTP = 1;
+  BEYLA_METRIC_TYPE_GRPC = 2;
+  BEYLA_METRIC_TYPE_SQL = 3;
+}
+
+// QueryBeylaMetricsResponse contains Beyla metrics from agent's local storage.
+message QueryBeylaMetricsResponse {
+  // HTTP metrics.
+  repeated BeylaHttpMetric http_metrics = 1;
+
+  // gRPC metrics.
+  repeated BeylaGrpcMetric grpc_metrics = 2;
+
+  // SQL metrics.
+  repeated BeylaSqlMetric sql_metrics = 3;
+
+  // Total metrics returned.
+  int32 total_metrics = 4;
+}
+
+// BeylaHttpMetric represents aggregated HTTP RED metrics.
+message BeylaHttpMetric {
+  // Timestamp (Unix milliseconds).
+  int64 timestamp = 1;
+
+  // Service name.
+  string service_name = 2;
+
+  // HTTP method (GET, POST, etc.).
+  string http_method = 3;
+
+  // HTTP route (/api/v1/users/:id).
+  string http_route = 4;
+
+  // HTTP status code (200, 404, 500, etc.).
+  uint32 http_status_code = 5;
+
+  // Latency histogram buckets (milliseconds).
+  repeated double latency_buckets = 6;
+
+  // Counts per bucket.
+  repeated uint64 latency_counts = 7;
+
+  // Request count.
+  uint64 request_count = 8;
+
+  // Additional attributes.
+  map<string, string> attributes = 9;
+}
+
+// BeylaGrpcMetric represents aggregated gRPC RED metrics.
+message BeylaGrpcMetric {
+  // Timestamp (Unix milliseconds).
+  int64 timestamp = 1;
+
+  // Service name.
+  string service_name = 2;
+
+  // gRPC method (/payments.PaymentService/Charge).
+  string grpc_method = 3;
+
+  // gRPC status code (0 = OK, 1 = CANCELLED, etc.).
+  uint32 grpc_status_code = 4;
+
+  // Latency histogram buckets (milliseconds).
+  repeated double latency_buckets = 5;
+
+  // Counts per bucket.
+  repeated uint64 latency_counts = 6;
+
+  // Request count.
+  uint64 request_count = 7;
+
+  // Additional attributes.
+  map<string, string> attributes = 8;
+}
+
+// BeylaSqlMetric represents aggregated SQL query metrics.
+message BeylaSqlMetric {
+  // Timestamp (Unix milliseconds).
+  int64 timestamp = 1;
+
+  // Service name.
+  string service_name = 2;
+
+  // SQL operation (SELECT, INSERT, UPDATE, DELETE).
+  string sql_operation = 3;
+
+  // Table name (extracted from query if possible).
+  string table_name = 4;
+
+  // Latency histogram buckets (milliseconds).
+  repeated double latency_buckets = 5;
+
+  // Counts per bucket.
+  repeated uint64 latency_counts = 6;
+
+  // Query count.
+  uint64 query_count = 7;
+
+  // Additional attributes.
+  map<string, string> attributes = 8;
 }
 

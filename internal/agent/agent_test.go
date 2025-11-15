@@ -5,6 +5,7 @@ import (
 	"time"
 
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
+	"github.com/coral-io/coral/internal/agent/beyla"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -219,4 +220,112 @@ func TestAgent_GetServiceStatuses(t *testing.T) {
 	assert.Equal(t, ServiceStatusUnhealthy, statuses["frontend"].Status)
 	assert.False(t, statuses["api"].LastCheck.IsZero())
 	assert.False(t, statuses["frontend"].LastCheck.IsZero())
+}
+
+// TestAgent_BeylaIntegration tests Beyla integration with agent (RFD 032).
+func TestAgent_BeylaIntegration(t *testing.T) {
+	logger := zerolog.Nop()
+
+	t.Run("agent with Beyla enabled", func(t *testing.T) {
+		services := []*meshv1.ServiceInfo{
+			{ComponentName: "api", Port: 8080},
+		}
+
+		beylaConfig := &beyla.Config{
+			Enabled:      true,
+			OTLPEndpoint: "localhost:4318",
+			SamplingRate: 1.0,
+			Discovery: beyla.DiscoveryConfig{
+				OpenPorts: []int{8080},
+			},
+			Protocols: beyla.ProtocolsConfig{
+				HTTPEnabled: true,
+				GRPCEnabled: true,
+			},
+			Attributes: map[string]string{
+				"colony.id": "test-colony",
+			},
+		}
+
+		agent, err := New(Config{
+			AgentID:     "test-agent",
+			Services:    services,
+			BeylaConfig: beylaConfig,
+			Logger:      logger,
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, agent)
+		assert.NotNil(t, agent.GetBeylaManager())
+
+		// Start agent (should start Beyla).
+		err = agent.Start()
+		assert.NoError(t, err)
+
+		// Beyla manager should be running.
+		assert.True(t, agent.GetBeylaManager().IsRunning())
+
+		// Stop agent (should stop Beyla).
+		err = agent.Stop()
+		assert.NoError(t, err)
+
+		// Beyla manager should be stopped.
+		assert.False(t, agent.GetBeylaManager().IsRunning())
+	})
+
+	t.Run("agent with Beyla disabled", func(t *testing.T) {
+		services := []*meshv1.ServiceInfo{
+			{ComponentName: "api", Port: 8080},
+		}
+
+		beylaConfig := &beyla.Config{
+			Enabled: false,
+		}
+
+		agent, err := New(Config{
+			AgentID:     "test-agent",
+			Services:    services,
+			BeylaConfig: beylaConfig,
+			Logger:      logger,
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, agent)
+		assert.NotNil(t, agent.GetBeylaManager())
+
+		// Start agent.
+		err = agent.Start()
+		assert.NoError(t, err)
+
+		// Beyla manager should not be running (disabled).
+		assert.False(t, agent.GetBeylaManager().IsRunning())
+
+		// Stop agent.
+		err = agent.Stop()
+		assert.NoError(t, err)
+	})
+
+	t.Run("agent without Beyla config", func(t *testing.T) {
+		services := []*meshv1.ServiceInfo{
+			{ComponentName: "api", Port: 8080},
+		}
+
+		agent, err := New(Config{
+			AgentID:     "test-agent",
+			Services:    services,
+			BeylaConfig: nil,
+			Logger:      logger,
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, agent)
+		assert.Nil(t, agent.GetBeylaManager())
+
+		// Start and stop should work without Beyla.
+		err = agent.Start()
+		assert.NoError(t, err)
+
+		err = agent.Stop()
+		assert.NoError(t, err)
+	})
 }

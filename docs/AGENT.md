@@ -15,6 +15,7 @@ The agent operates on a **pull-based architecture**:
 ## Table of Contents
 
 - [OpenTelemetry Integration](#opentelemetry-integration)
+- [Beyla Integration (eBPF Metrics)](#beyla-integration-ebpf-metrics)
 - [Configuration](#configuration)
 - [Static Filtering](#static-filtering)
 - [Examples](#examples)
@@ -46,21 +47,21 @@ Use any OpenTelemetry SDK to send traces to the agent:
 
 ```go
 import (
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-    sdktrace "go.opentelemetry.io/otel/sdk/trace"
+"go.opentelemetry.io/otel"
+"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Configure OTLP exporter pointing to agent.
 exporter, _ := otlptracegrpc.New(
-    context.Background(),
-    otlptracegrpc.WithEndpoint("localhost:4317"),
-    otlptracegrpc.WithInsecure(),
+context.Background(),
+otlptracegrpc.WithEndpoint("localhost:4317"),
+otlptracegrpc.WithInsecure(),
 )
 
 // Create trace provider.
 tp := sdktrace.NewTracerProvider(
-    sdktrace.WithBatcher(exporter),
+sdktrace.WithBatcher(exporter),
 )
 otel.SetTracerProvider(tp)
 ```
@@ -87,7 +88,8 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import
-    OTLPSpanExporter
+
+OTLPSpanExporter
 
 # Configure OTLP exporter.
 otlp_exporter = OTLPSpanExporter(endpoint="localhost:4317", insecure=True)
@@ -98,6 +100,107 @@ trace.get_tracer_provider().add_span_processor(
     BatchSpanProcessor(otlp_exporter)
 )
 ```
+
+---
+
+## Beyla Integration (eBPF Metrics)
+
+### Overview
+
+The agent can optionally run **Beyla**, an eBPF-based auto-instrumentation tool that collects RED (Rate, Errors, Duration) metrics for HTTP, gRPC, and database protocols **without requiring code changes** to your applications.
+
+**Key Features:**
+- Zero-code instrumentation using eBPF kernel probes
+- Automatic discovery of services by port, process name, or Kubernetes labels
+- Collects HTTP, gRPC, and SQL query performance metrics
+- Local DuckDB storage with configurable retention
+- Pull-based: Colony queries agent on-demand for metrics
+
+**See:** `RFDs/032-beyla-red-metrics-integration.md` for complete architecture and design details.
+
+### Beyla Configuration Structure
+
+```yaml
+beyla:
+    # Enable Beyla eBPF metrics collection (default: false)
+    enabled: true
+
+    # Local storage retention (hours)
+    # How long to keep Beyla metrics in agent's local DuckDB before cleanup.
+    # Should be >= colony poll interval to prevent data loss.
+    # Default: 1 hour
+    storage_retention_hours: 1
+
+    # Discovery: which processes to instrument
+    discovery:
+        services:
+            -   name: "api-service"
+                open_port: 8080           # Instrument process on this port
+            -   name: "grpc-service"
+                k8s_pod_label:
+                    app: "my-grpc-service"
+
+    # Protocol-specific configuration
+    protocols:
+        http:
+            enabled: true
+        grpc:
+            enabled: true
+        sql:
+            enabled: true
+
+    # Attributes to add to all Beyla metrics
+    attributes:
+        environment: "production"
+        cluster: "us-west-2"
+```
+
+### Configuration Fields
+
+#### `beyla.enabled`
+
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: Enable Beyla eBPF metrics collection. Requires kernel 4.18+ and eBPF capabilities.
+
+#### `beyla.storage_retention_hours`
+
+- **Type**: `integer`
+- **Default**: `1`
+- **Description**: How long to keep Beyla metrics in agent's local DuckDB (in hours). Older metrics are automatically deleted.
+- **Rationale**: Pull-based architecture - colony polls agents for recent metrics. This value should be equal to or greater than the colony's polling interval.
+- **Examples:**
+  - `1` - Default, suitable for standard colony poll intervals (30-60 seconds)
+  - `2` - Extended retention for less frequent polling or troubleshooting
+  - `4` - Development/debugging scenarios
+
+#### `beyla.discovery`
+
+- **Type**: `object`
+- **Description**: Configure which services Beyla should instrument. Supports port-based discovery, Kubernetes labels, and process names.
+
+#### `beyla.protocols`
+
+- **Type**: `object`
+- **Description**: Enable/disable specific protocol instrumentation (HTTP, gRPC, SQL, Kafka, Redis).
+
+#### `beyla.attributes`
+
+- **Type**: `map[string]string`
+- **Description**: Resource attributes to add to all Beyla metrics for enrichment (environment, cluster, region, etc.).
+
+### Beyla vs OpenTelemetry Traces
+
+| Aspect | Beyla (eBPF) | OpenTelemetry SDK |
+|--------|--------------|-------------------|
+| **Instrumentation** | Automatic via eBPF | Requires code changes |
+| **Protocols** | HTTP, gRPC, SQL | Any (custom spans) |
+| **Data Type** | RED metrics | Distributed traces |
+| **Overhead** | ~1-2% CPU | ~2-5% CPU |
+| **Kernel Requirement** | 4.18+ with eBPF | Any |
+| **Use Case** | Infrastructure monitoring | Application debugging |
+
+**Recommendation:** Use both - Beyla for automatic RED metrics and OpenTelemetry SDK for detailed application traces.
 
 ---
 
@@ -140,12 +243,12 @@ telemetry:
 
 ### Configuration Fields
 
-#### `telemetry.enabled`
+#### `telemetry.disabled`
 
 - **Type**: `boolean`
 - **Default**: `false`
-- **Description**: Master switch for telemetry collection. Set to `true` to
-  enable OTLP receiver.
+- **Description**: Master switch for telemetry collection. Set to `false` to
+  disable OTLP receiver.
 
 #### `telemetry.grpc_endpoint`
 
@@ -247,7 +350,7 @@ filters:
 
 ```yaml
 telemetry:
-    enabled: true
+    disabled: false
     grpc_endpoint: "127.0.0.1:4317"  # Localhost only
     http_endpoint: "127.0.0.1:4318"  # Localhost only
     storage_retention_hours: 1
@@ -261,9 +364,9 @@ telemetry:
 
 ```go
 exporter, _ := otlptracegrpc.New(
-    context.Background(),
-    otlptracegrpc.WithEndpoint("localhost:4317"),
-    otlptracegrpc.WithInsecure(),
+context.Background(),
+otlptracegrpc.WithEndpoint("localhost:4317"),
+otlptracegrpc.WithInsecure(),
 )
 ```
 
@@ -275,7 +378,7 @@ exporter, _ := otlptracegrpc.New(
 
 ```yaml
 telemetry:
-    enabled: true
+    disabled: false
     grpc_endpoint: "0.0.0.0:4317"  # All interfaces
     http_endpoint: "0.0.0.0:4318"  # All interfaces
     storage_retention_hours: 1
@@ -322,7 +425,7 @@ spec:
 
 ```yaml
 telemetry:
-    enabled: true
+    disabled: false
     grpc_endpoint: "0.0.0.0:4317"
     http_endpoint: "0.0.0.0:4318"
     storage_retention_hours: 1
@@ -343,7 +446,7 @@ integration.
 
 ```yaml
 telemetry:
-    enabled: true
+    disabled: false
     grpc_endpoint: "0.0.0.0:4317"
     http_endpoint: "0.0.0.0:4318"
     storage_retention_hours: 2  # Longer retention for serverless
@@ -564,8 +667,8 @@ return !strings.HasPrefix(r.URL.Path, "/health")
 
 - **RFD 025**: Basic OpenTelemetry Ingestion (
   `RFDs/025-basic-otel-ingestion.md`)
-- **RFD 032**: Beyla Integration for eBPF correlation (
-  `RFDs/032-beyla-integration.md`)
+- **RFD 032**: Beyla Integration for RED Metrics Collection (
+  `RFDs/032-beyla-red-metrics-integration.md`)
 - **RFD 034**: Serverless OTLP Forwarding (
   `RFDs/034-serverless-otlp-forwarding.md`)
 - **Concept**: Coral Architecture (`docs/CONCEPT.md`)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
+	"github.com/coral-io/coral/internal/agent/beyla"
 	"github.com/coral-io/coral/internal/agent/ebpf"
 	"github.com/rs/zerolog"
 )
@@ -22,20 +23,22 @@ const (
 
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
-	id          string
-	monitors    map[string]*ServiceMonitor
-	ebpfManager *ebpf.Manager
-	logger      zerolog.Logger
-	mu          sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
+	id           string
+	monitors     map[string]*ServiceMonitor
+	ebpfManager  *ebpf.Manager
+	beylaManager *beyla.Manager
+	logger       zerolog.Logger
+	mu           sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // Config contains agent configuration.
 type Config struct {
-	AgentID  string
-	Services []*meshv1.ServiceInfo
-	Logger   zerolog.Logger
+	AgentID     string
+	Services    []*meshv1.ServiceInfo
+	BeylaConfig *beyla.Config
+	Logger      zerolog.Logger
 }
 
 // New creates a new agent.
@@ -51,13 +54,25 @@ func New(config Config) (*Agent, error) {
 		Logger: config.Logger,
 	})
 
+	// Initialize Beyla manager (RFD 032).
+	var beylaManager *beyla.Manager
+	if config.BeylaConfig != nil {
+		var err error
+		beylaManager, err = beyla.NewManager(ctx, config.BeylaConfig, config.Logger)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create Beyla manager: %w", err)
+		}
+	}
+
 	agent := &Agent{
-		id:          config.AgentID,
-		monitors:    make(map[string]*ServiceMonitor),
-		ebpfManager: ebpfManager,
-		logger:      config.Logger.With().Str("agent_id", config.AgentID).Logger(),
-		ctx:         ctx,
-		cancel:      cancel,
+		id:           config.AgentID,
+		monitors:     make(map[string]*ServiceMonitor),
+		ebpfManager:  ebpfManager,
+		beylaManager: beylaManager,
+		logger:       config.Logger.With().Str("agent_id", config.AgentID).Logger(),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 
 	// Create monitors for each service (if any provided).
@@ -75,6 +90,16 @@ func (a *Agent) Start() error {
 		Int("service_count", len(a.monitors)).
 		Msg("Starting agent")
 
+	// Start Beyla manager (RFD 032).
+	if a.beylaManager != nil {
+		if err := a.beylaManager.Start(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to start Beyla manager")
+			// Continue even if Beyla fails - it's supplementary to core monitoring
+		} else {
+			a.logger.Info().Msg("Beyla manager started successfully")
+		}
+	}
+
 	// Start all service monitors.
 	for name, monitor := range a.monitors {
 		a.logger.Debug().Str("service", name).Msg("Starting service monitor")
@@ -91,6 +116,13 @@ func (a *Agent) Stop() error {
 	// Stop all service monitors.
 	for _, monitor := range a.monitors {
 		monitor.Stop()
+	}
+
+	// Stop Beyla manager (RFD 032).
+	if a.beylaManager != nil {
+		if err := a.beylaManager.Stop(); err != nil {
+			a.logger.Error().Err(err).Msg("Failed to stop Beyla manager")
+		}
 	}
 
 	// Stop eBPF manager.
@@ -230,4 +262,9 @@ func (a *Agent) DisconnectService(serviceName string) error {
 // GetEbpfManager returns the eBPF manager for this agent.
 func (a *Agent) GetEbpfManager() *ebpf.Manager {
 	return a.ebpfManager
+}
+
+// GetBeylaManager returns the Beyla manager for this agent (RFD 032).
+func (a *Agent) GetBeylaManager() *beyla.Manager {
+	return a.beylaManager
 }

@@ -49,6 +49,9 @@ const (
 	// AgentServiceQueryTelemetryProcedure is the fully-qualified name of the AgentService's
 	// QueryTelemetry RPC.
 	AgentServiceQueryTelemetryProcedure = "/coral.agent.v1.AgentService/QueryTelemetry"
+	// AgentServiceQueryBeylaMetricsProcedure is the fully-qualified name of the AgentService's
+	// QueryBeylaMetrics RPC.
+	AgentServiceQueryBeylaMetricsProcedure = "/coral.agent.v1.AgentService/QueryBeylaMetrics"
 )
 
 // AgentServiceClient is a client for the coral.agent.v1.AgentService service.
@@ -63,6 +66,8 @@ type AgentServiceClient interface {
 	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
 	// Query telemetry data from agent local storage (RFD 025 - pull-based).
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
+	// Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
+	QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the coral.agent.v1.AgentService service. By
@@ -106,6 +111,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("QueryTelemetry")),
 			connect.WithClientOptions(opts...),
 		),
+		queryBeylaMetrics: connect.NewClient[v1.QueryBeylaMetricsRequest, v1.QueryBeylaMetricsResponse](
+			httpClient,
+			baseURL+AgentServiceQueryBeylaMetricsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("QueryBeylaMetrics")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -116,6 +127,7 @@ type agentServiceClient struct {
 	disconnectService *connect.Client[v1.DisconnectServiceRequest, v1.DisconnectServiceResponse]
 	listServices      *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
 	queryTelemetry    *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
+	queryBeylaMetrics *connect.Client[v1.QueryBeylaMetricsRequest, v1.QueryBeylaMetricsResponse]
 }
 
 // GetRuntimeContext calls coral.agent.v1.AgentService.GetRuntimeContext.
@@ -143,6 +155,11 @@ func (c *agentServiceClient) QueryTelemetry(ctx context.Context, req *connect.Re
 	return c.queryTelemetry.CallUnary(ctx, req)
 }
 
+// QueryBeylaMetrics calls coral.agent.v1.AgentService.QueryBeylaMetrics.
+func (c *agentServiceClient) QueryBeylaMetrics(ctx context.Context, req *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error) {
+	return c.queryBeylaMetrics.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the coral.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// Get runtime context information.
@@ -155,6 +172,8 @@ type AgentServiceHandler interface {
 	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
 	// Query telemetry data from agent local storage (RFD 025 - pull-based).
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
+	// Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
+	QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -194,6 +213,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("QueryTelemetry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceQueryBeylaMetricsHandler := connect.NewUnaryHandler(
+		AgentServiceQueryBeylaMetricsProcedure,
+		svc.QueryBeylaMetrics,
+		connect.WithSchema(agentServiceMethods.ByName("QueryBeylaMetrics")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceGetRuntimeContextProcedure:
@@ -206,6 +231,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceListServicesHandler.ServeHTTP(w, r)
 		case AgentServiceQueryTelemetryProcedure:
 			agentServiceQueryTelemetryHandler.ServeHTTP(w, r)
+		case AgentServiceQueryBeylaMetricsProcedure:
+			agentServiceQueryBeylaMetricsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -233,4 +260,8 @@ func (UnimplementedAgentServiceHandler) ListServices(context.Context, *connect.R
 
 func (UnimplementedAgentServiceHandler) QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QueryTelemetry is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QueryBeylaMetrics is not implemented"))
 }

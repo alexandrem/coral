@@ -335,3 +335,7 @@ func (h *testAgentHandler) DisconnectService(ctx context.Context, req *connect.R
 func (h *testAgentHandler) ListServices(ctx context.Context, req *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
+
+func (h *testAgentHandler) QueryBeylaMetrics(ctx context.Context, req *connect.Request[agentv1.QueryBeylaMetricsRequest]) (*connect.Response[agentv1.QueryBeylaMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}

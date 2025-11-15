@@ -16,15 +16,16 @@ import (
 // TelemetryPoller periodically queries agents for telemetry data.
 // This implements the pull-based telemetry architecture from RFD 025.
 type TelemetryPoller struct {
-	registry     *registry.Registry
-	db           *database.Database
-	pollInterval time.Duration
-	logger       zerolog.Logger
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	running      bool
-	mu           sync.Mutex
+	registry        *registry.Registry
+	db              *database.Database
+	pollInterval    time.Duration
+	retentionHours  int // How long to keep telemetry summaries (default: 24 hours)
+	logger          zerolog.Logger
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	running         bool
+	mu              sync.Mutex
 }
 
 // NewTelemetryPoller creates a new telemetry poller.
@@ -32,17 +33,24 @@ func NewTelemetryPoller(
 	registry *registry.Registry,
 	db *database.Database,
 	pollInterval time.Duration,
+	retentionHours int,
 	logger zerolog.Logger,
 ) *TelemetryPoller {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Default to 24 hours if not specified.
+	if retentionHours <= 0 {
+		retentionHours = 24
+	}
+
 	return &TelemetryPoller{
-		registry:     registry,
-		db:           db,
-		pollInterval: pollInterval,
-		logger:       logger.With().Str("component", "telemetry_poller").Logger(),
-		ctx:          ctx,
-		cancel:       cancel,
+		registry:       registry,
+		db:             db,
+		pollInterval:   pollInterval,
+		retentionHours: retentionHours,
+		logger:         logger.With().Str("component", "telemetry_poller").Logger(),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -229,11 +237,9 @@ func (p *TelemetryPoller) queryAgent(
 }
 
 // runCleanup performs telemetry database cleanup.
-// Removes summaries older than 24 hours as specified in RFD 025.
+// Removes summaries older than configured retention period.
 func (p *TelemetryPoller) runCleanup() {
-	const retentionHours = 24
-
-	deleted, err := p.db.CleanupOldTelemetry(p.ctx, retentionHours)
+	deleted, err := p.db.CleanupOldTelemetry(p.ctx, p.retentionHours)
 	if err != nil {
 		p.logger.Error().
 			Err(err).
@@ -244,7 +250,7 @@ func (p *TelemetryPoller) runCleanup() {
 	if deleted > 0 {
 		p.logger.Info().
 			Int64("deleted_count", deleted).
-			Int("retention_hours", retentionHours).
+			Int("retention_hours", p.retentionHours).
 			Msg("Cleaned up old telemetry summaries")
 	} else {
 		p.logger.Debug().Msg("No old telemetry summaries to clean up")
