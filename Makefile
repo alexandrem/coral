@@ -1,4 +1,4 @@
-.PHONY: build build-dev clean init install install-tools test run help
+.PHONY: build build-dev clean init install install-tools test run help generate
 
 # Build variables
 BINARY_NAME=coral
@@ -20,7 +20,12 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## Build the coral binary
+generate: ## Download Beyla binaries for embedding (run before first build)
+	@echo "Running go generate..."
+	go generate ./...
+	@echo "✓ Generated files ready"
+
+build: generate ## Build the coral binary
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral

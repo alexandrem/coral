@@ -1,3 +1,6 @@
 .claude
 .coral
 bin/
+
+# Downloaded Beyla binaries (generated via go generate)
+internal/agent/beyla/binaries/
