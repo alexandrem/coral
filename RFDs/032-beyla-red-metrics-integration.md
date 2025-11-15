@@ -25,11 +25,11 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 | Phase 4 (Agent) | ✅ Complete | Agent-side Beyla metrics storage (pull-based) |
 | Phase 4 (Colony) | ⏳ In Progress | Colony storage schema and ingestion logic |
 | Phase 5 | 🔮 Deferred | CLI integration → Future RFD |
-| Phase 6 | 🔮 Deferred | MCP integration → Depends on MCP server RFD |
+| Phase 6 | 🔮 Deferred | MCP integration → Depends on RFD 004 (MCP server) |
 | Phase 7 | 🔮 Deferred | Testing & hardening → Future testing RFD |
 
 **Scope Note:** This RFD focuses on core Beyla integration (Phases 1-4). CLI integration (Phase 5), MCP tools (Phase 6), and comprehensive testing (Phase 7) are intentionally deferred to future RFDs as they:
-- Depend on unfinished work (MCP server implementation, CLI query framework)
+- Depend on unfinished work (RFD 004 MCP server implementation, CLI query framework)
 - Significantly expand scope beyond core integration
 - Can be built incrementally once the foundation is complete
 
@@ -329,12 +329,12 @@ flexibility to extend observability for Coral's unique distributed architecture.
 3. **CLI / MCP** 🔮 Deferred to Future RFDs
     - **Rationale for deferral**:
         - CLI integration requires broader query framework (not just Beyla)
-        - MCP integration depends on MCP server implementation (separate RFD)
+        - MCP integration depends on MCP server implementation (RFD 004)
         - Testing framework needs comprehensive design (separate testing RFD)
     - **Will be covered in**:
-        - Future RFD: "CLI Query Framework for Observability Data"
-        - Future RFD: "MCP Server for AI-Driven Diagnostics"
-        - Future RFD: "Production Testing Strategy for eBPF Integration"
+        - RFD 035: "CLI Query Framework for Observability Data"
+        - RFD 004: "MCP Server Integration" (already exists)
+        - RFD 037: "Production Testing Strategy for eBPF Integration"
     - **Minimal exposure for now**:
         - Basic gRPC API exists for Colony to query agents
         - Future RFDs will build user-facing interfaces on top
@@ -980,7 +980,7 @@ storage:
         # Trace sampling (reduce storage for high-volume services)
         trace_sampling_rate: 0.1  # Keep 10% of traces
 
-# AI integration (deferred to future RFD - requires MCP server implementation)
+# AI integration (deferred to RFD 004 - MCP server implementation)
 # ai:
 #     beyla_integration:
 #         auto_query: true
