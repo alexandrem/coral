@@ -13,7 +13,27 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 
 # RFD 032 - Beyla Integration for RED Metrics Collection
 
-**Status:** 🚧 Draft
+**Status:** 🚧 In Progress
+
+## Implementation Status
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1-2 | ✅ Complete | OTLP receiver infrastructure (RFD 025) |
+| Phase 3 | ✅ Complete | OTLP transformation layer (transformer.go, metrics support) |
+| Binary Distribution | ✅ Complete | Process-based integration via `go generate` |
+| Phase 4 (Agent) | ✅ Complete | Agent-side Beyla metrics storage (pull-based) |
+| Phase 4 (Colony) | ⏳ Pending | Colony storage schema and ingestion logic |
+| Phase 5 | ⏳ Pending | CLI integration (coral query beyla, coral tap) |
+| Phase 6 | ⏳ Pending | MCP integration (coral ask with Beyla data) |
+| Phase 7 | ⏳ Pending | Testing & production hardening |
+
+**Recent commits:**
+- `82afd14` - Phase 4: Agent-side Beyla metrics storage (pull-based)
+- `d8eb0d5` - Beyla binary distribution via go generate
+- `8b77659` - Consolidate configs
+- `bacf694` - Fix tests
+- `877f403` - Phase 3: OTLP transformation layer
 
 ## Summary
 
@@ -135,9 +155,33 @@ flexibility to extend observability for Coral's unique distributed architecture.
 
 ### Key Design Decisions
 
-- **Beyla as embedded library, not sidecar**: Integrate Beyla's core logic
-  directly into Coral agents to avoid deploying separate containers. Reduces
-  operational complexity and resource overhead.
+- **Beyla as separate process** (⚠️ Updated from original plan): Run Beyla as a
+  separate process managed by the Coral agent, rather than embedding as a Go
+  library. This approach was chosen because:
+    - Beyla's official releases are production-ready binaries with pre-compiled
+      eBPF bytecode
+    - Infrastructure already in place: OTLP receiver (RFD 025) can consume Beyla
+      output
+    - Process isolation provides better stability and resource management
+    - Lower maintenance burden than forking and maintaining library integration
+    - Ability to upgrade Beyla independently of Coral agent
+- **Binary distribution via `go generate`**: Beyla binaries are downloaded during
+  build-time using `go generate` and embedded using platform-specific build tags:
+    - Script `scripts/download-beyla.sh` fetches binaries from Grafana GitHub
+      releases
+    - Platform-specific embed files (`embed_linux_amd64.go`, `embed_darwin_arm64.go`,
+      etc.) use build tags to include only the binary for the target platform
+    - Binary extraction to temp directory on agent startup with automatic cleanup
+      on shutdown
+    - Fallback priority: `BEYLA_PATH` env var → embedded binary → system PATH
+    - Build integration: `make build` automatically runs `go generate` to download
+      binaries
+- **Pull-based data flow** (RFD 025 architecture): Colony queries agents for
+  Beyla metrics on-demand via gRPC RPC, rather than agents pushing data:
+    - Agent stores Beyla metrics in local DuckDB (~1 hour retention)
+    - Colony periodically polls agents using `QueryBeylaMetrics` RPC
+    - Colony stores aggregated metrics in its own DuckDB (30 days retention)
+    - Enables distributed querying without central bottleneck
 - **Beyla handles commodity protocols**: HTTP, gRPC, Kafka, Redis, SQL databases
   benefit from Beyla's mature parsers and broad runtime support (Go, Java,
   Python, Node.js, Rust, .NET, Ruby).
@@ -150,8 +194,7 @@ flexibility to extend observability for Coral's unique distributed architecture.
   unsupported protocol, kernel version), custom eBPF or userspace polling
   provides partial coverage.
 - **OpenTelemetry bridge**: Beyla natively exports OpenTelemetry metrics and
-  traces. Coral can consume these via the OTel collector integration (RFD
-  024/025) or directly ingest Beyla's internal data structures.
+  traces. Coral consumes these via the OTLP receiver infrastructure (RFD 025).
 
 ### Benefits
 
@@ -183,77 +226,108 @@ flexibility to extend observability for Coral's unique distributed architecture.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ Coral Agent (node or multi-service)                          │
+│ Host / Container                                              │
 │                                                               │
 │  ┌─────────────────┐         ┌──────────────────┐            │
-│  │ Beyla           │         │ Custom eBPF Mgr  │            │
-│  │ (goroutine)     │         │                  │            │
-│  │                 │         │ • WireGuard stats│            │
-│  │ • HTTP/gRPC     │         │ • AI profiling   │            │
-│  │ • Kafka         │         │ • Security events│            │
-│  │ • Redis/SQL     │         └────────┬─────────┘            │
-│  └────────┬────────┘                  │                      │
-│           │ OTLP                      │ Internal             │
-│           │ (metrics/traces)          │                      │
-│           ▼                           ▼                      │
-│  ┌────────────────────────────────────────────┐              │
-│  │ OTLP Receiver + Metrics Aggregator         │              │
-│  │  • Consume OTLP from Beyla                 │              │
-│  │  • Merge with custom eBPF data             │              │
-│  │  • Transform to Coral format               │              │
-│  └────────────────────┬───────────────────────┘              │
-│                       │                                      │
-│                       ▼                                      │
-│              Mesh Stream (gRPC/WireGuard)                    │
-└───────────────────────┬──────────────────────────────────────┘
-                        │
-                        ▼
-             ┌──────────────────────┐
-             │ Colony / DuckDB      │
-             │  • Store metrics     │
-             │  • Store traces      │
-             │  • Serve AI queries  │
-             └──────────────────────┘
+│  │ Beyla Process   │         │ Coral Agent      │            │
+│  │ (separate PID)  │         │                  │            │
+│  │                 │         │ ┌──────────────┐ │            │
+│  │ • HTTP/gRPC     │         │ │ OTLP Receiver│ │            │
+│  │ • Kafka         │         │ │ (localhost:  │ │            │
+│  │ • Redis/SQL     │         │ │  4317/4318)  │ │            │
+│  │ • eBPF probes   │         │ └──────┬───────┘ │            │
+│  └────────┬────────┘         │        │         │            │
+│           │ OTLP              │        │         │            │
+│           │ localhost:4317    │        ▼         │            │
+│           └───────────────────┼─> Transformer    │            │
+│                               │        │         │            │
+│                               │        ▼         │            │
+│                               │  BeylaStorage    │            │
+│                               │  (DuckDB local)  │            │
+│                               │  ~1hr retention  │            │
+│                               │        ▲         │            │
+│                               │        │         │            │
+│  ┌──────────────────┐         │ QueryBeylaMetrics RPC        │
+│  │ Custom eBPF Mgr  │         │   (pull-based)   │            │
+│  │ • WireGuard stats│─────────┼────────┼─────────┤            │
+│  │ • AI profiling   │         │        │         │            │
+│  └──────────────────┘         └────────┼─────────┘            │
+│                                        │                      │
+└────────────────────────────────────────┼──────────────────────┘
+                                         │
+                                         │ gRPC/WireGuard mesh
+                                         ▼
+                              ┌──────────────────────┐
+                              │ Colony               │
+                              │  • Polls agents      │
+                              │  • DuckDB (30d)      │
+                              │  • Serves AI queries │
+                              └──────────────────────┘
 ```
+
+**Implementation Details (as of commit 82afd14):**
+
+- **Beyla Process**: Managed by agent via `os/exec`, logs integrated with zerolog
+- **Binary Embedding**: Platform-specific via build tags (`embed_linux_amd64.go`, etc.)
+- **Local Storage**: `beyla_http_metrics_local`, `beyla_grpc_metrics_local`, `beyla_sql_metrics_local` tables
+- **Pull Queries**: `QueryBeylaMetrics` RPC defined in `proto/coral/agent/v1/agent.proto`
+- **Cleanup**: Automatic 1-hour retention cleanup loop in agent
 
 ### Component Changes
 
-1. **Agent (node & multi-service)**
-    - Import Beyla as a Go module dependency (OpenTelemetry eBPF instrumentation
-      library).
-    - Start Beyla as a goroutine within the agent process, configured
-      programmatically via Go API.
-    - Configure Beyla to instrument target processes (all containers on node
-      agent, specific services on multi-service agent).
-    - Run embedded OTLP receiver (gRPC or HTTP) to consume metrics/traces from
-      Beyla. **Requires RFD 025** (Basic OpenTelemetry Ingestion) which
-      establishes the OTLP receiver infrastructure in agents.
-    - Transform OTLP data (protobuf format) into Coral's internal
-      representation.
-    - Merge Beyla-sourced metrics with custom eBPF events in unified aggregator.
-    - Stream aggregated metrics to colony via gRPC over WireGuard mesh.
-    - Expose configuration for Beyla options (discovery rules, protocol filters,
-      sampling rates, attribute enrichment).
+1. **Agent (node & multi-service)** ✅ Implemented (commits 877f403, d8eb0d5, 82afd14)
+    - **Process Management** (`internal/agent/beyla/manager.go`):
+        - Launch Beyla as separate process via `os/exec.CommandContext`
+        - Extract embedded binary to temp directory on startup
+        - Build command-line arguments from configuration (ports, protocols, OTLP endpoints)
+        - Monitor process health and log errors via zerolog integration
+        - Graceful shutdown with binary cleanup
+    - **Binary Distribution** (`scripts/download-beyla.sh`, `internal/agent/beyla/embed_*.go`):
+        - Download Beyla binaries from Grafana GitHub releases during `go generate`
+        - Platform-specific embedding via build tags (Linux/Darwin, amd64/arm64)
+        - Fallback hierarchy: `BEYLA_PATH` env → embedded → system PATH
+    - **OTLP Consumption** (`internal/agent/beyla/transformer.go`, RFD 025):
+        - Run embedded OTLP receiver (localhost:4317 gRPC, localhost:4318 HTTP)
+        - Transform OTLP metrics to Coral's internal protobuf format
+        - Map metric names to protocols: `http.server.request.duration` → `BeylaHttpMetrics`
+        - Extract histogram buckets, status codes, routes from OTLP attributes
+    - **Local Storage** (`internal/agent/beyla/storage.go`):
+        - Store metrics in agent's local DuckDB (~1 hour retention)
+        - Tables: `beyla_http_metrics_local`, `beyla_grpc_metrics_local`, `beyla_sql_metrics_local`
+        - Automatic cleanup loop removes old data
+        - Indexed by timestamp and service name for efficient queries
+    - **Query Interface** (`proto/coral/agent/v1/agent.proto`, `QueryBeylaMetrics` RPC):
+        - Expose `QueryBeylaMetrics` RPC for Colony to pull metrics
+        - Return aggregated metrics grouped by (timestamp, service, method, route, status)
+        - Support filtering by service names, time range, metric types
+    - **Configuration** (discovery rules, protocol filters, sampling rates, attribute enrichment):
+        - Port-based discovery, Kubernetes labels, process names
+        - Enable/disable protocols (HTTP, gRPC, SQL, Kafka, Redis)
+        - Sampling rate for traces, resource attributes
 
-2. **Colony**
-    - Extend DuckDB schema to store Beyla RED metrics (`beyla_http_requests`,
-      `beyla_grpc_calls`, `beyla_sql_queries`, etc.).
-    - Store distributed traces from Beyla in OpenTelemetry-compatible format.
-    - Correlate Beyla metrics with custom eBPF data using service/pod
-      identifiers.
-    - Expose unified query API: "Show me HTTP P95 latency for payments-api over
-      last hour" retrieves Beyla data.
-    - Implement retention policies per metric type (RED metrics: 30d, traces:
-      7d).
+2. **Colony** ⏳ Pending Implementation
+    - **Storage Schema** (to be implemented):
+        - Create DuckDB tables: `beyla_http_metrics`, `beyla_grpc_metrics`, `beyla_sql_metrics`
+        - Store distributed traces from Beyla in OpenTelemetry-compatible format
+        - Implement retention policies: HTTP/gRPC metrics (30d), SQL metrics (14d), traces (7d)
+    - **Ingestion Logic** (to be implemented):
+        - Periodic polling of agents via `QueryBeylaMetrics` RPC (every 30s)
+        - Aggregate and store metrics from all agents in Colony DuckDB
+        - Correlate Beyla metrics with custom eBPF data using service/pod identifiers
+    - **Query API** (to be implemented):
+        - Unified query interface: "Show me HTTP P95 latency for payments-api over last hour"
+        - Support for percentile calculations from histogram buckets
+        - Time-series aggregation and downsampling
 
-3. **CLI / MCP**
-    - Extend `coral tap` to include Beyla metrics in output: `--beyla-http`,
-      `--beyla-traces`.
-    - Add `coral query beyla` for historical RED metrics retrieval.
-    - Integrate with `coral ask` AI queries: "Why is checkout slow?"
-      automatically pulls Beyla latency histograms.
-    - MCP tools: `coral_get_red_metrics`, `coral_query_traces`,
-      `coral_analyze_performance`.
+3. **CLI / MCP** ⏳ Pending Implementation (Phase 5-6)
+    - **CLI Integration**:
+        - Extend `coral tap` to include Beyla metrics: `--beyla-http`, `--beyla-traces`
+        - Add `coral query beyla` subcommand for historical RED metrics
+        - Output formatters: table views (P50/P95/P99, error rates), JSON export
+    - **AI Integration**:
+        - Integrate with `coral ask`: "Why is checkout slow?" pulls Beyla latency histograms
+        - MCP tools: `coral_get_red_metrics`, `coral_query_traces`, `coral_analyze_performance`
+        - Pattern matching triggers: "slow|latency" → query Beyla HTTP/gRPC metrics
 
 **Configuration Example**
 
