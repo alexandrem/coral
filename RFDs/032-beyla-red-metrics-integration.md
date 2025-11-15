@@ -13,7 +13,7 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 
 # RFD 032 - Beyla Integration for RED Metrics Collection
 
-**Status:** 🚧 In Progress
+**Status:** ✅ Implementation Complete (Phases 1-4)
 
 ## Implementation Status
 
@@ -23,10 +23,10 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 | Phase 3 | ✅ Complete | OTLP transformation layer (transformer.go, metrics support) |
 | Binary Distribution | ✅ Complete | Process-based integration via `go generate` |
 | Phase 4 (Agent) | ✅ Complete | Agent-side Beyla metrics storage (pull-based) |
-| Phase 4 (Colony) | ⏳ In Progress | Colony storage schema and ingestion logic |
-| Phase 5 | 🔮 Deferred | CLI integration → Future RFD |
-| Phase 6 | 🔮 Deferred | MCP integration → Depends on RFD 004 (MCP server) |
-| Phase 7 | 🔮 Deferred | Testing & hardening → Future testing RFD |
+| Phase 4 (Colony) | ✅ Complete | Colony storage schema, ingestion, and polling |
+| Phase 5 | 🔮 Deferred | CLI integration → RFD 035 |
+| Phase 6 | 🔮 Deferred | MCP integration → RFD 004 |
+| Phase 7 | 🔮 Deferred | Testing & hardening → RFD 037 |
 
 **Scope Note:** This RFD focuses on core Beyla integration (Phases 1-4). CLI integration (Phase 5), MCP tools (Phase 6), and comprehensive testing (Phase 7) are intentionally deferred to future RFDs as they:
 - Depend on unfinished work (RFD 004 MCP server implementation, CLI query framework)
@@ -34,7 +34,8 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 - Can be built incrementally once the foundation is complete
 
 **Recent commits:**
-- `2e0e264` - Fix: download path and protobuf generation
+- `1b80568` - Phase 4 (Colony): Colony-side Beyla metrics storage and polling
+- `13f666d` - Phase 4 (Agent): Complete QueryBeylaMetrics RPC handler
 - `82afd14` - Phase 4: Agent-side Beyla metrics storage (pull-based)
 - `d8eb0d5` - Beyla binary distribution via go generate
 - `877f403` - Phase 3: OTLP transformation layer
@@ -313,18 +314,26 @@ flexibility to extend observability for Coral's unique distributed architecture.
         - Enable/disable protocols (HTTP, gRPC, SQL, Kafka, Redis)
         - Sampling rate for traces, resource attributes
 
-2. **Colony** ⏳ In Progress (Phase 4 - Final component)
-    - **Storage Schema**:
-        - Create DuckDB tables: `beyla_http_metrics`, `beyla_grpc_metrics`, `beyla_sql_metrics`
-        - Implement retention policies: HTTP/gRPC metrics (30d), SQL metrics (14d), traces (7d)
-    - **Ingestion Logic**:
-        - Periodic polling of agents via `QueryBeylaMetrics` RPC (every 30-60s)
-        - Aggregate and store metrics from all registered agents
-        - Basic query API for retrieving stored metrics
+2. **Colony** ✅ Complete (Phase 4 - commits 13f666d, 1b80568)
+    - **Storage Schema** (`internal/colony/database/schema.go`):
+        - DuckDB tables: `beyla_http_metrics`, `beyla_grpc_metrics`, `beyla_sql_metrics`
+        - Retention policies: HTTP/gRPC metrics (30d), SQL metrics (14d)
+        - Indexed by service_name, timestamp, agent_id for efficient queries
+    - **Database Methods** (`internal/colony/database/beyla.go`):
+        - `InsertBeylaHTTPMetrics`: Store HTTP RED metrics from agents
+        - `InsertBeylaGRPCMetrics`: Store gRPC RED metrics from agents
+        - `InsertBeylaSQLMetrics`: Store SQL query metrics from agents
+        - `CleanupOldBeylaMetrics`: Automatic cleanup with retention policies
+    - **Poller** (`internal/colony/beyla_poller.go`):
+        - `BeylaPoller`: Periodic polling of all registered agents
+        - Queries agents via `QueryBeylaMetrics` RPC (configurable interval)
+        - Stores metrics from all agents in Colony DuckDB
+        - Automatic cleanup loop runs hourly
     - **Out of scope for this RFD**:
         - Advanced correlation with custom eBPF data (future RFD)
         - Distributed trace storage (future RFD)
         - Percentile calculations and time-series aggregation (future RFD)
+        - Integration with Colony server startup (pending)
 
 3. **CLI / MCP** 🔮 Deferred to Future RFDs
     - **Rationale for deferral**:
