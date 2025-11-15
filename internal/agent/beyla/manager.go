@@ -76,6 +76,11 @@ type Config struct {
 
 	// Database for local storage (required for OTLP receiver).
 	DB *sql.DB
+
+	// Local storage retention for Beyla metrics in hours (default: 1 hour).
+	// This controls how long metrics are kept in agent's local DuckDB before cleanup.
+	// Colony queries metrics within this window, so this should be >= colony poll interval.
+	StorageRetentionHours int
 }
 
 // DiscoveryConfig specifies which processes to instrument.
@@ -378,7 +383,15 @@ func (m *Manager) startOTLPReceiver() error {
 
 	// Start Beyla metrics cleanup loop (RFD 032 Phase 4).
 	if m.beylaStorage != nil {
-		go m.beylaStorage.RunCleanupLoop(m.ctx, 1*time.Hour)
+		// Use configured retention or default to 1 hour.
+		retention := 1 * time.Hour
+		if m.config.StorageRetentionHours > 0 {
+			retention = time.Duration(m.config.StorageRetentionHours) * time.Hour
+		}
+		m.logger.Info().
+			Dur("retention", retention).
+			Msg("Starting Beyla metrics cleanup loop")
+		go m.beylaStorage.RunCleanupLoop(m.ctx, retention)
 	}
 
 	m.logger.Info().Msg("OTLP receiver started successfully")
