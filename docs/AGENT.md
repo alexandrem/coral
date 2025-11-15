@@ -47,21 +47,21 @@ Use any OpenTelemetry SDK to send traces to the agent:
 
 ```go
 import (
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-    sdktrace "go.opentelemetry.io/otel/sdk/trace"
+"go.opentelemetry.io/otel"
+"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Configure OTLP exporter pointing to agent.
 exporter, _ := otlptracegrpc.New(
-    context.Background(),
-    otlptracegrpc.WithEndpoint("localhost:4317"),
-    otlptracegrpc.WithInsecure(),
+context.Background(),
+otlptracegrpc.WithEndpoint("localhost:4317"),
+otlptracegrpc.WithInsecure(),
 )
 
 // Create trace provider.
 tp := sdktrace.NewTracerProvider(
-    sdktrace.WithBatcher(exporter),
+sdktrace.WithBatcher(exporter),
 )
 otel.SetTracerProvider(tp)
 ```
@@ -88,7 +88,8 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import
-    OTLPSpanExporter
+
+OTLPSpanExporter
 
 # Configure OTLP exporter.
 otlp_exporter = OTLPSpanExporter(endpoint="localhost:4317", insecure=True)
@@ -242,12 +243,12 @@ telemetry:
 
 ### Configuration Fields
 
-#### `telemetry.enabled`
+#### `telemetry.disabled`
 
 - **Type**: `boolean`
 - **Default**: `false`
-- **Description**: Master switch for telemetry collection. Set to `true` to
-  enable OTLP receiver.
+- **Description**: Master switch for telemetry collection. Set to `false` to
+  disable OTLP receiver.
 
 #### `telemetry.grpc_endpoint`
 
@@ -349,7 +350,7 @@ filters:
 
 ```yaml
 telemetry:
-    enabled: true
+    disabled: false
     grpc_endpoint: "127.0.0.1:4317"  # Localhost only
     http_endpoint: "127.0.0.1:4318"  # Localhost only
     storage_retention_hours: 1
@@ -363,9 +364,9 @@ telemetry:
 
 ```go
 exporter, _ := otlptracegrpc.New(
-    context.Background(),
-    otlptracegrpc.WithEndpoint("localhost:4317"),
-    otlptracegrpc.WithInsecure(),
+context.Background(),
+otlptracegrpc.WithEndpoint("localhost:4317"),
+otlptracegrpc.WithInsecure(),
 )
 ```
 
@@ -377,7 +378,7 @@ exporter, _ := otlptracegrpc.New(
 
 ```yaml
 telemetry:
-    enabled: true
+    disabled: false
     grpc_endpoint: "0.0.0.0:4317"  # All interfaces
     http_endpoint: "0.0.0.0:4318"  # All interfaces
     storage_retention_hours: 1
@@ -424,7 +425,7 @@ spec:
 
 ```yaml
 telemetry:
-    enabled: true
+    disabled: false
     grpc_endpoint: "0.0.0.0:4317"
     http_endpoint: "0.0.0.0:4318"
     storage_retention_hours: 1
@@ -445,7 +446,7 @@ integration.
 
 ```yaml
 telemetry:
-    enabled: true
+    disabled: false
     grpc_endpoint: "0.0.0.0:4317"
     http_endpoint: "0.0.0.0:4318"
     storage_retention_hours: 2  # Longer retention for serverless
