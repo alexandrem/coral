@@ -26,7 +26,7 @@ The integration consists of three main components:
 
 ## Current Status
 
-**Implementation Status**: Phase 1 Complete (OTLP Receiver Integration)
+**Implementation Status**: Phase 3 Complete (OTLP Transformation Layer)
 
 This implementation is progressing in phases:
 
@@ -38,9 +38,9 @@ This implementation is progressing in phases:
 - ✅ Unit tests
 - ✅ **Phase 1: OTLP receiver integration** (using RFD 025 infrastructure)
 - ✅ **Trace data consumer** (polls storage, transforms to BeylaTrace format)
+- ✅ **Metrics support** (extended RFD 025 OTLPReceiver for metrics)
+- ✅ **Transformation layer** (OTLP to Coral protobuf conversion)
 - ⚠️ Beyla Go library integration (waiting for library availability)
-- ⚠️ Metrics support (requires extending RFD 025 OTLPReceiver)
-- ⚠️ Transformation layer (stub)
 
 ## Dependencies
 
@@ -189,6 +189,48 @@ The Beyla manager now integrates with RFD 025's OTLP receiver infrastructure:
    consumeTraces() → BeylaTrace channel → Colony
    ```
 
+### Phase 2: Extended OTLP Receiver for Metrics (✅ Complete)
+
+RFD 025's OTLP receiver has been extended to support metrics in addition to traces:
+
+1. **Metrics Service**:
+   - Implements OTLP `MetricsService` (gRPC and HTTP `/v1/metrics`)
+   - Buffers metrics in memory (last 100 batches)
+   - Provides `QueryMetrics()` and `ClearMetrics()` methods
+
+2. **Metrics Consumer**:
+   - Polls OTLP receiver every 5 seconds for new metrics
+   - Uses transformer to convert OTLP metrics to Coral protobuf
+   - Forwards to metrics channel for Colony
+
+3. **Data Flow**:
+   ```
+   Beyla (eBPF) → OTLP HTTP/gRPC → OTLPReceiver → In-Memory Buffer →
+   consumeMetrics() → Transformer → EbpfEvent channel → Colony
+   ```
+
+### Phase 3: OTLP Transformation Layer (✅ Complete)
+
+Full OTLP-to-Coral transformation using OpenTelemetry collector libraries:
+
+1. **Metrics Transformation**:
+   - `http.server.request.duration` → `BeylaHttpMetrics`
+   - `rpc.server.duration` → `BeylaGrpcMetrics`
+   - `db.client.operation.duration` → `BeylaSqlMetrics`
+   - Extracts histogram buckets, counts, and attributes
+
+2. **Traces Transformation**:
+   - OTLP spans → `BeylaTraceSpan`
+   - Extracts trace_id, span_id, parent_span_id
+   - Converts timestamps and durations
+   - Extracts HTTP/gRPC status codes
+
+3. **Helper Functions**:
+   - Attribute extraction from OTLP common.Map
+   - Span kind conversion
+   - Status code extraction
+   - Complete protobuf message generation
+
 ### Next Steps
 
 To complete the implementation:
@@ -198,30 +240,34 @@ To complete the implementation:
    - ✅ Integrated with RFD 025 telemetry package
    - ✅ Added trace consumer goroutine
 
-2. **⚠️ Integrate Beyla Go Library** (waiting for library):
+2. **✅ Extend RFD 025 for Metrics** - COMPLETE
+   - ✅ Added OTLP metrics support to OTLPReceiver
+   - ✅ Created metrics consumer similar to trace consumer
+   - ✅ Transform OTLP metrics to Beyla metric types
+
+3. **✅ Implement Transformation Layer** - COMPLETE
+   - ✅ Completed `transformer.go` OTLP-to-Coral conversion
+   - ✅ Mapped OTLP metric names to Beyla types (HTTP, gRPC, SQL)
+   - ✅ Extracted histogram buckets and attributes
+   - ✅ Implemented trace transformation with full attribute extraction
+
+4. **⚠️ Integrate Beyla Go Library** (waiting for library):
    - Add Beyla dependency when OTEL project structure is finalized
    - Implement actual Beyla startup in `startBeyla()`
    - Configure Beyla via Go API
+   - Beyla will export to OTLP endpoints (already supported)
 
-3. **⚠️ Extend RFD 025 for Metrics**:
-   - Add OTLP metrics support to OTLPReceiver
-   - Create metrics consumer similar to trace consumer
-   - Transform OTLP metrics to Beyla metric types
-
-4. **⚠️ Implement Transformation Layer**:
-   - Complete `transformer.go` OTLP-to-Coral conversion
-   - Map OTLP metric names to Beyla types
-   - Extract histogram buckets and attributes
-
-5. **⚠️ Add Data Pipeline**:
-   - Stream metrics/traces from Beyla to Colony
-   - Implement aggregation and storage
+5. **⚠️ Add Colony Data Pipeline**:
+   - Stream metrics/traces from Agent to Colony via gRPC
+   - Implement aggregation and storage in Colony DuckDB
    - Add query APIs for RED metrics
+   - Integrate with existing telemetry summaries
 
 6. **⚠️ CLI Integration**:
    - Add `coral query beyla` commands
    - Integrate with `coral ask` AI queries
    - Add trace visualization
+   - RED metrics dashboard
 
 ## References
 

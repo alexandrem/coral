@@ -2,8 +2,16 @@ package beyla
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	ebpfpb "github.com/coral-io/coral/proto/coral/mesh/v1"
 )
 
 // Transformer converts OTLP metrics and traces to Coral's internal format (RFD 032).
@@ -19,153 +27,321 @@ func NewTransformer(logger zerolog.Logger) *Transformer {
 }
 
 // TransformMetrics converts OTLP metrics to Coral BeylaHttpMetrics, BeylaGrpcMetrics, etc.
-// This is a stub implementation. Full implementation requires:
-// - go.opentelemetry.io/collector/pdata/pmetric for OTLP metrics
-// - Mapping OTLP metric names to Beyla metric types
-// - Extracting attributes, histogram buckets, and counts
-func (t *Transformer) TransformMetrics(otlpMetrics interface{}) ([]interface{}, error) {
-	// TODO(RFD 032): Implement full OTLP metrics transformation.
-	//
-	// Expected flow:
-	// 1. Cast otlpMetrics to pmetric.Metrics
-	// 2. Iterate through resource metrics, scope metrics, and metric data points
-	// 3. Identify metric type:
-	//    - http.server.request.duration → BeylaHttpMetrics
-	//    - rpc.server.duration → BeylaGrpcMetrics
-	//    - db.client.operation.duration → BeylaSqlMetrics
-	// 4. Extract histogram buckets and counts
-	// 5. Extract attributes (service.name, http.route, http.method, http.status_code)
-	// 6. Create corresponding Coral protobuf message
-	//
-	// Example transformation:
-	// metrics := otlpMetrics.(pmetric.Metrics)
-	// var result []interface{}
-	// for i := 0; i < metrics.ResourceMetrics().Len(); i++ {
-	//     rm := metrics.ResourceMetrics().At(i)
-	//     serviceName := rm.Resource().Attributes().Get("service.name")
-	//
-	//     for j := 0; j < rm.ScopeMetrics().Len(); j++ {
-	//         sm := rm.ScopeMetrics().At(j)
-	//         for k := 0; k < sm.Metrics().Len(); k++ {
-	//             metric := sm.Metrics().At(k)
-	//
-	//             switch metric.Name() {
-	//             case "http.server.request.duration":
-	//                 httpMetric := transformHTTPMetric(metric, serviceName)
-	//                 result = append(result, httpMetric)
-	//             case "rpc.server.duration":
-	//                 grpcMetric := transformGRPCMetric(metric, serviceName)
-	//                 result = append(result, grpcMetric)
-	//             // ... more metric types
-	//             }
-	//         }
-	//     }
-	// }
-	// return result, nil
+func (t *Transformer) TransformMetrics(otlpMetrics pmetric.Metrics) ([]*ebpfpb.EbpfEvent, error) {
+	var events []*ebpfpb.EbpfEvent
 
-	t.logger.Debug().Msg("TransformMetrics called (stub)")
-	return []interface{}{}, nil
+	// Iterate through resource metrics.
+	for i := 0; i < otlpMetrics.ResourceMetrics().Len(); i++ {
+		rm := otlpMetrics.ResourceMetrics().At(i)
+		serviceName := getStringAttribute(rm.Resource().Attributes(), "service.name", "unknown")
+
+		// Iterate through scope metrics.
+		for j := 0; j < rm.ScopeMetrics().Len(); j++ {
+			sm := rm.ScopeMetrics().At(j)
+
+			// Iterate through metrics.
+			for k := 0; k < sm.Metrics().Len(); k++ {
+				metric := sm.Metrics().At(k)
+
+				// Route metric to appropriate transformer based on name.
+				switch metric.Name() {
+				case "http.server.request.duration", "http.server.duration":
+					httpEvents := t.transformHTTPMetric(metric, serviceName)
+					events = append(events, httpEvents...)
+
+				case "rpc.server.duration":
+					grpcEvents := t.transformGRPCMetric(metric, serviceName)
+					events = append(events, grpcEvents...)
+
+				case "db.client.operation.duration":
+					sqlEvents := t.transformSQLMetric(metric, serviceName)
+					events = append(events, sqlEvents...)
+
+				default:
+					t.logger.Debug().
+						Str("metric_name", metric.Name()).
+						Msg("Skipping unknown metric")
+				}
+			}
+		}
+	}
+
+	t.logger.Debug().Int("event_count", len(events)).Msg("Transformed OTLP metrics")
+	return events, nil
 }
 
 // TransformTraces converts OTLP traces to Coral BeylaTraceSpan.
-// This is a stub implementation. Full implementation requires:
-// - go.opentelemetry.io/collector/pdata/ptrace for OTLP traces
-// - Extracting span attributes, timestamps, and durations
-func (t *Transformer) TransformTraces(otlpTraces interface{}) ([]interface{}, error) {
-	// TODO(RFD 032): Implement full OTLP traces transformation.
-	//
-	// Expected flow:
-	// 1. Cast otlpTraces to ptrace.Traces
-	// 2. Iterate through resource spans, scope spans, and spans
-	// 3. For each span:
-	//    - Extract trace_id, span_id, parent_span_id
-	//    - Extract service.name from resource attributes
-	//    - Extract span name and span kind
-	//    - Convert start_time and duration
-	//    - Extract status code (HTTP/gRPC)
-	//    - Extract all attributes
-	// 4. Create BeylaTraceSpan protobuf message
-	//
-	// Example transformation:
-	// traces := otlpTraces.(ptrace.Traces)
-	// var result []interface{}
-	// for i := 0; i < traces.ResourceSpans().Len(); i++ {
-	//     rs := traces.ResourceSpans().At(i)
-	//     serviceName := rs.Resource().Attributes().Get("service.name")
-	//
-	//     for j := 0; j < rs.ScopeSpans().Len(); j++ {
-	//         ss := rs.ScopeSpans().At(j)
-	//         for k := 0; k < ss.Spans().Len(); k++ {
-	//             span := ss.Spans().At(k)
-	//
-	//             traceSpan := &BeylaTraceSpan{
-	//                 TraceId:      span.TraceID().String(),
-	//                 SpanId:       span.SpanID().String(),
-	//                 ParentSpanId: span.ParentSpanID().String(),
-	//                 ServiceName:  serviceName,
-	//                 SpanName:     span.Name(),
-	//                 SpanKind:     spanKindToString(span.Kind()),
-	//                 StartTime:    timestamppb.New(span.StartTimestamp().AsTime()),
-	//                 Duration:     durationpb.New(span.EndTimestamp().AsTime().Sub(span.StartTimestamp().AsTime())),
-	//                 StatusCode:   extractStatusCode(span.Attributes()),
-	//                 Attributes:   extractAttributes(span.Attributes()),
-	//             }
-	//             result = append(result, traceSpan)
-	//         }
-	//     }
-	// }
-	// return result, nil
+func (t *Transformer) TransformTraces(otlpTraces ptrace.Traces) ([]*ebpfpb.EbpfEvent, error) {
+	var events []*ebpfpb.EbpfEvent
 
-	t.logger.Debug().Msg("TransformTraces called (stub)")
-	return []interface{}{}, nil
+	// Iterate through resource spans.
+	for i := 0; i < otlpTraces.ResourceSpans().Len(); i++ {
+		rs := otlpTraces.ResourceSpans().At(i)
+		serviceName := getStringAttribute(rs.Resource().Attributes(), "service.name", "unknown")
+
+		// Iterate through scope spans.
+		for j := 0; j < rs.ScopeSpans().Len(); j++ {
+			ss := rs.ScopeSpans().At(j)
+
+			// Iterate through spans.
+			for k := 0; k < ss.Spans().Len(); k++ {
+				span := ss.Spans().At(k)
+
+				// Create BeylaTraceSpan.
+				traceSpan := &ebpfpb.BeylaTraceSpan{
+					TraceId:      span.TraceID().String(),
+					SpanId:       span.SpanID().String(),
+					ParentSpanId: span.ParentSpanID().String(),
+					ServiceName:  serviceName,
+					SpanName:     span.Name(),
+					SpanKind:     spanKindToString(span.Kind()),
+					StartTime:    timestamppb.New(span.StartTimestamp().AsTime()),
+					Duration:     durationpb.New(span.EndTimestamp().AsTime().Sub(span.StartTimestamp().AsTime())),
+					StatusCode:   extractStatusCode(span.Attributes()),
+					Attributes:   attributesToMap(span.Attributes()),
+				}
+
+				// Wrap in EbpfEvent.
+				event := &ebpfpb.EbpfEvent{
+					Timestamp:   timestamppb.New(span.StartTimestamp().AsTime()),
+					ServiceName: serviceName,
+					Payload: &ebpfpb.EbpfEvent_BeylaTrace{
+						BeylaTrace: traceSpan,
+					},
+				}
+
+				events = append(events, event)
+			}
+		}
+	}
+
+	t.logger.Debug().Int("event_count", len(events)).Msg("Transformed OTLP traces")
+	return events, nil
 }
 
-// Helper functions for transformation (stubs).
+// transformHTTPMetric transforms HTTP duration metrics to BeylaHttpMetrics.
+func (t *Transformer) transformHTTPMetric(metric pmetric.Metric, serviceName string) []*ebpfpb.EbpfEvent {
+	var events []*ebpfpb.EbpfEvent
 
-// extractHTTPAttributes extracts HTTP-specific attributes from OTLP metric.
-func extractHTTPAttributes(attributes interface{}) (route, method string, statusCode uint32) {
-	// TODO: Extract from OTLP attributes
-	return "", "", 0
+	// Handle histogram metrics.
+	if metric.Type() == pmetric.MetricTypeHistogram {
+		hist := metric.Histogram()
+		for i := 0; i < hist.DataPoints().Len(); i++ {
+			dp := hist.DataPoints().At(i)
+
+			// Extract HTTP attributes.
+			route := getStringAttribute(dp.Attributes(), "http.route", getStringAttribute(dp.Attributes(), "url.path", "/"))
+			method := getStringAttribute(dp.Attributes(), "http.request.method", getStringAttribute(dp.Attributes(), "http.method", "GET"))
+			statusCode := uint32(getIntAttribute(dp.Attributes(), "http.response.status_code", getIntAttribute(dp.Attributes(), "http.status_code", 200)))
+
+			// Extract histogram buckets and counts.
+			buckets := make([]float64, dp.ExplicitBounds().Len())
+			for j := 0; j < dp.ExplicitBounds().Len(); j++ {
+				buckets[j] = dp.ExplicitBounds().At(j)
+			}
+
+			counts := make([]uint64, dp.BucketCounts().Len())
+			for j := 0; j < dp.BucketCounts().Len(); j++ {
+				counts[j] = dp.BucketCounts().At(j)
+			}
+
+			// Create BeylaHttpMetrics.
+			httpMetric := &ebpfpb.BeylaHttpMetrics{
+				Timestamp:       timestamppb.New(dp.Timestamp().AsTime()),
+				ServiceName:     serviceName,
+				HttpRoute:       route,
+				HttpMethod:      method,
+				HttpStatusCode:  statusCode,
+				LatencyBuckets:  buckets,
+				LatencyCounts:   counts,
+				RequestCount:    dp.Count(),
+				Attributes:      attributesToMap(dp.Attributes()),
+			}
+
+			// Wrap in EbpfEvent.
+			event := &ebpfpb.EbpfEvent{
+				Timestamp:   timestamppb.New(dp.Timestamp().AsTime()),
+				ServiceName: serviceName,
+				Payload: &ebpfpb.EbpfEvent_BeylaHttp{
+					BeylaHttp: httpMetric,
+				},
+			}
+
+			events = append(events, event)
+		}
+	}
+
+	return events
 }
 
-// extractGRPCAttributes extracts gRPC-specific attributes from OTLP metric.
-func extractGRPCAttributes(attributes interface{}) (method string, statusCode uint32) {
-	// TODO: Extract from OTLP attributes
-	return "", 0
+// transformGRPCMetric transforms gRPC duration metrics to BeylaGrpcMetrics.
+func (t *Transformer) transformGRPCMetric(metric pmetric.Metric, serviceName string) []*ebpfpb.EbpfEvent {
+	var events []*ebpfpb.EbpfEvent
+
+	// Handle histogram metrics.
+	if metric.Type() == pmetric.MetricTypeHistogram {
+		hist := metric.Histogram()
+		for i := 0; i < hist.DataPoints().Len(); i++ {
+			dp := hist.DataPoints().At(i)
+
+			// Extract gRPC attributes.
+			method := getStringAttribute(dp.Attributes(), "rpc.method", "unknown")
+			statusCode := uint32(getIntAttribute(dp.Attributes(), "rpc.grpc.status_code", 0))
+
+			// Extract histogram buckets and counts.
+			buckets := make([]float64, dp.ExplicitBounds().Len())
+			for j := 0; j < dp.ExplicitBounds().Len(); j++ {
+				buckets[j] = dp.ExplicitBounds().At(j)
+			}
+
+			counts := make([]uint64, dp.BucketCounts().Len())
+			for j := 0; j < dp.BucketCounts().Len(); j++ {
+				counts[j] = dp.BucketCounts().At(j)
+			}
+
+			// Create BeylaGrpcMetrics.
+			grpcMetric := &ebpfpb.BeylaGrpcMetrics{
+				Timestamp:       timestamppb.New(dp.Timestamp().AsTime()),
+				ServiceName:     serviceName,
+				GrpcMethod:      method,
+				GrpcStatusCode:  statusCode,
+				LatencyBuckets:  buckets,
+				LatencyCounts:   counts,
+				RequestCount:    dp.Count(),
+				Attributes:      attributesToMap(dp.Attributes()),
+			}
+
+			// Wrap in EbpfEvent.
+			event := &ebpfpb.EbpfEvent{
+				Timestamp:   timestamppb.New(dp.Timestamp().AsTime()),
+				ServiceName: serviceName,
+				Payload: &ebpfpb.EbpfEvent_BeylaGrpc{
+					BeylaGrpc: grpcMetric,
+				},
+			}
+
+			events = append(events, event)
+		}
+	}
+
+	return events
 }
 
-// extractSQLAttributes extracts SQL-specific attributes from OTLP metric.
-func extractSQLAttributes(attributes interface{}) (operation, table string) {
-	// TODO: Extract from OTLP attributes
-	return "", ""
+// transformSQLMetric transforms SQL duration metrics to BeylaSqlMetrics.
+func (t *Transformer) transformSQLMetric(metric pmetric.Metric, serviceName string) []*ebpfpb.EbpfEvent {
+	var events []*ebpfpb.EbpfEvent
+
+	// Handle histogram metrics.
+	if metric.Type() == pmetric.MetricTypeHistogram {
+		hist := metric.Histogram()
+		for i := 0; i < hist.DataPoints().Len(); i++ {
+			dp := hist.DataPoints().At(i)
+
+			// Extract SQL attributes.
+			operation := getStringAttribute(dp.Attributes(), "db.operation", "QUERY")
+			table := getStringAttribute(dp.Attributes(), "db.sql.table", "")
+
+			// Extract histogram buckets and counts.
+			buckets := make([]float64, dp.ExplicitBounds().Len())
+			for j := 0; j < dp.ExplicitBounds().Len(); j++ {
+				buckets[j] = dp.ExplicitBounds().At(j)
+			}
+
+			counts := make([]uint64, dp.BucketCounts().Len())
+			for j := 0; j < dp.BucketCounts().Len(); j++ {
+				counts[j] = dp.BucketCounts().At(j)
+			}
+
+			// Create BeylaSqlMetrics.
+			sqlMetric := &ebpfpb.BeylaSqlMetrics{
+				Timestamp:      timestamppb.New(dp.Timestamp().AsTime()),
+				ServiceName:    serviceName,
+				SqlOperation:   operation,
+				TableName:      table,
+				LatencyBuckets: buckets,
+				LatencyCounts:  counts,
+				QueryCount:     dp.Count(),
+				Attributes:     attributesToMap(dp.Attributes()),
+			}
+
+			// Wrap in EbpfEvent.
+			event := &ebpfpb.EbpfEvent{
+				Timestamp:   timestamppb.New(dp.Timestamp().AsTime()),
+				ServiceName: serviceName,
+				Payload: &ebpfpb.EbpfEvent_BeylaSql{
+					BeylaSql: sqlMetric,
+				},
+			}
+
+			events = append(events, event)
+		}
+	}
+
+	return events
 }
 
-// extractHistogramBuckets extracts histogram buckets and counts from OTLP histogram metric.
-func extractHistogramBuckets(histogram interface{}) (buckets []float64, counts []uint64, err error) {
-	// TODO: Extract from OTLP histogram data point
-	return nil, nil, fmt.Errorf("not implemented")
+// Helper functions for attribute extraction.
+
+// getStringAttribute gets a string attribute from OTLP attributes with a default value.
+func getStringAttribute(attrs pcommon.Map, key string, defaultValue string) string {
+	if val, ok := attrs.Get(key); ok {
+		return val.Str()
+	}
+	return defaultValue
+}
+
+// getIntAttribute gets an int attribute from OTLP attributes with a default value.
+func getIntAttribute(attrs pcommon.Map, key string, defaultValue int64) int64 {
+	if val, ok := attrs.Get(key); ok {
+		return val.Int()
+	}
+	return defaultValue
+}
+
+// attributesToMap converts OTLP attributes to map[string]string.
+func attributesToMap(attrs pcommon.Map) map[string]string {
+	result := make(map[string]string)
+	attrs.Range(func(k string, v pcommon.Value) bool {
+		result[k] = v.AsString()
+		return true
+	})
+	return result
 }
 
 // spanKindToString converts OTLP span kind to string.
-func spanKindToString(kind interface{}) string {
-	// TODO: Map OTLP SpanKind enum to string
-	// SpanKindUnspecified → "unspecified"
-	// SpanKindInternal → "internal"
-	// SpanKindServer → "server"
-	// SpanKindClient → "client"
-	// SpanKindProducer → "producer"
-	// SpanKindConsumer → "consumer"
-	return "unspecified"
+func spanKindToString(kind ptrace.SpanKind) string {
+	switch kind {
+	case ptrace.SpanKindUnspecified:
+		return "unspecified"
+	case ptrace.SpanKindInternal:
+		return "internal"
+	case ptrace.SpanKindServer:
+		return "server"
+	case ptrace.SpanKindClient:
+		return "client"
+	case ptrace.SpanKindProducer:
+		return "producer"
+	case ptrace.SpanKindConsumer:
+		return "consumer"
+	default:
+		return "unspecified"
+	}
 }
 
 // extractStatusCode extracts HTTP/gRPC status code from span attributes.
-func extractStatusCode(attributes interface{}) uint32 {
-	// TODO: Extract http.status_code or rpc.grpc.status_code from attributes
-	return 0
-}
+func extractStatusCode(attrs pcommon.Map) uint32 {
+	// Try HTTP status code first.
+	if val, ok := attrs.Get("http.response.status_code"); ok {
+		return uint32(val.Int())
+	}
+	if val, ok := attrs.Get("http.status_code"); ok {
+		return uint32(val.Int())
+	}
 
-// extractAttributes converts OTLP attributes to map[string]string.
-func extractAttributes(attributes interface{}) map[string]string {
-	// TODO: Extract all attributes and convert to string map
-	return map[string]string{}
+	// Try gRPC status code.
+	if val, ok := attrs.Get("rpc.grpc.status_code"); ok {
+		return uint32(val.Int())
+	}
+
+	return 0
 }

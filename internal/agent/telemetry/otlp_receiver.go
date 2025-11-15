@@ -15,26 +15,33 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
+	otlpmetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	otlpcommon "go.opentelemetry.io/proto/otlp/common/v1"
+	otlpmetrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 	otlpresource "go.opentelemetry.io/proto/otlp/resource/v1"
 	otlptrace "go.opentelemetry.io/proto/otlp/trace/v1"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 )
 
 // OTLPReceiver implements the OTLP gRPC and HTTP receivers.
 type OTLPReceiver struct {
 	otlptracev1.UnimplementedTraceServiceServer
-	config     Config
-	filter     *Filter
-	storage    *Storage
-	logger     zerolog.Logger
-	grpcServer *grpc.Server
-	httpServer *http.Server
-	grpcLis    net.Listener
-	httpLis    net.Listener
-	running    bool
-	mu         sync.Mutex
-	wg         sync.WaitGroup
+	otlpmetricsv1.UnimplementedMetricsServiceServer
+	config        Config
+	filter        *Filter
+	storage       *Storage
+	metricsBuffer []pmetric.Metrics // In-memory buffer for recent metrics
+	metricsMu     sync.RWMutex
+	logger        zerolog.Logger
+	grpcServer    *grpc.Server
+	httpServer    *http.Server
+	grpcLis       net.Listener
+	httpLis       net.Listener
+	running       bool
+	mu            sync.Mutex
+	wg            sync.WaitGroup
 }
 
 // NewOTLPReceiver creates a new OTLP receiver.
@@ -44,10 +51,11 @@ func NewOTLPReceiver(config Config, storage *Storage, logger zerolog.Logger) (*O
 	}
 
 	return &OTLPReceiver{
-		config:  config,
-		filter:  NewFilter(config.Filters),
-		storage: storage,
-		logger:  logger.With().Str("component", "otlp_receiver").Logger(),
+		config:        config,
+		filter:        NewFilter(config.Filters),
+		storage:       storage,
+		metricsBuffer: make([]pmetric.Metrics, 0, 100), // Buffer up to 100 metric batches
+		logger:        logger.With().Str("component", "otlp_receiver").Logger(),
 	}, nil
 }
 
@@ -99,8 +107,9 @@ func (r *OTLPReceiver) startGRPC() error {
 	r.grpcLis = lis
 	r.grpcServer = grpc.NewServer()
 
-	// Register OTLP trace service.
+	// Register OTLP trace and metrics services.
 	otlptracev1.RegisterTraceServiceServer(r.grpcServer, r)
+	otlpmetricsv1.RegisterMetricsServiceServer(r.grpcServer, r)
 
 	// Start gRPC server in background.
 	r.wg.Add(1)
@@ -129,6 +138,7 @@ func (r *OTLPReceiver) startHTTP() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/traces", r.handleHTTPTraces)
+	mux.HandleFunc("/v1/metrics", r.handleHTTPMetrics)
 
 	r.httpServer = &http.Server{
 		Handler: mux,
@@ -392,4 +402,199 @@ func spanKindToString(kind otlptrace.Span_SpanKind) string {
 // This is called by the QueryTelemetry RPC handler (colony → agent).
 func (r *OTLPReceiver) QuerySpans(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]Span, error) {
 	return r.storage.QuerySpans(ctx, startTime, endTime, serviceNames)
+}
+
+// Export implements the OTLP gRPC MetricsService.Export method.
+func (r *OTLPReceiver) Export(
+	ctx context.Context,
+	req *otlpmetricsv1.ExportMetricsServiceRequest,
+) (*otlpmetricsv1.ExportMetricsServiceResponse, error) {
+	if req == nil || len(req.ResourceMetrics) == 0 {
+		return &otlpmetricsv1.ExportMetricsServiceResponse{}, nil
+	}
+
+	// Convert protobuf to pdata.Metrics for easier handling.
+	metrics := pmetric.NewMetrics()
+	for _, rm := range req.ResourceMetrics {
+		destRM := metrics.ResourceMetrics().AppendEmpty()
+
+		// Copy resource attributes.
+		if rm.Resource != nil {
+			for _, attr := range rm.Resource.Attributes {
+				destRM.Resource().Attributes().PutStr(attr.Key, getAttributeValue(attr.Value))
+			}
+		}
+
+		// Copy scope metrics.
+		for _, sm := range rm.ScopeMetrics {
+			destSM := destRM.ScopeMetrics().AppendEmpty()
+
+			// Copy metrics.
+			for _, metric := range sm.Metrics {
+				destMetric := destSM.Metrics().AppendEmpty()
+				destMetric.SetName(metric.Name)
+				destMetric.SetDescription(metric.Description)
+				destMetric.SetUnit(metric.Unit)
+
+				// Copy metric data based on type.
+				copyMetricData(metric, destMetric)
+			}
+		}
+	}
+
+	// Store metrics in buffer.
+	r.metricsMu.Lock()
+	r.metricsBuffer = append(r.metricsBuffer, metrics)
+
+	// Keep buffer size limited (last 100 batches).
+	if len(r.metricsBuffer) > 100 {
+		r.metricsBuffer = r.metricsBuffer[len(r.metricsBuffer)-100:]
+	}
+	r.metricsMu.Unlock()
+
+	metricsCount := 0
+	for _, rm := range req.ResourceMetrics {
+		for _, sm := range rm.ScopeMetrics {
+			metricsCount += len(sm.Metrics)
+		}
+	}
+
+	r.logger.Debug().
+		Int("metrics_count", metricsCount).
+		Msg("Processed OTLP metrics export")
+
+	return &otlpmetricsv1.ExportMetricsServiceResponse{}, nil
+}
+
+// handleHTTPMetrics handles HTTP OTLP metrics exports.
+func (r *OTLPReceiver) handleHTTPMetrics(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read request body.
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer req.Body.Close()
+
+	// Parse OTLP request.
+	var otlpReq otlpmetricsv1.ExportMetricsServiceRequest
+	if err := proto.Unmarshal(body, &otlpReq); err != nil {
+		http.Error(w, "Failed to parse OTLP request", http.StatusBadRequest)
+		return
+	}
+
+	// Process request using gRPC handler.
+	resp, err := r.Export(req.Context(), &otlpReq)
+	if err != nil {
+		http.Error(w, "Failed to process metrics", http.StatusInternalServerError)
+		return
+	}
+
+	// Marshal response.
+	respBytes, err := proto.Marshal(resp)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	// Send response.
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(http.StatusOK)
+	w.Write(respBytes)
+}
+
+// QueryMetrics retrieves recent metrics from the in-memory buffer.
+func (r *OTLPReceiver) QueryMetrics(ctx context.Context) []pmetric.Metrics {
+	r.metricsMu.RLock()
+	defer r.metricsMu.RUnlock()
+
+	// Return a copy of the metrics buffer.
+	result := make([]pmetric.Metrics, len(r.metricsBuffer))
+	copy(result, r.metricsBuffer)
+
+	return result
+}
+
+// ClearMetrics clears the metrics buffer after they've been consumed.
+func (r *OTLPReceiver) ClearMetrics() {
+	r.metricsMu.Lock()
+	defer r.metricsMu.Unlock()
+	r.metricsBuffer = make([]pmetric.Metrics, 0, 100)
+}
+
+// copyMetricData copies metric data from protobuf to pdata format.
+func copyMetricData(src *otlpmetrics.Metric, dest pmetric.Metric) {
+	switch data := src.Data.(type) {
+	case *otlpmetrics.Metric_Histogram:
+		destHist := dest.SetEmptyHistogram()
+		destHist.SetAggregationTemporality(pmetric.AggregationTemporality(data.Histogram.AggregationTemporality))
+
+		for _, dp := range data.Histogram.DataPoints {
+			destDP := destHist.DataPoints().AppendEmpty()
+			destDP.SetTimestamp(pmetric.Timestamp(dp.TimeUnixNano))
+			destDP.SetCount(dp.Count)
+			destDP.SetSum(dp.Sum)
+
+			if len(dp.ExplicitBounds) > 0 {
+				destDP.ExplicitBounds().FromRaw(dp.ExplicitBounds)
+			}
+			if len(dp.BucketCounts) > 0 {
+				destDP.BucketCounts().FromRaw(dp.BucketCounts)
+			}
+
+			// Copy attributes.
+			for _, attr := range dp.Attributes {
+				destDP.Attributes().PutStr(attr.Key, getAttributeValue(attr.Value))
+			}
+		}
+
+	case *otlpmetrics.Metric_Sum:
+		destSum := dest.SetEmptySum()
+		destSum.SetAggregationTemporality(pmetric.AggregationTemporality(data.Sum.AggregationTemporality))
+		destSum.SetIsMonotonic(data.Sum.IsMonotonic)
+
+		for _, dp := range data.Sum.DataPoints {
+			destDP := destSum.DataPoints().AppendEmpty()
+			destDP.SetTimestamp(pmetric.Timestamp(dp.TimeUnixNano))
+
+			// Set value based on type.
+			switch v := dp.Value.(type) {
+			case *otlpmetrics.NumberDataPoint_AsInt:
+				destDP.SetIntValue(v.AsInt)
+			case *otlpmetrics.NumberDataPoint_AsDouble:
+				destDP.SetDoubleValue(v.AsDouble)
+			}
+
+			// Copy attributes.
+			for _, attr := range dp.Attributes {
+				destDP.Attributes().PutStr(attr.Key, getAttributeValue(attr.Value))
+			}
+		}
+
+	case *otlpmetrics.Metric_Gauge:
+		destGauge := dest.SetEmptyGauge()
+
+		for _, dp := range data.Gauge.DataPoints {
+			destDP := destGauge.DataPoints().AppendEmpty()
+			destDP.SetTimestamp(pmetric.Timestamp(dp.TimeUnixNano))
+
+			// Set value based on type.
+			switch v := dp.Value.(type) {
+			case *otlpmetrics.NumberDataPoint_AsInt:
+				destDP.SetIntValue(v.AsInt)
+			case *otlpmetrics.NumberDataPoint_AsDouble:
+				destDP.SetDoubleValue(v.AsDouble)
+			}
+
+			// Copy attributes.
+			for _, attr := range dp.Attributes {
+				destDP.Attributes().PutStr(attr.Key, getAttributeValue(attr.Value))
+			}
+		}
+	}
 }
