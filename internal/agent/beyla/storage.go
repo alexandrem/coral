@@ -10,6 +10,7 @@ import (
 
 	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // BeylaStorage handles local storage of Beyla metrics in agent's DuckDB.
@@ -364,10 +365,7 @@ func (s *BeylaStorage) QueryHTTPMetrics(ctx context.Context, startTime, endTime 
 			}
 
 			metric = &ebpfpb.BeylaHttpMetrics{
-				Timestamp: &ebpfpb.Timestamp{
-					Seconds: timestamp.Unix(),
-					Nanos:   int32(timestamp.Nanosecond()),
-				},
+				Timestamp:      timestamppb.New(timestamp),
 				ServiceName:    serviceName,
 				HttpMethod:     httpMethod,
 				HttpRoute:      httpRoute,

@@ -175,3 +175,18 @@ func (h *ServiceHandler) QueryTelemetry(
 		TotalSpans: int32(len(pbSpans)),
 	}), nil
 }
+
+// QueryBeylaMetrics retrieves Beyla metrics from the agent's local storage (RFD 032).
+// This is a stub implementation - full Beyla integration is in progress.
+func (h *ServiceHandler) QueryBeylaMetrics(
+	ctx context.Context,
+	req *connect.Request[agentv1.QueryBeylaMetricsRequest],
+) (*connect.Response[agentv1.QueryBeylaMetricsResponse], error) {
+	// TODO: Implement Beyla metrics query (RFD 032 Phase 4).
+	// For now, return empty response.
+	return connect.NewResponse(&agentv1.QueryBeylaMetricsResponse{
+		HttpMetrics: []*agentv1.BeylaHttpMetric{},
+		GrpcMetrics: []*agentv1.BeylaGrpcMetric{},
+		SqlMetrics:  []*agentv1.BeylaSqlMetric{},
+	}), nil
+}
