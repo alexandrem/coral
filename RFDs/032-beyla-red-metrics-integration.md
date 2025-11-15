@@ -1,7 +1,7 @@
 ---
 rfd: "032"
 title: "Beyla Integration for RED Metrics Collection"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,37 +13,9 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 
 # RFD 032 - Beyla Integration for RED Metrics Collection
 
-**Status:** ✅ Implementation Complete (Phases 1-4)
+**Status:** ✅ Implemented
 
-## Implementation Status
-
-| Phase               | Status      | Description                                                 |
-|---------------------|-------------|-------------------------------------------------------------|
-| Phase 1-2           | ✅ Complete  | OTLP receiver infrastructure (RFD 025)                      |
-| Phase 3             | ✅ Complete  | OTLP transformation layer (transformer.go, metrics support) |
-| Binary Distribution | ✅ Complete  | Process-based integration via `go generate`                 |
-| Phase 4 (Agent)     | ✅ Complete  | Agent-side Beyla metrics storage (pull-based)               |
-| Phase 4 (Colony)    | ✅ Complete  | Colony storage schema, ingestion, and polling               |
-| Phase 5             | 🔮 Deferred | CLI integration → RFD 035                                   |
-| Phase 6             | 🔮 Deferred | MCP integration → RFD 004                                   |
-| Phase 7             | 🔮 Deferred | Testing & hardening → RFD 037                               |
-
-**Scope Note:** This RFD focuses on core Beyla integration (Phases 1-4). CLI
-integration (Phase 5), MCP tools (Phase 6), and comprehensive testing (Phase 7)
-are intentionally deferred to future RFDs as they:
-
-- Depend on unfinished work (RFD 004 MCP server implementation, CLI query
-  framework)
-- Significantly expand scope beyond core integration
-- Can be built incrementally once the foundation is complete
-
-**Recent commits:**
-
-- `1b80568` - Phase 4 (Colony): Colony-side Beyla metrics storage and polling
-- `13f666d` - Phase 4 (Agent): Complete QueryBeylaMetrics RPC handler
-- `82afd14` - Phase 4: Agent-side Beyla metrics storage (pull-based)
-- `d8eb0d5` - Beyla binary distribution via go generate
-- `877f403` - Phase 3: OTLP transformation layer
+**Date:** 2025-11-15
 
 ## Summary
 
@@ -51,15 +23,9 @@ Integrate Beyla, an OpenTelemetry eBPF-based auto-instrumentation tool (
 originally developed by Grafana Labs, now donated to the CNCF OpenTelemetry
 project), into Coral agents to provide production-ready RED (Rate, Errors,
 Duration) metrics collection for HTTP, gRPC, databases, and message queues.
-Beyla will serve as the foundation for application observability, supplemented
-by custom eBPF programs (detailed in a future RFD) for Coral-specific insights
-like multi-service correlation and AI-driven diagnostics.
-
-**This RFD covers:** Agent integration, local storage, pull-based data flow, and
-Colony ingestion.
-
-**Future RFDs will cover:** CLI integration, MCP tools, and production testing
-frameworks.
+Beyla provides zero-code instrumentation using eBPF kernel probes, automatically
+collecting application performance metrics without requiring SDK integration or
+code changes.
 
 ## Problem
 
@@ -296,7 +262,23 @@ flexibility to extend observability for Coral's unique distributed architecture.
   `beyla_sql_metrics_local` tables
 - **Pull Queries**: `QueryBeylaMetrics` RPC defined in
   `proto/coral/agent/v1/agent.proto`
-- **Cleanup**: Automatic 1-hour retention cleanup loop in agent
+- **Cleanup**: Automatic configurable retention cleanup loop in agent
+
+---
+
+## Implementation Status
+
+**Core Capability:** ✅ Complete
+
+Agents run Beyla as a separate process, collect RED metrics via OTLP, store
+metrics locally in DuckDB with configurable retention, and respond to Colony
+queries via `QueryBeylaMetrics` RPC. Colony polls agents periodically, stores
+aggregated metrics with 30-day retention (HTTP/gRPC) or 14-day retention (SQL).
+
+**Architecture Note:** Implemented as process-based (Beyla binary managed by
+agent) rather than library-based, and follows pull-based architecture (Colony
+queries agents) rather than push-based, aligning with Coral's distributed
+storage model.
 
 ### Component Changes
 
@@ -434,6 +416,29 @@ ebpf:
         -   name: ai_deep_profiler
             mode: on_demand
 ```
+
+---
+
+## Deferred Features
+
+The following features are deferred to future RFDs as they build on the core
+Beyla integration but are not required for basic RED metrics collection:
+
+- **CLI Query Commands** (RFD 035): Interactive queries like
+  `coral query beyla http payments-api --since 1h` with percentile calculations
+  and formatted output
+- **MCP Integration** (RFD 004): Expose Beyla metrics as MCP tools for
+  AI-driven diagnostics (e.g., `coral_query_beyla_metrics` tool)
+- **Advanced Correlation** (Future RFD): Correlation queries joining Beyla RED
+  metrics with custom eBPF data (WireGuard stats, CPU profiles, etc.)
+- **Distributed Tracing** (Future RFD): Full trace storage and visualization (
+  RFD 032 focuses on RED metrics, not traces)
+- **Production Testing** (RFD 037): Comprehensive kernel compatibility testing,
+  performance benchmarks, and canary deployment strategies
+- **Colony Server Integration** (Pending): Wire BeylaPoller into Colony startup
+  and configuration
+
+---
 
 ### Deployment Examples
 
@@ -1127,311 +1132,7 @@ storage:
 custom eBPF for differentiation (WireGuard stats, AI profiling, multi-colony
 correlation).
 
-### Go Integration Example
-
-This example demonstrates how to integrate Beyla into a Coral agent using its Go
-library API.
-
-```go
-package agent
-
-import (
-    "context"
-    "fmt"
-    "log"
-
-    // Beyla library (exact import path TBD based on final OTEL repo structure)
-    "github.com/open-telemetry/opentelemetry-ebpf/pkg/beyla"
-
-    // OTLP receiver libraries
-    "go.opentelemetry.io/collector/receiver/otlpreceiver"
-    "go.opentelemetry.io/collector/pdata/pmetric"
-    "go.opentelemetry.io/collector/pdata/ptrace"
-)
-
-// BeylaManager manages Beyla lifecycle within Coral agent
-type BeylaManager struct {
-    ctx      context.Context
-    cancel   context.CancelFunc
-    config   *BeylaConfig
-    receiver OTLPReceiver
-    metrics  chan pmetric.Metrics
-    traces   chan ptrace.Traces
-}
-
-type BeylaConfig struct {
-    // Discovery configuration
-    Discovery struct {
-        // Instrument processes listening on these ports
-        OpenPorts []int `yaml:"open_ports"`
-
-        // Kubernetes-based discovery (for node agents)
-        K8sNamespaces []string          `yaml:"k8s_namespaces"`
-        K8sPodLabels  map[string]string `yaml:"k8s_pod_labels"`
-
-        // Process name patterns
-        ProcessNames []string `yaml:"process_names"`
-    } `yaml:"discovery"`
-
-    // Protocol filters
-    Protocols struct {
-        HTTPEnabled bool `yaml:"http_enabled"`
-        GRPCEnabled bool `yaml:"grpc_enabled"`
-        SQLEnabled  bool `yaml:"sql_enabled"`
-    } `yaml:"protocols"`
-
-    // Performance tuning
-    SamplingRate float64 `yaml:"sampling_rate"` // 0.0-1.0
-
-    // OTLP export configuration
-    OTLPEndpoint string `yaml:"otlp_endpoint"` // e.g., "localhost:4318"
-
-    // Resource attributes
-    Attributes map[string]string `yaml:"attributes"`
-}
-
-// NewBeylaManager creates and starts Beyla integration
-func NewBeylaManager(ctx context.Context, cfg *BeylaConfig) (*BeylaManager, error) {
-    ctx, cancel := context.WithCancel(ctx)
-
-    bm := &BeylaManager{
-        ctx:     ctx,
-        cancel:  cancel,
-        config:  cfg,
-        metrics: make(chan pmetric.Metrics, 100),
-        traces:  make(chan ptrace.Traces, 100),
-    }
-
-    // Start OTLP receiver to consume Beyla output
-    if err := bm.startOTLPReceiver(); err != nil {
-        cancel()
-        return nil, fmt.Errorf("failed to start OTLP receiver: %w", err)
-    }
-
-    // Start Beyla instrumentation
-    if err := bm.startBeyla(); err != nil {
-        cancel()
-        return nil, fmt.Errorf("failed to start Beyla: %w", err)
-    }
-
-    return bm, nil
-}
-
-// startOTLPReceiver starts an embedded OTLP receiver
-func (bm *BeylaManager) startOTLPReceiver() error {
-    // Create OTLP receiver configuration
-    receiverConfig := &otlpreceiver.Config{
-        Protocols: otlpreceiver.Protocols{
-            HTTP: &otlpreceiver.HTTPConfig{
-                Endpoint: bm.config.OTLPEndpoint,
-            },
-        },
-    }
-
-    // Create receiver with custom consumer that forwards to channels
-    receiver := otlpreceiver.NewFactory().CreateMetricsReceiver(
-        bm.ctx,
-        receiverConfig,
-        &metricsConsumer{ch: bm.metrics},
-    )
-
-    // Start receiver
-    if err := receiver.Start(bm.ctx, nil); err != nil {
-        return fmt.Errorf("OTLP receiver start failed: %w", err)
-    }
-
-    bm.receiver = receiver
-    log.Printf("OTLP receiver started on %s", bm.config.OTLPEndpoint)
-    return nil
-}
-
-// startBeyla configures and starts Beyla instrumentation
-func (bm *BeylaManager) startBeyla() error {
-    // Build Beyla configuration programmatically
-    beylaConfig := &beyla.Config{
-        // Discovery configuration
-        Discovery: beyla.DiscoveryConfig{
-            OpenPorts:    bm.config.Discovery.OpenPorts,
-            K8sNamespace: bm.config.Discovery.K8sNamespaces,
-            K8sPodLabels: bm.config.Discovery.K8sPodLabels,
-        },
-
-        // Protocol enablement
-        Protocols: beyla.ProtocolsConfig{
-            HTTP: beyla.HTTPConfig{Enabled: bm.config.Protocols.HTTPEnabled},
-            GRPC: beyla.GRPCConfig{Enabled: bm.config.Protocols.GRPCEnabled},
-            SQL:  beyla.SQLConfig{Enabled: bm.config.Protocols.SQLEnabled},
-        },
-
-        // Sampling configuration
-        Sampling: beyla.SamplingConfig{
-            Rate: bm.config.SamplingRate,
-        },
-
-        // OTLP export (where to send metrics/traces)
-        OTLP: beyla.OTLPConfig{
-            MetricsEndpoint: bm.config.OTLPEndpoint,
-            TracesEndpoint:  bm.config.OTLPEndpoint,
-        },
-
-        // Resource attributes (enrichment)
-        Attributes: bm.config.Attributes,
-    }
-
-    // Start Beyla in a goroutine
-    go func() {
-        log.Println("Starting Beyla eBPF instrumentation...")
-        if err := beyla.Run(bm.ctx, beylaConfig); err != nil {
-            log.Printf("Beyla error: %v", err)
-        }
-    }()
-
-    log.Println("Beyla started successfully")
-    return nil
-}
-
-// GetMetrics returns a channel receiving OTLP metrics from Beyla
-func (bm *BeylaManager) GetMetrics() <-chan pmetric.Metrics {
-    return bm.metrics
-}
-
-// GetTraces returns a channel receiving OTLP traces from Beyla
-func (bm *BeylaManager) GetTraces() <-chan ptrace.Traces {
-    return bm.traces
-}
-
-// Stop gracefully shuts down Beyla
-func (bm *BeylaManager) Stop() error {
-    log.Println("Stopping Beyla...")
-    bm.cancel()
-
-    if bm.receiver != nil {
-        if err := bm.receiver.Shutdown(context.Background()); err != nil {
-            return fmt.Errorf("OTLP receiver shutdown failed: %w", err)
-        }
-    }
-
-    close(bm.metrics)
-    close(bm.traces)
-
-    log.Println("Beyla stopped")
-    return nil
-}
-
-// metricsConsumer implements OTLP consumer interface
-type metricsConsumer struct {
-    ch chan<- pmetric.Metrics
-}
-
-func (c *metricsConsumer) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
-    select {
-    case c.ch <- md:
-        return nil
-    case <-ctx.Done():
-        return ctx.Err()
-    }
-}
-
-// Example usage in Coral agent
-func ExampleIntegration() {
-    ctx := context.Background()
-
-    // Configure Beyla
-    config := &BeylaConfig{
-        Discovery: struct {
-            OpenPorts     []int             `yaml:"open_ports"`
-            K8sNamespaces []string          `yaml:"k8s_namespaces"`
-            K8sPodLabels  map[string]string `yaml:"k8s_pod_labels"`
-            ProcessNames  []string          `yaml:"process_names"`
-        }{
-            OpenPorts:     []int{8080, 9090}, // Instrument services on these ports
-            K8sNamespaces: []string{"production", "staging"},
-        },
-        Protocols: struct {
-            HTTPEnabled bool `yaml:"http_enabled"`
-            GRPCEnabled bool `yaml:"grpc_enabled"`
-            SQLEnabled  bool `yaml:"sql_enabled"`
-        }{
-            HTTPEnabled: true,
-            GRPCEnabled: true,
-            SQLEnabled:  true,
-        },
-        SamplingRate: 1.0,              // 100% sampling
-        OTLPEndpoint: "localhost:4318", // Local OTLP receiver
-        Attributes: map[string]string{
-            "colony.id":   "colony-abc123",
-            "agent.id":    "agent-xyz789",
-            "environment": "production",
-        },
-    }
-
-    // Start Beyla
-    beyla, err := NewBeylaManager(ctx, config)
-    if err != nil {
-        log.Fatalf("Failed to start Beyla: %v", err)
-    }
-    defer beyla.Stop()
-
-    // Process metrics from Beyla
-    go func() {
-        for metrics := range beyla.GetMetrics() {
-            // Transform OTLP metrics to Coral format
-            coralMetrics := transformOTLPMetrics(metrics)
-
-            // Send to colony via gRPC
-            sendToColony(coralMetrics)
-        }
-    }()
-
-    // Process traces from Beyla
-    go func() {
-        for traces := range beyla.GetTraces() {
-            // Transform OTLP traces to Coral format
-            coralTraces := transformOTLPTraces(traces)
-
-            // Send to colony via gRPC
-            sendToColony(coralTraces)
-        }
-    }()
-
-    // Keep running
-    select {}
-}
-
-func transformOTLPMetrics(otlp pmetric.Metrics) interface{} {
-    // Implementation: Convert OTLP protobuf to Coral's internal format
-    // Extract metric name, labels, values, timestamps
-    // Map to BeylaHttpMetrics, BeylaGrpcMetrics, etc.
-    return nil
-}
-
-func transformOTLPTraces(otlp ptrace.Traces) interface{} {
-    // Implementation: Convert OTLP trace spans to Coral's internal format
-    // Extract trace ID, span ID, parent span ID, attributes
-    // Map to BeylaTraceSpan protobuf
-    return nil
-}
-
-func sendToColony(data interface{}) {
-    // Implementation: Send to colony via gRPC over WireGuard mesh
-}
-```
-
-**Key integration points**:
-
-1. **Beyla runs as goroutine**: Started via `beyla.Run(ctx, config)` in the
-   agent process
-2. **OTLP receiver consumes output**: Embedded receiver listens on
-   `localhost:4318` for Beyla's exports
-3. **Channel-based data flow**: Metrics and traces flow through Go channels for
-   processing
-4. **Programmatic configuration**: No YAML files; configure via Go structs
-5. **Transformation layer**: Convert OTLP protobuf → Coral internal format →
-   Colony gRPC
-
-**Note**: The exact Beyla Go API may differ based on the final OpenTelemetry
-project structure. This example demonstrates the conceptual integration
-approach.
+---
 
 ### Beyla References
 
@@ -1447,8 +1148,9 @@ approach.
 
 ### Example Beyla Configuration (Standalone)
 
-For reference, here's how Beyla is typically configured as a standalone tool (
-Coral will adapt this for embedded use):
+For reference, here's how Beyla is typically configured as a standalone tool.
+Coral runs Beyla as a separate process and translates agent YAML configuration
+into Beyla command-line arguments:
 
 ```yaml
 # beyla-config.yaml (standalone example, not Coral config)
@@ -1477,6 +1179,6 @@ otel_traces_export:
     sampler_arg: "0.1"
 ```
 
-Coral agents will use Beyla's Go API directly instead of YAML configuration,
-allowing dynamic reconfiguration and tighter integration with Coral's data
-pipeline.
+Coral agents run Beyla as a separate process (not as an embedded library) and
+dynamically construct command-line arguments from the agent's YAML configuration,
+providing flexibility while maintaining process isolation.
