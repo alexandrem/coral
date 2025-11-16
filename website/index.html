@@ -251,54 +251,146 @@
         <div class="container">
             <div class="section-header">
                 <h2>How It Works</h2>
+                <p class="section-subtitle">
+                    From observability to insights - a complete journey through Coral's architecture
+                </p>
             </div>
 
-            <div class="architecture">
-                <div class="arch-diagram">
-                    <div class="arch-layer">
-                        <div class="arch-box colony">
-                            <h4>Colony</h4>
-                            <p>Central coordinator with AI-powered analysis</p>
-                        </div>
-                    </div>
-                    <div class="mesh-lines"></div>
-                    <div class="arch-layer">
-                        <div class="arch-box agent">
-                            <h4>Agent</h4>
-                            <p>Frontend</p>
-                        </div>
-                        <div class="arch-box agent">
-                            <h4>Agent</h4>
-                            <p>API</p>
-                        </div>
-                        <div class="arch-box agent">
-                            <h4>Agent</h4>
-                            <p>Database</p>
-                        </div>
-                    </div>
-                    <div class="mesh-lines"></div>
-                    <div class="arch-layer">
-                        <div class="arch-box service">
-                            <p>Your Frontend</p>
-                        </div>
-                        <div class="arch-box service">
-                            <p>Your API</p>
-                        </div>
-                        <div class="arch-box service">
-                            <p>Your DB</p>
+            <!-- Data Flow Timeline -->
+            <div class="flow-timeline">
+                <div class="flow-step">
+                    <div class="flow-number">1</div>
+                    <div class="flow-content">
+                        <h3>Observe Everywhere</h3>
+                        <p class="flow-description">Four complementary mechanisms capture complete visibility across your infrastructure</p>
+                        <div class="flow-pillars">
+                            <div class="pillar-item">
+                                <div class="pillar-icon">📡</div>
+                                <h4>eBPF Probes</h4>
+                                <p>Zero-config RED metrics from kernel space</p>
+                            </div>
+                            <div class="pillar-item">
+                                <div class="pillar-icon">🔭</div>
+                                <h4>OTLP Ingestion</h4>
+                                <p>OpenTelemetry traces & metrics</p>
+                            </div>
+                            <div class="pillar-item">
+                                <div class="pillar-icon">⚡</div>
+                                <h4>Shell/Exec</h4>
+                                <p>Diagnostic commands on demand</p>
+                            </div>
+                            <div class="pillar-item">
+                                <div class="pillar-icon">🎯</div>
+                                <h4>SDK Probes</h4>
+                                <p>Live instrumentation without redeploying</p>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="arch-description">
-                    <h3>Three-Tier Architecture</h3>
-                    <ul>
-                        <li><strong>Colony:</strong> Central coordinator that aggregates data and runs AI analysis</li>
-                        <li><strong>Agents:</strong> Local observers that watch processes and connections</li>
-                        <li><strong>SDK:</strong> Optional integration for advanced control features</li>
-                    </ul>
-                    <p class="arch-note">All connected via an encrypted WireGuard mesh that works across any network boundary.</p>
+                <div class="flow-connector">
+                    <div class="connector-line"></div>
+                    <div class="connector-label">Agents collect locally</div>
                 </div>
+
+                <div class="flow-step">
+                    <div class="flow-number">2</div>
+                    <div class="flow-content">
+                        <h3>Aggregate Intelligently</h3>
+                        <p class="flow-description">Colony receives and stores data from all agents across your WireGuard mesh</p>
+                        <div class="flow-features">
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>DuckDB storage</strong> for fast analytical queries
+                            </div>
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>Cross-agent correlation</strong> discovers dependencies
+                            </div>
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>WireGuard mesh</strong> connects fragmented infrastructure
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-connector">
+                    <div class="connector-line"></div>
+                    <div class="connector-label">MCP Server exposes tools</div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-number">3</div>
+                    <div class="flow-content">
+                        <h3>Analyze with AI</h3>
+                        <p class="flow-description">Colony exposes MCP tools for AI-powered analysis using your own LLM</p>
+                        <div class="flow-features">
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>MCP Server</strong> exposes topology, metrics, and diagnostic tools
+                            </div>
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>Your LLM</strong> (OpenAI/Anthropic/Ollama) - you own the AI
+                            </div>
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>Claude Desktop</strong> or custom AI clients via MCP protocol
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-connector">
+                    <div class="connector-line"></div>
+                    <div class="connector-label">Insights delivered</div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="flow-number">4</div>
+                    <div class="flow-content">
+                        <h3>Act on Insights</h3>
+                        <p class="flow-description">Get actionable recommendations in natural language, execute with approval</p>
+                        <div class="flow-features">
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>Root cause analysis</strong> in &lt;1 second
+                            </div>
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>Actionable recommendations</strong> with evidence
+                            </div>
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>Human-approved execution</strong> for safety
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Architecture Diagram -->
+            <div class="arch-summary">
+                <h3>Three-Tier Architecture</h3>
+                <div class="arch-grid">
+                    <div class="arch-tier">
+                        <div class="tier-icon">🧠</div>
+                        <h4>Colony</h4>
+                        <p>Central coordinator with MCP server, DuckDB storage, and AI orchestration</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">👁️</div>
+                        <h4>Agents</h4>
+                        <p>Local observers using eBPF, OTLP, and shell commands to gather telemetry</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">⚙️</div>
+                        <h4>SDK (Optional)</h4>
+                        <p>Advanced features like live probes and runtime instrumentation</p>
+                    </div>
+                </div>
+                <p class="arch-note">All connected via an encrypted WireGuard mesh that works across any network boundary.</p>
             </div>
         </div>
     </section>

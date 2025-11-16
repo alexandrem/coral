@@ -617,102 +617,202 @@ body {
     padding: var(--spacing-xl) 0;
 }
 
-.architecture {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--spacing-lg);
-    align-items: center;
+/* Flow Timeline */
+.flow-timeline {
+    max-width: 900px;
+    margin: 0 auto var(--spacing-xl);
 }
 
-.arch-diagram {
-    background: var(--bg-card);
-    padding: var(--spacing-md);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border-color);
-}
-
-.arch-layer {
+.flow-step {
     display: flex;
-    gap: var(--spacing-sm);
-    justify-content: center;
-    margin-bottom: var(--spacing-sm);
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
 }
 
-.arch-box {
+.flow-number {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--gradient-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: 900;
+    flex-shrink: 0;
+    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.4);
+}
+
+.flow-content {
+    flex: 1;
+}
+
+.flow-content h3 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: var(--spacing-xs);
+}
+
+.flow-description {
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-md);
+    font-size: 1.0625rem;
+}
+
+/* Flow Pillars (4-column grid) */
+.flow-pillars {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
+}
+
+.pillar-item {
+    background: var(--bg-card);
     padding: var(--spacing-sm);
     border-radius: var(--radius-md);
-    text-align: center;
-    min-width: 120px;
     border: 1px solid var(--border-color);
+    transition: all 0.3s;
 }
 
-.arch-box.colony {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
+.pillar-item:hover {
     border-color: var(--accent-primary);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.2);
 }
 
-.arch-box.agent {
-    background: rgba(6, 182, 212, 0.1);
-    border-color: var(--accent-tertiary);
+.pillar-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
 }
 
-.arch-box.service {
-    background: var(--bg-tertiary);
-}
-
-.arch-box h4 {
-    font-size: 1rem;
+.pillar-item h4 {
+    font-size: 0.9375rem;
+    font-weight: 600;
     margin-bottom: 0.25rem;
 }
 
-.arch-box p {
-    font-size: 0.875rem;
+.pillar-item p {
+    font-size: 0.8125rem;
     color: var(--text-secondary);
+    line-height: 1.5;
 }
 
-.mesh-lines {
-    height: 2rem;
-    background: linear-gradient(to bottom, var(--accent-primary) 0%, var(--accent-primary) 50%, transparent 50%, transparent 100%);
-    background-size: 2px 20px;
-    background-position: center;
-    background-repeat: repeat-y;
-    opacity: 0.3;
+/* Flow Features */
+.flow-features {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: var(--spacing-md);
 }
 
-.arch-description h3 {
-    font-size: 1.75rem;
-    margin-bottom: var(--spacing-sm);
-}
-
-.arch-description ul {
-    list-style: none;
-    margin-bottom: var(--spacing-sm);
-}
-
-.arch-description li {
+.feature-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
     color: var(--text-secondary);
-    margin-bottom: var(--spacing-xs);
-    padding-left: 1.5rem;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+}
+
+.feature-bullet {
+    color: var(--accent-primary);
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.feature-item strong {
+    color: var(--text-primary);
+}
+
+/* Flow Connector */
+.flow-connector {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin: var(--spacing-md) 0 var(--spacing-md) 28px;
+}
+
+.connector-line {
+    width: 2px;
+    height: 40px;
+    background: linear-gradient(to bottom, var(--accent-primary), var(--accent-secondary));
     position: relative;
-    line-height: 1.7;
 }
 
-.arch-description li::before {
-    content: '•';
+.connector-line::after {
+    content: '↓';
     position: absolute;
-    left: 0;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
     color: var(--accent-primary);
     font-size: 1.25rem;
 }
 
-.arch-description li strong {
-    color: var(--text-primary);
+.connector-label {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-left: var(--spacing-sm);
+}
+
+/* Architecture Summary */
+.arch-summary {
+    margin-top: var(--spacing-xl);
+    text-align: center;
+}
+
+.arch-summary h3 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: var(--spacing-lg);
+}
+
+.arch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.arch-tier {
+    background: var(--bg-card);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    transition: all 0.3s;
+}
+
+.arch-tier:hover {
+    border-color: var(--accent-primary);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(124, 58, 237, 0.2);
+}
+
+.tier-icon {
+    font-size: 2.5rem;
+    margin-bottom: var(--spacing-sm);
+}
+
+.arch-tier h4 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: var(--spacing-xs);
+}
+
+.arch-tier p {
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
 }
 
 .arch-note {
     color: var(--text-muted);
     font-style: italic;
-    margin-top: var(--spacing-sm);
+    font-size: 0.9375rem;
+    max-width: 700px;
+    margin: 0 auto;
 }
 
 /* Get Started Section */
@@ -868,7 +968,11 @@ body {
 
 /* Responsive Design */
 @media (max-width: 968px) {
-    .architecture {
+    .flow-pillars {
+        grid-template-columns: 1fr;
+    }
+
+    .arch-grid {
         grid-template-columns: 1fr;
     }
 
@@ -913,16 +1017,35 @@ body {
         grid-template-columns: 1fr;
     }
 
+    .flow-step {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+    }
+
+    .flow-number {
+        width: 48px;
+        height: 48px;
+        font-size: 1.25rem;
+    }
+
+    .flow-content h3 {
+        font-size: 1.5rem;
+    }
+
+    .flow-connector {
+        margin-left: 24px;
+    }
+
+    .connector-line {
+        height: 30px;
+    }
+
     .footer-nav {
         font-size: 0.875rem;
     }
 
     .nav-links {
         display: none;
-    }
-
-    .arch-layer {
-        flex-direction: column;
     }
 }
 
