@@ -1310,24 +1310,30 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		// Gather mesh network information for debugging.
 		meshInfo := gatherColonyMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
 
-		// Convert the protobuf response to a JSON-friendly map.
+		// Group related fields for better organization.
 		status := map[string]interface{}{
-			"colony_id":            resp.ColonyId,
-			"app_name":             resp.AppName,
-			"environment":          resp.Environment,
-			"status":               resp.Status,
-			"started_at":           resp.StartedAt.AsTime(),
-			"uptime_seconds":       resp.UptimeSeconds,
-			"agent_count":          resp.AgentCount,
-			"dashboard_url":        resp.DashboardUrl,
-			"storage_bytes":        resp.StorageBytes,
-			"wireguard_port":       resp.WireguardPort,
-			"wireguard_public_key": resp.WireguardPublicKey,
-			"wireguard_endpoints":  resp.WireguardEndpoints,
-			"connect_port":         resp.ConnectPort,
-			"mesh_ipv4":            resp.MeshIpv4,
-			"mesh_ipv6":            resp.MeshIpv6,
-			"mesh":                 meshInfo,
+			"colony": map[string]interface{}{
+				"id":          resp.ColonyId,
+				"app_name":    resp.AppName,
+				"environment": resp.Environment,
+			},
+			"runtime": map[string]interface{}{
+				"status":         resp.Status,
+				"started_at":     resp.StartedAt.AsTime(),
+				"uptime_seconds": resp.UptimeSeconds,
+				"agent_count":    resp.AgentCount,
+				"storage_bytes":  resp.StorageBytes,
+				"dashboard_url":  resp.DashboardUrl,
+			},
+			"network": map[string]interface{}{
+				"wireguard_port":       resp.WireguardPort,
+				"wireguard_public_key": resp.WireguardPublicKey,
+				"wireguard_endpoints":  resp.WireguardEndpoints,
+				"connect_port":         resp.ConnectPort,
+				"mesh_ipv4":            resp.MeshIpv4,
+				"mesh_ipv6":            resp.MeshIpv6,
+			},
+			"mesh": meshInfo,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
