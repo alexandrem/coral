@@ -82,29 +82,31 @@ One Interface for Everything
 ### Feature 1: Observe
 👁️ **Observe**
 
-Four complementary mechanisms provide complete visibility:
-- **eBPF probes:** Zero-config RED metrics (no code changes)
+Passive, always-on data collection:
+- **Zero-config eBPF metrics:** Rate, Errors, Duration (RED)
 - **OTLP ingestion:** For apps using OpenTelemetry
-- **Shell/exec:** Run diagnostic tools
-- **Connection mapping:** Auto-discovered service dependencies
+- **Auto-discovered dependencies:** Service connection mapping
+- **Efficient storage:** Recent data local, summaries centralized
 
-### Feature 2: Debug
-🐛 **Debug**
+### Feature 2: Explore
+🔍 **Explore**
 
-Ask questions in natural language using your own LLM:
-- **Live debugging** with on-demand instrumentation
-- **Attach eBPF uprobes** to running code without redeploying
-- **LLM orchestrates** where to probe based on analysis
-- **Zero overhead** when not debugging
+Human-driven investigation and control:
+- **Query data:** Metrics and traces across all services
+- **Remote execution:** Run diagnostics (netstat, tcpdump, lsof)
+- **Manual probes:** Attach/detach eBPF hooks on-demand
+- **Traffic capture:** Sample and inspect live requests
+- **On-demand profiling:** CPU/memory analysis in production
 
-### Feature 3: Control
-🎛️ **Control**
+### Feature 3: Diagnose
+🤖 **Diagnose**
 
-Act on insights from a single interface:
-- **Traffic inspection:** Sample and inspect live requests
-- **Profiling:** On-demand CPU/memory profiling
-- **Live probes:** Attach/detach debugging hooks on-demand
-- **All from a single binary** - no complex setup
+LLM-orchestrated root cause analysis:
+- **Natural language:** Ask "why is my API slow?" in plain English
+- **AI-powered RCA:** Automated root cause analysis from observability data
+- **Smart orchestration:** LLM decides where to probe and what to collect
+- **Cross-service correlation:** Analyzes patterns across environments
+- **Instant insights:** Actionable recommendations in <1 second
 
 ---
 

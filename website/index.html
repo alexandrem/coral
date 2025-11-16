@@ -162,36 +162,38 @@
                 <div class="feature-card">
                     <div class="feature-icon">👁️</div>
                     <h3>Observe</h3>
-                    <p>Four complementary mechanisms provide complete visibility:</p>
+                    <p>Passive, always-on data collection:</p>
                     <ul>
-                        <li><strong>eBPF probes:</strong> Zero-config RED metrics (no code changes)</li>
+                        <li><strong>Zero-config eBPF metrics:</strong> Rate, Errors, Duration (RED)</li>
                         <li><strong>OTLP ingestion:</strong> For apps using OpenTelemetry</li>
-                        <li><strong>Shell/exec:</strong> Run diagnostic tools</li>
-                        <li><strong>Connection mapping:</strong> Auto-discovered service dependencies</li>
+                        <li><strong>Auto-discovered dependencies:</strong> Service connection mapping</li>
+                        <li><strong>Efficient storage:</strong> Recent data local, summaries centralized</li>
                     </ul>
                 </div>
 
                 <div class="feature-card">
-                    <div class="feature-icon">🐛</div>
-                    <h3>Debug</h3>
-                    <p>Ask questions in natural language using your own LLM:</p>
+                    <div class="feature-icon">🔍</div>
+                    <h3>Explore</h3>
+                    <p>Human-driven investigation and control:</p>
                     <ul>
-                        <li><strong>Live debugging</strong> with on-demand instrumentation</li>
-                        <li><strong>Attach eBPF uprobes</strong> to running code without redeploying</li>
-                        <li><strong>LLM orchestrates</strong> where to probe based on analysis</li>
-                        <li><strong>Zero overhead</strong> when not debugging</li>
+                        <li><strong>Query data:</strong> Metrics and traces across all services</li>
+                        <li><strong>Remote execution:</strong> Run diagnostics (netstat, tcpdump, lsof)</li>
+                        <li><strong>Manual probes:</strong> Attach/detach eBPF hooks on-demand</li>
+                        <li><strong>Traffic capture:</strong> Sample and inspect live requests</li>
+                        <li><strong>On-demand profiling:</strong> CPU/memory analysis in production</li>
                     </ul>
                 </div>
 
                 <div class="feature-card">
-                    <div class="feature-icon">🎛️</div>
-                    <h3>Control</h3>
-                    <p>Act on insights from a single interface:</p>
+                    <div class="feature-icon">🤖</div>
+                    <h3>Diagnose</h3>
+                    <p>LLM-orchestrated root cause analysis:</p>
                     <ul>
-                        <li><strong>Traffic inspection:</strong> Sample and inspect live requests</li>
-                        <li><strong>Profiling:</strong> On-demand CPU/memory profiling</li>
-                        <li><strong>Live probes:</strong> Attach/detach debugging hooks on-demand</li>
-                        <li><strong>All from a single binary</strong> - no complex setup</li>
+                        <li><strong>Natural language:</strong> Ask "why is my API slow?" in plain English</li>
+                        <li><strong>AI-powered RCA:</strong> Automated root cause analysis from observability data</li>
+                        <li><strong>Smart orchestration:</strong> LLM decides where to probe and what to collect</li>
+                        <li><strong>Cross-service correlation:</strong> Analyzes patterns across environments</li>
+                        <li><strong>Instant insights:</strong> Actionable recommendations in &lt;1 second</li>
                     </ul>
                 </div>
             </div>
