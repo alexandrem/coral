@@ -49,8 +49,8 @@ observability queries and live debugging workflows.
 - External LLM tools (Claude Desktop, custom agents) cannot access Coral's
   operational intelligence without custom integration
 - No standardized protocol for AI assistants to query distributed system state
-- `coral ask` command (RFD 030) will need to implement custom Colony RPC client
-  instead of using standard MCP protocol
+- Without MCP, each LLM integration (Claude Desktop, `coral ask`) would need
+  custom protocol implementation
 - Each new capability requires custom integration work for every LLM client
 - Coral's rich observability data is isolated, not composable with other tools
 
@@ -96,12 +96,13 @@ check your monitoring system separately."
 
 Developer switches to terminal:
 $ coral ask "is production healthy?"
-> [Hypothetically works, but requires custom RPC implementation in RFD 030]
+> [Works, but requires separate non-MCP integration without this RFD]
 
 Developer switches back to Claude Desktop:
 "Production is healthy according to Coral"
 
 Claude: "Okay, based on what you said, it should be safe to deploy."
+> [Claude still can't access Coral directly - requires manual relay]
 ```
 
 **With MCP Server (this RFD):**
@@ -127,15 +128,16 @@ You should be safe to deploy. Would you like me to check the deployment
 pipeline status via GitHub MCP?"
 ```
 
-**Additional benefit - `coral ask` also uses MCP:**
+**Additional benefit - `coral ask` also uses MCP (RFD 030):**
 
 ```
 $ coral ask "is production healthy?"
 
-[coral ask spawns local Genkit LLM that connects to Colony MCP server]
+[coral ask uses Genkit with MCP client plugin to connect to Colony MCP server]
+→ Genkit Go SDK has native MCP client support (github.com/firebase/genkit/go/plugins/mcp)
 → Same MCP tools as Claude Desktop
 → Consistent behavior across all LLM clients
-→ No duplicate RPC implementation needed
+→ Single source of truth for tool definitions
 ```
 
 ## Solution
@@ -209,6 +211,47 @@ future Reef MCP server implementation (RFD 003).
 - **Automation-friendly**: Custom agents can use MCP to query Coral
   programmatically
 - **No lock-in**: Standard protocol, works with future MCP clients
+
+**Genkit Integration (RFD 030):**
+
+`coral ask` (RFD 030) uses Genkit's native MCP client support to connect to the
+Colony MCP server:
+
+- **Genkit Go SDK**: Includes `github.com/firebase/genkit/go/plugins/mcp` package
+  with full MCP client capabilities
+- **Single tool definition**: Both `coral ask` and Claude Desktop use the same
+  MCP tools exposed by Colony
+- **Consistent behavior**: Identical results whether querying from terminal
+  (`coral ask`) or Claude Desktop
+- **No duplication**: Colony only needs to implement MCP server once, both
+  interfaces automatically work
+
+**Architecture:**
+
+```
+┌──────────────┐         ┌──────────────────┐
+│ coral ask    │         │ Claude Desktop   │
+│ (Genkit +    │         │ (External LLM)   │
+│  MCP client) │         │                  │
+└──────┬───────┘         └────────┬─────────┘
+       │                          │
+       │  MCP Protocol (stdio)    │
+       │                          │
+       └──────────┬───────────────┘
+                  │
+                  ▼
+         ┌────────────────┐
+         │ Colony         │
+         │ MCP Server     │
+         │ (26 tools)     │
+         └────────┬───────┘
+                  │
+                  ▼
+         ┌────────────────┐
+         │ Colony DuckDB  │
+         │ Agents + eBPF  │
+         └────────────────┘
+```
 
 **Architecture Overview:**
 
@@ -1067,6 +1110,87 @@ export CORAL_CONFIG_HOME=~/custom/.coral
 export CORAL_MCP_DISABLED=true
 ```
 
+## Implementation Approaches
+
+### Option 1: Direct MCP Protocol Implementation
+
+Implement MCP protocol from scratch in Colony:
+
+**Pros:**
+- Minimal dependencies (no Genkit runtime in Colony)
+- Full control over MCP protocol implementation
+- Colony stays lean and focused
+- MCP protocol is relatively simple (JSON-RPC 2.0)
+
+**Cons:**
+- Need to implement protocol handling from scratch
+- More code to write and maintain
+- Potential bugs in custom protocol implementation
+- Need to keep up with MCP spec changes
+
+**Implementation:**
+```go
+// Colony MCP server (custom implementation)
+type MCPServer struct {
+    colony *Colony
+    tools  map[string]Tool
+}
+
+func (s *MCPServer) ServeStdio() {
+    // Implement JSON-RPC 2.0 over stdio
+    // Handle tool discovery and execution
+}
+```
+
+### Option 2: Use Genkit Go SDK as MCP Server
+
+Use Genkit's built-in MCP server capabilities:
+
+**Pros:**
+- Genkit Go SDK provides `NewMCPServer()` with full MCP protocol handling
+- `ServeStdio()` method handles stdio transport
+- Tool registration and discovery handled automatically
+- Production-ready, well-maintained code
+- Same library for both `coral ask` (client) and Colony (server)
+- Automatically stays up-to-date with MCP spec
+
+**Cons:**
+- Adds Genkit dependency to Colony (larger binary, more complexity)
+- Genkit is designed for LLM applications, may be overkill for just MCP server
+- Less direct control over protocol implementation details
+
+**Implementation:**
+```go
+// Colony MCP server (using Genkit)
+import "github.com/firebase/genkit/go/plugins/mcp"
+
+func (c *Colony) StartMCPServer() error {
+    server := mcp.NewMCPServer(mcp.MCPServerOptions{
+        Name: c.Config.ID,
+        Version: "1.0.0",
+    })
+
+    // Register tools
+    server.RegisterTool("coral_get_service_health", healthTool)
+    server.RegisterTool("coral_query_beyla_http_metrics", httpMetricsTool)
+    // ... register all 26 tools
+
+    return server.ServeStdio()
+}
+```
+
+### Recommended Approach: Option 1 (Direct Implementation)
+
+**Rationale:**
+- Colony should remain a lightweight daemon without LLM framework dependencies
+- MCP protocol is straightforward (JSON-RPC 2.0), not overly complex
+- Keeps Colony focused on observability, not LLM orchestration
+- Genkit is valuable for `coral ask` (client-side), but overkill for server-side
+- Smaller attack surface and simpler dependency tree
+
+**Note:** If direct implementation proves challenging, we can reconsider Option 2 as
+a fallback.
+
 ## Implementation Plan
 
 ### Phase 1: Core MCP Protocol
@@ -1499,8 +1623,9 @@ func main() {
   OTLP data)
 - **RFD 026**: Shell command (MCP exposes `coral_shell_start` tool for agent
   debug access)
-- **RFD 030**: Coral ask CLI (local Genkit agent is primary consumer of
-  Colony/Reef MCP tools)
+- **RFD 030**: Coral ask CLI (uses Genkit's native MCP client to consume Colony
+  MCP tools; Genkit Go SDK provides `github.com/firebase/genkit/go/plugins/mcp`
+  for MCP integration)
 - **RFD 032**: Beyla RED metrics (MCP exposes
   `coral_query_beyla_{http,grpc,sql}_metrics` tools)
 - **RFD 035**: CLI query framework (CLI commands can also be MCP tool wrappers)
