@@ -284,9 +284,9 @@ future Reef MCP server implementation (RFD 003).
     - Configuration in `colony.yaml` to control MCP server behavior
 
 2. **CLI** (MCP helpers):
-    - `coral mcp list-tools` - Show available MCP tools for running colony
-    - `coral mcp test-tool <tool-name>` - Test MCP tool locally
-    - `coral mcp generate-config` - Generate Claude Desktop config snippet
+    - `coral colony mcp list-tools` - Show available MCP tools for running colony
+    - `coral colony mcp test-tool <tool-name>` - Test MCP tool locally
+    - `coral colony mcp generate-config` - Generate Claude Desktop config snippet
 
 3. **MCP Client Library** (optional):
     - Go library for building custom MCP clients
@@ -344,6 +344,7 @@ mcp:
         "coral-prod": {
             "command": "coral",
             "args": [
+                "colony",
                 "proxy",
                 "mcp",
                 "--colony",
@@ -353,6 +354,7 @@ mcp:
         "coral-staging": {
             "command": "coral",
             "args": [
+                "colony",
                 "proxy",
                 "mcp",
                 "--colony",
@@ -363,7 +365,7 @@ mcp:
 }
 ```
 
-> **Note**: `coral proxy mcp` connects to a running colony's MCP server via its
+> **Note**: `coral colony proxy mcp` connects to a running colony's MCP server via its
 > stdio interface. The colony must be running with MCP enabled.
 
 ## API Changes
@@ -930,11 +932,11 @@ Coral implements MCP using JSON-RPC 2.0:
 
 ```bash
 # List available MCP tools from running colony
-coral mcp list-tools [flags]
+coral colony mcp list-tools [flags]
   --colony <colony-id>    # Which colony to query (uses running colony)
 
 # Example output:
-$ coral mcp list-tools --colony my-shop-production
+$ coral colony mcp list-tools --colony my-shop-production
 
 Available MCP Tools for colony my-shop-production:
 
@@ -957,12 +959,12 @@ coral_start_ebpf_collector
 ---
 
 # Test MCP tool locally (without MCP client)
-coral mcp test-tool <tool-name> [flags]
+coral colony mcp test-tool <tool-name> [flags]
   --colony <colony-id>
   --args <json>           # Tool arguments as JSON
 
 # Example:
-$ coral mcp test-tool coral_get_service_health \
+$ coral colony mcp test-tool coral_get_service_health \
   --colony my-shop-production \
   --args '{}'
 
@@ -982,12 +984,12 @@ Services:
 ---
 
 # Generate Claude Desktop config
-coral mcp generate-config [flags]
+coral colony mcp generate-config [flags]
   --colony <colony-id>    # Include this colony
   --all-colonies          # Include all configured colonies
 
 # Example output:
-$ coral mcp generate-config --all-colonies
+$ coral colony mcp generate-config --all-colonies
 
 Copy this to ~/.config/claude/claude_desktop_config.json:
 
@@ -995,11 +997,11 @@ Copy this to ~/.config/claude/claude_desktop_config.json:
   "mcpServers": {
     "coral-my-shop-production": {
       "command": "coral",
-      "args": ["proxy", "mcp", "--colony", "my-shop-production"]
+      "args": ["colony", "proxy", "mcp", "--colony", "my-shop-production"]
     },
     "coral-my-shop-staging": {
       "command": "coral",
-      "args": ["proxy", "mcp", "--colony", "my-shop-staging"]
+      "args": ["colony", "proxy", "mcp", "--colony", "my-shop-staging"]
     }
   }
 }
@@ -1009,7 +1011,7 @@ After adding this config, restart Claude Desktop to enable Coral MCP servers.
 ---
 
 # Connect to colony MCP server (used by Claude Desktop)
-coral proxy mcp --colony <colony-id>
+coral colony proxy mcp --colony <colony-id>
 
 # This command:
 # 1. Connects to running colony's MCP server
@@ -1037,7 +1039,7 @@ export CORAL_MCP_DISABLED=true
 ### Phase 1: Core MCP Protocol
 
 - [ ] Implement MCP protocol handler (JSON-RPC 2.0)
-- [ ] Implement stdio transport (for Claude Desktop via `coral proxy mcp`)
+- [ ] Implement stdio transport (for Claude Desktop via `coral colony proxy mcp`)
 - [ ] Implement SSE transport (optional, for HTTP-based clients)
 - [ ] Handle tool discovery (list_tools method)
 - [ ] Handle tool execution (tools/call method)
@@ -1067,16 +1069,16 @@ export CORAL_MCP_DISABLED=true
 ### Phase 5: CLI & Configuration
 
 - [ ] Implement colony configuration (`mcp` section in `colony.yaml`)
-- [ ] Implement `coral proxy mcp` command (connects to colony MCP)
-- [ ] Implement `coral mcp list-tools` command
-- [ ] Implement `coral mcp test-tool` command
-- [ ] Implement `coral mcp generate-config` command
+- [ ] Implement `coral colony proxy mcp` command (connects to colony MCP)
+- [ ] Implement `coral colony mcp list-tools` command
+- [ ] Implement `coral colony mcp test-tool` command
+- [ ] Implement `coral colony mcp generate-config` command
 
 ### Phase 6: Testing & Documentation
 
 - [ ] Unit tests for MCP protocol handling
 - [ ] Integration tests with MCP client library
-- [ ] E2E test with Claude Desktop via `coral proxy mcp`
+- [ ] E2E test with Claude Desktop via `coral colony proxy mcp`
 - [ ] Documentation: Setting up Coral in Claude Desktop
 - [ ] Documentation: Building custom MCP clients
 - [ ] Example: Custom automation script using Coral MCP
