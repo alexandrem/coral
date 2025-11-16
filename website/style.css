@@ -364,6 +364,76 @@ body {
     font-style: italic;
 }
 
+/* Live Debugging Example */
+.live-debug-example {
+    max-width: 900px;
+    margin: var(--spacing-xl) auto 0;
+    text-align: center;
+}
+
+.live-debug-example h3 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: var(--spacing-sm);
+}
+
+.example-subtitle {
+    color: var(--text-secondary);
+    font-size: 1.0625rem;
+    margin-bottom: var(--spacing-md);
+}
+
+.terminal-advanced {
+    margin-top: var(--spacing-md);
+    border: 2px solid var(--accent-primary);
+    box-shadow: 0 0 40px rgba(124, 58, 237, 0.3);
+}
+
+.terminal-advanced .terminal-header {
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(168, 85, 247, 0.2));
+    border-bottom: 1px solid var(--accent-primary);
+}
+
+.output-line.indent {
+    padding-left: 1.5rem;
+}
+
+.output-line.indent2 {
+    padding-left: 2rem;
+}
+
+.output-line.indent3 {
+    padding-left: 3rem;
+}
+
+.output-line.indent4 {
+    padding-left: 4rem;
+}
+
+.output-line.success {
+    color: #22c55e;
+}
+
+.output-line.blank {
+    margin-bottom: 0.25rem;
+}
+
+.example-note {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(124, 58, 237, 0.1);
+    border-left: 4px solid var(--accent-primary);
+    border-radius: var(--radius-md);
+    text-align: left;
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    color: var(--text-secondary);
+}
+
+.example-note strong {
+    color: var(--text-primary);
+}
+
 /* Stats Section */
 .stats-section {
     padding: var(--spacing-lg) 0;

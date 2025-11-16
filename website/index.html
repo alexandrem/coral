@@ -374,6 +374,94 @@
                 </div>
             </div>
 
+            <!-- Live Debugging Example -->
+            <div class="live-debug-example">
+                <h3>See It In Action: Live Debugging with SDK</h3>
+                <p class="example-subtitle">
+                    When basic metrics aren't enough, Coral automatically escalates to live instrumentation
+                </p>
+
+                <div class="terminal terminal-advanced">
+                    <div class="terminal-header">
+                        <div class="terminal-buttons">
+                            <span class="btn-circle red"></span>
+                            <span class="btn-circle yellow"></span>
+                            <span class="btn-circle green"></span>
+                        </div>
+                        <div class="terminal-title">terminal</div>
+                    </div>
+                    <div class="terminal-body">
+                        <div class="terminal-line">
+                            <span class="prompt">$</span>
+                            <span class="command">coral ask "Why is the payment API slow?"</span>
+                        </div>
+                        <div class="terminal-output">
+                            <div class="output-line">
+                                <span class="robot">🤖</span> <span class="analyzing">Analyzing payment service metrics...</span>
+                            </div>
+                            <div class="output-line indent">
+                                P95 latency: 2.3s (baseline: 150ms)
+                            </div>
+                            <div class="output-line blank"></div>
+                            <div class="output-line indent">
+                                Root cause unclear from metrics. <span class="highlight">Attaching live probes...</span>
+                            </div>
+                            <div class="output-line blank"></div>
+                            <div class="output-line success indent">
+                                ✓ Uprobe attached: payment.ProcessPayment() [offset 0x4a20]
+                            </div>
+                            <div class="output-line success indent">
+                                ✓ Uprobe attached: payment.ValidateCard() [offset 0x4c80]
+                            </div>
+                            <div class="output-line success indent">
+                                ✓ Uprobe attached: db.QueryTransactions() [offset 0x3f10]
+                            </div>
+                            <div class="output-line blank"></div>
+                            <div class="output-line indent">
+                                <span class="analyzing">Collecting traces for 30 seconds...</span>
+                            </div>
+                            <div class="output-line blank"></div>
+                            <div class="output-line indent">
+                                <strong>Analysis:</strong>
+                            </div>
+                            <div class="output-line indent2">
+                                • ProcessPayment(): 2.1s avg (2,847 calls)
+                            </div>
+                            <div class="output-line indent3">
+                                └─ db.QueryTransactions(): 2.0s (95% of time)
+                            </div>
+                            <div class="output-line indent4">
+                                └─ Query plan: Sequential scan (234,891 rows)
+                            </div>
+                            <div class="output-line indent4">
+                                └─ Missing index on transactions.user_id
+                            </div>
+                            <div class="output-line blank"></div>
+                            <div class="output-line indent2">
+                                • ValidateCard(): 12ms avg (normal)
+                            </div>
+                            <div class="output-line blank"></div>
+                            <div class="output-line recommendation">
+                                <span class="label">Root Cause:</span> Missing database index causing slow queries<br><br>
+                                <span class="label">Recommendation:</span><br>
+                                <span class="code">CREATE INDEX idx_transactions_user_id ON transactions(user_id);</span>
+                            </div>
+                            <div class="output-line blank"></div>
+                            <div class="output-line indent">
+                                Detaching probes...
+                            </div>
+                            <div class="output-line success indent">
+                                ✓ Cleanup complete (zero overhead restored)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="example-note">
+                    <strong>What just happened?</strong> Coral used eBPF metrics to detect the issue, then automatically attached live uprobes to running code (Level 3 integration). After collecting data, it identified the exact bottleneck and recommended a fix—all without redeploying or restarting anything.
+                </div>
+            </div>
+
             <!-- Architecture Diagram -->
             <div class="arch-summary">
                 <h3>Three-Tier Architecture</h3>
