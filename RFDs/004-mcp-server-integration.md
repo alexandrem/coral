@@ -17,8 +17,8 @@ areas: [ "mcp", "ai", "integration" ]
 
 ## Summary
 
-Enable Coral colonies and reefs to expose their comprehensive observability and
-debugging capabilities as Model Context Protocol (MCP) servers, allowing any
+Enable Coral colonies to expose their comprehensive observability and debugging
+capabilities as Model Context Protocol (MCP) servers, allowing any
 MCP-compatible client (Claude Desktop, `coral ask`, custom agents) to query
 distributed system state and execute live debugging actions. Colony MCP server
 exposes data access tools (Beyla RED metrics, distributed traces, OTLP
@@ -32,11 +32,12 @@ observability queries and live debugging workflows.
 > actions. External LLMs consume these tools:
 > - **Claude Desktop**: User's AI assistant via Anthropic's hosted LLM
 > - **`coral ask` (RFD 030)**: Local Genkit agent running on developer's machine
-> - **Reef (RFD 003)**: Server-side LLM for enterprise-wide cross-colony analysis
+> - **Reef (future)**: Will add server-side LLM for cross-colony analysis
 >
 > This design offloads LLM compute from Colony, enables flexible model choice
 > (local Ollama, cloud OpenAI/Anthropic), and maintains cost control at the
-> developer level.
+> developer level. The MCP tool interface defined here will serve as the
+> foundation for future Reef integration (RFD 003).
 
 ## Problem
 
@@ -139,14 +140,15 @@ $ coral ask "is production healthy?"
 
 ## Solution
 
-Implement MCP server interface in both Coral colonies and reefs, exposing
-operational data through standardized MCP tools:
+Implement MCP server interface in Coral colonies, exposing operational data
+through standardized MCP tools. This design will serve as the foundation for
+future Reef MCP server implementation (RFD 003).
 
 **Key Design Decisions:**
 
-- **Both colony and reef expose MCP**: Developer chooses granularity
-    - Colony MCP: Single environment/app (my-shop-prod)
-    - Reef MCP: Unified view across environments (all of my-shop)
+- **Colony MCP server**: Single-colony observability and debugging
+    - Provides complete access to one colony's data and actions
+    - Example: my-shop-prod colony exposes all production observability
 
 - **Standard MCP protocol**: Use official MCP specification (JSON-RPC 2.0 over
   stdio/SSE)
@@ -187,12 +189,11 @@ operational data through standardized MCP tools:
           environments (prod vs staging)
         - `coral_get_deployment_timeline`: Get deployment timeline across
           environments
-    - **Reef Tools** (cross-colony, server-side LLM):
-        - `coral_reef_analyze`: AI-powered cross-colony analysis using Reef's
-          server-side LLM
-        - `coral_reef_get_correlations`: Cross-colony correlation patterns
+    - **Future: Reef Tools** (deferred to RFD 003):
+        - Cross-colony analysis and correlation
+        - Server-side LLM integration for global insights
 
-- **Local-first**: MCP server runs locally, queries local colony/reef
+- **Local-first**: MCP server runs locally, queries local colony
     - No external service needed
     - Works air-gapped
     - Low latency (<100ms)
@@ -827,105 +828,16 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
 }
 ```
 
-**Reef MCP Tools (additional):**
+**Future: Reef MCP Tools (Out of Scope)**
 
-> **Note**: Reef hosts a server-side LLM service (RFD 003), enabling AI-powered
-> analysis tools. Colony MCP tools are data-only (no embedded LLM), while Reef MCP
-> tools can include AI-generated insights.
-
-```json
-{
-    "tools": [
-        {
-            "name": "coral_reef_analyze",
-            "description": "AI-powered analysis across all colonies (uses Reef's server-side LLM)",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "question": {
-                        "type": "string",
-                        "description": "Natural language question about cross-colony state"
-                    },
-                    "time_window": {
-                        "type": "string",
-                        "description": "Analysis time window (e.g., '1h', '24h', '7d')",
-                        "default": "24h"
-                    }
-                },
-                "required": [
-                    "question"
-                ]
-            }
-        },
-        {
-            "name": "coral_compare_environments",
-            "description": "Compare metrics across environments (prod vs staging)",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "metric": {
-                        "type": "string",
-                        "description": "Metric to compare (e.g., 'cpu_percent', 'latency')"
-                    },
-                    "environments": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "Environments to compare (defaults to all)",
-                        "default": [
-                            "production",
-                            "staging"
-                        ]
-                    },
-                    "time_range": {
-                        "type": "string",
-                        "default": "1h"
-                    }
-                },
-                "required": [
-                    "metric"
-                ]
-            }
-        },
-        {
-            "name": "coral_get_correlations",
-            "description": "Get detected correlations across environments (e.g., staging deploy → prod issue)",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "min_confidence": {
-                        "type": "number",
-                        "description": "Minimum correlation confidence (0.0-1.0)",
-                        "default": 0.7
-                    },
-                    "time_range": {
-                        "type": "string",
-                        "default": "7d"
-                    }
-                }
-            }
-        },
-        {
-            "name": "coral_get_deployment_timeline",
-            "description": "Get deployment timeline across all environments",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "application": {
-                        "type": "string",
-                        "description": "Filter by application name"
-                    },
-                    "time_range": {
-                        "type": "string",
-                        "default": "7d"
-                    }
-                }
-            }
-        }
-    ]
-}
-```
+> **Note**: Reef implementation (RFD 003) is out of scope for this RFD. The MCP
+> tool interface design established here will serve as the foundation for future
+> Reef MCP server, which will add:
+> - Cross-colony analysis and correlation tools
+> - Server-side LLM integration for AI-powered insights
+> - Unified view across multiple environments
+>
+> Reef tool definitions will be specified in RFD 003.
 
 ### MCP Protocol Implementation
 
@@ -1560,26 +1472,21 @@ func main() {
 
 **LLM Architecture Integration:**
 
-- **Colony MCP Server**: Exposes data access and action tools (query metrics,
-  start probes, exec commands) - NO embedded LLM
+- **Colony MCP Server** (this RFD): Exposes data access and action tools (query
+  metrics, start probes, exec commands) - NO embedded LLM
     - Colony acts as secure MCP gateway with RBAC/audit enforcement
     - Issues delegate JWTs for direct agent connections when needed (live
       probes, shell sessions)
-- **Reef MCP Server**: Colony tools + AI-powered analysis tools (via
-  server-side LLM service)
-    - Hosts single dedicated enterprise-grade LLM for global consistency
-    - Provides cross-colony correlation and RCA
 - **External LLM Clients** (MCP consumers):
     - **Claude Desktop**: User's AI assistant queries Coral MCP for production
       insights
     - **`coral ask` (RFD 030)**: Local Genkit LLM running on developer's
       machine
     - **Custom agents**: Teams build automation using MCP client libraries
-- **Three-tier model**:
-    - **Developer LLM Agent** (`coral ask`): Local AI reasoning, uses local
-      compute, low-latency iteration
-    - **Colony**: Secure MCP gateway, control plane, RBAC enforcement
-    - **Reef**: Global aggregation, enterprise LLM host, centralized RCA
+- **Future: Reef MCP Server** (RFD 003, out of scope for this RFD):
+    - Will extend Colony tools with AI-powered cross-colony analysis
+    - Server-side LLM for global correlation and RCA
+    - This RFD's tool interface design will serve as foundation
 
 **Key Capabilities Exposed via MCP:**
 
