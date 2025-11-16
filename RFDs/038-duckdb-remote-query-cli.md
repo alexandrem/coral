@@ -6,7 +6,7 @@ breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
-dependencies: ["010", "032"]
+dependencies: ["010", "032", "039"]
 database_migrations: []
 areas: ["cli", "observability", "metrics", "duckdb"]
 ---
@@ -20,6 +20,8 @@ areas: ["cli", "observability", "metrics", "duckdb"]
 ## Summary
 
 Add a `coral duckdb` CLI command that enables interactive SQL querying of agent metrics by leveraging DuckDB's native HTTP remote attach capability. This provides operators with direct, ad-hoc access to raw Beyla metrics stored on agents without requiring API abstraction layers or custom query endpoints.
+
+**Note:** This RFD depends on RFD 039 (CLI-to-Agent Direct Mesh Connectivity) for establishing direct WireGuard connections from CLI tools to agents.
 
 ## Problem
 
