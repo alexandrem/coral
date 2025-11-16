@@ -13,7 +13,7 @@ This file contains all the textual content from the landing page for easy editin
 LLM-orchestrated debugging for **distributed apps**
 
 ### Subtitle
-Observe, analyze, and instrument your code on-demand. One binary. One interface. Your distributed app becomes understandable and controllable.
+Turn fragmented infrastructure into one intelligent system. Natural language queries, AI-powered analysis, live debugging across your entire mesh.
 
 ### Terminal Demo - Basic Example
 
