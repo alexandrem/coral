@@ -151,10 +151,11 @@ future Reef MCP server implementation (RFD 003).
     - Example: my-shop-prod colony exposes all production observability
 
 - **Standard MCP protocol**: Use official MCP specification (JSON-RPC 2.0 over
-  stdio/SSE)
+  stdio)
     - Enables any MCP client to connect (Claude Desktop, custom tools)
     - Follows same patterns as existing MCP servers (GitHub, Sentry, Grafana)
     - No custom protocol needed
+    - stdio transport is sufficient for all current use cases
 
 - **Tool-based interface**: Expose Coral capabilities as MCP tools
     - **Observability Query Tools** (read-only data access):
@@ -227,7 +228,7 @@ future Reef MCP server implementation (RFD 003).
 │           last deploy 2 days ago. Safe to deploy."          │
 └─────────────┬───────────────────────────────────────────────┘
               │
-              │ MCP Protocol (stdio or SSE)
+              │ MCP Protocol (stdio)
               │
     ┌─────────┼──────────┬──────────────┬──────────────┐
     │         │          │              │              │
@@ -278,7 +279,7 @@ future Reef MCP server implementation (RFD 003).
 
 1. **Colony** (MCP server integrated):
     - MCP server starts automatically with colony (enabled by default)
-    - Implements MCP protocol (JSON-RPC 2.0 over stdio/SSE)
+    - Implements MCP protocol (JSON-RPC 2.0 over stdio)
     - Exposes data access and action tools via MCP interface
     - Queries local DuckDB to fulfill tool requests
     - Configuration in `colony.yaml` to control MCP server behavior
@@ -306,18 +307,6 @@ name: "My Shop Production"
 mcp:
   # Set to true to disable MCP server
   disabled: false
-
-  # Transports to enable
-  transports:
-    # stdio transport for Claude Desktop, coral ask
-    stdio:
-      enabled: true
-
-    # SSE transport for HTTP-based clients (optional)
-    sse:
-      enabled: false
-      port: 3001
-      auth_required: true  # Require authentication token
 
   # Tool filtering (optional)
   enabled_tools:
@@ -1074,9 +1063,6 @@ For colony MCP server configuration:
 # Use custom config location
 export CORAL_CONFIG_HOME=~/custom/.coral
 
-# Override MCP server port (SSE transport)
-export CORAL_MCP_PORT=3001
-
 # Disable MCP server (overrides config file)
 export CORAL_MCP_DISABLED=true
 ```
@@ -1087,7 +1073,6 @@ export CORAL_MCP_DISABLED=true
 
 - [ ] Implement MCP protocol handler (JSON-RPC 2.0)
 - [ ] Implement stdio transport (for Claude Desktop via `coral colony proxy mcp`)
-- [ ] Implement SSE transport (optional, for HTTP-based clients)
 - [ ] Handle tool discovery (list_tools method)
 - [ ] Handle tool execution (tools/call method)
 - [ ] Integrate MCP server into colony startup (enabled by default)
@@ -1144,7 +1129,7 @@ export CORAL_MCP_DISABLED=true
 - Full MCP request/response cycle
 - Tool execution with real DuckDB
 - Multiple concurrent tool calls
-- Transport layer (stdio, SSE)
+- stdio transport layer
 
 ### E2E Tests
 
@@ -1174,30 +1159,12 @@ export CORAL_MCP_DISABLED=true
 
 **Problem**: MCP server runs locally but exposes system data
 
-**Approach for stdio transport:**
+**Approach:**
 
 - Stdio transport inherits user's OS permissions
 - Only user who can run `coral` command can access MCP server
 - No network exposure (stdio is local-only)
-
-**Approach for SSE transport:**
-
-- HTTP server requires authentication token
-- Token generated per-session: `coral colony mcp-server --generate-token`
-- Client must include token in SSE connection
-
-```bash
-# Start MCP server with auth
-coral colony mcp-server --transport sse --port 3001 --require-auth
-
-# Output:
-MCP Server started on http://localhost:3001
-Auth token: mcp-token-abc123xyz789
-
-# Client connects with token:
-curl -H "Authorization: Bearer mcp-token-abc123xyz789" \
-  http://localhost:3001/sse
-```
+- Transport is secure by design (requires local shell access)
 
 ### Data Exposure
 
@@ -1217,21 +1184,9 @@ curl -H "Authorization: Bearer mcp-token-abc123xyz789" \
 
 **Controls:**
 
-- MCP tools have read-only access
-- No tool can modify colony state
+- MCP tools have read-only access (observability tools)
+- Action tools (exec, shell, eBPF) require RBAC checks
 - User controls which colonies are exposed via config
-
-### Rate Limiting
-
-For SSE transport (HTTP), implement rate limiting:
-
-```yaml
-# Colony config
-mcp_server:
-    sse:
-        rate_limit: 100  # requests per minute
-        burst: 20        # burst allowance
-```
 
 ## Migration Strategy
 
@@ -1249,6 +1204,19 @@ mcp_server:
 4. No breaking changes to existing workflows
 
 ## Future Enhancements
+
+### SSE Transport (Out of Scope)
+
+> **Note**: Server-Sent Events (SSE) transport over HTTP is out of scope for this
+> RFD. The stdio transport is sufficient for all current use cases (Claude
+> Desktop, `coral ask`, custom local clients).
+>
+> If HTTP-based MCP access is needed in the future (e.g., web dashboard, remote
+> clients), a separate RFD will detail SSE transport implementation including:
+> - HTTP server with SSE endpoint
+> - Authentication and authorization
+> - Rate limiting and security controls
+> - CORS and network access policies
 
 ### MCP Resources
 
