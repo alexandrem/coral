@@ -276,14 +276,14 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 		// Convert internal protobuf format to API format.
 		for _, metric := range sqlMetrics {
 			response.SqlMetrics = append(response.SqlMetrics, &agentv1.BeylaSqlMetric{
-				Timestamp:     metric.Timestamp.AsTime().UnixMilli(),
-				ServiceName:   metric.ServiceName,
-				SqlOperation:  metric.SqlOperation,
-				TableName:     metric.TableName,
+				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+				ServiceName:    metric.ServiceName,
+				SqlOperation:   metric.SqlOperation,
+				TableName:      metric.TableName,
 				LatencyBuckets: metric.LatencyBuckets,
-				LatencyCounts: metric.LatencyCounts,
-				QueryCount:    metric.QueryCount,
-				Attributes:    metric.Attributes,
+				LatencyCounts:  metric.LatencyCounts,
+				QueryCount:     metric.QueryCount,
+				Attributes:     metric.Attributes,
 			})
 		}
 	}

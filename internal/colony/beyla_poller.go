@@ -16,18 +16,18 @@ import (
 // BeylaPoller periodically queries agents for Beyla metrics data.
 // This implements the pull-based telemetry architecture from RFD 032.
 type BeylaPoller struct {
-	registry            *registry.Registry
-	db                  *database.Database
-	pollInterval        time.Duration
-	httpRetentionDays   int // HTTP/gRPC metrics retention in days (default: 30)
-	grpcRetentionDays   int // gRPC metrics retention in days (default: 30)
-	sqlRetentionDays    int // SQL metrics retention in days (default: 14)
-	logger              zerolog.Logger
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	wg                  sync.WaitGroup
-	running             bool
-	mu                  sync.Mutex
+	registry          *registry.Registry
+	db                *database.Database
+	pollInterval      time.Duration
+	httpRetentionDays int // HTTP/gRPC metrics retention in days (default: 30)
+	grpcRetentionDays int // gRPC metrics retention in days (default: 30)
+	sqlRetentionDays  int // SQL metrics retention in days (default: 14)
+	logger            zerolog.Logger
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
+	running           bool
+	mu                sync.Mutex
 }
 
 // NewBeylaPoller creates a new Beyla metrics poller.
