@@ -62,7 +62,7 @@ install: build ## Install the binary to $GOPATH/bin
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(shell go env GOPATH)/bin/
 	@echo "✓ Installed to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
 
-test: ## Run tests
+test: generate ## Run tests
 	@echo "Running tests..."
 	go test ./...
 
