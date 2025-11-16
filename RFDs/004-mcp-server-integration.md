@@ -276,29 +276,65 @@ future Reef MCP server implementation (RFD 003).
 
 ### Component Changes
 
-1. **Colony** (MCP server mode):
-    - New command: `coral colony mcp-server` - Run colony as MCP server
-    - Implements MCP protocol (JSON-RPC 2.0 over stdio)
-    - Exposes tools: get_health, get_metrics, query_events, get_topology, ask
+1. **Colony** (MCP server integrated):
+    - MCP server starts automatically with colony (enabled by default)
+    - Implements MCP protocol (JSON-RPC 2.0 over stdio/SSE)
+    - Exposes data access and action tools via MCP interface
     - Queries local DuckDB to fulfill tool requests
+    - Configuration in `colony.yaml` to control MCP server behavior
 
-2. **Reef** (MCP server mode):
-    - New command: `coral reef mcp-server` - Run reef as MCP server
-    - Implements MCP protocol (JSON-RPC 2.0 over stdio)
-    - Exposes additional tools: compare_environments, get_correlations
-    - Queries federated data across colonies
-
-3. **CLI** (MCP helpers):
-    - `coral mcp list-tools` - Show available MCP tools for colony/reef
+2. **CLI** (MCP helpers):
+    - `coral mcp list-tools` - Show available MCP tools for running colony
     - `coral mcp test-tool <tool-name>` - Test MCP tool locally
     - `coral mcp generate-config` - Generate Claude Desktop config snippet
 
-4. **MCP Client Library** (optional):
+3. **MCP Client Library** (optional):
     - Go library for building custom MCP clients
     - Query Coral programmatically from Go applications
     - Used by custom automation scripts
 
 **Configuration Example:**
+
+**Colony config** (`colony.yaml`):
+
+```yaml
+# Colony configuration
+id: my-shop-production
+name: "My Shop Production"
+
+# MCP server configuration (enabled by default)
+mcp:
+  # Set to true to disable MCP server
+  disabled: false
+
+  # Transports to enable
+  transports:
+    # stdio transport for Claude Desktop, coral ask
+    stdio:
+      enabled: true
+
+    # SSE transport for HTTP-based clients (optional)
+    sse:
+      enabled: false
+      port: 3001
+      auth_required: true  # Require authentication token
+
+  # Tool filtering (optional)
+  enabled_tools:
+    # By default, all tools are enabled
+    # Uncomment to restrict to specific tools:
+    # - coral_query_beyla_http_metrics
+    # - coral_get_service_health
+    # - coral_query_events
+
+  # Security settings
+  security:
+    # Require RBAC checks for action tools (exec, shell, start_ebpf)
+    require_rbac_for_actions: true
+
+    # Audit all MCP tool calls
+    audit_enabled: true
+```
 
 **Claude Desktop config** (`~/.config/claude/claude_desktop_config.json`):
 
@@ -308,8 +344,8 @@ future Reef MCP server implementation (RFD 003).
         "coral-prod": {
             "command": "coral",
             "args": [
-                "colony",
-                "mcp-server",
+                "proxy",
+                "mcp",
                 "--colony",
                 "my-shop-production"
             ]
@@ -317,36 +353,18 @@ future Reef MCP server implementation (RFD 003).
         "coral-staging": {
             "command": "coral",
             "args": [
-                "colony",
-                "mcp-server",
+                "proxy",
+                "mcp",
                 "--colony",
                 "my-shop-staging"
-            ]
-        },
-        "coral-reef": {
-            "command": "coral",
-            "args": [
-                "reef",
-                "mcp-server",
-                "--reef",
-                "my-infrastructure"
             ]
         }
     }
 }
 ```
 
-**Coral MCP server can also run standalone** (SSE transport):
-
-```bash
-# Start MCP server with SSE transport (HTTP)
-coral colony mcp-server --colony my-shop-production \
-  --transport sse \
-  --port 3001
-
-# Custom MCP client connects via HTTP
-curl http://localhost:3001/sse
-```
+> **Note**: `coral proxy mcp` connects to a running colony's MCP server via its
+> stdio interface. The colony must be running with MCP enabled.
 
 ## API Changes
 
@@ -911,54 +929,30 @@ Coral implements MCP using JSON-RPC 2.0:
 ### CLI Commands
 
 ```bash
-# Run colony as MCP server (stdio mode for Claude Desktop)
-coral colony mcp-server [flags]
-  --colony <colony-id>    # Which colony to expose
-  --transport stdio       # Transport: stdio (default) or sse
-
-# Example (used by Claude Desktop):
-$ coral colony mcp-server --colony my-shop-production
-
-# Output: (starts MCP server on stdio, waits for requests)
-
----
-
-# Run reef as MCP server
-coral reef mcp-server [flags]
-  --reef <reef-id>        # Which reef to expose
-  --transport stdio
-
-# Example:
-$ coral reef mcp-server --reef my-infrastructure
-
----
-
-# List available MCP tools
+# List available MCP tools from running colony
 coral mcp list-tools [flags]
-  --colony <colony-id>    # List tools for colony
-  --reef <reef-id>        # List tools for reef
+  --colony <colony-id>    # Which colony to query (uses running colony)
 
 # Example output:
 $ coral mcp list-tools --colony my-shop-production
 
 Available MCP Tools for colony my-shop-production:
 
-coral_get_health
-  Get current health status of all services in this colony
+coral_query_beyla_http_metrics
+  Query HTTP RED metrics collected by Beyla
+  Required: service
 
-coral_get_metrics
-  Query metrics for a specific service
-  Required: service, metric
+coral_get_service_health
+  Get current health status of services
 
 coral_query_events
-  Search for events (deploys, restarts, crashes, errors)
+  Query operational events (deployments, restarts, crashes, alerts)
 
-coral_get_topology
-  Get service dependency graph and topology
+coral_start_ebpf_collector
+  Start on-demand eBPF collector for live debugging
+  Required: collector_type, service
 
-coral_query_traces
-  Query distributed traces for debugging
-  Required: service
+... (24 total tools)
 
 ---
 
@@ -968,9 +962,11 @@ coral mcp test-tool <tool-name> [flags]
   --args <json>           # Tool arguments as JSON
 
 # Example:
-$ coral mcp test-tool coral_get_health --colony my-shop-production
+$ coral mcp test-tool coral_get_service_health \
+  --colony my-shop-production \
+  --args '{}'
 
-Calling tool: coral_get_health
+Calling tool: coral_get_service_health
 Arguments: {}
 
 Response:
@@ -988,7 +984,6 @@ Services:
 # Generate Claude Desktop config
 coral mcp generate-config [flags]
   --colony <colony-id>    # Include this colony
-  --reef <reef-id>        # Include this reef
   --all-colonies          # Include all configured colonies
 
 # Example output:
@@ -1000,28 +995,41 @@ Copy this to ~/.config/claude/claude_desktop_config.json:
   "mcpServers": {
     "coral-my-shop-production": {
       "command": "coral",
-      "args": ["colony", "mcp-server", "--colony", "my-shop-production"]
+      "args": ["proxy", "mcp", "--colony", "my-shop-production"]
     },
     "coral-my-shop-staging": {
       "command": "coral",
-      "args": ["colony", "mcp-server", "--colony", "my-shop-staging"]
+      "args": ["proxy", "mcp", "--colony", "my-shop-staging"]
     }
   }
 }
 
 After adding this config, restart Claude Desktop to enable Coral MCP servers.
+
+---
+
+# Connect to colony MCP server (used by Claude Desktop)
+coral proxy mcp --colony <colony-id>
+
+# This command:
+# 1. Connects to running colony's MCP server
+# 2. Proxies stdio to/from the colony's MCP interface
+# 3. Used by Claude Desktop as MCP server command
 ```
 
 ### Environment Variable Configuration
 
-For Claude Desktop, Coral respects standard config:
+For colony MCP server configuration:
 
 ```bash
 # Use custom config location
 export CORAL_CONFIG_HOME=~/custom/.coral
 
-# Specify default colony for MCP server
-export CORAL_DEFAULT_COLONY=my-shop-production
+# Override MCP server port (SSE transport)
+export CORAL_MCP_PORT=3001
+
+# Disable MCP server (overrides config file)
+export CORAL_MCP_DISABLED=true
 ```
 
 ## Implementation Plan
@@ -1029,41 +1037,46 @@ export CORAL_DEFAULT_COLONY=my-shop-production
 ### Phase 1: Core MCP Protocol
 
 - [ ] Implement MCP protocol handler (JSON-RPC 2.0)
-- [ ] Implement stdio transport (for Claude Desktop)
-- [ ] Implement SSE transport (for custom clients)
+- [ ] Implement stdio transport (for Claude Desktop via `coral proxy mcp`)
+- [ ] Implement SSE transport (optional, for HTTP-based clients)
 - [ ] Handle tool discovery (list_tools method)
 - [ ] Handle tool execution (tools/call method)
+- [ ] Integrate MCP server into colony startup (enabled by default)
 
-### Phase 2: Colony MCP Tools
+### Phase 2: Colony MCP Tools - Observability
 
-- [ ] Implement `coral_get_health` tool
-- [ ] Implement `coral_get_metrics` tool
+- [ ] Implement Beyla metrics tools: `coral_query_beyla_{http,grpc,sql}_metrics`
+- [ ] Implement trace tools: `coral_query_beyla_traces`, `coral_get_trace_by_id`
+- [ ] Implement OTLP tools: `coral_query_telemetry_{spans,metrics,logs}`
+- [ ] Implement `coral_get_service_health` tool
+- [ ] Implement `coral_get_service_topology` tool
 - [ ] Implement `coral_query_events` tool
-- [ ] Implement `coral_get_topology` tool
-- [ ] Implement `coral_query_traces` tool
 
-### Phase 3: Reef MCP Tools
+### Phase 3: Colony MCP Tools - Live Debugging
 
-- [ ] Implement `coral_reef_analyze` tool (uses Reef's server-side LLM from RFD
-  003)
+- [ ] Implement eBPF tools: `coral_{start,stop,list}_ebpf_collector`, `coral_query_ebpf_data`
+- [ ] Implement `coral_exec_command` tool (requires RFD 017)
+- [ ] Implement `coral_shell_start` tool (requires RFD 026)
+
+### Phase 4: Colony MCP Tools - Analysis
+
+- [ ] Implement `coral_correlate_events` tool
 - [ ] Implement `coral_compare_environments` tool
-- [ ] Implement `coral_get_correlations` tool
 - [ ] Implement `coral_get_deployment_timeline` tool
-- [ ] Handle cross-colony queries in reef MCP server
 
-### Phase 4: CLI Integration
+### Phase 5: CLI & Configuration
 
-- [ ] Implement `coral colony mcp-server` command
-- [ ] Implement `coral reef mcp-server` command
+- [ ] Implement colony configuration (`mcp` section in `colony.yaml`)
+- [ ] Implement `coral proxy mcp` command (connects to colony MCP)
 - [ ] Implement `coral mcp list-tools` command
 - [ ] Implement `coral mcp test-tool` command
 - [ ] Implement `coral mcp generate-config` command
 
-### Phase 5: Testing & Documentation
+### Phase 6: Testing & Documentation
 
 - [ ] Unit tests for MCP protocol handling
 - [ ] Integration tests with MCP client library
-- [ ] E2E test with Claude Desktop
+- [ ] E2E test with Claude Desktop via `coral proxy mcp`
 - [ ] Documentation: Setting up Coral in Claude Desktop
 - [ ] Documentation: Building custom MCP clients
 - [ ] Example: Custom automation script using Coral MCP
