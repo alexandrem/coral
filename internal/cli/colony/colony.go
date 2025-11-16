@@ -55,6 +55,7 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newCurrentCmd())
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
+	cmd.AddCommand(newMCPCmd())
 
 	return cmd
 }
