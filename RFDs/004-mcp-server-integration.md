@@ -17,116 +17,189 @@ areas: [ "mcp", "ai", "integration" ]
 
 ## Summary
 
-Enable Coral colonies and reefs to expose their data as Model Context Protocol
-(MCP) servers, allowing any MCP-compatible client (Claude Desktop, custom tools,
-other LLMs) to query distributed system state, metrics, and insights directly.
-This transforms Coral from a standalone tool into a universal context provider
-for AI-powered operations.
+Enable Coral colonies to expose their comprehensive observability and debugging
+capabilities as Model Context Protocol (MCP) servers, allowing any
+MCP-compatible client (Claude Desktop, `coral ask`, custom agents) to query
+distributed system state and execute live debugging actions. Colony MCP server
+exposes data access tools (Beyla RED metrics, distributed traces, OTLP
+telemetry, service topology, events) and action tools (eBPF profiling,
+container exec, agent debug shells). This transforms Coral into a universal
+context provider for AI-powered operations where external LLMs orchestrate
+observability queries and live debugging workflows.
 
-> **Architectural Note**: Colony acts as a lightweight MCP gateway (no embedded
-> LLM), exposing data access tools. Reef hosts a server-side LLM service (RFD 003)
-> and can provide AI-powered analysis tools. External LLMs (via `coral ask` with
-> local Genkit per RFD 030, or Claude Desktop) consume these MCP tools for
-> reasoning.
+> **Architectural Note**: Colony acts as a secure MCP gateway with NO embedded
+> LLM—it exposes tool-calling interfaces for data access and live debugging
+> actions. External LLMs consume these tools:
+> - **Claude Desktop**: User's AI assistant via Anthropic's hosted LLM
+> - **`coral ask` (RFD 030)**: Local Genkit agent running on developer's machine
+> - **Reef (future)**: Will add server-side LLM for cross-colony analysis
+>
+> This design offloads LLM compute from Colony, enables flexible model choice
+> (local Ollama, cloud OpenAI/Anthropic), and maintains cost control at the
+> developer level. The MCP tool interface defined here will serve as the
+> foundation for future Reef integration (RFD 003).
 
 ## Problem
 
 **Current behavior/limitations:**
 
-- Coral insights only accessible via `coral ask` CLI
-- Users must context-switch between their LLM tool (Claude Desktop) and terminal
-- No way for external AI assistants to access Coral's operational intelligence
-- Each tool (Claude Desktop, Cursor, custom agents) would need custom
-  integration
-- Coral's rich infrastructure knowledge is isolated, not composable with other
-  tools
+- Colony infrastructure data (OTEL metrics/traces, Beyla RED metrics, eBPF
+  profiling, service topology, deployment events) is only accessible via
+  direct Colony RPC calls
+- External LLM tools (Claude Desktop, custom agents) cannot access Coral's
+  operational intelligence without custom integration
+- No standardized protocol for AI assistants to query distributed system state
+- Without MCP, each LLM integration (Claude Desktop, `coral ask`) would need
+  custom protocol implementation
+- Each new capability requires custom integration work for every LLM client
+- Coral's rich observability data is isolated, not composable with other tools
 
 **Why this matters:**
 
+- **LLM integration is outside Colony**: Colony acts as a secure MCP gateway -
+  it
+  does NOT host embedded LLMs. External LLMs (Claude Desktop, `coral ask` with
+  local Genkit) consume Colony data via MCP tools.
+- **Main interface is MCP server**: The primary integration point is Colony's
+  MCP server exposing tool-calling interfaces. `coral ask` CLI (RFD 030) and
+  Claude Desktop are both MCP clients consuming these tools.
 - **Developer workflow**: Developers already use Claude Desktop or other AI
-  assistants for coding
-- **Context switching**: "Let me check Coral... switch to terminal... copy/paste
-  results back to Claude"
-- **Composability**: Want to combine Coral data with other MCP servers (GitHub,
-  Sentry, Grafana)
-- **Universal access**: MCP is becoming a standard - expose Coral data to any
-  MCP client
+  assistants for coding - they should be able to query production health
+  without context-switching to terminal
+- **Composability**: Want to combine Coral observability data with other MCP
+  servers (GitHub, Sentry, Grafana) in a single LLM conversation
+- **Universal access**: MCP is a standard protocol - any MCP-compatible client
+  should be able to access Coral data
 - **Custom automation**: Teams want to build custom agents that query Coral
-  programmatically
+  programmatically using standard tool-calling interfaces
 
 **Use cases affected:**
 
-- Developer coding in IDE with AI assistant wants to check production health
-- SRE using Claude Desktop for incident investigation needs infra metrics
-- Custom automation scripts querying Coral data via MCP
-- Teams building composite dashboards pulling from multiple MCP sources
-- AI-powered runbooks that query Coral for current system state
+- Developer in Claude Desktop wants to check production health before deploying
+- SRE using Claude Desktop for incident investigation needs RED metrics,
+  traces, and live eBPF profiling
+- `coral ask` CLI (RFD 030) needs to query Colony data via MCP instead of
+  custom RPC
+- Custom automation scripts querying Coral data via standard MCP client
+  libraries
+- AI-powered runbooks that execute live debugging commands (shell, exec, eBPF
+  probes)
+- Multi-tool workflows combining Coral + Grafana + Sentry via MCP
 
 **Example friction today:**
 
 ```
 Developer in Claude Desktop:
-"Should I deploy this change to production?"
+"Should I deploy PR #123 to production?"
 
 Claude: "I don't have access to your production metrics. You'll need to
-check your monitoring system."
+check your monitoring system separately."
 
 Developer switches to terminal:
 $ coral ask "is production healthy?"
-> Yes, all services healthy, CPU at 45%, no recent errors
+> [Works, but requires separate non-MCP integration without this RFD]
 
 Developer switches back to Claude Desktop:
-"Production is healthy, CPU at 45%"
+"Production is healthy according to Coral"
 
-Claude: "Good, you should be safe to deploy."
+Claude: "Okay, based on what you said, it should be safe to deploy."
+> [Claude still can't access Coral directly - requires manual relay]
 ```
 
 **With MCP Server (this RFD):**
 
 ```
 Developer in Claude Desktop (with Coral MCP server configured):
-"Should I deploy this change to production?"
+"Should I deploy PR #123 to production?"
 
 Claude: [Queries coral-prod MCP server automatically]
-"Based on your production metrics:
-- All services healthy
-- CPU at 45% (normal range)
-- No errors in last hour
-- Last deploy was 2 days ago
+  → Calls coral_get_service_health()
+  → Calls coral_query_beyla_http_metrics(service=api, since=1h)
+  → Calls coral_query_events(event_type=deploy, since=24h)
 
-You should be safe to deploy. Would you like me to trigger the deployment?"
+"Based on your production metrics:
+- All services healthy ✓
+- API P95 latency: 145ms (normal range)
+- Error rate: 0.2% (baseline)
+- No errors in last hour ✓
+- Last deploy was 2 days ago
+- No active incidents ✓
+
+You should be safe to deploy. Would you like me to check the deployment
+pipeline status via GitHub MCP?"
+```
+
+**Additional benefit - `coral ask` also uses MCP (RFD 030):**
+
+```
+$ coral ask "is production healthy?"
+
+[coral ask uses Genkit with MCP client plugin to connect to Colony MCP server]
+→ Genkit Go SDK has native MCP client support (github.com/firebase/genkit/go/plugins/mcp)
+→ Same MCP tools as Claude Desktop
+→ Consistent behavior across all LLM clients
+→ Single source of truth for tool definitions
 ```
 
 ## Solution
 
-Implement MCP server interface in both Coral colonies and reefs, exposing
-operational data through standardized MCP tools:
+Implement MCP server interface in Coral colonies, exposing operational data
+through standardized MCP tools. This design will serve as the foundation for
+future Reef MCP server implementation (RFD 003).
 
 **Key Design Decisions:**
 
-- **Both colony and reef expose MCP**: Developer chooses granularity
-    - Colony MCP: Single environment/app (my-shop-prod)
-    - Reef MCP: Unified view across environments (all of my-shop)
+- **Colony MCP server**: Single-colony observability and debugging
+    - Provides complete access to one colony's data and actions
+    - Example: my-shop-prod colony exposes all production observability
 
 - **Standard MCP protocol**: Use official MCP specification (JSON-RPC 2.0 over
-  stdio/SSE)
+  stdio)
     - Enables any MCP client to connect (Claude Desktop, custom tools)
     - Follows same patterns as existing MCP servers (GitHub, Sentry, Grafana)
     - No custom protocol needed
+    - stdio transport is sufficient for all current use cases
 
-- **Tool-based interface**: Expose Coral queries as MCP tools
-    - Colony tools (data access):
-        - `coral_get_health`: Get current system health
-        - `coral_get_metrics`: Query specific metrics
-        - `coral_query_events`: Search events/incidents
-        - `coral_get_topology`: Get service dependency graph
-        - `coral_query_traces`: Query distributed traces
-    - Reef tools (data + AI analysis):
-        - `coral_reef_analyze`: AI-powered cross-colony analysis (uses Reef LLM)
-        - `coral_compare_environments`: Compare prod vs staging
-        - `coral_get_correlations`: Cross-colony correlation patterns
+- **Tool-based interface**: Expose Coral capabilities as MCP tools
+    - **Observability Query Tools** (read-only data access):
+        - `coral_query_beyla_http_metrics`: Query HTTP RED metrics (latency,
+          error rate, request rate)
+        - `coral_query_beyla_grpc_metrics`: Query gRPC method-level metrics
+        - `coral_query_beyla_sql_metrics`: Query SQL operation metrics
+        - `coral_query_beyla_traces`: Query distributed traces by ID, service,
+          or
+          time range
+        - `coral_get_trace_by_id`: Get specific trace with full span tree
+        - `coral_query_telemetry_spans`: Query generic OTLP spans
+        - `coral_query_telemetry_metrics`: Query generic OTLP metrics
+        - `coral_query_telemetry_logs`: Query generic OTLP logs
+        - `coral_query_ebpf_data`: Query custom eBPF collector data (CPU
+          profiles, syscall stats)
+        - `coral_get_service_health`: Get current health status of services
+        - `coral_get_service_topology`: Get service dependency graph
+        - `coral_query_events`: Query deployment events, restarts, crashes,
+          alerts
+    - **Live Debugging Tools** (action-oriented, can modify state):
+        - `coral_start_ebpf_collector`: Start on-demand eBPF collector (CPU
+          profiling, HTTP latency, TCP metrics)
+        - `coral_stop_ebpf_collector`: Stop running eBPF collector
+        - `coral_list_ebpf_collectors`: List active eBPF collectors
+        - `coral_exec_command`: Execute command in application container (via
+          CRI)
+        - `coral_shell_start`: Start interactive debug shell in agent
+          environment
+    - **Correlation & Analysis Tools**:
+        - `coral_correlate_events`: Correlate events across services to identify
+          patterns
+        - `coral_compare_environments`: Compare metrics/traces across
+          environments (prod vs staging)
+        - `coral_get_deployment_timeline`: Get deployment timeline across
+          environments
+    - **Future: Reef Tools** (deferred to RFD 003):
+        - Cross-colony analysis and correlation
+        - Server-side LLM integration for global insights
 
-- **Local-first**: MCP server runs locally, queries local colony/reef
+- **Local-first**: MCP server runs locally, queries local colony
     - No external service needed
     - Works air-gapped
     - Low latency (<100ms)
@@ -141,6 +214,47 @@ operational data through standardized MCP tools:
 - **Automation-friendly**: Custom agents can use MCP to query Coral
   programmatically
 - **No lock-in**: Standard protocol, works with future MCP clients
+
+**Genkit Integration (RFD 030):**
+
+`coral ask` (RFD 030) uses Genkit's native MCP client support to connect to the
+Colony MCP server:
+
+- **Genkit Go SDK**: Includes `github.com/firebase/genkit/go/plugins/mcp`package
+  with full MCP client capabilities
+- **Single tool definition**: Both `coral ask` and Claude Desktop use the same
+  MCP tools exposed by Colony
+- **Consistent behavior**: Identical results whether querying from terminal
+  (`coral ask`) or Claude Desktop
+- **No duplication**: Colony only needs to implement MCP server once, both
+  interfaces automatically work
+
+**Architecture:**
+
+```
+┌──────────────┐         ┌──────────────────┐
+│ coral ask    │         │ Claude Desktop   │
+│ (Genkit +    │         │ (External LLM)   │
+│  MCP client) │         │                  │
+└──────┬───────┘         └────────┬─────────┘
+       │                          │
+       │  MCP Protocol (stdio)    │
+       │                          │
+       └──────────┬───────────────┘
+                  │
+                  ▼
+         ┌────────────────┐
+         │ Colony         │
+         │ MCP Server     │
+         │ (26 tools)     │
+         └────────┬───────┘
+                  │
+                  ▼
+         ┌────────────────┐
+         │ Colony DuckDB  │
+         │ Agents + eBPF  │
+         └────────────────┘
+```
 
 **Architecture Overview:**
 
@@ -160,7 +274,7 @@ operational data through standardized MCP tools:
 │           last deploy 2 days ago. Safe to deploy."          │
 └─────────────┬───────────────────────────────────────────────┘
               │
-              │ MCP Protocol (stdio or SSE)
+              │ MCP Protocol (stdio)
               │
     ┌─────────┼──────────┬──────────────┬──────────────┐
     │         │          │              │              │
@@ -209,31 +323,76 @@ operational data through standardized MCP tools:
 
 ### Component Changes
 
-1. **Colony** (MCP server mode):
-    - New command: `coral colony mcp-server` - Run colony as MCP server
+1. **Colony** (MCP server integrated):
+    - MCP server starts automatically with colony (enabled by default)
     - Implements MCP protocol (JSON-RPC 2.0 over stdio)
-    - Exposes tools: get_health, get_metrics, query_events, get_topology, ask
+    - Exposes data access and action tools via MCP interface
     - Queries local DuckDB to fulfill tool requests
+    - Configuration in `colony.yaml` to control MCP server behavior
 
-2. **Reef** (MCP server mode):
-    - New command: `coral reef mcp-server` - Run reef as MCP server
-    - Implements MCP protocol (JSON-RPC 2.0 over stdio)
-    - Exposes additional tools: compare_environments, get_correlations
-    - Queries federated data across colonies
+2. **CLI** (MCP helpers):
+    - `coral colony mcp list-tools` - Show available MCP tools for running
+      colony
+    - `coral colony mcp test-tool <tool-name>` - Test MCP tool locally
+    - `coral colony mcp generate-config` - Generate Claude Desktop config
+      snippet
 
-3. **CLI** (MCP helpers):
-    - `coral mcp list-tools` - Show available MCP tools for colony/reef
-    - `coral mcp test-tool <tool-name>` - Test MCP tool locally
-    - `coral mcp generate-config` - Generate Claude Desktop config snippet
-
-4. **MCP Client Library** (optional):
+3. **MCP Client Library** (optional):
     - Go library for building custom MCP clients
     - Query Coral programmatically from Go applications
     - Used by custom automation scripts
 
 **Configuration Example:**
 
+**Colony config** (`colony.yaml`):
+
+```yaml
+# Colony configuration
+id: my-shop-production
+name: "My Shop Production"
+
+# MCP server configuration (enabled by default)
+mcp:
+    # Set to true to disable MCP server
+    disabled: false
+
+    # Tool filtering (optional)
+    enabled_tools:
+    # By default, all tools are enabled
+    # Uncomment to restrict to specific tools:
+    # - coral_query_beyla_http_metrics
+    # - coral_get_service_health
+    # - coral_query_events
+
+    # Security settings
+    security:
+        # Require RBAC checks for action tools (exec, shell, start_ebpf)
+        require_rbac_for_actions: true
+
+        # Audit all MCP tool calls
+        audit_enabled: true
+```
+
 **Claude Desktop config** (`~/.config/claude/claude_desktop_config.json`):
+
+**Single colony (uses default from coral config):**
+
+```json
+{
+    "mcpServers": {
+        "coral": {
+            "command": "coral",
+            "args": [
+                "colony",
+                "proxy",
+                "mcp"
+            ]
+        }
+    }
+}
+```
+
+**Multiple colonies (specify each explicitly):**
 
 ```json
 {
@@ -242,7 +401,8 @@ operational data through standardized MCP tools:
             "command": "coral",
             "args": [
                 "colony",
-                "mcp-server",
+                "proxy",
+                "mcp",
                 "--colony",
                 "my-shop-production"
             ]
@@ -251,35 +411,20 @@ operational data through standardized MCP tools:
             "command": "coral",
             "args": [
                 "colony",
-                "mcp-server",
+                "proxy",
+                "mcp",
                 "--colony",
                 "my-shop-staging"
-            ]
-        },
-        "coral-reef": {
-            "command": "coral",
-            "args": [
-                "reef",
-                "mcp-server",
-                "--reef",
-                "my-infrastructure"
             ]
         }
     }
 }
 ```
 
-**Coral MCP server can also run standalone** (SSE transport):
-
-```bash
-# Start MCP server with SSE transport (HTTP)
-coral colony mcp-server --colony my-shop-production \
-  --transport sse \
-  --port 3001
-
-# Custom MCP client connects via HTTP
-curl http://localhost:3001/sse
-```
+> **Note**: `coral colony proxy mcp` connects to a running colony's MCP server
+> via its
+> stdio interface. The colony must be running with MCP enabled. If `--colony` is
+> omitted, it uses the default colony from coral's configuration.
 
 ## API Changes
 
@@ -293,59 +438,337 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
 {
     "tools": [
         {
-            "name": "coral_get_health",
-            "description": "Get current health status of all services in this colony",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "service_filter": {
-                        "type": "string",
-                        "description": "Optional: Filter by service name pattern"
-                    }
-                }
-            }
-        },
-        {
-            "name": "coral_get_metrics",
-            "description": "Query metrics for a specific service",
+            "name": "coral_query_beyla_http_metrics",
+            "description": "Query HTTP RED metrics collected by Beyla (request rate, error rate, latency distributions). Returns percentiles, status code breakdown, and route-level metrics.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "service": {
                         "type": "string",
-                        "description": "Service name (e.g., 'api', 'frontend')"
-                    },
-                    "metric": {
-                        "type": "string",
-                        "description": "Metric name (e.g., 'cpu_percent', 'response_time_p95')"
+                        "description": "Service name (required)"
                     },
                     "time_range": {
                         "type": "string",
-                        "description": "Time range (e.g., '1h', '24h', '7d')",
+                        "description": "Time range (e.g., '1h', '30m', '24h')",
                         "default": "1h"
+                    },
+                    "http_route": {
+                        "type": "string",
+                        "description": "Optional: Filter by HTTP route pattern (e.g., '/api/v1/users/:id')"
+                    },
+                    "http_method": {
+                        "type": "string",
+                        "description": "Optional: Filter by HTTP method",
+                        "enum": [
+                            "GET",
+                            "POST",
+                            "PUT",
+                            "DELETE",
+                            "PATCH"
+                        ]
+                    },
+                    "status_code_range": {
+                        "type": "string",
+                        "description": "Optional: Filter by status code range",
+                        "enum": [
+                            "2xx",
+                            "3xx",
+                            "4xx",
+                            "5xx"
+                        ]
                     }
                 },
                 "required": [
-                    "service",
-                    "metric"
+                    "service"
                 ]
             }
         },
         {
+            "name": "coral_query_beyla_grpc_metrics",
+            "description": "Query gRPC method-level RED metrics collected by Beyla. Returns RPC rate, latency distributions, and status code breakdown.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "service": {
+                        "type": "string",
+                        "description": "Service name (required)"
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range (e.g., '1h', '30m', '24h')",
+                        "default": "1h"
+                    },
+                    "grpc_method": {
+                        "type": "string",
+                        "description": "Optional: Filter by gRPC method (e.g., '/payments.PaymentService/Charge')"
+                    },
+                    "status_code": {
+                        "type": "integer",
+                        "description": "Optional: Filter by gRPC status code (0=OK, 1=CANCELLED, etc.)"
+                    }
+                },
+                "required": [
+                    "service"
+                ]
+            }
+        },
+        {
+            "name": "coral_query_beyla_sql_metrics",
+            "description": "Query SQL operation metrics collected by Beyla. Returns query latencies, operation types, and table-level statistics.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "service": {
+                        "type": "string",
+                        "description": "Service name (required)"
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range (e.g., '1h', '30m', '24h')",
+                        "default": "1h"
+                    },
+                    "sql_operation": {
+                        "type": "string",
+                        "description": "Optional: Filter by SQL operation",
+                        "enum": [
+                            "SELECT",
+                            "INSERT",
+                            "UPDATE",
+                            "DELETE"
+                        ]
+                    },
+                    "table_name": {
+                        "type": "string",
+                        "description": "Optional: Filter by table name"
+                    }
+                },
+                "required": [
+                    "service"
+                ]
+            }
+        },
+        {
+            "name": "coral_query_beyla_traces",
+            "description": "Query distributed traces collected by Beyla. Can search by trace ID, service, time range, or duration threshold.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "trace_id": {
+                        "type": "string",
+                        "description": "Specific trace ID (32-char hex string)"
+                    },
+                    "service": {
+                        "type": "string",
+                        "description": "Filter traces involving this service"
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range (e.g., '1h', '30m', '24h')",
+                        "default": "1h"
+                    },
+                    "min_duration_ms": {
+                        "type": "integer",
+                        "description": "Optional: Only return traces longer than this duration (milliseconds)"
+                    },
+                    "max_traces": {
+                        "type": "integer",
+                        "description": "Maximum number of traces to return",
+                        "default": 10
+                    }
+                }
+            }
+        },
+        {
+            "name": "coral_get_trace_by_id",
+            "description": "Get a specific distributed trace by ID with full span tree showing parent-child relationships and timing.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "trace_id": {
+                        "type": "string",
+                        "description": "Trace ID (32-char hex string)"
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format",
+                        "enum": [
+                            "tree",
+                            "flat",
+                            "json"
+                        ],
+                        "default": "tree"
+                    }
+                },
+                "required": [
+                    "trace_id"
+                ]
+            }
+        },
+        {
+            "name": "coral_query_telemetry_spans",
+            "description": "Query generic OTLP spans (from instrumented applications using OpenTelemetry SDKs). Complementary to Beyla traces.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "service": {
+                        "type": "string",
+                        "description": "Service name"
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range (e.g., '1h', '30m', '24h')",
+                        "default": "1h"
+                    },
+                    "operation": {
+                        "type": "string",
+                        "description": "Optional: Filter by operation name"
+                    }
+                },
+                "required": [
+                    "service"
+                ]
+            }
+        },
+        {
+            "name": "coral_query_telemetry_metrics",
+            "description": "Query generic OTLP metrics (from instrumented applications). Returns time-series data for custom application metrics.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "metric_name": {
+                        "type": "string",
+                        "description": "Metric name (e.g., 'http.server.duration', 'custom.orders.count')"
+                    },
+                    "service": {
+                        "type": "string",
+                        "description": "Optional: Filter by service"
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range",
+                        "default": "1h"
+                    }
+                }
+            }
+        },
+        {
+            "name": "coral_query_telemetry_logs",
+            "description": "Query generic OTLP logs (from instrumented applications). Search application logs with full-text search and filters.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (full-text search)"
+                    },
+                    "service": {
+                        "type": "string",
+                        "description": "Optional: Filter by service"
+                    },
+                    "level": {
+                        "type": "string",
+                        "description": "Optional: Filter by log level",
+                        "enum": [
+                            "DEBUG",
+                            "INFO",
+                            "WARN",
+                            "ERROR",
+                            "FATAL"
+                        ]
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range",
+                        "default": "1h"
+                    }
+                }
+            }
+        },
+        {
+            "name": "coral_query_ebpf_data",
+            "description": "Query data from custom eBPF collectors (CPU profiles, syscall stats, network flows). Requires collector to be running.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collector_type": {
+                        "type": "string",
+                        "description": "Type of eBPF collector",
+                        "enum": [
+                            "cpu_profile",
+                            "syscall_stats",
+                            "http_latency",
+                            "tcp_metrics"
+                        ]
+                    },
+                    "service": {
+                        "type": "string",
+                        "description": "Service name"
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range",
+                        "default": "5m"
+                    }
+                },
+                "required": [
+                    "collector_type",
+                    "service"
+                ]
+            }
+        },
+        {
+            "name": "coral_get_service_health",
+            "description": "Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "service_filter": {
+                        "type": "string",
+                        "description": "Optional: Filter by service name pattern (e.g., 'api*', 'payment*')"
+                    }
+                }
+            }
+        },
+        {
+            "name": "coral_get_service_topology",
+            "description": "Get service dependency graph discovered from distributed traces. Shows which services communicate and call frequency.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "filter": {
+                        "type": "string",
+                        "description": "Optional: Filter by service name, tag, or region"
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format",
+                        "enum": [
+                            "graph",
+                            "list",
+                            "json"
+                        ],
+                        "default": "graph"
+                    }
+                }
+            }
+        },
+        {
             "name": "coral_query_events",
-            "description": "Search for events (deploys, restarts, crashes, errors)",
+            "description": "Query operational events tracked by Coral (deployments, restarts, crashes, alerts, configuration changes).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "event_type": {
                         "type": "string",
-                        "description": "Event type filter (deploy, restart, crash, error_spike)",
+                        "description": "Event type filter",
                         "enum": [
                             "deploy",
                             "restart",
                             "crash",
-                            "error_spike",
-                            "alert"
+                            "alert",
+                            "config_change",
+                            "connection",
+                            "error_spike"
                         ]
                     },
                     "time_range": {
@@ -361,88 +784,182 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
             }
         },
         {
-            "name": "coral_get_topology",
-            "description": "Get service dependency graph and topology",
+            "name": "coral_start_ebpf_collector",
+            "description": "Start an on-demand eBPF collector for live debugging (CPU profiling, syscall tracing, network analysis). Collector runs for specified duration.",
             "inputSchema": {
                 "type": "object",
-                "properties": {}
+                "properties": {
+                    "collector_type": {
+                        "type": "string",
+                        "description": "Type of eBPF collector to start",
+                        "enum": [
+                            "cpu_profile",
+                            "syscall_stats",
+                            "http_latency",
+                            "tcp_metrics"
+                        ]
+                    },
+                    "service": {
+                        "type": "string",
+                        "description": "Target service name"
+                    },
+                    "duration_seconds": {
+                        "type": "integer",
+                        "description": "How long to run collector (max 300s)",
+                        "default": 30
+                    },
+                    "config": {
+                        "type": "object",
+                        "description": "Optional collector-specific configuration (sample rate, filters, etc.)"
+                    }
+                },
+                "required": [
+                    "collector_type",
+                    "service"
+                ]
             }
         },
         {
-            "name": "coral_query_traces",
-            "description": "Query distributed traces for debugging",
+            "name": "coral_stop_ebpf_collector",
+            "description": "Stop a running eBPF collector before its duration expires.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collector_id": {
+                        "type": "string",
+                        "description": "Collector ID returned from start_ebpf_collector"
+                    }
+                },
+                "required": [
+                    "collector_id"
+                ]
+            }
+        },
+        {
+            "name": "coral_list_ebpf_collectors",
+            "description": "List currently active eBPF collectors with their status and remaining duration.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "service": {
                         "type": "string",
-                        "description": "Service to query traces for"
-                    },
-                    "time_range": {
+                        "description": "Optional: Filter by service"
+                    }
+                }
+            }
+        },
+        {
+            "name": "coral_exec_command",
+            "description": "Execute a command in an application container (kubectl/docker exec semantics). Useful for checking configuration, running diagnostic commands, or inspecting container state.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "service": {
                         "type": "string",
-                        "description": "Time range (e.g., '1h', '24h')",
-                        "default": "1h"
+                        "description": "Target service name"
                     },
-                    "filter": {
+                    "command": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Command and arguments to execute (e.g., ['ls', '-la', '/app'])"
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "description": "Command timeout",
+                        "default": 30
+                    },
+                    "working_dir": {
                         "type": "string",
-                        "description": "Optional filter expression"
+                        "description": "Optional: Working directory"
+                    }
+                },
+                "required": [
+                    "service",
+                    "command"
+                ]
+            }
+        },
+        {
+            "name": "coral_shell_start",
+            "description": "Start an interactive debug shell in the agent's environment (not the application container). Provides access to debugging tools (tcpdump, netcat, curl) and agent's data. Returns session ID for audit.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "service": {
+                        "type": "string",
+                        "description": "Service whose agent to connect to"
+                    },
+                    "shell": {
+                        "type": "string",
+                        "description": "Shell to use",
+                        "enum": [
+                            "/bin/bash",
+                            "/bin/sh"
+                        ],
+                        "default": "/bin/bash"
                     }
                 },
                 "required": [
                     "service"
                 ]
             }
-        }
-    ]
-}
-```
-
-**Reef MCP Tools (additional):**
-
-> **Note**: Reef hosts a server-side LLM service (RFD 003), enabling AI-powered
-> analysis tools. Colony MCP tools are data-only (no embedded LLM), while Reef MCP
-> tools can include AI-generated insights.
-
-```json
-{
-    "tools": [
+        },
         {
-            "name": "coral_reef_analyze",
-            "description": "AI-powered analysis across all colonies (uses Reef's server-side LLM)",
+            "name": "coral_correlate_events",
+            "description": "Correlate events across services to identify causal patterns (e.g., 'deploy → error spike', 'restart → latency increase').",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "question": {
+                    "incident_time": {
                         "type": "string",
-                        "description": "Natural language question about cross-colony state"
+                        "description": "Timestamp of incident to investigate (ISO 8601 or relative like '1h ago')"
                     },
-                    "time_window": {
+                    "affected_services": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional: List of affected services to focus correlation"
+                    },
+                    "correlation_window": {
                         "type": "string",
-                        "description": "Analysis time window (e.g., '1h', '24h', '7d')",
-                        "default": "24h"
+                        "description": "Time window to search for correlated events",
+                        "default": "15m"
                     }
                 },
                 "required": [
-                    "question"
+                    "incident_time"
                 ]
             }
         },
         {
             "name": "coral_compare_environments",
-            "description": "Compare metrics across environments (prod vs staging)",
+            "description": "Compare metrics or traces across environments (production vs staging). Useful for identifying configuration drift or deployment issues.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "metric": {
+                    "metric_type": {
                         "type": "string",
-                        "description": "Metric to compare (e.g., 'cpu_percent', 'latency')"
+                        "description": "Type of data to compare",
+                        "enum": [
+                            "http_latency",
+                            "error_rate",
+                            "throughput",
+                            "resource_usage"
+                        ]
+                    },
+                    "service": {
+                        "type": "string",
+                        "description": "Service name (must exist in both environments)"
                     },
                     "environments": {
                         "type": "array",
                         "items": {
                             "type": "string"
                         },
-                        "description": "Environments to compare (defaults to all)",
+                        "description": "Environments to compare (defaults to ['production', 'staging'])",
                         "default": [
                             "production",
                             "staging"
@@ -450,44 +967,29 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     },
                     "time_range": {
                         "type": "string",
+                        "description": "Time range for comparison",
                         "default": "1h"
                     }
                 },
                 "required": [
-                    "metric"
+                    "metric_type",
+                    "service"
                 ]
             }
         },
         {
-            "name": "coral_get_correlations",
-            "description": "Get detected correlations across environments (e.g., staging deploy → prod issue)",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "min_confidence": {
-                        "type": "number",
-                        "description": "Minimum correlation confidence (0.0-1.0)",
-                        "default": 0.7
-                    },
-                    "time_range": {
-                        "type": "string",
-                        "default": "7d"
-                    }
-                }
-            }
-        },
-        {
             "name": "coral_get_deployment_timeline",
-            "description": "Get deployment timeline across all environments",
+            "description": "Get deployment timeline across all environments. Shows deployment sequence, version changes, and rollback events.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "application": {
                         "type": "string",
-                        "description": "Filter by application name"
+                        "description": "Optional: Filter by application name"
                     },
                     "time_range": {
                         "type": "string",
+                        "description": "Time range",
                         "default": "7d"
                     }
                 }
@@ -496,6 +998,17 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
     ]
 }
 ```
+
+**Future: Reef MCP Tools (Out of Scope)**
+
+> **Note**: Reef implementation (RFD 003) is out of scope for this RFD. The MCP
+> tool interface design established here will serve as the foundation for future
+> Reef MCP server, which will add:
+> - Cross-colony analysis and correlation tools
+> - Server-side LLM integration for AI-powered insights
+> - Unified view across multiple environments
+>
+> Reef tool definitions will be specified in RFD 003.
 
 ### MCP Protocol Implementation
 
@@ -569,66 +1082,53 @@ Coral implements MCP using JSON-RPC 2.0:
 ### CLI Commands
 
 ```bash
-# Run colony as MCP server (stdio mode for Claude Desktop)
-coral colony mcp-server [flags]
-  --colony <colony-id>    # Which colony to expose
-  --transport stdio       # Transport: stdio (default) or sse
+# List available MCP tools from running colony
+coral colony mcp list-tools [flags]
+  --colony <colony-id>    # Which colony to query (optional, uses default if omitted)
 
-# Example (used by Claude Desktop):
-$ coral colony mcp-server --colony my-shop-production
+# Example output (using default colony):
+$ coral colony mcp list-tools
 
-# Output: (starts MCP server on stdio, waits for requests)
+Available MCP Tools for colony my-shop-production:
+...
 
----
-
-# Run reef as MCP server
-coral reef mcp-server [flags]
-  --reef <reef-id>        # Which reef to expose
-  --transport stdio
-
-# Example:
-$ coral reef mcp-server --reef my-infrastructure
-
----
-
-# List available MCP tools
-coral mcp list-tools [flags]
-  --colony <colony-id>    # List tools for colony
-  --reef <reef-id>        # List tools for reef
-
-# Example output:
-$ coral mcp list-tools --colony my-shop-production
+# Example output (specific colony):
+$ coral colony mcp list-tools --colony my-shop-staging
 
 Available MCP Tools for colony my-shop-production:
 
-coral_get_health
-  Get current health status of all services in this colony
+coral_query_beyla_http_metrics
+  Query HTTP RED metrics collected by Beyla
+  Required: service
 
-coral_get_metrics
-  Query metrics for a specific service
-  Required: service, metric
+coral_get_service_health
+  Get current health status of services
 
 coral_query_events
-  Search for events (deploys, restarts, crashes, errors)
+  Query operational events (deployments, restarts, crashes, alerts)
 
-coral_get_topology
-  Get service dependency graph and topology
+coral_start_ebpf_collector
+  Start on-demand eBPF collector for live debugging
+  Required: collector_type, service
 
-coral_query_traces
-  Query distributed traces for debugging
-  Required: service
+... (24 total tools)
 
 ---
 
 # Test MCP tool locally (without MCP client)
-coral mcp test-tool <tool-name> [flags]
-  --colony <colony-id>
+coral colony mcp test-tool <tool-name> [flags]
+  --colony <colony-id>    # Optional, uses default if omitted
   --args <json>           # Tool arguments as JSON
 
-# Example:
-$ coral mcp test-tool coral_get_health --colony my-shop-production
+# Example (using default colony):
+$ coral colony mcp test-tool coral_get_service_health --args '{}'
 
-Calling tool: coral_get_health
+# Example (specific colony):
+$ coral colony mcp test-tool coral_get_service_health \
+  --colony my-shop-production \
+  --args '{}'
+
+Calling tool: coral_get_service_health
 Arguments: {}
 
 Response:
@@ -644,13 +1144,26 @@ Services:
 ---
 
 # Generate Claude Desktop config
-coral mcp generate-config [flags]
+coral colony mcp generate-config [flags]
   --colony <colony-id>    # Include this colony
-  --reef <reef-id>        # Include this reef
   --all-colonies          # Include all configured colonies
 
-# Example output:
-$ coral mcp generate-config --all-colonies
+# Example 1: Default colony only
+$ coral colony mcp generate-config
+
+Copy this to ~/.config/claude/claude_desktop_config.json:
+
+{
+  "mcpServers": {
+    "coral": {
+      "command": "coral",
+      "args": ["colony", "proxy", "mcp"]
+    }
+  }
+}
+
+# Example 2: All colonies (explicit)
+$ coral colony mcp generate-config --all-colonies
 
 Copy this to ~/.config/claude/claude_desktop_config.json:
 
@@ -658,70 +1171,201 @@ Copy this to ~/.config/claude/claude_desktop_config.json:
   "mcpServers": {
     "coral-my-shop-production": {
       "command": "coral",
-      "args": ["colony", "mcp-server", "--colony", "my-shop-production"]
+      "args": ["colony", "proxy", "mcp", "--colony", "my-shop-production"]
     },
     "coral-my-shop-staging": {
       "command": "coral",
-      "args": ["colony", "mcp-server", "--colony", "my-shop-staging"]
+      "args": ["colony", "proxy", "mcp", "--colony", "my-shop-staging"]
     }
   }
 }
 
 After adding this config, restart Claude Desktop to enable Coral MCP servers.
+
+---
+
+# Connect to colony MCP server (used by Claude Desktop)
+coral colony proxy mcp [--colony <colony-id>]
+
+# This command:
+# 1. Connects to running colony's MCP server
+# 2. Proxies stdio to/from the colony's MCP interface
+# 3. Used by Claude Desktop as MCP server command
+# 4. If --colony is omitted, uses default colony from coral config
+
+# Examples:
+# Use default colony
+coral colony proxy mcp
+
+# Use specific colony
+coral colony proxy mcp --colony my-shop-production
 ```
 
 ### Environment Variable Configuration
 
-For Claude Desktop, Coral respects standard config:
+For colony MCP server configuration:
 
 ```bash
 # Use custom config location
 export CORAL_CONFIG_HOME=~/custom/.coral
 
-# Specify default colony for MCP server
-export CORAL_DEFAULT_COLONY=my-shop-production
+# Disable MCP server (overrides config file)
+export CORAL_MCP_DISABLED=true
 ```
+
+## Implementation Approaches
+
+### Option 1: Direct MCP Protocol Implementation
+
+Implement MCP protocol from scratch in Colony:
+
+**Pros:**
+
+- Minimal dependencies (no Genkit runtime in Colony)
+- Full control over MCP protocol implementation
+- Colony stays lean and focused
+- MCP protocol is relatively simple (JSON-RPC 2.0)
+
+**Cons:**
+
+- Need to implement protocol handling from scratch
+- More code to write and maintain
+- Potential bugs in custom protocol implementation
+- Need to keep up with MCP spec changes
+
+**Implementation:**
+
+```go
+// Colony MCP server (custom implementation)
+type MCPServer struct {
+    colony *Colony
+    tools  map[string]Tool
+}
+
+func (s *MCPServer) ServeStdio() {
+    // Implement JSON-RPC 2.0 over stdio
+    // Handle tool discovery and execution
+}
+```
+
+### Option 2: Use Genkit Go SDK as MCP Server
+
+Use Genkit's built-in MCP server capabilities:
+
+**Pros:**
+
+- Genkit Go SDK provides `NewMCPServer()` with full MCP protocol handling
+- `ServeStdio()` method handles stdio transport
+- Tool registration and discovery handled automatically
+- Production-ready, well-maintained code
+- Same library for both `coral ask` (client) and Colony (server)
+- Automatically stays up-to-date with MCP spec
+
+**Cons:**
+
+- ~~Adds Genkit dependency to Colony~~ (Not applicable: Genkit already required
+  for `coral ask`)
+- Less direct control over protocol implementation details (but MCP is
+  standardized, unlikely to need customization)
+
+**Implementation:**
+
+```go
+// Colony MCP server (using Genkit)
+import "github.com/firebase/genkit/go/plugins/mcp"
+
+func (c *Colony) StartMCPServer() error {
+    server := mcp.NewMCPServer(mcp.MCPServerOptions{
+        Name: c.Config.ID,
+        Version: "1.0.0",
+    })
+
+    // Register tools
+    server.RegisterTool("coral_get_service_health", healthTool)
+    server.RegisterTool("coral_query_beyla_http_metrics", httpMetricsTool)
+    // ... register all 26 tools
+
+    return server.ServeStdio()
+}
+```
+
+### Recommended Approach: Option 2 (Use Genkit as MCP Server)
+
+**Rationale:**
+
+- **No additional dependency**: Coral is a single binary bundling colony, agent,
+  and
+  CLI. Genkit is already required for `coral ask` (RFD 030), so there's no
+  incremental cost
+- **Saves implementation effort**: Avoids writing custom JSON-RPC 2.0 protocol
+  handler, tool discovery, and stdio transport
+- **Production-ready**: Genkit's MCP server is battle-tested and maintained by
+  Google Firebase team
+- **Consistent library**: Same Genkit MCP package for both client (`coral ask`)
+  and
+  server (Colony) sides
+- **Auto-updates**: MCP spec changes are handled by Genkit updates, not manual
+  work
+- **Less code to maintain**: Estimated 200-300 lines saved vs custom
+  implementation
+
+**Implementation estimate:**
+
+- Direct implementation: ~400-500 lines (protocol, transport, tool registry)
+- Genkit approach: ~100-150 lines (tool registration only)
+
+**Note:** If Coral splits into separate binaries in the future (optimized Colony
+daemon vs full CLI), we can reconsider extracting MCP server to a minimal
+dependency. For now, leveraging existing Genkit dependency is the pragmatic
+choice.
 
 ## Implementation Plan
 
-### Phase 1: Core MCP Protocol
+### Phase 1: Core MCP Server Setup (using Genkit)
 
-- [ ] Implement MCP protocol handler (JSON-RPC 2.0)
-- [ ] Implement stdio transport (for Claude Desktop)
-- [ ] Implement SSE transport (for custom clients)
-- [ ] Handle tool discovery (list_tools method)
-- [ ] Handle tool execution (tools/call method)
+- [ ] Add Genkit MCP plugin dependency (
+  `github.com/firebase/genkit/go/plugins/mcp`)
+- [ ] Create MCP server instance with `mcp.NewMCPServer()` in Colony
+- [ ] Configure server with colony ID and version
+- [ ] Implement tool registration infrastructure
+- [ ] Integrate MCP server into colony startup (enabled by default)
+- [ ] Test stdio transport with simple health check tool
 
-### Phase 2: Colony MCP Tools
+### Phase 2: Colony MCP Tools - Observability
 
-- [ ] Implement `coral_get_health` tool
-- [ ] Implement `coral_get_metrics` tool
+- [ ] Implement Beyla metrics tools: `coral_query_beyla_{http,grpc,sql}_metrics`
+- [ ] Implement trace tools: `coral_query_beyla_traces`, `coral_get_trace_by_id`
+- [ ] Implement OTLP tools: `coral_query_telemetry_{spans,metrics,logs}`
+- [ ] Implement `coral_get_service_health` tool
+- [ ] Implement `coral_get_service_topology` tool
 - [ ] Implement `coral_query_events` tool
-- [ ] Implement `coral_get_topology` tool
-- [ ] Implement `coral_query_traces` tool
 
-### Phase 3: Reef MCP Tools
+### Phase 3: Colony MCP Tools - Live Debugging
 
-- [ ] Implement `coral_reef_analyze` tool (uses Reef's server-side LLM from RFD
-  003)
+- [ ] Implement eBPF tools: `coral_{start,stop,list}_ebpf_collector`,
+  `coral_query_ebpf_data`
+- [ ] Implement `coral_exec_command` tool (requires RFD 017)
+- [ ] Implement `coral_shell_start` tool (requires RFD 026)
+
+### Phase 4: Colony MCP Tools - Analysis
+
+- [ ] Implement `coral_correlate_events` tool
 - [ ] Implement `coral_compare_environments` tool
-- [ ] Implement `coral_get_correlations` tool
 - [ ] Implement `coral_get_deployment_timeline` tool
-- [ ] Handle cross-colony queries in reef MCP server
 
-### Phase 4: CLI Integration
+### Phase 5: CLI & Configuration
 
-- [ ] Implement `coral colony mcp-server` command
-- [ ] Implement `coral reef mcp-server` command
-- [ ] Implement `coral mcp list-tools` command
-- [ ] Implement `coral mcp test-tool` command
-- [ ] Implement `coral mcp generate-config` command
+- [ ] Implement colony configuration (`mcp` section in `colony.yaml`)
+- [ ] Implement `coral colony proxy mcp` command (connects to colony MCP)
+- [ ] Implement `coral colony mcp list-tools` command
+- [ ] Implement `coral colony mcp test-tool` command
+- [ ] Implement `coral colony mcp generate-config` command
 
-### Phase 5: Testing & Documentation
+### Phase 6: Testing & Documentation
 
 - [ ] Unit tests for MCP protocol handling
 - [ ] Integration tests with MCP client library
-- [ ] E2E test with Claude Desktop
+- [ ] E2E test with Claude Desktop via `coral colony proxy mcp`
 - [ ] Documentation: Setting up Coral in Claude Desktop
 - [ ] Documentation: Building custom MCP clients
 - [ ] Example: Custom automation script using Coral MCP
@@ -740,7 +1384,7 @@ export CORAL_DEFAULT_COLONY=my-shop-production
 - Full MCP request/response cycle
 - Tool execution with real DuckDB
 - Multiple concurrent tool calls
-- Transport layer (stdio, SSE)
+- stdio transport layer
 
 ### E2E Tests
 
@@ -770,30 +1414,12 @@ export CORAL_DEFAULT_COLONY=my-shop-production
 
 **Problem**: MCP server runs locally but exposes system data
 
-**Approach for stdio transport:**
+**Approach:**
 
 - Stdio transport inherits user's OS permissions
 - Only user who can run `coral` command can access MCP server
 - No network exposure (stdio is local-only)
-
-**Approach for SSE transport:**
-
-- HTTP server requires authentication token
-- Token generated per-session: `coral colony mcp-server --generate-token`
-- Client must include token in SSE connection
-
-```bash
-# Start MCP server with auth
-coral colony mcp-server --transport sse --port 3001 --require-auth
-
-# Output:
-MCP Server started on http://localhost:3001
-Auth token: mcp-token-abc123xyz789
-
-# Client connects with token:
-curl -H "Authorization: Bearer mcp-token-abc123xyz789" \
-  http://localhost:3001/sse
-```
+- Transport is secure by design (requires local shell access)
 
 ### Data Exposure
 
@@ -813,21 +1439,9 @@ curl -H "Authorization: Bearer mcp-token-abc123xyz789" \
 
 **Controls:**
 
-- MCP tools have read-only access
-- No tool can modify colony state
+- MCP tools have read-only access (observability tools)
+- Action tools (exec, shell, eBPF) require RBAC checks
 - User controls which colonies are exposed via config
-
-### Rate Limiting
-
-For SSE transport (HTTP), implement rate limiting:
-
-```yaml
-# Colony config
-mcp_server:
-    sse:
-        rate_limit: 100  # requests per minute
-        burst: 20        # burst allowance
-```
 
 ## Migration Strategy
 
@@ -845,6 +1459,20 @@ mcp_server:
 4. No breaking changes to existing workflows
 
 ## Future Enhancements
+
+### SSE Transport (Out of Scope)
+
+> **Note**: Server-Sent Events (SSE) transport over HTTP is out of scope for
+> this
+> RFD. The stdio transport is sufficient for all current use cases (Claude
+> Desktop, `coral ask`, custom local clients).
+>
+> If HTTP-based MCP access is needed in the future (e.g., web dashboard, remote
+> clients), a separate RFD will detail SSE transport implementation including:
+> - HTTP server with SSE endpoint
+> - Authentication and authorization
+> - Rate limiting and security controls
+> - CORS and network access policies
 
 ### MCP Resources
 
@@ -909,16 +1537,16 @@ For long-running queries (coral_reef_analyze), use MCP streaming:
 
 Response (streaming):
 {
-"jsonrpc": "2.0",
-"id": 1,
-"result": {
-"content": [
-{"type": "text", "text": "Analyzing incidents..."},
-{"type": "text", "text": "Found 3 incidents..."},
-{"type": "text", "text": "Incident 1: Database timeout on 2025-10-20..."}
-],
-"isPartial": true
-}
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "content": [
+            {"type": "text", "text": "Analyzing incidents..."},
+            {"type": "text", "text": "Found 3 incidents..."},
+            {"type": "text", "text": "Incident 1: Database timeout on 2025-10-20..."}
+        ],
+        "isPartial": true
+    }
 }
 ```
 
@@ -1075,21 +1703,29 @@ func main() {
 
 ### MCP vs Coral CLI
 
-**When to use `coral ask` CLI:**
+**When to use `coral ask` CLI (RFD 030):**
 
-- ✅ Quick terminal-based queries
-- ✅ Scripting/automation (shell scripts)
+- ✅ Terminal-based AI queries using local Genkit
+- ✅ Quick one-off AI-powered analysis
+- ✅ Self-contained LLM integration (no external apps needed)
+- ✅ Works in SSH sessions, remote servers
+
+**When to use `coral query/metrics/etc` CLI:**
+
+- ✅ Direct queries without AI interpretation
+- ✅ Scripting/automation (shell scripts, parseable output)
 - ✅ CI/CD pipelines
-- ✅ No AI assistant needed
+- ✅ Performance-critical paths (no LLM overhead)
 
 **When to use MCP server:**
 
-- ✅ Querying from Claude Desktop or other LLM tools
-- ✅ Building custom AI agents
+- ✅ Querying from Claude Desktop or other MCP-compatible LLM tools
+- ✅ Building custom AI agents with rich context
 - ✅ Composing with other MCP servers (Grafana + Coral + Sentry)
-- ✅ Rich context for AI decision-making
+- ✅ Conversational debugging across multiple colonies
 
-**Both coexist:** MCP server is additional interface, doesn't replace CLI.
+**All three coexist:** MCP server is additional interface, complements both
+`coral ask` (local AI) and direct CLI commands.
 
 ---
 
@@ -1104,30 +1740,116 @@ func main() {
 
 **Relationship to other RFDs:**
 
-- RFD 001: Discovery service (unchanged)
-- RFD 002: Application identity (MCP server uses colony config)
-- RFD 003: Reef federation (Reef exposes MCP server with AI-powered tools via
-  server-side LLM)
-- RFD 014: Abandoned (Colony-embedded LLM approach replaced; Colony is now MCP
-  gateway only)
-- RFD 030: Coral ask CLI (local Genkit agent can consume Colony/Reef MCP tools)
+- **RFD 001**: Discovery service (MCP server uses discovery for service
+  resolution)
+- **RFD 002**: Application identity (MCP server uses colony config for service
+  targeting)
+- **RFD 003**: Reef federation (Reef exposes MCP server with AI-powered
+  analysis tools via server-side LLM)
+- **RFD 013**: eBPF introspection (MCP exposes `coral_start_ebpf_collector`,
+  `coral_query_ebpf_data` tools)
+- **RFD 014**: Abandoned (Colony-embedded LLM approach replaced; Colony is now
+  MCP gateway only)
+- **RFD 017**: Exec command (MCP exposes `coral_exec_command` tool for
+  container access)
+- **RFD 025**: OTLP ingestion (MCP exposes `coral_query_telemetry_*` tools for
+  OTLP data)
+- **RFD 026**: Shell command (MCP exposes `coral_shell_start` tool for agent
+  debug access)
+- **RFD 030**: Coral ask CLI (uses Genkit's native MCP client to consume Colony
+  MCP tools; Genkit Go SDK provides `github.com/firebase/genkit/go/plugins/mcp`
+  for MCP integration)
+- **RFD 032**: Beyla RED metrics (MCP exposes
+  `coral_query_beyla_{http,grpc,sql}_metrics` tools)
+- **RFD 035**: CLI query framework (CLI commands can also be MCP tool wrappers)
+- **RFD 036**: Beyla distributed tracing (MCP exposes`coral_query_beyla_traces`,
+  `coral_get_trace_by_id` tools)
 
 **LLM Architecture Integration:**
 
-- **Colony MCP**: Data-only tools (metrics, events, topology, traces) - no
-  embedded LLM
-- **Reef MCP**: Data tools + AI-powered analysis (via server-side Genkit LLM
-  service)
-- **External LLM clients**: Claude Desktop, custom tools, or local Genkit
-  agents (RFD 030) consume MCP tools
-- **Three-tier model**: Colony (control plane) → Reef (enterprise
-  intelligence) → Developer agents (exploration)
+- **Colony MCP Server** (this RFD): Exposes data access and action tools (query
+  metrics, start probes, exec commands) - NO embedded LLM
+    - Colony acts as secure MCP gateway with RBAC/audit enforcement
+    - Issues delegate JWTs for direct agent connections when needed (live
+      probes, shell sessions)
+- **External LLM Clients** (MCP consumers):
+    - **Claude Desktop**: User's AI assistant queries Coral MCP for production
+      insights
+    - **`coral ask` (RFD 030)**: Local Genkit LLM running on developer's
+      machine
+    - **Custom agents**: Teams build automation using MCP client libraries
+- **Future: Reef MCP Server** (RFD 003, out of scope for this RFD):
+    - Will extend Colony tools with AI-powered cross-colony analysis
+    - Server-side LLM for global correlation and RCA
+    - This RFD's tool interface design will serve as foundation
+
+**Key Capabilities Exposed via MCP:**
+
+1. **Observability Queries**:
+    - Beyla RED metrics (HTTP/gRPC/SQL) from RFD 032
+    - Distributed traces from RFD 036
+    - Generic OTLP data (spans/metrics/logs) from RFD 025
+    - Custom eBPF data (CPU profiles, syscall stats) from RFD 013
+
+2. **Live Debugging Actions**:
+    - Start/stop eBPF collectors (on-demand profiling) from RFD 013
+    - Execute commands in containers (`exec`) from RFD 017
+    - Open debug shells in agents (`shell`) from RFD 026
+
+3. **Topology & Events**:
+    - Service dependency graphs from distributed traces
+    - Deployment events, crashes, restarts
+    - Health status and resource usage
+
+4. **Correlation & Analysis**:
+    - Event correlation across services
+    - Environment comparisons (prod vs staging)
+    - Deployment timelines
 
 **Why this is powerful:**
 
 Coral becomes a **universal context provider** for AI-powered operations:
 
-1. Developer writes code in Cursor (with Claude)
-2. Claude: "Let me check production health" → queries Coral MCP
-3. Claude: "Database pool at 95%, recommend increasing" → from Coral data
+1. Developer uses Claude Desktop for coding
+2. Claude: "Let me check production health before you deploy"
+   → Calls `coral_get_service_health()`
+   → Calls `coral_query_beyla_http_metrics(service=api, since=1h)`
+   → Calls `coral_query_events(event_type=deploy, since=24h)`
+3. Claude: "API P95 latency is 145ms (normal), no errors in last hour, safe to
+   deploy"
 4. Developer deploys with confidence, guided by real production state
+
+**Example AI-orchestrated debugging workflow:**
+
+```
+User in Claude Desktop: "Why is checkout slow?"
+
+Claude: [Orchestrates multiple MCP tools automatically]
+→ coral_query_beyla_http_metrics(service=checkout, since=1h)
+   Result: P95 latency 850ms (baseline: 200ms)
+
+→ coral_query_beyla_traces(service=checkout, min_duration_ms=500, max_traces=5)
+   Result: 80% of slow traces wait for payment-api
+
+→ coral_query_beyla_http_metrics(service=payment-api, since=1h)
+   Result: payment-api P95 is 700ms (baseline: 150ms)
+
+→ coral_start_ebpf_collector(collector_type=cpu_profile, service=payment-api, duration_seconds=30)
+   [Waits 30 seconds]
+
+→ coral_query_ebpf_data(collector_type=cpu_profile, service=payment-api)
+   Result: 65% CPU time in validateCard() function
+
+Claude responds: "Checkout is slow because payment-api is slow. CPU profiling
+shows 65% of time spent in validateCard(). Recommend investigating the card
+validation logic or external payment gateway latency."
+```
+
+**Comparison with `coral ask` vs Claude Desktop:**
+
+Both use the same MCP tools, but different LLM hosting:
+
+- **`coral ask`**: Local LLM (Ollama, OpenAI API with your key), your compute,
+  your cost
+- **Claude Desktop**: Anthropic's LLM, their compute, your Anthropic
+  subscription
