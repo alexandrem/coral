@@ -69,8 +69,8 @@ Can't correlate laptop dev with prod K8s cluster
 SSH to different networks, navigate firewalls, VPN chaos
 
 ### Solution Banner
-Coral unifies this with a **WireGuard mesh**
-One interface for distributed app operations
+Coral unifies this with an **Application Intelligence mesh**
+One CLI to observe, debug, and control your distributed app
 
 ---
 
@@ -118,7 +118,7 @@ The first LLM-orchestrated debugging mesh for distributed apps
 
 ### Differentiator Cards
 
-**01 - WireGuard Mesh Across Infrastructure**
+**01 - Unified Mesh Across Infrastructure**
 Debug apps running on laptop ↔ AWS VPC ↔ GKE cluster ↔ on-prem VM with the same commands. No VPN config, no firewall rules, no per-environment tooling.
 
 **02 - On-Demand Live Debugging**
@@ -174,12 +174,12 @@ On-demand instrumentation · Full control
 
 **Heading:** Aggregate Intelligently
 
-**Description:** Colony receives and stores data from all agents across your WireGuard mesh
+**Description:** Colony receives and stores data from all agents across your distributed infrastructure
 
 **Features:**
 - → **DuckDB storage** for fast analytical queries
 - → **Cross-agent correlation** discovers dependencies
-- → **WireGuard mesh** connects fragmented infrastructure
+- → **Encrypted mesh** connects fragmented infrastructure
 
 **Connector:** MCP Server exposes tools
 
@@ -262,7 +262,7 @@ Local observers using eBPF, OTLP, and shell commands to gather telemetry
 **SDK (⚙️) - Optional**
 Advanced features like live probes and runtime instrumentation
 
-**Note:** All connected via an encrypted WireGuard mesh that works across any network boundary.
+**Note:** All connected via an encrypted mesh that works across any network boundary.
 
 ---
 
