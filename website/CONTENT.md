@@ -271,9 +271,12 @@ Advanced features like live probes and runtime instrumentation
 ### Heading
 Get Started in Minutes
 
-### Step 1: Build Coral
+### Step 1: Install Coral
 ```
-make build
+# macOS / Linux
+brew install coral
+
+# Or download from GitHub Releases
 ```
 
 ### Step 2: Start the Colony
