@@ -27,9 +27,9 @@ container exec, agent debug shells). This transforms Coral into a universal
 context provider for AI-powered operations where external LLMs orchestrate
 observability queries and live debugging workflows.
 
-> **Architectural Note (per ARCHITECTURE.MD)**: Colony acts as a secure MCP
-> gateway with NO embedded LLM—it exposes tool-calling interfaces for data
-> access and live debugging actions. External LLMs consume these tools:
+> **Architectural Note**: Colony acts as a secure MCP gateway with NO embedded
+> LLM—it exposes tool-calling interfaces for data access and live debugging
+> actions. External LLMs consume these tools:
 > - **Claude Desktop**: User's AI assistant via Anthropic's hosted LLM
 > - **`coral ask` (RFD 030)**: Local Genkit agent running on developer's machine
 > - **Reef (RFD 003)**: Server-side LLM for enterprise-wide cross-colony analysis
@@ -53,11 +53,11 @@ observability queries and live debugging workflows.
 - Each new capability requires custom integration work for every LLM client
 - Coral's rich observability data is isolated, not composable with other tools
 
-**Why this matters (based on ARCHITECTURE.MD decisions):**
+**Why this matters:**
 
-- **LLM integration is outside Colony**: Per ARCHITECTURE.MD, Colony acts as a
-  secure MCP gateway - it does NOT host embedded LLMs. External LLMs (Claude
-  Desktop, `coral ask` with local Genkit) consume Colony data via MCP tools.
+- **LLM integration is outside Colony**: Colony acts as a secure MCP gateway - it
+  does NOT host embedded LLMs. External LLMs (Claude Desktop, `coral ask` with
+  local Genkit) consume Colony data via MCP tools.
 - **Main interface is MCP server**: The primary integration point is Colony's
   MCP server exposing tool-calling interfaces. `coral ask` CLI (RFD 030) and
   Claude Desktop are both MCP clients consuming these tools.
@@ -1543,7 +1543,7 @@ func main() {
 - **RFD 013**: eBPF introspection (MCP exposes `coral_start_ebpf_collector`,
   `coral_query_ebpf_data` tools)
 - **RFD 014**: Abandoned (Colony-embedded LLM approach replaced; Colony is now
-  MCP gateway only per ARCHITECTURE.MD)
+  MCP gateway only)
 - **RFD 017**: Exec command (MCP exposes `coral_exec_command` tool for
   container access)
 - **RFD 025**: OTLP ingestion (MCP exposes `coral_query_telemetry_*` tools for
@@ -1558,7 +1558,7 @@ func main() {
 - **RFD 036**: Beyla distributed tracing (MCP exposes `coral_query_beyla_traces`,
   `coral_get_trace_by_id` tools)
 
-**LLM Architecture Integration (per ARCHITECTURE.MD):**
+**LLM Architecture Integration:**
 
 - **Colony MCP Server**: Exposes data access and action tools (query metrics,
   start probes, exec commands) - NO embedded LLM
