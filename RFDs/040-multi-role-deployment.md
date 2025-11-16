@@ -1,5 +1,5 @@
 ---
-rfd: "026"
+rfd: "040"
 title: "Multi-Role Single Binary for Desktop Development"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "deployment", "ux" ]
 ---
 
-# RFD 026 - Multi-Role Single Binary for Desktop Development
+# RFD 040 - Multi-Role Single Binary for Desktop Development
 
 **Status:** 🚧 Draft
 
