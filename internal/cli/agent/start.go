@@ -489,10 +489,10 @@ Examples:
 
 			// Add /status endpoint that returns JSON with mesh network info for debugging.
 			mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
-				ctx := r.Context()
-				runtimeCtx, err := runtimeService.GetRuntimeContext(ctx, nil)
-				if err != nil {
-					http.Error(w, fmt.Sprintf("failed to get runtime context: %v", err), http.StatusInternalServerError)
+				// Get runtime context from cache directly to avoid protocol overhead.
+				runtimeCtx := runtimeService.GetCachedContext()
+				if runtimeCtx == nil {
+					http.Error(w, "runtime context not yet detected", http.StatusServiceUnavailable)
 					return
 				}
 
@@ -737,6 +737,7 @@ func gatherMeshNetworkInfo(
 	// Colony info
 	if colonyInfo != nil {
 		colonyInfoMap := make(map[string]interface{})
+		colonyInfoMap["id"] = colonyInfo.MeshId // Colony ID (same as mesh_id)
 		colonyInfoMap["mesh_ipv4"] = colonyInfo.MeshIpv4
 		colonyInfoMap["mesh_ipv6"] = colonyInfo.MeshIpv6
 		colonyInfoMap["connect_port"] = colonyInfo.ConnectPort

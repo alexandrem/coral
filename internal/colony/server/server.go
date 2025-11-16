@@ -59,8 +59,13 @@ func (s *Server) GetStatus(
 	ctx context.Context,
 	req *connect.Request[colonyv1.GetStatusRequest],
 ) (*connect.Response[colonyv1.GetStatusResponse], error) {
-	s.logger.Debug().Msg("Colony status request received")
+	resp := s.GetStatusResponse()
+	return connect.NewResponse(resp), nil
+}
 
+// GetStatusResponse builds the status response.
+// This is used internally by both the gRPC handler and HTTP handler.
+func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 	// Calculate uptime.
 	uptime := time.Since(s.startTime)
 	uptimeSeconds := int64(uptime.Seconds())
@@ -85,8 +90,15 @@ func (s *Server) GetStatus(
 		dashboardURL = fmt.Sprintf("http://localhost:%d", s.config.DashboardPort)
 	}
 
+	s.logger.Debug().
+		Str("status", status).
+		Int32("agent_count", agentCount).
+		Int("active_count", activeCount).
+		Int64("uptime_seconds", uptimeSeconds).
+		Msg("Colony status response prepared")
+
 	// Build response.
-	resp := &colonyv1.GetStatusResponse{
+	return &colonyv1.GetStatusResponse{
 		ColonyId:           s.config.ColonyID,
 		AppName:            s.config.ApplicationName,
 		Environment:        s.config.Environment,
@@ -103,15 +115,6 @@ func (s *Server) GetStatus(
 		MeshIpv4:           s.config.MeshIPv4,
 		MeshIpv6:           s.config.MeshIPv6,
 	}
-
-	s.logger.Debug().
-		Str("status", status).
-		Int32("agent_count", agentCount).
-		Int("active_count", activeCount).
-		Int64("uptime_seconds", uptimeSeconds).
-		Msg("Colony status response prepared")
-
-	return connect.NewResponse(resp), nil
 }
 
 // ListAgents handles agent list requests.

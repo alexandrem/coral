@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/discovery/registration"
 	"github.com/coral-io/coral/internal/logging"
+	runtimepkg "github.com/coral-io/coral/internal/runtime"
 	"github.com/coral-io/coral/internal/wireguard"
 )
 
@@ -186,7 +188,7 @@ Examples:
 			}
 
 			// Start gRPC/Connect server for agent registration and colony management.
-			meshServer, err := startServers(cfg, wgDevice, agentRegistry, endpoints, logger)
+			meshServer, err := startServers(cfg, wgDevice, agentRegistry, db, endpoints, logger)
 			if err != nil {
 				return fmt.Errorf("failed to start servers: %w", err)
 			}
@@ -1228,7 +1230,7 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 }
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
-func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, endpoints []string, logger logging.Logger) (*http.Server, error) {
+func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, db *database.Database, endpoints []string, logger logging.Logger) (*http.Server, error) {
 	// Get connect port from config or use default
 	loader, err := config.NewLoader()
 	if err != nil {
@@ -1276,12 +1278,6 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		discoveryClient: discoveryClient,
 	}
 
-	// Create database for telemetry storage
-	db, err := database.New(cfg.StoragePath, cfg.ColonyID, logger.With().Str("component", "database").Logger())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create database: %w", err)
-	}
-
 	// Create colony service handler
 	colonyServerConfig := server.Config{
 		ColonyID:           cfg.ColonyID,
@@ -1307,6 +1303,51 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	mux.Handle(meshPath, meshHandler)
 	mux.Handle(colonyPath, colonyHandler)
 
+	// Add simple HTTP /status endpoint (similar to agent).
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		// Call the colony service's internal GetStatusResponse method directly.
+		// This avoids the Connect protocol overhead and potential auth middleware issues.
+		resp := colonySvc.GetStatusResponse()
+
+		// Gather mesh network information for debugging.
+		meshInfo := gatherColonyMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
+
+		// Gather platform information.
+		platformInfo := gatherPlatformInfo()
+
+		// Group related fields for better organization.
+		status := map[string]interface{}{
+			"colony": map[string]interface{}{
+				"id":          resp.ColonyId,
+				"app_name":    resp.AppName,
+				"environment": resp.Environment,
+			},
+			"runtime": map[string]interface{}{
+				"status":         resp.Status,
+				"started_at":     resp.StartedAt.AsTime(),
+				"uptime_seconds": resp.UptimeSeconds,
+				"agent_count":    resp.AgentCount,
+				"storage_bytes":  resp.StorageBytes,
+				"dashboard_url":  resp.DashboardUrl,
+				"platform":       platformInfo,
+			},
+			"network": map[string]interface{}{
+				"wireguard_port":       resp.WireguardPort,
+				"wireguard_public_key": resp.WireguardPublicKey,
+				"wireguard_endpoints":  resp.WireguardEndpoints,
+				"connect_port":         resp.ConnectPort,
+				"mesh_ipv4":            resp.MeshIpv4,
+				"mesh_ipv6":            resp.MeshIpv6,
+			},
+			"mesh": meshInfo,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(status); err != nil {
+			logger.Error().Err(err).Msg("Failed to encode status response")
+		}
+	})
+
 	addr := fmt.Sprintf(":%d", connectPort)
 	httpServer := &http.Server{
 		Addr:    addr,
@@ -1317,6 +1358,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	go func() {
 		logger.Info().
 			Int("port", connectPort).
+			Str("status_endpoint", fmt.Sprintf("http://localhost:%d/status", connectPort)).
 			Msg("Mesh and Colony services listening")
 
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -1809,4 +1851,82 @@ func formatVisibilityShort(vis *agentv1.VisibilityScope) string {
 		return "Pod only"
 	}
 	return "Limited"
+}
+
+// gatherColonyMeshInfo gathers WireGuard mesh network information for the colony status endpoint.
+func gatherColonyMeshInfo(
+	wgDevice *wireguard.Device,
+	meshIP, meshSubnet string,
+	colonyID string,
+	logger logging.Logger,
+) map[string]interface{} {
+	info := make(map[string]interface{})
+
+	// Basic mesh info.
+	info["colony_id"] = colonyID
+	info["mesh_ip"] = meshIP
+	info["mesh_subnet"] = meshSubnet
+
+	// WireGuard interface info.
+	if wgDevice != nil {
+		wgInfo := make(map[string]interface{})
+		wgInfo["interface_name"] = wgDevice.InterfaceName()
+		wgInfo["listen_port"] = wgDevice.ListenPort()
+
+		// Get interface status.
+		iface := wgDevice.Interface()
+		if iface != nil {
+			wgInfo["interface_exists"] = true
+
+			// Get peer information.
+			peers := wgDevice.ListPeers()
+			peerInfos := make([]map[string]interface{}, 0, len(peers))
+			for _, peer := range peers {
+				peerInfo := make(map[string]interface{})
+				peerInfo["public_key"] = peer.PublicKey[:16] + "..."
+				peerInfo["endpoint"] = peer.Endpoint
+				peerInfo["allowed_ips"] = peer.AllowedIPs
+				peerInfo["persistent_keepalive"] = peer.PersistentKeepalive
+				peerInfos = append(peerInfos, peerInfo)
+			}
+			wgInfo["peers"] = peerInfos
+			wgInfo["peer_count"] = len(peers)
+		} else {
+			wgInfo["interface_exists"] = false
+		}
+
+		info["wireguard"] = wgInfo
+	}
+
+	return info
+}
+
+// gatherPlatformInfo gathers platform information for the colony.
+func gatherPlatformInfo() map[string]interface{} {
+	// Use a detector to get platform information.
+	logger := logging.NewWithComponent(logging.Config{
+		Level:  "error", // Only log errors for this detection
+		Pretty: false,
+	}, "platform-detector")
+
+	detector := runtimepkg.NewDetector(logger, "dev")
+
+	// Detect platform.
+	ctx := context.Background()
+	runtimeCtx, err := detector.Detect(ctx)
+	if err != nil || runtimeCtx == nil || runtimeCtx.Platform == nil {
+		// Fallback to basic info if detection fails.
+		return map[string]interface{}{
+			"os":   runtime.GOOS,
+			"arch": runtime.GOARCH,
+		}
+	}
+
+	// Return platform info.
+	return map[string]interface{}{
+		"os":         runtimeCtx.Platform.Os,
+		"arch":       runtimeCtx.Platform.Arch,
+		"os_version": runtimeCtx.Platform.OsVersion,
+		"kernel":     runtimeCtx.Platform.Kernel,
+	}
 }
