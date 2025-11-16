@@ -1155,9 +1155,8 @@ Use Genkit's built-in MCP server capabilities:
 - Automatically stays up-to-date with MCP spec
 
 **Cons:**
-- Adds Genkit dependency to Colony (larger binary, more complexity)
-- Genkit is designed for LLM applications, may be overkill for just MCP server
-- Less direct control over protocol implementation details
+- ~~Adds Genkit dependency to Colony~~ (Not applicable: Genkit already required for `coral ask`)
+- Less direct control over protocol implementation details (but MCP is standardized, unlikely to need customization)
 
 **Implementation:**
 ```go
@@ -1179,27 +1178,39 @@ func (c *Colony) StartMCPServer() error {
 }
 ```
 
-### Recommended Approach: Option 1 (Direct Implementation)
+### Recommended Approach: Option 2 (Use Genkit as MCP Server)
 
 **Rationale:**
-- Colony should remain a lightweight daemon without LLM framework dependencies
-- MCP protocol is straightforward (JSON-RPC 2.0), not overly complex
-- Keeps Colony focused on observability, not LLM orchestration
-- Genkit is valuable for `coral ask` (client-side), but overkill for server-side
-- Smaller attack surface and simpler dependency tree
+- **No additional dependency**: Coral is a single binary bundling colony, agent, and
+  CLI. Genkit is already required for `coral ask` (RFD 030), so there's no
+  incremental cost
+- **Saves implementation effort**: Avoids writing custom JSON-RPC 2.0 protocol
+  handler, tool discovery, and stdio transport
+- **Production-ready**: Genkit's MCP server is battle-tested and maintained by
+  Google Firebase team
+- **Consistent library**: Same Genkit MCP package for both client (`coral ask`) and
+  server (Colony) sides
+- **Auto-updates**: MCP spec changes are handled by Genkit updates, not manual work
+- **Less code to maintain**: Estimated 200-300 lines saved vs custom implementation
 
-**Note:** If direct implementation proves challenging, we can reconsider Option 2 as
-a fallback.
+**Implementation estimate:**
+- Direct implementation: ~400-500 lines (protocol, transport, tool registry)
+- Genkit approach: ~100-150 lines (tool registration only)
+
+**Note:** If Coral splits into separate binaries in the future (optimized Colony
+daemon vs full CLI), we can reconsider extracting MCP server to a minimal
+dependency. For now, leveraging existing Genkit dependency is the pragmatic choice.
 
 ## Implementation Plan
 
-### Phase 1: Core MCP Protocol
+### Phase 1: Core MCP Server Setup (using Genkit)
 
-- [ ] Implement MCP protocol handler (JSON-RPC 2.0)
-- [ ] Implement stdio transport (for Claude Desktop via `coral colony proxy mcp`)
-- [ ] Handle tool discovery (list_tools method)
-- [ ] Handle tool execution (tools/call method)
+- [ ] Add Genkit MCP plugin dependency (`github.com/firebase/genkit/go/plugins/mcp`)
+- [ ] Create MCP server instance with `mcp.NewMCPServer()` in Colony
+- [ ] Configure server with colony ID and version
+- [ ] Implement tool registration infrastructure
 - [ ] Integrate MCP server into colony startup (enabled by default)
+- [ ] Test stdio transport with simple health check tool
 
 ### Phase 2: Colony MCP Tools - Observability
 
