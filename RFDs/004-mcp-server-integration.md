@@ -338,6 +338,21 @@ mcp:
 
 **Claude Desktop config** (`~/.config/claude/claude_desktop_config.json`):
 
+**Single colony (uses default from coral config):**
+
+```json
+{
+    "mcpServers": {
+        "coral": {
+            "command": "coral",
+            "args": ["colony", "proxy", "mcp"]
+        }
+    }
+}
+```
+
+**Multiple colonies (specify each explicitly):**
+
 ```json
 {
     "mcpServers": {
@@ -366,7 +381,8 @@ mcp:
 ```
 
 > **Note**: `coral colony proxy mcp` connects to a running colony's MCP server via its
-> stdio interface. The colony must be running with MCP enabled.
+> stdio interface. The colony must be running with MCP enabled. If `--colony` is
+> omitted, it uses the default colony from coral's configuration.
 
 ## API Changes
 
@@ -933,10 +949,16 @@ Coral implements MCP using JSON-RPC 2.0:
 ```bash
 # List available MCP tools from running colony
 coral colony mcp list-tools [flags]
-  --colony <colony-id>    # Which colony to query (uses running colony)
+  --colony <colony-id>    # Which colony to query (optional, uses default if omitted)
 
-# Example output:
-$ coral colony mcp list-tools --colony my-shop-production
+# Example output (using default colony):
+$ coral colony mcp list-tools
+
+Available MCP Tools for colony my-shop-production:
+...
+
+# Example output (specific colony):
+$ coral colony mcp list-tools --colony my-shop-staging
 
 Available MCP Tools for colony my-shop-production:
 
@@ -960,10 +982,13 @@ coral_start_ebpf_collector
 
 # Test MCP tool locally (without MCP client)
 coral colony mcp test-tool <tool-name> [flags]
-  --colony <colony-id>
+  --colony <colony-id>    # Optional, uses default if omitted
   --args <json>           # Tool arguments as JSON
 
-# Example:
+# Example (using default colony):
+$ coral colony mcp test-tool coral_get_service_health --args '{}'
+
+# Example (specific colony):
 $ coral colony mcp test-tool coral_get_service_health \
   --colony my-shop-production \
   --args '{}'
@@ -988,7 +1013,21 @@ coral colony mcp generate-config [flags]
   --colony <colony-id>    # Include this colony
   --all-colonies          # Include all configured colonies
 
-# Example output:
+# Example 1: Default colony only
+$ coral colony mcp generate-config
+
+Copy this to ~/.config/claude/claude_desktop_config.json:
+
+{
+  "mcpServers": {
+    "coral": {
+      "command": "coral",
+      "args": ["colony", "proxy", "mcp"]
+    }
+  }
+}
+
+# Example 2: All colonies (explicit)
 $ coral colony mcp generate-config --all-colonies
 
 Copy this to ~/.config/claude/claude_desktop_config.json:
@@ -1011,12 +1050,20 @@ After adding this config, restart Claude Desktop to enable Coral MCP servers.
 ---
 
 # Connect to colony MCP server (used by Claude Desktop)
-coral colony proxy mcp --colony <colony-id>
+coral colony proxy mcp [--colony <colony-id>]
 
 # This command:
 # 1. Connects to running colony's MCP server
 # 2. Proxies stdio to/from the colony's MCP interface
 # 3. Used by Claude Desktop as MCP server command
+# 4. If --colony is omitted, uses default colony from coral config
+
+# Examples:
+# Use default colony
+coral colony proxy mcp
+
+# Use specific colony
+coral colony proxy mcp --colony my-shop-production
 ```
 
 ### Environment Variable Configuration
