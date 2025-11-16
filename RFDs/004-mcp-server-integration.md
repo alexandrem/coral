@@ -1447,21 +1447,28 @@ func main() {
 
 ### MCP vs Coral CLI
 
-**When to use `coral ask` CLI:**
+**When to use `coral ask` CLI (RFD 030):**
 
-- ✅ Quick terminal-based queries
-- ✅ Scripting/automation (shell scripts)
+- ✅ Terminal-based AI queries using local Genkit
+- ✅ Quick one-off AI-powered analysis
+- ✅ Self-contained LLM integration (no external apps needed)
+- ✅ Works in SSH sessions, remote servers
+
+**When to use `coral query/metrics/etc` CLI:**
+
+- ✅ Direct queries without AI interpretation
+- ✅ Scripting/automation (shell scripts, parseable output)
 - ✅ CI/CD pipelines
-- ✅ No AI assistant needed
+- ✅ Performance-critical paths (no LLM overhead)
 
 **When to use MCP server:**
 
-- ✅ Querying from Claude Desktop or other LLM tools
-- ✅ Building custom AI agents
+- ✅ Querying from Claude Desktop or other MCP-compatible LLM tools
+- ✅ Building custom AI agents with rich context
 - ✅ Composing with other MCP servers (Grafana + Coral + Sentry)
-- ✅ Rich context for AI decision-making
+- ✅ Conversational debugging across multiple colonies
 
-**Both coexist:** MCP server is additional interface, doesn't replace CLI.
+**All three coexist:** MCP server is additional interface, complements both `coral ask` (local AI) and direct CLI commands.
 
 ---
 
