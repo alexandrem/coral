@@ -812,46 +812,56 @@ body {
 
 /* Footer */
 .footer {
-    padding: var(--spacing-lg) 0 var(--spacing-md);
+    padding: var(--spacing-md) 0;
     border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
 }
 
 .footer-content {
-    display: grid;
-    grid-template-columns: 1.5fr 1fr 1fr 1fr;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     gap: var(--spacing-md);
-    margin-bottom: var(--spacing-md);
 }
 
-.footer-brand p {
-    color: var(--text-secondary);
-    margin-top: var(--spacing-xs);
+.footer-left {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
 }
 
-.footer-column h4 {
-    font-size: 0.875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+.footer-tagline {
     color: var(--text-muted);
-    margin-bottom: var(--spacing-sm);
+    font-size: 0.875rem;
+    white-space: nowrap;
 }
 
-.footer-column a {
-    display: block;
+.footer-nav {
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    justify-content: center;
+    flex: 1;
+}
+
+.footer-nav a {
     color: var(--text-secondary);
     text-decoration: none;
-    margin-bottom: 0.5rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
     transition: color 0.2s;
+    white-space: nowrap;
 }
 
-.footer-column a:hover {
+.footer-nav a:hover {
     color: var(--text-primary);
 }
 
-.footer-bottom {
-    text-align: center;
-    padding-top: var(--spacing-md);
-    border-top: 1px solid var(--border-color);
+.footer-right {
+    white-space: nowrap;
+}
+
+.footer-right p {
     color: var(--text-muted);
     font-size: 0.875rem;
 }
@@ -863,7 +873,14 @@ body {
     }
 
     .footer-content {
-        grid-template-columns: 1fr 1fr;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-sm);
+    }
+
+    .footer-nav {
+        justify-content: flex-start;
+        gap: var(--spacing-sm);
     }
 
     .nav-links {
@@ -896,8 +913,8 @@ body {
         grid-template-columns: 1fr;
     }
 
-    .footer-content {
-        grid-template-columns: 1fr;
+    .footer-nav {
+        font-size: 0.875rem;
     }
 
     .nav-links {
