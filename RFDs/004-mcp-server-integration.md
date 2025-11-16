@@ -56,7 +56,8 @@ observability queries and live debugging workflows.
 
 **Why this matters:**
 
-- **LLM integration is outside Colony**: Colony acts as a secure MCP gateway - it
+- **LLM integration is outside Colony**: Colony acts as a secure MCP gateway -
+  it
   does NOT host embedded LLMs. External LLMs (Claude Desktop, `coral ask` with
   local Genkit) consume Colony data via MCP tools.
 - **Main interface is MCP server**: The primary integration point is Colony's
@@ -165,7 +166,8 @@ future Reef MCP server implementation (RFD 003).
           error rate, request rate)
         - `coral_query_beyla_grpc_metrics`: Query gRPC method-level metrics
         - `coral_query_beyla_sql_metrics`: Query SQL operation metrics
-        - `coral_query_beyla_traces`: Query distributed traces by ID, service, or
+        - `coral_query_beyla_traces`: Query distributed traces by ID, service,
+          or
           time range
         - `coral_get_trace_by_id`: Get specific trace with full span tree
         - `coral_query_telemetry_spans`: Query generic OTLP spans
@@ -184,7 +186,8 @@ future Reef MCP server implementation (RFD 003).
         - `coral_list_ebpf_collectors`: List active eBPF collectors
         - `coral_exec_command`: Execute command in application container (via
           CRI)
-        - `coral_shell_start`: Start interactive debug shell in agent environment
+        - `coral_shell_start`: Start interactive debug shell in agent
+          environment
     - **Correlation & Analysis Tools**:
         - `coral_correlate_events`: Correlate events across services to identify
           patterns
@@ -217,7 +220,7 @@ future Reef MCP server implementation (RFD 003).
 `coral ask` (RFD 030) uses Genkit's native MCP client support to connect to the
 Colony MCP server:
 
-- **Genkit Go SDK**: Includes `github.com/firebase/genkit/go/plugins/mcp` package
+- **Genkit Go SDK**: Includes `github.com/firebase/genkit/go/plugins/mcp`package
   with full MCP client capabilities
 - **Single tool definition**: Both `coral ask` and Claude Desktop use the same
   MCP tools exposed by Colony
@@ -328,9 +331,11 @@ Colony MCP server:
     - Configuration in `colony.yaml` to control MCP server behavior
 
 2. **CLI** (MCP helpers):
-    - `coral colony mcp list-tools` - Show available MCP tools for running colony
+    - `coral colony mcp list-tools` - Show available MCP tools for running
+      colony
     - `coral colony mcp test-tool <tool-name>` - Test MCP tool locally
-    - `coral colony mcp generate-config` - Generate Claude Desktop config snippet
+    - `coral colony mcp generate-config` - Generate Claude Desktop config
+      snippet
 
 3. **MCP Client Library** (optional):
     - Go library for building custom MCP clients
@@ -348,24 +353,24 @@ name: "My Shop Production"
 
 # MCP server configuration (enabled by default)
 mcp:
-  # Set to true to disable MCP server
-  disabled: false
+    # Set to true to disable MCP server
+    disabled: false
 
-  # Tool filtering (optional)
-  enabled_tools:
+    # Tool filtering (optional)
+    enabled_tools:
     # By default, all tools are enabled
     # Uncomment to restrict to specific tools:
     # - coral_query_beyla_http_metrics
     # - coral_get_service_health
     # - coral_query_events
 
-  # Security settings
-  security:
-    # Require RBAC checks for action tools (exec, shell, start_ebpf)
-    require_rbac_for_actions: true
+    # Security settings
+    security:
+        # Require RBAC checks for action tools (exec, shell, start_ebpf)
+        require_rbac_for_actions: true
 
-    # Audit all MCP tool calls
-    audit_enabled: true
+        # Audit all MCP tool calls
+        audit_enabled: true
 ```
 
 **Claude Desktop config** (`~/.config/claude/claude_desktop_config.json`):
@@ -377,7 +382,11 @@ mcp:
     "mcpServers": {
         "coral": {
             "command": "coral",
-            "args": ["colony", "proxy", "mcp"]
+            "args": [
+                "colony",
+                "proxy",
+                "mcp"
+            ]
         }
     }
 }
@@ -412,7 +421,8 @@ mcp:
 }
 ```
 
-> **Note**: `coral colony proxy mcp` connects to a running colony's MCP server via its
+> **Note**: `coral colony proxy mcp` connects to a running colony's MCP server
+> via its
 > stdio interface. The colony must be running with MCP enabled. If `--colony` is
 > omitted, it uses the default colony from coral's configuration.
 
@@ -449,15 +459,28 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "http_method": {
                         "type": "string",
                         "description": "Optional: Filter by HTTP method",
-                        "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]
+                        "enum": [
+                            "GET",
+                            "POST",
+                            "PUT",
+                            "DELETE",
+                            "PATCH"
+                        ]
                     },
                     "status_code_range": {
                         "type": "string",
                         "description": "Optional: Filter by status code range",
-                        "enum": ["2xx", "3xx", "4xx", "5xx"]
+                        "enum": [
+                            "2xx",
+                            "3xx",
+                            "4xx",
+                            "5xx"
+                        ]
                     }
                 },
-                "required": ["service"]
+                "required": [
+                    "service"
+                ]
             }
         },
         {
@@ -484,7 +507,9 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                         "description": "Optional: Filter by gRPC status code (0=OK, 1=CANCELLED, etc.)"
                     }
                 },
-                "required": ["service"]
+                "required": [
+                    "service"
+                ]
             }
         },
         {
@@ -505,14 +530,21 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "sql_operation": {
                         "type": "string",
                         "description": "Optional: Filter by SQL operation",
-                        "enum": ["SELECT", "INSERT", "UPDATE", "DELETE"]
+                        "enum": [
+                            "SELECT",
+                            "INSERT",
+                            "UPDATE",
+                            "DELETE"
+                        ]
                     },
                     "table_name": {
                         "type": "string",
                         "description": "Optional: Filter by table name"
                     }
                 },
-                "required": ["service"]
+                "required": [
+                    "service"
+                ]
             }
         },
         {
@@ -559,11 +591,17 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "format": {
                         "type": "string",
                         "description": "Output format",
-                        "enum": ["tree", "flat", "json"],
+                        "enum": [
+                            "tree",
+                            "flat",
+                            "json"
+                        ],
                         "default": "tree"
                     }
                 },
-                "required": ["trace_id"]
+                "required": [
+                    "trace_id"
+                ]
             }
         },
         {
@@ -586,7 +624,9 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                         "description": "Optional: Filter by operation name"
                     }
                 },
-                "required": ["service"]
+                "required": [
+                    "service"
+                ]
             }
         },
         {
@@ -628,7 +668,13 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "level": {
                         "type": "string",
                         "description": "Optional: Filter by log level",
-                        "enum": ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
+                        "enum": [
+                            "DEBUG",
+                            "INFO",
+                            "WARN",
+                            "ERROR",
+                            "FATAL"
+                        ]
                     },
                     "time_range": {
                         "type": "string",
@@ -647,7 +693,12 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "collector_type": {
                         "type": "string",
                         "description": "Type of eBPF collector",
-                        "enum": ["cpu_profile", "syscall_stats", "http_latency", "tcp_metrics"]
+                        "enum": [
+                            "cpu_profile",
+                            "syscall_stats",
+                            "http_latency",
+                            "tcp_metrics"
+                        ]
                     },
                     "service": {
                         "type": "string",
@@ -659,7 +710,10 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                         "default": "5m"
                     }
                 },
-                "required": ["collector_type", "service"]
+                "required": [
+                    "collector_type",
+                    "service"
+                ]
             }
         },
         {
@@ -688,7 +742,11 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "format": {
                         "type": "string",
                         "description": "Output format",
-                        "enum": ["graph", "list", "json"],
+                        "enum": [
+                            "graph",
+                            "list",
+                            "json"
+                        ],
                         "default": "graph"
                     }
                 }
@@ -703,7 +761,15 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "event_type": {
                         "type": "string",
                         "description": "Event type filter",
-                        "enum": ["deploy", "restart", "crash", "alert", "config_change", "connection", "error_spike"]
+                        "enum": [
+                            "deploy",
+                            "restart",
+                            "crash",
+                            "alert",
+                            "config_change",
+                            "connection",
+                            "error_spike"
+                        ]
                     },
                     "time_range": {
                         "type": "string",
@@ -726,7 +792,12 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "collector_type": {
                         "type": "string",
                         "description": "Type of eBPF collector to start",
-                        "enum": ["cpu_profile", "syscall_stats", "http_latency", "tcp_metrics"]
+                        "enum": [
+                            "cpu_profile",
+                            "syscall_stats",
+                            "http_latency",
+                            "tcp_metrics"
+                        ]
                     },
                     "service": {
                         "type": "string",
@@ -742,7 +813,10 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                         "description": "Optional collector-specific configuration (sample rate, filters, etc.)"
                     }
                 },
-                "required": ["collector_type", "service"]
+                "required": [
+                    "collector_type",
+                    "service"
+                ]
             }
         },
         {
@@ -756,7 +830,9 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                         "description": "Collector ID returned from start_ebpf_collector"
                     }
                 },
-                "required": ["collector_id"]
+                "required": [
+                    "collector_id"
+                ]
             }
         },
         {
@@ -784,7 +860,9 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     },
                     "command": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "items": {
+                            "type": "string"
+                        },
                         "description": "Command and arguments to execute (e.g., ['ls', '-la', '/app'])"
                     },
                     "timeout_seconds": {
@@ -797,7 +875,10 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                         "description": "Optional: Working directory"
                     }
                 },
-                "required": ["service", "command"]
+                "required": [
+                    "service",
+                    "command"
+                ]
             }
         },
         {
@@ -813,11 +894,16 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "shell": {
                         "type": "string",
                         "description": "Shell to use",
-                        "enum": ["/bin/bash", "/bin/sh"],
+                        "enum": [
+                            "/bin/bash",
+                            "/bin/sh"
+                        ],
                         "default": "/bin/bash"
                     }
                 },
-                "required": ["service"]
+                "required": [
+                    "service"
+                ]
             }
         },
         {
@@ -832,7 +918,9 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     },
                     "affected_services": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "items": {
+                            "type": "string"
+                        },
                         "description": "Optional: List of affected services to focus correlation"
                     },
                     "correlation_window": {
@@ -841,7 +929,9 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                         "default": "15m"
                     }
                 },
-                "required": ["incident_time"]
+                "required": [
+                    "incident_time"
+                ]
             }
         },
         {
@@ -853,7 +943,12 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     "metric_type": {
                         "type": "string",
                         "description": "Type of data to compare",
-                        "enum": ["http_latency", "error_rate", "throughput", "resource_usage"]
+                        "enum": [
+                            "http_latency",
+                            "error_rate",
+                            "throughput",
+                            "resource_usage"
+                        ]
                     },
                     "service": {
                         "type": "string",
@@ -861,9 +956,14 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                     },
                     "environments": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "items": {
+                            "type": "string"
+                        },
                         "description": "Environments to compare (defaults to ['production', 'staging'])",
-                        "default": ["production", "staging"]
+                        "default": [
+                            "production",
+                            "staging"
+                        ]
                     },
                     "time_range": {
                         "type": "string",
@@ -871,7 +971,10 @@ MCP tools are defined using JSON Schema. Coral exposes these tools:
                         "default": "1h"
                     }
                 },
-                "required": ["metric_type", "service"]
+                "required": [
+                    "metric_type",
+                    "service"
+                ]
             }
         },
         {
@@ -1117,18 +1220,21 @@ export CORAL_MCP_DISABLED=true
 Implement MCP protocol from scratch in Colony:
 
 **Pros:**
+
 - Minimal dependencies (no Genkit runtime in Colony)
 - Full control over MCP protocol implementation
 - Colony stays lean and focused
 - MCP protocol is relatively simple (JSON-RPC 2.0)
 
 **Cons:**
+
 - Need to implement protocol handling from scratch
 - More code to write and maintain
 - Potential bugs in custom protocol implementation
 - Need to keep up with MCP spec changes
 
 **Implementation:**
+
 ```go
 // Colony MCP server (custom implementation)
 type MCPServer struct {
@@ -1147,6 +1253,7 @@ func (s *MCPServer) ServeStdio() {
 Use Genkit's built-in MCP server capabilities:
 
 **Pros:**
+
 - Genkit Go SDK provides `NewMCPServer()` with full MCP protocol handling
 - `ServeStdio()` method handles stdio transport
 - Tool registration and discovery handled automatically
@@ -1155,10 +1262,14 @@ Use Genkit's built-in MCP server capabilities:
 - Automatically stays up-to-date with MCP spec
 
 **Cons:**
-- ~~Adds Genkit dependency to Colony~~ (Not applicable: Genkit already required for `coral ask`)
-- Less direct control over protocol implementation details (but MCP is standardized, unlikely to need customization)
+
+- ~~Adds Genkit dependency to Colony~~ (Not applicable: Genkit already required
+  for `coral ask`)
+- Less direct control over protocol implementation details (but MCP is
+  standardized, unlikely to need customization)
 
 **Implementation:**
+
 ```go
 // Colony MCP server (using Genkit)
 import "github.com/firebase/genkit/go/plugins/mcp"
@@ -1181,31 +1292,39 @@ func (c *Colony) StartMCPServer() error {
 ### Recommended Approach: Option 2 (Use Genkit as MCP Server)
 
 **Rationale:**
-- **No additional dependency**: Coral is a single binary bundling colony, agent, and
+
+- **No additional dependency**: Coral is a single binary bundling colony, agent,
+  and
   CLI. Genkit is already required for `coral ask` (RFD 030), so there's no
   incremental cost
 - **Saves implementation effort**: Avoids writing custom JSON-RPC 2.0 protocol
   handler, tool discovery, and stdio transport
 - **Production-ready**: Genkit's MCP server is battle-tested and maintained by
   Google Firebase team
-- **Consistent library**: Same Genkit MCP package for both client (`coral ask`) and
+- **Consistent library**: Same Genkit MCP package for both client (`coral ask`)
+  and
   server (Colony) sides
-- **Auto-updates**: MCP spec changes are handled by Genkit updates, not manual work
-- **Less code to maintain**: Estimated 200-300 lines saved vs custom implementation
+- **Auto-updates**: MCP spec changes are handled by Genkit updates, not manual
+  work
+- **Less code to maintain**: Estimated 200-300 lines saved vs custom
+  implementation
 
 **Implementation estimate:**
+
 - Direct implementation: ~400-500 lines (protocol, transport, tool registry)
 - Genkit approach: ~100-150 lines (tool registration only)
 
 **Note:** If Coral splits into separate binaries in the future (optimized Colony
 daemon vs full CLI), we can reconsider extracting MCP server to a minimal
-dependency. For now, leveraging existing Genkit dependency is the pragmatic choice.
+dependency. For now, leveraging existing Genkit dependency is the pragmatic
+choice.
 
 ## Implementation Plan
 
 ### Phase 1: Core MCP Server Setup (using Genkit)
 
-- [ ] Add Genkit MCP plugin dependency (`github.com/firebase/genkit/go/plugins/mcp`)
+- [ ] Add Genkit MCP plugin dependency (
+  `github.com/firebase/genkit/go/plugins/mcp`)
 - [ ] Create MCP server instance with `mcp.NewMCPServer()` in Colony
 - [ ] Configure server with colony ID and version
 - [ ] Implement tool registration infrastructure
@@ -1223,7 +1342,8 @@ dependency. For now, leveraging existing Genkit dependency is the pragmatic choi
 
 ### Phase 3: Colony MCP Tools - Live Debugging
 
-- [ ] Implement eBPF tools: `coral_{start,stop,list}_ebpf_collector`, `coral_query_ebpf_data`
+- [ ] Implement eBPF tools: `coral_{start,stop,list}_ebpf_collector`,
+  `coral_query_ebpf_data`
 - [ ] Implement `coral_exec_command` tool (requires RFD 017)
 - [ ] Implement `coral_shell_start` tool (requires RFD 026)
 
@@ -1342,7 +1462,8 @@ dependency. For now, leveraging existing Genkit dependency is the pragmatic choi
 
 ### SSE Transport (Out of Scope)
 
-> **Note**: Server-Sent Events (SSE) transport over HTTP is out of scope for this
+> **Note**: Server-Sent Events (SSE) transport over HTTP is out of scope for
+> this
 > RFD. The stdio transport is sufficient for all current use cases (Claude
 > Desktop, `coral ask`, custom local clients).
 >
@@ -1416,16 +1537,16 @@ For long-running queries (coral_reef_analyze), use MCP streaming:
 
 Response (streaming):
 {
-"jsonrpc": "2.0",
-"id": 1,
-"result": {
-"content": [
-{"type": "text", "text": "Analyzing incidents..."},
-{"type": "text", "text": "Found 3 incidents..."},
-{"type": "text", "text": "Incident 1: Database timeout on 2025-10-20..."}
-],
-"isPartial": true
-}
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "content": [
+            {"type": "text", "text": "Analyzing incidents..."},
+            {"type": "text", "text": "Found 3 incidents..."},
+            {"type": "text", "text": "Incident 1: Database timeout on 2025-10-20..."}
+        ],
+        "isPartial": true
+    }
 }
 ```
 
@@ -1603,7 +1724,8 @@ func main() {
 - ✅ Composing with other MCP servers (Grafana + Coral + Sentry)
 - ✅ Conversational debugging across multiple colonies
 
-**All three coexist:** MCP server is additional interface, complements both `coral ask` (local AI) and direct CLI commands.
+**All three coexist:** MCP server is additional interface, complements both
+`coral ask` (local AI) and direct CLI commands.
 
 ---
 
@@ -1640,7 +1762,7 @@ func main() {
 - **RFD 032**: Beyla RED metrics (MCP exposes
   `coral_query_beyla_{http,grpc,sql}_metrics` tools)
 - **RFD 035**: CLI query framework (CLI commands can also be MCP tool wrappers)
-- **RFD 036**: Beyla distributed tracing (MCP exposes `coral_query_beyla_traces`,
+- **RFD 036**: Beyla distributed tracing (MCP exposes`coral_query_beyla_traces`,
   `coral_get_trace_by_id` tools)
 
 **LLM Architecture Integration:**
