@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"github.com/coral-io/coral/internal/constants"
 	"github.com/coral-io/coral/internal/discovery/registration"
 	"github.com/coral-io/coral/internal/logging"
+	runtimepkg "github.com/coral-io/coral/internal/runtime"
 	"github.com/coral-io/coral/internal/wireguard"
 )
 
@@ -1310,6 +1312,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		// Gather mesh network information for debugging.
 		meshInfo := gatherColonyMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
 
+		// Gather platform information.
+		platformInfo := gatherPlatformInfo()
+
 		// Group related fields for better organization.
 		status := map[string]interface{}{
 			"colony": map[string]interface{}{
@@ -1324,6 +1329,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				"agent_count":    resp.AgentCount,
 				"storage_bytes":  resp.StorageBytes,
 				"dashboard_url":  resp.DashboardUrl,
+				"platform":       platformInfo,
 			},
 			"network": map[string]interface{}{
 				"wireguard_port":       resp.WireguardPort,
@@ -1893,4 +1899,34 @@ func gatherColonyMeshInfo(
 	}
 
 	return info
+}
+
+// gatherPlatformInfo gathers platform information for the colony.
+func gatherPlatformInfo() map[string]interface{} {
+	// Use a detector to get platform information.
+	logger := logging.NewWithComponent(logging.Config{
+		Level:  "error", // Only log errors for this detection
+		Pretty: false,
+	}, "platform-detector")
+
+	detector := runtimepkg.NewDetector(logger, "dev")
+
+	// Detect platform.
+	ctx := context.Background()
+	runtimeCtx, err := detector.Detect(ctx)
+	if err != nil || runtimeCtx == nil || runtimeCtx.Platform == nil {
+		// Fallback to basic info if detection fails.
+		return map[string]interface{}{
+			"os":   runtime.GOOS,
+			"arch": runtime.GOARCH,
+		}
+	}
+
+	// Return platform info.
+	return map[string]interface{}{
+		"os":         runtimeCtx.Platform.Os,
+		"arch":       runtimeCtx.Platform.Arch,
+		"os_version": runtimeCtx.Platform.OsVersion,
+		"kernel":     runtimeCtx.Platform.Kernel,
+	}
 }
