@@ -737,6 +737,7 @@ func gatherMeshNetworkInfo(
 	// Colony info
 	if colonyInfo != nil {
 		colonyInfoMap := make(map[string]interface{})
+		colonyInfoMap["id"] = colonyInfo.MeshId // Colony ID (same as mesh_id)
 		colonyInfoMap["mesh_ipv4"] = colonyInfo.MeshIpv4
 		colonyInfoMap["mesh_ipv6"] = colonyInfo.MeshIpv6
 		colonyInfoMap["connect_port"] = colonyInfo.ConnectPort
