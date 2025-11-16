@@ -1307,6 +1307,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		// This avoids the Connect protocol overhead and potential auth middleware issues.
 		resp := colonySvc.GetStatusResponse()
 
+		// Gather mesh network information for debugging.
+		meshInfo := gatherColonyMeshInfo(wgDevice, cfg.WireGuard.MeshIPv4, cfg.WireGuard.MeshNetworkIPv4, cfg.ColonyID, logger)
+
 		// Convert the protobuf response to a JSON-friendly map.
 		status := map[string]interface{}{
 			"colony_id":            resp.ColonyId,
@@ -1324,6 +1327,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			"connect_port":         resp.ConnectPort,
 			"mesh_ipv4":            resp.MeshIpv4,
 			"mesh_ipv6":            resp.MeshIpv6,
+			"mesh":                 meshInfo,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1835,4 +1839,52 @@ func formatVisibilityShort(vis *agentv1.VisibilityScope) string {
 		return "Pod only"
 	}
 	return "Limited"
+}
+
+// gatherColonyMeshInfo gathers WireGuard mesh network information for the colony status endpoint.
+func gatherColonyMeshInfo(
+	wgDevice *wireguard.Device,
+	meshIP, meshSubnet string,
+	colonyID string,
+	logger logging.Logger,
+) map[string]interface{} {
+	info := make(map[string]interface{})
+
+	// Basic mesh info.
+	info["colony_id"] = colonyID
+	info["mesh_ip"] = meshIP
+	info["mesh_subnet"] = meshSubnet
+
+	// WireGuard interface info.
+	if wgDevice != nil {
+		wgInfo := make(map[string]interface{})
+		wgInfo["interface_name"] = wgDevice.InterfaceName()
+		wgInfo["listen_port"] = wgDevice.ListenPort()
+
+		// Get interface status.
+		iface := wgDevice.Interface()
+		if iface != nil {
+			wgInfo["interface_exists"] = true
+
+			// Get peer information.
+			peers := wgDevice.ListPeers()
+			peerInfos := make([]map[string]interface{}, 0, len(peers))
+			for _, peer := range peers {
+				peerInfo := make(map[string]interface{})
+				peerInfo["public_key"] = peer.PublicKey[:16] + "..."
+				peerInfo["endpoint"] = peer.Endpoint
+				peerInfo["allowed_ips"] = peer.AllowedIPs
+				peerInfo["persistent_keepalive"] = peer.PersistentKeepalive
+				peerInfos = append(peerInfos, peerInfo)
+			}
+			wgInfo["peers"] = peerInfos
+			wgInfo["peer_count"] = len(peers)
+		} else {
+			wgInfo["interface_exists"] = false
+		}
+
+		info["wireguard"] = wgInfo
+	}
+
+	return info
 }
