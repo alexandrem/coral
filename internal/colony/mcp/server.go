@@ -12,6 +12,7 @@ import (
 	"github.com/coral-io/coral/internal/logging"
 	"github.com/firebase/genkit/go/genkit"
 	"github.com/firebase/genkit/go/plugins/mcp"
+	"github.com/invopop/jsonschema"
 )
 
 // Server wraps the Genkit MCP server and provides Colony-specific tools.
@@ -153,8 +154,9 @@ func (s *Server) GetToolMetadata() ([]ToolMetadata, error) {
 	// Get tool names and descriptions.
 	// Note: Full schema extraction from Genkit tools requires accessing the internal
 	// tool registry, which is not currently exposed by the genkit/mcp library.
-	// For now, we provide basic metadata with descriptions.
+	// We generate schemas manually from our typed input structs using jsonschema reflection.
 	toolDescriptions := s.getToolDescriptions()
+	toolSchemas := s.getToolSchemas()
 
 	metadata := make([]ToolMetadata, 0, len(toolDescriptions))
 	for name, description := range toolDescriptions {
@@ -163,14 +165,59 @@ func (s *Server) GetToolMetadata() ([]ToolMetadata, error) {
 			continue
 		}
 
+		// Get schema for this tool (or default to empty object).
+		schemaJSON, ok := toolSchemas[name]
+		if !ok {
+			schemaJSON = "{\"type\": \"object\", \"properties\": {}}"
+		}
+
 		metadata = append(metadata, ToolMetadata{
 			Name:            name,
 			Description:     description,
-			InputSchemaJSON: "{\"type\": \"object\", \"properties\": {}}",
+			InputSchemaJSON: schemaJSON,
 		})
 	}
 
 	return metadata, nil
+}
+
+// getToolSchemas returns a map of tool names to their JSON Schema definitions.
+// Schemas are generated from the typed input structs using reflection.
+func (s *Server) getToolSchemas() map[string]string {
+	reflector := jsonschema.Reflector{}
+
+	schemas := make(map[string]string)
+
+	// Generate schema for each tool's input type.
+	toolInputTypes := map[string]interface{}{
+		"coral_get_service_health":       ServiceHealthInput{},
+		"coral_get_service_topology":     ServiceTopologyInput{},
+		"coral_query_events":             QueryEventsInput{},
+		"coral_query_beyla_http_metrics": BeylaHTTPMetricsInput{},
+		"coral_query_beyla_grpc_metrics": BeylaGRPCMetricsInput{},
+		"coral_query_beyla_sql_metrics":  BeylaSQLMetricsInput{},
+		"coral_query_beyla_traces":       BeylaTracesInput{},
+		"coral_get_trace_by_id":          TraceByIDInput{},
+		"coral_query_telemetry_spans":    TelemetrySpansInput{},
+		"coral_query_telemetry_metrics":  TelemetryMetricsInput{},
+		"coral_query_telemetry_logs":     TelemetryLogsInput{},
+	}
+
+	for toolName, inputType := range toolInputTypes {
+		schema := reflector.Reflect(inputType)
+		schemaBytes, err := json.Marshal(schema)
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("tool", toolName).
+				Msg("Failed to marshal tool schema")
+			schemas[toolName] = "{\"type\": \"object\", \"properties\": {}}"
+			continue
+		}
+		schemas[toolName] = string(schemaBytes)
+	}
+
+	return schemas
 }
 
 // getToolDescriptions returns a map of tool names to their descriptions.
