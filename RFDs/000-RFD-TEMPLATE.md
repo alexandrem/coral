@@ -6,20 +6,27 @@ breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: false
-dependencies: []
-database_migrations: []
-areas: []
+dependencies: [ ]
+database_migrations: [ ]
+areas: [ ]
 ---
 
 # RFD XXX - Feature Name
 
 **Status:** 🚧 Draft
 
-<!-- Use status emojis: 🚧 Draft, 👀 Under Review, ✅ Approved, 🎉 Implemented -->
+<!--
+Status progression:
+  🚧 Draft → 👀 Under Review → ✅ Approved → 🔄 In Progress → 🎉 Implemented
+
+Aim for "Implemented" status by scoping the RFD to a shippable capability.
+Use "Deferred Features" section for out-of-scope work (avoids perpetual "In Progress").
+-->
 
 ## Summary
 
-2-3 sentence overview of the feature. State the motivation and the high-level outcome concisely.
+2-3 sentence overview of the feature. State the motivation and the high-level
+outcome concisely.
 
 ## Problem
 
@@ -58,30 +65,31 @@ Brief description of changes per component:
 
 1. **Component A** (e.g., Manager):
 
-   - Key change and rationale
-   - API/data flow updates
+    - Key change and rationale
+    - API/data flow updates
 
 2. **Component B** (e.g., Gateway):
 
-   - Key change and rationale
-   - Dependencies or impacts
+    - Key change and rationale
+    - Dependencies or impacts
 
 3. **Component C** (e.g., CLI):
-   - Key change and rationale
-   - User-facing changes
+    - Key change and rationale
+    - User-facing changes
 
 **Configuration Example:**
 
 ```yaml
 # Show YAML config examples where relevant
 feature:
-  enabled: true
-  option: value
+    enabled: true
+    option: value
 ```
 
 ## Implementation Plan (Optional)
 
-**IMPORTANT:** Do NOT include time estimates (weeks, hours, days). Focus on deliverable phases and concrete, testable tasks.
+**IMPORTANT:** Do NOT include time estimates (weeks, hours, days). Focus on
+deliverable phases and concrete, testable tasks.
 
 ### Phase 1: Foundation/Database/Protocol
 
@@ -117,13 +125,13 @@ feature:
 ```protobuf
 // Full protobuf definitions go here
 message NewFeatureRequest {
-  string server_id = 1;
-  string parameter = 2;
+    string server_id = 1;
+    string parameter = 2;
 }
 
 message NewFeatureResponse {
-  bool success = 1;
-  string message = 2;
+    bool success = 1;
+    string message = 2;
 }
 ```
 
@@ -131,7 +139,7 @@ message NewFeatureResponse {
 
 ```protobuf
 service ServiceName {
-  rpc NewOperation(NewFeatureRequest) returns (NewFeatureResponse);
+    rpc NewOperation(NewFeatureRequest) returns (NewFeatureResponse);
 }
 ```
 
@@ -139,7 +147,7 @@ service ServiceName {
 
 ```bash
 # New command with expected output
-bmc-cli feature action <args> [--flags]
+cli feature action <args> [--flags]
 
 # Example output:
 Feature Result:
@@ -190,15 +198,15 @@ Feature Result:
 
 1. **Deployment Steps**:
 
-   - Deploy Manager changes
-   - Deploy Gateway changes
-   - Deploy Agent changes
-   - Enable feature flag
+    - Deploy Manager changes
+    - Deploy Gateway changes
+    - Deploy Agent changes
+    - Enable feature flag
 
 2. **Rollback Plan**:
-   - Disable feature flag
-   - Revert database changes (if needed)
-   - No breaking changes to existing workflows
+    - Disable feature flag
+    - Revert database changes (if needed)
+    - No breaking changes to existing workflows
 
 ## Future Enhancements
 
@@ -208,6 +216,81 @@ Feature Result:
 - Features that build on this foundation
 - Performance optimizations
 - Additional integrations
+
+---
+
+## Implementation Status
+
+**Core Capability:** ✅ Complete | 🔄 In Progress | ⏳ Not Started
+
+[Describe the current state of implementation. Focus on what works now, not what's missing.]
+
+Example:
+
+```
+**Core Capability:** ✅ Complete
+
+Agent BMC discovery implemented with IPMI and Redfish support. Agents can
+discover servers via DHCP and static configuration, report to colony, and
+execute basic power operations.
+
+**Operational Components:**
+- ✅ IPMI discovery and power control
+- ✅ Redfish discovery and power control
+- ✅ Static configuration via YAML
+- ✅ Agent → Colony registration
+- ✅ CLI: `bmc-cli server list|power|status`
+
+**What Works Now:**
+- Automatic server discovery on local networks
+- Remote power operations (on, off, reset, status)
+- Health monitoring via colony dashboard
+```
+
+**Integration Status:**
+
+- List any remaining integration work (dependencies, config, deployment)
+- Keep this minimal - only critical items blocking production use
+
+## Deferred Features
+
+**Optional section - only include if features are explicitly deferred**
+
+The following features are deferred as they build on the core foundation but are
+not required for basic functionality:
+
+Example:
+
+```
+**Advanced Discovery** (Future - RFD XXX)
+- IPv6 network discovery
+- Multi-subnet scanning
+- Cloud provider API integration
+
+**Enhanced Operations** (Blocked by Dependencies)
+- BIOS configuration - Requires RFD YYY (secure credential storage)
+- Firmware updates - Requires RFD ZZZ (update orchestration)
+
+**Monitoring Enhancements** (Low Priority)
+- Temperature sensor trending
+- Fan speed alerts
+- Detailed inventory tracking
+```
+
+**When to Use This Section:**
+
+✅ **DO include** if:
+
+- Features are blocked by other RFDs (creates a dependency chain)
+- Features are intentionally out of scope (keeps this RFD focused)
+- Features are future enhancements (signals what's next without bloating this
+  RFD)
+
+❌ **DO NOT include** if:
+
+- Core functionality is missing (means the RFD isn't complete - narrow the scope
+  instead)
+- You're listing "nice-to-haves" without clear rationale (bloats the RFD)
 
 ## Appendix
 
@@ -229,12 +312,73 @@ Feature Result:
 ```yaml
 # Detailed test setup examples
 test:
-  config: example
+    config: example
 ```
 
 ---
 
 ## RFD Writing Guidelines
+
+### Scope Management & Completion
+
+**Aim for "Complete" Status:**
+
+RFDs should be scoped to be **fully completable**. Avoid perpetually "In
+Progress" RFDs by:
+
+✅ **DO:**
+
+- Narrow scope to a **complete, shippable capability**
+- Extract large or blocked features into **separate RFDs** (creates clear
+  dependency chains)
+- Use **Deferred Features** section for out-of-scope work (with RFD references)
+- Mark RFD "Implemented" when core capability works, even if enhancements are
+  deferred
+
+❌ **DO NOT:**
+
+- Leave RFD "In Progress" indefinitely with partial implementation
+- Try to fit everything into one mega-RFD (split it!)
+- List missing features as "TODO" in main sections (move to Deferred Features)
+
+**Example - Bad Scope (Too Broad):**
+
+```
+RFD: Complete Observability Platform
+Status: 🔄 In Progress (30% complete)
+
+Phases:
+- [ ] Metrics collection
+- [x] Basic dashboards
+- [ ] Alerting
+- [ ] AI-powered analysis
+- [ ] Cost optimization
+- [ ] Capacity planning
+```
+
+→ This will never be "complete" - too many features!
+
+**Example - Good Scope (Focused & Complete):**
+
+```
+RFD 010: Metrics Collection & Storage
+Status: ✅ Complete
+
+Core: Agents collect metrics, store locally, colony aggregates.
+Deferred: AI analysis (RFD 015), Alerting (RFD 020), Capacity planning (RFD 025)
+```
+
+→ Clear what's done, clear what's next, RFD is complete!
+
+**When to Split into Multiple RFDs:**
+
+- Feature is **blocked by another RFD** → Create separate RFD with dependency
+- Feature adds **significant complexity** → Keep current RFD focused, create
+  follow-up RFD
+- Feature is **low priority** → Defer to future RFD, ship core functionality now
+- You have **>5 phases** → You probably have 2-3 RFDs hidden in one document
+
+### Content Guidelines
 
 **DO:**
 
@@ -245,6 +389,8 @@ test:
 - ✅ Use diagrams for complex architectures
 - ✅ Put protocol details in Appendix
 - ✅ Reference files by path only (e.g., `manager/pkg/database/database.go`)
+- ✅ Add Implementation Status section when RFD is implemented
+- ✅ Use Deferred Features section to manage scope
 
 **DO NOT:**
 
@@ -255,6 +401,8 @@ test:
 - ❌ Use line number ranges - they become stale as code changes
 - ❌ Duplicate RPC handler signatures when protobuf already defines the API
 - ❌ Show function signatures for internal implementation details
+- ❌ Keep RFD "In Progress" when core capability works (mark Complete, defer
+  enhancements)
 
 **What to include in API Changes:**
 
