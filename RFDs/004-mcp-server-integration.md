@@ -386,8 +386,8 @@ mcp:
             "command": "coral",
             "args": [
                 "colony",
-                "proxy",
-                "mcp"
+                "mcp",
+                "proxy"
             ]
         }
     }
@@ -403,8 +403,8 @@ mcp:
             "command": "coral",
             "args": [
                 "colony",
-                "proxy",
                 "mcp",
+                "proxy",
                 "--colony",
                 "my-shop-production"
             ]
@@ -413,8 +413,8 @@ mcp:
             "command": "coral",
             "args": [
                 "colony",
-                "proxy",
                 "mcp",
+                "proxy",
                 "--colony",
                 "my-shop-staging"
             ]
@@ -423,7 +423,7 @@ mcp:
 }
 ```
 
-> **Note**: `coral colony proxy mcp` connects to a running colony's MCP server
+> **Note**: `coral colony mcp proxy` connects to a running colony's MCP server
 > via its
 > stdio interface. The colony must be running with MCP enabled. If `--colony` is
 > omitted, it uses the default colony from coral's configuration.
@@ -1159,7 +1159,7 @@ Copy this to ~/.config/claude/claude_desktop_config.json:
   "mcpServers": {
     "coral": {
       "command": "coral",
-      "args": ["colony", "proxy", "mcp"]
+      "args": ["colony", "mcp", "proxy"]
     }
   }
 }
@@ -1173,11 +1173,11 @@ Copy this to ~/.config/claude/claude_desktop_config.json:
   "mcpServers": {
     "coral-my-shop-production": {
       "command": "coral",
-      "args": ["colony", "proxy", "mcp", "--colony", "my-shop-production"]
+      "args": ["colony", "mcp", "proxy", "--colony", "my-shop-production"]
     },
     "coral-my-shop-staging": {
       "command": "coral",
-      "args": ["colony", "proxy", "mcp", "--colony", "my-shop-staging"]
+      "args": ["colony", "mcp", "proxy", "--colony", "my-shop-staging"]
     }
   }
 }
@@ -1187,7 +1187,7 @@ After adding this config, restart Claude Desktop to enable Coral MCP servers.
 ---
 
 # Connect to colony MCP server (used by Claude Desktop)
-coral colony proxy mcp [--colony <colony-id>]
+coral colony mcp proxy [--colony <colony-id>]
 
 # This command:
 # 1. Connects to running colony's MCP server
@@ -1197,10 +1197,10 @@ coral colony proxy mcp [--colony <colony-id>]
 
 # Examples:
 # Use default colony
-coral colony proxy mcp
+coral colony mcp proxy
 
 # Use specific colony
-coral colony proxy mcp --colony my-shop-production
+coral colony mcp proxy --colony my-shop-production
 ```
 
 ### Environment Variable Configuration
@@ -1377,15 +1377,36 @@ shell).
 
 **Status:** Not implemented. Requires event storage infrastructure.
 
-### Phase 5: CLI & Configuration ✅ COMPLETED
+### Phase 5: CLI & Configuration 🔄 IN PROGRESS
 
 - [x] Implement colony configuration (`mcp` section in `colony.yaml`)
-- [x] Implement `coral colony proxy mcp` command (connects to colony MCP)
+- [x] Implement `coral colony mcp proxy` command (connects to colony MCP)
 - [x] Implement `coral colony mcp list-tools` command
-- [x] Implement `coral colony mcp test-tool` command
+- [ ] Implement `coral colony mcp test-tool` command (structure exists, execution
+  TODO)
 - [x] Implement `coral colony mcp generate-config` command
 
-**Status:** All CLI commands implemented.
+**Status:** Most CLI commands implemented. `test-tool` has command structure but
+actual tool execution not yet implemented (prints placeholder message).
+
+**Known Limitation - Proxy Architecture:**
+
+The `coral colony mcp proxy` command currently opens the colony database in
+read-only mode to query data directly. This is a **temporary workaround** with
+limitations:
+
+- Proxy reads database snapshots (may be slightly stale)
+- Not the architecturally correct solution
+- Works but doesn't follow MCP best practices
+
+**Proper architecture** (deferred to future RFD):
+1. Colony should expose MCP server over **HTTP Streamable** transport
+2. Proxy becomes a bridge: HTTP (colony) ↔ stdio (Claude Desktop)
+3. Proxy acts as MCP client to colony, MCP server to AI applications
+4. No database access needed in proxy
+5. Real-time data, better scalability
+
+See "Deferred Features" section for details.
 
 **Location:**
 
@@ -1924,8 +1945,9 @@ health, metrics, traces, and telemetry.
 
 - ✅ Database query methods for all Beyla metrics (HTTP, gRPC, SQL, traces)
 - ✅ Aggregation helpers for percentiles, status codes, top resources
-- ✅ CLI commands:
-  `coral colony mcp {list-tools,test-tool,generate-config,proxy}`
+- ✅ CLI commands: `coral colony mcp {list-tools,generate-config,proxy}`
+- ⏳ CLI command: `coral colony mcp test-tool` (structure implemented, execution
+  TODO)
 - ✅ Configuration schema in `colony.yaml`
 - ✅ Comprehensive test coverage (unit + integration tests)
 - ✅ E2E testing documentation (`internal/colony/mcp/TESTING.md`)
@@ -1950,6 +1972,36 @@ AI assistants (Claude Desktop, custom clients) can query:
 
 The following features are deferred as they build on the core foundation but are
 not required for basic observability functionality:
+
+**MCP HTTP Streamable Transport** (Future RFD - Architectural Improvement)
+
+Current proxy implementation uses read-only database access as a workaround.
+Proper architecture requires:
+
+- **Colony MCP Server:** Expose MCP over HTTP Streamable transport (MCP spec
+  2025-03-26)
+  - Run MCP server on `localhost:9001` or configurable port
+  - Support HTTP POST for single requests
+  - Support HTTP GET + SSE for streaming responses
+  - Enable multiple concurrent client connections
+  - No stdio dependency (colony runs as daemon)
+
+- **Proxy Command:** Bridge HTTP ↔ stdio
+  - Acts as MCP client to colony (HTTP)
+  - Acts as MCP server to AI applications (stdio)
+  - Simple forwarding logic, no business logic
+  - No database access required
+  - Stateless proxy implementation
+
+**Benefits:**
+- Real-time data (no stale snapshots)
+- Proper separation of concerns
+- Scalable multi-client architecture
+- Follows MCP specification best practices
+- Colony can cache/optimize queries centrally
+
+**Implementation:** Requires new RFD to design HTTP Streamable transport
+integration with Genkit or custom implementation.
 
 **Phase 3: Live Debugging Tools** (Deferred - Blocked by Dependencies)
 

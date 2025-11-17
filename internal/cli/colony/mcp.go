@@ -41,12 +41,13 @@ Examples:
   coral colony mcp generate-config
 
   # Start MCP server proxy (used by Claude Desktop)
-  coral colony proxy mcp`,
+  coral colony mcp proxy`,
 	}
 
 	cmd.AddCommand(newMCPListToolsCmd())
 	cmd.AddCommand(newMCPTestToolCmd())
 	cmd.AddCommand(newMCPGenerateConfigCmd())
+	cmd.AddCommand(newMCPProxyCmd())
 
 	return cmd
 }
@@ -300,7 +301,7 @@ Examples:
 				// Single colony: use simple name "coral".
 				servers["coral"] = map[string]interface{}{
 					"command": "coral",
-					"args":    []string{"colony", "proxy", "mcp"},
+					"args":    []string{"colony", "mcp", "proxy"},
 				}
 			} else {
 				// Multiple colonies: use "coral-<colony-id>".
@@ -308,7 +309,7 @@ Examples:
 					serverName := fmt.Sprintf("coral-%s", cid)
 					servers[serverName] = map[string]interface{}{
 						"command": "coral",
-						"args":    []string{"colony", "proxy", "mcp", "--colony", cid},
+						"args":    []string{"colony", "mcp", "proxy", "--colony", cid},
 					}
 				}
 			}
@@ -332,13 +333,12 @@ Examples:
 	return cmd
 }
 
-// newProxyMCPCmd creates the 'coral colony proxy mcp' command.
-// This is registered separately in proxy.go but defined here for clarity.
-func newProxyMCPCmd() *cobra.Command {
+// newMCPProxyCmd creates the 'coral colony mcp proxy' command.
+func newMCPProxyCmd() *cobra.Command {
 	var colonyID string
 
 	cmd := &cobra.Command{
-		Use:   "mcp",
+		Use:   "proxy",
 		Short: "Proxy to colony MCP server",
 		Long: `Connect to a running colony's MCP server and proxy stdio.
 
@@ -350,10 +350,10 @@ The colony must be running for this command to work.
 
 Examples:
   # Connect to default colony
-  coral colony proxy mcp
+  coral colony mcp proxy
 
   # Connect to specific colony
-  coral colony proxy mcp --colony my-shop-production`,
+  coral colony mcp proxy --colony my-shop-production`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Create resolver.
 			resolver, err := config.NewResolver()
@@ -409,8 +409,10 @@ Examples:
 				return fmt.Errorf("colony is not running (failed to connect on port %d): %w", connectPort, err)
 			}
 
-			// Initialize database connection for MCP server.
-			db, err := database.New(cfg.StoragePath, cfg.ColonyID, logger)
+			// Initialize database connection for MCP server (read-only mode).
+			// The proxy opens the database in read-only mode to avoid lock conflicts
+			// with the running colony, which has the database open for writing.
+			db, err := database.NewReadOnly(cfg.StoragePath, cfg.ColonyID, logger)
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %w", err)
 			}

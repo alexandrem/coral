@@ -31,7 +31,6 @@ Example usage:
 	cmd.AddCommand(startCmd())
 	cmd.AddCommand(statusCmd())
 	cmd.AddCommand(stopCmd())
-	cmd.AddCommand(mcpCmd())
 
 	return cmd
 }
