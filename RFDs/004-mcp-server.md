@@ -1387,6 +1387,21 @@ placeholders pending data integration.
 
 **Location:** `internal/colony/mcp/tools_observability.go`
 
+### Phase 2b: Colony MCP Tools - Live Debugging ✅ COMPLETED
+
+- [x] Implement `coral_start_ebpf_collector` tool (placeholder, awaits RFD 013)
+- [x] Implement `coral_stop_ebpf_collector` tool (placeholder, awaits RFD 013)
+- [x] Implement `coral_list_ebpf_collectors` tool (placeholder, awaits RFD 013)
+- [x] Implement `coral_exec_command` tool (placeholder, awaits RFD 017)
+- [x] Implement `coral_shell_start` tool (placeholder, awaits RFD 026)
+- [x] Add Phase 3 tool input types to `types.go` with JSON Schema tags
+- [x] Register all Phase 3 tools in server registry
+- [x] Update tool schemas, descriptions, and metadata
+
+**Status:** All 5 live debugging tools implemented as MCP interfaces with complete schemas. Tools are discoverable and return informative "not yet implemented" responses indicating backend dependency status.
+
+**Location:** `internal/colony/mcp/tools_debugging.go`, `internal/colony/mcp/types.go`
+
 ### Phase 3: CLI & Configuration 🔄 IN PROGRESS
 
 - [x] Implement colony configuration (`mcp` section in `colony.yaml`)
@@ -1952,7 +1967,7 @@ complete tool definitions, enabling AI assistants to understand and correctly
 use
 all available tools.
 
-**Operational Tools:**
+**Operational Tools (Observability):**
 
 - ✅ `coral_get_service_health` - Agent health monitoring via registry
 - ✅ `coral_get_service_topology` - Service discovery via registry
@@ -1965,6 +1980,14 @@ all available tools.
 - ✅ `coral_query_telemetry_spans` - OTLP summaries from RFD 025
 - ✅ `coral_query_telemetry_metrics` - OTLP custom metrics
 - ✅ `coral_query_telemetry_logs` - OTLP log queries
+
+**Phase 3 Tools (Live Debugging):**
+
+- ⏳ `coral_start_ebpf_collector` - Start on-demand eBPF profiling (MCP tool registered, awaits RFD 013 implementation)
+- ⏳ `coral_stop_ebpf_collector` - Stop running eBPF collector (MCP tool registered, awaits RFD 013 implementation)
+- ⏳ `coral_list_ebpf_collectors` - List active eBPF collectors (MCP tool registered, awaits RFD 013 implementation)
+- ⏳ `coral_exec_command` - Execute command in container (MCP tool registered, awaits RFD 017 CRI integration)
+- ⏳ `coral_shell_start` - Interactive agent debug shell (MCP tool registered, awaits RFD 026 shell server)
 
 **Infrastructure:**
 
@@ -1985,19 +2008,23 @@ all available tools.
 - ✅ Required field validation in schemas
 - ✅ Proto ToolInfo message extended with `input_schema_json` field
 - ✅ MCP proxy properly parses and forwards schemas to clients
-- ✅ All 11 tools have complete, validated JSON Schema definitions
+- ✅ All 16 tools have complete, validated JSON Schema definitions (11 observability + 5 debugging)
 
 **What Works Now:**
 
 AI assistants (Claude Desktop, custom MCP clients) can:
 
-- Discover all available tools with complete parameter schemas
+- Discover all 16 available tools with complete parameter schemas
 - Understand tool parameters (types, descriptions, enums, required fields)
 - Query service health and topology
 - Analyze HTTP/gRPC/SQL performance metrics with latency percentiles
 - Investigate distributed traces with span analysis
 - Query OTLP telemetry (spans, metrics, logs) with filtering
 - Track operational events (deploys, crashes, alerts)
+- **Phase 3 (Live Debugging):** Discover and attempt to use debugging tools (eBPF profiling, container exec, agent shell)
+  - Tools are registered and discoverable via MCP tools/list
+  - Tools return informative "not yet implemented" messages with dependency status
+  - Full implementation awaits RFD 013 (eBPF), RFD 017 (exec), RFD 026 (shell)
 - All with automatic time range parsing and result formatting
 
 **Integration Status:**
@@ -2043,12 +2070,17 @@ provides
 real-time data, clean separation of concerns, and works well with stdio-based
 clients.
 
-**Phase 3: Live Debugging Tools** (Deferred - Blocked by Dependencies)
+**Phase 3: Live Debugging Tools Backend** (Deferred - Blocked by Dependencies)
 
-- `coral_start_ebpf_collector` - Requires RFD 013 (eBPF collectors)
-- `coral_query_ebpf_data` - Requires RFD 013
-- `coral_exec_command` - Requires RFD 017 (remote exec protocol)
-- `coral_shell_start` - Requires RFD 026 (interactive shell protocol)
+MCP tool interfaces are fully implemented and registered. Backend functionality pending:
+
+- `coral_start_ebpf_collector` - Backend requires RFD 013 (eBPF collectors)
+- `coral_stop_ebpf_collector` - Backend requires RFD 013 (eBPF collectors)
+- `coral_list_ebpf_collectors` - Backend requires RFD 013 (eBPF collectors)
+- `coral_exec_command` - Backend requires RFD 017 (CRI integration)
+- `coral_shell_start` - Backend requires RFD 026 (shell server)
+
+**Status:** MCP tools are discoverable and return informative "not yet implemented" responses with dependency information.
 
 **Phase 4: Analysis Tools** (Deferred - Needs Event Storage)
 

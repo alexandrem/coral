@@ -201,6 +201,11 @@ func (s *Server) getToolSchemas() map[string]string {
 		"coral_query_telemetry_spans":    TelemetrySpansInput{},
 		"coral_query_telemetry_metrics":  TelemetryMetricsInput{},
 		"coral_query_telemetry_logs":     TelemetryLogsInput{},
+		"coral_start_ebpf_collector":     StartEBPFCollectorInput{},
+		"coral_stop_ebpf_collector":      StopEBPFCollectorInput{},
+		"coral_list_ebpf_collectors":     ListEBPFCollectorsInput{},
+		"coral_exec_command":             ExecCommandInput{},
+		"coral_shell_start":              ShellStartInput{},
 	}
 
 	for toolName, inputType := range toolInputTypes {
@@ -235,6 +240,11 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_query_telemetry_spans":    "Query generic OTLP spans (from instrumented applications using OpenTelemetry SDKs). Returns aggregated telemetry summaries. For detailed raw spans, see RFD 041.",
 		"coral_query_telemetry_metrics":  "Query generic OTLP metrics (from instrumented applications). Returns time-series data for custom application metrics.",
 		"coral_query_telemetry_logs":     "Query generic OTLP logs (from instrumented applications). Search application logs with full-text search and filters.",
+		"coral_start_ebpf_collector":     "Start an on-demand eBPF collector for live debugging (CPU profiling, syscall tracing, network analysis). Collector runs for specified duration.",
+		"coral_stop_ebpf_collector":      "Stop a running eBPF collector before its duration expires.",
+		"coral_list_ebpf_collectors":     "List currently active eBPF collectors with their status and remaining duration.",
+		"coral_exec_command":             "Execute a command in an application container (kubectl/docker exec semantics). Useful for checking configuration, running diagnostic commands, or inspecting container state.",
+		"coral_shell_start":              "Start an interactive debug shell in the agent's environment (not the application container). Provides access to debugging tools (tcpdump, netcat, curl) and agent's data. Returns session ID for audit.",
 	}
 }
 
@@ -253,10 +263,12 @@ func (s *Server) registerTools() error {
 	s.registerTelemetryMetricsTool()
 	s.registerTelemetryLogsTool()
 
-	// TODO: Register live debugging tools (Phase 3).
-	// s.registerEBPFCollectorTools()
-	// s.registerExecCommandTool()
-	// s.registerShellStartTool()
+	// Register live debugging tools (Phase 3).
+	s.registerStartEBPFCollectorTool()
+	s.registerStopEBPFCollectorTool()
+	s.registerListEBPFCollectorsTool()
+	s.registerExecCommandTool()
+	s.registerShellStartTool()
 
 	// TODO: Register analysis tools (Phase 4).
 	// s.registerCorrelateEventsTool()
@@ -286,6 +298,11 @@ func (s *Server) listToolNames() []string {
 		"coral_query_telemetry_spans",
 		"coral_query_telemetry_metrics",
 		"coral_query_telemetry_logs",
+		"coral_start_ebpf_collector",
+		"coral_stop_ebpf_collector",
+		"coral_list_ebpf_collectors",
+		"coral_exec_command",
+		"coral_shell_start",
 	}
 }
 
