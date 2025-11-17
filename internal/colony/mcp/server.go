@@ -5,23 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/logging"
+	"github.com/firebase/genkit/go/genkit"
 	"github.com/firebase/genkit/go/plugins/mcp"
 )
 
 // Server wraps the Genkit MCP server and provides Colony-specific tools.
 type Server struct {
-	mcpServer   *mcp.MCPServer
-	registry    *registry.Registry
-	db          *database.Database
-	config      Config
-	logger      logging.Logger
-	startedAt   time.Time
+	genkit    *genkit.Genkit
+	mcpServer *mcp.GenkitMCPServer
+	registry  *registry.Registry
+	db        *database.Database
+	config    Config
+	logger    logging.Logger
+	startedAt time.Time
 }
 
 // Config contains configuration for the MCP server.
@@ -58,25 +59,32 @@ func New(registry *registry.Registry, db *database.Database, config Config, logg
 		Bool("audit_enabled", config.AuditEnabled).
 		Msg("Initializing MCP server")
 
-	// Create Genkit MCP server.
-	mcpServer := mcp.NewMCPServer(mcp.MCPServerOptions{
+	// Create Genkit instance.
+	ctx := context.Background()
+	g := genkit.Init(ctx)
+
+	// Create Server instance first so we can register tools.
+	s := &Server{
+		genkit:    g,
+		registry:  registry,
+		db:        db,
+		config:    config,
+		logger:    logger,
+		startedAt: time.Now(),
+	}
+
+	// Register all tools with Genkit.
+	if err := s.registerTools(); err != nil {
+		return nil, fmt.Errorf("failed to register tools: %w", err)
+	}
+
+	// Create Genkit MCP server (exposes registered tools).
+	mcpServer := mcp.NewMCPServer(g, mcp.MCPServerOptions{
 		Name:    fmt.Sprintf("coral-%s", config.ColonyID),
 		Version: "1.0.0",
 	})
 
-	s := &Server{
-		mcpServer:   mcpServer,
-		registry:    registry,
-		db:          db,
-		config:      config,
-		logger:      logger,
-		startedAt:   time.Now(),
-	}
-
-	// Register all tools.
-	if err := s.registerTools(); err != nil {
-		return nil, fmt.Errorf("failed to register tools: %w", err)
-	}
+	s.mcpServer = mcpServer
 
 	logger.Info().
 		Int("tool_count", len(s.listToolNames())).
@@ -91,7 +99,7 @@ func (s *Server) ServeStdio(ctx context.Context) error {
 	s.logger.Info().Msg("Starting MCP server on stdio")
 
 	// Use Genkit's stdio transport.
-	return s.mcpServer.ServeStdio(ctx)
+	return s.mcpServer.ServeStdio()
 }
 
 // Close stops the MCP server and releases resources.
@@ -167,7 +175,7 @@ func (s *Server) isToolEnabled(toolName string) bool {
 }
 
 // auditToolCall logs a tool invocation if auditing is enabled.
-func (s *Server) auditToolCall(toolName string, args map[string]interface{}) {
+func (s *Server) auditToolCall(toolName string, args interface{}) {
 	if !s.config.AuditEnabled {
 		return
 	}

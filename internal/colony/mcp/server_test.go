@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"testing"
+	"time"
 
 	"github.com/coral-io/coral/internal/logging"
 	"github.com/stretchr/testify/assert"
@@ -144,6 +145,42 @@ func TestMatchesPattern(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := matchesPattern(tt.s, tt.pattern)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration time.Duration
+		want     string
+	}{
+		{
+			name:     "seconds only",
+			duration: 45 * time.Second,
+			want:     "45s",
+		},
+		{
+			name:     "minutes",
+			duration: 2*time.Minute + 30*time.Second,
+			want:     "2m",
+		},
+		{
+			name:     "hours",
+			duration: 3*time.Hour + 25*time.Minute,
+			want:     "3h",
+		},
+		{
+			name:     "days",
+			duration: 2*24*time.Hour + 5*time.Hour,
+			want:     "2d",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatDuration(tt.duration)
 			assert.Equal(t, tt.want, got)
 		})
 	}
