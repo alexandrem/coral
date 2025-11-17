@@ -82,7 +82,7 @@ Single binary providing all Coral commands and operations:
 - **Colony Lifecycle:** Manage colony initialization, startup, and shutdown (
   `coral init`, `coral colony start`)
 - **Mesh Configuration:** Set up and configure WireGuard mesh networking
-- **Agent Connection:** Connect agents to colonies and manage agent lifecycle
+- **Service Connection:** Connect services to colonies via agents (`coral connect service:port[:health][:type]` - RFD 011)
 - **MCP Integration:** Provide MCP proxy command for AI assistant integration (
   `coral colony mcp proxy`)
 - **Developer Tools:** Built-in help, documentation, and troubleshooting
