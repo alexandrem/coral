@@ -1473,8 +1473,8 @@ DuckDB + Agent Registry
 - [x] Integration tests for audit logging
 - [x] Integration tests for server creation and initialization
 - [x] Integration tests for tool filtering
-- [x] Documentation: `internal/colony/mcp/README.md` (internal architecture)
-- [x] Documentation: `internal/colony/mcp/TESTING.md` (E2E testing guide)
+- [x] Documentation: `docs/MCP.md` (user guide with architecture)
+- [x] Documentation: `docs/development/MCP-Testing.md` (E2E testing guide)
 - [x] E2E test documentation for Claude Desktop integration
 - [x] Documentation for building custom MCP clients
 - [x] Example automation script using Coral MCP
@@ -1486,7 +1486,7 @@ tests, and E2E testing documentation.
 
 - `internal/colony/mcp/server_test.go` - Unit tests
 - `internal/colony/mcp/tools_integration_test.go` - Integration tests
-- `internal/colony/mcp/TESTING.md` - E2E testing guide
+- `docs/development/MCP-Testing.md` - E2E testing guide
 
 ## Testing Strategy
 
@@ -2010,7 +2010,7 @@ all available tools.
 - ✅ Tool execution layer (`tools_exec.go`) for direct RPC access
 - ✅ Configuration schema in `colony.yaml` with tool filtering and audit support
 - ✅ Comprehensive test coverage (unit + integration tests)
-- ✅ E2E testing documentation (`internal/colony/mcp/TESTING.md`)
+- ✅ E2E testing documentation (`docs/development/MCP-Testing.md`)
 
 **Tool Schema Generation:**
 

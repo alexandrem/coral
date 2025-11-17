@@ -293,5 +293,5 @@ Features."
 
 - **RFD 004:** Complete MCP server integration specification
 - **docs/MCP.md:** User guide with examples and troubleshooting
-- **internal/colony/mcp/README.md:** Internal architecture details
-- **internal/colony/mcp/TESTING.md:** E2E testing guide
+- **docs/development/MCP.md:** Manual protocol validation and testing
+- **docs/development/MCP-Testing.md:** Automated testing guide (unit, integration, E2E)
