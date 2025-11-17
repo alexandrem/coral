@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package coral.colony.v1;
+
+option go_package = "github.com/coral-io/coral/proto/colony/v1;colonypb";
+
+// CallToolRequest is sent from CLI/proxy to colony to execute an MCP tool.
+message CallToolRequest {
+  // Tool name (e.g., "coral_query_beyla_http_metrics").
+  string tool_name = 1;
+
+  // Tool arguments as JSON string.
+  // The JSON structure depends on the specific tool being called.
+  string arguments_json = 2;
+}
+
+// CallToolResponse contains the result of executing an MCP tool.
+message CallToolResponse {
+  // Result from the tool (formatted text for LLM consumption).
+  string result = 1;
+
+  // Error message if the tool failed.
+  string error = 2;
+
+  // Whether the tool executed successfully.
+  bool success = 3;
+}
+
+// StreamToolRequest is sent for streaming tool execution (bidirectional).
+message StreamToolRequest {
+  // Tool name.
+  string tool_name = 1;
+
+  // Tool arguments as JSON string.
+  string arguments_json = 2;
+}
+
+// StreamToolResponse contains streaming chunks from tool execution.
+message StreamToolResponse {
+  // Partial result chunk.
+  string chunk = 1;
+
+  // Whether this is the final chunk.
+  bool is_final = 2;
+
+  // Error message if failed.
+  string error = 3;
+}
+
+// ListToolsRequest is sent to get the list of available MCP tools.
+message ListToolsRequest {}
+
+// ListToolsResponse contains the list of available tools.
+message ListToolsResponse {
+  repeated ToolInfo tools = 1;
+}
+
+// ToolInfo describes an MCP tool.
+message ToolInfo {
+  // Tool name (e.g., "coral_query_beyla_http_metrics").
+  string name = 1;
+
+  // Tool description.
+  string description = 2;
+
+  // Whether the tool is enabled.
+  bool enabled = 3;
+
+  // Input schema as JSON string (JSON Schema format).
+  // This defines the parameters the tool accepts.
+  string input_schema_json = 4;
+}

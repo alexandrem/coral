@@ -23,6 +23,17 @@ type Database struct {
 // It creates the storage directory if it doesn't exist, opens the database
 // connection, and initializes the schema.
 func New(storagePath, colonyID string, logger zerolog.Logger) (*Database, error) {
+	return open(storagePath, colonyID, logger, false)
+}
+
+// NewReadOnly opens the database in read-only mode for read-only access.
+// This allows multiple processes to read from the same database without lock conflicts.
+func NewReadOnly(storagePath, colonyID string, logger zerolog.Logger) (*Database, error) {
+	return open(storagePath, colonyID, logger, true)
+}
+
+// open is the internal function that opens the database with optional read-only mode.
+func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*Database, error) {
 	// Ensure storage directory exists.
 	if err := os.MkdirAll(storagePath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
@@ -31,8 +42,14 @@ func New(storagePath, colonyID string, logger zerolog.Logger) (*Database, error)
 	// Construct database file path.
 	dbPath := filepath.Join(storagePath, colonyID+".duckdb")
 
+	// Build connection string.
+	connStr := dbPath
+	if readOnly {
+		connStr = dbPath + "?access_mode=READ_ONLY"
+	}
+
 	// Open DuckDB connection.
-	db, err := sql.Open("duckdb", dbPath)
+	db, err := sql.Open("duckdb", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -54,15 +71,23 @@ func New(storagePath, colonyID string, logger zerolog.Logger) (*Database, error)
 		logger:   logger,
 	}
 
-	// Initialize schema.
-	if err := database.initSchema(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	// Initialize schema (only in read-write mode).
+	if !readOnly {
+		if err := database.initSchema(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("failed to initialize schema: %w", err)
+		}
+	}
+
+	mode := "read-write"
+	if readOnly {
+		mode = "read-only"
 	}
 
 	logger.Info().
 		Str("path", dbPath).
 		Str("colony_id", colonyID).
+		Str("mode", mode).
 		Msg("Database initialized")
 
 	return database, nil
