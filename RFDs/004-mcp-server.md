@@ -206,6 +206,13 @@ future Reef MCP server implementation (RFD 003).
     - Works air-gapped
     - Low latency (<100ms)
 
+- **Proxy Architecture**: Clean separation of concerns
+    - `coral mcp proxy` translates MCP JSON-RPC ↔ Buf Connect gRPC
+    - Proxy has zero business logic, no database access
+    - Colony server handles all tool execution and security
+    - Multiple proxies can connect to same colony
+    - Type-safe communication with Protocol Buffers
+
 **Benefits:**
 
 - **Seamless workflow**: Query infrastructure from wherever you're already
@@ -240,22 +247,34 @@ Colony MCP server:
 │  MCP client) │         │                  │
 └──────┬───────┘         └────────┬─────────┘
        │                          │
-       │  MCP Protocol (stdio)    │
+       │  MCP JSON-RPC (stdio)    │
        │                          │
        └──────────┬───────────────┘
                   │
                   ▼
-         ┌────────────────┐
-         │ Colony         │
-         │ MCP Server     │
-         │ (26 tools)     │
-         └────────┬───────┘
-                  │
-                  ▼
-         ┌────────────────┐
-         │ Colony DuckDB  │
-         │ Agents + eBPF  │
-         └────────────────┘
+         ┌────────────────────┐
+         │ coral mcp proxy    │  ← Public-facing MCP server
+         │ (Protocol Bridge)  │     • No business logic
+         │ MCP ↔ gRPC         │     • No database access
+         └──────────┬─────────┘     • Pure translator
+                    │ Buf Connect gRPC
+                    │ (CallTool, StreamTool, ListTools)
+                    ▼
+         ┌────────────────────┐
+         │ Colony Server      │
+         │ • MCP Server       │  ← Internal (Genkit)
+         │ • Tool execution   │
+         │ • Business logic   │
+         │ • RBAC/Audit       │
+         └──────────┬─────────┘
+                    │
+                    ▼
+         ┌────────────────────┐
+         │ Colony DuckDB      │
+         │ • Metrics          │
+         │ • Traces           │
+         │ • Agent registry   │
+         └────────────────────┘
 ```
 
 **Architecture Overview:**
@@ -312,37 +331,48 @@ Colony MCP server:
 
 4. Claude decides to call coral_get_health()
 
-5. Claude Desktop → MCP request → Coral MCP server
+5. Claude Desktop → MCP JSON-RPC request (stdio) → coral mcp proxy
 
-6. Coral MCP server queries local colony DuckDB
+6. Proxy translates MCP request → Buf Connect gRPC CallToolRequest
 
-7. Coral MCP server returns health data via MCP
+7. Colony Server receives RPC, executes tool, queries DuckDB
 
-8. Claude Desktop receives response, synthesizes answer
+8. Colony Server → gRPC CallToolResponse → Proxy
 
-9. User sees: "Production is healthy, CPU 45%, no errors"
+9. Proxy translates RPC response → MCP JSON-RPC (stdio) → Claude Desktop
+
+10. Claude Desktop receives response, synthesizes answer
+
+11. User sees: "Production is healthy, CPU 45%, no errors"
 ```
 
 ### Component Changes
 
-1. **Colony** (MCP server integrated):
-    - MCP server starts automatically with colony (enabled by default)
-    - Implements MCP protocol (JSON-RPC 2.0 over stdio)
-    - Exposes data access and action tools via MCP interface
-    - Queries local DuckDB to fulfill tool requests
+1. **Colony Server** (Internal MCP server):
+    - MCP server (Genkit) starts automatically with colony (enabled by default)
+    - Registers all MCP tools with typed input schemas
+    - Executes tools by querying local DuckDB and agent registry
+    - Enforces RBAC and audit for all tool calls
+    - Exposes Buf Connect gRPC interface for tool execution
+    - **Not directly exposed** to external clients
     - Configuration in `colony.yaml` to control MCP server behavior
 
-2. **CLI** (MCP helpers):
+2. **MCP Proxy** (Public-facing MCP server):
+    - `coral colony mcp proxy` command acts as protocol bridge
+    - Translates MCP JSON-RPC (stdio) ↔ Buf Connect gRPC
+    - Reads MCP requests from stdin, calls colony via gRPC
+    - Returns colony responses via stdout as MCP JSON-RPC
+    - **Zero business logic** - pure protocol translation
+    - **No database access** - all queries go through colony
+    - Multiple proxies can connect to same colony
+
+3. **CLI** (MCP management commands):
     - `coral colony mcp list-tools` - Show available MCP tools for running
       colony
     - `coral colony mcp test-tool <tool-name>` - Test MCP tool locally
     - `coral colony mcp generate-config` - Generate Claude Desktop config
       snippet
-
-3. **MCP Client Library** (optional):
-    - Go library for building custom MCP clients
-    - Query Coral programmatically from Go applications
-    - Used by custom automation scripts
+    - `coral colony mcp proxy` - Start MCP proxy (used by Claude Desktop)
 
 **Configuration Example:**
 
