@@ -42,6 +42,7 @@ CREATE INDEX idx_orders_user_id ON orders(user_id);
 | <1s | Root cause analysis |
 | Zero | Code changes required |
 | 100% | Your infrastructure, your AI |
+| Any | AI assistant via MCP |
 | ∞ | Environments supported |
 
 ---
@@ -101,12 +102,12 @@ Human-driven investigation and control:
 ### Feature 3: Diagnose
 🤖 **Diagnose**
 
-LLM-orchestrated root cause analysis:
-- **Natural language:** Ask "why is my API slow?" in plain English
-- **AI-powered RCA:** Automated root cause analysis from observability data
-- **Smart orchestration:** LLM decides where to probe and what to collect
-- **Cross-service correlation:** Analyzes patterns across environments
-- **Instant insights:** Actionable recommendations in <1 second
+AI-powered insights through standard MCP protocol:
+- **Universal AI integration:** Works with Claude Desktop, IDEs, any MCP client
+- **Bring your own LLM:** Use your API keys or local models (Ollama)
+- **Natural language queries:** Ask questions in plain English, not query languages
+- **Real-time data access:** AI queries live observability data, not dashboards
+- **Built-in assistant:** coral ask command for terminal-based AI
 
 ---
 
@@ -126,8 +127,8 @@ Debug apps running on laptop ↔ AWS VPC ↔ GKE cluster ↔ on-prem VM with the
 **02 - On-Demand Live Debugging**
 Attach eBPF uprobes to running code without redeploying. LLM decides where to probe based on analysis. Zero overhead when not debugging.
 
-**03 - You Own the AI**
-Use your own LLM API keys (OpenAI/Anthropic/Ollama). We never see your data or telemetry. You control the model, costs, and data.
+**03 - Universal AI via MCP**
+Works with any AI assistant through standard MCP protocol. Claude Desktop, VS Code, Cursor, or custom apps. Bring your own LLM (Anthropic/OpenAI/Ollama). Your data stays in your infrastructure.
 
 **04 - Decentralized Architecture**
 No Coral servers to depend on. Colony runs wherever you want: laptop, VM, Kubernetes. Your observability data stays local.
@@ -185,16 +186,18 @@ On-demand instrumentation · Full control
 
 **Connector:** MCP Server exposes tools
 
-### Flow Step 3: Analyze with AI
+### Flow Step 3: Query with AI
 
-**Heading:** Analyze with AI
+**Heading:** Query with AI
 
-**Description:** Colony exposes MCP tools for AI-powered analysis using your own LLM
+**Description:** Colony exposes MCP server for universal AI integration
 
 **Features:**
-- → **MCP Server** exposes topology, metrics, and diagnostic tools
-- → **Your LLM** (OpenAI/Anthropic/Ollama) - you own the AI
-- → **Claude Desktop** or custom AI clients via MCP protocol
+- → **Works with any MCP client:** Claude Desktop, VS Code, Cursor, custom apps
+- → **Bring your own LLM:** Anthropic, OpenAI, or local Ollama
+- → **Natural language queries:** "Why is checkout slow?" instead of PromQL
+- → **AI orchestrates tool calls:** Queries metrics, traces, topology automatically
+- → **Real-time data:** Live observability, not stale dashboards
 
 **Connector:** Insights delivered
 

@@ -104,6 +104,10 @@
                     <div class="stat-label">Your infrastructure, your AI</div>
                 </div>
                 <div class="stat-card">
+                    <div class="stat-value">Any</div>
+                    <div class="stat-label">AI assistant via MCP</div>
+                </div>
+                <div class="stat-card">
                     <div class="stat-value">∞</div>
                     <div class="stat-label">Environments supported</div>
                 </div>
@@ -180,13 +184,13 @@
 
                 <div class="feature-card">
                     <h3><span class="feature-icon">🤖</span><span class="feature-title">Diagnose</span></h3>
-                    <p>LLM-orchestrated root cause analysis:</p>
+                    <p>AI-powered insights through standard MCP protocol:</p>
                     <ul>
-                        <li><strong>Natural language:</strong> Ask "why is my API slow?" in plain English</li>
-                        <li><strong>AI-powered RCA:</strong> Automated root cause analysis from observability data</li>
-                        <li><strong>Smart orchestration:</strong> LLM decides where to probe and what to collect</li>
-                        <li><strong>Cross-service correlation:</strong> Analyzes patterns across environments</li>
-                        <li><strong>Instant insights:</strong> Actionable recommendations in &lt;1 second</li>
+                        <li><strong>Universal AI integration:</strong> Works with Claude Desktop, IDEs, any MCP client</li>
+                        <li><strong>Bring your own LLM:</strong> Use your API keys or local models (Ollama)</li>
+                        <li><strong>Natural language queries:</strong> Ask questions in plain English, not query languages</li>
+                        <li><strong>Real-time data access:</strong> AI queries live observability data, not dashboards</li>
+                        <li><strong>Built-in assistant:</strong> coral ask command for terminal-based AI</li>
                     </ul>
                 </div>
             </div>
@@ -216,8 +220,8 @@
 
                 <div class="diff-card">
                     <div class="diff-number">03</div>
-                    <h3>You Own the AI</h3>
-                    <p>Use your own LLM API keys (OpenAI/Anthropic/Ollama). We never see your data or telemetry. You control the model, costs, and data.</p>
+                    <h3>Universal AI via MCP</h3>
+                    <p>Works with any AI assistant through standard MCP protocol. Claude Desktop, VS Code, Cursor, or custom apps. Bring your own LLM (Anthropic/OpenAI/Ollama). Your data stays in your infrastructure.</p>
                 </div>
 
                 <div class="diff-card">
@@ -318,20 +322,28 @@
                 <div class="flow-step">
                     <div class="flow-number">3</div>
                     <div class="flow-content">
-                        <h3>Analyze with AI</h3>
-                        <p class="flow-description">Colony exposes MCP tools for AI-powered analysis using your own LLM</p>
+                        <h3>Query with AI</h3>
+                        <p class="flow-description">Colony exposes MCP server for universal AI integration</p>
                         <div class="flow-features">
                             <div class="feature-item">
                                 <span class="feature-bullet">→</span>
-                                <strong>MCP Server</strong> exposes topology, metrics, and diagnostic tools
+                                <strong>Works with any MCP client:</strong> Claude Desktop, VS Code, Cursor, custom apps
                             </div>
                             <div class="feature-item">
                                 <span class="feature-bullet">→</span>
-                                <strong>Your LLM</strong> (OpenAI/Anthropic/Ollama) - you own the AI
+                                <strong>Bring your own LLM:</strong> Anthropic, OpenAI, or local Ollama
                             </div>
                             <div class="feature-item">
                                 <span class="feature-bullet">→</span>
-                                <strong>Claude Desktop</strong> or custom AI clients via MCP protocol
+                                <strong>Natural language queries:</strong> "Why is checkout slow?" instead of PromQL
+                            </div>
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>AI orchestrates tool calls:</strong> Queries metrics, traces, topology automatically
+                            </div>
+                            <div class="feature-item">
+                                <span class="feature-bullet">→</span>
+                                <strong>Real-time data:</strong> Live observability, not stale dashboards
                             </div>
                         </div>
                     </div>
