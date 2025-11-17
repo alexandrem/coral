@@ -45,6 +45,13 @@ const (
 	// ColonyServiceQueryTelemetryProcedure is the fully-qualified name of the ColonyService's
 	// QueryTelemetry RPC.
 	ColonyServiceQueryTelemetryProcedure = "/coral.colony.v1.ColonyService/QueryTelemetry"
+	// ColonyServiceCallToolProcedure is the fully-qualified name of the ColonyService's CallTool RPC.
+	ColonyServiceCallToolProcedure = "/coral.colony.v1.ColonyService/CallTool"
+	// ColonyServiceStreamToolProcedure is the fully-qualified name of the ColonyService's StreamTool
+	// RPC.
+	ColonyServiceStreamToolProcedure = "/coral.colony.v1.ColonyService/StreamTool"
+	// ColonyServiceListToolsProcedure is the fully-qualified name of the ColonyService's ListTools RPC.
+	ColonyServiceListToolsProcedure = "/coral.colony.v1.ColonyService/ListTools"
 )
 
 // ColonyServiceClient is a client for the coral.colony.v1.ColonyService service.
@@ -57,6 +64,12 @@ type ColonyServiceClient interface {
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
 	// Query telemetry data from agent (RFD 025 - pull-based).
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
+	// Execute an MCP tool and return the result.
+	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
+	// Execute an MCP tool with streaming (bidirectional).
+	StreamTool(context.Context) *connect.BidiStreamForClient[v1.StreamToolRequest, v1.StreamToolResponse]
+	// List available MCP tools.
+	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
 }
 
 // NewColonyServiceClient constructs a client for the coral.colony.v1.ColonyService service. By
@@ -94,6 +107,24 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("QueryTelemetry")),
 			connect.WithClientOptions(opts...),
 		),
+		callTool: connect.NewClient[v1.CallToolRequest, v1.CallToolResponse](
+			httpClient,
+			baseURL+ColonyServiceCallToolProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("CallTool")),
+			connect.WithClientOptions(opts...),
+		),
+		streamTool: connect.NewClient[v1.StreamToolRequest, v1.StreamToolResponse](
+			httpClient,
+			baseURL+ColonyServiceStreamToolProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("StreamTool")),
+			connect.WithClientOptions(opts...),
+		),
+		listTools: connect.NewClient[v1.ListToolsRequest, v1.ListToolsResponse](
+			httpClient,
+			baseURL+ColonyServiceListToolsProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("ListTools")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -103,6 +134,9 @@ type colonyServiceClient struct {
 	listAgents     *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
 	getTopology    *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
 	queryTelemetry *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
+	callTool       *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
+	streamTool     *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
+	listTools      *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -125,6 +159,21 @@ func (c *colonyServiceClient) QueryTelemetry(ctx context.Context, req *connect.R
 	return c.queryTelemetry.CallUnary(ctx, req)
 }
 
+// CallTool calls coral.colony.v1.ColonyService.CallTool.
+func (c *colonyServiceClient) CallTool(ctx context.Context, req *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {
+	return c.callTool.CallUnary(ctx, req)
+}
+
+// StreamTool calls coral.colony.v1.ColonyService.StreamTool.
+func (c *colonyServiceClient) StreamTool(ctx context.Context) *connect.BidiStreamForClient[v1.StreamToolRequest, v1.StreamToolResponse] {
+	return c.streamTool.CallBidiStream(ctx)
+}
+
+// ListTools calls coral.colony.v1.ColonyService.ListTools.
+func (c *colonyServiceClient) ListTools(ctx context.Context, req *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error) {
+	return c.listTools.CallUnary(ctx, req)
+}
+
 // ColonyServiceHandler is an implementation of the coral.colony.v1.ColonyService service.
 type ColonyServiceHandler interface {
 	// Get colony status and health.
@@ -135,6 +184,12 @@ type ColonyServiceHandler interface {
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
 	// Query telemetry data from agent (RFD 025 - pull-based).
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
+	// Execute an MCP tool and return the result.
+	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
+	// Execute an MCP tool with streaming (bidirectional).
+	StreamTool(context.Context, *connect.BidiStream[v1.StreamToolRequest, v1.StreamToolResponse]) error
+	// List available MCP tools.
+	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
 }
 
 // NewColonyServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -168,6 +223,24 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("QueryTelemetry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceCallToolHandler := connect.NewUnaryHandler(
+		ColonyServiceCallToolProcedure,
+		svc.CallTool,
+		connect.WithSchema(colonyServiceMethods.ByName("CallTool")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceStreamToolHandler := connect.NewBidiStreamHandler(
+		ColonyServiceStreamToolProcedure,
+		svc.StreamTool,
+		connect.WithSchema(colonyServiceMethods.ByName("StreamTool")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceListToolsHandler := connect.NewUnaryHandler(
+		ColonyServiceListToolsProcedure,
+		svc.ListTools,
+		connect.WithSchema(colonyServiceMethods.ByName("ListTools")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.ColonyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ColonyServiceGetStatusProcedure:
@@ -178,6 +251,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceGetTopologyHandler.ServeHTTP(w, r)
 		case ColonyServiceQueryTelemetryProcedure:
 			colonyServiceQueryTelemetryHandler.ServeHTTP(w, r)
+		case ColonyServiceCallToolProcedure:
+			colonyServiceCallToolHandler.ServeHTTP(w, r)
+		case ColonyServiceStreamToolProcedure:
+			colonyServiceStreamToolHandler.ServeHTTP(w, r)
+		case ColonyServiceListToolsProcedure:
+			colonyServiceListToolsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -201,4 +280,16 @@ func (UnimplementedColonyServiceHandler) GetTopology(context.Context, *connect.R
 
 func (UnimplementedColonyServiceHandler) QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryTelemetry is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.CallTool is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) StreamTool(context.Context, *connect.BidiStream[v1.StreamToolRequest, v1.StreamToolResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.StreamTool is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ListTools is not implemented"))
 }

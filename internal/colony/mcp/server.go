@@ -23,6 +23,8 @@ type Server struct {
 	config    Config
 	logger    logging.Logger
 	startedAt time.Time
+	// toolFuncs maps tool names to their execution functions (for RPC calls).
+	toolFuncs map[string]interface{}
 }
 
 // Config contains configuration for the MCP server.
@@ -106,6 +108,36 @@ func (s *Server) ServeStdio(ctx context.Context) error {
 func (s *Server) Close() error {
 	s.logger.Info().Msg("Stopping MCP server")
 	return nil
+}
+
+// ExecuteTool executes an MCP tool by name with JSON-encoded arguments.
+// This is called by the colony server's RPC handler.
+func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON string) (string, error) {
+	// Validate tool exists.
+	if !s.isToolEnabled(toolName) {
+		return "", fmt.Errorf("tool not found or not enabled: %s", toolName)
+	}
+
+	// TODO: Implement direct tool execution for RPC calls.
+	// The tools are currently registered with Genkit and work fine via MCP stdio transport.
+	// For RPC calls, we need to extract the tool logic from the genkit.DefineTool closures
+	// into reusable methods that can be called both by Genkit AND by this ExecuteTool method.
+	//
+	// For now, return a helpful error message.
+	// The MCP proxy will work correctly because it uses the stdio transport which goes
+	// through Genkit's tool registry.
+
+	return "", fmt.Errorf("direct tool execution via RPC not yet implemented for tool '%s'.\n\nThe tool works correctly via MCP stdio transport (e.g., Claude Desktop).\nDirect RPC execution requires refactoring tool logic - see TODO in server.go ExecuteTool method", toolName)
+}
+
+// ListToolNames returns the list of all registered tool names (public wrapper).
+func (s *Server) ListToolNames() []string {
+	return s.listToolNames()
+}
+
+// IsToolEnabled checks if a tool is enabled based on configuration (public wrapper).
+func (s *Server) IsToolEnabled(toolName string) bool {
+	return s.isToolEnabled(toolName)
 }
 
 // registerTools registers all MCP tools with the server.

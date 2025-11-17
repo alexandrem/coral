@@ -864,7 +864,7 @@ var File_coral_colony_v1_colony_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\n" +
-	"\x1ccoral/colony/v1/colony.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18coral/mesh/v1/auth.proto\x1a\x1acoral/agent/v1/agent.proto\"\x12\n" +
+	"\x1ccoral/colony/v1/colony.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18coral/mesh/v1/auth.proto\x1a\x1acoral/agent/v1/agent.proto\x1a\x19coral/colony/v1/mcp.proto\"\x12\n" +
 	"\x10GetStatusRequest\"\xb9\x04\n" +
 	"\x11GetStatusResponse\x12\x1b\n" +
 	"\tcolony_id\x18\x01 \x01(\tR\bcolonyId\x12\x19\n" +
@@ -939,13 +939,17 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x124\n" +
 	"\x05spans\x18\x02 \x03(\v2\x1e.coral.colony.v1.TelemetrySpanR\x05spans\x12\x1f\n" +
 	"\vtotal_spans\x18\x03 \x01(\x05R\n" +
-	"totalSpans2\xf7\x02\n" +
+	"totalSpans2\xf7\x04\n" +
 	"\rColonyService\x12R\n" +
 	"\tGetStatus\x12!.coral.colony.v1.GetStatusRequest\x1a\".coral.colony.v1.GetStatusResponse\x12U\n" +
 	"\n" +
 	"ListAgents\x12\".coral.colony.v1.ListAgentsRequest\x1a#.coral.colony.v1.ListAgentsResponse\x12X\n" +
 	"\vGetTopology\x12#.coral.colony.v1.GetTopologyRequest\x1a$.coral.colony.v1.GetTopologyResponse\x12a\n" +
-	"\x0eQueryTelemetry\x12&.coral.colony.v1.QueryTelemetryRequest\x1a'.coral.colony.v1.QueryTelemetryResponseB\xb4\x01\n" +
+	"\x0eQueryTelemetry\x12&.coral.colony.v1.QueryTelemetryRequest\x1a'.coral.colony.v1.QueryTelemetryResponse\x12O\n" +
+	"\bCallTool\x12 .coral.colony.v1.CallToolRequest\x1a!.coral.colony.v1.CallToolResponse\x12Y\n" +
+	"\n" +
+	"StreamTool\x12\".coral.colony.v1.StreamToolRequest\x1a#.coral.colony.v1.StreamToolResponse(\x010\x01\x12R\n" +
+	"\tListTools\x12!.coral.colony.v1.ListToolsRequest\x1a\".coral.colony.v1.ListToolsResponseB\xb4\x01\n" +
 	"\x13com.coral.colony.v1B\vColonyProtoP\x01Z2github.com/coral-io/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
 
 var (
@@ -977,6 +981,12 @@ var file_coral_colony_v1_colony_proto_goTypes = []any{
 	(*timestamppb.Timestamp)(nil),      // 12: google.protobuf.Timestamp
 	(*v1.ServiceInfo)(nil),             // 13: coral.mesh.v1.ServiceInfo
 	(*v11.RuntimeContextResponse)(nil), // 14: coral.agent.v1.RuntimeContextResponse
+	(*CallToolRequest)(nil),            // 15: coral.colony.v1.CallToolRequest
+	(*StreamToolRequest)(nil),          // 16: coral.colony.v1.StreamToolRequest
+	(*ListToolsRequest)(nil),           // 17: coral.colony.v1.ListToolsRequest
+	(*CallToolResponse)(nil),           // 18: coral.colony.v1.CallToolResponse
+	(*StreamToolResponse)(nil),         // 19: coral.colony.v1.StreamToolResponse
+	(*ListToolsResponse)(nil),          // 20: coral.colony.v1.ListToolsResponse
 }
 var file_coral_colony_v1_colony_proto_depIdxs = []int32{
 	12, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
@@ -992,12 +1002,18 @@ var file_coral_colony_v1_colony_proto_depIdxs = []int32{
 	2,  // 10: coral.colony.v1.ColonyService.ListAgents:input_type -> coral.colony.v1.ListAgentsRequest
 	5,  // 11: coral.colony.v1.ColonyService.GetTopology:input_type -> coral.colony.v1.GetTopologyRequest
 	9,  // 12: coral.colony.v1.ColonyService.QueryTelemetry:input_type -> coral.colony.v1.QueryTelemetryRequest
-	1,  // 13: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
-	3,  // 14: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
-	6,  // 15: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
-	10, // 16: coral.colony.v1.ColonyService.QueryTelemetry:output_type -> coral.colony.v1.QueryTelemetryResponse
-	13, // [13:17] is the sub-list for method output_type
-	9,  // [9:13] is the sub-list for method input_type
+	15, // 13: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
+	16, // 14: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
+	17, // 15: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
+	1,  // 16: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
+	3,  // 17: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
+	6,  // 18: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
+	10, // 19: coral.colony.v1.ColonyService.QueryTelemetry:output_type -> coral.colony.v1.QueryTelemetryResponse
+	18, // 20: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
+	19, // 21: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
+	20, // 22: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
+	16, // [16:23] is the sub-list for method output_type
+	9,  // [9:16] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -1008,6 +1024,7 @@ func file_coral_colony_v1_colony_proto_init() {
 	if File_coral_colony_v1_colony_proto != nil {
 		return
 	}
+	file_coral_colony_v1_mcp_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

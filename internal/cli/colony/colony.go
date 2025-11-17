@@ -27,6 +27,7 @@ import (
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-io/coral/internal/colony"
 	"github.com/coral-io/coral/internal/colony/database"
+	"github.com/coral-io/coral/internal/colony/mcp"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/colony/server"
 	"github.com/coral-io/coral/internal/config"
@@ -1294,6 +1295,42 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		MeshIPv6:           cfg.WireGuard.MeshIPv6,
 	}
 	colonySvc := server.New(agentRegistry, db, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
+
+	// Initialize MCP server (RFD 004 - MCP server integration).
+	// Load colony config for MCP settings.
+	mcpLoader, mcpErr := config.NewLoader()
+	if mcpErr != nil {
+		return nil, fmt.Errorf("failed to create config loader for MCP: %w", mcpErr)
+	}
+	colonyConfig, mcpErr = mcpLoader.LoadColonyConfig(cfg.ColonyID)
+	if mcpErr != nil {
+		return nil, fmt.Errorf("failed to load colony config for MCP: %w", mcpErr)
+	}
+
+	// Create MCP server if not disabled.
+	if !colonyConfig.MCP.Disabled {
+		mcpConfig := mcp.Config{
+			ColonyID:              cfg.ColonyID,
+			ApplicationName:       cfg.ApplicationName,
+			Environment:           cfg.Environment,
+			Disabled:              colonyConfig.MCP.Disabled,
+			EnabledTools:          colonyConfig.MCP.EnabledTools,
+			RequireRBACForActions: colonyConfig.MCP.Security.RequireRBACForActions,
+			AuditEnabled:          colonyConfig.MCP.Security.AuditEnabled,
+		}
+
+		mcpServer, err := mcp.New(agentRegistry, db, mcpConfig, logger.With().Str("component", "mcp-server").Logger())
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to initialize MCP server, continuing without MCP support")
+		} else {
+			colonySvc.SetMCPServer(mcpServer)
+			logger.Info().
+				Int("tool_count", len(mcpServer.ListToolNames())).
+				Msg("MCP server initialized and attached to colony")
+		}
+	} else {
+		logger.Info().Msg("MCP server is disabled in configuration")
+	}
 
 	// Register the handlers
 	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(meshSvc)

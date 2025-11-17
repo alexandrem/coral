@@ -35,6 +35,7 @@ type Config struct {
 type Server struct {
 	registry  *registry.Registry
 	database  *database.Database
+	mcpServer interface{} // *mcp.Server - using interface to avoid import cycle
 	config    Config
 	startTime time.Time
 	logger    zerolog.Logger
@@ -261,3 +262,62 @@ func (s *Server) QueryTelemetry(
 
 // Note: IngestTelemetry RPC was removed in favor of pull-based architecture (RFD 025).
 // Colony now queries agents on-demand using QueryTelemetry RPC and creates summaries locally.
+
+// CallTool executes an MCP tool and returns the result (RFD 004).
+func (s *Server) CallTool(
+	ctx context.Context,
+	req *connect.Request[colonyv1.CallToolRequest],
+) (*connect.Response[colonyv1.CallToolResponse], error) {
+	s.logger.Info().
+		Str("tool", req.Msg.ToolName).
+		Msg("MCP tool call received via RPC")
+
+	// Execute the tool.
+	result, err := s.ExecuteTool(ctx, req.Msg.ToolName, req.Msg.ArgumentsJson)
+	if err != nil {
+		return connect.NewResponse(&colonyv1.CallToolResponse{
+			Result:  "",
+			Error:   err.Error(),
+			Success: false,
+		}), nil
+	}
+
+	return connect.NewResponse(&colonyv1.CallToolResponse{
+		Result:  result,
+		Error:   "",
+		Success: true,
+	}), nil
+}
+
+// StreamTool executes an MCP tool with streaming (bidirectional) (RFD 004).
+// This is for future streaming tools support.
+func (s *Server) StreamTool(
+	ctx context.Context,
+	stream *connect.BidiStream[colonyv1.StreamToolRequest, colonyv1.StreamToolResponse],
+) error {
+	// For now, streaming is not implemented.
+	// Future enhancement: support streaming tools that can return incremental results.
+	return fmt.Errorf("streaming tools not yet implemented")
+}
+
+// ListTools returns the list of available MCP tools (RFD 004).
+func (s *Server) ListTools(
+	ctx context.Context,
+	req *connect.Request[colonyv1.ListToolsRequest],
+) (*connect.Response[colonyv1.ListToolsResponse], error) {
+	toolNames := s.ListToolNames()
+
+	tools := make([]*colonyv1.ToolInfo, 0, len(toolNames))
+	for _, name := range toolNames {
+		enabled := s.IsToolEnabled(name)
+		tools = append(tools, &colonyv1.ToolInfo{
+			Name:        name,
+			Description: "", // TODO: Get description from tool metadata
+			Enabled:     enabled,
+		})
+	}
+
+	return connect.NewResponse(&colonyv1.ListToolsResponse{
+		Tools: tools,
+	}), nil
+}
