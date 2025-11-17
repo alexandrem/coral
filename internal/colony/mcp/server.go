@@ -112,23 +112,55 @@ func (s *Server) Close() error {
 }
 
 // ExecuteTool executes an MCP tool by name with JSON-encoded arguments.
-// This is called by the colony server's RPC handler.
+// This is called by the colony server's RPC handler and the test-tool CLI command.
 func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON string) (string, error) {
 	// Validate tool exists.
 	if !s.isToolEnabled(toolName) {
 		return "", fmt.Errorf("tool not found or not enabled: %s", toolName)
 	}
 
-	// TODO: Implement direct tool execution for RPC calls.
-	// The tools are currently registered with Genkit and work fine via MCP stdio transport.
-	// For RPC calls, we need to extract the tool logic from the genkit.DefineTool closures
-	// into reusable methods that can be called both by Genkit AND by this ExecuteTool method.
-	//
-	// For now, return a helpful error message.
-	// The MCP proxy will work correctly because it uses the stdio transport which goes
-	// through Genkit's tool registry.
+	// Execute the appropriate tool based on name.
+	// Each tool parses its own arguments and executes its logic.
+	switch toolName {
+	// Observability tools
+	case "coral_get_service_health":
+		return s.executeServiceHealthTool(ctx, argumentsJSON)
+	case "coral_get_service_topology":
+		return s.executeServiceTopologyTool(ctx, argumentsJSON)
+	case "coral_query_events":
+		return s.executeQueryEventsTool(ctx, argumentsJSON)
+	case "coral_query_beyla_http_metrics":
+		return s.executeBeylaHTTPMetricsTool(ctx, argumentsJSON)
+	case "coral_query_beyla_grpc_metrics":
+		return s.executeBeylaGRPCMetricsTool(ctx, argumentsJSON)
+	case "coral_query_beyla_sql_metrics":
+		return s.executeBeylaSQLMetricsTool(ctx, argumentsJSON)
+	case "coral_query_beyla_traces":
+		return s.executeBeylaTracesTool(ctx, argumentsJSON)
+	case "coral_get_trace_by_id":
+		return s.executeTraceByIDTool(ctx, argumentsJSON)
+	case "coral_query_telemetry_spans":
+		return s.executeTelemetrySpansTool(ctx, argumentsJSON)
+	case "coral_query_telemetry_metrics":
+		return s.executeTelemetryMetricsTool(ctx, argumentsJSON)
+	case "coral_query_telemetry_logs":
+		return s.executeTelemetryLogsTool(ctx, argumentsJSON)
 
-	return "", fmt.Errorf("direct tool execution via RPC not yet implemented for tool '%s'.\n\nThe tool works correctly via MCP stdio transport (e.g., Claude Desktop).\nDirect RPC execution requires refactoring tool logic - see TODO in server.go ExecuteTool method", toolName)
+	// Live debugging tools (Phase 3)
+	case "coral_start_ebpf_collector":
+		return s.executeStartEBPFCollectorTool(ctx, argumentsJSON)
+	case "coral_stop_ebpf_collector":
+		return s.executeStopEBPFCollectorTool(ctx, argumentsJSON)
+	case "coral_list_ebpf_collectors":
+		return s.executeListEBPFCollectorsTool(ctx, argumentsJSON)
+	case "coral_exec_command":
+		return s.executeExecCommandTool(ctx, argumentsJSON)
+	case "coral_shell_start":
+		return s.executeShellStartTool(ctx, argumentsJSON)
+
+	default:
+		return "", fmt.Errorf("unknown tool: %s", toolName)
+	}
 }
 
 // ListToolNames returns the list of all registered tool names (public wrapper).

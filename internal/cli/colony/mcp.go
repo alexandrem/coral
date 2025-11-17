@@ -92,6 +92,7 @@ This shows the tools that can be called by MCP clients like Claude Desktop.`,
 				description string
 				required    []string
 			}{
+				// Observability tools
 				{"coral_get_service_health", "Get current health status of services", []string{}},
 				{"coral_get_service_topology", "Get service dependency graph", []string{}},
 				{"coral_query_events", "Query operational events", []string{}},
@@ -103,6 +104,13 @@ This shows the tools that can be called by MCP clients like Claude Desktop.`,
 				{"coral_query_telemetry_spans", "Query OTLP spans", []string{"service"}},
 				{"coral_query_telemetry_metrics", "Query OTLP metrics", []string{}},
 				{"coral_query_telemetry_logs", "Query OTLP logs", []string{}},
+
+				// Live debugging tools (Phase 3)
+				{"coral_start_ebpf_collector", "Start on-demand eBPF profiling", []string{"collector_type", "service"}},
+				{"coral_stop_ebpf_collector", "Stop running eBPF collector", []string{"collector_id"}},
+				{"coral_list_ebpf_collectors", "List active eBPF collectors", []string{}},
+				{"coral_exec_command", "Execute command in container", []string{"service", "command"}},
+				{"coral_shell_start", "Interactive agent debug shell", []string{"service"}},
 			}
 
 			// Filter based on enabled tools if configured.

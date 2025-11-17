@@ -1402,18 +1402,30 @@ placeholders pending data integration.
 
 **Location:** `internal/colony/mcp/tools_debugging.go`, `internal/colony/mcp/types.go`
 
-### Phase 3: CLI & Configuration 🔄 IN PROGRESS
+### Phase 3: CLI & Configuration ✅ COMPLETED
 
 - [x] Implement colony configuration (`mcp` section in `colony.yaml`)
 - [x] Implement `coral colony mcp proxy` command (connects to colony MCP)
-- [x] Implement `coral colony mcp list-tools` command
-- [ ] Implement `coral colony mcp test-tool` command (structure exists,
-  execution
-  TODO)
+- [x] Implement `coral colony mcp list-tools` command (lists all 16 tools)
+- [x] Implement `coral colony mcp test-tool` command (full execution support)
 - [x] Implement `coral colony mcp generate-config` command
 
-**Status:** Most CLI commands implemented. `test-tool` has command structure but
-actual tool execution not yet implemented (prints placeholder message).
+**Status:** All CLI commands fully implemented. Tools can be tested locally via `test-tool` command which calls tools via RPC.
+
+**Tool Execution Architecture:**
+
+Tools are implemented with dual execution paths:
+
+1. **MCP stdio transport (Genkit)**: Used by Claude Desktop and MCP clients
+   - Tools registered via `genkit.DefineTool()`
+   - Genkit handles MCP protocol, JSON-RPC, schema validation
+
+2. **Direct RPC execution**: Used by `test-tool` command and internal RPC calls
+   - Execution methods in `tools_exec.go` parse JSON args and execute logic
+   - `ExecuteTool()` dispatcher routes to appropriate execution method
+   - Same tool logic, different transport layer
+
+This architecture enables both MCP protocol compatibility AND programmatic access via RPC.
 
 **Proxy Architecture:**
 
@@ -1444,8 +1456,9 @@ DuckDB + Agent Registry
 
 **Location:**
 
-- `internal/cli/colony/mcp.go` - MCP subcommands
-- `internal/cli/proxy/mcp.go` - Proxy MCP command
+- `internal/cli/colony/mcp.go` - MCP subcommands (list-tools, test-tool, generate-config, proxy)
+- `internal/colony/mcp/tools_exec.go` - Tool execution methods for RPC calls
+- `internal/colony/mcp/server.go` - ExecuteTool dispatcher
 - `internal/config/schema.go` - Configuration structs
 
 ### Phase 4: Testing & Documentation ✅ COMPLETED
@@ -1993,9 +2006,8 @@ all available tools.
 
 - ✅ Database query methods for all Beyla metrics (HTTP, gRPC, SQL, traces)
 - ✅ Aggregation helpers for percentiles, status codes, top resources
-- ✅ CLI commands: `coral colony mcp {list-tools,generate-config,proxy}`
-- ⏳ CLI command: `coral colony mcp test-tool` (structure implemented, execution
-  TODO)
+- ✅ CLI commands: `coral colony mcp {list-tools,test-tool,generate-config,proxy}`
+- ✅ Tool execution layer (`tools_exec.go`) for direct RPC access
 - ✅ Configuration schema in `colony.yaml` with tool filtering and audit support
 - ✅ Comprehensive test coverage (unit + integration tests)
 - ✅ E2E testing documentation (`internal/colony/mcp/TESTING.md`)
@@ -2034,10 +2046,10 @@ AI assistants (Claude Desktop, custom MCP clients) can:
 - ✅ Proxy command implemented as pure MCP ↔ RPC protocol translator
 - ✅ Genkit dependency integrated (`github.com/firebase/genkit/go` v1.1.0)
 - ✅ Schema generation using `invopop/jsonschema` reflection
-- ⏳ Direct tool execution via RPC: Tools work via MCP stdio transport; direct
-  RPC
-  execution requires refactoring tool logic into reusable methods (see TODO in
-  `internal/colony/mcp/server.go` ExecuteTool method)
+- ✅ Direct tool execution via RPC: Tool execution methods implemented in `tools_exec.go`
+  - ExecuteTool() dispatcher routes to appropriate tool methods
+  - Tools accessible via both MCP stdio (Genkit) and direct RPC calls
+  - Enables `coral colony mcp test-tool` command for local testing
 
 ## Deferred Features
 
