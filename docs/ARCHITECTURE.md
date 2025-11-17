@@ -1,64 +1,201 @@
 # Architecture
 
-## 🏗️ Components
+## 🏗️ Components Overview
 
-| **Component**         | **Role**                                                                                                                                                                                                                                                                                                                                                                                                                                  | **Key Rationale**                                                                                                             |
-|-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| **Colony**            | **Control Plane & Coordinator:** Manages agent registration and health monitoring. Polls agents for telemetry data (Beyla metrics, OTLP spans/metrics/logs). Creates summaries and aggregates in local DuckDB. Exposes MCP server (via Genkit) for AI tool calling. Enforces RBAC/Audit for all tool calls. Issues Delegate JWTs for direct agent access. Routes commands to agents. Exposes Buf Connect APIs for RPC communication.      | Centralizes coordination, security enforcement, data aggregation, and provides MCP gateway for AI assistant integration.      |
-| **Agent**             | **Local Observer & Data Collector:** Runs on each service/container. Embeds Beyla for automatic eBPF-based observability (HTTP/gRPC/SQL metrics, distributed traces). Collects OTLP telemetry from instrumented applications. Stores recent data locally (~1hr rolling window) in embedded DuckDB. Reports health and telemetry summaries to Colony. Executes commands from Colony (eBPF probes, exec, shell sessions via Delegate JWTs). | Provides zero-config observability at the edge with minimal overhead. Local storage enables direct queries for detailed data. |
-| **Coral CLI**         | **Developer Interface:** Single binary providing all Coral commands (`coral init`, `coral colony start`, `coral connect`, `coral ask`, `coral colony mcp`, etc.). Manages colony lifecycle. Configures WireGuard mesh. Connects agents to colonies. Provides MCP proxy command for AI assistant integration. Built-in help and documentation.                                                                                             | Unified command-line interface for all Coral operations, simplifying developer workflow.                                      |
-| **MCP Proxy**         | **Protocol Bridge (Public-facing MCP Server):** The `coral colony mcp proxy` command translates between MCP JSON-RPC (stdio) and Buf Connect gRPC. Reads MCP requests from Claude Desktop/IDEs via stdin. Forwards requests to Colony via Buf Connect RPCs (CallTool, StreamTool, ListTools). Returns responses via stdout. Pure protocol translation with no business logic or database access.                                          | Enables external AI assistants to query Colony observability data using standard MCP protocol over stdio.                     |
-| **External LLM Apps** | **AI Assistants & Tool-calling Clients:** Applications like Claude Desktop, Cursor IDE, or custom MCP clients that connect to Colony via the MCP proxy. Query observability data through MCP tools (service health, metrics, traces, events). Run on user's machine with user's LLM provider (Anthropic, OpenAI, local Ollama). Synthesize natural language insights from Coral data.                                                     | Brings AI-powered observability queries to wherever developers are already working (IDE, desktop).                            |
-| **`coral ask`**       | **Local AI CLI:** Interactive command-line AI assistant powered by Genkit. Uses local LLM (Ollama) or user's API keys (OpenAI, Anthropic). Connects to Colony as MCP client via Genkit's native MCP plugin. Queries Colony data through same MCP tools as Claude Desktop. Enables terminal-based AI conversations about system health, debugging, and incident investigation without leaving the command line.                            | Provides AI-powered observability in the terminal, using local compute for fast iteration and privacy.                        |
-| **Reef**              | **Global Aggregation & Enterprise LLM Host:** Federates multiple colonies across regions/environments. Central data warehouse (ClickHouse/TimescaleDB) for long-term storage and cross-colony analytics. Hosts single enterprise-grade LLM for consistent, auditable AI-powered RCA and insights. Provides global dashboard view. Enables cross-environment correlation (prod vs staging) and deployment timeline analysis.               | Ensures consistency across organization, controls costs with centralized LLM, and enables global observability insights.      |
+| **Component**         | **Role**                                                                                           | **Key Technology**           |
+|-----------------------|----------------------------------------------------------------------------------------------------|------------------------------|
+| **Colony**            | Control plane coordinator managing agent registration, telemetry aggregation, and MCP gateway.     | Go, DuckDB, Genkit MCP       |
+| **Agent**             | Local observer collecting eBPF-based observability data with embedded storage.                     | Go, Beyla (eBPF), DuckDB     |
+| **Coral CLI**         | Developer interface providing unified commands for all Coral operations.                           | Go, Cobra CLI                |
+| **MCP Proxy**         | Protocol bridge translating MCP JSON-RPC (stdio) to Buf Connect gRPC for AI assistants.           | Go, Buf Connect              |
+| **External LLM Apps** | AI assistants (Claude Desktop, IDEs) querying Colony via MCP for observability insights.          | MCP protocol, various LLMs   |
+| **`coral ask`**       | Interactive command-line AI assistant connecting to Colony as MCP client.                          | Genkit, Ollama/API keys      |
+| **Reef**              | Global aggregation service federating multiple colonies with enterprise LLM hosting.               | ClickHouse/TimescaleDB, LLMs |
+
+## Component Details
+
+### Colony
+
+**Role:** Control Plane & Coordinator
+
+The Colony acts as the central control plane for the entire mesh, providing:
+
+- **Agent Management:** Handles agent registration, health monitoring, and lifecycle management
+- **Data Aggregation:** Polls agents for telemetry data (Beyla metrics, OTLP spans/metrics/logs) and creates summaries in local DuckDB
+- **MCP Gateway:** Exposes MCP server (via Genkit) for AI tool calling, enabling external LLM applications to query observability data
+- **Security Enforcement:** Enforces RBAC and audit logging for all tool calls; issues Delegate JWTs for direct agent access
+- **Command Routing:** Routes commands to agents for on-demand actions (eBPF probes, exec, shell sessions)
+- **API Layer:** Exposes Buf Connect APIs for type-safe RPC communication
+
+**Key Rationale:** Centralizes coordination, security enforcement, and data aggregation while providing a standard MCP gateway for AI assistant integration.
+
+**Technology Stack:**
+- Go for core implementation
+- DuckDB for embedded analytics database
+- Genkit MCP plugin for tool registration and discovery
+- Buf Connect for type-safe gRPC APIs
+- WireGuard for mesh networking
+
+### Agent
+
+**Role:** Local Observer & Data Collector
+
+Agents run on each service or container to provide edge-based observability:
+
+- **Zero-Config Observability:** Embeds Beyla for automatic eBPF-based monitoring of HTTP/gRPC/SQL traffic without code changes
+- **Distributed Tracing:** Automatically captures distributed traces from application traffic
+- **OTLP Collection:** Collects telemetry from instrumented applications using OpenTelemetry SDKs
+- **Local Storage:** Stores recent data (~1hr rolling window) in embedded DuckDB for fast queries and reduced network overhead
+- **Health Reporting:** Sends periodic health and telemetry summaries to Colony
+- **Command Execution:** Executes commands from Colony (via Delegate JWTs) for on-demand eBPF probes, container exec, and shell sessions
+
+**Key Rationale:** Provides zero-configuration observability at the edge with minimal performance overhead. Local storage enables direct queries for detailed data without overwhelming the central colony.
+
+**Technology Stack:**
+- Go for agent framework
+- Beyla (eBPF) for automatic instrumentation
+- DuckDB for embedded storage
+- OTLP receivers for telemetry collection
+- WireGuard for secure mesh communication
+
+### Coral CLI
+
+**Role:** Developer Interface
+
+Single binary providing all Coral commands and operations:
+
+- **Colony Lifecycle:** Manage colony initialization, startup, and shutdown (`coral init`, `coral colony start`)
+- **Mesh Configuration:** Set up and configure WireGuard mesh networking
+- **Agent Connection:** Connect agents to colonies and manage agent lifecycle
+- **MCP Integration:** Provide MCP proxy command for AI assistant integration (`coral colony mcp proxy`)
+- **Developer Tools:** Built-in help, documentation, and troubleshooting commands
+- **AI Assistant:** Interactive `coral ask` command for terminal-based AI conversations
+
+**Key Rationale:** Unified command-line interface simplifies developer workflow by consolidating all Coral operations into a single, well-documented tool.
+
+**Technology Stack:**
+- Go with Cobra for CLI framework
+- Integrated WireGuard configuration
+- Buf Connect client for Colony communication
+
+### MCP Proxy
+
+**Role:** Protocol Bridge (Public-facing MCP Server)
+
+The `coral colony mcp proxy` command serves as the public-facing MCP server:
+
+- **Protocol Translation:** Translates between MCP JSON-RPC (stdio) and Buf Connect gRPC
+- **Stdio Interface:** Reads MCP requests from Claude Desktop/IDEs via stdin, writes responses to stdout
+- **RPC Forwarding:** Forwards requests to Colony via Buf Connect RPCs (CallTool, StreamTool, ListTools)
+- **Zero Business Logic:** Pure protocol translator with no database access or tool implementation
+- **Multi-Client Support:** Compatible with any MCP client (Claude Desktop, custom LLM apps, AI agent frameworks)
+
+**Key Rationale:** Enables external AI assistants to query Colony observability data using the standard MCP protocol over stdio, while keeping the actual MCP server implementation internal to the Colony.
+
+**Technology Stack:**
+- Go for implementation
+- JSON-RPC 2.0 for MCP protocol
+- Buf Connect for Colony communication
+- Stdio transport for client communication
+
+### External LLM Apps
+
+**Role:** AI Assistants & Tool-calling Clients
+
+Applications that connect to Colony via the MCP proxy:
+
+- **Claude Desktop:** Anthropic's AI assistant with native MCP support
+- **IDE Integration:** Cursor, VS Code, and other editors with MCP plugins
+- **Custom MCP Clients:** Custom-built applications using MCP client libraries
+- **Tool Calling:** Query observability data through MCP tools (service health, metrics, traces, events)
+- **Local Execution:** Run on user's machine with their chosen LLM provider (Anthropic, OpenAI, local Ollama)
+- **Natural Language Synthesis:** Convert raw observability data into natural language insights and recommendations
+
+**Key Rationale:** Brings AI-powered observability queries to wherever developers are already working (IDE, desktop), without requiring embedded LLMs in the infrastructure.
+
+**Technology Stack:**
+- Various (Claude Desktop, Cursor, custom apps)
+- MCP protocol for communication
+- User-provided LLM APIs (Anthropic, OpenAI) or local models (Ollama)
+
+### `coral ask`
+
+**Role:** Local AI CLI
+
+Interactive command-line AI assistant for terminal-based observability queries:
+
+- **Terminal Integration:** Provides AI-powered observability without leaving the command line
+- **LLM Flexibility:** Uses local LLM (Ollama) or user's API keys (OpenAI, Anthropic) via Genkit
+- **MCP Client:** Connects to Colony as MCP client using Genkit's native MCP plugin
+- **Unified Tools:** Queries Colony data through the same MCP tools as Claude Desktop
+- **Investigation Workflows:** Enables rapid incident investigation and system health checks via conversational AI
+- **Local Privacy:** Can run entirely locally with Ollama for sensitive environments
+
+**Key Rationale:** Provides AI-powered observability in the terminal using local compute for fast iteration, privacy, and developer productivity.
+
+**Technology Stack:**
+- Genkit Go SDK for LLM orchestration
+- Genkit MCP plugin for Colony communication
+- Ollama for local models or API integration for cloud LLMs
+- Interactive terminal UI
+
+### Reef
+
+**Role:** Global Aggregation & Enterprise LLM Host
+
+Enterprise-grade global observability platform:
+
+- **Multi-Colony Federation:** Aggregates data from multiple colonies across regions and environments
+- **Long-term Storage:** Central data warehouse (ClickHouse/TimescaleDB) for historical analytics
+- **Centralized LLM:** Hosts single enterprise-grade LLM for consistent, auditable AI-powered RCA and insights
+- **Global Dashboard:** Provides unified view across all colonies and environments
+- **Cross-Environment Correlation:** Enables comparison between prod, staging, and dev environments
+- **Deployment Timeline:** Tracks and correlates deployments with incidents across the organization
+- **Cost Optimization:** Centralized LLM reduces costs compared to per-developer LLM subscriptions
+
+**Key Rationale:** Ensures consistency across the organization, controls costs with centralized LLM infrastructure, and enables global observability insights that span multiple colonies.
+
+**Technology Stack:**
+- ClickHouse or TimescaleDB for time-series storage
+- Centralized LLM deployment (self-hosted or managed)
+- Multi-colony data aggregation pipeline
+- Global visualization dashboard
 
 * * *
 
 ## 🔑 Key Features and Data Flows
 
-### 1\. Colony as the MCP Gateway
+### 1. Colony as the MCP Gateway
 
-The Colony now exclusively acts as the **Control Plane** for the mesh. It
-exposes a standard set of
-tool calls (like `issue_dynamic_probe`, `query_trace_data`) that are consumed by
-external LLM
-agents. Every request must pass the Colony's **audit and RBAC checks**, making
-it the central
+The Colony now exclusively acts as the **Control Plane** for the mesh. It exposes a standard set of
+tool calls (like `issue_dynamic_probe`, `query_trace_data`) that are consumed by external LLM
+agents. Every request must pass the Colony's **audit and RBAC checks**, making it the central
 security enforcement point.
 
-### 2\. Developer Empowerment (The `coral ask` Command)
+### 2. Developer Empowerment (The `coral ask` Command)
 
 The developer uses their local machine's compute power for the LLM's reasoning:
 
-- **Local LLM Agent:** The `coral ask` command launches an agent that can host
-  an LLM (e.g., Llama
+- **Local LLM Agent:** The `coral ask` command launches an agent that can host an LLM (e.g., Llama
     3) on the developer's workstation.
 
-- **Secure Connection:** This local agent connects to the Colony via the *
-  *secure WireGuard mesh**
+- **Secure Connection:** This local agent connects to the Colony via the **secure WireGuard mesh**
   and communicates using the Colony's MCP API.
 
-- **Direct Stream:** When the LLM decides to initiate a **live probe** for RCA,
-  the Colony issues a
-  **short-lived Delegate JWT**, allowing the developer's local agent to
-  establish a direct,
-  low-latency data stream with the target **Agent** (bypassing the Colony for
-  data flow, but not for
+- **Direct Stream:** When the LLM decides to initiate a **live probe** for RCA, the Colony issues a
+  **short-lived Delegate JWT**, allowing the developer's local agent to establish a direct,
+  low-latency data stream with the target **Agent** (bypassing the Colony for data flow, but not for
   authorization).
 
-### 3\. Reef's Centralized Intelligence
+### 3. Reef's Centralized Intelligence
 
 The Reef is the **Global Investigation Hub** and **Enterprise LLM Service**.
 
-- **Consistency:** By hosting a single, specialized LLM, the Reef ensures that
-  all global
-  investigations and automated RCA reports are generated using the same model
-  and proprietary prompt
-  engineering, which is crucial for enterprise-wide consistency and
-  auditability.
+- **Consistency:** By hosting a single, specialized LLM, the Reef ensures that all global
+  investigations and automated RCA reports are generated using the same model and proprietary prompt
+  engineering, which is crucial for enterprise-wide consistency and auditability.
 
-- **High-Level Analysis:** The Reef is responsible for aggregating data from all
-  Colonies for
+- **High-Level Analysis:** The Reef is responsible for aggregating data from all Colonies for
   cross-regional correlation and providing the centralized dashboard view.
 
 * * *
@@ -67,12 +204,7 @@ The Reef is the **Global Investigation Hub** and **Enterprise LLM Service**.
 
 ### Overview
 
-Colony exposes its observability capabilities through the **Model Context
-Protocol (MCP)**, enabling AI assistants like Claude Desktop to query
-distributed system health, metrics, traces, and telemetry. The implementation
-uses a **proxy architecture** where the local `coral mcp proxy` command acts as
-the public-facing MCP server, translating between MCP JSON-RPC protocol and Buf
-Connect gRPC.
+Colony exposes its observability capabilities through the **Model Context Protocol (MCP)**, enabling AI assistants like Claude Desktop to query distributed system health, metrics, traces, and telemetry. The implementation uses a **proxy architecture** where the local `coral mcp proxy` command acts as the public-facing MCP server, translating between MCP JSON-RPC protocol and Buf Connect gRPC.
 
 ### Architecture
 
@@ -115,10 +247,8 @@ Connect gRPC.
 
 **Location:** `internal/colony/mcp/server.go`
 
-- Uses **Genkit Go SDK** (`github.com/firebase/genkit/go/plugins/mcp`) for MCP
-  server implementation
-- Registers all MCP tools: health, topology, Beyla metrics, traces, OTLP
-  telemetry
+- Uses **Genkit Go SDK** (`github.com/firebase/genkit/go/plugins/mcp`) for MCP server implementation
+- Registers all MCP tools: health, topology, Beyla metrics, traces, OTLP telemetry
 - Integrated into colony startup (runs automatically with colony)
 - Executes tools by querying DuckDB and agent registry
 - **NOT directly exposed to external clients**
@@ -136,8 +266,7 @@ Connect gRPC.
 
 #### 2. Buf Connect RPC Interface
 
-**Location:** `proto/coral/colony/v1/mcp.proto`,
-`internal/colony/server/mcp_tools.go`
+**Location:** `proto/coral/colony/v1/mcp.proto`, `internal/colony/server/mcp_tools.go`
 
 Colony exposes three RPCs for MCP communication:
 
@@ -180,7 +309,7 @@ The `coral colony mcp proxy` command is the **only public-facing MCP server**:
 **Usage:**
 
 ```bash
-# Used by Claude Desktop
+# Used by Claude Desktop or other MCP clients
 coral colony mcp proxy
 
 # Or for specific colony
@@ -272,10 +401,8 @@ mcp:
 
 ### Architecture Benefits
 
-1. **Clean Separation:** Proxy has zero business logic, purely translates
-   protocols
-2. **No Database Conflicts:** Proxy doesn't access database (previous limitation
-   removed)
+1. **Clean Separation:** Proxy has zero business logic, purely translates protocols
+2. **No Database Conflicts:** Proxy doesn't access database (previous limitation removed)
 3. **Real-time Data:** Direct RPC to colony ensures fresh data
 4. **Type Safety:** Protocol Buffers ensure correct types
 5. **Scalable:** Multiple proxies can connect to same colony
@@ -284,10 +411,7 @@ mcp:
 
 ### Future Enhancements (Optional)
 
-**HTTP Streamable Transport:** For web-based clients or remote access, HTTP
-transport could be added alongside the current RPC implementation. Not required
-for current use cases (Claude Desktop, coral ask). See RFD 004 "Deferred
-Features."
+**HTTP Streamable Transport:** For web-based clients or remote access, HTTP transport could be added alongside the current RPC implementation. Not required for current use cases (Claude Desktop, coral ask). See RFD 004 "Deferred Features."
 
 ### Related Documentation
 
