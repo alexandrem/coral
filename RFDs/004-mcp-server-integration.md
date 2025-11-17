@@ -15,7 +15,7 @@ areas: [ "mcp", "ai", "integration" ]
 
 **Status:** 🎉 Implemented
 
-**Last Updated:** 2025-11-16
+**Last Updated:** 2025-11-17
 
 ## Summary
 
@@ -1936,19 +1936,24 @@ Both use the same MCP tools, but different LLM hosting:
 
 **Core Capability:** 🎉 Implemented
 
-MCP server package implemented with Genkit architecture. Colony exposes
-observability data via MCP protocol, enabling AI assistants to query service
-health, metrics, traces, and telemetry.
+MCP server package fully implemented with Genkit architecture and automatic JSON
+Schema generation. Colony exposes observability data via MCP protocol with
+complete tool definitions, enabling AI assistants to understand and correctly use
+all available tools.
 
 **Operational Tools:**
 
 - ✅ `coral_get_service_health` - Agent health monitoring via registry
 - ✅ `coral_get_service_topology` - Service discovery via registry
+- ✅ `coral_query_events` - Operational event tracking
 - ✅ `coral_query_beyla_http_metrics` - HTTP RED metrics from RFD 032
 - ✅ `coral_query_beyla_grpc_metrics` - gRPC RED metrics from RFD 032
 - ✅ `coral_query_beyla_sql_metrics` - SQL query metrics from RFD 032
 - ✅ `coral_query_beyla_traces` - Distributed tracing from RFD 036
+- ✅ `coral_get_trace_by_id` - Detailed trace retrieval
 - ✅ `coral_query_telemetry_spans` - OTLP summaries from RFD 025
+- ✅ `coral_query_telemetry_metrics` - OTLP custom metrics
+- ✅ `coral_query_telemetry_logs` - OTLP log queries
 
 **Infrastructure:**
 
@@ -1957,30 +1962,43 @@ health, metrics, traces, and telemetry.
 - ✅ CLI commands: `coral colony mcp {list-tools,generate-config,proxy}`
 - ⏳ CLI command: `coral colony mcp test-tool` (structure implemented, execution
   TODO)
-- ✅ Configuration schema in `colony.yaml`
+- ✅ Configuration schema in `colony.yaml` with tool filtering and audit support
 - ✅ Comprehensive test coverage (unit + integration tests)
 - ✅ E2E testing documentation (`internal/colony/mcp/TESTING.md`)
 
+**Tool Schema Generation:**
+
+- ✅ Automatic JSON Schema generation from typed input structs using
+  `invopop/jsonschema`
+- ✅ Complete parameter definitions with descriptions, types, enums, defaults
+- ✅ Required field validation in schemas
+- ✅ Proto ToolInfo message extended with `input_schema_json` field
+- ✅ MCP proxy properly parses and forwards schemas to clients
+- ✅ All 11 tools have complete, validated JSON Schema definitions
+
 **What Works Now:**
 
-AI assistants (Claude Desktop, custom clients) can query:
+AI assistants (Claude Desktop, custom MCP clients) can:
 
-- Service health and topology
-- HTTP/gRPC/SQL performance metrics with latency percentiles
-- Distributed traces with span analysis
-- OTLP telemetry summaries with error rates
+- Discover all available tools with complete parameter schemas
+- Understand tool parameters (types, descriptions, enums, required fields)
+- Query service health and topology
+- Analyze HTTP/gRPC/SQL performance metrics with latency percentiles
+- Investigate distributed traces with span analysis
+- Query OTLP telemetry (spans, metrics, logs) with filtering
+- Track operational events (deploys, crashes, alerts)
 - All with automatic time range parsing and result formatting
 
 **Integration Status:**
 
 - ✅ MCP server integrated into colony startup (automatically starts with colony)
-- ✅ Buf Connect RPCs implemented (CallTool, StreamTool, ListTools)
-- ✅ Proxy command implemented as MCP ↔ RPC translator
-- ⏳ Genkit dependency: Requires
-  `go get github.com/firebase/genkit/go/plugins/mcp@latest`
-- ⏳ Direct tool execution via RPC: Tools work via stdio, but direct RPC
-  execution needs implementation (see TODO in internal/colony/mcp/server.go
-  ExecuteTool method)
+- ✅ Buf Connect RPCs fully implemented (CallTool, StreamTool, ListTools)
+- ✅ Proxy command implemented as pure MCP ↔ RPC protocol translator
+- ✅ Genkit dependency integrated (`github.com/firebase/genkit/go` v1.1.0)
+- ✅ Schema generation using `invopop/jsonschema` reflection
+- ⏳ Direct tool execution via RPC: Tools work via MCP stdio transport; direct RPC
+  execution requires refactoring tool logic into reusable methods (see TODO in
+  `internal/colony/mcp/server.go` ExecuteTool method)
 
 ## Deferred Features
 
