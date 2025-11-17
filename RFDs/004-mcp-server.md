@@ -1270,13 +1270,13 @@ Implement MCP protocol from scratch in Colony:
 ```go
 // Colony MCP server (custom implementation)
 type MCPServer struct {
-colony *Colony
-tools  map[string]Tool
+    colony *Colony
+    tools  map[string]Tool
 }
 
 func (s *MCPServer) ServeStdio() {
-// Implement JSON-RPC 2.0 over stdio
-// Handle tool discovery and execution
+    // Implement JSON-RPC 2.0 over stdio
+    // Handle tool discovery and execution
 }
 ```
 
@@ -1307,17 +1307,17 @@ Use Genkit's built-in MCP server capabilities:
 import "github.com/firebase/genkit/go/plugins/mcp"
 
 func (c *Colony) StartMCPServer() error {
-server := mcp.NewMCPServer(mcp.MCPServerOptions{
-Name: c.Config.ID,
-Version: "1.0.0",
-})
+    server := mcp.NewMCPServer(mcp.MCPServerOptions{
+        Name: c.Config.ID,
+        Version: "1.0.0",
+    })
 
-// Register tools
-server.RegisterTool("coral_get_service_health", healthTool)
-server.RegisterTool("coral_query_beyla_http_metrics", httpMetricsTool)
-// ... register all 26 tools
+    // Register tools
+    server.RegisterTool("coral_get_service_health", healthTool)
+    server.RegisterTool("coral_query_beyla_http_metrics", httpMetricsTool)
+    // ... register all 26 tools
 
-return server.ServeStdio()
+    return server.ServeStdio()
 }
 ```
 
@@ -1387,27 +1387,7 @@ placeholders pending data integration.
 
 **Location:** `internal/colony/mcp/tools_observability.go`
 
-### Phase 3: Colony MCP Tools - Live Debugging ⏳ NOT STARTED
-
-- [ ] Implement eBPF tools: `coral_{start,stop,list}_ebpf_collector`,
-  `coral_query_ebpf_data`
-- [ ] Implement `coral_exec_command` tool (requires RFD 017)
-- [ ] Implement `coral_shell_start` tool (requires RFD 026)
-
-**Status:** Not implemented. Requires completion of RFD 017 (exec) and RFD 026 (
-shell).
-
-**Blocked by:** RFD 017, RFD 026
-
-### Phase 4: Colony MCP Tools - Analysis ⏳ NOT STARTED
-
-- [ ] Implement `coral_correlate_events` tool
-- [ ] Implement `coral_compare_environments` tool
-- [ ] Implement `coral_get_deployment_timeline` tool
-
-**Status:** Not implemented. Requires event storage infrastructure.
-
-### Phase 5: CLI & Configuration 🔄 IN PROGRESS
+### Phase 3: CLI & Configuration 🔄 IN PROGRESS
 
 - [x] Implement colony configuration (`mcp` section in `colony.yaml`)
 - [x] Implement `coral colony mcp proxy` command (connects to colony MCP)
@@ -1453,7 +1433,7 @@ DuckDB + Agent Registry
 - `internal/cli/proxy/mcp.go` - Proxy MCP command
 - `internal/config/schema.go` - Configuration structs
 
-### Phase 6: Testing & Documentation ✅ COMPLETED
+### Phase 4: Testing & Documentation ✅ COMPLETED
 
 - [x] Unit tests for MCP server configuration
 - [x] Unit tests for tool filtering and pattern matching
@@ -1647,16 +1627,16 @@ For long-running queries (coral_reef_analyze), use MCP streaming:
 
 Response (streaming):
 {
-"jsonrpc": "2.0",
-"id": 1,
-"result": {
-"content": [
-{"type": "text", "text": "Analyzing incidents..."},
-{"type": "text", "text": "Found 3 incidents..."},
-{"type": "text", "text": "Incident 1: Database timeout on 2025-10-20..."}
-],
-"isPartial": true
-}
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "content": [
+            {"type": "text", "text": "Analyzing incidents..."},
+            {"type": "text", "text": "Found 3 incidents..."},
+            {"type": "text", "text": "Incident 1: Database timeout on 2025-10-20..."}
+        ],
+        "isPartial": true
+    }
 }
 ```
 
