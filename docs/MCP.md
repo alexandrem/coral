@@ -1,17 +1,22 @@
 # MCP Integration - AI-Powered Observability
 
-Coral Colony exposes its observability data through the **Model Context Protocol (MCP)**, enabling AI assistants like Claude Desktop to query distributed system health, metrics, traces, and telemetry.
+Coral Colony exposes its observability data through the **Model Context
+Protocol (MCP)**, enabling AI assistants like Claude Desktop to query
+distributed system health, metrics, traces, and telemetry.
 
 ## Overview
 
-**Colony acts as an MCP Server** - it exposes tools that AI assistants can call to access:
+**Colony acts as an MCP Server** - it exposes tools that AI assistants can call
+to access:
+
 - Service health and topology
 - Beyla RED metrics (HTTP/gRPC/SQL)
 - Distributed traces
 - OTLP telemetry (spans, metrics, logs)
 - Operational events
 
-**No embedded LLM** - Colony is a pure data provider. External LLMs (Claude Desktop, `coral ask`) query Colony via MCP and synthesize insights.
+**No embedded LLM** - Colony is a pure data provider. External LLMs (Claude
+Desktop, `coral ask`) query Colony via MCP and synthesize insights.
 
 ## Quick Start
 
@@ -35,16 +40,21 @@ This outputs:
 
 ```json
 {
-  "mcpServers": {
-    "coral": {
-      "command": "coral",
-      "args": ["colony", "mcp", "proxy"]
+    "mcpServers": {
+        "coral": {
+            "command": "coral",
+            "args": [
+                "colony",
+                "mcp",
+                "proxy"
+            ]
+        }
     }
-  }
 }
 ```
 
-Copy this to `~/.config/claude/claude_desktop_config.json` (macOS) or `%APPDATA%/Claude/claude_desktop_config.json` (Windows).
+Copy this to `~/.config/claude/claude_desktop_config.json` (macOS) or
+`%APPDATA%/Claude/claude_desktop_config.json` (Windows).
 
 ### 3. Restart Claude Desktop
 
@@ -53,16 +63,18 @@ After restarting, Claude can now query your Coral colony.
 ### 4. Ask Questions
 
 Try asking Claude:
+
 - "Is production healthy?"
 - "Show me HTTP error rates for the API service"
 - "What's the P95 latency for the checkout service?"
 - "Find slow database queries"
 
-Claude will automatically call the appropriate Coral MCP tools and synthesize the results.
+Claude will automatically call the appropriate Coral MCP tools and synthesize
+the results.
 
 ## Architecture
 
-### Current Implementation (Temporary)
+### Current Implementation
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -73,9 +85,18 @@ Claude will automatically call the appropriate Coral MCP tools and synthesize th
                       ▼
          ┌────────────────────────────┐
          │   Proxy Command            │
-         │   (Read-Only DB Access)    │  ← Temporary workaround
+         │   (MCP ↔ RPC translator)   │
          └────────────┬───────────────┘
-                      │ (reads database snapshots)
+                      │ Buf Connect gRPC
+                      │ (CallTool, StreamTool, ListTools)
+                      ▼
+         ┌────────────────────────────┐
+         │   Colony Server            │
+         │   • MCP Server (Genkit)    │
+         │   • Tool execution         │
+         │   • Business logic         │
+         └────────────┬───────────────┘
+                      │ (real-time queries)
                       ▼
          ┌────────────────────────────┐
          │   Colony DuckDB            │
@@ -86,40 +107,24 @@ Claude will automatically call the appropriate Coral MCP tools and synthesize th
          └────────────────────────────┘
 ```
 
-**Current Limitation:** The proxy opens the database in read-only mode to query
-data directly. This works but may show slightly stale data and isn't
-architecturally correct.
+**Architecture Benefits:**
 
-### Planned Architecture (Future)
+- Real-time data (no stale snapshots)
+- Clean separation: proxy only translates protocols, no business logic
+- No database access in proxy
+- Scalable: multiple proxies can connect to same colony
+- Type-safe with protocol buffers
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  Claude Desktop / coral ask / Custom MCP Client          │
-└─────────────────────┬────────────────────────────────────┘
-                      │ MCP Protocol (stdio)
-                      ▼
-         ┌────────────────────────────┐
-         │   Proxy Command            │
-         │   (HTTP ↔ stdio bridge)    │
-         └────────────┬───────────────┘
-                      │ MCP over HTTP Streamable
-                      ▼
-         ┌────────────────────────────┐
-         │   Colony MCP Server        │
-         │   (HTTP endpoint)          │
-         └────────────┬───────────────┘
-                      │ (real-time queries)
-                      ▼
-         ┌────────────────────────────┐
-         │   Colony DuckDB            │
-         └────────────────────────────┘
-```
+### Optional Future Enhancement
 
-**Future Improvement:** Colony will expose MCP over HTTP Streamable transport,
-and the proxy will become a simple bridge between stdio and HTTP. See RFD 004
-"Deferred Features" for details.
+**HTTP Streamable Transport:** For web-based clients or remote access, HTTP
+transport
+could be added alongside the current RPC implementation. See RFD 004 "Deferred
+Features"
+for details. Not required for current use cases (Claude Desktop, coral ask).
 
-**Key Point:** The LLM lives OUTSIDE the colony. Colony just provides data access tools.
+**Key Point:** The LLM lives OUTSIDE the colony. Colony just provides data
+access tools.
 
 ## Available MCP Tools
 
@@ -310,24 +315,24 @@ coral colony mcp proxy --colony my-shop-production
 ```yaml
 # MCP server configuration (enabled by default)
 mcp:
-  # Set to true to disable MCP server
-  disabled: false
+    # Set to true to disable MCP server
+    disabled: false
 
-  # Tool filtering (optional)
-  enabled_tools:
+    # Tool filtering (optional)
+    enabled_tools:
     # By default, all tools are enabled
     # Uncomment to restrict to specific tools:
     # - coral_query_beyla_http_metrics
     # - coral_get_service_health
     # - coral_query_events
 
-  # Security settings
-  security:
-    # Require RBAC checks for action tools (future: exec, shell, ebpf)
-    require_rbac_for_actions: true
+    # Security settings
+    security:
+        # Require RBAC checks for action tools (future: exec, shell, ebpf)
+        require_rbac_for_actions: true
 
-    # Audit all MCP tool calls
-    audit_enabled: true
+        # Audit all MCP tool calls
+        audit_enabled: true
 ```
 
 ### Multiple Colonies
@@ -342,16 +347,28 @@ Output:
 
 ```json
 {
-  "mcpServers": {
-    "coral-production": {
-      "command": "coral",
-      "args": ["colony", "mcp", "proxy", "--colony", "my-app-production"]
-    },
-    "coral-staging": {
-      "command": "coral",
-      "args": ["colony", "mcp", "proxy", "--colony", "my-app-staging"]
+    "mcpServers": {
+        "coral-production": {
+            "command": "coral",
+            "args": [
+                "colony",
+                "mcp",
+                "proxy",
+                "--colony",
+                "my-app-production"
+            ]
+        },
+        "coral-staging": {
+            "command": "coral",
+            "args": [
+                "colony",
+                "mcp",
+                "proxy",
+                "--colony",
+                "my-app-staging"
+            ]
+        }
     }
-  }
 }
 ```
 
@@ -459,6 +476,7 @@ No alerts or issues detected."
 ## Implementation Status
 
 **Currently Implemented (RFD 004):**
+
 - ✅ MCP server with stdio transport
 - ✅ Service health and topology tools
 - ✅ Beyla HTTP/gRPC/SQL metrics
@@ -468,9 +486,11 @@ No alerts or issues detected."
 - ✅ CLI commands for testing and config generation
 
 **Not Yet Implemented:**
+
 - ⏳ `test-tool` command execution (structure exists, prints placeholder)
 - ⏳ Live debugging tools (eBPF, exec, shell) - requires RFD 013, 017, 026
-- ⏳ Analysis tools (event correlation, environment comparison) - requires event storage
+- ⏳ Analysis tools (event correlation, environment comparison) - requires event
+  storage
 - ⏳ Raw telemetry queries - see RFD 041 for agent direct queries
 
 ## Advanced: Custom MCP Clients
@@ -501,8 +521,8 @@ func main() {
 
     // Check for high error rates
     metrics, err := c.CallTool("coral_query_beyla_http_metrics", map[string]any{
-        "service": "api",
-        "time_range": "5m",
+        "service":           "api",
+        "time_range":        "5m",
         "status_code_range": "5xx",
     })
 
@@ -531,34 +551,48 @@ func main() {
    ```
 
 2. Check if colony has data:
-   - Are agents connected?
-   - Is Beyla collecting metrics?
-   - Are services instrumented with OTLP?
+    - Are agents connected?
+    - Is Beyla collecting metrics?
+    - Are services instrumented with OTLP?
 
 3. Verify time ranges:
-   - Default is 1 hour
-   - If services just started, try shorter ranges: "5m", "10m"
+    - Default is 1 hour
+    - If services just started, try shorter ranges: "5m", "10m"
 
 ### Data seems stale or outdated
 
-**Known limitation:** The proxy currently reads the database in read-only mode,
-which may show data that's a few seconds old. This is a temporary workaround.
+The proxy uses real-time RPCs to query the colony, so data should be up-to-date.
+If you see stale data:
 
-**Workaround:** Data is typically refreshed within seconds. For real-time queries,
-wait for the HTTP Streamable transport implementation (see RFD 004 Deferred
-Features).
+1. Check colony is actively receiving data from agents:
+   ```bash
+   coral colony status
+   ```
 
-**Impact:** Usually negligible for typical observability queries (1h, 5m windows)
+2. Verify agents are connected and sending telemetry:
+   ```bash
+   coral colony mcp test-tool coral_get_service_health
+   ```
+
+3. Check Beyla is running and collecting metrics in agents
+
+4. Adjust time ranges to match your data collection intervals:
+    - If services just started, use shorter ranges: "5m", "10m"
+    - For historical analysis, use longer ranges: "1h", "24h"
 
 ### Permission denied errors
 
 Check that:
+
 - Colony is running with proper permissions
 - MCP security settings in `colony.yaml` are not too restrictive
 - Audit logging is working (check colony logs)
 
 ## What's Next?
 
-See [RFD 004](../RFDs/004-mcp-server-integration.md) for full implementation details and [RFD 041](../RFDs/041-mcp-agent-direct-queries.md) for upcoming features like direct agent queries for detailed telemetry.
+See [RFD 004](../RFDs/004-mcp-server-integration.md) for full implementation
+details and [RFD 041](../RFDs/041-mcp-agent-direct-queries.md) for upcoming
+features like direct agent queries for detailed telemetry.
 
-For Coral as an MCP client (querying other MCP servers like Grafana, Sentry), see the roadmap in RFD 004's "Future Enhancements" section.
+For Coral as an MCP client (querying other MCP servers like Grafana, Sentry),
+see the roadmap in RFD 004's "Future Enhancements" section.
