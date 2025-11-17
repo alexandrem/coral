@@ -276,11 +276,16 @@ func newMCPGenerateConfigCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "generate-config",
-		Short: "Generate Claude Desktop MCP configuration",
-		Long: `Generate configuration snippet for Claude Desktop.
+		Short: "Generate MCP client configuration (Claude Desktop format)",
+		Long: `Generate MCP client configuration in Claude Desktop format.
 
-Copy the output to ~/.config/claude/claude_desktop_config.json to enable
-Coral MCP integration in Claude Desktop.
+This command generates a configuration snippet compatible with Claude Desktop's
+mcpServers configuration format. Copy the output to ~/.config/claude/claude_desktop_config.json
+(macOS/Linux) or %APPDATA%/Claude/claude_desktop_config.json (Windows) to enable
+Coral MCP integration.
+
+Note: Currently outputs Claude Desktop format only. Future versions will support
+additional MCP client formats via --format flag.
 
 Examples:
   # Generate config for default colony
@@ -319,7 +324,8 @@ Examples:
 				colonies = []string{colonyID}
 			}
 
-			fmt.Println("Copy this to ~/.config/claude/claude_desktop_config.json:")
+			fmt.Println("Claude Desktop MCP Configuration (JSON format):")
+			fmt.Println("Copy this to ~/.config/claude/claude_desktop_config.json")
 			fmt.Println()
 
 			// Generate MCP servers configuration.

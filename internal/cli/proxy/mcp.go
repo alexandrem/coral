@@ -27,9 +27,12 @@ func mcpCmd() *cobra.Command {
 		Short: "Proxy to colony MCP server",
 		Long: `Connect to a running colony's MCP server and proxy stdio.
 
-This command is used by Claude Desktop to communicate with the colony's
+This command provides an MCP protocol bridge between AI assistants and the colony's
 MCP server. It connects to the running colony and forwards MCP protocol
 messages over stdio.
+
+Compatible with any MCP client including Claude Desktop, custom LLM applications,
+and AI agent frameworks that support the Model Context Protocol.
 
 The colony must be running for this command to work.
 
