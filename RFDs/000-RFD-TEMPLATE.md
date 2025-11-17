@@ -231,20 +231,19 @@ Example:
 **Core Capability:** ✅ Complete
 
 Agent BMC discovery implemented with IPMI and Redfish support. Agents can
-discover servers via DHCP and static configuration, report to colony, and
-execute basic power operations.
+discover servers via DHCP and static configuration, and execute basic power
+operations.
 
 **Operational Components:**
 - ✅ IPMI discovery and power control
 - ✅ Redfish discovery and power control
 - ✅ Static configuration via YAML
-- ✅ Agent → Colony registration
 - ✅ CLI: `bmc-cli server list|power|status`
 
 **What Works Now:**
 - Automatic server discovery on local networks
 - Remote power operations (on, off, reset, status)
-- Health monitoring via colony dashboard
+- Health monitoring via bmc dashboard
 ```
 
 **Integration Status:**
