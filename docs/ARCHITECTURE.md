@@ -80,7 +80,8 @@ Single binary providing all Coral commands and operations:
 - **Colony Lifecycle:** Manage colony initialization, startup, and shutdown (
   `coral init`, `coral colony start`)
 - **Mesh Configuration:** Set up and configure WireGuard mesh networking
-- **Service Connection:** Connect services to colonies via agents (`coral connect service:port[:health][:type]` - RFD 011)
+- **Service Connection:** Connect services to colonies via agents (
+  `coral connect service:port[:health][:type]` - RFD 011)
 - **MCP Integration:** Provide MCP proxy command for AI assistant integration (
   `coral colony mcp proxy`)
 - **Developer Tools:** Built-in help, documentation, and troubleshooting
@@ -101,14 +102,15 @@ by consolidating all Coral operations into a single, well-documented tool.
 
 #### MCP Proxy Command
 
-The `coral colony mcp proxy` command provides a protocol bridge for AI assistants:
+The `coral colony mcp proxy` command provides a protocol bridge for AI
+assistants:
 
 - **Protocol Translation:** Translates between MCP JSON-RPC (stdio) and Buf
   Connect gRPC
 - **Stdio Interface:** Reads MCP requests from Claude Desktop/IDEs via stdin,
   writes responses to stdout
 - **RPC Forwarding:** Forwards requests to Colony via Buf Connect RPCs (
-  CallTool, StreamTool, ListTools)
+  `CallTool`, `StreamTool`, `ListTools`)
 - **Zero Business Logic:** Pure protocol translator with no database access or
   tool implementation
 - **Multi-Client Support:** Compatible with any MCP client (Claude Desktop,
@@ -212,8 +214,8 @@ that span multiple colonies.
 
 ### 1. Colony as the MCP Gateway
 
-The Colony now exclusively acts as the **Control Plane** for the mesh. It
-exposes a standard set of
+The Colony acts as the **Control Plane** for the mesh. It exposes a standard set
+of
 tool calls (like `issue_dynamic_probe`, `query_trace_data`) that are consumed by
 external LLM
 agents. Every request must pass the Colony's **audit and RBAC checks**, making
@@ -222,7 +224,8 @@ security enforcement point.
 
 ### 2. Developer Empowerment with CLI AI Assistant
 
-Developers can use their local machine's compute power for AI-powered observability:
+Developers can use their local machine's compute power for AI-powered
+observability:
 
 - **Local LLM Integration:** The `coral ask` CLI command enables terminal-based
   AI conversations, hosting an LLM (e.g., Llama 3) on the developer's
