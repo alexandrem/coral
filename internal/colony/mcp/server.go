@@ -150,48 +150,45 @@ type ToolMetadata struct {
 // GetToolMetadata returns metadata for all registered tools including their input schemas.
 // This is used by the Colony server's ListTools RPC to populate tool information.
 func (s *Server) GetToolMetadata() ([]ToolMetadata, error) {
-	// Get the underlying MCP server from Genkit.
-	underlyingServer := s.mcpServer.GetServer()
-	if underlyingServer == nil {
-		return nil, fmt.Errorf("underlying MCP server not available")
-	}
+	// Get tool names and descriptions.
+	// Note: Full schema extraction from Genkit tools requires accessing the internal
+	// tool registry, which is not currently exposed by the genkit/mcp library.
+	// For now, we provide basic metadata with descriptions.
+	toolDescriptions := s.getToolDescriptions()
 
-	// Get all tools with their full definitions (including schemas).
-	toolsMap := underlyingServer.ListTools()
-
-	metadata := make([]ToolMetadata, 0, len(toolsMap))
-	for name, serverTool := range toolsMap {
+	metadata := make([]ToolMetadata, 0, len(toolDescriptions))
+	for name, description := range toolDescriptions {
 		// Only include enabled tools.
 		if !s.isToolEnabled(name) {
 			continue
 		}
 
-		// Convert the tool's input schema to JSON.
-		var inputSchemaJSON string
-		if serverTool.Tool.InputSchema != nil {
-			schemaBytes, err := json.Marshal(serverTool.Tool.InputSchema)
-			if err != nil {
-				s.logger.Warn().
-					Err(err).
-					Str("tool", name).
-					Msg("Failed to marshal tool input schema")
-				inputSchemaJSON = "{\"type\": \"object\", \"properties\": {}}"
-			} else {
-				inputSchemaJSON = string(schemaBytes)
-			}
-		} else {
-			// Default to empty object schema if no schema defined.
-			inputSchemaJSON = "{\"type\": \"object\", \"properties\": {}}"
-		}
-
 		metadata = append(metadata, ToolMetadata{
 			Name:            name,
-			Description:     serverTool.Tool.Description,
-			InputSchemaJSON: inputSchemaJSON,
+			Description:     description,
+			InputSchemaJSON: "{\"type\": \"object\", \"properties\": {}}",
 		})
 	}
 
 	return metadata, nil
+}
+
+// getToolDescriptions returns a map of tool names to their descriptions.
+// This mirrors the descriptions used when registering tools via genkit.DefineTool.
+func (s *Server) getToolDescriptions() map[string]string {
+	return map[string]string{
+		"coral_get_service_health":       "Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",
+		"coral_get_service_topology":     "Get service dependency graph discovered from distributed traces. Shows which services communicate and call frequency.",
+		"coral_query_events":             "Query operational events tracked by Coral (deployments, restarts, crashes, alerts, configuration changes).",
+		"coral_query_beyla_http_metrics": "Query HTTP RED metrics collected by Beyla (request rate, error rate, latency distributions). Returns percentiles, status code breakdown, and route-level metrics.",
+		"coral_query_beyla_grpc_metrics": "Query gRPC method-level RED metrics collected by Beyla. Returns RPC rate, latency distributions, and status code breakdown.",
+		"coral_query_beyla_sql_metrics":  "Query SQL operation metrics collected by Beyla. Returns query latencies, operation types, and table-level statistics.",
+		"coral_query_beyla_traces":       "Query distributed traces collected by Beyla. Can search by trace ID, service, time range, or duration threshold.",
+		"coral_get_trace_by_id":          "Get a specific distributed trace by ID with full span tree showing parent-child relationships and timing.",
+		"coral_query_telemetry_spans":    "Query generic OTLP spans (from instrumented applications using OpenTelemetry SDKs). Returns aggregated telemetry summaries. For detailed raw spans, see RFD 041.",
+		"coral_query_telemetry_metrics":  "Query generic OTLP metrics (from instrumented applications). Returns time-series data for custom application metrics.",
+		"coral_query_telemetry_logs":     "Query generic OTLP logs (from instrumented applications). Search application logs with full-text search and filters.",
+	}
 }
 
 // registerTools registers all MCP tools with the server.

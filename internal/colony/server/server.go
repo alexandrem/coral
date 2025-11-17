@@ -315,10 +315,10 @@ func (s *Server) ListTools(
 		for _, name := range toolNames {
 			enabled := s.IsToolEnabled(name)
 			tools = append(tools, &colonyv1.ToolInfo{
-				Name:              name,
-				Description:       "",
-				Enabled:           enabled,
-				InputSchemaJson:   "{\"type\": \"object\", \"properties\": {}}",
+				Name:            name,
+				Description:     "",
+				Enabled:         enabled,
+				InputSchemaJson: "{\"type\": \"object\", \"properties\": {}}",
 			})
 		}
 		return connect.NewResponse(&colonyv1.ListToolsResponse{
@@ -330,10 +330,10 @@ func (s *Server) ListTools(
 	tools := make([]*colonyv1.ToolInfo, 0, len(metadata))
 	for _, meta := range metadata {
 		tools = append(tools, &colonyv1.ToolInfo{
-			Name:              meta.Name,
-			Description:       meta.Description,
-			Enabled:           true, // Already filtered by GetToolMetadata
-			InputSchemaJson:   meta.InputSchemaJSON,
+			Name:            meta.Name,
+			Description:     meta.Description,
+			Enabled:         true, // Already filtered by GetToolMetadata
+			InputSchemaJson: meta.InputSchemaJSON,
 		})
 	}
 
