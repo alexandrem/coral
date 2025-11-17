@@ -71,3 +71,17 @@ func (s *Server) IsToolEnabled(toolName string) bool {
 
 	return mcpServer.IsToolEnabled(toolName)
 }
+
+// GetToolMetadata returns metadata for all tools including their input schemas.
+func (s *Server) GetToolMetadata() ([]mcp.ToolMetadata, error) {
+	if s.mcpServer == nil {
+		return nil, fmt.Errorf("MCP server not initialized")
+	}
+
+	mcpServer, ok := s.mcpServer.(*mcp.Server)
+	if !ok {
+		return nil, fmt.Errorf("invalid MCP server type")
+	}
+
+	return mcpServer.GetToolMetadata()
+}

@@ -140,6 +140,60 @@ func (s *Server) IsToolEnabled(toolName string) bool {
 	return s.isToolEnabled(toolName)
 }
 
+// ToolMetadata contains metadata about an MCP tool including its schema.
+type ToolMetadata struct {
+	Name            string
+	Description     string
+	InputSchemaJSON string
+}
+
+// GetToolMetadata returns metadata for all registered tools including their input schemas.
+// This is used by the Colony server's ListTools RPC to populate tool information.
+func (s *Server) GetToolMetadata() ([]ToolMetadata, error) {
+	// Get the underlying MCP server from Genkit.
+	underlyingServer := s.mcpServer.GetServer()
+	if underlyingServer == nil {
+		return nil, fmt.Errorf("underlying MCP server not available")
+	}
+
+	// Get all tools with their full definitions (including schemas).
+	toolsMap := underlyingServer.ListTools()
+
+	metadata := make([]ToolMetadata, 0, len(toolsMap))
+	for name, serverTool := range toolsMap {
+		// Only include enabled tools.
+		if !s.isToolEnabled(name) {
+			continue
+		}
+
+		// Convert the tool's input schema to JSON.
+		var inputSchemaJSON string
+		if serverTool.Tool.InputSchema != nil {
+			schemaBytes, err := json.Marshal(serverTool.Tool.InputSchema)
+			if err != nil {
+				s.logger.Warn().
+					Err(err).
+					Str("tool", name).
+					Msg("Failed to marshal tool input schema")
+				inputSchemaJSON = "{\"type\": \"object\", \"properties\": {}}"
+			} else {
+				inputSchemaJSON = string(schemaBytes)
+			}
+		} else {
+			// Default to empty object schema if no schema defined.
+			inputSchemaJSON = "{\"type\": \"object\", \"properties\": {}}"
+		}
+
+		metadata = append(metadata, ToolMetadata{
+			Name:            name,
+			Description:     serverTool.Tool.Description,
+			InputSchemaJSON: inputSchemaJSON,
+		})
+	}
+
+	return metadata, nil
+}
+
 // registerTools registers all MCP tools with the server.
 func (s *Server) registerTools() error {
 	// Register observability query tools.

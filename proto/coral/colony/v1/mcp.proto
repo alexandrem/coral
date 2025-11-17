@@ -65,4 +65,8 @@ message ToolInfo {
 
   // Whether the tool is enabled.
   bool enabled = 3;
+
+  // Input schema as JSON string (JSON Schema format).
+  // This defines the parameters the tool accepts.
+  string input_schema_json = 4;
 }

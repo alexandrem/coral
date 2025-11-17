@@ -305,15 +305,35 @@ func (s *Server) ListTools(
 	ctx context.Context,
 	req *connect.Request[colonyv1.ListToolsRequest],
 ) (*connect.Response[colonyv1.ListToolsResponse], error) {
-	toolNames := s.ListToolNames()
+	// Get tool metadata including schemas from the MCP server.
+	metadata, err := s.GetToolMetadata()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to get tool metadata")
+		// Fallback to simple tool list without schemas.
+		toolNames := s.ListToolNames()
+		tools := make([]*colonyv1.ToolInfo, 0, len(toolNames))
+		for _, name := range toolNames {
+			enabled := s.IsToolEnabled(name)
+			tools = append(tools, &colonyv1.ToolInfo{
+				Name:              name,
+				Description:       "",
+				Enabled:           enabled,
+				InputSchemaJson:   "{\"type\": \"object\", \"properties\": {}}",
+			})
+		}
+		return connect.NewResponse(&colonyv1.ListToolsResponse{
+			Tools: tools,
+		}), nil
+	}
 
-	tools := make([]*colonyv1.ToolInfo, 0, len(toolNames))
-	for _, name := range toolNames {
-		enabled := s.IsToolEnabled(name)
+	// Convert metadata to ToolInfo proto messages.
+	tools := make([]*colonyv1.ToolInfo, 0, len(metadata))
+	for _, meta := range metadata {
 		tools = append(tools, &colonyv1.ToolInfo{
-			Name:        name,
-			Description: "", // TODO: Get description from tool metadata
-			Enabled:     enabled,
+			Name:              meta.Name,
+			Description:       meta.Description,
+			Enabled:           true, // Already filtered by GetToolMetadata
+			InputSchemaJson:   meta.InputSchemaJSON,
 		})
 	}
 

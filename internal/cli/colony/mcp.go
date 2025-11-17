@@ -618,13 +618,32 @@ func (p *mcpProxy) handleListTools(ctx context.Context, req *mcpRequest) *mcpRes
 		if !tool.Enabled {
 			continue
 		}
+
+		// Parse the input schema JSON from the response.
+		var inputSchema map[string]interface{}
+		if tool.InputSchemaJson != "" {
+			if err := json.Unmarshal([]byte(tool.InputSchemaJson), &inputSchema); err != nil {
+				p.logger.Warn().
+					Err(err).
+					Str("tool", tool.Name).
+					Msg("Failed to parse input schema, using empty schema")
+				inputSchema = map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				}
+			}
+		} else {
+			// Default to empty object schema if not provided.
+			inputSchema = map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			}
+		}
+
 		tools = append(tools, map[string]interface{}{
 			"name":        tool.Name,
 			"description": tool.Description,
-			"inputSchema": map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
+			"inputSchema": inputSchema,
 		})
 	}
 
