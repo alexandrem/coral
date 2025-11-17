@@ -6,10 +6,8 @@
 |-----------------------|------------------------------------------------------------------------------------------------|----------------------------|
 | **Colony**            | Control plane coordinator managing agent registration, telemetry aggregation, and MCP gateway. | Go, DuckDB, Genkit MCP     |
 | **Agent**             | Local observer collecting eBPF-based observability data with embedded storage.                 | Go, Beyla (eBPF), DuckDB   |
-| **Coral CLI**         | Developer interface providing unified commands for all Coral operations.                       | Go, Cobra CLI              |
-| **MCP Proxy**         | Protocol bridge translating MCP JSON-RPC (stdio) to Buf Connect gRPC for AI assistants.        | Go, Buf Connect            |
+| **Coral CLI**         | Developer interface with all Coral commands including MCP proxy and AI assistant.              | Go, Cobra, Genkit, Ollama  |
 | **External LLM Apps** | AI assistants (Claude Desktop, IDEs) querying Colony via MCP for observability insights.       | MCP protocol, various LLMs |
-| **`coral ask`**       | Interactive command-line AI assistant connecting to Colony as MCP client.                      | Genkit, Ollama/API keys    |
 | **Reef**              | Global aggregation service federating multiple colonies with enterprise LLM hosting.           | ClickHouse, LLMs           |
 
 ## Component Details
@@ -96,14 +94,14 @@ by consolidating all Coral operations into a single, well-documented tool.
 **Technology Stack:**
 
 - Go with Cobra for CLI framework
+- Genkit Go SDK for AI integration
+- Ollama for local models or API integration for cloud LLMs
 - Integrated WireGuard configuration
 - Buf Connect client for Colony communication
 
-### MCP Proxy
+#### MCP Proxy Command
 
-**Role:** Protocol Bridge (Public-facing MCP Server)
-
-The `coral colony mcp proxy` command serves as the public-facing MCP server:
+The `coral colony mcp proxy` command provides a protocol bridge for AI assistants:
 
 - **Protocol Translation:** Translates between MCP JSON-RPC (stdio) and Buf
   Connect gRPC
@@ -116,16 +114,39 @@ The `coral colony mcp proxy` command serves as the public-facing MCP server:
 - **Multi-Client Support:** Compatible with any MCP client (Claude Desktop,
   custom LLM apps, AI agent frameworks)
 
-**Key Rationale:** Enables external AI assistants to query Colony observability
+**Rationale:** Enables external AI assistants to query Colony observability
 data using the standard MCP protocol over stdio, while keeping the actual MCP
 server implementation internal to the Colony.
 
-**Technology Stack:**
+**Usage:**
 
-- Go for implementation
-- JSON-RPC 2.0 for MCP protocol
-- Buf Connect for Colony communication
-- Stdio transport for client communication
+```bash
+# Used by Claude Desktop or other MCP clients
+coral colony mcp proxy
+
+# Or for specific colony
+coral colony mcp proxy --colony my-shop-production
+```
+
+#### AI Assistant (`coral ask`)
+
+Interactive command-line AI assistant for terminal-based observability queries:
+
+- **Terminal Integration:** Provides AI-powered observability without leaving
+  the command line
+- **LLM Flexibility:** Uses local LLM (Ollama) or user's API keys (OpenAI,
+  Anthropic) via Genkit
+- **MCP Client:** Connects to Colony as MCP client using Genkit's native MCP
+  plugin
+- **Unified Tools:** Queries Colony data through the same MCP tools as Claude
+  Desktop
+- **Investigation Workflows:** Enables rapid incident investigation and system
+  health checks via conversational AI
+- **Local Privacy:** Can run entirely locally with Ollama for sensitive
+  environments
+
+**Rationale:** Provides AI-powered observability in the terminal using local
+compute for fast iteration, privacy, and developer productivity.
 
 ### External LLM Apps
 
@@ -152,35 +173,6 @@ in the infrastructure.
 - Various (Claude Desktop, Cursor, custom apps)
 - MCP protocol for communication
 - User-provided LLM APIs (Anthropic, OpenAI) or local models (Ollama)
-
-### `coral ask`
-
-**Role:** Local AI CLI
-
-Interactive command-line AI assistant for terminal-based observability queries:
-
-- **Terminal Integration:** Provides AI-powered observability without leaving
-  the command line
-- **LLM Flexibility:** Uses local LLM (Ollama) or user's API keys (OpenAI,
-  Anthropic) via Genkit
-- **MCP Client:** Connects to Colony as MCP client using Genkit's native MCP
-  plugin
-- **Unified Tools:** Queries Colony data through the same MCP tools as Claude
-  Desktop
-- **Investigation Workflows:** Enables rapid incident investigation and system
-  health checks via conversational AI
-- **Local Privacy:** Can run entirely locally with Ollama for sensitive
-  environments
-
-**Key Rationale:** Provides AI-powered observability in the terminal using local
-compute for fast iteration, privacy, and developer productivity.
-
-**Technology Stack:**
-
-- Genkit Go SDK for LLM orchestration
-- Genkit MCP plugin for Colony communication
-- Ollama for local models or API integration for cloud LLMs
-- Interactive terminal UI
 
 ### Reef
 
@@ -228,25 +220,21 @@ agents. Every request must pass the Colony's **audit and RBAC checks**, making
 it the central
 security enforcement point.
 
-### 2. Developer Empowerment (The `coral ask` Command)
+### 2. Developer Empowerment with CLI AI Assistant
 
-The developer uses their local machine's compute power for the LLM's reasoning:
+Developers can use their local machine's compute power for AI-powered observability:
 
-- **Local LLM Agent:** The `coral ask` command launches an agent that can host
-  an LLM (e.g., Llama
-    3) on the developer's workstation.
+- **Local LLM Integration:** The `coral ask` CLI command enables terminal-based
+  AI conversations, hosting an LLM (e.g., Llama 3) on the developer's
+  workstation or connecting to cloud LLM APIs.
 
-- **Secure Connection:** This local agent connects to the Colony via the *
-  *secure WireGuard mesh**
-  and communicates using the Colony's MCP API.
+- **Secure Connection:** The CLI connects to the Colony via the **secure
+  WireGuard mesh** and communicates using the Colony's MCP API.
 
 - **Direct Stream:** When the LLM decides to initiate a **live probe** for RCA,
-  the Colony issues a
-  **short-lived Delegate JWT**, allowing the developer's local agent to
-  establish a direct,
-  low-latency data stream with the target **Agent** (bypassing the Colony for
-  data flow, but not for
-  authorization).
+  the Colony issues a **short-lived Delegate JWT**, allowing the developer's
+  local CLI to establish a direct, low-latency data stream with the target
+  **Agent** (bypassing the Colony for data flow, but not for authorization).
 
 ### 3. Reef's Centralized Intelligence
 
