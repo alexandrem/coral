@@ -516,13 +516,24 @@ body {
 }
 
 .pain-icon {
-    font-size: 2rem;
-    margin-bottom: var(--spacing-sm);
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+    filter: none !important;
+    -webkit-filter: none !important;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    -webkit-text-fill-color: initial !important;
+    background-clip: initial !important;
+    color: initial !important;
+    display: inline-block;
 }
 
 .pain-point h3 {
     font-size: 1.125rem;
     margin-bottom: var(--spacing-xs);
+    display: flex;
+    align-items: center;
 }
 
 .pain-point p {
@@ -807,15 +818,25 @@ body {
 }
 
 .pillar-icon {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-    margin-top: 0.5rem;
+    font-size: 1.25rem;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+    filter: none !important;
+    -webkit-filter: none !important;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    -webkit-text-fill-color: initial !important;
+    background-clip: initial !important;
+    color: initial !important;
+    display: inline-block;
 }
 
 .pillar-item h4 {
     font-size: 0.9375rem;
     font-weight: 600;
     margin-bottom: 0.25rem;
+    display: flex;
+    align-items: center;
 }
 
 .pillar-item p {
