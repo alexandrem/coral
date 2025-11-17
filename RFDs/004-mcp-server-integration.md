@@ -1382,31 +1382,40 @@ shell).
 - [x] Implement colony configuration (`mcp` section in `colony.yaml`)
 - [x] Implement `coral colony mcp proxy` command (connects to colony MCP)
 - [x] Implement `coral colony mcp list-tools` command
-- [ ] Implement `coral colony mcp test-tool` command (structure exists, execution
+- [ ] Implement `coral colony mcp test-tool` command (structure exists,
+  execution
   TODO)
 - [x] Implement `coral colony mcp generate-config` command
 
 **Status:** Most CLI commands implemented. `test-tool` has command structure but
 actual tool execution not yet implemented (prints placeholder message).
 
-**Known Limitation - Proxy Architecture:**
+**Proxy Architecture:**
 
-The `coral colony mcp proxy` command currently opens the colony database in
-read-only mode to query data directly. This is a **temporary workaround** with
-limitations:
+The `coral colony mcp proxy` command is implemented as a pure MCP ↔ RPC
+translator:
 
-- Proxy reads database snapshots (may be slightly stale)
-- Not the architecturally correct solution
-- Works but doesn't follow MCP best practices
+- MCP server runs inside colony process (integrated with colony startup)
+- Proxy translates between MCP JSON-RPC protocol (stdio) and Buf Connect RPCs
+- Uses `CallTool`, `StreamTool`, and `ListTools` RPCs for communication
+- No database access in proxy (all queries handled by colony)
+- Real-time data from colony's MCP server
+- Clean separation of concerns
 
-**Proper architecture** (deferred to future RFD):
-1. Colony should expose MCP server over **HTTP Streamable** transport
-2. Proxy becomes a bridge: HTTP (colony) ↔ stdio (Claude Desktop)
-3. Proxy acts as MCP client to colony, MCP server to AI applications
-4. No database access needed in proxy
-5. Real-time data, better scalability
+Architecture flow:
 
-See "Deferred Features" section for details.
+```
+Claude Desktop / AI Client
+  │ (MCP over stdio)
+  ▼
+Proxy (MCP ↔ RPC translator)
+  │ (Buf Connect gRPC)
+  ▼
+Colony (MCP server + business logic)
+  │
+  ▼
+DuckDB + Agent Registry
+```
 
 **Location:**
 
@@ -1964,44 +1973,45 @@ AI assistants (Claude Desktop, custom clients) can query:
 
 **Integration Status:**
 
+- ✅ MCP server integrated into colony startup (automatically starts with colony)
+- ✅ Buf Connect RPCs implemented (CallTool, StreamTool, ListTools)
+- ✅ Proxy command implemented as MCP ↔ RPC translator
 - ⏳ Genkit dependency: Requires
   `go get github.com/firebase/genkit/go/plugins/mcp@latest`
-- ⏳ Colony startup: MCP server needs integration into `coral colony start`
+- ⏳ Direct tool execution via RPC: Tools work via stdio, but direct RPC
+  execution needs implementation (see TODO in internal/colony/mcp/server.go
+  ExecuteTool method)
 
 ## Deferred Features
 
 The following features are deferred as they build on the core foundation but are
 not required for basic observability functionality:
 
-**MCP HTTP Streamable Transport** (Future RFD - Architectural Improvement)
+**MCP HTTP Streamable Transport** (Future RFD - Optional Enhancement)
 
-Current proxy implementation uses read-only database access as a workaround.
-Proper architecture requires:
+Current implementation uses Buf Connect gRPC RPCs for MCP ↔ Colony
+communication,
+which works well for local stdio-based clients (Claude Desktop, coral ask).
+HTTP Streamable transport could be added for different use cases:
 
-- **Colony MCP Server:** Expose MCP over HTTP Streamable transport (MCP spec
-  2025-03-26)
-  - Run MCP server on `localhost:9001` or configurable port
-  - Support HTTP POST for single requests
-  - Support HTTP GET + SSE for streaming responses
-  - Enable multiple concurrent client connections
-  - No stdio dependency (colony runs as daemon)
+- **Colony MCP Server:** Add HTTP Streamable transport alongside existing RPC (
+  MCP spec 2025-03-26)
+    - Run MCP server on `localhost:9001` or configurable port
+    - Support HTTP POST for single requests
+    - Support HTTP GET + SSE for streaming responses
+    - Enable web-based clients or remote access
 
-- **Proxy Command:** Bridge HTTP ↔ stdio
-  - Acts as MCP client to colony (HTTP)
-  - Acts as MCP server to AI applications (stdio)
-  - Simple forwarding logic, no business logic
-  - No database access required
-  - Stateless proxy implementation
+**Potential Benefits:**
 
-**Benefits:**
-- Real-time data (no stale snapshots)
-- Proper separation of concerns
-- Scalable multi-client architecture
-- Follows MCP specification best practices
-- Colony can cache/optimize queries centrally
+- Web dashboard integration
+- Remote MCP access (with proper auth)
+- Browser-based AI assistants
+- HTTP-based MCP clients
 
-**Implementation:** Requires new RFD to design HTTP Streamable transport
-integration with Genkit or custom implementation.
+**Note:** Not required for current use cases. Current RPC-based architecture
+provides
+real-time data, clean separation of concerns, and works well with stdio-based
+clients.
 
 **Phase 3: Live Debugging Tools** (Deferred - Blocked by Dependencies)
 
