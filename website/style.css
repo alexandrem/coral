@@ -576,8 +576,16 @@ body {
 
 .feature-icon {
     font-size: 1.8rem;
-    margin-right: 0.5rem;
+    margin-right: 0.75rem;
     flex-shrink: 0;
+    filter: none !important;
+    -webkit-filter: none !important;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    -webkit-text-fill-color: initial !important;
+    background-clip: initial !important;
+    color: initial !important;
+    display: inline-block;
 }
 
 .feature-card h3 {
@@ -585,6 +593,7 @@ body {
     margin-bottom: var(--spacing-sm);
     display: flex;
     align-items: center;
+    background: none;
 }
 
 .feature-title {
@@ -592,6 +601,7 @@ body {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    font-weight: 700;
 }
 
 .feature-card p {
