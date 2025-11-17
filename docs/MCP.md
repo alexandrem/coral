@@ -493,46 +493,6 @@ No alerts or issues detected."
   storage
 - ⏳ Raw telemetry queries - see RFD 041 for agent direct queries
 
-## Advanced: Custom MCP Clients
-
-You can build custom automation using Coral's MCP server:
-
-```go
-package main
-
-import (
-    "github.com/coral-io/coral/pkg/mcp/client"
-)
-
-func main() {
-    // Connect to Coral MCP server
-    c := client.New("coral", []string{"colony", "mcp", "proxy", "--colony", "production"})
-
-    // Query health
-    health, err := c.CallTool("coral_get_service_health", nil)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // Parse and act on results
-    if health.Status != "Healthy" {
-        slackAlert("Production unhealthy: " + health.Details)
-    }
-
-    // Check for high error rates
-    metrics, err := c.CallTool("coral_query_beyla_http_metrics", map[string]any{
-        "service":           "api",
-        "time_range":        "5m",
-        "status_code_range": "5xx",
-    })
-
-    if metrics.ErrorRate > 1.0 {
-        // Trigger auto-remediation
-        scaleUp("api", currentInstances+2)
-    }
-}
-```
-
 ## Troubleshooting
 
 ### MCP server not showing in Claude Desktop
