@@ -277,15 +277,14 @@ func (s *Server) executeBeylaTracesTool(ctx context.Context, argumentsJSON strin
 		return "", fmt.Errorf("invalid time_range '%s': %w", timeRangeStr, err)
 	}
 
-	filters := make(map[string]interface{})
-	if input.TraceID != nil {
-		filters["trace_id"] = *input.TraceID
-	}
+	serviceName := ""
 	if input.Service != nil {
-		filters["service"] = *input.Service
+		serviceName = *input.Service
 	}
+
+	minDurationUs := int64(0)
 	if input.MinDurationMs != nil {
-		filters["min_duration_ms"] = *input.MinDurationMs
+		minDurationUs = int64(*input.MinDurationMs * 1000) // Convert ms to microseconds
 	}
 
 	maxTraces := 10
@@ -293,7 +292,7 @@ func (s *Server) executeBeylaTracesTool(ctx context.Context, argumentsJSON strin
 		maxTraces = *input.MaxTraces
 	}
 
-	traces, err := s.db.QueryBeylaTraces(ctx, startTime, endTime, filters, maxTraces)
+	traces, err := s.db.QueryBeylaTraces(ctx, serviceName, startTime, endTime, minDurationUs, maxTraces)
 	if err != nil {
 		return "", fmt.Errorf("failed to query traces: %w", err)
 	}
@@ -315,12 +314,23 @@ func (s *Server) executeTraceByIDTool(ctx context.Context, argumentsJSON string)
 		format = *input.Format
 	}
 
-	trace, err := s.db.GetTraceByID(ctx, input.TraceID)
+	// Query traces to find the one with matching trace ID.
+	// Note: This is a workaround since there's no direct GetTraceByID method yet.
+	startTime := time.Now().Add(-24 * time.Hour) // Look back 24 hours
+	endTime := time.Now()
+	traces, err := s.db.QueryBeylaTraces(ctx, "", startTime, endTime, 0, 100)
 	if err != nil {
-		return "", fmt.Errorf("failed to get trace: %w", err)
+		return "", fmt.Errorf("failed to query traces: %w", err)
 	}
 
-	return formatTraceByID(trace, format), nil
+	// Find the trace with the matching ID.
+	for _, trace := range traces {
+		if trace.TraceID == input.TraceID {
+			return formatTraceByID(trace, format), nil
+		}
+	}
+
+	return "", fmt.Errorf("trace not found: %s", input.TraceID)
 }
 
 // executeTelemetrySpansTool executes coral_query_telemetry_spans.
@@ -541,77 +551,95 @@ func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string
 
 // Formatting helper functions (referenced by execution methods).
 
-func formatBeylaHTTPMetrics(metrics database.BeylaHTTPMetrics, service string, timeRange string) string {
+func formatBeylaHTTPMetrics(metrics []*database.BeylaHTTPMetricResult, service string, timeRange string) string {
 	text := fmt.Sprintf("HTTP Metrics for %s (last %s):\n\n", service, timeRange)
-	if metrics.IsEmpty() {
+	if len(metrics) == 0 {
 		text += "No HTTP metrics available.\n"
 		return text
 	}
 
-	text += fmt.Sprintf("Request Rate: %.1f req/s\n", metrics.RequestRate)
-	text += fmt.Sprintf("Error Rate: %.2f%%\n", metrics.ErrorRate)
-	text += fmt.Sprintf("\nLatency Distribution:\n")
-	text += fmt.Sprintf("  P50: %.1fms\n", metrics.P50Latency)
-	text += fmt.Sprintf("  P95: %.1fms\n", metrics.P95Latency)
-	text += fmt.Sprintf("  P99: %.1fms\n", metrics.P99Latency)
+	text += fmt.Sprintf("Found %d HTTP metric entries:\n\n", len(metrics))
+	for _, m := range metrics {
+		text += fmt.Sprintf("Route: %s %s\n", m.HTTPMethod, m.HTTPRoute)
+		text += fmt.Sprintf("  Status: %d\n", m.HTTPStatusCode)
+		text += fmt.Sprintf("  Count: %d\n", m.Count)
+		text += fmt.Sprintf("  Latency bucket: %.1fms\n\n", m.LatencyBucketMs)
+	}
 
 	return text
 }
 
-func formatBeylaGRPCMetrics(metrics database.BeylaGRPCMetrics, service string, timeRange string) string {
+func formatBeylaGRPCMetrics(metrics []*database.BeylaGRPCMetricResult, service string, timeRange string) string {
 	text := fmt.Sprintf("gRPC Metrics for %s (last %s):\n\n", service, timeRange)
-	if metrics.IsEmpty() {
+	if len(metrics) == 0 {
 		text += "No gRPC metrics available.\n"
 		return text
 	}
 
-	text += fmt.Sprintf("RPC Rate: %.1f rpc/s\n", metrics.RPCRate)
-	text += fmt.Sprintf("Error Rate: %.2f%%\n", metrics.ErrorRate)
-	text += fmt.Sprintf("\nLatency Distribution:\n")
-	text += fmt.Sprintf("  P50: %.1fms\n", metrics.P50Latency)
-	text += fmt.Sprintf("  P95: %.1fms\n", metrics.P95Latency)
-	text += fmt.Sprintf("  P99: %.1fms\n", metrics.P99Latency)
+	text += fmt.Sprintf("Found %d gRPC metric entries:\n\n", len(metrics))
+	for _, m := range metrics {
+		text += fmt.Sprintf("Method: %s\n", m.GRPCMethod)
+		text += fmt.Sprintf("  Status: %d\n", m.GRPCStatusCode)
+		text += fmt.Sprintf("  Count: %d\n", m.Count)
+		text += fmt.Sprintf("  Latency bucket: %.1fms\n\n", m.LatencyBucketMs)
+	}
 
 	return text
 }
 
-func formatBeylaSQLMetrics(metrics database.BeylaSQLMetrics, service string, timeRange string) string {
+func formatBeylaSQLMetrics(metrics []*database.BeylaSQLMetricResult, service string, timeRange string) string {
 	text := fmt.Sprintf("SQL Metrics for %s (last %s):\n\n", service, timeRange)
-	if metrics.IsEmpty() {
+	if len(metrics) == 0 {
 		text += "No SQL metrics available.\n"
 		return text
 	}
 
-	text += fmt.Sprintf("Query Rate: %.1f q/s\n", metrics.QueryRate)
-	text += fmt.Sprintf("\nLatency Distribution:\n")
-	text += fmt.Sprintf("  P50: %.1fms\n", metrics.P50Latency)
-	text += fmt.Sprintf("  P95: %.1fms\n", metrics.P95Latency)
-	text += fmt.Sprintf("  P99: %.1fms\n", metrics.P99Latency)
+	text += fmt.Sprintf("Found %d SQL metric entries:\n\n", len(metrics))
+	for _, m := range metrics {
+		text += fmt.Sprintf("Operation: %s on %s\n", m.SQLOperation, m.TableName)
+		text += fmt.Sprintf("  Count: %d\n", m.Count)
+		text += fmt.Sprintf("  Latency bucket: %.1fms\n\n", m.LatencyBucketMs)
+	}
 
 	return text
 }
 
-func formatBeylaTraces(traces []database.BeylaTrace, timeRange string) string {
+func formatBeylaTraces(traces []*database.BeylaTraceResult, timeRange string) string {
 	text := fmt.Sprintf("Distributed Traces (last %s):\n\n", timeRange)
 	if len(traces) == 0 {
 		text += "No traces found.\n"
 		return text
 	}
 
-	text += fmt.Sprintf("Found %d traces:\n\n", len(traces))
+	// Group spans by trace ID for better display.
+	traceMap := make(map[string][]*database.BeylaTraceResult)
 	for _, trace := range traces {
-		text += fmt.Sprintf("  Trace ID: %s\n", trace.TraceID)
-		text += fmt.Sprintf("    Duration: %.1fms\n", trace.DurationMs)
-		text += fmt.Sprintf("    Spans: %d\n\n", trace.SpanCount)
+		traceMap[trace.TraceID] = append(traceMap[trace.TraceID], trace)
+	}
+
+	text += fmt.Sprintf("Found %d traces:\n\n", len(traceMap))
+	for traceID, spans := range traceMap {
+		text += fmt.Sprintf("  Trace ID: %s\n", traceID)
+		text += fmt.Sprintf("    Spans: %d\n", len(spans))
+		if len(spans) > 0 {
+			totalDuration := float64(spans[0].DurationUs) / 1000.0 // Convert to ms
+			text += fmt.Sprintf("    Duration: %.1fms\n", totalDuration)
+		}
+		text += "\n"
 	}
 
 	return text
 }
 
-func formatTraceByID(trace database.BeylaTrace, format string) string {
+func formatTraceByID(trace *database.BeylaTraceResult, format string) string {
 	text := fmt.Sprintf("Trace: %s\n\n", trace.TraceID)
-	text += fmt.Sprintf("Duration: %.1fms\n", trace.DurationMs)
-	text += fmt.Sprintf("Spans: %d\n", trace.SpanCount)
+	text += fmt.Sprintf("Span: %s (%s)\n", trace.SpanName, trace.SpanKind)
+	text += fmt.Sprintf("Service: %s\n", trace.ServiceName)
+	text += fmt.Sprintf("Duration: %.1fms\n", float64(trace.DurationUs)/1000.0)
+	text += fmt.Sprintf("Status: %d\n", trace.StatusCode)
+	if trace.ParentSpanID != "" {
+		text += fmt.Sprintf("Parent Span: %s\n", trace.ParentSpanID)
+	}
 
 	return text
 }
