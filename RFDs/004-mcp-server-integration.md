@@ -1240,13 +1240,13 @@ Implement MCP protocol from scratch in Colony:
 ```go
 // Colony MCP server (custom implementation)
 type MCPServer struct {
-colony *Colony
-tools  map[string]Tool
+    colony *Colony
+    tools  map[string]Tool
 }
 
 func (s *MCPServer) ServeStdio() {
-// Implement JSON-RPC 2.0 over stdio
-// Handle tool discovery and execution
+    // Implement JSON-RPC 2.0 over stdio
+    // Handle tool discovery and execution
 }
 ```
 
@@ -1277,17 +1277,17 @@ Use Genkit's built-in MCP server capabilities:
 import "github.com/firebase/genkit/go/plugins/mcp"
 
 func (c *Colony) StartMCPServer() error {
-server := mcp.NewMCPServer(mcp.MCPServerOptions{
-Name: c.Config.ID,
-Version: "1.0.0",
-})
+    server := mcp.NewMCPServer(mcp.MCPServerOptions{
+        Name: c.Config.ID,
+        Version: "1.0.0",
+    })
 
-// Register tools
-server.RegisterTool("coral_get_service_health", healthTool)
-server.RegisterTool("coral_query_beyla_http_metrics", httpMetricsTool)
-// ... register all 26 tools
+    // Register tools
+    server.RegisterTool("coral_get_service_health", healthTool)
+    server.RegisterTool("coral_query_beyla_http_metrics", httpMetricsTool)
+    // ... register all 26 tools
 
-return server.ServeStdio()
+    return server.ServeStdio()
 }
 ```
 
