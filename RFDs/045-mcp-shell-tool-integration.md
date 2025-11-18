@@ -1,18 +1,18 @@
 ---
-rfd: "044"
+rfd: "045"
 title: "MCP Shell Tool Integration"
 state: "draft"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: false
-dependencies: [ "004", "026" ]
+dependencies: [ "004", "026", "044" ]
 related_rfds: [ "041", "042", "043" ]
 database_migrations: [ ]
 areas: [ "mcp", "shell", "debugging" ]
 ---
 
-# RFD 044 - MCP Shell Tool Integration
+# RFD 045 - MCP Shell Tool Integration
 
 **Status:** 🚧 Draft
 
@@ -151,12 +151,15 @@ Shell Handler (RFD 026 - already implemented)
 
 Replace placeholder in `executeShellStartTool()` with:
 
-- Parse `ShellStartInput` (service name, optional shell preference)
-- Query `s.registry.ListAll()` to get all agents
-- Filter agents by `ComponentName` matching `input.Service`
+- Parse `ShellStartInput` (service name, agent_id, optional shell preference)
+- **Use agent resolution from RFD 044** (Agent ID Standardization):
+    - If `agent_id` specified: Direct lookup via `registry.Get(agent_id)`
+    - If `service` specified: Filter by `Services[]` array (RFD 044)
+    - Handle disambiguation errors per RFD 044 (multiple agents → list agent
+      IDs)
 - Validate agent status using `registry.DetermineStatus()`
-- Format response with connection details
-- Handle error cases (service not found, agent unhealthy, multiple matches)
+- Format shell-specific response with connection details
+- Handle error cases (agent not found, unhealthy, authorization failures)
 
 **2. Response Format**:
 
@@ -215,10 +218,11 @@ Shell: /bin/bash (default)
 ### Phase 1: Core Tool Implementation
 
 - [ ] Implement `executeShellStartTool()` in `tools_exec.go`
-- [ ] Add registry query and service name filtering
+- [ ] Integrate RFD 044's agent resolution logic (agent_id or service)
 - [ ] Add agent status validation
-- [ ] Format response with connection details and CLI command
-- [ ] Handle error cases (not found, unhealthy, multiple matches)
+- [ ] Format shell-specific response with connection details and CLI command
+- [ ] Handle error cases (delegation to RFD 044 for routing, local for
+  shell-specific)
 
 ### Phase 2: Response Formatting
 
@@ -253,11 +257,12 @@ No new API endpoints required. Changes are limited to MCP tool implementation.
 Returns connection information and CLI command to access the agent shell for the
 specified service."
 
-**Input Schema** (already defined in `types.go`):
+**Input Schema** (updated per RFD 044):
 
 ```go
 type ShellStartInput struct {
-    Service string  `json:"service" jsonschema:"description=Service whose agent to connect to"`
+    Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
+    AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, from RFD 044)"`
     Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
 }
 ```
@@ -283,12 +288,12 @@ coral shell --agent-addr 10.100.0.5:9001 --user-id developer@example.com
 
 ### Unit Tests
 
-**Service Discovery:**
+**Agent Resolution (delegated to RFD 044):**
 
-- Query registry and find agent by service name
-- Handle multiple agents with same service (return newest/healthy)
-- Handle service not found error
-- Handle wildcard/pattern matching in service names
+- Use RFD 044's agent resolution logic (agent_id or service)
+- Verify disambiguation errors are properly formatted
+- Test both direct agent_id lookup and service-based lookup
+- Verify error messages include agent IDs for disambiguation
 
 **Agent Status Validation:**
 
@@ -306,19 +311,20 @@ coral shell --agent-addr 10.100.0.5:9001 --user-id developer@example.com
 
 **Error Handling:**
 
-- Service name empty or invalid
-- No agents found for service
-- Agent exists but is unhealthy
-- Multiple agents found (disambiguation)
+- Agent ID invalid or not found
+- Service name empty or no matching agents
+- Agent exists but is unhealthy (warn user)
+- Disambiguation errors from RFD 044 (multiple agents, list IDs)
 
 ### Integration Tests
 
 **With Registry:**
 
 - Register mock agents in registry
-- Query for agents by service name
+- Test agent_id lookup (direct)
+- Test service name lookup (filtered by Services[])
 - Verify agent details in response
-- Test with multiple agents and status filters
+- Test disambiguation scenarios (RFD 044)
 
 **MCP Tool Execution:**
 
@@ -380,14 +386,8 @@ the security model defined in RFD 026 (and future RBAC in RFD 043).
 
 ## Future Enhancements
 
-**Agent Selection Strategies:**
-
-If multiple agents match a service name:
-
-- Return the most recently registered agent
-- Return all matching agents with disambiguation
-- Support regex/glob patterns in service names
-- Allow filtering by agent health status
+**Note:** Agent selection and disambiguation is handled by RFD 044 (Agent ID
+Standardization). This RFD focuses on shell-specific enhancements.
 
 **Enhanced Discovery:**
 
@@ -478,6 +478,8 @@ These would be separate tools building on this foundation.
   MCP
 - **RFD 042**: Shell Session Audit - future session management integration
 - **RFD 043**: Shell RBAC and Approval - future permission checking integration
+- **RFD 044**: Agent ID Standardization and Routing - **dependency**, provides
+  agent resolution logic (agent_id parameter, service filtering, disambiguation)
 
 **Design Philosophy:**
 
