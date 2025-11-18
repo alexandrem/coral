@@ -1,5 +1,5 @@
 ---
-rfd: "042"
+rfd: "046"
 title: "SDK-Integrated eBPF Uprobes for Live Debugging"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: []
 areas: ["sdk", "ebpf", "debugging", "observability"]
 ---
 
-# RFD 042 - SDK-Integrated eBPF Uprobes for Live Debugging
+# RFD 046 - SDK-Integrated eBPF Uprobes for Live Debugging
 
 **Status:** 🚧 Draft
 
