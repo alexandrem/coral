@@ -110,7 +110,7 @@ This shows the tools that can be called by MCP clients like Claude Desktop.`,
 				{"coral_stop_ebpf_collector", "Stop running eBPF collector", []string{"collector_id"}},
 				{"coral_list_ebpf_collectors", "List active eBPF collectors", []string{}},
 				{"coral_exec_command", "Execute command in container", []string{"service", "command"}},
-				{"coral_shell_start", "Interactive agent debug shell", []string{"service"}},
+				{"agent_shell_exec", "Execute command in agent environment", []string{"service", "command"}},
 			}
 
 			// Filter based on enabled tools if configured.

@@ -155,8 +155,8 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 		return s.executeListEBPFCollectorsTool(ctx, argumentsJSON)
 	case "coral_exec_command":
 		return s.executeExecCommandTool(ctx, argumentsJSON)
-	case "coral_shell_start":
-		return s.executeShellStartTool(ctx, argumentsJSON)
+	case "agent_shell_exec":
+		return s.executeAgentShellExecTool(ctx, argumentsJSON)
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)
@@ -300,7 +300,7 @@ func (s *Server) registerTools() error {
 	s.registerStopEBPFCollectorTool()
 	s.registerListEBPFCollectorsTool()
 	s.registerExecCommandTool()
-	s.registerShellStartTool()
+	s.registerAgentShellExecTool()
 
 	// TODO: Register analysis tools (Phase 4).
 	// s.registerCorrelateEventsTool()

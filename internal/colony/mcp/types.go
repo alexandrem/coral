@@ -111,8 +111,11 @@ type ExecCommandInput struct {
 	WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
 }
 
-// ShellStartInput is the input for coral_shell_start.
-type ShellStartInput struct {
-	Service string  `json:"service" jsonschema:"description=Service whose agent to connect to"`
-	Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
+// AgentShellExecInput is the input for agent_shell_exec.
+type AgentShellExecInput struct {
+	Service        string   `json:"service" jsonschema:"description=Service whose agent to execute command on (use agent_id for disambiguation)"`
+	AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup from RFD 044)"`
+	Command        []string `json:"command" jsonschema:"description=Command and arguments to execute in agent environment (e.g. ['ps' 'aux'])"`
+	TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout in seconds,default=30,maximum=300"`
+	WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional working directory for command execution"`
 }

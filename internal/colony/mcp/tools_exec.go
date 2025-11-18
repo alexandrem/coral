@@ -509,42 +509,49 @@ func (s *Server) executeExecCommandTool(ctx context.Context, argumentsJSON strin
 	return text, nil
 }
 
-// executeShellStartTool executes coral_shell_start.
-func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string) (string, error) {
-	var input ShellStartInput
+// executeAgentShellExecTool executes agent_shell_exec.
+func (s *Server) executeAgentShellExecTool(ctx context.Context, argumentsJSON string) (string, error) {
+	var input AgentShellExecInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
-	s.auditToolCall("coral_shell_start", input)
+	s.auditToolCall("agent_shell_exec", input)
 
-	text := fmt.Sprintf("Agent Debug Shell: %s\n\n", input.Service)
+	text := fmt.Sprintf("Agent Command Execution: %s\n\n", input.Service)
 	text += "Status: Not yet implemented\n\n"
+	text += fmt.Sprintf("Command: %v\n", input.Command)
 
-	shell := "/bin/bash"
-	if input.Shell != nil {
-		shell = *input.Shell
+	if input.TimeoutSeconds != nil {
+		text += fmt.Sprintf("Timeout: %d seconds\n", *input.TimeoutSeconds)
+	} else {
+		text += "Timeout: 30 seconds (default)\n"
 	}
-	text += fmt.Sprintf("Shell: %s\n", shell)
+
+	if input.WorkingDir != nil {
+		text += fmt.Sprintf("Working Directory: %s\n", *input.WorkingDir)
+	}
 
 	text += "\n"
 	text += "Implementation Status:\n"
-	text += "  - RFD 026 (shell command) is in draft status\n"
-	text += "  - Agent shell server is not yet implemented\n"
-	text += "  - TTY handling and session management are pending\n"
+	text += "  - RFD 045 (agent shell exec) is in draft status\n"
+	text += "  - Agent gRPC API integration is pending\n"
+	text += "  - RFD 044 agent resolution integration is pending\n"
 	text += "\n"
 	text += "Once implemented, this tool will:\n"
-	text += "  1. Locate target agent via registry\n"
-	text += "  2. Start interactive shell in agent's container\n"
-	text += "  3. Provide access to debugging utilities (tcpdump, netcat, curl, etc.)\n"
-	text += "  4. Enable network debugging from agent's perspective\n"
-	text += "  5. Allow querying agent's local DuckDB for raw telemetry\n"
-	text += "  6. Record full session for audit (elevated privileges)\n"
+	text += "  1. Resolve agent via RFD 044 (agent_id or service)\n"
+	text += "  2. Execute command in agent's environment via gRPC\n"
+	text += "  3. Capture stdout, stderr, and exit code\n"
+	text += "  4. Return formatted output with execution metadata\n"
+	text += "  5. Support timeouts and working directory\n"
+	text += "  6. Audit all command executions\n"
 	text += "\n"
 	text += "Security Note:\n"
-	text += "  - Agent shells have elevated privileges (CRI socket access, host network)\n"
-	text += "  - All sessions will be fully recorded for audit compliance\n"
-	text += "  - RBAC checks will be enforced before allowing access\n"
+	text += "  - Agent commands run with elevated privileges (CRI socket, eBPF, mesh access)\n"
+	text += "  - All command executions are audited\n"
+	text += "  - RBAC checks will be enforced (RFD 043)\n"
+	text += "\n"
+	text += "For interactive debugging sessions, use the 'coral shell' CLI command.\n"
 
 	return text, nil
 }
