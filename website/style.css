@@ -1686,49 +1686,39 @@ html {
     flex-direction: column;
     align-items: center;
     margin: var(--spacing-sm) 0;
-    position: relative;
 }
 
-.arrow-bidirectional-container {
-    position: relative;
-    width: 100px;
-    height: 50px;
+.arrow-up {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+}
+
+.arrow-down {
+    display: flex;
+    flex-direction: column;
     align-items: center;
 }
 
 .arrow-line-up {
-    position: absolute;
-    left: 40%;
     width: 2px;
-    height: 50px;
-    background: linear-gradient(180deg, var(--accent-secondary) 0%, var(--accent-primary) 100%);
+    height: 30px;
+    background: linear-gradient(0deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
 }
 
 .arrow-line-down {
-    position: absolute;
-    right: 40%;
     width: 2px;
-    height: 50px;
+    height: 30px;
     background: linear-gradient(180deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
 }
 
 .arrow-head-up {
-    position: absolute;
-    left: 40%;
-    top: 0;
-    transform: translateX(-50%) rotate(180deg);
     font-size: 1.2rem;
     color: var(--accent-primary);
     line-height: 1;
 }
 
 .arrow-head-down {
-    position: absolute;
-    right: 40%;
-    bottom: 0;
-    transform: translateX(50%);
     font-size: 1.2rem;
     color: var(--accent-primary);
     line-height: 1;
@@ -1738,5 +1728,5 @@ html {
     font-size: 0.8125rem;
     color: var(--text-secondary);
     text-align: center;
-    margin-top: 0.5rem;
+    margin: 0.5rem 0;
 }
