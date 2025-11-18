@@ -344,64 +344,56 @@ AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Fil
 }
 ```
 
-### Updated MCP Tool Execution Logic
+### Agent Routing Decision Flow
+
+**High-level routing logic for all MCP tools:**
+
+```
+1. If agent_id parameter specified:
+   → Direct lookup: registry.Get(agent_id)
+   → Return agent or error if not found
+
+2. Else if service parameter specified:
+   → Query: registry.ListAll()
+   → Filter: Check each agent.Services[] for matching service name
+   → If 0 matches: Error "no agents found"
+   → If >1 matches: Error with agent ID list for disambiguation
+   → If 1 match: Return that agent
+
+3. Execute operation on resolved agent
+```
+
+**Service Filtering Fix** (before/after):
 
 ```go
-// internal/colony/mcp/tools_exec.go
+// BEFORE (incorrect - uses deprecated field):
+if !matchesPattern(agent.ComponentName, serviceFilter) { ... }
 
-func (s *Server) executeExecCommandTool(ctx context.Context, argumentsJSON string) (string, error) {
-var input ExecCommandInput
-if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
-return "", fmt.Errorf("failed to parse arguments: %w", err)
-}
-
-s.auditToolCall("coral_exec_command", input)
-
-// NEW: Agent ID lookup takes precedence
-if input.AgentID != nil {
-agent, err := s.registry.Get(*input.AgentID)
-if err != nil {
-return "", fmt.Errorf("agent not found: %s", *input.AgentID)
-}
-
-// Execute command on specific agent...
-return executeOnAgent(ctx, agent, input)
-}
-
-// FALLBACK: Service-based lookup (with disambiguation)
-agents := s.registry.ListAll()
-var matchedAgents []*registry.Entry
-
-for _, agent := range agents {
-// FIX: Check Services[] array, not ComponentName
+// AFTER (correct - uses Services[] array):
+matchFound := false
 for _, svc := range agent.Services {
-if matchesPattern(svc.Name, input.Service) {
-matchedAgents = append(matchedAgents, agent)
-break
+    if matchesPattern(svc.Name, serviceFilter) {
+        matchFound = true
+        break
+    }
 }
-}
-}
+if !matchFound { continue }
+```
 
-if len(matchedAgents) == 0 {
-return "", fmt.Errorf("no agents found for service '%s'", input.Service)
-}
+**Disambiguation Error Format:**
 
-// NEW: Disambiguation requirement
+```go
 if len(matchedAgents) > 1 {
-var agentIDs []string
-for _, a := range matchedAgents {
-agentIDs = append(agentIDs, a.AgentID)
-}
-return "", fmt.Errorf(
-"multiple agents found for service '%s': %s\n"+
-"Please specify agent_id parameter to disambiguate",
-input.Service,
-strings.Join(agentIDs, ", "),
-)
-}
-
-agent := matchedAgents[0]
-return executeOnAgent(ctx, agent, input)
+    var agentIDs []string
+    for _, a := range matchedAgents {
+        agentIDs = append(agentIDs, a.AgentID)
+    }
+    return "", fmt.Errorf(
+        "multiple agents found for service '%s': %s\n"+
+        "Please specify agent_id parameter to disambiguate",
+        input.Service,
+        strings.Join(agentIDs, ", "),
+    )
 }
 ```
 
@@ -741,20 +733,10 @@ This RFD defines the standardization work needed for agent routing.
 
 **Generation Logic** (`internal/cli/agent/agent_helpers.go`):
 
-```go
-func generateAgentID(serviceSpecs []*ServiceSpec) string {
-hostname, _ := os.Hostname()
-
-if len(serviceSpecs) == 1 {
-return fmt.Sprintf("%s-%s", hostname, serviceSpecs[0].Name)
-}
-
-if len(serviceSpecs) > 1 {
-return fmt.Sprintf("%s-multi", hostname)
-}
-
-return hostname // daemon mode
-}
+```
+Single service:    hostname + "-" + serviceName
+Multiple services: hostname + "-multi"
+Daemon mode:       hostname
 ```
 
 ### Service Filtering Pattern Matching
