@@ -29,7 +29,7 @@ func NewConnectCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "connect <service-spec>...",
-		Short: "Connect agent to observe one or more services",
+		Short: "Connect one or more services",
 		Long: `Connect a running Coral agent to observe services or application components.
 
 The agent must already be running (via 'coral agent start') before using this command.
@@ -107,7 +107,7 @@ Note:
 			// Create gRPC client
 			client := agentv1connect.NewAgentServiceClient(
 				http.DefaultClient,
-				agentAddr,
+				fmt.Sprintf("http://%s", agentAddr),
 			)
 
 			// Connect each service
@@ -151,17 +151,17 @@ Note:
 
 // discoverLocalAgent attempts to discover a running local agent.
 func discoverLocalAgent() (string, error) {
-	// Try common agent endpoints in order
+	// Try common agent endpoints in order.
 	candidates := []string{
-		fmt.Sprintf("http://localhost:%d", defaultAgentPort),
-		fmt.Sprintf("http://127.0.0.1:%d", defaultAgentPort),
+		fmt.Sprintf("localhost:%d", defaultAgentPort),
+		fmt.Sprintf("127.0.0.1:%d", defaultAgentPort),
 	}
 
 	for _, addr := range candidates {
-		// Try to connect to agent
+		// Try to connect to agent.
 		client := agentv1connect.NewAgentServiceClient(
 			http.DefaultClient,
-			addr,
+			fmt.Sprintf("http://%s", addr),
 		)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -173,7 +173,7 @@ func discoverLocalAgent() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no agent found at common endpoints: %s", strings.Join(candidates, ", "))
+	return "", fmt.Errorf("no agent found at common endpoints")
 }
 
 // parseServiceSpecsWithLegacySupport parses service specs with backward compatibility.

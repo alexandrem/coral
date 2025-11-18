@@ -1,4 +1,4 @@
-package cli
+package agent
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func NewShellCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "shell",
-		Short: "Open interactive shell in agent environment (RFD 026)",
+		Short: "Open interactive shell in agent environment",
 		Long: `Open an interactive shell session within the agent's environment.
 
 This provides access to the agent's container/process with debugging utilities:
@@ -155,8 +155,8 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 				return net.Dial(network, addr)
 			},
 			// Set reasonable timeouts to detect dead connections.
-			ReadIdleTimeout:  30 * time.Second,
-			PingTimeout:      15 * time.Second,
+			ReadIdleTimeout: 30 * time.Second,
+			PingTimeout:     15 * time.Second,
 		},
 	}
 	client := agentv1connect.NewAgentServiceClient(

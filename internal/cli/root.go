@@ -35,7 +35,7 @@ func init() {
 	rootCmd.AddCommand(agent.NewConnectCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())
 	rootCmd.AddCommand(proxy.Command())
-	rootCmd.AddCommand(NewShellCmd())
+	rootCmd.AddCommand(agent.NewShellCmd())
 	rootCmd.AddCommand(newVersionCmd())
 
 	// Add internal commands (hidden from help)
