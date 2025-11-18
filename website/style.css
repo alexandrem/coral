@@ -938,6 +938,31 @@ body {
     gap: var(--spacing-md);
 }
 
+.feature-grid-compact {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-sm);
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.feature-grid-compact .feature-card {
+    padding: var(--spacing-sm);
+}
+
+.feature-grid-compact .feature-icon {
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
+}
+
+.feature-grid-compact h3 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.feature-grid-compact p {
+    font-size: 0.875rem;
+}
+
 .feature-card {
     background: var(--bg-card);
     padding: var(--spacing-md);
