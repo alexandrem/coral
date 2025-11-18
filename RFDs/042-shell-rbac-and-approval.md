@@ -18,26 +18,37 @@ areas: [ "security", "rbac", "auth" ]
 
 ## Summary
 
-Implement role-based access control (RBAC) and approval workflows for `coral agent shell` to restrict privileged shell access based on user roles, environments, and approval requirements. This ensures that only authorized users can access agent shells, and production access requires explicit approval from authorized approvers.
+Implement role-based access control (RBAC) and approval workflows for
+`coral agent shell` to restrict privileged shell access based on user roles,
+environments, and approval requirements. This ensures that only authorized users
+can access agent shells, and production access requires explicit approval from
+authorized approvers.
 
 ## Problem
 
 **Current limitations:**
 
-RFD 026 implemented `coral agent shell`, providing powerful debugging capabilities with elevated privileges. However, access control is currently missing:
+RFD 026 implemented `coral agent shell`, providing powerful debugging
+capabilities with elevated privileges. However, access control is currently
+missing:
 
 - **No RBAC**: Any authenticated user can shell into any agent
-- **No environment-based restrictions**: Cannot restrict prod access while allowing dev/staging
+- **No environment-based restrictions**: Cannot restrict prod access while
+  allowing dev/staging
 - **No approval workflows**: Production access has no review/approval gate
-- **No MFA requirement**: High-risk operations don't require multi-factor authentication
+- **No MFA requirement**: High-risk operations don't require multi-factor
+  authentication
 - **No time-limited access**: Approvals don't expire, no temporary access grants
 
 **Why this matters:**
 
-- **Security risk**: Unrestricted shell access to production agents is a critical security gap
-- **Compliance**: SOC2, ISO 27001 require least-privilege access and approval workflows
+- **Security risk**: Unrestricted shell access to production agents is a
+  critical security gap
+- **Compliance**: SOC2, ISO 27001 require least-privilege access and approval
+  workflows
 - **Insider threats**: Need to prevent unauthorized or malicious shell access
-- **Change control**: Production access should follow change management processes
+- **Change control**: Production access should follow change management
+  processes
 - **Audit requirements**: Need to track who approved each shell session
 
 **Use cases affected:**
@@ -49,14 +60,17 @@ RFD 026 implemented `coral agent shell`, providing powerful debugging capabiliti
 
 ## Solution
 
-Implement a flexible RBAC system with approval workflows, environment-based policies, and optional MFA enforcement.
+Implement a flexible RBAC system with approval workflows, environment-based
+policies, and optional MFA enforcement.
 
 **Key Design Decisions:**
 
-1. **Policy-based RBAC**: Define policies mapping roles → environments → permissions
+1. **Policy-based RBAC**: Define policies mapping roles → environments →
+   permissions
 2. **Colony-enforced**: Colony checks permissions before allowing shell access
 3. **Approval workflow**: Requested → Approved/Denied → Time-limited access
-4. **MFA integration**: Optional MFA check before granting shell access (future: integrate with OIDC)
+4. **MFA integration**: Optional MFA check before granting shell access (future:
+   integrate with OIDC)
 5. **Audit trail**: All approval requests/decisions logged (leverages RFD 034)
 
 **Benefits:**
@@ -119,25 +133,25 @@ Implement a flexible RBAC system with approval workflows, environment-based poli
 ### Component Changes
 
 1. **Colony RBAC Engine** (`internal/colony/rbac`):
-   - Policy evaluation: user + agent → allowed/denied/approval_required
-   - Role definitions: developer, sre, security, admin
-   - Environment detection from agent metadata
+    - Policy evaluation: user + agent → allowed/denied/approval_required
+    - Role definitions: developer, sre, security, admin
+    - Environment detection from agent metadata
 
 2. **Approval Workflow** (`internal/colony/approval`):
-   - Request creation and storage
-   - Notification to approvers (Slack, email)
-   - Approval/denial tracking
-   - Time-limited approval grants (e.g., 1 hour)
+    - Request creation and storage
+    - Notification to approvers (Slack, email)
+    - Approval/denial tracking
+    - Time-limited approval grants (e.g., 1 hour)
 
 3. **CLI Integration** (`internal/cli/agent/shell.go`):
-   - Check Colony for permission before shell start
-   - If approval required: create request, wait for approval
-   - If MFA required: prompt for code
-   - Display approval status to user
+    - Check Colony for permission before shell start
+    - If approval required: create request, wait for approval
+    - If MFA required: prompt for code
+    - Display approval status to user
 
 4. **Agent Shell Handler** (`internal/agent/shell_handler.go`):
-   - Validate approval token before starting shell
-   - Record approval_id in audit log (RFD 034)
+    - Validate approval token before starting shell
+    - Record approval_id in audit log (RFD 034)
 
 ## RBAC Policy Format
 
@@ -145,58 +159,58 @@ Implement a flexible RBAC system with approval workflows, environment-based poli
 
 ```yaml
 rbac:
-  roles:
-    - name: developer
-      permissions:
-        - environments: [ dev, staging ]
-          commands: [ connect, exec ]       # Can use exec, NOT shell
+    roles:
+        -   name: developer
+            permissions:
+                -   environments: [ dev, staging ]
+                    commands: [ connect, exec ]       # Can use exec, NOT shell
 
-    - name: sre
-      permissions:
-        - environments: [ dev, staging ]
-          commands: [ connect, exec, shell ]  # Can use shell in non-prod
-        - environments: [ production ]
-          commands: [ shell ]
-          require_approval: true               # Production requires approval
-          require_mfa: true                    # And MFA
-          approval_ttl: 1h                     # Approval valid for 1 hour
+        -   name: sre
+            permissions:
+                -   environments: [ dev, staging ]
+                    commands: [ connect, exec, shell ]  # Can use shell in non-prod
+                -   environments: [ production ]
+                    commands: [ shell ]
+                    require_approval: true               # Production requires approval
+                    require_mfa: true                    # And MFA
+                    approval_ttl: 1h                     # Approval valid for 1 hour
 
-    - name: security
-      permissions:
-        - environments: [ dev, staging, production ]
-          commands: [ connect, exec, shell ]   # Full access, no approval
-          require_mfa: true                    # But requires MFA for prod
+        -   name: security
+            permissions:
+                -   environments: [ dev, staging, production ]
+                    commands: [ connect, exec, shell ]   # Full access, no approval
+                    require_mfa: true                    # But requires MFA for prod
 
-    - name: admin
-      permissions:
-        - environments: [ "*" ]                # All environments
-          commands: [ "*" ]                    # All commands
-          require_approval: false              # No approval needed
+        -   name: admin
+            permissions:
+                -   environments: [ "*" ]                # All environments
+                    commands: [ "*" ]                    # All commands
+                    require_approval: false              # No approval needed
 
-  # Map users to roles
-  users:
-    - email: alice@company.com
-      role: developer
+    # Map users to roles
+    users:
+        -   email: alice@company.com
+            role: developer
 
-    - email: bob@company.com
-      role: sre
+        -   email: bob@company.com
+            role: sre
 
-    - email: security@company.com
-      role: security
+        -   email: security@company.com
+            role: security
 
-  # Define who can approve shell requests
-  approvers:
-    - role: sre
-      can_approve:
-        - environments: [ dev, staging ]
+    # Define who can approve shell requests
+    approvers:
+        -   role: sre
+            can_approve:
+                -   environments: [ dev, staging ]
 
-    - role: security
-      can_approve:
-        - environments: [ production ]
+        -   role: security
+            can_approve:
+                -   environments: [ production ]
 
-    - role: admin
-      can_approve:
-        - environments: [ "*" ]
+        -   role: admin
+            can_approve:
+                -   environments: [ "*" ]
 ```
 
 ## Database Schema
@@ -205,49 +219,52 @@ rbac:
 
 ```sql
 -- Approval requests
-CREATE TABLE shell_approval_requests (
-    request_id      VARCHAR PRIMARY KEY,
-    user_id         VARCHAR NOT NULL,
-    agent_id        VARCHAR NOT NULL,
-    environment     VARCHAR NOT NULL,
-    status          VARCHAR NOT NULL,  -- pending, approved, denied, expired
-    justification   VARCHAR,           -- User-provided reason
-    requested_at    TIMESTAMP NOT NULL,
-    approved_at     TIMESTAMP,
-    approved_by     VARCHAR,           -- Approver user_id
-    denial_reason   VARCHAR,           -- If denied
-    expires_at      TIMESTAMP,         -- When approval expires
-    approval_token  VARCHAR,           -- Token for agent to validate
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE shell_approval_requests
+(
+    request_id     VARCHAR PRIMARY KEY,
+    user_id        VARCHAR   NOT NULL,
+    agent_id       VARCHAR   NOT NULL,
+    environment    VARCHAR   NOT NULL,
+    status         VARCHAR   NOT NULL, -- pending, approved, denied, expired
+    justification  VARCHAR,            -- User-provided reason
+    requested_at   TIMESTAMP NOT NULL,
+    approved_at    TIMESTAMP,
+    approved_by    VARCHAR,            -- Approver user_id
+    denial_reason  VARCHAR,            -- If denied
+    expires_at     TIMESTAMP,          -- When approval expires
+    approval_token VARCHAR,            -- Token for agent to validate
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_approval_user ON shell_approval_requests(user_id);
-CREATE INDEX idx_approval_status ON shell_approval_requests(status);
-CREATE INDEX idx_approval_requested ON shell_approval_requests(requested_at DESC);
+CREATE INDEX idx_approval_user ON shell_approval_requests (user_id);
+CREATE INDEX idx_approval_status ON shell_approval_requests (status);
+CREATE INDEX idx_approval_requested ON shell_approval_requests (requested_at DESC);
 
 -- RBAC policies (cached from YAML config)
-CREATE TABLE rbac_policies (
-    policy_id       VARCHAR PRIMARY KEY,
-    role            VARCHAR NOT NULL,
-    environment     VARCHAR,           -- NULL means "*" (all environments)
-    command         VARCHAR NOT NULL,
-    require_approval BOOLEAN DEFAULT false,
-    require_mfa     BOOLEAN DEFAULT false,
+CREATE TABLE rbac_policies
+(
+    policy_id            VARCHAR PRIMARY KEY,
+    role                 VARCHAR NOT NULL,
+    environment          VARCHAR, -- NULL means "*" (all environments)
+    command              VARCHAR NOT NULL,
+    require_approval     BOOLEAN   DEFAULT false,
+    require_mfa          BOOLEAN   DEFAULT false,
     approval_ttl_seconds INTEGER,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_policy_role ON rbac_policies(role);
+CREATE INDEX idx_policy_role ON rbac_policies (role);
 
 -- User role assignments
-CREATE TABLE user_roles (
-    user_id         VARCHAR PRIMARY KEY,
-    role            VARCHAR NOT NULL,
-    assigned_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    assigned_by     VARCHAR
+CREATE TABLE user_roles
+(
+    user_id     VARCHAR PRIMARY KEY,
+    role        VARCHAR NOT NULL,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    assigned_by VARCHAR
 );
 
-CREATE INDEX idx_user_role ON user_roles(role);
+CREATE INDEX idx_user_role ON user_roles (role);
 ```
 
 ## API Changes
@@ -257,66 +274,66 @@ CREATE INDEX idx_user_role ON user_roles(role);
 ```protobuf
 // Shell authorization request (before starting shell)
 message AuthorizeShellRequest {
-  string user_id = 1;
-  string agent_id = 2;
-  string environment = 3;     // e.g., "production", "staging"
-  string justification = 4;   // Optional reason for access
+    string user_id = 1;
+    string agent_id = 2;
+    string environment = 3;     // e.g., "production", "staging"
+    string justification = 4;   // Optional reason for access
 }
 
 message AuthorizeShellResponse {
-  enum Status {
-    STATUS_UNSPECIFIED = 0;
-    STATUS_ALLOWED = 1;                // Immediate access granted
-    STATUS_DENIED = 2;                 // Access denied
-    STATUS_APPROVAL_REQUIRED = 3;      // Approval workflow needed
-    STATUS_MFA_REQUIRED = 4;           // MFA challenge required
-  }
+    enum Status {
+        STATUS_UNSPECIFIED = 0;
+        STATUS_ALLOWED = 1;                // Immediate access granted
+        STATUS_DENIED = 2;                 // Access denied
+        STATUS_APPROVAL_REQUIRED = 3;      // Approval workflow needed
+        STATUS_MFA_REQUIRED = 4;           // MFA challenge required
+    }
 
-  Status status = 1;
-  string message = 2;                  // Human-readable message
-  string approval_request_id = 3;      // If approval required
-  string approval_token = 4;           // If approved, token to validate
-  google.protobuf.Timestamp expires_at = 5;  // When approval expires
+    Status status = 1;
+    string message = 2;                  // Human-readable message
+    string approval_request_id = 3;      // If approval required
+    string approval_token = 4;           // If approved, token to validate
+    google.protobuf.Timestamp expires_at = 5;  // When approval expires
 }
 
 // Approval workflow
 message CreateApprovalRequest {
-  string user_id = 1;
-  string agent_id = 2;
-  string environment = 3;
-  string justification = 4;
+    string user_id = 1;
+    string agent_id = 2;
+    string environment = 3;
+    string justification = 4;
 }
 
 message CreateApprovalResponse {
-  string request_id = 1;
-  string status = 2;                   // "pending"
-  string message = 3;
+    string request_id = 1;
+    string status = 2;                   // "pending"
+    string message = 3;
 }
 
 message ApproveShellRequest {
-  string request_id = 1;
-  string approver_id = 2;
-  bool approved = 3;                   // true = approve, false = deny
-  string reason = 4;                   // Approval/denial reason
+    string request_id = 1;
+    string approver_id = 2;
+    bool approved = 3;                   // true = approve, false = deny
+    string reason = 4;                   // Approval/denial reason
 }
 
 message ApproveShellResponse {
-  bool success = 1;
-  string message = 2;
-  string approval_token = 3;           // Token for user to start shell
-  google.protobuf.Timestamp expires_at = 4;
+    bool success = 1;
+    string message = 2;
+    string approval_token = 3;           // Token for user to start shell
+    google.protobuf.Timestamp expires_at = 4;
 }
 
 message GetApprovalStatusRequest {
-  string request_id = 1;
+    string request_id = 1;
 }
 
 message GetApprovalStatusResponse {
-  string status = 1;                   // pending, approved, denied, expired
-  string approver_id = 2;
-  google.protobuf.Timestamp approved_at = 3;
-  google.protobuf.Timestamp expires_at = 4;
-  string approval_token = 5;
+    string status = 1;                   // pending, approved, denied, expired
+    string approver_id = 2;
+    google.protobuf.Timestamp approved_at = 3;
+    google.protobuf.Timestamp expires_at = 4;
+    string approval_token = 5;
 }
 ```
 
@@ -324,14 +341,14 @@ message GetApprovalStatusResponse {
 
 ```protobuf
 service ColonyService {
-  // Check if user is authorized for shell access
-  rpc AuthorizeShell(AuthorizeShellRequest) returns (AuthorizeShellResponse);
+    // Check if user is authorized for shell access
+    rpc AuthorizeShell(AuthorizeShellRequest) returns (AuthorizeShellResponse);
 
-  // Approval workflow
-  rpc CreateApprovalRequest(CreateApprovalRequest) returns (CreateApprovalResponse);
-  rpc ApproveShell(ApproveShellRequest) returns (ApproveShellResponse);
-  rpc GetApprovalStatus(GetApprovalStatusRequest) returns (GetApprovalStatusResponse);
-  rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
+    // Approval workflow
+    rpc CreateApprovalRequest(CreateApprovalRequest) returns (CreateApprovalResponse);
+    rpc ApproveShell(ApproveShellRequest) returns (ApproveShellResponse);
+    rpc GetApprovalStatus(GetApprovalStatusRequest) returns (GetApprovalStatusResponse);
+    rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
 }
 ```
 
@@ -472,31 +489,34 @@ $ coral colony approvals deny req-abc123 --reason "Insufficient justification"
 ## Migration Strategy
 
 1. **Deployment**:
-   - Deploy Colony with RBAC engine (default: all users allowed)
-   - Gradually enable policies per environment (dev → staging → prod)
-   - Train SREs on approval workflow
+    - Deploy Colony with RBAC engine (default: all users allowed)
+    - Gradually enable policies per environment (dev → staging → prod)
+    - Train SREs on approval workflow
 
 2. **Rollout phases**:
-   - Phase 1: Audit mode (log denials, but allow access)
-   - Phase 2: Enforce dev/staging restrictions
-   - Phase 3: Enforce production approval requirements
-   - Phase 4: Add MFA enforcement (future)
+    - Phase 1: Audit mode (log denials, but allow access)
+    - Phase 2: Enforce dev/staging restrictions
+    - Phase 3: Enforce production approval requirements
+    - Phase 4: Add MFA enforcement (future)
 
 3. **Backward compatibility**:
-   - Old CLI without authorization check: Colony returns "allowed" (permissive mode)
-   - New CLI with old Colony: Skip authorization check, proceed directly
+    - Old CLI without authorization check: Colony returns "allowed" (permissive
+      mode)
+    - New CLI with old Colony: Skip authorization check, proceed directly
 
 ## Future Enhancements
 
 **Deferred to later work:**
 
 - **MFA integration**: Integrate with OIDC provider for MFA challenge
-- **Temporary access grants**: Time-limited role assignments (e.g., "grant SRE access for 2 hours")
+- **Temporary access grants**: Time-limited role assignments (e.g., "grant SRE
+  access for 2 hours")
 - **Break-glass access**: Emergency access bypass (requires strong audit trail)
 - **Slack/PagerDuty integration**: Notify approvers via chat/pages
 - **Approval delegation**: Approvers can delegate to others
 - **Audit compliance reports**: Generate reports for SOC2/ISO 27001 audits
-- **Just-in-time access**: Request access only when needed, auto-revoke after use
+- **Just-in-time access**: Request access only when needed, auto-revoke after
+  use
 
 ---
 
