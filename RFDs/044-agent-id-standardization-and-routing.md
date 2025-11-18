@@ -240,7 +240,7 @@ No configuration changes required. Agent ID format already established by RFD
 
 ## Implementation Plan
 
-### Phase 1: MCP Tool Input Schema Updates
+### Phase 1: MCP Tool Input Schema Updates ✅ COMPLETED
 
 - [x] Add `agent_id` field to all tool input types:
     - [x] `ExecCommandInput`
@@ -251,7 +251,7 @@ No configuration changes required. Agent ID format already established by RFD
 - [x] Update JSON schema descriptions for all tools
 - [x] Regenerate MCP server schema
 
-### Phase 2: MCP Tool Execution Logic
+### Phase 2: MCP Tool Execution Logic ✅ COMPLETED
 
 - [x] Implement agent ID lookup path in all tool executors
 - [x] Fix service filtering to use `Services[]` array (not `ComponentName`)
@@ -259,7 +259,7 @@ No configuration changes required. Agent ID format already established by RFD
 - [x] Add helpful error messages with agent ID listings
 - [x] Update `executeServiceHealthTool` to show services correctly
 
-### Phase 3: CLI Shell Command Extensions
+### Phase 3: CLI Shell Command Extensions ✅ COMPLETED
 
 - [x] Add `--agent` flag to `NewShellCmd()`
 - [x] Add `--colony` flag (with auto-detection)
@@ -270,7 +270,7 @@ No configuration changes required. Agent ID format already established by RFD
 - [x] Update command help text and examples
 - [x] Document requirement: Colony must be running locally for L3 routing
 
-### Phase 4: CLI Output Improvements
+### Phase 4: CLI Output Improvements ✅ COMPLETED
 
 - [x] Update `coral colony agents` table format
 - [x] Remove `ComponentName` column
