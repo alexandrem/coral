@@ -92,7 +92,7 @@ topology constraints imposed by WireGuard mesh architecture (RFD 007).
 3. **Fix service filtering to use Services[] array**: Update all tools to filter
    by multi-service list, not deprecated `ComponentName`.
 
-4. **Extend CLI shell command for agent ID routing**: Add `--agent-id` flag that
+4. **Extend CLI shell command for agent ID routing**: Add `--agent` flag that
    uses colony registry to resolve agent mesh IP.
 
 5. **Clarify routing topology constraints**: Document that direct CLI-to-agent
@@ -116,7 +116,7 @@ topology constraints imposed by WireGuard mesh architecture (RFD 007).
 │  Addressing Options:                                            │
 │                                                                 │
 │  1. Agent ID (unambiguous, recommended):                        │
-│     coral shell --agent-id hostname-api                         │
+│     coral shell --agent hostname-api                         │
 │     coral_exec_command(agent_id="hostname-api", cmd=[...])      │
 │                                                                 │
 │  2. Service Name (convenience, requires unique match):          │
@@ -216,8 +216,8 @@ topology constraints imposed by WireGuard mesh architecture (RFD 007).
     - Return helpful error messages with agent ID list when ambiguous
 
 3. **CLI Shell Command** (`internal/cli/agent/shell.go`):
-    - Add `--agent-id` flag for agent ID input
-    - Add `--colony-id` flag for specifying which colony's registry
+    - Add `--agent` flag for agent ID input
+    - Add `--colony` flag for specifying which colony's registry
     - Implement colony registry query to resolve agent ID → mesh IP
     - Automatically use resolved mesh IP as target address
     - Update help text to recommend agent ID over manual mesh IP lookup
@@ -261,8 +261,8 @@ No configuration changes required. Agent ID format already established by RFD
 
 ### Phase 3: CLI Shell Command Extensions
 
-- [ ] Add `--agent-id` flag to `NewShellCmd()`
-- [ ] Add `--colony-id` flag (with auto-detection)
+- [ ] Add `--agent` flag to `NewShellCmd()`
+- [ ] Add `--colony` flag (with auto-detection)
 - [ ] Implement colony registry query (HTTP RPC) for agent ID → mesh IP
   resolution
 - [ ] Add agent ID → mesh IP resolution logic before shell connection
@@ -283,7 +283,7 @@ No configuration changes required. Agent ID format already established by RFD
 - [ ] Integration tests for agent ID → IP resolution
 - [ ] E2E test: Target specific agent with `agent_id` parameter
 - [ ] E2E test: Service name with multiple agents triggers error
-- [ ] E2E test: Shell command with `--agent-id` flag
+- [ ] E2E test: Shell command with `--agent` flag
 - [ ] Update MCP tool documentation with examples
 - [ ] Update CLI reference docs
 
@@ -352,17 +352,22 @@ type ListEBPFCollectorsInput struct {
 
 **Service Filtering Fix**:
 
-Service filtering must iterate through the `agent.Services[]` array to find matches, rather than checking the deprecated `ComponentName` field. This ensures multi-service agents are correctly matched regardless of which service is being targeted.
+Service filtering must iterate through the `agent.Services[]` array to find
+matches, rather than checking the deprecated `ComponentName` field. This ensures
+multi-service agents are correctly matched regardless of which service is being
+targeted.
 
 **Disambiguation Error Handling**:
 
-When multiple agents match a service name, return an error listing all matching agent IDs and prompt the user to specify which agent using the `agent_id` parameter.
+When multiple agents match a service name, return an error listing all matching
+agent IDs and prompt the user to specify which agent using the `agent_id`
+parameter.
 
 ### CLI Commands
 
 ```bash
 # Shell command with agent ID (NEW)
-$ coral shell --agent-id hostname-api
+$ coral shell --agent hostname-api
 ⚠️  WARNING: Entering agent debug shell with elevated privileges.
 ...
 Continue? [y/N] y
@@ -386,7 +391,7 @@ Error: multiple agents found for service 'api':
   - hostname-api-3 (10.42.0.17)
 
 Please specify agent ID:
-  coral shell --agent-id hostname-api-1
+  coral shell --agent hostname-api-1
 
 # Colony agents command (updated output)
 $ coral colony agents
@@ -403,61 +408,56 @@ hostname-db-proxy    db-proxy              standalone           10.42.0.21 healt
 
 ### MCP Tool Usage Examples
 
-```javascript
-// MCP Tool with agent ID (unambiguous, recommended)
-{
-    "name"
-:
-    "coral_exec_command",
-        "arguments"
-:
-    {
-        "agent_id"
-    :
-        "hostname-api-1",
-            "command"
-    :
-        ["ps", "aux"]
-    }
-}
+MCP Tool with agent ID (unambiguous, recommended)
 
-// MCP Tool with service (works if unique match)
+```json
 {
-    "name"
-:
-    "coral_exec_command",
-        "arguments"
-:
-    {
-        "service"
-    :
-        "frontend",
-            "command"
-    :
-        ["ls", "-la", "/app"]
+    "name": "coral_exec_command",
+    "arguments": {
+        "agent_id": "hostname-api-1",
+        "command": [
+            "ps",
+            "aux"
+        ]
     }
 }
-
-// MCP Tool with service (multiple matches → error)
-{
-    "name"
-:
-    "coral_exec_command",
-        "arguments"
-:
-    {
-        "service"
-    :
-        "api",
-            "command"
-    :
-        ["ps", "aux"]
-    }
-}
-// Response:
-// Error: multiple agents found for service 'api': hostname-api-1, hostname-api-2, hostname-api-3
-// Please specify agent_id parameter to disambiguate
 ```
+
+MCP Tool with service (works if unique match)
+
+```json
+{
+    "name": "coral_exec_command",
+    "arguments": {
+        "service": "frontend",
+        "command": [
+            "ls",
+            "-la",
+            "/app"
+        ]
+    }
+}
+```
+
+MCP Tool with service (multiple matches → error)
+
+```json
+{
+    "name": "coral_exec_command",
+    "arguments": {
+        "service": "api",
+        "command": [
+            "ps",
+            "aux"
+        ]
+    }
+}
+```
+
+Response:
+Error: multiple agents found for service 'api': hostname-api-1, hostname-api-2,
+hostname-api-3
+Please specify agent_id parameter to disambiguate
 
 ## Testing Strategy
 
@@ -481,7 +481,7 @@ hostname-db-proxy    db-proxy              standalone           10.42.0.21 healt
 
 **CLI Shell Command:**
 
-- Test `--agent-id` flag resolves mesh IP via colony
+- Test `--agent` flag resolves mesh IP via colony
 - Test `--service` flag with unique match
 - Test `--service` flag with multiple matches (error)
 - Test fallback to `--agent-addr` when offline
@@ -505,7 +505,7 @@ hostname-db-proxy    db-proxy              standalone           10.42.0.21 healt
 **Shell Command Workflow:**
 
 1. Start agent with known agent ID
-2. Run `coral shell --agent-id <id>`
+2. Run `coral shell --agent <id>`
 3. Verify colony resolves ID → mesh IP
 4. Verify shell connection established
 5. Run command in shell, verify output
@@ -549,7 +549,7 @@ hostname-db-proxy    db-proxy              standalone           10.42.0.21 healt
 
 **Phase 2: CLI update (backward compatible)**
 
-1. Deploy CLI with `--agent-id` flag support
+1. Deploy CLI with `--agent` flag support
 2. Old commands (`--agent-addr`) continue working
 3. New commands benefit from registry lookup
 
@@ -642,7 +642,7 @@ hostname-db-proxy    db-proxy              standalone           10.42.0.21 healt
 **RFD 026 (Shell Command):**
 
 - Shell command currently lacks agent ID support
-- This RFD extends shell with `--agent-id` flag
+- This RFD extends shell with `--agent` flag
 
 **RFD 038 (CLI-to-Agent Direct Connectivity):**
 
@@ -666,7 +666,7 @@ This RFD defines the standardization work needed for agent routing.
 - ❌ MCP tools lack `agent_id` parameter
 - ❌ Service filtering uses deprecated `ComponentName`
 - ❌ No disambiguation for multi-agent services
-- ❌ Shell command lacks `--agent-id` flag
+- ❌ Shell command lacks `--agent` flag
 
 **What Works Now:**
 
@@ -710,7 +710,9 @@ Daemon mode:       hostname
 
 **Implementation Approach**:
 
-Service filtering must check the `Services[]` array rather than the deprecated `ComponentName` field. Each service in the array should be checked against the pattern until a match is found.
+Service filtering must check the `Services[]` array rather than the deprecated
+`ComponentName` field. Each service in the array should be checked against the
+pattern until a match is found.
 
 ### WireGuard Routing Topology
 
@@ -824,7 +826,7 @@ MCP tool:
   }
 
 CLI:
-  coral shell --agent-id hostname-api-1
+  coral shell --agent hostname-api-1
 ```
 
 **Agent not found:**
@@ -870,7 +872,7 @@ To list all agents:
 **CLI Commands:**
 
 - Existing `--agent-addr` flag unchanged
-- New `--agent-id` flag is optional addition
+- New `--agent` flag is optional addition
 - No breaking changes to command syntax
 
 **Registry Schema:**
