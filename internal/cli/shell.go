@@ -1,4 +1,4 @@
-package agent
+package cli
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func NewShellCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "shell [target]",
+		Use:   "shell",
 		Short: "Open interactive shell in agent environment (RFD 026)",
 		Long: `Open an interactive shell session within the agent's environment.
 
@@ -49,13 +49,13 @@ All sessions are fully recorded for audit purposes.
 
 Examples:
   # Open shell in local agent
-  coral agent shell
+  coral shell
 
   # Specify agent address explicitly
-  coral agent shell --agent-addr localhost:9001
+  coral shell --agent-addr localhost:9001
 
   # Specify user ID for audit
-  coral agent shell --user-id alice@company.com
+  coral shell --user-id alice@company.com
 
 The shell session will:
   - Use /bin/bash if available, otherwise /bin/sh
