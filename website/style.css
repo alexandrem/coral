@@ -942,7 +942,7 @@ body {
     grid-template-columns: repeat(3, 1fr);
     gap: var(--spacing-sm);
     max-width: 900px;
-    margin: 0 auto;
+    margin: var(--spacing-xl) auto 0;
 }
 
 .feature-grid-compact .feature-card {
