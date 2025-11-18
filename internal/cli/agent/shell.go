@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/net/http2"
 	"golang.org/x/term"
 
 	agentv1 "github.com/coral-io/coral/coral/agent/v1"
@@ -129,8 +131,17 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 		normalizedAddr = strings.TrimPrefix(agentAddr, "https://")
 	}
 
-	// Create agent client.
-	httpClient := &http.Client{}
+	// Create HTTP client with HTTP/2 support for bidirectional streaming.
+	httpClient := &http.Client{
+		Transport: &http2.Transport{
+			// Allow HTTP/2 over plaintext (h2c).
+			AllowHTTP: true,
+			DialTLSContext: func(ctx context.Context, network, addr string, cfg interface{}) (net.Conn, error) {
+				// Dial without TLS for h2c.
+				return net.Dial(network, addr)
+			},
+		},
+	}
 	client := agentv1connect.NewAgentServiceClient(
 		httpClient,
 		fmt.Sprintf("http://%s", normalizedAddr),

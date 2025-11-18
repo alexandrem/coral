@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
@@ -514,9 +516,11 @@ Examples:
 				}
 			})
 
+			// Enable HTTP/2 Cleartext (h2c) for bidirectional streaming (RFD 026).
+			h2s := &http2.Server{}
 			httpServer := &http.Server{
 				Addr:    ":9001",
-				Handler: mux,
+				Handler: h2c.NewHandler(mux, h2s),
 			}
 
 			// Start HTTP server in background.
