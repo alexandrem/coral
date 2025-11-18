@@ -223,7 +223,17 @@ func (h *ShellHandler) streamOutput(
 	for {
 		n, err := session.pty.Read(buf)
 		if err != nil {
-			if err == io.EOF {
+			// Check if this is a normal exit condition (EOF or EIO).
+			// PTYs can return EIO (input/output error) when the slave side is closed.
+			isExitError := err == io.EOF
+			if !isExitError {
+				// Check for syscall.EIO (input/output error from PTY).
+				if pathErr, ok := err.(*os.PathError); ok {
+					isExitError = pathErr.Err == syscall.EIO
+				}
+			}
+
+			if isExitError {
 				// Process exited, send exit response.
 				session.mu.Lock()
 				exitCode := session.ExitCode
