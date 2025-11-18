@@ -439,37 +439,44 @@ Standardization). This RFD focuses on agent command execution.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🔄 In Progress
 
-This RFD defines the implementation of the `agent_shell_exec` MCP tool. The
-underlying infrastructure is complete (agent gRPC API, RFD 004 MCP server,
-colony registry), but the MCP tool integration is pending.
+The `agent_shell_exec` MCP tool has been registered and integrated into the MCP
+server with stub implementation. The tool is discoverable via MCP clients but
+returns placeholder text until command execution logic is implemented.
 
-**Dependencies Completed:**
+**Completed Work:**
 
-- ✅ Agent gRPC API with command execution
-- ✅ MCP server framework (RFD 004)
-- ✅ Colony agent registry
-- ✅ Agent mesh networking
+- ✅ Tool renamed from `coral_shell_start` to `agent_shell_exec` (addresses bidirectional streaming limitation)
+- ✅ Tool registered in MCP server (`registerAgentShellExecTool()`)
+- ✅ Input schema defined with `agent_id` and `command` parameters (RFD 044 integration ready)
+- ✅ Tool execution handler added (`executeAgentShellExecTool()`)
+- ✅ CLI tool listing updated
+- ✅ RFD documentation updated to reflect new design
+
+**What Works Now:**
+
+- Tool is discoverable by MCP clients (Claude Desktop, `coral ask`)
+- Tool accepts JSON input and validates schema
+- Tool returns descriptive "not yet implemented" response
+- Audit logging captures all tool invocations
 
 **What Needs Implementation:**
 
-- ⏳ Replace placeholder in `executeAgentShellExecTool()`
-- ⏳ Agent resolution logic (RFD 044 integration)
-- ⏳ Command execution via agent gRPC API
-- ⏳ Response formatting with stdout/stderr/exit code
-- ⏳ Error handling for edge cases
-- ⏳ Unit and integration tests
+- Agent resolution via RFD 044 (agent_id or service lookup with disambiguation)
+- Command execution via agent gRPC API
+- stdout/stderr/exit code capture and formatting
+- Timeout handling
+- Unit and integration tests
 
 **Integration Status:**
 
-Once implemented, the tool will be immediately available via:
+Once agent command execution is implemented, no additional deployment or
+configuration changes are required. The tool will immediately be available via:
 
 - Claude Desktop MCP integration
 - `coral ask` CLI (RFD 030)
 - Any MCP-compatible client
-
-No deployment or configuration changes required beyond code changes.
 
 ## Deferred Features
 
