@@ -203,64 +203,69 @@
                 </p>
 
                 <!-- AI Assistants Layer -->
-                <div class="diagram-layer">
-                    <div class="diagram-nodes diagram-nodes-multi">
-                        <div class="diagram-node node-clients">
-                            <h4><span class="node-icon-inline">🤖</span> External AI Assistants</h4>
-                            <div class="node-tags">
-                                <span class="node-tag">Claude Desktop</span>
-                                <span class="node-tag">VS Code</span>
-                                <span class="node-tag">Cursor</span>
-                            </div>
-                            <div class="node-detail">Your LLM: Anthropic, OpenAI, Ollama</div>
-                        </div>
-                        <div class="diagram-node node-coral-ask">
-                            <h4><span class="node-icon-inline">⌨️</span> coral ask</h4>
-                            <div class="node-inline-features">Built-in AI Terminal</div>
-                            <div class="node-detail">Native CLI interface with your LLM</div>
-                        </div>
-                    </div>
-                </div>
+				<div class="">
+					<div class="diagram-layer">
+						<div class="diagram-nodes diagram-nodes-multi">
+							<div class="diagram-node node-clients">
+								<h4><span class="node-icon-inline">🤖</span> External AI Assistants</h4>
+								<div class="node-tags">
+									<span class="node-tag">Claude Desktop</span>
+									<span class="node-tag">VS Code</span>
+									<span class="node-tag">Cursor</span>
+								</div>
+								<div class="node-detail">Your LLM: Anthropic, OpenAI, Ollama</div>
+							</div>
+							<div class="diagram-node node-coral-ask">
+								<h4><span class="node-icon-inline">⌨️</span> Coral</h4>
+								<div class="node-tags">
+									<span class="node-tag">Ask</span>
+								</div>
+								<div class="node-detail">Built-in AI Terminal that speaks with your LLMs</div>
+							</div>
+						</div>
+					</div>
 
-                <!-- Arrow -->
-                <div class="diagram-arrow">
-                    <div class="arrow-line"></div>
-                    <div class="arrow-label">MCP Protocol • "Why is checkout slow?"</div>
-                    <div class="arrow-head">▼</div>
-                </div>
 
-                <!-- Colony Layer -->
-                <div class="diagram-layer">
-                    <div class="diagram-nodes">
-                        <div class="diagram-node node-colony">
-                            <h4><span class="node-icon-inline">🧠</span> Colony Server</h4>
-                            <div class="node-inline-features">MCP Server • Real-time Tools • DuckDB Analytics</div>
-                            <div class="node-detail">Your observability data stays local</div>
-                        </div>
-                    </div>
-                </div>
+					<!-- Arrow -->
+					<div class="diagram-arrow">
+						<div class="arrow-line"></div>
+						<div class="arrow-label">MCP Protocol • "Why is checkout slow?"</div>
+						<div class="arrow-head">▼</div>
+					</div>
 
-                <!-- Bidirectional Arrow -->
-                <div class="diagram-arrow-bidirectional">
-                    <div class="arrow-bidirectional-container">
-                        <div class="arrow-line-up"></div>
-                        <div class="arrow-line-down"></div>
-                        <div class="arrow-head-up">▼</div>
-                        <div class="arrow-head-down">▼</div>
-                    </div>
-                    <div class="arrow-label-bidirectional">Encrypted Mesh • Bidirectional</div>
-                </div>
+					<!-- Colony Layer -->
+					<div class="diagram-layer">
+						<div class="diagram-nodes">
+							<div class="diagram-node node-colony">
+								<h4><span class="node-icon-inline">🧠</span> Colony Server</h4>
+								<div class="node-inline-features">MCP Server • Real-time Tools • DuckDB Analytics</div>
+								<div class="node-detail">Your observability data stays local</div>
+							</div>
+						</div>
+					</div>
 
-                <!-- Agents Layer -->
-                <div class="diagram-layer">
-                    <div class="diagram-nodes">
-                        <div class="diagram-node node-agents">
-                            <h4><span class="node-icon-inline">👁️</span> Agents on Services</h4>
-                            <div class="node-inline-features">eBPF Probes • OTLP Collection • Local DuckDB</div>
-                            <div class="node-detail">Running on your infrastructure</div>
-                        </div>
-                    </div>
-                </div>
+					<!-- Bidirectional Arrow -->
+					<div class="diagram-arrow-bidirectional">
+						<div class="arrow-bidirectional-container">
+							<div class="arrow-line-up"></div>
+							<div class="arrow-line-down"></div>
+							<div class="arrow-head-up">▼</div>
+							<div class="arrow-head-down">▼</div>
+						</div>
+						<div class="arrow-label-bidirectional">Encrypted Mesh • Bidirectional</div>
+					</div>
+
+					<!-- Agents Layer -->
+					<div class="diagram-layer">
+						<div class="diagram-nodes">
+							<div class="diagram-node node-agents">
+								<h4><span class="node-icon-inline">👁️</span> Agents on Services</h4>
+								<div class="node-inline-features">eBPF Probes • OTLP Collection • Local DuckDB</div>
+								<div class="node-detail">Running on your infrastructure</div>
+							</div>
+						</div>
+					</div>
+				</div>
 
                 <div class="feature-grid feature-grid-compact">
                     <div class="feature-card">
