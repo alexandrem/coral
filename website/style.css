@@ -946,21 +946,25 @@ body {
 }
 
 .feature-grid-compact .feature-card {
-    padding: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
 }
 
 .feature-grid-compact .feature-icon {
     font-size: 1.5rem;
-    margin-right: 0.5rem;
 }
 
 .feature-grid-compact h3 {
-    font-size: 1rem;
+    font-size: 0.9rem;
     margin-bottom: 0.5rem;
 }
 
+.feature-grid-compact .feature-title {
+    font-size: 0.9rem;
+}
+
 .feature-grid-compact p {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
 }
 
 .feature-card {
