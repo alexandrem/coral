@@ -84,7 +84,7 @@ func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
 	}
 
 	// Delete the automatic route to the network address that ifconfig creates.
-	// This route (e.g., "10.42.0.0 -> 10.42.0.1 via utun11") causes routing conflicts
+	// This route (e.g., "100.64.0.0 -> 100.64.0.1 via utun11") causes routing conflicts
 	// when multiple WireGuard instances run on the same host.
 	deleteNetRoute := exec.Command("route", "-n", "delete", "-host", networkAddr)
 	_ = deleteNetRoute.Run() // Ignore errors - route might not exist

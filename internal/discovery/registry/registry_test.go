@@ -14,12 +14,12 @@ func TestRegistry_Register(t *testing.T) {
 	reg := New(5 * time.Minute)
 
 	t.Run("successful registration", func(t *testing.T) {
-		entry, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 		assert.Equal(t, "mesh-1", entry.MeshID)
 		assert.Equal(t, "pubkey-1", entry.PubKey)
 		assert.Equal(t, []string{"10.0.0.1:41820"}, entry.Endpoints)
-		assert.Equal(t, "10.42.0.1", entry.MeshIPv4)
+		assert.Equal(t, "100.64.0.1", entry.MeshIPv4)
 		assert.Equal(t, "fd42::1", entry.MeshIPv6)
 		assert.Equal(t, uint32(9000), entry.ConnectPort)
 		assert.Equal(t, "prod", entry.Metadata["env"])
@@ -62,13 +62,13 @@ func TestRegistry_Register(t *testing.T) {
 		reg := New(5 * time.Minute)
 
 		// Initial registration
-		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 
 		time.Sleep(10 * time.Millisecond)
 
 		// Update with same pubkey (should succeed - this is a renewal)
-		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "10.42.0.2", "fd42::2", 9001, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "100.64.0.2", "fd42::2", 9001, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 
 		assert.Equal(t, "pubkey-1", entry2.PubKey)
@@ -81,7 +81,7 @@ func TestRegistry_Lookup(t *testing.T) {
 	reg := New(5 * time.Minute)
 
 	t.Run("lookup existing colony", func(t *testing.T) {
-		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 
 		entry, err := reg.Lookup("mesh-1")

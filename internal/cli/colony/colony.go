@@ -94,6 +94,10 @@ Environment Variables:
                              Examples: colony.example.com:41580, 203.0.113.5:41580
                              Default: 127.0.0.1:<port> (local development only)
                              Production: MUST be set to reachable public IP/hostname
+  CORAL_MESH_SUBNET        - WireGuard mesh network subnet (CIDR notation)
+                             Default: 100.64.0.0/10 (CGNAT address space, RFC 6598)
+                             Examples: 100.64.0.0/10, 10.42.0.0/16, 172.16.0.0/12
+                             Use CGNAT (100.64.0.0/10) to avoid conflicts with corporate networks
 
 Production Deployment:
   For agents to connect from different machines, you MUST set CORAL_PUBLIC_ENDPOINT

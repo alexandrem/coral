@@ -33,8 +33,8 @@ func (m *mockMeshServiceHandler) Register(
 ) (*connect.Response[meshv1.RegisterResponse], error) {
 	return connect.NewResponse(&meshv1.RegisterResponse{
 		Accepted:   true,
-		AssignedIp: "10.42.0.2",
-		MeshSubnet: "10.42.0.0/16",
+		AssignedIp: "100.64.0.2",
+		MeshSubnet: "100.64.0.0/10",
 	}), nil
 }
 

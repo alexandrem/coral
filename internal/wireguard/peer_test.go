@@ -10,7 +10,7 @@ func TestParsePeerConfig_Valid(t *testing.T) {
 	validConfig := &PeerConfig{
 		PublicKey:           testPublicKey,
 		Endpoint:            "192.168.1.100:51820",
-		AllowedIPs:          []string{"10.42.0.15/32"},
+		AllowedIPs:          []string{"100.64.0.15/32"},
 		PersistentKeepalive: 25,
 	}
 
@@ -30,7 +30,7 @@ func TestParsePeerConfig_NilConfig(t *testing.T) {
 func TestParsePeerConfig_EmptyPublicKey(t *testing.T) {
 	config := &PeerConfig{
 		PublicKey:  "",
-		AllowedIPs: []string{"10.42.0.15/32"},
+		AllowedIPs: []string{"100.64.0.15/32"},
 	}
 
 	err := ParsePeerConfig(config)
@@ -42,7 +42,7 @@ func TestParsePeerConfig_EmptyPublicKey(t *testing.T) {
 func TestParsePeerConfig_InvalidPublicKeyLength(t *testing.T) {
 	config := &PeerConfig{
 		PublicKey:  "too-short",
-		AllowedIPs: []string{"10.42.0.15/32"},
+		AllowedIPs: []string{"100.64.0.15/32"},
 	}
 
 	err := ParsePeerConfig(config)
@@ -78,7 +78,7 @@ func TestParsePeerConfig_InvalidAllowedIP(t *testing.T) {
 func TestParsePeerConfig_ValidAllowedIPWithoutCIDR(t *testing.T) {
 	config := &PeerConfig{
 		PublicKey:  testPublicKey,
-		AllowedIPs: []string{"10.42.0.15"},
+		AllowedIPs: []string{"100.64.0.15"},
 	}
 
 	err := ParsePeerConfig(config)
@@ -90,7 +90,7 @@ func TestParsePeerConfig_ValidAllowedIPWithoutCIDR(t *testing.T) {
 func TestParsePeerConfig_InvalidEndpoint(t *testing.T) {
 	config := &PeerConfig{
 		PublicKey:  testPublicKey,
-		AllowedIPs: []string{"10.42.0.15/32"},
+		AllowedIPs: []string{"100.64.0.15/32"},
 		Endpoint:   "invalid-endpoint",
 	}
 
@@ -103,7 +103,7 @@ func TestParsePeerConfig_InvalidEndpoint(t *testing.T) {
 func TestParsePeerConfig_NoEndpoint(t *testing.T) {
 	config := &PeerConfig{
 		PublicKey:  testPublicKey,
-		AllowedIPs: []string{"10.42.0.15/32"},
+		AllowedIPs: []string{"100.64.0.15/32"},
 		Endpoint:   "",
 	}
 
@@ -116,7 +116,7 @@ func TestParsePeerConfig_NoEndpoint(t *testing.T) {
 func TestParsePeerConfig_NegativeKeepalive(t *testing.T) {
 	config := &PeerConfig{
 		PublicKey:           testPublicKey,
-		AllowedIPs:          []string{"10.42.0.15/32"},
+		AllowedIPs:          []string{"100.64.0.15/32"},
 		PersistentKeepalive: -1,
 	}
 
@@ -129,11 +129,11 @@ func TestParsePeerConfig_NegativeKeepalive(t *testing.T) {
 func TestPeerConfig_AllowedIPsString(t *testing.T) {
 	config := &PeerConfig{
 		PublicKey:  testPublicKey,
-		AllowedIPs: []string{"10.42.0.15/32", "10.42.0.16/32", "fd42::1/128"},
+		AllowedIPs: []string{"100.64.0.15/32", "100.64.0.16/32", "fd42::1/128"},
 	}
 
 	result := config.AllowedIPsString()
-	expected := "10.42.0.15/32,10.42.0.16/32,fd42::1/128"
+	expected := "100.64.0.15/32,100.64.0.16/32,fd42::1/128"
 
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)
@@ -143,11 +143,11 @@ func TestPeerConfig_AllowedIPsString(t *testing.T) {
 func TestPeerConfig_AllowedIPsString_SingleIP(t *testing.T) {
 	config := &PeerConfig{
 		PublicKey:  testPublicKey,
-		AllowedIPs: []string{"10.42.0.15/32"},
+		AllowedIPs: []string{"100.64.0.15/32"},
 	}
 
 	result := config.AllowedIPsString()
-	expected := "10.42.0.15/32"
+	expected := "100.64.0.15/32"
 
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)

@@ -327,8 +327,8 @@ func setupAgentWireGuard(
 	// Routes can only be added after the interface has an IP address.
 	// We'll use a temporary IP in the high range (.254) which will be updated after registration.
 	if colonyInfo.MeshIpv4 != "" {
-		tempIP := net.ParseIP("10.42.255.254") // Temporary IP in high range
-		_, meshSubnet, err := net.ParseCIDR("10.42.0.0/16")
+		tempIP := net.ParseIP("100.127.255.254") // Temporary IP in high range
+		_, meshSubnet, err := net.ParseCIDR("100.64.0.0/10")
 		if err == nil {
 			logger.Info().
 				Str("interface", wgDevice.InterfaceName()).

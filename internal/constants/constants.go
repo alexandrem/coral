@@ -10,10 +10,11 @@ var (
 	DefaultColonyDatabasePath = DefaultDir + "/" + "colony.duckdb"
 
 	// DefaultColonyMeshIPv4 is default colony mesh IPv4 address.
-	DefaultColonyMeshIPv4 = "10.42.0.1"
+	DefaultColonyMeshIPv4 = "100.64.0.1"
 
 	// DefaultColonyMeshIPv4Subnet is the default IPv4 subnet for mesh network.
-	DefaultColonyMeshIPv4Subnet = "10.42.0.0/16"
+	// Uses CGNAT address space (RFC 6598) to avoid conflicts with RFC 1918 addresses.
+	DefaultColonyMeshIPv4Subnet = "100.64.0.0/10"
 
 	// DefaultColonyMeshIPv6 is default colony mesh IPv6 address.
 	DefaultColonyMeshIPv6 = "fd42::1"

@@ -125,8 +125,8 @@ func TestColonyStatusInfo(t *testing.T) {
 		WireGuardPort: 51820,
 		ConnectPort:   9000,
 		LocalEndpoint: "http://localhost:9000",
-		MeshEndpoint:  "http://10.42.0.1:9000",
-		MeshIPv4:      "10.42.0.1",
+		MeshEndpoint:  "http://100.64.0.1:9000",
+		MeshIPv4:      "100.64.0.1",
 	}
 
 	if info.ColonyID != "test-colony" {

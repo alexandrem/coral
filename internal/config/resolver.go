@@ -95,6 +95,14 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 		DiscoveryURL:    globalConfig.Discovery.Endpoint,
 	}
 
+	// Resolve mesh subnet with environment variable override support
+	meshSubnet, colonyIP, err := ResolveMeshSubnet(colonyConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve mesh subnet: %w", err)
+	}
+	resolved.WireGuard.MeshNetworkIPv4 = meshSubnet
+	resolved.WireGuard.MeshIPv4 = colonyIP
+
 	// Apply environment variable overrides
 	if secret := os.Getenv("CORAL_COLONY_SECRET"); secret != "" {
 		resolved.ColonySecret = secret

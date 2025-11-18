@@ -1,0 +1,573 @@
+# Coral Configuration Guide
+
+This guide explains all configuration options for Coral colonies, agents, and
+global settings.
+
+## Table of Contents
+
+- [Configuration Files](#configuration-files)
+- [Global Configuration](#global-configuration)
+- [Colony Configuration](#colony-configuration)
+- [Project Configuration](#project-configuration)
+- [Agent Configuration](#agent-configuration)
+- [Environment Variables](#environment-variables)
+- [Network Configuration Deep Dive](#network-configuration-deep-dive)
+- [Examples](#examples)
+
+## Configuration Files
+
+Coral uses YAML configuration files stored in different locations:
+
+| Config Type | Location                             | Purpose                             |
+|-------------|--------------------------------------|-------------------------------------|
+| **Global**  | `~/.coral/config.yaml`               | User-level settings and preferences |
+| **Colony**  | `~/.coral/colonies/<colony-id>.yaml` | Per-colony identity and credentials |
+| **Project** | `<project>/.coral/config.yaml`       | Project-local settings              |
+| **Agent**   | `~/.coral/agents/<agent-id>.yaml`    | Agent-specific settings (future)    |
+
+## Global Configuration
+
+Location: `~/.coral/config.yaml`
+
+```yaml
+version: "1"
+default_colony: "my-app-prod"  # Default colony to use
+
+discovery:
+    endpoint: "http://localhost:8080"
+    timeout: 10s
+    stun_servers:
+        - "stun.cloudflare.com:3478"
+
+ai:
+    provider: "anthropic"  # or "openai"
+    api_key_source: "env"  # or "keychain", "file"
+
+preferences:
+    auto_update_check: true
+    telemetry_enabled: false
+```
+
+### Global Configuration Fields
+
+| Field                           | Type     | Default                      | Description                                  |
+|---------------------------------|----------|------------------------------|----------------------------------------------|
+| `version`                       | string   | `"1"`                        | Configuration schema version                 |
+| `default_colony`                | string   | -                            | Default colony ID to use when not specified  |
+| `discovery.endpoint`            | string   | `http://localhost:8080`      | Discovery service URL                        |
+| `discovery.timeout`             | duration | `10s`                        | Discovery request timeout                    |
+| `discovery.stun_servers`        | []string | `[stun.cloudflare.com:3478]` | STUN servers for NAT traversal               |
+| `ai.provider`                   | string   | `anthropic`                  | AI provider: `anthropic` or `openai`         |
+| `ai.api_key_source`             | string   | `env`                        | API key source: `env`, `keychain`, or `file` |
+| `preferences.auto_update_check` | bool     | `true`                       | Check for updates on startup                 |
+| `preferences.telemetry_enabled` | bool     | `false`                      | Enable anonymous telemetry                   |
+
+## Colony Configuration
+
+Location: `~/.coral/colonies/<colony-id>.yaml`
+
+```yaml
+version: "1"
+colony_id: "my-app-prod"
+application_name: "MyApp"
+environment: "production"
+colony_secret: "your-secret-here"  # Keep this secure!
+
+wireguard:
+    private_key: "base64-encoded-key"
+    public_key: "base64-encoded-key"
+    port: 41580
+    mesh_ipv4: "100.64.0.1"
+    mesh_network_ipv4: "100.64.0.0/10"
+    mesh_ipv6: "fd42::1"
+    mesh_network_ipv6: "fd42::/48"
+    mtu: 1420
+    persistent_keepalive: 25
+
+services:
+    connect_port: 9000
+    dashboard_port: 3000
+
+storage_path: "~/.coral"
+
+discovery:
+    enabled: true
+    mesh_id: "my-app-prod"  # Usually matches colony_id
+    auto_register: true
+    register_interval: 60s
+    stun_servers:
+        - "stun.cloudflare.com:3478"
+
+mcp:
+    disabled: false  # Enable MCP server by default
+    enabled_tools: [ ]  # Empty = all tools enabled
+    security:
+        require_rbac_for_actions: false
+        audit_enabled: false
+
+created_at: "2025-01-15T10:30:00Z"
+created_by: "user@example.com"
+last_used: "2025-01-15T14:22:00Z"
+```
+
+### Colony Configuration Fields
+
+#### Core Identity
+
+| Field              | Type      | Required | Description                                        |
+|--------------------|-----------|----------|----------------------------------------------------|
+| `version`          | string    | Yes      | Configuration schema version                       |
+| `colony_id`        | string    | Yes      | Unique identifier for this colony                  |
+| `application_name` | string    | Yes      | Application name                                   |
+| `environment`      | string    | Yes      | Environment (e.g., `production`, `staging`, `dev`) |
+| `colony_secret`    | string    | Yes      | Secret for agent authentication                    |
+| `storage_path`     | string    | No       | Path for colony data storage                       |
+| `created_at`       | timestamp | Auto     | Colony creation timestamp                          |
+| `created_by`       | string    | Auto     | Creator identifier                                 |
+| `last_used`        | timestamp | Auto     | Last usage timestamp                               |
+
+#### WireGuard Mesh Network
+
+| Field                            | Type   | Default         | Description                        |
+|----------------------------------|--------|-----------------|------------------------------------|
+| `wireguard.private_key`          | string | Auto-generated  | WireGuard private key (base64)     |
+| `wireguard.public_key`           | string | Auto-generated  | WireGuard public key (base64)      |
+| `wireguard.port`                 | int    | `41580`         | WireGuard UDP listen port          |
+| `wireguard.interface_name`       | string | `wg0`           | Network interface name             |
+| `wireguard.mesh_ipv4`            | string | `100.64.0.1`    | Colony's IPv4 address in mesh      |
+| `wireguard.mesh_network_ipv4`    | string | `100.64.0.0/10` | IPv4 mesh subnet (CIDR)            |
+| `wireguard.mesh_ipv6`            | string | `fd42::1`       | Colony's IPv6 address in mesh      |
+| `wireguard.mesh_network_ipv6`    | string | `fd42::/48`     | IPv6 mesh subnet (CIDR)            |
+| `wireguard.mtu`                  | int    | `1420`          | Interface MTU (1500 - 80 overhead) |
+| `wireguard.persistent_keepalive` | int    | `25`            | Keepalive interval in seconds      |
+
+#### Services
+
+| Field                     | Type | Default | Description                      |
+|---------------------------|------|---------|----------------------------------|
+| `services.connect_port`   | int  | `9000`  | Colony Connect/gRPC service port |
+| `services.dashboard_port` | int  | `3000`  | Dashboard web UI port            |
+
+#### Discovery
+
+| Field                         | Type     | Default                      | Description                           |
+|-------------------------------|----------|------------------------------|---------------------------------------|
+| `discovery.enabled`           | bool     | `true`                       | Enable discovery service registration |
+| `discovery.mesh_id`           | string   | Same as `colony_id`          | Mesh identifier for discovery         |
+| `discovery.auto_register`     | bool     | `true`                       | Auto-register with discovery service  |
+| `discovery.register_interval` | duration | `60s`                        | Registration refresh interval         |
+| `discovery.stun_servers`      | []string | `[stun.cloudflare.com:3478]` | STUN servers for NAT discovery        |
+
+#### MCP Server (Model Context Protocol)
+
+| Field                                   | Type     | Default    | Description                      |
+|-----------------------------------------|----------|------------|----------------------------------|
+| `mcp.disabled`                          | bool     | `false`    | Disable MCP server               |
+| `mcp.enabled_tools`                     | []string | `[]` (all) | Restrict available tools         |
+| `mcp.security.require_rbac_for_actions` | bool     | `false`    | Require RBAC for exec/shell/eBPF |
+| `mcp.security.audit_enabled`            | bool     | `false`    | Enable MCP tool call auditing    |
+
+## Project Configuration
+
+Location: `<project>/.coral/config.yaml`
+
+```yaml
+version: "1"
+colony_id: "my-app-prod"
+
+dashboard:
+    port: 3000
+    enabled: true
+
+storage:
+    path: ".coral"  # Relative to project root
+```
+
+### Project Configuration Fields
+
+| Field               | Type   | Default  | Description                       |
+|---------------------|--------|----------|-----------------------------------|
+| `version`           | string | `"1"`    | Configuration schema version      |
+| `colony_id`         | string | Required | Links project to specific colony  |
+| `dashboard.port`    | int    | `3000`   | Dashboard port override           |
+| `dashboard.enabled` | bool   | `true`   | Enable dashboard for this project |
+| `storage.path`      | string | `.coral` | Storage path relative to project  |
+
+## Agent Configuration
+
+Location: `~/.coral/agents/<agent-id>.yaml` (Future)
+
+```yaml
+version: "1"
+agent_id: "my-service-agent"
+
+telemetry:
+    enabled: false
+    endpoint: "127.0.0.1:4317"
+    filters:
+        always_capture_errors: true
+        latency_threshold_ms: 500.0
+        sample_rate: 0.10
+```
+
+### Agent Configuration Fields
+
+| Field                                     | Type   | Default          | Description                     |
+|-------------------------------------------|--------|------------------|---------------------------------|
+| `version`                                 | string | `"1"`            | Configuration schema version    |
+| `agent_id`                                | string | Required         | Unique agent identifier         |
+| `telemetry.enabled`                       | bool   | `false`          | Enable OpenTelemetry collection |
+| `telemetry.endpoint`                      | string | `127.0.0.1:4317` | OTLP endpoint                   |
+| `telemetry.filters.always_capture_errors` | bool   | `true`           | Always capture error traces     |
+| `telemetry.filters.latency_threshold_ms`  | float  | `500.0`          | Latency threshold for capture   |
+| `telemetry.filters.sample_rate`           | float  | `0.10`           | Sample rate (0.0-1.0)           |
+
+## Environment Variables
+
+Environment variables override configuration file values.
+
+### Colony Environment Variables
+
+| Variable                   | Overrides                     | Example                    | Description                                        |
+|----------------------------|-------------------------------|----------------------------|----------------------------------------------------|
+| `CORAL_COLONY_ID`          | -                             | `my-app-prod`              | Colony to start                                    |
+| `CORAL_COLONY_SECRET`      | `colony_secret`               | `secret123`                | Colony authentication secret                       |
+| `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`          | `http://discovery:8080`    | Discovery service URL                              |
+| `CORAL_STORAGE_PATH`       | `storage_path`                | `/var/lib/coral`           | Storage directory path                             |
+| `CORAL_PUBLIC_ENDPOINT`    | -                             | `colony.example.com:41580` | **Production required:** Public WireGuard endpoint |
+| `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4` | `100.64.0.0/10`            | Mesh network subnet                                |
+
+### Agent Environment Variables
+
+| Variable                   | Description           |
+|----------------------------|-----------------------|
+| `CORAL_AGENT_ID`           | Agent identifier      |
+| `CORAL_COLONY_ID`          | Colony to connect to  |
+| `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL |
+
+### Configuration Precedence
+
+For each setting, Coral uses the following priority order:
+
+1. **Environment variable** (highest priority)
+2. **Project configuration** (`<project>/.coral/config.yaml`)
+3. **Colony configuration** (`~/.coral/colonies/<colony-id>.yaml`)
+4. **Global configuration** (`~/.coral/config.yaml`)
+5. **Default values** (lowest priority)
+
+## Network Configuration Deep Dive
+
+### Mesh Network Subnets
+
+The mesh network subnet determines the IP address space for your WireGuard mesh.
+
+#### Default: CGNAT Address Space (Recommended)
+
+```yaml
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/10"
+    mesh_ipv4: "100.64.0.1"  # Auto-calculated if omitted
+```
+
+- **Address Range:** `100.64.0.0` - `100.127.255.255`
+- **Capacity:** 4,194,304 addresses
+- **Why CGNAT?** Defined by RFC 6598 for carrier-grade NAT, rarely used in
+  enterprise networks
+- **Conflicts:** Minimal - avoids common corporate/home router ranges
+
+#### Alternative Subnets
+
+```yaml
+# RFC 1918 Private - Small deployment
+wireguard:
+    mesh_network_ipv4: "10.42.0.0/16"
+    # Capacity: 65,534 addresses
+
+# RFC 1918 Private - Medium deployment
+wireguard:
+    mesh_network_ipv4: "172.16.0.0/12"
+    # Capacity: 1,048,574 addresses
+
+# RFC 1918 Private - Home lab
+wireguard:
+    mesh_network_ipv4: "192.168.100.0/24"
+    # Capacity: 254 addresses
+```
+
+#### Subnet Requirements
+
+- **Minimum size:** `/24` (254 usable addresses)
+- **Format:** Valid CIDR notation
+- **Type:** IPv4 only (IPv6 in separate field)
+- **Validation:** Automatically validated on colony startup
+
+#### IP Allocation
+
+| Address     | Purpose                                  |
+|-------------|------------------------------------------|
+| `.0`        | Network address (reserved)               |
+| `.1`        | Colony address                           |
+| `.2` - `.N` | Agent addresses (allocated sequentially) |
+
+### Network Conflict Avoidance
+
+#### Common Conflicts
+
+| Network          | Used By                          | Conflict Risk |
+|------------------|----------------------------------|---------------|
+| `10.0.0.0/8`     | Corporate networks, VPNs, Docker | **High**      |
+| `172.16.0.0/12`  | Docker, cloud providers          | **Medium**    |
+| `192.168.0.0/16` | Home routers                     | **Medium**    |
+| `100.64.0.0/10`  | CGNAT (rarely used)              | **Low**       |
+
+#### Choosing a Subnet
+
+**For Production:**
+
+```yaml
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/10"  # Best choice - minimal conflicts
+```
+
+**For Development (avoiding Docker):**
+
+```yaml
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/16"  # Subset of CGNAT
+```
+
+**For Isolated Environments:**
+
+```yaml
+wireguard:
+    mesh_network_ipv4: "10.42.0.0/16"  # Safe if no 10.x networks
+```
+
+### NAT Traversal and Public Endpoints
+
+#### Production Deployment
+
+For agents to connect from different machines, you **must** set the public
+endpoint:
+
+```bash
+CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start
+```
+
+Or configure STUN for automatic NAT discovery:
+
+```yaml
+discovery:
+    stun_servers:
+        - "stun.cloudflare.com:3478"
+        - "stun.l.google.com:19302"
+```
+
+#### Local Development
+
+For local development (all processes on same machine):
+
+```bash
+coral colony start  # Uses 127.0.0.1:<port>
+```
+
+### Mesh IP vs Public Endpoint
+
+Understanding the difference:
+
+- **Mesh IP** (`mesh_ipv4`): Address **inside** the WireGuard tunnel
+    - Used for service-to-service communication
+    - Example: `100.64.0.1`
+
+- **Public Endpoint**: Address **outside** the tunnel
+    - Used to establish WireGuard connection
+    - Example: `colony.example.com:41580`
+
+```yaml
+# Mesh configuration (internal)
+wireguard:
+    mesh_ipv4: "100.64.0.1"          # Internal tunnel address
+    mesh_network_ipv4: "100.64.0.0/10"
+
+# Public endpoint (external) - set via environment
+# CORAL_PUBLIC_ENDPOINT=colony.example.com:41580
+```
+
+## Examples
+
+### Example 1: Development Setup
+
+**Global Config** (`~/.coral/config.yaml`):
+
+```yaml
+version: "1"
+default_colony: "myapp-dev"
+
+discovery:
+    endpoint: "http://localhost:8080"
+
+ai:
+    provider: "anthropic"
+    api_key_source: "env"
+```
+
+**Colony Config** (`~/.coral/colonies/myapp-dev.yaml`):
+
+```yaml
+version: "1"
+colony_id: "myapp-dev"
+application_name: "MyApp"
+environment: "development"
+colony_secret: "dev-secret-123"
+
+wireguard:
+    port: 41580
+    mesh_network_ipv4: "100.64.0.0/16"  # Smaller subnet for dev
+
+services:
+    connect_port: 9000
+    dashboard_port: 3000
+```
+
+**Start Colony:**
+
+```bash
+coral colony start
+```
+
+### Example 2: Production Setup with Custom Subnet
+
+**Colony Config** (`~/.coral/colonies/myapp-prod.yaml`):
+
+```yaml
+version: "1"
+colony_id: "myapp-prod"
+application_name: "MyApp"
+environment: "production"
+colony_secret: "prod-secret-xyz"
+
+wireguard:
+    port: 41580
+    mesh_network_ipv4: "100.64.0.0/10"  # Full CGNAT range
+
+services:
+    connect_port: 9000
+    dashboard_port: 3000
+
+discovery:
+    enabled: true
+    auto_register: true
+    register_interval: 30s
+    stun_servers:
+        - "stun.cloudflare.com:3478"
+        - "stun.l.google.com:19302"
+```
+
+**Start Colony:**
+
+```bash
+CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start
+```
+
+### Example 3: Environment Variable Overrides
+
+```bash
+# Override mesh subnet for testing
+CORAL_MESH_SUBNET=172.16.0.0/12 \
+CORAL_PUBLIC_ENDPOINT=192.168.1.100:41580 \
+CORAL_DISCOVERY_ENDPOINT=http://discovery.internal:8080 \
+coral colony start --colony-id myapp-test
+```
+
+### Example 4: Multi-Colony Setup
+
+**Production Colony:**
+
+```yaml
+# ~/.coral/colonies/myapp-prod.yaml
+colony_id: "myapp-prod"
+environment: "production"
+wireguard:
+    port: 41580
+    mesh_network_ipv4: "100.64.0.0/16"
+```
+
+**Staging Colony:**
+
+```yaml
+# ~/.coral/colonies/myapp-staging.yaml
+colony_id: "myapp-staging"
+environment: "staging"
+wireguard:
+    port: 41581
+    mesh_network_ipv4: "100.65.0.0/16"
+```
+
+Each colony gets its own isolated mesh network with no IP conflicts.
+
+### Example 5: High Security Setup
+
+**Colony Config with MCP Security:**
+
+```yaml
+version: "1"
+colony_id: "myapp-secure"
+environment: "production"
+
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/10"
+
+mcp:
+    disabled: false
+    security:
+        require_rbac_for_actions: true  # Require auth for exec/shell
+        audit_enabled: true             # Log all MCP calls
+```
+
+## Configuration Validation
+
+Coral validates configuration on startup and provides clear error messages:
+
+```bash
+$ coral colony start
+Error: failed to resolve mesh subnet: invalid mesh_network_ipv4 in config:
+mesh subnet "10.42.0.0/25" is too small (/25), minimum is /24
+```
+
+### Validation Rules
+
+- **Mesh subnet:** Minimum `/24`, valid CIDR, IPv4 only
+- **Ports:** Valid port numbers (1-65535)
+- **Timeouts:** Positive duration values
+- **Colony ID:** Non-empty, valid identifier
+- **API keys:** Required when `ai.api_key_source` is `env`
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue:** Agents can't connect to colony
+
+```yaml
+# Solution: Check public endpoint
+```
+
+```bash
+CORAL_PUBLIC_ENDPOINT=your-public-ip:41580 coral colony start
+```
+
+**Issue:** IP address conflicts
+
+```yaml
+# Solution: Use CGNAT address space
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/10"
+```
+
+**Issue:** Colony won't start with custom subnet
+
+```bash
+# Check validation error and adjust subnet size
+wireguard:
+  mesh_network_ipv4: "10.42.0.0/24"  # Must be /24 or larger
+```

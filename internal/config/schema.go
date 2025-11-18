@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"net"
+	"os"
 	"time"
 
 	"github.com/coral-io/coral/internal/constants"
@@ -335,4 +338,57 @@ func DefaultAgentConfig(agentID string) *AgentConfig {
 			},
 		},
 	}
+}
+
+// ResolveMeshSubnet resolves the mesh subnet to use, with the following precedence:
+// 1. Environment variable CORAL_MESH_SUBNET
+// 2. Config file value (cfg.WireGuard.MeshNetworkIPv4)
+// 3. Default from constants
+//
+// Returns the resolved subnet and the colony's IP address within that subnet.
+func ResolveMeshSubnet(cfg *ColonyConfig) (subnet string, colonyIP string, err error) {
+	// Check environment variable first
+	if envSubnet := os.Getenv("CORAL_MESH_SUBNET"); envSubnet != "" {
+		ipNet, err := ValidateMeshSubnet(envSubnet)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid CORAL_MESH_SUBNET environment variable: %w", err)
+		}
+
+		// Calculate colony IP (.1 in the subnet)
+		colonyIP := calculateColonyIP(ipNet)
+
+		return envSubnet, colonyIP, nil
+	}
+
+	// Use config value if set
+	if cfg.WireGuard.MeshNetworkIPv4 != "" {
+		ipNet, err := ValidateMeshSubnet(cfg.WireGuard.MeshNetworkIPv4)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid mesh_network_ipv4 in config: %w", err)
+		}
+
+		// Use configured colony IP if set, otherwise calculate it
+		colonyIP := cfg.WireGuard.MeshIPv4
+		if colonyIP == "" {
+			colonyIP = calculateColonyIP(ipNet)
+		}
+
+		return cfg.WireGuard.MeshNetworkIPv4, colonyIP, nil
+	}
+
+	// Fall back to default
+	return constants.DefaultColonyMeshIPv4Subnet, constants.DefaultColonyMeshIPv4, nil
+}
+
+// calculateColonyIP calculates the colony IP address for a given subnet.
+// The colony always gets the .1 address (first usable IP after network address).
+func calculateColonyIP(subnet *net.IPNet) string {
+	// Make a copy of the network IP
+	ip := make(net.IP, len(subnet.IP))
+	copy(ip, subnet.IP)
+
+	// Increment to .1 (colony address)
+	ip[len(ip)-1]++
+
+	return ip.String()
 }
