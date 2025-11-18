@@ -18,86 +18,68 @@ areas: [ "cli", "colony", "mcp", "agents", "ux" ]
 
 ## Summary
 
-Standardize agent identification and routing across CLI commands, MCP tools, and
-colony operations to enable consistent, unambiguous agent targeting. This
-addresses current inconsistencies between service-based routing (ambiguous when
-multiple agents serve the same service) and agent ID-based routing (not fully
-supported), while clarifying the relationship between agent addressing patterns
-and the WireGuard mesh topology.
+Standardize agent identification and routing across CLI commands, MCP tools, and colony operations to enable consistent, unambiguous agent targeting. This addresses current inconsistencies between service-based routing (ambiguous when multiple agents serve the same service) and agent ID-based routing (not fully supported), while clarifying the relationship between agent addressing patterns and the WireGuard mesh topology.
 
 ## Problem
 
 **Current behavior/limitations:**
 
-1. **No agent ID parameter in MCP tools**: All MCP tools (exec, eBPF, shell)
-   accept only `service` parameter, creating ambiguity when multiple agents
-   monitor the same service. The `ExecCommandInput` and other tool input types
-   in `internal/colony/mcp/types.go` only provide `Service` as a targeting
-   mechanism.
+1. **No agent ID parameter in MCP tools**: All MCP tools (exec, eBPF, shell) accept only `service` parameter, creating ambiguity when multiple agents monitor the same service.
 
-2. **Service filtering uses deprecated field**: Tools filter by `ComponentName`
-   instead of the `Services[]` array introduced in RFD 011. The filtering logic
-   in `internal/colony/mcp/tools_exec.go` checks the deprecated `ComponentName`
-   field instead of iterating through the `Services[]` array.
+   ```go
+   // internal/colony/mcp/types.go
+   type ExecCommandInput struct {
+       Service        string   // ← Only way to target agents
+       Command        []string
+       TimeoutSeconds *int
+       WorkingDir     *string
+   }
+   ```
 
-3. **No disambiguation for multiple agents**: When service name matches multiple
-   agents, tools either fail silently or target first match.
+2. **Service filtering uses deprecated field**: Tools filter by `ComponentName` instead of the `Services[]` array introduced in RFD 011.
 
-4. **CLI shell command lacks agent ID support**: `coral shell` (RFD 026) only
-   accepts `--agent-addr`, requiring users to know mesh IPs or use localhost. No
-   registry-based agent ID lookup.
+   ```go
+   // internal/colony/mcp/tools_exec.go:40
+   if serviceFilter != "" && !matchesPattern(agent.ComponentName, serviceFilter) {
+       continue  // ← Wrong! Should check Services[] array
+   }
+   ```
 
-5. **Incomplete ComponentName deprecation**: Despite RFD 011 moving to
-   multi-service agents, `ComponentName` is still displayed in CLI output and
-   used in filtering logic.
+3. **No disambiguation for multiple agents**: When service name matches multiple agents, tools either fail silently or target first match.
+
+4. **CLI shell command lacks agent ID support**: `coral shell` (RFD 026) only accepts `--agent-addr`, requiring users to know mesh IPs or use localhost. No registry-based agent ID lookup.
+
+5. **Incomplete ComponentName deprecation**: Despite RFD 011 moving to multi-service agents, `ComponentName` is still displayed in CLI output and used in filtering logic.
 
 **Why this matters:**
 
-- **Production ambiguity**: In production with replicated services (e.g., 3 "
-  api" pods), MCP tools cannot target a specific instance.
-- **Poor UX**: Users must manually resolve mesh IPs instead of using
-  human-friendly agent IDs.
-- **Inconsistent architecture**: Service-centric vs. agent-centric addressing
-  creates confusion.
-- **Blocks debugging workflows**: Cannot reliably target specific agent for
-  shell, exec, or direct queries.
+- **Production ambiguity**: In production with replicated services (e.g., 3 "api" pods), MCP tools cannot target a specific instance.
+- **Poor UX**: Users must manually resolve mesh IPs instead of using human-friendly agent IDs.
+- **Inconsistent architecture**: Service-centric vs. agent-centric addressing creates confusion.
+- **Blocks debugging workflows**: Cannot reliably target specific agent for shell, exec, or direct queries.
 
 **Use cases affected:**
 
-- **AI operator debugging**: "Execute `ps aux` on the api service" → Which of 3
-  api agents?
-- **SRE investigation**: "Open shell on agent-hostname-api-7f3d" → Must look up
-  mesh IP manually.
-- **Targeted telemetry**: "Query DuckDB on specific agent" → No way to
-  disambiguate.
-- **Multi-service agents**: Agent monitoring both "api" and "worker" → Service
-  name doesn't uniquely identify.
+- **AI operator debugging**: "Execute `ps aux` on the api service" → Which of 3 api agents?
+- **SRE investigation**: "Open shell on agent-hostname-api-7f3d" → Must look up mesh IP manually.
+- **Targeted telemetry**: "Query DuckDB on specific agent" → No way to disambiguate.
+- **Multi-service agents**: Agent monitoring both "api" and "worker" → Service name doesn't uniquely identify.
 
 ## Solution
 
-Introduce agent ID as the **primary addressing mechanism** across all tools,
-with service-based lookup as a convenience pattern that requires disambiguation.
-Standardize on the agent ID format established in RFD 011 and clarify routing
-topology constraints imposed by WireGuard mesh architecture (RFD 007).
+Introduce agent ID as the **primary addressing mechanism** across all tools, with service-based lookup as a convenience pattern that requires disambiguation. Standardize on the agent ID format established in RFD 011 and clarify routing topology constraints imposed by WireGuard mesh architecture (RFD 007).
 
 **Key Design Decisions:**
 
-1. **Agent ID as first-class parameter**: All MCP tools and CLI commands accept
-   optional `agent_id` parameter that overrides service-based lookup.
+1. **Agent ID as first-class parameter**: All MCP tools and CLI commands accept optional `agent_id` parameter that overrides service-based lookup.
 
-2. **Service-based lookup with mandatory disambiguation**: When multiple agents
-   match service name, return error listing agent IDs instead of arbitrarily
-   choosing first match.
+2. **Service-based lookup with mandatory disambiguation**: When multiple agents match service name, return error listing agent IDs instead of arbitrarily choosing first match.
 
-3. **Fix service filtering to use Services[] array**: Update all tools to filter
-   by multi-service list, not deprecated `ComponentName`.
+3. **Fix service filtering to use Services[] array**: Update all tools to filter by multi-service list, not deprecated `ComponentName`.
 
-4. **Extend CLI shell command for agent ID routing**: Add `--agent` flag that
-   uses colony registry to resolve agent mesh IP.
+4. **Extend CLI shell command for agent ID routing**: Add `--agent-id` flag that uses colony registry to resolve agent mesh IP.
 
-5. **Clarify routing topology constraints**: Document that direct CLI-to-agent
-   routing requires AllowedIPs updates (future work, see RFD 038), while
-   colony-mediated routing works today.
+5. **Clarify routing topology constraints**: Document that direct CLI-to-agent routing requires AllowedIPs updates (future work, see RFD 038), while colony-mediated routing works today.
 
 **Benefits:**
 
@@ -116,7 +98,7 @@ topology constraints imposed by WireGuard mesh architecture (RFD 007).
 │  Addressing Options:                                            │
 │                                                                 │
 │  1. Agent ID (unambiguous, recommended):                        │
-│     coral shell --agent hostname-api                         │
+│     coral shell --agent-id hostname-api                         │
 │     coral_exec_command(agent_id="hostname-api", cmd=[...])      │
 │                                                                 │
 │  2. Service Name (convenience, requires unique match):          │
@@ -203,51 +185,48 @@ topology constraints imposed by WireGuard mesh architecture (RFD 007).
 ### Component Changes
 
 1. **MCP Tool Input Types** (`internal/colony/mcp/types.go`):
-    - Add `AgentID *string` field to all tool input structs
-    - Deprecation notice for service-only targeting in multi-agent scenarios
-    - JSON schema descriptions emphasizing agent ID as preferred method
+   - Add `AgentID *string` field to all tool input structs
+   - Deprecation notice for service-only targeting in multi-agent scenarios
+   - JSON schema descriptions emphasizing agent ID as preferred method
 
-2. **MCP Tool Execution Logic** (`internal/colony/mcp/tools_exec.go`,
-   `tools_debugging.go`):
-    - Implement agent ID lookup with `registry.Get(agentID)`
-    - Fix service filtering to use `agent.Services[]` instead of
-      `agent.ComponentName`
-    - Add disambiguation error when service matches multiple agents
-    - Return helpful error messages with agent ID list when ambiguous
+2. **MCP Tool Execution Logic** (`internal/colony/mcp/tools_exec.go`, `tools_debugging.go`):
+   - Implement agent ID lookup with `registry.Get(agentID)`
+   - Fix service filtering to use `agent.Services[]` instead of `agent.ComponentName`
+   - Add disambiguation error when service matches multiple agents
+   - Return helpful error messages with agent ID list when ambiguous
 
 3. **CLI Shell Command** (`internal/cli/agent/shell.go`):
-    - Add `--agent` flag for agent ID input
-    - Add `--colony` flag for specifying which colony's registry
-    - Implement colony registry query to resolve agent ID → mesh IP
-    - Automatically use resolved mesh IP as target address
-    - Update help text to recommend agent ID over manual mesh IP lookup
-    - Note: Only works when colony is local (L3 routing via colony's wg0)
+   - Add `--agent-id` flag for agent ID input
+   - Add `--colony-id` flag for specifying which colony's registry
+   - Implement colony registry query to resolve agent ID → mesh IP
+   - Automatically use resolved mesh IP as target address
+   - Update help text to recommend agent ID over manual mesh IP lookup
+   - Note: Only works when colony is local (L3 routing via colony's wg0)
 
 4. **CLI Colony Agents Command** (`internal/cli/colony/colony.go`):
-    - Remove deprecated `ComponentName` column from output
-    - Add `Services` column showing comma-separated service names
-    - Emphasize `AgentID` as primary identifier in table headers
+   - Remove deprecated `ComponentName` column from output
+   - Add `Services` column showing comma-separated service names
+   - Emphasize `AgentID` as primary identifier in table headers
 
 5. **Colony Agent Client** (`internal/colony/agent_client.go`):
-    - Document that GetAgentClient uses mesh IP for routing
-    - Add comment explaining WireGuard topology constraints
-    - Reference RFD 038 for future direct connectivity
+   - Document that GetAgentClient uses mesh IP for routing
+   - Add comment explaining WireGuard topology constraints
+   - Reference RFD 038 for future direct connectivity
 
 **Configuration Example:**
 
-No configuration changes required. Agent ID format already established by RFD
-011 (hostname-based generation).
+No configuration changes required. Agent ID format already established by RFD 011 (hostname-based generation).
 
 ## Implementation Plan
 
 ### Phase 1: MCP Tool Input Schema Updates
 
 - [ ] Add `agent_id` field to all tool input types:
-    - [ ] `ExecCommandInput`
-    - [ ] `ShellStartInput`
-    - [ ] `StartEBPFCollectorInput`
-    - [ ] `StopEBPFCollectorInput`
-    - [ ] `ListEBPFCollectorsInput`
+  - [ ] `ExecCommandInput`
+  - [ ] `ShellStartInput`
+  - [ ] `StartEBPFCollectorInput`
+  - [ ] `StopEBPFCollectorInput`
+  - [ ] `ListEBPFCollectorsInput`
 - [ ] Update JSON schema descriptions for all tools
 - [ ] Regenerate MCP server schema
 
@@ -261,10 +240,9 @@ No configuration changes required. Agent ID format already established by RFD
 
 ### Phase 3: CLI Shell Command Extensions
 
-- [ ] Add `--agent` flag to `NewShellCmd()`
-- [ ] Add `--colony` flag (with auto-detection)
-- [ ] Implement colony registry query (HTTP RPC) for agent ID → mesh IP
-  resolution
+- [ ] Add `--agent-id` flag to `NewShellCmd()`
+- [ ] Add `--colony-id` flag (with auto-detection)
+- [ ] Implement colony registry query (HTTP RPC) for agent ID → mesh IP resolution
 - [ ] Add agent ID → mesh IP resolution logic before shell connection
 - [ ] Use resolved mesh IP as `--agent-addr` internally
 - [ ] Update command help text and examples
@@ -283,7 +261,7 @@ No configuration changes required. Agent ID format already established by RFD
 - [ ] Integration tests for agent ID → IP resolution
 - [ ] E2E test: Target specific agent with `agent_id` parameter
 - [ ] E2E test: Service name with multiple agents triggers error
-- [ ] E2E test: Shell command with `--agent` flag
+- [ ] E2E test: Shell command with `--agent-id` flag
 - [ ] Update MCP tool documentation with examples
 - [ ] Update CLI reference docs
 
@@ -296,78 +274,107 @@ No configuration changes required. Agent ID format already established by RFD
 
 // ExecCommandInput is the input for coral_exec_command.
 type ExecCommandInput struct {
-    Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
-    AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
-    Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
-    TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
-    WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
+	Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
+	AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
+	Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
+	TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
+	WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
 }
 
 // ShellStartInput is the input for coral_shell_start.
 type ShellStartInput struct {
-    Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
-    AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
-    Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
+	Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
+	AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
+	Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
 }
 
 // StartEBPFCollectorInput is the input for coral_start_ebpf_collector.
 type StartEBPFCollectorInput struct {
-    CollectorType   string                 `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
-    Service         string                 `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
-    AgentID         *string                `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
-    DurationSeconds *int                   `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
-    Config          map[string]interface{} `json:"config,omitempty" jsonschema:"description=Optional collector-specific configuration (sample rate filters etc.)"`
+	CollectorType   string                 `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
+	Service         string                 `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
+	AgentID         *string                `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
+	DurationSeconds *int                   `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
+	Config          map[string]interface{} `json:"config,omitempty" jsonschema:"description=Optional collector-specific configuration (sample rate filters etc.)"`
 }
 
 // StopEBPFCollectorInput is the input for coral_stop_ebpf_collector.
 type StopEBPFCollectorInput struct {
-    CollectorID string `json:"collector_id" jsonschema:"description=Collector ID returned from start_ebpf_collector"`
+	CollectorID string `json:"collector_id" jsonschema:"description=Collector ID returned from start_ebpf_collector"`
 }
 
 // ListEBPFCollectorsInput is the input for coral_list_ebpf_collectors.
 type ListEBPFCollectorsInput struct {
-    Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
-    AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
+	Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
+	AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
 }
 ```
 
-### Agent Routing Decision Flow
+### Updated MCP Tool Execution Logic
 
-**High-level routing logic for all MCP tools:**
+```go
+// internal/colony/mcp/tools_exec.go
 
+func (s *Server) executeExecCommandTool(ctx context.Context, argumentsJSON string) (string, error) {
+	var input ExecCommandInput
+	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_exec_command", input)
+
+	// NEW: Agent ID lookup takes precedence
+	if input.AgentID != nil {
+		agent, err := s.registry.Get(*input.AgentID)
+		if err != nil {
+			return "", fmt.Errorf("agent not found: %s", *input.AgentID)
+		}
+
+		// Execute command on specific agent...
+		return executeOnAgent(ctx, agent, input)
+	}
+
+	// FALLBACK: Service-based lookup (with disambiguation)
+	agents := s.registry.ListAll()
+	var matchedAgents []*registry.Entry
+
+	for _, agent := range agents {
+		// FIX: Check Services[] array, not ComponentName
+		for _, svc := range agent.Services {
+			if matchesPattern(svc.Name, input.Service) {
+				matchedAgents = append(matchedAgents, agent)
+				break
+			}
+		}
+	}
+
+	if len(matchedAgents) == 0 {
+		return "", fmt.Errorf("no agents found for service '%s'", input.Service)
+	}
+
+	// NEW: Disambiguation requirement
+	if len(matchedAgents) > 1 {
+		var agentIDs []string
+		for _, a := range matchedAgents {
+			agentIDs = append(agentIDs, a.AgentID)
+		}
+		return "", fmt.Errorf(
+			"multiple agents found for service '%s': %s\n"+
+			"Please specify agent_id parameter to disambiguate",
+			input.Service,
+			strings.Join(agentIDs, ", "),
+		)
+	}
+
+	agent := matchedAgents[0]
+	return executeOnAgent(ctx, agent, input)
+}
 ```
-1. If agent_id parameter specified:
-   → Direct lookup: registry.Get(agent_id)
-   → Return agent or error if not found
-
-2. Else if service parameter specified:
-   → Query: registry.ListAll()
-   → Filter: Check each agent.Services[] for matching service name
-   → If 0 matches: Error "no agents found"
-   → If >1 matches: Error with agent ID list for disambiguation
-   → If 1 match: Return that agent
-
-3. Execute operation on resolved agent
-```
-
-**Service Filtering Fix**:
-
-Service filtering must iterate through the `agent.Services[]` array to find
-matches, rather than checking the deprecated `ComponentName` field. This ensures
-multi-service agents are correctly matched regardless of which service is being
-targeted.
-
-**Disambiguation Error Handling**:
-
-When multiple agents match a service name, return an error listing all matching
-agent IDs and prompt the user to specify which agent using the `agent_id`
-parameter.
 
 ### CLI Commands
 
 ```bash
 # Shell command with agent ID (NEW)
-$ coral shell --agent hostname-api
+$ coral shell --agent-id hostname-api
 ⚠️  WARNING: Entering agent debug shell with elevated privileges.
 ...
 Continue? [y/N] y
@@ -391,7 +398,7 @@ Error: multiple agents found for service 'api':
   - hostname-api-3 (10.42.0.17)
 
 Please specify agent ID:
-  coral shell --agent hostname-api-1
+  coral shell --agent-id hostname-api-1
 
 # Colony agents command (updated output)
 $ coral colony agents
@@ -408,70 +415,49 @@ hostname-db-proxy    db-proxy              standalone           10.42.0.21 healt
 
 ### MCP Tool Usage Examples
 
-MCP Tool with agent ID (unambiguous, recommended)
-
-```json
+```javascript
+// MCP Tool with agent ID (unambiguous, recommended)
 {
-    "name": "coral_exec_command",
-    "arguments": {
-        "agent_id": "hostname-api-1",
-        "command": [
-            "ps",
-            "aux"
-        ]
-    }
+  "name": "coral_exec_command",
+  "arguments": {
+    "agent_id": "hostname-api-1",
+    "command": ["ps", "aux"]
+  }
 }
-```
 
-MCP Tool with service (works if unique match)
-
-```json
+// MCP Tool with service (works if unique match)
 {
-    "name": "coral_exec_command",
-    "arguments": {
-        "service": "frontend",
-        "command": [
-            "ls",
-            "-la",
-            "/app"
-        ]
-    }
+  "name": "coral_exec_command",
+  "arguments": {
+    "service": "frontend",
+    "command": ["ls", "-la", "/app"]
+  }
 }
-```
 
-MCP Tool with service (multiple matches → error)
-
-```json
+// MCP Tool with service (multiple matches → error)
 {
-    "name": "coral_exec_command",
-    "arguments": {
-        "service": "api",
-        "command": [
-            "ps",
-            "aux"
-        ]
-    }
+  "name": "coral_exec_command",
+  "arguments": {
+    "service": "api",
+    "command": ["ps", "aux"]
+  }
 }
+// Response:
+// Error: multiple agents found for service 'api': hostname-api-1, hostname-api-2, hostname-api-3
+// Please specify agent_id parameter to disambiguate
 ```
-
-Response:
-Error: multiple agents found for service 'api': hostname-api-1, hostname-api-2,
-hostname-api-3
-Please specify agent_id parameter to disambiguate
 
 ## Testing Strategy
 
 ### Unit Tests
 
 **Registry Filtering Logic:**
-
 - Test `Get(agentID)` returns correct agent
 - Test service filter with `Services[]` array (not `ComponentName`)
 - Test disambiguation with 0, 1, and >1 matches
 - Test error messages include agent ID lists
 
 **MCP Tool Execution:**
-
 - Test agent ID parameter takes precedence over service
 - Test service-only lookup with unique match
 - Test service-only lookup with multiple matches (error)
@@ -480,14 +466,12 @@ Please specify agent_id parameter to disambiguate
 ### Integration Tests
 
 **CLI Shell Command:**
-
-- Test `--agent` flag resolves mesh IP via colony
+- Test `--agent-id` flag resolves mesh IP via colony
 - Test `--service` flag with unique match
 - Test `--service` flag with multiple matches (error)
 - Test fallback to `--agent-addr` when offline
 
 **MCP Tools:**
-
 - Test all tool types with `agent_id` parameter
 - Test all tool types with `service` parameter (unique)
 - Test disambiguation errors for ambiguous service names
@@ -496,22 +480,19 @@ Please specify agent_id parameter to disambiguate
 ### E2E Tests
 
 **Multi-Agent Scenario:**
-
 1. Start 3 agents all serving "api" service
 2. MCP tool with `service="api"` → Error with agent ID list
 3. MCP tool with `agent_id="hostname-api-1"` → Success
 4. Verify correct agent executed command
 
 **Shell Command Workflow:**
-
 1. Start agent with known agent ID
-2. Run `coral shell --agent <id>`
+2. Run `coral shell --agent-id <id>`
 3. Verify colony resolves ID → mesh IP
 4. Verify shell connection established
 5. Run command in shell, verify output
 
 **Service Filter Fix:**
-
 1. Start agent with multiple services: ["api", "worker"]
 2. MCP tool with `service="api"` → Agent matches
 3. MCP tool with `service="worker"` → Same agent matches
@@ -520,19 +501,16 @@ Please specify agent_id parameter to disambiguate
 ## Security Considerations
 
 **Agent ID as Identity:**
-
 - Agent IDs are not secrets (visible in registry)
 - Authorization happens at colony level (existing auth)
 - Agent ID visibility enables audit logging
 
 **Routing Topology Constraints:**
-
 - Direct CLI-to-agent routing blocked by WireGuard AllowedIPs (RFD 007)
 - Colony-mediated routing preserves security model (colony verifies auth)
 - Future direct connectivity (RFD 038) requires AllowedIPs orchestration
 
 **Audit Logging:**
-
 - Log all agent ID resolutions in colony
 - Track which users/AIs target which agents
 - Include agent ID in all audit events (not just service name)
@@ -542,19 +520,16 @@ Please specify agent_id parameter to disambiguate
 ### Deployment
 
 **Phase 1: Colony update (backward compatible)**
-
 1. Deploy colony with updated MCP tool logic
 2. Old MCP clients (service-only) continue working
 3. New MCP clients can use `agent_id` parameter
 
 **Phase 2: CLI update (backward compatible)**
-
-1. Deploy CLI with `--agent` flag support
+1. Deploy CLI with `--agent-id` flag support
 2. Old commands (`--agent-addr`) continue working
 3. New commands benefit from registry lookup
 
 **Phase 3: Gradual adoption**
-
 1. Update MCP tool documentation to recommend `agent_id`
 2. Users gradually migrate to agent ID-based workflows
 3. Service-based lookup remains for convenience
@@ -569,25 +544,21 @@ Please specify agent_id parameter to disambiguate
 ## Future Enhancements
 
 **Agent URI Format (future):**
-
 - Define standard agent addressing: `agent://hostname-api`
 - Support multiple schemes: `agent://`, `mesh://`, `service://`
 - Unified parsing across CLI and MCP tools
 
 **Direct CLI-to-Agent Routing (RFD 038):**
-
 - Colony orchestrates WireGuard AllowedIPs updates
 - CLI connects directly to agent mesh IP
 - Eliminates colony bottleneck for data-heavy operations
 
 **Agent Aliases and Labels:**
-
 - User-defined agent aliases: `coral shell --alias prod-api-primary`
 - Label-based filtering: `agent_labels={"env":"prod","region":"us-west"}`
 - Stored in colony registry
 
 **Agent Groups and Bulk Operations:**
-
 - Target multiple agents by group: `agent_group="api-replicas"`
 - Execute commands on all agents in group
 - Useful for cluster-wide operations
@@ -597,55 +568,42 @@ Please specify agent_id parameter to disambiguate
 ## Relationship to Other RFDs
 
 **RFD 004 (MCP Server):**
-
 - MCP tools are primary consumer of agent routing logic
 - This RFD standardizes agent targeting for MCP tool inputs
 - Enables AI operator to unambiguously target agents
 
 **RFD 045 (MCP Shell Tool Integration):**
-
 - RFD 045 implements `coral_shell_start` tool for shell access discovery
-- This RFD (044) provides the agent resolution foundation that RFD 045 builds
-  upon
+- This RFD (044) provides the agent resolution foundation that RFD 045 builds upon
 - RFD 045 delegates agent routing to this RFD's standardized approach
-- Adding `agent_id` parameter (this RFD) enables RFD 045's shell tool to handle
-  multi-agent services
+- Adding `agent_id` parameter (this RFD) enables RFD 045's shell tool to handle multi-agent services
 
 **RFD 043 (Shell RBAC and Approval Workflows):**
-
-- Orthogonal concern: RBAC focuses on authorization, this RFD focuses on
-  addressing
+- Orthogonal concern: RBAC focuses on authorization, this RFD focuses on addressing
 - Agent ID becomes the authorization target in RFD 043's permission model
-- This RFD's disambiguation ensures users know which agent they're requesting
-  access to
+- This RFD's disambiguation ensures users know which agent they're requesting access to
 
 **RFD 007 (WireGuard Mesh):**
-
 - Agent AllowedIPs = `10.42.0.1/32` (colony only, star topology)
-- When colony is local: colony's wg0 interface acts as L3 gateway for mesh
-  network
+- When colony is local: colony's wg0 interface acts as L3 gateway for mesh network
 - CLI on same host as colony can route to agents via host routing table
 - When colony is remote: requires RFD 038 for direct CLI-to-agent connectivity
 - This RFD works within existing mesh topology (local colony scenario)
 
 **RFD 011 (Multi-Service Agents):**
-
 - Agent ID format: `hostname-servicename` or `hostname-multi`
 - Services stored in `Services[]` array (not deprecated `ComponentName`)
 - This RFD fixes tools to use Services[] array correctly
 
 **RFD 017 (Exec Command):**
-
 - Agent exec command needs unambiguous agent targeting
 - This RFD provides `agent_id` parameter for exec tools
 
 **RFD 026 (Shell Command):**
-
 - Shell command currently lacks agent ID support
-- This RFD extends shell with `--agent` flag
+- This RFD extends shell with `--agent-id` flag
 
 **RFD 038 (CLI-to-Agent Direct Connectivity):**
-
 - Future work: Direct CLI → agent routing
 - Requires WireGuard AllowedIPs orchestration
 - This RFD establishes agent ID resolution foundation
@@ -659,23 +617,20 @@ Please specify agent_id parameter to disambiguate
 This RFD defines the standardization work needed for agent routing.
 
 **Current State:**
-
 - ✅ Agent ID generation implemented (RFD 011)
 - ✅ Colony registry with agent lookup (`Get(agentID)`)
 - ✅ Shell command with address-based routing (RFD 026)
 - ❌ MCP tools lack `agent_id` parameter
 - ❌ Service filtering uses deprecated `ComponentName`
 - ❌ No disambiguation for multi-agent services
-- ❌ Shell command lacks `--agent` flag
+- ❌ Shell command lacks `--agent-id` flag
 
 **What Works Now:**
-
 - Agent identification with generated IDs
 - Colony registry tracks all agents
 - Colony-mediated routing to agents via mesh IPs
 
 **Integration Status:**
-
 - MCP tool inputs need `agent_id` field
 - Tool execution logic needs disambiguation
 - CLI shell command needs registry lookup
@@ -687,32 +642,53 @@ This RFD defines the standardization work needed for agent routing.
 **Format:** `{hostname}-{service}` or `{hostname}-multi`
 
 **Examples:**
-
 - Single service: `ip-10-0-1-42-api`, `devbox-frontend`
 - Multi-service: `ip-10-0-1-42-multi`, `worker-node-multi`
 - Daemon mode: `devbox`, `worker-node`
 
 **Generation Logic** (`internal/cli/agent/agent_helpers.go`):
+```go
+func generateAgentID(serviceSpecs []*ServiceSpec) string {
+    hostname, _ := os.Hostname()
 
-```
-Single service:    hostname + "-" + serviceName
-Multiple services: hostname + "-multi"
-Daemon mode:       hostname
+    if len(serviceSpecs) == 1 {
+        return fmt.Sprintf("%s-%s", hostname, serviceSpecs[0].Name)
+    }
+
+    if len(serviceSpecs) > 1 {
+        return fmt.Sprintf("%s-multi", hostname)
+    }
+
+    return hostname  // daemon mode
+}
 ```
 
 ### Service Filtering Pattern Matching
 
 **Pattern Syntax:**
-
 - Exact match: `"api"` matches service `"api"`
 - Wildcard: `"api*"` matches `"api"`, `"api-v2"`, `"api-gateway"`
 - Regex support (future): `/^api-\d+$/`
 
-**Implementation Approach**:
+**Current Implementation** (needs fix):
+```go
+// BAD: Uses deprecated ComponentName
+if !matchesPattern(agent.ComponentName, serviceFilter) {
+    continue
+}
 
-Service filtering must check the `Services[]` array rather than the deprecated
-`ComponentName` field. Each service in the array should be checked against the
-pattern until a match is found.
+// GOOD: Uses Services[] array
+matchFound := false
+for _, svc := range agent.Services {
+    if matchesPattern(svc.Name, serviceFilter) {
+        matchFound = true
+        break
+    }
+}
+if !matchFound {
+    continue
+}
+```
 
 ### WireGuard Routing Topology
 
@@ -761,7 +737,6 @@ Traffic flow:
 ```
 
 **Why this works:**
-
 - Colony's WireGuard interface acts as **Layer 3 gateway** for the mesh
 - Host routing table sends all mesh traffic (10.42.0.0/16) through wg0
 - WireGuard performs NAT-like behavior (packets appear to come from colony)
@@ -787,7 +762,6 @@ CLI Machine (remote developer):
 ```
 
 **Why this doesn't work:**
-
 - Proxy's packets have source IP 10.42.255.5 (proxy's mesh IP)
 - Agent only allows packets from 10.42.0.1 (colony)
 - WireGuard drops packets that don't match AllowedIPs
@@ -805,7 +779,6 @@ CLI Machine (remote developer):
 ### Example Error Messages
 
 **Ambiguous service name:**
-
 ```
 Error: Multiple agents found for service 'api'
 
@@ -826,11 +799,10 @@ MCP tool:
   }
 
 CLI:
-  coral shell --agent hostname-api-1
+  coral shell --agent-id hostname-api-1
 ```
 
 **Agent not found:**
-
 ```
 Error: Agent not found: hostname-api-999
 
@@ -847,14 +819,12 @@ To list all agents:
 ### Performance Considerations
 
 **Registry Lookup Performance:**
-
 - Agent count: Typically <1,000 per colony
 - In-memory hash map: O(1) lookup by agent ID
 - Service filtering: O(n) scan with m services per agent
 - No performance concerns for typical deployments
 
 **Disambiguation Overhead:**
-
 - Only occurs when service name ambiguous
 - Returns error immediately (no retry loop)
 - User experience cost (requires manual disambiguation)
@@ -863,20 +833,17 @@ To list all agents:
 ### Backward Compatibility
 
 **MCP Tools:**
-
 - Service parameter remains required (backward compatible)
 - AgentID parameter optional (additive change)
 - Old clients continue working with service-only targeting
 - New clients benefit from disambiguation
 
 **CLI Commands:**
-
 - Existing `--agent-addr` flag unchanged
-- New `--agent` flag is optional addition
+- New `--agent-id` flag is optional addition
 - No breaking changes to command syntax
 
 **Registry Schema:**
-
 - No database schema changes required
 - Services[] array already exists (RFD 011)
 - ComponentName remains for backward compatibility (deprecated)
