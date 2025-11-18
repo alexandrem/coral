@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 

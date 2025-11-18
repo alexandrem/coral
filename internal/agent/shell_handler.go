@@ -28,16 +28,16 @@ type ShellHandler struct {
 
 // ShellSession represents an active shell session.
 type ShellSession struct {
-	ID        string
-	UserID    string
-	StartedAt time.Time
+	ID         string
+	UserID     string
+	StartedAt  time.Time
 	LastActive time.Time
-	Status    SessionStatus
-	ExitCode  *int
-	cmd       *exec.Cmd
-	pty       *os.File
-	cancel    context.CancelFunc
-	mu        sync.Mutex
+	Status     SessionStatus
+	ExitCode   *int
+	cmd        *exec.Cmd
+	pty        *os.File
+	cancel     context.CancelFunc
+	mu         sync.Mutex
 }
 
 // SessionStatus represents the status of a shell session.
@@ -78,19 +78,19 @@ func (h *ShellHandler) Shell(
 		return fmt.Errorf("failed to start shell session: %w", err)
 	}
 
-	h.logger.Info("Shell session started",
-		"session_id", session.ID,
-		"user_id", session.UserID,
-		"shell", start.Shell,
-	)
+	h.logger.Info().
+		Str("session_id", session.ID).
+		Str("user_id", session.UserID).
+		Str("shell", start.Shell).
+		Msg("Shell session started")
 
 	// Ensure cleanup on exit.
 	defer func() {
 		h.cleanupSession(session)
-		h.logger.Info("Shell session ended",
-			"session_id", session.ID,
-			"exit_code", session.ExitCode,
-		)
+		h.logger.Info().
+			Str("session_id", session.ID).
+			Interface("exit_code", session.ExitCode).
+			Msg("Shell session ended")
 	}()
 
 	// Start goroutine to stream PTY output to client.
@@ -166,7 +166,7 @@ func (h *ShellHandler) startShellSession(
 	// Set initial terminal size.
 	if start.Size != nil {
 		if err := h.resizePTY(ptmx, uint16(start.Size.Rows), uint16(start.Size.Cols)); err != nil {
-			h.logger.Warn("Failed to set initial terminal size", "error", err)
+			h.logger.Warn().Err(err).Msg("Failed to set initial terminal size")
 		}
 	}
 
@@ -270,13 +270,13 @@ func (h *ShellHandler) processInput(
 		case *agentv1.ShellRequest_Resize:
 			// Resize PTY.
 			if err := h.resizePTY(session.pty, uint16(payload.Resize.Rows), uint16(payload.Resize.Cols)); err != nil {
-				h.logger.Warn("Failed to resize PTY", "error", err)
+				h.logger.Warn().Err(err).Msg("Failed to resize PTY")
 			}
 
 		case *agentv1.ShellRequest_Signal:
 			// Send signal to process.
 			if err := h.sendSignal(session, payload.Signal.Signal); err != nil {
-				h.logger.Warn("Failed to send signal", "signal", payload.Signal.Signal, "error", err)
+				h.logger.Warn().Str("signal", payload.Signal.Signal).Err(err).Msg("Failed to send signal")
 			}
 		}
 	}
