@@ -96,3 +96,12 @@ lint: ## Run linter
 	golangci-lint run
 
 all: clean build test ## Clean, build, and test
+
+release-snapshot: generate ## Build a snapshot release (for testing)
+	@echo "Building snapshot release..."
+	goreleaser release --snapshot --clean
+	@echo "✓ Snapshot release built in dist/"
+
+release: generate ## Create a release (requires a git tag)
+	@echo "Creating release..."
+	goreleaser release --clean

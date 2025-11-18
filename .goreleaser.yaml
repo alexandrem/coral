@@ -1,0 +1,88 @@
+version: 2
+
+project_name: coral
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: coral
+    main: ./cmd/coral
+    binary: coral
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/coral-io/coral/pkg/version.Version={{.Version}}
+      - -X github.com/coral-io/coral/pkg/version.GitCommit={{.Commit}}
+      - -X github.com/coral-io/coral/pkg/version.BuildDate={{.Date}}
+
+  - id: coral-discovery
+    main: ./cmd/discovery
+    binary: coral-discovery
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/coral-io/coral/pkg/version.Version={{.Version}}
+      - -X github.com/coral-io/coral/pkg/version.GitCommit={{.Commit}}
+      - -X github.com/coral-io/coral/pkg/version.BuildDate={{.Date}}
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^style:'
+
+# Homebrew tap configuration
+# To use this, create a GitHub repository named 'homebrew-tap'
+# and set GITHUB_TOKEN environment variable with repo access
+brews:
+  - name: coral
+    repository:
+      owner: coral-io
+      name: homebrew-tap
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    folder: Formula
+    homepage: https://github.com/coral-io/coral
+    description: "Unified Operations for Distributed Apps - AI-coordinated observability mesh"
+    license: MIT
+    install: |
+      bin.install "coral"
+      bin.install "coral-discovery"
+    test: |
+      system "#{bin}/coral", "version"
