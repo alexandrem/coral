@@ -156,19 +156,33 @@ func (h *ShellHandler) startShellSession(
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 
-	// Configure process attributes for PTY.
-	// In containerized environments, we need to explicitly configure the session.
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid:  true,  // Create new session
-		Setctty: false, // Let pty library handle controlling terminal
+	// Open PTY manually for better control in containerized environments.
+	ptmx, tty, err := pty.Open()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to open PTY: %w", err)
 	}
 
-	// Start command with PTY.
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
+	// Configure command to use the PTY.
+	cmd.Stdout = tty
+	cmd.Stdin = tty
+	cmd.Stderr = tty
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid:  true, // Create new session
+		Setctty: true, // Set controlling terminal
+		Ctty:    0,    // Use stdin as controlling terminal
+	}
+
+	// Start the command.
+	if err := cmd.Start(); err != nil {
+		tty.Close()
+		ptmx.Close()
 		cancel()
 		return nil, fmt.Errorf("failed to start shell with PTY: %w", err)
 	}
+
+	// Close tty (slave side) in parent process - child process has its own copy.
+	tty.Close()
 
 	// Set initial terminal size.
 	if start.Size != nil {
