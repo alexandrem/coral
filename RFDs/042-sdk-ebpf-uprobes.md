@@ -239,99 +239,30 @@ message NotifyDebugSessionResponse {}
 
 ### 2. Agent (Extended - Depends on RFD 013)
 
-**New debug session manager** (`internal/agent/debug/session_manager.go`):
+**New debug session manager** (`internal/agent/debug/`):
 
-```go
-type SessionManager struct {
-    // Manages active debug sessions
-    // Coordinates with SDK via gRPC
-    // Attaches/detaches eBPF uprobes
-    // Streams results to colony
-}
+- Manages active debug session lifecycle
+- Coordinates with SDK via gRPC to query function offsets
+- Attaches/detaches eBPF uprobes using libbpf
+- Collects events from BPF perf buffers
+- Streams results to colony
+- Enforces resource limits (max sessions, duration, memory)
+- Auto-detaches probes on session expiry
 
-// AttachUprobe attaches eBPF uprobe to target function.
-// Steps:
-// 1. Query SDK for function offset
-// 2. Load uprobe BPF program
-// 3. Attach to /proc/<pid>/exe at offset
-// 4. Set up event collection
-// 5. Schedule auto-detach after duration
-func (m *SessionManager) AttachUprobe(ctx context.Context, req *AttachUprobeRequest) (*DebugSession, error)
+**eBPF uprobe programs**:
 
-// DetachUprobe detaches eBPF uprobe and cleans up resources.
-func (m *SessionManager) DetachUprobe(ctx context.Context, sessionID string) error
-
-// StreamEvents streams uprobe events to caller (colony).
-func (m *SessionManager) StreamEvents(sessionID string, stream grpc.ServerStream) error
-```
-
-**eBPF uprobe programs** (C code, compiled to BPF bytecode):
-
-```c
-// uprobe_entry.bpf.c - Attached to function entry
-SEC("uprobe//proc/PID/exe:OFFSET")
-int uprobe_entry(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u64 timestamp = bpf_ktime_get_ns();
-
-    // Record entry event
-    struct uprobe_event event = {
-        .timestamp = timestamp,
-        .pid = pid_tgid >> 32,
-        .tid = (u32)pid_tgid,
-        .type = EVENT_ENTRY,
-        .func_offset = OFFSET,
-    };
-
-    // Store in map for duration calculation
-    bpf_map_update_elem(&start_times, &pid_tgid, &timestamp, BPF_ANY);
-
-    // Send event to userspace
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
-
-    return 0;
-}
-
-// uretprobe_exit.bpf.c - Attached to function return
-SEC("uretprobe//proc/PID/exe:OFFSET")
-int uprobe_exit(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u64 end_time = bpf_ktime_get_ns();
-
-    // Lookup start time
-    u64 *start_time = bpf_map_lookup_elem(&start_times, &pid_tgid);
-    if (!start_time) {
-        return 0; // Entry not recorded
-    }
-
-    u64 duration = end_time - *start_time;
-
-    // Record exit event
-    struct uprobe_event event = {
-        .timestamp = end_time,
-        .pid = pid_tgid >> 32,
-        .tid = (u32)pid_tgid,
-        .type = EVENT_EXIT,
-        .func_offset = OFFSET,
-        .duration_ns = duration,
-    };
-
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
-    bpf_map_delete_elem(&start_times, &pid_tgid);
-
-    return 0;
-}
-```
+- Entry probe: Captures function entry timestamp, stores in BPF map
+- Exit probe: Captures function exit timestamp, calculates duration, emits event
+- Compiled to BPF bytecode using libbpf/CO-RE
+- Attached to `/proc/<pid>/exe` at function offset
+- See Appendix for detailed BPF program examples
 
 **Capability detection** (extends RFD 018):
 
-```go
-// Agent reports SDK monitoring capability in runtime context
-type Capabilities struct {
-    // ... existing capabilities from RFD 018
-    CanDebugUprobes bool // New: SDK-integrated uprobe debugging
-}
-```
+Agent reports new capability in runtime context:
+- `CanDebugUprobes`: SDK-integrated uprobe debugging available
+- Requires: DWARF debug symbols in target binary
+- Requires: Kernel 4.7+ with uprobe support
 
 ### 3. Colony (Extended)
 
