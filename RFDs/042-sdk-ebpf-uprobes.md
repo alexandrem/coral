@@ -261,8 +261,9 @@ message NotifyDebugSessionResponse {}
 
 Agent reports new capability in runtime context:
 - `CanDebugUprobes`: SDK-integrated uprobe debugging available
-- Requires: DWARF debug symbols in target binary
+- `HasDwarfDebugInfo`: Whether binary includes DWARF symbols (affects available functions)
 - Requires: Kernel 4.7+ with uprobe support
+- Optional: DWARF debug symbols (enables full function discovery)
 
 ### 3. Colony (Extended)
 
@@ -899,7 +900,7 @@ Query available functions that can be probed in a service.
 }
 ```
 
-**Example response:**
+**Example response (with DWARF):**
 
 ```json
 {
@@ -926,6 +927,31 @@ Query available functions that can be probed in a service.
     ],
     "sdk_version": "v1.0.0",
     "debug_symbols": true
+}
+```
+
+**Example response (without DWARF - runtime reflection):**
+
+```json
+{
+    "service": "api",
+    "functions": [
+        {
+            "name": "main.HandleCheckout",
+            "file": "",
+            "line": 0,
+            "offset": "0x4a20"
+        },
+        {
+            "name": "main.ProcessPayment",
+            "file": "",
+            "line": 0,
+            "offset": "0x4c80"
+        }
+    ],
+    "sdk_version": "v1.0.0",
+    "debug_symbols": false,
+    "note": "Limited to exported functions only. Build with DWARF for full coverage."
 }
 ```
 
@@ -996,9 +1022,21 @@ func main() {
 
 ### Build Requirements for Go Applications
 
-**DWARF Debug Info Requirement:**
+**DWARF Debug Info (Optional but Recommended):**
 
-eBPF uprobes require DWARF debug information to discover function offsets. Go includes DWARF by default, but users often strip it for size optimization.
+eBPF uprobes work best with DWARF debug information for discovering function offsets. However, the SDK can work without DWARF using runtime reflection (Go-specific), with some limitations.
+
+**With DWARF (Recommended):**
+- Full function metadata (file paths, line numbers, parameter names)
+- Works for all functions including unexported ones
+- More reliable offset calculation
+
+**Without DWARF (Limited):**
+- Uses Go runtime reflection for offset discovery (exported functions only)
+- No file path or line number information
+- May miss inlined functions
+
+Go includes DWARF by default, but users often strip it for size optimization.
 
 **✅ Recommended Build (Works with Uprobes):**
 
@@ -1064,14 +1102,17 @@ If DWARF is present, you'll see function names, file paths, and line numbers.
 
 **SDK Behavior:**
 
-- **Startup check**: SDK verifies DWARF availability on `EnableRuntimeMonitoring()`
-- **Error message**: If DWARF missing, logs clear error:
+- **Startup check**: SDK checks for DWARF and falls back to runtime reflection if unavailable
+- **Warning message**: If DWARF missing, logs warning with capability degradation:
   ```
-  [Coral SDK] ERROR: No DWARF debug info found in binary
-  [Coral SDK] Uprobe debugging disabled
-  [Coral SDK] Rebuild without -ldflags="-w" to enable
+  [Coral SDK] WARN: No DWARF debug info found in binary
+  [Coral SDK] Using runtime reflection (exported functions only)
+  [Coral SDK] For full uprobe support, rebuild without -ldflags="-w"
   ```
-- **Graceful degradation**: Application continues normally, uprobes just unavailable
+- **Graceful degradation**:
+  - With DWARF: Full function discovery (all functions, with metadata)
+  - Without DWARF: Limited function discovery (exported functions only, no metadata)
+  - Application continues normally in both cases
 
 **Docker/Kubernetes Deployment:**
 
@@ -1097,19 +1138,22 @@ ENTRYPOINT ["/myapp"]
 
 **Size Impact:**
 
-| Build Flags | Binary Size | Uprobe Support | Use Case |
-|-------------|-------------|----------------|----------|
-| None | 100% (baseline) | ✅ | Development |
-| `-ldflags="-s"` | ~95% | ✅ | **Production (recommended)** |
-| `-ldflags="-w"` | ~70% | ❌ | Size-constrained (no debugging) |
-| `-ldflags="-s -w"` | ~65% | ❌ | Size-constrained (no debugging) |
+| Build Flags | Binary Size | Uprobe Support | Function Discovery | Use Case |
+|-------------|-------------|----------------|-------------------|----------|
+| None | 100% (baseline) | ✅ Full | All functions + metadata | Development |
+| `-ldflags="-s"` | ~95% | ✅ Full | All functions + metadata | **Production (recommended)** |
+| `-ldflags="-w"` | ~70% | ⚠️ Limited | Exported only, no metadata | Size-constrained |
+| `-ldflags="-s -w"` | ~65% | ⚠️ Limited | Exported only, no metadata | Size-constrained |
 
 **Typical binary sizes:**
 - Small service (10 MB): DWARF adds ~500 KB
 - Medium service (50 MB): DWARF adds ~10 MB
 - Large service (200 MB): DWARF adds ~50 MB
 
-**Recommendation:** Keep DWARF in production builds. The ~20% size increase is worth the debugging capability. Most container registries compress layers, reducing actual storage impact.
+**Recommendation:**
+- **Preferred**: Keep DWARF in production (`-ldflags="-s"` only). The ~20% size increase enables full function discovery and better debugging.
+- **Acceptable**: Strip DWARF for size-constrained environments (`-ldflags="-s -w"`). Uprobe debugging still works but with limited function visibility (exported functions only).
+- Most container registries compress layers, reducing actual storage impact of DWARF.
 
 ### Agent Configuration
 
@@ -1131,8 +1175,9 @@ agent:
             max_events_per_second: 10000
             max_memory_mb: 256
 
-        # Require debug info
-        require_dwarf: true  # Reject if binary has no debug symbols
+        # DWARF requirement (optional)
+        require_dwarf: false  # Allow uprobe debugging even without DWARF
+                              # Set true to enforce DWARF (reject binaries without debug symbols)
 ```
 
 ### Colony Configuration
