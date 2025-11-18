@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -120,11 +121,19 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 		return fmt.Errorf("failed to get terminal size: %w", err)
 	}
 
+	// Normalize agent address (strip http:// or https:// prefix if present).
+	normalizedAddr := agentAddr
+	if strings.HasPrefix(agentAddr, "http://") {
+		normalizedAddr = strings.TrimPrefix(agentAddr, "http://")
+	} else if strings.HasPrefix(agentAddr, "https://") {
+		normalizedAddr = strings.TrimPrefix(agentAddr, "https://")
+	}
+
 	// Create agent client.
 	httpClient := &http.Client{}
 	client := agentv1connect.NewAgentServiceClient(
 		httpClient,
-		fmt.Sprintf("http://%s", agentAddr),
+		fmt.Sprintf("http://%s", normalizedAddr),
 	)
 
 	// Create streaming shell connection.
