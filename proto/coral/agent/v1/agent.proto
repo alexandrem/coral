@@ -70,6 +70,9 @@ message RuntimeContextResponse {
 
   // eBPF capabilities (RFD 013).
   EbpfCapabilities ebpf_capabilities = 9;
+
+  // Agent ID.
+  string agent_id = 10;
 }
 
 message PlatformInfo {

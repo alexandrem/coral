@@ -444,6 +444,7 @@ Examples:
 
 			// Create and start runtime service for status API.
 			runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
+				AgentID:         agentID,
 				Logger:          logger,
 				Version:         "dev", // TODO: Get version from build info
 				RefreshInterval: 5 * time.Minute,
