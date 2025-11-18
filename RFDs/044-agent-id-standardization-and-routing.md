@@ -1,18 +1,18 @@
 ---
-rfd: "045"
+rfd: "044"
 title: "Agent ID Standardization and Routing"
 state: "draft"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
-dependencies: [ "004", "007", "011", "017", "026", "044" ]
+dependencies: [ "004", "007", "011", "017", "026" ]
 related_rfds: [ "043" ]
 database_migrations: [ ]
 areas: [ "cli", "colony", "mcp", "agents", "ux" ]
 ---
 
-# RFD 045 - Agent ID Standardization and Routing
+# RFD 044 - Agent ID Standardization and Routing
 
 **Status:** 🚧 Draft
 
@@ -543,7 +543,7 @@ hostname-db-proxy    db-proxy              standalone           10.42.0.21 healt
 
 ## Future Enhancements
 
-**Agent URI Format (RFD 044 - future):**
+**Agent URI Format (future):**
 - Define standard agent addressing: `agent://hostname-api`
 - Support multiple schemes: `agent://`, `mesh://`, `service://`
 - Unified parsing across CLI and MCP tools
@@ -572,11 +572,11 @@ hostname-db-proxy    db-proxy              standalone           10.42.0.21 healt
 - This RFD standardizes agent targeting for MCP tool inputs
 - Enables AI operator to unambiguously target agents
 
-**RFD 044 (MCP Shell Tool Integration):**
-- RFD 044 implements `coral_shell_start` but still uses deprecated `ComponentName` for filtering
-- This RFD fixes service filtering to use `Services[]` array (applies to all MCP tools including shell)
-- RFD 044 punts disambiguation to "Future Enhancements" - this RFD implements it
-- Adding `agent_id` parameter enables RFD 044's shell tool to handle multi-agent services
+**RFD 045 (MCP Shell Tool Integration):**
+- RFD 045 implements `coral_shell_start` tool for shell access discovery
+- This RFD (044) provides the agent resolution foundation that RFD 045 builds upon
+- RFD 045 delegates agent routing to this RFD's standardized approach
+- Adding `agent_id` parameter (this RFD) enables RFD 045's shell tool to handle multi-agent services
 
 **RFD 043 (Shell RBAC and Approval Workflows):**
 - Orthogonal concern: RBAC focuses on authorization, this RFD focuses on addressing
