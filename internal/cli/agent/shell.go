@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/net/http2"
@@ -110,6 +111,18 @@ The shell session will:
 
 // runShellSession runs the interactive shell session.
 func runShellSession(ctx context.Context, agentAddr, userID string) error {
+	// Create cancellable context for cleanup.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Ensure terminal is restored on any exit path.
+	var oldState *term.State
+	defer func() {
+		if oldState != nil {
+			term.Restore(int(os.Stdin.Fd()), oldState)
+		}
+	}()
+
 	// Get current user if not specified.
 	if userID == "" {
 		userID = os.Getenv("USER")
@@ -141,6 +154,9 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 				// Dial without TLS for h2c.
 				return net.Dial(network, addr)
 			},
+			// Set reasonable timeouts to detect dead connections.
+			ReadIdleTimeout:  30 * time.Second,
+			PingTimeout:      15 * time.Second,
 		},
 	}
 	client := agentv1connect.NewAgentServiceClient(
@@ -168,11 +184,10 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 	}
 
 	// Put terminal in raw mode.
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		return fmt.Errorf("failed to set terminal to raw mode: %w", err)
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 	// Handle terminal resize.
 	sigwinch := make(chan os.Signal, 1)
@@ -197,20 +212,38 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 	defer signal.Stop(sigwinch)
 
 	// Handle Ctrl+C and other signals.
+	// First Ctrl+C forwards to remote shell, second Ctrl+C within 1s kills client.
 	sigint := make(chan os.Signal, 1)
 	signal.Notify(sigint, syscall.SIGINT, syscall.SIGTERM)
+	var lastSigint time.Time
 	go func() {
 		for sig := range sigint {
 			var sigName string
 			switch sig {
 			case syscall.SIGINT:
 				sigName = "SIGINT"
+				// Check for double Ctrl+C within 1 second to force-quit.
+				now := time.Now()
+				if !lastSigint.IsZero() && now.Sub(lastSigint) < time.Second {
+					// Double Ctrl+C - force exit.
+					if oldState != nil {
+						term.Restore(int(os.Stdin.Fd()), oldState)
+					}
+					fmt.Fprintf(os.Stderr, "\n\nForce quit (double Ctrl+C).\n")
+					cancel()
+					os.Exit(130) // 128 + SIGINT
+				}
+				lastSigint = now
 			case syscall.SIGTERM:
 				sigName = "SIGTERM"
+				// SIGTERM always exits immediately.
+				cancel()
+				return
 			default:
 				continue
 			}
 
+			// Forward signal to remote shell.
 			stream.Send(&agentv1.ShellRequest{
 				Payload: &agentv1.ShellRequest_Signal{
 					Signal: &agentv1.ShellSignal{
@@ -225,12 +258,19 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 	// Start goroutine to copy stdin to shell.
 	stdinDone := make(chan error, 1)
 	go func() {
+		defer close(stdinDone)
 		buf := make([]byte, 4096)
 		for {
+			// Check if context is cancelled.
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			n, err := os.Stdin.Read(buf)
 			if err != nil {
 				if err == io.EOF {
-					stdinDone <- nil
 					return
 				}
 				stdinDone <- err
@@ -253,6 +293,19 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 	var sessionID string
 
 	for {
+		// Check if context is cancelled.
+		select {
+		case <-ctx.Done():
+			// Restore terminal before exiting.
+			if oldState != nil {
+				term.Restore(int(os.Stdin.Fd()), oldState)
+				oldState = nil // Prevent double restore in defer.
+			}
+			fmt.Fprintf(os.Stderr, "\n\nConnection lost to agent.\n")
+			return fmt.Errorf("connection interrupted")
+		default:
+		}
+
 		resp, err := stream.Receive()
 		if err != nil {
 			if err == io.EOF {
@@ -262,10 +315,22 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 			select {
 			case stdinErr := <-stdinDone:
 				if stdinErr != nil {
+					// Restore terminal before showing error.
+					if oldState != nil {
+						term.Restore(int(os.Stdin.Fd()), oldState)
+						oldState = nil
+					}
+					fmt.Fprintf(os.Stderr, "\n\nConnection lost to agent.\n")
 					return fmt.Errorf("stdin error: %w", stdinErr)
 				}
 			default:
 			}
+			// Restore terminal before showing error.
+			if oldState != nil {
+				term.Restore(int(os.Stdin.Fd()), oldState)
+				oldState = nil
+			}
+			fmt.Fprintf(os.Stderr, "\n\nConnection lost to agent.\n")
 			return fmt.Errorf("failed to receive from shell: %w", err)
 		}
 
@@ -291,7 +356,10 @@ exit:
 	}
 
 	// Restore terminal before showing exit message.
-	term.Restore(int(os.Stdin.Fd()), oldState)
+	if oldState != nil {
+		term.Restore(int(os.Stdin.Fd()), oldState)
+		oldState = nil // Prevent double restore in defer.
+	}
 
 	// Show exit message.
 	fmt.Fprintf(os.Stderr, "\nSession ended. Audit ID: %s\n", sessionID)
