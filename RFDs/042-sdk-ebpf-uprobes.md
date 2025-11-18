@@ -646,6 +646,331 @@ coral debug detach <service> [--session-id <id> | --all]
 coral debug query <service> --function <name> [--since <dur>]
 ```
 
+### MCP Tools (For Claude Desktop / AI Integration)
+
+Enable AI assistants to attach dynamic probes and debug production applications via MCP (Model Context Protocol).
+
+**Tool: `coral_attach_uprobe`**
+
+Attach eBPF uprobe to specific function for live debugging.
+
+```json
+{
+    "name": "coral_attach_uprobe",
+    "description": "Attach eBPF uprobe to application function for live debugging. Captures entry/exit events, measures duration. Time-limited and production-safe.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "service": {
+                "type": "string",
+                "description": "Service name (e.g., 'api', 'payment-service')"
+            },
+            "function": {
+                "type": "string",
+                "description": "Function name to probe (e.g., 'handleCheckout', 'main.processPayment')"
+            },
+            "duration": {
+                "type": "string",
+                "description": "Collection duration (e.g., '30s', '5m'). Default: 60s, max: 600s",
+                "default": "60s"
+            },
+            "sample_rate": {
+                "type": "integer",
+                "description": "Sample every Nth call (1 = all calls). Default: 1",
+                "default": 1
+            }
+        },
+        "required": ["service", "function"]
+    }
+}
+```
+
+**Example usage:**
+
+```bash
+# In Claude Desktop
+User: "Attach a probe to handleCheckout in the api service for 2 minutes"
+
+Claude: [Calls coral_attach_uprobe]
+{
+    "service": "api",
+    "function": "handleCheckout",
+    "duration": "2m"
+}
+
+Response:
+{
+    "session_id": "dbg-01H...",
+    "status": "active",
+    "function": "main.handleCheckout",
+    "offset": "0x4a20",
+    "target_agents": ["api-001", "api-002"],
+    "expires_at": "2025-11-17T15:32:00Z",
+    "streaming": true
+}
+```
+
+**Tool: `coral_trace_request_path`**
+
+Auto-discover and trace all functions in HTTP request path.
+
+```json
+{
+    "name": "coral_trace_request_path",
+    "description": "Trace all functions called during HTTP request execution. Auto-discovers call chain and builds execution tree.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "service": {
+                "type": "string",
+                "description": "Service name"
+            },
+            "path": {
+                "type": "string",
+                "description": "HTTP path to trace (e.g., '/api/checkout')"
+            },
+            "duration": {
+                "type": "string",
+                "description": "Trace duration. Default: 60s, max: 600s",
+                "default": "60s"
+            }
+        },
+        "required": ["service", "path"]
+    }
+}
+```
+
+**Example output:**
+
+```json
+{
+    "session_id": "trace-02M...",
+    "path": "/api/checkout",
+    "call_tree": [
+        {
+            "function": "handleCheckout",
+            "duration_p95": "245ms",
+            "calls": 127,
+            "children": [
+                {
+                    "function": "validateCart",
+                    "duration_p95": "12ms",
+                    "calls": 127
+                },
+                {
+                    "function": "processPayment",
+                    "duration_p95": "230ms",
+                    "calls": 127,
+                    "children": [
+                        {
+                            "function": "validateCard",
+                            "duration_p95": "225ms",
+                            "calls": 127
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "bottleneck": "validateCard (98% of total time)"
+}
+```
+
+**Tool: `coral_list_debug_sessions`**
+
+List active and recent debug sessions.
+
+```json
+{
+    "name": "coral_list_debug_sessions",
+    "description": "List active and recent debug sessions across services.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "service": {
+                "type": "string",
+                "description": "Filter by service name (optional)"
+            },
+            "status": {
+                "type": "string",
+                "enum": ["active", "expired", "all"],
+                "description": "Filter by status. Default: active",
+                "default": "active"
+            }
+        }
+    }
+}
+```
+
+**Tool: `coral_detach_uprobe`**
+
+Stop debug session and detach probes.
+
+```json
+{
+    "name": "coral_detach_uprobe",
+    "description": "Stop debug session early and detach eBPF probes. Returns collected data summary.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "session_id": {
+                "type": "string",
+                "description": "Debug session ID to detach"
+            }
+        },
+        "required": ["session_id"]
+    }
+}
+```
+
+**Tool: `coral_get_debug_results`**
+
+Query results from completed debug session.
+
+```json
+{
+    "name": "coral_get_debug_results",
+    "description": "Get aggregated results from debug session: call counts, duration percentiles, slow outliers.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "session_id": {
+                "type": "string",
+                "description": "Debug session ID"
+            },
+            "format": {
+                "type": "string",
+                "enum": ["summary", "full", "histogram"],
+                "description": "Result format. Default: summary",
+                "default": "summary"
+            }
+        },
+        "required": ["session_id"]
+    }
+}
+```
+
+**Example response:**
+
+```json
+{
+    "session_id": "dbg-01H...",
+    "function": "handleCheckout",
+    "duration": "60s",
+    "statistics": {
+        "total_calls": 342,
+        "duration_p50": "12.4ms",
+        "duration_p95": "45.2ms",
+        "duration_p99": "89.1ms",
+        "duration_max": "234.5ms"
+    },
+    "slow_outliers": [
+        {
+            "duration": "234.5ms",
+            "timestamp": "2025-11-17T15:30:42Z",
+            "labels": {"user_id": "u_12345"}
+        }
+    ]
+}
+```
+
+**Tool: `coral_list_probeable_functions`**
+
+Query available functions that can be probed in a service.
+
+```json
+{
+    "name": "coral_list_probeable_functions",
+    "description": "List functions available for uprobe attachment in service. Requires SDK integration with debug symbols.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "service": {
+                "type": "string",
+                "description": "Service name"
+            },
+            "pattern": {
+                "type": "string",
+                "description": "Regex filter for function names (e.g., 'handle.*', 'process.*')"
+            }
+        },
+        "required": ["service"]
+    }
+}
+```
+
+**Example response:**
+
+```json
+{
+    "service": "api",
+    "functions": [
+        {
+            "name": "main.handleCheckout",
+            "file": "handlers/checkout.go",
+            "line": 42,
+            "offset": "0x4a20"
+        },
+        {
+            "name": "main.processPayment",
+            "file": "handlers/payment.go",
+            "line": 78,
+            "offset": "0x4c80"
+        },
+        {
+            "name": "main.validateCard",
+            "file": "payment/validator.go",
+            "line": 156,
+            "offset": "0x5100"
+        }
+    ],
+    "sdk_version": "v1.0.0",
+    "debug_symbols": true
+}
+```
+
+**AI Workflow Example:**
+
+```
+User: "The checkout is slow in production. Can you debug it?"
+
+Claude:
+1. [Calls coral_get_service_health(service=api)]
+   → P95 latency: 245ms (baseline: 80ms)
+
+2. [Calls coral_list_probeable_functions(service=api, pattern=".*checkout.*")]
+   → Found: handleCheckout, validateCart, processPayment
+
+3. [Calls coral_attach_uprobe(service=api, function=handleCheckout, duration=30s)]
+   → session_id: dbg-01H...
+
+4. [Waits 30s, then calls coral_get_debug_results(session_id=dbg-01H...)]
+   → P95: 245ms, bottleneck in processPayment
+
+5. [Calls coral_attach_uprobe(service=api, function=processPayment, duration=30s)]
+   → session_id: dbg-02K...
+
+6. [Calls coral_get_debug_results(session_id=dbg-02K...)]
+   → Bottleneck: validateCard (225ms, 98% of time)
+
+Claude: "Root cause identified: validateCard function is slow (225ms vs
+expected 10ms). This is 98% of checkout latency. Likely external API issue."
+```
+
+**Integration with RFD 004 (MCP Server):**
+
+These tools extend the Colony MCP server defined in RFD 004:
+
+```go
+// In colony MCP server
+server.RegisterTool("coral_attach_uprobe", attachUprobeTool)
+server.RegisterTool("coral_trace_request_path", traceRequestPathTool)
+server.RegisterTool("coral_list_debug_sessions", listDebugSessionsTool)
+server.RegisterTool("coral_detach_uprobe", detachUprobeTool)
+server.RegisterTool("coral_get_debug_results", getDebugResultsTool)
+server.RegisterTool("coral_list_probeable_functions", listProbeableFunctionsTool)
+```
+
 ## Configuration Changes
 
 ### SDK Configuration (Application)
