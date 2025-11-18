@@ -257,98 +257,210 @@ message NotifyDebugSessionResponse {}
 - Attached to `/proc/<pid>/exe` at function offset
 - See Appendix for detailed BPF program examples
 
-**Capability detection** (extends RFD 018):
+**Capability detection** (extends RFD 018 + per-service discovery):
 
-Agent detects and reports SDK debug capabilities in runtime context:
+SDK integration is **per-service**, not per-agent. An agent (especially node agents or multi-service agents) might monitor multiple services, each with different SDK capabilities.
 
-**Detection logic:**
-1. On startup, agent attempts to connect to SDK gRPC server (localhost:9092)
-2. Queries SDK for function list via `ListFunctions` RPC
-3. If successful, marks `CanDebugUprobes = true`
-4. Queries SDK for DWARF availability (SDK reports in response metadata)
-5. Reports capabilities to colony in `RegisterRequest`
+**Two-level capability model:**
 
-**Runtime context fields** (extends `RuntimeContextResponse` from RFD 018):
+1. **Agent-level**: Can the agent support uprobe debugging in general?
+   - Kernel version check (4.7+ with uprobe support)
+   - eBPF capabilities present
+   - Reported in `RuntimeContextResponse` (RFD 018)
+
+2. **Service-level**: Does each specific service have SDK integration?
+   - Per-service SDK connection status
+   - Per-service function discovery
+   - Reported in service discovery/registration
+
+**Agent runtime context** (extends `RuntimeContextResponse` from RFD 018):
 
 ```protobuf
 message RuntimeContextResponse {
     // ... existing fields from RFD 018
 
-    // NEW: SDK debug capabilities
-    SdkDebugCapabilities sdk_debug = 9;
+    // NEW: Agent-level uprobe capability
+    UprobeCapabilities uprobe_capabilities = 9;
 }
 
-message SdkDebugCapabilities {
-    bool enabled = 1;                  // SDK integration available
-    bool has_dwarf_symbols = 2;        // DWARF debug info present
-    string sdk_version = 3;            // SDK version (e.g., "v1.0.0")
-    uint32 function_count = 4;         // Number of discoverable functions
-    google.protobuf.Timestamp detected_at = 5;  // When SDK was detected
-
-    // SDK connection details
-    string sdk_addr = 6;               // SDK gRPC address (e.g., "localhost:9092")
-    bool sdk_reachable = 7;            // SDK currently reachable
+message UprobeCapabilities {
+    bool supported = 1;                // Agent can attach uprobes (kernel support)
+    string kernel_version = 2;         // Kernel version
+    bool has_bpf_cap = 3;              // CAP_BPF or CAP_SYS_ADMIN available
+    repeated string supported_probe_types = 4;  // ["uprobe", "uretprobe", "kprobe"]
 }
 ```
 
-**Agent startup log example:**
+**Service-level SDK capabilities** (new mechanism):
 
+Each monitored service reports its own SDK status:
+
+```protobuf
+// New: Service SDK capabilities (separate from agent runtime context)
+message ServiceSdkCapabilities {
+    string service_name = 1;           // Service identifier
+    string process_id = 2;             // PID of service process
+
+    // SDK integration status
+    bool sdk_enabled = 3;              // SDK detected and reachable
+    string sdk_version = 4;            // SDK version (e.g., "v1.0.0")
+    string sdk_addr = 5;               // SDK gRPC address (e.g., "localhost:9092")
+
+    // Debug symbol availability
+    bool has_dwarf_symbols = 6;        // DWARF debug info present
+    uint32 function_count = 7;         // Number of discoverable functions
+
+    // Detection metadata
+    google.protobuf.Timestamp detected_at = 8;
+    google.protobuf.Timestamp last_check = 9;
+
+    // Binary information
+    string binary_path = 10;           // Path to executable
+    string binary_hash = 11;           // Hash for cache invalidation
+}
 ```
-[Agent] Starting runtime context detection...
-[Agent] Platform: Linux (Ubuntu 22.04) amd64
-[Agent] Runtime: Kubernetes Sidecar (CRI mode)
-[Agent] Attempting SDK connection at localhost:9092...
-[Agent] ✓ SDK detected (coral-go v1.0.0)
-[Agent] ✓ DWARF symbols present
-[Agent] ✓ Discovered 47 functions
-[Agent] SDK debug capabilities: enabled
-[Agent] Registering with colony...
+
+**Service registration/discovery** (extends existing mechanism):
+
+```protobuf
+// Extend existing service registration (from RFD 002)
+message ServiceInfo {
+    string name = 1;
+    string agent_id = 2;
+    // ... existing fields
+
+    // NEW: SDK capabilities for this service
+    ServiceSdkCapabilities sdk_capabilities = 10;
+}
+```
+
+**Detection flow:**
+
+1. **Agent startup** - Detect agent-level capabilities:
+   ```
+   [Agent] Starting runtime context detection...
+   [Agent] Platform: Linux (Ubuntu 22.04) amd64
+   [Agent] Runtime: Kubernetes Sidecar (CRI mode)
+   [Agent] Uprobe support: ✓ (kernel 5.15, CAP_BPF available)
+   [Agent] Registering with colony...
+   ```
+
+2. **Service discovery** - For each discovered service, check SDK:
+   ```
+   [Agent] Discovering services...
+   [Agent] Found service: api (PID 1234)
+   [Agent]   → Attempting SDK connection at localhost:9092...
+   [Agent]   → ✓ SDK detected (coral-go v1.0.0)
+   [Agent]   → ✓ DWARF symbols present
+   [Agent]   → ✓ Discovered 47 functions
+   [Agent] Found service: worker (PID 5678)
+   [Agent]   → SDK not detected (no response on localhost:9092)
+   [Agent] Service discovery complete (2 services, 1 with SDK)
+   ```
+
+**Colony service registry:**
+
+Colony stores per-service SDK capabilities:
+
+```sql
+-- DuckDB schema for service registry
+CREATE TABLE services (
+    service_name VARCHAR PRIMARY KEY,
+    agent_id VARCHAR NOT NULL,
+    -- ... existing fields
+
+    -- SDK capabilities
+    sdk_enabled BOOLEAN DEFAULT false,
+    sdk_version VARCHAR,
+    has_dwarf_symbols BOOLEAN,
+    function_count INTEGER,
+    sdk_last_check TIMESTAMP,
+
+    -- Binary info for cache invalidation
+    binary_path VARCHAR,
+    binary_hash VARCHAR
+);
+
+-- Query services with SDK capability
+SELECT service_name, agent_id, sdk_version, function_count
+FROM services
+WHERE sdk_enabled = true;
 ```
 
 **Colony routing logic:**
 
-Colony uses SDK capabilities for routing debug commands:
+Colony checks **service-level** SDK capability, not agent-level:
 
 ```go
-// Colony filters agents by SDK capability before routing
-func (c *Colony) RouteDebugCommand(cmd *DebugCommand) ([]*Agent, error) {
-    agents := c.ResolveTarget(cmd.Service)
-
-    // Filter: only agents with SDK integration
-    var capable []*Agent
-    for _, agent := range agents {
-        if agent.RuntimeContext.SdkDebug.Enabled {
-            capable = append(capable, agent)
-        }
+// Colony routes debug commands to services (not agents)
+func (c *Colony) RouteDebugCommand(cmd *DebugCommand) (*ServiceInfo, error) {
+    // Resolve service by name
+    service := c.GetService(cmd.ServiceName)
+    if service == nil {
+        return nil, fmt.Errorf("service %s not found", cmd.ServiceName)
     }
 
-    if len(capable) == 0 {
+    // Check agent uprobe support (agent-level)
+    agent := c.GetAgent(service.AgentId)
+    if !agent.RuntimeContext.UprobeCapabilities.Supported {
         return nil, fmt.Errorf(
-            "service %s has no agents with SDK debug capability\n" +
-            "Add coral.EnableRuntimeMonitoring() to application",
-            cmd.Service,
+            "agent %s does not support uprobes (kernel too old)",
+            agent.Id,
         )
     }
 
-    return capable, nil
+    // Check service SDK integration (service-level)
+    if !service.SdkCapabilities.SdkEnabled {
+        return nil, fmt.Errorf(
+            "service %s does not have SDK integration\n" +
+            "Add coral.EnableRuntimeMonitoring() to application",
+            cmd.ServiceName,
+        )
+    }
+
+    return service, nil
 }
 ```
 
 **CLI status display:**
 
 ```bash
+# Agent-level status (shows uprobe support)
 $ coral agent status
 
-Agent: api-001
-Runtime: Kubernetes Sidecar (CRI mode)
+Agent: node-agent-001
+Runtime: Kubernetes DaemonSet
+Node: k8s-node-1
 
 Capabilities:
   ✅ coral connect   Monitor containers
   ✅ coral exec      Execute in containers
   ✅ coral shell     Interactive shell
-  ✅ coral debug     SDK-integrated debugging  # NEW
-     └─ Functions: 47 (DWARF enabled)
-     └─ SDK: coral-go v1.0.0
+  ✅ Uprobe support  Kernel 5.15, CAP_BPF available
+
+Monitored Services: 3
+  • api (PID 1234) - SDK enabled (47 functions, DWARF ✓)
+  • worker (PID 5678) - No SDK
+  • cache (PID 9012) - SDK enabled (23 functions, no DWARF)
+
+# Service-level status (shows SDK capability)
+$ coral service status api
+
+Service: api
+Agent: node-agent-001
+PID: 1234
+
+SDK Integration:
+  Status:   ✅ Enabled
+  Version:  coral-go v1.0.0
+  DWARF:    ✅ Present
+  Functions: 47 discoverable
+  Binary:   /app/api
+
+Available Operations:
+  ✅ coral debug attach    Attach uprobes to functions
+  ✅ coral debug trace     Trace request paths
+  ✅ coral debug list      List active debug sessions
 ```
 
 **Error message when SDK missing:**
@@ -356,12 +468,11 @@ Capabilities:
 ```bash
 $ coral debug attach api --function handleCheckout
 
-Error: No agents with SDK debug capability for service 'api'
+Error: Service 'api' does not have SDK integration
 
-  Service 'api' has 3 agents, but none have SDK integration:
-    • api-001: No SDK detected
-    • api-002: No SDK detected
-    • api-003: No SDK detected
+  Service: api
+  Agent:   node-agent-001 (uprobe support: ✅)
+  SDK:     ❌ Not detected
 
   To enable debugging:
     1. Add coral-go SDK to your application:
@@ -375,10 +486,38 @@ Error: No agents with SDK debug capability for service 'api'
   See: https://docs.coral.io/sdk/go
 ```
 
+**Why per-service capabilities matter:**
+
+This two-level model (agent + service) is crucial for:
+
+1. **Node agents (RFD 012)**: One agent monitors many pods/services
+   ```
+   Node Agent: node-01
+   ├─ api-pod (SDK ✓, DWARF ✓)
+   ├─ worker-pod (no SDK)
+   ├─ cache-pod (SDK ✓, no DWARF)
+   └─ nginx-pod (no SDK)
+   ```
+
+2. **Multi-service agents (RFD 011)**: One agent monitors multiple services
+   ```
+   Agent: multi-service-001
+   ├─ frontend (SDK ✓)
+   ├─ backend (SDK ✓)
+   └─ legacy-service (no SDK)
+   ```
+
+3. **Sidecar agents**: Even in sidecar mode, a pod might have multiple containers
+   ```
+   Pod: api-pod
+   ├─ app container (SDK ✓)
+   └─ sidecar container (SDK ✓, separate instance)
+   ```
+
 **Minimum requirements:**
-- Agent: Kernel 4.7+ with uprobe support
-- Application: Go SDK integration with `EnableRuntimeMonitoring()`
-- Optional: DWARF debug symbols (enables full function discovery)
+- **Agent**: Kernel 4.7+ with uprobe support, CAP_BPF or CAP_SYS_ADMIN
+- **Service**: Go SDK integration with `coral.EnableRuntimeMonitoring()`
+- **Optional**: DWARF debug symbols (enables full function discovery)
 
 ### 3. Colony (Extended)
 
