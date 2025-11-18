@@ -244,21 +244,21 @@ For native (non-containerized) agents:
 
 ```go
 type ShellSession struct {
-ID          string
-UserID      string
-AgentID     string
-StartedAt   time.Time
-LastActive  time.Time
-Status      SessionStatus
-ExitCode    *int
-Transcript  *TranscriptRecorder
+    ID          string
+    UserID      string
+    AgentID     string
+    StartedAt   time.Time
+    LastActive  time.Time
+    Status      SessionStatus
+    ExitCode    *int
+    Transcript  *TranscriptRecorder
 }
 
 type SessionStatus int
 
 const (
-SessionActive SessionStatus = iota
-SessionExited
+    SessionActive SessionStatus = iota
+    SessionExited
 )
 ```
 
@@ -395,22 +395,22 @@ rbac:
 
 ```go
 type ShellAuditLog struct {
-SessionID   string
-UserID      string
-AgentID     string
-StartedAt   time.Time
-FinishedAt  time.Time
-Duration    time.Duration
-Transcript  []TranscriptEntry // Full I/O recording
-ExitCode    *int
-Approved    bool
-ApproverID  *string
+    SessionID   string
+    UserID      string
+    AgentID     string
+    StartedAt   time.Time
+    FinishedAt  time.Time
+    Duration    time.Duration
+    Transcript  []TranscriptEntry // Full I/O recording
+    ExitCode    *int
+    Approved    bool
+    ApproverID  *string
 }
 
 type TranscriptEntry struct {
-Timestamp time.Time
-Direction string // "input" or "output"
-Data      []byte
+    Timestamp time.Time
+    Direction string // "input" or "output"
+    Data      []byte
 }
 ```
 
