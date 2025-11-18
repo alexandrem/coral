@@ -994,6 +994,123 @@ func main() {
 }
 ```
 
+### Build Requirements for Go Applications
+
+**DWARF Debug Info Requirement:**
+
+eBPF uprobes require DWARF debug information to discover function offsets. Go includes DWARF by default, but users often strip it for size optimization.
+
+**✅ Recommended Build (Works with Uprobes):**
+
+```bash
+# Standard build - DWARF included by default
+go build -o myapp
+
+# Production build with some optimizations
+go build -ldflags="-s" -o myapp  # Strips symbol table only (uprobes still work)
+```
+
+**❌ Incompatible Build (No Uprobes):**
+
+```bash
+# Strips DWARF debug info - uprobes will NOT work
+go build -ldflags="-w" -o myapp
+
+# Strips both symbols and DWARF - uprobes will NOT work
+go build -ldflags="-s -w" -o myapp
+```
+
+**Build Flags Explained:**
+
+- **`-s`**: Strips symbol table (reduces binary size ~5%)
+  - ✅ Uprobes **still work** - DWARF remains
+  - Symbol table is separate from DWARF debug info
+
+- **`-w`**: Strips DWARF debug information (reduces binary size ~20-30%)
+  - ❌ Uprobes **will NOT work** - no function offsets available
+  - This is what you must avoid
+
+- **`-gcflags="all=-N -l"`**: Disables optimizations and inlining
+  - ⚠️ **NOT required** for uprobes
+  - Only needed for interactive debugging (gdb, delve)
+  - Significant performance impact - avoid in production
+
+**Recommended Production Build:**
+
+```bash
+# Best balance: optimized, DWARF included, slightly smaller
+go build -ldflags="-s" -trimpath -o myapp
+
+# Alternative: keep both symbols and DWARF (debugging-friendly)
+go build -trimpath -o myapp
+```
+
+**Verifying Debug Info:**
+
+Check if binary has DWARF debug info:
+
+```bash
+# Linux
+readelf --debug-dump=info myapp | head -20
+
+# macOS
+dwarfdump --debug-info myapp | head -20
+
+# Cross-platform (using go tool)
+go tool nm myapp | grep -i 'main.handleCheckout'
+```
+
+If DWARF is present, you'll see function names, file paths, and line numbers.
+
+**SDK Behavior:**
+
+- **Startup check**: SDK verifies DWARF availability on `EnableRuntimeMonitoring()`
+- **Error message**: If DWARF missing, logs clear error:
+  ```
+  [Coral SDK] ERROR: No DWARF debug info found in binary
+  [Coral SDK] Uprobe debugging disabled
+  [Coral SDK] Rebuild without -ldflags="-w" to enable
+  ```
+- **Graceful degradation**: Application continues normally, uprobes just unavailable
+
+**Docker/Kubernetes Deployment:**
+
+```dockerfile
+# Dockerfile with uprobe support
+FROM golang:1.21 AS builder
+
+WORKDIR /app
+COPY . .
+
+# Build with DWARF (avoid -w flag)
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s" \
+    -trimpath \
+    -o myapp
+
+FROM scratch
+COPY --from=builder /app/myapp /myapp
+
+# Binary has DWARF, uprobes will work
+ENTRYPOINT ["/myapp"]
+```
+
+**Size Impact:**
+
+| Build Flags | Binary Size | Uprobe Support | Use Case |
+|-------------|-------------|----------------|----------|
+| None | 100% (baseline) | ✅ | Development |
+| `-ldflags="-s"` | ~95% | ✅ | **Production (recommended)** |
+| `-ldflags="-w"` | ~70% | ❌ | Size-constrained (no debugging) |
+| `-ldflags="-s -w"` | ~65% | ❌ | Size-constrained (no debugging) |
+
+**Typical binary sizes:**
+- Small service (10 MB): DWARF adds ~500 KB
+- Medium service (50 MB): DWARF adds ~10 MB
+- Large service (200 MB): DWARF adds ~50 MB
+
+**Recommendation:** Keep DWARF in production builds. The ~20% size increase is worth the debugging capability. Most container registries compress layers, reducing actual storage impact.
+
 ### Agent Configuration
 
 ```yaml
