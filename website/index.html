@@ -202,51 +202,91 @@
                     Bring your own LLM - Claude Desktop, VS Code, Cursor, or custom apps
                 </p>
 
-                <div class="diagram-container">
-                    <pre class="diagram-content-simple">
-┌──────────────────────────────────────────────┐
-│  Any MCP Client                              │
-│  Claude Desktop, VS Code, Cursor, coral ask  │
-└─────────────┬────────────────────────────────┘
-              │ MCP Protocol
-              │ "Why is checkout slow?"
-              ▼
-     ┌────────────────────┐
-     │  Colony Server     │
-     │  • Observability   │  ← Your observability data
-     │  • MCP Tools       │  ← Real-time queries
-     │  • DuckDB          │  ← Fast analytics
-     └─────────┬──────────┘
-               │ Mesh
-               ▼
-      ┌────────────────────┐
-      │  Agents on Services │
-      │  • eBPF            │
-      │  • OTLP            │
-      └────────────────────┘
-                    </pre>
+                <div class="mcp-diagram">
+                    <!-- AI Assistants Layer -->
+                    <div class="diagram-layer">
+                        <div class="diagram-nodes">
+                            <div class="diagram-node node-clients">
+                                <div class="node-icon">🤖</div>
+                                <h4>AI Assistants</h4>
+                                <div class="node-tags">
+                                    <span class="node-tag">Claude Desktop</span>
+                                    <span class="node-tag">VS Code</span>
+                                    <span class="node-tag">Cursor</span>
+                                    <span class="node-tag">coral ask</span>
+                                </div>
+                                <div class="node-detail">Your LLM: Anthropic, OpenAI, Ollama</div>
+                            </div>
+                        </div>
+                    </div>
 
-                    <div class="diagram-features">
-                        <div class="diagram-feature">
-                            <span class="diagram-icon">🔌</span>
-                            <div>
-                                <h4>Any MCP Client</h4>
-                                <p>Claude Desktop, IDEs, or custom apps via standard MCP protocol</p>
+                    <!-- Arrow -->
+                    <div class="diagram-arrow">
+                        <div class="arrow-line"></div>
+                        <div class="arrow-label">MCP Protocol • "Why is checkout slow?"</div>
+                        <div class="arrow-head">▼</div>
+                    </div>
+
+                    <!-- Colony Layer -->
+                    <div class="diagram-layer">
+                        <div class="diagram-nodes">
+                            <div class="diagram-node node-colony">
+                                <div class="node-icon">🧠</div>
+                                <h4>Colony Server</h4>
+                                <ul class="node-features">
+                                    <li>MCP Server</li>
+                                    <li>Real-time Tools</li>
+                                    <li>DuckDB Analytics</li>
+                                </ul>
+                                <div class="node-detail">Your observability data stays local</div>
                             </div>
                         </div>
-                        <div class="diagram-feature">
-                            <span class="diagram-icon">🔑</span>
-                            <div>
-                                <h4>Your LLM, Your Keys</h4>
-                                <p>Use Anthropic, OpenAI, Ollama - you control the AI and costs</p>
+                    </div>
+
+                    <!-- Arrow -->
+                    <div class="diagram-arrow">
+                        <div class="arrow-line"></div>
+                        <div class="arrow-label">Encrypted Mesh</div>
+                        <div class="arrow-head">▼</div>
+                    </div>
+
+                    <!-- Agents Layer -->
+                    <div class="diagram-layer">
+                        <div class="diagram-nodes">
+                            <div class="diagram-node node-agents">
+                                <div class="node-icon">👁️</div>
+                                <h4>Agents on Services</h4>
+                                <ul class="node-features">
+                                    <li>eBPF Probes</li>
+                                    <li>OTLP Collection</li>
+                                    <li>Local DuckDB</li>
+                                </ul>
+                                <div class="node-detail">Running on your infrastructure</div>
                             </div>
                         </div>
-                        <div class="diagram-feature">
-                            <span class="diagram-icon">⚡</span>
-                            <div>
-                                <h4>Real-time Queries</h4>
-                                <p>AI queries live data from Colony's DuckDB, not stale snapshots</p>
-                            </div>
+                    </div>
+                </div>
+
+                <div class="diagram-features">
+                    <div class="diagram-feature">
+                        <span class="diagram-icon">🔌</span>
+                        <div>
+                            <h4>Any MCP Client</h4>
+                            <p>Claude Desktop, IDEs, or custom apps via standard MCP protocol</p>
+                        </div>
+                    </div>
+                    <div class="diagram-feature">
+                        <span class="diagram-icon">🔑</span>
+                        <div>
+                            <h4>Your LLM, Your Keys</h4>
+                            <p>Use Anthropic, OpenAI, Ollama - you control the AI and costs</p>
+                        </div>
+                    </div>
+                    <div class="diagram-feature">
+                        <span class="diagram-icon">⚡</span>
+                        <div>
+                            <h4>Real-time Queries</h4>
+                            <p>AI queries live data from Colony's DuckDB, not stale snapshots</p>
                         </div>
                     </div>
                 </div>
@@ -527,74 +567,144 @@
                 <h3>Three-Tier Architecture: Complete Flow</h3>
                 <p class="diagram-subtitle">From AI query to live data collection</p>
 
-                <div class="diagram-container">
-                    <pre class="diagram-content">
-┌─────────────────────────────────────────────────────────────────┐
-│  External AI Assistants / coral ask                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ Claude       │  │ VS Code /    │  │ coral ask    │          │
-│  │ Desktop      │  │ Cursor       │  │ (terminal)   │          │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
-│         │ Anthropic       │ OpenAI          │ Ollama           │
-│         └─────────────────┴─────────────────┘                  │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │ MCP Protocol (stdio)
-                          │ Natural language queries
-                          ▼
-                 ┌────────────────────┐
-                 │  coral mcp proxy   │
-                 │  (Protocol Bridge) │
-                 └─────────┬──────────┘
-                           │ Buf Connect gRPC
-                           ▼
-                 ┌────────────────────┐
-                 │  Colony Server     │
-                 │  • MCP Server      │  ← Genkit plugin
-                 │  • Tool Registry   │  ← coral_get_service_health
-                 │  • RBAC/Audit      │  ← coral_query_beyla_metrics
-                 │  • DuckDB          │  ← coral_query_traces
-                 └─────────┬──────────┘  ← Aggregated summaries
-                           │ WireGuard Mesh
-                           │ Command routing
-                           ▼
-      ┌────────────────────┴────────────────────┐
-      │                                         │
-      ▼                                         ▼
-┌─────────────────┐                    ┌─────────────────┐
-│  Agent (App A)  │                    │  Agent (App B)  │
-│  • eBPF (Beyla) │  ← RED metrics     │  • eBPF (Beyla) │
-│  • OTLP Recv    │  ← Spans/Logs      │  • OTLP Recv    │
-│  • DuckDB Local │  ← Recent data     │  • DuckDB Local │
-│  • Shell/Exec   │  ← Diagnostics     │  • Shell/Exec   │
-│  • Live Probes  │  ← On-demand       │  • Live Probes  │
-└─────────┬───────┘                    └─────────┬───────┘
-          │                                      │
-          ▼                                      ▼
-    ┌──────────┐                          ┌──────────┐
-    │ Your App │                          │ Your App │
-    │ Services │                          │ Services │
-    └──────────┘                          └──────────┘
-                    </pre>
-
-                    <div class="arch-grid">
-                        <div class="arch-tier">
-                            <div class="tier-icon">🧠</div>
-                            <h4>Colony</h4>
-                            <p>Central coordinator with MCP server, DuckDB storage, and AI orchestration</p>
-                        </div>
-                        <div class="arch-tier">
-                            <div class="tier-icon">👁️</div>
-                            <h4>Agents</h4>
-                            <p>Local observers using eBPF, OTLP, and shell commands to gather telemetry</p>
-                        </div>
-                        <div class="arch-tier">
-                            <div class="tier-icon">⚙️</div>
-                            <h4>SDK (Optional)</h4>
-                            <p>Advanced features like live probes and runtime instrumentation</p>
+                <div class="mcp-diagram mcp-diagram-detailed">
+                    <!-- AI Assistants Layer -->
+                    <div class="diagram-layer">
+                        <div class="diagram-nodes diagram-nodes-multi">
+                            <div class="diagram-node node-clients node-small">
+                                <div class="node-icon-small">🖥️</div>
+                                <h5>Claude Desktop</h5>
+                                <span class="node-tag-small">Anthropic</span>
+                            </div>
+                            <div class="diagram-node node-clients node-small">
+                                <div class="node-icon-small">💻</div>
+                                <h5>VS Code / Cursor</h5>
+                                <span class="node-tag-small">OpenAI</span>
+                            </div>
+                            <div class="diagram-node node-clients node-small">
+                                <div class="node-icon-small">⌨️</div>
+                                <h5>coral ask</h5>
+                                <span class="node-tag-small">Ollama</span>
+                            </div>
                         </div>
                     </div>
-                    <p class="arch-note">All connected via an encrypted WireGuard mesh that works across any network boundary.</p>
+
+                    <!-- Arrow -->
+                    <div class="diagram-arrow">
+                        <div class="arrow-line"></div>
+                        <div class="arrow-label">MCP Protocol (stdio)</div>
+                        <div class="arrow-head">▼</div>
+                    </div>
+
+                    <!-- MCP Proxy Layer -->
+                    <div class="diagram-layer">
+                        <div class="diagram-nodes">
+                            <div class="diagram-node node-proxy">
+                                <div class="node-icon">🔄</div>
+                                <h4>coral mcp proxy</h4>
+                                <div class="node-detail">Protocol Bridge: MCP ↔ gRPC</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Arrow -->
+                    <div class="diagram-arrow">
+                        <div class="arrow-line"></div>
+                        <div class="arrow-label">Buf Connect gRPC</div>
+                        <div class="arrow-head">▼</div>
+                    </div>
+
+                    <!-- Colony Layer -->
+                    <div class="diagram-layer">
+                        <div class="diagram-nodes">
+                            <div class="diagram-node node-colony node-detailed">
+                                <div class="node-icon">🧠</div>
+                                <h4>Colony Server</h4>
+                                <ul class="node-features node-features-detailed">
+                                    <li><span class="feature-label">MCP Server:</span> Genkit plugin</li>
+                                    <li><span class="feature-label">Tools:</span> coral_get_service_health, coral_query_*</li>
+                                    <li><span class="feature-label">Security:</span> RBAC & Audit logging</li>
+                                    <li><span class="feature-label">Storage:</span> DuckDB with aggregated summaries</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Arrow -->
+                    <div class="diagram-arrow">
+                        <div class="arrow-line"></div>
+                        <div class="arrow-label">WireGuard Mesh • Command Routing</div>
+                        <div class="arrow-head">▼</div>
+                    </div>
+
+                    <!-- Agents Layer -->
+                    <div class="diagram-layer">
+                        <div class="diagram-nodes diagram-nodes-multi">
+                            <div class="diagram-node node-agents node-detailed">
+                                <div class="node-icon">👁️</div>
+                                <h4>Agent (App A)</h4>
+                                <ul class="node-features">
+                                    <li>eBPF (Beyla) • RED metrics</li>
+                                    <li>OTLP Receiver • Spans/Logs</li>
+                                    <li>DuckDB Local • Recent data</li>
+                                    <li>Shell/Exec • Diagnostics</li>
+                                    <li>Live Probes • On-demand</li>
+                                </ul>
+                            </div>
+                            <div class="diagram-node node-agents node-detailed">
+                                <div class="node-icon">👁️</div>
+                                <h4>Agent (App B)</h4>
+                                <ul class="node-features">
+                                    <li>eBPF (Beyla) • RED metrics</li>
+                                    <li>OTLP Receiver • Spans/Logs</li>
+                                    <li>DuckDB Local • Recent data</li>
+                                    <li>Shell/Exec • Diagnostics</li>
+                                    <li>Live Probes • On-demand</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Arrow -->
+                    <div class="diagram-arrow diagram-arrow-final">
+                        <div class="arrow-line"></div>
+                        <div class="arrow-label">Monitors</div>
+                        <div class="arrow-head">▼</div>
+                    </div>
+
+                    <!-- Services Layer -->
+                    <div class="diagram-layer">
+                        <div class="diagram-nodes diagram-nodes-multi">
+                            <div class="diagram-node node-services">
+                                <div class="node-icon">⚙️</div>
+                                <h5>Your Services</h5>
+                            </div>
+                            <div class="diagram-node node-services">
+                                <div class="node-icon">⚙️</div>
+                                <h5>Your Services</h5>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+
+                <div class="arch-grid">
+                    <div class="arch-tier">
+                        <div class="tier-icon">🧠</div>
+                        <h4>Colony</h4>
+                        <p>Central coordinator with MCP server, DuckDB storage, and AI orchestration</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">👁️</div>
+                        <h4>Agents</h4>
+                        <p>Local observers using eBPF, OTLP, and shell commands to gather telemetry</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">⚙️</div>
+                        <h4>SDK (Optional)</h4>
+                        <p>Advanced features like live probes and runtime instrumentation</p>
+                    </div>
+                </div>
+                <p class="arch-note">All connected via an encrypted WireGuard mesh that works across any network boundary.</p>
             </div>
         </div>
     </section>
