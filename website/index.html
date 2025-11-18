@@ -194,6 +194,63 @@
                     </ul>
                 </div>
             </div>
+
+            <!-- Architecture Diagram - Simplified -->
+            <div class="architecture-diagram">
+                <h3>MCP Integration: Use Any AI Assistant</h3>
+                <p class="diagram-subtitle">
+                    Bring your own LLM - Claude Desktop, VS Code, Cursor, or custom apps
+                </p>
+
+                <div class="diagram-container">
+                    <pre class="diagram-content-simple">
+┌──────────────────────────────────────────────┐
+│  Any MCP Client                              │
+│  Claude Desktop, VS Code, Cursor, coral ask  │
+└─────────────┬────────────────────────────────┘
+              │ MCP Protocol
+              │ "Why is checkout slow?"
+              ▼
+     ┌────────────────────┐
+     │  Colony Server     │
+     │  • Observability   │  ← Your observability data
+     │  • MCP Tools       │  ← Real-time queries
+     │  • DuckDB          │  ← Fast analytics
+     └─────────┬──────────┘
+               │ Mesh
+               ▼
+      ┌────────────────────┐
+      │  Agents on Services │
+      │  • eBPF            │
+      │  • OTLP            │
+      └────────────────────┘
+                    </pre>
+
+                    <div class="diagram-features">
+                        <div class="diagram-feature">
+                            <span class="diagram-icon">🔌</span>
+                            <div>
+                                <h4>Any MCP Client</h4>
+                                <p>Claude Desktop, IDEs, or custom apps via standard MCP protocol</p>
+                            </div>
+                        </div>
+                        <div class="diagram-feature">
+                            <span class="diagram-icon">🔑</span>
+                            <div>
+                                <h4>Your LLM, Your Keys</h4>
+                                <p>Use Anthropic, OpenAI, Ollama - you control the AI and costs</p>
+                            </div>
+                        </div>
+                        <div class="diagram-feature">
+                            <span class="diagram-icon">⚡</span>
+                            <div>
+                                <h4>Real-time Queries</h4>
+                                <p>AI queries live data from Colony's DuckDB, not stale snapshots</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -465,27 +522,79 @@
                 </div>
             </div>
 
-            <!-- Architecture Diagram -->
+            <!-- Architecture Diagram - Detailed -->
             <div class="arch-summary">
-                <h3>Three-Tier Architecture</h3>
-                <div class="arch-grid">
-                    <div class="arch-tier">
-                        <div class="tier-icon">🧠</div>
-                        <h4>Colony</h4>
-                        <p>Central coordinator with MCP server, DuckDB storage, and AI orchestration</p>
+                <h3>Three-Tier Architecture: Complete Flow</h3>
+                <p class="diagram-subtitle">From AI query to live data collection</p>
+
+                <div class="diagram-container">
+                    <pre class="diagram-content">
+┌─────────────────────────────────────────────────────────────────┐
+│  External AI Assistants / coral ask                            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │ Claude       │  │ VS Code /    │  │ coral ask    │          │
+│  │ Desktop      │  │ Cursor       │  │ (terminal)   │          │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
+│         │ Anthropic       │ OpenAI          │ Ollama           │
+│         └─────────────────┴─────────────────┘                  │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ MCP Protocol (stdio)
+                          │ Natural language queries
+                          ▼
+                 ┌────────────────────┐
+                 │  coral mcp proxy   │
+                 │  (Protocol Bridge) │
+                 └─────────┬──────────┘
+                           │ Buf Connect gRPC
+                           ▼
+                 ┌────────────────────┐
+                 │  Colony Server     │
+                 │  • MCP Server      │  ← Genkit plugin
+                 │  • Tool Registry   │  ← coral_get_service_health
+                 │  • RBAC/Audit      │  ← coral_query_beyla_metrics
+                 │  • DuckDB          │  ← coral_query_traces
+                 └─────────┬──────────┘  ← Aggregated summaries
+                           │ WireGuard Mesh
+                           │ Command routing
+                           ▼
+      ┌────────────────────┴────────────────────┐
+      │                                         │
+      ▼                                         ▼
+┌─────────────────┐                    ┌─────────────────┐
+│  Agent (App A)  │                    │  Agent (App B)  │
+│  • eBPF (Beyla) │  ← RED metrics     │  • eBPF (Beyla) │
+│  • OTLP Recv    │  ← Spans/Logs      │  • OTLP Recv    │
+│  • DuckDB Local │  ← Recent data     │  • DuckDB Local │
+│  • Shell/Exec   │  ← Diagnostics     │  • Shell/Exec   │
+│  • Live Probes  │  ← On-demand       │  • Live Probes  │
+└─────────┬───────┘                    └─────────┬───────┘
+          │                                      │
+          ▼                                      ▼
+    ┌──────────┐                          ┌──────────┐
+    │ Your App │                          │ Your App │
+    │ Services │                          │ Services │
+    └──────────┘                          └──────────┘
+                    </pre>
+
+                    <div class="arch-grid">
+                        <div class="arch-tier">
+                            <div class="tier-icon">🧠</div>
+                            <h4>Colony</h4>
+                            <p>Central coordinator with MCP server, DuckDB storage, and AI orchestration</p>
+                        </div>
+                        <div class="arch-tier">
+                            <div class="tier-icon">👁️</div>
+                            <h4>Agents</h4>
+                            <p>Local observers using eBPF, OTLP, and shell commands to gather telemetry</p>
+                        </div>
+                        <div class="arch-tier">
+                            <div class="tier-icon">⚙️</div>
+                            <h4>SDK (Optional)</h4>
+                            <p>Advanced features like live probes and runtime instrumentation</p>
+                        </div>
                     </div>
-                    <div class="arch-tier">
-                        <div class="tier-icon">👁️</div>
-                        <h4>Agents</h4>
-                        <p>Local observers using eBPF, OTLP, and shell commands to gather telemetry</p>
-                    </div>
-                    <div class="arch-tier">
-                        <div class="tier-icon">⚙️</div>
-                        <h4>SDK (Optional)</h4>
-                        <p>Advanced features like live probes and runtime instrumentation</p>
-                    </div>
+                    <p class="arch-note">All connected via an encrypted WireGuard mesh that works across any network boundary.</p>
                 </div>
-                <p class="arch-note">All connected via an encrypted mesh that works across any network boundary.</p>
             </div>
         </div>
     </section>

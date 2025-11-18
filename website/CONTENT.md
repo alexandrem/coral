@@ -109,6 +109,62 @@ AI-powered insights through standard MCP protocol:
 - **Real-time data access:** AI queries live observability data, not dashboards
 - **Built-in assistant:** coral ask command for terminal-based AI
 
+### Architecture Diagram
+
+**Heading:** Architecture: Universal AI Integration via MCP
+
+**Subtitle:** Colony acts as an MCP server - any AI assistant can query your observability data in real-time
+
+**Diagram:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  External AI Assistants / coral ask                            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │ Claude       │  │ VS Code /    │  │ coral ask    │          │
+│  │ Desktop      │  │ Cursor       │  │ (terminal)   │          │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
+│         │ Anthropic       │ OpenAI          │ Ollama           │
+│         └─────────────────┴─────────────────┘                  │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ MCP Protocol (stdio)
+                          │ Natural language queries
+                          ▼
+                 ┌────────────────────┐
+                 │  MCP Proxy         │
+                 │  (Protocol Bridge) │
+                 └─────────┬──────────┘
+                           │ gRPC
+                           ▼
+                 ┌────────────────────┐
+                 │  Colony Server     │
+                 │  • MCP Server      │
+                 │  • Tool Registry   │
+                 │  • DuckDB          │
+                 └─────────┬──────────┘
+                           │ Mesh Network
+                           ▼
+      ┌────────────────────┴────────────────────┐
+      │                                         │
+      ▼                                         ▼
+┌───────────┐                             ┌───────────┐
+│  Agent    │                             │  Agent    │
+│  • eBPF   │        ...more agents...    │  • eBPF   │
+│  • OTLP   │                             │  • OTLP   │
+└───────────┘                             └───────────┘
+   (your services)                           (your services)
+```
+
+**Diagram Features:**
+
+🔌 **Any MCP Client**
+Claude Desktop, IDEs, or custom apps via standard MCP protocol
+
+🔑 **Your LLM, Your Keys**
+Use Anthropic, OpenAI, Ollama - you control the AI and costs
+
+⚡ **Real-time Queries**
+AI queries live data from Colony's DuckDB, not stale snapshots
+
 ---
 
 ## Differentiators Section
@@ -211,6 +267,62 @@ On-demand instrumentation · Full control
 - → **Root cause analysis** in <1 second
 - → **Actionable recommendations** with evidence
 - → **Human-approved execution** for safety
+
+### Architecture Diagram
+
+**Heading:** Architecture: Universal AI Integration via MCP
+
+**Subtitle:** Colony acts as an MCP server - any AI assistant can query your observability data in real-time
+
+**Diagram:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  External AI Assistants / coral ask                            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │ Claude       │  │ VS Code /    │  │ coral ask    │          │
+│  │ Desktop      │  │ Cursor       │  │ (terminal)   │          │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
+│         │ Anthropic       │ OpenAI          │ Ollama           │
+│         └─────────────────┴─────────────────┘                  │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ MCP Protocol (stdio)
+                          │ Natural language queries
+                          ▼
+                 ┌────────────────────┐
+                 │  MCP Proxy         │
+                 │  (Protocol Bridge) │
+                 └─────────┬──────────┘
+                           │ gRPC
+                           ▼
+                 ┌────────────────────┐
+                 │  Colony Server     │
+                 │  • MCP Server      │
+                 │  • Tool Registry   │
+                 │  • DuckDB          │
+                 └─────────┬──────────┘
+                           │ Mesh Network
+                           ▼
+      ┌────────────────────┴────────────────────┐
+      │                                         │
+      ▼                                         ▼
+┌───────────┐                             ┌───────────┐
+│  Agent    │                             │  Agent    │
+│  • eBPF   │        ...more agents...    │  • eBPF   │
+│  • OTLP   │                             │  • OTLP   │
+└───────────┘                             └───────────┘
+   (your services)                           (your services)
+```
+
+**Diagram Features:**
+
+🔌 **Any MCP Client**
+Claude Desktop, IDEs, or custom apps via standard MCP protocol
+
+🔑 **Your LLM, Your Keys**
+Use Anthropic, OpenAI, Ollama - you control the AI and costs
+
+⚡ **Real-time Queries**
+AI queries live data from Colony's DuckDB, not stale snapshots
 
 ### Live Debugging Example
 

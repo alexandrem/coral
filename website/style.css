@@ -364,6 +364,109 @@ body {
     font-style: italic;
 }
 
+/* Architecture Diagram */
+.architecture-diagram {
+    max-width: 1000px;
+    margin: var(--spacing-xl) auto;
+    text-align: center;
+}
+
+.architecture-diagram h3 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: var(--spacing-sm);
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.diagram-subtitle {
+    color: var(--text-secondary);
+    font-size: 1.125rem;
+    margin-bottom: var(--spacing-lg);
+}
+
+.diagram-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-top: var(--spacing-lg);
+}
+
+.diagram-content {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    overflow-x: auto;
+    text-align: left;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-lg);
+}
+
+.diagram-content-simple {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    overflow-x: auto;
+    text-align: left;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-lg);
+}
+
+.diagram-features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-lg);
+}
+
+.diagram-feature {
+    display: flex;
+    gap: var(--spacing-sm);
+    text-align: left;
+    padding: var(--spacing-md);
+    background: rgba(124, 58, 237, 0.05);
+    border: 1px solid rgba(124, 58, 237, 0.2);
+    border-radius: var(--radius-md);
+    transition: all 0.3s;
+}
+
+.diagram-feature:hover {
+    background: rgba(124, 58, 237, 0.1);
+    border-color: var(--accent-primary);
+    transform: translateY(-2px);
+}
+
+.diagram-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    filter: none !important;
+    -webkit-filter: none !important;
+}
+
+.diagram-feature h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    color: var(--text-primary);
+}
+
+.diagram-feature p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
 /* Live Debugging Example */
 .live-debug-example {
     max-width: 900px;
