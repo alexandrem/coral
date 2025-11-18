@@ -219,4 +219,15 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_service_time ON beyla_traces(service_name, start_time DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_trace_id ON beyla_traces(trace_id, start_time DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_duration ON beyla_traces(duration_us DESC)`,
+
+	// Agent IP allocations - persistent IP allocation for agents (RFD 019).
+	`CREATE TABLE IF NOT EXISTS agent_ip_allocations (
+		agent_id TEXT PRIMARY KEY,
+		ip_address TEXT NOT NULL UNIQUE,
+		allocated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_agent_ip_allocations_ip ON agent_ip_allocations(ip_address)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_ip_allocations_last_seen ON agent_ip_allocations(last_seen)`,
 }

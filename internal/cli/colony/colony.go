@@ -177,6 +177,16 @@ Examples:
 			}
 			defer wgDevice.Stop()
 
+			// Replace the in-memory allocator with a persistent allocator (RFD 019).
+			// This enables IP allocation recovery after colony restarts.
+			if err := initializePersistentIPAllocator(wgDevice, db, logger); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to initialize persistent IP allocator, using in-memory allocator")
+			} else {
+				logger.Info().Msg("Persistent IP allocator initialized")
+			}
+
 			// Create agent registry for tracking connected agents.
 			agentRegistry := registry.New()
 
@@ -1990,4 +2000,38 @@ func formatServicesList(services []*meshv1.ServiceInfo) string {
 		serviceNames = append(serviceNames, svc.ComponentName)
 	}
 	return strings.Join(serviceNames, ", ")
+}
+
+// initializePersistentIPAllocator creates and injects a persistent IP allocator (RFD 019).
+func initializePersistentIPAllocator(wgDevice *wireguard.Device, db *database.Database, logger logging.Logger) error {
+	// Get the mesh network subnet from WireGuard config.
+	cfg := wgDevice.Config()
+	if cfg.MeshNetworkIPv4 == "" {
+		cfg.MeshNetworkIPv4 = constants.DefaultColonyMeshIPv4Subnet
+	}
+
+	_, subnet, err := net.ParseCIDR(cfg.MeshNetworkIPv4)
+	if err != nil {
+		return fmt.Errorf("invalid mesh network CIDR: %w", err)
+	}
+
+	// Create database adapter for IP allocation store.
+	store := database.NewIPAllocationStore(db)
+
+	// Create persistent allocator with database store.
+	allocator, err := wireguard.NewPersistentIPAllocator(subnet, store)
+	if err != nil {
+		return fmt.Errorf("failed to create persistent allocator: %w", err)
+	}
+
+	// Inject the persistent allocator into the WireGuard device.
+	if err := wgDevice.SetAllocator(allocator); err != nil {
+		return fmt.Errorf("failed to set allocator: %w", err)
+	}
+
+	logger.Info().
+		Int("loaded_allocations", allocator.AllocatedCount()).
+		Msg("Persistent IP allocator loaded from database")
+
+	return nil
 }
