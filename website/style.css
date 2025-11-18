@@ -512,11 +512,26 @@ body {
     filter: none !important;
 }
 
+.node-icon-inline {
+    font-size: 1.25rem;
+    margin-right: 0.5rem;
+    filter: none !important;
+    -webkit-filter: none !important;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    -webkit-text-fill-color: initial !important;
+    background-clip: initial !important;
+    color: initial !important;
+    vertical-align: middle;
+}
+
 .diagram-node h4 {
     font-size: 1.125rem;
     font-weight: 600;
     margin-bottom: var(--spacing-sm);
     color: var(--text-primary);
+    display: flex;
+    align-items: center;
 }
 
 .diagram-node h5 {
