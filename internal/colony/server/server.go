@@ -35,6 +35,7 @@ type Config struct {
 type Server struct {
 	registry  *registry.Registry
 	database  *database.Database
+	mcpServer interface{} // *mcp.Server - using interface to avoid import cycle
 	config    Config
 	startTime time.Time
 	logger    zerolog.Logger
@@ -261,3 +262,82 @@ func (s *Server) QueryTelemetry(
 
 // Note: IngestTelemetry RPC was removed in favor of pull-based architecture (RFD 025).
 // Colony now queries agents on-demand using QueryTelemetry RPC and creates summaries locally.
+
+// CallTool executes an MCP tool and returns the result (RFD 004).
+func (s *Server) CallTool(
+	ctx context.Context,
+	req *connect.Request[colonyv1.CallToolRequest],
+) (*connect.Response[colonyv1.CallToolResponse], error) {
+	s.logger.Info().
+		Str("tool", req.Msg.ToolName).
+		Msg("MCP tool call received via RPC")
+
+	// Execute the tool.
+	result, err := s.ExecuteTool(ctx, req.Msg.ToolName, req.Msg.ArgumentsJson)
+	if err != nil {
+		return connect.NewResponse(&colonyv1.CallToolResponse{
+			Result:  "",
+			Error:   err.Error(),
+			Success: false,
+		}), nil
+	}
+
+	return connect.NewResponse(&colonyv1.CallToolResponse{
+		Result:  result,
+		Error:   "",
+		Success: true,
+	}), nil
+}
+
+// StreamTool executes an MCP tool with streaming (bidirectional) (RFD 004).
+// This is for future streaming tools support.
+func (s *Server) StreamTool(
+	ctx context.Context,
+	stream *connect.BidiStream[colonyv1.StreamToolRequest, colonyv1.StreamToolResponse],
+) error {
+	// For now, streaming is not implemented.
+	// Future enhancement: support streaming tools that can return incremental results.
+	return fmt.Errorf("streaming tools not yet implemented")
+}
+
+// ListTools returns the list of available MCP tools (RFD 004).
+func (s *Server) ListTools(
+	ctx context.Context,
+	req *connect.Request[colonyv1.ListToolsRequest],
+) (*connect.Response[colonyv1.ListToolsResponse], error) {
+	// Get tool metadata including schemas from the MCP server.
+	metadata, err := s.GetToolMetadata()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to get tool metadata")
+		// Fallback to simple tool list without schemas.
+		toolNames := s.ListToolNames()
+		tools := make([]*colonyv1.ToolInfo, 0, len(toolNames))
+		for _, name := range toolNames {
+			enabled := s.IsToolEnabled(name)
+			tools = append(tools, &colonyv1.ToolInfo{
+				Name:            name,
+				Description:     "",
+				Enabled:         enabled,
+				InputSchemaJson: "{\"type\": \"object\", \"properties\": {}}",
+			})
+		}
+		return connect.NewResponse(&colonyv1.ListToolsResponse{
+			Tools: tools,
+		}), nil
+	}
+
+	// Convert metadata to ToolInfo proto messages.
+	tools := make([]*colonyv1.ToolInfo, 0, len(metadata))
+	for _, meta := range metadata {
+		tools = append(tools, &colonyv1.ToolInfo{
+			Name:            meta.Name,
+			Description:     meta.Description,
+			Enabled:         true, // Already filtered by GetToolMetadata
+			InputSchemaJson: meta.InputSchemaJSON,
+		})
+	}
+
+	return connect.NewResponse(&colonyv1.ListToolsResponse{
+		Tools: tools,
+	}), nil
+}

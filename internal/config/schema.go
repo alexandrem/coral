@@ -50,6 +50,7 @@ type ColonyConfig struct {
 	Services        ServicesConfig  `yaml:"services"`
 	StoragePath     string          `yaml:"storage_path"`
 	Discovery       DiscoveryColony `yaml:"discovery"`
+	MCP             MCPConfig       `yaml:"mcp,omitempty"`
 	CreatedAt       time.Time       `yaml:"created_at"`
 	CreatedBy       string          `yaml:"created_by"`
 	LastUsed        time.Time       `yaml:"last_used,omitempty"`
@@ -93,6 +94,30 @@ type DiscoveryColony struct {
 	AutoRegister     bool          `yaml:"auto_register"`
 	RegisterInterval time.Duration `yaml:"register_interval"`
 	STUNServers      []string      `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
+}
+
+// MCPConfig contains MCP server configuration (RFD 004).
+type MCPConfig struct {
+	// Disabled controls whether the MCP server is enabled.
+	// Default: false (MCP server is enabled by default).
+	Disabled bool `yaml:"disabled,omitempty"`
+
+	// EnabledTools optionally restricts which tools are available.
+	// If empty, all tools are enabled.
+	EnabledTools []string `yaml:"enabled_tools,omitempty"`
+
+	// Security settings.
+	Security MCPSecurityConfig `yaml:"security,omitempty"`
+}
+
+// MCPSecurityConfig contains MCP security settings.
+type MCPSecurityConfig struct {
+	// RequireRBACForActions requires RBAC checks for action tools.
+	// (exec, shell, start_ebpf).
+	RequireRBACForActions bool `yaml:"require_rbac_for_actions,omitempty"`
+
+	// AuditEnabled enables auditing of all MCP tool calls.
+	AuditEnabled bool `yaml:"audit_enabled,omitempty"`
 }
 
 // ProjectConfig represents <project>/.coral/config.yaml config file.

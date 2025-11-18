@@ -5,6 +5,7 @@ package coral.colony.v1;
 import "google/protobuf/timestamp.proto";
 import "coral/mesh/v1/auth.proto";
 import "coral/agent/v1/agent.proto";
+import "coral/colony/v1/mcp.proto";
 
 option go_package = "github.com/coral-io/coral/proto/colony/v1;colonypb";
 
@@ -21,6 +22,17 @@ service ColonyService {
 
   // Query telemetry data from agent (RFD 025 - pull-based).
   rpc QueryTelemetry(QueryTelemetryRequest) returns (QueryTelemetryResponse);
+
+  // MCP Tool Execution (RFD 004 - MCP server integration).
+
+  // Execute an MCP tool and return the result.
+  rpc CallTool(CallToolRequest) returns (CallToolResponse);
+
+  // Execute an MCP tool with streaming (bidirectional).
+  rpc StreamTool(stream StreamToolRequest) returns (stream StreamToolResponse);
+
+  // List available MCP tools.
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
 }
 
 message GetStatusRequest {}
