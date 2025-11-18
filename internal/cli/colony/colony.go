@@ -1987,7 +1987,7 @@ func formatServicesList(services []*meshv1.ServiceInfo) string {
 
 	serviceNames := make([]string, 0, len(services))
 	for _, svc := range services {
-		serviceNames = append(serviceNames, svc.Name)
+		serviceNames = append(serviceNames, svc.ComponentName)
 	}
 	return strings.Join(serviceNames, ", ")
 }

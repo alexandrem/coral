@@ -42,7 +42,7 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 		if serviceFilter != "" {
 			matchFound := false
 			for _, svc := range agent.Services {
-				if matchesPattern(svc.Name, serviceFilter) {
+				if matchesPattern(svc.ComponentName, serviceFilter) {
 					matchFound = true
 					break
 				}
@@ -70,7 +70,7 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 		// Build service names list from Services[] array.
 		serviceNames := make([]string, 0, len(agent.Services))
 		for _, svc := range agent.Services {
-			serviceNames = append(serviceNames, svc.Name)
+			serviceNames = append(serviceNames, svc.ComponentName)
 		}
 		servicesStr := strings.Join(serviceNames, ", ")
 		if servicesStr == "" {
@@ -145,7 +145,7 @@ func (s *Server) executeServiceTopologyTool(ctx context.Context, argumentsJSON s
 		// Build service names list from Services[] array (RFD 044).
 		serviceNames := make([]string, 0, len(agent.Services))
 		for _, svc := range agent.Services {
-			serviceNames = append(serviceNames, svc.Name)
+			serviceNames = append(serviceNames, svc.ComponentName)
 		}
 		servicesStr := strings.Join(serviceNames, ", ")
 		if servicesStr == "" {
@@ -638,7 +638,7 @@ func (s *Server) resolveAgent(agentID *string, serviceName string) (*registry.En
 	for _, agent := range agents {
 		// Check Services[] array, not ComponentName (RFD 044).
 		for _, svc := range agent.Services {
-			if matchesPattern(svc.Name, serviceName) {
+			if matchesPattern(svc.ComponentName, serviceName) {
 				matchedAgents = append(matchedAgents, agent)
 				break
 			}
