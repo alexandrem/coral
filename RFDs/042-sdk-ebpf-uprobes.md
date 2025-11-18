@@ -259,10 +259,125 @@ message NotifyDebugSessionResponse {}
 
 **Capability detection** (extends RFD 018):
 
-Agent reports new capability in runtime context:
-- `CanDebugUprobes`: SDK-integrated uprobe debugging available
-- `HasDwarfDebugInfo`: Whether binary includes DWARF symbols (affects available functions)
-- Requires: Kernel 4.7+ with uprobe support
+Agent detects and reports SDK debug capabilities in runtime context:
+
+**Detection logic:**
+1. On startup, agent attempts to connect to SDK gRPC server (localhost:9092)
+2. Queries SDK for function list via `ListFunctions` RPC
+3. If successful, marks `CanDebugUprobes = true`
+4. Queries SDK for DWARF availability (SDK reports in response metadata)
+5. Reports capabilities to colony in `RegisterRequest`
+
+**Runtime context fields** (extends `RuntimeContextResponse` from RFD 018):
+
+```protobuf
+message RuntimeContextResponse {
+    // ... existing fields from RFD 018
+
+    // NEW: SDK debug capabilities
+    SdkDebugCapabilities sdk_debug = 9;
+}
+
+message SdkDebugCapabilities {
+    bool enabled = 1;                  // SDK integration available
+    bool has_dwarf_symbols = 2;        // DWARF debug info present
+    string sdk_version = 3;            // SDK version (e.g., "v1.0.0")
+    uint32 function_count = 4;         // Number of discoverable functions
+    google.protobuf.Timestamp detected_at = 5;  // When SDK was detected
+
+    // SDK connection details
+    string sdk_addr = 6;               // SDK gRPC address (e.g., "localhost:9092")
+    bool sdk_reachable = 7;            // SDK currently reachable
+}
+```
+
+**Agent startup log example:**
+
+```
+[Agent] Starting runtime context detection...
+[Agent] Platform: Linux (Ubuntu 22.04) amd64
+[Agent] Runtime: Kubernetes Sidecar (CRI mode)
+[Agent] Attempting SDK connection at localhost:9092...
+[Agent] ✓ SDK detected (coral-go v1.0.0)
+[Agent] ✓ DWARF symbols present
+[Agent] ✓ Discovered 47 functions
+[Agent] SDK debug capabilities: enabled
+[Agent] Registering with colony...
+```
+
+**Colony routing logic:**
+
+Colony uses SDK capabilities for routing debug commands:
+
+```go
+// Colony filters agents by SDK capability before routing
+func (c *Colony) RouteDebugCommand(cmd *DebugCommand) ([]*Agent, error) {
+    agents := c.ResolveTarget(cmd.Service)
+
+    // Filter: only agents with SDK integration
+    var capable []*Agent
+    for _, agent := range agents {
+        if agent.RuntimeContext.SdkDebug.Enabled {
+            capable = append(capable, agent)
+        }
+    }
+
+    if len(capable) == 0 {
+        return nil, fmt.Errorf(
+            "service %s has no agents with SDK debug capability\n" +
+            "Add coral.EnableRuntimeMonitoring() to application",
+            cmd.Service,
+        )
+    }
+
+    return capable, nil
+}
+```
+
+**CLI status display:**
+
+```bash
+$ coral agent status
+
+Agent: api-001
+Runtime: Kubernetes Sidecar (CRI mode)
+
+Capabilities:
+  ✅ coral connect   Monitor containers
+  ✅ coral exec      Execute in containers
+  ✅ coral shell     Interactive shell
+  ✅ coral debug     SDK-integrated debugging  # NEW
+     └─ Functions: 47 (DWARF enabled)
+     └─ SDK: coral-go v1.0.0
+```
+
+**Error message when SDK missing:**
+
+```bash
+$ coral debug attach api --function handleCheckout
+
+Error: No agents with SDK debug capability for service 'api'
+
+  Service 'api' has 3 agents, but none have SDK integration:
+    • api-001: No SDK detected
+    • api-002: No SDK detected
+    • api-003: No SDK detected
+
+  To enable debugging:
+    1. Add coral-go SDK to your application:
+       import "github.com/coral-io/coral-go"
+
+    2. Enable runtime monitoring in main():
+       coral.EnableRuntimeMonitoring()
+
+    3. Rebuild and redeploy
+
+  See: https://docs.coral.io/sdk/go
+```
+
+**Minimum requirements:**
+- Agent: Kernel 4.7+ with uprobe support
+- Application: Go SDK integration with `EnableRuntimeMonitoring()`
 - Optional: DWARF debug symbols (enables full function discovery)
 
 ### 3. Colony (Extended)
