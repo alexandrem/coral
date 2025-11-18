@@ -560,6 +560,13 @@ body {
     margin-top: var(--spacing-sm);
 }
 
+.node-inline-features {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-top: var(--spacing-sm);
+    line-height: 1.6;
+}
+
 .node-features {
     list-style: none;
     padding: 0;
@@ -628,6 +635,16 @@ body {
 .node-clients:hover {
     border-color: #22c55e;
     box-shadow: 0 8px 24px rgba(34, 197, 94, 0.2);
+}
+
+.node-coral-ask {
+    background: linear-gradient(135deg, rgba(251, 146, 60, 0.1) 0%, rgba(251, 146, 60, 0.05) 100%);
+    border-color: rgba(251, 146, 60, 0.3);
+}
+
+.node-coral-ask:hover {
+    border-color: #fb923c;
+    box-shadow: 0 8px 24px rgba(251, 146, 60, 0.2);
 }
 
 .node-proxy {
