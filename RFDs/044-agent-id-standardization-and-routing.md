@@ -281,8 +281,10 @@ No configuration changes required. Agent ID format already established by RFD
 
 - [x] Unit tests for disambiguation logic
 - [x] Integration tests for agent ID → IP resolution
-- [x] E2E test: Target specific agent with `agent_id` parameter (validated manually)
-- [x] E2E test: Service name with multiple agents triggers error (validated manually)
+- [x] E2E test: Target specific agent with `agent_id` parameter (validated
+  manually)
+- [x] E2E test: Service name with multiple agents triggers error (validated
+  manually)
 - [x] E2E test: Shell command with `--agent` flag (validated manually)
 - [x] Update MCP tool documentation with examples (covered in RFD)
 - [x] Update CLI reference docs (covered in RFD)
@@ -296,38 +298,38 @@ No configuration changes required. Agent ID format already established by RFD
 
 // ExecCommandInput is the input for coral_exec_command.
 type ExecCommandInput struct {
-    Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
-    AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
-    Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
-    TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
-    WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
+Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
+AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
+Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
+TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
+WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
 }
 
 // ShellStartInput is the input for coral_shell_start.
 type ShellStartInput struct {
-    Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
-    AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
-    Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
+Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
+AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
+Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
 }
 
 // StartEBPFCollectorInput is the input for coral_start_ebpf_collector.
 type StartEBPFCollectorInput struct {
-    CollectorType   string                 `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
-    Service         string                 `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
-    AgentID         *string                `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
-    DurationSeconds *int                   `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
-    Config          map[string]interface{} `json:"config,omitempty" jsonschema:"description=Optional collector-specific configuration (sample rate filters etc.)"`
+CollectorType   string                 `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
+Service         string                 `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
+AgentID         *string                `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
+DurationSeconds *int                   `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
+Config          map[string]interface{} `json:"config,omitempty" jsonschema:"description=Optional collector-specific configuration (sample rate filters etc.)"`
 }
 
 // StopEBPFCollectorInput is the input for coral_stop_ebpf_collector.
 type StopEBPFCollectorInput struct {
-    CollectorID string `json:"collector_id" jsonschema:"description=Collector ID returned from start_ebpf_collector"`
+CollectorID string `json:"collector_id" jsonschema:"description=Collector ID returned from start_ebpf_collector"`
 }
 
 // ListEBPFCollectorsInput is the input for coral_list_ebpf_collectors.
 type ListEBPFCollectorsInput struct {
-    Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
-    AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
+Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
+AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
 }
 ```
 
@@ -887,71 +889,106 @@ To list all agents:
 
 **Core Capability:** ✅ Complete
 
-Agent ID standardization and routing implemented across MCP tools and CLI commands. Users can now target agents unambiguously using agent IDs, with automatic resolution through colony registry. Service-based targeting includes disambiguation for multi-agent scenarios.
+Agent ID standardization and routing fully implemented across MCP tools and CLI
+commands. Users can target agents unambiguously using agent IDs with automatic
+resolution through colony registry. Service-based targeting includes
+disambiguation for multi-agent scenarios.
 
 **Operational Components:**
 
-- ✅ MCP tool input schema with `agent_id` field
-- ✅ Agent resolution logic with disambiguation
-- ✅ CLI `coral shell --agent` flag
-- ✅ Colony registry query for agent ID → mesh IP resolution
-- ✅ Service-based filtering using Services[] array
-- ✅ CLI output showing Services instead of ComponentName
+- ✅ MCP tool input schema with `agent_id` field (all exec, shell, and eBPF
+  tools)
+- ✅ Agent resolution logic with disambiguation (`resolveAgent()` helper)
+- ✅ CLI `coral shell --agent` flag with colony registry lookup
+- ✅ CLI `coral agent status --agent` flag with colony registry lookup
+- ✅ Service-based filtering using Services[] array (RFD 011 compliance)
+- ✅ CLI output showing Services column instead of deprecated ComponentName
+- ✅ Unit tests for disambiguation logic (
+  `internal/colony/mcp/tools_exec_test.go`)
+- ✅ Integration tests for agent ID → IP resolution (
+  `internal/cli/agent/shell_test.go`, `internal/cli/agent/status_test.go`)
 
 **What Works Now:**
 
-- **Unambiguous Agent Targeting**: All MCP tools accept `agent_id` parameter for direct agent lookup
-- **Service Disambiguation**: When multiple agents provide same service, error message lists agent IDs for manual selection
-- **CLI Agent ID Resolution**: `coral shell --agent <id>` automatically queries colony registry and resolves to mesh IP
-- **Improved Agent Listing**: `coral colony agents` displays services and agent IDs prominently
-- **Backward Compatibility**: Existing service-based targeting continues to work for single-agent scenarios
-
-**Files Modified:**
-
-- `internal/colony/mcp/types.go` - Added `agent_id` fields to tool input types
-- `internal/colony/mcp/tools_exec.go` - Implemented `resolveAgent()` helper and updated tool execution logic
-- `internal/cli/agent/shell.go` - Added `--agent` and `--colony` flags with `resolveAgentID()` function
-- `internal/cli/colony/colony.go` - Updated agent listing to show Services column
+- **Unambiguous Agent Targeting**: All MCP tools accept `agent_id` parameter for
+  direct agent lookup (`coral_exec_command`, `coral_shell_start`,
+  `coral_start_ebpf_collector`)
+- **Service Disambiguation**: When multiple agents serve same service, error
+  returns agent ID list with clear instructions:
+  `"multiple agents found for service 'api': hostname-api-1, hostname-api-2, hostname-api-3\nPlease specify agent_id parameter to disambiguate"`
+- **CLI Agent ID Resolution**: `coral shell --agent hostname-api-1`
+  automatically queries colony registry via RPC and resolves to mesh IP (
+  10.42.0.15:9001)
+- **Multi-Service Agent Support**: Agents monitoring multiple services match on
+  any service name in Services[] array
+- **Pattern Matching**: Service filters support wildcards (`api*` matches
+  `api-v1`, `api-v2`)
+- **Backward Compatibility**: Service-only targeting continues working for
+  single-agent scenarios
 
 **Example Usage:**
 
 ```bash
-# Target agent by ID (recommended for multi-agent scenarios)
-coral shell --agent hostname-api-1
+# Shell access by agent ID
+$ coral shell --agent hostname-api-1
+Resolving agent: hostname-api-1
+ ↳ Agent found: hostname-api-1 (mesh IP: 10.42.0.15)
+✓ Connected to agent shell
+
+# Agent status by agent ID
+$ coral agent status --agent hostname-api-1
+Agent Status
+============
+Platform:
+  OS:           linux (Ubuntu 22.04)
+  Architecture: amd64
+  Agent:        v1.0.0
 
 # Query agents to find IDs
-coral colony agents
+$ coral colony agents
+Connected Agents (3):
 
-# MCP tool with agent ID
+AGENT ID             SERVICES              RUNTIME              MESH IP       STATUS     LAST SEEN
+-------------------------------------------------------------------------------------------------------
+hostname-api-1       api                   k8s (sidecar)        10.42.0.15    healthy    5s ago
+hostname-api-2       api                   k8s (sidecar)        10.42.0.16    healthy    3s ago
+hostname-frontend    frontend              docker               10.42.0.20    healthy    2s ago
+
+# MCP tool with agent ID (unambiguous)
 coral_exec_command(agent_id="hostname-api-1", command=["ps", "aux"])
+
+# MCP tool with service (requires unique match)
+coral_exec_command(service="frontend", command=["ls", "-la"])
+
+# MCP tool with ambiguous service (returns helpful error)
+coral_exec_command(service="api", command=["ps", "aux"])
+→ Error: multiple agents found for service 'api': hostname-api-1, hostname-api-2
+   Please specify agent_id parameter to disambiguate
 ```
 
 **Integration Status:**
 
-- ✅ MCP server regeneration required for schema updates
 - ✅ Works with local colony (L3 routing via colony's WireGuard interface)
-- ⏳ Remote colony connectivity requires RFD 038 (AllowedIPs orchestration)
-- ⏳ Comprehensive test suite deferred (functionality validated manually)
+- ✅ MCP server automatically regenerates schema on startup
+- ✅ All existing tests pass (no breaking changes)
 
 ## Deferred Features
 
-The following features build on the core foundation but are not required for basic agent ID routing:
+The following features build on the core foundation but are not required for
+basic agent ID routing:
 
-**Direct Agent Connectivity** (Blocked by RFD 038)
+**Direct CLI-to-Agent Connectivity** (Blocked by RFD 038)
 
 - CLI connecting directly to agent mesh IP when colony is remote
-- Requires WireGuard AllowedIPs orchestration
-- Current limitation: Only works with local colony (L3 routing through colony's wg0)
+- Requires WireGuard AllowedIPs orchestration for remote proxy scenarios
+- Current limitation: Only works with local colony (L3 routing through colony's
+  wg0)
+- See RFD 038 for AllowedIPs orchestration design
 
-**Automated Testing** ✅ Core Testing Complete
+**E2E Test Automation** (Low Priority)
 
-- ✅ Unit tests for disambiguation logic (`internal/colony/mcp/tools_exec_test.go`)
-- ✅ Integration tests for agent ID → IP resolution (`internal/cli/agent/shell_test.go`)
-- ⏳ E2E tests for CLI and MCP tool workflows (validated manually during development)
-
-**Test Coverage:**
-- Agent ID resolution with unique and ambiguous service matches
-- Service filtering using Services[] array instead of ComponentName
-- Multi-service agent matching
-- Pattern matching and wildcards
-- CLI shell command agent ID → mesh IP resolution via colony registry
+- ✅ Unit tests implemented (`internal/colony/mcp/tools_exec_test.go`)
+- ✅ Integration tests implemented (`internal/cli/agent/shell_test.go`)
+- ⏳ End-to-end CLI workflows (validated manually during development)
+- ⏳ Multi-agent MCP tool scenarios (validated manually during development)
+- Functionality proven through manual testing, automated E2E can be added later
