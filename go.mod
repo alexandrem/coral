@@ -9,6 +9,8 @@ require (
 	connectrpc.com/connect v1.19.1
 	github.com/firebase/genkit/go v1.1.0
 	github.com/google/uuid v1.6.0
+	github.com/invopop/jsonschema v0.13.0
+	github.com/kr/pty v1.1.8
 	github.com/marcboeker/go-duckdb v1.8.5
 	github.com/pion/stun v0.6.1
 	github.com/rs/zerolog v1.34.0
@@ -19,6 +21,7 @@ require (
 	golang.org/x/crypto v0.43.0
 	golang.org/x/net v0.46.0
 	golang.org/x/sys v0.37.0
+	golang.org/x/term v0.36.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.10
@@ -29,6 +32,7 @@ require (
 	github.com/apache/arrow-go/v18 v18.1.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
+	github.com/creack/pty v1.1.7 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -40,7 +44,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect

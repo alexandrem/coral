@@ -134,8 +134,8 @@ func TestTelemetryE2E(t *testing.T) {
 		t.Fatalf("Failed to create runtime service: %v", err)
 	}
 
-	// Create service handler - we'll pass nil for telemetry since we're testing directly
-	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver)
+	// Create service handler - we'll pass nil for telemetry and shell since we're testing directly
+	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, nil)
 
 	// Create test handler that uses our storage directly
 	testHandler := &testAgentHandler{
@@ -337,5 +337,21 @@ func (h *testAgentHandler) ListServices(ctx context.Context, req *connect.Reques
 }
 
 func (h *testAgentHandler) QueryBeylaMetrics(ctx context.Context, req *connect.Request[agentv1.QueryBeylaMetricsRequest]) (*connect.Response[agentv1.QueryBeylaMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) Shell(ctx context.Context, stream *connect.BidiStream[agentv1.ShellRequest, agentv1.ShellResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) ResizeShellTerminal(ctx context.Context, req *connect.Request[agentv1.ResizeShellTerminalRequest]) (*connect.Response[agentv1.ResizeShellTerminalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) SendShellSignal(ctx context.Context, req *connect.Request[agentv1.SendShellSignalRequest]) (*connect.Response[agentv1.SendShellSignalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) KillShellSession(ctx context.Context, req *connect.Request[agentv1.KillShellSessionRequest]) (*connect.Response[agentv1.KillShellSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
