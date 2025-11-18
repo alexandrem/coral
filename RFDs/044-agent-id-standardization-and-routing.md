@@ -120,98 +120,27 @@ topology constraints imposed by WireGuard mesh architecture (RFD 007).
 - ✅ Graceful handling of multi-agent service scenarios
 - ✅ Foundation for future direct agent connectivity (RFD 038)
 
-**Architecture Overview:**
+**Agent Resolution Flow:**
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  User / AI Operator                                             │
-│                                                                 │
-│  Addressing Options:                                            │
-│                                                                 │
-│  1. Agent ID (unambiguous, recommended):                        │
-│     coral shell --agent-id hostname-api                         │
-│     coral_exec_command(agent_id="hostname-api", cmd=[...])      │
-│                                                                 │
-│  2. Service Name (convenience, requires unique match):          │
-│     coral shell --service frontend                              │
-│     coral_exec_command(service="frontend", cmd=[...])           │
-│                                                                 │
-│  3. Mesh IP (advanced, direct):                                 │
-│     coral shell --agent-addr 10.42.0.15:9001                    │
-│                                                                 │
-└─────────────────┬───────────────────────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Colony: Routing Resolution                                     │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Agent Registry (internal/colony/registry)                │  │
-│  │                                                            │  │
-│  │  type Entry struct {                                      │  │
-│  │      AgentID       string                                 │  │
-│  │      MeshIPv4      string  // 10.42.0.15                  │  │
-│  │      Services      []*ServiceInfo  // RFD 011             │  │
-│  │      ...                                                   │  │
-│  │  }                                                         │  │
-│  │                                                            │  │
-│  │  Lookup Methods:                                           │  │
-│  │  • Get(agentID) → Entry                                    │  │
-│  │  • ListAll() → []Entry                                     │  │
-│  │  • Filter by service name → []Entry (may be ambiguous)     │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  Resolution Logic:                                              │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  if agent_id specified:                                 │   │
-│  │      agent = registry.Get(agent_id)                     │   │
-│  │      → Direct lookup (always unambiguous)               │   │
-│  │                                                          │   │
-│  │  else if service specified:                             │   │
-│  │      agents = registry.Filter(service_name)             │   │
-│  │      if len(agents) == 0:                               │   │
-│  │          return "no agents found for service X"         │   │
-│  │      if len(agents) > 1:                                │   │
-│  │          return "multiple agents: [id1, id2, id3]"      │   │
-│  │          + "specify agent_id to disambiguate"           │   │
-│  │      agent = agents[0]  ← Only when unique match        │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-└─────────────────┬───────────────────────────────────────────────┘
-                  │
-                  │  agent.MeshIPv4 → 10.42.0.15
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Routing: Depends on Colony Location                           │
-│                                                                 │
-│  Scenario 1: Colony Local (Works Today)                        │
-│  ────────────────────────────────────────────                  │
-│  CLI → Host Routing → Colony WireGuard (wg0) → Agent           │
-│       (10.42.0.15)     (L3 gateway)                             │
-│                                                                 │
-│  • Host routing table: 10.42.0.0/16 via wg0                    │
-│  • Colony's wg0 acts as L3 gateway for mesh network            │
-│  • Packets routed through colony's WireGuard interface         │
-│  • Agent sees source IP: 10.42.0.1 (colony) ✅ Accepted        │
-│                                                                 │
-│  Scenario 2: Colony Remote + coral proxy (Doesn't Work)        │
-│  ────────────────────────────────────────────────────────      │
-│  CLI → Proxy WireGuard → Colony → Agent                        │
-│       (mesh IP: 10.42.255.5)                                    │
-│                                                                 │
-│  • Proxy connects to mesh with IP 10.42.255.5                  │
-│  • Agent sees source IP: 10.42.255.5 ❌ Rejected               │
-│  • Agent AllowedIPs = 10.42.0.1/32 (colony only)               │
-│  • Requires RFD 038 (AllowedIPs orchestration)                 │
-│                                                                 │
-│  Scenario 3: Colony Remote, no proxy (No Route)                │
-│  ────────────────────────────────────────────                  │
-│  • No route to 10.42.0.0/16 on host                            │
-│  • Cannot reach agent mesh IPs                                 │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+User/AI Operator
+  ↓
+  Uses one of three addressing modes:
+  • agent_id (unambiguous, recommended)
+  • service name (requires unique match)
+  • mesh IP (direct)
+  ↓
+Colony Registry
+  ↓
+  If agent_id: registry.Get(agent_id)
+  If service:  registry.Filter(service) → disambiguate if >1 match
+  ↓
+Agent (via mesh IP)
 ```
+
+**Routing Constraints:**
+- Colony local: Works today (colony's wg0 is L3 gateway)
+- Colony remote: Requires RFD 038 (AllowedIPs orchestration)
 
 ### Component Changes
 
@@ -304,43 +233,34 @@ No configuration changes required. Agent ID format already established by RFD
 
 ### Updated MCP Tool Input Types
 
+All MCP tool inputs gain an optional `agent_id` field:
+
 ```go
-// internal/colony/mcp/types.go
-
-// ExecCommandInput is the input for coral_exec_command.
 type ExecCommandInput struct {
-Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
-AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
-Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
-TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
-WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
+    Service        string
+    AgentID        *string  // NEW: Optional, overrides service lookup
+    Command        []string
+    TimeoutSeconds *int
+    WorkingDir     *string
 }
 
-// ShellStartInput is the input for coral_shell_start.
 type ShellStartInput struct {
-Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
-AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
-Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
+    Service string
+    AgentID *string  // NEW: Optional, overrides service lookup
+    Shell   *string
 }
 
-// StartEBPFCollectorInput is the input for coral_start_ebpf_collector.
 type StartEBPFCollectorInput struct {
-CollectorType   string                 `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
-Service         string                 `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
-AgentID         *string                `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
-DurationSeconds *int                   `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
-Config          map[string]interface{} `json:"config,omitempty" jsonschema:"description=Optional collector-specific configuration (sample rate filters etc.)"`
+    CollectorType   string
+    Service         string
+    AgentID         *string  // NEW: Optional, overrides service lookup
+    DurationSeconds *int
+    Config          map[string]interface{}
 }
 
-// StopEBPFCollectorInput is the input for coral_stop_ebpf_collector.
-type StopEBPFCollectorInput struct {
-CollectorID string `json:"collector_id" jsonschema:"description=Collector ID returned from start_ebpf_collector"`
-}
-
-// ListEBPFCollectorsInput is the input for coral_list_ebpf_collectors.
 type ListEBPFCollectorsInput struct {
-Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
-AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
+    Service *string
+    AgentID *string  // NEW: Optional, filter by agent ID
 }
 ```
 
@@ -397,105 +317,41 @@ if len(matchedAgents) > 1 {
 }
 ```
 
-### CLI Commands
+### CLI Command Examples
 
 ```bash
-# Shell command with agent ID (NEW)
-$ coral shell --agent-id hostname-api
-⚠️  WARNING: Entering agent debug shell with elevated privileges.
-...
-Continue? [y/N] y
-Resolving agent: hostname-api
- ↳ Querying colony registry...
- ↳ Agent found: hostname-api (mesh IP: 10.42.0.15)
- ↳ Establishing WireGuard tunnel...
-✓ Connected to agent shell
+# Direct agent targeting (NEW)
+coral shell --agent-id hostname-api
 
-# Shell command with service (requires unique match)
-$ coral shell --service frontend
-Resolving service: frontend
- ↳ Found agent: hostname-frontend (mesh IP: 10.42.0.20)
-✓ Connected to agent shell
+# Service-based (requires unique match)
+coral shell --service frontend
 
-# Shell command with service (ambiguous - error)
-$ coral shell --service api
-Error: multiple agents found for service 'api':
-  - hostname-api-1 (10.42.0.15)
-  - hostname-api-2 (10.42.0.16)
-  - hostname-api-3 (10.42.0.17)
-
-Please specify agent ID:
-  coral shell --agent-id hostname-api-1
-
-# Colony agents command (updated output)
-$ coral colony agents
-Connected Agents (5):
-
-AGENT ID             SERVICES              RUNTIME              MESH IP    STATUS     LAST SEEN
-----------------------------------------------------------------------------------------------------
-hostname-api-1       api                   k8s (sidecar)        10.42.0.15 healthy    5s ago
-hostname-api-2       api                   k8s (sidecar)        10.42.0.16 healthy    3s ago
-hostname-multi       api, worker           k8s (sidecar)        10.42.0.17 healthy    8s ago
-hostname-frontend    frontend              docker               10.42.0.20 healthy    2s ago
-hostname-db-proxy    db-proxy              standalone           10.42.0.21 healthy    1s ago
+# Disambiguation error when multiple agents match
+coral shell --service api
+# Error: multiple agents found for service 'api': hostname-api-1, hostname-api-2, hostname-api-3
+# Please specify agent_id parameter to disambiguate
 ```
 
 ### MCP Tool Usage Examples
 
-```javascript
-// MCP Tool with agent ID (unambiguous, recommended)
+```json
+// Direct agent targeting (recommended)
 {
-    "name"
-:
-    "coral_exec_command",
-        "arguments"
-:
-    {
-        "agent_id"
-    :
-        "hostname-api-1",
-            "command"
-    :
-        ["ps", "aux"]
-    }
+  "name": "coral_exec_command",
+  "arguments": {
+    "agent_id": "hostname-api-1",
+    "command": ["ps", "aux"]
+  }
 }
 
-// MCP Tool with service (works if unique match)
+// Service-based (works if unique match)
 {
-    "name"
-:
-    "coral_exec_command",
-        "arguments"
-:
-    {
-        "service"
-    :
-        "frontend",
-            "command"
-    :
-        ["ls", "-la", "/app"]
-    }
+  "name": "coral_exec_command",
+  "arguments": {
+    "service": "frontend",
+    "command": ["ls", "-la"]
+  }
 }
-
-// MCP Tool with service (multiple matches → error)
-{
-    "name"
-:
-    "coral_exec_command",
-        "arguments"
-:
-    {
-        "service"
-    :
-        "api",
-            "command"
-    :
-        ["ps", "aux"]
-    }
-}
-// Response:
-// Error: multiple agents found for service 'api': hostname-api-1, hostname-api-2, hostname-api-3
-// Please specify agent_id parameter to disambiguate
 ```
 
 ## Testing Strategy
@@ -739,180 +595,12 @@ Multiple services: hostname + "-multi"
 Daemon mode:       hostname
 ```
 
-### Service Filtering Pattern Matching
-
-**Pattern Syntax:**
-
-- Exact match: `"api"` matches service `"api"`
-- Wildcard: `"api*"` matches `"api"`, `"api-v2"`, `"api-gateway"`
-- Regex support (future): `/^api-\d+$/`
-
-**Current Implementation** (needs fix):
-
-```go
-// BAD: Uses deprecated ComponentName
-if !matchesPattern(agent.ComponentName, serviceFilter) {
-continue
-}
-
-// GOOD: Uses Services[] array
-matchFound := false
-for _, svc := range agent.Services {
-if matchesPattern(svc.Name, serviceFilter) {
-matchFound = true
-break
-}
-}
-if !matchFound {
-continue
-}
-```
-
 ### WireGuard Routing Topology
 
-**Agent WireGuard configuration (RFD 007):**
-
-```
-Agent WireGuard Config:
-  [Peer]
-  PublicKey = <colony-pubkey>
-  Endpoint = <colony-public-endpoint>
-  AllowedIPs = 10.42.0.1/32  ← Only colony IP allowed
-
-Result: Agent can ONLY send/receive packets to/from 10.42.0.1 (colony)
-```
-
-**Scenario 1: Colony running locally (works today):**
-
-```
-Host Machine (developer workstation, production server with colony):
-  ┌─────────────────────────────────────────┐
-  │ Host Routing Table:                     │
-  │   10.42.0.0/16 dev wg0                  │  ← Route to mesh via wg0
-  └─────────────────────────────────────────┘
-            │
-            ▼
-  ┌─────────────────────────────────────────┐
-  │ Colony's WireGuard Interface (wg0)      │
-  │   IP: 10.42.0.1/16                      │
-  │   Peers: All agents                     │
-  │   AllowedIPs per agent: x.x.x.x/32      │
-  └─────────────────────────────────────────┘
-            │
-            ▼ (WireGuard tunnel)
-  ┌─────────────────────────────────────────┐
-  │ Agent (remote, e.g., Docker container)  │
-  │   WireGuard IP: 10.42.0.15              │
-  │   AllowedIPs: 10.42.0.1/32              │
-  └─────────────────────────────────────────┘
-
-Traffic flow:
-  CLI process → Sends to 10.42.0.15:9001
-             → Host kernel routes via wg0
-             → Colony's WireGuard forwards via tunnel
-             → Agent receives with source IP: 10.42.0.1 ✅
-             → Agent accepts (10.42.0.1 in AllowedIPs)
-```
-
-**Why this works:**
-
-- Colony's WireGuard interface acts as **Layer 3 gateway** for the mesh
-- Host routing table sends all mesh traffic (10.42.0.0/16) through wg0
-- WireGuard performs NAT-like behavior (packets appear to come from colony)
-- No application-level proxying required
-
-**Scenario 2: Colony remote + coral proxy (doesn't work):**
-
-```
-CLI Machine (remote developer):
-  ┌─────────────────────────────────────────┐
-  │ coral proxy                             │
-  │   WireGuard IP: 10.42.255.5             │
-  │   Peers with colony, gets mesh IP       │
-  └─────────────────────────────────────────┘
-            │
-            ▼ (attempts to reach agent)
-  ┌─────────────────────────────────────────┐
-  │ Agent                                   │
-  │   Receives packet with source: 10.42.255.5 │
-  │   AllowedIPs: 10.42.0.1/32 only        │
-  │   ✗ Rejects packet                      │
-  └─────────────────────────────────────────┘
-```
-
-**Why this doesn't work:**
-
-- Proxy's packets have source IP 10.42.255.5 (proxy's mesh IP)
-- Agent only allows packets from 10.42.0.1 (colony)
-- WireGuard drops packets that don't match AllowedIPs
-
-**Future: Direct CLI-to-agent routing (RFD 038):**
-
-```
-1. CLI requests access to agent-123
-2. Colony calls agent.UpdatePeerAllowedIPs(cli_pubkey, ["10.42.255.5/32"])
-3. Agent's AllowedIPs = [10.42.0.1/32, 10.42.255.5/32]
-4. CLI → Agent (10.42.0.15) directly
-5. Agent accepts packets from both colony and CLI
-```
-
-### Example Error Messages
-
-**Ambiguous service name:**
-
-```
-Error: Multiple agents found for service 'api'
-
-The following agents are monitoring this service:
-  • hostname-api-1 (mesh IP: 10.42.0.15)
-  • hostname-api-2 (mesh IP: 10.42.0.16)
-  • hostname-multi (mesh IP: 10.42.0.17)
-
-Please specify which agent to target using the agent_id parameter:
-
-MCP tool:
-  {
-    "name": "coral_exec_command",
-    "arguments": {
-      "agent_id": "hostname-api-1",
-      "command": ["ps", "aux"]
-    }
-  }
-
-CLI:
-  coral shell --agent-id hostname-api-1
-```
-
-**Agent not found:**
-
-```
-Error: Agent not found: hostname-api-999
-
-Available agents:
-  • hostname-api-1 (services: api)
-  • hostname-api-2 (services: api)
-  • hostname-frontend (services: frontend)
-  • hostname-multi (services: api, worker)
-
-To list all agents:
-  coral colony agents
-```
-
-### Performance Considerations
-
-**Registry Lookup Performance:**
-
-- Agent count: Typically <1,000 per colony
-- In-memory hash map: O(1) lookup by agent ID
-- Service filtering: O(n) scan with m services per agent
-- No performance concerns for typical deployments
-
-**Disambiguation Overhead:**
-
-- Only occurs when service name ambiguous
-- Returns error immediately (no retry loop)
-- User experience cost (requires manual disambiguation)
-- Encourages use of agent ID (better pattern)
+**Key constraint from RFD 007:**
+- Agent AllowedIPs = `10.42.0.1/32` (colony only)
+- When colony is local: colony's wg0 acts as L3 gateway for CLI → agent traffic
+- When colony is remote: requires RFD 038 (AllowedIPs orchestration) for direct access
 
 ### Backward Compatibility
 
