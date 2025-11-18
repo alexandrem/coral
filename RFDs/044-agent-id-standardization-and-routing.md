@@ -31,27 +31,14 @@ and the WireGuard mesh topology.
 
 1. **No agent ID parameter in MCP tools**: All MCP tools (exec, eBPF, shell)
    accept only `service` parameter, creating ambiguity when multiple agents
-   monitor the same service.
-
-   ```go
-   // internal/colony/mcp/types.go
-   type ExecCommandInput struct {
-       Service        string   // ← Only way to target agents
-       Command        []string
-       TimeoutSeconds *int
-       WorkingDir     *string
-   }
-   ```
+   monitor the same service. The `ExecCommandInput` and other tool input types
+   in `internal/colony/mcp/types.go` only provide `Service` as a targeting
+   mechanism.
 
 2. **Service filtering uses deprecated field**: Tools filter by `ComponentName`
-   instead of the `Services[]` array introduced in RFD 011.
-
-   ```go
-   // internal/colony/mcp/tools_exec.go:40
-   if serviceFilter != "" && !matchesPattern(agent.ComponentName, serviceFilter) {
-       continue  // ← Wrong! Should check Services[] array
-   }
-   ```
+   instead of the `Services[]` array introduced in RFD 011. The filtering logic
+   in `internal/colony/mcp/tools_exec.go` checks the deprecated `ComponentName`
+   field instead of iterating through the `Services[]` array.
 
 3. **No disambiguation for multiple agents**: When service name matches multiple
    agents, tools either fail silently or target first match.
@@ -309,38 +296,38 @@ No configuration changes required. Agent ID format already established by RFD
 
 // ExecCommandInput is the input for coral_exec_command.
 type ExecCommandInput struct {
-Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
-AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
-Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
-TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
-WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
+    Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
+    AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
+    Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
+    TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
+    WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
 }
 
 // ShellStartInput is the input for coral_shell_start.
 type ShellStartInput struct {
-Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
-AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
-Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
+    Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
+    AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
+    Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
 }
 
 // StartEBPFCollectorInput is the input for coral_start_ebpf_collector.
 type StartEBPFCollectorInput struct {
-CollectorType   string                 `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
-Service         string                 `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
-AgentID         *string                `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
-DurationSeconds *int                   `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
-Config          map[string]interface{} `json:"config,omitempty" jsonschema:"description=Optional collector-specific configuration (sample rate filters etc.)"`
+    CollectorType   string                 `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
+    Service         string                 `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
+    AgentID         *string                `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
+    DurationSeconds *int                   `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
+    Config          map[string]interface{} `json:"config,omitempty" jsonschema:"description=Optional collector-specific configuration (sample rate filters etc.)"`
 }
 
 // StopEBPFCollectorInput is the input for coral_stop_ebpf_collector.
 type StopEBPFCollectorInput struct {
-CollectorID string `json:"collector_id" jsonschema:"description=Collector ID returned from start_ebpf_collector"`
+    CollectorID string `json:"collector_id" jsonschema:"description=Collector ID returned from start_ebpf_collector"`
 }
 
 // ListEBPFCollectorsInput is the input for coral_list_ebpf_collectors.
 type ListEBPFCollectorsInput struct {
-Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
-AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
+    Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
+    AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
 }
 ```
 
@@ -363,39 +350,13 @@ AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Fil
 3. Execute operation on resolved agent
 ```
 
-**Service Filtering Fix** (before/after):
+**Service Filtering Fix**:
 
-```go
-// BEFORE (incorrect - uses deprecated field):
-if !matchesPattern(agent.ComponentName, serviceFilter) { ... }
+Service filtering must iterate through the `agent.Services[]` array to find matches, rather than checking the deprecated `ComponentName` field. This ensures multi-service agents are correctly matched regardless of which service is being targeted.
 
-// AFTER (correct - uses Services[] array):
-matchFound := false
-for _, svc := range agent.Services {
-    if matchesPattern(svc.Name, serviceFilter) {
-        matchFound = true
-        break
-    }
-}
-if !matchFound { continue }
-```
+**Disambiguation Error Handling**:
 
-**Disambiguation Error Format:**
-
-```go
-if len(matchedAgents) > 1 {
-    var agentIDs []string
-    for _, a := range matchedAgents {
-        agentIDs = append(agentIDs, a.AgentID)
-    }
-    return "", fmt.Errorf(
-        "multiple agents found for service '%s': %s\n"+
-        "Please specify agent_id parameter to disambiguate",
-        input.Service,
-        strings.Join(agentIDs, ", "),
-    )
-}
-```
+When multiple agents match a service name, return an error listing all matching agent IDs and prompt the user to specify which agent using the `agent_id` parameter.
 
 ### CLI Commands
 
@@ -747,26 +708,9 @@ Daemon mode:       hostname
 - Wildcard: `"api*"` matches `"api"`, `"api-v2"`, `"api-gateway"`
 - Regex support (future): `/^api-\d+$/`
 
-**Current Implementation** (needs fix):
+**Implementation Approach**:
 
-```go
-// BAD: Uses deprecated ComponentName
-if !matchesPattern(agent.ComponentName, serviceFilter) {
-continue
-}
-
-// GOOD: Uses Services[] array
-matchFound := false
-for _, svc := range agent.Services {
-if matchesPattern(svc.Name, serviceFilter) {
-matchFound = true
-break
-}
-}
-if !matchFound {
-continue
-}
-```
+Service filtering must check the `Services[]` array rather than the deprecated `ComponentName` field. Each service in the array should be checked against the pattern until a match is found.
 
 ### WireGuard Routing Topology
 
