@@ -1,5 +1,5 @@
 ---
-rfd: "042"
+rfd: "043"
 title: "Shell RBAC and Approval Workflows"
 state: "draft"
 breaking_changes: false
@@ -12,14 +12,14 @@ database_migrations: [ "shell_approvals", "rbac_policies" ]
 areas: [ "security", "rbac", "auth" ]
 ---
 
-# RFD 042 - Shell RBAC and Approval Workflows
+# RFD 043 - Shell RBAC and Approval Workflows
 
 **Status:** 🚧 Draft
 
 ## Summary
 
 Implement role-based access control (RBAC) and approval workflows for
-`coral agent shell` to restrict privileged shell access based on user roles,
+`coral shell` to restrict privileged shell access based on user roles,
 environments, and approval requirements. This ensures that only authorized users
 can access agent shells, and production access requires explicit approval from
 authorized approvers.
@@ -28,7 +28,7 @@ authorized approvers.
 
 **Current limitations:**
 
-RFD 026 implemented `coral agent shell`, providing powerful debugging
+RFD 026 implemented `coral shell`, providing powerful debugging
 capabilities with elevated privileges. However, access control is currently
 missing:
 
@@ -85,15 +85,15 @@ policies, and optional MFA enforcement.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ CLI: coral agent shell (RFD 026)                        │
+│ CLI: coral shell (RFD 026) .                            │
 └────────────┬────────────────────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────────────────────┐
-│ Colony: Check RBAC Policy                                │
-│ - User role: developer, sre, admin                       │
-│ - Target environment: dev, staging, prod                 │
-│ - Required permission: shell                             │
+│ Colony: Check RBAC Policy                               │
+│ - User role: developer, sre, admin                      │
+│ - Target environment: dev, staging, prod                │
+│ - Required permission: shell                            │
 └────────────┬────────────────────────────────────────────┘
              │
              ▼
@@ -358,7 +358,7 @@ service ColonyService {
 
 ```bash
 # Request shell access (automatic authorization check)
-$ coral agent shell
+$ coral shell
 
 # If allowed immediately:
 ⚠️  WARNING: Entering agent debug shell with elevated privileges.
@@ -415,7 +415,7 @@ $ coral colony approvals deny req-abc123 --reason "Insufficient justification"
 ### Phase 2: Authorization Check
 
 - [ ] Add `AuthorizeShell` RPC to Colony
-- [ ] Integrate authorization check into `coral agent shell` CLI
+- [ ] Integrate authorization check into `coral shell` CLI
 - [ ] Return allowed/denied/approval_required status
 - [ ] Handle denial gracefully (show message to user)
 
@@ -526,7 +526,7 @@ $ coral colony approvals deny req-abc123 --reason "Insufficient justification"
 
 ```bash
 # Alice (developer) tries to shell into dev agent
-$ coral agent shell
+$ coral shell
 
 # Colony checks RBAC:
 # - User: alice@company.com → role: developer
@@ -543,7 +543,7 @@ agent $ # Shell starts immediately
 
 ```bash
 # Alice (developer) tries to shell into production agent
-$ coral agent shell
+$ coral shell
 
 # Colony checks RBAC:
 # - User: alice@company.com → role: developer
@@ -558,7 +558,7 @@ $ coral agent shell
 
 ```bash
 # Bob (SRE) requests production shell
-$ coral agent shell
+$ coral shell
 ⚠️  Shell access to production requires approval.
 Justification: Investigating high memory usage in payment service
 

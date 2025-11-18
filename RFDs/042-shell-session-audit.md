@@ -1,5 +1,5 @@
 ---
-rfd: "041"
+rfd: "042"
 title: "Shell Session Audit and Recording"
 state: "draft"
 breaking_changes: false
@@ -11,14 +11,14 @@ database_migrations: [ "shell_audit" ]
 areas: [ "security", "compliance", "audit" ]
 ---
 
-# RFD 041 - Shell Session Audit and Recording
+# RFD 042 - Shell Session Audit and Recording
 
 **Status:** 🚧 Draft
 
 ## Summary
 
 Implement comprehensive audit logging and session recording for
-`coral agent shell` sessions to meet security compliance requirements. All shell
+`coral shell` sessions to meet security compliance requirements. All shell
 sessions with elevated agent privileges must be fully recorded (input/output),
 stored durably, and queryable for security investigations and compliance audits.
 
@@ -26,7 +26,7 @@ stored durably, and queryable for security investigations and compliance audits.
 
 **Current limitations:**
 
-RFD 026 implemented the `coral agent shell` command, which provides interactive
+RFD 026 implemented the `coral shell` command, which provides interactive
 shell access to the agent's environment with elevated privileges (CRI socket,
 eBPF, WireGuard mesh). However, there is currently no audit trail:
 
