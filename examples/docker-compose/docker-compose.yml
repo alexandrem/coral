@@ -1,0 +1,36 @@
+services:
+  demo-app:
+    platform: linux/arm64
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - type: tmpfs
+        target: /usr/share/nginx/html
+    command: >
+      sh -c "echo '<html><body><h1>Hello from the Coral demo app</h1></body></html>' > /usr/share/nginx/html/index.html && nginx -g 'daemon off;'"
+
+  coral-agent:
+    platform: linux/arm64
+    build:
+      context: ../..
+    command:
+      - agent
+      - start
+      #- --connect
+      #- demo-app:8080
+    environment:
+      CORAL_COLONY_ID: ${CORAL_COLONY_ID:-sockshop-demo}
+      CORAL_DISCOVERY_ENDPOINT: ${CORAL_DISCOVERY_ENDPOINT:-http://host.docker.internal:8080}
+      CORAL_WIREGUARD_PORT: "41821" # Static port for WireGuard (required for Docker NAT traversal)
+    depends_on:
+      - demo-app
+    pid: "service:demo-app"
+    network_mode: "service:demo-app"
+    volumes:
+      - ${HOST_CORAL_DIR:-~/.coral}:/root/.coral:ro
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    privileged: false  # Using capabilities; wireguard-go runs in userspace
