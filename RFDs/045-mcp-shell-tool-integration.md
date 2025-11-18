@@ -153,9 +153,10 @@ Replace placeholder in `executeShellStartTool()` with:
 
 - Parse `ShellStartInput` (service name, agent_id, optional shell preference)
 - **Use agent resolution from RFD 044** (Agent ID Standardization):
-  - If `agent_id` specified: Direct lookup via `registry.Get(agent_id)`
-  - If `service` specified: Filter by `Services[]` array (RFD 044)
-  - Handle disambiguation errors per RFD 044 (multiple agents → list agent IDs)
+    - If `agent_id` specified: Direct lookup via `registry.Get(agent_id)`
+    - If `service` specified: Filter by `Services[]` array (RFD 044)
+    - Handle disambiguation errors per RFD 044 (multiple agents → list agent
+      IDs)
 - Validate agent status using `registry.DetermineStatus()`
 - Format shell-specific response with connection details
 - Handle error cases (agent not found, unhealthy, authorization failures)
@@ -220,7 +221,8 @@ Shell: /bin/bash (default)
 - [ ] Integrate RFD 044's agent resolution logic (agent_id or service)
 - [ ] Add agent status validation
 - [ ] Format shell-specific response with connection details and CLI command
-- [ ] Handle error cases (delegation to RFD 044 for routing, local for shell-specific)
+- [ ] Handle error cases (delegation to RFD 044 for routing, local for
+  shell-specific)
 
 ### Phase 2: Response Formatting
 
@@ -384,7 +386,8 @@ the security model defined in RFD 026 (and future RBAC in RFD 043).
 
 ## Future Enhancements
 
-**Note:** Agent selection and disambiguation is handled by RFD 044 (Agent ID Standardization). This RFD focuses on shell-specific enhancements.
+**Note:** Agent selection and disambiguation is handled by RFD 044 (Agent ID
+Standardization). This RFD focuses on shell-specific enhancements.
 
 **Enhanced Discovery:**
 
