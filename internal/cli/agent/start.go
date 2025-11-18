@@ -236,9 +236,9 @@ Examples:
 				}
 			}
 
-			// Create and start WireGuard device.
+			// Create and start WireGuard device (RFD 019: without peer, without IP).
 			// This also performs STUN discovery before starting WireGuard to avoid port conflicts.
-			wgDevice, agentObservedEndpoint, err := setupAgentWireGuard(agentKeys, colonyInfo, stunServers, enableRelay, wgPort, logger)
+			wgDevice, agentObservedEndpoint, colonyEndpoint, err := setupAgentWireGuard(agentKeys, colonyInfo, stunServers, enableRelay, wgPort, logger)
 			if err != nil {
 				return fmt.Errorf("failed to setup WireGuard: %w", err)
 			}
@@ -277,14 +277,7 @@ Examples:
 			meshIPStr := parts[0]
 			meshSubnetStr := parts[1]
 
-			// Assign IP to the agent's WireGuard interface
-			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("ip", meshIPStr).
-				Str("subnet", meshSubnetStr).
-				Msg("Assigning IP address to agent WireGuard interface")
-
-			// Parse IP and subnet for interface assignment
+			// Parse IP and subnet for mesh configuration (RFD 019)
 			meshIP := net.ParseIP(meshIPStr)
 			if meshIP == nil {
 				return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
@@ -295,41 +288,23 @@ Examples:
 				return fmt.Errorf("invalid mesh subnet from colony: %w", err)
 			}
 
-			iface := wgDevice.Interface()
-			if iface == nil {
-				return fmt.Errorf("WireGuard device has no interface")
-			}
+			// Configure agent mesh with permanent IP (RFD 019).
+			// This assigns the IP and adds the colony as a peer with correct routing.
+			// No temporary IP, no route flushing, no delays needed!
+			logger.Info().
+				Str("mesh_ip", meshIPStr).
+				Str("subnet", meshSubnetStr).
+				Msg("Configuring agent mesh with permanent IP from colony")
 
-			if err := iface.AssignIP(meshIP, meshSubnet); err != nil {
-				return fmt.Errorf("failed to assign IP to agent interface: %w", err)
+			if err := configureAgentMesh(wgDevice, meshIP, meshSubnet, colonyInfo, colonyEndpoint, logger); err != nil {
+				return fmt.Errorf("failed to configure agent mesh: %w", err)
 			}
 
 			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("ip", meshIPStr).
-				Msg("Successfully assigned IP to agent WireGuard interface")
+				Str("mesh_ip", meshIPStr).
+				Msg("Agent mesh configured successfully - tunnel ready")
 
-			// Delete all existing routes for this interface to clear cached source IPs.
-			// When we used a temporary IP, the kernel cached it as the source address.
-			logger.Info().Msg("Flushing routes to clear temporary IP cache")
-			if err := wgDevice.FlushAllPeerRoutes(); err != nil {
-				logger.Warn().Err(err).Msg("Failed to flush peer routes")
-			}
-
-			// Wait for route deletion to complete.
-			time.Sleep(200 * time.Millisecond)
-
-			// Re-add peer routes with the new IP as source.
-			if err := wgDevice.RefreshPeerRoutes(); err != nil {
-				logger.Warn().Err(err).Msg("Failed to refresh peer routes after IP change")
-			}
-
-			// Wait briefly for IP and route changes to propagate through the kernel.
-			// Without this delay, connection attempts may fail with "can't assign requested address".
-			time.Sleep(500 * time.Millisecond)
-
-			// Trigger WireGuard handshake by attempting to connect to colony over mesh.
-			// This ensures the tunnel is established before we try to send heartbeats.
+			// Get connect port for heartbeat
 			connectPort := colonyInfo.ConnectPort
 			if connectPort == 0 {
 				connectPort = 9000
