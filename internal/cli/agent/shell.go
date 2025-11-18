@@ -29,8 +29,8 @@ import (
 func NewShellCmd() *cobra.Command {
 	var (
 		agentAddr string
-		agentID   string
-		colonyID  string
+		agent     string
+		colony    string
 		userID    string
 	)
 
@@ -57,6 +57,9 @@ Examples:
   # Open shell in local agent
   coral shell
 
+  # Specify agent by ID
+  coral shell --agent hostname-api-1
+
   # Specify agent address explicitly
   coral shell --agent-addr localhost:9001
 
@@ -72,14 +75,14 @@ The shell session will:
 			ctx := cmd.Context()
 
 			// RFD 044: Agent ID resolution via colony registry.
-			// If --agent-id is specified, query colony to resolve mesh IP.
-			if agentID != "" {
+			// If --agent is specified, query colony to resolve mesh IP.
+			if agent != "" {
 				if agentAddr != "" {
-					return fmt.Errorf("cannot specify both --agent-id and --agent-addr")
+					return fmt.Errorf("cannot specify both --agent and --agent-addr")
 				}
 
 				// Resolve agent ID to mesh IP via colony registry.
-				resolvedAddr, err := resolveAgentID(ctx, agentID, colonyID)
+				resolvedAddr, err := resolveAgentID(ctx, agent, colony)
 				if err != nil {
 					return fmt.Errorf("failed to resolve agent ID: %w", err)
 				}
@@ -125,8 +128,8 @@ The shell session will:
 	}
 
 	cmd.Flags().StringVar(&agentAddr, "agent-addr", "", "Agent address (default: auto-discover)")
-	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (resolves via colony registry)")
-	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID (default: auto-detect)")
+	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
+	cmd.Flags().StringVar(&colony, "colony", "", "Colony ID (default: auto-detect)")
 	cmd.Flags().StringVar(&userID, "user-id", "", "User ID for audit (default: $USER)")
 
 	return cmd
