@@ -709,8 +709,8 @@ Note: The colony must be running for this command to work.`,
 			}
 
 			fmt.Printf("Connected Agents (%d):\n\n", len(agents))
-			fmt.Printf("%-20s %-15s %-20s %-10s %-10s %s\n", "AGENT ID", "COMPONENT", "RUNTIME", "MESH IP", "STATUS", "LAST SEEN")
-			fmt.Println("-----------------------------------------------------------------------------------------------")
+			fmt.Printf("%-25s %-20s %-20s %-10s %-10s %s\n", "AGENT ID", "SERVICES", "RUNTIME", "MESH IP", "STATUS", "LAST SEEN")
+			fmt.Println("--------------------------------------------------------------------------------------------------------")
 
 			for _, agent := range agents {
 				// Format last seen as relative time
@@ -734,9 +734,15 @@ Note: The colony must be running for this command to work.`,
 					}
 				}
 
-				fmt.Printf("%-20s %-15s %-20s %-10s %-10s %s\n",
-					truncate(agent.AgentId, 20),
-					truncate(agent.ComponentName, 15),
+				// Format services list (RFD 044: use Services array, not ComponentName).
+				servicesStr := formatServicesList(agent.Services)
+				if servicesStr == "" {
+					servicesStr = agent.ComponentName // Fallback for backward compatibility
+				}
+
+				fmt.Printf("%-25s %-20s %-20s %-10s %-10s %s\n",
+					truncate(agent.AgentId, 25),
+					truncate(servicesStr, 20),
 					truncate(runtimeStr, 20),
 					agent.MeshIpv4,
 					agent.Status,
@@ -1971,4 +1977,17 @@ func gatherPlatformInfo() map[string]interface{} {
 		"os_version": runtimeCtx.Platform.OsVersion,
 		"kernel":     runtimeCtx.Platform.Kernel,
 	}
+}
+
+// formatServicesList formats the services array for display (RFD 044).
+func formatServicesList(services []*meshv1.ServiceInfo) string {
+	if len(services) == 0 {
+		return ""
+	}
+
+	serviceNames := make([]string, 0, len(services))
+	for _, svc := range services {
+		serviceNames = append(serviceNames, svc.ComponentName)
+	}
+	return strings.Join(serviceNames, ", ")
 }
