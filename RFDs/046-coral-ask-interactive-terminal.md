@@ -17,7 +17,7 @@ areas: ["ai", "cli", "ux"]
 
 ## Summary
 
-Extend `coral ask` (RFD 030) with an interactive terminal mode that provides a long-running conversational interface similar to Claude Code or GitHub Codex. Instead of single-shot queries, developers get a persistent REPL-style session with rich terminal UI, streaming responses, conversation history, and inline commands for session management.
+Extend `coral ask` (RFD 030) with an interactive terminal mode that provides a REPL-style conversational interface. Instead of single-shot queries, developers get a persistent session with rich terminal UI (markdown rendering, syntax highlighting, tables), streaming responses, and conversation context maintained during the active session. Advanced features like session persistence, dynamic prompts, and runtime configuration are deferred to future RFDs to keep the initial implementation focused and shippable.
 
 ## Problem
 
@@ -201,7 +201,7 @@ ask:
   # Existing config from RFD 030...
   default_model: "openai:gpt-4o-mini"
 
-  # Interactive mode settings
+  # Interactive mode settings (core features only)
   interactive:
     # Enable rich terminal features (disable for basic terminals)
     rich_output: true
@@ -215,37 +215,14 @@ ask:
     # Show progress indicators for MCP tool calls
     show_progress: true
 
-    # Prompt customization
-    prompt:
-      show_colony: true
-      show_model: true
-      show_token_count: true
-      show_cost: true
-      format: "{{.Colony}} | {{.Model}} | Tokens: {{.Tokens}}"
-
-    # History settings
-    history:
-      max_entries: 1000             # Max commands in history
-      file: "~/.coral/ask-history"  # History file location
-      search_mode: "fuzzy"          # "fuzzy" | "prefix"
-
-    # Session persistence
-    sessions:
-      auto_save: true
-      directory: "~/.coral/ask-sessions"
-      max_age_days: 30              # Auto-delete old sessions
-      export_include_metadata: true
-
     # Rendering options
     render:
       table_style: "rounded"        # "ascii" | "rounded" | "bold"
       code_theme: "dracula"         # Syntax highlighting theme
       max_table_width: 120          # Wrap tables at this width
-
-    # Behavior
-    auto_continue: true             # Don't need --continue, session is persistent
-    confirm_destructive: true       # Confirm commands like /clear, /exit
 ```
+
+**Note:** Advanced configuration (dynamic prompts, session persistence, etc.) deferred to future RFDs.
 
 ## Implementation Plan
 
@@ -257,6 +234,7 @@ ask:
 - [ ] Implement `/exit` and `/help` inline commands
 - [ ] Handle Ctrl+C gracefully (cancel query, stay in session)
 - [ ] Handle Ctrl+D (exit session)
+- [ ] Basic prompt display (static format showing current colony)
 
 ### Phase 2: Rich Output Rendering
 
@@ -267,42 +245,13 @@ ask:
 - [ ] Add progress indicators for MCP tool calls
 - [ ] Implement color support with NO_COLOR env variable fallback
 
-### Phase 3: Session Management
+### Phase 3: Testing & Documentation
 
-- [ ] Implement session persistence (JSON storage)
-- [ ] Auto-save conversation after each turn
-- [ ] Implement `/save`, `/load`, `/clear` commands
-- [ ] Add `--resume <session-id>` CLI flag
-- [ ] Implement session listing: `coral ask --list-sessions`
-- [ ] Add session export: `coral ask --export <id> --format md|json`
-
-### Phase 4: Enhanced UX
-
-- [ ] Implement dynamic prompt (show colony, model, tokens)
-- [ ] Add command history (up/down arrows) with persistence
-- [ ] Implement tab completion for inline commands
-- [ ] Add multiline input support (e.g., `\` for continuation)
-- [ ] Implement `/context` command (show conversation history summary)
-- [ ] Add token usage warnings in prompt (approaching limits)
-- [ ] Implement cost tracking display in prompt
-
-### Phase 5: Advanced Features
-
-- [ ] Add `/model <name>` command to switch models mid-session
-- [ ] Implement `/colony <name>` command to switch target colony
-- [ ] Add `/export` inline command (export current session)
-- [ ] Implement fuzzy history search (Ctrl+R)
-- [ ] Add `/copy` command to copy last response to clipboard
-- [ ] Implement session sharing (export with sanitization)
-
-### Phase 6: Testing & Documentation
-
-- [ ] Unit tests: REPL loop, inline commands, session persistence
-- [ ] Integration tests: streaming output, markdown rendering, table formatting
-- [ ] E2E tests: full interactive session workflow
+- [ ] Unit tests: REPL loop, inline commands, streaming output
+- [ ] Integration tests: markdown rendering, table formatting
+- [ ] E2E tests: basic interactive session workflow
 - [ ] Terminal compatibility tests (basic vs rich terminals)
-- [ ] Documentation: interactive mode guide, inline commands reference
-- [ ] Video demo: screencast showing interactive debugging workflow
+- [ ] Documentation: interactive mode guide, basic commands reference
 
 ## API Changes
 
@@ -314,10 +263,10 @@ coral ask
 
 # Expected output:
 Welcome to Coral Ask (interactive mode)
+Colony: my-app-prod-xyz
 Type /help for commands, /exit to quit
 
-Colony: my-app-prod-xyz | Model: gpt-4o-mini | Tokens: 0
-> what services are running?
+my-app-prod-xyz> what services are running?
 
 ✓ Querying service topology... 0.8s
 
@@ -330,8 +279,7 @@ payment-api     | healthy | 5         | 67%    | 1.2GB
 checkout        | healthy | 4         | 45%    | 890MB
 ...
 
-Colony: my-app-prod-xyz | Model: gpt-4o-mini | Tokens: 285
-> show metrics for payment-api
+my-app-prod-xyz> show metrics for payment-api
 
 ⠋ Fetching metrics... (payment-api, last 1h)
 
@@ -340,62 +288,32 @@ Colony: my-app-prod-xyz | Model: gpt-4o-mini | Tokens: 285
 # Explicit interactive flag (same as above)
 coral ask --interactive
 
-# Resume previous session
-coral ask --resume abc123
-
-# List all saved sessions
-coral ask --list-sessions
-
-# Output:
-Session ID  | Started             | Turns | Last Activity
-────────────┼─────────────────────┼───────┼──────────────────────
-abc123      | 2024-01-15 14:30    | 12    | 2 hours ago
-def456      | 2024-01-14 09:15    | 8     | 1 day ago
-ghi789      | 2024-01-12 16:45    | 23    | 3 days ago
-
-# Export session to markdown
-coral ask --export abc123 --format markdown > debug-session.md
-
-# Export session to JSON (includes metadata)
-coral ask --export abc123 --format json > session-data.json
+# Single-shot mode still works (for scripting)
+coral ask "what's the current status?"
 ```
 
-### Inline Commands
+### Inline Commands (Core)
 
 Commands available within interactive session (prefixed with `/`):
 
 ```
-/help                   Show available commands
+/help                   Show available commands and usage examples
 /exit, /quit            Exit interactive session
-/clear                  Clear conversation history (start fresh)
-/save [name]            Save session with optional name
-/load <session-id>      Load a previous session
-/context                Show conversation history summary
-/model <name>           Switch to different LLM model
-/colony <name>          Switch to different colony
-/export [format]        Export session (markdown|json)
-/copy                   Copy last response to clipboard
-/tokens                 Show detailed token usage breakdown
-/cost                   Show cost summary for current session
-/config                 Show current configuration
-/history                Show command history
 ```
+
+**Note:** Additional commands (session management, runtime config changes) are deferred to future RFDs. See "Deferred Features" section.
 
 **Example usage:**
 
 ```
-Colony: my-app-prod-xyz | Model: gpt-4o-mini | Tokens: 450
+my-app-prod-xyz>
 > /help
+
+Coral Ask - Interactive Mode
 
 Available commands:
   /help      - Show this help message
   /exit      - Exit interactive session
-  /clear     - Clear conversation history
-  /context   - Show conversation summary
-  /model     - Switch LLM model
-  /colony    - Switch target colony
-  /export    - Export session to file
-  /copy      - Copy last response to clipboard
 
 Natural language queries:
   Just type your question (no prefix needed)
@@ -405,123 +323,61 @@ Examples:
   > show me error logs for payment-api
   > compare current metrics to yesterday
 
-Colony: my-app-prod-xyz | Model: gpt-4o-mini | Tokens: 450
-> /model anthropic:claude-3-5-sonnet-20241022
+Keyboard shortcuts:
+  Ctrl+C     - Cancel current query (stay in session)
+  Ctrl+D     - Exit interactive session
+  Up/Down    - Navigate command history
 
-✓ Switched to model: anthropic:claude-3-5-sonnet-20241022
-  Note: Higher quality, increased cost ($0.015/1k tokens vs $0.0015/1k)
-
-Colony: my-app-prod-xyz | Model: claude-3-5-sonnet | Tokens: 450
->
+my-app-prod-xyz>
 ```
 
-### Session Export Format
+### Configuration Changes
 
-**Markdown export** (for sharing/documentation):
+New `ask.interactive` section in `~/.coral/config.yaml`:
 
-```markdown
-# Coral Ask Session: abc123
+```yaml
+# ~/.coral/config.yaml
+ask:
+  # Existing config from RFD 030...
+  default_model: "openai:gpt-4o-mini"
 
-**Started:** 2024-01-15 14:30:00 UTC
-**Colony:** my-app-prod-xyz
-**Model:** openai:gpt-4o-mini
-**Duration:** 45 minutes
-**Turns:** 12
-**Total Tokens:** 8,450 (input: 5,200, output: 3,250)
-**Estimated Cost:** $0.12
+  # Interactive mode settings (core features only)
+  interactive:
+    # Enable rich terminal features (disable for basic terminals)
+    rich_output: true
 
----
+    # Markdown rendering in responses
+    render_markdown: true
 
-## Turn 1
+    # Syntax highlighting for code blocks
+    syntax_highlighting: true
 
-**User:**
-what's causing high latency?
+    # Show progress indicators for MCP tool calls
+    show_progress: true
 
-**Assistant:**
-Analyzing traces (3 services)... ✓
-
-The payment-api service shows elevated p95 latency:
-
-| Service     | p50   | p95    | p99    | Change    |
-|-------------|-------|--------|--------|-----------|
-| payment-api | 120ms | 1400ms | 2800ms | +85% (1h) |
-| checkout    | 80ms  | 200ms  | 350ms  | +12% (1h) |
-
-Evidence:
-- DB connection pool at 94% utilization
-- 127 slow query warnings in last hour
-
----
-
-## Turn 2
-
-**User:**
-show me the slow queries
-
-**Assistant:**
-[... next response ...]
-
----
-
-[... continues for all turns ...]
+    # Rendering options
+    render:
+      table_style: "rounded"        # "ascii" | "rounded" | "bold"
+      code_theme: "dracula"         # Syntax highlighting theme
+      max_table_width: 120          # Wrap tables at this width
 ```
 
-**JSON export** (for programmatic analysis):
-
-```json
-{
-  "session_id": "abc123",
-  "metadata": {
-    "started_at": "2024-01-15T14:30:00Z",
-    "ended_at": "2024-01-15T15:15:00Z",
-    "duration_seconds": 2700,
-    "colony": "my-app-prod-xyz",
-    "model": "openai:gpt-4o-mini"
-  },
-  "usage": {
-    "total_tokens": 8450,
-    "input_tokens": 5200,
-    "output_tokens": 3250,
-    "estimated_cost_usd": 0.12
-  },
-  "turns": [
-    {
-      "turn_number": 1,
-      "timestamp": "2024-01-15T14:30:15Z",
-      "user_input": "what's causing high latency?",
-      "assistant_response": "Analyzing traces...",
-      "tool_calls": [
-        {
-          "tool": "query_trace_data",
-          "parameters": {"service_id": "payment-api", "window": "1h"},
-          "duration_ms": 850
-        }
-      ],
-      "tokens": {
-        "input": 450,
-        "output": 230
-      }
-    }
-  ]
-}
-```
+**Note:** Session persistence, dynamic prompts, and advanced configuration options are deferred. See "Deferred Features" section.
 
 ## Testing Strategy
 
 ### Unit Tests
 
 - **REPL loop**: Command parsing, inline command routing, exit handling
-- **Session persistence**: Save/load conversation, JSON serialization
-- **Prompt formatting**: Token count display, cost calculation, dynamic fields
-- **Input handling**: Multiline support, history navigation, tab completion
+- **Input handling**: Basic readline integration, history navigation (up/down arrows)
+- **Output rendering**: Markdown parsing, syntax highlighting, table formatting
 
 ### Integration Tests
 
 - **Streaming output**: Verify responses render progressively (not all at once)
 - **Markdown rendering**: Code blocks, tables, lists formatted correctly
-- **Session continuity**: Context maintained across multiple turns
-- **Model switching**: `/model` command updates agent, prompt reflects change
-- **Terminal compatibility**: Graceful degradation in non-rich terminals
+- **Session continuity**: Context maintained across multiple turns within active session
+- **Terminal compatibility**: Graceful degradation in non-rich terminals (NO_COLOR support)
 
 ### E2E Tests
 
@@ -539,25 +395,7 @@ EOF
 # Verify: All 3 questions answered with context from previous turns
 ```
 
-**Scenario 2: Session Resume**
-
-```bash
-# Setup: Start session, save, exit, resume
-coral ask <<EOF
-what's causing high latency?
-/save debug-session
-/exit
-EOF
-
-coral ask --resume debug-session <<EOF
-show me the slow queries
-/exit
-EOF
-
-# Verify: Second session has context from first session
-```
-
-**Scenario 3: Rich Output Rendering**
+**Scenario 2: Rich Output Rendering**
 
 ```bash
 # Setup: Query that returns table data
@@ -569,7 +407,7 @@ EOF
 # Verify: Output contains formatted table (not raw JSON)
 ```
 
-**Scenario 4: Interruption Handling**
+**Scenario 3: Interruption Handling**
 
 ```bash
 # Setup: Send Ctrl+C during LLM response
@@ -578,61 +416,19 @@ EOF
 # Verify: Current query cancelled, session remains active, can ask new question
 ```
 
-**Scenario 5: Export Session**
+**Scenario 4: Basic Terminal Compatibility**
 
 ```bash
-# Setup: Interactive session → export to markdown
-coral ask <<EOF
-what's the system status?
-/export markdown
+# Setup: Run with NO_COLOR environment variable
+NO_COLOR=1 coral ask <<EOF
+what's the current status?
 /exit
 EOF
 
-# Verify: Export contains conversation in markdown format
+# Verify: Output has no ANSI color codes, still readable
 ```
 
 ## Security Considerations
-
-### Session Data Storage
-
-**Sensitive data exposure:**
-
-- Sessions stored locally may contain production telemetry data (logs, traces, metrics)
-- Session files should have restrictive permissions (0600, user-only read/write)
-- Session directory (`~/.coral/ask-sessions/`) should be mode 0700
-
-**Mitigations:**
-
-```go
-// When creating session directory
-os.MkdirAll(sessionDir, 0700)
-
-// When writing session files
-os.WriteFile(sessionPath, data, 0600)
-```
-
-### Session Sharing/Export
-
-**Data leakage risks:**
-
-- Exported sessions may contain sensitive information (API keys in logs, PII, secrets)
-- Markdown exports designed for sharing, need sanitization option
-
-**Mitigations:**
-
-- Add `--sanitize` flag to export command (redact known secret patterns)
-- Display warning when exporting: "Review for sensitive data before sharing"
-- Document best practices for session sharing
-
-**Example:**
-
-```bash
-# Export with sanitization (redacts API keys, tokens, etc.)
-coral ask --export abc123 --sanitize --format markdown > session-safe.md
-
-⚠️  Warning: Review exported file for sensitive data before sharing
-    Automatic sanitization applied, but manual review recommended.
-```
 
 ### Terminal Escape Sequences
 
@@ -646,6 +442,68 @@ coral ask --export abc123 --sanitize --format markdown > session-safe.md
 - Sanitize all data received from Colony MCP before rendering
 - Use terminal library's built-in escaping (`glamour`, `tablewriter` handle this)
 - Strip unknown escape sequences from untrusted input
+
+## Deferred Features
+
+The following features are deferred to keep the core implementation focused and shippable. These will be addressed in follow-up RFDs once the basic interactive mode is proven and stable.
+
+**Session Persistence & Management** (Future - RFD TBD)
+
+The core interactive mode maintains context only for the current session lifetime. Full session persistence requires additional complexity:
+
+- Session storage format and lifecycle management
+- Save/resume across CLI invocations (`coral ask --resume <id>`)
+- Session listing and cleanup (`coral ask --list-sessions`)
+- Export to markdown/JSON for sharing
+- Auto-save and crash recovery
+
+**Rationale:** Session persistence adds significant complexity (storage format, migrations, cleanup) and isn't required for basic iterative debugging. Developers can still use the interactive mode for active sessions; persistence is an enhancement.
+
+**Enhanced Prompt & Context Display** (Future - RFD TBD)
+
+The core implementation uses a static prompt format. Dynamic context display requires:
+
+- Real-time token usage tracking and display
+- Cost estimation and warning thresholds
+- Context window utilization indicators
+- Configurable prompt templates
+- Warning displays (cost limits, token limits)
+
+**Rationale:** While helpful, these are UX enhancements that don't affect core functionality. The basic prompt shows colony name, which is sufficient for MVP.
+
+**Advanced Input Features** (Future - RFD TBD)
+
+Basic readline support is included, but advanced features are deferred:
+
+- Persistent command history across sessions
+- Tab completion for service names and commands
+- Fuzzy history search (Ctrl+R)
+- Multiline input with continuation (`\` line endings)
+- Smart completion based on context
+
+**Rationale:** readline provides basic history (up/down arrows) out of the box. Advanced features require custom completion logic and context awareness.
+
+**Runtime Configuration Changes** (Future - RFD TBD)
+
+The core implementation uses configuration from `~/.coral/config.yaml`. Runtime changes require:
+
+- `/model <name>` command to switch models mid-session
+- `/colony <name>` command to switch target colony
+- In-session configuration overrides
+- Validation and error handling for invalid switches
+
+**Rationale:** For MVP, developers can exit and restart with different config. Runtime switching adds complexity and error cases.
+
+**Collaborative Features** (Future - RFD TBD)
+
+Multi-user debugging sessions and sharing:
+
+- Session sharing (export with sensitive data sanitization)
+- `/copy` command to copy responses to clipboard
+- Session branching for parallel investigations
+- Real-time collaborative sessions
+
+**Rationale:** These are advanced collaborative features that require UX design and security consideration (data sanitization). Single-user sessions are sufficient for initial release.
 
 ## Future Enhancements
 
@@ -814,16 +672,17 @@ for chunk := range agent.StreamResponse(ctx, query) {
 - **Familiar UX**: Borrow from successful REPLs (`psql`, `python`, `node`)
 - **Non-intrusive**: Rich features when available, graceful degradation for basic terminals
 - **Fast feedback**: Streaming output, progress indicators, immediate responses
-- **Persistent context**: No mental overhead remembering previous queries
-- **Easy sharing**: Export sessions for collaboration and documentation
+- **Session context**: Maintain conversation context during active session (no persistence across restarts)
+- **Completable scope**: Focus on core REPL experience, defer advanced features to follow-up RFDs
 
 **Relationship to RFD 030:**
 
 - RFD 030 defines the architecture (Genkit agent, MCP integration, model selection)
-- RFD 046 focuses on UX layer (interactive terminal, session management, rich output)
-- Both RFDs combine to deliver complete `coral ask` experience
+- RFD 046 focuses on core UX layer (interactive terminal REPL, rich output rendering)
+- Both RFDs combine to deliver basic interactive `coral ask` experience
 - Single-shot mode (`coral ask "question"`) remains supported for scripting/automation
 - Interactive mode is additive, no breaking changes to RFD 030
+- Advanced features (session persistence, dynamic prompts, etc.) deferred to future RFDs
 
 **When to use interactive vs single-shot:**
 
