@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -136,7 +137,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 		Transport: &http2.Transport{
 			// Allow HTTP/2 over plaintext (h2c).
 			AllowHTTP: true,
-			DialTLSContext: func(ctx context.Context, network, addr string, cfg interface{}) (net.Conn, error) {
+			DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
 				// Dial without TLS for h2c.
 				return net.Dial(network, addr)
 			},
