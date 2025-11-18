@@ -156,6 +156,13 @@ func (h *ShellHandler) startShellSession(
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 
+	// Configure process attributes for PTY.
+	// In containerized environments, we need to explicitly configure the session.
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid:  true,  // Create new session
+		Setctty: false, // Let pty library handle controlling terminal
+	}
+
 	// Start command with PTY.
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
