@@ -1542,3 +1542,140 @@ html {
     background: rgba(99, 102, 241, 0.3);
     color: var(--text-primary);
 }
+
+/* Architecture Page */
+.architecture-page {
+    min-height: 100vh;
+    padding: calc(80px + var(--spacing-xl)) 0 var(--spacing-xl);
+}
+
+.architecture-page h1 {
+    font-size: clamp(2.5rem, 5vw, 3.5rem);
+    font-weight: 900;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.arch-cta {
+    text-align: center;
+    margin: var(--spacing-lg) 0;
+}
+
+.arch-components {
+    margin-top: var(--spacing-xl);
+}
+
+.arch-components h2 {
+    text-align: center;
+    font-size: 2rem;
+    margin-bottom: var(--spacing-lg);
+}
+
+.arch-features {
+    margin-top: var(--spacing-xl);
+}
+
+.arch-features h2 {
+    text-align: center;
+    font-size: 2rem;
+    margin-bottom: var(--spacing-lg);
+}
+
+.feature-list {
+    display: grid;
+    gap: var(--spacing-md);
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.feature-item-large {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    transition: all 0.3s;
+}
+
+.feature-item-large:hover {
+    border-color: var(--accent-primary);
+    transform: translateY(-2px);
+}
+
+.feature-item-large h3 {
+    font-size: 1.25rem;
+    margin-bottom: var(--spacing-sm);
+    color: var(--text-primary);
+}
+
+.feature-item-large p {
+    color: var(--text-secondary);
+    line-height: 1.7;
+}
+
+.back-link {
+    text-align: center;
+    margin-top: var(--spacing-xl);
+}
+
+/* Bidirectional Arrow */
+.diagram-arrow-bidirectional {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: var(--spacing-sm) 0;
+    position: relative;
+}
+
+.arrow-bidirectional-container {
+    position: relative;
+    width: 100px;
+    height: 50px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.arrow-line-up {
+    position: absolute;
+    left: 40%;
+    width: 2px;
+    height: 50px;
+    background: linear-gradient(180deg, var(--accent-secondary) 0%, var(--accent-primary) 100%);
+}
+
+.arrow-line-down {
+    position: absolute;
+    right: 40%;
+    width: 2px;
+    height: 50px;
+    background: linear-gradient(180deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+}
+
+.arrow-head-up {
+    position: absolute;
+    left: 40%;
+    top: 0;
+    transform: translateX(-50%) rotate(180deg);
+    font-size: 1.2rem;
+    color: var(--accent-primary);
+    line-height: 1;
+}
+
+.arrow-head-down {
+    position: absolute;
+    right: 40%;
+    bottom: 0;
+    transform: translateX(50%);
+    font-size: 1.2rem;
+    color: var(--accent-primary);
+    line-height: 1;
+}
+
+.arrow-label-bidirectional {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    text-align: center;
+    margin-top: 0.5rem;
+}
