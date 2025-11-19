@@ -170,12 +170,27 @@ Examples:
 			// TODO: Implement remaining colony startup tasks
 			// - Start HTTP server for dashboard on cfg.Dashboard.Port
 
-			// Initialize WireGuard device
-			wgDevice, err := initializeWireGuard(cfg, logger)
+			// Initialize WireGuard device (but don't start it yet)
+			wgDevice, err := createWireGuardDevice(cfg, logger)
 			if err != nil {
-				return fmt.Errorf("failed to initialize WireGuard: %w", err)
+				return fmt.Errorf("failed to create WireGuard device: %w", err)
 			}
 			defer wgDevice.Stop()
+
+			// Set up the persistent allocator BEFORE starting the device (RFD 019).
+			// This enables IP allocation recovery after colony restarts.
+			if err := initializePersistentIPAllocator(wgDevice, db, logger); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to initialize persistent IP allocator, using in-memory allocator")
+			} else {
+				logger.Info().Msg("Persistent IP allocator initialized")
+			}
+
+			// Now start the WireGuard device with the persistent allocator configured
+			if err := startWireGuardDevice(wgDevice, cfg, logger); err != nil {
+				return fmt.Errorf("failed to start WireGuard device: %w", err)
+			}
 
 			// Create agent registry for tracking connected agents.
 			agentRegistry := registry.New()
@@ -1161,20 +1176,26 @@ Note: The colony's WireGuard public key will be retrieved from discovery service
 	return cmd
 }
 
-// initializeWireGuard creates and starts the WireGuard device for the colony.
-func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wireguard.Device, error) {
+// createWireGuardDevice creates a WireGuard device but doesn't start it yet.
+// This allows the persistent IP allocator to be configured before the device starts.
+func createWireGuardDevice(cfg *config.ResolvedConfig, logger logging.Logger) (*wireguard.Device, error) {
 	logger.Info().
 		Str("mesh_ipv4", cfg.WireGuard.MeshIPv4).
 		Int("port", cfg.WireGuard.Port).
-		Msg("Initializing WireGuard device")
+		Msg("Creating WireGuard device")
 
 	wgDevice, err := wireguard.NewDevice(&cfg.WireGuard, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WireGuard device: %w", err)
 	}
 
+	return wgDevice, nil
+}
+
+// startWireGuardDevice starts the WireGuard device and assigns the mesh IP.
+func startWireGuardDevice(wgDevice *wireguard.Device, cfg *config.ResolvedConfig, logger logging.Logger) error {
 	if err := wgDevice.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start WireGuard device: %w", err)
+		return fmt.Errorf("failed to start WireGuard device: %w", err)
 	}
 
 	logger.Info().
@@ -1186,12 +1207,12 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 	if cfg.WireGuard.MeshIPv4 != "" && cfg.WireGuard.MeshNetworkIPv4 != "" {
 		meshIP := net.ParseIP(cfg.WireGuard.MeshIPv4)
 		if meshIP == nil {
-			return nil, fmt.Errorf("invalid mesh IPv4 address: %s", cfg.WireGuard.MeshIPv4)
+			return fmt.Errorf("invalid mesh IPv4 address: %s", cfg.WireGuard.MeshIPv4)
 		}
 
 		_, meshNet, err := net.ParseCIDR(cfg.WireGuard.MeshNetworkIPv4)
 		if err != nil {
-			return nil, fmt.Errorf("invalid mesh network CIDR: %w", err)
+			return fmt.Errorf("invalid mesh network CIDR: %w", err)
 		}
 
 		logger.Info().
@@ -1202,11 +1223,11 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 
 		iface := wgDevice.Interface()
 		if iface == nil {
-			return nil, fmt.Errorf("WireGuard device has no interface")
+			return fmt.Errorf("WireGuard device has no interface")
 		}
 
 		if err := iface.AssignIP(meshIP, meshNet); err != nil {
-			return nil, fmt.Errorf("failed to assign IP to interface: %w", err)
+			return fmt.Errorf("failed to assign IP to interface: %w", err)
 		}
 
 		logger.Info().
@@ -1238,7 +1259,7 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 		}
 	}
 
-	return wgDevice, nil
+	return nil
 }
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
@@ -1990,4 +2011,38 @@ func formatServicesList(services []*meshv1.ServiceInfo) string {
 		serviceNames = append(serviceNames, svc.ComponentName)
 	}
 	return strings.Join(serviceNames, ", ")
+}
+
+// initializePersistentIPAllocator creates and injects a persistent IP allocator (RFD 019).
+func initializePersistentIPAllocator(wgDevice *wireguard.Device, db *database.Database, logger logging.Logger) error {
+	// Get the mesh network subnet from WireGuard config.
+	cfg := wgDevice.Config()
+	if cfg.MeshNetworkIPv4 == "" {
+		cfg.MeshNetworkIPv4 = constants.DefaultColonyMeshIPv4Subnet
+	}
+
+	_, subnet, err := net.ParseCIDR(cfg.MeshNetworkIPv4)
+	if err != nil {
+		return fmt.Errorf("invalid mesh network CIDR: %w", err)
+	}
+
+	// Create database adapter for IP allocation store.
+	store := database.NewIPAllocationStore(db)
+
+	// Create persistent allocator with database store.
+	allocator, err := wireguard.NewPersistentIPAllocator(subnet, store)
+	if err != nil {
+		return fmt.Errorf("failed to create persistent allocator: %w", err)
+	}
+
+	// Inject the persistent allocator into the WireGuard device.
+	if err := wgDevice.SetAllocator(allocator); err != nil {
+		return fmt.Errorf("failed to set allocator: %w", err)
+	}
+
+	logger.Info().
+		Int("loaded_allocations", allocator.AllocatedCount()).
+		Msg("Persistent IP allocator loaded from database")
+
+	return nil
 }

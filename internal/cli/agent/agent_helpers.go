@@ -122,7 +122,8 @@ func resolveToIPv4(host string, logger logging.Logger) (string, error) {
 }
 
 // setupAgentWireGuard creates and configures the agent's WireGuard device.
-// Returns the WireGuard device and the discovered public endpoint (if STUN was successful).
+// Returns the WireGuard device, discovered public endpoint, and colony endpoint (RFD 019).
+// The device is returned WITHOUT a peer - peer must be added after registration.
 func setupAgentWireGuard(
 	agentKeys *auth.WireGuardKeyPair,
 	colonyInfo *discoverypb.LookupColonyResponse,
@@ -130,7 +131,7 @@ func setupAgentWireGuard(
 	enableRelay bool,
 	wgPort int,
 	logger logging.Logger,
-) (*wireguard.Device, *discoverypb.Endpoint, error) {
+) (*wireguard.Device, *discoverypb.Endpoint, string, error) {
 	logger.Info().
 		Int("port", wgPort).
 		Msg("Setting up WireGuard device for agent")
@@ -164,12 +165,12 @@ func setupAgentWireGuard(
 	// Create device
 	wgDevice, err := wireguard.NewDevice(wgConfig, logger)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create WireGuard device: %w", err)
+		return nil, nil, "", fmt.Errorf("failed to create WireGuard device: %w", err)
 	}
 
 	// Start device
 	if err := wgDevice.Start(); err != nil {
-		return nil, nil, fmt.Errorf("failed to start WireGuard device: %w", err)
+		return nil, nil, "", fmt.Errorf("failed to start WireGuard device: %w", err)
 	}
 
 	logger.Info().
@@ -308,9 +309,54 @@ func setupAgentWireGuard(
 	}
 
 	if colonyEndpoint == "" {
-		return nil, nil, fmt.Errorf("no usable colony endpoint available (tried: observed, direct, relay)")
+		return nil, nil, "", fmt.Errorf("no usable colony endpoint available (tried: observed, direct, relay)")
 	}
 
+	// RFD 019: Do NOT assign temporary IP or add peer here.
+	// We will register with the colony first to get the permanent IP,
+	// then assign it before adding the peer. This eliminates the need
+	// for route flushing and temporary IP patterns.
+
+	logger.Info().
+		Str("colony_endpoint", colonyEndpoint).
+		Msg("WireGuard device ready for registration")
+
+	// Return device WITHOUT peer configuration and WITH colony endpoint.
+	// The peer will be added AFTER registration in the calling code.
+	return wgDevice, agentPublicEndpoint, colonyEndpoint, nil
+}
+
+// configureAgentMesh configures the agent's mesh network after registration.
+// This adds the colony as a WireGuard peer and tests connectivity (RFD 019).
+func configureAgentMesh(
+	wgDevice *wireguard.Device,
+	meshIP net.IP,
+	meshSubnet *net.IPNet,
+	colonyInfo *discoverypb.LookupColonyResponse,
+	colonyEndpoint string,
+	logger logging.Logger,
+) error {
+	logger.Info().
+		Str("interface", wgDevice.InterfaceName()).
+		Str("mesh_ip", meshIP.String()).
+		Msg("Configuring agent mesh network with permanent IP")
+
+	// Assign permanent IP to interface (RFD 019: no temporary IP).
+	iface := wgDevice.Interface()
+	if iface == nil {
+		return fmt.Errorf("WireGuard device has no interface")
+	}
+
+	if err := iface.AssignIP(meshIP, meshSubnet); err != nil {
+		return fmt.Errorf("failed to assign IP to interface: %w", err)
+	}
+
+	logger.Info().
+		Str("interface", wgDevice.InterfaceName()).
+		Str("ip", meshIP.String()).
+		Msg("Permanent IP assigned successfully")
+
+	// Build allowed IPs for colony peer.
 	allowedIPs := make([]string, 0, 2)
 	if colonyInfo.MeshIpv4 != "" {
 		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv4+"/32")
@@ -319,37 +365,8 @@ func setupAgentWireGuard(
 		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv6+"/128")
 	}
 
-	if len(allowedIPs) == 0 {
-		return nil, nil, fmt.Errorf("discovery response missing mesh IPs; unable to configure WireGuard peer")
-	}
-
-	// Assign a temporary IP to the agent interface BEFORE adding peer.
-	// Routes can only be added after the interface has an IP address.
-	// We'll use a temporary IP in the high range (.254) which will be updated after registration.
-	if colonyInfo.MeshIpv4 != "" {
-		tempIP := net.ParseIP("100.127.255.254") // Temporary IP in high range
-		_, meshSubnet, err := net.ParseCIDR("100.64.0.0/10")
-		if err == nil {
-			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("temp_ip", tempIP.String()).
-				Msg("Assigning temporary IP to agent interface for initial registration")
-
-			iface := wgDevice.Interface()
-			if iface != nil {
-				if err := iface.AssignIP(tempIP, meshSubnet); err != nil {
-					logger.Warn().Err(err).Msg("Failed to assign temporary IP to agent interface")
-				} else {
-					logger.Info().
-						Str("interface", wgDevice.InterfaceName()).
-						Str("temp_ip", tempIP.String()).
-						Msg("Temporary IP assigned successfully")
-				}
-			}
-		}
-	}
-
-	// Now add peer - routes will be created successfully since interface has an IP.
+	// Add colony as WireGuard peer (RFD 019: AFTER IP assignment).
+	// Routes will be created with the correct source IP from the start.
 	peerConfig := &wireguard.PeerConfig{
 		PublicKey:           colonyInfo.Pubkey,
 		Endpoint:            colonyEndpoint,
@@ -360,23 +377,16 @@ func setupAgentWireGuard(
 	logger.Info().
 		Str("endpoint", colonyEndpoint).
 		Strs("allowed_ips", allowedIPs).
-		Str("public_key", agentKeys.PublicKey).
-		Msg("Adding colony WireGuard peer")
+		Msg("Adding colony as WireGuard peer")
 
 	if err := wgDevice.AddPeer(peerConfig); err != nil {
-		wgDevice.Stop()
-		return nil, nil, fmt.Errorf("failed to add colony as peer: %w", err)
+		return fmt.Errorf("failed to add colony as peer: %w", err)
 	}
 
 	logger.Info().
 		Str("colony_endpoint", colonyEndpoint).
 		Str("colony_mesh_ip", colonyInfo.MeshIpv4).
-		Msg("Added colony as WireGuard peer")
-
-	// Wait for WireGuard tunnel to establish and routes to be configured.
-	// This gives the kernel time to set up the interface and routing.
-	logger.Info().Msg("Waiting for WireGuard tunnel to establish...")
-	time.Sleep(2 * time.Second)
+		Msg("Colony peer added successfully")
 
 	// Verify mesh IP is reachable via TCP connection test.
 	if colonyInfo.MeshIpv4 != "" {
@@ -406,7 +416,7 @@ func setupAgentWireGuard(
 		}
 	}
 
-	return wgDevice, agentPublicEndpoint, nil
+	return nil
 }
 
 // registerWithColony sends a registration request to the colony.
