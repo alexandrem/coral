@@ -24,8 +24,10 @@ import (
 type ConnectionState int
 
 const (
+	// StateWaitingDiscovery indicates the agent is waiting for discovery service to become available.
+	StateWaitingDiscovery ConnectionState = iota
 	// StateUnregistered indicates the agent has never registered or registration was lost.
-	StateUnregistered ConnectionState = iota
+	StateUnregistered
 	// StateRegistering indicates the agent is currently attempting registration.
 	StateRegistering
 	// StateRegistered indicates the agent successfully registered with the colony.
@@ -37,6 +39,8 @@ const (
 // String returns a human-readable representation of the connection state.
 func (s ConnectionState) String() string {
 	switch s {
+	case StateWaitingDiscovery:
+		return "waiting_discovery"
 	case StateUnregistered:
 		return "unregistered"
 	case StateRegistering:
@@ -51,11 +55,11 @@ func (s ConnectionState) String() string {
 }
 
 // ConnectionManager manages the agent's connection lifecycle to the colony.
-// It handles initial registration, heartbeats, and automatic reconnection.
+// It handles discovery, initial registration, heartbeats, and automatic reconnection.
 type ConnectionManager struct {
 	// Configuration
 	agentID      string
-	colonyInfo   *discoverypb.LookupColonyResponse
+	colonyInfo   *discoverypb.LookupColonyResponse // May be nil if discovery hasn't succeeded yet
 	config       *config.ResolvedConfig
 	serviceSpecs []*ServiceSpec
 	agentPubKey  string
@@ -74,7 +78,10 @@ type ConnectionManager struct {
 
 	// Reconnection control
 	reconnectTrigger chan struct{}
+	discoveryTrigger chan struct{}
 	backoff          *ExponentialBackoff
+	discoveryBackoff *ExponentialBackoff
+	colonyInfoMu     sync.RWMutex // Protects colonyInfo updates
 }
 
 // ExponentialBackoff implements exponential backoff with jitter for reconnection attempts.
@@ -109,6 +116,7 @@ func (b *ExponentialBackoff) Reset() {
 }
 
 // NewConnectionManager creates a new connection manager for agent-colony communication.
+// colonyInfo may be nil if discovery service is unavailable at startup.
 func NewConnectionManager(
 	agentID string,
 	colonyInfo *discoverypb.LookupColonyResponse,
@@ -118,6 +126,12 @@ func NewConnectionManager(
 	wgDevice *wg.Device,
 	logger logging.Logger,
 ) *ConnectionManager {
+	// Determine initial state based on whether we have colony info.
+	initialState := StateUnregistered
+	if colonyInfo == nil {
+		initialState = StateWaitingDiscovery
+	}
+
 	return &ConnectionManager{
 		agentID:          agentID,
 		colonyInfo:       colonyInfo,
@@ -126,11 +140,18 @@ func NewConnectionManager(
 		agentPubKey:      agentPubKey,
 		wgDevice:         wgDevice,
 		logger:           logger,
-		state:            StateUnregistered,
+		state:            initialState,
 		reconnectTrigger: make(chan struct{}, 1),
+		discoveryTrigger: make(chan struct{}, 1),
 		backoff: &ExponentialBackoff{
 			InitialInterval: 1 * time.Second,
 			MaxInterval:     5 * time.Minute,
+			Multiplier:      2.0,
+			Jitter:          0.1,
+		},
+		discoveryBackoff: &ExponentialBackoff{
+			InitialInterval: 2 * time.Second,
+			MaxInterval:     2 * time.Minute,
 			Multiplier:      2.0,
 			Jitter:          0.1,
 		},
@@ -159,9 +180,54 @@ func (cm *ConnectionManager) setState(newState ConnectionState) {
 	}
 }
 
+// AttemptDiscovery attempts to query the discovery service for colony information.
+// Returns the colony info on success, or an error on failure.
+func (cm *ConnectionManager) AttemptDiscovery() (*discoverypb.LookupColonyResponse, error) {
+	cm.logger.Info().
+		Str("colony_id", cm.config.ColonyID).
+		Str("discovery_url", cm.config.DiscoveryURL).
+		Msg("Attempting discovery service query")
+
+	colonyInfo, err := queryDiscoveryForColony(cm.config, cm.logger)
+	if err != nil {
+		return nil, fmt.Errorf("discovery lookup failed: %w", err)
+	}
+
+	// Update colony info with lock.
+	cm.colonyInfoMu.Lock()
+	cm.colonyInfo = colonyInfo
+	cm.colonyInfoMu.Unlock()
+
+	cm.logger.Info().
+		Str("colony_pubkey", colonyInfo.Pubkey).
+		Strs("endpoints", colonyInfo.Endpoints).
+		Msg("Successfully retrieved colony information from discovery")
+
+	// Transition from waiting_discovery to unregistered state.
+	if cm.GetState() == StateWaitingDiscovery {
+		cm.setState(StateUnregistered)
+	}
+
+	return colonyInfo, nil
+}
+
+// GetColonyInfo safely returns the current colony info.
+func (cm *ConnectionManager) GetColonyInfo() *discoverypb.LookupColonyResponse {
+	cm.colonyInfoMu.RLock()
+	defer cm.colonyInfoMu.RUnlock()
+	return cm.colonyInfo
+}
+
 // AttemptRegistration attempts to register with the colony.
 // Returns the assigned IP and subnet on success, or an error on failure.
+// Returns an error if colony info is not available (discovery hasn't succeeded yet).
 func (cm *ConnectionManager) AttemptRegistration() (string, string, error) {
+	// Check if we have colony info.
+	colonyInfo := cm.GetColonyInfo()
+	if colonyInfo == nil {
+		return "", "", fmt.Errorf("colony information not available - discovery service not reached")
+	}
+
 	cm.setState(StateRegistering)
 
 	cm.logger.Info().
@@ -174,7 +240,7 @@ func (cm *ConnectionManager) AttemptRegistration() (string, string, error) {
 		cm.agentID,
 		cm.serviceSpecs,
 		cm.agentPubKey,
-		cm.colonyInfo,
+		colonyInfo,
 		cm.logger,
 	)
 
@@ -203,22 +269,28 @@ func (cm *ConnectionManager) AttemptRegistration() (string, string, error) {
 }
 
 // StartHeartbeatLoop sends periodic heartbeats to the colony and monitors connection health.
+// This loop will wait if colony info is not available and start heartbeats once available.
 func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval time.Duration) {
-	connectPort := cm.colonyInfo.ConnectPort
-	if connectPort == 0 {
-		connectPort = 9000
-	}
-
-	colonyURL := fmt.Sprintf("http://%s", net.JoinHostPort(cm.colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort)))
-	client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
-
 	cm.logger.Info().
-		Str("agent_id", cm.agentID).
-		Str("colony_url", colonyURL).
 		Dur("interval", interval).
 		Msg("Starting heartbeat loop")
 
 	sendHeartbeat := func() bool {
+		// Check if we have colony info.
+		colonyInfo := cm.GetColonyInfo()
+		if colonyInfo == nil {
+			// Can't send heartbeat without colony info - silently skip.
+			return false
+		}
+
+		connectPort := colonyInfo.ConnectPort
+		if connectPort == 0 {
+			connectPort = 9000
+		}
+
+		colonyURL := fmt.Sprintf("http://%s", net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort)))
+		client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
+
 		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
@@ -246,7 +318,7 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 			return false
 		}
 
-		// Success - reset failure counter
+		// Success - reset failure counter.
 		cm.consecutiveFailures = 0
 		cm.lastSuccessfulHeartbeat = time.Now()
 		cm.setState(StateHealthy)
@@ -281,6 +353,79 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 				cm.triggerReconnection()
 			}
 		}
+	}
+}
+
+// StartDiscoveryLoop runs a background loop that attempts discovery when in waiting_discovery state.
+func (cm *ConnectionManager) StartDiscoveryLoop(ctx context.Context, onDiscoverySuccess func(*discoverypb.LookupColonyResponse)) {
+	cm.logger.Info().Msg("Starting discovery loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			cm.logger.Info().Msg("Discovery loop stopping")
+			return
+		case <-cm.discoveryTrigger:
+			// Triggered discovery - attempt immediately.
+			cm.attemptDiscovery(ctx, onDiscoverySuccess)
+		case <-time.After(5 * time.Second):
+			// Periodic check - only query discovery if waiting for it.
+			if cm.GetState() == StateWaitingDiscovery {
+				cm.attemptDiscovery(ctx, onDiscoverySuccess)
+			}
+		}
+	}
+}
+
+// attemptDiscovery performs a discovery attempt with exponential backoff.
+func (cm *ConnectionManager) attemptDiscovery(ctx context.Context, onSuccess func(*discoverypb.LookupColonyResponse)) {
+	state := cm.GetState()
+	if state != StateWaitingDiscovery {
+		// Already have discovery info, skip.
+		return
+	}
+
+	cm.logger.Info().
+		Str("colony_id", cm.config.ColonyID).
+		Msg("Attempting to query discovery service")
+
+	colonyInfo, err := cm.AttemptDiscovery()
+	if err != nil {
+		delay := cm.discoveryBackoff.NextDelay()
+		cm.logger.Warn().
+			Err(err).
+			Dur("retry_in", delay).
+			Msg("Discovery attempt failed - will retry")
+
+		// Wait with backoff before next attempt.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+			// Continue to next attempt.
+		}
+		return
+	}
+
+	// Discovery successful - reset backoff and call success callback.
+	cm.discoveryBackoff.Reset()
+	cm.logger.Info().
+		Str("colony_pubkey", colonyInfo.Pubkey).
+		Msg("Successfully discovered colony")
+
+	// Call success callback to handle post-discovery setup (e.g., WireGuard configuration).
+	if onSuccess != nil {
+		onSuccess(colonyInfo)
+	}
+}
+
+// triggerDiscovery signals the discovery loop to attempt discovery immediately.
+func (cm *ConnectionManager) triggerDiscovery() {
+	select {
+	case cm.discoveryTrigger <- struct{}{}:
+		// Trigger sent.
+	default:
+		// Channel already has a pending trigger, skip.
 	}
 }
 
@@ -412,4 +557,56 @@ func (cm *ConnectionManager) GetAssignedIP() (string, string) {
 	cm.stateMu.RLock()
 	defer cm.stateMu.RUnlock()
 	return cm.assignedIP, cm.assignedSubnet
+}
+
+// GetColonyEndpoint returns the best colony endpoint for Wire Guard peer configuration.
+// Returns empty string if colony info is not available.
+func (cm *ConnectionManager) GetColonyEndpoint() string {
+	colonyInfo := cm.GetColonyInfo()
+	if colonyInfo == nil {
+		return ""
+	}
+
+	// Try observed endpoints first (NAT traversal).
+	for _, observedEp := range colonyInfo.ObservedEndpoints {
+		if observedEp == nil || observedEp.Ip == "" {
+			continue
+		}
+
+		ip := net.ParseIP(observedEp.Ip)
+		// Skip IPv6 and loopback.
+		if ip != nil && (ip.To4() == nil || ip.IsLoopback()) {
+			continue
+		}
+
+		return net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
+	}
+
+	// Fall back to regular endpoints.
+	for _, ep := range colonyInfo.Endpoints {
+		if ep == "" {
+			continue
+		}
+
+		host, _, err := net.SplitHostPort(ep)
+		if err != nil || host == "" {
+			continue
+		}
+
+		// Determine WireGuard port.
+		wgPort := uint32(51820) // Default
+		if len(colonyInfo.ObservedEndpoints) > 0 && colonyInfo.ObservedEndpoints[0] != nil && colonyInfo.ObservedEndpoints[0].Port > 0 {
+			wgPort = colonyInfo.ObservedEndpoints[0].Port
+		} else if colonyInfo.Metadata != nil {
+			if portStr, ok := colonyInfo.Metadata["wireguard_port"]; ok && portStr != "" {
+				if port, err := fmt.Sscanf(portStr, "%d", &wgPort); err == nil && port == 1 {
+					// Port parsed successfully.
+				}
+			}
+		}
+
+		return net.JoinHostPort(host, fmt.Sprintf("%d", wgPort))
+	}
+
+	return ""
 }

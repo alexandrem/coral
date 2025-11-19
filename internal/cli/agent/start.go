@@ -185,15 +185,20 @@ Examples:
 				Str("colony_id", cfg.ColonyID).
 				Msg("Querying discovery service for colony information")
 
+			// Attempt to query discovery service.
+			// If this fails, agent will continue startup and retry in background.
 			colonyInfo, err := queryDiscoveryForColony(cfg, logger)
 			if err != nil {
-				return fmt.Errorf("failed to query discovery service: %w", err)
+				logger.Warn().
+					Err(err).
+					Msg("Failed to query discovery service - will retry in background")
+				colonyInfo = nil // Agent will start in waiting_discovery state
+			} else {
+				logger.Info().
+					Str("colony_pubkey", colonyInfo.Pubkey).
+					Strs("endpoints", colonyInfo.Endpoints).
+					Msg("Received colony information from discovery")
 			}
-
-			logger.Info().
-				Str("colony_pubkey", colonyInfo.Pubkey).
-				Strs("endpoints", colonyInfo.Endpoints).
-				Msg("Received colony information from discovery")
 
 			// Generate WireGuard keys for this agent.
 			agentKeys, err := auth.GenerateWireGuardKeyPair()
@@ -301,7 +306,13 @@ Examples:
 					Str("subnet", meshSubnetStr).
 					Msg("Configuring agent mesh with permanent IP from colony")
 
-				if err := configureAgentMesh(wgDevice, meshIP, meshSubnet, colonyInfo, colonyEndpoint, logger); err != nil {
+				// Get colony endpoint from connection manager (handles cases where discovery succeeded later).
+				colonyEndpointForMesh := connMgr.GetColonyEndpoint()
+				if colonyEndpointForMesh == "" {
+					return fmt.Errorf("no colony endpoint available for mesh configuration")
+				}
+
+				if err := configureAgentMesh(wgDevice, meshIP, meshSubnet, connMgr.GetColonyInfo(), colonyEndpointForMesh, logger); err != nil {
 					return fmt.Errorf("failed to configure agent mesh: %w", err)
 				}
 
@@ -310,41 +321,53 @@ Examples:
 					Msg("Agent mesh configured successfully - tunnel ready")
 
 				// Get connect port for heartbeat.
-				connectPort := colonyInfo.ConnectPort
-				if connectPort == 0 {
-					connectPort = 9000
-				}
-				meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
-				logger.Info().
-					Str("mesh_addr", meshAddr).
-					Msg("Testing connectivity to colony via mesh to establish WireGuard handshake")
-
-				conn, err := net.DialTimeout("tcp", meshAddr, 5*time.Second)
-				if err != nil {
-					logger.Warn().
-						Err(err).
-						Str("mesh_addr", meshAddr).
-						Msg("Unable to establish connection to colony via mesh - handshake may not be complete")
-				} else {
-					conn.Close()
+				currentColonyInfo := connMgr.GetColonyInfo()
+				if currentColonyInfo != nil {
+					connectPort := currentColonyInfo.ConnectPort
+					if connectPort == 0 {
+						connectPort = 9000
+					}
+					meshAddr := net.JoinHostPort(currentColonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
 					logger.Info().
 						Str("mesh_addr", meshAddr).
-						Msg("Successfully established WireGuard tunnel to colony")
+						Msg("Testing connectivity to colony via mesh to establish WireGuard handshake")
+
+					conn, err := net.DialTimeout("tcp", meshAddr, 5*time.Second)
+					if err != nil {
+						logger.Warn().
+							Err(err).
+							Str("mesh_addr", meshAddr).
+							Msg("Unable to establish connection to colony via mesh - handshake may not be complete")
+					} else {
+						conn.Close()
+						logger.Info().
+							Str("mesh_addr", meshAddr).
+							Msg("Successfully established WireGuard tunnel to colony")
+					}
 				}
 			}
 
 			// Log agent startup status.
 			currentIP, _ := connMgr.GetAssignedIP()
+			currentState := connMgr.GetState()
 			if currentIP != "" {
 				logger.Info().
 					Str("agent_id", agentID).
 					Str("mesh_ip", currentIP).
 					Int("service_count", len(serviceSpecs)).
+					Str("state", currentState.String()).
 					Msg("Agent connected successfully")
+			} else if currentState == StateWaitingDiscovery {
+				logger.Info().
+					Str("agent_id", agentID).
+					Int("service_count", len(serviceSpecs)).
+					Str("state", currentState.String()).
+					Msg("Agent started (waiting for discovery service - will connect when available)")
 			} else {
 				logger.Info().
 					Str("agent_id", agentID).
 					Int("service_count", len(serviceSpecs)).
+					Str("state", currentState.String()).
 					Msg("Agent started (unregistered - attempting reconnection in background)")
 			}
 
@@ -535,6 +558,19 @@ Examples:
 			}()
 
 			logger.Info().Msg("Agent started successfully - waiting for shutdown signal")
+
+			// Start discovery loop in background to handle discovery service reconnection.
+			// This callback is invoked when discovery succeeds after initially failing.
+			go connMgr.StartDiscoveryLoop(ctx, func(discoveredColonyInfo *discoverypb.LookupColonyResponse) {
+				logger.Info().
+					Str("colony_pubkey", discoveredColonyInfo.Pubkey).
+					Msg("Discovery succeeded - configuring mesh and attempting registration")
+
+				// Note: At this point, WireGuard device exists but colony peer isn't configured yet.
+				// The mesh configuration and registration will happen through the reconnection loop
+				// which will be triggered automatically when state transitions from waiting_discovery
+				// to unregistered.
+			})
 
 			// Start heartbeat loop in background to keep agent status healthy.
 			go connMgr.StartHeartbeatLoop(ctx, 15*time.Second)
