@@ -7,7 +7,7 @@ testing_required: true
 database_changes: false
 api_changes: true
 dependencies: [ "001", "007", "010", "011", "014" ]
-related_rfds: [ "006", "012", "013", "015" ]
+related_rfds: [ "006", "012", "013", "015", "038", "044", "046" ]
 database_migrations: [ ]
 areas: [ "cli", "agent", "colony", "ux", "deployment" ]
 ---
@@ -210,14 +210,18 @@ coral exec --label=region=us-east "df -h"
 coral exec --env=production --all "systemctl status"
 ```
 
-**Colony acts as router**:
+**Colony provides resolution and connectivity**:
 
-- Resolves target (service name → agent ID)
-- Enforces RBAC (can user access this?)
-- Routes via WireGuard mesh
-- Streams response back to CLI
+- **Resolution**: Resolves target (service name → agent ID → mesh IP)
+- **RBAC Enforcement**: Checks permissions before granting access (RFD 046)
+- **Connectivity**: Enables direct CLI-to-agent connections
+  - **Local colony**: CLI routes to agents via colony's WireGuard interface (L3 routing)
+  - **Remote colony**: CLI establishes direct mesh connection via AllowedIPs orchestration (RFD 038)
+- **Approval Workflows**: Production access triggers approval before granting connectivity (RFD 046)
 
-**RBAC & Approvals**:
+**Note**: Colony provides **control plane functions** (resolution, RBAC, connectivity orchestration) but does NOT proxy data-plane traffic. CLI connects directly to agents over the WireGuard mesh for efficiency. See RFD 038 for direct connectivity architecture and RFD 044 for agent ID resolution.
+
+**RBAC & Approvals** (RFD 046):
 
 ```yaml
 rbac:
@@ -1004,32 +1008,29 @@ preferences:
 - [ ] Graceful fallback to agent-only
 - [ ] Helpful error messages when Colony needed but unavailable
 
-### Phase 5: Remote Operations (Colony Routing)
+### Phase 5: Remote Operations (Direct Connectivity)
 
-- [ ] `RouteCommand` RPC in Colony
-- [ ] Target resolution (agent ID, service name, labels)
-- [ ] Command routing via WireGuard mesh
-- [ ] Stream proxying (Colony → Agent → CLI)
-- [ ] Multi-agent operations (`--all` flag)
+- [ ] Target resolution (agent ID, service name, labels) - RFD 044
+- [ ] Direct CLI-to-agent connectivity for remote colony - RFD 038
+  - [ ] AllowedIPs orchestration via Colony
+  - [ ] Ephemeral mesh IP allocation for CLI tools
+  - [ ] Cleanup on session end
+- [ ] Multi-agent operations (`--all` flag, `--label` filtering)
+- [ ] Service-based targeting with disambiguation
 
-### Phase 6: RBAC & Approvals
+**Note**: Phase 5 uses **direct connectivity** (CLI → Agent over mesh) rather than Colony proxying for efficiency. Colony provides control plane functions (resolution, RBAC, AllowedIPs orchestration) but does not proxy data traffic. See RFD 038 for architecture details.
 
-- [ ] `CheckPermission` RPC in Colony
-- [ ] RBAC config schema (user roles, environment permissions)
-- [ ] **MVP**: CLI-based approval workflow
-    - Requester runs `coral shell --env=production`
-    - Colony creates approval request
-    - Approver runs `coral approval approve <request-id>`
-    - CLI polls for approval status
-- [ ] Audit logging (who, what, when, approved by)
-- [ ] Production safeguards (timeouts, session limits)
-- [ ] **Future**: External approval channels (Slack, email, UI) - deferred to
-  Phase 6.1
+### Phase 6: RBAC & Approvals (RFD 046)
 
-**Note**: Phase 6 MVP uses CLI for both requesting and approving. External
-integrations (Slack bot, email notifications, web UI) are valuable but deferred
-to reduce initial complexity. See Future Enhancements for approval channel
-expansion plans.
+**Note**: RBAC enforcement is extracted to dedicated RFD 046 for comprehensive system-wide coverage. Phase 6 focuses on integration points:
+
+- [ ] Integrate with Colony RBAC engine (RFD 046)
+- [ ] Permission checks before granting agent access
+- [ ] Approval workflow integration for production access
+- [ ] Audit logging of access decisions
+- [ ] CLI support for approval requests/responses
+
+**See RFD 046** for complete RBAC architecture, policy schemas, enforcement points, and approval workflows.
 
 ### Phase 7: `coral proxy` Command
 
