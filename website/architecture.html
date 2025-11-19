@@ -98,12 +98,35 @@
                         </div>
                     </div>
 
-                    <!-- Arrow 3 -->
-                    <div class="flow-arrow">
-                        <div class="arrow-line">
-                            <div class="arrow-packet packet-reverse"></div>
+                    <!-- Parallel Section: WireGuard & Discovery -->
+                    <div class="flow-parallel-section">
+                        <!-- Left: Data Plane (WireGuard) -->
+                        <div class="flow-path-main">
+                            <div class="flow-arrow arrow-long">
+                                <div class="arrow-line">
+                                    <div class="arrow-packet packet-reverse"></div>
+                                </div>
+                                <div class="arrow-label">WireGuard Mesh</div>
+                            </div>
                         </div>
-                        <div class="arrow-label">WireGuard Mesh</div>
+
+                        <!-- Right: Control Plane (Discovery) -->
+                        <div class="flow-path-side">
+                            <div class="flow-arrow arrow-short">
+                                <div class="arrow-line"></div>
+                            </div>
+
+                            <div class="flow-node node-discovery-micro">
+                                <div class="node-icon-wrapper icon-discovery">
+                                    <span class="node-icon">🧭</span>
+                                </div>
+                                <h4>Discovery</h4>
+                            </div>
+
+                            <div class="flow-arrow arrow-short">
+                                <div class="arrow-line"></div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Agents Column -->
@@ -168,6 +191,12 @@
                             unified interface for all AI assistants to query distributed observability data.</p>
                     </div>
                     <div class="arch-tier">
+                        <div class="tier-icon">🧭</div>
+                        <h4>Discovery Service</h4>
+                        <p>Global registry that coordinates WireGuard key exchange and NAT traversal, enabling secure
+                            agent-to-colony connections across any network.</p>
+                    </div>
+                    <div class="arch-tier">
                         <div class="tier-icon">👁️</div>
                         <h4>Agents</h4>
                         <p>Local observers using eBPF, OTLP, and shell commands to gather telemetry. Run as a sidecar or
@@ -194,9 +223,9 @@
                     </div>
                     <div class="feature-item-large">
                         <h3>🔐 Encrypted WireGuard Mesh</h3>
-                        <p>All components connect via an encrypted WireGuard mesh that works across any network
-                            boundary. No VPN configuration, firewall rules, or per-environment tooling required. Debug
-                            apps running on laptop ↔ AWS VPC ↔ GKE cluster ↔ on-prem VM with the same commands.</p>
+                        <p>All components connect via an encrypted WireGuard mesh coordinated by the <strong>Discovery
+                                Service</strong>. Works across any network boundary with no VPN configuration, firewall
+                            rules, or per-environment tooling required.</p>
                     </div>
                     <div class="feature-item-large">
                         <h3>📊 Edge-Based Observability</h3>
