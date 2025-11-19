@@ -140,52 +140,8 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*age
 	fmt.Printf("Agent ID:     %s\n", ctx.AgentId)
 	fmt.Println()
 
-	// Connected Services section (show at top for visibility).
-	if len(services) > 0 {
-		fmt.Println("Connected Services:")
-		for _, svc := range services {
-			statusIcon := ""
-			switch svc.Status {
-			case "healthy":
-				statusIcon = "✓"
-			case "unhealthy":
-				statusIcon = "✗"
-			case "unknown":
-				statusIcon = "⚠"
-			default:
-				statusIcon = "?"
-			}
-
-			fmt.Printf("  %s %-20s port %d", statusIcon, svc.ComponentName, svc.Port)
-			if svc.HealthEndpoint != "" {
-				fmt.Printf(" (health: %s)", svc.HealthEndpoint)
-			}
-			if svc.ServiceType != "" {
-				fmt.Printf(" [%s]", svc.ServiceType)
-			}
-			fmt.Println()
-
-			// Show error if unhealthy.
-			if svc.Status == "unhealthy" && svc.Error != "" {
-				fmt.Printf("    Error: %s\n", svc.Error)
-			}
-
-			// Show last check time.
-			if svc.LastCheck != nil {
-				elapsed := time.Since(svc.LastCheck.AsTime())
-				var timingStr string
-				if elapsed < time.Minute {
-					timingStr = fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
-				} else if elapsed < time.Hour {
-					timingStr = fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
-				} else {
-					timingStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
-				}
-				fmt.Printf("    Last check: %s\n", timingStr)
-			}
-		}
-		fmt.Println()
-	}
+	// Connected Services section.
+	printServices(services)
 
 	// Platform section
 	fmt.Println("Platform:")
@@ -278,6 +234,54 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*age
 	}
 
 	return nil
+}
+
+func printServices(services []*agentv1.ServiceStatus) {
+	if len(services) > 0 {
+		fmt.Println("Connected Services:")
+		for _, svc := range services {
+			statusIcon := ""
+			switch svc.Status {
+			case "healthy":
+				statusIcon = "✓"
+			case "unhealthy":
+				statusIcon = "✗"
+			case "unknown":
+				statusIcon = "⚠"
+			default:
+				statusIcon = "?"
+			}
+
+			fmt.Printf("  %s %-20s port %d", statusIcon, svc.ComponentName, svc.Port)
+			if svc.HealthEndpoint != "" {
+				fmt.Printf(" (health: %s)", svc.HealthEndpoint)
+			}
+			if svc.ServiceType != "" {
+				fmt.Printf(" [%s]", svc.ServiceType)
+			}
+			fmt.Println()
+
+			// Show error if unhealthy.
+			if svc.Status == "unhealthy" && svc.Error != "" {
+				fmt.Printf("    Error: %s\n", svc.Error)
+			}
+
+			// Show last check time.
+			if svc.LastCheck != nil {
+				elapsed := time.Since(svc.LastCheck.AsTime())
+				var timingStr string
+				if elapsed < time.Minute {
+					timingStr = fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
+				} else if elapsed < time.Hour {
+					timingStr = fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
+				} else {
+					timingStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
+				}
+				fmt.Printf("    Last check: %s\n", timingStr)
+			}
+		}
+		fmt.Println()
+	}
 }
 
 // formatRuntimeType formats runtime type for display.
