@@ -75,6 +75,8 @@ type ConnectionManager struct {
 	consecutiveFailures     int
 	assignedIP              string
 	assignedSubnet          string
+	currentEndpoint         string // Tracks the currently configured WireGuard endpoint
+	lastSuccessfulEndpoint  string // Tracks the last WireGuard endpoint that successfully connected
 
 	// Reconnection control
 	reconnectTrigger chan struct{}
@@ -218,6 +220,37 @@ func (cm *ConnectionManager) GetColonyInfo() *discoverypb.LookupColonyResponse {
 	return cm.colonyInfo
 }
 
+// GetLastSuccessfulEndpoint returns the last WireGuard endpoint that successfully connected.
+func (cm *ConnectionManager) GetLastSuccessfulEndpoint() string {
+	cm.stateMu.RLock()
+	defer cm.stateMu.RUnlock()
+	return cm.lastSuccessfulEndpoint
+}
+
+// SetLastSuccessfulEndpoint updates the last successful WireGuard endpoint.
+func (cm *ConnectionManager) SetLastSuccessfulEndpoint(endpoint string) {
+	cm.stateMu.Lock()
+	defer cm.stateMu.Unlock()
+	cm.lastSuccessfulEndpoint = endpoint
+	cm.logger.Info().
+		Str("endpoint", endpoint).
+		Msg("Updated last successful WireGuard endpoint")
+}
+
+// SetCurrentEndpoint updates the currently configured WireGuard endpoint.
+func (cm *ConnectionManager) SetCurrentEndpoint(endpoint string) {
+	cm.stateMu.Lock()
+	defer cm.stateMu.Unlock()
+	cm.currentEndpoint = endpoint
+}
+
+// GetCurrentEndpoint returns the currently configured WireGuard endpoint.
+func (cm *ConnectionManager) GetCurrentEndpoint() string {
+	cm.stateMu.RLock()
+	defer cm.stateMu.RUnlock()
+	return cm.currentEndpoint
+}
+
 // AttemptRegistration attempts to register with the colony.
 // Returns the assigned IP and subnet on success, or an error on failure.
 // Returns an error if colony info is not available (discovery hasn't succeeded yet).
@@ -318,11 +351,18 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 			return false
 		}
 
-		// Success - reset failure counter.
+		// Success - reset failure counter and record successful endpoint.
 		cm.consecutiveFailures = 0
 		cm.lastSuccessfulHeartbeat = time.Now()
 		cm.setState(StateHealthy)
 		cm.backoff.Reset()
+
+		// Record the current endpoint as successful since heartbeats are working.
+		// This means the WireGuard tunnel is established and functional.
+		currentEndpoint := cm.GetCurrentEndpoint()
+		if currentEndpoint != "" && currentEndpoint != cm.GetLastSuccessfulEndpoint() {
+			cm.SetLastSuccessfulEndpoint(currentEndpoint)
+		}
 
 		cm.logger.Debug().
 			Str("agent_id", cm.agentID).
@@ -567,7 +607,11 @@ func (cm *ConnectionManager) GetColonyEndpoint() string {
 		return ""
 	}
 
+	// Get last successful endpoint for prioritization.
+	lastSuccessful := cm.GetLastSuccessfulEndpoint()
+
 	// Try observed endpoints first (NAT traversal).
+	// These take highest priority as they're discovered via STUN for NAT traversal.
 	for _, observedEp := range colonyInfo.ObservedEndpoints {
 		if observedEp == nil || observedEp.Ip == "" {
 			continue
@@ -579,21 +623,16 @@ func (cm *ConnectionManager) GetColonyEndpoint() string {
 			continue
 		}
 
-		return net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
+		endpoint := net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
+		cm.SetCurrentEndpoint(endpoint)
+		cm.logger.Debug().
+			Str("endpoint", endpoint).
+			Msg("Selected observed endpoint for WireGuard connection")
+		return endpoint
 	}
 
-	// Fall back to regular endpoints.
-	for _, ep := range colonyInfo.Endpoints {
-		if ep == "" {
-			continue
-		}
-
-		host, _, err := net.SplitHostPort(ep)
-		if err != nil || host == "" {
-			continue
-		}
-
-		// Determine WireGuard port.
+	// Helper function to determine WireGuard port.
+	getWireGuardPort := func() uint32 {
 		wgPort := uint32(51820) // Default
 		if len(colonyInfo.ObservedEndpoints) > 0 && colonyInfo.ObservedEndpoints[0] != nil && colonyInfo.ObservedEndpoints[0].Port > 0 {
 			wgPort = colonyInfo.ObservedEndpoints[0].Port
@@ -604,8 +643,61 @@ func (cm *ConnectionManager) GetColonyEndpoint() string {
 				}
 			}
 		}
+		return wgPort
+	}
 
-		return net.JoinHostPort(host, fmt.Sprintf("%d", wgPort))
+	wgPort := getWireGuardPort()
+
+	// Fall back to regular endpoints.
+	// Strategy: Try last successful endpoint first if available, then try remaining endpoints.
+	// This provides automatic failover while remembering what worked before.
+
+	// First pass: Try last successful endpoint if it's still in the list.
+	if lastSuccessful != "" {
+		for _, ep := range colonyInfo.Endpoints {
+			if ep == "" {
+				continue
+			}
+
+			host, _, err := net.SplitHostPort(ep)
+			if err != nil || host == "" {
+				continue
+			}
+
+			endpoint := net.JoinHostPort(host, fmt.Sprintf("%d", wgPort))
+			if endpoint == lastSuccessful {
+				cm.SetCurrentEndpoint(endpoint)
+				cm.logger.Info().
+					Str("endpoint", endpoint).
+					Msg("Reusing last successful WireGuard endpoint")
+				return endpoint
+			}
+		}
+	}
+
+	// Second pass: Try other endpoints.
+	for _, ep := range colonyInfo.Endpoints {
+		if ep == "" {
+			continue
+		}
+
+		host, _, err := net.SplitHostPort(ep)
+		if err != nil || host == "" {
+			continue
+		}
+
+		endpoint := net.JoinHostPort(host, fmt.Sprintf("%d", wgPort))
+
+		// Skip if this was the last successful (already tried above).
+		if endpoint == lastSuccessful {
+			continue
+		}
+
+		cm.SetCurrentEndpoint(endpoint)
+		cm.logger.Info().
+			Str("endpoint", endpoint).
+			Msg("Selected new WireGuard endpoint")
+		return endpoint
 	}
 
 	return ""
