@@ -243,7 +243,14 @@ Examples:
 
 			// Create and start WireGuard device (RFD 019: without peer, without IP).
 			// This also performs STUN discovery before starting WireGuard to avoid port conflicts.
-			wgDevice, agentObservedEndpoint, colonyEndpoint, err := setupAgentWireGuard(agentKeys, colonyInfo, stunServers, enableRelay, wgPort, logger)
+			wgDevice, agentObservedEndpoint, _, err := setupAgentWireGuard(
+				agentKeys,
+				colonyInfo,
+				stunServers,
+				enableRelay,
+				wgPort,
+				logger,
+			)
 			if err != nil {
 				return fmt.Errorf("failed to setup WireGuard: %w", err)
 			}
