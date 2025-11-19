@@ -93,7 +93,7 @@
                                 <li>MCP Server (Genkit)</li>
                                 <li>Service Health & Query</li>
                                 <li>RBAC & Audit Logging</li>
-                                <li>DuckDB Aggregation</li>
+                                <li>Telemetry Aggregation (DuckDB)</li>
                             </ul>
                         </div>
                     </div>
@@ -116,7 +116,8 @@
                             <ul class="node-features">
                                 <li>eBPF (Beyla) Metrics</li>
                                 <li>OTLP Receiver</li>
-                                <li>Local DuckDB</li>
+                                <li>Telemetry (DuckDB)</li>
+                                <li>shell/exec</li>
                                 <li>Live Probes</li>
                             </ul>
                         </div>
@@ -199,15 +200,17 @@
                     </div>
                     <div class="feature-item-large">
                         <h3>📊 Edge-Based Observability</h3>
-                        <p>Agents run on each service with local DuckDB storage for recent data (~1hr rolling window).
+                        <p>Agents run on each service (sidecar or node agent) with local DuckDB storage for recent data
+                            (~6hr rolling window).
                             Colony polls agents for summaries, reducing network overhead while maintaining fast queries
                             for detailed telemetry.</p>
                     </div>
                     <div class="feature-item-large">
                         <h3>🎯 Progressive Integration</h3>
                         <p>Start with Level 0 (zero-config eBPF), optionally add Level 1 (OTLP for OpenTelemetry apps),
-                            Level 2 (shell/exec diagnostics), and Level 3 (SDK live probes). Each level adds capability
-                            without breaking existing functionality.</p>
+                            Level 2 (shell/exec diagnostics), and Level 3 (SDK Live Probes): App owners can integrate a
+                            language-specific SDK to launch a runtime bridge with the agent, enabling live probes and
+                            deep runtime control.</p>
                     </div>
                 </div>
             </div>
