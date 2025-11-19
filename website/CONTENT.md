@@ -433,11 +433,8 @@ coral ask "What's happening with the API?"
 - How It Works
 - Docs
 - GitHub
-- Concept
-- Issues
-- License
 
-**Copyright:** © 2024 Coral
+**Copyright:** © 2025 Coral
 
 ---
 
