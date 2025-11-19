@@ -16,8 +16,8 @@ import (
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/pkg/logging"
-	wg "github.com/coral-io/coral/pkg/wireguard"
+	"github.com/coral-io/coral/internal/logging"
+	wg "github.com/coral-io/coral/internal/wireguard"
 )
 
 // ConnectionState represents the current state of the agent's connection to the colony.
@@ -59,7 +59,7 @@ type ConnectionManager struct {
 	config       *config.ResolvedConfig
 	serviceSpecs []*ServiceSpec
 	agentPubKey  string
-	wgDevice     wg.Device
+	wgDevice     *wg.Device
 	logger       logging.Logger
 
 	// State tracking
@@ -115,7 +115,7 @@ func NewConnectionManager(
 	cfg *config.ResolvedConfig,
 	serviceSpecs []*ServiceSpec,
 	agentPubKey string,
-	wgDevice wg.Device,
+	wgDevice *wg.Device,
 	logger logging.Logger,
 ) *ConnectionManager {
 	return &ConnectionManager{
