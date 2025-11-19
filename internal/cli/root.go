@@ -14,20 +14,21 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "coral",
-	Short: "Coral - Unified Operations for Distributed Apps",
-	Long: `Coral is an application intelligence mesh for debugging distributed apps
-across fragmented infrastructure (laptop, VMs, K8s, clouds).
+	Short: "Coral - LLM-orchestrated debugging for distributed apps",
+	Long: `Turn fragmented infrastructure into one intelligent system.
+Debug across laptop, VMs, K8s, and clouds with natural language queries.
 
 Three-tier architecture:
-- Colony: Control plane coordinator and MCP gateway for AI integration
+- Colony: Central coordinator with MCP server for universal AI integration
 - Agents: Local observers with zero-config eBPF instrumentation
-- CLI: Developer interface with AI assistant and service management
+- CLI: Developer interface (coral ask, coral connect, etc.)
 
 Key capabilities:
-- WireGuard mesh unifies fragmented infrastructure
-- Zero-config observability via eBPF (no code changes)
-- On-demand live debugging and instrumentation
-- AI-powered insights using your LLM (OpenAI/Anthropic/Ollama)`,
+- Natural language debugging: Ask questions, get root cause analysis
+- Universal AI: Works with Claude Desktop, IDEs, any MCP client
+- Zero-config observability: eBPF metrics without code changes
+- Live debugging: On-demand instrumentation across your mesh
+- Your LLM: Use OpenAI/Anthropic/Ollama - you control the AI`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
