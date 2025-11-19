@@ -218,7 +218,7 @@ using the existing infrastructure established by RFD 025 (OTLP receiver) and RFD
     - `BeylaTraceSpan` message already defined (RFD 032)—no new messages needed
 
 4. **Configuration**:
-    - Agent: `beyla.storage_retention_hours_traces` (default: 1 hour)
+    - Agent: `beyla.storage_retention_hours_traces` (default: 6 hours)
     - Colony: `beyla.trace_retention_days` (default: 7 days)
     - Colony: `beyla.trace_sampling_rate` (optional, default: 1.0 = 100%)
 
@@ -230,8 +230,8 @@ beyla:
     enabled: true
 
     # Local storage retention
-    storage_retention_hours: 1          # RED metrics retention
-    storage_retention_hours_traces: 1   # Trace retention (separate setting)
+    storage_retention_hours: 6          # RED metrics retention
+    storage_retention_hours_traces: 6   # Trace retention (separate setting)
 
     # Sampling (applied by Beyla process)
     sampling:

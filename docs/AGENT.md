@@ -9,7 +9,7 @@ The agent operates on a **pull-based architecture**:
 
 - Receives OpenTelemetry (OTLP) traces from your applications
 - Applies static filtering rules to reduce data volume
-- Stores filtered spans locally (~1 hour retention)
+- Stores filtered spans locally (~6 hours retention)
 - Responds to colony queries for recent telemetry data
 
 ## Table of Contents
@@ -128,8 +128,8 @@ beyla:
     # Local storage retention (hours)
     # How long to keep Beyla metrics in agent's local DuckDB before cleanup.
     # Should be >= colony poll interval to prevent data loss.
-    # Default: 1 hour
-    storage_retention_hours: 1
+    # Default: 6 hours
+    storage_retention_hours: 6
 
     # Discovery: which processes to instrument
     discovery:
@@ -222,8 +222,8 @@ telemetry:
     http_endpoint: "0.0.0.0:4318"
 
     # Local storage retention (hours).
-    # Default: 1 hour (aligns with pull-based architecture)
-    storage_retention_hours: 1
+    # Default: 6 hours (aligns with pull-based architecture)
+    storage_retention_hours: 6
 
     # Static filtering rules.
     filters:
@@ -353,7 +353,7 @@ telemetry:
     disabled: false
     grpc_endpoint: "127.0.0.1:4317"  # Localhost only
     http_endpoint: "127.0.0.1:4318"  # Localhost only
-    storage_retention_hours: 1
+    storage_retention_hours: 6
     filters:
         always_capture_errors: true
         high_latency_threshold_ms: 500.0
@@ -381,7 +381,7 @@ telemetry:
     disabled: false
     grpc_endpoint: "0.0.0.0:4317"  # All interfaces
     http_endpoint: "0.0.0.0:4318"  # All interfaces
-    storage_retention_hours: 1
+    storage_retention_hours: 6
     filters:
         always_capture_errors: true
         high_latency_threshold_ms: 500.0
@@ -428,7 +428,7 @@ telemetry:
     disabled: false
     grpc_endpoint: "0.0.0.0:4317"
     http_endpoint: "0.0.0.0:4318"
-    storage_retention_hours: 1
+    storage_retention_hours: 6
     filters:
         always_capture_errors: true
         high_latency_threshold_ms: 1000.0  # Higher threshold for K8s
@@ -498,7 +498,7 @@ journalctl -u coral-agent -f
 **Solutions**:
 
 1. Reduce `sample_rate` (e.g., `0.05` instead of `0.10`)
-2. Reduce `storage_retention_hours` to `1`
+2. Reduce `storage_retention_hours` (e.g., to `1` or `2` hours)
 3. Increase `high_latency_threshold_ms` to reduce captured spans
 4. Check application for span explosion (e.g., tracing in hot loops)
 
@@ -561,7 +561,7 @@ duckdb /var/lib/coral-agent/telemetry.db "SELECT COUNT(*) FROM otel_spans_local;
                   ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Local Storage (DuckDB/SQLite)                              │
-│  • Retention: ~1 hour                                       │
+│  • Retention: ~6 hours                                      │
 │  • Table: otel_spans_local                                  │
 │  • Indexed by timestamp, service_name                       │
 └─────────────────┬───────────────────────────────────────────┘
@@ -607,8 +607,8 @@ duckdb /var/lib/coral-agent/telemetry.db "SELECT COUNT(*) FROM otel_spans_local;
 **Disk**:
 
 - **Database size**: ~1 KB per span (compressed)
-- **1 hour retention @ 1k spans/sec**: ~3.6 GB
-- **1 hour retention @ 100 spans/sec**: ~360 MB
+- **6 hours retention @ 1k spans/sec**: ~21.6 GB
+- **6 hours retention @ 100 spans/sec**: ~2.16 GB
 
 ### Recommended Instance Sizes
 

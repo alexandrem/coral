@@ -31,7 +31,7 @@ Coral uses a **layered storage architecture** to achieve horizontal scalability 
 │ DuckDB: │  │ DuckDB: │  │ DuckDB: │  │ DuckDB: │
 │ • Raw   │  │ • Raw   │  │ • Raw   │  │ • Raw   │
 │   metrics│  │   metrics│  │   metrics│  │   metrics│
-│   (~1hr)│  │   (~1hr)│  │   (~1hr)│  │   (~1hr)│
+│   (~6hr)│  │   (~6hr)│  │   (~6hr)│  │   (~6hr)│
 │ • Events│  │ • Events│  │ • Events│  │ • Events│
 │ • Proc  │  │ • Proc  │  │ • Proc  │  │ • Proc  │
 │   stats │  │   stats │  │   stats │  │   stats │
@@ -49,11 +49,11 @@ Coral uses a **layered storage architecture** to achieve horizontal scalability 
 **Purpose**: Store recent high-resolution data locally on each agent
 
 **What agents store**:
-- **Raw metrics** (~1 hour retention)
+- **Raw metrics** (~6 hours retention)
     - Process metrics: CPU, memory, file descriptors, threads
     - Network metrics: Connection counts, bandwidth, errors
     - Custom metrics: Scraped from Prometheus endpoints
-- **Event log** (last 1 hour)
+- **Event log** (last 6 hours)
     - Process lifecycle events (start, stop, crash)
     - Network connection events (new connections, failures)
     - Health check results
@@ -102,8 +102,8 @@ CREATE TABLE process_snapshots (
 ```
 
 **Retention Policy**:
-- Keep raw data for **~1 hour** (configurable)
-- After 1 hour, data is either:
+- Keep raw data for **~6 hours** (configurable)
+- After 6 hours, data is either:
     - Archived to colony (for important events)
     - Discarded (for routine metrics already summarized)
 - Automatic cleanup via DuckDB TTL or scheduled deletion
@@ -369,7 +369,7 @@ When an agent goes offline:
 ### Scalability Benefits
 
 **Horizontal Scaling**:
-- Each agent stores only its local data (~1 hour)
+- Each agent stores only its local data (~6 hours)
 - Storage grows linearly with fleet size, not centrally
 - Agents can be added/removed without colony bottleneck
 

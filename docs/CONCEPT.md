@@ -475,7 +475,7 @@ Think of Coral as giving your distributed system **sensory nerves, a spinal cord
    │         │ │        │ │        │      + recent raw data)
    │ Local   │ │ Local  │ │ Local  │  ← Agent storage:
    │ Store   │ │ Store  │ │ Store  │     Recent high-res data
-   └───┬─────┘ └──┬─────┘ └──┬─────┘     (~1 hour raw metrics)
+   └───┬─────┘ └──┬─────┘ └──┬─────┘     (~6 hours raw metrics)
        │          │          │
    ┌───▼─────┐ ┌──▼─────┐ ┌──▼─────┐
    │Frontend │ │  API   │ │   DB   │  ← Your app components
@@ -529,7 +529,7 @@ Agent observes locally (every 10-30s):
 ```
 
 **Sent to colony**: Compressed summaries every 10-60s depending on change rate.
-**Agent stores locally**: Recent raw data (~1 hour window) for on-demand queries.
+**Agent stores locally**: Recent raw data (~6 hours window) for on-demand queries.
 
 **2. Layered Storage (The Brain + Distributed Memory)**
 
@@ -550,7 +550,7 @@ The system uses a **layered storage architecture** for scalability:
                       ↕
 ┌─────────────────────────────────────────────┐
 │  AGENT LAYER (Recent Raw Data)              │
-│  • High-resolution metrics (~1 hour)        │
+│  • High-resolution metrics (~6 hours)       │
 │  • Detailed event logs (local services)     │
 │  • Process-level observations               │
 │  • Network connection details               │
@@ -851,7 +851,7 @@ Unlike monitoring tools:
 ### 1. Self-Sufficient Local Intelligence with Layered Storage
 - Rich local data collection (agents observe deeply, not just metrics)
 - **Layered storage architecture** for horizontal scalability
-  - Agents: Recent raw data (~1 hour) locally stored
+  - Agents: Recent raw data (~6 hours) locally stored
   - Colony: Summaries and historical patterns across agents
   - On-demand detail retrieval via bidirectional queries
   - Graceful degradation when agents temporarily offline

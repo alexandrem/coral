@@ -344,8 +344,8 @@ beyla:
         rate: 1.0                     # 100% sampling (adjust if overhead too high)
 
     # Local storage retention (hours)
-    storage_retention_hours: 1        # How long to keep metrics in agent's local DuckDB
-    # Should be >= colony poll interval (default: 1 hour)
+    storage_retention_hours: 6        # How long to keep metrics in agent's local DuckDB
+    # Should be >= colony poll interval (default: 6 hours)
 
     # Resource limits
     limits:

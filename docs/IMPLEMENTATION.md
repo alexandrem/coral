@@ -22,7 +22,7 @@
 ### Agent
 
 - **Language**: Go
-- **Storage**: DuckDB (embedded, ~1 hour raw data retention)
+- **Storage**: DuckDB (embedded, ~6 hours raw data retention)
 - **Size**: <10MB binary, <50MB RAM usage (including local DuckDB)
 - **Deps**: Minimal (networking, process monitoring, local storage)
 - **Query API**: gRPC endpoints for colony to query local data
@@ -146,7 +146,7 @@ CREATE TABLE baselines (
 );
 ```
 
-**Agent DuckDB Schema** (Recent Raw Data ~1 hour):
+**Agent DuckDB Schema** (Recent Raw Data ~6 hours):
 ```sql
 -- Time-series metrics (high-resolution)
 CREATE TABLE metrics (
@@ -1743,8 +1743,8 @@ CREATE INDEX idx_traffic_timestamp ON traffic_samples(timestamp);
 CREATE INDEX idx_traffic_path ON traffic_samples(path);
 CREATE INDEX idx_traffic_status ON traffic_samples(status_code);
 
--- Auto-cleanup old samples (1 hour retention)
-DELETE FROM traffic_samples WHERE timestamp < NOW() - INTERVAL '1 hour';
+-- Auto-cleanup old samples (6 hours retention)
+DELETE FROM traffic_samples WHERE timestamp < NOW() - INTERVAL '6 hours';
 ```
 
 **Performance Targets**:
@@ -2433,7 +2433,7 @@ spec:
 ### 6. DuckDB for layered storage - decided!
 - **Decision**: Use DuckDB for both colony and agent storage
 - **Why**: Columnar storage optimized for analytical queries, perfect for time-series data
-- **Layered approach**: Agents store recent raw data (~1 hour), colony stores summaries + historical data
+- **Layered approach**: Agents store recent raw data (~6 hours), colony stores summaries + historical data
 - **Scalability**: Horizontal scaling through distributed agent storage, colony queries agents on-demand
 - **Performance**: <100ms queries on colony summaries, <500ms for agent detail queries
 - **Migration path**: Can add multi-colony federation in Phase 3 if needed

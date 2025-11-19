@@ -21,7 +21,7 @@ type Config struct {
 	AgentID string
 
 	// StorageRetentionHours defines how long to keep spans in local storage.
-	// Default: 1 hour (pull-based architecture - colony queries recent data).
+	// Default: 6 hours (pull-based architecture - colony queries recent data).
 	StorageRetentionHours int
 }
 
@@ -47,7 +47,7 @@ func DefaultConfig() Config {
 		Disabled:              false,
 		GRPCEndpoint:          "0.0.0.0:4317",
 		HTTPEndpoint:          "0.0.0.0:4318",
-		StorageRetentionHours: 1,
+		StorageRetentionHours: 6,
 		Filters: FilterConfig{
 			AlwaysCaptureErrors:    true,
 			HighLatencyThresholdMs: 500.0,

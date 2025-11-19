@@ -53,7 +53,7 @@ Agents run on each service or container to provide edge-based observability:
   application traffic
 - **OTLP Collection:** Collects telemetry from instrumented applications using
   OpenTelemetry SDKs
-- **Local Storage:** Stores recent data (~1hr rolling window) in embedded DuckDB
+- **Local Storage:** Stores recent data (~6hr rolling window) in embedded DuckDB
   for fast queries and reduced network overhead
 - **Health Reporting:** Sends periodic health and telemetry summaries to Colony
 - **Command Execution:** Executes commands from Colony (via Delegate JWTs) for
