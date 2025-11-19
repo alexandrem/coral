@@ -14,18 +14,51 @@ type IPAllocation struct {
 }
 
 // StoreIPAllocation persists an IP allocation to the database.
+// Uses ON CONFLICT to handle both new allocations and updates atomically.
 func (d *Database) StoreIPAllocation(agentID, ipAddress string) error {
+	now := time.Now()
+
+	// First, check if this is a new allocation for logging purposes
+	var exists bool
+	checkQuery := `SELECT COUNT(*) > 0 FROM agent_ip_allocations WHERE agent_id = ?`
+	err := d.db.QueryRow(checkQuery, agentID).Scan(&exists)
+
+	if err == nil && !exists {
+		d.logger.Info().
+			Str("agent_id", agentID).
+			Str("ip_address", ipAddress).
+			Str("db_path", d.path).
+			Msg("Storing new IP allocation to database")
+	} else if err == nil {
+		d.logger.Debug().
+			Str("agent_id", agentID).
+			Str("ip_address", ipAddress).
+			Msg("Updating existing IP allocation")
+	}
+
+	// Use ON CONFLICT with explicit conflict target (agent_id).
+	// On conflict, only update last_seen timestamp, preserving allocated_at.
 	query := `
 		INSERT INTO agent_ip_allocations (agent_id, ip_address, allocated_at, last_seen)
 		VALUES (?, ?, ?, ?)
-		ON CONFLICT(agent_id) DO UPDATE SET
+		ON CONFLICT (agent_id) DO UPDATE SET
 			last_seen = excluded.last_seen
 	`
-
-	now := time.Now()
-	_, err := d.db.Exec(query, agentID, ipAddress, now, now)
+	_, err = d.db.Exec(query, agentID, ipAddress, now, now)
 	if err != nil {
+		d.logger.Error().
+			Err(err).
+			Str("agent_id", agentID).
+			Str("ip_address", ipAddress).
+			Msg("Failed to store IP allocation")
 		return fmt.Errorf("failed to store IP allocation: %w", err)
+	}
+
+	if !exists {
+		d.logger.Info().
+			Str("agent_id", agentID).
+			Str("ip_address", ipAddress).
+			Msg("✅ IP allocation stored successfully")
 	}
 
 	return nil

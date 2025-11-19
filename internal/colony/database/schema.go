@@ -229,5 +229,4 @@ var schemaDDL = []string{
 	)`,
 
 	`CREATE INDEX IF NOT EXISTS idx_agent_ip_allocations_ip ON agent_ip_allocations(ip_address)`,
-	`CREATE INDEX IF NOT EXISTS idx_agent_ip_allocations_last_seen ON agent_ip_allocations(last_seen)`,
 }
