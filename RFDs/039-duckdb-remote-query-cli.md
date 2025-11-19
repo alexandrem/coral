@@ -123,12 +123,16 @@ infrastructure.
   API limitations.
 - **No API versioning burden**: Schema changes to agent/colony tables don't
   break CLI queries (callers adapt SQL).
-- **Minimal implementation**: ~300 lines of code (HTTP handlers + CLI wrapper
-  around DuckDB Go driver).
+- **Minimal implementation**: ~150 lines of code (HTTP handlers + thin CLI wrapper
+  that launches `duckdb` CLI).
+- **Full REPL features for free**: No need to implement readline, command
+  history, auto-completion, or meta-commands - users get the native DuckDB REPL.
 - **Read-only by default**: DuckDB's `ATTACH` over HTTP is inherently read-only,
   preventing accidental writes.
 - **Solves concurrent access problem**: External clients can query
   agent/colony databases while they maintain exclusive locks for writes.
+- **Zero Go dependencies**: No need for DuckDB Go driver or readline libraries -
+  just `exec.Command` and standard library.
 
 **Architecture Overview:**
 
@@ -227,18 +231,23 @@ infrastructure.
       serving raw file bytes without opening a DuckDB connection.
 
 3. **CLI (new `duckdb` command)**:
-    - `coral duckdb shell <target>`: Opens interactive DuckDB shell attached to
-      agent or colony (target can be `agent-id`, `colony`, or `colony-id`).
-    - `coral duckdb query <target> <sql>`: Executes one-shot query and prints
-      results.
+    - `coral duckdb shell <target>`: Launches the standard `duckdb` CLI with
+      pre-attached remote databases (target can be `agent-id`, `colony`, or
+      `colony-id`).
+    - `coral duckdb query <target> <sql>`: Executes one-shot query using
+      `duckdb` CLI and prints results.
     - `coral duckdb list-agents`: Shows agents with Beyla metrics enabled.
     - `coral duckdb list-colonies`: Shows available colony databases.
     - CLI resolves agent/colony IDs to WireGuard mesh IPs via colony registry.
-    - Uses DuckDB Go driver with `httpfs` extension to attach remote databases.
+    - **Implementation approach**: Thin wrapper that constructs ATTACH URLs and
+      launches the native `duckdb` CLI binary (not a custom REPL).
+    - Benefits: Full DuckDB REPL features (command history, auto-completion,
+      syntax highlighting, meta-commands) for free.
 
 4. **Dependencies**:
-    - Add `github.com/marcboeker/go-duckdb` (DuckDB Go driver) to CLI binary.
-    - Add `github.com/chzyer/readline` for interactive shell support.
+    - Require `duckdb` CLI binary in PATH (users install via package manager or
+      download from duckdb.org).
+    - No additional Go dependencies for REPL (standard library only).
 
 **Configuration Example:**
 
@@ -247,25 +256,34 @@ and DuckDB storage. Operators must have:
 
 - Access to WireGuard mesh (existing requirement for `coral` CLI).
 - Agent/colony ID or ability to query colony registry.
+- `duckdb` CLI binary in PATH (install via `brew install duckdb`, `apt install duckdb`, or download from duckdb.org).
 
 ```bash
 # Interactive shell - agent (recent metrics, ~1 hour)
+# Internally runs: duckdb -cmd "ATTACH 'http://10.42.0.5:9001/duckdb/beyla.duckdb' AS agent_prod_1 (READ_ONLY);"
 coral duckdb shell agent-prod-1
 
 # Interactive shell - colony (historical metrics, 14-30 days)
+# Internally runs: duckdb -cmd "ATTACH 'http://10.42.0.1:9001/duckdb/alex-dev-0977e1.duckdb' AS colony (READ_ONLY);"
 coral duckdb shell colony
 
 # One-shot query - agent
+# Internally runs: duckdb -cmd "ATTACH ...; SELECT * FROM ..."
 coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10"
 
 # One-shot query - colony
 coral duckdb query colony "SELECT * FROM metric_summaries WHERE timestamp > now() - INTERVAL '7 days'"
 
 # Query across multiple agents (multi-attach)
+# Internally runs: duckdb -cmd "ATTACH ... AS agent_1; ATTACH ... AS agent_2; ATTACH ... AS agent_3;"
 coral duckdb shell --agents agent-1,agent-2,agent-3
 
 # Query both colony and agent data (federation)
+# Internally runs: duckdb -cmd "ATTACH ... AS colony; ATTACH ... AS agent_1;"
 coral duckdb shell --colony --agents agent-1
+
+# Advanced: Use duckdb CLI directly (if you know the mesh IP)
+duckdb -cmd "ATTACH 'http://10.42.0.5:9001/duckdb/beyla.duckdb' AS agent (READ_ONLY);"
 ```
 
 ## Implementation Plan
@@ -290,24 +308,33 @@ coral duckdb shell --colony --agents agent-1
 - [ ] Verify `http.ServeFile` works correctly while colony has exclusive
   DuckDB lock.
 
-### Phase 2: CLI DuckDB Command
+### Phase 2: CLI DuckDB Command (Thin Wrapper)
 
 - [ ] Create `internal/cli/duckdb/` package structure.
-- [ ] Implement `shell` subcommand with DuckDB Go driver integration.
-- [ ] Implement `query` subcommand for one-shot queries.
+- [ ] Implement `shell` subcommand:
+  - Resolve target ID(s) to mesh IPs.
+  - Generate ATTACH statement(s).
+  - Execute `duckdb -cmd "ATTACH ..."` using `exec.Command`.
+  - Pass through stdin/stdout/stderr for full REPL experience.
+- [ ] Implement `query` subcommand:
+  - Resolve target ID to mesh IP.
+  - Execute `duckdb -cmd "ATTACH ...; <user_query>"` using `exec.Command`.
+  - Capture and print output.
 - [ ] Implement `list-agents` subcommand using colony registry.
 - [ ] Implement `list-colonies` subcommand.
 - [ ] Add agent/colony address resolution via colony discovery/registry API.
 - [ ] Support target disambiguation (agent vs colony).
+- [ ] Add `--check-duckdb` flag to verify `duckdb` binary is in PATH.
 
-### Phase 3: Interactive Shell Features
+### Phase 3: Multi-Attach and Advanced Features
 
-- [ ] Add readline support for command history and editing.
-- [ ] Implement meta-commands (`.tables`, `.databases`, `.exit`, `.help`).
 - [ ] Add multi-agent attach support (`--agents` flag).
+  - Generate multiple ATTACH statements.
 - [ ] Add colony attach support (`--colony` flag).
 - [ ] Add combined attach support (`--colony --agents agent-1,agent-2`).
-- [ ] Support output formats (table, CSV, JSON) for `query` command.
+  - Generate ATTACH statements for colony + agents.
+- [ ] Support output format passthrough (users can use DuckDB's native `.mode` command).
+- [ ] Add `--init-file` flag to pass custom DuckDB initialization script.
 
 ### Phase 4: Testing & Documentation
 
@@ -848,6 +875,85 @@ None. Feature is enabled automatically if:
 - Useful for fleet-wide analysis.
 
 ## Appendix
+
+### Why Use Native `duckdb` CLI Instead of Custom REPL?
+
+**Design Decision:** The `coral duckdb` command is a **thin wrapper** that
+launches the native `duckdb` CLI binary, rather than implementing a custom REPL
+using the DuckDB Go driver.
+
+**Rationale:**
+
+1. **Full REPL features for free**: The native DuckDB CLI includes:
+   - Command history (readline/linenoise integration)
+   - Tab completion for SQL keywords, table names, column names
+   - Syntax highlighting
+   - Multi-line editing
+   - Meta-commands (`.tables`, `.schema`, `.mode`, `.output`, `.timer`, etc.)
+   - Output formatting (table, CSV, JSON, markdown, HTML, etc.)
+   - All continually improved by DuckDB maintainers
+
+2. **Minimal implementation**: Using `exec.Command` to launch `duckdb`:
+   ```go
+   cmd := exec.Command("duckdb", "-cmd", attachStmt)
+   cmd.Stdin = os.Stdin
+   cmd.Stdout = os.Stdout
+   cmd.Stderr = os.Stderr
+   return cmd.Run()
+   ```
+   This is ~20 lines of code vs ~500+ lines for a custom REPL.
+
+3. **No Go dependencies**: Avoids:
+   - `github.com/marcboeker/go-duckdb` (DuckDB Go driver, ~50MB compiled)
+   - `github.com/chzyer/readline` (readline library)
+   - Managing DuckDB version compatibility in Go
+
+4. **User familiarity**: Operators already familiar with `duckdb` CLI can use
+   the same commands and workflows.
+
+5. **Advanced features**: Users can leverage DuckDB's full CLI capabilities:
+   - `.read script.sql` to execute SQL files
+   - `.output file.csv` to redirect output
+   - `.timer on` to measure query performance
+   - `.explain` for query plans
+
+**Trade-offs:**
+
+- **Dependency**: Requires `duckdb` CLI binary in PATH.
+  - Mitigation: Easy to install via package managers (`brew install duckdb`,
+    `apt install duckdb`, `dnf install duckdb`).
+  - Fallback: Provide download instructions in error message if binary not
+    found.
+
+- **Version compatibility**: Different DuckDB versions may have different
+  features.
+  - Mitigation: Document minimum required DuckDB version (e.g., ≥1.0.0).
+  - Check version with `coral duckdb --check-duckdb` flag.
+
+**Implementation:**
+
+```go
+// Simplified example
+func shellCommand(target string, colonyClient *client.Colony) error {
+    // 1. Resolve target to mesh IP
+    meshIP, err := resolveTarget(target, colonyClient)
+    if err != nil {
+        return err
+    }
+
+    // 2. Construct ATTACH URL
+    attachURL := fmt.Sprintf("http://%s:9001/duckdb/beyla.duckdb", meshIP)
+    attachStmt := fmt.Sprintf("ATTACH '%s' AS %s (READ_ONLY);", attachURL, sanitize(target))
+
+    // 3. Launch native duckdb CLI
+    cmd := exec.Command("duckdb", "-cmd", attachStmt)
+    cmd.Stdin = os.Stdin
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+
+    return cmd.Run()
+}
+```
 
 ### DuckDB HTTP Attach Protocol
 
