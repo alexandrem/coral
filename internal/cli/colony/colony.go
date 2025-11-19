@@ -1358,6 +1358,14 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			logger.Info().
 				Int("tool_count", len(mcpServer.ListToolNames())).
 				Msg("MCP server initialized and attached to colony")
+
+			// Log all registered MCP tools.
+			toolNames := mcpServer.ListToolNames()
+			if len(toolNames) > 0 {
+				logger.Info().
+					Strs("tools", toolNames).
+					Msg("Registered MCP tools")
+			}
 		}
 	} else {
 		logger.Info().Msg("MCP server is disabled in configuration")
