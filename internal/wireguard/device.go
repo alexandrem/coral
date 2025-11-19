@@ -27,7 +27,7 @@ type Device struct {
 	wgDevice    *device.Device
 	tunDevice   tun.Device
 	iface       *Interface
-	ipAllocator Allocator      // IP allocator interface (can be IPAllocator or PersistentIPAllocator).
+	ipAllocator Allocator              // IP allocator interface (can be IPAllocator or PersistentIPAllocator).
 	peers       map[string]*PeerConfig // publicKey -> PeerConfig
 	mu          sync.RWMutex
 	wgLogger    *device.Logger // WireGuard internal logger.
