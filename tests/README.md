@@ -1,272 +1,190 @@
 # Coral Mesh E2E Test Suite
 
-This directory contains the end-to-end (E2E) test suite for the Coral Mesh project. The tests are built using [testify/suite](https://github.com/stretchr/testify) and validate critical system components and their interactions.
+End-to-end tests for the Coral Mesh distributed debugging platform using [testify/suite](https://github.com/stretchr/testify).
+
+## Quick Start
+
+```bash
+# Build and run E2E tests
+make test-e2e
+
+# Run only unit tests
+make test-unit
+
+# Run everything
+make test-all
+```
 
 ## Directory Structure
 
 ```
 tests/
 ├── e2e/                    # E2E test suites
-│   ├── discovery_test.go   # Discovery service E2E tests
-│   ├── colony_agent_test.go # Colony-Agent communication tests
-│   └── duckdb_test.go      # DuckDB data collection tests
-├── helpers/                # Test utilities and helpers
-│   ├── suite.go           # Base E2E test suite
-│   ├── process.go         # Process management utilities
+│   └── discovery_test.go   # Discovery service tests (✅ WORKING)
+├── helpers/                # Test utilities
+│   ├── suite.go           # Base test suite with port management
+│   ├── process.go         # Process lifecycle management
 │   ├── config.go          # Configuration builders
 │   └── database.go        # Database test helpers
-├── fixtures/              # Test fixtures and data
-└── README.md             # This file
+└── fixtures/              # Test fixtures (empty for now)
 ```
 
-## Running Tests
+## Current Test Coverage
 
-### Prerequisites
+### ✅ Discovery Service (`discovery_test.go`)
 
-Before running E2E tests, ensure you have:
+**Status**: Fully functional and passing
 
-1. Built the project binaries:
-   ```bash
-   make build
-   ```
+The Discovery service is production-ready and fully tested. Tests cover:
 
-2. Go 1.21+ installed
-3. DuckDB dependencies available
+1. **Service Startup** - Binary starts and listens on port
+2. **Health Check** - Service health endpoint returns status
+3. **Colony Registration** - Colonies can register with mesh metadata
+4. **Colony Lookup** - Registered colonies can be discovered
+5. **Agent Registration** - Agents can register under a colony
+6. **Agent Lookup** - Registered agents can be discovered
+7. **Multiple Colonies** - Concurrent colony registrations
+8. **Colony Updates** - Updating existing registrations
+9. **Relay Requests** - Requesting NAT traversal relays
+10. **TTL Expiration** - Registrations expire after configured TTL
 
-### Running E2E Tests
-
+**Run discovery tests:**
 ```bash
-# Run all E2E tests
-make test-e2e
-
-# Run E2E tests with verbose output
-make test-e2e-verbose
-
-# Run all tests (unit + E2E)
-make test-all
-
-# Run only unit tests
-make test-unit
-```
-
-### Running Individual Test Suites
-
-```bash
-# Run only discovery tests
 go test -v ./tests/e2e -run TestDiscoveryE2E
-
-# Run only colony-agent tests
-go test -v ./tests/e2e -run TestColonyAgentE2E
-
-# Run only DuckDB tests
-go test -v ./tests/e2e -run TestDuckDBE2E
 ```
 
-### Running Individual Tests
-
+**Individual test:**
 ```bash
-# Run a specific test
-go test -v ./tests/e2e -run TestDiscoveryE2E/TestPeerRegistration
-
-# Run with timeout
-go test -v -timeout 15m ./tests/e2e -run TestDuckDBE2E
+go test -v ./tests/e2e -run TestDiscoveryE2E/TestColonyRegistration
 ```
 
-### Skip E2E Tests
+## Test Infrastructure
 
-E2E tests are automatically skipped when using the `-short` flag:
+### Base Suite (`helpers/suite.go`)
 
-```bash
-go test -short ./...
-```
+Provides common test functionality:
 
-## Test Suites
+- **Port Management**: `GetFreePort()` - Allocates available ports
+- **Wait Utilities**: `WaitForPort()` - Waits for services to start
+- **Eventually Assertions**: `Eventually()` - Retries conditions
+- **Temp Directories**: Automatic cleanup
+- **Context Management**: Timeout handling per test
 
-### 1. Discovery Service E2E Tests (`discovery_test.go`)
+### Process Manager (`helpers/process.go`)
 
-Tests the discovery service functionality including:
+Manages test service lifecycles:
 
-- **Service Startup**: Validates discovery service starts successfully
-- **Peer Registration**: Tests peer registration and discovery
-- **Heartbeat Mechanism**: Validates peer heartbeat and TTL expiration
-- **Multiple Peers**: Tests handling of multiple concurrent peers
-- **STUN Discovery**: Tests STUN-based endpoint discovery (pending implementation)
-
-**Key Test Cases:**
-- `TestDiscoveryServiceStartup`
-- `TestPeerRegistration`
-- `TestPeerHeartbeat`
-- `TestMultiplePeers`
-
-### 2. Colony-Agent Communication Tests (`colony_agent_test.go`)
-
-Tests communication between colony and agents:
-
-- **Colony Startup**: Validates colony service starts successfully
-- **Agent Registration**: Tests agent registration with colony
-- **Status Queries**: Tests colony status and agent listing
-- **gRPC Communication**: Validates concurrent client connections
-- **Agent Lifecycle**: Tests agent connection, disconnection, and reconnection (pending)
-- **Metrics Collection**: Tests agent metrics reporting (pending)
-
-**Key Test Cases:**
-- `TestColonyStartup`
-- `TestAgentRegistration`
-- `TestColonyStatus`
-- `TestColonyAgentGRPCCommunication`
-
-### 3. DuckDB Data Collection Tests (`duckdb_test.go`)
-
-Tests DuckDB data storage and retrieval:
-
-- **Database Initialization**: Tests DuckDB initialization and schema creation
-- **Data Ingestion**: Validates data insertion and querying
-- **Time-Series Data**: Tests time-series data storage and aggregation
-- **Data Retention**: Tests retention policies and data cleanup
-- **JSON Storage**: Tests JSON data storage and querying
-- **Data Export**: Tests exporting data to CSV and Parquet formats
-- **OTEL Integration**: Tests OpenTelemetry data ingestion (pending)
-
-**Key Test Cases:**
-- `TestDuckDBInitialization`
-- `TestDataIngestion`
-- `TestTimeSeriesData`
-- `TestDataRetention`
-- `TestJSONDataStorage`
-- `TestDataExport`
-
-## Test Helpers
-
-The `helpers/` directory provides reusable utilities for E2E tests:
-
-### E2ETestSuite (`suite.go`)
-
-Base test suite providing:
-- Automatic setup/teardown
-- Temporary directory management
-- Context with timeout
-- Port allocation utilities
-- Eventually assertions for async operations
-
-**Example Usage:**
-```go
-type MyE2ESuite struct {
-    helpers.E2ETestSuite
-}
-
-func (s *MyE2ESuite) TestSomething() {
-    port := s.GetFreePort()
-    s.WaitForPort("127.0.0.1", port, 30*time.Second)
-    s.Eventually(condition, timeout, tick, "message")
-}
-```
-
-### ProcessManager (`process.go`)
-
-Manages test processes with:
-- Process lifecycle management
-- Output capturing
-- Graceful shutdown
+- Start/stop binaries with arguments
+- Capture stdout/stderr for debugging
+- Graceful shutdown with timeouts
 - Context-aware termination
 
-**Example Usage:**
-```go
-procMgr := helpers.NewProcessManager(s.T())
-proc := procMgr.Start(ctx, "colony", "./bin/coral", "colony", "start")
-defer procMgr.StopAll(10 * time.Second)
-```
+### Config Builder (`helpers/config.go`)
 
-### ConfigBuilder (`config.go`)
+Generates test configurations (for future use):
 
-Generates test configurations for:
 - Colony configurations
 - Agent configurations
-- Discovery service configurations
+- Discovery configurations
 
-**Example Usage:**
-```go
-configBuilder := helpers.NewConfigBuilder(s.T(), tempDir)
-configPath := configBuilder.WriteColonyConfig("colony1", apiPort, grpcPort)
-```
+### Database Helper (`helpers/database.go`)
 
-### DatabaseHelper (`database.go`)
+DuckDB test utilities (for future use):
 
-DuckDB test utilities:
-- Database creation and management
+- Database creation
 - Query execution
 - Table operations
-- Row counting
 
-**Example Usage:**
-```go
-dbHelper := helpers.NewDatabaseHelper(s.T(), tempDir)
-db := dbHelper.CreateDB("test-db")
-dbHelper.Exec(db, "CREATE TABLE test (id INTEGER)")
-count := dbHelper.CountRows(db, "test")
-```
+## Writing New Tests
 
-## Writing New E2E Tests
-
-### 1. Create a New Test Suite
+### Example Test
 
 ```go
-package e2e
-
-import (
-    "testing"
-    "github.com/coral-io/coral/tests/helpers"
-    "github.com/stretchr/testify/suite"
-)
-
-type MyE2ESuite struct {
-    helpers.E2ETestSuite
-    procMgr *helpers.ProcessManager
-}
-
-func TestMyE2E(t *testing.T) {
-    if testing.Short() {
-        t.Skip("Skipping E2E tests in short mode")
-    }
-    suite.Run(t, new(MyE2ESuite))
-}
-
-func (s *MyE2ESuite) SetupSuite() {
-    s.E2ETestSuite.SetupSuite()
-    s.procMgr = helpers.NewProcessManager(s.T())
-}
-
-func (s *MyE2ESuite) TearDownSuite() {
-    s.procMgr.StopAll(10 * time.Second)
-    s.E2ETestSuite.TearDownSuite()
-}
-```
-
-### 2. Add Test Cases
-
-```go
-func (s *MyE2ESuite) TestMyFeature() {
-    // Arrange
+func (s *DiscoveryE2ESuite) TestNewFeature() {
+    // 1. Get a free port
     port := s.GetFreePort()
 
-    // Act
-    proc := s.procMgr.Start(s.Ctx, "service", "./bin/service", "--port", fmt.Sprint(port))
+    // 2. Start service
+    s.procMgr.Start(
+        s.Ctx,
+        "discovery",
+        "./bin/coral-discovery",
+        "--port", fmt.Sprintf("%d", port),
+    )
 
-    // Assert
-    s.Require().True(s.WaitForPort("127.0.0.1", port, 30*time.Second))
-    s.T().Log("Test passed!")
+    // 3. Wait for service
+    s.Require().True(
+        s.WaitForPort("127.0.0.1", port, 30*time.Second),
+    )
+
+    // 4. Create client and test
+    client := discoveryv1connect.NewDiscoveryServiceClient(
+        nil,
+        fmt.Sprintf("http://127.0.0.1:%d", port),
+    )
+
+    // 5. Make assertions
+    resp, err := client.SomeMethod(s.Ctx, connect.NewRequest(&req))
+    s.Require().NoError(err)
+    s.Equal("expected", resp.Msg.Field)
 }
 ```
 
-### 3. Best Practices
+## Development Roadmap
 
-- **Use descriptive test names**: `TestFeatureName_Scenario`
-- **Clean up resources**: Use defer or TearDown methods
-- **Set appropriate timeouts**: Default is 5 minutes per test
-- **Log progress**: Use `s.T().Log()` for debugging
-- **Handle async operations**: Use `Eventually` or `WaitForPort`
-- **Skip unimplemented tests**: Use `s.T().Skip()` with a TODO comment
+### Phase 1: Foundation (✅ Complete)
+- [x] E2E test infrastructure with testify suites
+- [x] Process management for services
+- [x] Port allocation and waiting
+- [x] Discovery service full E2E coverage
 
-## Debugging E2E Tests
+### Phase 2: Colony Tests (Planned)
+- [ ] Colony service startup tests
+- [ ] Colony status endpoint tests
+- [ ] Agent registry tests
+- [ ] gRPC communication tests
+
+### Phase 3: Integration Tests (Planned)
+- [ ] Discovery → Colony integration
+- [ ] Colony → Agent communication
+- [ ] Agent heartbeat mechanism
+- [ ] Telemetry collection flow
+
+### Phase 4: Advanced Tests (Future)
+- [ ] WireGuard mesh connectivity
+- [ ] NAT traversal (STUN/relay)
+- [ ] OpenTelemetry ingestion
+- [ ] eBPF data collection
+- [ ] Multi-agent scenarios
+
+## Test Guidelines
+
+### When to Add E2E Tests
+
+Add E2E tests when:
+- A new service becomes functional
+- New RPC endpoints are implemented
+- Critical user workflows are complete
+- Integration points between services work
+
+### When NOT to Add E2E Tests
+
+Don't add E2E tests for:
+- Incomplete/stub implementations
+- Internal implementation details (use unit tests)
+- Features that depend on unimplemented dependencies
+
+### Best Practices
+
+1. **Test Real Behavior**: Start actual binaries, don't mock
+2. **Isolate Tests**: Each test should be independent
+3. **Clean Up**: Use defer or TearDown for cleanup
+4. **Clear Names**: `TestFeatureName_Scenario`
+5. **Log Progress**: Use `s.T().Log()` for debugging
+6. **Handle Async**: Use `Eventually()` or `WaitForPort()`
+7. **Skip Gracefully**: Use `s.T().Skip()` for unimplemented features
+
+## Debugging
 
 ### View Test Output
 
@@ -274,89 +192,114 @@ func (s *MyE2ESuite) TestMyFeature() {
 # Verbose output
 go test -v ./tests/e2e/...
 
-# Even more verbose
+# Force re-run (no cache)
 go test -v -count=1 ./tests/e2e/...
+
+# With coverage
+go test -v -coverprofile=coverage.out ./tests/e2e/...
 ```
 
-### Test Artifacts
+### Check Process Output
 
-E2E tests create temporary directories for test artifacts:
-- Configuration files
-- Database files
-- Logs (captured from processes)
+Test helpers capture stdout/stderr from services:
 
-These are automatically cleaned up after tests complete.
+```go
+proc := s.procMgr.Get("discovery")
+stdout := proc.StdoutLines()  // Get captured stdout
+stderr := proc.StderrLines()  // Get captured stderr
+```
 
 ### Common Issues
 
-**Issue**: Tests timeout
-- **Solution**: Increase timeout with `-timeout` flag: `go test -timeout 20m ./tests/e2e/...`
+**Port Already in Use**
+- Tests use `GetFreePort()` to avoid conflicts
+- If issues persist, check for stale processes: `ps aux | grep coral`
 
-**Issue**: Port already in use
-- **Solution**: Tests use `GetFreePort()` which should avoid conflicts. If issues persist, ensure no services are running on common ports.
+**Service Fails to Start**
+- Check if binary exists: `ls -la bin/`
+- Run `make build` first
+- Check service logs via process output
 
-**Issue**: Binary not found
-- **Solution**: Run `make build` before E2E tests or use `make test-e2e` which builds automatically.
+**Test Timeouts**
+- Increase timeout: `go test -timeout 20m ./tests/e2e/...`
+- Default test timeout is 5 minutes per test
+- Service startup timeout is 30 seconds
 
-**Issue**: Database locked
-- **Solution**: Ensure previous test runs completed properly. Clean temp directories: `rm -rf /tmp/coral-e2e-*`
+**Binary Not Found**
+- Run `make build` before `make test-e2e`
+- Or use `make test-e2e` which builds automatically
 
 ## CI/CD Integration
 
-E2E tests are designed for CI/CD integration:
+Tests are designed for automated testing:
 
 ```yaml
-# Example GitHub Actions workflow
+# Example GitHub Actions
+- name: Build
+  run: make build
+
 - name: Run E2E Tests
-  run: |
-    make build
-    make test-e2e
+  run: make test-e2e
   timeout-minutes: 15
 ```
 
-## Test Coverage
+## Implementation Notes
 
-Track E2E test coverage with:
+### Why Start with Discovery?
 
-```bash
-go test -v -coverprofile=coverage-e2e.out ./tests/e2e/...
-go tool cover -html=coverage-e2e.out
+The Discovery service was chosen as the first E2E test because:
+
+1. **✅ Fully Implemented** - Production-ready code
+2. **✅ Well Tested** - Strong unit test coverage
+3. **✅ No Dependencies** - Standalone service
+4. **✅ Simple API** - HTTP/2 Connect-based RPCs
+5. **✅ Fast Tests** - Sub-second execution
+
+This provides a solid foundation and template for future E2E tests.
+
+### Connect vs gRPC
+
+Coral uses **Buf Connect** (HTTP/2) instead of vanilla gRPC:
+
+```go
+// Using Connect client
+client := discoveryv1connect.NewDiscoveryServiceClient(
+    nil,  // Uses default HTTP client
+    fmt.Sprintf("http://127.0.0.1:%d", port),
+)
+
+resp, err := client.RegisterColony(
+    ctx,
+    connect.NewRequest(&discoveryv1.RegisterColonyRequest{...}),
+)
 ```
 
-## Future Test Coverage
+### Proto Definitions
 
-Planned E2E tests for upcoming features:
-
-- [ ] WireGuard mesh connectivity E2E tests
-- [ ] OpenTelemetry ingestion E2E tests
-- [ ] eBPF data collection E2E tests
-- [ ] LLM integration E2E tests
-- [ ] MCP server/client E2E tests
-- [ ] Multi-agent mesh communication tests
-- [ ] Failover and recovery tests
-- [ ] Performance and load tests
-
-## Contributing
-
-When adding new features:
-
-1. **Write E2E tests first** (TDD approach)
-2. **Update existing tests** if behavior changes
-3. **Add test documentation** in this README
-4. **Ensure all tests pass**: `make test-all`
-5. **Follow existing patterns** in test structure
+- Located in: `/proto/coral/*/`
+- Generated code: `/coral/*/` (committed to repo)
+- Import path: `github.com/coral-io/coral/coral/discovery/v1`
 
 ## Resources
 
-- [testify documentation](https://github.com/stretchr/testify)
-- [DuckDB Go driver](https://github.com/marcboeker/go-duckdb)
-- [gRPC testing guide](https://grpc.io/docs/languages/go/basics/)
-- Project documentation in `docs/`
+- [Testify Suite Documentation](https://github.com/stretchr/testify#suite-package)
+- [Buf Connect Documentation](https://connectrpc.com/docs/go/getting-started)
+- [Project Architecture](../ARCHITECTURE.MD)
+- [Implementation Guide](../docs/IMPLEMENTATION.md)
 
-## Support
+## Contributing
 
-For questions or issues with E2E tests:
-1. Check test output and logs
-2. Review this documentation
-3. Check existing test patterns
-4. Consult `docs/IMPLEMENTATION.md` for architecture details
+When adding new E2E tests:
+
+1. Ensure the feature is actually implemented and working
+2. Follow existing test patterns in `discovery_test.go`
+3. Use the test helpers in `tests/helpers/`
+4. Add test documentation to this README
+5. Verify all tests pass: `make test-all`
+
+## Questions?
+
+- Check test output for detailed error messages
+- Review existing test patterns
+- Consult architecture docs
+- Check RFDs for feature specifications

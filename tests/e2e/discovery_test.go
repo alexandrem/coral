@@ -8,10 +8,10 @@ import (
 
 	"github.com/coral-io/coral/tests/helpers"
 	"github.com/stretchr/testify/suite"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
-	discoveryv1 "github.com/coral-io/coral/proto/gen/discovery/v1"
+	"connectrpc.com/connect"
+	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
+	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
 )
 
 // DiscoveryE2ESuite tests the discovery service end-to-end.
@@ -46,17 +46,14 @@ func (s *DiscoveryE2ESuite) TearDownSuite() {
 // TestDiscoveryServiceStartup tests that the discovery service starts successfully.
 func (s *DiscoveryE2ESuite) TestDiscoveryServiceStartup() {
 	grpcPort := s.GetFreePort()
-	stunPort := s.GetFreePort()
-
-	configPath := s.configBuilder.WriteDiscoveryConfig("discovery1", grpcPort, stunPort)
 
 	// Start discovery service
 	proc := s.procMgr.Start(
 		s.Ctx,
 		"discovery",
 		"./bin/coral-discovery",
-		"start",
-		"--config", configPath,
+		"--port", fmt.Sprintf("%d", grpcPort),
+		"--ttl", "300",
 	)
 
 	// Wait for service to be ready
@@ -71,93 +68,17 @@ func (s *DiscoveryE2ESuite) TestDiscoveryServiceStartup() {
 	s.T().Log("Discovery service started successfully")
 }
 
-// TestPeerRegistration tests peer registration and discovery.
-func (s *DiscoveryE2ESuite) TestPeerRegistration() {
+// TestHealthCheck tests the discovery service health endpoint.
+func (s *DiscoveryE2ESuite) TestHealthCheck() {
 	grpcPort := s.GetFreePort()
-	stunPort := s.GetFreePort()
-
-	configPath := s.configBuilder.WriteDiscoveryConfig("discovery2", grpcPort, stunPort)
 
 	// Start discovery service
 	s.procMgr.Start(
 		s.Ctx,
 		"discovery",
 		"./bin/coral-discovery",
-		"start",
-		"--config", configPath,
-	)
-
-	// Wait for service to be ready
-	s.Require().True(
-		s.WaitForPort("127.0.0.1", grpcPort, 30*time.Second),
-		"Discovery service did not start",
-	)
-
-	// Create gRPC client
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("127.0.0.1:%d", grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	s.Require().NoError(err, "Failed to create gRPC client")
-	defer conn.Close()
-
-	client := discoveryv1.NewDiscoveryServiceClient(conn)
-
-	// Register a peer
-	registerReq := &discoveryv1.RegisterPeerRequest{
-		PeerId:     "peer-1",
-		PublicKey:  "test-public-key-1",
-		Endpoints:  []string{"192.168.1.100:51820"},
-		Metadata:   map[string]string{"type": "agent"},
-		TtlSeconds: 60,
-	}
-
-	registerResp, err := client.RegisterPeer(s.Ctx, registerReq)
-	s.Require().NoError(err, "Failed to register peer")
-	s.Require().NotNil(registerResp)
-
-	s.T().Logf("Registered peer: %s", registerReq.PeerId)
-
-	// Discover peers
-	discoverReq := &discoveryv1.DiscoverPeersRequest{
-		PeerId: "peer-2",
-	}
-
-	discoverResp, err := client.DiscoverPeers(s.Ctx, discoverReq)
-	s.Require().NoError(err, "Failed to discover peers")
-	s.Require().NotNil(discoverResp)
-
-	// Should find the registered peer
-	s.Require().GreaterOrEqual(len(discoverResp.Peers), 1, "Expected at least 1 peer")
-
-	found := false
-	for _, peer := range discoverResp.Peers {
-		if peer.PeerId == "peer-1" {
-			found = true
-			s.Equal("test-public-key-1", peer.PublicKey)
-			s.Equal([]string{"192.168.1.100:51820"}, peer.Endpoints)
-			break
-		}
-	}
-	s.Require().True(found, "Registered peer not found in discovery")
-
-	s.T().Log("Peer discovery successful")
-}
-
-// TestPeerHeartbeat tests peer heartbeat and TTL expiration.
-func (s *DiscoveryE2ESuite) TestPeerHeartbeat() {
-	grpcPort := s.GetFreePort()
-	stunPort := s.GetFreePort()
-
-	configPath := s.configBuilder.WriteDiscoveryConfig("discovery3", grpcPort, stunPort)
-
-	// Start discovery service
-	s.procMgr.Start(
-		s.Ctx,
-		"discovery",
-		"./bin/coral-discovery",
-		"start",
-		"--config", configPath,
+		"--port", fmt.Sprintf("%d", grpcPort),
+		"--ttl", "60",
 	)
 
 	s.Require().True(
@@ -165,70 +86,38 @@ func (s *DiscoveryE2ESuite) TestPeerHeartbeat() {
 		"Discovery service did not start",
 	)
 
-	// Create gRPC client
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("127.0.0.1:%d", grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// Create Connect client
+	httpClient := connect.NewClient[discoveryv1.HealthRequest, discoveryv1.HealthResponse](
+		nil,
+		fmt.Sprintf("http://127.0.0.1:%d/coral.discovery.v1.DiscoveryService/Health", grpcPort),
 	)
-	s.Require().NoError(err, "Failed to create gRPC client")
-	defer conn.Close()
 
-	client := discoveryv1.NewDiscoveryServiceClient(conn)
+	// Call health check
+	resp, err := httpClient.CallUnary(s.Ctx, connect.NewRequest(&discoveryv1.HealthRequest{}))
+	s.Require().NoError(err, "Health check failed")
+	s.Require().NotNil(resp.Msg)
 
-	// Register peer with short TTL
-	registerReq := &discoveryv1.RegisterPeerRequest{
-		PeerId:     "peer-heartbeat",
-		PublicKey:  "test-public-key-hb",
-		Endpoints:  []string{"192.168.1.200:51820"},
-		TtlSeconds: 5, // 5 second TTL
-	}
+	// Verify health response
+	s.NotEmpty(resp.Msg.Status, "Status should not be empty")
+	s.NotEmpty(resp.Msg.Version, "Version should not be empty")
+	s.GreaterOrEqual(resp.Msg.UptimeSeconds, int64(0), "Uptime should be non-negative")
+	s.Equal(int32(0), resp.Msg.RegisteredColonies, "Should have no colonies initially")
 
-	_, err = client.RegisterPeer(s.Ctx, registerReq)
-	s.Require().NoError(err, "Failed to register peer")
-
-	// Send heartbeat
-	heartbeatReq := &discoveryv1.HeartbeatRequest{
-		PeerId: "peer-heartbeat",
-	}
-
-	heartbeatResp, err := client.Heartbeat(s.Ctx, heartbeatReq)
-	s.Require().NoError(err, "Failed to send heartbeat")
-	s.Require().NotNil(heartbeatResp)
-
-	s.T().Log("Heartbeat sent successfully")
-
-	// Verify peer is still registered
-	discoverReq := &discoveryv1.DiscoverPeersRequest{
-		PeerId: "peer-other",
-	}
-
-	discoverResp, err := client.DiscoverPeers(s.Ctx, discoverReq)
-	s.Require().NoError(err)
-
-	found := false
-	for _, peer := range discoverResp.Peers {
-		if peer.PeerId == "peer-heartbeat" {
-			found = true
-			break
-		}
-	}
-	s.Require().True(found, "Peer should still be registered after heartbeat")
+	s.T().Logf("Health check successful: status=%s, version=%s, uptime=%ds",
+		resp.Msg.Status, resp.Msg.Version, resp.Msg.UptimeSeconds)
 }
 
-// TestMultiplePeers tests registration of multiple peers.
-func (s *DiscoveryE2ESuite) TestMultiplePeers() {
+// TestColonyRegistration tests colony registration and lookup.
+func (s *DiscoveryE2ESuite) TestColonyRegistration() {
 	grpcPort := s.GetFreePort()
-	stunPort := s.GetFreePort()
-
-	configPath := s.configBuilder.WriteDiscoveryConfig("discovery4", grpcPort, stunPort)
 
 	// Start discovery service
 	s.procMgr.Start(
 		s.Ctx,
 		"discovery",
 		"./bin/coral-discovery",
-		"start",
-		"--config", configPath,
+		"--port", fmt.Sprintf("%d", grpcPort),
+		"--ttl", "60",
 	)
 
 	s.Require().True(
@@ -236,58 +125,344 @@ func (s *DiscoveryE2ESuite) TestMultiplePeers() {
 		"Discovery service did not start",
 	)
 
-	// Create gRPC client
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("127.0.0.1:%d", grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	s.Require().NoError(err)
-	defer conn.Close()
-
-	client := discoveryv1.NewDiscoveryServiceClient(conn)
-
-	// Register multiple peers
-	numPeers := 5
-	for i := 0; i < numPeers; i++ {
-		registerReq := &discoveryv1.RegisterPeerRequest{
-			PeerId:     fmt.Sprintf("peer-%d", i),
-			PublicKey:  fmt.Sprintf("pubkey-%d", i),
-			Endpoints:  []string{fmt.Sprintf("192.168.1.%d:51820", 100+i)},
-			TtlSeconds: 60,
-		}
-
-		_, err = client.RegisterPeer(s.Ctx, registerReq)
-		s.Require().NoError(err, "Failed to register peer %d", i)
-	}
-
-	s.T().Logf("Registered %d peers", numPeers)
-
-	// Discover all peers
-	discoverReq := &discoveryv1.DiscoverPeersRequest{
-		PeerId: "observer",
-	}
-
-	discoverResp, err := client.DiscoverPeers(s.Ctx, discoverReq)
-	s.Require().NoError(err)
-
-	s.Require().GreaterOrEqual(
-		len(discoverResp.Peers),
-		numPeers,
-		"Expected to discover at least %d peers", numPeers,
+	// Create Connect client
+	client := discoveryv1connect.NewDiscoveryServiceClient(
+		nil,
+		fmt.Sprintf("http://127.0.0.1:%d", grpcPort),
 	)
 
-	s.T().Log("Multiple peer discovery successful")
+	// Register a colony
+	registerReq := &discoveryv1.RegisterColonyRequest{
+		MeshId:      "test-mesh-1",
+		Pubkey:      "test-public-key-1",
+		Endpoints:   []string{"192.168.1.100:51820"},
+		MeshIpv4:    "10.42.0.1",
+		MeshIpv6:    "fd42::1",
+		ConnectPort: 9000,
+		Metadata:    map[string]string{"env": "test"},
+	}
+
+	registerResp, err := client.RegisterColony(s.Ctx, connect.NewRequest(registerReq))
+	s.Require().NoError(err, "Failed to register colony")
+	s.Require().NotNil(registerResp.Msg)
+	s.True(registerResp.Msg.Success, "Registration should succeed")
+	s.Greater(registerResp.Msg.Ttl, int32(0), "TTL should be positive")
+	s.NotNil(registerResp.Msg.ExpiresAt, "Expiration time should be set")
+
+	s.T().Logf("Registered colony: mesh_id=%s, ttl=%d", registerReq.MeshId, registerResp.Msg.Ttl)
+
+	// Lookup the colony
+	lookupReq := &discoveryv1.LookupColonyRequest{
+		MeshId: "test-mesh-1",
+	}
+
+	lookupResp, err := client.LookupColony(s.Ctx, connect.NewRequest(lookupReq))
+	s.Require().NoError(err, "Failed to lookup colony")
+	s.Require().NotNil(lookupResp.Msg)
+
+	// Verify colony data matches
+	s.Equal("test-mesh-1", lookupResp.Msg.MeshId)
+	s.Equal("test-public-key-1", lookupResp.Msg.Pubkey)
+	s.Equal([]string{"192.168.1.100:51820"}, lookupResp.Msg.Endpoints)
+	s.Equal("10.42.0.1", lookupResp.Msg.MeshIpv4)
+	s.Equal("fd42::1", lookupResp.Msg.MeshIpv6)
+	s.Equal(uint32(9000), lookupResp.Msg.ConnectPort)
+	s.Equal("test", lookupResp.Msg.Metadata["env"])
+	s.NotNil(lookupResp.Msg.LastSeen, "LastSeen should be set")
+
+	s.T().Log("Colony lookup successful")
 }
 
-// TestSTUNEndpointDiscovery tests STUN-based endpoint discovery.
-// Note: This is a placeholder for when STUN implementation is complete.
-func (s *DiscoveryE2ESuite) TestSTUNEndpointDiscovery() {
-	s.T().Skip("STUN endpoint discovery - implementation pending")
+// TestAgentRegistration tests agent registration and lookup.
+func (s *DiscoveryE2ESuite) TestAgentRegistration() {
+	grpcPort := s.GetFreePort()
 
-	// TODO: Implement when STUN server is fully functional
-	// This test should:
-	// 1. Start discovery service with STUN enabled
-	// 2. Make STUN binding request
-	// 3. Verify public IP/port is returned
-	// 4. Verify NAT type detection works
+	s.procMgr.Start(
+		s.Ctx,
+		"discovery",
+		"./bin/coral-discovery",
+		"--port", fmt.Sprintf("%d", grpcPort),
+		"--ttl", "60",
+	)
+
+	s.Require().True(
+		s.WaitForPort("127.0.0.1", grpcPort, 30*time.Second),
+		"Discovery service did not start",
+	)
+
+	client := discoveryv1connect.NewDiscoveryServiceClient(
+		nil,
+		fmt.Sprintf("http://127.0.0.1:%d", grpcPort),
+	)
+
+	// Register a colony first
+	colonyReq := &discoveryv1.RegisterColonyRequest{
+		MeshId:      "test-mesh-2",
+		Pubkey:      "colony-pubkey",
+		Endpoints:   []string{"192.168.1.1:51820"},
+		MeshIpv4:    "10.42.0.1",
+		ConnectPort: 9000,
+	}
+	_, err := client.RegisterColony(s.Ctx, connect.NewRequest(colonyReq))
+	s.Require().NoError(err)
+
+	// Register an agent
+	agentReq := &discoveryv1.RegisterAgentRequest{
+		AgentId:   "agent-1",
+		MeshId:    "test-mesh-2",
+		Pubkey:    "agent-pubkey-1",
+		Endpoints: []string{"192.168.1.100:51820"},
+		Metadata:  map[string]string{"type": "linux"},
+	}
+
+	agentResp, err := client.RegisterAgent(s.Ctx, connect.NewRequest(agentReq))
+	s.Require().NoError(err, "Failed to register agent")
+	s.Require().NotNil(agentResp.Msg)
+	s.True(agentResp.Msg.Success, "Agent registration should succeed")
+	s.Greater(agentResp.Msg.Ttl, int32(0), "TTL should be positive")
+
+	s.T().Logf("Registered agent: agent_id=%s, mesh_id=%s", agentReq.AgentId, agentReq.MeshId)
+
+	// Lookup the agent
+	lookupReq := &discoveryv1.LookupAgentRequest{
+		AgentId: "agent-1",
+	}
+
+	lookupResp, err := client.LookupAgent(s.Ctx, connect.NewRequest(lookupReq))
+	s.Require().NoError(err, "Failed to lookup agent")
+	s.Require().NotNil(lookupResp.Msg)
+
+	// Verify agent data
+	s.Equal("agent-1", lookupResp.Msg.AgentId)
+	s.Equal("test-mesh-2", lookupResp.Msg.MeshId)
+	s.Equal("agent-pubkey-1", lookupResp.Msg.Pubkey)
+	s.Equal([]string{"192.168.1.100:51820"}, lookupResp.Msg.Endpoints)
+	s.Equal("linux", lookupResp.Msg.Metadata["type"])
+	s.NotNil(lookupResp.Msg.LastSeen)
+
+	s.T().Log("Agent registration and lookup successful")
+}
+
+// TestMultipleColonies tests registration of multiple colonies.
+func (s *DiscoveryE2ESuite) TestMultipleColonies() {
+	grpcPort := s.GetFreePort()
+
+	s.procMgr.Start(
+		s.Ctx,
+		"discovery",
+		"./bin/coral-discovery",
+		"--port", fmt.Sprintf("%d", grpcPort),
+		"--ttl", "60",
+	)
+
+	s.Require().True(
+		s.WaitForPort("127.0.0.1", grpcPort, 30*time.Second),
+		"Discovery service did not start",
+	)
+
+	client := discoveryv1connect.NewDiscoveryServiceClient(
+		nil,
+		fmt.Sprintf("http://127.0.0.1:%d", grpcPort),
+	)
+
+	// Register multiple colonies
+	numColonies := 5
+	for i := 0; i < numColonies; i++ {
+		registerReq := &discoveryv1.RegisterColonyRequest{
+			MeshId:      fmt.Sprintf("mesh-%d", i),
+			Pubkey:      fmt.Sprintf("pubkey-%d", i),
+			Endpoints:   []string{fmt.Sprintf("192.168.1.%d:51820", 100+i)},
+			MeshIpv4:    fmt.Sprintf("10.42.0.%d", i+1),
+			ConnectPort: uint32(9000 + i),
+		}
+
+		resp, err := client.RegisterColony(s.Ctx, connect.NewRequest(registerReq))
+		s.Require().NoError(err, "Failed to register colony %d", i)
+		s.True(resp.Msg.Success)
+	}
+
+	s.T().Logf("Registered %d colonies", numColonies)
+
+	// Verify each colony can be looked up
+	for i := 0; i < numColonies; i++ {
+		lookupReq := &discoveryv1.LookupColonyRequest{
+			MeshId: fmt.Sprintf("mesh-%d", i),
+		}
+
+		lookupResp, err := client.LookupColony(s.Ctx, connect.NewRequest(lookupReq))
+		s.Require().NoError(err, "Failed to lookup colony %d", i)
+		s.Equal(fmt.Sprintf("mesh-%d", i), lookupResp.Msg.MeshId)
+	}
+
+	// Verify health check shows correct colony count
+	healthClient := connect.NewClient[discoveryv1.HealthRequest, discoveryv1.HealthResponse](
+		nil,
+		fmt.Sprintf("http://127.0.0.1:%d/coral.discovery.v1.DiscoveryService/Health", grpcPort),
+	)
+
+	healthResp, err := healthClient.CallUnary(s.Ctx, connect.NewRequest(&discoveryv1.HealthRequest{}))
+	s.Require().NoError(err)
+	s.Equal(int32(numColonies), healthResp.Msg.RegisteredColonies, "Health check should show %d colonies", numColonies)
+
+	s.T().Log("Multiple colony registration and lookup successful")
+}
+
+// TestColonyUpdate tests updating an existing colony registration.
+func (s *DiscoveryE2ESuite) TestColonyUpdate() {
+	grpcPort := s.GetFreePort()
+
+	s.procMgr.Start(
+		s.Ctx,
+		"discovery",
+		"./bin/coral-discovery",
+		"--port", fmt.Sprintf("%d", grpcPort),
+		"--ttl", "60",
+	)
+
+	s.Require().True(s.WaitForPort("127.0.0.1", grpcPort, 30*time.Second))
+
+	client := discoveryv1connect.NewDiscoveryServiceClient(
+		nil,
+		fmt.Sprintf("http://127.0.0.1:%d", grpcPort),
+	)
+
+	// Initial registration
+	initialReq := &discoveryv1.RegisterColonyRequest{
+		MeshId:      "update-mesh",
+		Pubkey:      "pubkey-v1",
+		Endpoints:   []string{"192.168.1.1:51820"},
+		MeshIpv4:    "10.42.0.1",
+		ConnectPort: 9000,
+		Metadata:    map[string]string{"version": "1.0"},
+	}
+
+	_, err := client.RegisterColony(s.Ctx, connect.NewRequest(initialReq))
+	s.Require().NoError(err)
+
+	// Update registration with new endpoints
+	updateReq := &discoveryv1.RegisterColonyRequest{
+		MeshId:      "update-mesh",
+		Pubkey:      "pubkey-v2",
+		Endpoints:   []string{"192.168.1.1:51820", "10.0.0.1:51820"},
+		MeshIpv4:    "10.42.0.1",
+		ConnectPort: 9000,
+		Metadata:    map[string]string{"version": "2.0"},
+	}
+
+	_, err = client.RegisterColony(s.Ctx, connect.NewRequest(updateReq))
+	s.Require().NoError(err)
+
+	// Lookup and verify updated data
+	lookupReq := &discoveryv1.LookupColonyRequest{MeshId: "update-mesh"}
+	lookupResp, err := client.LookupColony(s.Ctx, connect.NewRequest(lookupReq))
+	s.Require().NoError(err)
+
+	s.Equal("pubkey-v2", lookupResp.Msg.Pubkey, "Public key should be updated")
+	s.Equal(2, len(lookupResp.Msg.Endpoints), "Should have 2 endpoints")
+	s.Equal("2.0", lookupResp.Msg.Metadata["version"], "Metadata should be updated")
+
+	s.T().Log("Colony update successful")
+}
+
+// TestRelayRequest tests relay allocation request.
+func (s *DiscoveryE2ESuite) TestRelayRequest() {
+	grpcPort := s.GetFreePort()
+
+	s.procMgr.Start(
+		s.Ctx,
+		"discovery",
+		"./bin/coral-discovery",
+		"--port", fmt.Sprintf("%d", grpcPort),
+		"--ttl", "60",
+	)
+
+	s.Require().True(s.WaitForPort("127.0.0.1", grpcPort, 30*time.Second))
+
+	client := discoveryv1connect.NewDiscoveryServiceClient(
+		nil,
+		fmt.Sprintf("http://127.0.0.1:%d", grpcPort),
+	)
+
+	// Request a relay allocation
+	relayReq := &discoveryv1.RequestRelayRequest{
+		MeshId:       "relay-mesh",
+		AgentPubkey:  "agent-pubkey",
+		ColonyPubkey: "colony-pubkey",
+	}
+
+	relayResp, err := client.RequestRelay(s.Ctx, connect.NewRequest(relayReq))
+	s.Require().NoError(err, "Failed to request relay")
+	s.Require().NotNil(relayResp.Msg)
+
+	// Verify relay response
+	s.NotNil(relayResp.Msg.RelayEndpoint, "Relay endpoint should be set")
+	s.NotEmpty(relayResp.Msg.SessionId, "Session ID should be set")
+	s.NotEmpty(relayResp.Msg.RelayId, "Relay ID should be set")
+	s.NotNil(relayResp.Msg.ExpiresAt, "Expiration should be set")
+
+	s.T().Logf("Relay allocated: relay_id=%s, session_id=%s, endpoint=%s:%d",
+		relayResp.Msg.RelayId,
+		relayResp.Msg.SessionId,
+		relayResp.Msg.RelayEndpoint.Ip,
+		relayResp.Msg.RelayEndpoint.Port)
+
+	// Release the relay
+	releaseReq := &discoveryv1.ReleaseRelayRequest{
+		SessionId: relayResp.Msg.SessionId,
+		MeshId:    "relay-mesh",
+	}
+
+	releaseResp, err := client.ReleaseRelay(s.Ctx, connect.NewRequest(releaseReq))
+	s.Require().NoError(err, "Failed to release relay")
+	s.True(releaseResp.Msg.Success, "Relay release should succeed")
+
+	s.T().Log("Relay request and release successful")
+}
+
+// TestTTLExpiration tests that registrations expire after TTL.
+func (s *DiscoveryE2ESuite) TestTTLExpiration() {
+	grpcPort := s.GetFreePort()
+
+	// Start discovery with very short TTL (5 seconds)
+	s.procMgr.Start(
+		s.Ctx,
+		"discovery",
+		"./bin/coral-discovery",
+		"--port", fmt.Sprintf("%d", grpcPort),
+		"--ttl", "5",
+	)
+
+	s.Require().True(s.WaitForPort("127.0.0.1", grpcPort, 30*time.Second))
+
+	client := discoveryv1connect.NewDiscoveryServiceClient(
+		nil,
+		fmt.Sprintf("http://127.0.0.1:%d", grpcPort),
+	)
+
+	// Register a colony
+	registerReq := &discoveryv1.RegisterColonyRequest{
+		MeshId:      "ttl-mesh",
+		Pubkey:      "ttl-pubkey",
+		Endpoints:   []string{"192.168.1.1:51820"},
+		MeshIpv4:    "10.42.0.1",
+		ConnectPort: 9000,
+	}
+
+	_, err := client.RegisterColony(s.Ctx, connect.NewRequest(registerReq))
+	s.Require().NoError(err)
+
+	// Verify it exists
+	lookupReq := &discoveryv1.LookupColonyRequest{MeshId: "ttl-mesh"}
+	_, err = client.LookupColony(s.Ctx, connect.NewRequest(lookupReq))
+	s.Require().NoError(err, "Colony should exist immediately after registration")
+
+	// Wait for TTL + cleanup interval (5s + buffer)
+	s.T().Log("Waiting for TTL expiration...")
+	time.Sleep(8 * time.Second)
+
+	// Verify it no longer exists
+	_, err = client.LookupColony(s.Ctx, connect.NewRequest(lookupReq))
+	s.Require().Error(err, "Colony should have expired")
+
+	s.T().Log("TTL expiration verified")
 }
