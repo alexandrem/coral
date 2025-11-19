@@ -122,6 +122,9 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
 	fmt.Println("============")
 	fmt.Println()
 
+	fmt.Printf("Agent ID:     %s\n", ctx.AgentId)
+	fmt.Println()
+
 	// Platform section
 	fmt.Println("Platform:")
 	fmt.Printf("  OS:           %s (%s)\n", ctx.Platform.Os, ctx.Platform.OsVersion)
