@@ -766,8 +766,14 @@ body {
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(5, 1fr);
     gap: var(--spacing-md);
+}
+
+@media (max-width: 1024px) {
+    .stats-grid {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
 }
 
 .stat-card {
@@ -784,6 +790,8 @@ body {
     background-clip: text;
     margin-bottom: var(--spacing-xs);
     line-height: 1;
+    padding-right: 0.1em;
+    /* Prevent gradient clipping */
 }
 
 .stat-label {
