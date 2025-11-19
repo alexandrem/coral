@@ -1461,6 +1461,67 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	return httpServer, nil
 }
 
+// selectBestAgentEndpoint selects the best WireGuard endpoint for an agent from a list of observed endpoints.
+// Strategy:
+//  1. Skip localhost/127.0.0.1 endpoints (would be self-referential from colony's perspective)
+//  2. Prefer an endpoint matching the peer's source IP (how they connected to us)
+//  3. Otherwise use the first non-localhost endpoint
+//
+// Returns the selected endpoint and a match type ("matching" or "first"), or (nil, "") if no valid endpoint found.
+func selectBestAgentEndpoint(
+	observedEndpoints []*discoverypb.Endpoint,
+	peerHost string,
+	logger logging.Logger,
+	agentID string,
+) (*discoverypb.Endpoint, string) {
+	var selectedEp *discoverypb.Endpoint
+	var matchingEp *discoverypb.Endpoint
+
+	for _, ep := range observedEndpoints {
+		if ep == nil || ep.Ip == "" {
+			continue
+		}
+
+		isLocalhost := ep.Ip == "127.0.0.1" || ep.Ip == "::1" || ep.Ip == "localhost"
+
+		// If this endpoint's IP matches how the agent connected to us, prefer it.
+		// This handles same-host deployments where agent connects from 127.0.0.1.
+		if peerHost != "" && ep.Ip == peerHost && matchingEp == nil {
+			matchingEp = ep
+			if isLocalhost {
+				logger.Debug().
+					Str("agent_id", agentID).
+					Str("endpoint", net.JoinHostPort(ep.Ip, fmt.Sprintf("%d", ep.Port))).
+					Msg("Using localhost endpoint (agent connected from same host)")
+			}
+		}
+
+		// Skip localhost endpoints UNLESS they matched the connection source.
+		// This allows same-host deployments while preventing container issues.
+		if isLocalhost && matchingEp == nil {
+			logger.Debug().
+				Str("agent_id", agentID).
+				Str("endpoint", net.JoinHostPort(ep.Ip, fmt.Sprintf("%d", ep.Port))).
+				Msg("Skipping localhost endpoint (agent connected from different host)")
+			continue
+		}
+
+		// Track the first valid endpoint as fallback.
+		if selectedEp == nil {
+			selectedEp = ep
+		}
+	}
+
+	// Prefer the matching endpoint, fallback to first non-localhost.
+	if matchingEp != nil {
+		return matchingEp, "matching"
+	} else if selectedEp != nil {
+		return selectedEp, "first"
+	}
+
+	return nil, ""
+}
+
 // meshServiceHandler implements the MeshService RPC handler.
 type meshServiceHandler struct {
 	cfg             *config.ResolvedConfig
@@ -1556,14 +1617,36 @@ func (h *meshServiceHandler) Register(
 		}))
 
 		if err == nil && agentInfo.Msg != nil && len(agentInfo.Msg.ObservedEndpoints) > 0 {
-			// Use the first observed endpoint (from STUN)
-			observedEp := agentInfo.Msg.ObservedEndpoints[0]
-			if observedEp != nil && observedEp.Ip != "" {
-				agentEndpoint = net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
-				h.logger.Info().
+			// Extract the peer's source IP from the HTTP connection to help select the right endpoint.
+			var peerHost string
+			if peerAddr != "" {
+				if host, _, err := net.SplitHostPort(peerAddr); err == nil {
+					peerHost = host
+				}
+			}
+
+			// Select the best observed endpoint from the list.
+			selectedEp, matchType := selectBestAgentEndpoint(agentInfo.Msg.ObservedEndpoints, peerHost, h.logger, req.Msg.AgentId)
+
+			// Build endpoint string and log selection.
+			if selectedEp != nil {
+				agentEndpoint = net.JoinHostPort(selectedEp.Ip, fmt.Sprintf("%d", selectedEp.Port))
+				if matchType == "matching" {
+					h.logger.Info().
+						Str("agent_id", req.Msg.AgentId).
+						Str("endpoint", agentEndpoint).
+						Str("peer_host", peerHost).
+						Msg("Using agent's endpoint matching connection source")
+				} else {
+					h.logger.Info().
+						Str("agent_id", req.Msg.AgentId).
+						Str("endpoint", agentEndpoint).
+						Msg("Using agent's observed endpoint from discovery service")
+				}
+			} else {
+				h.logger.Warn().
 					Str("agent_id", req.Msg.AgentId).
-					Str("endpoint", agentEndpoint).
-					Msg("Using agent's STUN-discovered endpoint from discovery service")
+					Msg("All observed endpoints were localhost - agent may not be reachable via WireGuard")
 			}
 		} else {
 			h.logger.Debug().

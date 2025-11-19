@@ -678,8 +678,23 @@ func (cm *ConnectionManager) GetColonyEndpoint() string {
 	// Fall back to regular endpoints.
 	// Strategy: Try last successful endpoint first if available, then try remaining endpoints.
 	// This provides automatic failover while remembering what worked before.
+	//
+	// IMPORTANT: If we registered via localhost, prefer localhost for WireGuard too.
+	// This ensures consistency - same-host deployments use localhost for both HTTP and WireGuard.
+	preferLocalhost := false
+	if cm.lastSuccessfulRegURL != "" {
+		if host, _, err := net.SplitHostPort(strings.TrimPrefix(strings.TrimPrefix(cm.lastSuccessfulRegURL, "http://"), "https://")); err == nil {
+			if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+				preferLocalhost = true
+				cm.logger.Debug().
+					Str("registration_url", cm.lastSuccessfulRegURL).
+					Msg("Registered via localhost - will prefer localhost for WireGuard peer")
+			}
+		}
+	}
 
 	// First pass: Try last successful endpoint if it's still in the list.
+	// Note: We honor last successful even if it's localhost (proven to work before).
 	if lastSuccessful != "" {
 		for _, ep := range colonyInfo.Endpoints {
 			if ep == "" {
@@ -694,15 +709,56 @@ func (cm *ConnectionManager) GetColonyEndpoint() string {
 			endpoint := net.JoinHostPort(host, fmt.Sprintf("%d", wgPort))
 			if endpoint == lastSuccessful {
 				cm.SetCurrentEndpoint(endpoint)
-				cm.logger.Info().
-					Str("endpoint", endpoint).
-					Msg("Reusing last successful WireGuard endpoint")
+
+				// Log whether we're reusing localhost or non-localhost.
+				ip := net.ParseIP(host)
+				if ip != nil && ip.IsLoopback() {
+					cm.logger.Info().
+						Str("endpoint", endpoint).
+						Msg("Reusing last successful localhost endpoint (same-host deployment)")
+				} else {
+					cm.logger.Info().
+						Str("endpoint", endpoint).
+						Msg("Reusing last successful WireGuard endpoint")
+				}
 				return endpoint
 			}
 		}
 	}
 
-	// Second pass: Try other endpoints.
+	// Second pass: If we prefer localhost (registered via localhost), try localhost endpoints.
+	// This ensures consistency for same-host deployments.
+	if preferLocalhost {
+		for _, ep := range colonyInfo.Endpoints {
+			if ep == "" {
+				continue
+			}
+
+			host, _, err := net.SplitHostPort(ep)
+			if err != nil || host == "" {
+				continue
+			}
+
+			endpoint := net.JoinHostPort(host, fmt.Sprintf("%d", wgPort))
+
+			// Skip if already tried.
+			if endpoint == lastSuccessful {
+				continue
+			}
+
+			// Only consider localhost in this pass.
+			ip := net.ParseIP(host)
+			if ip != nil && ip.IsLoopback() {
+				cm.SetCurrentEndpoint(endpoint)
+				cm.logger.Info().
+					Str("endpoint", endpoint).
+					Msg("Selected localhost endpoint (same-host deployment, registered via localhost)")
+				return endpoint
+			}
+		}
+	}
+
+	// Third pass: Try non-localhost endpoints.
 	for _, ep := range colonyInfo.Endpoints {
 		if ep == "" {
 			continue
@@ -720,11 +776,46 @@ func (cm *ConnectionManager) GetColonyEndpoint() string {
 			continue
 		}
 
+		// Skip localhost in third pass - will try as last resort in fourth pass.
+		ip := net.ParseIP(host)
+		if ip != nil && ip.IsLoopback() {
+			continue
+		}
+
 		cm.SetCurrentEndpoint(endpoint)
 		cm.logger.Info().
 			Str("endpoint", endpoint).
 			Msg("Selected new WireGuard endpoint")
 		return endpoint
+	}
+
+	// Fourth pass: Try localhost as last resort (fallback for same-host deployment).
+	for _, ep := range colonyInfo.Endpoints {
+		if ep == "" {
+			continue
+		}
+
+		host, _, err := net.SplitHostPort(ep)
+		if err != nil || host == "" {
+			continue
+		}
+
+		endpoint := net.JoinHostPort(host, fmt.Sprintf("%d", wgPort))
+
+		// Skip if already tried.
+		if endpoint == lastSuccessful {
+			continue
+		}
+
+		// Only consider localhost in this pass.
+		ip := net.ParseIP(host)
+		if ip != nil && ip.IsLoopback() {
+			cm.SetCurrentEndpoint(endpoint)
+			cm.logger.Info().
+				Str("endpoint", endpoint).
+				Msg("Selected localhost endpoint (same-host deployment)")
+			return endpoint
+		}
 	}
 
 	return ""
