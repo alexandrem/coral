@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"sync"
@@ -77,9 +77,10 @@ func (m *ServiceMonitor) GetStatus() (ServiceStatus, time.Time, error) {
 
 // monitorLoop runs the health check loop.
 func (m *ServiceMonitor) monitorLoop() {
-	// Add random initial delay to prevent thundering herd when multiple services
-	// start simultaneously. This spreads health checks across the check interval.
-	initialDelay := time.Duration(rand.Int63n(int64(m.checkInterval)))
+	// Add random initial delay (up to 30% of check interval) to prevent thundering
+	// herd when multiple services start simultaneously.
+	maxJitter := int64(m.checkInterval) * 30 / 100
+	initialDelay := time.Duration(rand.Int64N(maxJitter))
 
 	m.logger.Debug().
 		Dur("initial_delay", initialDelay).
