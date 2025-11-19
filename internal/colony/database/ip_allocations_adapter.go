@@ -3,27 +3,21 @@ package database
 import (
 	"database/sql"
 	"fmt"
+
+	"github.com/coral-io/coral/internal/wireguard"
 )
 
-// StoredIPAllocation represents a stored IP allocation for the allocator interface.
-// This matches the wireguard.StoredIPAllocation type.
-type StoredIPAllocation struct {
-	AgentID   string
-	IPAddress string
-}
-
-// GetAllIPAllocations retrieves all IP allocations in the format
+// GetAllIPAllocationsForWireguard retrieves all IP allocations in the format
 // required by the wireguard.IPAllocationStore interface.
-// This overrides the original GetAllIPAllocations to return the correct type.
-func (d *Database) GetAllIPAllocationsForWireguard() ([]*StoredIPAllocation, error) {
+func (d *Database) GetAllIPAllocationsForWireguard() ([]*wireguard.StoredIPAllocation, error) {
 	allocations, err := d.GetAllIPAllocations()
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*StoredIPAllocation, len(allocations))
+	result := make([]*wireguard.StoredIPAllocation, len(allocations))
 	for i, alloc := range allocations {
-		result[i] = &StoredIPAllocation{
+		result[i] = &wireguard.StoredIPAllocation{
 			AgentID:   alloc.AgentID,
 			IPAddress: alloc.IPAddress,
 		}
@@ -34,7 +28,7 @@ func (d *Database) GetAllIPAllocationsForWireguard() ([]*StoredIPAllocation, err
 
 // GetIPAllocationForWireguard retrieves an IP allocation in the format
 // required by the wireguard.IPAllocationStore interface.
-func (d *Database) GetIPAllocationForWireguard(agentID string) (*StoredIPAllocation, error) {
+func (d *Database) GetIPAllocationForWireguard(agentID string) (*wireguard.StoredIPAllocation, error) {
 	allocation, err := d.GetIPAllocation(agentID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -43,14 +37,11 @@ func (d *Database) GetIPAllocationForWireguard(agentID string) (*StoredIPAllocat
 		return nil, err
 	}
 
-	return &StoredIPAllocation{
+	return &wireguard.StoredIPAllocation{
 		AgentID:   allocation.AgentID,
 		IPAddress: allocation.IPAddress,
 	}, nil
 }
-
-// Ensure Database implements the wireguard.IPAllocationStore interface.
-// This is done by creating wrapper methods that match the interface.
 
 // DatabaseIPAllocationStore wraps Database to implement wireguard.IPAllocationStore.
 type DatabaseIPAllocationStore struct {
@@ -66,11 +57,11 @@ func (s *DatabaseIPAllocationStore) StoreIPAllocation(agentID, ipAddress string)
 	return s.db.StoreIPAllocation(agentID, ipAddress)
 }
 
-func (s *DatabaseIPAllocationStore) GetIPAllocation(agentID string) (*StoredIPAllocation, error) {
+func (s *DatabaseIPAllocationStore) GetIPAllocation(agentID string) (*wireguard.StoredIPAllocation, error) {
 	return s.db.GetIPAllocationForWireguard(agentID)
 }
 
-func (s *DatabaseIPAllocationStore) GetAllIPAllocations() ([]*StoredIPAllocation, error) {
+func (s *DatabaseIPAllocationStore) GetAllIPAllocations() ([]*wireguard.StoredIPAllocation, error) {
 	return s.db.GetAllIPAllocationsForWireguard()
 }
 
