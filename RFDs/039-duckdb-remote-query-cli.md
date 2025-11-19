@@ -1,6 +1,6 @@
 ---
 rfd: "039"
-title: "DuckDB Remote Query CLI for Agent Metrics"
+title: "DuckDB Remote Query CLI for Agent and Colony Metrics"
 state: "draft"
 breaking_changes: false
 testing_required: true
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "cli", "observability", "metrics", "duckdb" ]
 ---
 
-# RFD 039 - DuckDB Remote Query CLI for Agent Metrics
+# RFD 039 - DuckDB Remote Query CLI for Agent and Colony Metrics
 
 **Status:** 🚧 Draft
 
@@ -19,10 +19,11 @@ areas: [ "cli", "observability", "metrics", "duckdb" ]
 
 ## Summary
 
-Add a `coral duckdb` CLI command that enables interactive SQL querying of agent
-metrics by leveraging DuckDB's native HTTP remote attach capability. This
-provides operators with direct, ad-hoc access to raw Beyla metrics stored on
-agents without requiring API abstraction layers or custom query endpoints.
+Add a `coral duckdb` CLI command that enables interactive SQL querying of both
+agent metrics and colony aggregated data by leveraging DuckDB's native HTTP
+remote attach capability. This provides operators with direct, ad-hoc access to
+raw Beyla metrics stored on agents and historical aggregated metrics stored in
+colony without requiring API abstraction layers or custom query endpoints.
 
 **Note:** This RFD depends on RFD 038 (CLI-to-Agent Direct Mesh Connectivity)
 for establishing direct WireGuard connections from CLI tools to agents.
@@ -35,12 +36,17 @@ for establishing direct WireGuard connections from CLI tools to agents.
   RPC (RFD 032), storing aggregated results in colony DuckDB with configurable
   retention (30 days HTTP/gRPC, 14 days SQL).
 - Agents retain raw metrics in local DuckDB for ~1 hour before cleanup.
-- Operators cannot directly query agent-local metrics for debugging,
-  troubleshooting, or exploratory analysis.
+- Operators cannot directly query agent-local metrics or colony aggregated data
+  for debugging, troubleshooting, or exploratory analysis.
+- Colony holds an exclusive lock on its DuckDB database, preventing external
+  read-only connections using standard DuckDB clients (e.g.,
+  `duckdb colony.duckdb?access_mode=READ_ONLY` fails with "Resource temporarily
+  unavailable").
 - Custom queries require either:
     - Waiting for colony polling cycle to aggregate data
-    - Adding new RPC endpoints to the agent API
-    - SSH-ing into agent hosts and manually querying DuckDB files
+    - Adding new RPC endpoints to the agent/colony API
+    - SSH-ing into agent/colony hosts and manually querying DuckDB files
+    - Stopping the colony process to release the database lock (unacceptable)
 - The gRPC API abstraction adds serialization overhead (DuckDB → protobuf →
   network → protobuf → DuckDB) and requires API versioning for schema changes.
 
@@ -48,18 +54,25 @@ for establishing direct WireGuard connections from CLI tools to agents.
 
 - **Incident response**: During outages, operators need immediate access to raw
   agent metrics without waiting for colony aggregation cycles (which may run
-  hourly).
+  hourly), as well as access to colony's historical aggregated data for
+  trend analysis.
 - **Debugging**: Exploratory queries like "show me all SQL queries to the users
-  table in the last 5 minutes" cannot be expressed through predefined RPC
+  table in the last 5 minutes" (agent) or "show me service baseline deviations
+  over the past week" (colony) cannot be expressed through predefined RPC
   endpoints.
 - **Efficiency**: For large historical queries or bulk exports, DuckDB-to-DuckDB
   transfer using native formats (Parquet, Arrow) is significantly faster than
   protobuf serialization.
 - **Flexibility**: SQL is a universal query interface that doesn't require API
   changes to support new query patterns.
+- **Concurrent access**: DuckDB's exclusive lock prevents external read-only
+  connections at the file level. HTTP file serving bypasses this limitation by
+  serving raw file bytes without requiring a DuckDB connection, enabling
+  read-only queries while colony/agent processes maintain write access.
 
 **Use cases affected**
 
+**Agent queries (real-time, recent data ~1 hour):**
 - Ops engineer investigating latency spike: "Show me all HTTP requests with
   p99 > 1s in the last 10 minutes, grouped by endpoint and status code."
 - SRE exporting metrics for offline analysis: "Dump all gRPC metrics for service
@@ -67,12 +80,21 @@ for establishing direct WireGuard connections from CLI tools to agents.
 - Developer debugging database performance: "Show me all SQL queries with
   latency > 100ms, grouped by table and operation."
 
+**Colony queries (historical, aggregated data 14-30 days):**
+- Platform engineer analyzing trends: "Show me p95 latency trends for all
+  services over the past 7 days, grouped by day."
+- SRE investigating baseline drift: "Which services have exceeded their learned
+  baseline thresholds in the past week?"
+- Data analyst exporting for reporting: "Export all service connection topology
+  changes for the past month as CSV."
+
 ## Solution
 
-Expose agent DuckDB files over HTTP and provide a CLI tool that uses DuckDB's
-built-in `ATTACH` statement to query remote databases. This leverages DuckDB's
-native read-only HTTP attach feature (available via the `httpfs` extension) to
-enable direct SQL access without custom query infrastructure.
+Expose both agent and colony DuckDB files over HTTP and provide a CLI tool that
+uses DuckDB's built-in `ATTACH` statement to query remote databases. This
+leverages DuckDB's native read-only HTTP attach feature (available via the
+`httpfs` extension) to enable direct SQL access without custom query
+infrastructure.
 
 **Key Design Decisions:**
 
@@ -85,8 +107,13 @@ enable direct SQL access without custom query infrastructure.
   CLI is supplementary for operator ad-hoc queries.
 - **Serve entire database file** over HTTP rather than query-level endpoints.
   DuckDB handles range requests efficiently, only fetching needed data pages.
+- **Bypass DuckDB lock via HTTP file serving**: Use `http.ServeFile` to serve
+  raw database file bytes without opening a DuckDB connection, enabling
+  concurrent read access while colony/agent processes maintain exclusive write
+  locks.
 - **No authentication beyond WireGuard mesh**: Access is controlled by mesh
-  membership. Any colony/operator on the mesh can query any agent.
+  membership. Any colony/operator on the mesh can query any agent or colony
+  database.
 
 **Benefits:**
 
@@ -94,35 +121,90 @@ enable direct SQL access without custom query infrastructure.
   using HTTP range requests.
 - **Universal SQL interface**: Operators can use full DuckDB SQL dialect without
   API limitations.
-- **No API versioning burden**: Schema changes to agent tables don't break CLI
-  queries (callers adapt SQL).
-- **Minimal implementation**: ~200 lines of code (HTTP handler + CLI wrapper
+- **No API versioning burden**: Schema changes to agent/colony tables don't
+  break CLI queries (callers adapt SQL).
+- **Minimal implementation**: ~300 lines of code (HTTP handlers + CLI wrapper
   around DuckDB Go driver).
 - **Read-only by default**: DuckDB's `ATTACH` over HTTP is inherently read-only,
   preventing accidental writes.
+- **Solves concurrent access problem**: External clients can query
+  agent/colony databases while they maintain exclusive locks for writes.
 
 **Architecture Overview:**
 
 ```
-┌─────────────┐                    ┌──────────────┐                    ┌─────────────┐
-│  coral CLI  │                    │    Colony    │                    │    Agent    │
-│             │                    │              │                    │             │
-│ duckdb cmd  │─────(1)────────────│  Discovery   │                    │  HTTP:9001  │
-│             │  Get agent info    │  / Registry  │                    │             │
-│             │────────────────────│              │                    │             │
-│             │       (2)          │              │                    │             │
-│             │  Agent mesh IP     │              │                    │             │
-│             │                    └──────────────┘                    │             │
-│             │                                                        │             │
-│             │─────(3)───────────────────────────────────────────────│  HTTPS      │
-│             │  ATTACH 'https://agent:9001/duckdb/metrics.duckdb'    │  /duckdb/*  │
-│             │  AS agent_123 (READ_ONLY);                            │             │
-│             │                                                        │             │
-│  DuckDB Go  │◄────(4)────────────────────────────────────────────────│  Serve DB   │
-│  Interactive│  Read-only SQL queries (HTTP range requests)          │  read-only  │
-│  Shell      │                                                        │             │
-└─────────────┘                                                        └─────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                  coral CLI                                          │
+│                                                                                     │
+│  duckdb command                                                                     │
+│  ├── shell <target>    (interactive DuckDB shell)                                  │
+│  ├── query <target>    (one-shot query)                                            │
+│  └── list-agents       (discover available databases)                              │
+│                                                                                     │
+│  DuckDB Go Interactive Shell (with httpfs extension)                               │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+           │                                          │
+           │ (1) Query colony for discovery          │
+           ▼                                          │
+┌──────────────────────────┐                         │
+│         Colony           │                         │
+│                          │                         │
+│  ┌────────────────────┐  │                         │
+│  │  Discovery API     │  │                         │
+│  │  (agent registry)  │  │                         │
+│  └────────────────────┘  │                         │
+│                          │                         │
+│  ┌────────────────────┐  │                         │
+│  │  DuckDB Process    │  │                         │
+│  │  (exclusive lock)  │  │                         │
+│  │  colony.duckdb     │  │                         │
+│  └────────┬───────────┘  │                         │
+│           │              │                         │
+│  ┌────────▼───────────┐  │                         │
+│  │  HTTP Handler      │  │                         │
+│  │  GET /duckdb/*     │  │                         │
+│  │  (http.ServeFile)  │  │                         │
+│  └────────┬───────────┘  │                         │
+│           │              │                         │
+│      Port 9001           │                         │
+└───────────┼──────────────┘                         │
+            │                                        │
+            │ (2a) ATTACH colony database            │ (2b) ATTACH agent database
+            │ http://colony:9001/duckdb/colony.duckdb│ http://agent:9001/duckdb/beyla.duckdb
+            │                                        │
+            ◄────────────────────────────────────────┼────────────────────┐
+            │                                        │                    │
+            │ (3) HTTP range requests for           │                    │
+            │     database pages (read-only)         │                    │
+            │                                        ▼                    │
+            │                          ┌──────────────────────┐           │
+            │                          │       Agent          │           │
+            │                          │                      │           │
+            │                          │  ┌────────────────┐  │           │
+            │                          │  │ DuckDB Process │  │           │
+            │                          │  │ (exclusive     │  │           │
+            │                          │  │  lock)         │  │           │
+            │                          │  │ beyla.duckdb   │  │           │
+            │                          │  └───────┬────────┘  │           │
+            │                          │          │           │           │
+            │                          │  ┌───────▼────────┐  │           │
+            │                          │  │ HTTP Handler   │  │           │
+            │                          │  │ GET /duckdb/*  │  │           │
+            │                          │  │(http.ServeFile)│  │           │
+            │                          │  └───────┬────────┘  │           │
+            │                          │          │           │           │
+            │                          │     Port 9001        │           │
+            │                          └──────────┼───────────┘           │
+            │                                     │                       │
+            └─────────────────────────────────────┴───────────────────────┘
 ```
+
+**Flow:**
+1. CLI queries colony discovery API to get agent/colony mesh addresses
+2. CLI attaches to colony database (historical data) and/or agent database(s) (recent data)
+3. DuckDB client sends HTTP range requests to fetch database pages
+4. Colony/agent HTTP handlers serve file bytes using `http.ServeFile` (no DuckDB connection needed)
+5. CLI executes SQL queries against attached databases
 
 ### Component Changes
 
@@ -134,42 +216,63 @@ enable direct SQL access without custom query infrastructure.
       handlers.
     - Only serves `beyla.duckdb` if Beyla is enabled.
 
-2. **CLI (new `duckdb` command)**:
-    - `coral duckdb shell <agent-id>`: Opens interactive DuckDB shell attached
-      to agent.
-    - `coral duckdb query <agent-id> <sql>`: Executes one-shot query and prints
+2. **Colony (HTTP handler)**:
+    - Add `/duckdb/<filename>` HTTP endpoint that serves colony DuckDB file.
+    - Handler validates read-only access, checks file existence, serves via
+      `http.ServeFile`.
+    - Integrated into existing colony HTTP server (port 9001) alongside gRPC
+      handlers.
+    - Serves `<colony-id>.duckdb` (e.g., `alex-dev-0977e1.duckdb`).
+    - Critical: Uses `http.ServeFile` to bypass DuckDB's exclusive lock by
+      serving raw file bytes without opening a DuckDB connection.
+
+3. **CLI (new `duckdb` command)**:
+    - `coral duckdb shell <target>`: Opens interactive DuckDB shell attached to
+      agent or colony (target can be `agent-id`, `colony`, or `colony-id`).
+    - `coral duckdb query <target> <sql>`: Executes one-shot query and prints
       results.
     - `coral duckdb list-agents`: Shows agents with Beyla metrics enabled.
-    - CLI resolves agent IDs to WireGuard mesh IPs via colony registry.
+    - `coral duckdb list-colonies`: Shows available colony databases.
+    - CLI resolves agent/colony IDs to WireGuard mesh IPs via colony registry.
     - Uses DuckDB Go driver with `httpfs` extension to attach remote databases.
 
-3. **Dependencies**:
+4. **Dependencies**:
     - Add `github.com/marcboeker/go-duckdb` (DuckDB Go driver) to CLI binary.
     - Add `github.com/chzyer/readline` for interactive shell support.
 
 **Configuration Example:**
 
-No new configuration required. Feature uses existing agent HTTP server and
-DuckDB storage. Operators must have:
+No new configuration required. Feature uses existing agent/colony HTTP servers
+and DuckDB storage. Operators must have:
 
 - Access to WireGuard mesh (existing requirement for `coral` CLI).
-- Agent ID or ability to query colony registry for agent list.
+- Agent/colony ID or ability to query colony registry.
 
 ```bash
-# Interactive shell
+# Interactive shell - agent (recent metrics, ~1 hour)
 coral duckdb shell agent-prod-1
 
-# One-shot query
+# Interactive shell - colony (historical metrics, 14-30 days)
+coral duckdb shell colony
+
+# One-shot query - agent
 coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10"
+
+# One-shot query - colony
+coral duckdb query colony "SELECT * FROM metric_summaries WHERE timestamp > now() - INTERVAL '7 days'"
 
 # Query across multiple agents (multi-attach)
 coral duckdb shell --agents agent-1,agent-2,agent-3
+
+# Query both colony and agent data (federation)
+coral duckdb shell --colony --agents agent-1
 ```
 
 ## Implementation Plan
 
-### Phase 1: Agent HTTP Endpoint
+### Phase 1: Agent and Colony HTTP Endpoints
 
+**Agent:**
 - [ ] Create `internal/agent/duckdb_handler.go` with HTTP handler.
 - [ ] Add `/duckdb/` route to agent HTTP server in
   `internal/cli/agent/start.go`.
@@ -177,30 +280,61 @@ coral duckdb shell --agents agent-1,agent-2,agent-3
 - [ ] Ensure handler respects read-only semantics (GET only, no
   POST/PUT/DELETE).
 
+**Colony:**
+- [ ] Create `internal/colony/duckdb_handler.go` with HTTP handler.
+- [ ] Add `/duckdb/` route to colony HTTP server in
+  `internal/cli/colony/start.go`.
+- [ ] Validate handler only serves colony DuckDB file (no directory traversal).
+- [ ] Ensure handler respects read-only semantics (GET only, no
+  POST/PUT/DELETE).
+- [ ] Verify `http.ServeFile` works correctly while colony has exclusive
+  DuckDB lock.
+
 ### Phase 2: CLI DuckDB Command
 
 - [ ] Create `internal/cli/duckdb/` package structure.
 - [ ] Implement `shell` subcommand with DuckDB Go driver integration.
 - [ ] Implement `query` subcommand for one-shot queries.
 - [ ] Implement `list-agents` subcommand using colony registry.
-- [ ] Add agent address resolution via colony discovery/registry API.
+- [ ] Implement `list-colonies` subcommand.
+- [ ] Add agent/colony address resolution via colony discovery/registry API.
+- [ ] Support target disambiguation (agent vs colony).
 
 ### Phase 3: Interactive Shell Features
 
 - [ ] Add readline support for command history and editing.
 - [ ] Implement meta-commands (`.tables`, `.databases`, `.exit`, `.help`).
 - [ ] Add multi-agent attach support (`--agents` flag).
+- [ ] Add colony attach support (`--colony` flag).
+- [ ] Add combined attach support (`--colony --agents agent-1,agent-2`).
 - [ ] Support output formats (table, CSV, JSON) for `query` command.
 
 ### Phase 4: Testing & Documentation
 
-- [ ] Add unit tests for DuckDB HTTP handler (read-only, 404, method
+**Unit tests:**
+- [ ] Add unit tests for agent DuckDB HTTP handler (read-only, 404, method
   validation).
+- [ ] Add unit tests for colony DuckDB HTTP handler (read-only, 404, method
+  validation).
+- [ ] Test concurrent access: verify colony can write while HTTP serves reads.
+
+**Integration tests:**
 - [ ] Add integration test: start agent, attach via DuckDB, query metrics.
+- [ ] Add integration test: start colony, attach via DuckDB, query aggregated
+  data.
+- [ ] Test multi-attach: query across multiple agents.
+- [ ] Test federation: query both colony and agent data.
+
+**E2E tests:**
 - [ ] Add E2E test: full CLI workflow with real agent.
+- [ ] Add E2E test: full CLI workflow with colony.
+- [ ] Verify concurrent access: external query while colony writes.
+
+**Documentation:**
 - [ ] Update CLI documentation with usage examples.
 - [ ] Add troubleshooting guide for common issues (mesh connectivity, agent
-  down, no metrics).
+  down, no metrics, lock conflicts).
+- [ ] Document colony vs agent query use cases.
 
 ## API Changes
 
@@ -259,6 +393,74 @@ method not allowed
 - Read-only: POST/PUT/DELETE return 405.
 - DuckDB files are read-only when served via HTTP (DuckDB limitation).
 
+### New HTTP Endpoint (Colony)
+
+**Path:** `/duckdb/<filename>`
+
+**Method:** `GET`
+
+**Description:** Serves colony DuckDB file for read-only remote attach. Uses
+`http.ServeFile` to serve raw file bytes without opening a DuckDB connection,
+bypassing the exclusive lock held by the colony process.
+
+**Authentication:** WireGuard mesh membership (implicit via network access
+control).
+
+**Request:**
+
+```http
+GET /duckdb/alex-dev-0977e1.duckdb HTTP/1.1
+Host: colony.coral.mesh:9001
+Range: bytes=0-16384
+```
+
+**Response (success):**
+
+```http
+HTTP/1.1 206 Partial Content
+Content-Type: application/octet-stream
+Content-Range: bytes 0-16384/52428800
+Cache-Control: no-cache
+
+<binary DuckDB data>
+```
+
+**Response (not found):**
+
+```http
+HTTP/1.1 404 Not Found
+Content-Type: text/plain
+
+database not found
+```
+
+**Response (method not allowed):**
+
+```http
+HTTP/1.1 405 Method Not Allowed
+Content-Type: text/plain
+
+method not allowed
+```
+
+**Security Notes:**
+
+- Only serves the colony DuckDB file (e.g., `<colony-id>.duckdb`).
+- No directory traversal allowed (e.g., `../../../etc/passwd` returns 404).
+- Read-only: POST/PUT/DELETE return 405.
+- DuckDB files are read-only when served via HTTP (DuckDB limitation).
+- **Critical**: `http.ServeFile` reads file bytes directly without requiring a
+  DuckDB connection, allowing concurrent access while colony maintains exclusive
+  lock.
+
+**Concurrent Access Behavior:**
+
+- Colony process maintains exclusive DuckDB lock for writes.
+- HTTP handler serves file bytes using standard file I/O (no DuckDB connection).
+- External clients download database pages via HTTP range requests.
+- External clients open downloaded bytes in their own DuckDB process.
+- Data served may be slightly stale (excludes uncommitted WAL changes).
+
 ### CLI Commands
 
 **List available agents:**
@@ -271,6 +473,17 @@ AGENT ID        STATUS    LAST SEEN           BEYLA ENABLED
 agent-prod-1    healthy   2025-11-16 10:30    yes
 agent-prod-2    healthy   2025-11-16 10:29    yes
 agent-dev-1     degraded  2025-11-16 09:15    yes
+```
+
+**List available colonies:**
+
+```bash
+coral duckdb list-colonies
+
+# Output:
+COLONY ID         STATUS    MESH IP         DATABASE SIZE
+alex-dev-0977e1   running   10.42.0.1       48 MB
+prod-colony-001   running   10.42.0.2       1.2 GB
 ```
 
 **Interactive shell (single agent):**
@@ -326,6 +539,78 @@ auth-service    1987
 (2 rows)
 ```
 
+**Interactive shell (colony - historical data):**
+
+```bash
+coral duckdb shell colony
+
+# Output:
+DuckDB interactive shell. Type '.exit' to quit, '.help' for help.
+
+Attached colony database: colony_alex_dev_0977e1
+
+duckdb> .tables
+metric_summaries
+baselines
+insights
+services
+service_connections
+events
+beyla_http_metrics
+beyla_grpc_metrics
+beyla_sql_metrics
+
+duckdb> SELECT service_name,
+        AVG(p95_latency_ms) as avg_p95,
+        DATE_TRUNC('day', timestamp) as day
+        FROM metric_summaries
+        WHERE timestamp > now() - INTERVAL '7 days'
+        GROUP BY service_name, day
+        ORDER BY day DESC, avg_p95 DESC
+        LIMIT 10;
+
+service_name    avg_p95    day
+api-server      127.4      2025-11-16
+auth-service    89.2       2025-11-16
+api-server      134.1      2025-11-15
+...
+(10 rows)
+
+duckdb> .exit
+```
+
+**Interactive shell (federation - colony + agents):**
+
+```bash
+coral duckdb shell --colony --agents agent-prod-1
+
+# Output:
+DuckDB interactive shell. Type '.exit' to quit, '.help' for help.
+
+Attached databases: colony_alex_dev_0977e1, agent_agent_prod_1
+
+duckdb> -- Recent spikes (agent) vs historical baseline (colony)
+        SELECT
+          a.service_name,
+          AVG(a.latency_bucket_ms) as current_p95,
+          c.baseline_p95,
+          ((AVG(a.latency_bucket_ms) - c.baseline_p95) / c.baseline_p95 * 100) as deviation_pct
+        FROM agent_agent_prod_1.beyla_http_metrics_local a
+        JOIN colony_alex_dev_0977e1.baselines c
+          ON a.service_name = c.service_name
+        WHERE a.timestamp > now() - INTERVAL '5 minutes'
+        GROUP BY a.service_name, c.baseline_p95
+        HAVING deviation_pct > 50
+        ORDER BY deviation_pct DESC;
+
+service_name    current_p95   baseline_p95   deviation_pct
+api-server      245.3         87.2           181.3
+checkout-svc    412.1         156.4          163.5
+(2 rows)
+
+duckdb> .exit
+```
+
 **One-shot query (table output):**
 
 ```bash
@@ -353,6 +638,24 @@ api-server,/api/checkout,15
 auth-service,/auth/login,3
 ```
 
+**One-shot query (colony - historical trends):**
+
+```bash
+coral duckdb query colony \
+  "SELECT service_name, COUNT(*) as baseline_violations
+   FROM baselines
+   WHERE last_violation > now() - INTERVAL '7 days'
+   GROUP BY service_name
+   ORDER BY baseline_violations DESC"
+
+# Output:
+service_name        baseline_violations
+api-server          23
+checkout-service    15
+auth-service        8
+(3 rows)
+```
+
 **Meta-commands (in shell):**
 
 - `.tables` - List all tables in attached databases
@@ -364,8 +667,8 @@ auth-service,/auth/login,3
 
 None. Feature is enabled automatically if:
 
-- Agent has Beyla enabled (RFD 032)
-- Agent HTTP server is running (always true)
+- Agent has Beyla enabled (RFD 032) - for agent queries
+- Agent/colony HTTP server is running (always true)
 - Operator has mesh access (existing security model)
 
 ## Testing Strategy
@@ -382,12 +685,26 @@ None. Feature is enabled automatically if:
   404.
 - `TestDuckDBHandler_ReadOnlyValidation`: Verify only GET requests allowed.
 
-**CLI Agent Resolver:**
+**Colony DuckDB Handler:**
+
+- `TestColonyDuckDBHandler_ServeFile_Success`: Verify colony file served with
+  correct headers.
+- `TestColonyDuckDBHandler_ConcurrentAccess`: Verify HTTP handler can serve file
+  while colony process maintains exclusive DuckDB lock.
+- `TestColonyDuckDBHandler_NotFound`: Verify 404 when colony database doesn't
+  exist.
+- `TestColonyDuckDBHandler_MethodNotAllowed`: Verify POST/PUT/DELETE return 405.
+- `TestColonyDuckDBHandler_NoDirectoryTraversal`: Verify `../../../etc/passwd`
+  returns 404.
+
+**CLI Target Resolver:**
 
 - `TestResolveAgentAddress_Success`: Verify agent ID resolves to mesh IP.
 - `TestResolveAgentAddress_NotFound`: Verify error when agent doesn't exist.
 - `TestResolveAgentAddress_MultipleAgents`: Verify multiple IDs resolve
   correctly.
+- `TestResolveColonyAddress_Success`: Verify colony ID resolves to mesh IP.
+- `TestResolveColonyAddress_NotFound`: Verify error when colony doesn't exist.
 
 ### Integration Tests
 
@@ -399,6 +716,14 @@ None. Feature is enabled automatically if:
 - Verify query returns expected row count.
 - Verify CLI exits cleanly.
 
+**Colony to CLI:**
+
+- Start colony with aggregated metrics.
+- Run `coral duckdb query colony "SELECT COUNT(*) FROM metric_summaries"`.
+- Verify query returns expected row count.
+- Verify CLI exits cleanly.
+- Verify colony can continue writing while CLI queries (concurrent access test).
+
 **Multi-agent attach:**
 
 - Start two agents with different metrics.
@@ -406,9 +731,16 @@ None. Feature is enabled automatically if:
 - Execute UNION query across both databases.
 - Verify results aggregate correctly.
 
+**Federation (colony + agent):**
+
+- Start colony and agent with overlapping time ranges.
+- Run `coral duckdb shell --colony --agents agent-1`.
+- Execute JOIN query between colony baselines and agent current metrics.
+- Verify results combine both data sources correctly.
+
 ### E2E Tests
 
-**Full workflow:**
+**Full workflow (agent):**
 
 1. Deploy agent with Beyla monitoring a test service.
 2. Generate HTTP traffic to populate metrics.
@@ -416,11 +748,21 @@ None. Feature is enabled automatically if:
 4. Run `coral duckdb query` to fetch metrics.
 5. Verify metrics match expected traffic patterns.
 
+**Full workflow (colony):**
+
+1. Deploy colony with historical aggregated data.
+2. Run `coral duckdb list-colonies`, verify colony appears.
+3. Run `coral duckdb query colony` to fetch historical metrics.
+4. Verify metrics match expected historical patterns.
+5. Verify concurrent writes: colony inserts new data while CLI queries.
+
 **Error handling:**
 
 - Agent down: Verify CLI reports connection error.
+- Colony down: Verify CLI reports connection error.
 - Beyla disabled: Verify CLI reports "database not found".
 - Invalid SQL: Verify DuckDB syntax error returned.
+- Concurrent access: Verify no lock conflicts when querying colony database.
 
 ## Security Considerations
 
@@ -429,33 +771,50 @@ None. Feature is enabled automatically if:
 - Access control via WireGuard mesh membership (existing model).
 - No additional authentication layer for HTTP endpoint (mesh is trusted
   network).
-- Agents must validate requests come from mesh IPs (WireGuard implicit).
+- Agents and colony must validate requests come from mesh IPs (WireGuard
+  implicit).
 
 **Data Exposure:**
 
 - Entire DuckDB file is accessible to any mesh member (no row-level security).
 - Acceptable because: (1) mesh is trusted network, (2) metrics are not PII, (3)
   operators need unrestricted access for debugging.
+- Colony database may contain aggregated data from multiple services across the
+  fleet; mesh membership provides appropriate access control.
 - Future enhancement: Add token-based authentication for HTTP endpoint if
   needed.
 
 **Read-Only Guarantees:**
 
 - DuckDB's HTTP attach is read-only by design (cannot write over HTTP).
-- Agent HTTP handler rejects non-GET methods (defense in depth).
-- DuckDB file permissions remain unchanged (agent process can still write).
+- Agent/colony HTTP handlers reject non-GET methods (defense in depth).
+- DuckDB file permissions remain unchanged (agent/colony process can still
+  write).
+- `http.ServeFile` serves raw file bytes without DuckDB connection, preventing
+  write operations.
+
+**Concurrent Access Safety:**
+
+- Colony maintains exclusive DuckDB lock for writes (ACID guarantees).
+- HTTP handler uses `http.ServeFile` to serve file bytes via standard file I/O
+  (no DuckDB connection needed).
+- External clients receive point-in-time snapshot (may exclude uncommitted WAL
+  changes).
+- No risk of corruption: file serving is read-only at OS level.
 
 **Denial of Service:**
 
-- Malicious queries can consume agent CPU/memory (e.g.,
+- Malicious queries can consume agent/colony CPU/memory (e.g.,
   `SELECT * FROM huge_table`).
 - Mitigation: WireGuard mesh limits access to trusted operators.
+- Colony queries may be more expensive (larger datasets, 14-30 days retention).
 - Future enhancement: Add query timeout or resource limits if needed.
 
 **Audit Logging:**
 
 - No logging of SQL queries in initial implementation.
-- Future enhancement: Log queries to agent logs for auditing.
+- Future enhancement: Log queries to agent/colony logs for auditing.
+- Particularly important for colony queries (access to fleet-wide data).
 
 ## Future Enhancements
 
