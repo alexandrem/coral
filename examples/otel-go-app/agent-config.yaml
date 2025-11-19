@@ -1,0 +1,21 @@
+# Optional agent configuration file for customizing telemetry settings.
+# By default, the agent enables telemetry with these settings.
+# Mount this file to the agent container to customize behavior.
+
+agent:
+  runtime: auto
+  colony:
+    id: "otel-demo"
+    auto_discover: true
+
+# Telemetry configuration (optional - all have sensible defaults)
+telemetry:
+  disabled: false  # Set to true to disable OTLP receiver
+  grpc_endpoint: "0.0.0.0:4317"  # Default OTLP gRPC endpoint
+  http_endpoint: "0.0.0.0:4318"  # Default OTLP HTTP endpoint
+  storage_retention_hours: 1     # How long to keep spans locally
+
+  filters:
+    always_capture_errors: true          # Capture all error spans
+    high_latency_threshold_ms: 500.0     # Capture spans slower than 500ms
+    sample_rate: 0.10                    # Sample 10% of normal spans
