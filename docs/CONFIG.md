@@ -77,7 +77,7 @@ wireguard:
     private_key: "base64-encoded-key"
     public_key: "base64-encoded-key"
     port: 41580
-    public_endpoints:  # Optional: configure multiple public endpoints
+    public_endpoints: # Optional: configure multiple public endpoints
         - "colony.example.com:9000"
         - "192.168.5.2:9000"
         - "10.0.0.5:9000"
@@ -233,16 +233,17 @@ Environment variables override configuration file values.
 
 ### Colony Environment Variables
 
-| Variable                   | Overrides                     | Example                                         | Description                                                                |
-|----------------------------|-------------------------------|-------------------------------------------------|----------------------------------------------------------------------------|
-| `CORAL_COLONY_ID`          | -                             | `my-app-prod`                                   | Colony to start                                                            |
-| `CORAL_COLONY_SECRET`      | `colony_secret`               | `secret123`                                     | Colony authentication secret                                               |
-| `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`          | `http://discovery:8080`                         | Discovery service URL                                                      |
-| `CORAL_STORAGE_PATH`       | `storage_path`                | `/var/lib/coral`                                | Storage directory path                                                     |
-| `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`  | `colony.example.com:41580`                      | **Production required:** Public WireGuard endpoint(s), comma-separated     |
-| `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4` | `100.64.0.0/10`                                 | Mesh network subnet                                                        |
+| Variable                   | Overrides                     | Example                    | Description                                                            |
+|----------------------------|-------------------------------|----------------------------|------------------------------------------------------------------------|
+| `CORAL_COLONY_ID`          | -                             | `my-app-prod`              | Colony to start                                                        |
+| `CORAL_COLONY_SECRET`      | `colony_secret`               | `secret123`                | Colony authentication secret                                           |
+| `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`          | `http://discovery:8080`    | Discovery service URL                                                  |
+| `CORAL_STORAGE_PATH`       | `storage_path`                | `/var/lib/coral`           | Storage directory path                                                 |
+| `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`  | `colony.example.com:41580` | **Production required:** Public WireGuard endpoint(s), comma-separated |
+| `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4` | `100.64.0.0/10`            | Mesh network subnet                                                    |
 
 **Multiple Endpoints Example:**
+
 ```bash
 CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 ```
@@ -362,16 +363,19 @@ endpoint. You can configure a single endpoint or multiple endpoints for
 redundancy and failover.
 
 **Single Endpoint:**
+
 ```bash
 CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start
 ```
 
 **Multiple Endpoints (Recommended for Production):**
+
 ```bash
 CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000 coral colony start
 ```
 
 **Or via Config File:**
+
 ```yaml
 wireguard:
     port: 51820
@@ -382,12 +386,22 @@ wireguard:
 ```
 
 **Why Multiple Endpoints?**
-- **Redundancy**: Failover if one endpoint becomes unreachable
-- **Multi-homing**: Different network interfaces (IPv4, IPv6, VPN)
-- **Geographic diversity**: Multiple data centers or regions
-- **Network path diversity**: Multiple ISPs or network providers
+
+- **Redundancy**: Failover capability: If one connection or endpoint becomes
+  unresponsive, the system can automatically switch to another active one,
+  ensuring high availability.
+- **Multi-homing**: Support for different network types or protocols (e.g.,
+  IPv4, IPv6, or specialized interfaces like VPNs) on the same host or device.
+- **Local Container Networks**: To allow services (like your "colony" process)
+  running directly on the host machine to be reliably accessed by containerized
+  applications within a Docker network. This typically involves using a specific
+  bridge or host-IP address that Docker exposes.
+- **Network path diversity**: Utilizing connections from multiple distinct
+  network providers or paths (e.g., different ISPs) to reduce the risk of a
+  single point of failure affecting connectivity.
 
 **Priority Order:**
+
 1. `CORAL_PUBLIC_ENDPOINT` environment variable (highest)
 2. `wireguard.public_endpoints` in colony YAML config
 3. `127.0.0.1:<port>` localhost fallback (development only)
@@ -427,6 +441,9 @@ Understanding the difference:
     - Examples:
         - Single: `colony.example.com:41580`
         - Multiple: `192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000`
+
+The public endpoints are registered to the discovery service when Colony starts
+up.
 
 ```yaml
 # Mesh configuration (internal)
@@ -590,7 +607,8 @@ discovery:
 coral colony start
 ```
 
-Agents will attempt to connect using all configured endpoints, providing automatic
+Agents will attempt to connect using all configured endpoints, providing
+automatic
 failover if any endpoint becomes unavailable.
 
 **Or Override with Environment Variable:**
