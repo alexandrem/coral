@@ -1,6 +1,6 @@
 module github.com/coral-io/coral
 
-go 1.25.1
+go 1.24
 
 // TODO: Add Genkit MCP dependency once network access is available:
 // go get github.com/firebase/genkit/go/plugins/mcp@latest
