@@ -1108,11 +1108,11 @@ body {
 }
 
 /* Flow Pillars (4-column grid) */
-.flow-pill.arch-grid {
+.flow-pillars {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-xl);
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
 }
 
 .pillar-item {
