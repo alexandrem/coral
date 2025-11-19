@@ -77,6 +77,10 @@ wireguard:
     private_key: "base64-encoded-key"
     public_key: "base64-encoded-key"
     port: 41580
+    public_endpoints:  # Optional: configure multiple public endpoints
+        - "colony.example.com:9000"
+        - "192.168.5.2:9000"
+        - "10.0.0.5:9000"
     mesh_ipv4: "100.64.0.1"
     mesh_network_ipv4: "100.64.0.0/10"
     mesh_ipv6: "fd42::1"
@@ -128,18 +132,19 @@ last_used: "2025-01-15T14:22:00Z"
 
 #### WireGuard Mesh Network
 
-| Field                            | Type   | Default         | Description                        |
-|----------------------------------|--------|-----------------|------------------------------------|
-| `wireguard.private_key`          | string | Auto-generated  | WireGuard private key (base64)     |
-| `wireguard.public_key`           | string | Auto-generated  | WireGuard public key (base64)      |
-| `wireguard.port`                 | int    | `41580`         | WireGuard UDP listen port          |
-| `wireguard.interface_name`       | string | `wg0`           | Network interface name             |
-| `wireguard.mesh_ipv4`            | string | `100.64.0.1`    | Colony's IPv4 address in mesh      |
-| `wireguard.mesh_network_ipv4`    | string | `100.64.0.0/10` | IPv4 mesh subnet (CIDR)            |
-| `wireguard.mesh_ipv6`            | string | `fd42::1`       | Colony's IPv6 address in mesh      |
-| `wireguard.mesh_network_ipv6`    | string | `fd42::/48`     | IPv6 mesh subnet (CIDR)            |
-| `wireguard.mtu`                  | int    | `1420`          | Interface MTU (1500 - 80 overhead) |
-| `wireguard.persistent_keepalive` | int    | `25`            | Keepalive interval in seconds      |
+| Field                            | Type     | Default         | Description                                        |
+|----------------------------------|----------|-----------------|----------------------------------------------------|
+| `wireguard.private_key`          | string   | Auto-generated  | WireGuard private key (base64)                     |
+| `wireguard.public_key`           | string   | Auto-generated  | WireGuard public key (base64)                      |
+| `wireguard.port`                 | int      | `41580`         | WireGuard UDP listen port                          |
+| `wireguard.public_endpoints`     | []string | `[]`            | Public endpoints for agent connections (see below) |
+| `wireguard.interface_name`       | string   | `wg0`           | Network interface name                             |
+| `wireguard.mesh_ipv4`            | string   | `100.64.0.1`    | Colony's IPv4 address in mesh                      |
+| `wireguard.mesh_network_ipv4`    | string   | `100.64.0.0/10` | IPv4 mesh subnet (CIDR)                            |
+| `wireguard.mesh_ipv6`            | string   | `fd42::1`       | Colony's IPv6 address in mesh                      |
+| `wireguard.mesh_network_ipv6`    | string   | `fd42::/48`     | IPv6 mesh subnet (CIDR)                            |
+| `wireguard.mtu`                  | int      | `1420`          | Interface MTU (1500 - 80 overhead)                 |
+| `wireguard.persistent_keepalive` | int      | `25`            | Keepalive interval in seconds                      |
 
 #### Services
 
@@ -228,14 +233,19 @@ Environment variables override configuration file values.
 
 ### Colony Environment Variables
 
-| Variable                   | Overrides                     | Example                    | Description                                        |
-|----------------------------|-------------------------------|----------------------------|----------------------------------------------------|
-| `CORAL_COLONY_ID`          | -                             | `my-app-prod`              | Colony to start                                    |
-| `CORAL_COLONY_SECRET`      | `colony_secret`               | `secret123`                | Colony authentication secret                       |
-| `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`          | `http://discovery:8080`    | Discovery service URL                              |
-| `CORAL_STORAGE_PATH`       | `storage_path`                | `/var/lib/coral`           | Storage directory path                             |
-| `CORAL_PUBLIC_ENDPOINT`    | -                             | `colony.example.com:41580` | **Production required:** Public WireGuard endpoint |
-| `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4` | `100.64.0.0/10`            | Mesh network subnet                                |
+| Variable                   | Overrides                     | Example                                         | Description                                                                |
+|----------------------------|-------------------------------|-------------------------------------------------|----------------------------------------------------------------------------|
+| `CORAL_COLONY_ID`          | -                             | `my-app-prod`                                   | Colony to start                                                            |
+| `CORAL_COLONY_SECRET`      | `colony_secret`               | `secret123`                                     | Colony authentication secret                                               |
+| `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`          | `http://discovery:8080`                         | Discovery service URL                                                      |
+| `CORAL_STORAGE_PATH`       | `storage_path`                | `/var/lib/coral`                                | Storage directory path                                                     |
+| `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`  | `colony.example.com:41580`                      | **Production required:** Public WireGuard endpoint(s), comma-separated     |
+| `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4` | `100.64.0.0/10`                                 | Mesh network subnet                                                        |
+
+**Multiple Endpoints Example:**
+```bash
+CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
+```
 
 ### Agent Environment Variables
 
@@ -348,11 +358,43 @@ wireguard:
 #### Production Deployment
 
 For agents to connect from different machines, you **must** set the public
-endpoint:
+endpoint. You can configure a single endpoint or multiple endpoints for
+redundancy and failover.
 
+**Single Endpoint:**
 ```bash
 CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start
 ```
+
+**Multiple Endpoints (Recommended for Production):**
+```bash
+CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000 coral colony start
+```
+
+**Or via Config File:**
+```yaml
+wireguard:
+    port: 51820
+    public_endpoints:
+        - 192.168.5.2:9000
+        - 10.0.0.5:9000
+        - colony.example.com:9000
+```
+
+**Why Multiple Endpoints?**
+- **Redundancy**: Failover if one endpoint becomes unreachable
+- **Multi-homing**: Different network interfaces (IPv4, IPv6, VPN)
+- **Geographic diversity**: Multiple data centers or regions
+- **Network path diversity**: Multiple ISPs or network providers
+
+**Priority Order:**
+1. `CORAL_PUBLIC_ENDPOINT` environment variable (highest)
+2. `wireguard.public_endpoints` in colony YAML config
+3. `127.0.0.1:<port>` localhost fallback (development only)
+
+**Note:** The ports you specify in endpoints are informational; the actual
+WireGuard connection uses the port configured in `wireguard.port`. The endpoint
+host portion is extracted and combined with the WireGuard port.
 
 Or configure STUN for automatic NAT discovery:
 
@@ -379,9 +421,12 @@ Understanding the difference:
     - Used for service-to-service communication
     - Example: `100.64.0.1`
 
-- **Public Endpoint**: Address **outside** the tunnel
+- **Public Endpoint(s)**: Address(es) **outside** the tunnel
     - Used to establish WireGuard connection
-    - Example: `colony.example.com:41580`
+    - Can specify multiple for redundancy
+    - Examples:
+        - Single: `colony.example.com:41580`
+        - Multiple: `192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000`
 
 ```yaml
 # Mesh configuration (internal)
@@ -389,8 +434,14 @@ wireguard:
     mesh_ipv4: "100.64.0.1"          # Internal tunnel address
     mesh_network_ipv4: "100.64.0.0/10"
 
-# Public endpoint (external) - set via environment
+    # Public endpoints (external) - multiple for redundancy
+    public_endpoints:
+        - "colony.example.com:9000"
+        - "192.168.5.2:9000"
+
+# Or set via environment (overrides config file)
 # CORAL_PUBLIC_ENDPOINT=colony.example.com:41580
+# CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 ```
 
 ## Examples
@@ -505,7 +556,50 @@ wireguard:
 
 Each colony gets its own isolated mesh network with no IP conflicts.
 
-### Example 5: High Security Setup
+### Example 5: Multiple Public Endpoints for High Availability
+
+**Colony Config with Redundant Endpoints:**
+
+```yaml
+version: "1"
+colony_id: "myapp-prod"
+application_name: "MyApp"
+environment: "production"
+
+wireguard:
+    port: 51820
+    # Configure multiple endpoints for redundancy
+    public_endpoints:
+        - "colony-primary.example.com:9000"    # Primary DNS
+        - "203.0.113.10:9000"                  # Primary IP (fallback)
+        - "colony-secondary.example.com:9000"  # Secondary DNS
+        - "198.51.100.20:9000"                 # Secondary IP (failover)
+    mesh_network_ipv4: "100.64.0.0/10"
+
+discovery:
+    enabled: true
+    auto_register: true
+    stun_servers:
+        - "stun.cloudflare.com:3478"
+        - "stun.l.google.com:19302"
+```
+
+**Start Colony:**
+
+```bash
+coral colony start
+```
+
+Agents will attempt to connect using all configured endpoints, providing automatic
+failover if any endpoint becomes unavailable.
+
+**Or Override with Environment Variable:**
+
+```bash
+CORAL_PUBLIC_ENDPOINT=192.168.1.10:9000,10.0.0.5:9000 coral colony start
+```
+
+### Example 6: High Security Setup
 
 **Colony Config with MCP Security:**
 
