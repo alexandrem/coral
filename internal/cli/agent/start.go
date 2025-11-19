@@ -263,75 +263,90 @@ Examples:
 				logger.Info().Msg("No observed endpoint available (STUN not configured or failed), skipping discovery service registration")
 			}
 
-			// Register with colony.
-			registrationResult, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
-			if err != nil {
-				return fmt.Errorf("failed to register with colony: %w", err)
-			}
+			// Create connection manager to handle registration and reconnection.
+			connMgr := NewConnectionManager(
+				agentID,
+				colonyInfo,
+				cfg,
+				serviceSpecs,
+				agentKeys.PublicKey,
+				wgDevice,
+				logger,
+			)
 
-			// Parse registration result (format: "IP|SUBNET")
-			parts := strings.Split(registrationResult, "|")
-			if len(parts) != 2 {
-				return fmt.Errorf("invalid registration response format")
-			}
-			meshIPStr := parts[0]
-			meshSubnetStr := parts[1]
-
-			// Parse IP and subnet for mesh configuration (RFD 019)
-			meshIP := net.ParseIP(meshIPStr)
-			if meshIP == nil {
-				return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
-			}
-
-			_, meshSubnet, err := net.ParseCIDR(meshSubnetStr)
-			if err != nil {
-				return fmt.Errorf("invalid mesh subnet from colony: %w", err)
-			}
-
-			// Configure agent mesh with permanent IP (RFD 019).
-			// This assigns the IP and adds the colony as a peer with correct routing.
-			// No temporary IP, no route flushing, no delays needed!
-			logger.Info().
-				Str("mesh_ip", meshIPStr).
-				Str("subnet", meshSubnetStr).
-				Msg("Configuring agent mesh with permanent IP from colony")
-
-			if err := configureAgentMesh(wgDevice, meshIP, meshSubnet, colonyInfo, colonyEndpoint, logger); err != nil {
-				return fmt.Errorf("failed to configure agent mesh: %w", err)
-			}
-
-			logger.Info().
-				Str("mesh_ip", meshIPStr).
-				Msg("Agent mesh configured successfully - tunnel ready")
-
-			// Get connect port for heartbeat
-			connectPort := colonyInfo.ConnectPort
-			if connectPort == 0 {
-				connectPort = 9000
-			}
-			meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
-			logger.Info().
-				Str("mesh_addr", meshAddr).
-				Msg("Testing connectivity to colony via mesh to establish WireGuard handshake")
-
-			conn, err := net.DialTimeout("tcp", meshAddr, 5*time.Second)
+			// Attempt initial registration with colony.
+			// If this fails, agent will continue startup and attempt reconnection in background.
+			meshIPStr, meshSubnetStr, err := connMgr.AttemptRegistration()
 			if err != nil {
 				logger.Warn().
 					Err(err).
-					Str("mesh_addr", meshAddr).
-					Msg("Unable to establish connection to colony via mesh - handshake may not be complete")
+					Msg("Failed initial registration with colony - will retry in background")
+				// Agent continues in unregistered state, reconnection loop will handle retries.
 			} else {
-				conn.Close()
+				// Parse IP and subnet for mesh configuration (RFD 019).
+				meshIP := net.ParseIP(meshIPStr)
+				if meshIP == nil {
+					return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
+				}
+
+				_, meshSubnet, err := net.ParseCIDR(meshSubnetStr)
+				if err != nil {
+					return fmt.Errorf("invalid mesh subnet from colony: %w", err)
+				}
+
+				// Configure agent mesh with permanent IP (RFD 019).
+				// This assigns the IP and adds the colony as a peer with correct routing.
+				logger.Info().
+					Str("mesh_ip", meshIPStr).
+					Str("subnet", meshSubnetStr).
+					Msg("Configuring agent mesh with permanent IP from colony")
+
+				if err := configureAgentMesh(wgDevice, meshIP, meshSubnet, colonyInfo, colonyEndpoint, logger); err != nil {
+					return fmt.Errorf("failed to configure agent mesh: %w", err)
+				}
+
+				logger.Info().
+					Str("mesh_ip", meshIPStr).
+					Msg("Agent mesh configured successfully - tunnel ready")
+
+				// Get connect port for heartbeat.
+				connectPort := colonyInfo.ConnectPort
+				if connectPort == 0 {
+					connectPort = 9000
+				}
+				meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
 				logger.Info().
 					Str("mesh_addr", meshAddr).
-					Msg("Successfully established WireGuard tunnel to colony")
+					Msg("Testing connectivity to colony via mesh to establish WireGuard handshake")
+
+				conn, err := net.DialTimeout("tcp", meshAddr, 5*time.Second)
+				if err != nil {
+					logger.Warn().
+						Err(err).
+						Str("mesh_addr", meshAddr).
+						Msg("Unable to establish connection to colony via mesh - handshake may not be complete")
+				} else {
+					conn.Close()
+					logger.Info().
+						Str("mesh_addr", meshAddr).
+						Msg("Successfully established WireGuard tunnel to colony")
+				}
 			}
 
-			logger.Info().
-				Str("agent_id", agentID).
-				Str("mesh_ip", meshIPStr).
-				Int("service_count", len(serviceSpecs)).
-				Msg("Agent connected successfully")
+			// Log agent startup status.
+			currentIP, _ := connMgr.GetAssignedIP()
+			if currentIP != "" {
+				logger.Info().
+					Str("agent_id", agentID).
+					Str("mesh_ip", currentIP).
+					Int("service_count", len(serviceSpecs)).
+					Msg("Agent connected successfully")
+			} else {
+				logger.Info().
+					Str("agent_id", agentID).
+					Int("service_count", len(serviceSpecs)).
+					Msg("Agent started (unregistered - attempting reconnection in background)")
+			}
 
 			// Start agent instance (always created, even in passive mode).
 			serviceInfos := make([]*meshv1.ServiceInfo, len(serviceSpecs))
@@ -521,8 +536,11 @@ Examples:
 
 			logger.Info().Msg("Agent started successfully - waiting for shutdown signal")
 
-			// Start heartbeat loop in background to keep agent status healthy
-			go startHeartbeatLoop(ctx, agentID, colonyInfo.MeshIpv4, colonyInfo.ConnectPort, 15*time.Second, logger)
+			// Start heartbeat loop in background to keep agent status healthy.
+			go connMgr.StartHeartbeatLoop(ctx, 15*time.Second)
+
+			// Start reconnection loop in background to handle colony reconnection.
+			go connMgr.StartReconnectionLoop(ctx)
 
 			// Wait for interrupt signal.
 			sigChan := make(chan os.Signal, 1)
