@@ -96,7 +96,8 @@ func (pa *PersistentIPAllocator) loadAllocationsFromStore() error {
 		pa.allocator.allocated[ip.String()] = allocation.AgentID
 
 		// Update nextIP if necessary to avoid reusing this IP.
-		if pa.isIPAfterNext(ip) {
+		// If the loaded IP is >= nextIP, we need to move nextIP past it.
+		if pa.isIPAfterOrEqualNext(ip) {
 			pa.allocator.nextIP = incrementIP(ip)
 		}
 		pa.allocator.mu.Unlock()
@@ -105,16 +106,28 @@ func (pa *PersistentIPAllocator) loadAllocationsFromStore() error {
 	return nil
 }
 
-// isIPAfterNext checks if the given IP comes after the current nextIP.
-func (pa *PersistentIPAllocator) isIPAfterNext(ip net.IP) bool {
-	for i := 0; i < len(ip); i++ {
-		if ip[i] > pa.allocator.nextIP[i] {
+// isIPAfterOrEqualNext checks if the given IP comes after or is equal to the current nextIP.
+// We need to include equality because if the loaded IP equals nextIP, we still need to increment.
+func (pa *PersistentIPAllocator) isIPAfterOrEqualNext(ip net.IP) bool {
+	// Normalize both IPs to IPv4 for comparison.
+	// This is necessary because net.IP can be stored in different formats (IPv4 or IPv6-mapped).
+	ip4 := ip.To4()
+	nextIP4 := pa.allocator.nextIP.To4()
+
+	if ip4 == nil || nextIP4 == nil {
+		return false
+	}
+
+	// Compare byte-by-byte.
+	for i := 0; i < len(ip4); i++ {
+		if ip4[i] > nextIP4[i] {
 			return true
-		} else if ip[i] < pa.allocator.nextIP[i] {
+		} else if ip4[i] < nextIP4[i] {
 			return false
 		}
 	}
-	return false
+	// IPs are equal - return true so we increment past it.
+	return true
 }
 
 // Allocate assigns the next available IP address to the given agent.
