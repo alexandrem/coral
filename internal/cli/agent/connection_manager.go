@@ -77,6 +77,7 @@ type ConnectionManager struct {
 	assignedSubnet          string
 	currentEndpoint         string // Tracks the currently configured WireGuard endpoint
 	lastSuccessfulEndpoint  string // Tracks the last WireGuard endpoint that successfully connected
+	lastSuccessfulRegURL    string // Tracks the last HTTP registration URL that succeeded
 
 	// Reconnection control
 	reconnectTrigger chan struct{}
@@ -251,6 +252,23 @@ func (cm *ConnectionManager) GetCurrentEndpoint() string {
 	return cm.currentEndpoint
 }
 
+// GetLastSuccessfulRegURL returns the last HTTP registration URL that succeeded.
+func (cm *ConnectionManager) GetLastSuccessfulRegURL() string {
+	cm.stateMu.RLock()
+	defer cm.stateMu.RUnlock()
+	return cm.lastSuccessfulRegURL
+}
+
+// SetLastSuccessfulRegURL updates the last successful HTTP registration URL.
+func (cm *ConnectionManager) SetLastSuccessfulRegURL(url string) {
+	cm.stateMu.Lock()
+	defer cm.stateMu.Unlock()
+	cm.lastSuccessfulRegURL = url
+	cm.logger.Info().
+		Str("registration_url", url).
+		Msg("Updated last successful registration URL")
+}
+
 // AttemptRegistration attempts to register with the colony.
 // Returns the assigned IP and subnet on success, or an error on failure.
 // Returns an error if colony info is not available (discovery hasn't succeeded yet).
@@ -268,18 +286,27 @@ func (cm *ConnectionManager) AttemptRegistration() (string, string, error) {
 		Int("service_count", len(cm.serviceSpecs)).
 		Msg("Attempting registration with colony")
 
-	result, err := registerWithColony(
+	// Get preferred registration URL from last successful attempt
+	preferredURL := cm.GetLastSuccessfulRegURL()
+
+	result, successfulURL, err := registerWithColony(
 		cm.config,
 		cm.agentID,
 		cm.serviceSpecs,
 		cm.agentPubKey,
 		colonyInfo,
+		preferredURL,
 		cm.logger,
 	)
 
 	if err != nil {
 		cm.setState(StateUnregistered)
 		return "", "", err
+	}
+
+	// Record successful registration URL for future reconnections
+	if successfulURL != "" {
+		cm.SetLastSuccessfulRegURL(successfulURL)
 	}
 
 	// Parse registration result (format: "IP|SUBNET")

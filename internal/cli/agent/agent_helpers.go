@@ -429,14 +429,16 @@ func configureAgentMesh(
 }
 
 // registerWithColony sends a registration request to the colony.
+// Returns the registration result (IP|SUBNET format) and the successful URL.
 func registerWithColony(
 	cfg *config.ResolvedConfig,
 	agentID string,
 	serviceSpecs []*ServiceSpec,
 	agentPubKey string,
 	colonyInfo *discoverypb.LookupColonyResponse,
+	preferredURL string,
 	logger logging.Logger,
-) (string, error) {
+) (string, string, error) {
 	logger.Info().
 		Str("agent_id", agentID).
 		Int("service_count", len(serviceSpecs)).
@@ -447,13 +449,13 @@ func registerWithColony(
 		connectPort = 9000
 	}
 
-	candidateURLs := buildMeshServiceURLs(colonyInfo, connectPort)
+	candidateURLs := buildMeshServiceURLs(colonyInfo, connectPort, preferredURL)
 	logger.Debug().
 		Strs("candidate_urls", candidateURLs).
 		Msg("Prepared colony registration endpoints")
 
 	if len(candidateURLs) == 0 {
-		return "", fmt.Errorf("registration request failed: discovery did not provide mesh connectivity information")
+		return "", "", fmt.Errorf("registration request failed: discovery did not provide mesh connectivity information")
 	}
 
 	// Convert service specs to protobuf ServiceInfo messages
@@ -538,11 +540,12 @@ func registerWithColony(
 				Str("assigned_ip", resp.Msg.AssignedIp).
 				Str("mesh_subnet", resp.Msg.MeshSubnet).
 				Int("peer_count", len(resp.Msg.Peers)).
+				Str("successful_url", baseURL).
 				Msg("Successfully registered with colony")
 
-			// Return both IP and subnet for interface configuration
+			// Return IP|subnet format and the successful URL
 			result := fmt.Sprintf("%s|%s", resp.Msg.AssignedIp, resp.Msg.MeshSubnet)
-			return result, nil
+			return result, baseURL, nil
 		}
 	}
 
@@ -551,20 +554,21 @@ func registerWithColony(
 	}
 
 	if len(attemptErrors) > 0 {
-		return "", fmt.Errorf("registration attempts exhausted: %w (attempts: %s)", lastErr, strings.Join(attemptErrors, "; "))
+		return "", "", fmt.Errorf("registration attempts exhausted: %w (attempts: %s)", lastErr, strings.Join(attemptErrors, "; "))
 	}
 
-	return "", fmt.Errorf("registration attempts exhausted: %w", lastErr)
+	return "", "", fmt.Errorf("registration attempts exhausted: %w", lastErr)
 }
 
 // buildMeshServiceURLs returns candidate URLs for contacting the colony's mesh service.
+// If preferredURL is provided and exists in the candidate list, it will be returned first.
 //
 // WireGuard Bootstrap Problem:
 //   - Agent needs to register to become a WireGuard peer
 //   - But agent can't reach colony through mesh until it's a peer
 //   - Solution: Initial registration uses the discovery endpoint host,
 //     then after registration all communication goes through mesh IPs
-func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectPort uint32) []string {
+func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectPort uint32, preferredURL string) []string {
 	seen := make(map[string]struct{})
 	var candidates []string
 
@@ -593,6 +597,16 @@ func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectP
 	// Also try mesh IPs in case this is a re-registration with tunnel already established.
 	add(colonyInfo.MeshIpv4)
 	add(colonyInfo.MeshIpv6)
+
+	// Reorder to prioritize the last successful URL if provided.
+	if preferredURL != "" {
+		for i, url := range candidates {
+			if url == preferredURL {
+				// Move preferred URL to front
+				return append([]string{preferredURL}, append(candidates[:i], candidates[i+1:]...)...)
+			}
+		}
+	}
 
 	return candidates
 }
