@@ -89,11 +89,14 @@ The colony to start is determined by (in priority order):
 Environment Variables:
   CORAL_COLONY_ID          - Colony ID to start (overrides config)
   CORAL_DISCOVERY_ENDPOINT - Discovery service URL (default: http://localhost:8080)
-  CORAL_PUBLIC_ENDPOINT    - Public WireGuard endpoint for agents to connect
-                             Format: hostname:port or ip:port
-                             Examples: colony.example.com:41580, 203.0.113.5:41580
+  CORAL_PUBLIC_ENDPOINT    - Public WireGuard endpoint(s) for agents to connect
+                             Format: hostname:port or ip:port (comma-separated for multiple)
+                             Examples:
+                               Single:   colony.example.com:41580
+                               Multiple: 192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
                              Default: 127.0.0.1:<port> (local development only)
                              Production: MUST be set to reachable public IP/hostname
+                             Alternative: Configure public_endpoints in colony YAML config
   CORAL_MESH_SUBNET        - WireGuard mesh network subnet (CIDR notation)
                              Default: 100.64.0.0/10 (CGNAT address space, RFC 6598)
                              Examples: 100.64.0.0/10, 10.42.0.0/16, 172.16.0.0/12
@@ -197,8 +200,18 @@ Examples:
 
 			// Build endpoints advertised to discovery using public/reachable addresses.
 			// For local development, use empty host (":port") to let agents discover via local network.
-			// For production, configure CORAL_PUBLIC_ENDPOINT environment variable.
-			endpoints := buildWireGuardEndpoints(cfg.WireGuard.Port)
+			// For production, configure CORAL_PUBLIC_ENDPOINT environment variable or config file.
+			//
+			// Load colony config to get public endpoints configuration
+			colonyConfigForEndpoints, err := resolver.GetLoader().LoadColonyConfig(cfg.ColonyID)
+			if err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to load colony config for endpoints; using environment variable only")
+				colonyConfigForEndpoints = nil
+			}
+
+			endpoints := buildWireGuardEndpoints(cfg.WireGuard.Port, colonyConfigForEndpoints)
 			if len(endpoints) == 0 {
 				logger.Warn().Msg("No WireGuard endpoints could be constructed; discovery registration will fail")
 			} else {
@@ -1845,26 +1858,50 @@ func formatAgentStatus(agent *colonyv1.Agent) string {
 	return fmt.Sprintf("%s %s (%s)", statusSymbol, agent.Status, lastSeenStr)
 }
 
-func buildWireGuardEndpoints(port int) []string {
+func buildWireGuardEndpoints(port int, colonyConfig *config.ColonyConfig) []string {
 	var endpoints []string
+	var rawEndpoints []string
 
-	// Check for explicit public endpoint configuration.
-	// CORAL_PUBLIC_ENDPOINT contains the public hostname/IP (optionally with a port).
+	// Priority 1: Check for explicit public endpoint configuration via environment variable.
+	// CORAL_PUBLIC_ENDPOINT can contain comma-separated list of hostnames/IPs (optionally with ports).
+	// Example: CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
+	if publicEndpoint := os.Getenv("CORAL_PUBLIC_ENDPOINT"); publicEndpoint != "" {
+		// Parse comma-separated endpoints
+		rawEndpoints = strings.Split(publicEndpoint, ",")
+		for i := range rawEndpoints {
+			rawEndpoints[i] = strings.TrimSpace(rawEndpoints[i])
+		}
+	} else if colonyConfig != nil && len(colonyConfig.WireGuard.PublicEndpoints) > 0 {
+		// Priority 2: Use endpoints from config file
+		rawEndpoints = colonyConfig.WireGuard.PublicEndpoints
+	}
+
+	// Process raw endpoints: extract host and ALWAYS use the WireGuard port.
 	// We extract the host and ALWAYS use the WireGuard port, not the port from the env var.
 	// This is because CORAL_PUBLIC_ENDPOINT typically contains the gRPC/Connect service address,
 	// but we need to advertise the WireGuard UDP port for peer connections.
-	if publicEndpoint := os.Getenv("CORAL_PUBLIC_ENDPOINT"); publicEndpoint != "" {
+	for _, endpoint := range rawEndpoints {
+		if endpoint == "" {
+			continue
+		}
+
 		var host string
 		// Try to extract host from endpoint (may have port)
-		if h, _, err := net.SplitHostPort(publicEndpoint); err == nil {
+		if h, _, err := net.SplitHostPort(endpoint); err == nil {
 			host = h
 		} else {
 			// No port in the endpoint, use as-is
-			host = publicEndpoint
+			host = endpoint
 		}
 
 		// Build WireGuard endpoint with the configured WireGuard port
-		endpoints = append(endpoints, net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+		if host != "" {
+			endpoints = append(endpoints, net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+		}
+	}
+
+	// If we found any endpoints, return them
+	if len(endpoints) > 0 {
 		return endpoints
 	}
 
@@ -1872,7 +1909,8 @@ func buildWireGuardEndpoints(port int) []string {
 	// Agents on the same machine can connect via 127.0.0.1.
 	//
 	// For production deployments:
-	// - Set CORAL_PUBLIC_ENDPOINT to your public IP or hostname
+	// - Set CORAL_PUBLIC_ENDPOINT to your public IP or hostname (comma-separated for multiple)
+	// - Or configure public_endpoints in the colony YAML config
 	// - Or use NAT traversal/STUN (future feature)
 	if port > 0 {
 		endpoints = append(endpoints, net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)))

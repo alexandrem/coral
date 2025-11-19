@@ -75,19 +75,24 @@ type ServicesConfig struct {
 //
 //	CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start
 //
+// Multiple endpoints can be specified (comma-separated):
+//
+//	CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
+//
 // The mesh IPs (mesh_ipv4, mesh_ipv6) are only used INSIDE the tunnel for
 // service communication, not for establishing the initial connection.
 type WireGuardConfig struct {
-	PrivateKey          string `yaml:"private_key"`
-	PublicKey           string `yaml:"public_key"`
-	Port                int    `yaml:"port"`                           // WireGuard UDP listen port
-	InterfaceName       string `yaml:"interface_name,omitempty"`       // Interface name (e.g., wg0)
-	MeshIPv4            string `yaml:"mesh_ipv4,omitempty"`            // IPv4 address inside tunnel
-	MeshIPv6            string `yaml:"mesh_ipv6,omitempty"`            // IPv6 address inside tunnel
-	MeshNetworkIPv4     string `yaml:"mesh_network_ipv4,omitempty"`    // IPv4 network CIDR
-	MeshNetworkIPv6     string `yaml:"mesh_network_ipv6,omitempty"`    // IPv6 network CIDR
-	MTU                 int    `yaml:"mtu,omitempty"`                  // Interface MTU
-	PersistentKeepalive int    `yaml:"persistent_keepalive,omitempty"` // Keepalive interval (seconds)
+	PrivateKey          string   `yaml:"private_key"`
+	PublicKey           string   `yaml:"public_key"`
+	Port                int      `yaml:"port"`                           // WireGuard UDP listen port
+	PublicEndpoints     []string `yaml:"public_endpoints,omitempty"`     // Public endpoints for agent connections
+	InterfaceName       string   `yaml:"interface_name,omitempty"`       // Interface name (e.g., wg0)
+	MeshIPv4            string   `yaml:"mesh_ipv4,omitempty"`            // IPv4 address inside tunnel
+	MeshIPv6            string   `yaml:"mesh_ipv6,omitempty"`            // IPv6 address inside tunnel
+	MeshNetworkIPv4     string   `yaml:"mesh_network_ipv4,omitempty"`    // IPv4 network CIDR
+	MeshNetworkIPv6     string   `yaml:"mesh_network_ipv6,omitempty"`    // IPv6 network CIDR
+	MTU                 int      `yaml:"mtu,omitempty"`                  // Interface MTU
+	PersistentKeepalive int      `yaml:"persistent_keepalive,omitempty"` // Keepalive interval (seconds)
 }
 
 // DiscoveryColony contains colony-specific discovery settings.
