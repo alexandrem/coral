@@ -274,7 +274,7 @@ WireGuard:
 
 ## Implementation Plan
 
-### Phase 1: Add Persistent Storage (Non-Breaking)
+### Phase 1: Add Persistent Storage ✅ Complete
 
 - [x] Create database migration `001-agent-ip-allocations.sql`.
 - [x] Implement persistent IP allocator with database backing.
@@ -283,7 +283,7 @@ WireGuard:
 - [x] Integration: Store allocations in DB alongside existing in-memory
   allocator.
 
-### Phase 2: Colony Startup Recovery
+### Phase 2: Colony Startup Recovery ✅ Complete
 
 - [x] Integrate persistent allocator into colony registry.
 - [x] Load allocations on colony startup.
@@ -421,19 +421,25 @@ Support subnet growth without reconfiguration:
 
 **Core Capability:** ✅ Complete
 
-Persistent IP allocation fully implemented with database backing. The temporary IP pattern (`10.42.255.254`) has been completely eliminated, and agent registration is significantly simplified.
+Persistent IP allocation fully implemented with database backing. The temporary
+IP pattern (`10.42.255.254`) has been completely eliminated, and agent
+registration is significantly simplified.
 
 **Operational Components:**
-- ✅ Database schema created (`agent_ip_allocations` table without `last_seen` index)
+
+- ✅ Database schema created (`agent_ip_allocations` table without `last_seen`
+  index)
 - ✅ `PersistentIPAllocator` with DuckDB persistence
 - ✅ Database adapter implementing `IPAllocationStore` interface
-- ✅ Initialization order fixed (allocator configured before WireGuard device starts)
+- ✅ Initialization order fixed (allocator configured before WireGuard device
+  starts)
 - ✅ Temporary IP pattern completely eliminated from agent code
 - ✅ Platform-specific route flushing removed
 - ✅ Unit tests for persistent allocator (6 test cases)
 - ✅ Enhanced logging for debugging and monitoring
 
 **What Works:**
+
 - Colony loads existing IP allocations from database on startup
 - Agents register and receive permanent mesh IPs in initial response
 - No temporary IP assignment during setup
@@ -444,6 +450,7 @@ Persistent IP allocation fully implemented with database backing. The temporary 
 - DuckDB `ON CONFLICT (agent_id)` upsert working correctly
 
 **Architecture Improvements:**
+
 - Reduced registration complexity (~160 lines of code removed)
 - Eliminated platform-specific dependencies (macOS/Linux route commands)
 - Removed race conditions from temporary IP window
@@ -451,28 +458,34 @@ Persistent IP allocation fully implemented with database backing. The temporary 
 - Faster registration (removed ~500ms of delays)
 
 **Testing Status:**
+
 - ✅ Unit tests for persistent allocator
 - ⏳ Integration tests for concurrent registration (deferred)
 - ⏳ E2E tests for colony restart scenarios (deferred)
 - ⏳ Performance benchmarks (deferred)
 
-These tests are deferred as the core functionality is working and stable. They can be added incrementally without blocking the RFD completion.
+These tests are deferred as the core functionality is working and stable. They
+can be added incrementally without blocking the RFD completion.
 
 ## Deferred Features
 
 **IP Lease Management** (Future Enhancement)
 
-Not required for core functionality, but would enable automatic cleanup of stale allocations:
+Not required for core functionality, but would enable automatic cleanup of stale
+allocations:
 
 - Add `lease_expires_at` column to track allocation TTL
 - Implement garbage collection for expired leases
 - Add renewal mechanism during agent heartbeats
 
-This is deferred as the current implementation provides sufficient functionality for typical deployments. The `/16` subnet provides 65,536 addresses, making exhaustion unlikely in practice.
+This is deferred as the current implementation provides sufficient functionality
+for typical deployments. The `/16` subnet provides 65,536 addresses, making
+exhaustion unlikely in practice.
 
 **Secure Authentication** (Separate RFD Required)
 
-The plaintext `colony_secret` transmission vulnerability is out of scope for this RFD:
+The plaintext `colony_secret` transmission vulnerability is out of scope for
+this RFD:
 
 - Token-based authentication
 - TLS for registration endpoint
