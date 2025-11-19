@@ -27,7 +27,7 @@ type Device struct {
 	wgDevice    *device.Device
 	tunDevice   tun.Device
 	iface       *Interface
-	ipAllocator *IPAllocator
+	ipAllocator Allocator              // IP allocator interface (can be IPAllocator or PersistentIPAllocator).
 	peers       map[string]*PeerConfig // publicKey -> PeerConfig
 	mu          sync.RWMutex
 	wgLogger    *device.Logger // WireGuard internal logger.
@@ -344,8 +344,23 @@ func (d *Device) RefreshPeerRoutes() error {
 }
 
 // Allocator returns the IP allocator for this device.
-func (d *Device) Allocator() *IPAllocator {
+func (d *Device) Allocator() Allocator {
 	return d.ipAllocator
+}
+
+// SetAllocator replaces the IP allocator for this device.
+// This allows injecting a PersistentIPAllocator after device creation.
+// Must be called before Start().
+func (d *Device) SetAllocator(allocator Allocator) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.wgDevice != nil {
+		return fmt.Errorf("cannot change allocator after device is started")
+	}
+
+	d.ipAllocator = allocator
+	return nil
 }
 
 // Config returns the device configuration.

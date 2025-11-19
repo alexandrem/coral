@@ -122,7 +122,11 @@ func resolveToIPv4(host string, logger logging.Logger) (string, error) {
 }
 
 // setupAgentWireGuard creates and configures the agent's WireGuard device.
-// Returns the WireGuard device and the discovered public endpoint (if STUN was successful).
+// Returns the WireGuard device, discovered public endpoint, and colony endpoint (RFD 019).
+// The device is returned WITHOUT a peer - peer must be added after registration.
+// setupAgentWireGuard sets up the WireGuard device for the agent.
+// colonyInfo may be nil if discovery service is unavailable - in this case,
+// the device is created but colony endpoint selection is skipped.
 func setupAgentWireGuard(
 	agentKeys *auth.WireGuardKeyPair,
 	colonyInfo *discoverypb.LookupColonyResponse,
@@ -130,9 +134,10 @@ func setupAgentWireGuard(
 	enableRelay bool,
 	wgPort int,
 	logger logging.Logger,
-) (*wireguard.Device, *discoverypb.Endpoint, error) {
+) (*wireguard.Device, *discoverypb.Endpoint, string, error) {
 	logger.Info().
 		Int("port", wgPort).
+		Bool("has_colony_info", colonyInfo != nil).
 		Msg("Setting up WireGuard device for agent")
 
 	// Perform STUN discovery BEFORE starting WireGuard to avoid port conflicts.
@@ -164,12 +169,12 @@ func setupAgentWireGuard(
 	// Create device
 	wgDevice, err := wireguard.NewDevice(wgConfig, logger)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create WireGuard device: %w", err)
+		return nil, nil, "", fmt.Errorf("failed to create WireGuard device: %w", err)
 	}
 
 	// Start device
 	if err := wgDevice.Start(); err != nil {
-		return nil, nil, fmt.Errorf("failed to start WireGuard device: %w", err)
+		return nil, nil, "", fmt.Errorf("failed to start WireGuard device: %w", err)
 	}
 
 	logger.Info().
@@ -190,127 +195,177 @@ func setupAgentWireGuard(
 	}
 
 	// Select colony endpoint for establishing the WireGuard peer.
-	// Priority: observed endpoints (for NAT traversal) > regular endpoints
+	// Priority: observed endpoints (for NAT traversal) > regular endpoints.
+	// Skip if colony info is not available (discovery service unavailable).
 	var colonyEndpoint string
 
-	// Try observed endpoints first (these are the colony's public NAT addresses)
-	for _, observedEp := range colonyInfo.ObservedEndpoints {
-		if observedEp == nil || observedEp.Ip == "" {
-			continue
-		}
-
-		// LIMITATION: IPv6 support is not yet implemented.
-		// IPv6 addresses are skipped in favor of IPv4 for NAT traversal.
-		// TODO: Add proper IPv6 support with dual-stack handling.
-		// For now, only IPv4 endpoints are used for agent-colony connectivity.
-		ip := net.ParseIP(observedEp.Ip)
-		if ip != nil && ip.To4() == nil {
-			// This is an IPv6 address - skip it for now as we only support IPv4.
-			logger.Debug().
-				Str("ipv6_endpoint", observedEp.Ip).
-				Msg("Skipping IPv6 observed endpoint (IPv4-only mode)")
-			continue
-		}
-
-		// Skip loopback addresses
-		if ip != nil && ip.IsLoopback() {
-			logger.Debug().
-				Str("loopback_endpoint", observedEp.Ip).
-				Msg("Skipping loopback observed endpoint")
-			continue
-		}
-
-		colonyEndpoint = net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
-		logger.Info().
-			Str("endpoint", colonyEndpoint).
-			Msg("Using colony's observed public endpoint for NAT traversal")
-		break
-	}
-
-	// Fall back to regular discovery endpoints
-	// Note: Discovery endpoints contain the gRPC/Connect port, not WireGuard port.
-	// We need to extract the host and use the WireGuard port instead.
-	if colonyEndpoint == "" {
-		for _, ep := range colonyInfo.Endpoints {
-			if ep == "" {
+	if colonyInfo != nil {
+		// Try observed endpoints first (these are the colony's public NAT addresses)
+		for _, observedEp := range colonyInfo.ObservedEndpoints {
+			if observedEp == nil || observedEp.Ip == "" {
 				continue
 			}
 
-			host, _, err := net.SplitHostPort(ep)
-			if err != nil {
-				logger.Warn().Err(err).Str("endpoint", ep).Msg("Invalid colony endpoint from discovery")
+			// LIMITATION: IPv6 support is not yet implemented.
+			// IPv6 addresses are skipped in favor of IPv4 for NAT traversal.
+			// TODO: Add proper IPv6 support with dual-stack handling.
+			// For now, only IPv4 endpoints are used for agent-colony connectivity.
+			ip := net.ParseIP(observedEp.Ip)
+			if ip != nil && ip.To4() == nil {
+				// This is an IPv6 address - skip it for now as we only support IPv4.
+				logger.Debug().
+					Str("ipv6_endpoint", observedEp.Ip).
+					Msg("Skipping IPv6 observed endpoint (IPv4-only mode)")
 				continue
 			}
 
-			if host == "" {
-				logger.Warn().Str("endpoint", ep).Msg("Skipping discovery endpoint without host")
+			// Skip loopback addresses
+			if ip != nil && ip.IsLoopback() {
+				logger.Debug().
+					Str("loopback_endpoint", observedEp.Ip).
+					Msg("Skipping loopback observed endpoint")
 				continue
 			}
 
-			// Resolve hostname to IPv4 address to avoid IPv6 issues
-			resolvedHost, err := resolveToIPv4(host, logger)
-			if err != nil {
-				logger.Warn().
-					Err(err).
-					Str("host", host).
-					Msg("Failed to resolve endpoint to IPv4, using as-is")
-				resolvedHost = host
-			}
-
-			// Determine WireGuard port from multiple sources in priority order:
-			// 1. Observed endpoint (STUN-discovered port)
-			// 2. Metadata field "wireguard_port"
-			// 3. Default 51820
-			wgPort := uint32(51820) // Default WireGuard port
-			portSource := "default"
-
-			if len(colonyInfo.ObservedEndpoints) > 0 && colonyInfo.ObservedEndpoints[0] != nil && colonyInfo.ObservedEndpoints[0].Port > 0 {
-				// Use the port from the observed endpoint (STUN-discovered)
-				wgPort = colonyInfo.ObservedEndpoints[0].Port
-				portSource = "observed_endpoint"
-			} else if colonyInfo.Metadata != nil {
-				if portStr, ok := colonyInfo.Metadata["wireguard_port"]; ok && portStr != "" {
-					if port, err := strconv.ParseUint(portStr, 10, 32); err == nil && port > 0 {
-						wgPort = uint32(port)
-						portSource = "metadata"
-					}
-				}
-			}
-
-			logger.Debug().
-				Uint32("wireguard_port", wgPort).
-				Str("source", portSource).
-				Msg("Determined WireGuard port for colony connection")
-
-			colonyEndpoint = net.JoinHostPort(resolvedHost, fmt.Sprintf("%d", wgPort))
+			colonyEndpoint = net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
 			logger.Info().
 				Str("endpoint", colonyEndpoint).
-				Str("original_host", host).
-				Uint32("wireguard_port", wgPort).
-				Msg("Using colony's regular endpoint with WireGuard port")
+				Msg("Using colony's observed public endpoint for NAT traversal")
 			break
 		}
-	}
 
-	// If still no endpoint and relay is enabled, request a relay
-	if colonyEndpoint == "" && enableRelay && len(colonyInfo.Relays) > 0 {
-		logger.Info().Msg("No direct colony endpoint available, attempting relay allocation")
+		// Fall back to regular discovery endpoints
+		// Note: Discovery endpoints contain the gRPC/Connect port, not WireGuard port.
+		// We need to extract the host and use the WireGuard port instead.
+		if colonyEndpoint == "" {
+			for _, ep := range colonyInfo.Endpoints {
+				if ep == "" {
+					continue
+				}
 
-		relayEndpoint, err := requestRelayAllocation(colonyInfo, agentKeys.PublicKey, logger)
-		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to allocate relay")
-		} else if relayEndpoint != nil {
-			colonyEndpoint = net.JoinHostPort(relayEndpoint.Ip, fmt.Sprintf("%d", relayEndpoint.Port))
-			logger.Info().
-				Str("relay_endpoint", colonyEndpoint).
-				Msg("Using relay endpoint for NAT traversal")
+				host, _, err := net.SplitHostPort(ep)
+				if err != nil {
+					logger.Warn().Err(err).Str("endpoint", ep).Msg("Invalid colony endpoint from discovery")
+					continue
+				}
+
+				if host == "" {
+					logger.Warn().Str("endpoint", ep).Msg("Skipping discovery endpoint without host")
+					continue
+				}
+
+				// Resolve hostname to IPv4 address to avoid IPv6 issues
+				resolvedHost, err := resolveToIPv4(host, logger)
+				if err != nil {
+					logger.Warn().
+						Err(err).
+						Str("host", host).
+						Msg("Failed to resolve endpoint to IPv4, using as-is")
+					resolvedHost = host
+				}
+
+				// Determine WireGuard port from multiple sources in priority order:
+				// 1. Observed endpoint (STUN-discovered port)
+				// 2. Metadata field "wireguard_port"
+				// 3. Default 51820
+				wgPort := uint32(51820) // Default WireGuard port
+				portSource := "default"
+
+				if len(colonyInfo.ObservedEndpoints) > 0 && colonyInfo.ObservedEndpoints[0] != nil && colonyInfo.ObservedEndpoints[0].Port > 0 {
+					// Use the port from the observed endpoint (STUN-discovered)
+					wgPort = colonyInfo.ObservedEndpoints[0].Port
+					portSource = "observed_endpoint"
+				} else if colonyInfo.Metadata != nil {
+					if portStr, ok := colonyInfo.Metadata["wireguard_port"]; ok && portStr != "" {
+						if port, err := strconv.ParseUint(portStr, 10, 32); err == nil && port > 0 {
+							wgPort = uint32(port)
+							portSource = "metadata"
+						}
+					}
+				}
+
+				logger.Debug().
+					Uint32("wireguard_port", wgPort).
+					Str("source", portSource).
+					Msg("Determined WireGuard port for colony connection")
+
+				colonyEndpoint = net.JoinHostPort(resolvedHost, fmt.Sprintf("%d", wgPort))
+				logger.Info().
+					Str("endpoint", colonyEndpoint).
+					Str("original_host", host).
+					Uint32("wireguard_port", wgPort).
+					Msg("Using colony's regular endpoint with WireGuard port")
+				break
+			}
 		}
+
+		// If still no endpoint and relay is enabled, request a relay.
+		if colonyEndpoint == "" && enableRelay && len(colonyInfo.Relays) > 0 {
+			logger.Info().Msg("No direct colony endpoint available, attempting relay allocation")
+
+			relayEndpoint, err := requestRelayAllocation(colonyInfo, agentKeys.PublicKey, logger)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to allocate relay")
+			} else if relayEndpoint != nil {
+				colonyEndpoint = net.JoinHostPort(relayEndpoint.Ip, fmt.Sprintf("%d", relayEndpoint.Port))
+				logger.Info().
+					Str("relay_endpoint", colonyEndpoint).
+					Msg("Using relay endpoint for NAT traversal")
+			}
+		}
+
+		if colonyEndpoint == "" {
+			return nil, nil, "", fmt.Errorf("no usable colony endpoint available (tried: observed, direct, relay)")
+		}
+	} else {
+		logger.Info().Msg("Colony info not available - skipping endpoint selection (will be configured after discovery)")
 	}
 
-	if colonyEndpoint == "" {
-		return nil, nil, fmt.Errorf("no usable colony endpoint available (tried: observed, direct, relay)")
+	// RFD 019: Do NOT assign temporary IP or add peer here.
+	// We will register with the colony first to get the permanent IP,
+	// then assign it before adding the peer. This eliminates the need
+	// for route flushing and temporary IP patterns.
+
+	logger.Info().
+		Str("colony_endpoint", colonyEndpoint).
+		Msg("WireGuard device ready for registration")
+
+	// Return device WITHOUT peer configuration and WITH colony endpoint.
+	// The peer will be added AFTER registration in the calling code.
+	return wgDevice, agentPublicEndpoint, colonyEndpoint, nil
+}
+
+// configureAgentMesh configures the agent's mesh network after registration.
+// This adds the colony as a WireGuard peer and tests connectivity (RFD 019).
+func configureAgentMesh(
+	wgDevice *wireguard.Device,
+	meshIP net.IP,
+	meshSubnet *net.IPNet,
+	colonyInfo *discoverypb.LookupColonyResponse,
+	colonyEndpoint string,
+	logger logging.Logger,
+) error {
+	logger.Info().
+		Str("interface", wgDevice.InterfaceName()).
+		Str("mesh_ip", meshIP.String()).
+		Msg("Configuring agent mesh network with permanent IP")
+
+	// Assign permanent IP to interface (RFD 019: no temporary IP).
+	iface := wgDevice.Interface()
+	if iface == nil {
+		return fmt.Errorf("WireGuard device has no interface")
 	}
 
+	if err := iface.AssignIP(meshIP, meshSubnet); err != nil {
+		return fmt.Errorf("failed to assign IP to interface: %w", err)
+	}
+
+	logger.Info().
+		Str("interface", wgDevice.InterfaceName()).
+		Str("ip", meshIP.String()).
+		Msg("Permanent IP assigned successfully")
+
+	// Build allowed IPs for colony peer.
 	allowedIPs := make([]string, 0, 2)
 	if colonyInfo.MeshIpv4 != "" {
 		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv4+"/32")
@@ -319,37 +374,8 @@ func setupAgentWireGuard(
 		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv6+"/128")
 	}
 
-	if len(allowedIPs) == 0 {
-		return nil, nil, fmt.Errorf("discovery response missing mesh IPs; unable to configure WireGuard peer")
-	}
-
-	// Assign a temporary IP to the agent interface BEFORE adding peer.
-	// Routes can only be added after the interface has an IP address.
-	// We'll use a temporary IP in the high range (.254) which will be updated after registration.
-	if colonyInfo.MeshIpv4 != "" {
-		tempIP := net.ParseIP("100.127.255.254") // Temporary IP in high range
-		_, meshSubnet, err := net.ParseCIDR("100.64.0.0/10")
-		if err == nil {
-			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("temp_ip", tempIP.String()).
-				Msg("Assigning temporary IP to agent interface for initial registration")
-
-			iface := wgDevice.Interface()
-			if iface != nil {
-				if err := iface.AssignIP(tempIP, meshSubnet); err != nil {
-					logger.Warn().Err(err).Msg("Failed to assign temporary IP to agent interface")
-				} else {
-					logger.Info().
-						Str("interface", wgDevice.InterfaceName()).
-						Str("temp_ip", tempIP.String()).
-						Msg("Temporary IP assigned successfully")
-				}
-			}
-		}
-	}
-
-	// Now add peer - routes will be created successfully since interface has an IP.
+	// Add colony as WireGuard peer (RFD 019: AFTER IP assignment).
+	// Routes will be created with the correct source IP from the start.
 	peerConfig := &wireguard.PeerConfig{
 		PublicKey:           colonyInfo.Pubkey,
 		Endpoint:            colonyEndpoint,
@@ -360,23 +386,16 @@ func setupAgentWireGuard(
 	logger.Info().
 		Str("endpoint", colonyEndpoint).
 		Strs("allowed_ips", allowedIPs).
-		Str("public_key", agentKeys.PublicKey).
-		Msg("Adding colony WireGuard peer")
+		Msg("Adding colony as WireGuard peer")
 
 	if err := wgDevice.AddPeer(peerConfig); err != nil {
-		wgDevice.Stop()
-		return nil, nil, fmt.Errorf("failed to add colony as peer: %w", err)
+		return fmt.Errorf("failed to add colony as peer: %w", err)
 	}
 
 	logger.Info().
 		Str("colony_endpoint", colonyEndpoint).
 		Str("colony_mesh_ip", colonyInfo.MeshIpv4).
-		Msg("Added colony as WireGuard peer")
-
-	// Wait for WireGuard tunnel to establish and routes to be configured.
-	// This gives the kernel time to set up the interface and routing.
-	logger.Info().Msg("Waiting for WireGuard tunnel to establish...")
-	time.Sleep(2 * time.Second)
+		Msg("Colony peer added successfully")
 
 	// Verify mesh IP is reachable via TCP connection test.
 	if colonyInfo.MeshIpv4 != "" {
@@ -406,18 +425,20 @@ func setupAgentWireGuard(
 		}
 	}
 
-	return wgDevice, agentPublicEndpoint, nil
+	return nil
 }
 
 // registerWithColony sends a registration request to the colony.
+// Returns the registration result (IP|SUBNET format) and the successful URL.
 func registerWithColony(
 	cfg *config.ResolvedConfig,
 	agentID string,
 	serviceSpecs []*ServiceSpec,
 	agentPubKey string,
 	colonyInfo *discoverypb.LookupColonyResponse,
+	preferredURL string,
 	logger logging.Logger,
-) (string, error) {
+) (string, string, error) {
 	logger.Info().
 		Str("agent_id", agentID).
 		Int("service_count", len(serviceSpecs)).
@@ -428,13 +449,13 @@ func registerWithColony(
 		connectPort = 9000
 	}
 
-	candidateURLs := buildMeshServiceURLs(colonyInfo, connectPort)
+	candidateURLs := buildMeshServiceURLs(colonyInfo, connectPort, preferredURL)
 	logger.Debug().
 		Strs("candidate_urls", candidateURLs).
 		Msg("Prepared colony registration endpoints")
 
 	if len(candidateURLs) == 0 {
-		return "", fmt.Errorf("registration request failed: discovery did not provide mesh connectivity information")
+		return "", "", fmt.Errorf("registration request failed: discovery did not provide mesh connectivity information")
 	}
 
 	// Convert service specs to protobuf ServiceInfo messages
@@ -519,11 +540,12 @@ func registerWithColony(
 				Str("assigned_ip", resp.Msg.AssignedIp).
 				Str("mesh_subnet", resp.Msg.MeshSubnet).
 				Int("peer_count", len(resp.Msg.Peers)).
+				Str("successful_url", baseURL).
 				Msg("Successfully registered with colony")
 
-			// Return both IP and subnet for interface configuration
+			// Return IP|subnet format and the successful URL
 			result := fmt.Sprintf("%s|%s", resp.Msg.AssignedIp, resp.Msg.MeshSubnet)
-			return result, nil
+			return result, baseURL, nil
 		}
 	}
 
@@ -532,20 +554,21 @@ func registerWithColony(
 	}
 
 	if len(attemptErrors) > 0 {
-		return "", fmt.Errorf("registration attempts exhausted: %w (attempts: %s)", lastErr, strings.Join(attemptErrors, "; "))
+		return "", "", fmt.Errorf("registration attempts exhausted: %w (attempts: %s)", lastErr, strings.Join(attemptErrors, "; "))
 	}
 
-	return "", fmt.Errorf("registration attempts exhausted: %w", lastErr)
+	return "", "", fmt.Errorf("registration attempts exhausted: %w", lastErr)
 }
 
 // buildMeshServiceURLs returns candidate URLs for contacting the colony's mesh service.
+// If preferredURL is provided and exists in the candidate list, it will be returned first.
 //
 // WireGuard Bootstrap Problem:
 //   - Agent needs to register to become a WireGuard peer
 //   - But agent can't reach colony through mesh until it's a peer
 //   - Solution: Initial registration uses the discovery endpoint host,
 //     then after registration all communication goes through mesh IPs
-func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectPort uint32) []string {
+func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectPort uint32, preferredURL string) []string {
 	seen := make(map[string]struct{})
 	var candidates []string
 
@@ -574,6 +597,16 @@ func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectP
 	// Also try mesh IPs in case this is a re-registration with tunnel already established.
 	add(colonyInfo.MeshIpv4)
 	add(colonyInfo.MeshIpv6)
+
+	// Reorder to prioritize the last successful URL if provided.
+	if preferredURL != "" {
+		for i, url := range candidates {
+			if url == preferredURL {
+				// Move preferred URL to front
+				return append([]string{preferredURL}, append(candidates[:i], candidates[i+1:]...)...)
+			}
+		}
+	}
 
 	return candidates
 }

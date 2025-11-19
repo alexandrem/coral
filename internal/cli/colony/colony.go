@@ -89,11 +89,14 @@ The colony to start is determined by (in priority order):
 Environment Variables:
   CORAL_COLONY_ID          - Colony ID to start (overrides config)
   CORAL_DISCOVERY_ENDPOINT - Discovery service URL (default: http://localhost:8080)
-  CORAL_PUBLIC_ENDPOINT    - Public WireGuard endpoint for agents to connect
-                             Format: hostname:port or ip:port
-                             Examples: colony.example.com:41580, 203.0.113.5:41580
+  CORAL_PUBLIC_ENDPOINT    - Public WireGuard endpoint(s) for agents to connect
+                             Format: hostname:port or ip:port (comma-separated for multiple)
+                             Examples:
+                               Single:   colony.example.com:41580
+                               Multiple: 192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
                              Default: 127.0.0.1:<port> (local development only)
                              Production: MUST be set to reachable public IP/hostname
+                             Alternative: Configure public_endpoints in colony YAML config
   CORAL_MESH_SUBNET        - WireGuard mesh network subnet (CIDR notation)
                              Default: 100.64.0.0/10 (CGNAT address space, RFC 6598)
                              Examples: 100.64.0.0/10, 10.42.0.0/16, 172.16.0.0/12
@@ -170,20 +173,45 @@ Examples:
 			// TODO: Implement remaining colony startup tasks
 			// - Start HTTP server for dashboard on cfg.Dashboard.Port
 
-			// Initialize WireGuard device
-			wgDevice, err := initializeWireGuard(cfg, logger)
+			// Initialize WireGuard device (but don't start it yet)
+			wgDevice, err := createWireGuardDevice(cfg, logger)
 			if err != nil {
-				return fmt.Errorf("failed to initialize WireGuard: %w", err)
+				return fmt.Errorf("failed to create WireGuard device: %w", err)
 			}
 			defer wgDevice.Stop()
+
+			// Set up the persistent allocator BEFORE starting the device (RFD 019).
+			// This enables IP allocation recovery after colony restarts.
+			if err := initializePersistentIPAllocator(wgDevice, db, logger); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to initialize persistent IP allocator, using in-memory allocator")
+			} else {
+				logger.Info().Msg("Persistent IP allocator initialized")
+			}
+
+			// Now start the WireGuard device with the persistent allocator configured
+			if err := startWireGuardDevice(wgDevice, cfg, logger); err != nil {
+				return fmt.Errorf("failed to start WireGuard device: %w", err)
+			}
 
 			// Create agent registry for tracking connected agents.
 			agentRegistry := registry.New()
 
 			// Build endpoints advertised to discovery using public/reachable addresses.
 			// For local development, use empty host (":port") to let agents discover via local network.
-			// For production, configure CORAL_PUBLIC_ENDPOINT environment variable.
-			endpoints := buildWireGuardEndpoints(cfg.WireGuard.Port)
+			// For production, configure CORAL_PUBLIC_ENDPOINT environment variable or config file.
+			//
+			// Load colony config to get public endpoints configuration
+			colonyConfigForEndpoints, err := resolver.GetLoader().LoadColonyConfig(cfg.ColonyID)
+			if err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to load colony config for endpoints; using environment variable only")
+				colonyConfigForEndpoints = nil
+			}
+
+			endpoints := buildWireGuardEndpoints(cfg.WireGuard.Port, colonyConfigForEndpoints)
 			if len(endpoints) == 0 {
 				logger.Warn().Msg("No WireGuard endpoints could be constructed; discovery registration will fail")
 			} else {
@@ -1161,20 +1189,26 @@ Note: The colony's WireGuard public key will be retrieved from discovery service
 	return cmd
 }
 
-// initializeWireGuard creates and starts the WireGuard device for the colony.
-func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wireguard.Device, error) {
+// createWireGuardDevice creates a WireGuard device but doesn't start it yet.
+// This allows the persistent IP allocator to be configured before the device starts.
+func createWireGuardDevice(cfg *config.ResolvedConfig, logger logging.Logger) (*wireguard.Device, error) {
 	logger.Info().
 		Str("mesh_ipv4", cfg.WireGuard.MeshIPv4).
 		Int("port", cfg.WireGuard.Port).
-		Msg("Initializing WireGuard device")
+		Msg("Creating WireGuard device")
 
 	wgDevice, err := wireguard.NewDevice(&cfg.WireGuard, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WireGuard device: %w", err)
 	}
 
+	return wgDevice, nil
+}
+
+// startWireGuardDevice starts the WireGuard device and assigns the mesh IP.
+func startWireGuardDevice(wgDevice *wireguard.Device, cfg *config.ResolvedConfig, logger logging.Logger) error {
 	if err := wgDevice.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start WireGuard device: %w", err)
+		return fmt.Errorf("failed to start WireGuard device: %w", err)
 	}
 
 	logger.Info().
@@ -1186,12 +1220,12 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 	if cfg.WireGuard.MeshIPv4 != "" && cfg.WireGuard.MeshNetworkIPv4 != "" {
 		meshIP := net.ParseIP(cfg.WireGuard.MeshIPv4)
 		if meshIP == nil {
-			return nil, fmt.Errorf("invalid mesh IPv4 address: %s", cfg.WireGuard.MeshIPv4)
+			return fmt.Errorf("invalid mesh IPv4 address: %s", cfg.WireGuard.MeshIPv4)
 		}
 
 		_, meshNet, err := net.ParseCIDR(cfg.WireGuard.MeshNetworkIPv4)
 		if err != nil {
-			return nil, fmt.Errorf("invalid mesh network CIDR: %w", err)
+			return fmt.Errorf("invalid mesh network CIDR: %w", err)
 		}
 
 		logger.Info().
@@ -1202,11 +1236,11 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 
 		iface := wgDevice.Interface()
 		if iface == nil {
-			return nil, fmt.Errorf("WireGuard device has no interface")
+			return fmt.Errorf("WireGuard device has no interface")
 		}
 
 		if err := iface.AssignIP(meshIP, meshNet); err != nil {
-			return nil, fmt.Errorf("failed to assign IP to interface: %w", err)
+			return fmt.Errorf("failed to assign IP to interface: %w", err)
 		}
 
 		logger.Info().
@@ -1238,7 +1272,7 @@ func initializeWireGuard(cfg *config.ResolvedConfig, logger logging.Logger) (*wi
 		}
 	}
 
-	return wgDevice, nil
+	return nil
 }
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
@@ -1337,6 +1371,14 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			logger.Info().
 				Int("tool_count", len(mcpServer.ListToolNames())).
 				Msg("MCP server initialized and attached to colony")
+
+			// Log all registered MCP tools.
+			toolNames := mcpServer.ListToolNames()
+			if len(toolNames) > 0 {
+				logger.Info().
+					Strs("tools", toolNames).
+					Msg("Registered MCP tools")
+			}
 		}
 	} else {
 		logger.Info().Msg("MCP server is disabled in configuration")
@@ -1417,6 +1459,67 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}()
 
 	return httpServer, nil
+}
+
+// selectBestAgentEndpoint selects the best WireGuard endpoint for an agent from a list of observed endpoints.
+// Strategy:
+//  1. Skip localhost/127.0.0.1 endpoints (would be self-referential from colony's perspective)
+//  2. Prefer an endpoint matching the peer's source IP (how they connected to us)
+//  3. Otherwise use the first non-localhost endpoint
+//
+// Returns the selected endpoint and a match type ("matching" or "first"), or (nil, "") if no valid endpoint found.
+func selectBestAgentEndpoint(
+	observedEndpoints []*discoverypb.Endpoint,
+	peerHost string,
+	logger logging.Logger,
+	agentID string,
+) (*discoverypb.Endpoint, string) {
+	var selectedEp *discoverypb.Endpoint
+	var matchingEp *discoverypb.Endpoint
+
+	for _, ep := range observedEndpoints {
+		if ep == nil || ep.Ip == "" {
+			continue
+		}
+
+		isLocalhost := ep.Ip == "127.0.0.1" || ep.Ip == "::1" || ep.Ip == "localhost"
+
+		// If this endpoint's IP matches how the agent connected to us, prefer it.
+		// This handles same-host deployments where agent connects from 127.0.0.1.
+		if peerHost != "" && ep.Ip == peerHost && matchingEp == nil {
+			matchingEp = ep
+			if isLocalhost {
+				logger.Debug().
+					Str("agent_id", agentID).
+					Str("endpoint", net.JoinHostPort(ep.Ip, fmt.Sprintf("%d", ep.Port))).
+					Msg("Using localhost endpoint (agent connected from same host)")
+			}
+		}
+
+		// Skip localhost endpoints UNLESS they matched the connection source.
+		// This allows same-host deployments while preventing container issues.
+		if isLocalhost && matchingEp == nil {
+			logger.Debug().
+				Str("agent_id", agentID).
+				Str("endpoint", net.JoinHostPort(ep.Ip, fmt.Sprintf("%d", ep.Port))).
+				Msg("Skipping localhost endpoint (agent connected from different host)")
+			continue
+		}
+
+		// Track the first valid endpoint as fallback.
+		if selectedEp == nil {
+			selectedEp = ep
+		}
+	}
+
+	// Prefer the matching endpoint, fallback to first non-localhost.
+	if matchingEp != nil {
+		return matchingEp, "matching"
+	} else if selectedEp != nil {
+		return selectedEp, "first"
+	}
+
+	return nil, ""
 }
 
 // meshServiceHandler implements the MeshService RPC handler.
@@ -1514,14 +1617,36 @@ func (h *meshServiceHandler) Register(
 		}))
 
 		if err == nil && agentInfo.Msg != nil && len(agentInfo.Msg.ObservedEndpoints) > 0 {
-			// Use the first observed endpoint (from STUN)
-			observedEp := agentInfo.Msg.ObservedEndpoints[0]
-			if observedEp != nil && observedEp.Ip != "" {
-				agentEndpoint = net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
-				h.logger.Info().
+			// Extract the peer's source IP from the HTTP connection to help select the right endpoint.
+			var peerHost string
+			if peerAddr != "" {
+				if host, _, err := net.SplitHostPort(peerAddr); err == nil {
+					peerHost = host
+				}
+			}
+
+			// Select the best observed endpoint from the list.
+			selectedEp, matchType := selectBestAgentEndpoint(agentInfo.Msg.ObservedEndpoints, peerHost, h.logger, req.Msg.AgentId)
+
+			// Build endpoint string and log selection.
+			if selectedEp != nil {
+				agentEndpoint = net.JoinHostPort(selectedEp.Ip, fmt.Sprintf("%d", selectedEp.Port))
+				if matchType == "matching" {
+					h.logger.Info().
+						Str("agent_id", req.Msg.AgentId).
+						Str("endpoint", agentEndpoint).
+						Str("peer_host", peerHost).
+						Msg("Using agent's endpoint matching connection source")
+				} else {
+					h.logger.Info().
+						Str("agent_id", req.Msg.AgentId).
+						Str("endpoint", agentEndpoint).
+						Msg("Using agent's observed endpoint from discovery service")
+				}
+			} else {
+				h.logger.Warn().
 					Str("agent_id", req.Msg.AgentId).
-					Str("endpoint", agentEndpoint).
-					Msg("Using agent's STUN-discovered endpoint from discovery service")
+					Msg("All observed endpoints were localhost - agent may not be reachable via WireGuard")
 			}
 		} else {
 			h.logger.Debug().
@@ -1816,26 +1941,50 @@ func formatAgentStatus(agent *colonyv1.Agent) string {
 	return fmt.Sprintf("%s %s (%s)", statusSymbol, agent.Status, lastSeenStr)
 }
 
-func buildWireGuardEndpoints(port int) []string {
+func buildWireGuardEndpoints(port int, colonyConfig *config.ColonyConfig) []string {
 	var endpoints []string
+	var rawEndpoints []string
 
-	// Check for explicit public endpoint configuration.
-	// CORAL_PUBLIC_ENDPOINT contains the public hostname/IP (optionally with a port).
+	// Priority 1: Check for explicit public endpoint configuration via environment variable.
+	// CORAL_PUBLIC_ENDPOINT can contain comma-separated list of hostnames/IPs (optionally with ports).
+	// Example: CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
+	if publicEndpoint := os.Getenv("CORAL_PUBLIC_ENDPOINT"); publicEndpoint != "" {
+		// Parse comma-separated endpoints
+		rawEndpoints = strings.Split(publicEndpoint, ",")
+		for i := range rawEndpoints {
+			rawEndpoints[i] = strings.TrimSpace(rawEndpoints[i])
+		}
+	} else if colonyConfig != nil && len(colonyConfig.WireGuard.PublicEndpoints) > 0 {
+		// Priority 2: Use endpoints from config file
+		rawEndpoints = colonyConfig.WireGuard.PublicEndpoints
+	}
+
+	// Process raw endpoints: extract host and ALWAYS use the WireGuard port.
 	// We extract the host and ALWAYS use the WireGuard port, not the port from the env var.
 	// This is because CORAL_PUBLIC_ENDPOINT typically contains the gRPC/Connect service address,
 	// but we need to advertise the WireGuard UDP port for peer connections.
-	if publicEndpoint := os.Getenv("CORAL_PUBLIC_ENDPOINT"); publicEndpoint != "" {
+	for _, endpoint := range rawEndpoints {
+		if endpoint == "" {
+			continue
+		}
+
 		var host string
 		// Try to extract host from endpoint (may have port)
-		if h, _, err := net.SplitHostPort(publicEndpoint); err == nil {
+		if h, _, err := net.SplitHostPort(endpoint); err == nil {
 			host = h
 		} else {
 			// No port in the endpoint, use as-is
-			host = publicEndpoint
+			host = endpoint
 		}
 
 		// Build WireGuard endpoint with the configured WireGuard port
-		endpoints = append(endpoints, net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+		if host != "" {
+			endpoints = append(endpoints, net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+		}
+	}
+
+	// If we found any endpoints, return them
+	if len(endpoints) > 0 {
 		return endpoints
 	}
 
@@ -1843,7 +1992,8 @@ func buildWireGuardEndpoints(port int) []string {
 	// Agents on the same machine can connect via 127.0.0.1.
 	//
 	// For production deployments:
-	// - Set CORAL_PUBLIC_ENDPOINT to your public IP or hostname
+	// - Set CORAL_PUBLIC_ENDPOINT to your public IP or hostname (comma-separated for multiple)
+	// - Or configure public_endpoints in the colony YAML config
 	// - Or use NAT traversal/STUN (future feature)
 	if port > 0 {
 		endpoints = append(endpoints, net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)))
@@ -1990,4 +2140,38 @@ func formatServicesList(services []*meshv1.ServiceInfo) string {
 		serviceNames = append(serviceNames, svc.ComponentName)
 	}
 	return strings.Join(serviceNames, ", ")
+}
+
+// initializePersistentIPAllocator creates and injects a persistent IP allocator (RFD 019).
+func initializePersistentIPAllocator(wgDevice *wireguard.Device, db *database.Database, logger logging.Logger) error {
+	// Get the mesh network subnet from WireGuard config.
+	cfg := wgDevice.Config()
+	if cfg.MeshNetworkIPv4 == "" {
+		cfg.MeshNetworkIPv4 = constants.DefaultColonyMeshIPv4Subnet
+	}
+
+	_, subnet, err := net.ParseCIDR(cfg.MeshNetworkIPv4)
+	if err != nil {
+		return fmt.Errorf("invalid mesh network CIDR: %w", err)
+	}
+
+	// Create database adapter for IP allocation store.
+	store := database.NewIPAllocationStore(db)
+
+	// Create persistent allocator with database store.
+	allocator, err := wireguard.NewPersistentIPAllocator(subnet, store)
+	if err != nil {
+		return fmt.Errorf("failed to create persistent allocator: %w", err)
+	}
+
+	// Inject the persistent allocator into the WireGuard device.
+	if err := wgDevice.SetAllocator(allocator); err != nil {
+		return fmt.Errorf("failed to set allocator: %w", err)
+	}
+
+	logger.Info().
+		Int("loaded_allocations", allocator.AllocatedCount()).
+		Msg("Persistent IP allocator loaded from database")
+
+	return nil
 }

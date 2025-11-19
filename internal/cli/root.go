@@ -14,14 +14,21 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "coral",
-	Short: "Coral - Agentic AI for Distributed Systems",
-	Long: `Coral is an AI assistant that observes, analyzes, and recommends actions
-for distributed systems operations.
+	Short: "Coral - LLM-orchestrated debugging for distributed apps",
+	Long: `Turn fragmented infrastructure into one intelligent system.
+Debug across laptop, VMs, K8s, and clouds with natural language queries.
 
-Coral provides application-scoped intelligence through:
-- Colony: Central brain for AI analysis and historical patterns
-- Agents: Local observers for processes and health monitoring
-- Ask: Interactive AI queries about your system`,
+Three-tier architecture:
+- Colony: Central coordinator with MCP server for universal AI integration
+- Agents: Local observers with zero-config eBPF instrumentation
+- CLI: Developer interface (coral ask, coral connect, etc.)
+
+Key capabilities:
+- Natural language debugging: Ask questions, get root cause analysis
+- Universal AI: Works with Claude Desktop, IDEs, any MCP client
+- Zero-config observability: eBPF metrics without code changes
+- Live debugging: On-demand instrumentation across your mesh
+- Your LLM: Use OpenAI/Anthropic/Ollama - you control the AI`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
