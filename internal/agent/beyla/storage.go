@@ -18,14 +18,17 @@ import (
 // Metrics are stored for ~1 hour and queried by Colony on-demand (RFD 025 pull-based).
 type BeylaStorage struct {
 	db     *sql.DB
+	dbPath string // File path to DuckDB file (for HTTP serving, RFD 039).
 	logger zerolog.Logger
 	mu     sync.RWMutex
 }
 
 // NewBeylaStorage creates a new Beyla storage instance.
-func NewBeylaStorage(db *sql.DB, logger zerolog.Logger) (*BeylaStorage, error) {
+// dbPath is optional - if empty, database file path will not be available for HTTP serving.
+func NewBeylaStorage(db *sql.DB, dbPath string, logger zerolog.Logger) (*BeylaStorage, error) {
 	s := &BeylaStorage{
 		db:     db,
+		dbPath: dbPath,
 		logger: logger.With().Str("component", "beyla_storage").Logger(),
 	}
 
@@ -823,4 +826,10 @@ func (s *BeylaStorage) RunCleanupLoop(ctx context.Context, retention time.Durati
 				Msg("Cleaned old Beyla metrics and traces")
 		}
 	}
+}
+
+// GetDatabasePath returns the file path to the DuckDB database (RFD 039).
+// Returns empty string if database is in-memory or path was not provided.
+func (s *BeylaStorage) GetDatabasePath() string {
+	return s.dbPath
 }
