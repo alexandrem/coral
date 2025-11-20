@@ -285,6 +285,24 @@ func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.T
 	return m.beylaStorage.QuerySQLMetrics(ctx, startTime, endTime, serviceNames)
 }
 
+// QueryTraces queries Beyla trace spans from local storage (RFD 036).
+// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
+func (m *Manager) QueryTraces(ctx context.Context, startTime, endTime time.Time, serviceNames []string, traceID string, maxSpans int32) ([]*ebpfpb.BeylaTraceSpan, error) {
+	if m.beylaStorage == nil {
+		return nil, fmt.Errorf("Beyla storage not initialized")
+	}
+	return m.beylaStorage.QueryTraces(ctx, startTime, endTime, serviceNames, traceID, maxSpans)
+}
+
+// QueryTraceByID queries all spans for a specific trace ID (RFD 036).
+// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
+func (m *Manager) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {
+	if m.beylaStorage == nil {
+		return nil, fmt.Errorf("Beyla storage not initialized")
+	}
+	return m.beylaStorage.QueryTraceByID(ctx, traceID)
+}
+
 // IsRunning returns whether Beyla is currently running.
 func (m *Manager) IsRunning() bool {
 	m.mu.RLock()

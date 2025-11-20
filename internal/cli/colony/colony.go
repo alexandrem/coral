@@ -319,7 +319,7 @@ Examples:
 
 			// Create and start Beyla metrics poller for RFD 032.
 			// Polls agents every 1 minute for Beyla RED metrics.
-			// Default retention: 30 days HTTP/gRPC, 14 days SQL.
+			// Default retention: 30 days HTTP/gRPC, 14 days SQL, 7 days traces.
 			beylaPoller := colony.NewBeylaPoller(
 				agentRegistry,
 				db,
@@ -327,6 +327,7 @@ Examples:
 				30,            // HTTP retention in days (default: 30)
 				30,            // gRPC retention in days (default: 30)
 				14,            // SQL retention in days (default: 14)
+				7,             // Trace retention in days (default: 7) (RFD 036)
 				logger,
 			)
 
