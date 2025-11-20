@@ -537,6 +537,21 @@ Examples:
 				}
 			})
 
+			// Add /duckdb/ endpoint for serving DuckDB files (RFD 039).
+			duckdbHandler := agent.NewDuckDBHandler(logger)
+			if beylaManager := agentInstance.GetBeylaManager(); beylaManager != nil {
+				if dbPath := beylaManager.GetDatabasePath(); dbPath != "" {
+					if err := duckdbHandler.RegisterDatabase("beyla.duckdb", dbPath); err != nil {
+						logger.Warn().Err(err).Msg("Failed to register Beyla database for HTTP serving")
+					} else {
+						logger.Info().
+							Str("db_path", dbPath).
+							Msg("Beyla database registered for HTTP serving")
+					}
+				}
+			}
+			mux.Handle("/duckdb/", duckdbHandler)
+
 			// Enable HTTP/2 Cleartext (h2c) for bidirectional streaming (RFD 026).
 			h2s := &http2.Server{}
 			httpServer := &http.Server{

@@ -6,6 +6,7 @@ import (
 	"github.com/coral-io/coral/internal/cli/agent"
 	"github.com/coral-io/coral/internal/cli/ask"
 	"github.com/coral-io/coral/internal/cli/colony"
+	"github.com/coral-io/coral/internal/cli/duckdb"
 	initcmd "github.com/coral-io/coral/internal/cli/init"
 	"github.com/coral-io/coral/internal/cli/proxy"
 	"github.com/coral-io/coral/internal/cli/tun_helper"
@@ -43,6 +44,7 @@ func init() {
 	rootCmd.AddCommand(ask.NewAskCmd())
 	rootCmd.AddCommand(proxy.Command())
 	rootCmd.AddCommand(agent.NewShellCmd())
+	rootCmd.AddCommand(duckdb.NewDuckDBCmd())
 	rootCmd.AddCommand(newVersionCmd())
 
 	// Add internal commands (hidden from help)

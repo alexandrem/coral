@@ -77,6 +77,10 @@ type Config struct {
 	// Database for local storage (required for OTLP receiver).
 	DB *sql.DB
 
+	// Database file path (optional, for HTTP serving via RFD 039).
+	// If empty, the database cannot be served over HTTP.
+	DBPath string
+
 	// Local storage retention for Beyla metrics in hours (default: 1 hour).
 	// This controls how long metrics are kept in agent's local DuckDB before cleanup.
 	// Colony queries metrics within this window, so this should be >= colony poll interval.
@@ -141,7 +145,7 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 		m.storage = storage
 
 		// Initialize Beyla metrics storage (RFD 032 Phase 4).
-		beylaStorage, err := NewBeylaStorage(config.DB, logger)
+		beylaStorage, err := NewBeylaStorage(config.DB, config.DBPath, logger)
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to create Beyla storage: %w", err)
@@ -337,6 +341,19 @@ type Capabilities struct {
 	SupportedProtocols []string
 	SupportedRuntimes  []string
 	TracingEnabled     bool
+}
+
+// GetDatabasePath returns the file path to the Beyla DuckDB database (RFD 039).
+// Returns empty string if Beyla storage is not initialized or database is in-memory.
+func (m *Manager) GetDatabasePath() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.beylaStorage == nil {
+		return ""
+	}
+
+	return m.beylaStorage.GetDatabasePath()
 }
 
 // startOTLPReceiver starts an embedded OTLP receiver using RFD 025 infrastructure.
