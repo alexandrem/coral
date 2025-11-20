@@ -229,4 +229,66 @@ var schemaDDL = []string{
 	)`,
 
 	`CREATE INDEX IF NOT EXISTS idx_agent_ip_allocations_ip ON agent_ip_allocations(ip_address)`,
+
+	// Migration 003: Bootstrap tokens - single-use tokens for certificate issuance (RFD 022).
+	`CREATE TABLE IF NOT EXISTS bootstrap_tokens (
+		token_id TEXT PRIMARY KEY,
+		jwt_hash TEXT NOT NULL UNIQUE,
+		reef_id TEXT NOT NULL,
+		colony_id TEXT NOT NULL,
+		agent_id TEXT NOT NULL,
+		intent TEXT NOT NULL,
+		issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		expires_at TIMESTAMP NOT NULL,
+		consumed_at TIMESTAMP,
+		consumed_by TEXT,
+		status TEXT NOT NULL DEFAULT 'active'
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_agent ON bootstrap_tokens(agent_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_colony ON bootstrap_tokens(colony_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_status ON bootstrap_tokens(status)`,
+	`CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_expires ON bootstrap_tokens(expires_at)`,
+
+	// Migration 004: Step-ca state - CA metadata and issued certificates (RFD 022).
+	`CREATE TABLE IF NOT EXISTS ca_metadata (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		root_fingerprint TEXT NOT NULL,
+		intermediate_fingerprint TEXT,
+		root_cert_pem TEXT NOT NULL,
+		intermediate_cert_pem TEXT,
+		encrypted_root_key BLOB,
+		encrypted_intermediate_key BLOB,
+		kms_key_id TEXT,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_rotated_at TIMESTAMP,
+		next_rotation_at TIMESTAMP
+	)`,
+
+	`CREATE TABLE IF NOT EXISTS issued_certificates (
+		serial_number TEXT PRIMARY KEY,
+		agent_id TEXT NOT NULL,
+		colony_id TEXT NOT NULL,
+		certificate_pem TEXT NOT NULL,
+		issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		expires_at TIMESTAMP NOT NULL,
+		revoked_at TIMESTAMP,
+		revocation_reason TEXT,
+		status TEXT NOT NULL DEFAULT 'active'
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_agent ON issued_certificates(agent_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_colony ON issued_certificates(colony_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_status ON issued_certificates(status)`,
+	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_expires ON issued_certificates(expires_at)`,
+
+	`CREATE TABLE IF NOT EXISTS certificate_revocations (
+		id INTEGER PRIMARY KEY,
+		serial_number TEXT NOT NULL,
+		revoked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		reason TEXT NOT NULL,
+		revoked_by TEXT
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_certificate_revocations_serial ON certificate_revocations(serial_number)`,
 }

@@ -54,6 +54,9 @@ const (
 	DiscoveryServiceReleaseRelayProcedure = "/coral.discovery.v1.DiscoveryService/ReleaseRelay"
 	// DiscoveryServiceHealthProcedure is the fully-qualified name of the DiscoveryService's Health RPC.
 	DiscoveryServiceHealthProcedure = "/coral.discovery.v1.DiscoveryService/Health"
+	// DiscoveryServiceCreateBootstrapTokenProcedure is the fully-qualified name of the
+	// DiscoveryService's CreateBootstrapToken RPC.
+	DiscoveryServiceCreateBootstrapTokenProcedure = "/coral.discovery.v1.DiscoveryService/CreateBootstrapToken"
 )
 
 // DiscoveryServiceClient is a client for the coral.discovery.v1.DiscoveryService service.
@@ -72,6 +75,8 @@ type DiscoveryServiceClient interface {
 	ReleaseRelay(context.Context, *connect.Request[v1.ReleaseRelayRequest]) (*connect.Response[v1.ReleaseRelayResponse], error)
 	// Health check
 	Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error)
+	// Create a single-use bootstrap token for agent certificate issuance (RFD 022).
+	CreateBootstrapToken(context.Context, *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error)
 }
 
 // NewDiscoveryServiceClient constructs a client for the coral.discovery.v1.DiscoveryService
@@ -127,18 +132,25 @@ func NewDiscoveryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(discoveryServiceMethods.ByName("Health")),
 			connect.WithClientOptions(opts...),
 		),
+		createBootstrapToken: connect.NewClient[v1.CreateBootstrapTokenRequest, v1.CreateBootstrapTokenResponse](
+			httpClient,
+			baseURL+DiscoveryServiceCreateBootstrapTokenProcedure,
+			connect.WithSchema(discoveryServiceMethods.ByName("CreateBootstrapToken")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // discoveryServiceClient implements DiscoveryServiceClient.
 type discoveryServiceClient struct {
-	registerColony *connect.Client[v1.RegisterColonyRequest, v1.RegisterColonyResponse]
-	lookupColony   *connect.Client[v1.LookupColonyRequest, v1.LookupColonyResponse]
-	registerAgent  *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
-	lookupAgent    *connect.Client[v1.LookupAgentRequest, v1.LookupAgentResponse]
-	requestRelay   *connect.Client[v1.RequestRelayRequest, v1.RequestRelayResponse]
-	releaseRelay   *connect.Client[v1.ReleaseRelayRequest, v1.ReleaseRelayResponse]
-	health         *connect.Client[v1.HealthRequest, v1.HealthResponse]
+	registerColony       *connect.Client[v1.RegisterColonyRequest, v1.RegisterColonyResponse]
+	lookupColony         *connect.Client[v1.LookupColonyRequest, v1.LookupColonyResponse]
+	registerAgent        *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
+	lookupAgent          *connect.Client[v1.LookupAgentRequest, v1.LookupAgentResponse]
+	requestRelay         *connect.Client[v1.RequestRelayRequest, v1.RequestRelayResponse]
+	releaseRelay         *connect.Client[v1.ReleaseRelayRequest, v1.ReleaseRelayResponse]
+	health               *connect.Client[v1.HealthRequest, v1.HealthResponse]
+	createBootstrapToken *connect.Client[v1.CreateBootstrapTokenRequest, v1.CreateBootstrapTokenResponse]
 }
 
 // RegisterColony calls coral.discovery.v1.DiscoveryService.RegisterColony.
@@ -176,6 +188,11 @@ func (c *discoveryServiceClient) Health(ctx context.Context, req *connect.Reques
 	return c.health.CallUnary(ctx, req)
 }
 
+// CreateBootstrapToken calls coral.discovery.v1.DiscoveryService.CreateBootstrapToken.
+func (c *discoveryServiceClient) CreateBootstrapToken(ctx context.Context, req *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error) {
+	return c.createBootstrapToken.CallUnary(ctx, req)
+}
+
 // DiscoveryServiceHandler is an implementation of the coral.discovery.v1.DiscoveryService service.
 type DiscoveryServiceHandler interface {
 	// Register or update a colony's information
@@ -192,6 +209,8 @@ type DiscoveryServiceHandler interface {
 	ReleaseRelay(context.Context, *connect.Request[v1.ReleaseRelayRequest]) (*connect.Response[v1.ReleaseRelayResponse], error)
 	// Health check
 	Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error)
+	// Create a single-use bootstrap token for agent certificate issuance (RFD 022).
+	CreateBootstrapToken(context.Context, *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error)
 }
 
 // NewDiscoveryServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -243,6 +262,12 @@ func NewDiscoveryServiceHandler(svc DiscoveryServiceHandler, opts ...connect.Han
 		connect.WithSchema(discoveryServiceMethods.ByName("Health")),
 		connect.WithHandlerOptions(opts...),
 	)
+	discoveryServiceCreateBootstrapTokenHandler := connect.NewUnaryHandler(
+		DiscoveryServiceCreateBootstrapTokenProcedure,
+		svc.CreateBootstrapToken,
+		connect.WithSchema(discoveryServiceMethods.ByName("CreateBootstrapToken")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.discovery.v1.DiscoveryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DiscoveryServiceRegisterColonyProcedure:
@@ -259,6 +284,8 @@ func NewDiscoveryServiceHandler(svc DiscoveryServiceHandler, opts ...connect.Han
 			discoveryServiceReleaseRelayHandler.ServeHTTP(w, r)
 		case DiscoveryServiceHealthProcedure:
 			discoveryServiceHealthHandler.ServeHTTP(w, r)
+		case DiscoveryServiceCreateBootstrapTokenProcedure:
+			discoveryServiceCreateBootstrapTokenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -294,4 +321,8 @@ func (UnimplementedDiscoveryServiceHandler) ReleaseRelay(context.Context, *conne
 
 func (UnimplementedDiscoveryServiceHandler) Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.Health is not implemented"))
+}
+
+func (UnimplementedDiscoveryServiceHandler) CreateBootstrapToken(context.Context, *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.discovery.v1.DiscoveryService.CreateBootstrapToken is not implemented"))
 }

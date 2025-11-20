@@ -28,6 +28,9 @@ service DiscoveryService {
 
   // Health check
   rpc Health(HealthRequest) returns (HealthResponse);
+
+  // Create a single-use bootstrap token for agent certificate issuance (RFD 022).
+  rpc CreateBootstrapToken(CreateBootstrapTokenRequest) returns (CreateBootstrapTokenResponse);
 }
 
 // Registration request
@@ -290,4 +293,30 @@ message LookupAgentResponse {
 
   // Last seen timestamp
   google.protobuf.Timestamp last_seen = 8;
+}
+
+// Bootstrap token messages (RFD 022 - step-ca agent authentication)
+
+// CreateBootstrapTokenRequest initiates bootstrap token issuance.
+message CreateBootstrapTokenRequest {
+  // Reef identifier.
+  string reef_id = 1;
+
+  // Colony/Mesh identifier.
+  string colony_id = 2;
+
+  // Agent identifier.
+  string agent_id = 3;
+
+  // Intent (e.g., "register", "renew").
+  string intent = 4;
+}
+
+// CreateBootstrapTokenResponse returns a single-use JWT token.
+message CreateBootstrapTokenResponse {
+  // JWT bootstrap token (single-use, short TTL).
+  string jwt = 1;
+
+  // Token expiration timestamp (Unix seconds).
+  int64 expires_at = 2;
 }

@@ -33,6 +33,14 @@ service ColonyService {
 
   // List available MCP tools.
   rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+
+  // Certificate management (RFD 022 - step-ca agent authentication).
+
+  // Request a client certificate using a bootstrap token.
+  rpc RequestCertificate(RequestCertificateRequest) returns (RequestCertificateResponse);
+
+  // Revoke an issued certificate.
+  rpc RevokeCertificate(RevokeCertificateRequest) returns (RevokeCertificateResponse);
 }
 
 message GetStatusRequest {}
@@ -203,4 +211,42 @@ message QueryTelemetryResponse {
 
   // Total number of spans returned.
   int32 total_spans = 3;
+}
+
+// Certificate management messages (RFD 022 - step-ca agent authentication)
+
+// RequestCertificateRequest requests a client certificate using a bootstrap token.
+message RequestCertificateRequest {
+  // Bootstrap token (JWT).
+  string jwt = 1;
+
+  // Certificate signing request (PEM-encoded).
+  bytes csr = 2;
+}
+
+// RequestCertificateResponse returns the issued certificate.
+message RequestCertificateResponse {
+  // Client certificate (PEM-encoded).
+  bytes certificate = 1;
+
+  // CA certificate chain (PEM-encoded).
+  bytes ca_chain = 2;
+
+  // Certificate expiration timestamp (Unix seconds).
+  int64 expires_at = 3;
+}
+
+// RevokeCertificateRequest revokes a previously issued certificate.
+message RevokeCertificateRequest {
+  // Certificate serial number.
+  string serial_number = 1;
+
+  // Revocation reason.
+  string reason = 2;
+}
+
+// RevokeCertificateResponse confirms certificate revocation.
+message RevokeCertificateResponse {
+  // Revocation successful.
+  bool success = 1;
 }

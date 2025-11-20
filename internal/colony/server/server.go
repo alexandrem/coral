@@ -11,6 +11,7 @@ import (
 
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
 	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-io/coral/internal/colony/ca"
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/colony/storage"
@@ -35,6 +36,7 @@ type Config struct {
 type Server struct {
 	registry  *registry.Registry
 	database  *database.Database
+	caManager *ca.Manager // RFD 022 - certificate authority manager.
 	mcpServer interface{} // *mcp.Server - using interface to avoid import cycle
 	config    Config
 	startTime time.Time
@@ -42,10 +44,11 @@ type Server struct {
 }
 
 // New creates a new colony server.
-func New(reg *registry.Registry, db *database.Database, config Config, logger zerolog.Logger) *Server {
+func New(reg *registry.Registry, db *database.Database, caManager *ca.Manager, config Config, logger zerolog.Logger) *Server {
 	return &Server{
 		registry:  reg,
 		database:  db,
+		caManager: caManager,
 		config:    config,
 		startTime: time.Now(),
 		logger:    logger,
@@ -340,4 +343,105 @@ func (s *Server) ListTools(
 	return connect.NewResponse(&colonyv1.ListToolsResponse{
 		Tools: tools,
 	}), nil
+}
+
+// RequestCertificate handles certificate issuance requests (RFD 022).
+func (s *Server) RequestCertificate(
+	ctx context.Context,
+	req *connect.Request[colonyv1.RequestCertificateRequest],
+) (*connect.Response[colonyv1.RequestCertificateResponse], error) {
+	// Validate request.
+	if req.Msg.Jwt == "" {
+		s.logger.Warn().Msg("Certificate request rejected: jwt is required")
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("jwt is required"))
+	}
+	if len(req.Msg.Csr) == 0 {
+		s.logger.Warn().Msg("Certificate request rejected: csr is required")
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("csr is required"))
+	}
+
+	s.logger.Info().
+		Int("csr_size", len(req.Msg.Csr)).
+		Msg("Certificate request received")
+
+	// Validate bootstrap token.
+	claims, err := s.caManager.ValidateToken(req.Msg.Jwt)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Msg("Invalid bootstrap token")
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid bootstrap token: %w", err))
+	}
+
+	// Verify colony match.
+	if claims.ColonyID != s.config.ColonyID {
+		s.logger.Warn().
+			Str("token_colony_id", claims.ColonyID).
+			Str("server_colony_id", s.config.ColonyID).
+			Msg("Colony ID mismatch")
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("colony ID mismatch"))
+	}
+
+	// Issue certificate.
+	certPEM, caChain, expiresAt, err := s.caManager.IssueCertificate(claims, req.Msg.Csr, req.Msg.Jwt)
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("agent_id", claims.AgentID).
+			Msg("Failed to issue certificate")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to issue certificate: %w", err))
+	}
+
+	resp := &colonyv1.RequestCertificateResponse{
+		Certificate: certPEM,
+		CaChain:     caChain,
+		ExpiresAt:   expiresAt.Unix(),
+	}
+
+	s.logger.Info().
+		Str("agent_id", claims.AgentID).
+		Time("expires_at", expiresAt).
+		Msg("Certificate issued successfully")
+
+	return connect.NewResponse(resp), nil
+}
+
+// RevokeCertificate handles certificate revocation requests (RFD 022).
+func (s *Server) RevokeCertificate(
+	ctx context.Context,
+	req *connect.Request[colonyv1.RevokeCertificateRequest],
+) (*connect.Response[colonyv1.RevokeCertificateResponse], error) {
+	// Validate request.
+	if req.Msg.SerialNumber == "" {
+		s.logger.Warn().Msg("Revocation rejected: serial_number is required")
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("serial_number is required"))
+	}
+
+	s.logger.Info().
+		Str("serial_number", req.Msg.SerialNumber).
+		Str("reason", req.Msg.Reason).
+		Msg("Certificate revocation request received")
+
+	// TODO: Add authentication check to ensure only authorized entities can revoke.
+	// For now, we'll accept all revocation requests (this should be restricted in production).
+
+	// Revoke certificate.
+	err := s.caManager.RevokeCertificate(req.Msg.SerialNumber, req.Msg.Reason, "admin")
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("serial_number", req.Msg.SerialNumber).
+			Msg("Failed to revoke certificate")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to revoke certificate: %w", err))
+	}
+
+	resp := &colonyv1.RevokeCertificateResponse{
+		Success: true,
+	}
+
+	s.logger.Info().
+		Str("serial_number", req.Msg.SerialNumber).
+		Msg("Certificate revoked successfully")
+
+	return connect.NewResponse(resp), nil
 }
