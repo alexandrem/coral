@@ -2,14 +2,14 @@
 rfd: "046"
 title: "Service-Centric CLI View"
 state: "draft"
-breaking_changes: false
+breaking_changes: true
 testing_required: true
 database_changes: false
 api_changes: true
 dependencies: ["011", "044"]
 related_rfds: ["006"]
 database_migrations: []
-areas: ["cli", "colony", "ux"]
+areas: ["cli", "colony", "ux", "protobuf"]
 ---
 
 # RFD 046 - Service-Centric CLI View
@@ -24,6 +24,11 @@ agents. This inverts the existing `coral colony agents` perspective, enabling
 operators to quickly answer questions like "which agents run Redis?" or "how
 many instances of the API service are deployed?" without manually parsing
 agent-by-agent output.
+
+**Breaking Change**: This RFD includes renaming `ServiceInfo.component_name` to
+`ServiceInfo.name` in the protobuf schema. This simplifies the field naming
+and requires updating all agent implementations. No backward compatibility is
+maintained.
 
 ## Problem
 
@@ -97,9 +102,13 @@ including per-agent health status and mesh IP.
   queries the existing colony agent registry (RFD 006, RFD 011) and aggregates
   `ServiceInfo` entries across all agents.
 
-- **Service uniqueness by name**: Services are identified by `component_name`
+- **Service uniqueness by name**: Services are identified by `name`
   field from `ServiceInfo`. Multiple agents with the same service name are
-  grouped together.
+  grouped together. Service names are case-insensitive for grouping purposes
+  (normalized to lowercase internally), but the original casing from the first
+  occurrence is preserved for display. Services are uniquely identified by the
+  tuple `(name, service_type)` to handle cases where different
+  service types share the same name.
 
 - **Per-agent service details**: For each agent running a service, show:
     - Agent ID (for targeting with RFD 044)
@@ -108,12 +117,35 @@ including per-agent health status and mesh IP.
     - Service-specific port (from `ServiceInfo`)
     - Health endpoint (if configured)
 
+- **Status determination logic**: Agent health status is determined using the
+  following priority order:
+    1. If the service has a `health_endpoint` configured, use HTTP check result
+    2. If the agent reports a status field, use that value
+    3. Otherwise, compute from `last_seen` timestamp:
+       - `< 30s`: healthy
+       - `30s - 2m`: degraded
+       - `> 2m`: unhealthy
+    - Color coding: ✓ (green) for healthy, ⚠️ (yellow) for degraded, ✗ (red)
+      for unhealthy. In non-color terminals, plain symbols are used.
+
 - **Filtering support**: Add `--service` flag to filter output to a specific
   service name, enabling queries like `coral service list --service redis`.
+  Filtering uses case-insensitive exact matching. If the specified service
+  name does not exist, the command displays an error message: "Service
+  '<name>' not found in colony. Use 'coral service list' to see all services."
+  Future enhancements may add pattern matching (wildcards, regex).
 
 - **Consistent output modes**: Support both human-readable table format (
   default) and JSON output (`--json`) for programmatic access, matching UX
   patterns from `coral colony agents`.
+
+- **Data consistency and snapshots**: Since aggregation happens client-side,
+  the data represents a snapshot at the time of the `ListAgents` RPC call.
+  Agents may join/leave or service states may change during processing. To
+  provide clarity, all output includes a snapshot timestamp showing when the
+  data was collected. The timestamp is displayed in both human-readable and
+  JSON formats. For operations taking longer than 500ms, a progress spinner
+  is shown to indicate the command is working.
 
 **Benefits:**
 
@@ -150,7 +182,7 @@ including per-agent health status and mesh IP.
 │  Algorithm:                                                │
 │    1. Fetch all agents from colony registry                │
 │    2. Extract all ServiceInfo entries                      │
-│    3. Group by service component_name                      │
+│    3. Group by service name                                │
 │    4. For each unique service:                             │
 │         - Collect all agents running that service          │
 │         - Include agent health, mesh IP, port, endpoint    │
@@ -161,16 +193,16 @@ including per-agent health status and mesh IP.
 ┌────────────────────────────────────────────────────────────┐
 │  Output: Service-Centric View                              │
 │                                                            │
-│  Services (5):                                             │
+│  Services (5) at 2025-11-19 12:34:56 UTC:                  │
 │                                                            │
 │  SERVICE      INSTANCES  AGENTS                            │
-│  ─────────────────────────────────────────────────────────│
-│  frontend     2          agent-1 (10.42.0.10, healthy)     │
-│                          agent-2 (10.42.0.11, healthy)     │
-│  redis        2          agent-1 (10.42.0.10, healthy)     │
-│                          agent-3 (10.42.0.12, degraded)    │
-│  metrics      1          agent-2 (10.42.0.11, healthy)     │
-│  postgres     1          agent-3 (10.42.0.12, degraded)    │
+│  ──────────────────────────────────────────────────────────│
+│  frontend     2          agent-1 (10.42.0.10, ✓ healthy)   │
+│                          agent-2 (10.42.0.11, ✓ healthy)   │
+│  redis        2          agent-1 (10.42.0.10, ✓ healthy)   │
+│                          agent-3 (10.42.0.12, ⚠️ degraded) │
+│  metrics      1          agent-2 (10.42.0.11, ✓ healthy)   │
+│  postgres     1          agent-3 (10.42.0.12, ⚠️ degraded) │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -184,9 +216,14 @@ including per-agent health status and mesh IP.
     - Support `--json` flag for JSON output
     - Format service-first table output with instance counts
 
-2. **Protobuf** (no changes required):
+2. **Protobuf** (breaking change):
     - Reuse existing `ListAgentsRequest/Response` from RFD 006
-    - Use `ServiceInfo` message from RFD 011
+    - **BREAKING**: Rename `ServiceInfo.component_name` to `ServiceInfo.name` in RFD 011
+    - This is a breaking change to the protobuf schema that will require:
+      - Updating the `ServiceInfo` message definition
+      - Regenerating protobuf code (`buf generate`)
+      - Updating all agent implementations to use the new field name
+      - No backward compatibility maintained (clean break)
     - No new RPC endpoints needed - pure client-side aggregation
 
 3. **Colony Registry** (no changes required):
@@ -233,23 +270,23 @@ coral service list [--service NAME] [--json] [--colony ID]
 ```bash
 $ coral service list
 
-Services (5):
+Services (5) at 2025-11-19 12:34:56 UTC:
 
 SERVICE          INSTANCES  AGENTS
 ────────────────────────────────────────────────────────────────────
-frontend         2          agent-1-frontend (10.42.0.10, healthy)
-                            agent-2-frontend (10.42.0.11, healthy)
+frontend         2          agent-1-frontend (10.42.0.10, ✓ healthy)
+                            agent-2-frontend (10.42.0.11, ✓ healthy)
 
-redis            2          agent-1-cache (10.42.0.10, healthy)
-                            agent-3-db (10.42.0.12, degraded)
+redis            2          agent-1-cache (10.42.0.10, ✓ healthy)
+                            agent-3-db (10.42.0.12, ⚠️ degraded)
 
-api              3          agent-4-api (10.42.0.13, healthy)
-                            agent-5-api (10.42.0.14, healthy)
-                            agent-6-api (10.42.0.15, unhealthy)
+api              3          agent-4-api (10.42.0.13, ✓ healthy)
+                            agent-5-api (10.42.0.14, ✓ healthy)
+                            agent-6-api (10.42.0.15, ✗ unhealthy)
 
-postgres         1          agent-3-db (10.42.0.12, degraded)
+postgres         1          agent-3-db (10.42.0.12, ⚠️ degraded)
 
-metrics          1          agent-2-frontend (10.42.0.11, healthy)
+metrics          1          agent-2-frontend (10.42.0.11, ✓ healthy)
 ```
 
 **Example: Filtered by service**
@@ -257,12 +294,12 @@ metrics          1          agent-2-frontend (10.42.0.11, healthy)
 ```bash
 $ coral service list --service redis
 
-Service: redis (2 instances)
+Service: redis (2 instances) at 2025-11-19 12:34:56 UTC:
 
 AGENT ID            MESH IP        PORT   HEALTH    STATUS
 ────────────────────────────────────────────────────────────
-agent-1-cache       10.42.0.10     6379   -         healthy
-agent-3-db          10.42.0.12     6379   -         degraded
+agent-1-cache       10.42.0.10     6379   -         ✓ healthy
+agent-3-db          10.42.0.12     6379   -         ⚠️ degraded
 ```
 
 **Example: Verbose output**
@@ -270,21 +307,38 @@ agent-3-db          10.42.0.12     6379   -         degraded
 ```bash
 $ coral service list --service redis -v
 
-Service: redis
+Service: redis at 2025-11-19 12:34:56 UTC:
   Type: redis
   Instances: 2
 
   Agent: agent-1-cache
     Mesh IP: 10.42.0.10
-    Status: healthy
+    Status: ✓ healthy
     Port: 6379
     Last Seen: 5s ago
 
   Agent: agent-3-db
     Mesh IP: 10.42.0.12
-    Status: degraded
+    Status: ⚠️ degraded
     Port: 6379
     Last Seen: 1m ago
+```
+
+**Example: Service not found error**
+
+```bash
+$ coral service list --service mysql
+
+Error: Service 'mysql' not found in colony
+
+Available services (5):
+  • api
+  • frontend
+  • metrics
+  • postgres
+  • redis
+
+Use 'coral service list' to see all services with their agents.
 ```
 
 **Example: JSON output**
@@ -295,6 +349,10 @@ $ coral service list --json
 
 ```json
 {
+  "version": "1.0",
+  "snapshot_time": "2025-11-19T12:34:56Z",
+  "total_services": 2,
+  "total_instances": 4,
   "services": [
     {
       "service_name": "frontend",
@@ -307,7 +365,7 @@ $ coral service list --json
           "status": "healthy",
           "port": 3000,
           "health_endpoint": "/health",
-          "last_seen": "2025-11-18T12:34:56Z"
+          "last_seen": "2025-11-19T12:34:56Z"
         },
         {
           "agent_id": "agent-2-frontend",
@@ -315,7 +373,7 @@ $ coral service list --json
           "status": "healthy",
           "port": 3000,
           "health_endpoint": "/health",
-          "last_seen": "2025-11-18T12:34:58Z"
+          "last_seen": "2025-11-19T12:34:58Z"
         }
       ]
     },
@@ -330,7 +388,7 @@ $ coral service list --json
           "status": "healthy",
           "port": 6379,
           "health_endpoint": "",
-          "last_seen": "2025-11-18T12:34:55Z"
+          "last_seen": "2025-11-19T12:34:55Z"
         },
         {
           "agent_id": "agent-3-db",
@@ -338,7 +396,7 @@ $ coral service list --json
           "status": "degraded",
           "port": 6379,
           "health_endpoint": "",
-          "last_seen": "2025-11-18T12:33:30Z"
+          "last_seen": "2025-11-19T12:33:30Z"
         }
       ]
     }
@@ -363,16 +421,16 @@ func listServices(ctx context.Context, client colonyv1connect.ColonyServiceClien
     serviceMap := make(map[string]*ServiceView)
     for _, agent := range resp.Msg.Agents {
         for _, service := range agent.Services {
-            if _, exists := serviceMap[service.ComponentName]; !exists {
-                serviceMap[service.ComponentName] = &ServiceView{
-                    ServiceName: service.ComponentName,
+            if _, exists := serviceMap[service.Name]; !exists {
+                serviceMap[service.Name] = &ServiceView{
+                    ServiceName: service.Name,
                     ServiceType: service.ServiceType,
                     Agents:      []AgentInstance{},
                 }
             }
 
-            serviceMap[service.ComponentName].Agents = append(
-                serviceMap[service.ComponentName].Agents,
+            serviceMap[service.Name].Agents = append(
+                serviceMap[service.Name].Agents,
                 AgentInstance{
                     AgentID:         agent.AgentId,
                     MeshIPv4:        agent.MeshIpv4,
@@ -411,17 +469,27 @@ func listServices(ctx context.Context, client colonyv1connect.ColonyServiceClien
 - [ ] Add basic RPC client setup (reuse existing colony connection patterns)
 - [ ] Add `--service`, `--json`, `--verbose` flags
 
-### Phase 2: Service Aggregation Logic
+### Phase 2: Protobuf Schema Update (Breaking Change)
 
-- [ ] Implement `ListAgents` RPC call using existing protobuf definitions
+- [ ] Update `ServiceInfo` message in protobuf definition
+    - Rename `component_name` field to `name`
+    - Update field documentation
+- [ ] Regenerate protobuf code with `buf generate`
+- [ ] Update all agent implementations to use `ServiceInfo.name`
+- [ ] Update colony registry code to use new field name
+- [ ] Update any existing code referencing `component_name`
+
+### Phase 3: Service Aggregation Logic
+
+- [ ] Implement `ListAgents` RPC call using updated protobuf definitions
 - [ ] Build service aggregation algorithm:
     - Extract all `ServiceInfo` entries from agents
-    - Group by `component_name`
+    - Group by `name` field
     - Collect agent metadata per service
 - [ ] Handle edge cases: agents with no services, empty colony
 - [ ] Add sorting: services alphabetically, agents by ID within each service
 
-### Phase 3: Output Formatting
+### Phase 4: Output Formatting
 
 - [ ] Implement human-readable table output:
     - Service name, instance count, agent list
@@ -431,16 +499,40 @@ func listServices(ctx context.Context, client colonyv1connect.ColonyServiceClien
 - [ ] Implement verbose output with detailed per-agent information
 - [ ] Add filtering by `--service` flag
 
-### Phase 4: Testing & Documentation
+### Phase 5: Error Handling & User Experience
+
+- [ ] Implement error handling for network failures (connection, timeout, auth)
+- [ ] Implement error handling for data errors (empty colony, no services, stale data)
+- [ ] Add retry logic with exponential backoff for transient failures
+- [ ] Implement progress spinner for operations > 500ms
+- [ ] Add snapshot timestamp to all output formats
+- [ ] Implement service not found error with helpful suggestions
+
+### Phase 6: Performance & Observability
+
+- [ ] Implement status determination logic with priority order
+- [ ] Add telemetry collection (execution metrics, usage patterns)
+- [ ] Add debug logging support with `-v` flag
+- [ ] Implement performance benchmarks for various colony sizes
+- [ ] Add warnings for large colonies (> 1000 agents)
+- [ ] Optimize aggregation algorithm for memory efficiency
+
+### Phase 7: Testing & Documentation
 
 - [ ] Unit tests: Service aggregation logic
-- [ ] Unit tests: Service filtering by name
-- [ ] Unit tests: JSON output format validation
+- [ ] Unit tests: Service filtering by name (case-insensitive)
+- [ ] Unit tests: Status determination logic (all priority paths)
+- [ ] Unit tests: JSON output format validation with schema
+- [ ] Unit tests: Error handling scenarios
 - [ ] Integration test: List services with multiple agents per service
 - [ ] Integration test: Filter by service name
 - [ ] Integration test: Empty colony (no agents)
+- [ ] Integration test: Stale data warnings
+- [ ] Integration test: Service not found error
+- [ ] Performance benchmarks: 10, 100, 1000, 5000 agents
 - [ ] Update CLI help documentation
 - [ ] Add examples to user documentation
+- [ ] Document error codes and troubleshooting
 
 ## Testing Strategy
 
@@ -455,16 +547,36 @@ func listServices(ctx context.Context, client colonyv1connect.ColonyServiceClien
 - Agent with no services
 
 **Service filtering:**
-- Filter matching one service
-- Filter matching multiple agents
-- Filter with no matches
-- Case-sensitive vs case-insensitive matching
+- Filter matching one service (exact match)
+- Filter matching multiple agents for same service
+- Filter with no matches (verify error message with suggestions)
+- Case-insensitive matching ("Redis" matches "redis")
+- Service name normalization for grouping
 
 **Output formatting:**
 - Table format with various service counts
-- JSON output structure validation
+- JSON output structure validation (schema compliance)
+- JSON includes version, snapshot_time, total counts
 - Verbose output completeness
-- Status indicator rendering
+- Status indicator rendering (✓, ⚠️, ✗)
+- Snapshot timestamp display in all formats
+- Color vs non-color terminal output
+
+**Status determination:**
+- Priority 1: Health endpoint check (HTTP 200 = healthy, other = unhealthy)
+- Priority 2: Agent reported status (use if set)
+- Priority 3: Computed from last_seen (< 30s = healthy, < 2m = degraded, > 2m = unhealthy)
+- Health endpoint failure falls through to next priority
+- Missing or empty status fields handled correctly
+
+**Error handling:**
+- Network errors: connection refused, timeout, auth failure
+- Data errors: empty colony, no services, stale data (> 5m)
+- Filtered service not found with helpful suggestions
+- Incomplete agent data (missing fields marked as "N/A")
+- Mixed agent versions (skip incompatible, show warning)
+- Invalid flags and user input errors
+- Retry logic with exponential backoff (3 attempts)
 
 ### Integration Tests
 
@@ -562,13 +674,60 @@ coral service list
 # AI wants to execute command on Redis instance
 
 # Step 1: Discover Redis agents
-coral service list --service redis --json
+$ coral service list --service redis --json
 
-# Step 2: Parse JSON to get agent_id
-# Example: agent-3-cache
+{
+  "version": "1.0",
+  "snapshot_time": "2025-11-19T12:34:56Z",
+  "total_services": 1,
+  "total_instances": 2,
+  "services": [
+    {
+      "service_name": "redis",
+      "service_type": "redis",
+      "instance_count": 2,
+      "agents": [
+        {
+          "agent_id": "agent-1-cache",
+          "mesh_ipv4": "10.42.0.10",
+          "status": "healthy",
+          "port": 6379,
+          "health_endpoint": "",
+          "last_seen": "2025-11-19T12:34:55Z"
+        },
+        {
+          "agent_id": "agent-3-db",
+          "mesh_ipv4": "10.42.0.12",
+          "status": "degraded",
+          "port": 6379,
+          "health_endpoint": "",
+          "last_seen": "2025-11-19T12:33:30Z"
+        }
+      ]
+    }
+  ]
+}
 
-# Step 3: Use agent ID for targeting (RFD 044)
-coral shell --agent agent-3-cache
+# Step 2: Parse JSON to select healthy agent
+# AI selects: agent-1-cache (status: healthy)
+
+# Step 3: Use agent ID for targeted operations (RFD 044)
+$ coral shell --agent agent-1-cache
+# Opens shell session on selected agent
+
+# Alternative: Direct MCP tool integration
+# MCP tool 'coral_shell' can programmatically:
+# 1. Query services via 'coral service list --service redis --json'
+# 2. Filter for healthy instances
+# 3. Execute commands via 'coral shell --agent <selected-agent-id>'
+
+# Example AI workflow with MCP:
+# User: "Check Redis memory usage"
+# AI:
+#   1. Calls coral_service_list(service="redis")
+#   2. Selects healthy instance: agent-1-cache
+#   3. Calls coral_shell(agent="agent-1-cache", command="redis-cli INFO memory")
+#   4. Returns memory stats to user
 ```
 
 ## Security Considerations
@@ -591,6 +750,273 @@ coral shell --agent agent-3-cache
 - Aggregation happens client-side, not in colony server
 - Performance scales with agent count (O(n) where n = number of agents)
 - For very large colonies (1000+ agents), may add pagination in future
+
+## Error Handling
+
+The command implements comprehensive error handling for common failure scenarios:
+
+### Network Errors
+
+**Connection failures:**
+- **Error**: Unable to connect to colony server
+- **Message**: "Failed to connect to colony '<colony-id>': connection refused. Check that the colony is running and accessible."
+- **Recovery**: Suggest checking colony connectivity with `coral colony status`
+- **Exit code**: 1
+
+**Timeout errors:**
+- **Error**: RPC call exceeds timeout threshold
+- **Message**: "Request timed out after 30s. The colony may be overloaded or unreachable."
+- **Recovery**: Retry with exponential backoff (3 attempts: 1s, 2s, 4s delays)
+- **Exit code**: 1
+
+**Authentication failures:**
+- **Error**: Invalid credentials or unauthorized access
+- **Message**: "Authentication failed. Verify your colony credentials."
+- **Recovery**: Suggest re-running `coral colony connect` or checking credentials
+- **Exit code**: 1
+
+### Data Errors
+
+**Empty colony:**
+- **Condition**: No agents registered in colony
+- **Message**: "No agents found in colony. Use 'coral connect <service>' to register agents."
+- **Output**: Display message with helpful next steps
+- **Exit code**: 0 (not an error, just empty state)
+
+**No services found:**
+- **Condition**: Agents exist but none report services
+- **Message**: "No services detected across <N> agents. Agents may not have service definitions configured."
+- **Output**: Display message with agent count
+- **Exit code**: 0
+
+**Filtered service not found:**
+- **Condition**: `--service` flag specifies non-existent service
+- **Message**: "Service 'redis' not found in colony. Available services: frontend, api, postgres"
+- **Output**: List available services to help user
+- **Exit code**: 1
+
+**Stale data warning:**
+- **Condition**: Any agent's `last_seen` timestamp is older than 5 minutes
+- **Warning**: "⚠️  Warning: Some agents haven't reported in over 5 minutes. Data may be stale."
+- **Behavior**: Display warning but proceed with showing data
+- **Exit code**: 0
+
+### Partial Failures
+
+**Incomplete agent data:**
+- **Condition**: Some agents missing expected fields (mesh IP, service info)
+- **Behavior**: Display available data, mark missing fields as "N/A"
+- **Warning**: "⚠️  Some agents have incomplete data"
+- **Exit code**: 0
+
+**Mixed agent versions:**
+- **Condition**: Agents report different protocol versions
+- **Behavior**: Attempt to parse all versions, skip incompatible entries
+- **Warning**: "⚠️  Some agents are running incompatible versions"
+- **Exit code**: 0
+
+### User Input Errors
+
+**Invalid flags:**
+- **Error**: Unsupported flag combination or invalid flag value
+- **Message**: "Error: flag '--invalid' not recognized. See 'coral service list --help'"
+- **Exit code**: 2
+
+**Colony not specified:**
+- **Condition**: Multiple colonies configured, none selected
+- **Message**: "Multiple colonies found. Specify one with --colony flag: <list>"
+- **Exit code**: 1
+
+### Error Display Format
+
+All errors follow consistent formatting:
+
+```bash
+# Network error example
+$ coral service list
+Error: Failed to connect to colony 'prod-colony': connection refused
+
+Troubleshooting:
+  • Check colony is running: coral colony status
+  • Verify connectivity: ping <colony-host>
+  • Review colony configuration: coral colony list
+
+# Service not found example
+$ coral service list --service invalid-service
+Error: Service 'invalid-service' not found in colony
+
+Available services (5):
+  • api
+  • frontend
+  • postgres
+  • redis
+  • worker
+
+# Stale data warning
+$ coral service list
+⚠️  Warning: Some agents haven't reported in over 5 minutes. Data may be stale.
+
+Services (3) at 2025-11-19 12:34:56 UTC:
+[... output continues ...]
+```
+
+### Retry Logic
+
+**Automatic retries** for transient failures:
+- Network timeouts: 3 attempts with exponential backoff
+- Colony temporarily unavailable: 3 attempts
+- Rate limiting: Retry after delay specified in response
+
+**No retries** for:
+- Authentication failures (requires user intervention)
+- Invalid input (flag errors, bad service names)
+- Empty results (not an error condition)
+
+## Performance Characteristics
+
+The command is designed for responsive operation across various colony sizes:
+
+### Performance Targets
+
+**Colony Size Categories:**
+
+| Agents   | Services (est.) | Target Latency | Behavior                    |
+|----------|-----------------|----------------|-----------------------------|
+| 1-50     | 1-100           | < 100ms        | Instant display             |
+| 51-500   | 100-1,000       | < 500ms        | Direct display              |
+| 501-1000 | 1,000-5,000     | < 2s           | Show spinner                |
+| 1000+    | 5,000+          | < 5s           | Spinner + pagination option |
+
+**Operation complexity:**
+- Time complexity: O(n × m) where n = agents, m = avg services per agent
+- Space complexity: O(s) where s = unique services (typically s << n × m)
+- Network: Single RPC call regardless of colony size
+
+### User Feedback
+
+**Progress indicators:**
+- Operations < 500ms: No indicator, display results immediately
+- Operations 500ms-2s: Show spinner: "Fetching services..."
+- Operations > 2s: Show spinner with progress: "Fetching services (1,234 agents)..."
+
+**Example spinner output:**
+```bash
+$ coral service list
+⠋ Fetching services from colony (523 agents)...
+```
+
+### Optimization Strategies
+
+**Current implementation:**
+- Single `ListAgents` RPC call (minimizes round trips)
+- Client-side aggregation (offloads work from colony server)
+- Efficient map-based grouping (O(1) lookups per service)
+- Sorted output for consistent UX
+
+**Future optimizations** (if needed for 1000+ agents):
+- Streaming RPC responses to process agents incrementally
+- Pagination support with `--limit` and `--offset` flags
+- Server-side aggregation option (RPC extension)
+- Caching with TTL for frequently-run queries
+
+### Large Colony Handling
+
+**Automatic adjustments** for large colonies (> 1000 agents):
+
+```bash
+# Display shows hint for pagination
+$ coral service list
+Services (1,234) at 2025-11-19 12:34:56 UTC:
+⚠️  Large colony detected. Consider using --limit flag for faster results.
+
+# Future: Pagination support
+$ coral service list --limit 50
+Services (1,234) showing 1-50 at 2025-11-19 12:34:56 UTC:
+[... first 50 services ...]
+
+Use 'coral service list --limit 50 --offset 50' to see more.
+```
+
+**Memory considerations:**
+- Average memory per agent entry: ~500 bytes
+- 1,000 agents: ~500 KB
+- 10,000 agents: ~5 MB
+- Safe for typical CLI environments
+
+### Benchmarking
+
+**Performance testing requirements:**
+- Test with synthetic colonies: 10, 100, 1000, 5000 agents
+- Measure end-to-end latency (RPC + aggregation + rendering)
+- Verify spinner appears for operations > 500ms
+- Ensure consistent performance across runs
+
+**Example benchmark results** (target):
+```
+BenchmarkServiceList/10agents      1000000  95 ms/op   0.5 MB/op
+BenchmarkServiceList/100agents     100000   450 ms/op  1.2 MB/op
+BenchmarkServiceList/1000agents    10000    1.8 s/op   5.0 MB/op
+```
+
+## Observability
+
+The command includes telemetry to improve reliability and user experience:
+
+### Metrics Collected
+
+**Execution metrics:**
+- Command invocation count
+- Execution time (P50, P95, P99)
+- Colony size at execution time (agent count)
+- Error rate by error type
+- Retry attempts and success rates
+
+**Usage patterns:**
+- Flag usage frequency (`--service`, `--json`, `--verbose`)
+- Filtered service queries (which services are queried most)
+- Output mode distribution (table vs JSON)
+- Time-of-day usage patterns
+
+### Logging
+
+**Debug logging** (enabled with `-v` flag):
+```bash
+$ coral service list -v
+DEBUG: Connecting to colony 'prod-colony' at colony.example.com:8443
+DEBUG: Fetching agents via ListAgents RPC...
+DEBUG: Received 234 agents in 345ms
+DEBUG: Aggregating services across agents...
+DEBUG: Found 12 unique services with 234 total instances
+DEBUG: Rendering table output...
+
+Services (12) at 2025-11-19 12:34:56 UTC:
+[... output ...]
+```
+
+**Error logging:**
+- All errors logged with full context (timestamps, colony ID, error details)
+- Network errors include retry attempts and backoff timing
+- Authentication errors include credential source information
+
+### Telemetry Privacy
+
+**Data collected** (anonymous):
+- Command name and flags (no values)
+- Execution time and error types
+- Colony size (agent/service counts only)
+- Client version
+
+**Data NOT collected:**
+- Service names or types
+- Agent IDs or IP addresses
+- Colony names or endpoints
+- User identity or credentials
+
+**Opt-out:**
+Users can disable telemetry with:
+```bash
+export CORAL_TELEMETRY=false
+```
 
 ## Future Enhancements
 
@@ -692,18 +1118,21 @@ serviceMap := make(map[string]*ServiceView)
 
 for _, agent := range resp.Msg.Agents {
     for _, svc := range agent.Services {
-        key := svc.ComponentName
+        key := svc.Name
 
         if serviceMap[key] == nil {
             serviceMap[key] = &ServiceView{
-                ServiceName: svc.ComponentName,
+                ServiceName: svc.Name,
                 ServiceType: svc.ServiceType,
                 Agents:      []AgentInstance{},
             }
         }
 
-        // Determine agent status
-        status := determineStatus(agent.LastSeen)
+        // Determine agent status using priority order:
+        // 1. Health endpoint check (if configured)
+        // 2. Agent reported status (if set)
+        // 3. Computed from last_seen timestamp
+        status := determineStatus(svc, agent)
 
         serviceMap[key].Agents = append(serviceMap[key].Agents, AgentInstance{
             AgentID:        agent.AgentId,
@@ -737,6 +1166,41 @@ for i := range services {
     sort.Slice(services[i].Agents, func(a, b int) bool {
         return services[i].Agents[a].AgentID < services[i].Agents[b].AgentID
     })
+}
+```
+
+**Status Determination Function**
+
+```go
+// determineStatus calculates agent health status using priority order.
+func determineStatus(svc *ServiceInfo, agent *Agent) string {
+    // Priority 1: If service has health endpoint, use HTTP check
+    if svc.HealthEndpoint != "" {
+        if healthCheck, err := checkHealthEndpoint(agent.MeshIpv4, svc.Port, svc.HealthEndpoint); err == nil {
+            if healthCheck.StatusCode == 200 {
+                return "healthy"
+            }
+            return "unhealthy"
+        }
+        // If health check failed, fall through to next priority
+    }
+
+    // Priority 2: If agent reports status, use that
+    if agent.Status != "" {
+        return agent.Status
+    }
+
+    // Priority 3: Compute from last_seen timestamp
+    timeSinceLastSeen := time.Since(agent.LastSeen)
+
+    switch {
+    case timeSinceLastSeen < 30*time.Second:
+        return "healthy"
+    case timeSinceLastSeen < 2*time.Minute:
+        return "degraded"
+    default:
+        return "unhealthy"
+    }
 }
 ```
 
