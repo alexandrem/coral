@@ -201,39 +201,42 @@ coral duckdb shell --agents agent-1,agent-2,agent-3
 
 ## Implementation Plan
 
-### Phase 1: Agent HTTP Endpoint
+### Phase 1: Agent HTTP Endpoint ✅ Complete
 
-- [ ] Create `internal/agent/duckdb_handler.go` with HTTP handler.
-- [ ] Add `/duckdb/` route to agent HTTP server in
+- [x] Create `internal/agent/duckdb_handler.go` with HTTP handler.
+- [x] Add `/duckdb/` route to agent HTTP server in
   `internal/cli/agent/start.go`.
-- [ ] Validate handler only serves DuckDB files (no directory traversal).
-- [ ] Ensure handler respects read-only semantics (GET only, no
+- [x] Validate handler only serves DuckDB files (no directory traversal).
+- [x] Ensure handler respects read-only semantics (GET only, no
   POST/PUT/DELETE).
 
-### Phase 2: CLI DuckDB Command
+### Phase 2: CLI DuckDB Command ✅ Complete
 
-- [ ] Create `internal/cli/duckdb/` package structure.
-- [ ] Implement `shell` subcommand with DuckDB Go driver integration.
-- [ ] Implement `query` subcommand for one-shot queries.
-- [ ] Implement `list-agents` subcommand using colony registry.
-- [ ] Add agent address resolution via colony discovery/registry API.
+- [x] Create `internal/cli/duckdb/` package structure.
+- [x] Implement `shell` subcommand with DuckDB Go driver integration.
+- [x] Implement `query` subcommand for one-shot queries.
+- [x] Implement `list-agents` subcommand using colony registry.
+- [x] Add agent address resolution via colony discovery/registry API.
 
-### Phase 3: Interactive Shell Features
+### Phase 3: Interactive Shell Features ✅ Complete
 
-- [ ] Add readline support for command history and editing.
-- [ ] Implement meta-commands (`.tables`, `.databases`, `.exit`, `.help`).
-- [ ] Add multi-agent attach support (`--agents` flag).
-- [ ] Support output formats (table, CSV, JSON) for `query` command.
+- [x] Add readline support for command history and editing.
+- [x] Implement meta-commands (`.tables`, `.databases`, `.exit`, `.help`).
+- [x] Add multi-agent attach support (`--agents` flag).
+- [x] Support output formats (table, CSV, JSON) for `query` command.
 
-### Phase 4: Testing & Documentation
+### Phase 4: Testing & Documentation 🔄 Partial
 
-- [ ] Add unit tests for DuckDB HTTP handler (read-only, 404, method
+- [x] Add unit tests for DuckDB HTTP handler (read-only, 404, method
   validation).
 - [ ] Add integration test: start agent, attach via DuckDB, query metrics.
 - [ ] Add E2E test: full CLI workflow with real agent.
-- [ ] Update CLI documentation with usage examples.
-- [ ] Add troubleshooting guide for common issues (mesh connectivity, agent
+- [x] Update CLI documentation with usage examples.
+- [x] Add troubleshooting guide for common issues (mesh connectivity, agent
   down, no metrics).
+
+**Note:** Core functionality is complete and production-ready. Integration and E2E
+tests remain as future work to validate full workflow automation.
 
 ## API Changes
 
