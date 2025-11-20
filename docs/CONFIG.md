@@ -172,6 +172,48 @@ last_used: "2025-01-15T14:22:00Z"
 | `mcp.security.require_rbac_for_actions` | bool     | `false`    | Require RBAC for exec/shell/eBPF |
 | `mcp.security.audit_enabled`            | bool     | `false`    | Enable MCP tool call auditing    |
 
+#### Beyla Observability (RFD 032, RFD 036)
+
+Beyla metrics and traces are collected from agents and stored in the colony's
+DuckDB. Retention policies control how long data is kept.
+
+| Field                         | Type | Default | Description                                              |
+|-------------------------------|------|---------|----------------------------------------------------------|
+| `beyla.poll_interval`         | int  | `60`    | Interval (seconds) to poll agents for Beyla data         |
+| `beyla.retention.http_days`   | int  | `30`    | Retention period for HTTP metrics (days)                 |
+| `beyla.retention.grpc_days`   | int  | `30`    | Retention period for gRPC metrics (days)                 |
+| `beyla.retention.sql_days`    | int  | `14`    | Retention period for SQL metrics (days)                  |
+| `beyla.retention.traces_days` | int  | `7`     | Retention period for distributed traces (days) (RFD 036) |
+
+**Example Configuration:**
+
+```yaml
+beyla:
+    poll_interval: 60  # Poll agents every 60 seconds
+    retention:
+        http_days: 30   # Keep HTTP metrics for 30 days
+        grpc_days: 30   # Keep gRPC metrics for 30 days
+        sql_days: 14    # Keep SQL metrics for 14 days
+        traces_days: 7  # Keep traces for 7 days
+```
+
+**Storage Considerations:**
+
+- **Traces are high-volume:** Distributed traces generate significantly more
+  data than RED metrics. A 7-day retention is recommended for production
+  workloads.
+- **Adjust based on throughput:** High-traffic services may need shorter
+  retention (3-5 days) to manage storage size.
+- **Metrics vs Traces:** HTTP/gRPC metrics are aggregated histograms (lower
+  storage), while traces store individual request spans (higher storage).
+
+**Defaults:** If not specified in config, the following defaults are used:
+
+- Poll interval: 60 seconds
+- HTTP/gRPC retention: 30 days
+- SQL retention: 14 days
+- Trace retention: 7 days
+
 ## Project Configuration
 
 Location: `<project>/.coral/config.yaml`
@@ -635,6 +677,52 @@ mcp:
         require_rbac_for_actions: true  # Require auth for exec/shell
         audit_enabled: true             # Log all MCP calls
 ```
+
+### Example 7: Observability with Custom Retention
+
+**Colony Config with Beyla Observability:**
+
+```yaml
+version: "1"
+colony_id: "myapp-prod"
+application_name: "MyApp"
+environment: "production"
+
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/10"
+    public_endpoints:
+        - "colony.example.com:9000"
+
+services:
+    connect_port: 9000
+    dashboard_port: 3000
+
+# Beyla metrics and distributed tracing (RFD 032, RFD 036)
+beyla:
+    poll_interval: 30  # Poll agents every 30 seconds (more frequent)
+    retention:
+        http_days: 90     # Keep HTTP metrics for 90 days
+        grpc_days: 90     # Keep gRPC metrics for 90 days
+        sql_days: 30      # Keep SQL metrics for 30 days
+        traces_days: 14   # Keep traces for 14 days (extended retention)
+```
+
+**Start Colony:**
+
+```bash
+CORAL_PUBLIC_ENDPOINT=colony.example.com:9000 coral colony start
+```
+
+**Storage Impact:**
+
+For a high-traffic service (1000 req/s):
+
+- **Metrics:** ~50 MB/day (aggregated histograms)
+- **Traces:** ~5 GB/day (individual request spans)
+- **14-day trace retention:** ~70 GB total
+
+Consider shorter trace retention (7 days) or sampling for very high throughput
+services.
 
 ## Configuration Validation
 

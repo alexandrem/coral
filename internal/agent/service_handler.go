@@ -293,6 +293,40 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 	// Calculate total metrics.
 	response.TotalMetrics = int32(len(response.HttpMetrics) + len(response.GrpcMetrics) + len(response.SqlMetrics))
 
+	// Query traces if requested (RFD 036).
+	if req.Msg.IncludeTraces {
+		// Apply default max_traces if not specified.
+		maxTraces := req.Msg.MaxTraces
+		if maxTraces == 0 {
+			maxTraces = 100 // Default limit.
+		} else if maxTraces > 1000 {
+			maxTraces = 1000 // Max limit.
+		}
+
+		traceSpans, err := h.agent.beylaManager.QueryTraces(ctx, startTime, endTime, req.Msg.ServiceNames, req.Msg.TraceId, maxTraces)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+
+		// Convert internal protobuf format (mesh.v1) to API format (agent.v1).
+		for _, span := range traceSpans {
+			response.TraceSpans = append(response.TraceSpans, &agentv1.BeylaTraceSpan{
+				TraceId:      span.TraceId,
+				SpanId:       span.SpanId,
+				ParentSpanId: span.ParentSpanId,
+				ServiceName:  span.ServiceName,
+				SpanName:     span.SpanName,
+				SpanKind:     span.SpanKind,
+				StartTime:    span.StartTime.AsTime().UnixMilli(),
+				DurationUs:   span.Duration.AsDuration().Microseconds(),
+				StatusCode:   span.StatusCode,
+				Attributes:   span.Attributes,
+			})
+		}
+
+		response.TotalTraces = int32(len(response.TraceSpans))
+	}
+
 	return connect.NewResponse(response), nil
 }
 
