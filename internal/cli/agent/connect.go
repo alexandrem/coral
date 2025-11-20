@@ -25,6 +25,7 @@ func NewConnectCmd() *cobra.Command {
 		port      int
 		healthURL string
 		agentAddr string
+		agent     string
 		wait      bool
 	)
 
@@ -57,6 +58,12 @@ Examples:
   # Wait for initial health checks (interactive sessions)
   coral connect frontend:3000 --wait
 
+  # Connect to service on remote agent by agent ID
+  coral connect frontend:3000 --agent hostname-api-1
+
+  # Connect to service on remote agent by agent URL
+  coral connect frontend:3000 --agent-url http://10.42.0.5:9001
+
 Note:
   - This command requires a running agent ('coral agent start')
   - Legacy flags (--port, --health) only work with single service specifications
@@ -74,6 +81,21 @@ Note:
 			// Validate service specs
 			if err := ValidateServiceSpecs(serviceSpecs); err != nil {
 				return fmt.Errorf("invalid service configuration: %w", err)
+			}
+
+			// RFD 044: Agent ID resolution via colony registry.
+			// If --agent is specified, query colony to resolve mesh IP.
+			if agent != "" {
+				if agentAddr != "" {
+					return fmt.Errorf("cannot specify both --agent and --agent-url")
+				}
+
+				// Resolve agent ID to mesh IP via colony registry.
+				resolvedAddr, err := resolveAgentID(cmd.Context(), agent, "")
+				if err != nil {
+					return fmt.Errorf("failed to resolve agent ID: %w", err)
+				}
+				agentAddr = resolvedAddr
 			}
 
 			// Discover local agent
@@ -231,7 +253,8 @@ Note:
 
 	cmd.Flags().IntVarP(&port, "port", "p", 0, "Service port (legacy, only works with single service)")
 	cmd.Flags().StringVar(&healthURL, "health", "", "Health check endpoint (legacy, only works with single service)")
-	cmd.Flags().StringVar(&agentAddr, "agent", "", "Agent address (default: auto-discover)")
+	cmd.Flags().StringVar(&agentAddr, "agent-url", "", "Agent URL (default: auto-discover)")
+	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for initial health checks and display status (recommended for interactive use)")
 
 	return cmd
