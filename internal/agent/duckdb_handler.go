@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -49,7 +50,7 @@ func (h *DuckDBHandler) RegisterDatabase(name string, filePath string) error {
 }
 
 // ServeHTTP implements http.Handler for serving DuckDB files.
-// Handles GET requests to /duckdb/<filename>.
+// Handles GET requests to /duckdb/<filename> (serve file) or /duckdb (list databases).
 func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Only allow GET requests (read-only).
 	if r.Method != http.MethodGet {
@@ -62,10 +63,18 @@ func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract filename from URL path.
-	// Expected format: /duckdb/<filename>
+	// Expected formats:
+	//   - /duckdb (list databases)
+	//   - /duckdb/<filename> (serve specific database)
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(pathParts) < 2 || pathParts[0] != "duckdb" {
+	if len(pathParts) < 1 || pathParts[0] != "duckdb" {
 		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	// Handle database list request.
+	if len(pathParts) == 1 {
+		h.serveListDatabases(w, r)
 		return
 	}
 
@@ -107,4 +116,30 @@ func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Use http.ServeFile for efficient range request handling.
 	http.ServeFile(w, r, filePath)
+}
+
+// serveListDatabases returns a JSON list of available databases.
+func (h *DuckDBHandler) serveListDatabases(w http.ResponseWriter, r *http.Request) {
+	// Build list of database names.
+	databases := make([]string, 0, len(h.databases))
+	for name := range h.databases {
+		databases = append(databases, name)
+	}
+
+	// Return as JSON.
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"databases": databases,
+	}); err != nil {
+		h.logger.Error().
+			Err(err).
+			Msg("Failed to encode database list")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Debug().
+		Str("remote_addr", r.RemoteAddr).
+		Int("count", len(databases)).
+		Msg("Served database list")
 }

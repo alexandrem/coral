@@ -3,6 +3,7 @@ package duckdb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,13 +16,13 @@ import (
 	_ "github.com/marcboeker/go-duckdb" // Import DuckDB driver.
 )
 
-// AgentInfo contains information about an agent with Beyla capabilities.
+// AgentInfo contains information about an agent with available databases.
 type AgentInfo struct {
-	AgentID      string
-	MeshIP       string
-	BeylaEnabled bool
-	LastSeen     string
-	Status       string
+	AgentID   string
+	MeshIP    string
+	Databases []string
+	LastSeen  string
+	Status    string
 }
 
 // getColonyClient returns a colony gRPC client using the colony URL from config.
@@ -49,8 +50,9 @@ func getColonyClient() (colonyv1connect.ColonyServiceClient, error) {
 	return client, nil
 }
 
-// listAgents queries the colony to get all registered agents with Beyla capabilities.
-func listAgents(ctx context.Context) ([]AgentInfo, error) {
+// listAgents queries the colony to get all registered agents.
+// If fetchDatabases is true, queries each agent for available databases.
+func listAgents(ctx context.Context, fetchDatabases bool) ([]AgentInfo, error) {
 	client, err := getColonyClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create colony client: %w", err)
@@ -65,14 +67,6 @@ func listAgents(ctx context.Context) ([]AgentInfo, error) {
 
 	var agents []AgentInfo
 	for _, agent := range resp.Msg.Agents {
-		// Check if agent has Beyla enabled by examining runtime context capabilities.
-		beylaEnabled := false
-		if agent.RuntimeContext != nil &&
-			agent.RuntimeContext.EbpfCapabilities != nil &&
-			agent.RuntimeContext.EbpfCapabilities.Beyla != nil {
-			beylaEnabled = agent.RuntimeContext.EbpfCapabilities.Beyla.Enabled
-		}
-
 		status := "unknown"
 		if agent.Status != "" {
 			status = agent.Status
@@ -84,13 +78,25 @@ func listAgents(ctx context.Context) ([]AgentInfo, error) {
 			lastSeen = agent.LastSeen.AsTime().Format("2006-01-02 15:04:05")
 		}
 
-		agents = append(agents, AgentInfo{
-			AgentID:      agent.AgentId,
-			MeshIP:       agent.MeshIpv4,
-			BeylaEnabled: beylaEnabled,
-			LastSeen:     lastSeen,
-			Status:       status,
-		})
+		agentInfo := AgentInfo{
+			AgentID:  agent.AgentId,
+			MeshIP:   agent.MeshIpv4,
+			LastSeen: lastSeen,
+			Status:   status,
+		}
+
+		// Optionally query agent for available databases.
+		if fetchDatabases && agent.MeshIpv4 != "" {
+			databases, err := listAgentDatabases(ctx, agent.MeshIpv4)
+			if err != nil {
+				// Log error but don't fail - agent might be offline.
+				agentInfo.Databases = []string{}
+			} else {
+				agentInfo.Databases = databases
+			}
+		}
+
+		agents = append(agents, agentInfo)
 	}
 
 	return agents, nil
@@ -98,7 +104,7 @@ func listAgents(ctx context.Context) ([]AgentInfo, error) {
 
 // resolveAgentAddress resolves an agent ID to its mesh IP address via colony registry.
 func resolveAgentAddress(ctx context.Context, agentID string) (string, error) {
-	agents, err := listAgents(ctx)
+	agents, err := listAgents(ctx, false) // Don't fetch databases for address resolution.
 	if err != nil {
 		return "", fmt.Errorf("failed to list agents: %w", err)
 	}
@@ -166,4 +172,37 @@ func sanitizeAgentID(agentID string) string {
 		}
 	}
 	return result
+}
+
+// listAgentDatabases queries an agent for available databases.
+func listAgentDatabases(ctx context.Context, meshIP string) ([]string, error) {
+	// Construct HTTP URL for agent database list endpoint.
+	agentAddr := net.JoinHostPort(meshIP, "9001")
+	listURL := fmt.Sprintf("http://%s/duckdb", agentAddr)
+
+	// Make HTTP request.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query agent: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("agent returned status %d", resp.StatusCode)
+	}
+
+	// Parse JSON response.
+	var result struct {
+		Databases []string `json:"databases"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result.Databases, nil
 }

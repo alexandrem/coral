@@ -17,6 +17,7 @@ type TelemetryReceiver struct {
 	receiver *telemetry.OTLPReceiver
 	storage  *telemetry.Storage
 	db       *sql.DB
+	dbPath   string // Database file path for HTTP serving (RFD 039).
 	logger   zerolog.Logger
 }
 
@@ -26,8 +27,16 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 		return nil, fmt.Errorf("telemetry is disabled")
 	}
 
-	// Create in-memory DuckDB for span storage.
-	db, err := sql.Open("duckdb", ":memory:")
+	// Determine database path: use file-based storage for HTTP serving.
+	// Default to ~/.coral/agent/telemetry.duckdb if not specified.
+	dbPath := config.DatabasePath
+	if dbPath == "" {
+		dbPath = ":memory:"
+		logger.Warn().Msg("No database path configured, using in-memory storage (HTTP serving disabled)")
+	}
+
+	// Create DuckDB database.
+	db, err := sql.Open("duckdb", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telemetry database: %w", err)
 	}
@@ -50,6 +59,7 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 		receiver: receiver,
 		storage:  storage,
 		db:       db,
+		dbPath:   dbPath,
 		logger:   logger,
 	}, nil
 }
@@ -76,4 +86,13 @@ func (r *TelemetryReceiver) Stop() error {
 // This is called by the QueryTelemetry RPC handler.
 func (r *TelemetryReceiver) QuerySpans(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]telemetry.Span, error) {
 	return r.receiver.QuerySpans(ctx, startTime, endTime, serviceNames)
+}
+
+// GetDatabasePath returns the file path to the telemetry DuckDB database (RFD 039).
+// Returns empty string if database is in-memory.
+func (r *TelemetryReceiver) GetDatabasePath() string {
+	if r.dbPath == ":memory:" {
+		return ""
+	}
+	return r.dbPath
 }

@@ -15,29 +15,30 @@ import (
 // NewQueryCmd creates the query subcommand for one-shot SQL queries.
 func NewQueryCmd() *cobra.Command {
 	var format string
+	var database string
 
 	cmd := &cobra.Command{
 		Use:   "query <agent-id> <sql>",
 		Short: "Execute a one-shot SQL query against an agent database",
 		Long: `Executes a SQL query against an agent's DuckDB database and prints the results.
 
-The query command attaches to the agent's Beyla metrics database and executes
+The query command attaches to the specified agent database and executes
 the provided SQL query, returning results in the specified format (table, CSV, or JSON).
 
 Examples:
-  # Query recent HTTP metrics (table format)
-  coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10"
+  # Query Beyla HTTP metrics (table format)
+  coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10" --database beyla.duckdb
+
+  # Query telemetry spans
+  coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10" --database telemetry.duckdb
 
   # Query with aggregation (CSV format)
-  coral duckdb query agent-prod-1 "SELECT service_name, COUNT(*) as count FROM beyla_http_metrics_local GROUP BY service_name" --format csv
+  coral duckdb query agent-prod-1 "SELECT service_name, COUNT(*) FROM beyla_http_metrics_local GROUP BY service_name" --format csv -d beyla.duckdb
 
   # Query with JSON output
-  coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local WHERE http_status_code >= 500" --format json
+  coral duckdb query agent-prod-1 "SELECT * FROM spans WHERE status = 'error'" --format json -d telemetry.duckdb
 
-Available tables:
-  - beyla_http_metrics_local: HTTP request metrics
-  - beyla_grpc_metrics_local: gRPC method metrics
-  - beyla_sql_metrics_local: SQL query metrics`,
+If --database is not specified, the first available database will be used.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentID := args[0]
@@ -52,6 +53,21 @@ Available tables:
 				return fmt.Errorf("failed to resolve agent address: %w", err)
 			}
 
+			// Determine which database to query.
+			dbName := database
+			if dbName == "" {
+				// Query available databases and use the first one.
+				databases, err := listAgentDatabases(ctx, meshIP)
+				if err != nil {
+					return fmt.Errorf("failed to query available databases: %w", err)
+				}
+				if len(databases) == 0 {
+					return fmt.Errorf("agent %s has no available databases", agentID)
+				}
+				dbName = databases[0]
+				fmt.Printf("Using database: %s\n", dbName)
+			}
+
 			// Create DuckDB connection.
 			db, err := createDuckDBConnection(ctx)
 			if err != nil {
@@ -60,7 +76,7 @@ Available tables:
 			defer db.Close()
 
 			// Attach agent database.
-			if err := attachAgentDatabase(ctx, db, agentID, meshIP, "beyla.duckdb"); err != nil {
+			if err := attachAgentDatabase(ctx, db, agentID, meshIP, dbName); err != nil {
 				return err
 			}
 
@@ -92,6 +108,7 @@ Available tables:
 	}
 
 	cmd.Flags().StringVarP(&format, "format", "f", "table", "Output format (table, csv, json)")
+	cmd.Flags().StringVarP(&database, "database", "d", "", "Database name (e.g., beyla.duckdb, telemetry.duckdb)")
 
 	return cmd
 }

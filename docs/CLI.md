@@ -186,65 +186,95 @@ coral ask "show me error trends this week"
 
 ## `coral duckdb` - SQL Metrics Queries
 
-The `coral duckdb` command provides direct SQL access to metrics databases using
+The `coral duckdb` command provides direct SQL access to all agent databases using
 DuckDB's remote attach feature. Query real-time agent metrics (~1 hour
-retention) or historical colony metrics (30 days retention).
+retention) including telemetry spans, Beyla metrics, and any custom databases.
 
 **Key Features:**
 
 - **Zero serialization overhead** - Native DuckDB binary protocol
 - **Full SQL power** - Use complete DuckDB SQL dialect
+- **Multi-database support** - Access telemetry, Beyla, and custom databases
 - **Interactive shell** - REPL with readline, history, multi-line queries
 - **Multiple output formats** - Table, CSV, JSON
-- **Multi-database queries** - Join data from multiple agents or colony
+- **Multi-agent queries** - Join data from multiple agents
 
 **Architecture:**
 
-- Agents serve local DuckDB files at `http://agent:9001/duckdb/beyla.duckdb`
-- Colony serves aggregated database at
-  `http://colony:9000/duckdb/metrics.duckdb`
+- Agents serve local DuckDB files at `http://agent:9001/duckdb/<database-name>`
+  - `telemetry.duckdb` - OTLP telemetry spans (RFD 025)
+  - `beyla.duckdb` - Beyla HTTP/gRPC/SQL metrics (RFD 032)
+  - Custom databases registered by agents
+- Colony serves aggregated database at `http://colony:9000/duckdb/metrics.duckdb` (RFD 046 - future)
 - CLI attaches via HTTP using DuckDB's `httpfs` extension
+- Database discovery via `/duckdb` endpoint (lists available databases)
 
 ---
 
-### `coral duckdb list-agents`
+### `coral duckdb list-agents` (alias: `list`)
 
-List all agents with Beyla metrics enabled.
+List all agents with their available databases.
 
 ```bash
 coral duckdb list-agents
+# or
+coral duckdb list
 ```
 
 **Output:**
 
 ```
-AGENT ID        STATUS    LAST SEEN           BEYLA ENABLED
-agent-prod-1    healthy   2025-11-20 10:30    yes
-agent-prod-2    healthy   2025-11-20 10:29    yes
-agent-dev-1     degraded  2025-11-20 09:15    yes
-agent-test-1    healthy   2025-11-20 10:28    no
+AGENT ID        STATUS    LAST SEEN           DATABASES
+agent-prod-1    healthy   2025-11-20 10:30    telemetry.duckdb, beyla.duckdb
+agent-prod-2    healthy   2025-11-20 10:29    telemetry.duckdb, beyla.duckdb
+agent-dev-1     degraded  2025-11-20 09:15    telemetry.duckdb
+agent-test-1    healthy   2025-11-20 10:28    -
 
-Total: 4 agents (3 with Beyla enabled)
+Total: 4 agents (3 with databases, 5 total databases)
 ```
+
+**What it shows:**
+
+- **Agent ID** - Unique identifier for each agent
+- **Status** - Health status (healthy/degraded/unhealthy)
+- **Last Seen** - Last heartbeat timestamp
+- **Databases** - Comma-separated list of available databases for querying
 
 ---
 
 ### `coral duckdb query` - One-Shot Queries
 
-Execute a SQL query and print results.
+Execute a SQL query against an agent database and print results.
 
 **Syntax:**
 
 ```bash
-coral duckdb query <agent-id> "<sql>" [--format table|csv|json]
+coral duckdb query <agent-id> "<sql>" [--database <db-name>] [--format table|csv|json]
 ```
+
+**Flags:**
+
+- `--database, -d` - Database name to query (e.g., `telemetry.duckdb`, `beyla.duckdb`)
+  - If omitted, uses the first available database
+- `--format, -f` - Output format: `table` (default), `csv`, or `json`
 
 #### Basic Query Examples
 
-**Query recent HTTP requests:**
+**Query telemetry spans:**
 
 ```bash
-coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10"
+# Explicitly specify database
+coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10" --database telemetry.duckdb
+
+# Auto-detect first available database
+coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10"
+# Using database: telemetry.duckdb
+```
+
+**Query recent HTTP requests (Beyla):**
+
+```bash
+coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10" -d beyla.duckdb
 ```
 
 **Output (table format):**
@@ -260,7 +290,34 @@ timestamp            service_name  http_method  http_route  http_status_code  la
 (10 rows)
 ```
 
-#### Aggregation Queries
+#### Telemetry Span Queries
+
+**Query error spans:**
+
+```bash
+coral duckdb query agent-prod-1 \
+  "SELECT trace_id, span_id, name, status, duration_ms
+   FROM spans
+   WHERE status = 'error'
+   ORDER BY timestamp DESC
+   LIMIT 20" \
+  -d telemetry.duckdb
+```
+
+**High-latency operations:**
+
+```bash
+coral duckdb query agent-prod-1 \
+  "SELECT name, service_name, AVG(duration_ms) as avg_duration_ms, COUNT(*) as count
+   FROM spans
+   WHERE timestamp > now() - INTERVAL '10 minutes'
+     AND duration_ms > 500
+   GROUP BY name, service_name
+   ORDER BY avg_duration_ms DESC" \
+  -d telemetry.duckdb
+```
+
+#### Aggregation Queries (Beyla)
 
 **Request count by service:**
 
@@ -270,7 +327,8 @@ coral duckdb query agent-prod-1 \
    FROM beyla_http_metrics_local
    WHERE timestamp > now() - INTERVAL '5 minutes'
    GROUP BY service_name
-   ORDER BY request_count DESC"
+   ORDER BY request_count DESC" \
+  -d beyla.duckdb
 ```
 
 **Output:**
@@ -427,18 +485,24 @@ coral duckdb query agent-prod-1 \
 
 ### `coral duckdb shell` - Interactive SQL Shell
 
-Open an interactive DuckDB REPL for exploring metrics data.
+Open an interactive DuckDB REPL for exploring agent databases.
 
 **Syntax:**
 
 ```bash
-coral duckdb shell <agent-id>
-coral duckdb shell --agents <agent-1>,<agent-2>,<agent-3>
+coral duckdb shell <agent-id> [--database <db-name>]
+coral duckdb shell --agents <agent-1>,<agent-2>,<agent-3> [--database <db-name>]
 ```
+
+**Flags:**
+
+- `--database, -d` - Database name to attach (e.g., `telemetry.duckdb`, `beyla.duckdb`)
+  - If omitted, uses the first available database
+- `--agents` - Comma-separated list of agent IDs for multi-agent queries
 
 #### Basic Shell Usage
 
-**Start interactive shell:**
+**Start interactive shell with auto-detected database:**
 
 ```bash
 coral duckdb shell agent-prod-1
@@ -447,11 +511,20 @@ coral duckdb shell agent-prod-1
 **Output:**
 
 ```
+Using database: telemetry.duckdb (agent: agent-prod-1)
 DuckDB interactive shell. Type '.exit' to quit, '.help' for help.
 
 Attached agent database: agent_agent_prod_1
 
 duckdb>
+```
+
+**Start shell with specific database:**
+
+```bash
+coral duckdb shell agent-prod-1 --database beyla.duckdb
+# or
+coral duckdb shell agent-prod-1 -d telemetry.duckdb
 ```
 
 #### Meta-Commands
@@ -585,15 +658,19 @@ duckdb> .exit
 
 #### Multi-Agent Queries
 
-Attach multiple agent databases and query across them:
+Attach multiple agent databases and query across them. When using `--agents`, the same database is attached from each agent.
 
 ```bash
-coral duckdb shell --agents agent-prod-1,agent-prod-2,agent-prod-3
+# Query same database across multiple agents
+coral duckdb shell --agents agent-prod-1,agent-prod-2,agent-prod-3 --database beyla.duckdb
 ```
 
 **Output:**
 
 ```
+Using database: beyla.duckdb (agent: agent-prod-1)
+Using database: beyla.duckdb (agent: agent-prod-2)
+Using database: beyla.duckdb (agent: agent-prod-3)
 DuckDB interactive shell. Type '.exit' to quit, '.help' for help.
 
 Attached databases: agent_agent_prod_1, agent_agent_prod_2, agent_agent_prod_3
@@ -635,7 +712,54 @@ payment-gateway  12087
 
 ### Available Tables and Schema
 
-#### `beyla_http_metrics_local` (Agent)
+#### Telemetry Database (`telemetry.duckdb`)
+
+The telemetry database stores OTLP spans from instrumented applications.
+
+##### `spans` Table
+
+Distributed tracing spans with full OpenTelemetry compatibility.
+
+**Columns:**
+
+- `trace_id` (VARCHAR) - Unique trace identifier
+- `span_id` (VARCHAR) - Unique span identifier
+- `parent_span_id` (VARCHAR) - Parent span ID (NULL for root spans)
+- `name` (VARCHAR) - Span name/operation
+- `kind` (VARCHAR) - Span kind (server, client, internal, producer, consumer)
+- `status` (VARCHAR) - Span status (ok, error, unset)
+- `service_name` (VARCHAR) - Service that generated the span
+- `timestamp` (TIMESTAMP) - Span start time
+- `duration_ms` (DOUBLE) - Span duration in milliseconds
+- `attributes` (JSON) - Span attributes (tags)
+- `resource_attributes` (JSON) - Resource attributes
+- `scope_name` (VARCHAR) - Instrumentation scope name
+- `scope_version` (VARCHAR) - Instrumentation scope version
+- `created_at` (TIMESTAMP) - When span was stored
+
+**Example queries:**
+
+```sql
+-- Find traces with errors
+SELECT DISTINCT trace_id, name, service_name
+FROM spans
+WHERE status = 'error'
+  AND timestamp > now() - INTERVAL '1 hour';
+
+-- Trace latency breakdown
+SELECT trace_id, span_id, name, duration_ms
+FROM spans
+WHERE trace_id = 'abc123...'
+ORDER BY timestamp;
+```
+
+---
+
+#### Beyla Database (`beyla.duckdb`)
+
+The Beyla database stores eBPF-collected HTTP, gRPC, and SQL metrics.
+
+##### `beyla_http_metrics_local` (Agent)
 
 HTTP request metrics with RED (Rate, Errors, Duration) data.
 
@@ -772,6 +896,41 @@ ORDER BY latency_bucket_ms DESC;
 
 ---
 
+### Database Discovery
+
+The CLI automatically discovers available databases from agents using the `/duckdb` HTTP endpoint.
+
+**How it works:**
+
+1. CLI queries agent at `http://<agent-mesh-ip>:9001/duckdb`
+2. Agent returns JSON list: `{"databases": ["telemetry.duckdb", "beyla.duckdb"]}`
+3. If `--database` not specified, CLI uses first available database
+4. Database list shown in `coral duckdb list-agents` output
+
+**Manual discovery:**
+
+```bash
+# List all agents and their databases
+coral duckdb list-agents
+
+# Query specific agent's databases via HTTP
+curl http://10.42.1.5:9001/duckdb
+# Returns: {"databases":["telemetry.duckdb","beyla.duckdb"]}
+```
+
+**Registering custom databases:**
+
+Agents can register custom DuckDB databases by modifying the agent startup code:
+
+```go
+// In agent initialization
+duckdbHandler.RegisterDatabase("custom.duckdb", "/path/to/custom.duckdb")
+```
+
+Any registered database becomes queryable via the CLI.
+
+---
+
 ### Tips and Best Practices
 
 #### Query Performance
@@ -831,13 +990,16 @@ WHERE timestamp > now() - INTERVAL '5 minutes'
 
 #### "database not found"
 
-**Problem:** Agent database not accessible.
+**Problem:** Specified database not available on agent.
 
 **Solutions:**
 
 ```bash
-# Check if agent has Beyla enabled
+# List available databases for all agents
 coral duckdb list-agents
+
+# Check specific agent's databases via HTTP
+curl http://<agent-mesh-ip>:9001/duckdb
 
 # Verify agent is healthy
 coral agent status
@@ -846,6 +1008,12 @@ coral agent status
 ping <agent-mesh-ip>
 ```
 
+**Common causes:**
+
+- Database not configured in agent (check `agent.yaml`)
+- Agent using in-memory database (`:memory:`) - must use file path
+- Database file deleted or moved
+
 #### "failed to attach database"
 
 **Problem:** Cannot connect to agent HTTP endpoint.
@@ -853,14 +1021,17 @@ ping <agent-mesh-ip>
 **Solutions:**
 
 ```bash
-# Verify agent HTTP server is running
-curl http://<agent-mesh-ip>:9001/status
+# Verify agent HTTP server is running and databases are registered
+curl http://<agent-mesh-ip>:9001/duckdb
+# Should return: {"databases":["telemetry.duckdb","beyla.duckdb"]}
 
 # Check firewall rules
-# Agent must allow port 9001 from WireGuard mesh
+# Agent must allow port 9001 from WireGuard mesh (not public internet)
 
 # Verify agent database path is configured
-# Agent must use file-based DuckDB (not :memory:)
+# Check agent.yaml for database_path settings:
+#   telemetry.database_path: ~/.coral/agent/telemetry.duckdb
+#   beyla.db_path: ~/.coral/agent/beyla.duckdb
 ```
 
 #### "query timeout"
@@ -879,8 +1050,10 @@ curl http://<agent-mesh-ip>:9001/status
 ## Related Documentation
 
 - **RFD 039** - DuckDB Remote Query CLI (detailed specification)
-- **RFD 032** - Beyla RED Metrics Integration
+- **RFD 025** - OTLP Telemetry Receiver (spans in `telemetry.duckdb`)
+- **RFD 032** - Beyla RED Metrics Integration (metrics in `beyla.duckdb`)
 - **RFD 038** - CLI-to-Agent Direct Mesh Connectivity
+- **RFD 046** - Colony DuckDB Remote Query (historical data - future)
 - **DuckDB Documentation** - https://duckdb.org/docs/
 
 ---

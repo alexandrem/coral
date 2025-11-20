@@ -48,6 +48,7 @@ type AgentConfig struct {
 		Disabled              bool   `yaml:"disabled"`
 		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
 		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
+		DatabasePath          string `yaml:"database_path,omitempty"`
 		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
 		Filters               struct {
 			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty"`
@@ -412,6 +413,7 @@ Examples:
 					Disabled:              agentCfg.Telemetry.Disabled,
 					GRPCEndpoint:          agentCfg.Telemetry.GRPCEndpoint,
 					HTTPEndpoint:          agentCfg.Telemetry.HTTPEndpoint,
+					DatabasePath:          agentCfg.Telemetry.DatabasePath,
 					StorageRetentionHours: agentCfg.Telemetry.StorageRetentionHours,
 					AgentID:               agentID,
 				}
@@ -444,6 +446,15 @@ Examples:
 				}
 				if telemetryConfig.StorageRetentionHours == 0 {
 					telemetryConfig.StorageRetentionHours = 1 // Default: 1 hour
+				}
+				// Set default database path if not specified (required for HTTP serving via RFD 039).
+				if telemetryConfig.DatabasePath == "" {
+					homeDir, err := os.UserHomeDir()
+					if err == nil {
+						telemetryConfig.DatabasePath = homeDir + "/.coral/agent/telemetry.duckdb"
+					} else {
+						logger.Warn().Err(err).Msg("Failed to get user home directory, using in-memory telemetry database")
+					}
 				}
 
 				otlpReceiver, err = agent.NewTelemetryReceiver(telemetryConfig, logger)
@@ -538,44 +549,118 @@ Examples:
 			})
 
 			// Add /duckdb/ endpoint for serving DuckDB files (RFD 039).
+			// Register ALL agent databases (telemetry, Beyla, custom, etc.) for HTTP serving.
 			duckdbHandler := agent.NewDuckDBHandler(logger)
+			registeredCount := 0
+
+			// Register telemetry database (if using file-based storage).
+			if otlpReceiver != nil {
+				if dbPath := otlpReceiver.GetDatabasePath(); dbPath != "" {
+					if err := duckdbHandler.RegisterDatabase("telemetry.duckdb", dbPath); err != nil {
+						logger.Warn().Err(err).Msg("Failed to register telemetry database for HTTP serving")
+					} else {
+						logger.Info().
+							Str("db_name", "telemetry.duckdb").
+							Str("db_path", dbPath).
+							Msg("Database registered for HTTP serving")
+						registeredCount++
+					}
+				}
+			}
+
+			// Register Beyla metrics database (if Beyla is enabled and using file-based storage).
 			if beylaManager := agentInstance.GetBeylaManager(); beylaManager != nil {
 				if dbPath := beylaManager.GetDatabasePath(); dbPath != "" {
 					if err := duckdbHandler.RegisterDatabase("beyla.duckdb", dbPath); err != nil {
 						logger.Warn().Err(err).Msg("Failed to register Beyla database for HTTP serving")
 					} else {
 						logger.Info().
+							Str("db_name", "beyla.duckdb").
 							Str("db_path", dbPath).
-							Msg("Beyla database registered for HTTP serving")
+							Msg("Database registered for HTTP serving")
+						registeredCount++
 					}
 				}
 			}
+
+			// TODO: Register additional custom databases from configuration.
+
+			if registeredCount == 0 {
+				logger.Warn().Msg("No DuckDB databases registered for HTTP serving (all using in-memory storage)")
+			} else {
+				logger.Info().
+					Int("count", registeredCount).
+					Msg("DuckDB databases available for remote queries")
+			}
+
 			mux.Handle("/duckdb/", duckdbHandler)
 
 			// Enable HTTP/2 Cleartext (h2c) for bidirectional streaming (RFD 026).
 			h2s := &http2.Server{}
-			httpServer := &http.Server{
-				Addr:    ":9001",
-				Handler: h2c.NewHandler(mux, h2s),
+			httpHandler := h2c.NewHandler(mux, h2s)
+
+			// Create two HTTP servers for security (RFD 039):
+			// 1. Mesh IP: Accessible from other agents/colony via WireGuard
+			// 2. Localhost: Accessible locally for debugging (not exposed externally)
+			var meshServer, localhostServer *http.Server
+
+			// Server 1: Bind to WireGuard mesh IP (secure remote access).
+			if meshIPStr != "" {
+				meshAddr := net.JoinHostPort(meshIPStr, "9001")
+				meshServer = &http.Server{
+					Addr:    meshAddr,
+					Handler: httpHandler,
+				}
+
+				go func() {
+					logger.Info().
+						Str("addr", meshAddr).
+						Msg("Agent API listening on WireGuard mesh")
+
+					if err := meshServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+						logger.Error().
+							Err(err).
+							Str("addr", meshAddr).
+							Msg("Mesh API server error")
+					}
+				}()
+			} else {
+				logger.Warn().Msg("No mesh IP available, skipping mesh server (agent not registered)")
 			}
 
-			// Start HTTP server in background.
+			// Server 2: Bind to localhost (local debugging only).
+			localhostAddr := "127.0.0.1:9001"
+			localhostServer = &http.Server{
+				Addr:    localhostAddr,
+				Handler: httpHandler,
+			}
+
 			go func() {
 				logger.Info().
-					Int("port", 9001).
-					Msg("Agent status API listening")
+					Str("addr", localhostAddr).
+					Msg("Agent API listening on localhost")
 
-				if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				if err := localhostServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					logger.Error().
 						Err(err).
-						Msg("Status API server error")
+						Str("addr", localhostAddr).
+						Msg("Localhost API server error")
 				}
 			}()
+
+			// Graceful shutdown for both servers.
 			defer func() {
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				if err := httpServer.Shutdown(shutdownCtx); err != nil {
-					logger.Error().Err(err).Msg("Failed to shutdown status API server")
+
+				if meshServer != nil {
+					if err := meshServer.Shutdown(shutdownCtx); err != nil {
+						logger.Error().Err(err).Msg("Failed to shutdown mesh API server")
+					}
+				}
+
+				if err := localhostServer.Shutdown(shutdownCtx); err != nil {
+					logger.Error().Err(err).Msg("Failed to shutdown localhost API server")
 				}
 			}()
 

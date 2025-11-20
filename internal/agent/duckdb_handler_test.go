@@ -170,10 +170,9 @@ func TestDuckDBHandler_InvalidPath(t *testing.T) {
 	handler := NewDuckDBHandler(logger)
 
 	// Test invalid paths.
+	// Note: /duckdb and /duckdb/ are now valid (list databases endpoint).
 	invalidPaths := []string{
 		"/",
-		"/duckdb",
-		"/duckdb/",
 		"/other/path",
 	}
 
@@ -189,4 +188,65 @@ func TestDuckDBHandler_InvalidPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDuckDBHandler_ListDatabases(t *testing.T) {
+	// Create temporary database files for testing.
+	tmpDir := t.TempDir()
+	db1Path := filepath.Join(tmpDir, "test1.duckdb")
+	db2Path := filepath.Join(tmpDir, "test2.duckdb")
+	if err := os.WriteFile(db1Path, []byte("db1"), 0644); err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	if err := os.WriteFile(db2Path, []byte("db2"), 0644); err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+
+	// Create handler and register databases.
+	logger := zerolog.Nop()
+	handler := NewDuckDBHandler(logger)
+	if err := handler.RegisterDatabase("test1.duckdb", db1Path); err != nil {
+		t.Fatalf("Failed to register database: %v", err)
+	}
+	if err := handler.RegisterDatabase("test2.duckdb", db2Path); err != nil {
+		t.Fatalf("Failed to register database: %v", err)
+	}
+
+	// Test list databases endpoint.
+	req := httptest.NewRequest(http.MethodGet, "/duckdb", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	// Verify response.
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	if w.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Expected Content-Type application/json, got %s", w.Header().Get("Content-Type"))
+	}
+
+	// Verify JSON response contains database names.
+	body := w.Body.String()
+	if !contains(body, "test1.duckdb") {
+		t.Errorf("Expected response to contain 'test1.duckdb', got %s", body)
+	}
+	if !contains(body, "test2.duckdb") {
+		t.Errorf("Expected response to contain 'test2.duckdb', got %s", body)
+	}
+}
+
+// Helper function to check if string contains substring.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsAt(s, substr))
+}
+
+func containsAt(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

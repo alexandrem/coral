@@ -17,6 +17,7 @@ import (
 // NewShellCmd creates the shell subcommand for interactive DuckDB queries.
 func NewShellCmd() *cobra.Command {
 	var agents []string
+	var database string
 
 	cmd := &cobra.Command{
 		Use:   "shell <agent-id>",
@@ -24,8 +25,8 @@ func NewShellCmd() *cobra.Command {
 		Long: `Opens an interactive SQL shell attached to one or more agent databases.
 
 The shell provides a REPL (Read-Eval-Print Loop) for executing SQL queries
-against agent Beyla metrics. Supports command history, multi-line queries,
-and meta-commands.
+against agent databases (telemetry, Beyla metrics, etc.). Supports command history,
+multi-line queries, and meta-commands.
 
 Meta-commands:
   .tables     - List all tables in attached databases
@@ -35,17 +36,25 @@ Meta-commands:
   .quit       - Exit shell
 
 Examples:
-  # Single agent shell
+  # Single agent shell (auto-detect database)
   coral duckdb shell agent-prod-1
 
-  # Multi-agent shell
-  coral duckdb shell --agents agent-prod-1,agent-prod-2,agent-prod-3
+  # Single agent shell with specific database
+  coral duckdb shell agent-prod-1 --database beyla.duckdb
+
+  # Query telemetry data
+  coral duckdb shell agent-prod-1 -d telemetry.duckdb
+
+  # Multi-agent shell (same database across all agents)
+  coral duckdb shell --agents agent-prod-1,agent-prod-2 -d beyla.duckdb
 
   # Example query in shell
   duckdb> SELECT service_name, COUNT(*) as count
       ..> FROM beyla_http_metrics_local
       ..> WHERE timestamp > now() - INTERVAL '5 minutes'
-      ..> GROUP BY service_name;`,
+      ..> GROUP BY service_name;
+
+If --database is not specified, the first available database will be used.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var agentIDs []string
@@ -77,7 +86,22 @@ Examples:
 					return fmt.Errorf("failed to resolve agent %s: %w", agentID, err)
 				}
 
-				if err := attachAgentDatabase(ctx, db, agentID, meshIP, "beyla.duckdb"); err != nil {
+				// Determine which database to attach.
+				dbName := database
+				if dbName == "" {
+					// Query available databases and use the first one.
+					databases, err := listAgentDatabases(ctx, meshIP)
+					if err != nil {
+						return fmt.Errorf("failed to query available databases for agent %s: %w", agentID, err)
+					}
+					if len(databases) == 0 {
+						return fmt.Errorf("agent %s has no available databases", agentID)
+					}
+					dbName = databases[0]
+					fmt.Printf("Using database: %s (agent: %s)\n", dbName, agentID)
+				}
+
+				if err := attachAgentDatabase(ctx, db, agentID, meshIP, dbName); err != nil {
 					return fmt.Errorf("failed to attach database for agent %s: %w", agentID, err)
 				}
 
@@ -91,6 +115,7 @@ Examples:
 	}
 
 	cmd.Flags().StringSliceVar(&agents, "agents", nil, "Comma-separated list of agent IDs for multi-agent queries")
+	cmd.Flags().StringVarP(&database, "database", "d", "", "Database name (e.g., beyla.duckdb, telemetry.duckdb)")
 
 	return cmd
 }
