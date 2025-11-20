@@ -201,11 +201,12 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_beyla_sql_service_time ON beyla_sql_metrics(service_name, timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_sql_operation ON beyla_sql_metrics(sql_operation, timestamp DESC)`,
 
-	// Beyla traces - distributed trace spans (RFD 032).
+	// Beyla traces - distributed trace spans (RFD 036).
 	`CREATE TABLE IF NOT EXISTS beyla_traces (
 		trace_id VARCHAR(32) NOT NULL,
 		span_id VARCHAR(16) NOT NULL,
 		parent_span_id VARCHAR(16),
+		agent_id VARCHAR NOT NULL,
 		service_name TEXT NOT NULL,
 		span_name TEXT NOT NULL,
 		span_kind VARCHAR(10),
@@ -219,6 +220,7 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_service_time ON beyla_traces(service_name, start_time DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_trace_id ON beyla_traces(trace_id, start_time DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_duration ON beyla_traces(duration_us DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_agent_id ON beyla_traces(agent_id, start_time DESC)`,
 
 	// Agent IP allocations - persistent IP allocation for agents (RFD 019).
 	`CREATE TABLE IF NOT EXISTS agent_ip_allocations (
