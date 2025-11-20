@@ -129,24 +129,24 @@ enable direct SQL access without custom query infrastructure.
 **Architecture Overview:**
 
 ```
-┌─────────────┐                    ┌──────────────┐                    ┌─────────────┐
-│  coral CLI  │                    │    Colony    │                    │    Agent    │
-│             │                    │              │                    │             │
-│ duckdb cmd  │─────(1)────────────│  Discovery   │                    │  HTTP:9001  │
-│             │  Get agent info    │  / Registry  │                    │             │
-│             │────────────────────│              │                    │             │
-│             │       (2)          │              │                    │             │
-│             │  Agent mesh IP     │              │                    │             │
-│             │                    └──────────────┘                    │             │
-│             │                                                        │             │
+┌─────────────┐                    ┌──────────────┐                   ┌─────────────┐
+│  coral CLI  │                    │    Colony    │                   │    Agent    │
+│             │                    │              │                   │             │
+│ duckdb cmd  │─────(1)────────────│  Discovery   │                   │  HTTP:9001  │
+│             │  Get agent info    │  / Registry  │                   │             │
+│             │────────────────────│              │                   │             │
+│             │       (2)          │              │                   │             │
+│             │  Agent mesh IP     │              │                   │             │
+│             │                    └──────────────┘                   │             │
+│             │                                                       │             │
 │             │─────(3)───────────────────────────────────────────────│  HTTPS      │
 │             │  ATTACH 'https://agent:9001/duckdb/metrics.duckdb'    │  /duckdb/*  │
 │             │  AS agent_123 (READ_ONLY);                            │             │
-│             │                                                        │             │
-│  DuckDB Go  │◄────(4)────────────────────────────────────────────────│  Serve DB   │
+│             │                                                       │             │
+│  DuckDB Go  │◄────(4)───────────────────────────────────────────────│  Serve DB   │
 │  Interactive│  Read-only SQL queries (HTTP range requests)          │  read-only  │
-│  Shell      │                                                        │             │
-└─────────────┘                                                        └─────────────┘
+│  Shell      │                                                       │             │
+└─────────────┘                                                       └─────────────┘
 ```
 
 ### Component Changes
