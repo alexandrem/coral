@@ -18,6 +18,7 @@ type TelemetryReceiver struct {
 	storage  *telemetry.Storage
 	db       *sql.DB
 	dbPath   string // Database file path for HTTP serving (RFD 039).
+	ownsDB   bool   // Whether this receiver owns the database (should close it on Stop).
 	logger   zerolog.Logger
 }
 
@@ -60,6 +61,40 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 		storage:  storage,
 		db:       db,
 		dbPath:   dbPath,
+		ownsDB:   true, // This receiver created the database, so it owns it.
+		logger:   logger,
+	}, nil
+}
+
+// NewTelemetryReceiverWithSharedDB creates a telemetry receiver using a shared database.
+// The receiver will NOT close the database on Stop() since it doesn't own it.
+func NewTelemetryReceiverWithSharedDB(config telemetry.Config, db *sql.DB, dbPath string, logger zerolog.Logger) (*TelemetryReceiver, error) {
+	if config.Disabled {
+		return nil, fmt.Errorf("telemetry is disabled")
+	}
+
+	if db == nil {
+		return nil, fmt.Errorf("shared database is required")
+	}
+
+	// Create storage using the shared database.
+	storage, err := telemetry.NewStorage(db, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create telemetry storage: %w", err)
+	}
+
+	// Create OTLP receiver.
+	receiver, err := telemetry.NewOTLPReceiver(config, storage, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OTLP receiver: %w", err)
+	}
+
+	return &TelemetryReceiver{
+		receiver: receiver,
+		storage:  storage,
+		db:       db,
+		dbPath:   dbPath,
+		ownsDB:   false, // Database is shared, don't close it on Stop().
 		logger:   logger,
 	}, nil
 }
@@ -75,8 +110,11 @@ func (r *TelemetryReceiver) Stop() error {
 		return err
 	}
 
-	if err := r.db.Close(); err != nil {
-		return fmt.Errorf("failed to close telemetry database: %w", err)
+	// Only close the database if we own it (not using a shared database).
+	if r.ownsDB {
+		if err := r.db.Close(); err != nil {
+			return fmt.Errorf("failed to close telemetry database: %w", err)
+		}
 	}
 
 	return nil

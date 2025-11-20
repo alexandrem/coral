@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/marcboeker/go-duckdb"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -23,6 +25,7 @@ import (
 	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent"
+	"github.com/coral-io/coral/internal/agent/beyla"
 	"github.com/coral-io/coral/internal/agent/telemetry"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
@@ -385,10 +388,61 @@ Examples:
 				serviceInfos[i] = spec.ToProto()
 			}
 
+			// Create shared DuckDB database for all agent data (telemetry + Beyla + custom).
+			// All tables (spans, beyla_http_metrics_local, etc.) live in the same database.
+			var sharedDB *sql.DB
+			var sharedDBPath string
+			homeDir, err := os.UserHomeDir()
+			if err == nil {
+				// Create parent directories if they don't exist.
+				dbDir := homeDir + "/.coral/agent"
+				if err := os.MkdirAll(dbDir, 0755); err != nil {
+					logger.Warn().Err(err).Msg("Failed to create agent directory - using in-memory storage")
+				} else {
+					sharedDBPath = dbDir + "/metrics.duckdb"
+					sharedDB, err = sql.Open("duckdb", sharedDBPath)
+					if err != nil {
+						logger.Warn().Err(err).Msg("Failed to create shared metrics database - using in-memory storage")
+						sharedDB = nil
+						sharedDBPath = ""
+					} else {
+						logger.Info().
+							Str("db_path", sharedDBPath).
+							Msg("Initialized shared metrics database")
+					}
+				}
+			} else {
+				logger.Warn().Err(err).Msg("Failed to get user home directory - using in-memory storage")
+			}
+
+			// Initialize Beyla configuration (RFD 032).
+			var beylaConfig *beyla.Config
+			if sharedDB != nil {
+				beylaConfig = &beyla.Config{
+					Enabled:               true,
+					DB:                    sharedDB,
+					DBPath:                sharedDBPath,
+					StorageRetentionHours: 1, // Default: 1 hour
+				}
+			}
+
+			// Close shared database LAST (defer added first = executes last in LIFO order).
+			if sharedDB != nil {
+				defer func() {
+					logger.Info().Msg("Closing shared database")
+					if err := sharedDB.Close(); err != nil {
+						logger.Error().Err(err).Msg("Failed to close shared database")
+					} else {
+						logger.Info().Msg("Closed shared database")
+					}
+				}()
+			}
+
 			agentInstance, err := agent.New(agent.Config{
-				AgentID:  agentID,
-				Services: serviceInfos,
-				Logger:   logger,
+				AgentID:     agentID,
+				Services:    serviceInfos,
+				BeylaConfig: beylaConfig,
+				Logger:      logger,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to create agent: %w", err)
@@ -404,16 +458,16 @@ Examples:
 			defer cancel()
 
 			// Start OTLP receiver if telemetry is not disabled (RFD 025).
-			// Telemetry is enabled by default.
+			// Telemetry is enabled by default and uses the shared database.
 			var otlpReceiver *agent.TelemetryReceiver
-			if !agentCfg.Telemetry.Disabled {
+			if !agentCfg.Telemetry.Disabled && sharedDB != nil {
 				logger.Info().Msg("Starting OTLP receiver for telemetry collection")
 
 				telemetryConfig := telemetry.Config{
 					Disabled:              agentCfg.Telemetry.Disabled,
 					GRPCEndpoint:          agentCfg.Telemetry.GRPCEndpoint,
 					HTTPEndpoint:          agentCfg.Telemetry.HTTPEndpoint,
-					DatabasePath:          agentCfg.Telemetry.DatabasePath,
+					DatabasePath:          sharedDBPath, // Use shared database path
 					StorageRetentionHours: agentCfg.Telemetry.StorageRetentionHours,
 					AgentID:               agentID,
 				}
@@ -447,17 +501,8 @@ Examples:
 				if telemetryConfig.StorageRetentionHours == 0 {
 					telemetryConfig.StorageRetentionHours = 1 // Default: 1 hour
 				}
-				// Set default database path if not specified (required for HTTP serving via RFD 039).
-				if telemetryConfig.DatabasePath == "" {
-					homeDir, err := os.UserHomeDir()
-					if err == nil {
-						telemetryConfig.DatabasePath = homeDir + "/.coral/agent/telemetry.duckdb"
-					} else {
-						logger.Warn().Err(err).Msg("Failed to get user home directory, using in-memory telemetry database")
-					}
-				}
 
-				otlpReceiver, err = agent.NewTelemetryReceiver(telemetryConfig, logger)
+				otlpReceiver, err = agent.NewTelemetryReceiverWithSharedDB(telemetryConfig, sharedDB, sharedDBPath, logger)
 				if err != nil {
 					logger.Warn().Err(err).Msg("Failed to create OTLP receiver - telemetry disabled")
 				} else {
@@ -478,8 +523,10 @@ Examples:
 						}()
 					}
 				}
-			} else {
+			} else if agentCfg.Telemetry.Disabled {
 				logger.Info().Msg("Telemetry collection is disabled")
+			} else {
+				logger.Warn().Msg("Telemetry disabled - shared database not available")
 			}
 
 			// Log initial status.
@@ -549,37 +596,20 @@ Examples:
 			})
 
 			// Add /duckdb/ endpoint for serving DuckDB files (RFD 039).
-			// Register ALL agent databases (telemetry, Beyla, custom, etc.) for HTTP serving.
+			// Register the shared metrics database containing all agent data.
 			duckdbHandler := agent.NewDuckDBHandler(logger)
 			registeredCount := 0
 
-			// Register telemetry database (if using file-based storage).
-			if otlpReceiver != nil {
-				if dbPath := otlpReceiver.GetDatabasePath(); dbPath != "" {
-					if err := duckdbHandler.RegisterDatabase("telemetry.duckdb", dbPath); err != nil {
-						logger.Warn().Err(err).Msg("Failed to register telemetry database for HTTP serving")
-					} else {
-						logger.Info().
-							Str("db_name", "telemetry.duckdb").
-							Str("db_path", dbPath).
-							Msg("Database registered for HTTP serving")
-						registeredCount++
-					}
-				}
-			}
-
-			// Register Beyla metrics database (if Beyla is enabled and using file-based storage).
-			if beylaManager := agentInstance.GetBeylaManager(); beylaManager != nil {
-				if dbPath := beylaManager.GetDatabasePath(); dbPath != "" {
-					if err := duckdbHandler.RegisterDatabase("beyla.duckdb", dbPath); err != nil {
-						logger.Warn().Err(err).Msg("Failed to register Beyla database for HTTP serving")
-					} else {
-						logger.Info().
-							Str("db_name", "beyla.duckdb").
-							Str("db_path", dbPath).
-							Msg("Database registered for HTTP serving")
-						registeredCount++
-					}
+			// Register shared metrics database (if using file-based storage).
+			if sharedDBPath != "" {
+				if err := duckdbHandler.RegisterDatabase("metrics.duckdb", sharedDBPath); err != nil {
+					logger.Warn().Err(err).Msg("Failed to register metrics database for HTTP serving")
+				} else {
+					logger.Info().
+						Str("db_name", "metrics.duckdb").
+						Str("db_path", sharedDBPath).
+						Msg("Shared metrics database registered for HTTP serving")
+					registeredCount++
 				}
 			}
 

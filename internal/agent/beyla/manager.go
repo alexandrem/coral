@@ -22,6 +22,7 @@ type Manager struct {
 	config  *Config
 	logger  zerolog.Logger
 	mu      sync.RWMutex
+	wg      sync.WaitGroup
 	running bool
 
 	// OTLP receiver from RFD 025 (receives Beyla's trace and metrics output).
@@ -233,6 +234,13 @@ func (m *Manager) Stop() error {
 		}
 	}
 
+	// Cancel context to stop all goroutines.
+	// IMPORTANT: This must be called BEFORE stopping OTLP receiver.
+	// The OTLP receiver's cleanup loop (RunCleanupLoop) depends on this context.
+	// If we stop OTLP receiver first, it waits for the cleanup loop to exit,
+	// but the cleanup loop only exits when the context is cancelled.
+	m.cancel()
+
 	// Stop OTLP receiver.
 	if m.otlpReceiver != nil {
 		if err := m.otlpReceiver.Stop(); err != nil {
@@ -240,8 +248,8 @@ func (m *Manager) Stop() error {
 		}
 	}
 
-	// Cancel context to stop all goroutines.
-	m.cancel()
+	// Wait for all goroutines to finish.
+	m.wg.Wait()
 
 	// Close channels.
 	close(m.tracesCh)
@@ -395,6 +403,7 @@ func (m *Manager) startOTLPReceiver() error {
 	m.otlpReceiver = receiver
 
 	// Start trace and metrics consumer goroutines.
+	m.wg.Add(2)
 	go m.consumeTraces()
 	go m.consumeMetrics()
 
@@ -417,6 +426,7 @@ func (m *Manager) startOTLPReceiver() error {
 
 // consumeTraces consumes traces from the OTLP receiver and transforms them for Beyla.
 func (m *Manager) consumeTraces() {
+	defer m.wg.Done()
 	m.logger.Info().Msg("Starting trace consumer")
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -477,6 +487,7 @@ func (m *Manager) transformSpanToBeylaTrace(span *telemetry.Span) *BeylaTrace {
 
 // consumeMetrics consumes metrics from the OTLP receiver and transforms them for Beyla.
 func (m *Manager) consumeMetrics() {
+	defer m.wg.Done()
 	m.logger.Info().Msg("Starting metrics consumer")
 
 	ticker := time.NewTicker(5 * time.Second)
