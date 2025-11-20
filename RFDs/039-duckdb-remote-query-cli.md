@@ -25,8 +25,19 @@ provides operators with direct, ad-hoc access to all agent-local DuckDB database
 (telemetry spans, Beyla metrics, custom databases) without requiring API abstraction
 layers or custom query endpoints.
 
-**Note:** This RFD depends on RFD 038 (CLI-to-Agent Direct Mesh Connectivity)
-for establishing direct WireGuard connections from CLI tools to agents.
+**Connectivity Model:**
+
+The CLI connects directly to agent HTTP endpoints using WireGuard mesh IP addresses
+obtained from the colony registry. Current implementation works when:
+
+- CLI runs on a host with WireGuard mesh access (e.g., colony host or any host with
+  WireGuard configured and routes to the mesh)
+- Agents are registered with the colony and have mesh IPs allocated
+
+**Dependency on RFD 038:** While the feature works today by running the CLI on
+mesh-connected hosts, RFD 038 would formalize ephemeral CLI mesh membership, allowing
+CLI tools to dynamically join/leave the mesh without requiring pre-configured
+WireGuard access on the host.
 
 ## Problem
 
@@ -98,8 +109,9 @@ enable direct SQL access without custom query infrastructure.
 - **Auto-discovery with explicit override**: CLI auto-detects and uses the first
   available database if `--database` flag is not specified, making common queries
   frictionless while supporting explicit database selection.
-- **No authentication beyond WireGuard mesh**: Access is controlled by mesh
-  membership. Any colony/operator on the mesh can query any agent.
+- **WireGuard mesh access control**: CLI must run on a host with access to the
+  WireGuard mesh to reach agent endpoints. Access is implicitly controlled by mesh
+  membership (only hosts with WireGuard configured can reach agent mesh IPs).
 
 **Benefits:**
 
@@ -235,8 +247,7 @@ coral duckdb shell --agents agent-1,agent-2,agent-3
 
 **Description:** Returns JSON list of available DuckDB databases on this agent.
 
-**Authentication:** WireGuard mesh membership (implicit via network access
-control).
+**Authentication:** WireGuard mesh membership (CLI must run on host with mesh access).
 
 **Request:**
 
@@ -264,8 +275,7 @@ Content-Type: application/json
 
 **Description:** Serves agent DuckDB files for read-only remote attach.
 
-**Authentication:** WireGuard mesh membership (implicit via network access
-control).
+**Authentication:** WireGuard mesh membership (CLI must run on host with mesh access).
 
 **Request:**
 
@@ -529,18 +539,26 @@ databases for HTTP serving.
 
 **Authentication/Authorization:**
 
-- Access control via WireGuard mesh membership (existing model).
-- No additional authentication layer for HTTP endpoint (mesh is trusted
-  network).
-- Agents must validate requests come from mesh IPs (WireGuard implicit).
+- **Access control via WireGuard mesh**: Agent HTTP endpoints are only reachable via
+  WireGuard mesh IPs. Hosts without mesh access cannot reach agents.
+- **No application-level authentication**: Agent HTTP endpoints serve unauthenticated
+  HTTP (not HTTPS).
+- **Trust model**: Any host on the WireGuard mesh can access any agent's databases.
+  Mesh membership is the security boundary.
+- **CLI access**: CLI must run on a mesh-connected host (e.g., colony host) to query
+  agents. RFD 038 would enable dynamic CLI mesh membership.
 
 **Data Exposure:**
 
 - Entire DuckDB file is accessible to any mesh member (no row-level security).
-- Acceptable because: (1) mesh is trusted network, (2) metrics are not PII, (3)
-  operators need unrestricted access for debugging.
-- Future enhancement: Add token-based authentication for HTTP endpoint if
-  needed.
+- Acceptable because:
+  - WireGuard mesh provides network-level isolation (only trusted hosts on mesh)
+  - Metrics data is operational/debugging info (not PII)
+  - Operators need unrestricted access for debugging
+- **Important**: Ensure WireGuard mesh membership is carefully controlled. Only add
+  trusted hosts to the mesh.
+- Future enhancement: Add token-based authentication for HTTP endpoint if needed
+  for additional access control within the mesh.
 
 **Read-Only Guarantees:**
 
@@ -725,3 +743,19 @@ using standard SQL without requiring API changes or SSH access.
 
 All planned integration work is complete. Feature is production-ready and documented
 in `docs/CLI.md`.
+
+**Deployment Requirements:**
+
+- **WireGuard mesh access**: CLI must run on a host with WireGuard configured and
+  routes to the mesh (e.g., colony host or dedicated operator host with mesh access).
+- **Mesh-connected agents**: Agents must be registered with the colony with allocated
+  mesh IPs.
+
+**Future Enhancements (RFD 038):**
+
+While functional, the current implementation requires running CLI on a pre-configured
+mesh-connected host. RFD 038 would enable:
+- **Ephemeral CLI mesh membership**: CLI tools can dynamically join/leave the mesh
+- **Operator laptop access**: Run CLI from any laptop without pre-configuring WireGuard
+- **Automatic mesh setup**: Colony orchestrates temporary mesh peer configuration for
+  CLI sessions
