@@ -147,7 +147,7 @@ func (pa *PersistentIPAllocator) Allocate(agentID string) (net.IP, error) {
 	// If this fails, we should release the in-memory allocation.
 	if err := pa.store.StoreIPAllocation(agentID, ip.String()); err != nil {
 		// Rollback the in-memory allocation.
-		pa.allocator.Release(ip)
+		_ = pa.allocator.Release(ip) // TODO: errcheck
 		return nil, fmt.Errorf("failed to persist IP allocation: %w", err)
 	}
 

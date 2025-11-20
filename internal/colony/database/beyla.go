@@ -19,7 +19,7 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO beyla_http_metrics (
@@ -31,7 +31,7 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }() // TODO: errcheck
 
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
@@ -92,7 +92,7 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO beyla_grpc_metrics (
@@ -104,7 +104,7 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }() // TODO: errcheck
 
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
@@ -164,7 +164,7 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO beyla_sql_metrics (
@@ -176,7 +176,7 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }() // TODO: errcheck
 
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
@@ -277,7 +277,7 @@ func (d *Database) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string
 	if err != nil {
 		return nil, fmt.Errorf("failed to query HTTP metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []*BeylaHTTPMetricResult
 	for rows.Next() {
@@ -346,7 +346,7 @@ func (d *Database) QueryBeylaGRPCMetrics(ctx context.Context, serviceName string
 	if err != nil {
 		return nil, fmt.Errorf("failed to query gRPC metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []*BeylaGRPCMetricResult
 	for rows.Next() {
@@ -409,7 +409,7 @@ func (d *Database) QueryBeylaSQLMetrics(ctx context.Context, serviceName string,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SQL metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []*BeylaSQLMetricResult
 	for rows.Next() {
@@ -476,7 +476,7 @@ func (d *Database) QueryBeylaTraces(ctx context.Context, serviceName string, sta
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traces: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []*BeylaTraceResult
 	for rows.Next() {

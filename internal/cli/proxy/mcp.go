@@ -102,7 +102,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %w", err)
 			}
-			defer db.Close()
+			defer func() { _ = db.Close() }() // TODO: errcheck
 
 			// Create agent registry (empty for proxy mode).
 			agentRegistry := registry.New()

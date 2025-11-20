@@ -254,7 +254,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to setup WireGuard: %w", err)
 			}
-			defer wgDevice.Stop()
+			defer func() { _ = wgDevice.Stop() }() // TODO: errcheck
 
 			// Generate agent ID early so we can use it for registration
 			agentID := generateAgentID(serviceSpecs)
@@ -346,7 +346,7 @@ Examples:
 							Str("mesh_addr", meshAddr).
 							Msg("Unable to establish connection to colony via mesh - handshake may not be complete")
 					} else {
-						conn.Close()
+						_ = conn.Close() // TODO: errcheck
 						logger.Info().
 							Str("mesh_addr", meshAddr).
 							Msg("Successfully established WireGuard tunnel to colony")
@@ -396,7 +396,7 @@ Examples:
 			if err := agentInstance.Start(); err != nil {
 				return fmt.Errorf("failed to start agent: %w", err)
 			}
-			defer agentInstance.Stop()
+			defer func() { _ = agentInstance.Stop() }() // TODO: errcheck
 
 			// Create context for background operations.
 			ctx, cancel := context.WithCancel(context.Background())
@@ -501,7 +501,7 @@ Examples:
 			if err := runtimeService.Start(); err != nil {
 				return fmt.Errorf("failed to start runtime service: %w", err)
 			}
-			defer runtimeService.Stop()
+			defer func() { _ = runtimeService.Stop() }() // TODO: errcheck
 
 			// Create shell handler (RFD 026).
 			shellHandler := agent.NewShellHandler(logger)
@@ -837,7 +837,7 @@ func gatherMeshNetworkInfo(
 			connTest["error"] = err.Error()
 		} else {
 			connTest["reachable"] = true
-			conn.Close()
+			_ = conn.Close() // TODO: errcheck
 		}
 
 		info["colony_connectivity"] = connTest

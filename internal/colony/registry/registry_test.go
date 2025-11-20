@@ -129,9 +129,9 @@ func TestRegistry_ListAll(t *testing.T) {
 	})
 
 	t.Run("multiple agents", func(t *testing.T) {
-		reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
-		reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
-		reg.Register("agent-3", "worker", "100.64.0.4", "fd42::4", nil, nil, "")
+		_, _ = reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
+		_, _ = reg.Register("agent-3", "worker", "100.64.0.4", "fd42::4", nil, nil, "")
 
 		entries := reg.ListAll()
 		assert.Len(t, entries, 3)
@@ -152,14 +152,14 @@ func TestRegistry_Count(t *testing.T) {
 
 	assert.Equal(t, 0, reg.Count())
 
-	reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+	_, _ = reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
 	assert.Equal(t, 1, reg.Count())
 
-	reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
+	_, _ = reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 	assert.Equal(t, 2, reg.Count())
 
 	// Re-registering same agent shouldn't increase count.
-	reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+	_, _ = reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
 	assert.Equal(t, 2, reg.Count())
 }
 
@@ -167,8 +167,8 @@ func TestRegistry_CountActive(t *testing.T) {
 	reg := New()
 
 	t.Run("all healthy agents", func(t *testing.T) {
-		reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
-		reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
+		_, _ = reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 
 		assert.Equal(t, 2, reg.CountActive())
 	})
@@ -177,9 +177,9 @@ func TestRegistry_CountActive(t *testing.T) {
 		reg := New()
 
 		// Register agents.
-		reg.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
-		reg.Register("agent-degraded", "api", "100.64.0.3", "fd42::3", nil, nil, "")
-		reg.Register("agent-unhealthy", "worker", "100.64.0.4", "fd42::4", nil, nil, "")
+		_, _ = reg.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = reg.Register("agent-degraded", "api", "100.64.0.3", "fd42::3", nil, nil, "")
+		_, _ = reg.Register("agent-unhealthy", "worker", "100.64.0.4", "fd42::4", nil, nil, "")
 
 		// Manually adjust LastSeen timestamps to simulate different statuses.
 		now := time.Now()
@@ -207,7 +207,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	// Concurrent writes.
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			reg.Register("agent-concurrent", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+			_, _ = reg.Register("agent-concurrent", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
 			done <- true
 		}(i)
 	}
@@ -220,7 +220,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	// Concurrent reads.
 	for i := 0; i < 10; i++ {
 		go func() {
-			reg.Get("agent-concurrent")
+			_, _ = reg.Get("agent-concurrent")
 			done <- true
 		}()
 	}

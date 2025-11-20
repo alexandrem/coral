@@ -68,7 +68,7 @@ func runTUNHelper(cmd *cobra.Command, args []string) error {
 		logger.Error().Err(err).Msg("Failed to create TUN device")
 		return fmt.Errorf("failed to create TUN device: %w", err)
 	}
-	defer tunDevice.Close()
+	defer func() { _ = tunDevice.Close() }() // TODO: errcheck
 
 	// Get the file descriptor from the underlying TUN device.
 	file := tunDevice.Device().File()

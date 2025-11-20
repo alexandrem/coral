@@ -33,7 +33,7 @@ func TestManager_GetCapabilities(t *testing.T) {
 func TestManager_StartStopCollector(t *testing.T) {
 	logger := zerolog.New(zerolog.NewTestWriter(t))
 	manager := NewManager(Config{Logger: logger})
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }()
 
 	// Skip if eBPF not supported.
 	if !manager.GetCapabilities().Supported {
@@ -118,7 +118,7 @@ func TestManager_StartStopCollector(t *testing.T) {
 func TestManager_AutoStop(t *testing.T) {
 	logger := zerolog.New(zerolog.NewTestWriter(t))
 	manager := NewManager(Config{Logger: logger})
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }()
 
 	// Skip if eBPF not supported.
 	if !manager.GetCapabilities().Supported {

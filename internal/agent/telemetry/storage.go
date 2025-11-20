@@ -149,7 +149,7 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query spans: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	spans := make([]Span, 0)
 

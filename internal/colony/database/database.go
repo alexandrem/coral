@@ -60,7 +60,7 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 
 	// Test connection.
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -74,7 +74,7 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 	// Initialize schema (only in read-write mode).
 	if !readOnly {
 		if err := database.initSchema(); err != nil {
-			db.Close()
+			_ = db.Close() // TODO: errcheck
 			return nil, fmt.Errorf("failed to initialize schema: %w", err)
 		}
 	}

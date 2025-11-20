@@ -156,8 +156,8 @@ func TestPersistentIPAllocator_LoadFromStore(t *testing.T) {
 	store := newMockIPAllocationStore()
 
 	// Pre-populate store with allocations.
-	store.StoreIPAllocation("agent1", "10.42.0.5")
-	store.StoreIPAllocation("agent2", "10.42.0.10")
+	_ = store.StoreIPAllocation("agent1", "10.42.0.5")
+	_ = store.StoreIPAllocation("agent2", "10.42.0.10")
 
 	// Create allocator - it should load existing allocations.
 	allocator, err := NewPersistentIPAllocator(subnet, store)

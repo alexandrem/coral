@@ -35,14 +35,14 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 	// Create storage.
 	storage, err := telemetry.NewStorage(db, logger)
 	if err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to create telemetry storage: %w", err)
 	}
 
 	// Create OTLP receiver.
 	receiver, err := telemetry.NewOTLPReceiver(config, storage, logger)
 	if err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to create OTLP receiver: %w", err)
 	}
 

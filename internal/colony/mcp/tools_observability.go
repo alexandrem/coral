@@ -76,9 +76,9 @@ func (s *Server) registerServiceHealthTool() {
 			}
 
 			// Format response as text for LLM consumption.
-			text := fmt.Sprintf("System Health Report:\n\n")
+			text := "System Health Report:\n\n"
 			text += fmt.Sprintf("Overall Status: %s\n\n", overallStatus)
-			text += fmt.Sprintf("Services:\n")
+			text += "Services:\n"
 
 			if len(serviceStatuses) == 0 {
 				text += "  No services connected.\n"
@@ -127,7 +127,7 @@ func (s *Server) registerServiceTopologyTool() {
 
 			agents := s.registry.ListAll()
 
-			text := fmt.Sprintf("Service Topology:\n\n")
+			text := "Service Topology:\n\n"
 			text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
 
 			for _, agent := range agents {

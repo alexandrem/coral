@@ -12,7 +12,7 @@ func (d *Database) initSchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	// Execute all DDL statements.
 	for _, ddl := range schemaDDL {

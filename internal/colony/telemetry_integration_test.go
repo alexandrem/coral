@@ -29,7 +29,7 @@ func TestPullBasedTelemetry_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent database: %v", err)
 	}
-	defer agentDB.Close()
+	defer func() { _ = agentDB.Close() }() // TODO: errcheck
 
 	agentStorage, err := telemetry.NewStorage(agentDB, logger)
 	if err != nil {
@@ -135,7 +135,7 @@ func TestPullBasedTelemetry_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create colony database: %v", err)
 	}
-	defer colonyDB.Close()
+	defer func() { _ = colonyDB.Close() }() // TODO: errcheck
 
 	// === Colony Aggregates Spans ===
 	aggregator := NewTelemetryAggregator()
@@ -274,7 +274,7 @@ func TestPullBasedTelemetry_TimeRangeFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent database: %v", err)
 	}
-	defer agentDB.Close()
+	defer func() { _ = agentDB.Close() }() // TODO: errcheck
 
 	agentStorage, err := telemetry.NewStorage(agentDB, logger)
 	if err != nil {
@@ -341,7 +341,7 @@ func TestPullBasedTelemetry_ServiceFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent database: %v", err)
 	}
-	defer agentDB.Close()
+	defer func() { _ = agentDB.Close() }() // TODO: errcheck
 
 	agentStorage, err := telemetry.NewStorage(agentDB, logger)
 	if err != nil {

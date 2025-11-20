@@ -418,7 +418,7 @@ func configureAgentMesh(
 				Msg("Unable to reach colony via mesh IP - tunnel may not be fully established")
 			// Don't fail here - registration will retry anyway
 		} else {
-			conn.Close()
+			_ = conn.Close() // TODO: errcheck
 			logger.Info().
 				Str("mesh_addr", meshAddr).
 				Msg("Successfully verified connectivity to colony via WireGuard mesh")
@@ -487,6 +487,7 @@ func registerWithColony(
 
 	// For backward compatibility, also set ComponentName if single service
 	if len(serviceSpecs) == 1 {
+		//nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 		regReq.ComponentName = serviceSpecs[0].Name
 	}
 

@@ -32,7 +32,7 @@ func (d *Database) InsertTelemetrySummaries(ctx context.Context, summaries []Tel
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO otel_summaries (
@@ -50,7 +50,7 @@ func (d *Database) InsertTelemetrySummaries(ctx context.Context, summaries []Tel
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }() // TODO: errcheck
 
 	for _, summary := range summaries {
 		// Convert SampleTraces to JSON for DuckDB storage.
@@ -101,7 +101,7 @@ func (d *Database) QueryTelemetrySummaries(ctx context.Context, agentID string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query telemetry summaries: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var summaries []TelemetrySummary
 	for rows.Next() {
@@ -191,7 +191,7 @@ func (d *Database) CorrelateEbpfAndTelemetry(ctx context.Context, serviceName st
 	if err != nil {
 		return nil, fmt.Errorf("failed to run correlation query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []map[string]interface{}
 	for rows.Next() {

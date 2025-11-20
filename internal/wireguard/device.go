@@ -122,12 +122,12 @@ func (d *Device) Start() error {
 
 	// Configure device via UAPI
 	if err := d.configure(); err != nil {
-		d.tunDevice.Close()
+		_ = d.tunDevice.Close() // TODO: errcheck
 		return fmt.Errorf("failed to configure device: %w", err)
 	}
 
 	// Bring up the device
-	d.wgDevice.Up()
+	_ = d.wgDevice.Up() // TODO: errcheck
 
 	// Query the actual listen port from the device.
 	// This is important for ephemeral ports (when cfg.Port was 0 or negative).
@@ -155,7 +155,7 @@ func (d *Device) Stop() error {
 	}
 
 	// Bring down the device
-	d.wgDevice.Down()
+	_ = d.wgDevice.Down() // TODO: errcheck
 
 	// Close the device
 	d.wgDevice.Close()
@@ -163,7 +163,7 @@ func (d *Device) Stop() error {
 
 	// Close TUN interface
 	if d.tunDevice != nil {
-		d.tunDevice.Close()
+		_ = d.tunDevice.Close() // TODO: errcheck
 		d.tunDevice = nil
 	}
 

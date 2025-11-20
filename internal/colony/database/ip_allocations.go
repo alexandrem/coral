@@ -99,7 +99,7 @@ func (d *Database) GetAllIPAllocations() ([]*IPAllocation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query IP allocations: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var allocations []*IPAllocation
 	for rows.Next() {

@@ -424,7 +424,7 @@ func StartStdioServer(registry *registry.Registry, db *database.Database, config
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }() // TODO: errcheck
 
 	ctx := context.Background()
 	return server.ServeStdio(ctx)

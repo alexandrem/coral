@@ -19,7 +19,7 @@ func TestInitSchema_TablesCreated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify all six tables exist.
 	expectedTables := []string{
@@ -55,14 +55,14 @@ func TestInitSchema_Idempotency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database first time: %v", err)
 	}
-	db1.Close()
+	_ = db1.Close()
 
 	// Initialize database second time (should reuse existing database).
 	db2, err := New(tempDir, "test-colony", logger)
 	if err != nil {
 		t.Fatalf("Failed to create database second time: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	// Verify tables still exist.
 	var count int
@@ -83,7 +83,7 @@ func TestInitSchema_Indexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify indexes exist by querying DuckDB's system tables.
 	// DuckDB stores index information in duckdb_indexes() table function.
@@ -91,7 +91,7 @@ func TestInitSchema_Indexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to query indexes: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	indexes := make(map[string]bool)
 	for rows.Next() {
@@ -131,7 +131,7 @@ func TestInitSchema_ColumnTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Test services table columns.
 	t.Run("services", func(t *testing.T) {
@@ -220,7 +220,7 @@ func TestInitSchema_PrimaryKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Test primary key constraint on services table.
 	t.Run("services_pk", func(t *testing.T) {

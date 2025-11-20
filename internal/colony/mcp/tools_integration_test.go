@@ -243,7 +243,7 @@ func TestServiceTopologyTool(t *testing.T) {
 		// It should list connected agents.
 		agents := server.registry.ListAll()
 
-		text := fmt.Sprintf("Service Topology:\n\n")
+		text := "Service Topology:\n\n"
 		text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
 
 		for _, agent := range agents {

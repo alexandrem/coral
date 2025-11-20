@@ -165,7 +165,7 @@ func (m *Manager) Start() error {
 	defer m.mu.Unlock()
 
 	if m.running {
-		return fmt.Errorf("Beyla manager already running")
+		return fmt.Errorf("beyla manager already running")
 	}
 
 	m.logger.Info().
@@ -220,6 +220,7 @@ func (m *Manager) Stop() error {
 	}
 
 	// Cleanup extracted binary if it was in a temp directory.
+	//nolint:staticcheck // filepath.HasPrefix is deprecated but simple enough for this use case
 	if m.beylaBinaryPath != "" && filepath.HasPrefix(m.beylaBinaryPath, os.TempDir()) {
 		tmpDir := filepath.Dir(m.beylaBinaryPath)
 		if err := os.RemoveAll(tmpDir); err != nil {
@@ -262,7 +263,7 @@ func (m *Manager) GetMetrics() <-chan *ebpfpb.EbpfEvent {
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryHTTPMetrics(ctx, startTime, endTime, serviceNames)
 }
@@ -271,7 +272,7 @@ func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryGRPCMetrics(ctx, startTime, endTime, serviceNames)
 }
@@ -280,7 +281,7 @@ func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QuerySQLMetrics(ctx, startTime, endTime, serviceNames)
 }
