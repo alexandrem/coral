@@ -373,12 +373,6 @@ func writeJSONResponse(w io.Writer, data interface{}) error {
 	return encoder.Encode(data)
 }
 
-// writeTextResponse writes a text response to the writer.
-func writeTextResponse(w io.Writer, text string) error {
-	_, err := fmt.Fprintln(w, text)
-	return err
-}
-
 // runInteractive runs the MCP server in interactive mode for testing.
 func (s *Server) runInteractive() error {
 	s.logger.Info().Msg("Running MCP server in interactive mode")
