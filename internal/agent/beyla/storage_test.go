@@ -20,7 +20,7 @@ func setupTestStorage(t *testing.T) (*BeylaStorage, func()) {
 	}
 
 	logger := zerolog.Nop()
-	storage, err := NewBeylaStorage(db, logger)
+	storage, err := NewBeylaStorage(db, ":memory:", logger)
 	if err != nil {
 		db.Close()
 		t.Fatalf("Failed to create storage: %v", err)

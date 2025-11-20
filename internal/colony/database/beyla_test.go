@@ -367,19 +367,34 @@ func TestBeylaTracesSchema(t *testing.T) {
 		t.Fatalf("beyla_traces table does not exist: %v", err)
 	}
 
-	// Verify indexes exist.
-	indexes := []string{
+	// Verify indexes exist by querying DuckDB's system tables.
+	// DuckDB stores index information in duckdb_indexes() table function.
+	rows, err := db.db.Query("SELECT index_name FROM duckdb_indexes()")
+	if err != nil {
+		t.Fatalf("Failed to query indexes: %v", err)
+	}
+	defer rows.Close()
+
+	indexMap := make(map[string]bool)
+	for rows.Next() {
+		var indexName string
+		if err := rows.Scan(&indexName); err != nil {
+			t.Fatalf("Failed to scan index name: %v", err)
+		}
+		indexMap[indexName] = true
+	}
+
+	// Verify expected indexes exist.
+	expectedIndexes := []string{
 		"idx_beyla_traces_service_time",
 		"idx_beyla_traces_trace_id",
 		"idx_beyla_traces_duration",
 		"idx_beyla_traces_agent_id",
 	}
 
-	for _, index := range indexes {
-		var indexName string
-		err := db.db.QueryRow("SELECT index_name FROM information_schema.indexes WHERE index_name = ?", index).Scan(&indexName)
-		if err != nil {
-			t.Errorf("Index %s does not exist: %v", index, err)
+	for _, index := range expectedIndexes {
+		if !indexMap[index] {
+			t.Errorf("Index %s does not exist", index)
 		}
 	}
 }

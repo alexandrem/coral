@@ -8,10 +8,11 @@ import (
 	"sync"
 	"time"
 
-	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 )
 
 // BeylaStorage handles local storage of Beyla metrics in agent's DuckDB.
@@ -42,8 +43,8 @@ func NewBeylaStorage(db *sql.DB, dbPath string, logger zerolog.Logger) (*BeylaSt
 
 // initSchema creates the Beyla metrics tables in agent's local DuckDB.
 func (s *BeylaStorage) initSchema() error {
-	schema := `
-		-- Beyla HTTP metrics (RED: Rate, Errors, Duration).
+	// Beyla HTTP metrics (RED: Rate, Errors, Duration).
+	httpMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_http_metrics_local (
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
@@ -61,8 +62,13 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_http_service
 		ON beyla_http_metrics_local(service_name, timestamp DESC);
+	`
+	if _, err := s.db.Exec(httpMetricsSchema); err != nil {
+		return fmt.Errorf("failed to create HTTP metrics schema: %w", err)
+	}
 
-		-- Beyla gRPC metrics.
+	// Beyla gRPC metrics.
+	grpcMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_grpc_metrics_local (
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
@@ -79,8 +85,13 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_grpc_service
 		ON beyla_grpc_metrics_local(service_name, timestamp DESC);
+	`
+	if _, err := s.db.Exec(grpcMetricsSchema); err != nil {
+		return fmt.Errorf("failed to create gRPC metrics schema: %w", err)
+	}
 
-		-- Beyla SQL metrics.
+	// Beyla SQL metrics.
+	sqlMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_sql_metrics_local (
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
@@ -97,12 +108,18 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_sql_service
 		ON beyla_sql_metrics_local(service_name, timestamp DESC);
+	`
+	if _, err := s.db.Exec(sqlMetricsSchema); err != nil {
+		return fmt.Errorf("failed to create SQL metrics schema: %w", err)
+	}
 
-		-- Beyla distributed traces (RFD 036).
+	// Beyla distributed traces (RFD 036).
+	tracesSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_traces_local (
 			trace_id       VARCHAR(32) NOT NULL,
 			span_id        VARCHAR(16) NOT NULL,
 			parent_span_id VARCHAR(16),
+			agent_id       VARCHAR NOT NULL,
 			service_name   VARCHAR NOT NULL,
 			span_name      VARCHAR NOT NULL,
 			span_kind      VARCHAR(10),
@@ -120,12 +137,14 @@ func (s *BeylaStorage) initSchema() error {
 		CREATE INDEX IF NOT EXISTS idx_beyla_traces_trace_id
 		ON beyla_traces_local(trace_id, start_time DESC);
 
-		CREATE INDEX IF NOT EXISTS idx_beyla_traces_start_time
-		ON beyla_traces_local(start_time DESC);
-	`
+		CREATE INDEX IF NOT EXISTS idx_beyla_traces_duration
+		ON beyla_traces_local(duration_us DESC);
 
-	if _, err := s.db.Exec(schema); err != nil {
-		return fmt.Errorf("failed to create schema: %w", err)
+		CREATE INDEX IF NOT EXISTS idx_beyla_traces_agent_id
+		ON beyla_traces_local(agent_id, start_time DESC);
+	`
+	if _, err := s.db.Exec(tracesSchema); err != nil {
+		return fmt.Errorf("failed to create traces schema: %w", err)
 	}
 
 	s.logger.Info().Msg("Beyla storage schema initialized")
@@ -335,9 +354,9 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 
 	query := `
 		INSERT INTO beyla_traces_local (
-			trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
+			trace_id, span_id, parent_span_id, agent_id, service_name, span_name, span_kind,
 			start_time, duration_us, status_code, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	startTime := traceSpan.StartTime.AsTime()
@@ -349,6 +368,7 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 		traceSpan.TraceId,
 		traceSpan.SpanId,
 		traceSpan.ParentSpanId,
+		event.AgentId,
 		traceSpan.ServiceName,
 		traceSpan.SpanName,
 		traceSpan.SpanKind,
@@ -680,7 +700,7 @@ func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.
 
 	query := `
 		SELECT trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
-		       start_time, duration_us, status_code, attributes
+		       start_time, duration_us, status_code, CAST(attributes AS VARCHAR) as attributes
 		FROM beyla_traces_local
 		WHERE start_time BETWEEN ? AND ?
 	`
