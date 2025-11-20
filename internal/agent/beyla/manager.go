@@ -22,6 +22,7 @@ type Manager struct {
 	config  *Config
 	logger  zerolog.Logger
 	mu      sync.RWMutex
+	wg      sync.WaitGroup
 	running bool
 
 	// OTLP receiver from RFD 025 (receives Beyla's trace and metrics output).
@@ -76,6 +77,10 @@ type Config struct {
 
 	// Database for local storage (required for OTLP receiver).
 	DB *sql.DB
+
+	// Database file path (optional, for HTTP serving via RFD 039).
+	// If empty, the database cannot be served over HTTP.
+	DBPath string
 
 	// Local storage retention for Beyla metrics in hours (default: 1 hour).
 	// This controls how long metrics are kept in agent's local DuckDB before cleanup.
@@ -141,7 +146,7 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 		m.storage = storage
 
 		// Initialize Beyla metrics storage (RFD 032 Phase 4).
-		beylaStorage, err := NewBeylaStorage(config.DB, logger)
+		beylaStorage, err := NewBeylaStorage(config.DB, config.DBPath, logger)
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to create Beyla storage: %w", err)
@@ -229,6 +234,13 @@ func (m *Manager) Stop() error {
 		}
 	}
 
+	// Cancel context to stop all goroutines.
+	// IMPORTANT: This must be called BEFORE stopping OTLP receiver.
+	// The OTLP receiver's cleanup loop (RunCleanupLoop) depends on this context.
+	// If we stop OTLP receiver first, it waits for the cleanup loop to exit,
+	// but the cleanup loop only exits when the context is cancelled.
+	m.cancel()
+
 	// Stop OTLP receiver.
 	if m.otlpReceiver != nil {
 		if err := m.otlpReceiver.Stop(); err != nil {
@@ -236,8 +248,8 @@ func (m *Manager) Stop() error {
 		}
 	}
 
-	// Cancel context to stop all goroutines.
-	m.cancel()
+	// Wait for all goroutines to finish.
+	m.wg.Wait()
 
 	// Close channels.
 	close(m.tracesCh)
@@ -339,6 +351,19 @@ type Capabilities struct {
 	TracingEnabled     bool
 }
 
+// GetDatabasePath returns the file path to the Beyla DuckDB database (RFD 039).
+// Returns empty string if Beyla storage is not initialized or database is in-memory.
+func (m *Manager) GetDatabasePath() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.beylaStorage == nil {
+		return ""
+	}
+
+	return m.beylaStorage.GetDatabasePath()
+}
+
 // startOTLPReceiver starts an embedded OTLP receiver using RFD 025 infrastructure.
 func (m *Manager) startOTLPReceiver() error {
 	if m.storage == nil {
@@ -378,6 +403,7 @@ func (m *Manager) startOTLPReceiver() error {
 	m.otlpReceiver = receiver
 
 	// Start trace and metrics consumer goroutines.
+	m.wg.Add(2)
 	go m.consumeTraces()
 	go m.consumeMetrics()
 
@@ -400,6 +426,7 @@ func (m *Manager) startOTLPReceiver() error {
 
 // consumeTraces consumes traces from the OTLP receiver and transforms them for Beyla.
 func (m *Manager) consumeTraces() {
+	defer m.wg.Done()
 	m.logger.Info().Msg("Starting trace consumer")
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -460,6 +487,7 @@ func (m *Manager) transformSpanToBeylaTrace(span *telemetry.Span) *BeylaTrace {
 
 // consumeMetrics consumes metrics from the OTLP receiver and transforms them for Beyla.
 func (m *Manager) consumeMetrics() {
+	defer m.wg.Done()
 	m.logger.Info().Msg("Starting metrics consumer")
 
 	ticker := time.NewTicker(5 * time.Second)
