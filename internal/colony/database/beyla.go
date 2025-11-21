@@ -226,6 +226,69 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 	return nil
 }
 
+// InsertBeylaTraces inserts Beyla trace spans into the database (RFD 036).
+func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans []*agentv1.BeylaTraceSpan) error {
+	if len(spans) == 0 {
+		return nil
+	}
+
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO beyla_traces (
+			trace_id, span_id, parent_span_id, agent_id, service_name,
+			span_name, span_kind, start_time, duration_us, status_code, attributes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT DO NOTHING
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, span := range spans {
+		startTime := time.UnixMilli(span.StartTime)
+
+		// Convert attributes to JSON.
+		attributesJSON, err := json.Marshal(span.Attributes)
+		if err != nil {
+			return fmt.Errorf("failed to marshal attributes: %w", err)
+		}
+
+		_, err = stmt.ExecContext(ctx,
+			span.TraceId,
+			span.SpanId,
+			span.ParentSpanId,
+			agentID,
+			span.ServiceName,
+			span.SpanName,
+			span.SpanKind,
+			startTime,
+			span.DurationUs,
+			span.StatusCode,
+			string(attributesJSON),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert trace span: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	d.logger.Debug().
+		Int("span_count", len(spans)).
+		Str("agent_id", agentID).
+		Msg("Inserted Beyla trace spans")
+
+	return nil
+}
+
 // QueryBeylaHTTPMetrics queries HTTP metrics from colony database.
 // Returns aggregated metrics grouped by (service, method, route, status).
 func (d *Database) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*BeylaHTTPMetricResult, error) {
@@ -610,4 +673,26 @@ func (d *Database) CleanupOldBeylaMetrics(ctx context.Context, httpRetentionDays
 	}
 
 	return totalDeleted, nil
+}
+
+// CleanupOldBeylaTraces removes Beyla traces older than the specified retention period (RFD 036).
+func (d *Database) CleanupOldBeylaTraces(ctx context.Context, traceRetentionDays int) (int64, error) {
+	traceCutoff := time.Now().Add(-time.Duration(traceRetentionDays) * 24 * time.Hour)
+	traceResult, err := d.db.ExecContext(ctx, `
+		DELETE FROM beyla_traces
+		WHERE start_time < ?
+	`, traceCutoff)
+	if err != nil {
+		return 0, fmt.Errorf("failed to cleanup traces: %w", err)
+	}
+
+	deleted, _ := traceResult.RowsAffected()
+	if deleted > 0 {
+		d.logger.Debug().
+			Int64("rows_deleted", deleted).
+			Time("trace_cutoff", traceCutoff).
+			Msg("Cleaned up old Beyla traces")
+	}
+
+	return deleted, nil
 }
