@@ -6,7 +6,7 @@ breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
-dependencies: []
+dependencies: [ ]
 related_rfds: [ "022" ]
 areas: [ "security", "agent" ]
 ---
@@ -17,12 +17,17 @@ areas: [ "security", "agent" ]
 
 ## Summary
 
-Implement agent-side certificate bootstrap using **Root CA fingerprint validation**,
-enabling agents to automatically obtain mTLS certificates on first connection. Agents
-use the colony's Root CA fingerprint (distributed via configuration) to validate the
-colony's identity, generate CSRs, request certificates from Colony's auto-issuance
+Implement agent-side certificate bootstrap using **Root CA fingerprint
+validation**,
+enabling agents to automatically obtain mTLS certificates on first connection.
+Agents
+use the colony's Root CA fingerprint (distributed via configuration) to validate
+the
+colony's identity, generate CSRs, request certificates from Colony's
+auto-issuance
 endpoint, and store certificates securely for all subsequent communication. This
-eliminates the need for per-agent bootstrap tokens while maintaining MITM protection,
+eliminates the need for per-agent bootstrap tokens while maintaining MITM
+protection,
 following the Kubernetes kubelet `--discovery-token-ca-cert-hash` pattern.
 
 ## Problem
@@ -48,25 +53,34 @@ following the Kubernetes kubelet `--discovery-token-ca-cert-hash` pattern.
 
 ## Solution
 
-Implement agent bootstrap using **Root CA fingerprint validation** instead of JWT
-tokens. Colony generates a hierarchical CA during initialization (Root → Intermediates),
-and agents validate the colony's identity by comparing the Root CA fingerprint from the
+Implement agent bootstrap using **Root CA fingerprint validation** instead of
+JWT
+tokens. Colony generates a hierarchical CA during initialization (Root →
+Intermediates),
+and agents validate the colony's identity by comparing the Root CA fingerprint
+from the
 TLS handshake against the expected value from configuration.
 
 **Key Design Decisions**
 
-- **Root CA fingerprint validation**: Agents validate colony identity using SHA256
+- **Root CA fingerprint validation**: Agents validate colony identity using
+  SHA256
   fingerprint of Root CA (like SSH host key fingerprints or Kubernetes
   `--discovery-token-ca-cert-hash`).
-- **No bootstrap tokens**: Colony auto-issues certificates on valid CSRs, eliminating
+- **No bootstrap tokens**: Colony auto-issues certificates on valid CSRs,
+  eliminating
   per-agent token generation and tracking.
-- **Hierarchical CA**: Three-level PKI (Root → Bootstrap Intermediate → Server cert,
-  Root → Agent Intermediate → Client certs) enables transparent intermediate rotation.
-- **Generic binary**: Same `coral` binary works with any colony (no embedded trust
+- **Hierarchical CA**: Three-level PKI (Root → Bootstrap Intermediate → Server
+  cert,
+  Root → Agent Intermediate → Client certs) enables transparent intermediate
+  rotation.
+- **Generic binary**: Same `coral` binary works with any colony (no embedded
+  trust
   anchors).
 - **Auto-issuance**: Colony automatically signs CSRs without token validation,
   rate-limited to prevent abuse.
-- **Graceful degradation**: During rollout, agents fall back to `colony_secret` if
+- **Graceful degradation**: During rollout, agents fall back to `colony_secret`
+  if
   bootstrap fails.
 
 **Benefits**
@@ -193,7 +207,8 @@ Root CA (10-year validity, offline/HSM)
 - **Security**: Root CA private key stored offline/HSM, minimizes exposure
 - **Rotation**: Rotate intermediates annually without changing agent configs
 - **Operational**: Agents validate Root CA fingerprint (never changes)
-- **Flexibility**: Can issue new intermediates/certificates for different purposes
+- **Flexibility**: Can issue new intermediates/certificates for different
+  purposes
 - **Colony ID reservation**: Policy cert chains to Root CA, locking colony IDs
 - **Best Practice**: Follows X.509/RFC 5280 standards
 
@@ -230,41 +245,42 @@ Deploy agents with:
 colony_id: my-app-prod-a3f2e1
 
 ca:
-  root:
-    certificate: ~/.coral/colonies/my-app-prod/ca/root-ca.crt
-    private_key: ~/.coral/colonies/my-app-prod/ca/root-ca.key
-    fingerprint: sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
+    root:
+        certificate: ~/.coral/colonies/my-app-prod/ca/root-ca.crt
+        private_key: ~/.coral/colonies/my-app-prod/ca/root-ca.key
+        fingerprint: sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
 
-  bootstrap_intermediate:
-    certificate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
-    private_key: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.key
-    expires_at: 2025-11-21
+    bootstrap_intermediate:
+        certificate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
+        private_key: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.key
+        expires_at: 2025-11-21
 
-  agent_intermediate:
-    certificate: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
-    private_key: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.key
-    expires_at: 2025-11-21
+    agent_intermediate:
+        certificate: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
+        private_key: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.key
+        expires_at: 2025-11-21
 
 tls:
-  certificate: ~/.coral/colonies/my-app-prod/ca/server.crt
-  private_key: ~/.coral/colonies/my-app-prod/ca/server.key
+    certificate: ~/.coral/colonies/my-app-prod/ca/server.crt
+    private_key: ~/.coral/colonies/my-app-prod/ca/server.key
 
 certificate_issuance:
-  auto_issue: true
-  rate_limits:
-    per_agent_per_hour: 10
-    per_colony_per_hour: 1000
+    auto_issue: true
+    rate_limits:
+        per_agent_per_hour: 10
+        per_colony_per_hour: 1000
 
 policy:
-  signing_key: ~/.coral/colonies/my-app-prod/ca/policy-key.key
-  signing_key_id: policy-key-a3f2e1
+    signing_key: ~/.coral/colonies/my-app-prod/ca/policy-key.key
+    signing_key_id: policy-key-a3f2e1
 ```
 
 ## Policy-Based Authorization
 
 ### Problem: Unrestricted Certificate Issuance
 
-With only CA fingerprint validation, any entity with the fingerprint can request unlimited certificates:
+With only CA fingerprint validation, any entity with the fingerprint can request
+unlimited certificates:
 
 ```
 Attacker has CA fingerprint
@@ -275,7 +291,10 @@ Attacker has CA fingerprint
 
 ### Solution: Discovery Referral Tickets
 
-Add an authorization layer where Discovery issues short-lived **referral tickets** that Colony validates before issuing certificates. Colony stores signed authorization policies at Discovery during initialization, enabling Discovery to enforce colony-specific rules.
+Add an authorization layer where Discovery issues short-lived **referral tickets
+** that Colony validates before issuing certificates. Colony stores signed
+authorization policies at Discovery during initialization, enabling Discovery to
+enforce colony-specific rules.
 
 ### Policy Document
 
@@ -288,31 +307,31 @@ policy_version: 1
 expires_at: "2025-11-21T10:30:00Z"
 
 referral_tickets:
-  enabled: true
-  ttl: 60  # seconds
+    enabled: true
+    ttl: 60  # seconds
 
-  rate_limits:
-    per_agent_per_hour: 10
-    per_source_ip_per_hour: 100
-    per_colony_per_hour: 1000
+    rate_limits:
+        per_agent_per_hour: 10
+        per_source_ip_per_hour: 100
+        per_colony_per_hour: 1000
 
-  quotas:
-    max_active_agents: 10000
-    max_new_agents_per_day: 100
+    quotas:
+        max_active_agents: 10000
+        max_new_agents_per_day: 100
 
-  agent_id_policy:
-    allowed_prefixes: ["web-", "worker-", "db-"]
-    denied_patterns: ["test-*", "dev-*"]
-    max_length: 64
-    regex: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+    agent_id_policy:
+        allowed_prefixes: [ "web-", "worker-", "db-" ]
+        denied_patterns: [ "test-*", "dev-*" ]
+        max_length: 64
+        regex: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
 
-  allowed_cidrs:
-    - "10.0.0.0/8"
-    - "172.16.0.0/12"
+    allowed_cidrs:
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
 
 csr_policies:
-  allowed_key_types: ["ed25519", "ecdsa-p256"]
-  max_validity_days: 90
+    allowed_key_types: [ "ed25519", "ecdsa-p256" ]
+    max_validity_days: 90
 
 signature: "base64-encoded-ed25519-signature"
 ```
@@ -336,6 +355,7 @@ Agent → Colony: RegisterAgent (mTLS)
 ### Security Properties
 
 **Defense in depth:**
+
 1. **CA fingerprint**: Prevents MITM attacks during bootstrap
 2. **Referral ticket**: Adds authorization layer before certificate issuance
 3. **Policy enforcement**: Colony-defined rules enforced by Discovery
@@ -344,13 +364,13 @@ Agent → Colony: RegisterAgent (mTLS)
 
 **Attack scenarios:**
 
-| Attack | Protection |
-|--------|-----------|
-| **Discovery MITM** | Agent validates Root CA fingerprint, aborts on mismatch ✅ |
-| **CA fingerprint leaked** | Need referral ticket (rate-limited, policy-controlled) ✅ |
-| **Fake agent registration** | Discovery enforces quotas, agent ID policies, IP allowlists ✅ |
-| **Mass registration attack** | Per-IP rate limits, per-colony quotas ✅ |
-| **Referral ticket stolen** | 1-minute TTL, agent_id binding, single-use (tracked by jti) ✅ |
+| Attack                       | Protection                                                    |
+|------------------------------|---------------------------------------------------------------|
+| **Discovery MITM**           | Agent validates Root CA fingerprint, aborts on mismatch ✅     |
+| **CA fingerprint leaked**    | Need referral ticket (rate-limited, policy-controlled) ✅      |
+| **Fake agent registration**  | Discovery enforces quotas, agent ID policies, IP allowlists ✅ |
+| **Mass registration attack** | Per-IP rate limits, per-colony quotas ✅                       |
+| **Referral ticket stolen**   | 1-minute TTL, agent_id binding, single-use (tracked by jti) ✅ |
 
 ## Agent Deployment
 
@@ -371,38 +391,40 @@ CORAL_DISCOVERY_ENDPOINT=https://discovery.coral.io:8080
 apiVersion: v1
 kind: Secret
 metadata:
-  name: coral-colony-ca
+    name: coral-colony-ca
 data:
-  colony_id: <base64: my-app-prod-a3f2e1>
-  ca_fingerprint: <base64: sha256:a3f2e1d4c5b6...>
+    colony_id:
+        <base64: my-app-prod-a3f2e1>
+    ca_fingerprint:
+        <base64: sha256:a3f2e1d4c5b6...>
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: my-app
+    name: my-app
 spec:
-  template:
-    spec:
-      containers:
-      - name: coral-agent
-        image: coral/agent:latest
-        env:
-        - name: CORAL_COLONY_ID
-          valueFrom:
-            secretKeyRef:
-              name: coral-colony-ca
-              key: colony_id
-        - name: CORAL_CA_FINGERPRINT
-          valueFrom:
-            secretKeyRef:
-              name: coral-colony-ca
-              key: ca_fingerprint
-        volumeMounts:
-        - name: coral-certs
-          mountPath: /var/lib/coral/certs
-      volumes:
-      - name: coral-certs
-        emptyDir: {}  # Or persistentVolumeClaim for daemonsets
+    template:
+        spec:
+            containers:
+                -   name: coral-agent
+                    image: coral/agent:latest
+                    env:
+                        -   name: CORAL_COLONY_ID
+                            valueFrom:
+                                secretKeyRef:
+                                    name: coral-colony-ca
+                                    key: colony_id
+                        -   name: CORAL_CA_FINGERPRINT
+                            valueFrom:
+                                secretKeyRef:
+                                    name: coral-colony-ca
+                                    key: ca_fingerprint
+                    volumeMounts:
+                        -   name: coral-certs
+                            mountPath: /var/lib/coral/certs
+            volumes:
+                -   name: coral-certs
+                    emptyDir: { }  # Or persistentVolumeClaim for daemonsets
 ```
 
 ### Configuration File
@@ -451,7 +473,8 @@ security:
     - Register new colonies (lock colony_id to Root CA fingerprint)
     - Verify Root CA fingerprint matches for existing colonies
     - Detect and prevent colony impersonation attempts
-    - Verify Ed25519 signatures on policies using public key from validated certificate
+    - Verify Ed25519 signatures on policies using public key from validated
+      certificate
     - Store policies in database with versioning and certificates
     - Store colony registrations (colony_id → Root CA mapping)
     - Retrieve policies for referral ticket issuance
@@ -533,7 +556,8 @@ security:
     - Root CA generation (10-year validity)
     - Bootstrap Intermediate CA generation
     - Agent Intermediate CA generation
-    - Policy signing certificate generation (signed by Root CA, 10-year validity)
+    - Policy signing certificate generation (signed by Root CA, 10-year
+      validity)
     - Policy signing Ed25519 keypair generation
     - Root CA fingerprint computation
     - Save CA hierarchy with proper permissions
@@ -722,11 +746,13 @@ message RequestCertificateResponse {
 ### API Summary
 
 **Discovery Service:**
+
 - `UpsertColonyPolicy` (new) - Colony pushes signed policy
 - `RequestReferralTicket` (new) - Agent requests authorization ticket
 - `LookupColony` (existing) - Agent queries colony endpoints
 
 **Colony Service:**
+
 - `RequestCertificate` (modified) - Agent requests certificate with ticket
 
 ## CLI Commands
@@ -894,7 +920,8 @@ Issued Certificates:
 
 ### Root CA Fingerprint Security
 
-**The Root CA fingerprint is NOT a secret** - it's like an SSH host key fingerprint:
+**The Root CA fingerprint is NOT a secret** - it's like an SSH host key
+fingerprint:
 
 ```bash
 # Similar security model:
@@ -908,6 +935,7 @@ coral agent start
 ```
 
 **Public distribution is acceptable:**
+
 - Can be in ConfigMaps, not Secrets (but Secrets OK too)
 - Can be logged, documented, shared
 - Only validates "talking to correct colony"
@@ -915,23 +943,24 @@ coral agent start
 
 ### Attack Scenarios
 
-| Attack | Protection |
-|--------|-----------|
-| **Discovery MITM** | Agent validates Root CA fingerprint, aborts on mismatch ✅ |
-| **Colony ID leaked** | Cannot push policies without Root CA private key ✅ |
-| **Colony ID impersonation** | Discovery locks colony ID to Root CA fingerprint on first registration ✅ |
-| **Policy forgery** | Policy must be signed by certificate chaining to registered Root CA ✅ |
-| **CA fingerprint leaked** | Need referral ticket (rate-limited, policy-controlled) ✅ |
-| **Fake agent registration** | Discovery enforces quotas, agent ID policies, IP allowlists ✅ |
-| **Agent certificate stolen** | Individual revocation, expires in 90 days ✅ |
-| **Intermediate compromised** | Rotate intermediate, Root CA remains trusted ✅ |
-| **Root CA compromised** | Re-initialize colony, new fingerprint (nuclear option) ⚠️ |
-| **Referral ticket stolen** | 1-minute TTL, agent_id binding, single-use (tracked by jti) ✅ |
-| **Mass registration attack** | Per-IP rate limits, per-colony quotas, monitoring/alerting ✅ |
+| Attack                       | Protection                                                               |
+|------------------------------|--------------------------------------------------------------------------|
+| **Discovery MITM**           | Agent validates Root CA fingerprint, aborts on mismatch ✅                |
+| **Colony ID leaked**         | Cannot push policies without Root CA private key ✅                       |
+| **Colony ID impersonation**  | Discovery locks colony ID to Root CA fingerprint on first registration ✅ |
+| **Policy forgery**           | Policy must be signed by certificate chaining to registered Root CA ✅    |
+| **CA fingerprint leaked**    | Need referral ticket (rate-limited, policy-controlled) ✅                 |
+| **Fake agent registration**  | Discovery enforces quotas, agent ID policies, IP allowlists ✅            |
+| **Agent certificate stolen** | Individual revocation, expires in 90 days ✅                              |
+| **Intermediate compromised** | Rotate intermediate, Root CA remains trusted ✅                           |
+| **Root CA compromised**      | Re-initialize colony, new fingerprint (nuclear option) ⚠️                |
+| **Referral ticket stolen**   | 1-minute TTL, agent_id binding, single-use (tracked by jti) ✅            |
+| **Mass registration attack** | Per-IP rate limits, per-colony quotas, monitoring/alerting ✅             |
 
 ### Compromise Scenarios
 
 **If Root CA fingerprint leaks:**
+
 ```
 Attacker has fingerprint → requests referral ticket from Discovery
 Discovery enforces: rate limits, quotas, agent_id policy, IP allowlists
@@ -942,6 +971,7 @@ Colony/Discovery can: rate limit, alert, monitor, revoke, block by IP/agent_id
 ```
 
 **Much better than colony_secret:**
+
 ```
 Current: colony_secret leaked → unlimited access, no audit trail
 New:     CA fingerprint public → referral ticket required (rate-limited, policy-controlled, audited)
@@ -955,12 +985,15 @@ New:     CA fingerprint public → referral ticket required (rate-limited, polic
 - **Intermediate CA keys**: Used day-to-day, rotated annually
 - **Policy signing key**: Stored with colony config, used for policy updates
 - **Discovery ticket signing key**: Stored at Discovery, used for JWT issuance
-- **Agent private keys**: 0600 permissions, never transmitted, owned by agent user
+- **Agent private keys**: 0600 permissions, never transmitted, owned by agent
+  user
 
 ### Audit Logging
 
 **Colony:**
-- Log certificate issuance (agent_id, serial_number, ticket_jti, expiry, timestamp)
+
+- Log certificate issuance (agent_id, serial_number, ticket_jti, expiry,
+  timestamp)
 - Log certificate renewal attempts
 - Log certificate revocations
 - Log invalid referral tickets (signature, expiry, claim mismatches)
@@ -970,6 +1003,7 @@ New:     CA fingerprint public → referral ticket required (rate-limited, polic
 - Alert on invalid ticket patterns
 
 **Discovery:**
+
 - Log referral ticket issuance (colony_id, agent_id, source_ip, timestamp)
 - Log rate limit violations (agent_id, source_ip, limit type)
 - Log quota violations (colony_id, quota type)
@@ -1019,16 +1053,19 @@ New:     CA fingerprint public → referral ticket required (rate-limited, polic
 ## Deferred Features
 
 **Certificate Renewal** (RFD xxx):
+
 - Automatic renewal at 30 days before expiry
 - Renewal failure handling and alerting
 - Certificate expiry monitoring and dashboards
 
 **mTLS Enforcement** (RFD xxx):
+
 - Disable `colony_secret` authentication entirely
 - Reject non-certificate agent connections
 - Certificate-based authorization policies
 
 **Advanced Bootstrap**:
+
 - Multi-colony bootstrap (agent connects to multiple colonies)
 - Certificate-based agent migration between colonies
 - Automated certificate rotation on key compromise
@@ -1040,10 +1077,12 @@ New:     CA fingerprint public → referral ticket required (rate-limited, polic
 **Core Capability:** ⏳ Not Started
 
 **Dependencies:**
+
 - RFD 022 updates (hierarchical CA generation)
 - See: `docs/CA-FINGERPRINT-DESIGN.md` for detailed design
 
 **What This Enables:**
+
 - Zero-touch agent deployment with automatic certificate provisioning
 - Per-agent cryptographic identity without manual certificate management
 - Foundation for mTLS enforcement and `colony_secret` deprecation
