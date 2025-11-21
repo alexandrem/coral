@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -57,6 +58,7 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMCPCmd())
+	cmd.AddCommand(NewCACmd()) // RFD 047 - CA management commands.
 
 	return cmd
 }
@@ -318,15 +320,37 @@ Examples:
 			}
 
 			// Create and start Beyla metrics poller for RFD 032.
-			// Polls agents every 1 minute for Beyla RED metrics.
-			// Default retention: 30 days HTTP/gRPC, 14 days SQL.
+			// Read Beyla configuration from colony config, with sensible defaults.
+			pollIntervalSecs := 60 // Default: poll every 60 seconds
+			httpRetentionDays := 30
+			grpcRetentionDays := 30
+			sqlRetentionDays := 14
+			traceRetentionDays := 7
+
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.PollInterval > 0 {
+				pollIntervalSecs = colonyConfigForEndpoints.Beyla.PollInterval
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.HTTPDays > 0 {
+				httpRetentionDays = colonyConfigForEndpoints.Beyla.Retention.HTTPDays
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.GRPCDays > 0 {
+				grpcRetentionDays = colonyConfigForEndpoints.Beyla.Retention.GRPCDays
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.SQLDays > 0 {
+				sqlRetentionDays = colonyConfigForEndpoints.Beyla.Retention.SQLDays
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.TracesDays > 0 {
+				traceRetentionDays = colonyConfigForEndpoints.Beyla.Retention.TracesDays
+			}
+
 			beylaPoller := colony.NewBeylaPoller(
 				agentRegistry,
 				db,
-				1*time.Minute, // Poll interval
-				30,            // HTTP retention in days (default: 30)
-				30,            // gRPC retention in days (default: 30)
-				14,            // SQL retention in days (default: 14)
+				time.Duration(pollIntervalSecs)*time.Second,
+				httpRetentionDays,
+				grpcRetentionDays,
+				sqlRetentionDays,
+				traceRetentionDays,
 				logger,
 			)
 
@@ -335,7 +359,13 @@ Examples:
 					Err(err).
 					Msg("Failed to start Beyla metrics poller")
 			} else {
-				logger.Info().Msg("Beyla metrics poller started - will query agents every minute")
+				logger.Info().
+					Int("poll_interval_secs", pollIntervalSecs).
+					Int("http_retention_days", httpRetentionDays).
+					Int("grpc_retention_days", grpcRetentionDays).
+					Int("sql_retention_days", sqlRetentionDays).
+					Int("trace_retention_days", traceRetentionDays).
+					Msg("Beyla metrics poller started")
 			}
 
 			logger.Info().
@@ -1324,6 +1354,14 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		discoveryClient: discoveryClient,
 	}
 
+	// Initialize CA manager (RFD 047 - Colony CA Infrastructure).
+	jwtSigningKey := []byte(cfg.ColonySecret) // Use colony secret as JWT signing key for now.
+	caDir := filepath.Join(cfg.StoragePath, "ca")
+	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwtSigningKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
+	}
+
 	// Create colony service handler
 	colonyServerConfig := server.Config{
 		ColonyID:           cfg.ColonyID,
@@ -1338,7 +1376,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		MeshIPv4:           cfg.WireGuard.MeshIPv4,
 		MeshIPv6:           cfg.WireGuard.MeshIPv6,
 	}
-	colonySvc := server.New(agentRegistry, db, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
+	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
 	// Initialize MCP server (RFD 004 - MCP server integration).
 	// Load colony config for MCP settings.
