@@ -244,6 +244,33 @@ Root CA (10-year validity, offline/HSM)
 - **Server cert protection**: Server Intermediate handles all server certificate
   issuance
 
+**Why Bootstrap Intermediate Exists:**
+
+During the TLS handshake, the colony server presents its certificate chain:
+
+```
+[Server Certificate] → [Server Intermediate] → [Root CA]
+```
+
+The agent performs two validations:
+
+1. **Fingerprint Validation**: Extract Root CA from chain, verify SHA256
+   fingerprint matches expected value
+2. **Chain Validation**: Verify Server Cert → Server Intermediate → Root CA is
+   cryptographically valid
+
+The Bootstrap Intermediate is NOT used in this chain. It exists for historical
+reasons and potential future use cases (e.g., issuing short-lived bootstrap
+credentials), but is not required for the current design.
+
+**Important**: Even if an attacker compromises the Bootstrap Intermediate
+private key, they cannot:
+
+- Issue valid server certificates (separate Server Intermediate required)
+- Bypass fingerprint validation (agents validate Root CA, not intermediates)
+- Impersonate the colony (server cert must chain to Server Intermediate, not
+  Bootstrap Intermediate)
+
 ### Colony Initialization
 
 ```bash
@@ -432,6 +459,20 @@ jwt_signing:
 4. Colony fetches JWKS on startup and refreshes hourly
 5. Colony validates tickets using any key in JWKS
 
+**JWKS Cache Behavior:**
+
+- **On Startup**: Colony fetches JWKS from Discovery, caches in memory
+- **Refresh**: Colony refreshes JWKS every 60 minutes
+- **Cache Miss**: If JWKS unavailable on startup, Colony retries every 60
+  seconds
+- **Temporary Unavailability**: If JWKS refresh fails, Colony continues using
+  cached keys
+- **Stale Cache**: If JWKS cache older than 24 hours, Colony rejects bootstrap
+  requests (renewals still work)
+- **Validation**: Colony validates JWT using any key in cached JWKS (supports
+  rotation)
+- **No Disk Cache**: JWKS stored in memory only (security-sensitive)
+
 **JWKS Endpoint:**
 
 ```json
@@ -465,6 +506,51 @@ GET /.well-known/jwks.json
 - **Security**: 128-bit security level with smaller keys (32 bytes)
 - **Simplicity**: No parameter choices (unlike ECDSA curve selection)
 - **Modern**: Industry standard for new systems
+
+### Referral Ticket JWT Claims
+
+**JWT Structure:**
+
+```json
+{
+  "header": {
+    "alg": "EdDSA",
+    "typ": "JWT",
+    "kid": "discovery-2024-11-21"
+  },
+  "payload": {
+    "sub": "agent:web-prod-1",
+    "aud": "coral-colony",
+    "iss": "coral-discovery",
+    "colony_id": "my-app-prod-a3f2e1",
+    "agent_id": "web-prod-1",
+    "source_ip": "10.0.1.42",
+    "jti": "a3f2e1d4-c5b6-a7f8-e9d0-c1b2a3f4e5d6",
+    "iat": 1700000000,
+    "exp": 1700000060
+  }
+}
+```
+
+**Claim Definitions:**
+
+- `sub`: Subject identifier (`agent:<agent-id>`)
+- `aud`: Audience (always `coral-colony`)
+- `iss`: Issuer (always `coral-discovery`)
+- `colony_id`: Target colony for this ticket
+- `agent_id`: Agent identity requesting certificate
+- `source_ip`: Client IP address (for audit and policy enforcement)
+- `jti`: JWT ID (unique identifier for replay prevention)
+- `iat`: Issued at timestamp (Unix epoch)
+- `exp`: Expiration timestamp (iat + 60 seconds)
+
+**Validation Requirements:**
+
+- Colony MUST verify `exp` is in the future
+- Colony MUST verify `colony_id` matches its own identity
+- Colony MUST verify `agent_id` matches CSR subject CN
+- Colony MUST store `jti` for 60 seconds to prevent replay
+- Colony MUST verify signature using JWKS public keys
 
 ### Bootstrap Flow with Referral Tickets
 
@@ -505,6 +591,64 @@ Agent → Colony: Continue operations (mTLS with new certificate)
 - **Security**: First bootstrap still requires Discovery authorization
 - **Revocation**: Colony checks CRL/revocation list before renewal
 
+## Certificate Lifecycle
+
+### Renewal Schedule
+
+**Agent Certificates (90-day validity):**
+
+- **Renewal window**: Starts at 30 days before expiry (70% of lifetime)
+- **Grace period**: 7 days before expiry (agent shows warnings)
+- **Expiration behavior**: Agent falls back to `colony_secret` if enabled,
+  otherwise connection fails
+
+**Intermediate Certificates (1-year validity):**
+
+- **Renewal window**: 30 days before expiry
+- **Rotation process**: Colony generates new intermediate, keeps old for 7-day
+  overlap
+- **Agent impact**: None (agents validate Root CA, not intermediates)
+
+### Renewal Process
+
+**Automatic Renewal (Agent-Initiated):**
+
+1. Agent monitors certificate expiry (checks every hour)
+2. At 30 days before expiry, agent initiates renewal
+3. Agent generates new CSR with same agent_id
+4. Agent authenticates to Colony using existing mTLS certificate
+5. Colony validates certificate is not revoked
+6. Colony issues new certificate (90-day validity)
+7. Agent stores new certificate, continues using old until cutover
+8. Agent switches to new certificate after validation
+
+**No Discovery Required**: Renewals use existing mTLS authentication, no
+referral ticket needed.
+
+**Failure Handling:**
+
+- Renewal failure logged and retried (exponential backoff)
+- At 7 days before expiry, alerts sent to monitoring
+- At expiry, agent falls back to `colony_secret` (if enabled) or fails
+
+### Intermediate CA Rotation
+
+**Planned Rotation:**
+
+1. Colony generates new intermediate CA (30 days before expiry)
+2. Colony configures both old and new intermediates as valid
+3. New certificates signed by new intermediate
+4. Old certificates remain valid (signed by old intermediate)
+5. After 7-day overlap, old intermediate retired
+6. Root CA validates both chains during overlap
+
+**Emergency Rotation (Compromise):**
+
+1. Operator generates new intermediate CA immediately
+2. Old intermediate added to revocation list
+3. All agent certificates must be renewed (Discovery referral tickets required)
+4. Colony rejects certificates signed by old intermediate
+
 ### Security Properties
 
 **Defense in depth:**
@@ -529,6 +673,175 @@ Agent → Colony: Continue operations (mTLS with new certificate)
 | **Discovery offline**             | Certificate renewals work without Discovery (mTLS auth) ✅     |
 | **Policy signature forgery**      | RFC 8785 JCS ensures deterministic verification ✅             |
 | **JWT signing key compromised**   | 30-day rotation, JWKS with grace period for rollover ✅        |
+
+### Bootstrap Failures & Offline Environments
+
+**Problem**: Production environments often have unreliable connectivity to
+Discovery, especially in edge deployments, manufacturing facilities, on-premises
+clusters, or during network partitions.
+
+**Retry Behavior:**
+
+```yaml
+# Agent bootstrap configuration
+bootstrap:
+    retry_policy:
+        # Exponential backoff with jitter
+        initial_delay: 1s
+        max_delay: 5m
+        multiplier: 2.0
+        jitter: 0.2
+
+        # Retry limits
+        max_attempts: 10  # Per bootstrap attempt
+        total_timeout: 30m  # Total time before giving up
+
+        # After exhausting retries
+        fallback_action: "use_colony_secret"  # Or "fail"
+```
+
+**Failure Scenarios:**
+
+1. **Discovery Unreachable (Network)**:
+    - Agent retries with exponential backoff (1s, 2s, 4s, 8s, ..., 5m)
+    - After 10 attempts or 30 minutes, falls back to `colony_secret` (if
+      enabled)
+    - Logs clear error: "Bootstrap failed: Discovery unreachable after 10
+      attempts"
+    - Agent continues attempting bootstrap in background (hourly)
+
+2. **Discovery Rate Limiting**:
+    - Discovery returns 429 (Too Many Requests) with `Retry-After` header
+    - Agent respects `Retry-After` delay (overrides exponential backoff)
+    - Does not count toward max_attempts
+    - Logs: "Bootstrap delayed: Rate limited by Discovery (retry after 60s)"
+
+3. **Discovery Denies Agent**:
+    - Discovery returns 403 (Forbidden) with rejection reason
+    - Agent does NOT retry (permanent failure)
+    - Logs: "Bootstrap failed: Agent denied by policy (reason: agent_id pattern
+      mismatch)"
+    - Operator intervention required
+
+4. **Colony Unreachable**:
+    - Agent successfully gets referral ticket from Discovery
+    - Cannot reach Colony endpoint (network issue, Colony down)
+    - Agent retries Colony connection with exponential backoff
+    - Referral ticket expires after 1 minute (must request new ticket)
+
+**Operator Override Mechanisms:**
+
+For disaster recovery or air-gapped deployments:
+
+```bash
+# Generate emergency bootstrap token (Colony side)
+coral colony tokens create-emergency \
+    --agent-id web-1 \
+    --validity 24h \
+    --reason "DR: Discovery unreachable"
+
+# Output:
+# Emergency Token: emergency_a3f2e1d4c5b6a7f8...
+# Valid until: 2025-11-22 10:30:00 UTC
+
+# Agent uses emergency token (bypasses Discovery)
+export CORAL_EMERGENCY_TOKEN=emergency_a3f2e1d4c5b6a7f8...
+coral agent bootstrap --use-emergency-token
+```
+
+**Multi-Region Discovery:**
+
+```yaml
+# Support multiple Discovery instances
+discovery:
+    endpoints:
+        - https://discovery-us-west.coral.io:8080
+        - https://discovery-us-east.coral.io:8080
+        - https://discovery-eu.coral.io:8080
+
+    selection_strategy: "round_robin"  # Or "geolocation", "latency"
+    failover_timeout: 5s
+```
+
+**Observability:**
+
+- Metric: `coral_agent_bootstrap_attempts_total{result="success|failure|timeout"}`
+- Metric: `coral_agent_bootstrap_duration_seconds`
+- Metric: `coral_agent_discovery_reachable{endpoint="..."}`
+- Alert: Bootstrap failure rate > 10% for 5 minutes
+
+## Agent Identity Model
+
+**Agent ID Definition:**
+
+Agent IDs are the primary identity for agents in the Coral system. They drive
+SPIFFE IDs, policy enforcement, rate limits, and certificate subjects.
+
+**How Agent IDs Are Chosen:**
+
+1. **Operator-specified** (preferred):
+    ```bash
+    coral agent start --agent-id web-prod-1
+    ```
+
+2. **Auto-generated** (fallback):
+    ```bash
+    # Format: {hostname}-{short-uuid}
+    # Example: ip-10-0-1-42-a3f2e1d4
+    coral agent start  # No --agent-id specified
+    ```
+
+3. **Kubernetes Pod Name** (recommended for K8s):
+    ```yaml
+    env:
+        - name: CORAL_AGENT_ID
+          valueFrom:
+              fieldRef:
+                  fieldPath: metadata.name
+    # Results in agent_id like: my-app-deployment-7d4f8b9c-xk2pm
+    ```
+
+**Format Constraints:**
+
+- **Pattern**: `^[a-z0-9][a-z0-9-]*[a-z0-9]$` (lowercase alphanumeric and
+  hyphens)
+- **Length**: 3-64 characters
+- **Start/End**: Must start and end with alphanumeric (not hyphen)
+- **Case**: Lowercase only (enforced at validation)
+
+**Uniqueness Guarantees:**
+
+- **Within Colony**: Agent IDs MUST be unique within a colony
+    - Colony rejects certificate requests for duplicate agent_id if active cert
+      exists
+    - Allows re-use after certificate expiry or revocation
+- **Across Colonies**: Agent IDs CAN be reused across different colonies
+    - `colony-A/web-1` and `colony-B/web-1` are distinct identities
+    - SPIFFE IDs include colony_id to ensure global uniqueness
+
+**Identity Persistence:**
+
+- **First Bootstrap**: Agent generates/receives agent_id, stores in
+  `~/.coral/agent-id`
+- **Subsequent Starts**: Agent reads agent_id from `~/.coral/agent-id`
+- **Certificate**: Agent_id embedded in certificate CN and SPIFFE SAN
+- **Immutability**: Agent_id cannot change after first bootstrap (requires
+  re-bootstrap)
+
+**SPIFFE ID Mapping:**
+
+```
+Agent ID: web-prod-1
+Colony ID: my-app-prod-a3f2e1
+
+SPIFFE ID: spiffe://coral/colony/my-app-prod-a3f2e1/agent/web-prod-1
+```
+
+**Revocation & CRL:**
+
+- CRL includes agent_id in extension field for easier debugging
+- Operators can revoke by agent_id: `coral colony certs revoke --agent-id
+  web-1`
 
 ## Agent Deployment
 
@@ -1261,6 +1574,34 @@ coral agent start
 | **Root CA compromised**      | Re-initialize colony, new fingerprint (nuclear option) ⚠️                |
 | **Referral ticket stolen**   | 1-minute TTL, agent_id binding, single-use (tracked by jti) ✅            |
 | **Mass registration attack** | Per-IP rate limits, per-colony quotas, monitoring/alerting ✅             |
+| **CSR replay attack**        | JTI uniqueness enforcement, 60-second tracking window ✅                  |
+
+### CSR Replay Protection
+
+Even if a referral ticket is single-use, the CSR + ticket pair could potentially
+be replayed. Colony MUST enforce JTI uniqueness to prevent replay attacks.
+
+**Implementation:**
+
+- Colony stores used `jti` values in a time-limited cache (60 seconds)
+- When validating referral ticket, Colony checks if `jti` has been used
+- If `jti` already exists, request is rejected as replay attempt
+- After 60 seconds (ticket TTL), `jti` is removed from cache
+
+**Example:**
+
+```
+First Request:
+  CSR + Token(jti=abc123) → Colony validates, stores jti=abc123 → Issues cert
+
+Replay Attempt (within 60s):
+  Same CSR + Same Token(jti=abc123) → Colony checks cache, finds jti=abc123 → Rejects as replay
+
+After 60s:
+  jti=abc123 expired from cache (token already expired anyway)
+```
+
+**Storage**: In-memory cache with LRU eviction, no disk persistence needed.
 
 ### Compromise Scenarios
 
@@ -1334,12 +1675,52 @@ New:     CA fingerprint public → referral ticket required (rate-limited, polic
 3. **Gradual Migration**:
     - Monitor bootstrap success rate via telemetry
     - Identify and fix failed bootstrap attempts
-    - Existing agents re-bootstrap on restart
+    - **Existing agents**: Two migration paths
+        - **Restart-based**: Agent re-bootstraps automatically on restart
+        - **Online migration**: Agent detects new CA, initiates bootstrap without
+          restart
+    - Rolling restart strategy for Kubernetes deployments
 
 4. **Enforcement** (Future):
     - After all agents bootstrapped, enforce mTLS-only
     - Disable `colony_secret` authentication
     - Reject non-certificate connections
+
+### Migration Strategy for Existing Agents
+
+**Scenario 1: Agent Restart (Preferred)**
+
+1. Agent starts, detects no certificate at `~/.coral/certs/<agent-id>.crt`
+2. Agent attempts bootstrap flow (referral ticket → CSR → certificate)
+3. If bootstrap succeeds, agent uses certificate
+4. If bootstrap fails, agent falls back to `colony_secret` (if
+   `fallback_to_secret=true`)
+5. Agent logs migration status for monitoring
+
+**Scenario 2: Online Migration (No Restart)**
+
+1. Running agent detects Colony now supports certificate authentication (via
+   heartbeat response)
+2. Agent initiates background bootstrap process
+3. Agent continues using `colony_secret` during bootstrap
+4. After successful bootstrap, agent switches to certificate authentication
+5. `colony_secret` remains as fallback
+
+**Monitoring Migration Progress:**
+
+```bash
+# Check migration status across all agents
+coral colony agents list --show-auth-method
+
+# Output:
+# AGENT_ID          AUTH_METHOD    CERT_EXPIRES
+# web-prod-1        certificate    2025-02-18
+# web-prod-2        colony_secret  -
+# worker-1          certificate    2025-02-17
+# worker-2          colony_secret  -
+
+# Migration progress: 50% (2/4 agents using certificates)
+```
 
 **Backward Compatibility**:
 
@@ -1354,6 +1735,129 @@ New:     CA fingerprint public → referral ticket required (rate-limited, polic
 - Agents revert to `colony_secret` authentication
 - Certificates remain valid for future use
 - No data loss or service interruption
+
+## Operational Diagnostics
+
+### Debug Commands
+
+**Agent-Side Debugging:**
+
+```bash
+# Display certificate chain and validation details
+coral agent debug-ca
+
+# Output:
+# Root CA Fingerprint:
+#   Expected: sha256:a3f2e1d4c5b6...
+#   Received: sha256:a3f2e1d4c5b6...
+#   Status: ✓ Match
+#
+# Colony Identity:
+#   Expected: my-app-prod-a3f2e1
+#   Server SAN: spiffe://coral/colony/my-app-prod-a3f2e1
+#   Status: ✓ Match
+#
+# Certificate Chain:
+#   [Server Cert] CN=my-app-prod-a3f2e1
+#     ↓ signed by
+#   [Server Intermediate] CN=Coral Server Intermediate CA
+#     ↓ signed by
+#   [Root CA] CN=Coral Root CA
+#   Status: ✓ Valid
+
+# Test bootstrap without actually bootstrapping
+coral agent test-bootstrap --dry-run
+
+# Output:
+# ✓ Discovery reachable (https://discovery.coral.io:8080)
+# ✓ Referral ticket obtained (expires in 60s)
+# ✓ Colony reachable (https://colony.example.com:9000)
+# ✓ Root CA fingerprint matches
+# ✓ Colony ID matches server certificate
+# ✗ Bootstrap would succeed (dry-run, not executed)
+```
+
+**Colony-Side Debugging:**
+
+```bash
+# List certificate issuance history
+coral colony certs list --last-24h
+
+# Output:
+# TIMESTAMP            AGENT_ID      SERIAL            TYPE     JTI
+# 2025-11-21 10:30:00  web-prod-1    a3f2e1d4...       bootstrap abc123...
+# 2025-11-21 11:45:00  worker-1      c5b6a7f8...       bootstrap def456...
+# 2025-11-21 14:20:00  web-prod-1    e9d0c1b2...       renewal   -
+
+# Check referral ticket validation failures
+coral colony logs --filter "invalid_referral_ticket" --last-1h
+
+# Display JWKS cache status
+coral colony jwks status
+
+# Output:
+# JWKS Cache Status:
+#   Last Fetch: 2025-11-21 15:30:00 (5 minutes ago)
+#   Keys Cached: 2
+#     - discovery-2024-11-21 (current)
+#     - discovery-2024-10-21 (grace period)
+#   Next Refresh: 2025-11-21 16:30:00 (in 55 minutes)
+#   Status: ✓ Healthy
+```
+
+### Sample Log Messages
+
+**Successful Bootstrap:**
+
+```
+INFO  agent bootstrap starting agent_id=web-prod-1 colony_id=my-app-prod-a3f2e1
+INFO  referral ticket obtained from Discovery jti=abc123... expires_in=60s
+INFO  colony connection established endpoint=https://colony.example.com:9000
+INFO  root CA fingerprint validated expected=sha256:a3f2e1d4... received=sha256:a3f2e1d4... status=match
+INFO  colony identity validated expected=my-app-prod-a3f2e1 san=spiffe://coral/colony/my-app-prod-a3f2e1 status=match
+INFO  certificate received serial=a3f2e1d4... expires=2025-02-18
+INFO  bootstrap complete auth_method=certificate
+```
+
+**Failed Bootstrap (Fingerprint Mismatch):**
+
+```
+ERROR agent bootstrap failed agent_id=web-prod-1 reason=fingerprint_mismatch
+ERROR root CA fingerprint mismatch expected=sha256:a3f2e1d4... received=sha256:ffffffff...
+ERROR possible MITM attack detected aborting_connection=true
+WARN  falling back to colony_secret auth_method=colony_secret
+```
+
+**Failed Bootstrap (Discovery Unreachable):**
+
+```
+WARN  agent bootstrap failed agent_id=web-prod-1 reason=discovery_unreachable attempt=1/10
+INFO  retrying bootstrap in 2s backoff=exponential
+ERROR agent bootstrap failed after 10 attempts reason=discovery_unreachable total_time=5m30s
+WARN  falling back to colony_secret auth_method=colony_secret
+INFO  continuing bootstrap attempts in background retry_interval=1h
+```
+
+### Error Codes
+
+**Bootstrap Errors:**
+
+- `FINGERPRINT_MISMATCH`: Root CA fingerprint doesn't match expected value
+- `COLONY_ID_MISMATCH`: Colony ID in server certificate SAN doesn't match
+  expected
+- `DISCOVERY_UNREACHABLE`: Cannot connect to Discovery service
+- `DISCOVERY_DENIED`: Discovery rejected agent (policy violation)
+- `REFERRAL_EXPIRED`: Referral ticket expired before use
+- `COLONY_UNREACHABLE`: Cannot connect to Colony service
+- `INVALID_CERTIFICATE`: Colony returned invalid certificate
+
+**Validation Errors:**
+
+- `INVALID_JTI`: Duplicate JTI detected (replay attack)
+- `INVALID_SIGNATURE`: JWT signature validation failed
+- `JWKS_UNAVAILABLE`: Cannot fetch JWKS from Discovery
+- `EXPIRED_TOKEN`: Referral ticket expired
+- `CLAIM_MISMATCH`: JWT claims don't match CSR or colony identity
 
 ## Deferred Features
 
@@ -1525,4 +2029,4 @@ security posture.
 - Per-agent cryptographic identity without manual certificate management
 - Foundation for mTLS enforcement and `colony_secret` deprecation
 - Transparent intermediate CA rotation
-- Generic `coral` binary for all colonies
+- Generic `coral` binary for all colonies~~
