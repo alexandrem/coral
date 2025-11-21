@@ -5,8 +5,8 @@ state: "draft"
 breaking_changes: false
 testing_required: true
 database_changes: false
-api_changes: false
-dependencies: [ "022" ]
+api_changes: true
+dependencies: []
 related_rfds: [ "022" ]
 areas: [ "security", "agent" ]
 ---
@@ -17,71 +17,95 @@ areas: [ "security", "agent" ]
 
 ## Summary
 
-Implement the agent-side certificate bootstrap flow defined in RFD 022, enabling
-agents to automatically obtain mTLS certificates on first connection. Agents
-will request bootstrap tokens from Discovery, generate CSRs, exchange them for
-certificates from Colony, and store certificates securely for all subsequent
-communication. This eliminates manual certificate provisioning while maintaining
-strong cryptographic identity.
+Implement agent-side certificate bootstrap using **Root CA fingerprint validation**,
+enabling agents to automatically obtain mTLS certificates on first connection. Agents
+use the colony's Root CA fingerprint (distributed via configuration) to validate the
+colony's identity, generate CSRs, request certificates from Colony's auto-issuance
+endpoint, and store certificates securely for all subsequent communication. This
+eliminates the need for per-agent bootstrap tokens while maintaining MITM protection,
+following the Kubernetes kubelet `--discovery-token-ca-cert-hash` pattern.
 
 ## Problem
 
 - **Current behavior/limitations**:
-    - RFD 022 implemented the server-side infrastructure (CA, token issuance,
-      certificate signing)
-    - Agents still use shared `colony_secret` for authentication
-    - No mechanism exists for agents to request or manage certificates
-    - Certificate renewal and rotation are manual processes
-    - Agents cannot leverage the mTLS infrastructure built in RFD 022
+    - Agents use shared `colony_secret` for authentication
+    - Single secret compromise affects entire colony
+    - No per-agent cryptographic identity
+    - Cannot revoke individual agents without rotating colony-wide secret
+    - Manual certificate provisioning blocks automated agent deployment
 
 - **Why this matters**:
     - Shared secrets scale poorly and increase security risk
-    - Manual certificate provisioning blocks automated agent deployment
-    - Without agent-side implementation, the CA infrastructure remains unused
-    - Agents cannot benefit from per-agent certificate revocation
+    - Cannot audit individual agent actions (shared identity)
+    - Agent compromise requires colony-wide secret rotation
+    - Discovery service MITM attacks possible with shared secrets
 
 - **Use cases affected**:
     - Automated agent deployment and scaling
-    - Zero-touch agent provisioning
+    - Zero-touch agent provisioning in Kubernetes
     - Agent replacement after compromise
     - Certificate-based access control and audit
 
 ## Solution
 
-Implement the agent bootstrap client that integrates with RFD 022's server
-infrastructure. Agents will automatically request bootstrap tokens, generate
-keypairs, submit CSRs, receive certificates, and establish mTLS connections
-without operator intervention.
+Implement agent bootstrap using **Root CA fingerprint validation** instead of JWT
+tokens. Colony generates a hierarchical CA during initialization (Root → Intermediates),
+and agents validate the colony's identity by comparing the Root CA fingerprint from the
+TLS handshake against the expected value from configuration.
 
 **Key Design Decisions**
 
-- **Automatic bootstrap on first connect**: Agents detect missing certificates
-  and automatically initiate the bootstrap flow before attempting Colony
-  connection.
-- **Ed25519 keypairs**: Use Ed25519 for client certificates (faster than RSA,
-  smaller than ECDSA P-256).
-- **Secure storage**: Store certificates and keys in
-  `~/.coral/certs/<agent-id>.{crt,key}` with 0600 permissions, owned by the
-  agent process user.
-- **Graceful degradation**: During rollout, agents fall back to `colony_secret`
-  if bootstrap fails, logging warnings for operator visibility.
-- **Certificate validation**: Agents verify Colony certificates against embedded
-  CA bundle before sending bootstrap tokens.
+- **Root CA fingerprint validation**: Agents validate colony identity using SHA256
+  fingerprint of Root CA (like SSH host key fingerprints or Kubernetes
+  `--discovery-token-ca-cert-hash`).
+- **No bootstrap tokens**: Colony auto-issues certificates on valid CSRs, eliminating
+  per-agent token generation and tracking.
+- **Hierarchical CA**: Three-level PKI (Root → Bootstrap Intermediate → Server cert,
+  Root → Agent Intermediate → Client certs) enables transparent intermediate rotation.
+- **Generic binary**: Same `coral` binary works with any colony (no embedded trust
+  anchors).
+- **Auto-issuance**: Colony automatically signs CSRs without token validation,
+  rate-limited to prevent abuse.
+- **Graceful degradation**: During rollout, agents fall back to `colony_secret` if
+  bootstrap fails.
 
 **Benefits**
 
 - Zero-touch agent provisioning with cryptographic identity
+- No Discovery service modifications required
+- No bootstrap token database tracking
 - Per-agent certificate revocation capability
-- Audit trail of certificate issuance per agent
-- Foundation for mTLS enforcement (RFD 031)
-- Eliminates shared secret distribution
+- Transparent intermediate CA rotation
+- Same binary for all colonies (runtime trust configuration)
+- Matches Kubernetes kubelet bootstrap pattern
 
 **Architecture Overview**
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Agent Startup Flow                                          │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ Colony Initialization                                           │
+└─────────────────────────────────────────────────────────────────┘
+
+$ coral colony init my-app-prod
+
+Generated Certificate Authority (Hierarchical):
+  Root CA (10-year validity)
+    ├─ Bootstrap Intermediate CA (1-year)
+    │   └─ Colony TLS Server Certificate
+    └─ Agent Intermediate CA (1-year)
+        └─ Signs agent client certificates
+
+Root CA Fingerprint (distribute to agents):
+  sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
+
+Deploy agents with:
+  export CORAL_COLONY_ID=my-app-prod-a3f2e1
+  export CORAL_CA_FINGERPRINT=sha256:a3f2e1d4c5b6...
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│ Agent Bootstrap Flow                                            │
+└─────────────────────────────────────────────────────────────────┘
 
 Agent Start
     ↓
@@ -91,112 +115,321 @@ Check for existing cert at ~/.coral/certs/<agent-id>.crt
     │
     └─ Missing/Expired → Bootstrap Flow:
            │
-           ├─ 1. Request bootstrap token from Discovery
-           │      POST /coral.discovery.v1.DiscoveryService/CreateBootstrapToken
-           │      Body: {agent_id, colony_id, reef_id, intent: "register"}
-           │      → Receives JWT token (5-minute TTL)
+           ├─ 1. Query Discovery for colony endpoints
+           │      POST /coral.discovery.v1.DiscoveryService/LookupColony
+           │      Body: {colony_id}
+           │      → Returns: endpoints, mesh info (untrusted)
            │
-           ├─ 2. Generate Ed25519 keypair locally
+           ├─ 2. Connect to colony HTTPS endpoint
+           │      TLS handshake receives certificate chain:
+           │      [Server cert] → [Bootstrap Intermediate] → [Root CA]
+           │
+           ├─ 3. Extract Root CA from chain, compute SHA256 fingerprint
+           │
+           ├─ 4. Validate: computed_fingerprint == CORAL_CA_FINGERPRINT
+           │      If mismatch → ABORT (MITM detected)
+           │      If match → Trust established
+           │
+           ├─ 5. Validate certificate chain integrity
+           │      Verify: Server cert → Intermediates → Root CA
+           │
+           ├─ 6. Save validated Root CA to ~/.coral/certs/root-ca.crt
+           │
+           ├─ 7. Generate Ed25519 keypair locally
            │      → Private key: ~/.coral/certs/<agent-id>.key (0600)
            │
-           ├─ 3. Create CSR with CN=agent.<agent-id>.<colony-id>
+           ├─ 8. Create CSR with CN=<agent-id>, O=<colony-id>
            │
-           ├─ 4. Request certificate from Colony
+           ├─ 9. Request certificate from Colony (no JWT token!)
            │      POST /coral.colony.v1.ColonyService/RequestCertificate
-           │      Body: {jwt, csr}
-           │      → Receives certificate + CA chain
+           │      Body: {csr}
+           │      → Colony auto-issues certificate
+           │      → Returns: certificate + CA chain
            │
-           ├─ 5. Validate certificate matches our public key
+           ├─ 10. Store certificate (0644) and key (0600)
+           │       ~/.coral/certs/<agent-id>.crt
+           │       ~/.coral/certs/<agent-id>.key
            │
-           ├─ 6. Store certificate (0644) and key (0600)
-           │      ~/.coral/certs/<agent-id>.crt
-           │      ~/.coral/certs/<agent-id>.key
-           │
-           └─ 7. Connect to Colony with mTLS
-                  (All subsequent RPCs use client certificate)
+           └─ 11. Connect to Colony with mTLS
+                   (All subsequent RPCs use client certificate)
 ```
 
-### Component Changes
+## Colony CA Hierarchy
 
-1. **Agent Bootstrap Client** (`internal/agent/bootstrap/client.go`)
-    - Implements token request logic via Discovery client
-    - Generates Ed25519 keypairs using `crypto/ed25519`
-    - Creates X.509 CSRs with proper CN and SANs
-    - Calls Colony's `RequestCertificate` RPC
-    - Validates received certificates against CA bundle
-    - Stores certificates securely with proper permissions
+### Three-Level PKI Structure
 
-2. **Agent Certificate Manager** (`internal/agent/certs/manager.go`)
-    - Checks certificate existence and validity on startup
-    - Loads certificates for gRPC client TLS configuration
-    - Monitors certificate expiry (triggers renewal at 30 days remaining)
-    - Handles certificate storage and file permissions
-    - Provides certificate metadata (expiry, fingerprint) for status commands
+```
+Root CA (10-year validity, offline/HSM)
+  ├─ Bootstrap Intermediate CA (1-year, rotatable)
+  │   └─ Colony TLS Server Certificate
+  │       └─ Used for HTTPS endpoint (agents validate this chain)
+  │
+  └─ Agent Intermediate CA (1-year, rotatable)
+      └─ Agent Client Certificates
+          └─ Used for mTLS authentication
+```
 
-3. **Agent Connection Setup** (`internal/agent/connection.go`)
-    - Attempts certificate-based connection first
-    - Falls back to `colony_secret` if bootstrap fails (during migration)
-    - Configures gRPC client with mTLS transport credentials
-    - Validates Colony server certificate against embedded CA bundle
+**Why Hierarchical?**
 
-4. **CLI Agent Commands** (`internal/cli/agent/`)
-    - `coral agent bootstrap` - Manually trigger bootstrap flow (for
-      testing/debugging)
-    - `coral agent cert status` - Display certificate info (expiry, fingerprint,
-      issuer)
-    - `coral agent cert renew` - Manually renew certificate before expiry
+- **Security**: Root CA private key stored offline/HSM, minimizes exposure
+- **Rotation**: Rotate intermediates annually without changing agent configs
+- **Operational**: Agents validate Root CA fingerprint (never changes)
+- **Flexibility**: Can issue new intermediates for different purposes
+- **Best Practice**: Follows X.509/RFC 5280 standards
 
-5. **Agent Configuration** (`internal/config/agent.go`)
-    - Add `security.cert_path` (default: `~/.coral/certs/<agent-id>.crt`)
-    - Add `security.bootstrap.enabled` (default: true)
-    - Add `security.bootstrap.discovery_url` (default: from global config)
+### Colony Initialization
 
-**Configuration Example**
+```bash
+$ coral colony init my-app-prod
+
+Initializing colony: my-app-prod...
+
+Generated Certificate Authority:
+  Root CA:                ~/.coral/colonies/my-app-prod/ca/root-ca.crt
+  Root CA Key:            ~/.coral/colonies/my-app-prod/ca/root-ca.key (SECRET)
+  Bootstrap Intermediate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
+  Agent Intermediate:     ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
+
+Root CA Fingerprint (distribute to agents):
+  sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
+
+⚠️  IMPORTANT: Keep root-ca.key secure (offline storage or HSM recommended)
+
+Deploy agents with:
+  export CORAL_COLONY_ID=my-app-prod-a3f2e1
+  export CORAL_CA_FINGERPRINT=sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6...
+  coral agent start
+
+✓ Colony initialized successfully
+```
+
+### Colony Configuration
+
+```yaml
+# ~/.coral/colonies/my-app-prod-a3f2e1/config.yaml
+colony_id: my-app-prod-a3f2e1
+
+ca:
+  root:
+    certificate: ~/.coral/colonies/my-app-prod/ca/root-ca.crt
+    private_key: ~/.coral/colonies/my-app-prod/ca/root-ca.key
+    fingerprint: sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
+
+  bootstrap_intermediate:
+    certificate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
+    private_key: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.key
+    expires_at: 2025-11-21
+
+  agent_intermediate:
+    certificate: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
+    private_key: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.key
+    expires_at: 2025-11-21
+
+tls:
+  certificate: ~/.coral/colonies/my-app-prod/ca/server.crt
+  private_key: ~/.coral/colonies/my-app-prod/ca/server.key
+
+certificate_issuance:
+  auto_issue: true
+  rate_limits:
+    per_agent_per_hour: 10
+    per_colony_per_hour: 1000
+```
+
+## Agent Deployment
+
+### Environment Variables
+
+```bash
+# Required
+CORAL_COLONY_ID=my-app-prod-a3f2e1
+CORAL_CA_FINGERPRINT=sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6...
+
+# Optional (has defaults)
+CORAL_DISCOVERY_ENDPOINT=https://discovery.coral.io:8080
+```
+
+### Kubernetes Deployment
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: coral-colony-ca
+data:
+  colony_id: <base64: my-app-prod-a3f2e1>
+  ca_fingerprint: <base64: sha256:a3f2e1d4c5b6...>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: coral-agent
+        image: coral/agent:latest
+        env:
+        - name: CORAL_COLONY_ID
+          valueFrom:
+            secretKeyRef:
+              name: coral-colony-ca
+              key: colony_id
+        - name: CORAL_CA_FINGERPRINT
+          valueFrom:
+            secretKeyRef:
+              name: coral-colony-ca
+              key: ca_fingerprint
+        volumeMounts:
+        - name: coral-certs
+          mountPath: /var/lib/coral/certs
+      volumes:
+      - name: coral-certs
+        emptyDir: {}  # Or persistentVolumeClaim for daemonsets
+```
+
+### Configuration File
 
 ```yaml
 # ~/.coral/agents/<agent-id>.yaml
 security:
-    cert_path: ~/.coral/certs/agent-web-1.crt
-    key_path: ~/.coral/certs/agent-web-1.key
+    # Certificate file paths (auto-detected if not specified)
+    cert_path: ~/.coral/certs/<agent-id>.crt
+    key_path: ~/.coral/certs/<agent-id>.key
+    root_ca_path: ~/.coral/certs/root-ca.crt
+
+    # Root CA fingerprint for validation
+    ca_fingerprint: sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6...
+
     bootstrap:
-        enabled: true
+        enabled: true  # Enable automatic bootstrap on first connect
         discovery_url: https://discovery.coral.io:8080
-        fallback_to_secret: true  # During migration only
+        fallback_to_secret: true  # Fall back to colony_secret if bootstrap fails (migration only)
+        retry_attempts: 3
+        retry_delay: 5s
 ```
+
+## Component Changes
+
+1. **Colony CA Initialization** (`internal/colony/ca/init.go`)
+    - Generate Root CA (10-year validity)
+    - Generate Bootstrap Intermediate CA (1-year validity)
+    - Generate Agent Intermediate CA (1-year validity)
+    - Generate colony TLS server certificate
+    - Compute and display Root CA fingerprint
+    - Save CA hierarchy with proper permissions
+
+2. **CA Fingerprint Validator** (`internal/agent/bootstrap/ca_validator.go`)
+    - Extract Root CA from TLS certificate chain
+    - Compute SHA256 fingerprint of Root CA
+    - Compare against expected fingerprint from config
+    - Validate certificate chain integrity (intermediates → root)
+    - Abort connection on mismatch (MITM detection)
+
+3. **Agent Bootstrap Client** (`internal/agent/bootstrap/client.go`)
+    - Query Discovery for colony endpoints only (no token request)
+    - Connect to colony with `InsecureSkipVerify` (manual validation)
+    - Validate Root CA fingerprint using CA validator
+    - Save validated Root CA to disk
+    - Generate Ed25519 keypairs using `crypto/ed25519`
+    - Create X.509 CSRs with CN=agent_id, O=colony_id
+    - Call Colony's `RequestCertificate` RPC (no JWT token)
+    - Validate received certificate matches our public key
+    - Store certificates securely with proper permissions
+
+4. **Agent Certificate Manager** (`internal/agent/certs/manager.go`)
+    - Check certificate existence and validity on startup
+    - Load certificates for gRPC client TLS configuration
+    - Load Root CA for colony server validation
+    - Monitor certificate expiry (trigger renewal at 30 days)
+    - Handle certificate storage and file permissions
+    - Provide certificate metadata for status commands
+
+5. **Agent Connection Setup** (`internal/agent/connection.go`)
+    - Attempt certificate-based connection first
+    - Fall back to `colony_secret` if bootstrap fails (during migration)
+    - Configure gRPC client with mTLS transport credentials
+    - Validate Colony server certificate against pinned Root CA
+
+6. **Colony Certificate Issuance** (`internal/colony/ca/issuer.go`)
+    - Remove JWT token validation logic
+    - Auto-issue certificates on valid CSRs
+    - Validate CSR signature and structure
+    - Extract agent_id from CN field
+    - Sign with Agent Intermediate CA (90-day validity)
+    - Store certificate metadata in database
+    - Implement rate limiting (prevent abuse)
+    - Return certificate + full CA chain
+
+7. **CLI Agent Commands** (`internal/cli/agent/`)
+    - `coral agent bootstrap` - Manually trigger bootstrap flow
+    - `coral agent cert status` - Display certificate info
+    - `coral agent cert renew` - Manually renew certificate
+
+8. **CLI Colony Commands** (`internal/cli/colony/`)
+    - `coral colony ca status` - Display CA hierarchy info
+    - `coral colony ca rotate-intermediate` - Rotate intermediate CAs
 
 ## Implementation Plan
 
-### Phase 1: Certificate Management Foundation
+### Phase 1: Colony CA Infrastructure
 
-- [ ] Implement `internal/agent/certs/manager.go`
-    - Certificate loading and validation
-    - File storage with proper permissions
-    - Expiry checking
-    - Certificate metadata extraction
-- [ ] Add configuration fields for certificate paths
-- [ ] Add unit tests for certificate manager
+- [ ] Implement `internal/colony/ca/init.go`
+    - Root CA generation (10-year validity)
+    - Bootstrap Intermediate CA generation
+    - Agent Intermediate CA generation
+    - Root CA fingerprint computation
+    - Save CA hierarchy with proper permissions
+- [ ] Update `coral colony init` to generate CA hierarchy
+- [ ] Add `coral colony ca status` command
+- [ ] Add `coral colony ca rotate-intermediate` command
+- [ ] Add unit tests for CA generation
 
-### Phase 2: Bootstrap Client Implementation
+### Phase 2: CA Fingerprint Validation
+
+- [ ] Implement `internal/agent/bootstrap/ca_validator.go`
+    - Extract Root CA from TLS connection
+    - Compute SHA256 fingerprint
+    - Compare against expected value
+    - Validate certificate chain integrity
+    - Log detailed errors on mismatch
+- [ ] Add `CORAL_CA_FINGERPRINT` environment variable support
+- [ ] Add configuration field `security.ca_fingerprint`
+- [ ] Add unit tests for fingerprint validation
+
+### Phase 3: Agent Bootstrap Implementation
 
 - [ ] Implement `internal/agent/bootstrap/client.go`
-    - Discovery token request
+    - Query Discovery for endpoints (no token request)
+    - CA fingerprint validation before CSR submission
     - Ed25519 keypair generation
     - CSR creation with proper CN/SAN
-    - Colony certificate request
-    - Certificate validation
-- [ ] Add embedded CA bundle to agent binary (from Colony)
+    - Certificate request (no JWT)
+    - Certificate storage
 - [ ] Add retry logic with exponential backoff
 - [ ] Add unit tests for bootstrap client
 
-### Phase 3: Agent Connection Integration
+### Phase 4: Colony Certificate Issuance
 
-- [ ] Update `internal/agent/connection.go` to use certificates
-- [ ] Implement mTLS transport credentials setup
-- [ ] Add fallback to `colony_secret` during migration
-- [ ] Add connection establishment logging
+- [ ] Update `internal/colony/ca/issuer.go`
+    - Remove JWT token validation
+    - Auto-issue on valid CSR
+    - Rate limiting implementation
+    - Certificate tracking in database
+- [ ] Add monitoring/alerting for abuse detection
+- [ ] Add unit tests for auto-issuance
+
+### Phase 5: Agent Connection Integration
+
+- [ ] Update `internal/agent/connection.go`
+    - Use certificates for mTLS
+    - Root CA validation for colony server
+    - Fallback to `colony_secret` during migration
+- [ ] Implement certificate manager
 - [ ] Add integration tests for mTLS connections
 
-### Phase 4: CLI Commands & Monitoring
+### Phase 6: CLI Commands & Monitoring
 
 - [ ] Implement `coral agent bootstrap` command
 - [ ] Implement `coral agent cert status` command
@@ -204,40 +437,78 @@ security:
 - [ ] Add certificate expiry warnings to `coral agent status`
 - [ ] Add telemetry for bootstrap success/failure rates
 
-### Phase 5: Testing & Documentation
+### Phase 7: Testing & Documentation
 
 - [ ] Unit tests for all new components
-- [ ] Integration tests for full bootstrap flow
-- [ ] E2E tests with Discovery + Colony
-- [ ] Test certificate renewal flow
+- [ ] Integration test: full bootstrap flow
+- [ ] Integration test: intermediate rotation
+- [ ] E2E test: MITM detection (wrong fingerprint)
+- [ ] E2E test: certificate renewal
 - [ ] Update agent deployment documentation
 - [ ] Add troubleshooting guide for bootstrap failures
 
 ## API Changes
 
-No new protobuf messages are required - this RFD uses the APIs defined in RFD
-022:
+### Modified Protobuf Messages
 
-- `DiscoveryService.CreateBootstrapToken`
-- `ColonyService.RequestCertificate`
+```protobuf
+// Updated: No JWT token required
+message RequestCertificateRequest {
+    bytes csr = 1;  // Certificate Signing Request (PEM format)
+    // Removed: string jwt (no longer needed)
+}
 
-### CLI Commands
+message RequestCertificateResponse {
+    bytes certificate = 1;      // Signed X.509 client certificate (PEM)
+    bytes ca_chain = 2;         // Full CA chain (Agent Intermediate + Root CA)
+    int64 expires_at = 3;       // Unix timestamp
+}
+```
+
+### Removed APIs
+
+- ~~`DiscoveryService.CreateBootstrapToken`~~ (no longer needed)
+
+### Used APIs
+
+- `DiscoveryService.LookupColony` (existing - for endpoint discovery)
+- `ColonyService.RequestCertificate` (modified - no JWT validation)
+
+## CLI Commands
 
 ```bash
 # Manually trigger bootstrap (for testing or re-bootstrapping)
-coral agent bootstrap --colony colony-prod --agent web-1
+coral agent bootstrap --colony my-app-prod --agent web-1
 
 # Output:
-Requesting bootstrap token from Discovery...
-✓ Token received (expires in 5m)
+Querying Discovery for colony endpoints...
+✓ Found colony at https://colony.example.com:9000
+
+Connecting to colony...
+Validating Root CA fingerprint...
+  Expected: sha256:a3f2e1d4c5b6...
+  Received: sha256:a3f2e1d4c5b6...
+✓ Root CA fingerprint verified - trust established
+
+Validating certificate chain...
+✓ Certificate chain verified (Server → Bootstrap Intermediate → Root CA)
+
 Generating keypair...
 ✓ Ed25519 keypair generated
+
 Creating certificate signing request...
-✓ CSR created (CN=agent.web-1.colony-prod)
+✓ CSR created (CN=web-1, O=my-app-prod)
+
 Requesting certificate from Colony...
 ✓ Certificate received (valid until 2025-02-18)
+
+Saving credentials...
+✓ Root CA saved to ~/.coral/certs/root-ca.crt
 ✓ Certificate saved to ~/.coral/certs/web-1.crt
-✓ Private key saved to ~/.coral/certs/web-1.key
+✓ Private key saved to ~/.coral/certs/web-1.key (0600)
+
+✓ Bootstrap complete
+
 
 # Check certificate status
 coral agent cert status --agent web-1
@@ -246,65 +517,86 @@ coral agent cert status --agent web-1
 Certificate Status
 ==================
 Agent ID:          web-1
-Colony ID:         colony-prod
+Colony ID:         my-app-prod-a3f2e1
 Certificate Path:  ~/.coral/certs/web-1.crt
 Key Path:          ~/.coral/certs/web-1.key
+Root CA Path:      ~/.coral/certs/root-ca.crt
+
+Root CA:
+  Fingerprint:     sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6...
+  Subject:         Coral Root CA - my-app-prod
+  Valid Until:     2034-11-21
 
 Certificate Details:
-  Issuer:          Coral Intermediate CA - colony-prod
-  Subject:         agent.web-1.colony-prod
+  Issuer:          Coral Agent Intermediate CA - my-app-prod
+  Subject:         CN=web-1, O=my-app-prod
   Serial Number:   3a4f5e2d1c0b9a8f7e6d5c4b3a2f1e0d
-  Not Before:      2024-11-20 10:30:00 UTC
+  Not Before:      2024-11-21 10:30:00 UTC
   Not After:       2025-02-18 10:30:00 UTC
   Days Until Expiry: 89
 
 Status:            ✓ Valid
 
-# Manually renew certificate (before expiry)
+
+# Manually renew certificate
 coral agent cert renew --agent web-1
 
 # Output:
 Certificate expires in 25 days, renewing...
+Using existing certificate for authentication...
 ✓ Certificate renewed successfully
 ✓ New certificate valid until 2025-05-19
-```
 
-### Configuration Changes
 
-New configuration fields in `~/.coral/agents/<agent-id>.yaml`:
+# Check colony CA status
+coral colony ca status
 
-```yaml
-security:
-    # Certificate file paths (auto-detected if not specified)
-    cert_path: ~/.coral/certs/<agent-id>.crt
-    key_path: ~/.coral/certs/<agent-id>.key
+# Output:
+Colony CA Status
+================
+Colony ID:         my-app-prod-a3f2e1
 
-    # CA bundle for validating Colony certificates
-    ca_bundle_path: ~/.coral/ca-bundle.pem  # Embedded in binary if not specified
+Root CA:
+  Fingerprint:     sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6...
+  Valid Until:     2034-11-21 10:30:00 UTC
+  Days Remaining:  3652
 
-    bootstrap:
-        enabled: true  # Enable automatic bootstrap on first connect
-        discovery_url: https://discovery.coral.io:8080  # From global config if not set
-        fallback_to_secret: true  # Fall back to colony_secret if bootstrap fails (migration only)
-        retry_attempts: 3
-        retry_delay: 5s
+Bootstrap Intermediate CA:
+  Valid Until:     2025-11-21 10:30:00 UTC
+  Days Remaining:  365
+  Status:          Active
+
+Agent Intermediate CA:
+  Valid Until:     2025-11-21 10:30:00 UTC
+  Days Remaining:  365
+  Status:          Active
+
+Issued Certificates:
+  Total:           45
+  Active:          43
+  Revoked:         2
+  Expired:         0
 ```
 
 ## Testing Strategy
 
 ### Unit Tests
 
-- **Certificate Manager**:
-    - Load valid certificate from disk
-    - Reject expired certificates
-    - Reject certificates with wrong CN
-    - Check file permissions on load
-    - Calculate days until expiry correctly
+- **CA Generation**:
+    - Generate valid Root CA (10-year validity)
+    - Generate valid intermediate CAs (1-year validity)
+    - Sign server and client certificates
+    - Compute correct SHA256 fingerprints
+
+- **Fingerprint Validation**:
+    - Extract Root CA from TLS chain correctly
+    - Compute fingerprint matches expected format
+    - Detect fingerprint mismatch (MITM scenario)
+    - Validate certificate chain integrity
 
 - **Bootstrap Client**:
     - Generate valid Ed25519 keypairs
-    - Create CSR with correct CN format
-    - Validate token response format
+    - Create CSR with correct CN/O format
     - Handle network errors gracefully
     - Retry with exponential backoff
 
@@ -312,28 +604,27 @@ security:
 
 - **Full Bootstrap Flow**:
     - Start with no certificate
-    - Request token from Discovery
+    - Query Discovery for endpoints
+    - Validate Root CA fingerprint
     - Submit CSR to Colony
-    - Receive and validate certificate
-    - Store certificate securely
-    - Verify permissions (0600 for key, 0644 for cert)
+    - Receive and store certificate
+    - Verify file permissions (0600 for key, 0644 for cert)
 
-- **Certificate Renewal**:
-    - Use existing certificate for renewal
-    - Request new certificate without bootstrap token
-    - Replace old certificate atomically
-    - Continue using old cert if renewal fails
+- **MITM Detection**:
+    - Colony with different Root CA
+    - Agent detects fingerprint mismatch
+    - Connection aborted with clear error
 
-- **Fallback Behavior**:
-    - Attempt bootstrap first
-    - Fall back to `colony_secret` on failure
-    - Log warning about using shared secret
-    - Retry bootstrap on next restart
+- **Intermediate Rotation**:
+    - Rotate Bootstrap Intermediate CA
+    - Existing agents continue working
+    - New bootstrap uses new intermediate
+    - Root CA fingerprint unchanged
 
 ### E2E Tests
 
 - **Agent Deployment**:
-    - Deploy agent with no pre-configured certificate
+    - Deploy agent with only CORAL_COLONY_ID + CORAL_CA_FINGERPRINT
     - Agent automatically bootstraps on first start
     - Agent connects to Colony via mTLS
     - Agent successfully sends heartbeats
@@ -342,75 +633,101 @@ security:
     - Colony revokes agent certificate
     - Agent's next RPC fails with authentication error
     - Agent attempts to re-bootstrap
-    - Colony issues new certificate with different serial
-
-- **Colony Rotation**:
-    - Agent has valid certificate
-    - Colony rotates intermediate CA
-    - Agent continues using old certificate
-    - Agent renews and receives cert from new intermediate
+    - Colony issues new certificate
 
 ## Security Considerations
 
-- **Private Key Protection**:
-    - Private keys stored with 0600 permissions
-    - Keys never transmitted over network
-    - Keys owned by agent process user only
+### Root CA Fingerprint Security
 
-- **Bootstrap Token Security**:
-    - Tokens have 5-minute TTL (from RFD 022)
-    - Tokens are single-use (validated by Colony)
-    - Token hash stored in database for replay prevention
+**The Root CA fingerprint is NOT a secret** - it's like an SSH host key fingerprint:
 
-- **Certificate Validation**:
-    - Agents verify Colony certificate against embedded CA bundle
-    - Reject connection if Colony cert is invalid
-    - Prevents MITM attacks during bootstrap
+```bash
+# Similar security model:
+ssh user@server
+# The authenticity of host 'server (192.168.1.100)' can't be established.
+# ED25519 key fingerprint is SHA256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6.
 
-- **Audit Logging**:
-    - Log bootstrap token requests (agent_id, colony_id, timestamp)
-    - Log certificate issuance (agent_id, serial_number, expiry)
-    - Log certificate renewal attempts
-    - Log fallback to `colony_secret` during migration
+coral agent start
+# Validates colony using Root CA fingerprint:
+# SHA256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6...
+```
 
-- **Graceful Degradation**:
-    - If bootstrap fails, agent logs error and falls back to shared secret
-    - Operator receives alert about failed bootstrap
-    - Agent retries bootstrap on next restart
-    - No service interruption during rollout
+**Public distribution is acceptable:**
+- Can be in ConfigMaps, not Secrets (but Secrets OK too)
+- Can be logged, documented, shared
+- Only validates "talking to correct colony"
+- Cannot be used to join colony without certificate
+
+### Attack Scenarios
+
+| Attack | Protection |
+|--------|-----------|
+| **Discovery MITM** | Agent validates Root CA fingerprint, aborts on mismatch ✅ |
+| **CA fingerprint leaked** | Cannot join (still need certificate), can monitor/rate-limit ⚠️ |
+| **Agent certificate stolen** | Individual revocation, expires in 90 days ✅ |
+| **Intermediate compromised** | Rotate intermediate, Root CA remains trusted ✅ |
+| **Root CA compromised** | Re-initialize colony, new fingerprint (nuclear option) ⚠️ |
+
+### Compromise Scenarios
+
+**If Root CA fingerprint leaks:**
+```
+Attacker has fingerprint → tries to bootstrap
+Attacker submits CSR → Colony issues certificate
+Colony can: rate limit, alert, monitor, revoke
+⚠️ Need rate limiting and monitoring
+```
+
+**Much better than colony_secret:**
+```
+Current: colony_secret leaked → unlimited access
+New:     CA fingerprint leaked → rate-limited cert issuance, monitored, revocable
+```
+
+### Private Key Protection
+
+- **Root CA private key**: Offline/HSM storage, only for intermediate issuance
+- **Intermediate CA keys**: Used day-to-day, rotated annually
+- **Agent private keys**: 0600 permissions, never transmitted, owned by agent user
+
+### Audit Logging
+
+- Log certificate issuance (agent_id, serial_number, expiry, timestamp)
+- Log certificate renewal attempts
+- Log certificate revocations
+- Log fallback to `colony_secret` during migration
+- Alert on high certificate issuance rates
 
 ## Migration Strategy
 
 **Rollout Phases**:
 
-1. **Deploy RFD 022 infrastructure** (Already implemented):
-    - Colony CA manager running
-    - Discovery token issuance available
-    - Colony certificate request endpoint active
+1. **Deploy Colony with Hierarchical CA**:
+    - Run `coral colony ca migrate-to-hierarchical` (if needed)
+    - Generate Root + Intermediate CAs
+    - Display Root CA fingerprint
 
-2. **Deploy agent with bootstrap capability** (This RFD):
-    - New agents automatically bootstrap on first connect
+2. **Deploy Agents with Bootstrap Capability**:
+    - New agents use `CORAL_CA_FINGERPRINT`
     - Existing agents continue using `colony_secret`
     - Feature flag: `security.bootstrap.enabled=true` (default)
 
-3. **Gradual migration**:
+3. **Gradual Migration**:
     - Monitor bootstrap success rate via telemetry
     - Identify and fix failed bootstrap attempts
     - Existing agents re-bootstrap on restart
 
 4. **Enforcement** (Future):
-    - After all agents bootstrapped, enforce mTLS
+    - After all agents bootstrapped, enforce mTLS-only
     - Disable `colony_secret` authentication
     - Reject non-certificate connections
 
 **Backward Compatibility**:
 
 - Agents with `security.bootstrap.enabled=false` continue using `colony_secret`
-- Agents with `security.bootstrap.fallback_to_secret=true` fall back on
-  bootstrap failure
+- Agents with `security.bootstrap.fallback_to_secret=true` fall back on failure
 - No breaking changes to existing agent deployments
-- Colony accepts both certificate and `colony_secret` authentication (until
-  enforcement)
+- Colony accepts both certificate and `colony_secret` authentication
 
 **Rollback Plan**:
 
@@ -421,20 +738,17 @@ security:
 
 ## Deferred Features
 
-**Certificate Renewal** (RFD xxx - Certificate Lifecycle Management):
-
+**Certificate Renewal** (RFD xxx):
 - Automatic renewal at 30 days before expiry
 - Renewal failure handling and alerting
 - Certificate expiry monitoring and dashboards
 
-**mTLS Enforcement** (RFD xxx - mTLS Enforcement & Migration):
-
+**mTLS Enforcement** (RFD xxx):
 - Disable `colony_secret` authentication entirely
 - Reject non-certificate agent connections
 - Certificate-based authorization policies
 
-**Advanced Bootstrap** (Future):
-
+**Advanced Bootstrap**:
 - Multi-colony bootstrap (agent connects to multiple colonies)
 - Certificate-based agent migration between colonies
 - Automated certificate rotation on key compromise
@@ -445,12 +759,13 @@ security:
 
 **Core Capability:** ⏳ Not Started
 
-This RFD depends on RFD 022 (Embedded step-ca) which provides the server-side
-infrastructure. Implementation will begin after RFD 022 approval.
+**Dependencies:**
+- RFD 022 updates (hierarchical CA generation)
+- See: `docs/CA-FINGERPRINT-DESIGN.md` for detailed design
 
 **What This Enables:**
-
 - Zero-touch agent deployment with automatic certificate provisioning
 - Per-agent cryptographic identity without manual certificate management
 - Foundation for mTLS enforcement and `colony_secret` deprecation
-- Agent certificate lifecycle automation (renewal, revocation, rotation)
+- Transparent intermediate CA rotation
+- Generic `coral` binary for all colonies
