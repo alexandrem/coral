@@ -1,10 +1,12 @@
 package initcmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
@@ -22,7 +24,7 @@ func NewInitCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "init <app-name>",
+		Use:   "init [app-name]",
 		Short: "Initialize a new Coral colony",
 		Long: `Initialize a new Coral colony with application identity and security credentials.
 
@@ -34,10 +36,55 @@ This command creates:
 
 Example:
   coral init my-shop --env production
-  coral init payment-api --env staging --storage /data/coral`,
-		Args: cobra.ExactArgs(1),
+  coral init payment-api --env staging --storage /data/coral
+  coral init  # Interactive mode`,
+		Args: cobra.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			appName := args[0]
+			var appName string
+			if len(args) > 0 {
+				appName = args[0]
+			} else {
+				// Interactive mode - prompt for inputs
+				var err error
+				appName, err = promptForInput("Application name", "", true)
+				if err != nil {
+					return err
+				}
+
+				// Prompt for environment if not set via flag
+				if !cmd.Flags().Changed("env") {
+					envInput, err := promptForInput("Environment", environment, false)
+					if err != nil {
+						return err
+					}
+					if envInput != "" {
+						environment = envInput
+					}
+				}
+
+				// Prompt for storage path if not set via flag
+				if !cmd.Flags().Changed("storage") {
+					storageInput, err := promptForInput("Storage path", storagePath, false)
+					if err != nil {
+						return err
+					}
+					if storageInput != "" {
+						storagePath = storageInput
+					}
+				}
+
+				// Prompt for discovery URL if not set via flag
+				if !cmd.Flags().Changed("discovery") {
+					discoveryInput, err := promptForInput("Discovery service URL", discoveryURL, false)
+					if err != nil {
+						return err
+					}
+					if discoveryInput != "" {
+						discoveryURL = discoveryInput
+					}
+				}
+			}
+
 			return runInit(appName, environment, storagePath, discoveryURL)
 		},
 	}
@@ -148,4 +195,41 @@ func runInit(appName, environment, storagePath, discoveryURL string) error {
 	fmt.Printf("    coral colony export %s\n", colonyID)
 
 	return nil
+}
+
+// promptForInput prompts the user for input with an optional default value.
+func promptForInput(prompt, defaultValue string, required bool) (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+
+	// Format the prompt
+	displayPrompt := prompt
+	if defaultValue != "" {
+		displayPrompt = fmt.Sprintf("%s [%s]", prompt, defaultValue)
+	}
+	if required {
+		displayPrompt = fmt.Sprintf("%s (required)", displayPrompt)
+	}
+	fmt.Printf("%s: ", displayPrompt)
+
+	// Read input
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("failed to read input: %w", err)
+	}
+
+	// Trim whitespace
+	input = strings.TrimSpace(input)
+
+	// Use default if no input provided
+	if input == "" {
+		if defaultValue != "" {
+			return defaultValue, nil
+		}
+		if required {
+			return "", fmt.Errorf("%s is required", prompt)
+		}
+		return "", nil
+	}
+
+	return input, nil
 }
