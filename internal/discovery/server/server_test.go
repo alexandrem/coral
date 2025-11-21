@@ -2,13 +2,13 @@ package server
 
 import (
 	"context"
-	"database/sql"
+
 	"io"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
-	_ "github.com/marcboeker/go-duckdb"
+
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,29 +31,12 @@ func testSTUNServers() []string {
 
 // testTokenManager returns a token manager for tests.
 func testTokenManager(t *testing.T) *discovery.TokenManager {
-	db, err := sql.Open("duckdb", ":memory:")
-	require.NoError(t, err)
 
-	// Initialize bootstrap tokens table.
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS bootstrap_tokens (
-			token_id TEXT PRIMARY KEY,
-			jwt_hash TEXT NOT NULL UNIQUE,
-			reef_id TEXT NOT NULL,
-			colony_id TEXT NOT NULL,
-			agent_id TEXT NOT NULL,
-			intent TEXT NOT NULL,
-			issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			expires_at TIMESTAMP NOT NULL,
-			consumed_at TIMESTAMP,
-			consumed_by TEXT,
-			status TEXT NOT NULL DEFAULT 'active'
-		)
-	`)
-	require.NoError(t, err)
-
-	return discovery.NewTokenManager(db, discovery.TokenConfig{
-		SigningKey: []byte("test-signing-key"),
+	return discovery.NewTokenManager(discovery.TokenConfig{
+		SigningKey: []byte("test-key"),
+		DefaultTTL: 5 * time.Minute,
+		Issuer:     "test-issuer",
+		Audience:   "test-audience",
 	})
 }
 

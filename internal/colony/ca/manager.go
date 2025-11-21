@@ -342,10 +342,20 @@ func (m *Manager) loadKey(name string) (*ecdsa.PrivateKey, error) {
 	return key, nil
 }
 
-// ValidateToken validates a bootstrap JWT token and returns the claims.
-func (m *Manager) ValidateToken(tokenString string) (*BootstrapClaims, error) {
+// ReferralClaims contains JWT claims for referral tickets (RFD 049).
+type ReferralClaims struct {
+	ReefID   string `json:"reef_id"`
+	ColonyID string `json:"colony_id"`
+	AgentID  string `json:"agent_id"`
+	Intent   string `json:"intent"`
+	jwt.RegisteredClaims
+}
+
+// ValidateReferralTicket validates a referral ticket JWT.
+// This is a stateless validation per RFD 049.
+func (m *Manager) ValidateReferralTicket(tokenString string) (*ReferralClaims, error) {
 	// Parse and validate JWT.
-	token, err := jwt.ParseWithClaims(tokenString, &BootstrapClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &ReferralClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -355,30 +365,28 @@ func (m *Manager) ValidateToken(tokenString string) (*BootstrapClaims, error) {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	claims, ok := token.Claims.(*BootstrapClaims)
+	claims, ok := token.Claims.(*ReferralClaims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	// Verify token hasn't been consumed.
-	tokenHash := sha256.Sum256([]byte(tokenString))
-	tokenHashHex := hex.EncodeToString(tokenHash[:])
-
-	var status string
-	var consumedAt sql.NullTime
-	err = m.db.QueryRow(`
-		SELECT status, consumed_at FROM bootstrap_tokens
-		WHERE jwt_hash = ?
-	`, tokenHashHex).Scan(&status, &consumedAt)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("token not found")
+	// Verify audience.
+	// We accept both "colony-step-ca" (legacy) and "coral-colony" (RFD 049).
+	validAudience := false
+	for _, aud := range claims.Audience {
+		if aud == "colony-step-ca" || aud == "coral-colony" {
+			validAudience = true
+			break
+		}
 	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to check token status: %w", err)
+	if !validAudience {
+		return nil, fmt.Errorf("invalid audience: %v", claims.Audience)
 	}
 
-	if status != "active" || consumedAt.Valid {
-		return nil, fmt.Errorf("token already consumed")
+	// Verify issuer.
+	// We accept both "reef-control" (legacy) and "coral-discovery" (RFD 049).
+	if claims.Issuer != "reef-control" && claims.Issuer != "coral-discovery" {
+		return nil, fmt.Errorf("invalid issuer: %s", claims.Issuer)
 	}
 
 	return claims, nil
@@ -386,7 +394,7 @@ func (m *Manager) ValidateToken(tokenString string) (*BootstrapClaims, error) {
 
 // IssueCertificate issues a new client certificate for an agent.
 // Uses the Agent Intermediate CA and includes SPIFFE ID in SAN per RFD 047.
-func (m *Manager) IssueCertificate(claims *BootstrapClaims, csrPEM []byte, tokenString string) ([]byte, []byte, time.Time, error) {
+func (m *Manager) IssueCertificate(agentID, colonyID string, csrPEM []byte) ([]byte, []byte, time.Time, error) {
 	// Parse CSR.
 	csrBlock, _ := pem.Decode(csrPEM)
 	if csrBlock == nil {
@@ -404,7 +412,7 @@ func (m *Manager) IssueCertificate(claims *BootstrapClaims, csrPEM []byte, token
 	}
 
 	// Enforce policy: CN must match agent_id.
-	expectedCN := fmt.Sprintf("agent.%s.%s", claims.AgentID, claims.ColonyID)
+	expectedCN := fmt.Sprintf("agent.%s.%s", agentID, colonyID)
 	if csr.Subject.CommonName != expectedCN {
 		return nil, nil, time.Time{}, fmt.Errorf("CSR CN mismatch: expected %s, got %s", expectedCN, csr.Subject.CommonName)
 	}
@@ -416,7 +424,7 @@ func (m *Manager) IssueCertificate(claims *BootstrapClaims, csrPEM []byte, token
 	}
 
 	// Build SPIFFE ID URI for the agent.
-	spiffeID, err := url.Parse(fmt.Sprintf("spiffe://coral/colony/%s/agent/%s", claims.ColonyID, claims.AgentID))
+	spiffeID, err := url.Parse(fmt.Sprintf("spiffe://coral/colony/%s/agent/%s", colonyID, agentID))
 	if err != nil {
 		return nil, nil, time.Time{}, fmt.Errorf("failed to parse SPIFFE ID: %w", err)
 	}
@@ -455,31 +463,19 @@ func (m *Manager) IssueCertificate(claims *BootstrapClaims, csrPEM []byte, token
 		Bytes: m.rootCert.Raw,
 	})...)
 
-	// Mark token as consumed and store certificate.
+	// Store certificate.
 	tx, err := m.db.Begin()
 	if err != nil {
 		return nil, nil, time.Time{}, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	tokenHash := sha256.Sum256([]byte(tokenString))
-	tokenHashHex := hex.EncodeToString(tokenHash[:])
-
-	_, err = tx.Exec(`
-		UPDATE bootstrap_tokens
-		SET status = 'consumed', consumed_at = ?, consumed_by = ?
-		WHERE jwt_hash = ?
-	`, time.Now(), claims.AgentID, tokenHashHex)
-	if err != nil {
-		return nil, nil, time.Time{}, fmt.Errorf("failed to mark token as consumed: %w", err)
-	}
-
 	_, err = tx.Exec(`
 		INSERT INTO issued_certificates (
 			serial_number, agent_id, colony_id,
 			certificate_pem, issued_at, expires_at, status
 		) VALUES (?, ?, ?, ?, ?, ?, 'active')
-	`, serialNumber.String(), claims.AgentID, claims.ColonyID, string(certPEM), notBefore, notAfter)
+	`, serialNumber.String(), agentID, colonyID, string(certPEM), notBefore, notAfter)
 	if err != nil {
 		return nil, nil, time.Time{}, fmt.Errorf("failed to store certificate: %w", err)
 	}
@@ -516,11 +512,92 @@ func (m *Manager) RevokeCertificate(serialNumber, reason, revokedBy string) erro
 		return fmt.Errorf("failed to record revocation: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	return nil
+}
+
+// RotateIntermediate rotates an intermediate CA certificate.
+// typeStr must be "server" or "agent".
+func (m *Manager) RotateIntermediate(typeStr string) error {
+	var certName string
+	var commonNamePrefix string
+
+	switch typeStr {
+	case "server":
+		certName = "server-intermediate"
+		commonNamePrefix = "Coral Server Intermediate CA"
+	case "agent":
+		certName = "agent-intermediate"
+		commonNamePrefix = "Coral Agent Intermediate CA"
+	default:
+		return fmt.Errorf("invalid certificate type: %s", typeStr)
 	}
 
-	return nil
+	// Generate new key.
+	newKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return fmt.Errorf("failed to generate new key: %w", err)
+	}
+
+	// Create new certificate template.
+	// We use a random serial number to avoid collisions.
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return fmt.Errorf("failed to generate serial number: %w", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"Coral"},
+			CommonName:   fmt.Sprintf("%s - %s", commonNamePrefix, m.colonyID),
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(1, 0, 0), // 1 year.
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLen:            0,
+	}
+
+	// Sign with Root CA.
+	certDER, err := x509.CreateCertificate(rand.Reader, template, m.rootCert, &newKey.PublicKey, m.loadRootKey())
+	if err != nil {
+		return fmt.Errorf("failed to create new intermediate certificate: %w", err)
+	}
+
+	// Archive current certificate and key.
+	// We rename them to .old.<timestamp>
+	timestamp := time.Now().Format("20060102150405")
+	oldCertPath := filepath.Join(m.caDir, certName+".crt")
+	oldKeyPath := filepath.Join(m.caDir, certName+".key")
+
+	if err := os.Rename(oldCertPath, filepath.Join(m.caDir, fmt.Sprintf("%s.old.%s.crt", certName, timestamp))); err != nil {
+		return fmt.Errorf("failed to archive old certificate: %w", err)
+	}
+	if err := os.Rename(oldKeyPath, filepath.Join(m.caDir, fmt.Sprintf("%s.old.%s.key", certName, timestamp))); err != nil {
+		return fmt.Errorf("failed to archive old key: %w", err)
+	}
+
+	// Save new certificate and key.
+	if err := m.saveCertAndKey(certName, certDER, newKey); err != nil {
+		return fmt.Errorf("failed to save new certificate and key: %w", err)
+	}
+
+	// Reload CA to pick up changes.
+	return m.loadCA()
+}
+
+// loadRootKey loads the root private key from disk.
+// This is a helper for rotation, as we don't keep the root key in memory by default for security.
+func (m *Manager) loadRootKey() *ecdsa.PrivateKey {
+	key, err := m.loadKey("root-ca")
+	if err != nil {
+		// In a real HSM scenario, this would handle the HSM connection.
+		// For embedded CA, we just load from disk.
+		// If it fails (e.g. permissions), we panic or return nil, but here we assume it's available if we are rotating.
+		return nil
+	}
+	return key
 }
 
 // GetCAFingerprint returns the root CA fingerprint.

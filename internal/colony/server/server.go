@@ -345,7 +345,7 @@ func (s *Server) ListTools(
 	}), nil
 }
 
-// RequestCertificate handles certificate issuance requests (RFD 022).
+// RequestCertificate handles certificate issuance requests (RFD 047).
 func (s *Server) RequestCertificate(
 	ctx context.Context,
 	req *connect.Request[colonyv1.RequestCertificateRequest],
@@ -364,26 +364,26 @@ func (s *Server) RequestCertificate(
 		Int("csr_size", len(req.Msg.Csr)).
 		Msg("Certificate request received")
 
-	// Validate bootstrap token.
-	claims, err := s.caManager.ValidateToken(req.Msg.Jwt)
+	// Validate referral ticket (stateless).
+	claims, err := s.caManager.ValidateReferralTicket(req.Msg.Jwt)
 	if err != nil {
 		s.logger.Warn().
 			Err(err).
-			Msg("Invalid bootstrap token")
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid bootstrap token: %w", err))
+			Msg("Invalid referral ticket")
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid referral ticket: %w", err))
 	}
 
 	// Verify colony match.
 	if claims.ColonyID != s.config.ColonyID {
 		s.logger.Warn().
-			Str("token_colony_id", claims.ColonyID).
+			Str("ticket_colony_id", claims.ColonyID).
 			Str("server_colony_id", s.config.ColonyID).
 			Msg("Colony ID mismatch")
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("colony ID mismatch"))
 	}
 
 	// Issue certificate.
-	certPEM, caChain, expiresAt, err := s.caManager.IssueCertificate(claims, req.Msg.Csr, req.Msg.Jwt)
+	certPEM, caChain, expiresAt, err := s.caManager.IssueCertificate(claims.AgentID, claims.ColonyID, req.Msg.Csr)
 	if err != nil {
 		s.logger.Error().
 			Err(err).

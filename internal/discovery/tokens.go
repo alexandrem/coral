@@ -2,8 +2,6 @@ package discovery
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -12,10 +10,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TokenManager handles bootstrap token issuance for agent certificate enrollment.
-// Implements RFD 022 - Embedded step-ca for Agent mTLS Bootstrap.
+// TokenManager handles referral ticket issuance for agent certificate enrollment.
+// Implements RFD 049 - Discovery-Based Agent Authorization.
 type TokenManager struct {
-	db         *sql.DB
 	signingKey []byte
 	defaultTTL time.Duration
 	issuer     string
@@ -31,19 +28,18 @@ type TokenConfig struct {
 }
 
 // NewTokenManager creates a new token manager instance.
-func NewTokenManager(db *sql.DB, cfg TokenConfig) *TokenManager {
+func NewTokenManager(cfg TokenConfig) *TokenManager {
 	if cfg.DefaultTTL == 0 {
-		cfg.DefaultTTL = 5 * time.Minute // Default 5-minute TTL per RFD 022.
+		cfg.DefaultTTL = 1 * time.Minute // Default 1-minute TTL per RFD 049.
 	}
 	if cfg.Issuer == "" {
-		cfg.Issuer = "reef-control"
+		cfg.Issuer = "coral-discovery"
 	}
 	if cfg.Audience == "" {
-		cfg.Audience = "colony-step-ca"
+		cfg.Audience = "coral-colony"
 	}
 
 	return &TokenManager{
-		db:         db,
 		signingKey: cfg.SigningKey,
 		defaultTTL: cfg.DefaultTTL,
 		issuer:     cfg.Issuer,
@@ -51,8 +47,8 @@ func NewTokenManager(db *sql.DB, cfg TokenConfig) *TokenManager {
 	}
 }
 
-// BootstrapClaims contains JWT claims for bootstrap tokens.
-type BootstrapClaims struct {
+// ReferralClaims contains JWT claims for referral tickets.
+type ReferralClaims struct {
 	ReefID   string `json:"reef_id"`
 	ColonyID string `json:"colony_id"`
 	AgentID  string `json:"agent_id"`
@@ -60,14 +56,14 @@ type BootstrapClaims struct {
 	jwt.RegisteredClaims
 }
 
-// CreateBootstrapToken creates a new single-use bootstrap token.
-func (tm *TokenManager) CreateBootstrapToken(reefID, colonyID, agentID, intent string) (string, int64, error) {
+// CreateReferralTicket creates a new stateless referral ticket.
+func (tm *TokenManager) CreateReferralTicket(reefID, colonyID, agentID, intent string) (string, int64, error) {
 	tokenID := uuid.New().String()
 	now := time.Now()
 	expiresAt := now.Add(tm.defaultTTL)
 
 	// Create JWT claims.
-	claims := &BootstrapClaims{
+	claims := &ReferralClaims{
 		ReefID:   reefID,
 		ColonyID: colonyID,
 		AgentID:  agentID,
@@ -88,21 +84,6 @@ func (tm *TokenManager) CreateBootstrapToken(reefID, colonyID, agentID, intent s
 		return "", 0, fmt.Errorf("failed to sign token: %w", err)
 	}
 
-	// Compute token hash for single-use tracking.
-	tokenHash := sha256.Sum256([]byte(tokenString))
-	tokenHashHex := hex.EncodeToString(tokenHash[:])
-
-	// Store token metadata.
-	_, err = tm.db.Exec(`
-		INSERT INTO bootstrap_tokens (
-			token_id, jwt_hash, reef_id, colony_id, agent_id, intent,
-			issued_at, expires_at, status
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
-	`, tokenID, tokenHashHex, reefID, colonyID, agentID, intent, now, expiresAt)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to store token metadata: %w", err)
-	}
-
 	return tokenString, expiresAt.Unix(), nil
 }
 
@@ -113,16 +94,4 @@ func generateSecureToken(length int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
-}
-
-// CleanupExpiredTokens removes expired tokens from the database.
-func (tm *TokenManager) CleanupExpiredTokens() error {
-	_, err := tm.db.Exec(`
-		DELETE FROM bootstrap_tokens
-		WHERE expires_at < ? AND status = 'active'
-	`, time.Now())
-	if err != nil {
-		return fmt.Errorf("failed to cleanup expired tokens: %w", err)
-	}
-	return nil
 }

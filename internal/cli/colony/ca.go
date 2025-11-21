@@ -191,20 +191,46 @@ WARNING: This is a sensitive operation. Use --confirm to proceed.`,
 			}
 
 			// Load colony config.
-			_, err = resolver.ResolveConfig(colonyID)
+			cfg, err := resolver.ResolveConfig(colonyID)
 			if err != nil {
 				return fmt.Errorf("failed to load colony config: %w", err)
 			}
 
-			// TODO: Implement actual rotation logic per RFD 047.
-			// This would involve:
-			// 1. Loading the current root CA from filesystem
-			// 2. Generating a new intermediate CA
-			// 3. Signing the new intermediate with the root
-			// 4. Saving the new intermediate to filesystem
-			// 5. Re-issuing server certificate if rotating server intermediate
+			// Open database (needed for CA manager initialization).
+			dbPath := fmt.Sprintf("%s/colony.db", cfg.StoragePath)
+			db, err := sql.Open("duckdb", dbPath)
+			if err != nil {
+				return fmt.Errorf("failed to open database: %w", err)
+			}
+			defer db.Close()
 
-			return fmt.Errorf("CA rotation not yet implemented - see RFD 047 Implementation Plan")
+			// CA directory path.
+			colonyDir := resolver.GetLoader().ColonyDir(cfg.ColonyID)
+			caDir := filepath.Join(colonyDir, "ca")
+
+			// Initialize CA manager.
+			// TODO: Use proper JWT signing key from config.
+			jwtSigningKey := []byte("temporary-signing-key-change-in-production")
+			manager, err := ca.NewManager(db, ca.Config{
+				ColonyID:      cfg.ColonyID,
+				CADir:         caDir,
+				JWTSigningKey: jwtSigningKey,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to initialize CA manager: %w", err)
+			}
+
+			// Perform rotation.
+			fmt.Printf("Rotating %s intermediate CA for colony %s...\n", certType, cfg.ColonyID)
+			if err := manager.RotateIntermediate(certType); err != nil {
+				return fmt.Errorf("failed to rotate intermediate CA: %w", err)
+			}
+
+			fmt.Println("Successfully rotated intermediate CA.")
+			fmt.Println("The old certificate has been archived.")
+			fmt.Println("You may need to restart services to pick up the new certificate if they cache it.")
+
+			return nil
 		},
 	}
 

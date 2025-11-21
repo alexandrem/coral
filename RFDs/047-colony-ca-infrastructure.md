@@ -348,7 +348,7 @@ Rotating Server Intermediate CA...
     - [x] `IssueCertificate` method for agent certificates
     - [x] `IssueServerCertificate` method for colony TLS
     - [x] `RevokeCertificate` method
-    - [x] Bootstrap token validation (`ValidateToken`)
+    - [x] Referral ticket validation (`ValidateReferralTicket`)
 
 ### Deferred to Other RFDs
 

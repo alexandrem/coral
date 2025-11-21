@@ -668,7 +668,7 @@ func (s *Server) CreateBootstrapToken(
 		Msg("Bootstrap token request received")
 
 	// Create bootstrap token.
-	jwt, expiresAt, err := s.tokenManager.CreateBootstrapToken(
+	jwt, expiresAt, err := s.tokenManager.CreateReferralTicket(
 		req.Msg.ReefId,
 		req.Msg.ColonyId,
 		req.Msg.AgentId,

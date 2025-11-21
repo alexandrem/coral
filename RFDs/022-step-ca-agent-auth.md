@@ -161,25 +161,25 @@ discovery:
 
 ## Implementation Plan
 
-### Phase 1: CA Embedding ✅ Complete
+### Phase 1: CA Embedding
 
-- [x] Vendor `go.step.sm/crypto` and expose a Colony CA manager.
-- [x] Implement migrations `004-step-ca-state` for CA metadata/tables.
-- [x] Wire CA key storage to the shared DuckDB datastore (with Postgres option)
+- [] Vendor `go.step.sm/crypto` and expose a Colony CA manager.
+- [] Implement migrations `004-step-ca-state` for CA metadata/tables.
+- [] Wire CA key storage to the shared DuckDB datastore (with Postgres option)
     + optional KMS envelope (placeholder for future KMS integration).
 
-### Phase 2: Bootstrap Tokens ✅ Complete
+### Phase 2: Bootstrap Tokens
 
-- [x] Define protobuf/REST APIs for `CreateBootstrapToken`,
+- [] Define protobuf/REST APIs for `CreateBootstrapToken`,
   `ConsumeBootstrapToken`.
-- [x] Implement `003-bootstrap-tokens` migration (token table + audit log).
-- [x] Discovery issues tokens scoped to `agent_id`, `colony_id`, Reef.
+- [] Implement `003-bootstrap-tokens` migration (token table + audit log).
+- [] Discovery issues tokens scoped to `agent_id`, `colony_id`, Reef.
 
-### Phase 5: Testing & Docs ✅ Complete
+### Phase 5: Testing & Docs
 
-- [x] Unit tests for token validation, CSR policy.
-- [x] Integration tests for server-side bootstrap flow.
-- [x] All existing tests passing with new infrastructure.
+- [] Unit tests for token validation, CSR policy.
+- [] Integration tests for server-side bootstrap flow.
+- [] All existing tests passing with new infrastructure.
 
 **Note:** Agent-side implementation moved to RFD 047 to keep this RFD focused on
 server-side infrastructure.

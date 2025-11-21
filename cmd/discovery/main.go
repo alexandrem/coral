@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"database/sql"
+
 	"flag"
 	"fmt"
 	"net"
@@ -15,8 +15,6 @@ import (
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
-
-	_ "github.com/marcboeker/go-duckdb"
 
 	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
 	"github.com/coral-io/coral/internal/constants"
@@ -81,64 +79,11 @@ func main() {
 	stopCh := make(chan struct{})
 	go reg.StartCleanup(time.Duration(*cleanupInterval)*time.Second, stopCh)
 
-	// Initialize database for bootstrap tokens (RFD 022).
-	// TODO: Make database path configurable.
-	dbPath := os.Getenv("CORAL_DISCOVERY_DB_PATH")
-	if dbPath == "" {
-		dbPath = "/tmp/coral-discovery.db"
-	}
-	db, err := sql.Open("duckdb", dbPath)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to open discovery database")
-	}
-	defer db.Close()
-
-	// Initialize bootstrap tokens table.
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS bootstrap_tokens (
-			token_id TEXT PRIMARY KEY,
-			jwt_hash TEXT NOT NULL UNIQUE,
-			reef_id TEXT NOT NULL,
-			colony_id TEXT NOT NULL,
-			agent_id TEXT NOT NULL,
-			intent TEXT NOT NULL,
-			issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			expires_at TIMESTAMP NOT NULL,
-			consumed_at TIMESTAMP,
-			consumed_by TEXT,
-			status TEXT NOT NULL DEFAULT 'active'
-		)
-	`)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to initialize bootstrap tokens table")
-	}
-
-	// Create token manager (RFD 022).
-	// TODO: Load JWT signing key from config or generate securely.
-	jwtSigningKey := []byte(os.Getenv("CORAL_JWT_SIGNING_KEY"))
-	if len(jwtSigningKey) == 0 {
-		jwtSigningKey = []byte("temporary-insecure-key-change-in-production")
-		logger.Warn().Msg("Using temporary JWT signing key - set CORAL_JWT_SIGNING_KEY environment variable in production")
-	}
-	tokenMgr := discovery.NewTokenManager(db, discovery.TokenConfig{
-		SigningKey: jwtSigningKey,
+	// Initialize token manager.
+	// TODO: Load signing key from config/secret.
+	tokenMgr := discovery.NewTokenManager(discovery.TokenConfig{
+		SigningKey: []byte("temporary-signing-key-change-in-production"),
 	})
-
-	// Start token cleanup goroutine.
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if err := tokenMgr.CleanupExpiredTokens(); err != nil {
-					logger.Error().Err(err).Msg("Failed to cleanup expired tokens")
-				}
-			case <-stopCh:
-				return
-			}
-		}
-	}()
 
 	// Create server
 	srv := server.New(reg, tokenMgr, version.Version, logger, stunServers)
