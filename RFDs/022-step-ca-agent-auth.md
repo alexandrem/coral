@@ -7,7 +7,7 @@ testing_required: true
 database_changes: true
 api_changes: true
 dependencies: [ "019", "020" ]
-related_rfds: [ "019", "020", "046" ]
+related_rfds: [ "019", "020", "047" ]
 database_migrations: [ "003-bootstrap-tokens", "004-step-ca-state" ]
 areas: [ "security", "colony", "agent", "discovery" ]
 ---
@@ -180,7 +180,7 @@ discovery:
 - [x] Integration tests for server-side bootstrap flow.
 - [x] All existing tests passing with new infrastructure.
 
-**Note:** Agent-side implementation moved to RFD 046 to keep this RFD focused on
+**Note:** Agent-side implementation moved to RFD 047 to keep this RFD focused on
 server-side infrastructure.
 
 **Note:** mTLS enforcement deferred to maintain backward compatibility during
@@ -379,7 +379,7 @@ following components are operational:
 The following features are explicitly deferred to future RFDs to keep RFD 022
 scoped to server-side infrastructure:
 
-**Agent Bootstrap Client** (RFD 046 - Agent Certificate Bootstrap
+**Agent Bootstrap Client** (RFD 047 - Agent Certificate Bootstrap
 Implementation)
 
 - Agent-side certificate request flow
