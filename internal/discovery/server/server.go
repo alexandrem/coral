@@ -13,26 +13,29 @@ import (
 
 	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
 	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
+	"github.com/coral-io/coral/internal/discovery"
 	"github.com/coral-io/coral/internal/discovery/registry"
 )
 
 // Server implements the DiscoveryService.
 type Server struct {
-	registry    *registry.Registry
-	version     string
-	startTime   time.Time
-	logger      zerolog.Logger
-	stunServers []string // Recommended fallback STUN servers (optional, clients may ignore)
+	registry     *registry.Registry
+	tokenManager *discovery.TokenManager // RFD 047/049 - bootstrap token management.
+	version      string
+	startTime    time.Time
+	logger       zerolog.Logger
+	stunServers  []string // Recommended fallback STUN servers (optional, clients may ignore)
 }
 
 // New creates a new discovery server.
-func New(reg *registry.Registry, version string, logger zerolog.Logger, stunServers []string) *Server {
+func New(reg *registry.Registry, tokenMgr *discovery.TokenManager, version string, logger zerolog.Logger, stunServers []string) *Server {
 	return &Server{
-		registry:    reg,
-		version:     version,
-		startTime:   time.Now(),
-		logger:      logger,
-		stunServers: stunServers,
+		registry:     reg,
+		tokenManager: tokenMgr,
+		version:      version,
+		startTime:    time.Now(),
+		logger:       logger,
+		stunServers:  stunServers,
 	}
 }
 
@@ -640,4 +643,54 @@ func (s *Server) extractAgentObservedEndpoint(req *connect.Request[discoveryv1.R
 	}
 
 	return nil
+}
+
+// CreateBootstrapToken handles bootstrap token creation requests (RFD 047/049).
+func (s *Server) CreateBootstrapToken(
+	ctx context.Context,
+	req *connect.Request[discoveryv1.CreateBootstrapTokenRequest],
+) (*connect.Response[discoveryv1.CreateBootstrapTokenResponse], error) {
+	// Validate request.
+	if req.Msg.AgentId == "" {
+		s.logger.Warn().Msg("Bootstrap token rejected: agent_id is required")
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("agent_id is required"))
+	}
+	if req.Msg.ColonyId == "" {
+		s.logger.Warn().Str("agent_id", req.Msg.AgentId).Msg("Bootstrap token rejected: colony_id is required")
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("colony_id is required"))
+	}
+
+	s.logger.Info().
+		Str("reef_id", req.Msg.ReefId).
+		Str("colony_id", req.Msg.ColonyId).
+		Str("agent_id", req.Msg.AgentId).
+		Str("intent", req.Msg.Intent).
+		Msg("Bootstrap token request received")
+
+	// Create bootstrap token.
+	jwt, expiresAt, err := s.tokenManager.CreateReferralTicket(
+		req.Msg.ReefId,
+		req.Msg.ColonyId,
+		req.Msg.AgentId,
+		req.Msg.Intent,
+	)
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("agent_id", req.Msg.AgentId).
+			Msg("Failed to create bootstrap token")
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	resp := &discoveryv1.CreateBootstrapTokenResponse{
+		Jwt:       jwt,
+		ExpiresAt: expiresAt,
+	}
+
+	s.logger.Info().
+		Str("agent_id", req.Msg.AgentId).
+		Int64("expires_at", expiresAt).
+		Msg("Bootstrap token created successfully")
+
+	return connect.NewResponse(resp), nil
 }

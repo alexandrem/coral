@@ -35,13 +35,20 @@ func (l *Loader) GlobalConfigPath() string {
 }
 
 // ColonyConfigPath returns the path to a colony's config file.
+// Config is stored at ~/.coral/colonies/<colony-id>/config.yaml
 func (l *Loader) ColonyConfigPath(colonyID string) string {
-	return filepath.Join(l.homeDir, constants.DefaultDir, "colonies", fmt.Sprintf("%s.yaml", colonyID))
+	return filepath.Join(l.homeDir, constants.DefaultDir, "colonies", colonyID, "config.yaml")
 }
 
 // ColoniesDir returns the path to the colonies directory.
 func (l *Loader) ColoniesDir() string {
 	return filepath.Join(l.homeDir, constants.DefaultDir, "colonies")
+}
+
+// ColonyDir returns the path to a specific colony's directory.
+// This is where the colony's CA and other data are stored.
+func (l *Loader) ColonyDir(colonyID string) string {
+	return filepath.Join(l.homeDir, constants.DefaultDir, "colonies", colonyID)
 }
 
 // LoadGlobalConfig loads the global configuration.
@@ -163,10 +170,11 @@ func (l *Loader) SaveColonyConfig(config *ColonyConfig) error {
 }
 
 // ListColonies returns all configured colony IDs.
+// Looks for directories containing config.yaml files.
 func (l *Loader) ListColonies() ([]string, error) {
 	coloniesDir := l.ColoniesDir()
 
-	// Return empty list if directory doesn't exist
+	// Return empty list if directory doesn't exist.
 	if _, err := os.Stat(coloniesDir); os.IsNotExist(err) {
 		return []string{}, nil
 	}
@@ -178,14 +186,14 @@ func (l *Loader) ListColonies() ([]string, error) {
 
 	var colonyIDs []string
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if !entry.IsDir() {
 			continue
 		}
 
-		name := entry.Name()
-		if filepath.Ext(name) == ".yaml" {
-			colonyID := name[:len(name)-5] // Remove .yaml extension
-			colonyIDs = append(colonyIDs, colonyID)
+		// Check if this directory has a config.yaml file.
+		configPath := filepath.Join(coloniesDir, entry.Name(), "config.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			colonyIDs = append(colonyIDs, entry.Name())
 		}
 	}
 

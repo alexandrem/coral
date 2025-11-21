@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -57,6 +58,7 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMCPCmd())
+	cmd.AddCommand(NewCACmd()) // RFD 047 - CA management commands.
 
 	return cmd
 }
@@ -1352,6 +1354,14 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		discoveryClient: discoveryClient,
 	}
 
+	// Initialize CA manager (RFD 047 - Colony CA Infrastructure).
+	jwtSigningKey := []byte(cfg.ColonySecret) // Use colony secret as JWT signing key for now.
+	caDir := filepath.Join(cfg.StoragePath, "ca")
+	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwtSigningKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
+	}
+
 	// Create colony service handler
 	colonyServerConfig := server.Config{
 		ColonyID:           cfg.ColonyID,
@@ -1366,7 +1376,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		MeshIPv4:           cfg.WireGuard.MeshIPv4,
 		MeshIPv6:           cfg.WireGuard.MeshIPv6,
 	}
-	colonySvc := server.New(agentRegistry, db, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
+	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
 	// Initialize MCP server (RFD 004 - MCP server integration).
 	// Load colony config for MCP settings.
