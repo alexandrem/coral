@@ -108,6 +108,655 @@ tls:
 auto_issue_certificates: true
 ```
 
+## Policy-Based Authorization with Discovery Referral Tickets
+
+### Problem: Unrestricted Certificate Issuance
+
+With only CA fingerprint validation, any entity with the fingerprint can request unlimited certificates:
+
+```
+Attacker has CA fingerprint
+→ Submits CSRs to colony
+→ Colony auto-issues certificates
+→ ⚠️ No authorization layer, only rate limiting
+```
+
+### Solution: Discovery Referral Tickets
+
+Add an authorization layer where Discovery issues short-lived **referral tickets** that Colony validates before issuing certificates. Colony stores signed authorization policies at Discovery during initialization, enabling Discovery to enforce colony-specific rules.
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Colony Initialization                                        │
+└──────────────────────────────────────────────────────────────┘
+
+$ coral colony init my-app-prod
+
+Generated Certificate Authority + Policy Signing Key
+  Root CA:                     ~/.coral/colonies/.../ca/root-ca.crt
+  Bootstrap Intermediate:      ~/.coral/colonies/.../ca/bootstrap-intermediate.crt
+  Agent Intermediate:          ~/.coral/colonies/.../ca/agent-intermediate.crt
+  Policy Signing Key (Ed25519): ~/.coral/colonies/.../ca/policy-key.key
+
+Pushing authorization policy to Discovery...
+  ✓ Policy signed and uploaded
+  ✓ Discovery validates signature
+  ✓ Policy active (version: 1)
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ Agent Bootstrap Flow with Referral Ticket                   │
+└──────────────────────────────────────────────────────────────┘
+
+Agent → Discovery: RequestReferralTicket(colony_id, agent_id)
+           Discovery checks policy (rate limits, quotas, allow/deny lists)
+           Discovery → Agent: JWT ticket (1-minute TTL)
+
+Agent → Colony: RequestCertificate(CSR, referral_ticket)
+           Colony validates JWT signature (Discovery public key)
+           Colony validates ticket expiry and colony_id match
+           Colony issues certificate
+
+Agent → Colony: RegisterAgent (mTLS with certificate)
+```
+
+### Policy Document Structure
+
+Colony defines authorization policies in YAML, signs them, and pushes to Discovery:
+
+```yaml
+# Policy document (stored at Discovery)
+colony_id: my-app-prod-a3f2e1
+policy_version: 1
+created_at: "2024-11-21T10:30:00Z"
+expires_at: "2025-11-21T10:30:00Z"  # Policy valid for 1 year
+
+# Referral ticket issuance policies
+referral_tickets:
+  enabled: true
+  ttl: 60  # Ticket lifetime in seconds (1 minute)
+
+  rate_limits:
+    per_agent_per_hour: 10      # Max tickets per agent_id per hour
+    per_source_ip_per_hour: 100 # Max tickets per source IP per hour
+    per_colony_per_hour: 1000   # Max tickets for entire colony per hour
+
+  quotas:
+    max_active_agents: 10000    # Total agent limit for colony
+    max_new_agents_per_day: 100 # Daily new agent registration limit
+
+  # Agent ID validation rules
+  agent_id_policy:
+    allowed_prefixes: ["web-", "worker-", "db-", "cache-"]  # Optional prefix allowlist
+    denied_patterns: ["test-*", "dev-*"]                     # Deny test/dev in production
+    max_length: 64
+    regex: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"  # Kubernetes-compatible names
+
+  # IP-based access control (optional)
+  allowed_cidrs:
+    - "10.0.0.0/8"      # Private network
+    - "172.16.0.0/12"   # Private network
+    - "192.168.0.0/16"  # Private network
+
+  denied_cidrs:
+    - "192.168.100.0/24"  # Known malicious subnet
+
+# Certificate Signing Request validation policies
+csr_policies:
+  allowed_key_types: ["ed25519", "ecdsa-p256"]
+  min_key_size: 256
+  max_validity_days: 90
+
+  required_subject_fields:
+    common_name: true    # Must have CN (agent_id)
+    organization: true   # Must have O (colony_id)
+
+# Monitoring and alerting
+monitoring:
+  alert_on_rate_limit_exceeded: true
+  alert_on_denied_request: true
+  alert_threshold_per_hour: 50  # Alert if single agent_id exceeds this
+
+# Signature (Ed25519)
+# Computed over canonical JSON of above fields
+signature: "base64-encoded-ed25519-signature"
+```
+
+### Colony Policy Initialization
+
+```go
+// internal/colony/policy/policy.go
+
+type ColonyPolicy struct {
+    ColonyID       string                 `json:"colony_id"`
+    PolicyVersion  int                    `json:"policy_version"`
+    CreatedAt      time.Time              `json:"created_at"`
+    ExpiresAt      time.Time              `json:"expires_at"`
+
+    ReferralTickets ReferralTicketPolicy  `json:"referral_tickets"`
+    CSRPolicies     CSRPolicy             `json:"csr_policies"`
+    Monitoring      MonitoringPolicy      `json:"monitoring"`
+}
+
+type ReferralTicketPolicy struct {
+    Enabled        bool              `json:"enabled"`
+    TTL            int               `json:"ttl"`
+    RateLimits     RateLimits        `json:"rate_limits"`
+    Quotas         Quotas            `json:"quotas"`
+    AgentIDPolicy  AgentIDPolicy     `json:"agent_id_policy"`
+    AllowedCIDRs   []string          `json:"allowed_cidrs,omitempty"`
+    DeniedCIDRs    []string          `json:"denied_cidrs,omitempty"`
+}
+
+func (c *Colony) InitializePolicy() (*SignedPolicy, error) {
+    // Create default policy
+    policy := &ColonyPolicy{
+        ColonyID:      c.ID,
+        PolicyVersion: 1,
+        CreatedAt:     time.Now(),
+        ExpiresAt:     time.Now().AddDate(1, 0, 0), // 1 year
+
+        ReferralTickets: ReferralTicketPolicy{
+            Enabled: true,
+            TTL:     60,
+            RateLimits: RateLimits{
+                PerAgentPerHour:    10,
+                PerSourceIPPerHour: 100,
+                PerColonyPerHour:   1000,
+            },
+            Quotas: Quotas{
+                MaxActiveAgents:    10000,
+                MaxNewAgentsPerDay: 100,
+            },
+            AgentIDPolicy: AgentIDPolicy{
+                MaxLength: 64,
+                Regex:     "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+            },
+        },
+
+        CSRPolicies: CSRPolicy{
+            AllowedKeyTypes:   []string{"ed25519", "ecdsa-p256"},
+            MinKeySize:        256,
+            MaxValidityDays:   90,
+            RequiredSubjectFields: RequiredFields{
+                CommonName:   true,
+                Organization: true,
+            },
+        },
+
+        Monitoring: MonitoringPolicy{
+            AlertOnRateLimitExceeded: true,
+            AlertOnDeniedRequest:     true,
+            AlertThresholdPerHour:    50,
+        },
+    }
+
+    // Sign policy with colony's policy signing key
+    signedPolicy, err := c.signPolicy(policy)
+    if err != nil {
+        return nil, fmt.Errorf("failed to sign policy: %w", err)
+    }
+
+    return signedPolicy, nil
+}
+
+func (c *Colony) signPolicy(policy *ColonyPolicy) (*SignedPolicy, error) {
+    // Serialize to canonical JSON
+    canonicalJSON, err := json.MarshalIndent(policy, "", "  ")
+    if err != nil {
+        return nil, err
+    }
+
+    // Sign with Ed25519 policy signing key
+    signature := ed25519.Sign(c.policySigningKey, canonicalJSON)
+
+    return &SignedPolicy{
+        Policy:       policy,
+        Signature:    base64.StdEncoding.EncodeToString(signature),
+        PublicKey:    base64.StdEncoding.EncodeToString(c.policySigningKey.Public().(ed25519.PublicKey)),
+        SigningKeyID: c.policyKeyID,
+    }, nil
+}
+```
+
+### Push Policy to Discovery
+
+```go
+// internal/colony/policy/push.go
+
+func (c *Colony) PushPolicyToDiscovery(signedPolicy *SignedPolicy) error {
+    client := discovery.NewDiscoveryServiceClient(c.discoveryConn)
+
+    req := &discoveryv1.UpsertColonyPolicyRequest{
+        ColonyId:     c.ID,
+        Policy:       mustMarshalJSON(signedPolicy.Policy),
+        Signature:    signedPolicy.Signature,
+        PublicKey:    signedPolicy.PublicKey,
+        SigningKeyId: signedPolicy.SigningKeyID,
+    }
+
+    resp, err := client.UpsertColonyPolicy(context.Background(), connect.NewRequest(req))
+    if err != nil {
+        return fmt.Errorf("failed to push policy: %w", err)
+    }
+
+    log.Info().
+        Str("colony_id", c.ID).
+        Int("policy_version", signedPolicy.Policy.PolicyVersion).
+        Str("policy_key_id", signedPolicy.SigningKeyID).
+        Msg("Policy pushed to Discovery")
+
+    return nil
+}
+```
+
+### Discovery Policy Storage and Validation
+
+```go
+// Discovery service: internal/discovery/policy/store.go
+
+func (s *DiscoveryServer) UpsertColonyPolicy(
+    ctx context.Context,
+    req *connect.Request[discoveryv1.UpsertColonyPolicyRequest],
+) (*connect.Response[discoveryv1.UpsertColonyPolicyResponse], error) {
+
+    // Parse policy
+    var policy ColonyPolicy
+    if err := json.Unmarshal(req.Msg.Policy, &policy); err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    }
+
+    // Validate colony_id matches
+    if policy.ColonyID != req.Msg.ColonyId {
+        return nil, connect.NewError(
+            connect.CodeInvalidArgument,
+            fmt.Errorf("policy colony_id mismatch"),
+        )
+    }
+
+    // Decode signature and public key
+    signature, err := base64.StdEncoding.DecodeString(req.Msg.Signature)
+    if err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    }
+
+    publicKey, err := base64.StdEncoding.DecodeString(req.Msg.PublicKey)
+    if err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    }
+
+    // Verify Ed25519 signature
+    if !ed25519.Verify(publicKey, req.Msg.Policy, signature) {
+        return nil, connect.NewError(
+            connect.CodePermissionDenied,
+            fmt.Errorf("invalid policy signature"),
+        )
+    }
+
+    // Validate policy structure
+    if err := s.validatePolicyStructure(&policy); err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    }
+
+    // Store policy in database
+    if err := s.db.UpsertColonyPolicy(ctx, &StoredPolicy{
+        ColonyID:      req.Msg.ColonyId,
+        Policy:        req.Msg.Policy,
+        Signature:     req.Msg.Signature,
+        PublicKey:     req.Msg.PublicKey,
+        SigningKeyID:  req.Msg.SigningKeyId,
+        Version:       policy.PolicyVersion,
+        UploadedAt:    time.Now(),
+        ExpiresAt:     policy.ExpiresAt,
+    }); err != nil {
+        return nil, connect.NewError(connect.CodeInternal, err)
+    }
+
+    log.Info().
+        Str("colony_id", req.Msg.ColonyId).
+        Int("policy_version", policy.PolicyVersion).
+        Msg("Colony policy stored")
+
+    return connect.NewResponse(&discoveryv1.UpsertColonyPolicyResponse{
+        Success:       true,
+        PolicyVersion: int32(policy.PolicyVersion),
+    }), nil
+}
+```
+
+### Discovery Referral Ticket Issuance
+
+```go
+// Discovery service: internal/discovery/referral/ticket.go
+
+func (s *DiscoveryServer) RequestReferralTicket(
+    ctx context.Context,
+    req *connect.Request[discoveryv1.RequestReferralTicketRequest],
+) (*connect.Response[discoveryv1.RequestReferralTicketResponse], error) {
+
+    colonyID := req.Msg.ColonyId
+    agentID := req.Msg.AgentId
+    sourceIP := extractSourceIP(ctx)
+
+    // Load colony policy
+    policy, err := s.db.GetColonyPolicy(ctx, colonyID)
+    if err != nil {
+        return nil, connect.NewError(connect.CodeNotFound, err)
+    }
+
+    if !policy.ReferralTickets.Enabled {
+        return nil, connect.NewError(
+            connect.CodePermissionDenied,
+            fmt.Errorf("referral tickets disabled for colony"),
+        )
+    }
+
+    // Check rate limits
+    if err := s.checkRateLimits(ctx, policy, agentID, sourceIP); err != nil {
+        log.Warn().
+            Str("colony_id", colonyID).
+            Str("agent_id", agentID).
+            Str("source_ip", sourceIP).
+            Err(err).
+            Msg("Rate limit exceeded")
+
+        return nil, connect.NewError(connect.CodeResourceExhausted, err)
+    }
+
+    // Check quotas
+    if err := s.checkQuotas(ctx, policy, agentID); err != nil {
+        return nil, connect.NewError(connect.CodeResourceExhausted, err)
+    }
+
+    // Validate agent_id against policy
+    if err := s.validateAgentID(policy, agentID); err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    }
+
+    // Check IP allowlist/denylist
+    if err := s.checkIPPolicy(policy, sourceIP); err != nil {
+        return nil, connect.NewError(connect.CodePermissionDenied, err)
+    }
+
+    // Issue referral ticket (JWT)
+    ticket, err := s.issueReferralTicket(colonyID, agentID, policy.ReferralTickets.TTL)
+    if err != nil {
+        return nil, connect.NewError(connect.CodeInternal, err)
+    }
+
+    // Track issuance for rate limiting
+    s.recordTicketIssuance(ctx, colonyID, agentID, sourceIP)
+
+    log.Info().
+        Str("colony_id", colonyID).
+        Str("agent_id", agentID).
+        Str("source_ip", sourceIP).
+        Msg("Referral ticket issued")
+
+    return connect.NewResponse(&discoveryv1.RequestReferralTicketResponse{
+        Ticket:    ticket,
+        ExpiresAt: timestamppb.New(time.Now().Add(time.Duration(policy.ReferralTickets.TTL) * time.Second)),
+    }), nil
+}
+
+func (s *DiscoveryServer) issueReferralTicket(colonyID, agentID string, ttl int) (string, error) {
+    claims := jwt.MapClaims{
+        "iss":       "coral-discovery",
+        "sub":       agentID,
+        "colony_id": colonyID,
+        "iat":       time.Now().Unix(),
+        "exp":       time.Now().Add(time.Duration(ttl) * time.Second).Unix(),
+        "jti":       uuid.New().String(),  // Unique ticket ID
+    }
+
+    token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+
+    // Sign with Discovery's Ed25519 key
+    return token.SignedString(s.ticketSigningKey)
+}
+
+func (s *DiscoveryServer) validateAgentID(policy *ColonyPolicy, agentID string) error {
+    ap := policy.ReferralTickets.AgentIDPolicy
+
+    // Check length
+    if len(agentID) > ap.MaxLength {
+        return fmt.Errorf("agent_id exceeds max length %d", ap.MaxLength)
+    }
+
+    // Check regex
+    if ap.Regex != "" {
+        matched, _ := regexp.MatchString(ap.Regex, agentID)
+        if !matched {
+            return fmt.Errorf("agent_id does not match required pattern")
+        }
+    }
+
+    // Check prefix allowlist
+    if len(ap.AllowedPrefixes) > 0 {
+        allowed := false
+        for _, prefix := range ap.AllowedPrefixes {
+            if strings.HasPrefix(agentID, prefix) {
+                allowed = true
+                break
+            }
+        }
+        if !allowed {
+            return fmt.Errorf("agent_id prefix not in allowlist")
+        }
+    }
+
+    // Check denied patterns
+    for _, pattern := range ap.DeniedPatterns {
+        matched, _ := filepath.Match(pattern, agentID)
+        if matched {
+            return fmt.Errorf("agent_id matches denied pattern: %s", pattern)
+        }
+    }
+
+    return nil
+}
+```
+
+### Agent Referral Ticket Request
+
+```go
+// Agent: internal/agent/bootstrap/referral.go
+
+func (a *Agent) requestReferralTicket(ctx context.Context, colonyID string) (string, error) {
+    client := discovery.NewDiscoveryServiceClient(a.discoveryConn)
+
+    req := &discoveryv1.RequestReferralTicketRequest{
+        ColonyId: colonyID,
+        AgentId:  a.agentID,
+    }
+
+    resp, err := client.RequestReferralTicket(ctx, connect.NewRequest(req))
+    if err != nil {
+        // Handle specific errors
+        if connect.CodeOf(err) == connect.CodeResourceExhausted {
+            return "", fmt.Errorf("rate limit exceeded - too many bootstrap attempts")
+        }
+        if connect.CodeOf(err) == connect.CodePermissionDenied {
+            return "", fmt.Errorf("agent not authorized for this colony")
+        }
+        return "", fmt.Errorf("failed to get referral ticket: %w", err)
+    }
+
+    log.Info().
+        Str("colony_id", colonyID).
+        Str("agent_id", a.agentID).
+        Time("expires_at", resp.Msg.ExpiresAt.AsTime()).
+        Msg("Received referral ticket from Discovery")
+
+    return resp.Msg.Ticket, nil
+}
+```
+
+### Colony Ticket Validation and Certificate Issuance
+
+```go
+// Colony: internal/colony/ca/issuer.go
+
+func (s *ColonyServer) RequestCertificate(
+    ctx context.Context,
+    req *connect.Request[colonyv1.RequestCertificateRequest],
+) (*connect.Response[colonyv1.RequestCertificateResponse], error) {
+
+    // Validate referral ticket (JWT from Discovery)
+    claims, err := s.validateReferralTicket(req.Msg.ReferralTicket)
+    if err != nil {
+        log.Warn().Err(err).Msg("Invalid referral ticket")
+        return nil, connect.NewError(connect.CodePermissionDenied, err)
+    }
+
+    // Parse CSR
+    csr, err := x509.ParseCertificateRequest(req.Msg.Csr)
+    if err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    }
+
+    // Validate CSR signature
+    if err := csr.CheckSignature(); err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    }
+
+    // Extract agent_id from CN
+    agentID := csr.Subject.CommonName
+
+    // Verify agent_id matches ticket
+    if agentID != claims["sub"].(string) {
+        return nil, connect.NewError(
+            connect.CodePermissionDenied,
+            fmt.Errorf("agent_id mismatch between ticket and CSR"),
+        )
+    }
+
+    // Verify colony_id matches ticket
+    if s.colonyID != claims["colony_id"].(string) {
+        return nil, connect.NewError(
+            connect.CodePermissionDenied,
+            fmt.Errorf("colony_id mismatch in ticket"),
+        )
+    }
+
+    log.Info().
+        Str("agent_id", agentID).
+        Str("ticket_jti", claims["jti"].(string)).
+        Msg("Issuing certificate (referral ticket validated)")
+
+    // Sign with Agent Intermediate CA
+    cert, err := s.issueAgentCertificate(csr)
+    if err != nil {
+        return nil, connect.NewError(connect.CodeInternal, err)
+    }
+
+    // Store certificate metadata
+    if err := s.db.StoreCertificate(&CertificateRecord{
+        AgentID:      agentID,
+        SerialNumber: cert.SerialNumber.String(),
+        IssuedAt:     cert.NotBefore,
+        ExpiresAt:    cert.NotAfter,
+        TicketJTI:    claims["jti"].(string),  // Track which ticket was used
+        Revoked:      false,
+    }); err != nil {
+        return nil, connect.NewError(connect.CodeInternal, err)
+    }
+
+    return connect.NewResponse(&colonyv1.RequestCertificateResponse{
+        Certificate: encodePEM(cert),
+        CaChain:     s.getCAChain(),
+        ExpiresAt:   timestamppb.New(cert.NotAfter),
+    }), nil
+}
+
+func (s *ColonyServer) validateReferralTicket(tokenString string) (jwt.MapClaims, error) {
+    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+        // Validate signing method
+        if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
+            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+        }
+
+        // Return Discovery's public key for verification
+        return s.discoveryPublicKey, nil
+    })
+
+    if err != nil {
+        return nil, fmt.Errorf("failed to parse ticket: %w", err)
+    }
+
+    if !token.Valid {
+        return nil, fmt.Errorf("invalid ticket")
+    }
+
+    claims, ok := token.Claims.(jwt.MapClaims)
+    if !ok {
+        return nil, fmt.Errorf("invalid claims format")
+    }
+
+    // Validate issuer
+    if claims["iss"] != "coral-discovery" {
+        return nil, fmt.Errorf("invalid issuer")
+    }
+
+    // Check expiration (should be within 1 minute)
+    exp := int64(claims["exp"].(float64))
+    if time.Now().Unix() > exp {
+        return nil, fmt.Errorf("ticket expired")
+    }
+
+    return claims, nil
+}
+```
+
+### Updated Bootstrap Sequence
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Discovery
+    participant Colony
+    participant AgentCA as Agent Intermediate CA
+
+    Note over Agent: No certificate, start bootstrap
+
+    Agent->>Discovery: RequestReferralTicket(colony_id, agent_id)
+    Discovery->>Discovery: Load colony policy
+    Discovery->>Discovery: Check rate limits, quotas, IP policy
+    Discovery->>Discovery: Validate agent_id against policy
+    Discovery->>Agent: JWT ticket (1-min TTL)
+
+    Agent->>Colony: TLS Handshake
+    Colony-->>Agent: TLS cert chain (Server → Bootstrap Int → Root CA)
+
+    Agent->>Agent: Extract Root CA, compute fingerprint
+    Agent->>Agent: Validate: fingerprint == CORAL_CA_FINGERPRINT
+
+    alt Fingerprint mismatch
+        Agent->>Agent: ❌ MITM detected - ABORT
+    end
+
+    Note over Agent: ✓ Trust established
+
+    Agent->>Agent: Generate Ed25519 keypair
+    Agent->>Agent: Create CSR (CN=agent-id, O=colony-id)
+
+    Agent->>Colony: RequestCertificate(CSR, referral_ticket)
+    Colony->>Colony: Validate JWT signature (Discovery pubkey)
+    Colony->>Colony: Validate ticket expiry
+    Colony->>Colony: Verify agent_id matches ticket
+    Colony->>Colony: Verify colony_id matches ticket
+    Colony->>AgentCA: Sign CSR with Agent Intermediate
+    AgentCA-->>Colony: Client certificate
+    Colony-->>Agent: Certificate + CA chain
+
+    Agent->>Agent: Save cert + key to disk
+    Note over Agent: Bootstrap complete
+
+    Agent->>Colony: RegisterAgent (mTLS)
+```
+
 ## Agent Bootstrap Flow
 
 ### Deployment
@@ -496,11 +1145,14 @@ Agents automatically validate against Root CA, so intermediate rotation is trans
 
 | Attack | Protection |
 |--------|-----------|
-| **Discovery MITM** | Agent validates Root CA fingerprint, aborts on mismatch |
-| **CA fingerprint leaked** | Cannot join colony (still need certificate), can monitor/rate-limit |
-| **Agent certificate stolen** | Individual revocation, certificate expires in 90 days |
-| **Intermediate CA compromised** | Rotate intermediate, Root CA remains trusted |
-| **Root CA compromised** | Nuclear option: Re-initialize colony with new Root CA, new fingerprint |
+| **Discovery MITM** | Agent validates Root CA fingerprint, aborts on mismatch ✅ |
+| **CA fingerprint leaked** | Need referral ticket from Discovery (rate-limited, policy-controlled) ✅ |
+| **Fake agent registration** | Discovery enforces rate limits, quotas, agent ID policies, IP allowlists ✅ |
+| **Agent certificate stolen** | Individual revocation, certificate expires in 90 days ✅ |
+| **Intermediate CA compromised** | Rotate intermediate, Root CA remains trusted ✅ |
+| **Root CA compromised** | Nuclear option: Re-initialize colony with new Root CA, new fingerprint ⚠️ |
+| **Discovery referral ticket stolen** | 1-minute TTL, single-use (tracked by jti), agent_id binding ✅ |
+| **Mass agent registration attack** | Per-IP rate limits, per-colony quotas, monitoring/alerting ✅ |
 
 ### Fingerprint Distribution Security
 
@@ -523,14 +1175,24 @@ coral agent start
 - Only validates "talking to correct colony"
 - Cannot be used to join colony without certificate
 
-**Compromise scenario:**
+**Compromise scenario with referral tickets:**
 ```
 Attacker has CA fingerprint
-→ Submits CSR to colony
-→ Colony issues certificate
-→ Colony can: rate limit, alert, monitor, revoke
+→ Requests referral ticket from Discovery
+→ Discovery enforces: rate limits, quotas, agent ID policy, IP allowlists
+→ Discovery issues ticket (if authorized)
+→ Attacker submits CSR + ticket to Colony
+→ Colony validates ticket and issues certificate
+→ Colony/Discovery can: rate limit, alert, monitor, revoke, block by IP/agent_id
 → Much better than current colony_secret (unlimited access)
 ```
+
+**Defense in depth:**
+1. **CA fingerprint**: Prevents MITM attacks during bootstrap
+2. **Referral ticket**: Adds authorization layer before certificate issuance
+3. **Policy enforcement**: Colony-defined rules enforced by Discovery
+4. **Rate limiting**: Prevents mass registration attacks
+5. **Monitoring**: Detects suspicious patterns and alerts operators
 
 ## Comparison with Alternatives
 
@@ -571,25 +1233,52 @@ Attacker has CA fingerprint
 - [ ] Implement Root CA generation (10-year validity)
 - [ ] Implement Bootstrap Intermediate CA generation
 - [ ] Implement Agent Intermediate CA generation
+- [ ] Generate policy signing key (Ed25519)
 - [ ] Compute and display Root CA fingerprint
 - [ ] Save CA hierarchy to disk with proper permissions
 - [ ] Add `coral colony ca status` command
 - [ ] Add `coral colony ca rotate-intermediate` command
 
+### Colony Policy Management
+- [ ] Implement policy structure and defaults
+- [ ] Implement policy signing with Ed25519
+- [ ] Implement policy push to Discovery
+- [ ] Add `coral colony policy show` command
+- [ ] Add `coral colony policy update` command
+- [ ] Add `coral colony policy push` command
+
+### Discovery Service
+- [ ] Implement policy storage and validation
+- [ ] Add `UpsertColonyPolicy` RPC endpoint
+- [ ] Add `GetColonyPolicy` RPC endpoint
+- [ ] Implement referral ticket issuance
+- [ ] Add `RequestReferralTicket` RPC endpoint
+- [ ] Implement rate limiting (per-agent, per-IP, per-colony)
+- [ ] Implement quota tracking
+- [ ] Implement agent ID validation (regex, prefixes, deny patterns)
+- [ ] Implement IP allowlist/denylist checks
+- [ ] Store Discovery signing key for JWT tickets
+- [ ] Add monitoring/alerting for denied requests
+
 ### Agent Bootstrap
+- [ ] Implement referral ticket request from Discovery
 - [ ] Implement CA fingerprint validation
 - [ ] Extract Root CA from TLS certificate chain
 - [ ] Validate chain integrity (intermediates → root)
 - [ ] Generate Ed25519 keypair
 - [ ] Create CSR with proper CN/SAN
-- [ ] Request certificate from colony
+- [ ] Request certificate from colony with referral ticket
+- [ ] Handle rate limit and permission errors gracefully
 - [ ] Save certificate + CA chain locally
 
 ### Colony Certificate Issuance
-- [ ] Remove JWT token validation
-- [ ] Implement auto-issuance on valid CSR
-- [ ] Add rate limiting (per-agent, per-colony)
-- [ ] Add monitoring/alerting for abuse
+- [ ] Implement referral ticket validation (JWT)
+- [ ] Verify ticket signature with Discovery public key
+- [ ] Verify agent_id and colony_id match ticket claims
+- [ ] Check ticket expiration
+- [ ] Implement auto-issuance on valid CSR + ticket
+- [ ] Store ticket JTI in certificate record
+- [ ] Add monitoring/alerting for invalid tickets
 - [ ] Store certificate metadata in database
 - [ ] Implement certificate revocation
 
