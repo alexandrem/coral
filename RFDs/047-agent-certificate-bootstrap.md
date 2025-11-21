@@ -92,17 +92,19 @@ Generated Certificate Authority (Hierarchical):
   Root CA (10-year validity)
     ├─ Bootstrap Intermediate CA (1-year)
     │   └─ Colony TLS Server Certificate
-    └─ Agent Intermediate CA (1-year)
-        └─ Signs agent client certificates
-
-Policy Signing Key (Ed25519): Generated for signing authorization policies
+    ├─ Agent Intermediate CA (1-year)
+    │   └─ Signs agent client certificates
+    └─ Policy Signing Certificate (10-year)
+        └─ Signs policy documents
 
 Root CA Fingerprint (distribute to agents):
   sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
 
 Pushing authorization policy to Discovery...
-  ✓ Policy signed and uploaded
-  ✓ Discovery validates signature
+  ✓ Policy signed with policy certificate
+  ✓ Discovery validates certificate chain (Policy Cert → Root CA)
+  ✓ Discovery locks colony ID to Root CA fingerprint
+  ✓ Policy active (version: 1)
 
 Deploy agents with:
   export CORAL_COLONY_ID=my-app-prod-a3f2e1
@@ -177,9 +179,13 @@ Root CA (10-year validity, offline/HSM)
   │   └─ Colony TLS Server Certificate
   │       └─ Used for HTTPS endpoint (agents validate this chain)
   │
-  └─ Agent Intermediate CA (1-year, rotatable)
-      └─ Agent Client Certificates
-          └─ Used for mTLS authentication
+  ├─ Agent Intermediate CA (1-year, rotatable)
+  │   └─ Agent Client Certificates
+  │       └─ Used for mTLS authentication
+  │
+  └─ Policy Signing Certificate (10-year, same lifetime as Root CA)
+      └─ Signs policy documents
+          └─ Used for authorization policies pushed to Discovery
 ```
 
 **Why Hierarchical?**
@@ -187,7 +193,8 @@ Root CA (10-year validity, offline/HSM)
 - **Security**: Root CA private key stored offline/HSM, minimizes exposure
 - **Rotation**: Rotate intermediates annually without changing agent configs
 - **Operational**: Agents validate Root CA fingerprint (never changes)
-- **Flexibility**: Can issue new intermediates for different purposes
+- **Flexibility**: Can issue new intermediates/certificates for different purposes
+- **Colony ID reservation**: Policy cert chains to Root CA, locking colony IDs
 - **Best Practice**: Follows X.509/RFC 5280 standards
 
 ### Colony Initialization
@@ -425,8 +432,9 @@ security:
     - Generate Root CA (10-year validity)
     - Generate Bootstrap Intermediate CA (1-year validity)
     - Generate Agent Intermediate CA (1-year validity)
+    - Generate policy signing certificate (signed by Root CA, 10-year validity)
+    - Generate policy signing Ed25519 keypair
     - Generate colony TLS server certificate
-    - Generate policy signing key (Ed25519)
     - Compute and display Root CA fingerprint
     - Save CA hierarchy with proper permissions
 
@@ -439,8 +447,13 @@ security:
 
 3. **Discovery Policy Storage** (`internal/discovery/policy/`)
     - Accept and validate signed colony policies
-    - Verify Ed25519 signatures on policies
-    - Store policies in database with versioning
+    - Verify policy certificate chain (Policy Cert → Root CA)
+    - Register new colonies (lock colony_id to Root CA fingerprint)
+    - Verify Root CA fingerprint matches for existing colonies
+    - Detect and prevent colony impersonation attempts
+    - Verify Ed25519 signatures on policies using public key from validated certificate
+    - Store policies in database with versioning and certificates
+    - Store colony registrations (colony_id → Root CA mapping)
     - Retrieve policies for referral ticket issuance
     - Expire old policies based on `expires_at`
 
@@ -520,7 +533,8 @@ security:
     - Root CA generation (10-year validity)
     - Bootstrap Intermediate CA generation
     - Agent Intermediate CA generation
-    - Policy signing key generation (Ed25519)
+    - Policy signing certificate generation (signed by Root CA, 10-year validity)
+    - Policy signing Ed25519 keypair generation
     - Root CA fingerprint computation
     - Save CA hierarchy with proper permissions
 - [ ] Update `coral colony init` to generate CA hierarchy
@@ -547,14 +561,20 @@ security:
 ### Phase 3: Discovery Service Policy Storage
 
 - [ ] Implement `internal/discovery/policy/store.go`
-    - Accept and validate signed policies
-    - Verify Ed25519 signatures
-    - Store policies in database
+    - Accept and validate signed policies with certificates
+    - Verify policy certificate chain (Policy Cert → Root CA)
+    - Implement colony registration (colony_id → Root CA fingerprint locking)
+    - Verify Root CA fingerprint for existing colonies
+    - Detect and log colony impersonation attempts
+    - Verify Ed25519 signatures using public key from validated certificate
+    - Store policies in database with certificates
     - Policy expiration handling
-- [ ] Add `UpsertColonyPolicy` RPC endpoint
+- [ ] Add `UpsertColonyPolicy` RPC endpoint with certificate validation
 - [ ] Add `GetColonyPolicy` RPC endpoint
-- [ ] Add database schema for policy storage
-- [ ] Add unit tests for policy storage
+- [ ] Add database schema for colony registrations
+- [ ] Add database schema for policy storage with certificates
+- [ ] Add unit tests for certificate chain validation
+- [ ] Add unit tests for colony registration and impersonation detection
 
 ### Phase 4: Discovery Service Referral Tickets
 
@@ -649,10 +669,10 @@ security:
 // New: Colony pushes signed authorization policy to Discovery
 message UpsertColonyPolicyRequest {
     string colony_id = 1;
-    bytes policy = 2;           // JSON-encoded policy document
-    string signature = 3;       // Base64-encoded Ed25519 signature
-    string public_key = 4;      // Base64-encoded Ed25519 public key
-    string signing_key_id = 5;  // Policy signing key identifier
+    bytes policy = 2;              // JSON-encoded policy document
+    bytes signature = 3;           // Ed25519 signature over policy
+    bytes policy_certificate = 4;  // Policy signing certificate (signed by Root CA)
+    bytes root_ca_certificate = 5; // Root CA certificate (for chain validation)
 }
 
 message UpsertColonyPolicyResponse {
@@ -898,6 +918,9 @@ coral agent start
 | Attack | Protection |
 |--------|-----------|
 | **Discovery MITM** | Agent validates Root CA fingerprint, aborts on mismatch ✅ |
+| **Colony ID leaked** | Cannot push policies without Root CA private key ✅ |
+| **Colony ID impersonation** | Discovery locks colony ID to Root CA fingerprint on first registration ✅ |
+| **Policy forgery** | Policy must be signed by certificate chaining to registered Root CA ✅ |
 | **CA fingerprint leaked** | Need referral ticket (rate-limited, policy-controlled) ✅ |
 | **Fake agent registration** | Discovery enforces quotas, agent ID policies, IP allowlists ✅ |
 | **Agent certificate stolen** | Individual revocation, expires in 90 days ✅ |

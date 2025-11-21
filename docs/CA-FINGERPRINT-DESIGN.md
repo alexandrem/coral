@@ -18,9 +18,13 @@ Root CA (10-year validity, offline/HSM)
   │   └─ Colony TLS Server Certificate
   │       └─ Used for HTTPS endpoint
   │
-  └─ Agent Intermediate CA (1-year, rotatable)
-      └─ Agent Client Certificates
-          └─ Used for mTLS authentication
+  ├─ Agent Intermediate CA (1-year, rotatable)
+  │   └─ Agent Client Certificates
+  │       └─ Used for mTLS authentication
+  │
+  └─ Policy Signing Certificate (10-year, same lifetime as Root CA)
+      └─ Signs policy documents
+          └─ Used for authorization policies pushed to Discovery
 ```
 
 **Root CA Fingerprint:** `sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2`
@@ -50,6 +54,8 @@ Generated Certificate Authority:
 
   Bootstrap Intermediate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
   Agent Intermediate:     ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
+  Policy Signing Cert:    ~/.coral/colonies/my-app-prod/ca/policy-cert.crt
+  Policy Signing Key:     ~/.coral/colonies/my-app-prod/ca/policy-key.key (SECRET)
 
 Root CA Fingerprint (distribute to agents):
   sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
@@ -76,6 +82,8 @@ Deploy agents with:
     ├── bootstrap-intermediate.key     # Used for TLS server certs
     ├── agent-intermediate.crt         # Public (1-year validity)
     ├── agent-intermediate.key         # Used for agent client certs
+    ├── policy-cert.crt                # Public (10-year, signed by Root CA)
+    ├── policy-key.key                 # SECRET - used for signing policies
     ├── server.crt                     # Colony's TLS certificate
     └── server.key                     # Colony's TLS private key
 ```
@@ -100,6 +108,11 @@ ca:
     certificate: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
     private_key: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.key
     expires_at: 2025-11-21
+
+  policy_signing:
+    certificate: ~/.coral/colonies/my-app-prod/ca/policy-cert.crt
+    private_key: ~/.coral/colonies/my-app-prod/ca/policy-key.key
+    expires_at: 2034-11-21  # Same as Root CA
 
 tls:
   certificate: ~/.coral/colonies/my-app-prod/ca/server.crt
@@ -134,15 +147,17 @@ Add an authorization layer where Discovery issues short-lived **referral tickets
 
 $ coral colony init my-app-prod
 
-Generated Certificate Authority + Policy Signing Key
+Generated Certificate Authority + Policy Signing Certificate
   Root CA:                     ~/.coral/colonies/.../ca/root-ca.crt
   Bootstrap Intermediate:      ~/.coral/colonies/.../ca/bootstrap-intermediate.crt
   Agent Intermediate:          ~/.coral/colonies/.../ca/agent-intermediate.crt
-  Policy Signing Key (Ed25519): ~/.coral/colonies/.../ca/policy-key.key
+  Policy Signing Certificate:  ~/.coral/colonies/.../ca/policy-cert.crt (signed by Root CA)
+  Policy Signing Key:          ~/.coral/colonies/.../ca/policy-key.key
 
 Pushing authorization policy to Discovery...
-  ✓ Policy signed and uploaded
-  ✓ Discovery validates signature
+  ✓ Policy signed with policy certificate
+  ✓ Discovery validates certificate chain (Policy Cert → Root CA)
+  ✓ Discovery locks colony ID to Root CA fingerprint
   ✓ Policy active (version: 1)
 
 
@@ -224,6 +239,64 @@ monitoring:
 signature: "base64-encoded-ed25519-signature"
 ```
 
+### Colony Policy Certificate Generation
+
+```go
+// internal/colony/ca/policy.go
+
+func (c *Colony) generatePolicySigningCertificate() error {
+    // Generate Ed25519 keypair for policy signing
+    policyPubKey, policyPrivKey, err := ed25519.GenerateKey(rand.Reader)
+    if err != nil {
+        return fmt.Errorf("failed to generate policy keypair: %w", err)
+    }
+
+    // Create certificate template for policy signing
+    policyCertTemplate := &x509.Certificate{
+        SerialNumber: generateSerial(),
+        Subject: pkix.Name{
+            CommonName:   fmt.Sprintf("Policy Signer - %s", c.ID),
+            Organization: []string{c.ID},
+        },
+        NotBefore:   time.Now(),
+        NotAfter:    c.rootCA.NotAfter, // Same as Root CA lifetime (10 years)
+        KeyUsage:    x509.KeyUsageDigitalSignature,
+        ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+
+        // Add colony ID as SAN for verification
+        DNSNames: []string{c.ID},
+    }
+
+    // Sign with Root CA
+    policyCertDER, err := x509.CreateCertificate(
+        rand.Reader,
+        policyCertTemplate,
+        c.rootCA,           // Issuer: Root CA
+        policyPubKey,       // Subject: Policy signing public key
+        c.rootCAPrivateKey, // Signer: Root CA private key
+    )
+    if err != nil {
+        return fmt.Errorf("failed to create policy cert: %w", err)
+    }
+
+    policyCert, _ := x509.ParseCertificate(policyCertDER)
+
+    // Save to disk
+    saveCertPEM(c.pathPolicyCert(), policyCert)
+    saveKeyPEM(c.pathPolicyKey(), policyPrivKey)
+
+    c.policySigningCert = policyCert
+    c.policySigningKey = policyPrivKey
+
+    log.Info().
+        Str("colony_id", c.ID).
+        Str("policy_cert_fingerprint", computeFingerprint(policyCert)).
+        Msg("Policy signing certificate generated")
+
+    return nil
+}
+```
+
 ### Colony Policy Initialization
 
 ```go
@@ -293,7 +366,7 @@ func (c *Colony) InitializePolicy() (*SignedPolicy, error) {
         },
     }
 
-    // Sign policy with colony's policy signing key
+    // Sign policy with policy certificate's private key
     signedPolicy, err := c.signPolicy(policy)
     if err != nil {
         return nil, fmt.Errorf("failed to sign policy: %w", err)
@@ -313,10 +386,12 @@ func (c *Colony) signPolicy(policy *ColonyPolicy) (*SignedPolicy, error) {
     signature := ed25519.Sign(c.policySigningKey, canonicalJSON)
 
     return &SignedPolicy{
-        Policy:       policy,
-        Signature:    base64.StdEncoding.EncodeToString(signature),
-        PublicKey:    base64.StdEncoding.EncodeToString(c.policySigningKey.Public().(ed25519.PublicKey)),
-        SigningKeyID: c.policyKeyID,
+        Policy:           policy,
+        Signature:        base64.StdEncoding.EncodeToString(signature),
+        PolicyCert:       c.policySigningCert.Raw,  // Full certificate (not just public key)
+        RootCA:           c.rootCA.Raw,              // Root CA for chain validation
+        PolicyCertPEM:    encodePEM(c.policySigningCert),
+        RootCAPEM:        encodePEM(c.rootCA),
     }, nil
 }
 ```
@@ -330,11 +405,11 @@ func (c *Colony) PushPolicyToDiscovery(signedPolicy *SignedPolicy) error {
     client := discovery.NewDiscoveryServiceClient(c.discoveryConn)
 
     req := &discoveryv1.UpsertColonyPolicyRequest{
-        ColonyId:     c.ID,
-        Policy:       mustMarshalJSON(signedPolicy.Policy),
-        Signature:    signedPolicy.Signature,
-        PublicKey:    signedPolicy.PublicKey,
-        SigningKeyId: signedPolicy.SigningKeyID,
+        ColonyId:          c.ID,
+        Policy:            mustMarshalJSON(signedPolicy.Policy),
+        Signature:         signedPolicy.Signature,
+        PolicyCertificate: signedPolicy.PolicyCert,      // Policy signing cert (signed by Root CA)
+        RootCaCertificate: signedPolicy.RootCA,          // Root CA for chain validation
     }
 
     resp, err := client.UpsertColonyPolicy(context.Background(), connect.NewRequest(req))
@@ -345,7 +420,7 @@ func (c *Colony) PushPolicyToDiscovery(signedPolicy *SignedPolicy) error {
     log.Info().
         Str("colony_id", c.ID).
         Int("policy_version", signedPolicy.Policy.PolicyVersion).
-        Str("policy_key_id", signedPolicy.SigningKeyID).
+        Str("root_ca_fingerprint", computeFingerprint(c.rootCA)).
         Msg("Policy pushed to Discovery")
 
     return nil
@@ -362,51 +437,129 @@ func (s *DiscoveryServer) UpsertColonyPolicy(
     req *connect.Request[discoveryv1.UpsertColonyPolicyRequest],
 ) (*connect.Response[discoveryv1.UpsertColonyPolicyResponse], error) {
 
-    // Parse policy
-    var policy ColonyPolicy
-    if err := json.Unmarshal(req.Msg.Policy, &policy); err != nil {
-        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    colonyID := req.Msg.ColonyId
+
+    // Parse certificates
+    policyCert, err := x509.ParseCertificate(req.Msg.PolicyCertificate)
+    if err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument,
+            fmt.Errorf("invalid policy certificate: %w", err))
     }
 
-    // Validate colony_id matches
-    if policy.ColonyID != req.Msg.ColonyId {
+    rootCA, err := x509.ParseCertificate(req.Msg.RootCaCertificate)
+    if err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument,
+            fmt.Errorf("invalid root CA: %w", err))
+    }
+
+    // 1. Verify certificate chain: Policy Cert → Root CA
+    roots := x509.NewCertPool()
+    roots.AddCert(rootCA)
+
+    opts := x509.VerifyOptions{
+        Roots:     roots,
+        KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+    }
+
+    chains, err := policyCert.Verify(opts)
+    if err != nil {
         return nil, connect.NewError(
-            connect.CodeInvalidArgument,
-            fmt.Errorf("policy colony_id mismatch"),
+            connect.CodePermissionDenied,
+            fmt.Errorf("policy certificate chain validation failed: %w", err),
         )
     }
 
-    // Decode signature and public key
+    log.Info().
+        Str("colony_id", colonyID).
+        Int("chain_length", len(chains[0])).
+        Msg("Policy certificate chain verified")
+
+    // 2. Check if colony ID is already registered (prevents impersonation)
+    storedRootCA, err := s.db.GetColonyRootCA(ctx, colonyID)
+
+    if err == nil {
+        // Colony exists - verify Root CA matches (prevents impersonation!)
+        storedFingerprint := computeFingerprint(storedRootCA)
+        providedFingerprint := computeFingerprint(rootCA)
+
+        if storedFingerprint != providedFingerprint {
+            log.Warn().
+                Str("colony_id", colonyID).
+                Str("stored_fingerprint", storedFingerprint).
+                Str("provided_fingerprint", providedFingerprint).
+                Msg("Colony ID impersonation attempt detected!")
+
+            return nil, connect.NewError(
+                connect.CodePermissionDenied,
+                fmt.Errorf(
+                    "colony ID '%s' already registered with different Root CA - impersonation prevented",
+                    colonyID,
+                ),
+            )
+        }
+
+        log.Info().
+            Str("colony_id", colonyID).
+            Str("root_ca_fingerprint", storedFingerprint).
+            Msg("Root CA verified - colony authenticated")
+
+    } else {
+        // New colony - register and lock this colony ID to this Root CA
+        rootCAFingerprint := computeFingerprint(rootCA)
+
+        if err := s.db.RegisterColony(ctx, &ColonyRegistration{
+            ColonyID:          colonyID,
+            RootCACert:        rootCA.Raw,
+            RootCAFingerprint: rootCAFingerprint,
+            RegisteredAt:      time.Now(),
+        }); err != nil {
+            return nil, connect.NewError(connect.CodeInternal, err)
+        }
+
+        log.Info().
+            Str("colony_id", colonyID).
+            Str("root_ca_fingerprint", rootCAFingerprint).
+            Msg("Colony ID registered and locked to Root CA")
+    }
+
+    // 3. Verify policy signature using public key from verified certificate
+    policyPubKey := policyCert.PublicKey.(ed25519.PublicKey)
     signature, err := base64.StdEncoding.DecodeString(req.Msg.Signature)
     if err != nil {
         return nil, connect.NewError(connect.CodeInvalidArgument, err)
     }
 
-    publicKey, err := base64.StdEncoding.DecodeString(req.Msg.PublicKey)
-    if err != nil {
-        return nil, connect.NewError(connect.CodeInvalidArgument, err)
-    }
-
-    // Verify Ed25519 signature
-    if !ed25519.Verify(publicKey, req.Msg.Policy, signature) {
+    if !ed25519.Verify(policyPubKey, req.Msg.Policy, signature) {
         return nil, connect.NewError(
             connect.CodePermissionDenied,
             fmt.Errorf("invalid policy signature"),
         )
     }
 
-    // Validate policy structure
+    // 4. Parse and validate policy structure
+    var policy ColonyPolicy
+    if err := json.Unmarshal(req.Msg.Policy, &policy); err != nil {
+        return nil, connect.NewError(connect.CodeInvalidArgument, err)
+    }
+
+    if policy.ColonyID != colonyID {
+        return nil, connect.NewError(
+            connect.CodeInvalidArgument,
+            fmt.Errorf("policy colony_id mismatch"),
+        )
+    }
+
     if err := s.validatePolicyStructure(&policy); err != nil {
         return nil, connect.NewError(connect.CodeInvalidArgument, err)
     }
 
-    // Store policy in database
+    // 5. Store policy
     if err := s.db.UpsertColonyPolicy(ctx, &StoredPolicy{
-        ColonyID:      req.Msg.ColonyId,
+        ColonyID:      colonyID,
         Policy:        req.Msg.Policy,
         Signature:     req.Msg.Signature,
-        PublicKey:     req.Msg.PublicKey,
-        SigningKeyID:  req.Msg.SigningKeyId,
+        PolicyCert:    req.Msg.PolicyCertificate,
+        RootCA:        req.Msg.RootCaCertificate,
         Version:       policy.PolicyVersion,
         UploadedAt:    time.Now(),
         ExpiresAt:     policy.ExpiresAt,
@@ -415,15 +568,47 @@ func (s *DiscoveryServer) UpsertColonyPolicy(
     }
 
     log.Info().
-        Str("colony_id", req.Msg.ColonyId).
+        Str("colony_id", colonyID).
         Int("policy_version", policy.PolicyVersion).
-        Msg("Colony policy stored")
+        Msg("Policy stored successfully")
 
     return connect.NewResponse(&discoveryv1.UpsertColonyPolicyResponse{
         Success:       true,
         PolicyVersion: int32(policy.PolicyVersion),
     }), nil
 }
+
+func computeFingerprint(cert *x509.Certificate) string {
+    hash := sha256.Sum256(cert.Raw)
+    return "sha256:" + hex.EncodeToString(hash[:])
+}
+```
+
+### Discovery Database Schema
+
+```sql
+-- Colony registrations (locks colony IDs to Root CAs)
+CREATE TABLE colony_registrations (
+    colony_id TEXT PRIMARY KEY,
+    root_ca_cert BLOB NOT NULL,           -- Full Root CA certificate
+    root_ca_fingerprint TEXT NOT NULL,     -- SHA256 fingerprint for quick lookup
+    registered_at TIMESTAMP NOT NULL,
+    INDEX idx_fingerprint (root_ca_fingerprint)
+);
+
+-- Colony policies (versioned, signed by verified policy certificates)
+CREATE TABLE colony_policies (
+    colony_id TEXT NOT NULL,
+    policy_version INTEGER NOT NULL,
+    policy_json TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    policy_cert BLOB NOT NULL,            -- Policy signing certificate
+    root_ca_cert BLOB NOT NULL,           -- Root CA (for verification)
+    uploaded_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (colony_id, policy_version),
+    FOREIGN KEY (colony_id) REFERENCES colony_registrations(colony_id)
+);
 ```
 
 ### Discovery Referral Ticket Issuance
@@ -1146,6 +1331,9 @@ Agents automatically validate against Root CA, so intermediate rotation is trans
 | Attack | Protection |
 |--------|-----------|
 | **Discovery MITM** | Agent validates Root CA fingerprint, aborts on mismatch ✅ |
+| **Colony ID leaked** | Cannot push policies without Root CA private key ✅ |
+| **Colony ID impersonation** | Discovery locks colony ID to Root CA fingerprint on first registration ✅ |
+| **Policy forgery** | Policy must be signed by certificate chaining to registered Root CA ✅ |
 | **CA fingerprint leaked** | Need referral ticket from Discovery (rate-limited, policy-controlled) ✅ |
 | **Fake agent registration** | Discovery enforces rate limits, quotas, agent ID policies, IP allowlists ✅ |
 | **Agent certificate stolen** | Individual revocation, certificate expires in 90 days ✅ |
@@ -1153,6 +1341,51 @@ Agents automatically validate against Root CA, so intermediate rotation is trans
 | **Root CA compromised** | Nuclear option: Re-initialize colony with new Root CA, new fingerprint ⚠️ |
 | **Discovery referral ticket stolen** | 1-minute TTL, single-use (tracked by jti), agent_id binding ✅ |
 | **Mass agent registration attack** | Per-IP rate limits, per-colony quotas, monitoring/alerting ✅ |
+
+### Colony ID Reservation and Ownership
+
+**Discovery automatically locks colony IDs to their Root CA on first policy push:**
+
+```
+First policy push for colony "my-app-prod-a3f2e1":
+  1. Discovery receives Root CA with fingerprint sha256:abc123...
+  2. Discovery stores: colony_id → root_ca_fingerprint mapping
+  3. ✅ Colony ID now LOCKED to this Root CA
+
+Subsequent policy updates from same colony:
+  1. Discovery receives Root CA with same fingerprint sha256:abc123...
+  2. Discovery compares: stored(abc123) == provided(abc123)
+  3. ✅ ACCEPTED - colony authenticated
+
+Attacker tries to impersonate colony:
+  1. Attacker generates different Root CA with fingerprint sha256:xyz789...
+  2. Attacker pushes policy for "my-app-prod-a3f2e1"
+  3. Discovery compares: stored(abc123) != provided(xyz789)
+  4. ❌ REJECTED - "colony ID already registered with different Root CA"
+  5. Discovery logs impersonation attempt
+```
+
+**Trust model:**
+```
+Colony ownership = Root CA private key possession
+
+Verification chain for policy push:
+  Policy document
+    ↓ (signed by)
+  Policy Signing Certificate (Ed25519 public key)
+    ↓ (issued by)
+  Root CA (X.509 certificate)
+    ↓ (fingerprint matches)
+  Discovery's registered Root CA for this colony_id
+```
+
+**Benefits:**
+- ✅ First-to-register owns the colony ID permanently
+- ✅ No pre-registration ceremony needed
+- ✅ Cryptographic proof of ownership (Root CA private key)
+- ✅ Cannot fake ownership without compromising Root CA
+- ✅ Automatic detection and prevention of impersonation
+- ✅ Full audit trail of registration and policy updates
 
 ### Fingerprint Distribution Security
 
@@ -1233,7 +1466,8 @@ Attacker has CA fingerprint
 - [ ] Implement Root CA generation (10-year validity)
 - [ ] Implement Bootstrap Intermediate CA generation
 - [ ] Implement Agent Intermediate CA generation
-- [ ] Generate policy signing key (Ed25519)
+- [ ] Generate policy signing certificate (signed by Root CA, 10-year validity)
+- [ ] Generate policy signing Ed25519 keypair
 - [ ] Compute and display Root CA fingerprint
 - [ ] Save CA hierarchy to disk with proper permissions
 - [ ] Add `coral colony ca status` command
@@ -1248,8 +1482,12 @@ Attacker has CA fingerprint
 - [ ] Add `coral colony policy push` command
 
 ### Discovery Service
-- [ ] Implement policy storage and validation
-- [ ] Add `UpsertColonyPolicy` RPC endpoint
+- [ ] Implement colony registration (colony_id → Root CA fingerprint mapping)
+- [ ] Implement policy certificate chain validation (Policy Cert → Root CA)
+- [ ] Implement Root CA fingerprint comparison for existing colonies
+- [ ] Add database schema for colony registrations
+- [ ] Add database schema for colony policies with certificate storage
+- [ ] Add `UpsertColonyPolicy` RPC endpoint with certificate validation
 - [ ] Add `GetColonyPolicy` RPC endpoint
 - [ ] Implement referral ticket issuance
 - [ ] Add `RequestReferralTicket` RPC endpoint
@@ -1259,6 +1497,7 @@ Attacker has CA fingerprint
 - [ ] Implement IP allowlist/denylist checks
 - [ ] Store Discovery signing key for JWT tickets
 - [ ] Add monitoring/alerting for denied requests
+- [ ] Add alerting for colony impersonation attempts
 
 ### Agent Bootstrap
 - [ ] Implement referral ticket request from Discovery
