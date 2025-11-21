@@ -8,7 +8,7 @@ import (
 )
 
 // InitializeCA initializes the CA manager for the colony.
-// This is a helper function for colony startup (RFD 022).
+// This is a helper function for colony startup (RFD 047).
 func InitializeCA(db *sql.DB, colonyID, caDir string, jwtSigningKey []byte) (*ca.Manager, error) {
 	caManager, err := ca.NewManager(db, ca.Config{
 		ColonyID:      colonyID,

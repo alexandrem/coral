@@ -20,7 +20,7 @@ import (
 // Server implements the DiscoveryService.
 type Server struct {
 	registry     *registry.Registry
-	tokenManager *discovery.TokenManager // RFD 022 - bootstrap token management.
+	tokenManager *discovery.TokenManager // RFD 047/049 - bootstrap token management.
 	version      string
 	startTime    time.Time
 	logger       zerolog.Logger
@@ -645,7 +645,7 @@ func (s *Server) extractAgentObservedEndpoint(req *connect.Request[discoveryv1.R
 	return nil
 }
 
-// CreateBootstrapToken handles bootstrap token creation requests (RFD 022).
+// CreateBootstrapToken handles bootstrap token creation requests (RFD 047/049).
 func (s *Server) CreateBootstrapToken(
 	ctx context.Context,
 	req *connect.Request[discoveryv1.CreateBootstrapTokenRequest],

@@ -36,7 +36,7 @@ type Config struct {
 type Server struct {
 	registry  *registry.Registry
 	database  *database.Database
-	caManager *ca.Manager // RFD 022 - certificate authority manager.
+	caManager *ca.Manager // RFD 047 - certificate authority manager.
 	mcpServer interface{} // *mcp.Server - using interface to avoid import cycle
 	config    Config
 	startTime time.Time
@@ -406,7 +406,7 @@ func (s *Server) RequestCertificate(
 	return connect.NewResponse(resp), nil
 }
 
-// RevokeCertificate handles certificate revocation requests (RFD 022).
+// RevokeCertificate handles certificate revocation requests (RFD 047).
 func (s *Server) RevokeCertificate(
 	ctx context.Context,
 	req *connect.Request[colonyv1.RevokeCertificateRequest],

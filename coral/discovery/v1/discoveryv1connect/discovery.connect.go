@@ -75,7 +75,7 @@ type DiscoveryServiceClient interface {
 	ReleaseRelay(context.Context, *connect.Request[v1.ReleaseRelayRequest]) (*connect.Response[v1.ReleaseRelayResponse], error)
 	// Health check
 	Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error)
-	// Create a single-use bootstrap token for agent certificate issuance (RFD 022).
+	// Create a single-use bootstrap token for agent certificate issuance (RFD 047/049).
 	CreateBootstrapToken(context.Context, *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error)
 }
 
@@ -209,7 +209,7 @@ type DiscoveryServiceHandler interface {
 	ReleaseRelay(context.Context, *connect.Request[v1.ReleaseRelayRequest]) (*connect.Response[v1.ReleaseRelayResponse], error)
 	// Health check
 	Health(context.Context, *connect.Request[v1.HealthRequest]) (*connect.Response[v1.HealthResponse], error)
-	// Create a single-use bootstrap token for agent certificate issuance (RFD 022).
+	// Create a single-use bootstrap token for agent certificate issuance (RFD 047/049).
 	CreateBootstrapToken(context.Context, *connect.Request[v1.CreateBootstrapTokenRequest]) (*connect.Response[v1.CreateBootstrapTokenResponse], error)
 }
 

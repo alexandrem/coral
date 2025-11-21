@@ -34,7 +34,7 @@ service ColonyService {
   // List available MCP tools.
   rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
 
-  // Certificate management (RFD 022 - step-ca agent authentication).
+  // Certificate management (RFD 047 - Colony CA Infrastructure).
 
   // Request a client certificate using a bootstrap token.
   rpc RequestCertificate(RequestCertificateRequest) returns (RequestCertificateResponse);
@@ -213,7 +213,7 @@ message QueryTelemetryResponse {
   int32 total_spans = 3;
 }
 
-// Certificate management messages (RFD 022 - step-ca agent authentication)
+// Certificate management messages (RFD 047 - Colony CA Infrastructure)
 
 // RequestCertificateRequest requests a client certificate using a bootstrap token.
 message RequestCertificateRequest {

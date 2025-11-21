@@ -29,7 +29,7 @@ service DiscoveryService {
   // Health check
   rpc Health(HealthRequest) returns (HealthResponse);
 
-  // Create a single-use bootstrap token for agent certificate issuance (RFD 022).
+  // Create a single-use bootstrap token for agent certificate issuance (RFD 047/049).
   rpc CreateBootstrapToken(CreateBootstrapTokenRequest) returns (CreateBootstrapTokenResponse);
 }
 
@@ -295,7 +295,7 @@ message LookupAgentResponse {
   google.protobuf.Timestamp last_seen = 8;
 }
 
-// Bootstrap token messages (RFD 022 - step-ca agent authentication)
+// Bootstrap token messages (RFD 047 - Colony CA Infrastructure, RFD 049 - Discovery Authorization)
 
 // CreateBootstrapTokenRequest initiates bootstrap token issuance.
 message CreateBootstrapTokenRequest {

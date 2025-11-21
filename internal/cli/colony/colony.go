@@ -58,7 +58,7 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMCPCmd())
-	cmd.AddCommand(NewCACmd()) // RFD 022 - CA management commands.
+	cmd.AddCommand(NewCACmd()) // RFD 047 - CA management commands.
 
 	return cmd
 }
@@ -1354,8 +1354,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		discoveryClient: discoveryClient,
 	}
 
-	// Initialize CA manager (RFD 022 - embedded step-ca for agent mTLS).
-	// TODO: Load JWT signing key from config or generate securely.
+	// Initialize CA manager (RFD 047 - Colony CA Infrastructure).
 	jwtSigningKey := []byte(cfg.ColonySecret) // Use colony secret as JWT signing key for now.
 	caDir := filepath.Join(cfg.StoragePath, "ca")
 	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwtSigningKey)
