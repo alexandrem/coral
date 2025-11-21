@@ -1,35 +1,35 @@
 ---
 rfd: "047"
-title: "Colony CA Infrastructure & Policy Signing"
-state: "implementing"
+title: "Colony CA Infrastructure"
+state: "implemented"
 supersedes: "022"
 breaking_changes: true
 testing_required: true
 database_changes: true
 api_changes: true
 dependencies: [ "019", "020" ]
-related_rfds: [ "019", "020", "048" ]
-database_migrations: [ "003-bootstrap-tokens", "004-step-ca-state" ]
-areas: [ "security", "colony", "discovery" ]
+related_rfds: [ "019", "020", "048", "049" ]
+database_migrations: [ "003-bootstrap-tokens" ]
+areas: [ "security", "colony" ]
 ---
 
-# RFD 047 - Colony CA Infrastructure & Policy Signing
+# RFD 047 - Colony CA Infrastructure
 
-**Status:** 🔨 Implementing (Phase 1 complete, Phase 2-3 pending)
+**Status:** ✅ Implemented
 
 ## Summary
 
 This RFD defines the server-side Certificate Authority (CA) infrastructure
 required to support the Agent Certificate Bootstrap flow described in RFD 048.
 It establishes a **Hierarchical CA** structure (Root → Intermediates) embedded
-within the Colony service, and introduces a **Policy Signing** mechanism where
-Colonies cryptographically sign authorization policies that are enforced by the
-Discovery service.
+within the Colony service.
 
 This infrastructure replaces the flat, ad-hoc CA model and enables a trust model
-based on **Root CA Fingerprint Validation** and **Referral Tickets**,
-eliminating the need for long-lived shared secrets or manual per-agent token
-management.
+based on **Root CA Fingerprint Validation**, eliminating the need for long-lived
+shared secrets or manual per-agent token management.
+
+**Note:** Policy Signing (RFC 8785 canonicalization, signed policies for
+Discovery) is covered in **RFD 049 - Discovery-Based Agent Authorization**.
 
 ## Problem
 
@@ -53,9 +53,7 @@ management.
 
 ## Solution
 
-Embed `step-ca` inside the Colony binary to manage a **Three-Level PKI Hierarchy
-**. Implement a **Policy Signing** workflow where Colony signs its own admission
-rules (policies) which Discovery then enforces.
+Embed a CA inside the Colony binary to manage a **Three-Level PKI Hierarchy**.
 
 ### Key Design Decisions
 
@@ -63,17 +61,13 @@ rules (policies) which Discovery then enforces.
     - **Root CA** (10y): Offline/HSM-ready, root of trust.
     - **Server Intermediate** (1y): Issues Colony's TLS server certificates.
     - **Agent Intermediate** (1y): Issues mTLS client certificates to agents.
+    - **Policy Signing Certificate** (10y): For signing authorization policies
+      (see RFD 049).
 
-2. **Policy Signing**:
-    - Colony generates a **Policy Signing Keypair**.
-    - Policies are canonicalized (RFC 8785) and signed.
-    - Discovery validates the signature against the Colony's Policy Certificate
-      before enforcing rules.
-
-3. **Referral Ticket Support**:
-    - Colony accepts "Referral Tickets" (JWTs) from Discovery as proof of
-      authorization for certificate issuance.
-    - Colony validates these tickets against Discovery's JWKS.
+2. **Certificate Issuance**:
+    - Colony issues server certificates for its own TLS endpoints.
+    - Colony issues agent certificates upon valid bootstrap requests.
+    - All certificates include SPIFFE IDs in SAN for identity verification.
 
 ## Architecture Overview
 
@@ -232,43 +226,31 @@ sequenceDiagram
 
 ## Component Changes
 
-### 1. Colony / Embedded CA
+### 1. Colony / Embedded CA ✅
 
-- **Initialization**: On first startup, generate the full hierarchy:
+- **Initialization** (`internal/colony/ca/manager.go`, `ca.Initialize()`):
     - Generate Root CA (10-year validity)
-    - Generate Server Intermediate CA (1-year validity, for server certificates)
-    - Generate Agent Intermediate CA (1-year validity, for client certificates)
-    - Generate policy signing certificate (signed by Root CA, 10-year validity)
-    - Generate policy signing Ed25519 keypair
+    - Generate Server Intermediate CA (1-year validity)
+    - Generate Agent Intermediate CA (1-year validity)
+    - Generate policy signing certificate (10-year validity)
     - Generate colony TLS server certificate with SPIFFE ID in SAN
-      (`spiffe://coral/colony/{colony-id}`)
-    - Compute and display Root CA fingerprint and Colony SPIFFE ID
+    - Compute Root CA fingerprint and Colony SPIFFE ID
     - Save CA hierarchy with proper permissions
-- **Storage**: Store keys securely in `~/.coral/colonies/<id>/ca/`.
-- **Serving**:
-    - Present `[Server Cert] -> [Server Inter] -> [Root CA]` in TLS handshakes.
-    - Expose `RequestCertificate` RPC.
+- **Storage**: Keys stored in `~/.coral/colonies/<id>/ca/`.
+- **Serving**: Present full certificate chain in TLS handshakes.
 
-### 2. Policy Management
+### 2. Certificate Issuance Service ✅
 
-- **Definition**: Define `ColonyPolicy` struct (rate limits, agent ID patterns,
-  etc.).
-- **Signing**:
-    - Canonicalize JSON using **RFC 8785 (JCS)**.
-    - Sign using Ed25519 Policy Signing Key.
-- **Push**: RPC `UpsertColonyPolicy` to Discovery.
-
-### 3. Certificate Issuance Service
-
-- **Endpoint**: `RequestCertificate`
+- **Endpoint**: `IssueCertificate`, `IssueServerCertificate`
 - **Logic**:
-    - If `ReferralTicket` is present:
-        - Fetch Discovery JWKS.
-        - Validate JWT signature, expiry, `colony_id`, and `agent_id`.
-        - Issue Certificate.
-    - If `ReferralTicket` is missing (Renewal):
-        - Validate mTLS client certificate.
-        - Issue Certificate.
+    - Issue agent certificates with SPIFFE ID in SAN
+    - Issue server certificates for colony TLS
+    - Revoke certificates (`RevokeCertificate`)
+
+### 3. Policy Management → RFD 049
+
+Policy signing (RFC 8785 canonicalization, `UpsertColonyPolicy`) is defined in
+**RFD 049 - Discovery-Based Agent Authorization**.
 
 ## API Changes
 
@@ -285,7 +267,7 @@ service ColonyService {
 
 message RequestCertificateRequest {
     bytes csr = 1;              // PEM encoded CSR
-    string referral_ticket = 2; // Optional JWT from Discovery (required for bootstrap)
+    string referral_ticket = 2; // Optional JWT from Discovery (see RFD 049)
 }
 
 message RequestCertificateResponse {
@@ -294,28 +276,10 @@ message RequestCertificateResponse {
 }
 ```
 
-### Discovery Service (gRPC)
+### Discovery Service API → RFD 049
 
-```protobuf
-service DiscoveryService {
-    // Colony pushes its signed policy
-    rpc UpsertColonyPolicy(UpsertColonyPolicyRequest) returns (UpsertColonyPolicyResponse);
-
-    // Agent requests permission to bootstrap
-    rpc RequestReferralTicket(RequestReferralTicketRequest) returns (RequestReferralTicketResponse);
-
-    // Public JWKS endpoint for ticket validation
-    rpc GetJWKS(GetJWKSRequest) returns (GetJWKSResponse);
-}
-
-message UpsertColonyPolicyRequest {
-    string colony_id = 1;
-    bytes policy_json = 2;      // Canonical JSON
-    bytes signature = 3;        // Ed25519 Signature
-    bytes policy_cert = 4;      // Certificate verifying the signature key
-    bytes root_cert = 5;        // Root CA to verify the policy cert
-}
-```
+Discovery Service API changes (`UpsertColonyPolicy`, `RequestReferralTicket`,
+`GetJWKS`) are defined in **RFD 049 - Discovery-Based Agent Authorization**.
 
 ## Configuration
 
@@ -325,12 +289,6 @@ security:
         root_dir: "~/.coral/colonies/my-colony/ca"
         # Rotation schedules
         intermediate_validity: "8760h" # 1 year
-
-discovery:
-    policy:
-        # Default policy settings
-        max_agents: 1000
-        allow_patterns: [ "production-*" ]
 
 ## CLI Commands
 
@@ -368,49 +326,40 @@ Rotating Server Intermediate CA...
 
 ## Implementation Plan
 
-### Phase 1: Colony CA Infrastructure
+### Implemented
 
-- [x] Implement `internal/colony/ca/manager.go`
+- [x] **CA Manager** (`internal/colony/ca/manager.go`)
     - [x] Root CA generation (10-year validity)
     - [x] Server Intermediate CA generation (1-year validity)
     - [x] Agent Intermediate CA generation (1-year validity)
-    - [x] Policy signing certificate generation (signed by Root CA, 10-year
-      validity, ECDSA P-256)
+    - [x] Policy signing certificate generation (10-year validity, ECDSA P-256)
     - [x] Colony TLS server certificate with SPIFFE ID in SAN
-      (`IssueServerCertificate`)
     - [x] Root CA fingerprint computation (`GetCAFingerprint`)
     - [x] Save CA hierarchy with proper permissions (0700 dir, 0600 keys, 0644
       certs)
     - [x] Load existing CA from filesystem (`loadCA`)
-- [x] Implement `internal/colony/ca/manager.go` Initialize() standalone function
-    for use during `coral init`
-- [x] Update `coral init` to generate CA hierarchy (`internal/cli/init/init.go`)
-- [x] Add `coral colony ca status` command (`internal/cli/colony/ca.go`)
-- [x] Integrate CA manager into colony startup (`internal/colony/ca_init.go`)
+- [x] **Standalone Initialization** (`ca.Initialize()`) for use during
+    `coral init`
+- [x] **CLI Integration**
+    - [x] `coral init` generates CA hierarchy (`internal/cli/init/init.go`)
+    - [x] `coral colony ca status` command (`internal/cli/colony/ca.go`)
+- [x] **Colony Startup Integration** (`internal/colony/ca_init.go`)
+- [x] **Certificate Issuance**
+    - [x] `IssueCertificate` method for agent certificates
+    - [x] `IssueServerCertificate` method for colony TLS
+    - [x] `RevokeCertificate` method
+    - [x] Bootstrap token validation (`ValidateToken`)
 
-### Phase 1b: Remaining CA Infrastructure
+### Deferred to Other RFDs
 
-- [ ] Add `coral colony ca rotate-intermediate` command (CLI stub exists, logic
-  not implemented)
-- [ ] Add RFC 8785 JCS canonicalization library dependency (for policy signing)
-- [ ] Add unit tests for CA generation (`internal/colony/ca/manager_test.go`)
-- [ ] Add unit tests for SPIFFE ID generation and validation
+- **Policy Signing** (RFC 8785 canonicalization, signed policies) → **RFD 049**
+- **Referral Ticket Validation** (Discovery JWKS integration) → **RFD 049**
+- **Certificate Renewal via mTLS** (without referral ticket) → **RFD 048**
 
-### Phase 2: Policy Signing (Not Started)
+### Future Work
 
-- [ ] Define `ColonyPolicy` struct with rate limits, agent ID patterns
-- [ ] Implement RFC 8785 JSON canonicalization for policy documents
-- [ ] Implement policy signing workflow
-- [ ] Add `UpsertColonyPolicy` RPC to Discovery service
-
-### Phase 3: Certificate Issuance Service (Partially Done)
-
-- [x] `IssueCertificate` method for agent certificates
-- [x] `IssueServerCertificate` method for colony TLS
-- [x] `RevokeCertificate` method
-- [x] Bootstrap token validation (`ValidateToken`)
-- [ ] Referral ticket validation (requires Discovery JWKS integration)
-- [ ] Certificate renewal via mTLS (without referral ticket)
+- [ ] `coral colony ca rotate-intermediate` command (CLI stub exists)
+- [ ] Unit tests for CA generation (`internal/colony/ca/manager_test.go`)
 
 ## Security Considerations
 
@@ -420,18 +369,14 @@ Rotating Server Intermediate CA...
 - **Intermediate Isolation**: Compromise of the Server Intermediate does not
   allow issuing agent certificates (and vice versa). Each intermediate has a
   specific purpose.
-- **Policy Integrity**: RFC 8785 ensures that the JSON policy document cannot be
-  semantically modified without invalidating the signature.
-- **Ticket Replay**: Referral tickets are single-use (tracked by JTI) and
-  short-lived (1 min), minimizing replay windows.
+- **SPIFFE Identity**: All certificates include SPIFFE IDs in SAN, enabling
+  identity-based access control and audit logging.
 
 ## Migration Strategy
 
 1. **Deploy Updated Colony**: New binary generates the CA hierarchy on startup
-   if missing.
-2. **Push Policy**: Colony automatically signs and pushes default policy to
-   Discovery.
-3. **Deploy Agents**: Agents (per RFD 047) configured with
-   `CORAL_CA_FINGERPRINT` will begin using the new flow.
-4. **Legacy Support**: Existing `colony_secret` auth remains active until
+   if missing (via `coral init`).
+2. **Deploy Agents**: Agents (per RFD 048) configured with
+   `CORAL_CA_FINGERPRINT` will use fingerprint-based trust establishment.
+3. **Legacy Support**: Existing `colony_secret` auth remains active until
    explicitly disabled in configuration.
