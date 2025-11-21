@@ -105,14 +105,21 @@ $ coral colony init my-app-prod
 Generated Certificate Authority (Hierarchical):
   Root CA (10-year validity)
     ├─ Bootstrap Intermediate CA (1-year)
+    │   └─ Used for fingerprint validation only
+    ├─ Server Intermediate CA (1-year)
     │   └─ Colony TLS Server Certificate
+    │       └─ SAN: spiffe://coral/colony/my-app-prod-a3f2e1
     ├─ Agent Intermediate CA (1-year)
     │   └─ Signs agent client certificates
+    │       └─ SAN: spiffe://coral/colony/{colony-id}/agent/{agent-id}
     └─ Policy Signing Certificate (10-year)
         └─ Signs policy documents
 
 Root CA Fingerprint (distribute to agents):
   sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
+
+Colony SPIFFE ID:
+  spiffe://coral/colony/my-app-prod-a3f2e1
 
 Pushing authorization policy to Discovery...
   ✓ Policy signed with policy certificate
@@ -156,45 +163,59 @@ Check for existing cert at ~/.coral/certs/<agent-id>.crt
            │
            ├─ 5. Validate: computed_fingerprint == CORAL_CA_FINGERPRINT
            │      If mismatch → ABORT (MITM detected)
-           │      If match → Trust established
+           │      If match → Root CA trust established
            │
-           ├─ 6. Validate certificate chain integrity
-           │      Verify: Server cert → Intermediates → Root CA
+           ├─ 6. Validate colony ID in server certificate SAN
+           │      Extract SAN: spiffe://coral/colony/{colony-id}
+           │      Verify: colony_id matches CORAL_COLONY_ID
+           │      If mismatch → ABORT (cross-colony impersonation detected)
+           │      If match → Colony identity confirmed
            │
-           ├─ 7. Save validated Root CA to ~/.coral/certs/root-ca.crt
+           ├─ 7. Validate certificate chain integrity
+           │      Verify: Server cert → Server Intermediate → Root CA
            │
-           ├─ 8. Generate Ed25519 keypair locally
+           ├─ 8. Save validated Root CA to ~/.coral/certs/root-ca.crt
+           │
+           ├─ 9. Generate Ed25519 keypair locally
            │      → Private key: ~/.coral/certs/<agent-id>.key (0600)
            │
-           ├─ 9. Create CSR with CN=<agent-id>, O=<colony-id>
+           ├─ 10. Create CSR with CN=<agent-id>, O=<colony-id>
+           │       SAN: spiffe://coral/colony/{colony-id}/agent/{agent-id}
            │
-           ├─ 10. Request certificate from Colony with referral ticket
+           ├─ 11. Request certificate from Colony with referral ticket
            │       POST /coral.colony.v1.ColonyService/RequestCertificate
            │       Body: {csr, referral_ticket}
            │       → Colony validates JWT ticket
-           │       → Colony issues certificate
+           │       → Colony issues certificate with SPIFFE ID in SAN
            │       → Returns: certificate + CA chain
            │
-           ├─ 11. Store certificate (0644) and key (0600)
+           ├─ 12. Store certificate (0644) and key (0600)
            │       ~/.coral/certs/<agent-id>.crt
            │       ~/.coral/certs/<agent-id>.key
            │
-           └─ 12. Connect to Colony with mTLS
+           └─ 13. Connect to Colony with mTLS
                    (All subsequent RPCs use client certificate)
 ```
 
 ## Colony CA Hierarchy
 
-### Three-Level PKI Structure
+### Four-Level PKI Structure
 
 ```
 Root CA (10-year validity, offline/HSM)
   ├─ Bootstrap Intermediate CA (1-year, rotatable)
+  │   └─ Used ONLY for fingerprint validation during bootstrap
+  │       (Does not issue any certificates)
+  │       └─ Agents validate Root CA fingerprint via this chain
+  │
+  ├─ Server Intermediate CA (1-year, rotatable)
   │   └─ Colony TLS Server Certificate
-  │       └─ Used for HTTPS endpoint (agents validate this chain)
+  │       └─ SAN: spiffe://coral/colony/{colony-id}
+  │       └─ Used for HTTPS endpoint
   │
   ├─ Agent Intermediate CA (1-year, rotatable)
   │   └─ Agent Client Certificates
+  │       └─ SAN: spiffe://coral/colony/{colony-id}/agent/{agent-id}
   │       └─ Used for mTLS authentication
   │
   └─ Policy Signing Certificate (10-year, same lifetime as Root CA)
@@ -212,6 +233,17 @@ Root CA (10-year validity, offline/HSM)
 - **Colony ID reservation**: Policy cert chains to Root CA, locking colony IDs
 - **Best Practice**: Follows X.509/RFC 5280 standards
 
+**Why Separate Bootstrap and Server Intermediates?**
+
+- **Blast radius reduction**: Bootstrap Intermediate compromise cannot issue
+  server certs
+- **Security isolation**: Bootstrap Intermediate is untrusted for TLS server
+  cert issuance
+- **Purpose separation**: Bootstrap Intermediate only used for fingerprint
+  validation
+- **Server cert protection**: Server Intermediate handles all server certificate
+  issuance
+
 ### Colony Initialization
 
 ```bash
@@ -223,10 +255,15 @@ Generated Certificate Authority:
   Root CA:                ~/.coral/colonies/my-app-prod/ca/root-ca.crt
   Root CA Key:            ~/.coral/colonies/my-app-prod/ca/root-ca.key (SECRET)
   Bootstrap Intermediate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
+  Server Intermediate:    ~/.coral/colonies/my-app-prod/ca/server-intermediate.crt
   Agent Intermediate:     ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
+  Policy Signing Cert:    ~/.coral/colonies/my-app-prod/ca/policy-signing.crt
 
 Root CA Fingerprint (distribute to agents):
   sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
+
+Colony Server Identity:
+  SPIFFE ID: spiffe://coral/colony/my-app-prod-a3f2e1
 
 ⚠️  IMPORTANT: Keep root-ca.key secure (offline storage or HSM recommended)
 
@@ -243,6 +280,7 @@ Deploy agents with:
 ```yaml
 # ~/.coral/colonies/my-app-prod-a3f2e1/config.yaml
 colony_id: my-app-prod-a3f2e1
+spiffe_id: spiffe://coral/colony/my-app-prod-a3f2e1
 
 ca:
     root:
@@ -254,6 +292,12 @@ ca:
         certificate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
         private_key: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.key
         expires_at: 2025-11-21
+        usage: fingerprint_validation_only
+
+    server_intermediate:
+        certificate: ~/.coral/colonies/my-app-prod/ca/server-intermediate.crt
+        private_key: ~/.coral/colonies/my-app-prod/ca/server-intermediate.key
+        expires_at: 2025-11-21
 
     agent_intermediate:
         certificate: ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
@@ -263,16 +307,20 @@ ca:
 tls:
     certificate: ~/.coral/colonies/my-app-prod/ca/server.crt
     private_key: ~/.coral/colonies/my-app-prod/ca/server.key
+    # Server certificate contains SPIFFE ID in SAN
 
 certificate_issuance:
     auto_issue: true
     rate_limits:
         per_agent_per_hour: 10
         per_colony_per_hour: 1000
+    renewal_without_discovery: true  # Allow renewals without referral tickets
 
 policy:
-    signing_key: ~/.coral/colonies/my-app-prod/ca/policy-key.key
+    signing_certificate: ~/.coral/colonies/my-app-prod/ca/policy-signing.crt
+    signing_key: ~/.coral/colonies/my-app-prod/ca/policy-signing.key
     signing_key_id: policy-key-a3f2e1
+    canonicalization: rfc8785-jcs  # Use RFC 8785 JSON Canonicalization Scheme
 ```
 
 ## Policy-Based Authorization
@@ -302,6 +350,7 @@ Colony defines and signs authorization policies during initialization:
 
 ```yaml
 # Policy pushed to Discovery (signed by colony)
+# IMPORTANT: Policy must be canonicalized using RFC 8785 (JCS) before signing
 colony_id: my-app-prod-a3f2e1
 policy_version: 1
 expires_at: "2025-11-21T10:30:00Z"
@@ -333,24 +382,128 @@ csr_policies:
     allowed_key_types: [ "ed25519", "ecdsa-p256" ]
     max_validity_days: 90
 
-signature: "base64-encoded-ed25519-signature"
+# Signature is computed over RFC 8785 canonical JSON
+signature: "base64-encoded-ed25519-signature-over-canonical-json"
+signature_algorithm: "Ed25519-RFC8785-JCS"
 ```
 
+**Policy Signature Process:**
+
+1. **Canonicalization**: Policy is canonicalized using RFC 8785 JSON
+   Canonicalization Scheme (JCS) before signing
+2. **Signing**: Ed25519 signature computed over canonical JSON bytes
+3. **Verification**: Discovery re-canonicalizes policy and verifies signature
+   using public key from policy certificate
+
+**Why RFC 8785 JCS?**
+
+- **Deterministic**: Same JSON always produces same canonical form
+- **Cross-platform**: Works across different JSON libraries and Go versions
+- **Standard**: RFC 8785 is a well-defined standard
+- **Prevention**: Avoids signature verification failures due to map ordering or
+  whitespace differences
+
+### Discovery JWT Key Management
+
+Discovery uses Ed25519 keys for signing referral tickets with automatic rotation
+and JWKS publication for Colony validation.
+
+**Key Configuration:**
+
+```yaml
+# Discovery service configuration
+jwt_signing:
+    key_type: "Ed25519"
+    current_key_id: "discovery-2024-11-21"
+    rotation_period: "30d"  # Rotate every 30 days
+    jwks_endpoint: "/.well-known/jwks.json"
+
+    # Keys are stored securely
+    storage:
+        type: "database"  # Or "hsm" for production
+        encryption: "age"
+```
+
+**Key Rotation:**
+
+1. Discovery generates new Ed25519 keypair every 30 days
+2. Old key retained for 7-day grace period (validates existing tickets)
+3. JWKS endpoint publishes both current and previous keys
+4. Colony fetches JWKS on startup and refreshes hourly
+5. Colony validates tickets using any key in JWKS
+
+**JWKS Endpoint:**
+
+```json
+GET /.well-known/jwks.json
+
+{
+    "keys": [
+        {
+            "kid": "discovery-2024-11-21",
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "base64-encoded-public-key",
+            "use": "sig",
+            "alg": "EdDSA"
+        },
+        {
+            "kid": "discovery-2024-10-21",
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "base64-encoded-public-key-old",
+            "use": "sig",
+            "alg": "EdDSA"
+        }
+    ]
+}
+```
+
+**Why Ed25519?**
+
+- **Performance**: Faster signing and verification than RSA
+- **Security**: 128-bit security level with smaller keys (32 bytes)
+- **Simplicity**: No parameter choices (unlike ECDSA curve selection)
+- **Modern**: Industry standard for new systems
+
 ### Bootstrap Flow with Referral Tickets
+
+**First-Time Bootstrap** (requires referral ticket):
 
 ```
 Agent → Discovery: RequestReferralTicket(colony_id, agent_id)
            Discovery loads colony policy
            Discovery checks: rate limits, quotas, agent_id policy, IP allowlists
+           Discovery signs JWT with Ed25519 key
            Discovery → Agent: JWT ticket (1-minute TTL)
 
 Agent → Colony: RequestCertificate(CSR, referral_ticket)
-           Colony validates JWT signature (Discovery public key)
+           Colony fetches JWKS from Discovery (if not cached)
+           Colony validates JWT signature using JWKS public keys
            Colony validates ticket expiry and claims
-           Colony issues certificate
+           Colony issues certificate (90-day validity)
 
 Agent → Colony: RegisterAgent (mTLS)
 ```
+
+**Certificate Renewal** (no referral ticket required):
+
+```
+Agent → Colony: RequestCertificate(CSR)
+           Agent authenticates with existing mTLS certificate
+           Colony validates existing certificate is not revoked
+           Colony issues new certificate (90-day validity)
+           NO Discovery interaction required
+
+Agent → Colony: Continue operations (mTLS with new certificate)
+```
+
+**Benefits:**
+
+- **High availability**: Certificate renewals work even if Discovery is offline
+- **Reduced load**: Discovery not bottleneck for routine renewals
+- **Security**: First bootstrap still requires Discovery authorization
+- **Revocation**: Colony checks CRL/revocation list before renewal
 
 ### Security Properties
 
@@ -364,13 +517,18 @@ Agent → Colony: RegisterAgent (mTLS)
 
 **Attack scenarios:**
 
-| Attack                       | Protection                                                    |
-|------------------------------|---------------------------------------------------------------|
-| **Discovery MITM**           | Agent validates Root CA fingerprint, aborts on mismatch ✅     |
-| **CA fingerprint leaked**    | Need referral ticket (rate-limited, policy-controlled) ✅      |
-| **Fake agent registration**  | Discovery enforces quotas, agent ID policies, IP allowlists ✅ |
-| **Mass registration attack** | Per-IP rate limits, per-colony quotas ✅                       |
-| **Referral ticket stolen**   | 1-minute TTL, agent_id binding, single-use (tracked by jti) ✅ |
+| Attack                            | Protection                                                    |
+|-----------------------------------|---------------------------------------------------------------|
+| **Discovery MITM**                | Agent validates Root CA fingerprint, aborts on mismatch ✅     |
+| **Cross-colony impersonation**    | Agent validates colony ID in server cert SAN (SPIFFE) ✅       |
+| **Bootstrap intermediate leaked** | Cannot issue server certs (separate Server Intermediate) ✅    |
+| **CA fingerprint leaked**         | Need referral ticket (rate-limited, policy-controlled) ✅      |
+| **Fake agent registration**       | Discovery enforces quotas, agent ID policies, IP allowlists ✅ |
+| **Mass registration attack**      | Per-IP rate limits, per-colony quotas ✅                       |
+| **Referral ticket stolen**        | 1-minute TTL, agent_id binding, single-use (tracked by jti) ✅ |
+| **Discovery offline**             | Certificate renewals work without Discovery (mTLS auth) ✅     |
+| **Policy signature forgery**      | RFC 8785 JCS ensures deterministic verification ✅             |
+| **JWT signing key compromised**   | 30-day rotation, JWKS with grace period for rollover ✅        |
 
 ## Agent Deployment
 
@@ -452,17 +610,22 @@ security:
 
 1. **Colony CA Initialization** (`internal/colony/ca/init.go`)
     - Generate Root CA (10-year validity)
-    - Generate Bootstrap Intermediate CA (1-year validity)
-    - Generate Agent Intermediate CA (1-year validity)
+    - Generate Bootstrap Intermediate CA (1-year validity, fingerprint
+      validation
+      only)
+    - Generate Server Intermediate CA (1-year validity, for server certificates)
+    - Generate Agent Intermediate CA (1-year validity, for client certificates)
     - Generate policy signing certificate (signed by Root CA, 10-year validity)
     - Generate policy signing Ed25519 keypair
-    - Generate colony TLS server certificate
-    - Compute and display Root CA fingerprint
+    - Generate colony TLS server certificate with SPIFFE ID in SAN
+      (`spiffe://coral/colony/{colony-id}`)
+    - Compute and display Root CA fingerprint and Colony SPIFFE ID
     - Save CA hierarchy with proper permissions
 
 2. **Colony Policy Management** (`internal/colony/policy/`)
     - Define default authorization policies
-    - Sign policies with Ed25519 policy signing key
+    - Canonicalize policies using RFC 8785 JSON Canonicalization Scheme (JCS)
+    - Sign canonical policies with Ed25519 policy signing key
     - Push signed policies to Discovery via `UpsertColonyPolicy` RPC
     - Update policies and re-push to Discovery
     - Validate policy structure and constraints
@@ -473,80 +636,116 @@ security:
     - Register new colonies (lock colony_id to Root CA fingerprint)
     - Verify Root CA fingerprint matches for existing colonies
     - Detect and prevent colony impersonation attempts
-    - Verify Ed25519 signatures on policies using public key from validated
-      certificate
+    - Canonicalize policies using RFC 8785 JCS before signature verification
+    - Verify Ed25519 signatures on canonical policies using public key from
+      validated certificate
     - Store policies in database with versioning and certificates
     - Store colony registrations (colony_id → Root CA mapping)
     - Retrieve policies for referral ticket issuance
     - Expire old policies based on `expires_at`
 
-4. **Discovery Referral Tickets** (`internal/discovery/referral/`)
+4. **Discovery JWT Key Management** (`internal/discovery/jwt/`)
+    - Generate and manage Ed25519 keypairs for JWT signing
+    - Implement automatic key rotation (30-day default, 7-day grace period)
+    - Publish JWKS endpoint (`/.well-known/jwks.json`)
+    - Store current and previous keys in database
+    - Support HSM integration for key storage (optional)
+    - Provide key metadata (kid, algorithm, creation date)
+
+5. **Discovery Referral Tickets** (`internal/discovery/referral/`)
     - Issue short-lived JWT referral tickets (1-minute TTL)
     - Enforce rate limits (per-agent, per-IP, per-colony)
     - Track quotas (max active agents, new agents per day)
     - Validate agent IDs against policy (regex, prefixes, deny patterns)
     - Check IP allowlists/denylists
     - Monitor and alert on suspicious patterns
-    - Sign tickets with Discovery's Ed25519 key
+    - Sign tickets with Discovery's Ed25519 key (using current key_id)
+    - Include key ID (kid) in JWT header for validation
 
-5. **CA Fingerprint Validator** (`internal/agent/bootstrap/ca_validator.go`)
+6. **CA Fingerprint Validator** (`internal/agent/bootstrap/ca_validator.go`)
     - Extract Root CA from TLS certificate chain
     - Compute SHA256 fingerprint of Root CA
     - Compare against expected fingerprint from config
-    - Validate certificate chain integrity (intermediates → root)
-    - Abort connection on mismatch (MITM detection)
+    - Validate colony ID in server certificate SAN (SPIFFE URI)
+    - Verify SAN matches expected colony ID from config
+    - Validate certificate chain integrity (Server cert → Server Intermediate →
+      Root)
+    - Abort connection on mismatch (MITM or cross-colony impersonation
+      detection)
 
-6. **Agent Bootstrap Client** (`internal/agent/bootstrap/client.go`)
+7. **Agent Bootstrap Client** (`internal/agent/bootstrap/client.go`)
     - Request referral ticket from Discovery first
     - Handle rate limit and permission errors gracefully
     - Query Discovery for colony endpoints
     - Connect to colony with `InsecureSkipVerify` (manual validation)
     - Validate Root CA fingerprint using CA validator
+    - Validate colony ID in server certificate SAN
     - Save validated Root CA to disk
     - Generate Ed25519 keypairs using `crypto/ed25519`
-    - Create X.509 CSRs with CN=agent_id, O=colony_id
+    - Create X.509 CSRs with CN=agent_id, O=colony_id, SAN=spiffe URI
     - Call Colony's `RequestCertificate` RPC with referral ticket
-    - Validate received certificate matches our public key
+    - Validate received certificate matches our public key and includes SPIFFE
+      SAN
     - Store certificates securely with proper permissions
 
-7. **Agent Certificate Manager** (`internal/agent/certs/manager.go`)
+8. **Agent Certificate Manager** (`internal/agent/certs/manager.go`)
     - Check certificate existence and validity on startup
     - Load certificates for gRPC client TLS configuration
     - Load Root CA for colony server validation
     - Monitor certificate expiry (trigger renewal at 30 days)
     - Handle certificate storage and file permissions
     - Provide certificate metadata for status commands
+    - Implement automatic renewal without Discovery (using existing mTLS cert)
 
-8. **Agent Connection Setup** (`internal/agent/connection.go`)
+9. **Agent Connection Setup** (`internal/agent/connection.go`)
     - Attempt certificate-based connection first
     - Fall back to `colony_secret` if bootstrap fails (during migration)
     - Configure gRPC client with mTLS transport credentials
     - Validate Colony server certificate against pinned Root CA
+    - Validate colony ID in server certificate SAN
 
-9. **Colony Certificate Issuance** (`internal/colony/ca/issuer.go`)
-    - Validate referral ticket (JWT signature and claims)
-    - Verify ticket signature with Discovery public key
-    - Verify agent_id and colony_id match ticket claims
-    - Check ticket expiration (should be within 1 minute)
-    - Auto-issue certificates on valid CSRs + tickets
+10. **Colony Certificate Issuance** (`internal/colony/ca/issuer.go`)
+    - Distinguish between first-time bootstrap and renewal requests
+    - **For bootstrap requests:**
+        - Validate referral ticket (JWT signature and claims)
+        - Fetch JWKS from Discovery (cache for 1 hour)
+        - Verify ticket signature using JWKS public keys
+        - Verify agent_id and colony_id match ticket claims
+        - Check ticket expiration (should be within 1 minute)
+        - Store ticket JTI to prevent reuse
+    - **For renewal requests:**
+        - Validate existing mTLS certificate from client
+        - Check certificate is not revoked (CRL/revocation list)
+        - No referral ticket required
     - Validate CSR signature and structure
     - Extract agent_id from CN field
     - Sign with Agent Intermediate CA (90-day validity)
-    - Store certificate metadata + ticket JTI in database
-    - Monitor and alert on invalid tickets
+    - Include SPIFFE ID in SAN (
+      `spiffe://coral/colony/{colony-id}/agent/{agent-id}`)
+    - Store certificate metadata in database
+    - Monitor and alert on invalid tickets or suspicious patterns
     - Return certificate + full CA chain
 
-10. **CLI Agent Commands** (`internal/cli/agent/`)
+11. **CLI Agent Commands** (`internal/cli/agent/`)
     - `coral agent bootstrap` - Manually trigger bootstrap flow
-    - `coral agent cert status` - Display certificate info
+    - `coral agent cert status` - Display certificate info (including SPIFFE ID)
     - `coral agent cert renew` - Manually renew certificate
 
-11. **CLI Colony Commands** (`internal/cli/colony/`)
-    - `coral colony ca status` - Display CA hierarchy info
+12. **CLI Colony Commands** (`internal/cli/colony/`)
+    - `coral colony ca status` - Display CA hierarchy info (including Server
+      Intermediate)
     - `coral colony ca rotate-intermediate` - Rotate intermediate CAs
     - `coral colony policy show` - Display current policy
     - `coral colony policy update` - Update and push new policy
     - `coral colony policy push` - Push policy to Discovery
+
+13. **Colony JWKS Client** (`internal/colony/jwks/`)
+    - Fetch JWKS from Discovery on startup
+    - Cache JWKS with 1-hour TTL
+    - Refresh JWKS periodically
+    - Parse and validate JWKS format
+    - Provide JWT validation using cached keys
+    - Handle key rotation gracefully
 
 ## Implementation Plan
 
@@ -554,24 +753,30 @@ security:
 
 - [ ] Implement `internal/colony/ca/init.go`
     - Root CA generation (10-year validity)
-    - Bootstrap Intermediate CA generation
-    - Agent Intermediate CA generation
+    - Bootstrap Intermediate CA generation (fingerprint validation only)
+    - **Server Intermediate CA generation (for server certificates)**
+    - Agent Intermediate CA generation (for client certificates)
     - Policy signing certificate generation (signed by Root CA, 10-year
       validity)
     - Policy signing Ed25519 keypair generation
+    - **Colony TLS server certificate with SPIFFE ID in SAN**
     - Root CA fingerprint computation
+    - **Display Colony SPIFFE ID**
     - Save CA hierarchy with proper permissions
 - [ ] Update `coral colony init` to generate CA hierarchy
 - [ ] Add `coral colony ca status` command
 - [ ] Add `coral colony ca rotate-intermediate` command
+- [ ] **Add RFC 8785 JCS canonicalization library dependency**
 - [ ] Add unit tests for CA generation
+- [ ] **Add unit tests for SPIFFE ID generation and validation**
 
 ### Phase 2: Colony Policy Management
 
 - [ ] Implement `internal/colony/policy/policy.go`
     - Define policy structures
     - Implement default policies
-    - Policy signing with Ed25519
+    - **Policy canonicalization using RFC 8785 JCS**
+    - Policy signing with Ed25519 over canonical JSON
     - Policy serialization and validation
 - [ ] Implement `internal/colony/policy/push.go`
     - Push policies to Discovery
@@ -580,7 +785,9 @@ security:
 - [ ] Add `coral colony policy show` command
 - [ ] Add `coral colony policy update` command
 - [ ] Add `coral colony policy push` command
+- [ ] **Add unit tests for RFC 8785 JCS canonicalization**
 - [ ] Add unit tests for policy signing and validation
+- [ ] **Add cross-platform policy signature verification tests**
 
 ### Phase 3: Discovery Service Policy Storage
 
@@ -590,7 +797,9 @@ security:
     - Implement colony registration (colony_id → Root CA fingerprint locking)
     - Verify Root CA fingerprint for existing colonies
     - Detect and log colony impersonation attempts
-    - Verify Ed25519 signatures using public key from validated certificate
+    - **Canonicalize policies using RFC 8785 JCS before verification**
+    - Verify Ed25519 signatures over canonical JSON using public key from
+      validated certificate
     - Store policies in database with certificates
     - Policy expiration handling
 - [ ] Add `UpsertColonyPolicy` RPC endpoint with certificate validation
@@ -599,11 +808,30 @@ security:
 - [ ] Add database schema for policy storage with certificates
 - [ ] Add unit tests for certificate chain validation
 - [ ] Add unit tests for colony registration and impersonation detection
+- [ ] **Add unit tests for canonical policy verification**
 
-### Phase 4: Discovery Service Referral Tickets
+### Phase 4: Discovery Service JWT Key Management
+
+- [ ] Implement `internal/discovery/jwt/keys.go`
+    - Ed25519 keypair generation
+    - Automatic key rotation (30-day period, 7-day grace)
+    - Key storage in database with metadata
+    - Current and previous key tracking
+    - Optional HSM integration
+- [ ] Implement `internal/discovery/jwt/jwks.go`
+    - JWKS endpoint (`/.well-known/jwks.json`)
+    - JWKS format generation (RFC 7517)
+    - Key metadata (kid, alg, use)
+- [ ] Add database schema for JWT keys
+- [ ] Add background task for key rotation
+- [ ] Add unit tests for key generation and rotation
+- [ ] **Add unit tests for JWKS format compliance**
+
+### Phase 5: Discovery Service Referral Tickets
 
 - [ ] Implement `internal/discovery/referral/ticket.go`
     - JWT ticket issuance with Ed25519
+    - **Include key ID (kid) in JWT header**
     - Rate limiting (per-agent, per-IP, per-colony)
     - Quota tracking
     - Agent ID validation
@@ -612,20 +840,26 @@ security:
 - [ ] Add database schema for rate limit tracking
 - [ ] Add monitoring and alerting
 - [ ] Add unit tests for ticket issuance
+- [ ] **Add unit tests for JWT validation with key rotation**
 
-### Phase 5: CA Fingerprint Validation
+### Phase 6: CA Fingerprint Validation
 
 - [ ] Implement `internal/agent/bootstrap/ca_validator.go`
     - Extract Root CA from TLS connection
     - Compute SHA256 fingerprint
     - Compare against expected value
-    - Validate certificate chain integrity
+    - **Validate colony ID in server certificate SAN (SPIFFE URI)**
+    - **Verify SAN matches expected colony ID**
+    - Validate certificate chain integrity (Server cert → Server Intermediate →
+      Root)
     - Log detailed errors on mismatch
 - [ ] Add `CORAL_CA_FINGERPRINT` environment variable support
 - [ ] Add configuration field `security.ca_fingerprint`
-- [ ] Add unit tests for fingerprint validation
+- [ ] **Add unit tests for fingerprint validation**
+- [ ] **Add unit tests for SAN validation (cross-colony impersonation detection)
+  **
 
-### Phase 6: Agent Bootstrap Implementation
+### Phase 7: Agent Bootstrap Implementation
 
 - [ ] Implement `internal/agent/bootstrap/referral.go`
     - Request referral ticket from Discovery
@@ -634,39 +868,55 @@ security:
 - [ ] Implement `internal/agent/bootstrap/client.go`
     - Query Discovery for endpoints
     - CA fingerprint validation before CSR submission
+    - **Colony ID SAN validation before CSR submission**
     - Ed25519 keypair generation
-    - CSR creation with proper CN/SAN
+    - **CSR creation with SPIFFE ID in SAN**
     - Certificate request with referral ticket
+    - **Validate received certificate includes SPIFFE SAN**
     - Certificate storage
 - [ ] Add retry logic with exponential backoff
 - [ ] Add unit tests for bootstrap client
+- [ ] **Add unit tests for SPIFFE ID validation**
 
-### Phase 7: Colony Certificate Issuance
+### Phase 8: Colony Certificate Issuance
 
+- [ ] Implement `internal/colony/jwks/client.go`
+    - **Fetch JWKS from Discovery on startup**
+    - **Cache JWKS with 1-hour TTL**
+    - **Periodic JWKS refresh**
+    - **JWT validation using JWKS keys**
 - [ ] Update `internal/colony/ca/issuer.go`
-    - Validate referral ticket (JWT)
-    - Verify ticket signature with Discovery public key
+    - **Distinguish between bootstrap and renewal requests**
+    - **For bootstrap:** Validate referral ticket (JWT)
+    - **For renewal:** Validate existing mTLS certificate (no ticket required)
+    - **Verify JWT signature using JWKS**
     - Verify agent_id and colony_id match ticket
-    - Auto-issue on valid CSR + ticket
-    - Store ticket JTI in certificate record
+    - **Issue certificates with SPIFFE ID in SAN**
+    - Auto-issue on valid CSR + ticket (or valid mTLS cert for renewal)
+    - Store ticket JTI in certificate record (bootstrap only)
     - Certificate tracking in database
-- [ ] Fetch Discovery public key on startup
 - [ ] Add monitoring/alerting for invalid tickets
 - [ ] Add unit tests for ticket validation and issuance
+- [ ] **Add unit tests for renewal without Discovery**
+- [ ] **Add unit tests for JWKS-based JWT validation**
 
-### Phase 8: Agent Connection Integration
+### Phase 9: Agent Connection Integration
 
 - [ ] Update `internal/agent/connection.go`
     - Use certificates for mTLS
     - Root CA validation for colony server
+    - **Colony ID SAN validation for colony server**
     - Fallback to `colony_secret` during migration
 - [ ] Implement certificate manager
+    - **Automatic renewal using existing mTLS cert (no Discovery required)**
+    - Certificate expiry monitoring
 - [ ] Add integration tests for mTLS connections
+- [ ] **Add integration tests for renewal without Discovery**
 
-### Phase 9: CLI Commands & Monitoring
+### Phase 10: CLI Commands & Monitoring
 
 - [ ] Implement `coral agent bootstrap` command
-- [ ] Implement `coral agent cert status` command
+- [ ] Implement `coral agent cert status` command **(include SPIFFE ID)**
 - [ ] Implement `coral agent cert renew` command
 - [ ] Implement `coral colony policy show` command
 - [ ] Implement `coral colony policy update` command
@@ -674,14 +924,23 @@ security:
 - [ ] Add certificate expiry warnings to `coral agent status`
 - [ ] Add telemetry for bootstrap success/failure rates
 - [ ] Add telemetry for referral ticket issuance rates
+- [ ] **Add telemetry for renewal success/failure rates**
 
-### Phase 10: Testing & Documentation
+### Phase 11: Testing & Documentation
 
 - [ ] Unit tests for all new components
-- [ ] Integration test: full bootstrap flow
+- [ ] Integration test: full bootstrap flow **(with SPIFFE ID validation)**
 - [ ] Integration test: intermediate rotation
 - [ ] E2E test: MITM detection (wrong fingerprint)
-- [ ] E2E test: certificate renewal
+- [ ] **E2E test: Cross-colony impersonation detection (wrong colony ID in SAN)
+  **
+- [ ] E2E test: certificate renewal **(without Discovery)**
+- [ ] **E2E test: Discovery offline during renewal (should succeed)**
+- [ ] **E2E test: Bootstrap intermediate compromised (cannot issue server certs)
+  **
+- [ ] **E2E test: Policy signature verification across platforms (RFC 8785 JCS)
+  **
+- [ ] **E2E test: JWT key rotation (JWKS with grace period)**
 - [ ] Update agent deployment documentation
 - [ ] Add troubleshooting guide for bootstrap failures
 
@@ -693,10 +952,11 @@ security:
 // New: Colony pushes signed authorization policy to Discovery
 message UpsertColonyPolicyRequest {
     string colony_id = 1;
-    bytes policy = 2;              // JSON-encoded policy document
-    bytes signature = 3;           // Ed25519 signature over policy
-    bytes policy_certificate = 4;  // Policy signing certificate (signed by Root CA)
-    bytes root_ca_certificate = 5; // Root CA certificate (for chain validation)
+    bytes policy = 2;              // JSON-encoded policy document (RFC 8785 JCS canonical)
+    bytes signature = 3;           // Ed25519 signature over canonical JSON
+    string signature_algorithm = 4; // "Ed25519-RFC8785-JCS"
+    bytes policy_certificate = 5;  // Policy signing certificate (signed by Root CA)
+    bytes root_ca_certificate = 6; // Root CA certificate (for chain validation)
 }
 
 message UpsertColonyPolicyResponse {
@@ -711,8 +971,15 @@ message RequestReferralTicketRequest {
 }
 
 message RequestReferralTicketResponse {
-    string ticket = 1;          // JWT referral ticket
+    string ticket = 1;          // JWT referral ticket (signed with Ed25519, includes kid)
     google.protobuf.Timestamp expires_at = 2;
+}
+
+// New: Colony fetches JWKS from Discovery
+message GetJWKSRequest {}
+
+message GetJWKSResponse {
+    string jwks = 1;  // JSON Web Key Set (RFC 7517 format)
 }
 
 // Existing: Lookup colony endpoints
@@ -727,17 +994,41 @@ message LookupColonyResponse {
 }
 ```
 
+**JWKS HTTP Endpoint:**
+
+```
+GET /.well-known/jwks.json
+
+Response (application/json):
+{
+  "keys": [
+    {
+      "kid": "discovery-2024-11-21",
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "base64-encoded-public-key",
+      "use": "sig",
+      "alg": "EdDSA"
+    }
+  ]
+}
+```
+
 ### Modified Colony Service API
 
 ```protobuf
-// Updated: Requires referral ticket from Discovery
+// Updated: Referral ticket required for bootstrap, optional for renewal
 message RequestCertificateRequest {
     bytes csr = 1;              // Certificate Signing Request (PEM format)
+    // CSR includes SPIFFE ID in SAN
     string referral_ticket = 2; // JWT from Discovery (1-minute TTL)
+    // REQUIRED for first-time bootstrap
+    // OPTIONAL for renewal (uses mTLS auth)
 }
 
 message RequestCertificateResponse {
     bytes certificate = 1;      // Signed X.509 client certificate (PEM)
+    // Includes SPIFFE ID in SAN
     bytes ca_chain = 2;         // Full CA chain (Agent Intermediate + Root CA)
     google.protobuf.Timestamp expires_at = 3;
 }
@@ -747,13 +1038,21 @@ message RequestCertificateResponse {
 
 **Discovery Service:**
 
-- `UpsertColonyPolicy` (new) - Colony pushes signed policy
-- `RequestReferralTicket` (new) - Agent requests authorization ticket
+- `UpsertColonyPolicy` (new) - Colony pushes signed policy (RFC 8785 JCS
+  canonical)
+- `RequestReferralTicket` (new) - Agent requests authorization ticket (JWT with
+  Ed25519)
+- `GetJWKS` (new) - Colony fetches JWT public keys for validation
 - `LookupColony` (existing) - Agent queries colony endpoints
+- `/.well-known/jwks.json` (HTTP endpoint) - Public JWKS endpoint for key
+  discovery
 
 **Colony Service:**
 
-- `RequestCertificate` (modified) - Agent requests certificate with ticket
+- `RequestCertificate` (modified) - Agent requests certificate with optional
+  referral ticket
+    - First-time bootstrap: Requires referral ticket
+    - Renewal: Uses mTLS authentication, no ticket required
 
 ## CLI Commands
 
@@ -771,14 +1070,20 @@ Validating Root CA fingerprint...
   Received: sha256:a3f2e1d4c5b6...
 ✓ Root CA fingerprint verified - trust established
 
+Validating colony identity...
+  Expected colony ID: my-app-prod
+  Server cert SAN: spiffe://coral/colony/my-app-prod
+✓ Colony identity confirmed - no cross-colony impersonation
+
 Validating certificate chain...
-✓ Certificate chain verified (Server → Bootstrap Intermediate → Root CA)
+✓ Certificate chain verified (Server → Server Intermediate → Root CA)
 
 Generating keypair...
 ✓ Ed25519 keypair generated
 
 Creating certificate signing request...
 ✓ CSR created (CN=web-1, O=my-app-prod)
+  SAN: spiffe://coral/colony/my-app-prod/agent/web-1
 
 Requesting certificate from Colony...
 ✓ Certificate received (valid until 2025-02-18)
@@ -1052,23 +1357,156 @@ New:     CA fingerprint public → referral ticket required (rate-limited, polic
 
 ## Deferred Features
 
-**Certificate Renewal** (RFD xxx):
+The following features are important but deferred to separate RFDs to keep this
+RFD focused on the critical security improvements. Each deserves its own design
+and implementation consideration.
 
-- Automatic renewal at 30 days before expiry
-- Renewal failure handling and alerting
-- Certificate expiry monitoring and dashboards
+### **Storage Security Enhancements** (RFD xxx)
 
-**mTLS Enforcement** (RFD xxx):
+**Problem**: Current storage paths (`~/.coral/`) may be accidentally committed
+to git or backed up to cloud storage.
 
-- Disable `colony_secret` authentication entirely
-- Reject non-certificate agent connections
-- Certificate-based authorization policies
+**Proposed Solution**:
 
-**Advanced Bootstrap**:
+- Migrate to XDG Base Directory specification
+    - `~/.local/share/coral/` for private keys (chmod 700)
+    - `~/.config/coral/` for non-sensitive config
+- Auto-generated `.gitignore` files in sensitive directories
+- Support for PKCS#11 HSMs (YubiHSM 2, SoftHSM)
+- Support for age-encrypted private keys
+- Better permission handling and validation
 
-- Multi-colony bootstrap (agent connects to multiple colonies)
-- Certificate-based agent migration between colonies
-- Automated certificate rotation on key compromise
+**Benefits**: Reduces risk of accidental key leakage, production-ready HSM
+integration.
+
+### **Discovery Policy Caching** (RFD xxx)
+
+**Problem**: Every bootstrap requires Discovery interaction, creating a
+bottleneck and single point of failure.
+
+**Proposed Solution**:
+
+- Option 1: Cached micro-policies
+    - Discovery issues signed policy fragments (10-60 minute TTL)
+    - Colony caches and validates locally
+    - Example: "Allow agent_id matching pattern ^web-.* from 10.0.0.0/8"
+- Option 2: Batch ticket pre-authorization
+    - Colony requests batch authorization from Discovery
+    - Colony issues individual tickets locally
+    - Discovery provides revocation lists
+
+**Benefits**: Reduces Discovery load, increases resiliency, better scaling to
+10k+ agents.
+
+### **Colony Registration Confirmation** (RFD xxx)
+
+**Problem**: If attacker compromises workstation with root-ca.key, they can
+push corrupted policy.
+
+**Proposed Solution**:
+
+- Manual confirmation on first colony registration
+    - Display confirmation code during `coral colony init`
+    - Require verification via Discovery UI or API
+    - 5-minute timeout for confirmation
+- Or: Signed "colony ownership proof" using separate bootstrap key
+- Optional: HSM-backed root CA for production environments
+
+**Benefits**: Prevents silent colony hijacking, defense against compromised
+workstations.
+
+### **Full SPIFFE Integration** (RFD xxx)
+
+**Problem**: Currently only using SPIFFE IDs in certificate SANs. Full SPIFFE
+integration enables service mesh compatibility.
+
+**Proposed Solution**:
+
+- SPIFFE Workload API implementation
+- Integration with Envoy, Istio, Cilium Service Mesh
+- SPIFFE Federation for cross-colony trust
+- Workload attestation and validation
+- SPIRE-compatible trust domain
+
+**Benefits**: Seamless integration with modern service mesh platforms, broader
+ecosystem compatibility.
+
+### **Certificate Revocation (CRL/OCSP)** (RFD xxx)
+
+**Problem**: No mechanism for agents to check certificate revocation status.
+
+**Proposed Solution**:
+
+- Colony publishes CRL at well-known URL
+    - `https://colony.example.com/.well-known/crl.pem`
+    - Updated every hour or on revocation events
+- Optional: OCSP stapling support
+    - Colony provides OCSP responses
+    - Agents validate during TLS handshake
+- Agents check CRL before trusting colony certificates
+- Integration with certificate renewal flow
+
+**Benefits**: Proper revocation checking, compliance with PKI best practices.
+
+### **Enhanced Audit Logging & Monitoring** (RFD xxx)
+
+**Problem**: Current logging is basic. Production needs structured logs,
+metrics, and anomaly detection.
+
+**Proposed Solution**:
+
+- Structured logging with standard fields:
+    - Fingerprints, policy versions, CSR subjects
+    - Rate limit counters, ticket JTIs
+    - Certificate serial numbers, lifetimes
+- Metrics and dashboards:
+    - Bootstrap success/failure rates by colony
+    - Referral ticket issuance rates
+    - Certificate renewal rates
+    - Anomaly detection (unusual agent_id patterns, IP changes)
+- Integration with observability platforms:
+    - Prometheus metrics export
+    - OpenTelemetry tracing
+    - Grafana dashboards
+
+**Benefits**: Production-grade observability, security monitoring, compliance
+auditing.
+
+### **mTLS Enforcement** (RFD xxx)
+
+**Problem**: During migration, both certificates and `colony_secret` are
+accepted. Need eventual enforcement.
+
+**Proposed Solution**:
+
+- Phase 1: Monitor certificate adoption rate
+- Phase 2: Deprecation warnings for `colony_secret` usage
+- Phase 3: Enforcement mode (reject non-certificate connections)
+- Phase 4: Remove `colony_secret` authentication code
+- Certificate-based authorization policies (replace agent_id allowlists)
+
+**Benefits**: Complete migration to per-agent cryptographic identity, improved
+security posture.
+
+### **Advanced Bootstrap Features**
+
+**Multi-Colony Bootstrap**:
+
+- Agent connects to multiple colonies simultaneously
+- Separate certificates for each colony
+- Colony affinity and routing
+
+**Certificate-Based Agent Migration**:
+
+- Migrate agents between colonies without re-bootstrapping
+- Transfer cryptographic identity
+- Colony approval workflow
+
+**Automated Certificate Rotation on Compromise**:
+
+- Detect compromised certificates
+- Automatic revocation and re-issuance
+- Alerting and incident response integration
 
 ---
 
