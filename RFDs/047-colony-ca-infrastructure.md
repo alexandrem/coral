@@ -289,6 +289,7 @@ security:
         root_dir: "~/.coral/colonies/my-colony/ca"
         # Rotation schedules
         intermediate_validity: "8760h" # 1 year
+```
 
 ## CLI Commands
 
@@ -352,14 +353,14 @@ Rotating Server Intermediate CA...
 
 ### Deferred to Other RFDs
 
+- **Certificate Renewal via mTLS** (without referral ticket) → **RFD 048**
 - **Policy Signing** (RFC 8785 canonicalization, signed policies) → **RFD 049**
 - **Referral Ticket Validation** (Discovery JWKS integration) → **RFD 049**
-- **Certificate Renewal via mTLS** (without referral ticket) → **RFD 048**
 
 ### Future Work
 
-- [ ] `coral colony ca rotate-intermediate` command (CLI stub exists)
-- [ ] Unit tests for CA generation (`internal/colony/ca/manager_test.go`)
+- [x] `coral colony ca rotate-intermediate` command
+- [x] Unit tests for CA generation (`internal/colony/ca/manager_test.go`)
 
 ## Security Considerations
 
@@ -380,3 +381,50 @@ Rotating Server Intermediate CA...
    `CORAL_CA_FINGERPRINT` will use fingerprint-based trust establishment.
 3. **Legacy Support**: Existing `colony_secret` auth remains active until
    explicitly disabled in configuration.
+
+---
+
+## Implementation Status
+
+**Core Capability:** ✅ Complete
+
+Colony CA infrastructure implemented with hierarchical PKI (Root → Server
+Intermediate → Agent Intermediate). Colony can initialize its CA hierarchy,
+issue certificates for agents and servers, and present proper certificate chains
+for fingerprint-based trust establishment.
+
+**Operational Components:**
+
+- ✅ Root CA generation (10-year validity)
+- ✅ Server Intermediate CA (1-year validity)
+- ✅ Agent Intermediate CA (1-year validity)
+- ✅ Policy signing certificate (10-year validity)
+- ✅ Server TLS certificate with SPIFFE ID
+- ✅ CLI: `coral init` generates CA hierarchy
+- ✅ CLI: `coral colony ca status`
+- ✅ CLI: `coral colony ca rotate-intermediate`
+
+**What Works Now:**
+
+- Colony initialization creates full CA hierarchy
+- Server presents certificate chain for fingerprint validation
+- Agent and server certificates can be issued with SPIFFE IDs
+- CA status inspection via CLI
+- Intermediate CA rotation via CLI
+
+## Deferred Features
+
+**Agent Certificate Bootstrap** (RFD 048)
+
+- Agent-side certificate request flow
+- Certificate renewal via existing mTLS connection
+
+**Policy Signing & Discovery Integration** (RFD 049)
+
+- RFC 8785 JSON canonicalization for policy signing
+- `UpsertColonyPolicy` to Discovery service
+- Referral ticket validation via Discovery JWKS
+
+**CLI Enhancements** (Future)
+
+- Intermediate CA rotation with overlap period (graceful transition)
