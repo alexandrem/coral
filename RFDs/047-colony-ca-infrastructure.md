@@ -1,7 +1,7 @@
 ---
 rfd: "047"
 title: "Colony CA Infrastructure & Policy Signing"
-state: "draft"
+state: "implementing"
 supersedes: "022"
 breaking_changes: true
 testing_required: true
@@ -15,7 +15,7 @@ areas: [ "security", "colony", "discovery" ]
 
 # RFD 047 - Colony CA Infrastructure & Policy Signing
 
-**Status:** 🚧 Draft
+**Status:** 🔨 Implementing (Phase 1 complete, Phase 2-3 pending)
 
 ## Summary
 
@@ -53,7 +53,7 @@ management.
 
 ## Solution
 
-Embed `step-ca` inside the Colony binary to manage a **Four-Level PKI Hierarchy
+Embed `step-ca` inside the Colony binary to manage a **Three-Level PKI Hierarchy
 **. Implement a **Policy Signing** workflow where Colony signs its own admission
 rules (policies) which Discovery then enforces.
 
@@ -61,8 +61,6 @@ rules (policies) which Discovery then enforces.
 
 1. **Hierarchical CA**:
     - **Root CA** (10y): Offline/HSM-ready, root of trust.
-    - **Bootstrap Intermediate** (1y): Used *only* for fingerprint validation
-      during bootstrap.
     - **Server Intermediate** (1y): Issues Colony's TLS server certificates.
     - **Agent Intermediate** (1y): Issues mTLS client certificates to agents.
 
@@ -81,15 +79,10 @@ rules (policies) which Discovery then enforces.
 
 ### CA Hierarchy
 
-#### Four-Level PKI Structure
+#### Three-Level PKI Structure
 
 ```
 Root CA (10-year validity, offline/HSM)
-  ├─ Bootstrap Intermediate CA (1-year, rotatable)
-  │   └─ Used ONLY for fingerprint validation during bootstrap
-  │       (Does not issue any certificates)
-  │       └─ Agents validate Root CA fingerprint via this chain
-  │
   ├─ Server Intermediate CA (1-year, rotatable)
   │   └─ Colony TLS Server Certificate
   │       └─ SAN: spiffe://coral/colony/{colony-id}
@@ -115,18 +108,15 @@ Root CA (10-year validity, offline/HSM)
 - **Colony ID reservation**: Policy cert chains to Root CA, locking colony IDs
 - **Best Practice**: Follows X.509/RFC 5280 standards
 
-**Why Separate Bootstrap and Server Intermediates?**
+**Why Separate Server and Agent Intermediates?**
 
-- **Blast radius reduction**: Bootstrap Intermediate compromise cannot issue
-  server certs
-- **Security isolation**: Bootstrap Intermediate is untrusted for TLS server
-  cert issuance
-- **Purpose separation**: Bootstrap Intermediate only used for fingerprint
-  validation
-- **Server cert protection**: Server Intermediate handles all server certificate
-  issuance
+- **Blast radius reduction**: Compromise of one intermediate cannot issue certs
+  for the other purpose
+- **Purpose separation**: Server Intermediate for TLS server certs, Agent
+  Intermediate for mTLS client certs
+- **Independent rotation**: Can rotate each intermediate independently
 
-**Why Bootstrap Intermediate Exists:**
+**Trust Establishment:**
 
 During the TLS handshake, the colony server presents its certificate chain:
 
@@ -141,18 +131,6 @@ The agent performs two validations:
 2. **Chain Validation**: Verify Server Cert → Server Intermediate → Root CA is
    cryptographically valid
 
-The Bootstrap Intermediate is NOT used in this chain. It exists for historical
-reasons and potential future use cases (e.g., issuing short-lived bootstrap
-credentials), but is not required for the current design.
-
-**Important**: Even if an attacker compromises the Bootstrap Intermediate
-private key, they cannot:
-
-- Issue valid server certificates (separate Server Intermediate required)
-- Bypass fingerprint validation (agents validate Root CA, not intermediates)
-- Impersonate the colony (server cert must chain to Server Intermediate, not
-  Bootstrap Intermediate)
-
 ### Colony Initialization
 
 ```bash
@@ -161,12 +139,11 @@ $ coral colony init my-app-prod
 Initializing colony: my-app-prod...
 
 Generated Certificate Authority:
-  Root CA:                ~/.coral/colonies/my-app-prod/ca/root-ca.crt
-  Root CA Key:            ~/.coral/colonies/my-app-prod/ca/root-ca.key (SECRET)
-  Bootstrap Intermediate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
-  Server Intermediate:    ~/.coral/colonies/my-app-prod/ca/server-intermediate.crt
-  Agent Intermediate:     ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
-  Policy Signing Cert:    ~/.coral/colonies/my-app-prod/ca/policy-signing.crt
+  Root CA:              ~/.coral/colonies/my-app-prod/ca/root-ca.crt
+  Root CA Key:          ~/.coral/colonies/my-app-prod/ca/root-ca.key (SECRET)
+  Server Intermediate:  ~/.coral/colonies/my-app-prod/ca/server-intermediate.crt
+  Agent Intermediate:   ~/.coral/colonies/my-app-prod/ca/agent-intermediate.crt
+  Policy Signing Cert:  ~/.coral/colonies/my-app-prod/ca/policy-signing.crt
 
 Root CA Fingerprint (distribute to agents):
   sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
@@ -196,12 +173,6 @@ ca:
         certificate: ~/.coral/colonies/my-app-prod/ca/root-ca.crt
         private_key: ~/.coral/colonies/my-app-prod/ca/root-ca.key
         fingerprint: sha256:a3f2e1d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2
-
-    bootstrap_intermediate:
-        certificate: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.crt
-        private_key: ~/.coral/colonies/my-app-prod/ca/bootstrap-intermediate.key
-        expires_at: 2025-11-21
-        usage: fingerprint_validation_only
 
     server_intermediate:
         certificate: ~/.coral/colonies/my-app-prod/ca/server-intermediate.crt
@@ -265,8 +236,6 @@ sequenceDiagram
 
 - **Initialization**: On first startup, generate the full hierarchy:
     - Generate Root CA (10-year validity)
-    - Generate Bootstrap Intermediate CA (1-year validity, fingerprint
-      validation only)
     - Generate Server Intermediate CA (1-year validity, for server certificates)
     - Generate Agent Intermediate CA (1-year validity, for client certificates)
     - Generate policy signing certificate (signed by Root CA, 10-year validity)
@@ -379,9 +348,8 @@ Root CA:
   Expires: 2034-11-21 (10 years)
 
 Intermediates:
-  Bootstrap: Valid (Expires 2025-11-21)
-  Server:    Valid (Expires 2025-11-21)
-  Agent:     Valid (Expires 2025-11-21)
+  Server: Valid (Expires 2025-11-21)
+  Agent:  Valid (Expires 2025-11-21)
 
 Policy Signing:
   Certificate: Valid (Expires 2034-11-21)
@@ -402,33 +370,56 @@ Rotating Server Intermediate CA...
 
 ### Phase 1: Colony CA Infrastructure
 
-- [ ] Implement `internal/colony/ca/init.go`
-    - Root CA generation (10-year validity)
-    - Bootstrap Intermediate CA generation (fingerprint validation only)
-    - **Server Intermediate CA generation (for server certificates)**
-    - Agent Intermediate CA generation (for client certificates)
-    - Policy signing certificate generation (signed by Root CA, 10-year
-      validity)
-    - Policy signing Ed25519 keypair generation
-    - **Colony TLS server certificate with SPIFFE ID in SAN**
-    - Root CA fingerprint computation
-    - **Display Colony SPIFFE ID**
-    - Save CA hierarchy with proper permissions
-- [ ] Update `coral colony init` to generate CA hierarchy
-- [ ] Add `coral colony ca status` command
-- [ ] Add `coral colony ca rotate-intermediate` command
-- [ ] **Add RFC 8785 JCS canonicalization library dependency**
-- [ ] Add unit tests for CA generation
-- [ ] **Add unit tests for SPIFFE ID generation and validation**
-```
+- [x] Implement `internal/colony/ca/manager.go`
+    - [x] Root CA generation (10-year validity)
+    - [x] Server Intermediate CA generation (1-year validity)
+    - [x] Agent Intermediate CA generation (1-year validity)
+    - [x] Policy signing certificate generation (signed by Root CA, 10-year
+      validity, ECDSA P-256)
+    - [x] Colony TLS server certificate with SPIFFE ID in SAN
+      (`IssueServerCertificate`)
+    - [x] Root CA fingerprint computation (`GetCAFingerprint`)
+    - [x] Save CA hierarchy with proper permissions (0700 dir, 0600 keys, 0644
+      certs)
+    - [x] Load existing CA from filesystem (`loadCA`)
+- [x] Implement `internal/colony/ca/manager.go` Initialize() standalone function
+    for use during `coral init`
+- [x] Update `coral init` to generate CA hierarchy (`internal/cli/init/init.go`)
+- [x] Add `coral colony ca status` command (`internal/cli/colony/ca.go`)
+- [x] Integrate CA manager into colony startup (`internal/colony/ca_init.go`)
+
+### Phase 1b: Remaining CA Infrastructure
+
+- [ ] Add `coral colony ca rotate-intermediate` command (CLI stub exists, logic
+  not implemented)
+- [ ] Add RFC 8785 JCS canonicalization library dependency (for policy signing)
+- [ ] Add unit tests for CA generation (`internal/colony/ca/manager_test.go`)
+- [ ] Add unit tests for SPIFFE ID generation and validation
+
+### Phase 2: Policy Signing (Not Started)
+
+- [ ] Define `ColonyPolicy` struct with rate limits, agent ID patterns
+- [ ] Implement RFC 8785 JSON canonicalization for policy documents
+- [ ] Implement policy signing workflow
+- [ ] Add `UpsertColonyPolicy` RPC to Discovery service
+
+### Phase 3: Certificate Issuance Service (Partially Done)
+
+- [x] `IssueCertificate` method for agent certificates
+- [x] `IssueServerCertificate` method for colony TLS
+- [x] `RevokeCertificate` method
+- [x] Bootstrap token validation (`ValidateToken`)
+- [ ] Referral ticket validation (requires Discovery JWKS integration)
+- [ ] Certificate renewal via mTLS (without referral ticket)
 
 ## Security Considerations
 
 - **Root Key Protection**: The Root CA key is critical. It should be generated
   offline or stored in an HSM in production. For the embedded version, file
   system permissions (0600) are the baseline.
-- **Intermediate Isolation**: Compromise of the *Bootstrap Intermediate* does
-  not allow an attacker to issue valid server or client certificates.
+- **Intermediate Isolation**: Compromise of the Server Intermediate does not
+  allow issuing agent certificates (and vice versa). Each intermediate has a
+  specific purpose.
 - **Policy Integrity**: RFC 8785 ensures that the JSON policy document cannot be
   semantically modified without invalidating the signature.
 - **Ticket Replay**: Referral tickets are single-use (tracked by JTI) and

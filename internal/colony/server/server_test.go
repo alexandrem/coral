@@ -22,17 +22,21 @@ func newTestServer(t *testing.T, config Config) *Server {
 	reg := registry.New()
 	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 
-	// Create temporary database for testing
+	// Create temporary database for testing.
 	tmpDir := t.TempDir()
 	db, err := database.New(tmpDir, config.ColonyID, logger)
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
 
-	// Initialize CA manager for testing (RFD 022).
+	// Create CA directory within temp directory.
+	caDir := filepath.Join(tmpDir, "ca")
+
+	// Initialize CA manager for testing (RFD 047).
 	jwtSigningKey := []byte("test-signing-key")
 	caManager, err := ca.NewManager(db.DB(), ca.Config{
 		ColonyID:      config.ColonyID,
+		CADir:         caDir,
 		JWTSigningKey: jwtSigningKey,
 	})
 	if err != nil {

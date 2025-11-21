@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -1356,7 +1357,8 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	// Initialize CA manager (RFD 022 - embedded step-ca for agent mTLS).
 	// TODO: Load JWT signing key from config or generate securely.
 	jwtSigningKey := []byte(cfg.ColonySecret) // Use colony secret as JWT signing key for now.
-	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, jwtSigningKey)
+	caDir := filepath.Join(cfg.StoragePath, "ca")
+	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwtSigningKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
 	}

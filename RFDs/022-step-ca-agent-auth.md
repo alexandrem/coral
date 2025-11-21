@@ -1,7 +1,8 @@
 ---
 rfd: "022"
 title: "Embedded step-ca for Agent mTLS Bootstrap"
-state: "implemented"
+state: "superseded"
+superseded_by: "047"
 breaking_changes: true
 testing_required: true
 database_changes: true
@@ -14,7 +15,7 @@ areas: [ "security", "colony", "agent", "discovery" ]
 
 # RFD 022 - Embedded step-ca for Agent mTLS Bootstrap
 
-**Status:** 🎉 Implemented
+**Status:** ⏭️ Superseded by [RFD 047](./047-colony-ca-infrastructure.md)
 
 ## Summary
 
