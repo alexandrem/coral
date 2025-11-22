@@ -168,9 +168,10 @@ Examples:
 				Str("mode", agentMode).
 				Msg("Starting Coral agent")
 
-			if agentMode == "passive" {
+			switch agentMode {
+			case "passive":
 				logger.Info().Msg("Agent running in passive mode - use 'coral connect' to attach services")
-			} else if agentMode == "monitor-all" {
+			case "monitor-all":
 				logger.Info().Msg("Agent running in monitor-all mode - auto-discovering processes")
 			}
 

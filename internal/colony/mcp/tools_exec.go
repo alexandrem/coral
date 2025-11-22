@@ -105,9 +105,10 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 	} else {
 		for _, svc := range serviceStatuses {
 			statusEmoji := "✓"
-			if svc["status"] == "degraded" {
+			switch svc["status"] {
+			case "degraded":
 				statusEmoji = "⚠"
-			} else if svc["status"] == "unhealthy" {
+			case "unhealthy":
 				statusEmoji = "✗"
 			}
 

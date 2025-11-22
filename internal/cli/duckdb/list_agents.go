@@ -1,3 +1,4 @@
+//nolint:errcheck
 package duckdb
 
 import (
@@ -47,8 +48,8 @@ Output includes:
 
 			// Print agents in a table.
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "AGENT ID\tSTATUS\tLAST SEEN\tDATABASES")
-			fmt.Fprintln(w, "--------\t------\t---------\t---------")
+			_, _ = fmt.Fprintln(w, "AGENT ID\tSTATUS\tLAST SEEN\tDATABASES")
+			_, _ = fmt.Fprintln(w, "--------\t------\t---------\t---------")
 
 			for _, agent := range agents {
 				databases := "-"

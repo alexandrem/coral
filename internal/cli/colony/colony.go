@@ -2021,9 +2021,10 @@ func formatAgentStatus(agent *colonyv1.Agent) string {
 	}
 
 	statusSymbol := "✅"
-	if agent.Status == "degraded" {
+	switch agent.Status {
+	case "degraded":
 		statusSymbol = "⚠️"
-	} else if agent.Status == "unhealthy" {
+	case "unhealthy":
 		statusSymbol = "❌"
 	}
 

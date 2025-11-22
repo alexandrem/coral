@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -236,7 +237,9 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback() // TODO: errcheck
+	}(tx)
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO beyla_traces (
@@ -248,7 +251,9 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func(stmt *sql.Stmt) {
+		_ = stmt.Close() // TODO: errcheck
+	}(stmt)
 
 	for _, span := range spans {
 		startTime := time.UnixMilli(span.StartTime)

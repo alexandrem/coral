@@ -665,9 +665,7 @@ func (cm *ConnectionManager) GetColonyEndpoint() string {
 			wgPort = colonyInfo.ObservedEndpoints[0].Port
 		} else if colonyInfo.Metadata != nil {
 			if portStr, ok := colonyInfo.Metadata["wireguard_port"]; ok && portStr != "" {
-				if port, err := fmt.Sscanf(portStr, "%d", &wgPort); err == nil && port == 1 {
-					// Port parsed successfully.
-				}
+				_, _ = fmt.Sscanf(portStr, "%d", &wgPort)
 			}
 		}
 		return wgPort

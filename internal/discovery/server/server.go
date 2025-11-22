@@ -1,3 +1,4 @@
+// Package server implements the discovery service for NAT traversal.
 package server
 
 import (

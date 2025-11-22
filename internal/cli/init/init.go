@@ -1,3 +1,4 @@
+// Package initcmd provides the CLI command for initializing coral configuration.
 package initcmd
 
 import (

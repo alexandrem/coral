@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/firebase/genkit/go/ai"
 	"github.com/firebase/genkit/go/genkit"
+
+	"github.com/coral-io/coral/internal/colony/database"
 )
 
 // registerServiceHealthTool registers the coral_get_service_health tool.
@@ -85,9 +86,10 @@ func (s *Server) registerServiceHealthTool() {
 			} else {
 				for _, svc := range serviceStatuses {
 					statusEmoji := "✓"
-					if svc["status"] == "degraded" {
+					switch svc["status"] {
+					case "degraded":
 						statusEmoji = "⚠"
-					} else if svc["status"] == "unhealthy" {
+					case "unhealthy":
 						statusEmoji = "✗"
 					}
 

@@ -1,3 +1,4 @@
+// Package mcp implements the Model Context Protocol server for AI tool integration.
 package mcp
 
 import (
@@ -24,8 +25,6 @@ type Server struct {
 	config    Config
 	logger    logging.Logger
 	startedAt time.Time
-	// toolFuncs maps tool names to their execution functions (for RPC calls).
-	toolFuncs map[string]interface{}
 }
 
 // Config contains configuration for the MCP server.

@@ -739,7 +739,9 @@ func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traces: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close() // TODO: errcheck
+	}(rows)
 
 	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
 

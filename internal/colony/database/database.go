@@ -1,3 +1,4 @@
+// Package database provides DuckDB database operations for the colony.
 package database
 
 import (

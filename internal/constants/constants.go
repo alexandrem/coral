@@ -1,3 +1,4 @@
+// Package constants defines shared configuration constants.
 package constants
 
 var (

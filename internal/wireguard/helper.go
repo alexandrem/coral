@@ -42,8 +42,8 @@ func validateDeviceName(name string) error {
 
 	// Allow only alphanumeric characters, hyphens, and underscores.
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+			(c < '0' || c > '9') && c != '-' && c != '_' {
 			return fmt.Errorf("invalid device name: %s (only alphanumeric, -, _ allowed)", name)
 		}
 	}

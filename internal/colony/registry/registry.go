@@ -1,3 +1,4 @@
+// Package registry provides service registration and discovery for the colony.
 package registry
 
 import (

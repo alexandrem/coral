@@ -1,3 +1,4 @@
+// Package beyla provides integration with Beyla for eBPF-based observability.
 package beyla
 
 import (
@@ -10,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent/telemetry"
-	"github.com/rs/zerolog"
 )
 
 // Manager handles Beyla lifecycle within Coral agent (RFD 032).
@@ -302,7 +304,7 @@ func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.T
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryTraces(ctx context.Context, startTime, endTime time.Time, serviceNames []string, traceID string, maxSpans int32) ([]*ebpfpb.BeylaTraceSpan, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryTraces(ctx, startTime, endTime, serviceNames, traceID, maxSpans)
 }
@@ -311,7 +313,7 @@ func (m *Manager) QueryTraces(ctx context.Context, startTime, endTime time.Time,
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryTraceByID(ctx, traceID)
 }

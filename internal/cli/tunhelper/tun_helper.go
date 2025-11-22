@@ -1,10 +1,10 @@
-// Package tun_helper implements the internal _tun-helper command for
+// Package tunhelper implements the internal _tun-helper command for
 // privileged TUN device creation.
 //
 // This command is not intended to be called directly by users. It is invoked
 // by the main coral process when TUN device creation requires elevated
 // privileges.
-package tun_helper
+package tunhelper
 
 import (
 	"fmt"

@@ -1,3 +1,4 @@
+// Package agent provides CLI commands for agent management.
 package agent
 
 import (

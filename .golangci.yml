@@ -1,0 +1,13 @@
+version: "2"
+
+linters:
+  settings:
+    staticcheck:
+      checks:
+        - "all"
+        - "-SA1019" # Ignore deprecated usage warnings
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck

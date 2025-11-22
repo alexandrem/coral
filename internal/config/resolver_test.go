@@ -17,13 +17,17 @@ func TestResolver_ResolveWithSource_EnvVar(t *testing.T) {
 
 	// Set up CORAL_CONFIG to use tmp home.
 	originalCoralConfig := os.Getenv("CORAL_CONFIG")
-	os.Setenv("CORAL_CONFIG", tmpHome)
-	defer os.Setenv("CORAL_CONFIG", originalCoralConfig)
+	_ = os.Setenv("CORAL_CONFIG", tmpHome) // TODO: errcheck
+	defer func(key, value string) {
+		_ = os.Setenv(key, value) // TODO: errcheck
+	}("CORAL_CONFIG", originalCoralConfig)
 
 	// Set CORAL_COLONY_ID env var.
 	originalColonyID := os.Getenv("CORAL_COLONY_ID")
-	os.Setenv("CORAL_COLONY_ID", "env-colony-123")
-	defer os.Setenv("CORAL_COLONY_ID", originalColonyID)
+	_ = os.Setenv("CORAL_COLONY_ID", "env-colony-123") // TODO: errcheck
+	defer func(key, value string) {
+		_ = os.Setenv(key, value) // TODO: errcheck
+	}("CORAL_COLONY_ID", originalColonyID)
 
 	// Create resolver with temp project dir.
 	loader, err := NewLoader()
@@ -87,13 +91,17 @@ func TestResolver_ResolveWithSource_GlobalDefault(t *testing.T) {
 
 	// Set up CORAL_CONFIG to use tmp home.
 	originalCoralConfig := os.Getenv("CORAL_CONFIG")
-	os.Setenv("CORAL_CONFIG", tmpHome)
-	defer os.Setenv("CORAL_CONFIG", originalCoralConfig)
+	_ = os.Setenv("CORAL_CONFIG", tmpHome) // TODO: errcheck
+	defer func(key, value string) {
+		_ = os.Setenv(key, value)
+	}("CORAL_CONFIG", originalCoralConfig)
 
 	// Ensure CORAL_COLONY_ID is not set.
 	originalColonyID := os.Getenv("CORAL_COLONY_ID")
-	os.Unsetenv("CORAL_COLONY_ID")
-	defer os.Setenv("CORAL_COLONY_ID", originalColonyID)
+	_ = os.Unsetenv("CORAL_COLONY_ID") // TODO: errcheck
+	defer func(key, value string) {
+		_ = os.Setenv(key, value) // TODO: errcheck
+	}("CORAL_COLONY_ID", originalColonyID)
 
 	// Create loader and global config.
 	loader, err := NewLoader()
@@ -154,12 +162,12 @@ func TestResolver_ResolveWithSource_Priority(t *testing.T) {
 
 	// Set up CORAL_CONFIG to use tmp home.
 	originalCoralConfig := os.Getenv("CORAL_CONFIG")
-	os.Setenv("CORAL_CONFIG", tmpHome)
+	_ = os.Setenv("CORAL_CONFIG", tmpHome)
 	defer os.Setenv("CORAL_CONFIG", originalCoralConfig)
 
 	// Ensure CORAL_COLONY_ID is not set initially.
 	originalColonyID := os.Getenv("CORAL_COLONY_ID")
-	os.Unsetenv("CORAL_COLONY_ID")
+	_ = os.Unsetenv("CORAL_COLONY_ID")
 	defer os.Setenv("CORAL_COLONY_ID", originalColonyID)
 
 	// Create all config sources.

@@ -1,3 +1,4 @@
+// Package agent implements the coral agent that runs on each node.
 package agent
 
 import (

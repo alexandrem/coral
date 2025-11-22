@@ -1,3 +1,4 @@
+// Package proxy provides the CLI command for running a local proxy server.
 package proxy
 
 import (

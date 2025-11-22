@@ -1,3 +1,4 @@
+// Package discovery provides token generation and validation for NAT traversal.
 package discovery
 
 import (
