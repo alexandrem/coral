@@ -2,8 +2,6 @@
 package discovery
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -86,13 +84,4 @@ func (tm *TokenManager) CreateReferralTicket(reefID, colonyID, agentID, intent s
 	}
 
 	return tokenString, expiresAt.Unix(), nil
-}
-
-// generateSecureToken generates a cryptographically secure random token.
-func generateSecureToken(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
 }

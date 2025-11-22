@@ -8,12 +8,13 @@ import (
 	"io"
 	"time"
 
-	"github.com/coral-io/coral/internal/colony/database"
-	"github.com/coral-io/coral/internal/colony/registry"
-	"github.com/coral-io/coral/internal/logging"
 	"github.com/firebase/genkit/go/genkit"
 	"github.com/firebase/genkit/go/plugins/mcp"
 	"github.com/invopop/jsonschema"
+
+	"github.com/coral-io/coral/internal/colony/database"
+	"github.com/coral-io/coral/internal/colony/registry"
+	"github.com/coral-io/coral/internal/logging"
 )
 
 // Server wraps the Genkit MCP server and provides Colony-specific tools.
@@ -365,14 +366,8 @@ func (s *Server) auditToolCall(toolName string, args interface{}) {
 		Msg("MCP tool called")
 }
 
-// writeJSONResponse writes a JSON response to the writer.
-func writeJSONResponse(w io.Writer, data interface{}) error {
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
-}
-
 // runInteractive runs the MCP server in interactive mode for testing.
+// nolint: unused
 func (s *Server) runInteractive() error {
 	s.logger.Info().Msg("Running MCP server in interactive mode")
 	fmt.Println("MCP Server Interactive Mode")

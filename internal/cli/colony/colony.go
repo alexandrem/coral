@@ -2092,33 +2092,6 @@ func buildWireGuardEndpoints(port int, colonyConfig *config.ColonyConfig) []stri
 	return endpoints
 }
 
-// getColonySTUNServers determines which STUN servers to use for colony NAT traversal.
-// Priority: colony config > global config > default.
-func getColonySTUNServers(colonyConfig *config.ColonyConfig, globalConfig *config.GlobalConfig) []string {
-	// Check environment variable first
-	envSTUN := os.Getenv("CORAL_STUN_SERVERS")
-	if envSTUN != "" {
-		servers := strings.Split(envSTUN, ",")
-		for i := range servers {
-			servers[i] = strings.TrimSpace(servers[i])
-		}
-		return servers
-	}
-
-	// Use colony-specific STUN servers if configured
-	if len(colonyConfig.Discovery.STUNServers) > 0 {
-		return colonyConfig.Discovery.STUNServers
-	}
-
-	// Fall back to global STUN servers
-	if len(globalConfig.Discovery.STUNServers) > 0 {
-		return globalConfig.Discovery.STUNServers
-	}
-
-	// Use default STUN server
-	return []string{constants.DefaultSTUNServer}
-}
-
 // formatCapabilitySymbol formats capability as a checkmark or X.
 func formatCapabilitySymbol(supported bool) string {
 	if supported {
