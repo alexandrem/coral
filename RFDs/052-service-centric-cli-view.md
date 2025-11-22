@@ -1234,9 +1234,3 @@ This RFD is in draft state. Implementation will begin after approval.
 - Output formatting (table, JSON, verbose)
 - Service filtering
 - Integration with existing colony connectivity
-
-**Dependencies:**
-
-- RFD 011: Multi-service agent support (implemented)
-- RFD 044: Agent ID standardization (implemented)
-- RFD 006: Colony RPC handlers (implemented)
