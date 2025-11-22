@@ -82,8 +82,9 @@ Commands:
   coral config use-context     → Alias for 'colony use' (kubectl parity)
   coral config view            → Shows merged config with resolution annotations
   coral config validate        → Validates all colony configs
-  coral config rename-context  → Renames a colony ID (moves directory)
   coral config delete-context  → Removes a colony directory (with confirmation)
+
+Note: No rename-context (colony IDs are cryptographically bound to certificates)
 
 Environment:
   CORAL_CONFIG → Override config directory (default: ~/.coral)
@@ -99,7 +100,6 @@ Environment:
    - `use-context`: Thin wrapper around existing `colony use` logic
    - `view`: Shows merged config YAML with comments indicating source (env/project/global)
    - `validate`: Runs validation on all colony configs, reports errors
-   - `rename-context`: Renames colony directory and updates config files (requires `--confirm`)
    - `delete-context`: Removes entire colony directory (requires `--confirm` or `--force`)
 
 2. **Config Resolver** (`internal/config/resolver.go`):
@@ -111,8 +111,7 @@ Environment:
 3. **Config Loader** (`internal/config/loader.go`):
 
    - Add `CORAL_CONFIG` env var support to override base directory
-   - Add `RenameColony(oldID, newID)` method (renames directory `~/.coral/colonies/<old>/` → `<new>/`)
-   - Update `DeleteColonyConfig()` to optionally remove entire colony directory
+   - Add `DeleteColonyDir()` method to remove entire colony directory (config, CA, data)
    - Add `ValidateAll()` method returning validation errors per colony
 
 4. **Existing Colony Commands** (`internal/cli/colony/colony.go`):
@@ -160,19 +159,23 @@ $ coral config validate
 ✓ myapp-dev-xyz789: valid
 ✗ webapp-staging-def456: invalid mesh subnet "10.100.0.0/8" (must be /16)
 
-# Rename colony
-$ coral config rename-context myapp-prod-abc123 myapp-prod-v2
-Error: --confirm required for rename operations
-
-$ coral config rename-context myapp-prod-abc123 myapp-prod-v2 --confirm
-✓ Renamed colony: myapp-prod-abc123 → myapp-prod-v2
-✓ Updated global default colony
-
 # Delete colony
 $ coral config delete-context myapp-dev-xyz789 --confirm
 ✓ Deleted colony: myapp-dev-xyz789
 ✓ Removed colony directory: ~/.coral/colonies/myapp-dev-xyz789/
 ```
+
+### Why No Rename Operation?
+
+Colony IDs are **cryptographically bound** to the identity infrastructure:
+
+- **X.509 Certificates**: Colony ID embedded in SPIFFE SAN (`spiffe://coral/colony/{id}/agent/{agent}`)
+- **Discovery Service**: Agents lookup colonies by `mesh_id` which equals `colony_id`
+- **JWT Bootstrap Tokens**: Tokens include `colony_id` in claims
+- **Database Records**: Certificate audit tables keyed by `colony_id`
+
+Renaming a colony ID would invalidate all agent certificates and break all connections.
+**To "rename" a colony, create a new colony and re-bootstrap all agents.**
 
 ## Implementation Plan
 
@@ -180,7 +183,7 @@ $ coral config delete-context myapp-dev-xyz789 --confirm
 
 - [ ] Add `CORAL_CONFIG` env var support to `config.Loader`
 - [ ] Add `ResolveWithSource()` method to `config.Resolver`
-- [ ] Add `ValidateAll()`, `RenameColony()`, `DeleteColony()` to `config.Loader`
+- [ ] Add `ValidateAll()`, `DeleteColonyDir()` to `config.Loader`
 - [ ] Add unit tests for new config methods
 
 ### Phase 2: Core Commands
@@ -194,7 +197,6 @@ $ coral config delete-context myapp-dev-xyz789 --confirm
 ### Phase 3: Advanced Commands
 
 - [ ] Implement `coral config validate` with error reporting
-- [ ] Implement `coral config rename-context` with confirmation
 - [ ] Implement `coral config delete-context` with confirmation
 - [ ] Add `--verbose` flag to `colony current` for resolution info
 
@@ -285,15 +287,6 @@ coral config validate [--json]
 
 Validation summary: 2 valid, 1 invalid
 
-# Rename colony
-coral config rename-context <old-id> <new-id> --confirm
-
-# Example output:
-✓ Renamed colony: myapp-prod-abc123 → myapp-prod-v2
-✓ Updated colony config file
-✓ Updated global default colony
-✓ Updated project config (.coral/config.yaml)
-
 # Delete colony
 coral config delete-context <colony-id> [--confirm | --force]
 
@@ -378,8 +371,9 @@ This RFD proposes net-new functionality to improve config management UX. Current
 - ❌ No visual indicator for current colony in `list` output
 - ❌ No resolution source visibility
 - ❌ No config validation command
-- ❌ No rename operation (delete exists but no CLI command)
+- ❌ No delete CLI command (loader method exists)
 - ❌ No `CORAL_CONFIG` env var support
+- ⚠️ No rename operation (intentionally - colony IDs are cryptographically bound)
 
 **What Works Now:**
 
