@@ -1253,14 +1253,18 @@ func determineStatus(svc *ServiceInfo, agent *Agent) string {
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** ✅ Implemented
 
-This RFD is in draft state. Implementation will begin after approval.
+All planned features have been implemented:
 
-**Planned Work:**
-
-- CLI command structure
-- Service aggregation logic
-- Output formatting (table, JSON, verbose)
-- Service filtering
-- Integration with existing colony connectivity
+- ✅ CLI command structure (`coral service list`)
+- ✅ Service aggregation logic with case-insensitive grouping
+- ✅ Output formatting (table, JSON, verbose)
+- ✅ Service filtering (`--service`, `--type` flags)
+- ✅ Per-agent health status indicators (✓ healthy, ⚠ degraded, ✗ unhealthy)
+- ✅ Snapshot timestamp in output
+- ✅ JSON output with version, snapshot_time, totals wrapper
+- ✅ Service-not-found error with helpful suggestions
+- ✅ Real-time fan-out queries to agents for fresh service data
+- ✅ Breaking protobuf change: `ServiceInfo.component_name` → `ServiceInfo.name`
+- ✅ Integration with existing colony connectivity
