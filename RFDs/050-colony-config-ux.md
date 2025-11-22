@@ -1,66 +1,90 @@
 ---
 rfd: "050"
 title: "Colony Config UX Improvements"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: false
-dependencies: []
-database_migrations: []
-areas: ["cli", "config"]
+dependencies: [ ]
+database_migrations: [ ]
+areas: [ "cli", "config" ]
 ---
 
 # RFD 050 - Colony Config UX Improvements
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
-Enhance the coral CLI config management UX with kubectl-inspired patterns, including a unified `coral config` command family, improved visual indicators for the active colony, config validation, and better visibility into the config resolution path.
+Enhance the coral CLI config management UX with kubectl-inspired patterns,
+including a unified `coral config` command family, improved visual indicators
+for the active colony, config validation, and better visibility into the config
+resolution path.
 
 ## Problem
 
 **Current behavior/limitations:**
 
-- Colony management commands are scattered under `coral colony` (list, use, current) with no unified config namespace
-- No visual indicator in `colony list` output showing which colony is currently active (users must run `colony current` separately)
-- Config resolution happens silently—users don't know if the active colony comes from env var, project config, or global default
-- Missing critical config operations: validate, view merged config, rename/delete colonies
-- No `CORAL_CONFIG` env var to override config file location (unlike `KUBECONFIG`)
-- `colony current` shows limited info, doesn't explain *why* this colony was selected
+- Colony management commands are scattered under `coral colony` (list, use,
+  current) with no unified config namespace
+- No visual indicator in `colony list` output showing which colony is currently
+  active (users must run `colony current` separately)
+- Config resolution happens silently—users don't know if the active colony comes
+  from env var, project config, or global default
+- Missing critical config operations: validate, view merged config,
+  rename/delete colonies
+- No `CORAL_CONFIG` env var to override config file location (unlike
+  `KUBECONFIG`)
+- `colony current` shows limited info, doesn't explain *why* this colony was
+  selected
 
 **Why this matters:**
 
-- Users managing multiple colonies (dev/staging/prod) need faster context switching and better awareness of which colony is active
-- Silent config resolution causes confusion when the wrong colony is used (e.g., project config overrides global default unexpectedly)
+- Users managing multiple colonies (dev/staging/prod) need faster context
+  switching and better awareness of which colony is active
+- Silent config resolution causes confusion when the wrong colony is used (e.g.,
+  project config overrides global default unexpectedly)
 - No validation command means config errors are only caught at runtime
-- Lack of kubectl-familiar patterns increases cognitive load for Kubernetes users
+- Lack of kubectl-familiar patterns increases cognitive load for Kubernetes
+  users
 
 **Use cases affected:**
 
-- **Multi-environment workflows**: Developers switching between dev/staging/prod colonies need quick visual feedback
-- **Debugging connectivity issues**: Users need to understand which config source won the resolution priority
-- **Config migration**: No way to rename colony IDs or clean up old colonies without manual file operations
-- **CI/CD pipelines**: Scripts need reliable ways to validate configs before deployment
+- **Multi-environment workflows**: Developers switching between dev/staging/prod
+  colonies need quick visual feedback
+- **Debugging connectivity issues**: Users need to understand which config
+  source won the resolution priority
+- **Config migration**: No way to rename colony IDs or clean up old colonies
+  without manual file operations
+- **CI/CD pipelines**: Scripts need reliable ways to validate configs before
+  deployment
 
 ## Solution
 
-Introduce a `coral config` command family alongside existing `coral colony` commands, inspired by kubectl's battle-tested UX patterns.
+Introduce a `coral config` command family alongside existing `coral colony`
+commands, inspired by kubectl's battle-tested UX patterns.
 
 **Key Design Decisions:**
 
-- **Keep backward compatibility**: Existing `coral colony` commands remain unchanged; `coral config` adds new capabilities
-- **Kubectl-inspired but Coral-specific**: Borrow proven patterns (get-contexts, current-context) but adapt to Coral's three-tier config model
-- **Resolution transparency**: All commands show *why* a colony is active (env var vs. project vs. global)
-- **Non-destructive by default**: Rename/delete operations require confirmation flags
+- **Keep backward compatibility**: Existing `coral colony` commands remain
+  unchanged; `coral config` adds new capabilities
+- **Kubectl-inspired but Coral-specific**: Borrow proven patterns (get-contexts,
+  current-context) but adapt to Coral's three-tier config model
+- **Resolution transparency**: All commands show *why* a colony is active (env
+  var vs. project vs. global)
+- **Non-destructive by default**: Rename/delete operations require confirmation
+  flags
 
 **Benefits:**
 
-- **Faster context switching**: Visual indicators and familiar commands reduce cognitive overhead
+- **Faster context switching**: Visual indicators and familiar commands reduce
+  cognitive overhead
 - **Better debugging**: Explicit resolution path helps diagnose config issues
-- **Safer operations**: Validation catches errors before runtime; confirmation flags prevent accidents
-- **Kubectl user familiarity**: Reduces onboarding friction for Kubernetes operators
+- **Safer operations**: Validation catches errors before runtime; confirmation
+  flags prevent accidents
+- **Kubectl user familiarity**: Reduces onboarding friction for Kubernetes
+  operators
 
 **Architecture Overview:**
 
@@ -94,30 +118,37 @@ Environment:
 
 1. **CLI Commands** (`internal/cli/config/`):
 
-   - New `config.go` with command family registration
-   - `get-contexts`: Lists colonies with current marked by `*`, shows resolution source
-   - `current-context`: Prints active colony ID only (scriptable) with `--verbose` for details
-   - `use-context`: Thin wrapper around existing `colony use` logic
-   - `view`: Shows merged config YAML with comments indicating source (env/project/global)
-   - `validate`: Runs validation on all colony configs, reports errors
-   - `delete-context`: Removes entire colony directory (interactive prompt, must type colony name)
+    - New `config.go` with command family registration
+    - `get-contexts`: Lists colonies with current marked by `*`, shows
+      resolution source
+    - `current-context`: Prints active colony ID only (scriptable) with
+      `--verbose` for details
+    - `use-context`: Thin wrapper around existing `colony use` logic
+    - `view`: Shows merged config YAML with comments indicating source (
+      env/project/global)
+    - `validate`: Runs validation on all colony configs, reports errors
+    - `delete-context`: Removes entire colony directory (interactive prompt,
+      must type colony name)
 
 2. **Config Resolver** (`internal/config/resolver.go`):
 
-   - Add `ResolveWithSource()` method returning `(colonyID string, source string, error)`
-   - Source values: `"env:CORAL_COLONY_ID"`, `"project:.coral/config.yaml"`, `"global:~/.coral/config.yaml"`
-   - Expose resolution logic for use in display commands
+    - Add `ResolveWithSource()` method returning
+      `(colonyID string, source string, error)`
+    - Source values: `"env:CORAL_COLONY_ID"`, `"project:.coral/config.yaml"`,
+      `"global:~/.coral/config.yaml"`
+    - Expose resolution logic for use in display commands
 
 3. **Config Loader** (`internal/config/loader.go`):
 
-   - Add `CORAL_CONFIG` env var support to override base directory
-   - Add `DeleteColonyDir()` method to remove entire colony directory (config, CA, data)
-   - Add `ValidateAll()` method returning validation errors per colony
+    - Add `CORAL_CONFIG` env var support to override base directory
+    - Add `DeleteColonyDir()` method to remove entire colony directory (config,
+      CA, data)
+    - Add `ValidateAll()` method returning validation errors per colony
 
 4. **Existing Colony Commands** (`internal/cli/colony/colony.go`):
-   - Update `colony list` to show `*` marker for current colony
-   - Update `colony current` to show resolution source with `--verbose` flag
-   - No breaking changes—only additive enhancements
+    - Update `colony list` to show `*` marker for current colony
+    - Update `colony current` to show resolution source with `--verbose` flag
+    - No breaking changes—only additive enhancements
 
 **Configuration Example:**
 
@@ -173,12 +204,16 @@ To confirm, type the colony name: myapp-dev-xyz789
 
 Colony IDs are **cryptographically bound** to the identity infrastructure:
 
-- **X.509 Certificates**: Colony ID embedded in SPIFFE SAN (`spiffe://coral/colony/{id}/agent/{agent}`)
-- **Discovery Service**: Agents lookup colonies by `mesh_id` which equals `colony_id`
+- **X.509 Certificates**: Colony ID embedded in SPIFFE SAN (
+  `spiffe://coral/colony/{id}/agent/{agent}`)
+- **Discovery Service**: Agents lookup colonies by `mesh_id` which equals
+  `colony_id`
 - **JWT Bootstrap Tokens**: Tokens include `colony_id` in claims
 - **Database Records**: Certificate audit tables keyed by `colony_id`
 
-**Migration Pattern**: Use existing `coral colony export/import` for credential portability:
+**Migration Pattern**: Use existing `coral colony export/import` for credential
+portability:
+
 ```bash
 # Export credentials for deployment (supports: env, yaml, json, k8s formats)
 coral colony export myapp-prod --format k8s > secret.yaml
@@ -187,44 +222,45 @@ coral colony export myapp-prod --format k8s > secret.yaml
 coral colony import --colony-id myapp-prod --secret <secret>
 ```
 
-To migrate to a new colony, create one with `coral init` and re-bootstrap agents.
+To migrate to a new colony, create one with `coral init` and re-bootstrap
+agents.
 
 ## Implementation Plan
 
 ### Phase 1: Foundation
 
-- [ ] Add `CORAL_CONFIG` env var support to `config.Loader`
-- [ ] Add `ResolveWithSource()` method to `config.Resolver`
-- [ ] Add `ValidateAll()`, `DeleteColonyDir()` to `config.Loader`
-- [ ] Add unit tests for new config methods
+- [x] Add `CORAL_CONFIG` env var support to `config.Loader`
+- [x] Add `ResolveWithSource()` method to `config.Resolver`
+- [x] Add `ValidateAll()`, `DeleteColonyDir()` to `config.Loader`
+- [x] Add unit tests for new config methods
 
 ### Phase 2: Core Commands
 
-- [ ] Create `internal/cli/config/config.go` with command registration
-- [ ] Implement `coral config get-contexts` with current marker
-- [ ] Implement `coral config current-context` with resolution source
-- [ ] Implement `coral config use-context` (alias to `colony use`)
-- [ ] Implement `coral config view` with merged config display
+- [x] Create `internal/cli/config/config.go` with command registration
+- [x] Implement `coral config get-contexts` with current marker
+- [x] Implement `coral config current-context` with resolution source
+- [x] Implement `coral config use-context` (alias to `colony use`)
+- [x] Implement `coral config view` with merged config display
 
 ### Phase 3: Advanced Commands
 
-- [ ] Implement `coral config validate` with error reporting
-- [ ] Implement `coral config delete-context` with interactive prompt (type name to confirm)
-- [ ] Add `--verbose` flag to `colony current` for resolution info
+- [x] Implement `coral config validate` with error reporting
+- [x] Implement `coral config delete-context` with interactive prompt (type name
+  to confirm)
+- [x] Add `--verbose` flag to `colony current` for resolution info
 
 ### Phase 4: Visual Enhancements
 
-- [ ] Update `colony list` to show `*` marker for current colony
-- [ ] Add resolution source column to `colony list` output
-- [ ] Ensure consistent table formatting across commands
+- [x] Update `colony list` to show `*` marker for current colony
+- [x] Add resolution source column to `colony list` output
+- [x] Ensure consistent table formatting across commands
 
 ### Phase 5: Testing & Documentation
 
-- [ ] Add unit tests for all config commands
-- [ ] Add integration tests for config resolution priority
-- [ ] Add E2E tests for multi-colony workflows
-- [ ] Update CLI docs with new commands
-- [ ] Add migration guide from `colony` to `config` commands
+- [x] Add unit tests for all config commands
+- [x] Add integration tests for config resolution priority
+- [x] Add E2E tests for multi-colony workflows
+- [x] Update CLI docs with new commands
 
 ## API Changes
 
@@ -325,7 +361,8 @@ To confirm, type the colony name: wrong-name
 
 ### Unit Tests
 
-- `config.Loader`: Test `CORAL_CONFIG` env var override, rename, delete, validate methods
+- `config.Loader`: Test `CORAL_CONFIG` env var override, rename, delete,
+  validate methods
 - `config.Resolver`: Test `ResolveWithSource()` returns correct priority source
 - Config commands: Test output formatting, error handling, flag parsing
 
@@ -338,68 +375,63 @@ To confirm, type the colony name: wrong-name
 
 ### E2E Tests
 
-- Multi-colony workflow: init two colonies, switch between them, verify `*` marker
+- Multi-colony workflow: init two colonies, switch between them, verify `*`
+  marker
 - Project override: create project config, verify resolution source changes
 - Config migration: rename colony, verify commands still work with new ID
-- Validation: create invalid config, verify `coral config validate` catches error
+- Validation: create invalid config, verify `coral config validate` catches
+  error
 
 ## Future Enhancements
 
 **Shell Integration** (Future - separate RFD)
 
-- Shell prompt helper: `eval $(coral config shell-hook)` adds current colony to `$PS1`
-- Shell completion: tab-complete colony IDs in `use-context` and `--colony` flags
+- Shell completion: tab-complete colony IDs in `use-context` and `--colony`
+  flags
 - Auto-switching: detect `.coral/config.yaml` changes and prompt to switch
 
 **Config Templates** (Future - separate RFD)
 
-- `coral config create-context --from-template <name>`: scaffold new colony from template
+- `coral config create-context --from-template <name>`: scaffold new colony from
+  template
 - Built-in templates: `dev`, `staging`, `production` with sensible defaults
 - Custom template registry in global config
 
 **Config Diff** (Low Priority)
 
-- `coral config diff <colony-1> <colony-2>`: show config differences between colonies
+- `coral config diff <colony-1> <colony-2>`: show config differences between
+  colonies
 - Useful for debugging environment-specific issues
 
 ---
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** ✅ Complete
 
-This RFD proposes net-new functionality to improve config management UX. Current state:
+kubectl-inspired config management UX fully implemented. Users can manage
+multiple colonies with visual context indicators, validation, and resolution
+transparency.
 
-**Existing Components:**
+**Operational Components:**
 
-- ✅ `coral colony list`: Lists all colonies with details
-- ✅ `coral colony use <id>`: Sets default colony
-- ✅ `coral colony current`: Shows current colony
-- ✅ `coral colony export/import`: Credential portability (env, yaml, json, k8s formats)
-- ✅ Config resolution: env var > project > global priority
-
-**Gaps vs kubectl UX:**
-
-- ❌ No unified `coral config` command family
-- ❌ No visual indicator for current colony in `list` output
-- ❌ No resolution source visibility
-- ❌ No config validation command
-- ❌ No delete CLI command (loader method exists)
-- ❌ No `CORAL_CONFIG` env var support
+- ✅ `coral config get-contexts` - Lists colonies with `*` marker for current
+- ✅ `coral config current-context [--verbose]` - Shows current colony and source
+- ✅ `coral config use-context <id>` - Sets default colony
+- ✅ `coral config view [--colony] [--raw]` - Shows merged config with annotations
+- ✅ `coral config validate [--json]` - Validates all colony configs
+- ✅ `coral config delete-context <id>` - Deletes colony with confirmation
+- ✅ `coral colony list` - Updated with `*` marker and RESOLUTION column
+- ✅ `coral colony current --verbose` - Shows resolution source
+- ✅ `CORAL_CONFIG` env var - Override config directory
 
 **What Works Now:**
 
-- Users can list colonies, switch between them, and check the current colony
-- Config resolution follows documented priority order
-- JSON output available for `colony list` and `colony current`
-
-**What This RFD Adds:**
-
-- kubectl-familiar `config` command family
-- Visual `*` marker for current colony
-- Resolution source transparency (`global`, `project`, `env`)
-- Config validation, rename, delete operations
-- Better debugging and multi-colony workflows
+- Multi-colony workflows with visual context awareness (`*` marker)
+- Config resolution transparency (env > project > global priority visible)
+- Config validation before runtime errors
+- Safe colony deletion with interactive confirmation
+- Scriptable output (`--json` flags on key commands)
 
 ## Deferred Features
 

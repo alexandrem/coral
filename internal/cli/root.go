@@ -6,6 +6,7 @@ import (
 	"github.com/coral-io/coral/internal/cli/agent"
 	"github.com/coral-io/coral/internal/cli/ask"
 	"github.com/coral-io/coral/internal/cli/colony"
+	"github.com/coral-io/coral/internal/cli/config"
 	"github.com/coral-io/coral/internal/cli/duckdb"
 	initcmd "github.com/coral-io/coral/internal/cli/init"
 	"github.com/coral-io/coral/internal/cli/proxy"
@@ -39,6 +40,7 @@ func init() {
 	rootCmd.AddCommand(initcmd.NewInitCmd())
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(colony.NewColonyCmd())
+	rootCmd.AddCommand(config.NewConfigCmd()) // RFD 050 - Config management commands.
 	rootCmd.AddCommand(agent.NewAgentCmd())
 	rootCmd.AddCommand(agent.NewConnectCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())

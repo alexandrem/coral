@@ -18,7 +18,15 @@ type Loader struct {
 }
 
 // NewLoader creates a new config loader.
+// The base directory can be overridden via CORAL_CONFIG environment variable.
 func NewLoader() (*Loader, error) {
+	// Check for CORAL_CONFIG env var override (RFD 050).
+	if baseDir := os.Getenv("CORAL_CONFIG"); baseDir != "" {
+		return &Loader{
+			homeDir: baseDir,
+		}, nil
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
@@ -209,6 +217,81 @@ func (l *Loader) DeleteColonyConfig(colonyID string) error {
 			return fmt.Errorf("colony %q not found", colonyID)
 		}
 		return fmt.Errorf("failed to delete colony config: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteColonyDir removes an entire colony directory including config, CA, and data (RFD 050).
+func (l *Loader) DeleteColonyDir(colonyID string) error {
+	colonyDir := l.ColonyDir(colonyID)
+
+	// Verify colony exists.
+	if _, err := os.Stat(colonyDir); os.IsNotExist(err) {
+		return fmt.Errorf("colony %q not found", colonyID)
+	}
+
+	if err := os.RemoveAll(colonyDir); err != nil {
+		return fmt.Errorf("failed to delete colony directory: %w", err)
+	}
+
+	return nil
+}
+
+// ValidateAll validates all colony configs and returns validation errors per colony (RFD 050).
+// Returns a map of colonyID to validation error (nil if valid).
+func (l *Loader) ValidateAll() (map[string]error, error) {
+	colonyIDs, err := l.ListColonies()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list colonies: %w", err)
+	}
+
+	results := make(map[string]error)
+	for _, colonyID := range colonyIDs {
+		cfg, err := l.LoadColonyConfig(colonyID)
+		if err != nil {
+			results[colonyID] = fmt.Errorf("failed to load config: %w", err)
+			continue
+		}
+
+		// Validate the colony config.
+		if err := ValidateColonyConfig(cfg); err != nil {
+			results[colonyID] = err
+		} else {
+			results[colonyID] = nil
+		}
+	}
+
+	return results, nil
+}
+
+// ValidateColonyConfig performs validation on a colony config (RFD 050).
+func ValidateColonyConfig(cfg *ColonyConfig) error {
+	// Validate colony ID.
+	if cfg.ColonyID == "" {
+		return fmt.Errorf("colony_id is required")
+	}
+
+	// Validate application name.
+	if cfg.ApplicationName == "" {
+		return fmt.Errorf("application_name is required")
+	}
+
+	// Validate mesh subnet if set.
+	if cfg.WireGuard.MeshNetworkIPv4 != "" {
+		if _, err := ValidateMeshSubnet(cfg.WireGuard.MeshNetworkIPv4); err != nil {
+			return fmt.Errorf("invalid mesh_network_ipv4: %w", err)
+		}
+	}
+
+	// Validate WireGuard port.
+	if cfg.WireGuard.Port < 0 || cfg.WireGuard.Port > 65535 {
+		return fmt.Errorf("invalid wireguard port: %d", cfg.WireGuard.Port)
+	}
+
+	// Validate MTU.
+	if cfg.WireGuard.MTU < 0 || cfg.WireGuard.MTU > 9000 {
+		return fmt.Errorf("invalid MTU: %d (must be 0-9000)", cfg.WireGuard.MTU)
 	}
 
 	return nil
