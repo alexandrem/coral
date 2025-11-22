@@ -13,6 +13,7 @@ document covers all CLI commands with practical examples.
 **Key Commands:**
 
 - `coral init` - Initialize Coral configuration
+- `coral config` - Manage config contexts (kubectl-style)
 - `coral agent` - Manage agents (start, status)
 - `coral colony` - Manage colony server
 - `coral connect` - Connect to services
@@ -83,6 +84,140 @@ colony:
 agent:
     id: agent-<hostname>
     colony_url: http://localhost:9000
+```
+
+---
+
+### `coral config`
+
+Manage Coral configuration with kubectl-inspired commands. Switch between
+colonies, validate configs, and inspect merged configuration.
+
+**Configuration Priority:**
+
+1. `CORAL_COLONY_ID` environment variable (highest)
+2. Project config (`.coral/config.yaml` in current directory)
+3. Global config (`~/.coral/config.yaml`)
+
+**Environment Variables:**
+
+- `CORAL_CONFIG` - Override config directory (default: `~/.coral`)
+- `CORAL_COLONY_ID` - Override active colony
+
+#### `coral config get-contexts`
+
+List all configured colonies with the current context marked.
+
+```bash
+coral config get-contexts
+
+# Output:
+CURRENT    COLONY-ID                  APPLICATION     ENVIRONMENT  RESOLUTION
+*          myapp-dev-abc123           myapp           dev          global
+           myapp-prod-xyz789          myapp           prod         -
+```
+
+```bash
+# JSON output for scripting
+coral config get-contexts --json
+```
+
+#### `coral config current-context`
+
+Show the current active colony.
+
+```bash
+coral config current-context
+# Output: myapp-dev-abc123
+
+# With resolution details
+coral config current-context --verbose
+# Output:
+# myapp-dev-abc123
+# Resolution: global default (~/.coral/config.yaml)
+```
+
+#### `coral config use-context`
+
+Set the default colony for commands.
+
+```bash
+coral config use-context myapp-prod-xyz789
+# Output: Default colony set to: myapp-prod-xyz789
+```
+
+#### `coral config view`
+
+Show merged configuration with source annotations.
+
+```bash
+# View current colony config
+coral config view
+
+# View specific colony
+coral config view --colony myapp-prod-xyz789
+
+# Raw YAML output (for piping/editing)
+coral config view --raw
+```
+
+**Output:**
+
+```yaml
+# Colony: myapp-dev-abc123
+# Resolution: global:~/.coral/config.yaml
+#
+# Config sources (priority order):
+#   1. Environment variables (highest)
+#   2. Project config (.coral/config.yaml) - not present
+#   3. Colony config (~/.coral/colonies/myapp-dev-abc123/config.yaml)
+#   4. Global config (~/.coral/config.yaml)
+
+colony_id: myapp-dev-abc123                  # colony
+application_name: myapp                      # colony
+environment: dev                             # colony
+
+discovery:
+  endpoint: http://localhost:8080            # global
+
+wireguard:
+  port: 41580                                # colony
+  mesh_ipv4: 100.64.0.1                      # colony
+```
+
+#### `coral config validate`
+
+Validate all colony configurations.
+
+```bash
+coral config validate
+
+# Output:
+  myapp-dev-abc123: valid
+  myapp-prod-xyz789: valid
+
+Validation summary: 2 valid, 0 invalid
+```
+
+```bash
+# JSON output
+coral config validate --json
+```
+
+#### `coral config delete-context`
+
+Delete a colony configuration (interactive confirmation required).
+
+```bash
+coral config delete-context myapp-dev-abc123
+
+# Output:
+  This will permanently delete colony "myapp-dev-abc123" including:
+   - Config, CA certificates, and all colony data
+   - Directory: /Users/you/.coral/colonies/myapp-dev-abc123
+
+To confirm, type the colony name: myapp-dev-abc123
+Deleted colony: myapp-dev-abc123
 ```
 
 ---
