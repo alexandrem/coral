@@ -825,13 +825,18 @@ func newListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all configured colonies",
-		Long:  `Display all colonies that have been initialized on this system.`,
+		Long: `Display all colonies that have been initialized on this system.
+
+The current active colony is marked with * in the output. The RESOLUTION column
+shows where the current colony was resolved from (env, project, or global).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			loader, err := config.NewLoader()
+			// Create resolver to get current colony and source (RFD 050).
+			resolver, err := config.NewResolver()
 			if err != nil {
-				return fmt.Errorf("failed to create config loader: %w", err)
+				return fmt.Errorf("failed to create config resolver: %w", err)
 			}
 
+			loader := resolver.GetLoader()
 			colonyIDs, err := loader.ListColonies()
 			if err != nil {
 				return fmt.Errorf("failed to list colonies: %w", err)
@@ -848,12 +853,17 @@ func newListCmd() *cobra.Command {
 				return fmt.Errorf("failed to load global config: %w", err)
 			}
 
+			// Get current colony and resolution source (RFD 050).
+			currentColonyID, source, _ := resolver.ResolveWithSource()
+
 			if jsonOutput {
 				type colonyInfo struct {
 					ColonyID      string `json:"colony_id"`
 					Application   string `json:"application"`
 					Environment   string `json:"environment"`
 					IsDefault     bool   `json:"is_default"`
+					IsCurrent     bool   `json:"is_current"`
+					Resolution    string `json:"resolution,omitempty"`
 					CreatedAt     string `json:"created_at"`
 					StoragePath   string `json:"storage_path"`
 					WireGuardPort int    `json:"wireguard_port"`
@@ -881,11 +891,17 @@ func newListCmd() *cobra.Command {
 						Application:   cfg.ApplicationName,
 						Environment:   cfg.Environment,
 						IsDefault:     cfg.ColonyID == globalConfig.DefaultColony,
+						IsCurrent:     cfg.ColonyID == currentColonyID,
 						CreatedAt:     cfg.CreatedAt.Format(time.RFC3339),
 						StoragePath:   cfg.StoragePath,
 						WireGuardPort: cfg.WireGuard.Port,
 						ConnectPort:   connectPort,
 						MeshIPv4:      cfg.WireGuard.MeshIPv4,
+					}
+
+					// Add resolution source for current colony (RFD 050).
+					if info.IsCurrent {
+						info.Resolution = source.Type
 					}
 
 					// Try to query running status (with quick timeout)
@@ -910,17 +926,21 @@ func newListCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Println("Configured Colonies:")
+			// Table output with * marker for current colony (RFD 050).
+			fmt.Printf("%-3s %-30s %-15s %-12s %-10s %s\n", "", "COLONY-ID", "APPLICATION", "ENVIRONMENT", "RESOLUTION", "STATUS")
 			for _, id := range colonyIDs {
 				cfg, err := loader.LoadColonyConfig(id)
 				if err != nil {
-					fmt.Printf("  %s (error loading config)\n", id)
+					fmt.Printf("%-3s %-30s %-15s %-12s %-10s %s\n", "", id, "(error)", "", "-", "")
 					continue
 				}
 
-				defaultMarker := ""
-				if cfg.ColonyID == globalConfig.DefaultColony {
-					defaultMarker = " [default]"
+				// Current marker and resolution (RFD 050).
+				currentMarker := ""
+				resolution := "-"
+				if cfg.ColonyID == currentColonyID {
+					currentMarker = "*"
+					resolution = source.Type
 				}
 
 				// Get connect port
@@ -935,19 +955,18 @@ func newListCmd() *cobra.Command {
 				client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
 				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 				if resp, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err == nil {
-					runningStatus = fmt.Sprintf(" [%s]", resp.Msg.Status)
+					runningStatus = resp.Msg.Status
 				}
 				cancel()
 
-				fmt.Printf("  %s (%s)%s%s\n", cfg.ColonyID, cfg.Environment, defaultMarker, runningStatus)
-				fmt.Printf("    Application: %s\n", cfg.ApplicationName)
-				fmt.Printf("    Created: %s\n", cfg.CreatedAt.Format("2006-01-02 15:04:05"))
-				fmt.Printf("    Storage: %s\n", cfg.StoragePath)
-				fmt.Printf("    Network: WireGuard=%d, Connect=%d, Mesh=%s\n", cfg.WireGuard.Port, connectPort, cfg.WireGuard.MeshIPv4)
-				if runningStatus != "" {
-					fmt.Printf("    Endpoints: http://localhost:%d (local), http://%s:%d (mesh)\n", connectPort, cfg.WireGuard.MeshIPv4, connectPort)
-				}
-				fmt.Println()
+				fmt.Printf("%-3s %-30s %-15s %-12s %-10s %s\n",
+					currentMarker,
+					truncate(cfg.ColonyID, 30),
+					truncate(cfg.ApplicationName, 15),
+					truncate(cfg.Environment, 12),
+					resolution,
+					runningStatus,
+				)
 			}
 
 			return nil
@@ -998,19 +1017,26 @@ func newUseCmd() *cobra.Command {
 }
 
 func newCurrentCmd() *cobra.Command {
-	var jsonOutput bool
+	var (
+		jsonOutput bool
+		verbose    bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "current",
 		Short: "Show the current default colony",
-		Long:  `Display information about the current default colony.`,
+		Long: `Display information about the current default colony.
+
+With --verbose, shows additional resolution information explaining why this
+colony was selected (environment variable, project config, or global default).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolver, err := config.NewResolver()
 			if err != nil {
 				return fmt.Errorf("failed to create resolver: %w", err)
 			}
 
-			colonyID, err := resolver.ResolveColonyID()
+			// Use ResolveWithSource to get resolution info (RFD 050).
+			colonyID, source, err := resolver.ResolveWithSource()
 			if err != nil {
 				return fmt.Errorf("no colony configured: %w", err)
 			}
@@ -1027,14 +1053,20 @@ func newCurrentCmd() *cobra.Command {
 			}
 
 			if jsonOutput {
-				data, err := json.MarshalIndent(map[string]interface{}{
+				output := map[string]interface{}{
 					"colony_id":   cfg.ColonyID,
 					"application": cfg.ApplicationName,
 					"environment": cfg.Environment,
 					"storage":     cfg.StoragePath,
 					"discovery":   globalConfig.Discovery.Endpoint,
 					"mesh_id":     cfg.Discovery.MeshID,
-				}, "", "  ")
+				}
+				// Include resolution info in JSON output (RFD 050).
+				output["resolution"] = map[string]string{
+					"source": source.Type,
+					"path":   source.Path,
+				}
+				data, err := json.MarshalIndent(output, "", "  ")
 				if err != nil {
 					return err
 				}
@@ -1049,11 +1081,25 @@ func newCurrentCmd() *cobra.Command {
 			fmt.Printf("  Storage: %s\n", cfg.StoragePath)
 			fmt.Printf("  Discovery: %s (mesh_id: %s)\n", globalConfig.Discovery.Endpoint, cfg.Discovery.MeshID)
 
+			// Show resolution info with --verbose flag (RFD 050).
+			if verbose {
+				fmt.Println()
+				switch source.Type {
+				case "env":
+					fmt.Printf("Resolution: environment variable (%s)\n", source.Path)
+				case "project":
+					fmt.Printf("Resolution: project config (%s)\n", source.Path)
+				case "global":
+					fmt.Printf("Resolution: global default (%s)\n", source.Path)
+				}
+			}
+
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show resolution source details")
 
 	return cmd
 }
@@ -1355,8 +1401,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}
 
 	// Initialize CA manager (RFD 047 - Colony CA Infrastructure).
+	// Use CA from colony config directory (generated during init).
 	jwtSigningKey := []byte(cfg.ColonySecret) // Use colony secret as JWT signing key for now.
-	caDir := filepath.Join(cfg.StoragePath, "ca")
+	caDir := filepath.Join(loader.ColonyDir(cfg.ColonyID), "ca")
 	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwtSigningKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
