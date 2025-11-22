@@ -82,7 +82,7 @@ Commands:
   coral config use-context     → Alias for 'colony use' (kubectl parity)
   coral config view            → Shows merged config with resolution annotations
   coral config validate        → Validates all colony configs
-  coral config delete-context  → Removes a colony directory (with confirmation)
+  coral config delete-context  → Removes colony (interactive prompt, type name to confirm)
 
 Note: No rename-context (colony IDs are cryptographically bound to certificates)
 
@@ -100,7 +100,7 @@ Environment:
    - `use-context`: Thin wrapper around existing `colony use` logic
    - `view`: Shows merged config YAML with comments indicating source (env/project/global)
    - `validate`: Runs validation on all colony configs, reports errors
-   - `delete-context`: Removes entire colony directory (requires `--confirm` or `--force`)
+   - `delete-context`: Removes entire colony directory (interactive prompt, must type colony name)
 
 2. **Config Resolver** (`internal/config/resolver.go`):
 
@@ -159,10 +159,14 @@ $ coral config validate
 ✓ myapp-dev-xyz789: valid
 ✗ webapp-staging-def456: invalid mesh subnet "10.100.0.0/8" (must be /16)
 
-# Delete colony
-$ coral config delete-context myapp-dev-xyz789 --confirm
+# Delete colony (requires typing colony name to confirm)
+$ coral config delete-context myapp-dev-xyz789
+⚠️  This will permanently delete colony "myapp-dev-xyz789" including:
+   - Config, CA certificates, and all colony data
+   - Directory: ~/.coral/colonies/myapp-dev-xyz789/
+
+To confirm, type the colony name: myapp-dev-xyz789
 ✓ Deleted colony: myapp-dev-xyz789
-✓ Removed colony directory: ~/.coral/colonies/myapp-dev-xyz789/
 ```
 
 ### Colony Identity is Immutable
@@ -205,7 +209,7 @@ To migrate to a new colony, create one with `coral init` and re-bootstrap agents
 ### Phase 3: Advanced Commands
 
 - [ ] Implement `coral config validate` with error reporting
-- [ ] Implement `coral config delete-context` with confirmation
+- [ ] Implement `coral config delete-context` with interactive prompt (type name to confirm)
 - [ ] Add `--verbose` flag to `colony current` for resolution info
 
 ### Phase 4: Visual Enhancements
@@ -295,20 +299,20 @@ coral config validate [--json]
 
 Validation summary: 2 valid, 1 invalid
 
-# Delete colony
-coral config delete-context <colony-id> [--confirm | --force]
+# Delete colony (interactive confirmation required)
+coral config delete-context <colony-id>
 
-# Example output (without --confirm):
-Error: This will delete colony "myapp-dev-xyz789" and remove:
-  - Colony directory: ~/.coral/colonies/myapp-dev-xyz789/
-  - Config, CA certificates, and all colony data
-  - Project references (if any)
+# Example output:
+⚠️  This will permanently delete colony "myapp-dev-xyz789" including:
+   - Colony directory: ~/.coral/colonies/myapp-dev-xyz789/
+   - Config, CA certificates, and all colony data
 
-Use --confirm to proceed, or --force to skip this check.
-
-# Example output (with --confirm):
+To confirm, type the colony name: myapp-dev-xyz789
 ✓ Deleted colony: myapp-dev-xyz789
-✓ Removed colony directory: ~/.coral/colonies/myapp-dev-xyz789/
+
+# Wrong confirmation aborts:
+To confirm, type the colony name: wrong-name
+✗ Confirmation failed. Colony not deleted.
 ```
 
 ### Configuration Changes
