@@ -1,5 +1,5 @@
 ---
-rfd: "046"
+rfd: "052"
 title: "Service-Centric CLI View"
 state: "draft"
 breaking_changes: true
@@ -12,7 +12,7 @@ database_migrations: []
 areas: ["cli", "colony", "ux", "protobuf"]
 ---
 
-# RFD 046 - Service-Centric CLI View
+# RFD 052 - Service-Centric CLI View
 
 **Status:** 🚧 Draft
 
@@ -1091,14 +1091,14 @@ coral service browse
 
 ### Comparison: Agent-Centric vs Service-Centric Views
 
-| Question                             | `coral colony agents`           | `coral service list`   |
-|--------------------------------------|---------------------------------|------------------------|
-| "What agents are connected?"         | ✅ Primary view                 | ❌ Requires inversion  |
-| "What services exist?"               | ❌ Requires manual aggregation  | ✅ Primary view        |
-| "Which agents run Redis?"            | ❌ Manual scanning              | ✅ Direct lookup       |
-| "How many API instances?"            | ❌ Manual counting              | ✅ Instance count      |
-| "Is agent-5 healthy?"                | ✅ Direct lookup                | ❌ Requires filtering  |
-| "Are all Redis instances healthy?"   | ❌ Requires manual checking     | ✅ Service-level view  |
+| Question                           | `coral colony agents`         | `coral service list` |
+|------------------------------------|-------------------------------|----------------------|
+| "What agents are connected?"       | ✅ Primary view                | ❌ Requires inversion |
+| "What services exist?"             | ❌ Requires manual aggregation | ✅ Primary view       |
+| "Which agents run Redis?"          | ❌ Manual scanning             | ✅ Direct lookup      |
+| "How many API instances?"          | ❌ Manual counting             | ✅ Instance count     |
+| "Is agent-5 healthy?"              | ✅ Direct lookup               | ❌ Requires filtering |
+| "Are all Redis instances healthy?" | ❌ Requires manual checking    | ✅ Service-level view |
 
 **Conclusion**: Both commands are complementary and serve different query patterns.
 
