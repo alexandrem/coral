@@ -78,7 +78,7 @@ func New(config Config) (*Agent, error) {
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
 		monitor := NewServiceMonitor(service, config.Logger)
-		agent.monitors[service.ComponentName] = monitor
+		agent.monitors[service.Name] = monitor
 	}
 
 	return agent, nil
@@ -220,18 +220,18 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 	defer a.mu.Unlock()
 
 	// Check if service already exists.
-	if _, exists := a.monitors[service.ComponentName]; exists {
-		return fmt.Errorf("service %s already connected", service.ComponentName)
+	if _, exists := a.monitors[service.Name]; exists {
+		return fmt.Errorf("service %s already connected", service.Name)
 	}
 
 	// Create and start new monitor.
 	monitor := NewServiceMonitor(service, a.logger)
 	monitor.Start()
 
-	a.monitors[service.ComponentName] = monitor
+	a.monitors[service.Name] = monitor
 
 	a.logger.Info().
-		Str("service", service.ComponentName).
+		Str("service", service.Name).
 		Int32("port", service.Port).
 		Msg("Service connected")
 

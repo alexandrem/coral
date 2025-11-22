@@ -15,7 +15,7 @@ func TestRegistry_Register(t *testing.T) {
 		entry, err := reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
 		require.NoError(t, err)
 		assert.Equal(t, "agent-1", entry.AgentID)
-		assert.Equal(t, "frontend", entry.ComponentName)
+		assert.Equal(t, "frontend", entry.Name)
 		assert.Equal(t, "100.64.0.2", entry.MeshIPv4)
 		assert.Equal(t, "fd42::2", entry.MeshIPv6)
 		assert.False(t, entry.RegisteredAt.IsZero())
@@ -29,13 +29,13 @@ func TestRegistry_Register(t *testing.T) {
 		assert.Contains(t, err.Error(), "agent_id cannot be empty")
 	})
 
-	t.Run("empty component_name and services", func(t *testing.T) {
+	t.Run("empty name and services", func(t *testing.T) {
 		// Agents can register without services - they may add them later.
 		entry, err := reg.Register("agent-1", "", "100.64.0.2", "fd42::2", nil, nil, "")
 		assert.NoError(t, err)
 		assert.NotNil(t, entry)
 		assert.Equal(t, "agent-1", entry.AgentID)
-		assert.Equal(t, "", entry.ComponentName)
+		assert.Equal(t, "", entry.Name)
 		assert.Equal(t, 0, len(entry.Services))
 	})
 
@@ -55,7 +55,7 @@ func TestRegistry_Register(t *testing.T) {
 		entry2, err := reg.Register("agent-1", "frontend-v2", "100.64.0.3", "fd42::3", nil, nil, "")
 		require.NoError(t, err)
 
-		assert.Equal(t, "frontend-v2", entry2.ComponentName)
+		assert.Equal(t, "frontend-v2", entry2.Name)
 		assert.Equal(t, "100.64.0.3", entry2.MeshIPv4)
 		assert.Equal(t, "fd42::3", entry2.MeshIPv6)
 		assert.True(t, entry2.LastSeen.After(initialLastSeen))
@@ -104,7 +104,7 @@ func TestRegistry_Get(t *testing.T) {
 		entry, err := reg.Get("agent-1")
 		require.NoError(t, err)
 		assert.Equal(t, "agent-1", entry.AgentID)
-		assert.Equal(t, "frontend", entry.ComponentName)
+		assert.Equal(t, "frontend", entry.Name)
 	})
 
 	t.Run("get nonexistent agent", func(t *testing.T) {

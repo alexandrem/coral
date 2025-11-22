@@ -45,7 +45,7 @@ func NewServiceMonitor(service *meshv1.ServiceInfo, logger zerolog.Logger) *Serv
 		status:        ServiceStatusUnknown,
 		checkInterval: 10 * time.Second,
 		checkTimeout:  2 * time.Second,
-		logger:        logger.With().Str("service", service.ComponentName).Logger(),
+		logger:        logger.With().Str("service", service.Name).Logger(),
 		ctx:           ctx,
 		cancel:        cancel,
 	}

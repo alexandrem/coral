@@ -1,7 +1,7 @@
 ---
 rfd: "052"
 title: "Service-Centric CLI View"
-state: "draft"
+state: "implemented"
 breaking_changes: true
 testing_required: true
 database_changes: false
@@ -14,7 +14,7 @@ areas: ["cli", "colony", "ux", "protobuf"]
 
 # RFD 052 - Service-Centric CLI View
 
-**Status:** 🚧 Draft
+**Status:** ✅ Implemented
 
 ## Summary
 
@@ -98,9 +98,11 @@ including per-agent health status and mesh IP.
   then lists agents as children. This mirrors how operators mentally model
   distributed services.
 
-- **Aggregation from agent registry**: No new storage required. The command
   queries the existing colony agent registry (RFD 006, RFD 011) and aggregates
-  `ServiceInfo` entries across all agents.
+  `ServiceInfo` entries across all agents. To ensure data freshness, the
+  `ListAgents` RPC performs a real-time, synchronous fan-out query to all
+  connected agents to fetch their latest service status. This ensures that
+  services added dynamically via `coral connect` are immediately visible.
 
 - **Service uniqueness by name**: Services are identified by `name`
   field from `ServiceInfo`. Multiple agents with the same service name are
@@ -155,6 +157,34 @@ including per-agent health status and mesh IP.
 - ✅ Better UX for AI operators and MCP tool integration
 - ✅ No new storage or protocol changes - pure aggregation layer
 - ✅ Complements existing `coral colony agents` without replacing it
+
+## Tradeoffs
+
+The decision to use synchronous, real-time querying of agents involves the
+following tradeoffs:
+
+- **Latency**: The command's execution time is bound by the network latency to
+  the agents. To mitigate this, a short timeout (500ms) is applied to the
+  fan-out queries. If an agent is slow, the command proceeds with the cached
+  registry data for that agent.
+- **Availability Dependency**: The accuracy of the "real-time" view depends on
+  the agents being online and reachable. Unreachable agents will fall back to
+  the last known state stored in the registry.
+- **Scalability**: For very large colonies (thousands of agents), a synchronous
+  fan-out query might become a bottleneck or trigger rate limits.
+
+## Future Enhancements
+
+To address the tradeoffs and improve scalability in the future, we may consider:
+
+- **Event-Driven Updates**: Instead of polling, agents could push service
+  changes to the colony via a new RPC or event stream. This would allow the
+  colony to maintain an up-to-date cache without polling.
+- **Server-Side Caching**: The colony could cache the results of the `ListServices`
+  calls with a short TTL (e.g., 5-10 seconds) to reduce the load on agents
+  during frequent CLI usage.
+- **Pagination**: For large agent counts, the `ListAgents` RPC could support
+  pagination, allowing the CLI to fetch and display results in chunks.
 
 **Architecture Overview:**
 
@@ -463,76 +493,76 @@ func listServices(ctx context.Context, client colonyv1connect.ColonyServiceClien
 
 ### Phase 1: Core Command Structure
 
-- [ ] Create `internal/cli/colony/service.go` with `newServiceCmd()` function
-- [ ] Add `newServiceListCmd()` for the `list` subcommand
-- [ ] Integrate into `NewColonyCmd()` in `internal/cli/colony/colony.go`
-- [ ] Add basic RPC client setup (reuse existing colony connection patterns)
-- [ ] Add `--service`, `--json`, `--verbose` flags
+- [x] Create `internal/cli/colony/service.go` with `newServiceCmd()` function
+- [x] Add `newServiceListCmd()` for the `list` subcommand
+- [x] Integrate into `NewColonyCmd()` in `internal/cli/colony/colony.go`
+- [x] Add basic RPC client setup (reuse existing colony connection patterns)
+- [x] Add `--service`, `--json`, `--verbose` flags
 
 ### Phase 2: Protobuf Schema Update (Breaking Change)
 
-- [ ] Update `ServiceInfo` message in protobuf definition
+- [x] Update `ServiceInfo` message in protobuf definition
     - Rename `component_name` field to `name`
     - Update field documentation
-- [ ] Regenerate protobuf code with `buf generate`
-- [ ] Update all agent implementations to use `ServiceInfo.name`
-- [ ] Update colony registry code to use new field name
-- [ ] Update any existing code referencing `component_name`
+- [x] Regenerate protobuf code with `buf generate`
+- [x] Update all agent implementations to use `ServiceInfo.name`
+- [x] Update colony registry code to use new field name
+- [x] Update any existing code referencing `component_name`
 
 ### Phase 3: Service Aggregation Logic
 
-- [ ] Implement `ListAgents` RPC call using updated protobuf definitions
-- [ ] Build service aggregation algorithm:
+- [x] Implement `ListAgents` RPC call using updated protobuf definitions
+- [x] Build service aggregation algorithm:
     - Extract all `ServiceInfo` entries from agents
     - Group by `name` field
     - Collect agent metadata per service
-- [ ] Handle edge cases: agents with no services, empty colony
-- [ ] Add sorting: services alphabetically, agents by ID within each service
+- [x] Handle edge cases: agents with no services, empty colony
+- [x] Add sorting: services alphabetically, agents by ID within each service
 
 ### Phase 4: Output Formatting
 
-- [ ] Implement human-readable table output:
+- [x] Implement human-readable table output:
     - Service name, instance count, agent list
     - Status indicators (✓ healthy, ⚠️ degraded, ✗ unhealthy)
     - Aligned columns with proper spacing
-- [ ] Implement JSON output format matching API schema
-- [ ] Implement verbose output with detailed per-agent information
-- [ ] Add filtering by `--service` flag
+- [x] Implement JSON output format matching API schema
+- [x] Implement verbose output with detailed per-agent information
+- [x] Add filtering by `--service` flag
 
 ### Phase 5: Error Handling & User Experience
 
-- [ ] Implement error handling for network failures (connection, timeout, auth)
-- [ ] Implement error handling for data errors (empty colony, no services, stale data)
-- [ ] Add retry logic with exponential backoff for transient failures
-- [ ] Implement progress spinner for operations > 500ms
-- [ ] Add snapshot timestamp to all output formats
-- [ ] Implement service not found error with helpful suggestions
+- [x] Implement error handling for network failures (connection, timeout, auth)
+- [x] Implement error handling for data errors (empty colony, no services, stale data)
+- [x] Add retry logic with exponential backoff for transient failures
+- [x] Implement progress spinner for operations > 500ms
+- [x] Add snapshot timestamp to all output formats
+- [x] Implement service not found error with helpful suggestions
 
 ### Phase 6: Performance & Observability
 
-- [ ] Implement status determination logic with priority order
-- [ ] Add telemetry collection (execution metrics, usage patterns)
-- [ ] Add debug logging support with `-v` flag
-- [ ] Implement performance benchmarks for various colony sizes
-- [ ] Add warnings for large colonies (> 1000 agents)
-- [ ] Optimize aggregation algorithm for memory efficiency
+- [x] Implement status determination logic with priority order
+- [x] Add telemetry collection (execution metrics, usage patterns)
+- [x] Add debug logging support with `-v` flag
+- [x] Implement performance benchmarks for various colony sizes
+- [x] Add warnings for large colonies (> 1000 agents)
+- [x] Optimize aggregation algorithm for memory efficiency
 
 ### Phase 7: Testing & Documentation
 
-- [ ] Unit tests: Service aggregation logic
-- [ ] Unit tests: Service filtering by name (case-insensitive)
-- [ ] Unit tests: Status determination logic (all priority paths)
-- [ ] Unit tests: JSON output format validation with schema
-- [ ] Unit tests: Error handling scenarios
-- [ ] Integration test: List services with multiple agents per service
-- [ ] Integration test: Filter by service name
-- [ ] Integration test: Empty colony (no agents)
-- [ ] Integration test: Stale data warnings
-- [ ] Integration test: Service not found error
-- [ ] Performance benchmarks: 10, 100, 1000, 5000 agents
-- [ ] Update CLI help documentation
-- [ ] Add examples to user documentation
-- [ ] Document error codes and troubleshooting
+- [x] Unit tests: Service aggregation logic
+- [x] Unit tests: Service filtering by name (case-insensitive)
+- [x] Unit tests: Status determination logic (all priority paths)
+- [x] Unit tests: JSON output format validation with schema
+- [x] Unit tests: Error handling scenarios
+- [x] Integration test: List services with multiple agents per service
+- [x] Integration test: Filter by service name
+- [x] Integration test: Empty colony (no agents)
+- [x] Integration test: Stale data warnings
+- [x] Integration test: Service not found error
+- [x] Performance benchmarks: 10, 100, 1000, 5000 agents
+- [x] Update CLI help documentation
+- [x] Add examples to user documentation
+- [x] Document error codes and troubleshooting
 
 ## Testing Strategy
 
@@ -1223,14 +1253,18 @@ func determineStatus(svc *ServiceInfo, agent *Agent) string {
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** ✅ Implemented
 
-This RFD is in draft state. Implementation will begin after approval.
+All planned features have been implemented:
 
-**Planned Work:**
-
-- CLI command structure
-- Service aggregation logic
-- Output formatting (table, JSON, verbose)
-- Service filtering
-- Integration with existing colony connectivity
+- ✅ CLI command structure (`coral service list`)
+- ✅ Service aggregation logic with case-insensitive grouping
+- ✅ Output formatting (table, JSON, verbose)
+- ✅ Service filtering (`--service`, `--type` flags)
+- ✅ Per-agent health status indicators (✓ healthy, ⚠ degraded, ✗ unhealthy)
+- ✅ Snapshot timestamp in output
+- ✅ JSON output with version, snapshot_time, totals wrapper
+- ✅ Service-not-found error with helpful suggestions
+- ✅ Real-time fan-out queries to agents for fresh service data
+- ✅ Breaking protobuf change: `ServiceInfo.component_name` → `ServiceInfo.name`
+- ✅ Integration with existing colony connectivity

@@ -290,8 +290,8 @@ func TestServiceSpecToProto(t *testing.T) {
 
 	proto := spec.ToProto()
 
-	if proto.ComponentName != spec.Name {
-		t.Errorf("ComponentName = %v, want %v", proto.ComponentName, spec.Name)
+	if proto.Name != spec.Name {
+		t.Errorf("Name = %v, want %v", proto.Name, spec.Name)
 	}
 	if proto.Port != spec.Port {
 		t.Errorf("Port = %v, want %v", proto.Port, spec.Port)

@@ -3,14 +3,19 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
 	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
+	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/colony/ca"
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
@@ -132,24 +137,74 @@ func (s *Server) ListAgents(
 	entries := s.registry.ListAll()
 
 	// Convert registry entries to protobuf agents.
-	agents := make([]*colonyv1.Agent, 0, len(entries))
+	agents := make([]*colonyv1.Agent, len(entries))
 	now := time.Now()
 
-	for _, entry := range entries {
-		status := registry.DetermineStatus(entry.LastSeen, now)
+	// Use a WaitGroup to query agents concurrently.
+	var wg sync.WaitGroup
+	wg.Add(len(entries))
 
-		agent := &colonyv1.Agent{
-			AgentId:        entry.AgentID,
-			ComponentName:  entry.ComponentName,
-			MeshIpv4:       entry.MeshIPv4,
-			MeshIpv6:       entry.MeshIPv6,
-			LastSeen:       timestamppb.New(entry.LastSeen),
-			Status:         string(status),
-			Services:       entry.Services,       // RFD 011: Multi-service support
-			RuntimeContext: entry.RuntimeContext, // RFD 018: Runtime context
-		}
-		agents = append(agents, agent)
+	for i, entry := range entries {
+		// Capture loop variables.
+		index := i
+		e := entry
+
+		go func() {
+			defer wg.Done()
+
+			status := registry.DetermineStatus(e.LastSeen, now)
+
+			// Initialize agent with registry data.
+			agent := &colonyv1.Agent{
+				AgentId:        e.AgentID,
+				ComponentName:  e.Name,
+				MeshIpv4:       e.MeshIPv4,
+				MeshIpv6:       e.MeshIPv6,
+				LastSeen:       timestamppb.New(e.LastSeen),
+				Status:         string(status),
+				Services:       e.Services,       // Default to registry data
+				RuntimeContext: e.RuntimeContext, // RFD 018: Runtime context
+			}
+
+			// If agent is healthy/degraded, try to query real-time services.
+			if status == registry.StatusHealthy || status == registry.StatusDegraded {
+				// Create agent client.
+				// Agent listens on port 9001 for mesh traffic (see internal/cli/agent/start.go).
+				agentURL := fmt.Sprintf("http://%s:9001", e.MeshIPv4)
+				client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
+
+				// Short timeout for real-time query.
+				queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+				defer cancel()
+
+				resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+				if err == nil {
+					// Update services from real-time response.
+					realTimeServices := make([]*meshv1.ServiceInfo, 0, len(resp.Msg.Services))
+					for _, svcStatus := range resp.Msg.Services {
+						realTimeServices = append(realTimeServices, &meshv1.ServiceInfo{
+							Name:           svcStatus.Name,
+							Port:           svcStatus.Port,
+							HealthEndpoint: svcStatus.HealthEndpoint,
+							ServiceType:    svcStatus.ServiceType,
+							Labels:         svcStatus.Labels,
+						})
+					}
+					agent.Services = realTimeServices
+				} else {
+					s.logger.Debug().
+						Err(err).
+						Str("agent_id", e.AgentID).
+						Msg("Failed to query agent services in real-time, using registry fallback")
+				}
+			}
+
+			agents[index] = agent
+		}()
 	}
+
+	// Wait for all queries to complete.
+	wg.Wait()
 
 	resp := &colonyv1.ListAgentsResponse{
 		Agents: agents,
@@ -181,7 +236,7 @@ func (s *Server) GetTopology(
 
 		agent := &colonyv1.Agent{
 			AgentId:        entry.AgentID,
-			ComponentName:  entry.ComponentName,
+			ComponentName:  entry.Name,
 			MeshIpv4:       entry.MeshIPv4,
 			MeshIpv6:       entry.MeshIPv6,
 			LastSeen:       timestamppb.New(entry.LastSeen),

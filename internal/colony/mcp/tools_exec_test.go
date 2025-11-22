@@ -21,7 +21,7 @@ func TestResolveAgent(t *testing.T) {
 	t.Run("resolve by agent ID - success", func(t *testing.T) {
 		reg := registry.New()
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
+			{Name: "api", Port: 8080},
 		}
 		_, err := reg.Register("agent-api-1", "api", "10.42.0.15", "fd42::15", services, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestResolveAgent(t *testing.T) {
 	t.Run("resolve by service - unique match", func(t *testing.T) {
 		reg := registry.New()
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "frontend", Port: 3000},
+			{Name: "frontend", Port: 3000},
 		}
 		_, err := reg.Register("agent-frontend", "frontend", "10.42.0.20", "fd42::20", services, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -75,9 +75,9 @@ func TestResolveAgent(t *testing.T) {
 		reg := registry.New()
 
 		// Register 3 agents all serving "api" service.
-		services1 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
-		services2 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
-		services3 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
+		services1 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
+		services2 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
+		services3 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
 
 		_, err := reg.Register("agent-api-1", "api", "10.42.0.15", "fd42::15", services1, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestResolveAgent(t *testing.T) {
 
 	t.Run("resolve by service - no matches", func(t *testing.T) {
 		reg := registry.New()
-		services := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
+		services := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
 		_, err := reg.Register("agent-api", "api", "10.42.0.15", "fd42::15", services, nil, "v1.0.0")
 		require.NoError(t, err)
 
@@ -122,8 +122,8 @@ func TestResolveAgent(t *testing.T) {
 		reg := registry.New()
 
 		// Register multiple agents with same service.
-		services1 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
-		services2 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
+		services1 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
+		services2 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
 
 		_, err := reg.Register("agent-api-1", "api", "10.42.0.15", "fd42::15", services1, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -148,8 +148,8 @@ func TestResolveAgent(t *testing.T) {
 
 		// Agent monitoring multiple services.
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
-			{ComponentName: "worker", Port: 9000},
+			{Name: "api", Port: 8080},
+			{Name: "worker", Port: 9000},
 		}
 		_, err := reg.Register("agent-multi", "multi", "10.42.0.17", "fd42::17", services, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -173,9 +173,9 @@ func TestResolveAgent(t *testing.T) {
 	t.Run("pattern matching - wildcard", func(t *testing.T) {
 		reg := registry.New()
 
-		services1 := []*meshv1.ServiceInfo{{ComponentName: "api-v1", Port: 8080}}
-		services2 := []*meshv1.ServiceInfo{{ComponentName: "api-v2", Port: 8081}}
-		services3 := []*meshv1.ServiceInfo{{ComponentName: "frontend", Port: 3000}}
+		services1 := []*meshv1.ServiceInfo{{Name: "api-v1", Port: 8080}}
+		services2 := []*meshv1.ServiceInfo{{Name: "api-v2", Port: 8081}}
+		services3 := []*meshv1.ServiceInfo{{Name: "frontend", Port: 3000}}
 
 		_, err := reg.Register("agent-api-v1", "api-v1", "10.42.0.15", "fd42::15", services1, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -210,8 +210,8 @@ func TestExecuteCommandToolWithAgentID(t *testing.T) {
 		reg := registry.New()
 
 		// Register multiple agents with same service.
-		services1 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
-		services2 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
+		services1 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
+		services2 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
 
 		_, err := reg.Register("agent-api-1", "api", "10.42.0.15", "fd42::15", services1, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -241,8 +241,8 @@ func TestExecuteCommandToolWithAgentID(t *testing.T) {
 		reg := registry.New()
 
 		// Register multiple agents with same service.
-		services1 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
-		services2 := []*meshv1.ServiceInfo{{ComponentName: "api", Port: 8080}}
+		services1 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
+		services2 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
 
 		_, err := reg.Register("agent-api-1", "api", "10.42.0.15", "fd42::15", services1, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -278,8 +278,8 @@ func TestServiceFiltering(t *testing.T) {
 
 		// Agent with ComponentName "multi" but Services array contains specific services.
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
-			{ComponentName: "worker", Port: 9000},
+			{Name: "api", Port: 8080},
+			{Name: "worker", Port: 9000},
 		}
 		_, err := reg.Register("agent-multi", "multi", "10.42.0.17", "fd42::17", services, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -294,8 +294,8 @@ func TestServiceFiltering(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "agent-multi", agent.AgentID)
 
-		// Searching for "multi" (ComponentName) should NOT match.
-		// (Because we're filtering by Services[], not ComponentName).
+		// Searching for "multi" (Name) should NOT match.
+		// (Because we're filtering by Services[], not Name).
 		agent2, err := server.resolveAgent(nil, "multi")
 		assert.Error(t, err)
 		assert.Nil(t, agent2)

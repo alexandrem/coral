@@ -38,7 +38,7 @@ func (s *Server) registerServiceHealthTool() {
 
 			for _, agent := range agents {
 				// Apply filter if specified.
-				if serviceFilter != "" && !matchesPattern(agent.ComponentName, serviceFilter) {
+				if serviceFilter != "" && !matchesPattern(agent.Name, serviceFilter) {
 					continue
 				}
 
@@ -58,7 +58,7 @@ func (s *Server) registerServiceHealthTool() {
 				}
 
 				serviceStatuses = append(serviceStatuses, map[string]interface{}{
-					"service":   agent.ComponentName,
+					"service":   agent.Name,
 					"agent_id":  agent.AgentID,
 					"status":    status,
 					"last_seen": lastSeen.Format(time.RFC3339),
@@ -131,7 +131,7 @@ func (s *Server) registerServiceTopologyTool() {
 			text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
 
 			for _, agent := range agents {
-				text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.ComponentName, agent.MeshIPv4)
+				text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.Name, agent.MeshIPv4)
 			}
 
 			text += "\n"
@@ -587,7 +587,7 @@ func (s *Server) registerTelemetrySpansTool() {
 			agents := s.registry.ListAll()
 			var matchingAgents []string
 			for _, agent := range agents {
-				if agent.ComponentName == input.Service {
+				if agent.Name == input.Service {
 					matchingAgents = append(matchingAgents, agent.AgentID)
 				}
 			}
