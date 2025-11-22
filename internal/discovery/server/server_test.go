@@ -2,17 +2,20 @@ package server
 
 import (
 	"context"
+
 	"io"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
 	"github.com/coral-io/coral/internal/constants"
+	"github.com/coral-io/coral/internal/discovery"
 	"github.com/coral-io/coral/internal/discovery/registry"
 )
 
@@ -26,9 +29,21 @@ func testSTUNServers() []string {
 	return []string{constants.DefaultSTUNServer}
 }
 
+// testTokenManager returns a token manager for tests.
+func testTokenManager(t *testing.T) *discovery.TokenManager {
+
+	return discovery.NewTokenManager(discovery.TokenConfig{
+		SigningKey: []byte("test-key"),
+		DefaultTTL: 5 * time.Minute,
+		Issuer:     "test-issuer",
+		Audience:   "test-audience",
+	})
+}
+
 func TestServer_RegisterColony(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger(), testSTUNServers())
+	tokenMgr := testTokenManager(t)
+	srv := New(reg, tokenMgr, "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	t.Run("successful registration", func(t *testing.T) {
@@ -96,7 +111,7 @@ func TestServer_RegisterColony(t *testing.T) {
 
 	t.Run("update with same pubkey succeeds (renewal)", func(t *testing.T) {
 		reg := registry.New(5 * time.Minute)
-		srv := New(reg, "test-version", testLogger(), testSTUNServers())
+		srv := New(reg, testTokenManager(t), "test-version", testLogger(), testSTUNServers())
 
 		// First registration
 		req1 := connect.NewRequest(&discoveryv1.RegisterColonyRequest{
@@ -127,7 +142,7 @@ func TestServer_RegisterColony(t *testing.T) {
 
 func TestServer_LookupColony(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger(), testSTUNServers())
+	srv := New(reg, testTokenManager(t), "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	// Register a colony first
@@ -184,7 +199,7 @@ func TestServer_LookupColony(t *testing.T) {
 
 	t.Run("lookup expired colony", func(t *testing.T) {
 		reg := registry.New(50 * time.Millisecond)
-		srv := New(reg, "test-version", testLogger(), testSTUNServers())
+		srv := New(reg, testTokenManager(t), "test-version", testLogger(), testSTUNServers())
 
 		// Register with short TTL
 		regReq := connect.NewRequest(&discoveryv1.RegisterColonyRequest{
@@ -213,7 +228,8 @@ func TestServer_LookupColony(t *testing.T) {
 
 func TestServer_Health(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "v1.2.3", testLogger(), testSTUNServers())
+	tokenMgr := testTokenManager(t)
+	srv := New(reg, tokenMgr, "v1.2.3", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	t.Run("health check with no colonies", func(t *testing.T) {
@@ -269,7 +285,7 @@ func TestServer_Health(t *testing.T) {
 
 func TestServer_RegisterAgent(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger(), testSTUNServers())
+	srv := New(reg, testTokenManager(t), "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	t.Run("successful agent registration with observed endpoint", func(t *testing.T) {
@@ -366,7 +382,7 @@ func TestServer_RegisterAgent(t *testing.T) {
 
 func TestServer_LookupAgent(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger(), testSTUNServers())
+	srv := New(reg, testTokenManager(t), "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	// Register an agent first
@@ -430,7 +446,7 @@ func TestServer_LookupAgent(t *testing.T) {
 
 func TestServer_RequestRelay(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger(), testSTUNServers())
+	srv := New(reg, testTokenManager(t), "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	t.Run("successful relay allocation", func(t *testing.T) {
@@ -499,7 +515,7 @@ func TestServer_RequestRelay(t *testing.T) {
 
 func TestServer_ReleaseRelay(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger(), testSTUNServers())
+	srv := New(reg, testTokenManager(t), "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	t.Run("successful relay release", func(t *testing.T) {
@@ -555,7 +571,7 @@ func TestServer_ReleaseRelay(t *testing.T) {
 
 func TestServer_SplitBrainDetection(t *testing.T) {
 	reg := registry.New(5 * time.Minute)
-	srv := New(reg, "test-version", testLogger(), testSTUNServers())
+	srv := New(reg, testTokenManager(t), "test-version", testLogger(), testSTUNServers())
 	ctx := context.Background()
 
 	t.Run("prevent split-brain on colony registration", func(t *testing.T) {

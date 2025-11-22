@@ -234,3 +234,222 @@ func TestLoadProjectConfig_NotExists(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, config)
 }
+
+// RFD 050 - CORAL_CONFIG env var support tests.
+
+func TestNewLoader_CoralConfigEnvVar(t *testing.T) {
+	// Create a temporary directory for config.
+	tmpDir := t.TempDir()
+
+	// Set CORAL_CONFIG env var.
+	originalValue := os.Getenv("CORAL_CONFIG")
+	os.Setenv("CORAL_CONFIG", tmpDir)
+	defer os.Setenv("CORAL_CONFIG", originalValue)
+
+	// Create loader.
+	loader, err := NewLoader()
+	require.NoError(t, err)
+
+	// Verify the loader uses the custom directory.
+	expectedPath := filepath.Join(tmpDir, ".coral", "config.yaml")
+	assert.Equal(t, expectedPath, loader.GlobalConfigPath())
+}
+
+func TestNewLoader_DefaultHomeDir(t *testing.T) {
+	// Ensure CORAL_CONFIG is not set.
+	originalValue := os.Getenv("CORAL_CONFIG")
+	os.Unsetenv("CORAL_CONFIG")
+	defer os.Setenv("CORAL_CONFIG", originalValue)
+
+	// Create loader.
+	loader, err := NewLoader()
+	require.NoError(t, err)
+
+	// Verify it uses home directory.
+	homeDir, err := os.UserHomeDir()
+	require.NoError(t, err)
+	expectedPath := filepath.Join(homeDir, ".coral", "config.yaml")
+	assert.Equal(t, expectedPath, loader.GlobalConfigPath())
+}
+
+// RFD 050 - DeleteColonyDir tests.
+
+func TestLoader_DeleteColonyDir(t *testing.T) {
+	tmpHome := t.TempDir()
+	loader := &Loader{homeDir: tmpHome}
+
+	// Create a colony config.
+	config := &ColonyConfig{
+		Version:         "1",
+		ColonyID:        "test-colony-delete",
+		ApplicationName: "test-app",
+		CreatedAt:       time.Now(),
+	}
+	err := loader.SaveColonyConfig(config)
+	require.NoError(t, err)
+
+	// Create additional files in colony directory (simulating CA, data).
+	colonyDir := loader.ColonyDir(config.ColonyID)
+	caDir := filepath.Join(colonyDir, "ca")
+	err = os.MkdirAll(caDir, 0700)
+	require.NoError(t, err)
+
+	caFile := filepath.Join(caDir, "root-ca.crt")
+	err = os.WriteFile(caFile, []byte("cert data"), 0600)
+	require.NoError(t, err)
+
+	// Verify files exist.
+	assert.FileExists(t, loader.ColonyConfigPath(config.ColonyID))
+	assert.DirExists(t, caDir)
+	assert.FileExists(t, caFile)
+
+	// Delete entire colony directory.
+	err = loader.DeleteColonyDir(config.ColonyID)
+	require.NoError(t, err)
+
+	// Verify everything is gone.
+	assert.NoDirExists(t, colonyDir)
+}
+
+func TestLoader_DeleteColonyDir_NotExists(t *testing.T) {
+	tmpHome := t.TempDir()
+	loader := &Loader{homeDir: tmpHome}
+
+	// Deleting non-existent colony should fail.
+	err := loader.DeleteColonyDir("nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// RFD 050 - ValidateAll tests.
+
+func TestLoader_ValidateAll(t *testing.T) {
+	tmpHome := t.TempDir()
+	loader := &Loader{homeDir: tmpHome}
+
+	// Create a valid colony config.
+	validConfig := &ColonyConfig{
+		Version:         "1",
+		ColonyID:        "valid-colony",
+		ApplicationName: "valid-app",
+		Environment:     "dev",
+		WireGuard: WireGuardConfig{
+			Port:            41580,
+			MTU:             1420,
+			MeshNetworkIPv4: "100.64.0.0/10",
+		},
+		CreatedAt: time.Now(),
+	}
+	err := loader.SaveColonyConfig(validConfig)
+	require.NoError(t, err)
+
+	// Create an invalid colony config (missing application_name).
+	invalidConfig := &ColonyConfig{
+		Version:   "1",
+		ColonyID:  "invalid-colony",
+		CreatedAt: time.Now(),
+	}
+	err = loader.SaveColonyConfig(invalidConfig)
+	require.NoError(t, err)
+
+	// Validate all.
+	results, err := loader.ValidateAll()
+	require.NoError(t, err)
+	assert.Len(t, results, 2)
+
+	// Valid colony should have nil error.
+	assert.Nil(t, results["valid-colony"])
+
+	// Invalid colony should have error.
+	assert.NotNil(t, results["invalid-colony"])
+	assert.Contains(t, results["invalid-colony"].Error(), "application_name")
+}
+
+func TestLoader_ValidateAll_Empty(t *testing.T) {
+	tmpHome := t.TempDir()
+	loader := &Loader{homeDir: tmpHome}
+
+	// No colonies should return empty map.
+	results, err := loader.ValidateAll()
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+// RFD 050 - ValidateColonyConfig tests.
+
+func TestValidateColonyConfig_Valid(t *testing.T) {
+	config := &ColonyConfig{
+		ColonyID:        "my-colony",
+		ApplicationName: "my-app",
+		WireGuard: WireGuardConfig{
+			Port:            41580,
+			MTU:             1420,
+			MeshNetworkIPv4: "100.64.0.0/10",
+		},
+	}
+
+	err := ValidateColonyConfig(config)
+	assert.NoError(t, err)
+}
+
+func TestValidateColonyConfig_MissingColonyID(t *testing.T) {
+	config := &ColonyConfig{
+		ApplicationName: "my-app",
+	}
+
+	err := ValidateColonyConfig(config)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "colony_id")
+}
+
+func TestValidateColonyConfig_MissingApplicationName(t *testing.T) {
+	config := &ColonyConfig{
+		ColonyID: "my-colony",
+	}
+
+	err := ValidateColonyConfig(config)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "application_name")
+}
+
+func TestValidateColonyConfig_InvalidMeshSubnet(t *testing.T) {
+	config := &ColonyConfig{
+		ColonyID:        "my-colony",
+		ApplicationName: "my-app",
+		WireGuard: WireGuardConfig{
+			MeshNetworkIPv4: "10.100.0.0/30", // Too small (smaller than /24).
+		},
+	}
+
+	err := ValidateColonyConfig(config)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mesh_network_ipv4")
+}
+
+func TestValidateColonyConfig_InvalidPort(t *testing.T) {
+	config := &ColonyConfig{
+		ColonyID:        "my-colony",
+		ApplicationName: "my-app",
+		WireGuard: WireGuardConfig{
+			Port: 70000, // Invalid port.
+		},
+	}
+
+	err := ValidateColonyConfig(config)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "port")
+}
+
+func TestValidateColonyConfig_InvalidMTU(t *testing.T) {
+	config := &ColonyConfig{
+		ColonyID:        "my-colony",
+		ApplicationName: "my-app",
+		WireGuard: WireGuardConfig{
+			MTU: 10000, // Invalid MTU.
+		},
+	}
+
+	err := ValidateColonyConfig(config)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "MTU")
+}

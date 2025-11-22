@@ -8,23 +8,28 @@ import (
 	"sync"
 	"time"
 
-	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 )
 
 // BeylaStorage handles local storage of Beyla metrics in agent's DuckDB.
 // Metrics are stored for ~1 hour and queried by Colony on-demand (RFD 025 pull-based).
 type BeylaStorage struct {
 	db     *sql.DB
+	dbPath string // File path to DuckDB file (for HTTP serving, RFD 039).
 	logger zerolog.Logger
 	mu     sync.RWMutex
 }
 
 // NewBeylaStorage creates a new Beyla storage instance.
-func NewBeylaStorage(db *sql.DB, logger zerolog.Logger) (*BeylaStorage, error) {
+// dbPath is optional - if empty, database file path will not be available for HTTP serving.
+func NewBeylaStorage(db *sql.DB, dbPath string, logger zerolog.Logger) (*BeylaStorage, error) {
 	s := &BeylaStorage{
 		db:     db,
+		dbPath: dbPath,
 		logger: logger.With().Str("component", "beyla_storage").Logger(),
 	}
 
@@ -38,8 +43,8 @@ func NewBeylaStorage(db *sql.DB, logger zerolog.Logger) (*BeylaStorage, error) {
 
 // initSchema creates the Beyla metrics tables in agent's local DuckDB.
 func (s *BeylaStorage) initSchema() error {
-	schema := `
-		-- Beyla HTTP metrics (RED: Rate, Errors, Duration).
+	// Beyla HTTP metrics (RED: Rate, Errors, Duration).
+	httpMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_http_metrics_local (
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
@@ -57,8 +62,13 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_http_service
 		ON beyla_http_metrics_local(service_name, timestamp DESC);
+	`
+	if _, err := s.db.Exec(httpMetricsSchema); err != nil {
+		return fmt.Errorf("failed to create HTTP metrics schema: %w", err)
+	}
 
-		-- Beyla gRPC metrics.
+	// Beyla gRPC metrics.
+	grpcMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_grpc_metrics_local (
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
@@ -75,8 +85,13 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_grpc_service
 		ON beyla_grpc_metrics_local(service_name, timestamp DESC);
+	`
+	if _, err := s.db.Exec(grpcMetricsSchema); err != nil {
+		return fmt.Errorf("failed to create gRPC metrics schema: %w", err)
+	}
 
-		-- Beyla SQL metrics.
+	// Beyla SQL metrics.
+	sqlMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_sql_metrics_local (
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
@@ -94,9 +109,42 @@ func (s *BeylaStorage) initSchema() error {
 		CREATE INDEX IF NOT EXISTS idx_beyla_sql_service
 		ON beyla_sql_metrics_local(service_name, timestamp DESC);
 	`
+	if _, err := s.db.Exec(sqlMetricsSchema); err != nil {
+		return fmt.Errorf("failed to create SQL metrics schema: %w", err)
+	}
 
-	if _, err := s.db.Exec(schema); err != nil {
-		return fmt.Errorf("failed to create schema: %w", err)
+	// Beyla distributed traces (RFD 036).
+	tracesSchema := `
+		CREATE TABLE IF NOT EXISTS beyla_traces_local (
+			trace_id       VARCHAR(32) NOT NULL,
+			span_id        VARCHAR(16) NOT NULL,
+			parent_span_id VARCHAR(16),
+			agent_id       VARCHAR NOT NULL,
+			service_name   VARCHAR NOT NULL,
+			span_name      VARCHAR NOT NULL,
+			span_kind      VARCHAR(10),
+			start_time     TIMESTAMP NOT NULL,
+			duration_us    BIGINT NOT NULL,
+			status_code    SMALLINT,
+			attributes     JSON,
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (trace_id, span_id)
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_traces_service_time
+		ON beyla_traces_local(service_name, start_time DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_traces_trace_id
+		ON beyla_traces_local(trace_id, start_time DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_traces_duration
+		ON beyla_traces_local(duration_us DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_traces_agent_id
+		ON beyla_traces_local(agent_id, start_time DESC);
+	`
+	if _, err := s.db.Exec(tracesSchema); err != nil {
+		return fmt.Errorf("failed to create traces schema: %w", err)
 	}
 
 	s.logger.Info().Msg("Beyla storage schema initialized")
@@ -281,9 +329,60 @@ func (s *BeylaStorage) StoreEvent(ctx context.Context, event *ebpfpb.EbpfEvent) 
 		return s.StoreGRPCMetric(ctx, event)
 	case *ebpfpb.EbpfEvent_BeylaSql:
 		return s.StoreSQLMetric(ctx, event)
+	case *ebpfpb.EbpfEvent_BeylaTrace:
+		return s.StoreTrace(ctx, event)
 	default:
 		return fmt.Errorf("unsupported event type: %T", event.Payload)
 	}
+}
+
+// StoreTrace stores a Beyla trace span event (RFD 036).
+func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) error {
+	traceSpan := event.GetBeylaTrace()
+	if traceSpan == nil {
+		return fmt.Errorf("event does not contain trace span")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Convert attributes to JSON.
+	attributesJSON, err := json.Marshal(traceSpan.Attributes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attributes: %w", err)
+	}
+
+	query := `
+		INSERT INTO beyla_traces_local (
+			trace_id, span_id, parent_span_id, agent_id, service_name, span_name, span_kind,
+			start_time, duration_us, status_code, attributes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	startTime := traceSpan.StartTime.AsTime()
+	durationUs := traceSpan.Duration.AsDuration().Microseconds()
+
+	_, err = s.db.ExecContext(
+		ctx,
+		query,
+		traceSpan.TraceId,
+		traceSpan.SpanId,
+		traceSpan.ParentSpanId,
+		event.AgentId,
+		traceSpan.ServiceName,
+		traceSpan.SpanName,
+		traceSpan.SpanKind,
+		startTime,
+		durationUs,
+		traceSpan.StatusCode,
+		string(attributesJSON),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to insert trace span: %w", err)
+	}
+
+	return nil
 }
 
 // QueryHTTPMetrics queries HTTP metrics from local storage.
@@ -594,6 +693,116 @@ func (s *BeylaStorage) QuerySQLMetrics(ctx context.Context, startTime, endTime t
 	return metrics, nil
 }
 
+// QueryTraces queries trace spans from local storage (RFD 036).
+func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.Time, serviceNames []string, traceID string, maxSpans int32) ([]*ebpfpb.BeylaTraceSpan, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	query := `
+		SELECT trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
+		       start_time, duration_us, status_code, CAST(attributes AS VARCHAR) as attributes
+		FROM beyla_traces_local
+		WHERE start_time BETWEEN ? AND ?
+	`
+
+	args := []interface{}{startTime, endTime}
+
+	// Filter by trace ID if provided.
+	if traceID != "" {
+		query += " AND trace_id = ?"
+		args = append(args, traceID)
+	}
+
+	// Filter by service names if provided.
+	if len(serviceNames) > 0 {
+		placeholders := make([]string, len(serviceNames))
+		for i := range serviceNames {
+			placeholders[i] = "?"
+			args = append(args, serviceNames[i])
+		}
+		query += " AND service_name IN (" + placeholders[0]
+		for i := 1; i < len(placeholders); i++ {
+			query += ", " + placeholders[i]
+		}
+		query += ")"
+	}
+
+	query += " ORDER BY start_time DESC"
+
+	// Apply limit if specified.
+	if maxSpans > 0 {
+		query += " LIMIT ?"
+		args = append(args, maxSpans)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query traces: %w", err)
+	}
+	defer rows.Close()
+
+	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
+
+	for rows.Next() {
+		var traceID, spanID, parentSpanID, serviceName, spanName, spanKind string
+		var startTime time.Time
+		var durationUs int64
+		var statusCode int32
+		var attributesJSON string
+
+		err := rows.Scan(
+			&traceID,
+			&spanID,
+			&parentSpanID,
+			&serviceName,
+			&spanName,
+			&spanKind,
+			&startTime,
+			&durationUs,
+			&statusCode,
+			&attributesJSON,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Unmarshal attributes.
+		var attrs map[string]string
+		if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to unmarshal trace attributes")
+			attrs = make(map[string]string)
+		}
+
+		// Convert duration from microseconds to Duration.
+		duration := time.Duration(durationUs) * time.Microsecond
+
+		span := &ebpfpb.BeylaTraceSpan{
+			TraceId:      traceID,
+			SpanId:       spanID,
+			ParentSpanId: parentSpanID,
+			ServiceName:  serviceName,
+			SpanName:     spanName,
+			SpanKind:     spanKind,
+			StartTime:    timestamppb.New(startTime),
+			Duration:     durationpb.New(duration),
+			StatusCode:   uint32(statusCode),
+			Attributes:   attrs,
+		}
+
+		spans = append(spans, span)
+	}
+
+	return spans, nil
+}
+
+// QueryTraceByID queries all spans for a specific trace ID (RFD 036).
+func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {
+	// Use QueryTraces with specific trace ID and no time bounds (use a wide range).
+	startTime := time.Now().Add(-24 * time.Hour) // Last 24 hours.
+	endTime := time.Now()
+	return s.QueryTraces(ctx, startTime, endTime, nil, traceID, 0)
+}
+
 // RunCleanupLoop periodically removes old metrics (default: 1 hour retention).
 func (s *BeylaStorage) RunCleanupLoop(ctx context.Context, retention time.Duration) {
 	ticker := time.NewTicker(10 * time.Minute)
@@ -625,11 +834,22 @@ func (s *BeylaStorage) RunCleanupLoop(ctx context.Context, retention time.Durati
 				s.logger.Error().Err(err).Msg("Failed to clean SQL metrics")
 			}
 
+			// Clean traces (RFD 036).
+			if _, err := s.db.ExecContext(ctx, "DELETE FROM beyla_traces_local WHERE start_time < ?", cutoff); err != nil {
+				s.logger.Error().Err(err).Msg("Failed to clean traces")
+			}
+
 			s.mu.Unlock()
 
 			s.logger.Debug().
 				Time("cutoff", cutoff).
-				Msg("Cleaned old Beyla metrics")
+				Msg("Cleaned old Beyla metrics and traces")
 		}
 	}
+}
+
+// GetDatabasePath returns the file path to the DuckDB database (RFD 039).
+// Returns empty string if database is in-memory or path was not provided.
+func (s *BeylaStorage) GetDatabasePath() string {
+	return s.dbPath
 }

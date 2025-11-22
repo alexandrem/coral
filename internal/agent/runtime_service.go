@@ -15,6 +15,7 @@ import (
 
 // RuntimeService implements the AgentService RPC interface.
 type RuntimeService struct {
+	agentID         string
 	detector        *runtime.Detector
 	runtimeContext  *agentv1.RuntimeContextResponse
 	logger          zerolog.Logger
@@ -26,6 +27,7 @@ type RuntimeService struct {
 
 // RuntimeServiceConfig contains configuration for the runtime service.
 type RuntimeServiceConfig struct {
+	AgentID         string
 	Logger          zerolog.Logger
 	Version         string
 	RefreshInterval time.Duration
@@ -42,6 +44,7 @@ func NewRuntimeService(config RuntimeServiceConfig) (*RuntimeService, error) {
 	detector := runtime.NewDetector(config.Logger, config.Version)
 
 	return &RuntimeService{
+		agentID:         config.AgentID,
 		detector:        detector,
 		logger:          config.Logger.With().Str("component", "runtime_service").Logger(),
 		refreshInterval: config.RefreshInterval,
@@ -109,6 +112,9 @@ func (s *RuntimeService) refreshContext() error {
 		s.logger.Error().Err(err).Msg("Failed to detect runtime context")
 		return err
 	}
+
+	// Set the agent ID in the context.
+	newContext.AgentId = s.agentID
 
 	s.mu.Lock()
 	oldContext := s.runtimeContext

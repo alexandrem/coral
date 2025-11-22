@@ -19,12 +19,14 @@ func NewStatusCmd() *cobra.Command {
 	var (
 		jsonOutput bool
 		agentURL   string
+		agent      string
+		colony     string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show agent status and runtime context",
-		Long: `Display detailed information about the local Coral agent.
+		Long: `Display detailed information about a Coral agent.
 
 This command shows:
 - Agent platform and version information
@@ -33,8 +35,38 @@ This command shows:
 - Visibility scope and container access
 - Colony connection status
 
-The agent must be running and accessible at the specified URL.`,
+Examples:
+  # Show status of local agent
+  coral agent status
+
+  # Show status of specific agent by ID
+  coral agent status --agent hostname-api-1
+
+  # Show status of agent by mesh IP
+  coral agent status --agent-url http://10.42.0.15:9001
+
+  # Output in JSON format
+  coral agent status --agent hostname-api-1 --json
+
+The agent must be running and accessible.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			// RFD 044: Agent ID resolution via colony registry.
+			// If --agent is specified, query colony to resolve mesh IP.
+			if agent != "" {
+				if agentURL != "" {
+					return fmt.Errorf("cannot specify both --agent and --agent-url")
+				}
+
+				// Resolve agent ID to mesh IP via colony registry.
+				resolvedAddr, err := resolveAgentID(ctx, agent, colony)
+				if err != nil {
+					return fmt.Errorf("failed to resolve agent ID: %w", err)
+				}
+				agentURL = fmt.Sprintf("http://%s", resolvedAddr)
+			}
+
 			// Default agent URL (typically on localhost)
 			if agentURL == "" {
 				agentURL = "http://localhost:9001"
@@ -50,29 +82,46 @@ The agent must be running and accessible at the specified URL.`,
 			req := connect.NewRequest(&agentv1.GetRuntimeContextRequest{})
 			resp, err := client.GetRuntimeContext(ctx, req)
 			if err != nil {
-				return fmt.Errorf("failed to get agent status: %w\n\nIs the agent running? Try: coral connect <service>", err)
+				return fmt.Errorf("failed to get agent status: %w\n\nIs the agent running?", err)
 			}
 
 			runtimeCtx := resp.Msg
 
-			// Output in requested format
-			if jsonOutput {
-				return outputAgentStatusJSON(runtimeCtx)
+			// Query connected services (ListServices RPC).
+			var services []*agentv1.ServiceStatus
+			servicesResp, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+			if err == nil && servicesResp != nil {
+				services = servicesResp.Msg.Services
 			}
 
-			return outputAgentStatusTable(runtimeCtx)
+			// Output in requested format
+			if jsonOutput {
+				return outputAgentStatusJSON(runtimeCtx, services)
+			}
+
+			return outputAgentStatusTable(runtimeCtx, services)
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 	cmd.Flags().StringVar(&agentURL, "agent-url", "", "Agent URL (default: http://localhost:9001)")
+	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
+	cmd.Flags().StringVar(&colony, "colony", "", "Colony ID (default: auto-detect)")
 
 	return cmd
 }
 
 // outputAgentStatusJSON outputs agent status in JSON format.
-func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse) error {
-	data, err := json.MarshalIndent(ctx, "", "  ")
+func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus) error {
+	output := map[string]interface{}{
+		"runtime_context": ctx,
+	}
+
+	if len(services) > 0 {
+		output["services"] = services
+	}
+
+	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
@@ -82,11 +131,17 @@ func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse) error {
 }
 
 // outputAgentStatusTable outputs agent status in human-readable format.
-func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
+func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus) error {
 	fmt.Println()
 	fmt.Println("Agent Status")
 	fmt.Println("============")
 	fmt.Println()
+
+	fmt.Printf("Agent ID:     %s\n", ctx.AgentId)
+	fmt.Println()
+
+	// Connected Services section.
+	printServices(services)
 
 	// Platform section
 	fmt.Println("Platform:")
@@ -179,6 +234,54 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
 	}
 
 	return nil
+}
+
+func printServices(services []*agentv1.ServiceStatus) {
+	if len(services) > 0 {
+		fmt.Println("Connected Services:")
+		for _, svc := range services {
+			statusIcon := ""
+			switch svc.Status {
+			case "healthy":
+				statusIcon = "✓"
+			case "unhealthy":
+				statusIcon = "✗"
+			case "unknown":
+				statusIcon = "⚠"
+			default:
+				statusIcon = "?"
+			}
+
+			fmt.Printf("  %s %-20s port %d", statusIcon, svc.ComponentName, svc.Port)
+			if svc.HealthEndpoint != "" {
+				fmt.Printf(" (health: %s)", svc.HealthEndpoint)
+			}
+			if svc.ServiceType != "" {
+				fmt.Printf(" [%s]", svc.ServiceType)
+			}
+			fmt.Println()
+
+			// Show error if unhealthy.
+			if svc.Status == "unhealthy" && svc.Error != "" {
+				fmt.Printf("    Error: %s\n", svc.Error)
+			}
+
+			// Show last check time.
+			if svc.LastCheck != nil {
+				elapsed := time.Since(svc.LastCheck.AsTime())
+				var timingStr string
+				if elapsed < time.Minute {
+					timingStr = fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
+				} else if elapsed < time.Hour {
+					timingStr = fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
+				} else {
+					timingStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
+				}
+				fmt.Printf("    Last check: %s\n", timingStr)
+			}
+		}
+		fmt.Println()
+	}
 }
 
 // formatRuntimeType formats runtime type for display.

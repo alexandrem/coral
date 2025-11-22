@@ -1272,6 +1272,134 @@ func (x *LookupAgentResponse) GetLastSeen() *timestamppb.Timestamp {
 	return nil
 }
 
+// CreateBootstrapTokenRequest initiates bootstrap token issuance.
+type CreateBootstrapTokenRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Reef identifier.
+	ReefId string `protobuf:"bytes,1,opt,name=reef_id,json=reefId,proto3" json:"reef_id,omitempty"`
+	// Colony/Mesh identifier.
+	ColonyId string `protobuf:"bytes,2,opt,name=colony_id,json=colonyId,proto3" json:"colony_id,omitempty"`
+	// Agent identifier.
+	AgentId string `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// Intent (e.g., "register", "renew").
+	Intent        string `protobuf:"bytes,4,opt,name=intent,proto3" json:"intent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateBootstrapTokenRequest) Reset() {
+	*x = CreateBootstrapTokenRequest{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateBootstrapTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateBootstrapTokenRequest) ProtoMessage() {}
+
+func (x *CreateBootstrapTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateBootstrapTokenRequest.ProtoReflect.Descriptor instead.
+func (*CreateBootstrapTokenRequest) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *CreateBootstrapTokenRequest) GetReefId() string {
+	if x != nil {
+		return x.ReefId
+	}
+	return ""
+}
+
+func (x *CreateBootstrapTokenRequest) GetColonyId() string {
+	if x != nil {
+		return x.ColonyId
+	}
+	return ""
+}
+
+func (x *CreateBootstrapTokenRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *CreateBootstrapTokenRequest) GetIntent() string {
+	if x != nil {
+		return x.Intent
+	}
+	return ""
+}
+
+// CreateBootstrapTokenResponse returns a single-use JWT token.
+type CreateBootstrapTokenResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// JWT bootstrap token (single-use, short TTL).
+	Jwt string `protobuf:"bytes,1,opt,name=jwt,proto3" json:"jwt,omitempty"`
+	// Token expiration timestamp (Unix seconds).
+	ExpiresAt     int64 `protobuf:"varint,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateBootstrapTokenResponse) Reset() {
+	*x = CreateBootstrapTokenResponse{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateBootstrapTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateBootstrapTokenResponse) ProtoMessage() {}
+
+func (x *CreateBootstrapTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateBootstrapTokenResponse.ProtoReflect.Descriptor instead.
+func (*CreateBootstrapTokenResponse) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *CreateBootstrapTokenResponse) GetJwt() string {
+	if x != nil {
+		return x.Jwt
+	}
+	return ""
+}
+
+func (x *CreateBootstrapTokenResponse) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
 var File_coral_discovery_v1_discovery_proto protoreflect.FileDescriptor
 
 const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
@@ -1377,12 +1505,21 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\tlast_seen\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*O\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x86\x01\n" +
+	"\x1bCreateBootstrapTokenRequest\x12\x17\n" +
+	"\areef_id\x18\x01 \x01(\tR\x06reefId\x12\x1b\n" +
+	"\tcolony_id\x18\x02 \x01(\tR\bcolonyId\x12\x19\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x16\n" +
+	"\x06intent\x18\x04 \x01(\tR\x06intent\"O\n" +
+	"\x1cCreateBootstrapTokenResponse\x12\x10\n" +
+	"\x03jwt\x18\x01 \x01(\tR\x03jwt\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x02 \x01(\x03R\texpiresAt*O\n" +
 	"\aNatHint\x12\x0f\n" +
 	"\vNAT_UNKNOWN\x10\x00\x12\f\n" +
 	"\bNAT_CONE\x10\x01\x12\x12\n" +
 	"\x0eNAT_RESTRICTED\x10\x02\x12\x11\n" +
-	"\rNAT_SYMMETRIC\x10\x032\xbb\x05\n" +
+	"\rNAT_SYMMETRIC\x10\x032\xb6\x06\n" +
 	"\x10DiscoveryService\x12g\n" +
 	"\x0eRegisterColony\x12).coral.discovery.v1.RegisterColonyRequest\x1a*.coral.discovery.v1.RegisterColonyResponse\x12a\n" +
 	"\fLookupColony\x12'.coral.discovery.v1.LookupColonyRequest\x1a(.coral.discovery.v1.LookupColonyResponse\x12d\n" +
@@ -1390,7 +1527,8 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\vLookupAgent\x12&.coral.discovery.v1.LookupAgentRequest\x1a'.coral.discovery.v1.LookupAgentResponse\x12a\n" +
 	"\fRequestRelay\x12'.coral.discovery.v1.RequestRelayRequest\x1a(.coral.discovery.v1.RequestRelayResponse\x12a\n" +
 	"\fReleaseRelay\x12'.coral.discovery.v1.ReleaseRelayRequest\x1a(.coral.discovery.v1.ReleaseRelayResponse\x12O\n" +
-	"\x06Health\x12!.coral.discovery.v1.HealthRequest\x1a\".coral.discovery.v1.HealthResponseB\xcc\x01\n" +
+	"\x06Health\x12!.coral.discovery.v1.HealthRequest\x1a\".coral.discovery.v1.HealthResponse\x12y\n" +
+	"\x14CreateBootstrapToken\x12/.coral.discovery.v1.CreateBootstrapTokenRequest\x1a0.coral.discovery.v1.CreateBootstrapTokenResponseB\xcc\x01\n" +
 	"\x16com.coral.discovery.v1B\x0eDiscoveryProtoP\x01Z8github.com/coral-io/coral/coral/discovery/v1;discoveryv1\xa2\x02\x03CDX\xaa\x02\x12Coral.Discovery.V1\xca\x02\x12Coral\\Discovery\\V1\xe2\x02\x1eCoral\\Discovery\\V1\\GPBMetadata\xea\x02\x14Coral::Discovery::V1b\x06proto3"
 
 var (
@@ -1406,52 +1544,54 @@ func file_coral_discovery_v1_discovery_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_discovery_v1_discovery_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_coral_discovery_v1_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_coral_discovery_v1_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_coral_discovery_v1_discovery_proto_goTypes = []any{
-	(NatHint)(0),                   // 0: coral.discovery.v1.NatHint
-	(*RegisterColonyRequest)(nil),  // 1: coral.discovery.v1.RegisterColonyRequest
-	(*RegisterColonyResponse)(nil), // 2: coral.discovery.v1.RegisterColonyResponse
-	(*LookupColonyRequest)(nil),    // 3: coral.discovery.v1.LookupColonyRequest
-	(*LookupColonyResponse)(nil),   // 4: coral.discovery.v1.LookupColonyResponse
-	(*HealthRequest)(nil),          // 5: coral.discovery.v1.HealthRequest
-	(*HealthResponse)(nil),         // 6: coral.discovery.v1.HealthResponse
-	(*Endpoint)(nil),               // 7: coral.discovery.v1.Endpoint
-	(*RelayOption)(nil),            // 8: coral.discovery.v1.RelayOption
-	(*RequestRelayRequest)(nil),    // 9: coral.discovery.v1.RequestRelayRequest
-	(*RequestRelayResponse)(nil),   // 10: coral.discovery.v1.RequestRelayResponse
-	(*ReleaseRelayRequest)(nil),    // 11: coral.discovery.v1.ReleaseRelayRequest
-	(*ReleaseRelayResponse)(nil),   // 12: coral.discovery.v1.ReleaseRelayResponse
-	(*RegisterAgentRequest)(nil),   // 13: coral.discovery.v1.RegisterAgentRequest
-	(*RegisterAgentResponse)(nil),  // 14: coral.discovery.v1.RegisterAgentResponse
-	(*LookupAgentRequest)(nil),     // 15: coral.discovery.v1.LookupAgentRequest
-	(*LookupAgentResponse)(nil),    // 16: coral.discovery.v1.LookupAgentResponse
-	nil,                            // 17: coral.discovery.v1.RegisterColonyRequest.MetadataEntry
-	nil,                            // 18: coral.discovery.v1.LookupColonyResponse.MetadataEntry
-	nil,                            // 19: coral.discovery.v1.RegisterAgentRequest.MetadataEntry
-	nil,                            // 20: coral.discovery.v1.LookupAgentResponse.MetadataEntry
-	(*timestamppb.Timestamp)(nil),  // 21: google.protobuf.Timestamp
+	(NatHint)(0),                         // 0: coral.discovery.v1.NatHint
+	(*RegisterColonyRequest)(nil),        // 1: coral.discovery.v1.RegisterColonyRequest
+	(*RegisterColonyResponse)(nil),       // 2: coral.discovery.v1.RegisterColonyResponse
+	(*LookupColonyRequest)(nil),          // 3: coral.discovery.v1.LookupColonyRequest
+	(*LookupColonyResponse)(nil),         // 4: coral.discovery.v1.LookupColonyResponse
+	(*HealthRequest)(nil),                // 5: coral.discovery.v1.HealthRequest
+	(*HealthResponse)(nil),               // 6: coral.discovery.v1.HealthResponse
+	(*Endpoint)(nil),                     // 7: coral.discovery.v1.Endpoint
+	(*RelayOption)(nil),                  // 8: coral.discovery.v1.RelayOption
+	(*RequestRelayRequest)(nil),          // 9: coral.discovery.v1.RequestRelayRequest
+	(*RequestRelayResponse)(nil),         // 10: coral.discovery.v1.RequestRelayResponse
+	(*ReleaseRelayRequest)(nil),          // 11: coral.discovery.v1.ReleaseRelayRequest
+	(*ReleaseRelayResponse)(nil),         // 12: coral.discovery.v1.ReleaseRelayResponse
+	(*RegisterAgentRequest)(nil),         // 13: coral.discovery.v1.RegisterAgentRequest
+	(*RegisterAgentResponse)(nil),        // 14: coral.discovery.v1.RegisterAgentResponse
+	(*LookupAgentRequest)(nil),           // 15: coral.discovery.v1.LookupAgentRequest
+	(*LookupAgentResponse)(nil),          // 16: coral.discovery.v1.LookupAgentResponse
+	(*CreateBootstrapTokenRequest)(nil),  // 17: coral.discovery.v1.CreateBootstrapTokenRequest
+	(*CreateBootstrapTokenResponse)(nil), // 18: coral.discovery.v1.CreateBootstrapTokenResponse
+	nil,                                  // 19: coral.discovery.v1.RegisterColonyRequest.MetadataEntry
+	nil,                                  // 20: coral.discovery.v1.LookupColonyResponse.MetadataEntry
+	nil,                                  // 21: coral.discovery.v1.RegisterAgentRequest.MetadataEntry
+	nil,                                  // 22: coral.discovery.v1.LookupAgentResponse.MetadataEntry
+	(*timestamppb.Timestamp)(nil),        // 23: google.protobuf.Timestamp
 }
 var file_coral_discovery_v1_discovery_proto_depIdxs = []int32{
-	17, // 0: coral.discovery.v1.RegisterColonyRequest.metadata:type_name -> coral.discovery.v1.RegisterColonyRequest.MetadataEntry
+	19, // 0: coral.discovery.v1.RegisterColonyRequest.metadata:type_name -> coral.discovery.v1.RegisterColonyRequest.MetadataEntry
 	7,  // 1: coral.discovery.v1.RegisterColonyRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	21, // 2: coral.discovery.v1.RegisterColonyResponse.expires_at:type_name -> google.protobuf.Timestamp
+	23, // 2: coral.discovery.v1.RegisterColonyResponse.expires_at:type_name -> google.protobuf.Timestamp
 	7,  // 3: coral.discovery.v1.RegisterColonyResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	18, // 4: coral.discovery.v1.LookupColonyResponse.metadata:type_name -> coral.discovery.v1.LookupColonyResponse.MetadataEntry
-	21, // 5: coral.discovery.v1.LookupColonyResponse.last_seen:type_name -> google.protobuf.Timestamp
+	20, // 4: coral.discovery.v1.LookupColonyResponse.metadata:type_name -> coral.discovery.v1.LookupColonyResponse.MetadataEntry
+	23, // 5: coral.discovery.v1.LookupColonyResponse.last_seen:type_name -> google.protobuf.Timestamp
 	7,  // 6: coral.discovery.v1.LookupColonyResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
 	0,  // 7: coral.discovery.v1.LookupColonyResponse.nat:type_name -> coral.discovery.v1.NatHint
 	8,  // 8: coral.discovery.v1.LookupColonyResponse.relays:type_name -> coral.discovery.v1.RelayOption
 	7,  // 9: coral.discovery.v1.RelayOption.endpoint:type_name -> coral.discovery.v1.Endpoint
 	7,  // 10: coral.discovery.v1.RequestRelayResponse.relay_endpoint:type_name -> coral.discovery.v1.Endpoint
-	21, // 11: coral.discovery.v1.RequestRelayResponse.expires_at:type_name -> google.protobuf.Timestamp
+	23, // 11: coral.discovery.v1.RequestRelayResponse.expires_at:type_name -> google.protobuf.Timestamp
 	7,  // 12: coral.discovery.v1.RegisterAgentRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	19, // 13: coral.discovery.v1.RegisterAgentRequest.metadata:type_name -> coral.discovery.v1.RegisterAgentRequest.MetadataEntry
-	21, // 14: coral.discovery.v1.RegisterAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
+	21, // 13: coral.discovery.v1.RegisterAgentRequest.metadata:type_name -> coral.discovery.v1.RegisterAgentRequest.MetadataEntry
+	23, // 14: coral.discovery.v1.RegisterAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
 	7,  // 15: coral.discovery.v1.RegisterAgentResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
 	7,  // 16: coral.discovery.v1.LookupAgentResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
 	0,  // 17: coral.discovery.v1.LookupAgentResponse.nat:type_name -> coral.discovery.v1.NatHint
-	20, // 18: coral.discovery.v1.LookupAgentResponse.metadata:type_name -> coral.discovery.v1.LookupAgentResponse.MetadataEntry
-	21, // 19: coral.discovery.v1.LookupAgentResponse.last_seen:type_name -> google.protobuf.Timestamp
+	22, // 18: coral.discovery.v1.LookupAgentResponse.metadata:type_name -> coral.discovery.v1.LookupAgentResponse.MetadataEntry
+	23, // 19: coral.discovery.v1.LookupAgentResponse.last_seen:type_name -> google.protobuf.Timestamp
 	1,  // 20: coral.discovery.v1.DiscoveryService.RegisterColony:input_type -> coral.discovery.v1.RegisterColonyRequest
 	3,  // 21: coral.discovery.v1.DiscoveryService.LookupColony:input_type -> coral.discovery.v1.LookupColonyRequest
 	13, // 22: coral.discovery.v1.DiscoveryService.RegisterAgent:input_type -> coral.discovery.v1.RegisterAgentRequest
@@ -1459,15 +1599,17 @@ var file_coral_discovery_v1_discovery_proto_depIdxs = []int32{
 	9,  // 24: coral.discovery.v1.DiscoveryService.RequestRelay:input_type -> coral.discovery.v1.RequestRelayRequest
 	11, // 25: coral.discovery.v1.DiscoveryService.ReleaseRelay:input_type -> coral.discovery.v1.ReleaseRelayRequest
 	5,  // 26: coral.discovery.v1.DiscoveryService.Health:input_type -> coral.discovery.v1.HealthRequest
-	2,  // 27: coral.discovery.v1.DiscoveryService.RegisterColony:output_type -> coral.discovery.v1.RegisterColonyResponse
-	4,  // 28: coral.discovery.v1.DiscoveryService.LookupColony:output_type -> coral.discovery.v1.LookupColonyResponse
-	14, // 29: coral.discovery.v1.DiscoveryService.RegisterAgent:output_type -> coral.discovery.v1.RegisterAgentResponse
-	16, // 30: coral.discovery.v1.DiscoveryService.LookupAgent:output_type -> coral.discovery.v1.LookupAgentResponse
-	10, // 31: coral.discovery.v1.DiscoveryService.RequestRelay:output_type -> coral.discovery.v1.RequestRelayResponse
-	12, // 32: coral.discovery.v1.DiscoveryService.ReleaseRelay:output_type -> coral.discovery.v1.ReleaseRelayResponse
-	6,  // 33: coral.discovery.v1.DiscoveryService.Health:output_type -> coral.discovery.v1.HealthResponse
-	27, // [27:34] is the sub-list for method output_type
-	20, // [20:27] is the sub-list for method input_type
+	17, // 27: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:input_type -> coral.discovery.v1.CreateBootstrapTokenRequest
+	2,  // 28: coral.discovery.v1.DiscoveryService.RegisterColony:output_type -> coral.discovery.v1.RegisterColonyResponse
+	4,  // 29: coral.discovery.v1.DiscoveryService.LookupColony:output_type -> coral.discovery.v1.LookupColonyResponse
+	14, // 30: coral.discovery.v1.DiscoveryService.RegisterAgent:output_type -> coral.discovery.v1.RegisterAgentResponse
+	16, // 31: coral.discovery.v1.DiscoveryService.LookupAgent:output_type -> coral.discovery.v1.LookupAgentResponse
+	10, // 32: coral.discovery.v1.DiscoveryService.RequestRelay:output_type -> coral.discovery.v1.RequestRelayResponse
+	12, // 33: coral.discovery.v1.DiscoveryService.ReleaseRelay:output_type -> coral.discovery.v1.ReleaseRelayResponse
+	6,  // 34: coral.discovery.v1.DiscoveryService.Health:output_type -> coral.discovery.v1.HealthResponse
+	18, // 35: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:output_type -> coral.discovery.v1.CreateBootstrapTokenResponse
+	28, // [28:36] is the sub-list for method output_type
+	20, // [20:28] is the sub-list for method input_type
 	20, // [20:20] is the sub-list for extension type_name
 	20, // [20:20] is the sub-list for extension extendee
 	0,  // [0:20] is the sub-list for field type_name
@@ -1484,7 +1626,7 @@ func file_coral_discovery_v1_discovery_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_discovery_v1_discovery_proto_rawDesc), len(file_coral_discovery_v1_discovery_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -51,7 +51,9 @@ func TestTelemetryE2E(t *testing.T) {
 	}
 
 	// Store test spans (simulating OTLP ingestion)
-	now := time.Now()
+	// Use a fixed base time within the same minute bucket to avoid flakiness
+	// when test runs near minute boundaries.
+	now := time.Now().Truncate(time.Minute).Add(30 * time.Second)
 	testSpans := []telemetry.Span{
 		{
 			Timestamp:   now.Add(-2 * time.Second),
