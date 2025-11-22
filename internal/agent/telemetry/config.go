@@ -20,6 +20,11 @@ type Config struct {
 	// AgentID is the identifier of this agent.
 	AgentID string
 
+	// DatabasePath is the file path for DuckDB storage (RFD 039).
+	// If empty, uses in-memory storage (:memory:).
+	// Example: ~/.coral/agent/telemetry.duckdb
+	DatabasePath string
+
 	// StorageRetentionHours defines how long to keep spans in local storage.
 	// Default: 1 hour (pull-based architecture - colony queries recent data).
 	StorageRetentionHours int

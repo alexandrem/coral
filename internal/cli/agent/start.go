@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/marcboeker/go-duckdb"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -23,6 +25,7 @@ import (
 	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent"
+	"github.com/coral-io/coral/internal/agent/beyla"
 	"github.com/coral-io/coral/internal/agent/telemetry"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
@@ -48,6 +51,7 @@ type AgentConfig struct {
 		Disabled              bool   `yaml:"disabled"`
 		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
 		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
+		DatabasePath          string `yaml:"database_path,omitempty"`
 		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
 		Filters               struct {
 			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty"`
@@ -384,10 +388,61 @@ Examples:
 				serviceInfos[i] = spec.ToProto()
 			}
 
+			// Create shared DuckDB database for all agent data (telemetry + Beyla + custom).
+			// All tables (spans, beyla_http_metrics_local, etc.) live in the same database.
+			var sharedDB *sql.DB
+			var sharedDBPath string
+			homeDir, err := os.UserHomeDir()
+			if err == nil {
+				// Create parent directories if they don't exist.
+				dbDir := homeDir + "/.coral/agent"
+				if err := os.MkdirAll(dbDir, 0755); err != nil {
+					logger.Warn().Err(err).Msg("Failed to create agent directory - using in-memory storage")
+				} else {
+					sharedDBPath = dbDir + "/metrics.duckdb"
+					sharedDB, err = sql.Open("duckdb", sharedDBPath)
+					if err != nil {
+						logger.Warn().Err(err).Msg("Failed to create shared metrics database - using in-memory storage")
+						sharedDB = nil
+						sharedDBPath = ""
+					} else {
+						logger.Info().
+							Str("db_path", sharedDBPath).
+							Msg("Initialized shared metrics database")
+					}
+				}
+			} else {
+				logger.Warn().Err(err).Msg("Failed to get user home directory - using in-memory storage")
+			}
+
+			// Initialize Beyla configuration (RFD 032).
+			var beylaConfig *beyla.Config
+			if sharedDB != nil {
+				beylaConfig = &beyla.Config{
+					Enabled:               true,
+					DB:                    sharedDB,
+					DBPath:                sharedDBPath,
+					StorageRetentionHours: 1, // Default: 1 hour
+				}
+			}
+
+			// Close shared database LAST (defer added first = executes last in LIFO order).
+			if sharedDB != nil {
+				defer func() {
+					logger.Info().Msg("Closing shared database")
+					if err := sharedDB.Close(); err != nil {
+						logger.Error().Err(err).Msg("Failed to close shared database")
+					} else {
+						logger.Info().Msg("Closed shared database")
+					}
+				}()
+			}
+
 			agentInstance, err := agent.New(agent.Config{
-				AgentID:  agentID,
-				Services: serviceInfos,
-				Logger:   logger,
+				AgentID:     agentID,
+				Services:    serviceInfos,
+				BeylaConfig: beylaConfig,
+				Logger:      logger,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to create agent: %w", err)
@@ -403,15 +458,16 @@ Examples:
 			defer cancel()
 
 			// Start OTLP receiver if telemetry is not disabled (RFD 025).
-			// Telemetry is enabled by default.
+			// Telemetry is enabled by default and uses the shared database.
 			var otlpReceiver *agent.TelemetryReceiver
-			if !agentCfg.Telemetry.Disabled {
+			if !agentCfg.Telemetry.Disabled && sharedDB != nil {
 				logger.Info().Msg("Starting OTLP receiver for telemetry collection")
 
 				telemetryConfig := telemetry.Config{
 					Disabled:              agentCfg.Telemetry.Disabled,
 					GRPCEndpoint:          agentCfg.Telemetry.GRPCEndpoint,
 					HTTPEndpoint:          agentCfg.Telemetry.HTTPEndpoint,
+					DatabasePath:          sharedDBPath, // Use shared database path
 					StorageRetentionHours: agentCfg.Telemetry.StorageRetentionHours,
 					AgentID:               agentID,
 				}
@@ -446,7 +502,7 @@ Examples:
 					telemetryConfig.StorageRetentionHours = 1 // Default: 1 hour
 				}
 
-				otlpReceiver, err = agent.NewTelemetryReceiver(telemetryConfig, logger)
+				otlpReceiver, err = agent.NewTelemetryReceiverWithSharedDB(telemetryConfig, sharedDB, sharedDBPath, logger)
 				if err != nil {
 					logger.Warn().Err(err).Msg("Failed to create OTLP receiver - telemetry disabled")
 				} else {
@@ -467,8 +523,10 @@ Examples:
 						}()
 					}
 				}
-			} else {
+			} else if agentCfg.Telemetry.Disabled {
 				logger.Info().Msg("Telemetry collection is disabled")
+			} else {
+				logger.Warn().Msg("Telemetry disabled - shared database not available")
 			}
 
 			// Log initial status.
@@ -537,30 +595,102 @@ Examples:
 				}
 			})
 
-			// Enable HTTP/2 Cleartext (h2c) for bidirectional streaming (RFD 026).
-			h2s := &http2.Server{}
-			httpServer := &http.Server{
-				Addr:    ":9001",
-				Handler: h2c.NewHandler(mux, h2s),
+			// Add /duckdb/ endpoint for serving DuckDB files (RFD 039).
+			// Register the shared metrics database containing all agent data.
+			duckdbHandler := agent.NewDuckDBHandler(logger)
+			registeredCount := 0
+
+			// Register shared metrics database (if using file-based storage).
+			if sharedDBPath != "" {
+				if err := duckdbHandler.RegisterDatabase("metrics.duckdb", sharedDBPath); err != nil {
+					logger.Warn().Err(err).Msg("Failed to register metrics database for HTTP serving")
+				} else {
+					logger.Info().
+						Str("db_name", "metrics.duckdb").
+						Str("db_path", sharedDBPath).
+						Msg("Shared metrics database registered for HTTP serving")
+					registeredCount++
+				}
 			}
 
-			// Start HTTP server in background.
+			// TODO: Register additional custom databases from configuration.
+
+			if registeredCount == 0 {
+				logger.Warn().Msg("No DuckDB databases registered for HTTP serving (all using in-memory storage)")
+			} else {
+				logger.Info().
+					Int("count", registeredCount).
+					Msg("DuckDB databases available for remote queries")
+			}
+
+			mux.Handle("/duckdb/", duckdbHandler)
+
+			// Enable HTTP/2 Cleartext (h2c) for bidirectional streaming (RFD 026).
+			h2s := &http2.Server{}
+			httpHandler := h2c.NewHandler(mux, h2s)
+
+			// Create two HTTP servers for security (RFD 039):
+			// 1. Mesh IP: Accessible from other agents/colony via WireGuard
+			// 2. Localhost: Accessible locally for debugging (not exposed externally)
+			var meshServer, localhostServer *http.Server
+
+			// Server 1: Bind to WireGuard mesh IP (secure remote access).
+			if meshIPStr != "" {
+				meshAddr := net.JoinHostPort(meshIPStr, "9001")
+				meshServer = &http.Server{
+					Addr:    meshAddr,
+					Handler: httpHandler,
+				}
+
+				go func() {
+					logger.Info().
+						Str("addr", meshAddr).
+						Msg("Agent API listening on WireGuard mesh")
+
+					if err := meshServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+						logger.Error().
+							Err(err).
+							Str("addr", meshAddr).
+							Msg("Mesh API server error")
+					}
+				}()
+			} else {
+				logger.Warn().Msg("No mesh IP available, skipping mesh server (agent not registered)")
+			}
+
+			// Server 2: Bind to localhost (local debugging only).
+			localhostAddr := "127.0.0.1:9001"
+			localhostServer = &http.Server{
+				Addr:    localhostAddr,
+				Handler: httpHandler,
+			}
+
 			go func() {
 				logger.Info().
-					Int("port", 9001).
-					Msg("Agent status API listening")
+					Str("addr", localhostAddr).
+					Msg("Agent API listening on localhost")
 
-				if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				if err := localhostServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					logger.Error().
 						Err(err).
-						Msg("Status API server error")
+						Str("addr", localhostAddr).
+						Msg("Localhost API server error")
 				}
 			}()
+
+			// Graceful shutdown for both servers.
 			defer func() {
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				if err := httpServer.Shutdown(shutdownCtx); err != nil {
-					logger.Error().Err(err).Msg("Failed to shutdown status API server")
+
+				if meshServer != nil {
+					if err := meshServer.Shutdown(shutdownCtx); err != nil {
+						logger.Error().Err(err).Msg("Failed to shutdown mesh API server")
+					}
+				}
+
+				if err := localhostServer.Shutdown(shutdownCtx); err != nil {
+					logger.Error().Err(err).Msg("Failed to shutdown localhost API server")
 				}
 			}()
 

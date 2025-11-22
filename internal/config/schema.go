@@ -44,19 +44,20 @@ type Preferences struct {
 // ColonyConfig represents ~/.coral/colonies/<colony-id>.yaml config file.
 // The config consists of per-colony identity and security credentials.
 type ColonyConfig struct {
-	Version         string          `yaml:"version"`
-	ColonyID        string          `yaml:"colony_id"`
-	ApplicationName string          `yaml:"application_name"`
-	Environment     string          `yaml:"environment"`
-	ColonySecret    string          `yaml:"colony_secret"`
-	WireGuard       WireGuardConfig `yaml:"wireguard"`
-	Services        ServicesConfig  `yaml:"services"`
-	StoragePath     string          `yaml:"storage_path"`
-	Discovery       DiscoveryColony `yaml:"discovery"`
-	MCP             MCPConfig       `yaml:"mcp,omitempty"`
-	CreatedAt       time.Time       `yaml:"created_at"`
-	CreatedBy       string          `yaml:"created_by"`
-	LastUsed        time.Time       `yaml:"last_used,omitempty"`
+	Version         string            `yaml:"version"`
+	ColonyID        string            `yaml:"colony_id"`
+	ApplicationName string            `yaml:"application_name"`
+	Environment     string            `yaml:"environment"`
+	ColonySecret    string            `yaml:"colony_secret"`
+	WireGuard       WireGuardConfig   `yaml:"wireguard"`
+	Services        ServicesConfig    `yaml:"services"`
+	StoragePath     string            `yaml:"storage_path"`
+	Discovery       DiscoveryColony   `yaml:"discovery"`
+	MCP             MCPConfig         `yaml:"mcp,omitempty"`
+	Beyla           BeylaPollerConfig `yaml:"beyla,omitempty"`
+	CreatedAt       time.Time         `yaml:"created_at"`
+	CreatedBy       string            `yaml:"created_by"`
+	LastUsed        time.Time         `yaml:"last_used,omitempty"`
 }
 
 // ServicesConfig contains service port configuration.
@@ -126,6 +127,30 @@ type MCPSecurityConfig struct {
 
 	// AuditEnabled enables auditing of all MCP tool calls.
 	AuditEnabled bool `yaml:"audit_enabled,omitempty"`
+}
+
+// BeylaPollerConfig contains Beyla metrics/traces collection configuration (RFD 032, RFD 036).
+type BeylaPollerConfig struct {
+	// PollInterval is how often to poll agents for Beyla data (seconds).
+	PollInterval int `yaml:"poll_interval,omitempty"`
+
+	// Retention settings for different data types.
+	Retention BeylaRetentionConfig `yaml:"retention,omitempty"`
+}
+
+// BeylaRetentionConfig contains retention periods for Beyla data.
+type BeylaRetentionConfig struct {
+	// HTTPDays is retention period for HTTP metrics (days).
+	HTTPDays int `yaml:"http_days,omitempty"`
+
+	// GRPCDays is retention period for gRPC metrics (days).
+	GRPCDays int `yaml:"grpc_days,omitempty"`
+
+	// SQLDays is retention period for SQL metrics (days).
+	SQLDays int `yaml:"sql_days,omitempty"`
+
+	// TracesDays is retention period for distributed traces (days) (RFD 036).
+	TracesDays int `yaml:"traces_days,omitempty"`
 }
 
 // ProjectConfig represents <project>/.coral/config.yaml config file.

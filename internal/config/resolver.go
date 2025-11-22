@@ -38,33 +38,63 @@ func NewResolver() (*Resolver, error) {
 	}, nil
 }
 
+// ResolutionSource describes where a colony ID was resolved from (RFD 050).
+type ResolutionSource struct {
+	Type string // "env", "project", "global"
+	Path string // Full path or env var name
+}
+
+// String returns a human-readable description of the resolution source.
+func (s ResolutionSource) String() string {
+	switch s.Type {
+	case "env":
+		return fmt.Sprintf("env:%s", s.Path)
+	case "project":
+		return fmt.Sprintf("project:%s", s.Path)
+	case "global":
+		return fmt.Sprintf("global:%s", s.Path)
+	default:
+		return "unknown"
+	}
+}
+
 // ResolveColonyID determines which colony to use.
 // Priority: CORAL_COLONY_ID env var > project config > global default > error
 func (r *Resolver) ResolveColonyID() (string, error) {
-	// 1. Check environment variable
+	colonyID, _, err := r.ResolveWithSource()
+	return colonyID, err
+}
+
+// ResolveWithSource determines which colony to use and returns the resolution source (RFD 050).
+// Priority: CORAL_COLONY_ID env var > project config > global default > error
+// Returns: (colonyID, source, error)
+func (r *Resolver) ResolveWithSource() (string, ResolutionSource, error) {
+	// 1. Check environment variable.
 	if colonyID := os.Getenv("CORAL_COLONY_ID"); colonyID != "" {
-		return colonyID, nil
+		return colonyID, ResolutionSource{Type: "env", Path: "CORAL_COLONY_ID"}, nil
 	}
 
-	// 2. Check project-local config
+	// 2. Check project-local config.
 	projectConfig, err := LoadProjectConfig(r.projectDir)
 	if err != nil {
-		return "", err
+		return "", ResolutionSource{}, err
 	}
 	if projectConfig != nil && projectConfig.ColonyID != "" {
-		return projectConfig.ColonyID, nil
+		projectConfigPath := filepath.Join(r.projectDir, ".coral/config.yaml")
+		return projectConfig.ColonyID, ResolutionSource{Type: "project", Path: projectConfigPath}, nil
 	}
 
-	// 3. Check global default
+	// 3. Check global default.
 	globalConfig, err := r.loader.LoadGlobalConfig()
 	if err != nil {
-		return "", err
+		return "", ResolutionSource{}, err
 	}
 	if globalConfig.DefaultColony != "" {
-		return globalConfig.DefaultColony, nil
+		globalConfigPath := r.loader.GlobalConfigPath()
+		return globalConfig.DefaultColony, ResolutionSource{Type: "global", Path: globalConfigPath}, nil
 	}
 
-	return "", fmt.Errorf("no colony configured: run 'coral init' or set CORAL_COLONY_ID")
+	return "", ResolutionSource{}, fmt.Errorf("no colony configured: run 'coral init' or set CORAL_COLONY_ID")
 }
 
 // ResolveConfig loads and merges configuration for a colony.

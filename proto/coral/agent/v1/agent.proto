@@ -165,7 +165,7 @@ enum SidecarMode {
 // ConnectService RPC messages.
 message ConnectServiceRequest {
   // Service name.
-  string component_name = 1;
+  string name = 1;
 
   // Service port number.
   int32 port = 2;
@@ -217,7 +217,7 @@ message ListServicesResponse {
 
 message ServiceStatus {
   // Service name.
-  string component_name = 1;
+  string name = 1;
 
   // Service port number.
   int32 port = 2;
@@ -343,6 +343,15 @@ message QueryBeylaMetricsRequest {
 
   // Metric types to query (empty = all types).
   repeated BeylaMetricType metric_types = 4;
+
+  // Filter by specific trace ID (RFD 036).
+  string trace_id = 5;
+
+  // Limit number of traces returned (default: 100, max: 1000) (RFD 036).
+  int32 max_traces = 6;
+
+  // Include traces in response (default: false for backward compatibility) (RFD 036).
+  bool include_traces = 7;
 }
 
 // BeylaMetricType specifies which Beyla metrics to query.
@@ -366,6 +375,12 @@ message QueryBeylaMetricsResponse {
 
   // Total metrics returned.
   int32 total_metrics = 4;
+
+  // Trace spans (RFD 036).
+  repeated BeylaTraceSpan trace_spans = 5;
+
+  // Total traces returned (RFD 036).
+  int32 total_traces = 6;
 }
 
 // BeylaHttpMetric represents aggregated HTTP RED metrics.
@@ -450,6 +465,39 @@ message BeylaSqlMetric {
 
   // Additional attributes.
   map<string, string> attributes = 8;
+}
+
+// BeylaTraceSpan represents a distributed trace span (RFD 036).
+message BeylaTraceSpan {
+  // Trace ID (32-char hex string).
+  string trace_id = 1;
+
+  // Span ID (16-char hex string).
+  string span_id = 2;
+
+  // Parent span ID (empty if root span).
+  string parent_span_id = 3;
+
+  // Service name.
+  string service_name = 4;
+
+  // Span name (e.g., "GET /api/v1/users/:id").
+  string span_name = 5;
+
+  // Span kind ("server", "client", "producer", "consumer").
+  string span_kind = 6;
+
+  // Start timestamp (Unix milliseconds).
+  int64 start_time = 7;
+
+  // Duration (microseconds).
+  int64 duration_us = 8;
+
+  // HTTP/gRPC status code.
+  uint32 status_code = 9;
+
+  // Additional attributes.
+  map<string, string> attributes = 10;
 }
 
 // Shell RPC messages (RFD 026).

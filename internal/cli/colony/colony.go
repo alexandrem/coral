@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -57,6 +58,8 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMCPCmd())
+	cmd.AddCommand(newServiceCmd()) // RFD 052 - Service-centric CLI.
+	cmd.AddCommand(NewCACmd())      // RFD 047 - CA management commands.
 
 	return cmd
 }
@@ -318,15 +321,37 @@ Examples:
 			}
 
 			// Create and start Beyla metrics poller for RFD 032.
-			// Polls agents every 1 minute for Beyla RED metrics.
-			// Default retention: 30 days HTTP/gRPC, 14 days SQL.
+			// Read Beyla configuration from colony config, with sensible defaults.
+			pollIntervalSecs := 60 // Default: poll every 60 seconds
+			httpRetentionDays := 30
+			grpcRetentionDays := 30
+			sqlRetentionDays := 14
+			traceRetentionDays := 7
+
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.PollInterval > 0 {
+				pollIntervalSecs = colonyConfigForEndpoints.Beyla.PollInterval
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.HTTPDays > 0 {
+				httpRetentionDays = colonyConfigForEndpoints.Beyla.Retention.HTTPDays
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.GRPCDays > 0 {
+				grpcRetentionDays = colonyConfigForEndpoints.Beyla.Retention.GRPCDays
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.SQLDays > 0 {
+				sqlRetentionDays = colonyConfigForEndpoints.Beyla.Retention.SQLDays
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.TracesDays > 0 {
+				traceRetentionDays = colonyConfigForEndpoints.Beyla.Retention.TracesDays
+			}
+
 			beylaPoller := colony.NewBeylaPoller(
 				agentRegistry,
 				db,
-				1*time.Minute, // Poll interval
-				30,            // HTTP retention in days (default: 30)
-				30,            // gRPC retention in days (default: 30)
-				14,            // SQL retention in days (default: 14)
+				time.Duration(pollIntervalSecs)*time.Second,
+				httpRetentionDays,
+				grpcRetentionDays,
+				sqlRetentionDays,
+				traceRetentionDays,
 				logger,
 			)
 
@@ -335,7 +360,13 @@ Examples:
 					Err(err).
 					Msg("Failed to start Beyla metrics poller")
 			} else {
-				logger.Info().Msg("Beyla metrics poller started - will query agents every minute")
+				logger.Info().
+					Int("poll_interval_secs", pollIntervalSecs).
+					Int("http_retention_days", httpRetentionDays).
+					Int("grpc_retention_days", grpcRetentionDays).
+					Int("sql_retention_days", sqlRetentionDays).
+					Int("trace_retention_days", traceRetentionDays).
+					Msg("Beyla metrics poller started")
 			}
 
 			logger.Info().
@@ -692,7 +723,7 @@ Note: The colony must be running for this command to work.`,
 			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
 
 			// Call ListAgents RPC
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
 			req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
@@ -706,7 +737,7 @@ Note: The colony must be running for this command to work.`,
 				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
 				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
 
-				ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel2()
 
 				resp, err = client.ListAgents(ctx2, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
@@ -796,13 +827,18 @@ func newListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all configured colonies",
-		Long:  `Display all colonies that have been initialized on this system.`,
+		Long: `Display all colonies that have been initialized on this system.
+
+The current active colony is marked with * in the output. The RESOLUTION column
+shows where the current colony was resolved from (env, project, or global).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			loader, err := config.NewLoader()
+			// Create resolver to get current colony and source (RFD 050).
+			resolver, err := config.NewResolver()
 			if err != nil {
-				return fmt.Errorf("failed to create config loader: %w", err)
+				return fmt.Errorf("failed to create config resolver: %w", err)
 			}
 
+			loader := resolver.GetLoader()
 			colonyIDs, err := loader.ListColonies()
 			if err != nil {
 				return fmt.Errorf("failed to list colonies: %w", err)
@@ -819,12 +855,17 @@ func newListCmd() *cobra.Command {
 				return fmt.Errorf("failed to load global config: %w", err)
 			}
 
+			// Get current colony and resolution source (RFD 050).
+			currentColonyID, source, _ := resolver.ResolveWithSource()
+
 			if jsonOutput {
 				type colonyInfo struct {
 					ColonyID      string `json:"colony_id"`
 					Application   string `json:"application"`
 					Environment   string `json:"environment"`
 					IsDefault     bool   `json:"is_default"`
+					IsCurrent     bool   `json:"is_current"`
+					Resolution    string `json:"resolution,omitempty"`
 					CreatedAt     string `json:"created_at"`
 					StoragePath   string `json:"storage_path"`
 					WireGuardPort int    `json:"wireguard_port"`
@@ -852,11 +893,17 @@ func newListCmd() *cobra.Command {
 						Application:   cfg.ApplicationName,
 						Environment:   cfg.Environment,
 						IsDefault:     cfg.ColonyID == globalConfig.DefaultColony,
+						IsCurrent:     cfg.ColonyID == currentColonyID,
 						CreatedAt:     cfg.CreatedAt.Format(time.RFC3339),
 						StoragePath:   cfg.StoragePath,
 						WireGuardPort: cfg.WireGuard.Port,
 						ConnectPort:   connectPort,
 						MeshIPv4:      cfg.WireGuard.MeshIPv4,
+					}
+
+					// Add resolution source for current colony (RFD 050).
+					if info.IsCurrent {
+						info.Resolution = source.Type
 					}
 
 					// Try to query running status (with quick timeout)
@@ -881,17 +928,21 @@ func newListCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Println("Configured Colonies:")
+			// Table output with * marker for current colony (RFD 050).
+			fmt.Printf("%-3s %-30s %-15s %-12s %-10s %s\n", "", "COLONY-ID", "APPLICATION", "ENVIRONMENT", "RESOLUTION", "STATUS")
 			for _, id := range colonyIDs {
 				cfg, err := loader.LoadColonyConfig(id)
 				if err != nil {
-					fmt.Printf("  %s (error loading config)\n", id)
+					fmt.Printf("%-3s %-30s %-15s %-12s %-10s %s\n", "", id, "(error)", "", "-", "")
 					continue
 				}
 
-				defaultMarker := ""
-				if cfg.ColonyID == globalConfig.DefaultColony {
-					defaultMarker = " [default]"
+				// Current marker and resolution (RFD 050).
+				currentMarker := ""
+				resolution := "-"
+				if cfg.ColonyID == currentColonyID {
+					currentMarker = "*"
+					resolution = source.Type
 				}
 
 				// Get connect port
@@ -906,19 +957,18 @@ func newListCmd() *cobra.Command {
 				client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
 				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 				if resp, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err == nil {
-					runningStatus = fmt.Sprintf(" [%s]", resp.Msg.Status)
+					runningStatus = resp.Msg.Status
 				}
 				cancel()
 
-				fmt.Printf("  %s (%s)%s%s\n", cfg.ColonyID, cfg.Environment, defaultMarker, runningStatus)
-				fmt.Printf("    Application: %s\n", cfg.ApplicationName)
-				fmt.Printf("    Created: %s\n", cfg.CreatedAt.Format("2006-01-02 15:04:05"))
-				fmt.Printf("    Storage: %s\n", cfg.StoragePath)
-				fmt.Printf("    Network: WireGuard=%d, Connect=%d, Mesh=%s\n", cfg.WireGuard.Port, connectPort, cfg.WireGuard.MeshIPv4)
-				if runningStatus != "" {
-					fmt.Printf("    Endpoints: http://localhost:%d (local), http://%s:%d (mesh)\n", connectPort, cfg.WireGuard.MeshIPv4, connectPort)
-				}
-				fmt.Println()
+				fmt.Printf("%-3s %-30s %-15s %-12s %-10s %s\n",
+					currentMarker,
+					truncate(cfg.ColonyID, 30),
+					truncate(cfg.ApplicationName, 15),
+					truncate(cfg.Environment, 12),
+					resolution,
+					runningStatus,
+				)
 			}
 
 			return nil
@@ -969,19 +1019,26 @@ func newUseCmd() *cobra.Command {
 }
 
 func newCurrentCmd() *cobra.Command {
-	var jsonOutput bool
+	var (
+		jsonOutput bool
+		verbose    bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "current",
 		Short: "Show the current default colony",
-		Long:  `Display information about the current default colony.`,
+		Long: `Display information about the current default colony.
+
+With --verbose, shows additional resolution information explaining why this
+colony was selected (environment variable, project config, or global default).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolver, err := config.NewResolver()
 			if err != nil {
 				return fmt.Errorf("failed to create resolver: %w", err)
 			}
 
-			colonyID, err := resolver.ResolveColonyID()
+			// Use ResolveWithSource to get resolution info (RFD 050).
+			colonyID, source, err := resolver.ResolveWithSource()
 			if err != nil {
 				return fmt.Errorf("no colony configured: %w", err)
 			}
@@ -998,14 +1055,20 @@ func newCurrentCmd() *cobra.Command {
 			}
 
 			if jsonOutput {
-				data, err := json.MarshalIndent(map[string]interface{}{
+				output := map[string]interface{}{
 					"colony_id":   cfg.ColonyID,
 					"application": cfg.ApplicationName,
 					"environment": cfg.Environment,
 					"storage":     cfg.StoragePath,
 					"discovery":   globalConfig.Discovery.Endpoint,
 					"mesh_id":     cfg.Discovery.MeshID,
-				}, "", "  ")
+				}
+				// Include resolution info in JSON output (RFD 050).
+				output["resolution"] = map[string]string{
+					"source": source.Type,
+					"path":   source.Path,
+				}
+				data, err := json.MarshalIndent(output, "", "  ")
 				if err != nil {
 					return err
 				}
@@ -1020,11 +1083,25 @@ func newCurrentCmd() *cobra.Command {
 			fmt.Printf("  Storage: %s\n", cfg.StoragePath)
 			fmt.Printf("  Discovery: %s (mesh_id: %s)\n", globalConfig.Discovery.Endpoint, cfg.Discovery.MeshID)
 
+			// Show resolution info with --verbose flag (RFD 050).
+			if verbose {
+				fmt.Println()
+				switch source.Type {
+				case "env":
+					fmt.Printf("Resolution: environment variable (%s)\n", source.Path)
+				case "project":
+					fmt.Printf("Resolution: project config (%s)\n", source.Path)
+				case "global":
+					fmt.Printf("Resolution: global default (%s)\n", source.Path)
+				}
+			}
+
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show resolution source details")
 
 	return cmd
 }
@@ -1325,6 +1402,15 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		discoveryClient: discoveryClient,
 	}
 
+	// Initialize CA manager (RFD 047 - Colony CA Infrastructure).
+	// Use CA from colony config directory (generated during init).
+	jwtSigningKey := []byte(cfg.ColonySecret) // Use colony secret as JWT signing key for now.
+	caDir := filepath.Join(loader.ColonyDir(cfg.ColonyID), "ca")
+	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwtSigningKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
+	}
+
 	// Create colony service handler
 	colonyServerConfig := server.Config{
 		ColonyID:           cfg.ColonyID,
@@ -1339,7 +1425,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		MeshIPv4:           cfg.WireGuard.MeshIPv4,
 		MeshIPv6:           cfg.WireGuard.MeshIPv6,
 	}
-	colonySvc := server.New(agentRegistry, db, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
+	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
 	// Initialize MCP server (RFD 004 - MCP server integration).
 	// Load colony config for MCP settings.
@@ -2140,7 +2226,7 @@ func formatServicesList(services []*meshv1.ServiceInfo) string {
 
 	serviceNames := make([]string, 0, len(services))
 	for _, svc := range services {
-		serviceNames = append(serviceNames, svc.ComponentName)
+		serviceNames = append(serviceNames, svc.Name)
 	}
 	return strings.Join(serviceNames, ", ")
 }
