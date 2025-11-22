@@ -58,7 +58,8 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMCPCmd())
-	cmd.AddCommand(NewCACmd()) // RFD 047 - CA management commands.
+	cmd.AddCommand(newServiceCmd()) // RFD 052 - Service-centric CLI.
+	cmd.AddCommand(NewCACmd())      // RFD 047 - CA management commands.
 
 	return cmd
 }
@@ -722,7 +723,7 @@ Note: The colony must be running for this command to work.`,
 			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
 
 			// Call ListAgents RPC
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
 			req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
@@ -736,7 +737,7 @@ Note: The colony must be running for this command to work.`,
 				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
 				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
 
-				ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel2()
 
 				resp, err = client.ListAgents(ctx2, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
@@ -2222,7 +2223,7 @@ func formatServicesList(services []*meshv1.ServiceInfo) string {
 
 	serviceNames := make([]string, 0, len(services))
 	for _, svc := range services {
-		serviceNames = append(serviceNames, svc.ComponentName)
+		serviceNames = append(serviceNames, svc.Name)
 	}
 	return strings.Join(serviceNames, ", ")
 }

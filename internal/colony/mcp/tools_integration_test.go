@@ -147,7 +147,7 @@ func testServiceHealthCall(ctx *ai.ToolContext, s *Server, input ServiceHealthIn
 
 	for _, agent := range agents {
 		// Apply filter if specified.
-		if serviceFilter != "" && !matchesPattern(agent.ComponentName, serviceFilter) {
+		if serviceFilter != "" && !matchesPattern(agent.Name, serviceFilter) {
 			continue
 		}
 
@@ -167,7 +167,7 @@ func testServiceHealthCall(ctx *ai.ToolContext, s *Server, input ServiceHealthIn
 		}
 
 		serviceStatuses = append(serviceStatuses, map[string]interface{}{
-			"service":   agent.ComponentName,
+			"service":   agent.Name,
 			"agent_id":  agent.AgentID,
 			"status":    status,
 			"last_seen": lastSeen.Format(time.RFC3339),
@@ -247,7 +247,7 @@ func TestServiceTopologyTool(t *testing.T) {
 		text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
 
 		for _, agent := range agents {
-			text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.ComponentName, agent.MeshIPv4)
+			text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.Name, agent.MeshIPv4)
 		}
 
 		text += "\nNote: Dependency graph discovery from distributed traces is not yet implemented.\n"

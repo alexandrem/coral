@@ -702,7 +702,7 @@ func (x *Capabilities) GetCanConnect() bool {
 type ConnectServiceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Service name.
-	ComponentName string `protobuf:"bytes,1,opt,name=component_name,json=componentName,proto3" json:"component_name,omitempty"`
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Service port number.
 	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
 	// Optional health check endpoint path.
@@ -745,9 +745,9 @@ func (*ConnectServiceRequest) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ConnectServiceRequest) GetComponentName() string {
+func (x *ConnectServiceRequest) GetName() string {
 	if x != nil {
-		return x.ComponentName
+		return x.Name
 	}
 	return ""
 }
@@ -1028,7 +1028,7 @@ func (x *ListServicesResponse) GetServices() []*ServiceStatus {
 type ServiceStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Service name.
-	ComponentName string `protobuf:"bytes,1,opt,name=component_name,json=componentName,proto3" json:"component_name,omitempty"`
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Service port number.
 	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
 	// Optional health check endpoint path.
@@ -1077,9 +1077,9 @@ func (*ServiceStatus) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *ServiceStatus) GetComponentName() string {
+func (x *ServiceStatus) GetName() string {
 	if x != nil {
-		return x.ComponentName
+		return x.Name
 	}
 	return ""
 }
@@ -3031,9 +3031,9 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\bcan_exec\x18\x02 \x01(\bR\acanExec\x12\x1b\n" +
 	"\tcan_shell\x18\x03 \x01(\bR\bcanShell\x12\x1f\n" +
 	"\vcan_connect\x18\x04 \x01(\bR\n" +
-	"canConnect\"\xa4\x02\n" +
-	"\x15ConnectServiceRequest\x12%\n" +
-	"\x0ecomponent_name\x18\x01 \x01(\tR\rcomponentName\x12\x12\n" +
+	"canConnect\"\x91\x02\n" +
+	"\x15ConnectServiceRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
 	"\x0fhealth_endpoint\x18\x03 \x01(\tR\x0ehealthEndpoint\x12!\n" +
 	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12I\n" +
@@ -3052,9 +3052,9 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"\x15\n" +
 	"\x13ListServicesRequest\"Q\n" +
 	"\x14ListServicesResponse\x129\n" +
-	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xfd\x02\n" +
-	"\rServiceStatus\x12%\n" +
-	"\x0ecomponent_name\x18\x01 \x01(\tR\rcomponentName\x12\x12\n" +
+	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xea\x02\n" +
+	"\rServiceStatus\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
 	"\x0fhealth_endpoint\x18\x03 \x01(\tR\x0ehealthEndpoint\x12!\n" +
 	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12A\n" +

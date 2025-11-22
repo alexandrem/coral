@@ -252,7 +252,7 @@ func printServices(services []*agentv1.ServiceStatus) {
 				statusIcon = "?"
 			}
 
-			fmt.Printf("  %s %-20s port %d", statusIcon, svc.ComponentName, svc.Port)
+			fmt.Printf("  %s %-20s port %d", statusIcon, svc.Name, svc.Port)
 			if svc.HealthEndpoint != "" {
 				fmt.Printf(" (health: %s)", svc.HealthEndpoint)
 			}

@@ -50,7 +50,7 @@ func (h *ServiceHandler) ConnectService(
 ) (*connect.Response[agentv1.ConnectServiceResponse], error) {
 	// Convert request to ServiceInfo.
 	serviceInfo := &meshv1.ServiceInfo{
-		ComponentName:  req.Msg.ComponentName,
+		Name:           req.Msg.Name,
 		Port:           req.Msg.Port,
 		HealthEndpoint: req.Msg.HealthEndpoint,
 		ServiceType:    req.Msg.ServiceType,
@@ -68,7 +68,7 @@ func (h *ServiceHandler) ConnectService(
 
 	return connect.NewResponse(&agentv1.ConnectServiceResponse{
 		Success:     true,
-		ServiceName: req.Msg.ComponentName,
+		ServiceName: req.Msg.Name,
 	}), nil
 }
 
@@ -112,7 +112,7 @@ func (h *ServiceHandler) ListServices(
 		serviceInfo := monitor.service
 
 		serviceStatuses = append(serviceStatuses, &agentv1.ServiceStatus{
-			ComponentName:  serviceInfo.ComponentName,
+			Name:           serviceInfo.Name,
 			Port:           serviceInfo.Port,
 			HealthEndpoint: serviceInfo.HealthEndpoint,
 			ServiceType:    serviceInfo.ServiceType,

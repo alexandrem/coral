@@ -42,7 +42,7 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 		if serviceFilter != "" {
 			matchFound := false
 			for _, svc := range agent.Services {
-				if matchesPattern(svc.ComponentName, serviceFilter) {
+				if matchesPattern(svc.Name, serviceFilter) {
 					matchFound = true
 					break
 				}
@@ -70,11 +70,11 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 		// Build service names list from Services[] array.
 		serviceNames := make([]string, 0, len(agent.Services))
 		for _, svc := range agent.Services {
-			serviceNames = append(serviceNames, svc.ComponentName)
+			serviceNames = append(serviceNames, svc.Name)
 		}
 		servicesStr := strings.Join(serviceNames, ", ")
 		if servicesStr == "" {
-			servicesStr = agent.ComponentName // Fallback for backward compatibility
+			servicesStr = agent.Name // Fallback for backward compatibility
 		}
 
 		serviceStatuses = append(serviceStatuses, map[string]interface{}{
@@ -145,11 +145,11 @@ func (s *Server) executeServiceTopologyTool(ctx context.Context, argumentsJSON s
 		// Build service names list from Services[] array (RFD 044).
 		serviceNames := make([]string, 0, len(agent.Services))
 		for _, svc := range agent.Services {
-			serviceNames = append(serviceNames, svc.ComponentName)
+			serviceNames = append(serviceNames, svc.Name)
 		}
 		servicesStr := strings.Join(serviceNames, ", ")
 		if servicesStr == "" {
-			servicesStr = agent.ComponentName // Fallback for backward compatibility
+			servicesStr = agent.Name // Fallback for backward compatibility
 		}
 
 		text += fmt.Sprintf("  - %s (services: %s, mesh IP: %s)\n", agent.AgentID, servicesStr, agent.MeshIPv4)
@@ -638,7 +638,7 @@ func (s *Server) resolveAgent(agentID *string, serviceName string) (*registry.En
 	for _, agent := range agents {
 		// Check Services[] array, not ComponentName (RFD 044).
 		for _, svc := range agent.Services {
-			if matchesPattern(svc.ComponentName, serviceName) {
+			if matchesPattern(svc.Name, serviceName) {
 				matchedAgents = append(matchedAgents, agent)
 				break
 			}
