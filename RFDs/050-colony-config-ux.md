@@ -165,7 +165,7 @@ $ coral config delete-context myapp-dev-xyz789 --confirm
 ✓ Removed colony directory: ~/.coral/colonies/myapp-dev-xyz789/
 ```
 
-### Why No Rename Operation?
+### Colony Identity is Immutable
 
 Colony IDs are **cryptographically bound** to the identity infrastructure:
 
@@ -174,8 +174,16 @@ Colony IDs are **cryptographically bound** to the identity infrastructure:
 - **JWT Bootstrap Tokens**: Tokens include `colony_id` in claims
 - **Database Records**: Certificate audit tables keyed by `colony_id`
 
-Renaming a colony ID would invalidate all agent certificates and break all connections.
-**To "rename" a colony, create a new colony and re-bootstrap all agents.**
+**Migration Pattern**: Use existing `coral colony export/import` for credential portability:
+```bash
+# Export credentials for deployment (supports: env, yaml, json, k8s formats)
+coral colony export myapp-prod --format k8s > secret.yaml
+
+# Import on remote system
+coral colony import --colony-id myapp-prod --secret <secret>
+```
+
+To migrate to a new colony, create one with `coral init` and re-bootstrap agents.
 
 ## Implementation Plan
 
@@ -363,6 +371,7 @@ This RFD proposes net-new functionality to improve config management UX. Current
 - ✅ `coral colony list`: Lists all colonies with details
 - ✅ `coral colony use <id>`: Sets default colony
 - ✅ `coral colony current`: Shows current colony
+- ✅ `coral colony export/import`: Credential portability (env, yaml, json, k8s formats)
 - ✅ Config resolution: env var > project > global priority
 
 **Gaps vs kubectl UX:**
@@ -373,7 +382,6 @@ This RFD proposes net-new functionality to improve config management UX. Current
 - ❌ No config validation command
 - ❌ No delete CLI command (loader method exists)
 - ❌ No `CORAL_CONFIG` env var support
-- ⚠️ No rename operation (intentionally - colony IDs are cryptographically bound)
 
 **What Works Now:**
 
