@@ -102,7 +102,7 @@ developer's machine.
 - **Configuration-driven**: Developer configures preferred models, API keys,
   fallbacks
     - Support for multiple providers (primary + fallbacks)
-    - Cost controls (token limits, daily budgets)
+    - Developer owns costs via their own API keys
 
 **Benefits:**
 
@@ -137,7 +137,6 @@ Developer Machine                      Colony (Control Plane)
 │ ~/.coral/config.yaml       │
 │ - API keys (env refs)      │
 │ - Model preferences        │
-│ - Cost limits              │
 └────────────────────────────┘
 ```
 
@@ -159,7 +158,6 @@ Developer Machine                      Colony (Control Plane)
 3. **Configuration** (`~/.coral/config.yaml`):
     - New `ask` section for LLM configuration
     - Support for multiple providers with fallbacks
-    - Cost control settings (token limits, budgets)
     - Model-specific overrides
 
 4. **MCP Integration** (uses existing `coral proxy` implementation):
@@ -191,13 +189,6 @@ ask:
     context_window: 8192      # Max tokens for context
     auto_prune: true          # Prune old messages when limit reached
 
-  # Cost controls
-  cost_control:
-    max_tokens_per_request: 4096
-    warn_at_daily_cost_usd: 5.00
-    block_at_daily_cost_usd: 20.00
-    track_usage: true         # Log token usage locally
-
   # Agent deployment mode
   agent:
     mode: "daemon"            # "daemon" | "ephemeral" | "embedded"
@@ -225,7 +216,6 @@ colonies:
 - [ ] Implement Genkit runtime initialization with multi-provider support
 - [ ] Add MCP client implementation (connect to Colony via discovered mesh IP)
 - [ ] Implement conversation context management (history, pruning)
-- [ ] Add cost tracking and rate limiting logic
 
 ### Phase 3: CLI Integration
 
@@ -235,17 +225,15 @@ colonies:
 - [ ] Add `--continue` flag for multi-turn conversations
 - [ ] Add `--model` flag for one-off model override
 
-### Phase 4: Cost Controls & UX
+### Phase 4: UX & Resilience
 
-- [ ] Implement token usage tracking and cost estimation
-- [ ] Add warning/blocking thresholds for daily spend
 - [ ] Implement graceful fallback when primary model fails
 - [ ] Add progress indicators for long-running LLM calls
 - [ ] Implement response caching (optional, short TTL)
 
 ### Phase 5: Testing & Documentation
 
-- [ ] Unit tests: configuration parsing, cost tracking, context pruning
+- [ ] Unit tests: configuration parsing, context pruning, fallback logic
 - [ ] Integration tests: Genkit agent ↔ Colony MCP (mock)
 - [ ] E2E tests: `coral ask` against seeded Colony data
 - [ ] Documentation: setup guide, model selection, troubleshooting
@@ -300,13 +288,6 @@ coral ask "list unhealthy services" --json
     {"tool": "coral_get_service_health", "data": {...}}
   ]
 }
-
-# Show token usage and cost
-coral ask "status" --show-cost
-✓ Answer generated
-  Tokens: 450 input, 230 output
-  Cost: $0.03 (OpenAI GPT-4o-mini)
-  Daily usage: $1.45 / $20.00 limit
 ```
 
 ### Configuration Changes
@@ -317,7 +298,6 @@ New `ask` section in `~/.coral/config.yaml`:
 - `ask.fallback_models`: Array of fallback models
 - `ask.api_keys`: Map of provider → env variable reference
 - `ask.conversation.max_turns`: Conversation history limit
-- `ask.cost_control.max_tokens_per_request`: Per-query token limit
 - `ask.agent.mode`: Agent deployment mode (`daemon`|`ephemeral`|`embedded`)
 
 ### Genkit Provider Format
@@ -335,7 +315,6 @@ Models specified as `<provider>:<model-id>`:
 ### Unit Tests
 
 - Configuration parsing (API key env references, model selection)
-- Cost tracking logic (token counting, daily limits)
 - Context pruning (max turns, token window)
 - Fallback model selection (primary fails → try fallback)
 
@@ -344,7 +323,7 @@ Models specified as `<provider>:<model-id>`:
 - Genkit agent connects to mock MCP server
 - LLM tool call execution (mock Colony responses)
 - Conversation context maintained across turns
-- Cost limits enforced (block after threshold)
+- Fallback model switching on provider errors
 
 ### E2E Tests
 
@@ -370,14 +349,6 @@ coral ask "show details for payment service" --continue
 # Setup: Primary model API key invalid
 coral ask "status"
 # Verify: Falls back to secondary model, user warned
-```
-
-**Scenario 4: Cost Limit**
-
-```bash
-# Setup: Daily cost already at $19.50 (limit: $20.00)
-coral ask "complex analysis requiring 2000 tokens"
-# Verify: Query blocked with cost limit message
 ```
 
 ## Security Considerations
@@ -440,13 +411,6 @@ Continue? [y/N]
 - Content sanitization for suspicious patterns (optional, may have false
   positives)
 
-### Cost Control
-
-- Per-request token limits prevent runaway costs
-- Daily spend tracking with warning/blocking thresholds
-- Usage logging for cost auditing
-- User controls costs (their API keys = their budget)
-
 ## Migration Strategy
 
 **From RFD 014 (if partially implemented):**
@@ -469,13 +433,33 @@ Continue? [y/N]
   added)
 - `coral proxy` MCP server already exists (RFD 004)
 
-## Future Enhancements
+## Deferred Features
+
+The following features are deferred to future RFDs:
+
+### Cost Controls (Future RFD)
+
+Token usage tracking and spend limits are a significant feature warranting
+dedicated design. Scope includes:
+
+- Per-request token limits to prevent runaway costs
+- Daily spend tracking with warning/blocking thresholds
+- Usage logging and cost estimation per provider
+- Budget allocation per colony or user
+- Cost visualization and reporting CLI commands
+
+**Rationale for deferral:** Cost control requires careful design around storage
+(usage tracking), UX (warnings vs blocking), and provider-specific cost models.
+Developer API key ownership provides natural cost boundary for v1.
+
+### Additional Future Enhancements
 
 - **Cached insights**: Short-lived cache (1-5min TTL) for repeated questions
 - **Tool calling extensions**: Custom MCP tools via plugins
 - **Shared context**: Multi-user conversations on shared incidents
 - **Proactive alerts**: Agent monitors Colony and suggests investigations
 - **Fine-tuned models**: User-trained models for domain-specific analysis
+- **Daemon mode**: Long-running agent process for local models (Ollama)
 
 ## Appendix
 
@@ -636,9 +620,9 @@ Tools exposed by Colony MCP server (consumed by Genkit agent). All tools use the
 
 **Design Philosophy:**
 
-- **Developer-centric**: Flexibility and control over model choice, costs
+- **Developer-centric**: Flexibility and control over model choice
 - **Colony stays lightweight**: No LLM runtime, simpler operations
-- **Cost transparency**: User's API keys = clear ownership
+- **Cost ownership**: User's API keys = user owns costs (no shared budget)
 - **Offline-capable**: Ollama support for air-gapped environments
 
 **Relationship to other components:**
