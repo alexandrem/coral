@@ -418,7 +418,7 @@ func (s *BeylaStorage) QueryHTTPMetrics(ctx context.Context, startTime, endTime 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query HTTP metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	// Aggregate metrics by (timestamp, service, method, route, status).
 	metricsMap := make(map[string]*ebpfpb.BeylaHttpMetrics)
@@ -523,7 +523,7 @@ func (s *BeylaStorage) QueryGRPCMetrics(ctx context.Context, startTime, endTime 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query gRPC metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	// Aggregate metrics by (timestamp, service, method, status).
 	metricsMap := make(map[string]*ebpfpb.BeylaGrpcMetrics)
@@ -625,7 +625,7 @@ func (s *BeylaStorage) QuerySQLMetrics(ctx context.Context, startTime, endTime t
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SQL metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	// Aggregate metrics by (timestamp, service, operation, table).
 	metricsMap := make(map[string]*ebpfpb.BeylaSqlMetrics)
@@ -739,7 +739,9 @@ func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traces: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close() // TODO: errcheck
+	}(rows)
 
 	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
 

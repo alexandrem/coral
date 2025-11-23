@@ -1,3 +1,4 @@
+// Package telemetry provides telemetry data collection and aggregation.
 package telemetry
 
 import (

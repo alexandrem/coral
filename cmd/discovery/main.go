@@ -107,7 +107,7 @@ func main() {
 	// Add basic health endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "OK\n")
+		_, _ = fmt.Fprintf(w, "OK\n") // TODO: errcheck
 	})
 
 	// Create HTTP server with h2c support (HTTP/2 without TLS)

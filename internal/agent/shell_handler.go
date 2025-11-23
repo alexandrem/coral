@@ -175,14 +175,14 @@ func (h *ShellHandler) startShellSession(
 
 	// Start the command.
 	if err := cmd.Start(); err != nil {
-		tty.Close()
-		ptmx.Close()
+		_ = tty.Close()  // TODO: errcheck
+		_ = ptmx.Close() // TODO: errcheck
 		cancel()
 		return nil, fmt.Errorf("failed to start shell with PTY: %w", err)
 	}
 
 	// Close tty (slave side) in parent process - child process has its own copy.
-	tty.Close()
+	_ = tty.Close() // TODO: errcheck
 
 	// Set initial terminal size.
 	if start.Size != nil {
@@ -347,18 +347,18 @@ func (h *ShellHandler) cleanupSession(session *ShellSession) {
 
 	// Close PTY.
 	if session.pty != nil {
-		session.pty.Close()
+		_ = session.pty.Close() // TODO: errcheck
 	}
 
 	// Kill process if still running.
 	if session.cmd != nil && session.cmd.Process != nil {
 		// Send SIGTERM.
-		session.cmd.Process.Signal(syscall.SIGTERM)
+		_ = session.cmd.Process.Signal(syscall.SIGTERM) // TODO: errcheck
 
 		// Wait 5 seconds, then SIGKILL.
 		time.AfterFunc(5*time.Second, func() {
 			if session.cmd.ProcessState == nil {
-				session.cmd.Process.Kill()
+				_ = session.cmd.Process.Kill() // TODO: errcheck
 			}
 		})
 	}

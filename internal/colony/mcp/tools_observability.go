@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/firebase/genkit/go/ai"
 	"github.com/firebase/genkit/go/genkit"
+
+	"github.com/coral-io/coral/internal/colony/database"
 )
 
 // registerServiceHealthTool registers the coral_get_service_health tool.
@@ -76,18 +77,19 @@ func (s *Server) registerServiceHealthTool() {
 			}
 
 			// Format response as text for LLM consumption.
-			text := fmt.Sprintf("System Health Report:\n\n")
+			text := "System Health Report:\n\n"
 			text += fmt.Sprintf("Overall Status: %s\n\n", overallStatus)
-			text += fmt.Sprintf("Services:\n")
+			text += "Services:\n"
 
 			if len(serviceStatuses) == 0 {
 				text += "  No services connected.\n"
 			} else {
 				for _, svc := range serviceStatuses {
 					statusEmoji := "✓"
-					if svc["status"] == "degraded" {
+					switch svc["status"] {
+					case "degraded":
 						statusEmoji = "⚠"
-					} else if svc["status"] == "unhealthy" {
+					case "unhealthy":
 						statusEmoji = "✗"
 					}
 
@@ -127,7 +129,7 @@ func (s *Server) registerServiceTopologyTool() {
 
 			agents := s.registry.ListAll()
 
-			text := fmt.Sprintf("Service Topology:\n\n")
+			text := "Service Topology:\n\n"
 			text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
 
 			for _, agent := range agents {

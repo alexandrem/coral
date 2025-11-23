@@ -1,3 +1,4 @@
+// Package ask provides the CLI command for interactive AI queries.
 package ask
 
 import (

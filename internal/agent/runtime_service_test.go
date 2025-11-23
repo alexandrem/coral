@@ -83,7 +83,7 @@ func TestRuntimeService_GetRuntimeContext(t *testing.T) {
 	// Start to perform initial detection.
 	err = svc.Start()
 	require.NoError(t, err)
-	defer svc.Stop()
+	defer func() { _ = svc.Stop() }()
 
 	// GetRuntimeContext should return cached context.
 	ctx := context.Background()
@@ -126,7 +126,7 @@ func TestRuntimeService_RefreshContext(t *testing.T) {
 	// Start to perform initial detection.
 	err = svc.Start()
 	require.NoError(t, err)
-	defer svc.Stop()
+	defer func() { _ = svc.Stop() }()
 
 	initialCtx := svc.GetCachedContext()
 	require.NotNil(t, initialCtx)
@@ -231,7 +231,7 @@ func TestRuntimeService_GetDetectedAt(t *testing.T) {
 	// After Start, should return timestamp.
 	err = svc.Start()
 	require.NoError(t, err)
-	defer svc.Stop()
+	defer func() { _ = svc.Stop() }()
 
 	detectedAt := svc.GetDetectedAt()
 	require.NotNil(t, detectedAt)
@@ -252,7 +252,7 @@ func TestRuntimeService_GetCachedContext(t *testing.T) {
 	// After Start, should return context.
 	err = svc.Start()
 	require.NoError(t, err)
-	defer svc.Stop()
+	defer func() { _ = svc.Stop() }()
 
 	ctx := svc.GetCachedContext()
 	require.NotNil(t, ctx)

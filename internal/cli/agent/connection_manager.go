@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+
 	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
@@ -486,16 +487,6 @@ func (cm *ConnectionManager) attemptDiscovery(ctx context.Context, onSuccess fun
 	}
 }
 
-// triggerDiscovery signals the discovery loop to attempt discovery immediately.
-func (cm *ConnectionManager) triggerDiscovery() {
-	select {
-	case cm.discoveryTrigger <- struct{}{}:
-		// Trigger sent.
-	default:
-		// Channel already has a pending trigger, skip.
-	}
-}
-
 // StartReconnectionLoop runs a background loop that attempts to reconnect when in unregistered state.
 func (cm *ConnectionManager) StartReconnectionLoop(ctx context.Context) {
 	cm.logger.Info().Msg("Starting reconnection loop")
@@ -665,9 +656,7 @@ func (cm *ConnectionManager) GetColonyEndpoint() string {
 			wgPort = colonyInfo.ObservedEndpoints[0].Port
 		} else if colonyInfo.Metadata != nil {
 			if portStr, ok := colonyInfo.Metadata["wireguard_port"]; ok && portStr != "" {
-				if port, err := fmt.Sscanf(portStr, "%d", &wgPort); err == nil && port == 1 {
-					// Port parsed successfully.
-				}
+				_, _ = fmt.Sscanf(portStr, "%d", &wgPort)
 			}
 		}
 		return wgPort

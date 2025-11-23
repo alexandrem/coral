@@ -1,3 +1,4 @@
+//nolint:errcheck
 package colony
 
 import (
@@ -390,7 +391,8 @@ func outputServicesTablev2(services []serviceView, snapshotTime time.Time) error
 			typeStr = "-"
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n",
+		// TODO: errcheck
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\n",
 			svc.Name,
 			typeStr,
 			svc.InstanceCount,
@@ -398,7 +400,7 @@ func outputServicesTablev2(services []serviceView, snapshotTime time.Time) error
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush() // TODO: errcheck
 	return nil
 }
 

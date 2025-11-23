@@ -15,7 +15,7 @@ func TestInsertTelemetrySummaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	ctx := context.Background()
 
@@ -82,7 +82,7 @@ func TestInsertTelemetrySummaries_Upsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Minute)
@@ -159,7 +159,7 @@ func TestCleanupOldTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	ctx := context.Background()
 
@@ -243,7 +243,7 @@ func TestQueryTelemetrySummaries_TimeRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Minute)
@@ -314,7 +314,7 @@ func TestQueryTelemetrySummaries_DifferentAgents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Minute)

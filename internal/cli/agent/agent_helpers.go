@@ -418,7 +418,7 @@ func configureAgentMesh(
 				Msg("Unable to reach colony via mesh IP - tunnel may not be fully established")
 			// Don't fail here - registration will retry anyway
 		} else {
-			conn.Close()
+			_ = conn.Close() // TODO: errcheck
 			logger.Info().
 				Str("mesh_addr", meshAddr).
 				Msg("Successfully verified connectivity to colony via WireGuard mesh")
@@ -487,6 +487,7 @@ func registerWithColony(
 
 	// For backward compatibility, also set ComponentName if single service
 	if len(serviceSpecs) == 1 {
+		//nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 		regReq.ComponentName = serviceSpecs[0].Name
 	}
 
@@ -609,70 +610,6 @@ func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectP
 	}
 
 	return candidates
-}
-
-// startHeartbeatLoop sends periodic heartbeats to the colony to keep the agent's status healthy.
-func startHeartbeatLoop(
-	ctx context.Context,
-	agentID string,
-	colonyMeshIP string,
-	connectPort uint32,
-	interval time.Duration,
-	logger logging.Logger,
-) {
-	if connectPort == 0 {
-		connectPort = 9000
-	}
-
-	colonyURL := fmt.Sprintf("http://%s", net.JoinHostPort(colonyMeshIP, fmt.Sprintf("%d", connectPort)))
-	client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
-
-	logger.Info().
-		Str("agent_id", agentID).
-		Str("colony_url", colonyURL).
-		Dur("interval", interval).
-		Msg("Starting heartbeat loop")
-
-	// Send immediate heartbeat to establish healthy status right away.
-	sendHeartbeat := func() {
-		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		resp, err := client.Heartbeat(heartbeatCtx, connect.NewRequest(&meshv1.HeartbeatRequest{
-			AgentId: agentID,
-			Status:  "healthy",
-		}))
-		cancel()
-
-		if err != nil {
-			logger.Warn().
-				Err(err).
-				Str("agent_id", agentID).
-				Msg("Failed to send heartbeat")
-		} else if !resp.Msg.Ok {
-			logger.Warn().
-				Str("agent_id", agentID).
-				Msg("Heartbeat rejected by colony")
-		} else {
-			logger.Debug().
-				Str("agent_id", agentID).
-				Msg("Heartbeat sent successfully")
-		}
-	}
-
-	// Send first heartbeat immediately.
-	sendHeartbeat()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info().Msg("Heartbeat loop stopping")
-			return
-		case <-ticker.C:
-			sendHeartbeat()
-		}
-	}
 }
 
 // generateAgentID generates a stable agent ID based on hostname and service specs.

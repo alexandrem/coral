@@ -171,7 +171,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %w", err)
 			}
-			defer db.Close()
+			defer func() { _ = db.Close() }() // TODO: errcheck
 
 			// TODO: Implement remaining colony startup tasks
 			// - Start HTTP server for dashboard on cfg.Dashboard.Port
@@ -181,7 +181,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to create WireGuard device: %w", err)
 			}
-			defer wgDevice.Stop()
+			defer func() { _ = wgDevice.Stop() }() // TODO: errcheck
 
 			// Set up the persistent allocator BEFORE starting the device (RFD 019).
 			// This enables IP allocation recovery after colony restarts.
@@ -229,7 +229,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to start servers: %w", err)
 			}
-			defer meshServer.Close()
+			defer func() { _ = meshServer.Close() }() // TODO: errcheck
 
 			// Load global config and colony config to get discovery settings
 			loader, err := config.NewLoader()
@@ -796,6 +796,7 @@ Note: The colony must be running for this command to work.`,
 				// Format services list (RFD 044: use Services array, not ComponentName).
 				servicesStr := formatServicesList(agent.Services)
 				if servicesStr == "" {
+					//nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 					servicesStr = agent.ComponentName // Fallback for backward compatibility
 				}
 
@@ -1630,7 +1631,7 @@ func (h *meshServiceHandler) Register(
 
 	h.logger.Info().
 		Str("agent_id", req.Msg.AgentId).
-		Str("component_name", req.Msg.ComponentName).
+		Str("component_name", req.Msg.ComponentName). //nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 		Str("peer_addr", peerAddr).
 		Msg("Agent registration request received")
 
@@ -1778,7 +1779,7 @@ func (h *meshServiceHandler) Register(
 			Msg("Failed to add agent as WireGuard peer")
 
 		// Release the allocated IP since we couldn't add the peer
-		allocator.Release(meshIP)
+		_ = allocator.Release(meshIP) // TODO: errcheck
 
 		return connect.NewResponse(&meshv1.RegisterResponse{
 			Accepted: false,
@@ -1788,6 +1789,7 @@ func (h *meshServiceHandler) Register(
 
 	// Register agent in the registry for tracking.
 	// Note: We don't have IPv6 mesh IP yet (future enhancement).
+	//nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 	if _, err := h.registry.Register(req.Msg.AgentId, req.Msg.ComponentName, meshIP.String(), "", req.Msg.Services, req.Msg.RuntimeContext, req.Msg.ProtocolVersion); err != nil {
 		h.logger.Warn().
 			Err(err).
@@ -1798,7 +1800,7 @@ func (h *meshServiceHandler) Register(
 	// Log registration with service details
 	logEvent := h.logger.Info().
 		Str("agent_id", req.Msg.AgentId).
-		Str("component_name", req.Msg.ComponentName).
+		Str("component_name", req.Msg.ComponentName). //nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 		Str("mesh_ip", meshIP.String())
 
 	if len(req.Msg.Services) > 0 {
@@ -1963,6 +1965,7 @@ func outputAgentsVerbose(agents []*colonyv1.Agent) error {
 		}
 		fmt.Println("┐")
 
+		//nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 		fmt.Printf("│ Component:  %-45s│\n", agent.ComponentName)
 		fmt.Printf("│ Status:     %-45s│\n", formatAgentStatus(agent))
 		fmt.Printf("│ Mesh IP:    %-45s│\n", agent.MeshIpv4)
@@ -2018,9 +2021,10 @@ func formatAgentStatus(agent *colonyv1.Agent) string {
 	}
 
 	statusSymbol := "✅"
-	if agent.Status == "degraded" {
+	switch agent.Status {
+	case "degraded":
 		statusSymbol = "⚠️"
-	} else if agent.Status == "unhealthy" {
+	case "unhealthy":
 		statusSymbol = "❌"
 	}
 
@@ -2086,33 +2090,6 @@ func buildWireGuardEndpoints(port int, colonyConfig *config.ColonyConfig) []stri
 	}
 
 	return endpoints
-}
-
-// getColonySTUNServers determines which STUN servers to use for colony NAT traversal.
-// Priority: colony config > global config > default.
-func getColonySTUNServers(colonyConfig *config.ColonyConfig, globalConfig *config.GlobalConfig) []string {
-	// Check environment variable first
-	envSTUN := os.Getenv("CORAL_STUN_SERVERS")
-	if envSTUN != "" {
-		servers := strings.Split(envSTUN, ",")
-		for i := range servers {
-			servers[i] = strings.TrimSpace(servers[i])
-		}
-		return servers
-	}
-
-	// Use colony-specific STUN servers if configured
-	if len(colonyConfig.Discovery.STUNServers) > 0 {
-		return colonyConfig.Discovery.STUNServers
-	}
-
-	// Fall back to global STUN servers
-	if len(globalConfig.Discovery.STUNServers) > 0 {
-		return globalConfig.Discovery.STUNServers
-	}
-
-	// Use default STUN server
-	return []string{constants.DefaultSTUNServer}
 }
 
 // formatCapabilitySymbol formats capability as a checkmark or X.

@@ -43,7 +43,7 @@ func TestTelemetryE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent database: %v", err)
 	}
-	defer agentDB.Close()
+	defer func() { _ = agentDB.Close() }() // TODO: errcheck
 
 	agentStorage, err := telemetry.NewStorage(agentDB, logger)
 	if err != nil {
@@ -125,7 +125,7 @@ func TestTelemetryE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent: %v", err)
 	}
-	defer agentInstance.Stop()
+	defer func() { _ = agentInstance.Stop() }() // TODO: errcheck
 
 	runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
 		Logger:          logger,
@@ -149,15 +149,15 @@ func TestTelemetryE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent listener: %v", err)
 	}
-	defer agentListener.Close()
+	defer func() { _ = agentListener.Close() }() // TODO: errcheck
 
 	_, agentHandler := agentv1connect.NewAgentServiceHandler(testHandler)
 	agentMux := http.NewServeMux()
 	agentMux.Handle("/coral.agent.v1.AgentService/", agentHandler)
 
 	agentServer := &http.Server{Handler: agentMux}
-	go agentServer.Serve(agentListener)
-	defer agentServer.Close()
+	go func() { _ = agentServer.Serve(agentListener) }() // TODO: errcheck
+	defer func() { _ = agentServer.Close() }()           // TODO: errcheck
 
 	agentAddr := agentListener.Addr().String()
 	t.Logf("✓ Agent listening on: %s", agentAddr)
@@ -216,7 +216,7 @@ func TestTelemetryE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create colony database: %v", err)
 	}
-	defer colonyDB.Close()
+	defer func() { _ = colonyDB.Close() }() // TODO: errcheck
 
 	// Store summaries
 	err = colonyDB.InsertTelemetrySummaries(ctx, summaries)

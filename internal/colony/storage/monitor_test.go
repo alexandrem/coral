@@ -25,7 +25,7 @@ func TestCalculateSize(t *testing.T) {
 	t.Run("empty directory", func(t *testing.T) {
 		tmpDir, err := os.MkdirTemp("", "coral-storage-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }() // TODO: errcheck
 
 		size, err := CalculateSize(tmpDir)
 		require.NoError(t, err)
@@ -35,7 +35,7 @@ func TestCalculateSize(t *testing.T) {
 	t.Run("directory with single file", func(t *testing.T) {
 		tmpDir, err := os.MkdirTemp("", "coral-storage-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }() // TODO: errcheck
 
 		// Create a file with known content.
 		testFile := filepath.Join(tmpDir, "test.txt")
@@ -51,7 +51,7 @@ func TestCalculateSize(t *testing.T) {
 	t.Run("directory with multiple files", func(t *testing.T) {
 		tmpDir, err := os.MkdirTemp("", "coral-storage-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }() // TODO: errcheck
 
 		// Create multiple files.
 		file1 := filepath.Join(tmpDir, "file1.txt")
@@ -78,7 +78,7 @@ func TestCalculateSize(t *testing.T) {
 	t.Run("nested directory structure", func(t *testing.T) {
 		tmpDir, err := os.MkdirTemp("", "coral-storage-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }() // TODO: errcheck
 
 		// Create nested directories.
 		subDir1 := filepath.Join(tmpDir, "subdir1")
@@ -119,7 +119,7 @@ func TestCalculateSize(t *testing.T) {
 	t.Run("single file path", func(t *testing.T) {
 		tmpDir, err := os.MkdirTemp("", "coral-storage-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }() // TODO: errcheck
 
 		// Create a single file.
 		testFile := filepath.Join(tmpDir, "single.txt")

@@ -1,3 +1,4 @@
+// Package beyla provides integration with Beyla for eBPF-based observability.
 package beyla
 
 import (
@@ -10,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent/telemetry"
-	"github.com/rs/zerolog"
 )
 
 // Manager handles Beyla lifecycle within Coral agent (RFD 032).
@@ -170,7 +172,7 @@ func (m *Manager) Start() error {
 	defer m.mu.Unlock()
 
 	if m.running {
-		return fmt.Errorf("Beyla manager already running")
+		return fmt.Errorf("beyla manager already running")
 	}
 
 	m.logger.Info().
@@ -225,6 +227,7 @@ func (m *Manager) Stop() error {
 	}
 
 	// Cleanup extracted binary if it was in a temp directory.
+	//nolint:staticcheck // filepath.HasPrefix is deprecated but simple enough for this use case
 	if m.beylaBinaryPath != "" && filepath.HasPrefix(m.beylaBinaryPath, os.TempDir()) {
 		tmpDir := filepath.Dir(m.beylaBinaryPath)
 		if err := os.RemoveAll(tmpDir); err != nil {
@@ -274,7 +277,7 @@ func (m *Manager) GetMetrics() <-chan *ebpfpb.EbpfEvent {
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryHTTPMetrics(ctx, startTime, endTime, serviceNames)
 }
@@ -283,7 +286,7 @@ func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryGRPCMetrics(ctx, startTime, endTime, serviceNames)
 }
@@ -292,7 +295,7 @@ func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QuerySQLMetrics(ctx, startTime, endTime, serviceNames)
 }
@@ -301,7 +304,7 @@ func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.T
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryTraces(ctx context.Context, startTime, endTime time.Time, serviceNames []string, traceID string, maxSpans int32) ([]*ebpfpb.BeylaTraceSpan, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryTraces(ctx, startTime, endTime, serviceNames, traceID, maxSpans)
 }
@@ -310,7 +313,7 @@ func (m *Manager) QueryTraces(ctx context.Context, startTime, endTime time.Time,
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryTraceByID(ctx, traceID)
 }

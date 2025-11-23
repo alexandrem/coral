@@ -117,7 +117,7 @@ The shell session will:
 			fmt.Fprint(os.Stderr, "Continue? [y/N] ")
 
 			var response string
-			fmt.Scanln(&response)
+			_, _ = fmt.Scanln(&response) // TODO: errcheck
 			if response != "y" && response != "Y" {
 				return fmt.Errorf("cancelled by user")
 			}
@@ -145,7 +145,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 	var oldState *term.State
 	defer func() {
 		if oldState != nil {
-			term.Restore(int(os.Stdin.Fd()), oldState)
+			_ = term.Restore(int(os.Stdin.Fd()), oldState) // TODO: errcheck
 		}
 	}()
 
@@ -225,7 +225,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 				continue
 			}
 
-			stream.Send(&agentv1.ShellRequest{
+			_ = stream.Send(&agentv1.ShellRequest{ // TODO: errcheck
 				Payload: &agentv1.ShellRequest_Resize{
 					Resize: &agentv1.ShellResize{
 						Rows: uint32(height),
@@ -253,7 +253,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 				if !lastSigint.IsZero() && now.Sub(lastSigint) < time.Second {
 					// Double Ctrl+C - force exit.
 					if oldState != nil {
-						term.Restore(int(os.Stdin.Fd()), oldState)
+						_ = term.Restore(int(os.Stdin.Fd()), oldState) // TODO: errcheck
 					}
 					fmt.Fprintf(os.Stderr, "\n\nForce quit (double Ctrl+C).\n")
 					cancel()
@@ -261,7 +261,6 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 				}
 				lastSigint = now
 			case syscall.SIGTERM:
-				sigName = "SIGTERM"
 				// SIGTERM always exits immediately.
 				cancel()
 				return
@@ -270,7 +269,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 			}
 
 			// Forward signal to remote shell.
-			stream.Send(&agentv1.ShellRequest{
+			_ = stream.Send(&agentv1.ShellRequest{ // TODO: errcheck
 				Payload: &agentv1.ShellRequest_Signal{
 					Signal: &agentv1.ShellSignal{
 						Signal: sigName,
@@ -324,8 +323,8 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 		case <-ctx.Done():
 			// Restore terminal before exiting.
 			if oldState != nil {
-				term.Restore(int(os.Stdin.Fd()), oldState)
-				oldState = nil // Prevent double restore in defer.
+				_ = term.Restore(int(os.Stdin.Fd()), oldState) // TODO: errcheck
+				oldState = nil                                 // Prevent double restore in defer.
 			}
 			fmt.Fprintf(os.Stderr, "\n\nConnection lost to agent.\n")
 			return fmt.Errorf("connection interrupted")
@@ -343,7 +342,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 				if stdinErr != nil {
 					// Restore terminal before showing error.
 					if oldState != nil {
-						term.Restore(int(os.Stdin.Fd()), oldState)
+						_ = term.Restore(int(os.Stdin.Fd()), oldState) // TODO: errcheck
 						oldState = nil
 					}
 					fmt.Fprintf(os.Stderr, "\n\nConnection lost to agent.\n")
@@ -353,7 +352,7 @@ func runShellSession(ctx context.Context, agentAddr, userID string) error {
 			}
 			// Restore terminal before showing error.
 			if oldState != nil {
-				term.Restore(int(os.Stdin.Fd()), oldState)
+				_ = term.Restore(int(os.Stdin.Fd()), oldState) // TODO: errcheck
 				oldState = nil
 			}
 			fmt.Fprintf(os.Stderr, "\n\nConnection lost to agent.\n")
@@ -383,8 +382,8 @@ exit:
 
 	// Restore terminal before showing exit message.
 	if oldState != nil {
-		term.Restore(int(os.Stdin.Fd()), oldState)
-		oldState = nil // Prevent double restore in defer.
+		_ = term.Restore(int(os.Stdin.Fd()), oldState) // TODO: errcheck
+		oldState = nil                                 // Prevent double restore in defer.
 	}
 
 	// Show exit message.

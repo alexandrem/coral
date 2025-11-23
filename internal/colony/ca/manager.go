@@ -1,3 +1,4 @@
+// Package ca provides certificate authority management for mTLS.
 package ca
 
 import (
@@ -468,7 +469,9 @@ func (m *Manager) IssueCertificate(agentID, colonyID string, csrPEM []byte) ([]b
 	if err != nil {
 		return nil, nil, time.Time{}, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback() // TODO: errcheck
+	}(tx)
 
 	_, err = tx.Exec(`
 		INSERT INTO issued_certificates (
@@ -493,7 +496,9 @@ func (m *Manager) RevokeCertificate(serialNumber, reason, revokedBy string) erro
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback() // TODO: errcheck
+	}(tx)
 
 	_, err = tx.Exec(`
 		UPDATE issued_certificates
