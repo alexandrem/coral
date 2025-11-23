@@ -102,23 +102,23 @@ machine.
 
 ```
 Developer Machine                      Colony (Control Plane)
-┌────────────────────────────┐        ┌──────────────────────┐
-│ coral ask "why slow?"      │        │                      │
-│          ↓                 │        │  MCP Server          │
-│ ┌────────────────────────┐ │        │  ┌────────────────┐ │
-│ │ Genkit Agent           │ │        │  │ Tools:         │ │
-│ │                        │ │  MCP   │  │ - query_trace  │ │
-│ │ LLM (local/cloud):     │◄┼────────┼─►│ - get_topology │ │
-│ │ - GPT-4 (OpenAI API)   │ │ tools  │  │ - search_logs  │ │
-│ │ - Claude (Anthropic)   │ │        │  │ - issue_probe  │ │
-│ │ - Llama (Ollama local) │ │        │  └────────────────┘ │
-│ │                        │ │        │                      │
-│ │ Context:               │ │        │  WireGuard Mesh      │
-│ │ - Conversation history │ │        │  (via coral proxy)   │
-│ │ - Colony MCP tools     │ │        │                      │
-│ └────────────────────────┘ │        └──────────────────────┘
-│                            │
-│ Config:                    │
+┌────────────────────────────┐        ┌───────────────────────────────┐
+│ coral ask "why slow?"      │        │                               │
+│          ↓                 │        │  MCP Server                   │
+│ ┌────────────────────────┐ │        │  ┌───────────────────────────┐│
+│ │ Genkit Agent           │ │        │  │ Tools:                    ││
+│ │                        │ │  MCP   │  │ - coral_get_service_health││
+│ │ LLM (local/cloud):     │◄┼────────┼─►│ - coral_get_service_topol.││
+│ │ - GPT-4 (OpenAI API)   │ │ tools  │  │ - coral_query_beyla_*     ││
+│ │ - Claude (Anthropic)   │ │        │  │ - coral_query_telemetry_* ││
+│ │ - Llama (Ollama local) │ │        │  │ - coral_start_ebpf_coll.  ││
+│ │                        │ │        │  │ - coral_exec_command      ││
+│ │ Context:               │ │        │  └───────────────────────────┘│
+│ │ - Conversation history │ │        │                               │
+│ │ - Colony MCP tools     │ │        │  WireGuard Mesh               │
+│ └────────────────────────┘ │        │  (via coral proxy)            │
+│                            │        │                               │
+│ Config:                    │        └───────────────────────────────┘
 │ ~/.coral/config.yaml       │
 │ - API keys (env refs)      │
 │ - Model preferences        │
@@ -532,54 +532,79 @@ resp, err := model.Generate(ctx, &genkit.GenerateRequest{
 })
 ```
 
-### MCP Tool Examples
+### MCP Tool Reference
 
-Tools exposed by Colony MCP server (consumed by Genkit agent):
+Tools exposed by Colony MCP server (consumed by Genkit agent). All tools use the
+`coral_` prefix for namespacing.
+
+#### Observability Tools
+
+| Tool | Description |
+|------|-------------|
+| `coral_get_service_health` | Get health status of services (healthy/degraded/unhealthy based on agent heartbeat) |
+| `coral_get_service_topology` | Get service dependency graph discovered from distributed traces |
+| `coral_query_events` | Query operational events (deployments, restarts, crashes, alerts, config changes) |
+
+#### Beyla Metrics Tools (eBPF-based auto-instrumentation)
+
+| Tool | Description |
+|------|-------------|
+| `coral_query_beyla_http_metrics` | Query HTTP RED metrics (rate, errors, duration) with route/method/status filters |
+| `coral_query_beyla_grpc_metrics` | Query gRPC method-level RED metrics with status code breakdown |
+| `coral_query_beyla_sql_metrics` | Query SQL operation metrics with table-level statistics |
+| `coral_query_beyla_traces` | Query distributed traces by service, time range, or duration threshold |
+| `coral_get_trace_by_id` | Get specific trace with full span tree and parent-child relationships |
+
+#### OTLP Telemetry Tools (OpenTelemetry SDK instrumentation)
+
+| Tool | Description |
+|------|-------------|
+| `coral_query_telemetry_spans` | Query OTLP spans from instrumented applications (aggregated summaries) |
+| `coral_query_telemetry_metrics` | Query OTLP metrics (custom application metrics) |
+| `coral_query_telemetry_logs` | Query OTLP logs with full-text search and filters |
+
+#### Live Debugging Tools (Phase 3)
+
+| Tool | Description |
+|------|-------------|
+| `coral_start_ebpf_collector` | Start on-demand eBPF collector (cpu_profile, syscall_stats, http_latency, tcp_metrics) |
+| `coral_stop_ebpf_collector` | Stop a running eBPF collector before its duration expires |
+| `coral_list_ebpf_collectors` | List currently active eBPF collectors with status and remaining duration |
+| `coral_exec_command` | Execute command in application container (kubectl/docker exec semantics) |
+| `coral_shell_start` | Start interactive debug shell in agent's environment |
+
+#### Example Tool Schemas
 
 ```json
 {
-  "tools": [
-    {
-      "name": "query_trace_data",
-      "description": "Query distributed traces for a service",
-      "parameters": {
-        "service_id": "string",
-        "time_window": "string (e.g., '1h', '30m')",
-        "filter": "optional SQL-like filter"
-      }
-    },
-    {
-      "name": "query_metrics",
-      "description": "Query time-series metrics",
-      "parameters": {
-        "metric_name": "string",
-        "service_id": "optional string",
-        "aggregation": "p50|p95|p99|mean|max"
-      }
-    },
-    {
-      "name": "get_service_topology",
-      "description": "Get current service dependency graph",
-      "parameters": {}
-    },
-    {
-      "name": "search_logs",
-      "description": "Search recent logs with filters",
-      "parameters": {
-        "query": "string (search text)",
-        "service_id": "optional string",
-        "level": "optional (error|warn|info)"
-      }
-    },
-    {
-      "name": "issue_dynamic_probe",
-      "description": "Start eBPF probe for live investigation",
-      "parameters": {
-        "probe_type": "string",
-        "target_service": "string"
-      }
-    }
-  ]
+  "coral_query_beyla_http_metrics": {
+    "service": "string (required)",
+    "time_range": "string (e.g., '1h', '30m'), default: '1h'",
+    "http_route": "optional string (e.g., '/api/v1/users/:id')",
+    "http_method": "optional enum: GET|POST|PUT|DELETE|PATCH",
+    "status_code_range": "optional enum: 2xx|3xx|4xx|5xx"
+  },
+  "coral_query_beyla_traces": {
+    "trace_id": "optional string (32-char hex)",
+    "service": "optional string",
+    "time_range": "string, default: '1h'",
+    "min_duration_ms": "optional int",
+    "max_traces": "optional int, default: 10"
+  },
+  "coral_start_ebpf_collector": {
+    "collector_type": "enum: cpu_profile|syscall_stats|http_latency|tcp_metrics",
+    "service": "string (required)",
+    "agent_id": "optional string (for disambiguation)",
+    "duration_seconds": "optional int, default: 30, max: 300",
+    "config": "optional object (collector-specific settings)"
+  },
+  "coral_exec_command": {
+    "service": "string (required)",
+    "agent_id": "optional string (recommended for multi-agent scenarios)",
+    "command": "array of strings (e.g., ['ls', '-la', '/app'])",
+    "timeout_seconds": "optional int, default: 30",
+    "working_dir": "optional string"
+  }
 }
 ```
 
