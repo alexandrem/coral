@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
 	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
@@ -436,6 +437,7 @@ func registerWithColony(
 	serviceSpecs []*ServiceSpec,
 	agentPubKey string,
 	colonyInfo *discoverypb.LookupColonyResponse,
+	runtimeContext *agentv1.RuntimeContextResponse,
 	preferredURL string,
 	logger logging.Logger,
 ) (string, string, error) {
@@ -483,6 +485,7 @@ func registerWithColony(
 		Labels:           make(map[string]string),
 		Services:         services,
 		EbpfCapabilities: ebpfCaps,
+		RuntimeContext:   runtimeContext,
 	}
 
 	// For backward compatibility, also set ComponentName if single service
