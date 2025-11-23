@@ -197,6 +197,7 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 				nil, // service specs
 				"test-pubkey",
 				nil, // wg device
+				nil, // runtimeService
 				logger,
 			)
 
@@ -252,6 +253,7 @@ func TestConnectionManager_GetColonyEndpoint_RealWorldScenario(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 
@@ -282,6 +284,7 @@ func TestConnectionManager_GetColonyEndpoint_RealWorldScenario(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 
@@ -314,6 +317,7 @@ func TestConnectionManager_GetColonyEndpoint_RealWorldScenario(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 
@@ -348,6 +352,7 @@ func TestConnectionManager_GetColonyEndpoint_RealWorldScenario(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 		cm.SetLastSuccessfulEndpoint("10.0.0.5:41820")
@@ -376,6 +381,7 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 
@@ -398,6 +404,7 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 
@@ -426,6 +433,7 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 
@@ -451,6 +459,7 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 
@@ -475,6 +484,7 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 			nil,
 			"test-pubkey",
 			nil,
+			nil, // runtimeService
 			logger,
 		)
 

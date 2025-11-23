@@ -13,9 +13,11 @@ import (
 
 	"connectrpc.com/connect"
 
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
 	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-io/coral/internal/agent"
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/logging"
 	wg "github.com/coral-io/coral/internal/wireguard"
@@ -59,13 +61,14 @@ func (s ConnectionState) String() string {
 // It handles discovery, initial registration, heartbeats, and automatic reconnection.
 type ConnectionManager struct {
 	// Configuration
-	agentID      string
-	colonyInfo   *discoverypb.LookupColonyResponse // May be nil if discovery hasn't succeeded yet
-	config       *config.ResolvedConfig
-	serviceSpecs []*ServiceSpec
-	agentPubKey  string
-	wgDevice     *wg.Device
-	logger       logging.Logger
+	agentID        string
+	colonyInfo     *discoverypb.LookupColonyResponse // May be nil if discovery hasn't succeeded yet
+	config         *config.ResolvedConfig
+	serviceSpecs   []*ServiceSpec
+	agentPubKey    string
+	wgDevice       *wg.Device
+	runtimeService *agent.RuntimeService // RFD 018: Runtime context for registration
+	logger         logging.Logger
 
 	// State tracking
 	state   ConnectionState
@@ -121,6 +124,7 @@ func (b *ExponentialBackoff) Reset() {
 
 // NewConnectionManager creates a new connection manager for agent-colony communication.
 // colonyInfo may be nil if discovery service is unavailable at startup.
+// runtimeService may be nil if runtime detection is not available yet.
 func NewConnectionManager(
 	agentID string,
 	colonyInfo *discoverypb.LookupColonyResponse,
@@ -128,6 +132,7 @@ func NewConnectionManager(
 	serviceSpecs []*ServiceSpec,
 	agentPubKey string,
 	wgDevice *wg.Device,
+	runtimeService *agent.RuntimeService,
 	logger logging.Logger,
 ) *ConnectionManager {
 	// Determine initial state based on whether we have colony info.
@@ -143,6 +148,7 @@ func NewConnectionManager(
 		serviceSpecs:     serviceSpecs,
 		agentPubKey:      agentPubKey,
 		wgDevice:         wgDevice,
+		runtimeService:   runtimeService,
 		logger:           logger,
 		state:            initialState,
 		reconnectTrigger: make(chan struct{}, 1),
@@ -290,12 +296,16 @@ func (cm *ConnectionManager) AttemptRegistration() (string, string, error) {
 	// Get preferred registration URL from last successful attempt
 	preferredURL := cm.GetLastSuccessfulRegURL()
 
+	// Get runtime context from runtime service (RFD 018).
+	var runtimeContext = cm.getRuntimeContext()
+
 	result, successfulURL, err := registerWithColony(
 		cm.config,
 		cm.agentID,
 		cm.serviceSpecs,
 		cm.agentPubKey,
 		colonyInfo,
+		runtimeContext,
 		preferredURL,
 		cm.logger,
 	)
@@ -615,6 +625,27 @@ func (cm *ConnectionManager) GetAssignedIP() (string, string) {
 	cm.stateMu.RLock()
 	defer cm.stateMu.RUnlock()
 	return cm.assignedIP, cm.assignedSubnet
+}
+
+// getRuntimeContext returns the cached runtime context from the runtime service.
+// Returns nil if runtime service is not available or context is not yet detected.
+func (cm *ConnectionManager) getRuntimeContext() *agentv1.RuntimeContextResponse {
+	if cm.runtimeService == nil {
+		cm.logger.Debug().Msg("Runtime service not available - registration will proceed without runtime context")
+		return nil
+	}
+
+	ctx := cm.runtimeService.GetCachedContext()
+	if ctx == nil {
+		cm.logger.Debug().Msg("Runtime context not yet detected - registration will proceed without it")
+		return nil
+	}
+
+	cm.logger.Debug().
+		Str("runtime_type", ctx.RuntimeType.String()).
+		Str("sidecar_mode", ctx.SidecarMode.String()).
+		Msg("Including runtime context in registration")
+	return ctx
 }
 
 // GetColonyEndpoint returns the best colony endpoint for Wire Guard peer configuration.

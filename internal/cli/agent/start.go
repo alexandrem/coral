@@ -280,6 +280,23 @@ Examples:
 				logger.Info().Msg("No observed endpoint available (STUN not configured or failed), skipping discovery service registration")
 			}
 
+			// Create and start runtime service early so it's available for registration (RFD 018).
+			// This ensures the runtime context is detected before we attempt colony registration.
+			runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
+				AgentID:         agentID,
+				Logger:          logger,
+				Version:         "dev", // TODO: Get version from build info
+				RefreshInterval: 5 * time.Minute,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to create runtime service: %w", err)
+			}
+
+			if err := runtimeService.Start(); err != nil {
+				return fmt.Errorf("failed to start runtime service: %w", err)
+			}
+			defer func() { _ = runtimeService.Stop() }() // TODO: errcheck
+
 			// Create connection manager to handle registration and reconnection.
 			connMgr := NewConnectionManager(
 				agentID,
@@ -288,6 +305,7 @@ Examples:
 				serviceSpecs,
 				agentKeys.PublicKey,
 				wgDevice,
+				runtimeService,
 				logger,
 			)
 
@@ -546,21 +564,8 @@ Examples:
 				logger.Info().Msg("Agent started in passive mode - waiting for service connections via 'coral connect'")
 			}
 
-			// Create and start runtime service for status API.
-			runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
-				AgentID:         agentID,
-				Logger:          logger,
-				Version:         "dev", // TODO: Get version from build info
-				RefreshInterval: 5 * time.Minute,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create runtime service: %w", err)
-			}
-
-			if err := runtimeService.Start(); err != nil {
-				return fmt.Errorf("failed to start runtime service: %w", err)
-			}
-			defer func() { _ = runtimeService.Stop() }() // TODO: errcheck
+			// NOTE: Runtime service was created and started earlier (before ConnectionManager)
+			// to ensure runtime context is available during colony registration (RFD 018).
 
 			// Create shell handler (RFD 026).
 			shellHandler := agent.NewShellHandler(logger)
