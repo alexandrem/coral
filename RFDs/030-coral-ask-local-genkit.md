@@ -15,6 +15,21 @@ areas: ["ai", "cli", "mcp"]
 
 **Status:** 🚧 Draft
 
+> **Implementation Viability (2025-11):** ✅ Viable with simplifications.
+>
+> **Prerequisites met:**
+> - Colony MCP server implemented (RFD 004) with 16 tools
+> - Genkit Go SDK integrated (`v1.1.0`)
+> - Tool execution works via both MCP stdio and direct RPC
+>
+> **Recommended simplifications for v1:**
+> - Use **embedded mode** (not daemon) - simpler, cloud API latency dominates
+> - Call Colony tools via **direct gRPC** (not MCP) - single binary optimization
+> - MCP client layer only needed for external tool composition
+>
+> **Dependencies:** Genkit provider plugins for OpenAI/Anthropic/Ollama need
+> verification against current SDK API before implementation.
+
 ## Summary
 
 Implement `coral ask` CLI command using local Genkit-powered LLM agent that
@@ -59,9 +74,9 @@ model choice, and maintains cost control at the developer level.
 Implement `coral ask` as a CLI command that spawns or connects to a local Genkit
 agent process. The agent loads the developer's chosen LLM model (local via
 Ollama or cloud via API keys) and connects to the current Colony as an MCP
-client. Colony provides MCP tools for data access (`query_trace_data`,
-`get_service_topology`, etc.), and the LLM performs reasoning on the developer's
-machine.
+client. Colony provides MCP tools for data access (`coral_query_beyla_traces`,
+`coral_get_service_topology`, etc.), and the LLM performs reasoning on the
+developer's machine.
 
 **Key Design Decisions:**
 
@@ -253,11 +268,11 @@ Finding: Checkout p95 latency increased 45% in last 30 minutes
 Root cause:
 1. Payment API latency spike (p95: 800ms → 1400ms)
    - Evidence: traces show timeout retries increased 3x
-   - Source: query_trace_data(service="payment", window="1h")
+   - Source: coral_query_beyla_traces(service="payment", time_range="1h")
 
 2. Database connection pool exhaustion
    - Pool utilization: 92% (threshold: 80%)
-   - Source: query_metrics(metric="db.pool.utilization")
+   - Source: coral_query_beyla_sql_metrics(service="database", time_range="1h")
 
 Recommendation:
   Investigate payment API (possible downstream issue)
@@ -282,7 +297,7 @@ coral ask "list unhealthy services" --json
 {
   "answer": "3 services are unhealthy...",
   "citations": [
-    {"tool": "query_metrics", "data": {...}}
+    {"tool": "coral_get_service_health", "data": {...}}
   ]
 }
 
@@ -488,8 +503,11 @@ Continue? [y/N]
 - ❌ Slower CLI startup (library loading)
 - Use case: Single-turn queries, minimal setup
 
-**Recommendation:** Default to daemon mode for best UX, with auto-shutdown after
-idle timeout.
+**Recommendation:** Default to **embedded mode** for initial implementation.
+Cloud API latency dominates model loading time, so daemon overhead is not
+justified for v1. Daemon mode can be added later for local models (Ollama) where
+model loading is expensive. Embedded mode simplifies implementation significantly
+(no socket management, no daemon lifecycle).
 
 ### Genkit Go Integration
 
@@ -511,26 +529,30 @@ require (
 // Simplified - actual implementation in internal/agent/genkit
 import (
     "github.com/firebase/genkit/go/genkit"
-    "github.com/firebase/genkit/go/plugins/openai"
+    "github.com/firebase/genkit/go/plugins/googlegenai"  // or openai, ollama
 )
 
-// Initialize Genkit with OpenAI provider
+// Initialize Genkit runtime
 ctx := context.Background()
-if err := openai.Init(ctx, &openai.Config{
-    APIKey: os.Getenv("OPENAI_API_KEY"),
-}); err != nil {
-    return err
-}
+g := genkit.Init(ctx)
 
-// Define model
-model := genkit.DefineModel("openai", "gpt-4o-mini", nil)
+// Initialize provider plugin (API key from env)
+googlegenai.Init(ctx, g, nil)  // Uses GOOGLE_API_KEY env var
 
-// Generate response with tool calls
-resp, err := model.Generate(ctx, &genkit.GenerateRequest{
-    Messages: messages,
-    Tools:    mcpTools,  // Colony MCP tools
+// Get model reference
+model := googlegenai.Model(g, "gemini-1.5-flash")
+
+// Generate response with Colony MCP tools
+resp, err := genkit.Generate(ctx, g, genkit.GenerateRequest{
+    Model:   model,
+    Prompt:  "Why is checkout slow?",
+    Tools:   colonyMCPTools,  // Tools from Colony MCP server
 })
 ```
+
+> **Note**: Genkit Go SDK API is evolving. Verify imports and patterns against
+> current documentation at https://firebase.google.com/docs/genkit-go before
+> implementation.
 
 ### MCP Tool Reference
 
