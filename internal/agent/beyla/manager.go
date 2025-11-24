@@ -694,10 +694,12 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create beyla config file: %w", err)
 	}
-	defer configFile.Close()
+	defer func(configFile *os.File) {
+		_ = configFile.Close() // TODO: errcheck
+	}(configFile)
 
 	if _, err := configFile.Write(data); err != nil {
-		os.Remove(configFile.Name())
+		_ = os.Remove(configFile.Name())
 		return "", fmt.Errorf("failed to write beyla config file: %w", err)
 	}
 
