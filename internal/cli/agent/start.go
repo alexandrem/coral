@@ -479,6 +479,7 @@ Examples:
 
 			// Start OTLP receiver if telemetry is not disabled (RFD 025).
 			// Telemetry is enabled by default and uses the shared database.
+			// This receiver handles BOTH application telemetry AND Beyla's output.
 			var otlpReceiver *agent.TelemetryReceiver
 			if !agentCfg.Telemetry.Disabled && sharedDB != nil {
 				logger.Info().Msg("Starting OTLP receiver for telemetry collection")

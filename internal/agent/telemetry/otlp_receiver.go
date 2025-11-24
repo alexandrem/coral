@@ -235,12 +235,23 @@ func (w *traceServiceWrapper) Export(
 					continue
 				}
 
-				// Store in local storage.
-				if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
-					w.receiver.logger.Warn().
-						Err(err).
-						Str("trace_id", span.TraceID).
-						Msg("Failed to store span")
+				// Use custom handler if configured (e.g., Beyla routes to beyla_traces_local).
+				// Otherwise, store in default storage (otel_spans_local).
+				if w.receiver.config.SpanHandler != nil {
+					if err := w.receiver.config.SpanHandler(ctx, span); err != nil {
+						w.receiver.logger.Warn().
+							Err(err).
+							Str("trace_id", span.TraceID).
+							Msg("SpanHandler failed to process span")
+					}
+				} else {
+					// Store in local storage (default behavior).
+					if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
+						w.receiver.logger.Warn().
+							Err(err).
+							Str("trace_id", span.TraceID).
+							Msg("Failed to store span")
+					}
 				}
 			}
 		}

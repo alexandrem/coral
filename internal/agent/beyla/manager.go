@@ -400,30 +400,32 @@ func (m *Manager) GetDatabasePath() string {
 
 // startOTLPReceiver starts an embedded OTLP receiver using RFD 025 infrastructure.
 func (m *Manager) startOTLPReceiver() error {
-	if m.storage == nil {
-		return fmt.Errorf("storage not initialized; database required for OTLP receiver")
+	if m.beylaStorage == nil {
+		return fmt.Errorf("beyla storage not initialized; database required for OTLP receiver")
 	}
 
 	m.logger.Info().
 		Str("endpoint", m.config.OTLPEndpoint).
-		Msg("Starting OTLP receiver (RFD 025)")
+		Msg("Starting Beyla OTLP receiver")
 
-	// Configure OTLP receiver to use Beyla's endpoint.
-	// Parse the endpoint to get gRPC and HTTP endpoints.
-	// Default: localhost:4318 for HTTP (Beyla default)
+	// Configure OTLP receiver for Beyla's output.
+	// Use ports 4319/4320 to avoid conflict with the shared OTLP receiver (4317/4318)
+	// which handles user application telemetry.
 	otlpConfig := telemetry.Config{
 		Disabled:              false,
-		GRPCEndpoint:          "127.0.0.1:4317", // Standard OTLP gRPC port
-		HTTPEndpoint:          "127.0.0.1:4318", // Standard OTLP HTTP port
+		GRPCEndpoint:          "127.0.0.1:4319", // Beyla-specific gRPC port (avoids 4317 conflict).
+		HTTPEndpoint:          "127.0.0.1:4320", // Beyla-specific HTTP port (avoids 4318 conflict).
 		StorageRetentionHours: 1,
 		Filters: telemetry.FilterConfig{
 			AlwaysCaptureErrors:    true,
 			HighLatencyThresholdMs: 500.0,
 			SampleRate:             m.config.SamplingRate,
 		},
+		// Route Beyla traces to beyla_traces_local instead of otel_spans_local.
+		SpanHandler: m.handleBeylaSpan,
 	}
 
-	// Create OTLP receiver.
+	// Create OTLP receiver (storage can be nil since we use SpanHandler).
 	receiver, err := telemetry.NewOTLPReceiver(otlpConfig, m.storage, m.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create OTLP receiver: %w", err)
@@ -436,87 +438,59 @@ func (m *Manager) startOTLPReceiver() error {
 
 	m.otlpReceiver = receiver
 
-	// Start trace and metrics consumer goroutines.
-	m.wg.Add(2)
-	go m.consumeTraces()
+	// Start metrics consumer goroutine (traces are handled via SpanHandler).
+	m.wg.Add(1)
 	go m.consumeMetrics()
 
 	// Start Beyla metrics cleanup loop (RFD 032 Phase 4).
-	if m.beylaStorage != nil {
-		// Use configured retention or default to 1 hour.
-		retention := 1 * time.Hour
-		if m.config.StorageRetentionHours > 0 {
-			retention = time.Duration(m.config.StorageRetentionHours) * time.Hour
-		}
-		m.logger.Info().
-			Dur("retention", retention).
-			Msg("Starting Beyla metrics cleanup loop")
-		go m.beylaStorage.RunCleanupLoop(m.ctx, retention)
+	// Use configured retention or default to 1 hour.
+	retention := 1 * time.Hour
+	if m.config.StorageRetentionHours > 0 {
+		retention = time.Duration(m.config.StorageRetentionHours) * time.Hour
 	}
+	m.logger.Info().
+		Dur("retention", retention).
+		Msg("Starting Beyla metrics cleanup loop")
+	go m.beylaStorage.RunCleanupLoop(m.ctx, retention)
 
-	m.logger.Info().Msg("OTLP receiver started successfully")
+	m.logger.Info().Msg("Beyla OTLP receiver started successfully")
 	return nil
 }
 
-// consumeTraces consumes traces from the OTLP receiver and transforms them for Beyla.
-func (m *Manager) consumeTraces() {
-	defer m.wg.Done()
-	m.logger.Info().Msg("Starting trace consumer")
+// handleBeylaSpan is the SpanHandler callback that routes Beyla traces to beyla_traces_local.
+func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) error {
+	// Convert duration from ms to microseconds.
+	durationUs := int64(span.DurationMs * 1000)
 
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-m.ctx.Done():
-			m.logger.Info().Msg("Trace consumer stopped")
-			return
-
-		case <-ticker.C:
-			// Query recent spans from storage.
-			endTime := time.Now()
-			startTime := endTime.Add(-10 * time.Second)
-
-			spans, err := m.otlpReceiver.QuerySpans(m.ctx, startTime, endTime, nil)
-			if err != nil {
-				m.logger.Error().Err(err).Msg("Failed to query spans")
-				continue
-			}
-
-			// Transform and forward spans.
-			for i := range spans {
-				trace := m.transformSpanToBeylaTrace(&spans[i])
-				select {
-				case m.tracesCh <- trace:
-				case <-m.ctx.Done():
-					return
-				default:
-					// Channel full, drop span.
-					m.logger.Warn().Msg("Trace channel full, dropping span")
-				}
-			}
-
-			if len(spans) > 0 {
-				m.logger.Debug().Int("count", len(spans)).Msg("Processed Beyla traces")
-			}
-		}
+	// Determine status code from HTTP status or error flag.
+	statusCode := 0
+	if span.IsError {
+		statusCode = 2 // ERROR status
+	} else if span.HTTPStatus >= 400 {
+		statusCode = 2 // ERROR status for HTTP errors
 	}
-}
 
-// transformSpanToBeylaTrace transforms an OTLP span to Beyla trace format.
-func (m *Manager) transformSpanToBeylaTrace(span *telemetry.Span) *BeylaTrace {
-	return &BeylaTrace{
-		TraceID:      span.TraceID,
-		SpanID:       span.SpanID,
-		ParentSpanID: "", // TODO: Extract from span if available
-		ServiceName:  span.ServiceName,
-		SpanName:     span.HTTPRoute, // Use HTTP route as span name
-		SpanKind:     span.SpanKind,
-		StartTime:    span.Timestamp.Format(time.RFC3339),
-		DurationUs:   int64(span.DurationMs * 1000), // Convert ms to microseconds
-		StatusCode:   span.HTTPStatus,
-		Attributes:   span.Attributes,
+	// Use HTTP route as span name, fallback to service name.
+	spanName := span.HTTPRoute
+	if spanName == "" {
+		spanName = span.ServiceName
 	}
+
+	// Store in beyla_traces_local table.
+	return m.beylaStorage.StoreOTLPSpan(
+		ctx,
+		"", // agentID - not available from OTLP span, will be empty
+		span.TraceID,
+		span.SpanID,
+		"", // parentSpanID - not available from telemetry.Span
+		span.ServiceName,
+		spanName,
+		span.SpanKind,
+		span.Timestamp,
+		durationUs,
+		statusCode,
+		span.Attributes,
+	)
 }
 
 // consumeMetrics consumes metrics from the OTLP receiver and transforms them for Beyla.
@@ -692,18 +666,17 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	}
 
 	// OTLP export endpoint (gRPC).
-	if m.config.OTLPEndpoint != "" {
-		// Beyla requires http:// prefix even for gRPC (uses HTTP/2 transport).
-		endpoint := "http://" + m.config.OTLPEndpoint
-		cfg.OtelTracesExport = &struct {
-			Endpoint string `yaml:"endpoint,omitempty"`
-			Protocol string `yaml:"protocol,omitempty"`
-		}{Endpoint: endpoint, Protocol: "grpc"}
-		cfg.OtelMetricsExport = &struct {
-			Endpoint string `yaml:"endpoint,omitempty"`
-			Protocol string `yaml:"protocol,omitempty"`
-		}{Endpoint: endpoint, Protocol: "grpc"}
-	}
+	// Beyla exports to the Beyla-specific OTLP receiver on port 4319 (not the shared 4317).
+	// This avoids conflict with the shared OTLP receiver that handles user application telemetry.
+	beylaOTLPEndpoint := "http://127.0.0.1:4319"
+	cfg.OtelTracesExport = &struct {
+		Endpoint string `yaml:"endpoint,omitempty"`
+		Protocol string `yaml:"protocol,omitempty"`
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+	cfg.OtelMetricsExport = &struct {
+		Endpoint string `yaml:"endpoint,omitempty"`
+		Protocol string `yaml:"protocol,omitempty"`
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
 
 	// Use wildcard route matching to capture all routes.
 	cfg.Routes = &struct {
