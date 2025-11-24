@@ -20,6 +20,7 @@ type Loader struct {
 
 // NewLoader creates a new config loader.
 // The base directory can be overridden via CORAL_CONFIG environment variable.
+// For containerized agents in config-less mode, falls back to /tmp if home dir unavailable.
 func NewLoader() (*Loader, error) {
 	// Check for CORAL_CONFIG env var override (RFD 050).
 	if baseDir := os.Getenv("CORAL_CONFIG"); baseDir != "" {
@@ -30,6 +31,13 @@ func NewLoader() (*Loader, error) {
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
+		// Config-less mode fallback: if we have CORAL_COLONY_SECRET, we can
+		// run without a home directory by using /tmp as the base.
+		if os.Getenv("CORAL_COLONY_SECRET") != "" {
+			return &Loader{
+				homeDir: "/tmp",
+			}, nil
+		}
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
 

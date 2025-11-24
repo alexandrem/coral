@@ -98,6 +98,8 @@ func (r *Resolver) ResolveWithSource() (string, ResolutionSource, error) {
 }
 
 // ResolveConfig loads and merges configuration for a colony.
+// For containerized agents, supports "config-less" mode where only CORAL_COLONY_ID
+// and CORAL_COLONY_SECRET env vars are required (no colony config file needed).
 func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 	// Load all config sources
 	globalConfig, err := r.loader.LoadGlobalConfig()
@@ -107,7 +109,13 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 
 	colonyConfig, err := r.loader.LoadColonyConfig(colonyID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load colony config: %w", err)
+		// Config-less mode: if colony config file doesn't exist but we have
+		// CORAL_COLONY_SECRET env var, create a synthetic config for agents.
+		if os.Getenv("CORAL_COLONY_SECRET") != "" {
+			colonyConfig = DefaultColonyConfig(colonyID, colonyID, "container")
+		} else {
+			return nil, fmt.Errorf("failed to load colony config: %w", err)
+		}
 	}
 
 	projectConfig, err := LoadProjectConfig(r.projectDir)
