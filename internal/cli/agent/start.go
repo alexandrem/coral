@@ -439,6 +439,7 @@ Examples:
 			if sharedDB != nil {
 				beylaConfig = &beyla.Config{
 					Enabled:               true,
+					OTLPEndpoint:          "127.0.0.1:4317", // Local OTLP gRPC receiver
 					DB:                    sharedDB,
 					DBPath:                sharedDBPath,
 					StorageRetentionHours: 1, // Default: 1 hour

@@ -5,7 +5,7 @@
 set -e
 
 # Beyla version to download.
-BEYLA_VERSION="${BEYLA_VERSION:-v1.8.7}"
+BEYLA_VERSION="${BEYLA_VERSION:-v2.7.8}"
 
 # Get the directory where this script is located.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +38,7 @@ for platform in "${PLATFORMS[@]}"; do
     fi
 
     # Construct download URL.
-    # Beyla releases use format: beyla-linux-amd64-v1.8.7.tar.gz
+    # Beyla releases use format: beyla-linux-amd64-v2.7.8.tar.gz
     archive_name="beyla-${platform}-${BEYLA_VERSION}.tar.gz"
     download_url="${GITHUB_RELEASES}/${BEYLA_VERSION}/${archive_name}"
 
