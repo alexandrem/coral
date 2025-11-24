@@ -215,7 +215,7 @@ colonies:
 ### Phase 2: Core Agent Implementation
 
 - [x] Implement provider abstraction for multi-provider support
-- [ ] Implement LLM API clients (OpenAI, Anthropic, Ollama)
+- [x] Implement LLM API clients using Genkit (OpenAI, Google AI, Ollama)
 - [ ] Add MCP client implementation (connect to Colony via discovered mesh IP)
 - [x] Implement conversation context management (history, pruning)
 
@@ -634,58 +634,53 @@ Tools exposed by Colony MCP server (consumed by Genkit agent). All tools use the
 
 **Core Capability:** 🔄 In Progress
 
-CLI command and configuration framework are complete. The `coral ask` command
-is registered and functional with configuration resolution, but LLM provider
-integration and MCP client connectivity are pending.
+CLI command, configuration, and Genkit LLM integration are complete. The `coral ask` command can now make actual LLM API calls to OpenAI, Google AI, and Ollama. MCP client integration for Colony tool access is pending.
 
 **What Works Now:**
 
 - ✅ CLI command: `coral ask <question>` with flags (`--model`, `--continue`, `--json`, `--stream`)
 - ✅ Configuration: `ai.ask` section in `~/.coral/config.yaml` with per-colony overrides
 - ✅ Config resolution: Full hierarchy (env vars → colony → global → defaults)
-- ✅ Agent framework: Provider abstraction for OpenAI, Anthropic, Ollama
+- ✅ Genkit LLM integration: OpenAI (via compat_oai), Google AI, Ollama
+- ✅ Actual LLM API calls: Generates real responses from configured models
 - ✅ Conversation management: Context tracking with auto-pruning
 - ✅ Build verification: Compiles successfully, all tests pass
 
-**What Returns Placeholder Responses:**
+**Example Usage:**
+```bash
+# Set API key
+export OPENAI_API_KEY=sk-...
 
-- LLM provider API calls (OpenAI, Anthropic, Ollama) - stubs return "integration pending"
-- MCP client connectivity - not yet connecting to Colony MCP server
-- Tool calling - MCP tools not yet integrated
+# Configure model in ~/.coral/config.yaml
+# ai:
+#   ask:
+#     default_model: "openai:gpt-4o-mini"
+#     api_keys:
+#       openai: "env://OPENAI_API_KEY"
+
+# Ask a question (requires running colony for MCP tools)
+coral ask "test question"
+```
+
+**What's Pending:**
+
+- MCP client connectivity - not yet connecting to Colony MCP server for tool access
+- Tool calling - MCP tools not yet integrated with LLM
 - Streaming output - basic print, not progressive rendering
+- Conversation persistence - `--continue` flag needs implementation
 
 **Files Added:**
 - `internal/config/schema.go` - AskConfig structs (updated)
 - `internal/config/ask_resolver.go` - Config resolution logic
 - `internal/cli/ask/ask.go` - CLI command implementation
-- `internal/agent/genkit/agent.go` - Agent core
-- `internal/agent/genkit/provider.go` - Provider abstraction
+- `internal/agent/genkit/agent.go` - Genkit-powered agent with LLM integration
 - `internal/agent/genkit/conversation.go` - Context management
 
 ## Deferred Features
 
 The following features are deferred to complete the core `coral ask` capability:
 
-### LLM Provider Integration (Required for Core Functionality)
-
-**OpenAI Provider:**
-- HTTP client for OpenAI Chat Completions API
-- Tool calling support via function calling
-- Streaming response handling
-- Error handling and retries
-
-**Anthropic Provider:**
-- HTTP client for Anthropic Messages API
-- Tool use format conversion
-- Streaming response handling
-- Error handling and retries
-
-**Ollama Provider:**
-- HTTP client for Ollama local API (localhost:11434)
-- Tool calling support if available in model
-- Graceful fallback when Ollama not running
-
-### MCP Client Integration (Required for Core Functionality)
+### MCP Client Integration (Required for Core Functionality - In Progress)
 
 - Connect to Colony's MCP server via WireGuard mesh IP
 - Discover Colony endpoint from configuration
