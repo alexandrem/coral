@@ -116,10 +116,11 @@ Developer Machine                      Colony (Control Plane)
 │ │ - Colony MCP tools     │ │        │  WireGuard Mesh               │
 │ └────────────────────────┘ │        │  (via coral proxy)            │
 │                            │        │                               │
-│ Config:                    │        └───────────────────────────────┘
+│ Config (local):            │        └───────────────────────────────┘
 │ ~/.coral/config.yaml       │
-│ - API keys (env refs)      │
-│ - Model preferences        │
+│   ai.ask:                  │
+│   - API keys (env refs)    │
+│   - Model preferences      │
 └────────────────────────────┘
 ```
 
@@ -138,10 +139,11 @@ Developer Machine                      Colony (Control Plane)
     - Execute LLM reasoning with MCP tool calls
     - Manage conversation context and token budgets
 
-3. **Configuration** (`~/.coral/config.yaml`):
-    - New `ask` section for LLM configuration
+3. **Configuration** (`~/.coral/config.yaml` - local to developer machine):
+    - Extends existing `ai` section with new `ask` subsection
+    - Config path: `ai.ask` in global config
     - Support for multiple providers with fallbacks
-    - Model-specific overrides
+    - Optional per-colony overrides in `colonies.<colony-id>.ask`
 
 4. **MCP Integration** (uses existing `coral proxy` implementation):
     - Colony already exposes MCP server (RFD 004)
@@ -151,32 +153,44 @@ Developer Machine                      Colony (Control Plane)
 **Configuration Example:**
 
 ```yaml
-# ~/.coral/config.yaml
-ask:
-  # Default model (Genkit provider format)
-  default_model: "openai:gpt-4o-mini"
+# ~/.coral/config.yaml (local to developer machine)
+version: "1"
+default_colony: "my-app-prod"
 
-  # Fallback models (tried in order if primary fails)
-  fallback_models:
-    - "anthropic:claude-3-5-sonnet-20241022"
-    - "ollama:llama3.2"
+discovery:
+  endpoint: "http://localhost:8080"
 
-  # API keys (reference environment variables - NEVER plain text)
-  api_keys:
-    openai: "env://OPENAI_API_KEY"
-    anthropic: "env://ANTHROPIC_API_KEY"
+# AI configuration (extends existing ai section)
+ai:
+  provider: "anthropic"  # Existing field
+  api_key_source: "env"  # Existing field
 
-  # Conversation settings
-  conversation:
-    max_turns: 10             # Conversation history limit
-    context_window: 8192      # Max tokens for context
-    auto_prune: true          # Prune old messages when limit reached
+  # NEW: coral ask LLM configuration
+  ask:
+    # Default model (Genkit provider format)
+    default_model: "openai:gpt-4o-mini"
 
-  # Agent deployment mode
-  agent:
-    mode: "daemon"            # "daemon" | "ephemeral" | "embedded"
-    daemon_socket: "~/.coral/ask-agent.sock"
-    idle_timeout: "10m"       # Shutdown daemon after inactivity
+    # Fallback models (tried in order if primary fails)
+    fallback_models:
+      - "anthropic:claude-3-5-sonnet-20241022"
+      - "ollama:llama3.2"
+
+    # API keys (reference environment variables - NEVER plain text)
+    api_keys:
+      openai: "env://OPENAI_API_KEY"
+      anthropic: "env://ANTHROPIC_API_KEY"
+
+    # Conversation settings
+    conversation:
+      max_turns: 10             # Conversation history limit
+      context_window: 8192      # Max tokens for context
+      auto_prune: true          # Prune old messages when limit reached
+
+    # Agent deployment mode
+    agent:
+      mode: "embedded"          # "daemon" | "ephemeral" | "embedded"
+      daemon_socket: "~/.coral/ask-agent.sock"
+      idle_timeout: "10m"       # Shutdown daemon after inactivity
 
 # Per-colony overrides (optional)
 colonies:
@@ -275,13 +289,28 @@ coral ask "list unhealthy services" --json
 
 ### Configuration Changes
 
-New `ask` section in `~/.coral/config.yaml`:
+New `ai.ask` subsection in `~/.coral/config.yaml` (extends existing `ai` section):
 
-- `ask.default_model`: Primary model to use (Genkit provider format)
-- `ask.fallback_models`: Array of fallback models
-- `ask.api_keys`: Map of provider → env variable reference
-- `ask.conversation.max_turns`: Conversation history limit
-- `ask.agent.mode`: Agent deployment mode (`daemon`|`ephemeral`|`embedded`)
+- `ai.ask.default_model`: Primary model to use (Genkit provider format)
+- `ai.ask.fallback_models`: Array of fallback models
+- `ai.ask.api_keys`: Map of provider → env variable reference
+- `ai.ask.conversation.max_turns`: Conversation history limit
+- `ai.ask.agent.mode`: Agent deployment mode (`daemon`|`ephemeral`|`embedded`)
+- `colonies.<colony-id>.ask`: Optional per-colony overrides for model selection
+
+**Rationale for global config:**
+- LLM runs on developer's machine (not in Colony)
+- Extends existing `ai` section (already contains `provider` and `api_key_source`)
+- Developer's personal preferences (model choice, API keys)
+- Consistent with Coral's configuration hierarchy for user-level settings
+
+**Configuration hierarchy (follows standard Coral precedence):**
+1. **Environment variables** (highest priority) - e.g., `CORAL_ASK_MODEL`
+2. **Project config** - `<project>/.coral/config.yaml` (if project-specific overrides needed)
+3. **Colony overrides** - `colonies.<colony-id>.ask` (for colony-specific model selection)
+4. **Global defaults** - `ai.ask` section (developer's default preferences)
+5. **CLI flags** - e.g., `--model` (runtime overrides)
+6. **Built-in defaults** (lowest priority)
 
 ### Genkit Provider Format
 
@@ -348,13 +377,16 @@ coral ask "status"
 **Configuration validation:**
 
 ```yaml
-# GOOD: Environment variable reference
-api_keys:
-  openai: "env://OPENAI_API_KEY"
+# ~/.coral/config.yaml
+ai:
+  ask:
+    # GOOD: Environment variable reference
+    api_keys:
+      openai: "env://OPENAI_API_KEY"
 
-# BAD: Plain text (rejected by config validator)
-api_keys:
-  openai: "sk-proj-abc123..."  # ERROR: Plain text API keys not allowed
+    # BAD: Plain text (rejected by config validator)
+    api_keys:
+      openai: "sk-proj-abc123..."  # ERROR: Plain text API keys not allowed
 ```
 
 ### Data Privacy
@@ -407,8 +439,8 @@ Continue? [y/N]
 1. Deploy Colony MCP server updates (if needed, likely already implemented via
    `coral proxy`)
 2. Release CLI with `coral ask` command
-3. Users configure API keys in `~/.coral/config.yaml`
-4. First run prompts for model selection and API key setup
+3. Users configure API keys in `~/.coral/config.yaml` under `ai.ask` section
+4. First run prompts for model selection and API key setup (creates/updates `ai.ask` config)
 
 **No breaking changes:**
 
