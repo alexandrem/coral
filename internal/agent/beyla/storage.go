@@ -385,6 +385,50 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 	return nil
 }
 
+// StoreOTLPSpan stores a span from the OTLP receiver into beyla_traces_local.
+// This is used by the Beyla manager's SpanHandler to route Beyla traces
+// to the correct table instead of otel_spans_local.
+func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceID, spanID, parentSpanID, serviceName, spanName, spanKind string, startTime time.Time, durationUs int64, statusCode int, attributes map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Convert attributes to JSON.
+	attributesJSON, err := json.Marshal(attributes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attributes: %w", err)
+	}
+
+	query := `
+		INSERT INTO beyla_traces_local (
+			trace_id, span_id, parent_span_id, agent_id, service_name, span_name, span_kind,
+			start_time, duration_us, status_code, attributes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (trace_id, span_id) DO NOTHING
+	`
+
+	_, err = s.db.ExecContext(
+		ctx,
+		query,
+		traceID,
+		spanID,
+		parentSpanID,
+		agentID,
+		serviceName,
+		spanName,
+		spanKind,
+		startTime,
+		durationUs,
+		statusCode,
+		string(attributesJSON),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to insert OTLP span: %w", err)
+	}
+
+	return nil
+}
+
 // QueryHTTPMetrics queries HTTP metrics from local storage.
 func (s *BeylaStorage) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
 	s.mu.RLock()
