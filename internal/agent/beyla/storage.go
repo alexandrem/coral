@@ -147,6 +147,12 @@ func (s *BeylaStorage) initSchema() error {
 		return fmt.Errorf("failed to create traces schema: %w", err)
 	}
 
+	// Force WAL checkpoint so remote HTTP clients can see the schema.
+	// Without this, the tables might not be visible when serving the file over HTTP.
+	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to checkpoint database (tables may not be visible to remote clients)")
+	}
+
 	s.logger.Info().Msg("Beyla storage schema initialized")
 	return nil
 }
