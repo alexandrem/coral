@@ -147,13 +147,21 @@ func (s *BeylaStorage) initSchema() error {
 		return fmt.Errorf("failed to create traces schema: %w", err)
 	}
 
-	// Force WAL checkpoint so remote HTTP clients can see the schema.
-	// Without this, the tables might not be visible when serving the file over HTTP.
-	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
-		s.logger.Warn().Err(err).Msg("Failed to checkpoint database (tables may not be visible to remote clients)")
+	s.logger.Info().Msg("Beyla storage schema initialized")
+
+	// Set a low WAL auto-checkpoint limit (e.g., 4MB) to ensure data is flushed frequently
+	// and becomes visible to remote readers without manual checkpointing.
+	if _, err := s.db.Exec("PRAGMA wal_autocheckpoint='4MB'"); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to set WAL auto-checkpoint limit")
 	}
 
-	s.logger.Info().Msg("Beyla storage schema initialized")
+	// Attempt an initial checkpoint to ensure tables are visible immediately.
+	// We do NOT use FORCE CHECKPOINT as it can abort active transactions.
+	// If this fails (e.g. due to contention), we log and continue, relying on auto-checkpoint.
+	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		s.logger.Warn().Err(err).Msg("Initial checkpoint failed (tables may take a moment to appear remotely)")
+	}
+
 	return nil
 }
 
