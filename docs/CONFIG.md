@@ -40,8 +40,24 @@ discovery:
         - "stun.cloudflare.com:3478"
 
 ai:
-    provider: "anthropic"  # or "openai"
+    provider: "openai"  # or "google"
     api_key_source: "env"  # or "keychain", "file"
+
+    # Coral Ask configuration (RFD 030)
+    ask:
+        default_model: "openai:gpt-4o-mini"
+        fallback_models:
+            - "google:gemini-2.0-flash-exp"
+            - "ollama:llama3.2"
+        api_keys:
+            openai: "env://OPENAI_API_KEY"
+            google: "env://GOOGLE_API_KEY"
+        conversation:
+            max_turns: 10
+            context_window: 8192
+            auto_prune: true
+        agent:
+            mode: "embedded"
 
 preferences:
     auto_update_check: true
@@ -61,6 +77,125 @@ preferences:
 | `ai.api_key_source`             | string   | `env`                        | API key source: `env`, `keychain`, or `file` |
 | `preferences.auto_update_check` | bool     | `true`                       | Check for updates on startup                 |
 | `preferences.telemetry_enabled` | bool     | `false`                      | Enable anonymous telemetry                   |
+
+### AI Configuration (RFD 030)
+
+The `ai.ask` section configures the local LLM agent for `coral ask` command. The
+agent runs on your machine and connects to Colony's MCP server to access
+observability data.
+
+#### Supported Providers for `coral ask`
+
+| Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status           |
+|---------------|--------------------------------------------------------------|------------------|-------------|------------------|------------------|
+| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ✅ Full           | ✅ Supported      |
+| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported      |
+| **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ✅ Full           | ✅ Supported      |
+| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ❌ None           | ⚠️ Not Supported |
+| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ❌ None           | ⚠️ Not Supported |
+
+> **Important:** `coral ask` requires MCP tool calling to access observability
+> data from your colony.
+>
+> **Not Supported Providers:**
+> - **Grok (xAI)**: The openai-go library (v1.8.2) uses grammar constraints for
+    tool calling that Grok's API doesn't support. Results in
+    `400 Bad Request: Invalid grammar request`. May be supported in future
+    versions.
+> - **Anthropic (Claude)**: Genkit's OpenAI-compatible wrapper doesn't properly
+    integrate with Anthropic's native MCP support. We may implement a custom
+    Anthropic MCP provider in the future to enable direct integration.
+>
+> **Recommendation:** Use OpenAI (`gpt-4o-mini` for cost-effective) or Google (
+`gemini-2.0-flash-exp`) models for production `coral ask` usage.
+
+#### AI Ask Configuration Fields
+
+| Field                                | Type     | Default    | Description                                      |
+|--------------------------------------|----------|------------|--------------------------------------------------|
+| `ai.ask.default_model`               | string   | -          | Default model (format: `provider:model-id`)      |
+| `ai.ask.fallback_models`             | []string | `[]`       | Fallback models if primary fails                 |
+| `ai.ask.api_keys`                    | map      | `{}`       | API keys (use `env://VAR_NAME` format)           |
+| `ai.ask.conversation.max_turns`      | int      | `10`       | Maximum conversation turns to keep               |
+| `ai.ask.conversation.context_window` | int      | `8192`     | Maximum tokens for context                       |
+| `ai.ask.conversation.auto_prune`     | bool     | `true`     | Auto-prune old messages when limit reached       |
+| `ai.ask.agent.mode`                  | string   | `embedded` | Agent mode: `embedded`, `daemon`, or `ephemeral` |
+
+#### Model Format
+
+Models are specified as `provider:model-id`:
+
+**OpenAI (Recommended for Production):**
+
+- `openai:gpt-4o` - Latest GPT-4 Omni model (most capable)
+- `openai:gpt-4o-mini` - Faster, cheaper GPT-4 Omni (recommended)
+- `openai:gpt-4-turbo` - GPT-4 Turbo
+
+**Google (Recommended Alternative):**
+
+- `google:gemini-2.0-flash-exp` - Gemini 2.0 Flash (fast, experimental)
+- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context window)
+- `google:gemini-1.5-flash` - Gemini 1.5 Flash (cost-effective)
+
+**Ollama (Local/Air-gapped):**
+
+- `ollama:llama3.2` - Meta's Llama 3.2 (good general purpose)
+- `ollama:mistral` - Mistral AI model
+- `ollama:codellama` - Code-specialized Llama
+
+**❌ Not Supported:**
+
+- `grok:*` - Grok models don't support MCP tool calling (grammar constraint
+  limitations)
+- `anthropic:*` - Anthropic models don't work with Genkit's OpenAI-compatible
+  wrapper
+
+#### API Key Configuration
+
+**IMPORTANT:** Never store API keys in plain text. Use environment variable
+references:
+
+```yaml
+ai:
+    ask:
+        api_keys:
+            openai: "env://OPENAI_API_KEY"       # ✅ Correct
+            google: "env://GOOGLE_API_KEY"
+            # openai: "sk-proj-abc123..."        # ❌ NEVER do this
+```
+
+**Setting API Keys:**
+
+```bash
+# In your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export OPENAI_API_KEY=sk-proj-your-key-here
+export GOOGLE_API_KEY=your-google-key-here
+
+# Or for specific session
+export OPENAI_API_KEY=sk-proj-your-key-here
+coral ask "your question"
+```
+
+**Getting API Keys:**
+
+- **OpenAI**: https://platform.openai.com/api-keys
+- **Google AI**: https://aistudio.google.com/app/apikey
+- **Ollama**: No API key needed (runs locally)
+
+#### Per-Colony Overrides
+
+Override AI settings per colony for environment-specific models:
+
+```yaml
+# ~/.coral/colonies/my-app-prod.yaml
+version: "1"
+colony_id: "my-app-prod"
+
+ask:
+    default_model: "openai:gpt-4o"  # Use better model for production
+    fallback_models:
+        - "google:gemini-2.0-flash-exp"
+```
 
 ## Colony Configuration
 
@@ -723,6 +858,104 @@ For a high-traffic service (1000 req/s):
 
 Consider shorter trace retention (7 days) or sampling for very high throughput
 services.
+
+### Example 8: AI-Powered Diagnostics with Coral Ask
+
+**Global Config** (`~/.coral/config.yaml`):
+
+```yaml
+version: "1"
+default_colony: "myapp-prod"
+
+discovery:
+    endpoint: "http://localhost:8080"
+
+ai:
+    provider: "openai"
+    api_key_source: "env"
+
+    # Configure coral ask (RFD 030)
+    ask:
+        default_model: "openai:gpt-4o-mini"
+        fallback_models:
+            - "google:gemini-1.5-flash"
+            - "ollama:llama3.2"
+        api_keys:
+            openai: "env://OPENAI_API_KEY"
+            google: "env://GOOGLE_API_KEY"
+        conversation:
+            max_turns: 10
+            context_window: 8192
+            auto_prune: true
+        agent:
+            mode: "embedded"
+```
+
+**Production Colony Override** (`~/.coral/colonies/myapp-prod.yaml`):
+
+```yaml
+version: "1"
+colony_id: "myapp-prod"
+application_name: "MyApp"
+environment: "production"
+
+# Use better model for production troubleshooting
+ask:
+    default_model: "openai:gpt-4o"  # More capable model for production
+    fallback_models:
+        - "google:gemini-1.5-pro"
+
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/10"
+    public_endpoints:
+        - "colony.example.com:9000"
+
+mcp:
+    disabled: false  # MCP server required for coral ask
+```
+
+**Setup:**
+
+```bash
+# 1. Set API keys
+export OPENAI_API_KEY=sk-proj-your-key-here
+export GOOGLE_API_KEY=your-google-key-here
+
+# 2. Start colony
+coral colony start
+
+# 3. Ask questions about your application
+coral ask "what services are currently running?"
+coral ask "show me HTTP latency for the API service"
+coral ask "why is checkout slow?"
+
+# 4. Multi-turn conversations
+coral ask "what's the p95 latency?"
+coral ask "show me the slowest endpoints" --continue
+
+# 5. Override model for specific queries
+coral ask "complex root cause analysis" --model openai:gpt-4o
+
+# 6. Use local model (air-gapped/offline)
+coral ask "current system status" --model ollama:llama3.2
+
+# 7. JSON output for scripting
+coral ask "list unhealthy services" --json
+```
+
+**Key Features:**
+
+- **MCP Integration:** LLM accesses all Colony MCP tools (service health,
+  traces, metrics, logs)
+- **Multi-Provider:** Supports OpenAI, Google, and local Ollama models
+- **Smart Fallbacks:** Automatically uses fallback models if primary fails
+- **Conversation Context:** Multi-turn conversations with automatic context
+  pruning
+- **Per-Colony Models:** Use cheaper models for dev, better models for
+  production
+
+**Note:** Grok and Anthropic models are not supported due to MCP tool calling
+limitations (see Supported Providers table above).
 
 ## Configuration Validation
 
