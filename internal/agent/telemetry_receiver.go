@@ -101,6 +101,12 @@ func NewTelemetryReceiverWithSharedDB(config telemetry.Config, db *sql.DB, dbPat
 
 // Start starts the telemetry receiver.
 func (r *TelemetryReceiver) Start(ctx context.Context) error {
+	// Start cleanup loop (RFD 032).
+	// Use configured retention or default to 1 hour.
+	retention := 1 * time.Hour
+	// TODO: Pass retention from config. For now, hardcode to 1h to match default.
+	go r.storage.RunCleanupLoop(ctx, retention)
+
 	return r.receiver.Start(ctx)
 }
 

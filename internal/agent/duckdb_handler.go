@@ -52,12 +52,13 @@ func (h *DuckDBHandler) RegisterDatabase(name string, filePath string) error {
 // ServeHTTP implements http.Handler for serving DuckDB files.
 // Handles GET requests to /duckdb/<filename> (serve file) or /duckdb (list databases).
 func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Only allow GET requests (read-only).
-	if r.Method != http.MethodGet {
+	// Allow GET and HEAD requests (read-only).
+	// HEAD is used by DuckDB to check file existence and size.
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		h.logger.Warn().
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
-			Msg("Rejected non-GET request to DuckDB endpoint")
+			Msg("Rejected non-GET/HEAD request to DuckDB endpoint")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -82,6 +83,13 @@ func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	dbName := filepath.Base(pathParts[1])
 
 	// Check if database is registered (allowlist check).
+	// Also handle .wal files (e.g. metrics.duckdb.wal) if the main DB is registered.
+	isWal := false
+	if strings.HasSuffix(dbName, ".wal") {
+		dbName = strings.TrimSuffix(dbName, ".wal")
+		isWal = true
+	}
+
 	filePath, ok := h.databases[dbName]
 	if !ok {
 		h.logger.Debug().
@@ -91,8 +99,23 @@ func (h *DuckDBHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If requesting WAL, append .wal to the path.
+	if isWal {
+		filePath = filePath + ".wal"
+	}
+
 	// Verify file still exists before serving.
 	if _, err := os.Stat(filePath); err != nil {
+		// If it's a WAL file, it might have been checkpointed and removed.
+		// This is expected behavior, so just return 404 without warning.
+		if isWal && os.IsNotExist(err) {
+			h.logger.Debug().
+				Str("db_name", dbName).
+				Msg("WAL file not found (likely checkpointed)")
+			http.Error(w, "wal not found", http.StatusNotFound)
+			return
+		}
+
 		h.logger.Warn().
 			Str("db_name", dbName).
 			Str("path", filePath).

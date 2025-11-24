@@ -73,6 +73,20 @@ func (s *Storage) initSchema() error {
 	}
 
 	s.logger.Info().Msg("Telemetry storage schema initialized")
+
+	// Set a low WAL auto-checkpoint limit (e.g., 4MB) to ensure data is flushed frequently
+	// and becomes visible to remote readers without manual checkpointing.
+	if _, err := s.db.Exec("PRAGMA wal_autocheckpoint='4MB'"); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to set WAL auto-checkpoint limit")
+	}
+
+	// Attempt an initial checkpoint to ensure tables are visible immediately.
+	// We do NOT use FORCE CHECKPOINT as it can abort active transactions.
+	// If this fails (e.g. due to contention), we log and continue, relying on auto-checkpoint.
+	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		s.logger.Warn().Err(err).Msg("Initial checkpoint failed (tables may take a moment to appear remotely)")
+	}
+
 	return nil
 }
 
