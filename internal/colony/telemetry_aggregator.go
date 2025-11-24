@@ -2,7 +2,6 @@ package colony
 
 import (
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -120,23 +119,6 @@ func (a *TelemetryAggregator) Clear() {
 // getBucketKey creates a unique key for a bucket.
 func getBucketKey(agentID string, bucketTime time.Time, service, kind string) string {
 	return agentID + "|" + bucketTime.Format(time.RFC3339) + "|" + service + "|" + kind
-}
-
-// parseBucketKey parses a bucket key back into components.
-func parseBucketKey(key string) (string, time.Time, string, string) {
-	// Key format: "agent_id|bucketTime|service|kind"
-	parts := strings.SplitN(key, "|", 4)
-	if len(parts) != 4 {
-		return "", time.Time{}, "", ""
-	}
-
-	// Parse the bucket time.
-	bucketTime, err := time.Parse(time.RFC3339, parts[1])
-	if err != nil {
-		return "", time.Time{}, "", ""
-	}
-
-	return parts[0], bucketTime, parts[2], parts[3]
 }
 
 // calculatePercentiles calculates p50, p95, and p99 from a slice of durations.

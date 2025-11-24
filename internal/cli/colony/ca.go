@@ -1,3 +1,4 @@
+// Package colony provides CLI commands for colony management.
 package colony
 
 import (
@@ -65,7 +66,9 @@ func newCAStatusCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to open database: %w", err)
 			}
-			defer db.Close()
+			defer func(db *sql.DB) {
+				_ = db.Close() // TODO: errcheck
+			}(db)
 
 			// CA directory path - stored in ~/.coral/colonies/<colony-id>/ca/
 			colonyDir := resolver.GetLoader().ColonyDir(cfg.ColonyID)
@@ -202,7 +205,9 @@ WARNING: This is a sensitive operation. Use --confirm to proceed.`,
 			if err != nil {
 				return fmt.Errorf("failed to open database: %w", err)
 			}
-			defer db.Close()
+			defer func(db *sql.DB) {
+				_ = db.Close() // TODO: errcheck
+			}(db)
 
 			// CA directory path.
 			colonyDir := resolver.GetLoader().ColonyDir(cfg.ColonyID)

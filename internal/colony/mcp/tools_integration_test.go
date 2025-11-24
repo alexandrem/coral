@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coral-io/coral/internal/colony/database"
-	"github.com/coral-io/coral/internal/colony/registry"
-	"github.com/coral-io/coral/internal/logging"
 	"github.com/firebase/genkit/go/ai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coral-io/coral/internal/colony/database"
+	"github.com/coral-io/coral/internal/colony/registry"
+	"github.com/coral-io/coral/internal/logging"
 )
 
 // TestServiceHealthTool tests the coral_get_service_health tool integration.
@@ -195,9 +196,10 @@ func testServiceHealthCall(ctx *ai.ToolContext, s *Server, input ServiceHealthIn
 	} else {
 		for _, svc := range serviceStatuses {
 			statusEmoji := "✓"
-			if svc["status"] == "degraded" {
+			switch svc["status"] {
+			case "degraded":
 				statusEmoji = "⚠"
-			} else if svc["status"] == "unhealthy" {
+			case "unhealthy":
 				statusEmoji = "✗"
 			}
 
@@ -243,7 +245,7 @@ func TestServiceTopologyTool(t *testing.T) {
 		// It should list connected agents.
 		agents := server.registry.ListAll()
 
-		text := fmt.Sprintf("Service Topology:\n\n")
+		text := "Service Topology:\n\n"
 		text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
 
 		for _, agent := range agents {

@@ -21,7 +21,7 @@ func TestNew_ValidPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify database was created.
 	if db.ColonyID() != "test-colony" {
@@ -52,7 +52,7 @@ func TestNew_CreatesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify directory was created.
 	if _, err := os.Stat(storagePath); os.IsNotExist(err) {
@@ -83,7 +83,7 @@ func TestNew_DatabaseFilename(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create database: %v", err)
 			}
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 
 			expectedPath := filepath.Join(tempDir, tc.expectedFilename)
 			if db.Path() != expectedPath {
@@ -109,7 +109,7 @@ func TestPing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Test ping.
 	ctx := context.Background()
@@ -155,7 +155,7 @@ func TestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify DB() returns non-nil connection.
 	sqlDB := db.DB()

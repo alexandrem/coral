@@ -148,6 +148,20 @@ func (s *BeylaStorage) initSchema() error {
 	}
 
 	s.logger.Info().Msg("Beyla storage schema initialized")
+
+	// Set a low WAL auto-checkpoint limit (e.g., 4MB) to ensure data is flushed frequently
+	// and becomes visible to remote readers without manual checkpointing.
+	if _, err := s.db.Exec("PRAGMA wal_autocheckpoint='4MB'"); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to set WAL auto-checkpoint limit")
+	}
+
+	// Attempt an initial checkpoint to ensure tables are visible immediately.
+	// We do NOT use FORCE CHECKPOINT as it can abort active transactions.
+	// If this fails (e.g. due to contention), we log and continue, relying on auto-checkpoint.
+	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		s.logger.Warn().Err(err).Msg("Initial checkpoint failed (tables may take a moment to appear remotely)")
+	}
+
 	return nil
 }
 
@@ -385,6 +399,50 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 	return nil
 }
 
+// StoreOTLPSpan stores a span from the OTLP receiver into beyla_traces_local.
+// This is used by the Beyla manager's SpanHandler to route Beyla traces
+// to the correct table instead of otel_spans_local.
+func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceID, spanID, parentSpanID, serviceName, spanName, spanKind string, startTime time.Time, durationUs int64, statusCode int, attributes map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Convert attributes to JSON.
+	attributesJSON, err := json.Marshal(attributes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attributes: %w", err)
+	}
+
+	query := `
+		INSERT INTO beyla_traces_local (
+			trace_id, span_id, parent_span_id, agent_id, service_name, span_name, span_kind,
+			start_time, duration_us, status_code, attributes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (trace_id, span_id) DO NOTHING
+	`
+
+	_, err = s.db.ExecContext(
+		ctx,
+		query,
+		traceID,
+		spanID,
+		parentSpanID,
+		agentID,
+		serviceName,
+		spanName,
+		spanKind,
+		startTime,
+		durationUs,
+		statusCode,
+		string(attributesJSON),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to insert OTLP span: %w", err)
+	}
+
+	return nil
+}
+
 // QueryHTTPMetrics queries HTTP metrics from local storage.
 func (s *BeylaStorage) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
 	s.mu.RLock()
@@ -418,7 +476,7 @@ func (s *BeylaStorage) QueryHTTPMetrics(ctx context.Context, startTime, endTime 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query HTTP metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	// Aggregate metrics by (timestamp, service, method, route, status).
 	metricsMap := make(map[string]*ebpfpb.BeylaHttpMetrics)
@@ -523,7 +581,7 @@ func (s *BeylaStorage) QueryGRPCMetrics(ctx context.Context, startTime, endTime 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query gRPC metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	// Aggregate metrics by (timestamp, service, method, status).
 	metricsMap := make(map[string]*ebpfpb.BeylaGrpcMetrics)
@@ -625,7 +683,7 @@ func (s *BeylaStorage) QuerySQLMetrics(ctx context.Context, startTime, endTime t
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SQL metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	// Aggregate metrics by (timestamp, service, operation, table).
 	metricsMap := make(map[string]*ebpfpb.BeylaSqlMetrics)
@@ -739,7 +797,9 @@ func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traces: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close() // TODO: errcheck
+	}(rows)
 
 	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
 

@@ -5,15 +5,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"connectrpc.com/connect"
+	_ "github.com/marcboeker/go-duckdb" // Import DuckDB driver.
+
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
 	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
-	_ "github.com/marcboeker/go-duckdb" // Import DuckDB driver.
 )
 
 // AgentInfo contains information about an agent with available databases.
@@ -130,12 +132,12 @@ func createDuckDBConnection(ctx context.Context) (*sql.DB, error) {
 
 	// Load httpfs extension for HTTP remote attach.
 	if _, err := db.ExecContext(ctx, "INSTALL httpfs;"); err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to install httpfs extension: %w", err)
 	}
 
 	if _, err := db.ExecContext(ctx, "LOAD httpfs;"); err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to load httpfs extension: %w", err)
 	}
 
@@ -190,7 +192,9 @@ func listAgentDatabases(ctx context.Context, meshIP string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close() // TODO: errcheck
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("agent returned status %d", resp.StatusCode)

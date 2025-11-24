@@ -96,18 +96,19 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 	}
 
 	// Format response.
-	text := fmt.Sprintf("System Health Report:\n\n")
+	text := "System Health Report:\n\n"
 	text += fmt.Sprintf("Overall Status: %s\n\n", overallStatus)
-	text += fmt.Sprintf("Services:\n")
+	text += "Services:\n"
 
 	if len(serviceStatuses) == 0 {
 		text += "  No services connected.\n"
 	} else {
 		for _, svc := range serviceStatuses {
 			statusEmoji := "✓"
-			if svc["status"] == "degraded" {
+			switch svc["status"] {
+			case "degraded":
 				statusEmoji = "⚠"
-			} else if svc["status"] == "unhealthy" {
+			case "unhealthy":
 				statusEmoji = "✗"
 			}
 
@@ -138,7 +139,7 @@ func (s *Server) executeServiceTopologyTool(ctx context.Context, argumentsJSON s
 
 	agents := s.registry.ListAll()
 
-	text := fmt.Sprintf("Service Topology:\n\n")
+	text := "Service Topology:\n\n"
 	text += fmt.Sprintf("Connected Agents (%d):\n", len(agents))
 
 	for _, agent := range agents {

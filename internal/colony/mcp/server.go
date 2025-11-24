@@ -1,3 +1,4 @@
+// Package mcp implements the Model Context Protocol server for AI tool integration.
 package mcp
 
 import (
@@ -7,12 +8,13 @@ import (
 	"io"
 	"time"
 
-	"github.com/coral-io/coral/internal/colony/database"
-	"github.com/coral-io/coral/internal/colony/registry"
-	"github.com/coral-io/coral/internal/logging"
 	"github.com/firebase/genkit/go/genkit"
 	"github.com/firebase/genkit/go/plugins/mcp"
 	"github.com/invopop/jsonschema"
+
+	"github.com/coral-io/coral/internal/colony/database"
+	"github.com/coral-io/coral/internal/colony/registry"
+	"github.com/coral-io/coral/internal/logging"
 )
 
 // Server wraps the Genkit MCP server and provides Colony-specific tools.
@@ -24,8 +26,6 @@ type Server struct {
 	config    Config
 	logger    logging.Logger
 	startedAt time.Time
-	// toolFuncs maps tool names to their execution functions (for RPC calls).
-	toolFuncs map[string]interface{}
 }
 
 // Config contains configuration for the MCP server.
@@ -366,20 +366,8 @@ func (s *Server) auditToolCall(toolName string, args interface{}) {
 		Msg("MCP tool called")
 }
 
-// writeJSONResponse writes a JSON response to the writer.
-func writeJSONResponse(w io.Writer, data interface{}) error {
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
-}
-
-// writeTextResponse writes a text response to the writer.
-func writeTextResponse(w io.Writer, text string) error {
-	_, err := fmt.Fprintln(w, text)
-	return err
-}
-
 // runInteractive runs the MCP server in interactive mode for testing.
+// nolint: unused
 func (s *Server) runInteractive() error {
 	s.logger.Info().Msg("Running MCP server in interactive mode")
 	fmt.Println("MCP Server Interactive Mode")
@@ -424,7 +412,7 @@ func StartStdioServer(registry *registry.Registry, db *database.Database, config
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }() // TODO: errcheck
 
 	ctx := context.Background()
 	return server.ServeStdio(ctx)

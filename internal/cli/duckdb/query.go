@@ -1,3 +1,6 @@
+// Package duckdb provides CLI commands for querying DuckDB databases.
+//
+//nolint:errcheck
 package duckdb
 
 import (
@@ -161,7 +164,7 @@ func printResultsAsTable(rows interface {
 		rowCount++
 	}
 
-	w.Flush()
+	_ = w.Flush() // TODO: errcheck
 
 	fmt.Printf("\n(%d rows)\n", rowCount)
 

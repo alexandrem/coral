@@ -1,3 +1,4 @@
+// Package beyla provides integration with Beyla for eBPF-based observability.
 package beyla
 
 import (
@@ -7,12 +8,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+	"gopkg.in/yaml.v3"
+
 	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent/telemetry"
-	"github.com/rs/zerolog"
 )
 
 // Manager handles Beyla lifecycle within Coral agent (RFD 032).
@@ -36,6 +41,7 @@ type Manager struct {
 	// Beyla process management.
 	beylaCmd        *exec.Cmd
 	beylaBinaryPath string // Path to extracted binary (cleanup on stop)
+	beylaConfigPath string // Path to generated config file (cleanup on stop)
 
 	// Channels for processed Beyla data.
 	tracesCh  chan *BeylaTrace       // Beyla traces ready for Colony
@@ -170,7 +176,7 @@ func (m *Manager) Start() error {
 	defer m.mu.Unlock()
 
 	if m.running {
-		return fmt.Errorf("Beyla manager already running")
+		return fmt.Errorf("beyla manager already running")
 	}
 
 	m.logger.Info().
@@ -225,12 +231,22 @@ func (m *Manager) Stop() error {
 	}
 
 	// Cleanup extracted binary if it was in a temp directory.
+	//nolint:staticcheck // filepath.HasPrefix is deprecated but simple enough for this use case
 	if m.beylaBinaryPath != "" && filepath.HasPrefix(m.beylaBinaryPath, os.TempDir()) {
 		tmpDir := filepath.Dir(m.beylaBinaryPath)
 		if err := os.RemoveAll(tmpDir); err != nil {
 			m.logger.Error().Err(err).Str("path", tmpDir).Msg("Failed to cleanup temp Beyla binary")
 		} else {
 			m.logger.Debug().Str("path", tmpDir).Msg("Cleaned up temp Beyla binary")
+		}
+	}
+
+	// Cleanup generated config file.
+	if m.beylaConfigPath != "" {
+		if err := os.Remove(m.beylaConfigPath); err != nil && !os.IsNotExist(err) {
+			m.logger.Error().Err(err).Str("path", m.beylaConfigPath).Msg("Failed to cleanup Beyla config file")
+		} else {
+			m.logger.Debug().Str("path", m.beylaConfigPath).Msg("Cleaned up Beyla config file")
 		}
 	}
 
@@ -274,7 +290,7 @@ func (m *Manager) GetMetrics() <-chan *ebpfpb.EbpfEvent {
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryHTTPMetrics(ctx, startTime, endTime, serviceNames)
 }
@@ -283,7 +299,7 @@ func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryGRPCMetrics(ctx, startTime, endTime, serviceNames)
 }
@@ -292,7 +308,7 @@ func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QuerySQLMetrics(ctx, startTime, endTime, serviceNames)
 }
@@ -301,7 +317,7 @@ func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.T
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryTraces(ctx context.Context, startTime, endTime time.Time, serviceNames []string, traceID string, maxSpans int32) ([]*ebpfpb.BeylaTraceSpan, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryTraces(ctx, startTime, endTime, serviceNames, traceID, maxSpans)
 }
@@ -310,7 +326,7 @@ func (m *Manager) QueryTraces(ctx context.Context, startTime, endTime time.Time,
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {
 	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("Beyla storage not initialized")
+		return nil, fmt.Errorf("beyla storage not initialized")
 	}
 	return m.beylaStorage.QueryTraceByID(ctx, traceID)
 }
@@ -384,30 +400,32 @@ func (m *Manager) GetDatabasePath() string {
 
 // startOTLPReceiver starts an embedded OTLP receiver using RFD 025 infrastructure.
 func (m *Manager) startOTLPReceiver() error {
-	if m.storage == nil {
-		return fmt.Errorf("storage not initialized; database required for OTLP receiver")
+	if m.beylaStorage == nil {
+		return fmt.Errorf("beyla storage not initialized; database required for OTLP receiver")
 	}
 
 	m.logger.Info().
 		Str("endpoint", m.config.OTLPEndpoint).
-		Msg("Starting OTLP receiver (RFD 025)")
+		Msg("Starting Beyla OTLP receiver")
 
-	// Configure OTLP receiver to use Beyla's endpoint.
-	// Parse the endpoint to get gRPC and HTTP endpoints.
-	// Default: localhost:4318 for HTTP (Beyla default)
+	// Configure OTLP receiver for Beyla's output.
+	// Use ports 4319/4320 to avoid conflict with the shared OTLP receiver (4317/4318)
+	// which handles user application telemetry.
 	otlpConfig := telemetry.Config{
 		Disabled:              false,
-		GRPCEndpoint:          "127.0.0.1:4317", // Standard OTLP gRPC port
-		HTTPEndpoint:          m.config.OTLPEndpoint,
+		GRPCEndpoint:          "127.0.0.1:4319", // Beyla-specific gRPC port (avoids 4317 conflict).
+		HTTPEndpoint:          "127.0.0.1:4320", // Beyla-specific HTTP port (avoids 4318 conflict).
 		StorageRetentionHours: 1,
 		Filters: telemetry.FilterConfig{
 			AlwaysCaptureErrors:    true,
 			HighLatencyThresholdMs: 500.0,
 			SampleRate:             m.config.SamplingRate,
 		},
+		// Route Beyla traces to beyla_traces_local instead of otel_spans_local.
+		SpanHandler: m.handleBeylaSpan,
 	}
 
-	// Create OTLP receiver.
+	// Create OTLP receiver (storage can be nil since we use SpanHandler).
 	receiver, err := telemetry.NewOTLPReceiver(otlpConfig, m.storage, m.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create OTLP receiver: %w", err)
@@ -420,87 +438,59 @@ func (m *Manager) startOTLPReceiver() error {
 
 	m.otlpReceiver = receiver
 
-	// Start trace and metrics consumer goroutines.
-	m.wg.Add(2)
-	go m.consumeTraces()
+	// Start metrics consumer goroutine (traces are handled via SpanHandler).
+	m.wg.Add(1)
 	go m.consumeMetrics()
 
 	// Start Beyla metrics cleanup loop (RFD 032 Phase 4).
-	if m.beylaStorage != nil {
-		// Use configured retention or default to 1 hour.
-		retention := 1 * time.Hour
-		if m.config.StorageRetentionHours > 0 {
-			retention = time.Duration(m.config.StorageRetentionHours) * time.Hour
-		}
-		m.logger.Info().
-			Dur("retention", retention).
-			Msg("Starting Beyla metrics cleanup loop")
-		go m.beylaStorage.RunCleanupLoop(m.ctx, retention)
+	// Use configured retention or default to 1 hour.
+	retention := 1 * time.Hour
+	if m.config.StorageRetentionHours > 0 {
+		retention = time.Duration(m.config.StorageRetentionHours) * time.Hour
 	}
+	m.logger.Info().
+		Dur("retention", retention).
+		Msg("Starting Beyla metrics cleanup loop")
+	go m.beylaStorage.RunCleanupLoop(m.ctx, retention)
 
-	m.logger.Info().Msg("OTLP receiver started successfully")
+	m.logger.Info().Msg("Beyla OTLP receiver started successfully")
 	return nil
 }
 
-// consumeTraces consumes traces from the OTLP receiver and transforms them for Beyla.
-func (m *Manager) consumeTraces() {
-	defer m.wg.Done()
-	m.logger.Info().Msg("Starting trace consumer")
+// handleBeylaSpan is the SpanHandler callback that routes Beyla traces to beyla_traces_local.
+func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) error {
+	// Convert duration from ms to microseconds.
+	durationUs := int64(span.DurationMs * 1000)
 
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-m.ctx.Done():
-			m.logger.Info().Msg("Trace consumer stopped")
-			return
-
-		case <-ticker.C:
-			// Query recent spans from storage.
-			endTime := time.Now()
-			startTime := endTime.Add(-10 * time.Second)
-
-			spans, err := m.otlpReceiver.QuerySpans(m.ctx, startTime, endTime, nil)
-			if err != nil {
-				m.logger.Error().Err(err).Msg("Failed to query spans")
-				continue
-			}
-
-			// Transform and forward spans.
-			for i := range spans {
-				trace := m.transformSpanToBeylaTrace(&spans[i])
-				select {
-				case m.tracesCh <- trace:
-				case <-m.ctx.Done():
-					return
-				default:
-					// Channel full, drop span.
-					m.logger.Warn().Msg("Trace channel full, dropping span")
-				}
-			}
-
-			if len(spans) > 0 {
-				m.logger.Debug().Int("count", len(spans)).Msg("Processed Beyla traces")
-			}
-		}
+	// Determine status code from HTTP status or error flag.
+	statusCode := 0
+	if span.IsError {
+		statusCode = 2 // ERROR status
+	} else if span.HTTPStatus >= 400 {
+		statusCode = 2 // ERROR status for HTTP errors
 	}
-}
 
-// transformSpanToBeylaTrace transforms an OTLP span to Beyla trace format.
-func (m *Manager) transformSpanToBeylaTrace(span *telemetry.Span) *BeylaTrace {
-	return &BeylaTrace{
-		TraceID:      span.TraceID,
-		SpanID:       span.SpanID,
-		ParentSpanID: "", // TODO: Extract from span if available
-		ServiceName:  span.ServiceName,
-		SpanName:     span.HTTPRoute, // Use HTTP route as span name
-		SpanKind:     span.SpanKind,
-		StartTime:    span.Timestamp.Format(time.RFC3339),
-		DurationUs:   int64(span.DurationMs * 1000), // Convert ms to microseconds
-		StatusCode:   span.HTTPStatus,
-		Attributes:   span.Attributes,
+	// Use HTTP route as span name, fallback to service name.
+	spanName := span.HTTPRoute
+	if spanName == "" {
+		spanName = span.ServiceName
 	}
+
+	// Store in beyla_traces_local table.
+	return m.beylaStorage.StoreOTLPSpan(
+		ctx,
+		"", // agentID - not available from OTLP span, will be empty
+		span.TraceID,
+		span.SpanID,
+		"", // parentSpanID - not available from telemetry.Span
+		span.ServiceName,
+		spanName,
+		span.SpanKind,
+		span.Timestamp,
+		durationUs,
+		statusCode,
+		span.Attributes,
+	)
 }
 
 // consumeMetrics consumes metrics from the OTLP receiver and transforms them for Beyla.
@@ -579,11 +569,15 @@ func (m *Manager) startBeyla() error {
 		Str("binary_path", binaryPath).
 		Msg("Found Beyla binary")
 
-	// Build Beyla command line arguments.
-	args := m.buildBeylaArgs()
+	// Generate Beyla config file.
+	configPath, err := m.generateBeylaConfig()
+	if err != nil {
+		return fmt.Errorf("failed to generate beyla config: %w", err)
+	}
+	m.beylaConfigPath = configPath
 
-	// Create command.
-	cmd := exec.CommandContext(m.ctx, binaryPath, args...)
+	// Create command with config file.
+	cmd := exec.CommandContext(m.ctx, binaryPath, "-config", configPath)
 
 	// Configure logging (Beyla logs to stderr).
 	cmd.Stdout = &beylaLogWriter{logger: m.logger, level: "info"}
@@ -610,47 +604,111 @@ func (m *Manager) startBeyla() error {
 	return nil
 }
 
-// buildBeylaArgs constructs command line arguments for Beyla binary.
-func (m *Manager) buildBeylaArgs() []string {
-	args := []string{}
+// beylaConfig represents Beyla's YAML configuration structure.
+type beylaConfig struct {
+	LogLevel  string `yaml:"log_level,omitempty"`
+	Discovery struct {
+		Instrument []struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+		} `yaml:"instrument,omitempty"`
+	} `yaml:"discovery,omitempty"`
+	Attributes struct {
+		Kubernetes struct {
+			Enable string `yaml:"enable,omitempty"`
+		} `yaml:"kubernetes,omitempty"`
+	} `yaml:"attributes,omitempty"`
+	OtelTracesExport *struct {
+		Endpoint string `yaml:"endpoint,omitempty"`
+		Protocol string `yaml:"protocol,omitempty"`
+	} `yaml:"otel_traces_export,omitempty"`
+	OtelMetricsExport *struct {
+		Endpoint string `yaml:"endpoint,omitempty"`
+		Protocol string `yaml:"protocol,omitempty"`
+	} `yaml:"otel_metrics_export,omitempty"`
+	Routes *struct {
+		Unmatch string `yaml:"unmatch,omitempty"`
+	} `yaml:"routes,omitempty"`
+}
 
-	// OTLP export endpoint.
-	if m.config.OTLPEndpoint != "" {
-		args = append(args, "--otel-metrics-export", "otlp")
-		args = append(args, "--otel-metrics-endpoint", "http://"+m.config.OTLPEndpoint)
-		args = append(args, "--otel-traces-export", "otlp")
-		args = append(args, "--otel-traces-endpoint", "http://"+m.config.OTLPEndpoint)
+// generateBeylaConfig creates a Beyla YAML config file and returns the path.
+func (m *Manager) generateBeylaConfig() (string, error) {
+	cfg := beylaConfig{
+		LogLevel: "INFO",
 	}
 
 	// Discovery: open ports.
-	for _, port := range m.config.Discovery.OpenPorts {
-		args = append(args, "--open-port", fmt.Sprintf("%d", port))
+	if len(m.config.Discovery.OpenPorts) > 0 {
+		ports := make([]string, len(m.config.Discovery.OpenPorts))
+		for i, port := range m.config.Discovery.OpenPorts {
+			ports[i] = strconv.Itoa(port)
+		}
+		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+		}{OpenPorts: strings.Join(ports, ",")})
 	}
 
-	// Discovery: process names.
+	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
-		args = append(args, "--service-name", name)
+		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+		}{ExeName: name})
 	}
 
-	// Protocol filters.
-	if !m.config.Protocols.HTTPEnabled {
-		args = append(args, "--disable-http")
-	}
-	if !m.config.Protocols.GRPCEnabled {
-		args = append(args, "--disable-grpc")
-	}
-
-	// Sampling rate.
-	if m.config.SamplingRate > 0 && m.config.SamplingRate < 1.0 {
-		args = append(args, "--sampling-rate", fmt.Sprintf("%.2f", m.config.SamplingRate))
+	// Default discovery: if no ports or process names specified, discover all listening processes.
+	if len(cfg.Discovery.Instrument) == 0 {
+		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+		}{OpenPorts: "1-65535"})
 	}
 
-	// Resource attributes.
-	for k, v := range m.config.Attributes {
-		args = append(args, "--otel-resource-attributes", fmt.Sprintf("%s=%s", k, v))
+	// OTLP export endpoint (gRPC).
+	// Beyla exports to the Beyla-specific OTLP receiver on port 4319 (not the shared 4317).
+	// This avoids conflict with the shared OTLP receiver that handles user application telemetry.
+	beylaOTLPEndpoint := "http://127.0.0.1:4319"
+	cfg.OtelTracesExport = &struct {
+		Endpoint string `yaml:"endpoint,omitempty"`
+		Protocol string `yaml:"protocol,omitempty"`
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+	cfg.OtelMetricsExport = &struct {
+		Endpoint string `yaml:"endpoint,omitempty"`
+		Protocol string `yaml:"protocol,omitempty"`
+	}{Endpoint: beylaOTLPEndpoint, Protocol: "grpc"}
+
+	// Use wildcard route matching to capture all routes.
+	cfg.Routes = &struct {
+		Unmatch string `yaml:"unmatch,omitempty"`
+	}{Unmatch: "wildcard"}
+
+	// Marshal to YAML.
+	data, err := yaml.Marshal(&cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal beyla config: %w", err)
 	}
 
-	return args
+	// Write to temp file.
+	configFile, err := os.CreateTemp("", "beyla-config-*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("failed to create beyla config file: %w", err)
+	}
+	defer func(configFile *os.File) {
+		_ = configFile.Close() // TODO: errcheck
+	}(configFile)
+
+	if _, err := configFile.Write(data); err != nil {
+		_ = os.Remove(configFile.Name())
+		return "", fmt.Errorf("failed to write beyla config file: %w", err)
+	}
+
+	m.logger.Debug().
+		Str("path", configFile.Name()).
+		Str("config", string(data)).
+		Msg("Generated Beyla config file")
+
+	return configFile.Name(), nil
 }
 
 // monitorBeylaProcess monitors the Beyla process and logs when it exits.

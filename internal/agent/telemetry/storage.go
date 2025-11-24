@@ -66,7 +66,27 @@ func (s *Storage) initSchema() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Force WAL checkpoint so remote HTTP clients can see the schema.
+	// Without this, the tables might not be visible when serving the file over HTTP.
+	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to checkpoint database (tables may not be visible to remote clients)")
+	}
+
 	s.logger.Info().Msg("Telemetry storage schema initialized")
+
+	// Set a low WAL auto-checkpoint limit (e.g., 4MB) to ensure data is flushed frequently
+	// and becomes visible to remote readers without manual checkpointing.
+	if _, err := s.db.Exec("PRAGMA wal_autocheckpoint='4MB'"); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to set WAL auto-checkpoint limit")
+	}
+
+	// Attempt an initial checkpoint to ensure tables are visible immediately.
+	// We do NOT use FORCE CHECKPOINT as it can abort active transactions.
+	// If this fails (e.g. due to contention), we log and continue, relying on auto-checkpoint.
+	if _, err := s.db.Exec("CHECKPOINT"); err != nil {
+		s.logger.Warn().Err(err).Msg("Initial checkpoint failed (tables may take a moment to appear remotely)")
+	}
+
 	return nil
 }
 
@@ -149,7 +169,7 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query spans: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	spans := make([]Span, 0)
 

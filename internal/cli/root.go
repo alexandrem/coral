@@ -1,3 +1,4 @@
+// Package cli provides the command-line interface for coral.
 package cli
 
 import (
@@ -10,7 +11,7 @@ import (
 	"github.com/coral-io/coral/internal/cli/duckdb"
 	initcmd "github.com/coral-io/coral/internal/cli/init"
 	"github.com/coral-io/coral/internal/cli/proxy"
-	"github.com/coral-io/coral/internal/cli/tun_helper"
+	"github.com/coral-io/coral/internal/cli/tunhelper"
 	"github.com/coral-io/coral/pkg/version"
 )
 
@@ -50,7 +51,7 @@ func init() {
 	rootCmd.AddCommand(newVersionCmd())
 
 	// Add internal commands (hidden from help)
-	rootCmd.AddCommand(tun_helper.New())
+	rootCmd.AddCommand(tunhelper.New())
 }
 
 func newVersionCmd() *cobra.Command {

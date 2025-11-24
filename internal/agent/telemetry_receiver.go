@@ -45,14 +45,14 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 	// Create storage.
 	storage, err := telemetry.NewStorage(db, logger)
 	if err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to create telemetry storage: %w", err)
 	}
 
 	// Create OTLP receiver.
 	receiver, err := telemetry.NewOTLPReceiver(config, storage, logger)
 	if err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to create OTLP receiver: %w", err)
 	}
 
@@ -101,6 +101,12 @@ func NewTelemetryReceiverWithSharedDB(config telemetry.Config, db *sql.DB, dbPat
 
 // Start starts the telemetry receiver.
 func (r *TelemetryReceiver) Start(ctx context.Context) error {
+	// Start cleanup loop (RFD 032).
+	// Use configured retention or default to 1 hour.
+	retention := 1 * time.Hour
+	// TODO: Pass retention from config. For now, hardcode to 1h to match default.
+	go r.storage.RunCleanupLoop(ctx, retention)
+
 	return r.receiver.Start(ctx)
 }
 

@@ -1,11 +1,7 @@
 package ca
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -712,29 +708,4 @@ func loadTestCert(t *testing.T, path string) *x509.Certificate {
 		t.Fatalf("failed to parse cert %s: %v", path, err)
 	}
 	return cert
-}
-
-// generateTestCSR creates a CSR for testing.
-func generateTestCSR(t *testing.T, agentID, colonyID string) []byte {
-	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("failed to generate key: %v", err)
-	}
-
-	template := &x509.CertificateRequest{
-		Subject: pkix.Name{
-			CommonName: fmt.Sprintf("agent.%s.%s", agentID, colonyID),
-		},
-	}
-
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, key)
-	if err != nil {
-		t.Fatalf("failed to create CSR: %v", err)
-	}
-
-	return pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE REQUEST",
-		Bytes: csrDER,
-	})
 }

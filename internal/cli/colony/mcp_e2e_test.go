@@ -32,7 +32,7 @@ func TestMCPProxyE2E(t *testing.T) {
 	// Step 1: Build the binary if it doesn't exist.
 	binaryPath := filepath.Join(os.TempDir(), "coral-test-mcp-e2e")
 	buildBinary(t, binaryPath)
-	defer os.Remove(binaryPath)
+	defer func() { _ = os.Remove(binaryPath) }() // TODO: errcheck
 
 	// Step 2: Start mock colony HTTP server.
 	mockServer := startMockColonyServer(t)
@@ -40,7 +40,7 @@ func TestMCPProxyE2E(t *testing.T) {
 
 	// Step 3: Create test colony config pointing to mock server.
 	configDir := createTestConfig(t, mockServer.URL)
-	defer os.RemoveAll(configDir)
+	defer func() { _ = os.RemoveAll(configDir) }() // TODO: errcheck
 
 	// Step 4: Start proxy subprocess.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -185,8 +185,8 @@ func TestMCPProxyE2E(t *testing.T) {
 	})
 
 	// Cleanup: Close stdin to signal proxy to exit.
-	stdin.Close()
-	cmd.Wait()
+	_ = stdin.Close() // TODO: errcheck
+	_ = cmd.Wait()    // TODO: errcheck
 }
 
 // buildBinary builds the coral binary for testing.
@@ -220,7 +220,7 @@ func startMockColonyServer(t *testing.T) *httptest.Server {
 	// Mock GetStatus RPC.
 	mux.HandleFunc("/coral.colony.v1.ColonyService/GetStatus", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{ // TODO: errcheck
 			"colonyId": "test-colony",
 			"status":   "running",
 		})
@@ -247,13 +247,13 @@ func startMockColonyServer(t *testing.T) *httptest.Server {
 
 		// Encode as Connect protocol response.
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response) // TODO: errcheck
 	})
 
 	// Mock CallTool RPC.
 	mux.HandleFunc("/coral.colony.v1.ColonyService/CallTool", func(w http.ResponseWriter, r *http.Request) {
 		var req colonyv1.CallToolRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req) // TODO: errcheck
 
 		response := &colonyv1.CallToolResponse{
 			Result:  "Mock tool result for " + req.ToolName,
@@ -261,7 +261,7 @@ func startMockColonyServer(t *testing.T) *httptest.Server {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response) // TODO: errcheck
 	})
 
 	server := httptest.NewServer(mux)

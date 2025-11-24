@@ -235,12 +235,23 @@ func (w *traceServiceWrapper) Export(
 					continue
 				}
 
-				// Store in local storage.
-				if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
-					w.receiver.logger.Warn().
-						Err(err).
-						Str("trace_id", span.TraceID).
-						Msg("Failed to store span")
+				// Use custom handler if configured (e.g., Beyla routes to beyla_traces_local).
+				// Otherwise, store in default storage (otel_spans_local).
+				if w.receiver.config.SpanHandler != nil {
+					if err := w.receiver.config.SpanHandler(ctx, span); err != nil {
+						w.receiver.logger.Warn().
+							Err(err).
+							Str("trace_id", span.TraceID).
+							Msg("SpanHandler failed to process span")
+					}
+				} else {
+					// Store in local storage (default behavior).
+					if err := w.receiver.storage.StoreSpan(ctx, span); err != nil {
+						w.receiver.logger.Warn().
+							Err(err).
+							Str("trace_id", span.TraceID).
+							Msg("Failed to store span")
+					}
 				}
 			}
 		}
@@ -268,7 +279,7 @@ func (r *OTLPReceiver) handleHTTPTraces(w http.ResponseWriter, req *http.Request
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
-	defer req.Body.Close()
+	defer func() { _ = req.Body.Close() }() // TODO: errcheck
 
 	// Parse OTLP request.
 	var otlpReq otlptracev1.ExportTraceServiceRequest
@@ -295,7 +306,7 @@ func (r *OTLPReceiver) handleHTTPTraces(w http.ResponseWriter, req *http.Request
 	// Send response.
 	w.Header().Set("Content-Type", "application/x-protobuf")
 	w.WriteHeader(http.StatusOK)
-	w.Write(respBytes)
+	_, _ = w.Write(respBytes) // TODO: errcheck
 }
 
 // convertOTLPSpan converts an OTLP span to internal Span format.
@@ -490,7 +501,7 @@ func (r *OTLPReceiver) handleHTTPMetrics(w http.ResponseWriter, req *http.Reques
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
-	defer req.Body.Close()
+	defer func() { _ = req.Body.Close() }() // TODO: errcheck
 
 	// Parse OTLP request.
 	var otlpReq otlpmetricsv1.ExportMetricsServiceRequest
@@ -517,7 +528,7 @@ func (r *OTLPReceiver) handleHTTPMetrics(w http.ResponseWriter, req *http.Reques
 	// Send response.
 	w.Header().Set("Content-Type", "application/x-protobuf")
 	w.WriteHeader(http.StatusOK)
-	w.Write(respBytes)
+	_, _ = w.Write(respBytes) // TODO: errcheck
 }
 
 // QueryMetrics retrieves recent metrics from the in-memory buffer.

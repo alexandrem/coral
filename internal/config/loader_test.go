@@ -258,8 +258,10 @@ func TestNewLoader_CoralConfigEnvVar(t *testing.T) {
 func TestNewLoader_DefaultHomeDir(t *testing.T) {
 	// Ensure CORAL_CONFIG is not set.
 	originalValue := os.Getenv("CORAL_CONFIG")
-	os.Unsetenv("CORAL_CONFIG")
-	defer os.Setenv("CORAL_CONFIG", originalValue)
+	_ = os.Unsetenv("CORAL_CONFIG")
+	defer func(key, value string) {
+		_ = os.Setenv(key, value) // TODO: errcheck
+	}("CORAL_CONFIG", originalValue)
 
 	// Create loader.
 	loader, err := NewLoader()

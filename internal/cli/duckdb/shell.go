@@ -1,3 +1,4 @@
+//nolint:errcheck
 package duckdb
 
 import (
@@ -78,39 +79,14 @@ If --database is not specified, the first available database will be used.`,
 			}
 			defer db.Close()
 
-			// Attach all specified agent databases.
-			var attachedDBs []string
-			for _, agentID := range agentIDs {
-				meshIP, err := resolveAgentAddress(ctx, agentID)
-				if err != nil {
-					return fmt.Errorf("failed to resolve agent %s: %w", agentID, err)
-				}
-
-				// Determine which database to attach.
-				dbName := database
-				if dbName == "" {
-					// Query available databases and use the first one.
-					databases, err := listAgentDatabases(ctx, meshIP)
-					if err != nil {
-						return fmt.Errorf("failed to query available databases for agent %s: %w", agentID, err)
-					}
-					if len(databases) == 0 {
-						return fmt.Errorf("agent %s has no available databases", agentID)
-					}
-					dbName = databases[0]
-					fmt.Printf("Using database: %s (agent: %s)\n", dbName, agentID)
-				}
-
-				if err := attachAgentDatabase(ctx, db, agentID, meshIP, dbName); err != nil {
-					return fmt.Errorf("failed to attach database for agent %s: %w", agentID, err)
-				}
-
-				alias := fmt.Sprintf("agent_%s", sanitizeAgentID(agentID))
-				attachedDBs = append(attachedDBs, alias)
+			// Attach databases.
+			attachedDBs, err := attachDatabases(ctx, db, agentIDs, database)
+			if err != nil {
+				return err
 			}
 
 			// Start interactive shell.
-			return runInteractiveShell(ctx, db, attachedDBs)
+			return runInteractiveShell(ctx, db, agentIDs, database, attachedDBs)
 		},
 	}
 
@@ -120,8 +96,45 @@ If --database is not specified, the first available database will be used.`,
 	return cmd
 }
 
+// attachDatabases resolves agent IPs and attaches their databases.
+// Returns a list of attached database aliases.
+func attachDatabases(ctx context.Context, db *sql.DB, agentIDs []string, databaseName string) ([]string, error) {
+	var attachedDBs []string
+
+	for _, agentID := range agentIDs {
+		meshIP, err := resolveAgentAddress(ctx, agentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve agent %s: %w", agentID, err)
+		}
+
+		// Determine which database to attach.
+		dbName := databaseName
+		if dbName == "" {
+			// Query available databases and use the first one.
+			databases, err := listAgentDatabases(ctx, meshIP)
+			if err != nil {
+				return nil, fmt.Errorf("failed to query available databases for agent %s: %w", agentID, err)
+			}
+			if len(databases) == 0 {
+				return nil, fmt.Errorf("agent %s has no available databases", agentID)
+			}
+			dbName = databases[0]
+			fmt.Printf("Using database: %s (agent: %s)\n", dbName, agentID)
+		}
+
+		if err := attachAgentDatabase(ctx, db, agentID, meshIP, dbName); err != nil {
+			return nil, fmt.Errorf("failed to attach database for agent %s: %w", agentID, err)
+		}
+
+		alias := fmt.Sprintf("agent_%s", sanitizeAgentID(agentID))
+		attachedDBs = append(attachedDBs, alias)
+	}
+
+	return attachedDBs, nil
+}
+
 // runInteractiveShell runs an interactive DuckDB shell with readline support.
-func runInteractiveShell(ctx context.Context, db *sql.DB, attachedDBs []string) error {
+func runInteractiveShell(ctx context.Context, db *sql.DB, agentIDs []string, databaseName string, attachedDBs []string) error {
 	// Create readline instance with history.
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          "duckdb> ",
@@ -132,16 +145,14 @@ func runInteractiveShell(ctx context.Context, db *sql.DB, attachedDBs []string) 
 	if err != nil {
 		return fmt.Errorf("failed to initialize readline: %w", err)
 	}
-	defer rl.Close()
+	defer func(rl *readline.Instance) {
+		_ = rl.Close() // TODO: errcheck
+	}(rl)
 
 	// Print welcome message.
 	fmt.Println("DuckDB interactive shell. Type '.exit' to quit, '.help' for help.")
 	fmt.Println()
-	if len(attachedDBs) == 1 {
-		fmt.Printf("Attached agent database: %s\n\n", attachedDBs[0])
-	} else {
-		fmt.Printf("Attached databases: %s\n\n", strings.Join(attachedDBs, ", "))
-	}
+	printAttachedDBs(attachedDBs)
 
 	// REPL loop.
 	var queryBuffer strings.Builder
@@ -171,7 +182,7 @@ func runInteractiveShell(ctx context.Context, db *sql.DB, attachedDBs []string) 
 
 		// Handle meta-commands.
 		if strings.HasPrefix(line, ".") {
-			if err := handleMetaCommand(ctx, db, line, attachedDBs); err != nil {
+			if err := handleMetaCommand(ctx, db, line, agentIDs, databaseName, &attachedDBs); err != nil {
 				if err.Error() == "exit" {
 					break
 				}
@@ -205,8 +216,16 @@ func runInteractiveShell(ctx context.Context, db *sql.DB, attachedDBs []string) 
 	return nil
 }
 
+func printAttachedDBs(attachedDBs []string) {
+	if len(attachedDBs) == 1 {
+		fmt.Printf("Attached agent database: %s\n\n", attachedDBs[0])
+	} else {
+		fmt.Printf("Attached databases: %s\n\n", strings.Join(attachedDBs, ", "))
+	}
+}
+
 // handleMetaCommand handles shell meta-commands like .tables, .help, etc.
-func handleMetaCommand(ctx context.Context, db *sql.DB, command string, attachedDBs []string) error {
+func handleMetaCommand(ctx context.Context, db *sql.DB, command string, agentIDs []string, databaseName string, attachedDBs *[]string) error {
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
 		return nil
@@ -220,6 +239,7 @@ func handleMetaCommand(ctx context.Context, db *sql.DB, command string, attached
 		fmt.Println("Meta-commands:")
 		fmt.Println("  .tables     - List all tables in attached databases")
 		fmt.Println("  .databases  - Show attached databases")
+		fmt.Println("  .refresh    - Detach and re-attach databases to refresh data")
 		fmt.Println("  .help       - Show this help message")
 		fmt.Println("  .exit       - Exit shell")
 		fmt.Println("  .quit       - Exit shell")
@@ -232,9 +252,28 @@ func handleMetaCommand(ctx context.Context, db *sql.DB, command string, attached
 
 	case ".databases":
 		fmt.Println("Attached databases:")
-		for _, dbName := range attachedDBs {
+		for _, dbName := range *attachedDBs {
 			fmt.Printf("  - %s\n", dbName)
 		}
+		return nil
+
+	case ".refresh":
+		fmt.Println("Refreshing databases...")
+		// Detach all currently attached databases.
+		for _, alias := range *attachedDBs {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf("DETACH %s", alias)); err != nil {
+				return fmt.Errorf("failed to detach %s: %w", alias, err)
+			}
+		}
+
+		// Re-attach databases.
+		newAttachedDBs, err := attachDatabases(ctx, db, agentIDs, databaseName)
+		if err != nil {
+			return fmt.Errorf("failed to re-attach databases: %w", err)
+		}
+		*attachedDBs = newAttachedDBs
+		fmt.Println("Successfully refreshed databases.")
+		printAttachedDBs(*attachedDBs)
 		return nil
 
 	case ".tables":
@@ -307,7 +346,7 @@ func executeQuery(ctx context.Context, db *sql.DB, query string) error {
 		rowCount++
 	}
 
-	w.Flush()
+	_ = w.Flush() // TODO: errcheck
 
 	duration := time.Since(start)
 	fmt.Printf("\n(%d rows in %s)\n\n", rowCount, duration.Round(time.Millisecond))
