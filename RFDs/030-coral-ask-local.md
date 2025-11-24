@@ -28,8 +28,6 @@ model choice, and maintains cost control at the developer level.
 **Current behavior/limitations:**
 
 - No implemented `coral ask` command for conversational diagnostics
-- RFD 014 proposed embedding LLM in Colony, which contradicts ARCHITECTURE.MD's
-  separated LLM architecture
 - Developers need fast, iterative debugging without deploying to Reef's
   enterprise LLM
 - Colony should remain lightweight control plane, not bear LLM inference costs
