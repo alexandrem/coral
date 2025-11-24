@@ -1,81 +1,182 @@
-// Package ask provides the CLI command for interactive AI queries.
 package ask
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/coral-io/coral/internal/agent/genkit"
+	"github.com/coral-io/coral/internal/config"
 )
 
-// NewAskCmd creates the ask command for LLM queries
+// NewAskCmd creates the ask command (RFD 030).
 func NewAskCmd() *cobra.Command {
 	var (
-		colonyURL  string
-		jsonOutput bool
-		verbose    bool
+		colonyID string
+		model    string
+		stream   bool
+		json     bool
+		cont     bool // --continue flag for multi-turn conversations
 	)
 
 	cmd := &cobra.Command{
 		Use:   "ask <question>",
-		Short: "Ask the AI about your system",
-		Long: `Ask Coral's AI assistant questions about your system's health,
-performance, and behavior.
+		Short: "Ask questions about your application using AI",
+		Long: `Ask questions about your application using AI-powered analysis.
 
-The AI will analyze:
-- Recent events and metrics from agents
-- Service topology and dependencies
-- Historical patterns and baselines
-- Correlations across services
+The LLM agent runs locally on your machine and connects to the colony's
+MCP server to access observability data, metrics, traces, and logs.
 
 Examples:
-  coral ask "Why is the API slow?"
-  coral ask "What changed in the last hour?"
-  coral ask "Are there any errors in the frontend?"
-  coral ask "Show me the service dependencies"`,
+  # Ask a question about current system state
+  coral ask "why is checkout slow?"
+
+  # Override model for this query
+  coral ask "complex root cause analysis" --model anthropic:claude-3-5-sonnet-20241022
+
+  # Continue previous conversation
+  coral ask "show me the actual traces" --continue
+
+  # Use local model (offline)
+  coral ask "what's the current status?" --model ollama:llama3.2
+
+  # JSON output for scripting
+  coral ask "list unhealthy services" --json`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			question := strings.Join(args, " ")
-
-			if verbose {
-				fmt.Printf("Querying colony at: %s\n", colonyURL)
-				fmt.Printf("Question: %s\n\n", question)
-			}
-
-			// TODO: Implement actual AI query
-			// - Connect to colony API
-			// - Fetch recent context (events, metrics, topology)
-			// - Send to AI with question
-			// - Stream response back to user
-
-			if jsonOutput {
-				fmt.Println(`{
-  "question": "` + question + `",
-  "answer": "Based on recent metrics, I notice...",
-  "confidence": 0.85,
-  "sources": ["agent-api-1", "agent-frontend-1"]
-}`)
-				return nil
-			}
-
-			// Simulate AI response
-			fmt.Println("Analyzing your system...")
-			fmt.Println()
-			fmt.Println("Based on the observations from your agents:")
-			fmt.Println()
-			fmt.Println("• No critical issues detected in the last hour")
-			fmt.Println("• All services are healthy and responding normally")
-			fmt.Println("• Average response times are within baseline")
-			fmt.Println()
-			fmt.Println("Would you like me to investigate a specific service or time period?")
-
-			return nil
+			return runAsk(cmd.Context(), question, colonyID, model, stream, json, cont)
 		},
 	}
 
-	cmd.Flags().StringVar(&colonyURL, "colony", "http://localhost:3000", "Colony API URL")
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	cmd.Flags().StringVarP(&colonyID, "colony-id", "c", "", "Colony ID to query (defaults to current colony)")
+	cmd.Flags().StringVar(&model, "model", "", "Override model for this query (e.g., openai:gpt-4o-mini)")
+	cmd.Flags().BoolVar(&stream, "stream", true, "Stream output progressively (default: true)")
+	cmd.Flags().BoolVar(&json, "json", false, "Output JSON format for scripting")
+	cmd.Flags().BoolVar(&cont, "continue", false, "Continue previous conversation")
 
 	return cmd
+}
+
+// runAsk executes the ask command.
+func runAsk(ctx context.Context, question, colonyID, modelOverride string, stream, jsonOutput, continueConv bool) error {
+	// Load configuration.
+	loader, err := config.NewLoader()
+	if err != nil {
+		return fmt.Errorf("failed to create config loader: %w", err)
+	}
+
+	globalCfg, err := loader.LoadGlobalConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load global config: %w", err)
+	}
+
+	// Determine colony ID.
+	if colonyID == "" {
+		colonyID = globalCfg.DefaultColony
+		if colonyID == "" {
+			return fmt.Errorf("no colony specified and no default colony configured")
+		}
+	}
+
+	// Load colony config.
+	colonyCfg, err := loader.LoadColonyConfig(colonyID)
+	if err != nil {
+		return fmt.Errorf("failed to load colony config: %w", err)
+	}
+
+	// Resolve ask configuration.
+	askCfg, err := config.ResolveAskConfig(globalCfg, colonyCfg)
+	if err != nil {
+		return fmt.Errorf("failed to resolve ask config: %w", err)
+	}
+
+	// Apply model override if specified.
+	if modelOverride != "" {
+		askCfg.DefaultModel = modelOverride
+	}
+
+	// Validate configuration.
+	if err := config.ValidateAskConfig(askCfg); err != nil {
+		return fmt.Errorf("invalid ask config: %w", err)
+	}
+
+	// Create Genkit agent.
+	agent, err := genkit.NewAgent(askCfg, colonyCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create agent: %w", err)
+	}
+	defer agent.Close()
+
+	// Load or create conversation.
+	var conversationID string
+	if continueConv {
+		conversationID, err = loadLastConversationID(colonyID)
+		if err != nil {
+			return fmt.Errorf("failed to load conversation: %w", err)
+		}
+	} else {
+		conversationID = generateConversationID()
+	}
+
+	// Execute query.
+	resp, err := agent.Ask(ctx, question, conversationID)
+	if err != nil {
+		return fmt.Errorf("query failed: %w", err)
+	}
+
+	// Save conversation ID for --continue.
+	if err := saveConversationID(colonyID, conversationID); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save conversation ID: %v\n", err)
+	}
+
+	// Output response.
+	if jsonOutput {
+		return outputJSON(resp)
+	}
+	return outputTerminal(resp, stream)
+}
+
+// generateConversationID generates a new conversation ID.
+func generateConversationID() string {
+	// Simple timestamp-based ID for now.
+	return fmt.Sprintf("conv-%d", os.Getpid())
+}
+
+// loadLastConversationID loads the last conversation ID for a colony.
+func loadLastConversationID(colonyID string) (string, error) {
+	// TODO: Implement conversation persistence.
+	return "", fmt.Errorf("--continue not yet implemented")
+}
+
+// saveConversationID saves the conversation ID for future --continue use.
+func saveConversationID(colonyID, conversationID string) error {
+	// TODO: Implement conversation persistence.
+	return nil
+}
+
+// outputJSON outputs the response in JSON format.
+func outputJSON(resp *genkit.Response) error {
+	// TODO: Implement JSON output.
+	fmt.Println(resp.Answer)
+	return nil
+}
+
+// outputTerminal outputs the response to the terminal.
+func outputTerminal(resp *genkit.Response, stream bool) error {
+	fmt.Println(resp.Answer)
+
+	// Show tool usage citations.
+	if len(resp.ToolCalls) > 0 {
+		fmt.Println("\n---")
+		fmt.Println("\nSources:")
+		for _, tool := range resp.ToolCalls {
+			fmt.Printf("- %s\n", tool.Name)
+		}
+	}
+
+	return nil
 }
