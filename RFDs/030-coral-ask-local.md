@@ -28,8 +28,6 @@ model choice, and maintains cost control at the developer level.
 **Current behavior/limitations:**
 
 - No implemented `coral ask` command for conversational diagnostics
-- RFD 014 proposed embedding LLM in Colony, which contradicts ARCHITECTURE.MD's
-  separated LLM architecture
 - Developers need fast, iterative debugging without deploying to Reef's
   enterprise LLM
 - Colony should remain lightweight control plane, not bear LLM inference costs
@@ -59,9 +57,9 @@ model choice, and maintains cost control at the developer level.
 Implement `coral ask` as a CLI command that spawns or connects to a local Genkit
 agent process. The agent loads the developer's chosen LLM model (local via
 Ollama or cloud via API keys) and connects to the current Colony as an MCP
-client. Colony provides MCP tools for data access (`query_trace_data`,
-`get_service_topology`, etc.), and the LLM performs reasoning on the developer's
-machine.
+client. Colony provides MCP tools for data access (`coral_query_beyla_traces`,
+`coral_get_service_topology`, etc.), and the LLM performs reasoning on the
+developer's machine.
 
 **Key Design Decisions:**
 
@@ -87,7 +85,7 @@ machine.
 - **Configuration-driven**: Developer configures preferred models, API keys,
   fallbacks
     - Support for multiple providers (primary + fallbacks)
-    - Cost controls (token limits, daily budgets)
+    - Developer owns costs via their own API keys
 
 **Benefits:**
 
@@ -102,27 +100,27 @@ machine.
 
 ```
 Developer Machine                      Colony (Control Plane)
-┌────────────────────────────┐        ┌──────────────────────┐
-│ coral ask "why slow?"      │        │                      │
-│          ↓                 │        │  MCP Server          │
-│ ┌────────────────────────┐ │        │  ┌────────────────┐ │
-│ │ Genkit Agent           │ │        │  │ Tools:         │ │
-│ │                        │ │  MCP   │  │ - query_trace  │ │
-│ │ LLM (local/cloud):     │◄┼────────┼─►│ - get_topology │ │
-│ │ - GPT-4 (OpenAI API)   │ │ tools  │  │ - search_logs  │ │
-│ │ - Claude (Anthropic)   │ │        │  │ - issue_probe  │ │
-│ │ - Llama (Ollama local) │ │        │  └────────────────┘ │
-│ │                        │ │        │                      │
-│ │ Context:               │ │        │  WireGuard Mesh      │
-│ │ - Conversation history │ │        │  (via coral proxy)   │
-│ │ - Colony MCP tools     │ │        │                      │
-│ └────────────────────────┘ │        └──────────────────────┘
-│                            │
-│ Config:                    │
+┌────────────────────────────┐        ┌───────────────────────────────┐
+│ coral ask "why slow?"      │        │                               │
+│          ↓                 │        │  MCP Server                   │
+│ ┌────────────────────────┐ │        │  ┌───────────────────────────┐│
+│ │ Genkit Agent           │ │        │  │ Tools:                    ││
+│ │                        │ │  MCP   │  │ - coral_get_service_health││
+│ │ LLM (local/cloud):     │◄┼────────┼─►│ - coral_get_service_topol.││
+│ │ - GPT-4 (OpenAI API)   │ │ tools  │  │ - coral_query_beyla_*     ││
+│ │ - Claude (Anthropic)   │ │        │  │ - coral_query_telemetry_* ││
+│ │ - Llama (Ollama local) │ │        │  │ - coral_start_ebpf_coll.  ││
+│ │                        │ │        │  │ - coral_exec_command      ││
+│ │ Context:               │ │        │  └───────────────────────────┘│
+│ │ - Conversation history │ │        │                               │
+│ │ - Colony MCP tools     │ │        │  WireGuard Mesh               │
+│ └────────────────────────┘ │        │  (via coral proxy)            │
+│                            │        │                               │
+│ Config (local):            │        └───────────────────────────────┘
 │ ~/.coral/config.yaml       │
-│ - API keys (env refs)      │
-│ - Model preferences        │
-│ - Cost limits              │
+│   ai.ask:                  │
+│   - API keys (env refs)    │
+│   - Model preferences      │
 └────────────────────────────┘
 ```
 
@@ -141,11 +139,11 @@ Developer Machine                      Colony (Control Plane)
     - Execute LLM reasoning with MCP tool calls
     - Manage conversation context and token budgets
 
-3. **Configuration** (`~/.coral/config.yaml`):
-    - New `ask` section for LLM configuration
+3. **Configuration** (`~/.coral/config.yaml` - local to developer machine):
+    - Extends existing `ai` section with new `ask` subsection
+    - Config path: `ai.ask` in global config
     - Support for multiple providers with fallbacks
-    - Cost control settings (token limits, budgets)
-    - Model-specific overrides
+    - Optional per-colony overrides in `colonies.<colony-id>.ask`
 
 4. **MCP Integration** (uses existing `coral proxy` implementation):
     - Colony already exposes MCP server (RFD 004)
@@ -155,39 +153,44 @@ Developer Machine                      Colony (Control Plane)
 **Configuration Example:**
 
 ```yaml
-# ~/.coral/config.yaml
-ask:
-  # Default model (Genkit provider format)
-  default_model: "openai:gpt-4o-mini"
+# ~/.coral/config.yaml (local to developer machine)
+version: "1"
+default_colony: "my-app-prod"
 
-  # Fallback models (tried in order if primary fails)
-  fallback_models:
-    - "anthropic:claude-3-5-sonnet-20241022"
-    - "ollama:llama3.2"
+discovery:
+  endpoint: "http://localhost:8080"
 
-  # API keys (reference environment variables - NEVER plain text)
-  api_keys:
-    openai: "env://OPENAI_API_KEY"
-    anthropic: "env://ANTHROPIC_API_KEY"
+# AI configuration (extends existing ai section)
+ai:
+  provider: "anthropic"  # Existing field
+  api_key_source: "env"  # Existing field
 
-  # Conversation settings
-  conversation:
-    max_turns: 10             # Conversation history limit
-    context_window: 8192      # Max tokens for context
-    auto_prune: true          # Prune old messages when limit reached
+  # NEW: coral ask LLM configuration
+  ask:
+    # Default model (Genkit provider format)
+    default_model: "openai:gpt-4o-mini"
 
-  # Cost controls
-  cost_control:
-    max_tokens_per_request: 4096
-    warn_at_daily_cost_usd: 5.00
-    block_at_daily_cost_usd: 20.00
-    track_usage: true         # Log token usage locally
+    # Fallback models (tried in order if primary fails)
+    fallback_models:
+      - "anthropic:claude-3-5-sonnet-20241022"
+      - "ollama:llama3.2"
 
-  # Agent deployment mode
-  agent:
-    mode: "daemon"            # "daemon" | "ephemeral" | "embedded"
-    daemon_socket: "~/.coral/ask-agent.sock"
-    idle_timeout: "10m"       # Shutdown daemon after inactivity
+    # API keys (reference environment variables - NEVER plain text)
+    api_keys:
+      openai: "env://OPENAI_API_KEY"
+      anthropic: "env://ANTHROPIC_API_KEY"
+
+    # Conversation settings
+    conversation:
+      max_turns: 10             # Conversation history limit
+      context_window: 8192      # Max tokens for context
+      auto_prune: true          # Prune old messages when limit reached
+
+    # Agent deployment mode
+    agent:
+      mode: "embedded"          # "daemon" | "ephemeral" | "embedded"
+      daemon_socket: "~/.coral/ask-agent.sock"
+      idle_timeout: "10m"       # Shutdown daemon after inactivity
 
 # Per-colony overrides (optional)
 colonies:
@@ -210,7 +213,6 @@ colonies:
 - [ ] Implement Genkit runtime initialization with multi-provider support
 - [ ] Add MCP client implementation (connect to Colony via discovered mesh IP)
 - [ ] Implement conversation context management (history, pruning)
-- [ ] Add cost tracking and rate limiting logic
 
 ### Phase 3: CLI Integration
 
@@ -220,17 +222,15 @@ colonies:
 - [ ] Add `--continue` flag for multi-turn conversations
 - [ ] Add `--model` flag for one-off model override
 
-### Phase 4: Cost Controls & UX
+### Phase 4: UX & Resilience
 
-- [ ] Implement token usage tracking and cost estimation
-- [ ] Add warning/blocking thresholds for daily spend
 - [ ] Implement graceful fallback when primary model fails
 - [ ] Add progress indicators for long-running LLM calls
 - [ ] Implement response caching (optional, short TTL)
 
 ### Phase 5: Testing & Documentation
 
-- [ ] Unit tests: configuration parsing, cost tracking, context pruning
+- [ ] Unit tests: configuration parsing, context pruning, fallback logic
 - [ ] Integration tests: Genkit agent ↔ Colony MCP (mock)
 - [ ] E2E tests: `coral ask` against seeded Colony data
 - [ ] Documentation: setup guide, model selection, troubleshooting
@@ -253,11 +253,11 @@ Finding: Checkout p95 latency increased 45% in last 30 minutes
 Root cause:
 1. Payment API latency spike (p95: 800ms → 1400ms)
    - Evidence: traces show timeout retries increased 3x
-   - Source: query_trace_data(service="payment", window="1h")
+   - Source: coral_query_beyla_traces(service="payment", time_range="1h")
 
 2. Database connection pool exhaustion
    - Pool utilization: 92% (threshold: 80%)
-   - Source: query_metrics(metric="db.pool.utilization")
+   - Source: coral_query_beyla_sql_metrics(service="database", time_range="1h")
 
 Recommendation:
   Investigate payment API (possible downstream issue)
@@ -282,28 +282,35 @@ coral ask "list unhealthy services" --json
 {
   "answer": "3 services are unhealthy...",
   "citations": [
-    {"tool": "query_metrics", "data": {...}}
+    {"tool": "coral_get_service_health", "data": {...}}
   ]
 }
-
-# Show token usage and cost
-coral ask "status" --show-cost
-✓ Answer generated
-  Tokens: 450 input, 230 output
-  Cost: $0.03 (OpenAI GPT-4o-mini)
-  Daily usage: $1.45 / $20.00 limit
 ```
 
 ### Configuration Changes
 
-New `ask` section in `~/.coral/config.yaml`:
+New `ai.ask` subsection in `~/.coral/config.yaml` (extends existing `ai` section):
 
-- `ask.default_model`: Primary model to use (Genkit provider format)
-- `ask.fallback_models`: Array of fallback models
-- `ask.api_keys`: Map of provider → env variable reference
-- `ask.conversation.max_turns`: Conversation history limit
-- `ask.cost_control.max_tokens_per_request`: Per-query token limit
-- `ask.agent.mode`: Agent deployment mode (`daemon`|`ephemeral`|`embedded`)
+- `ai.ask.default_model`: Primary model to use (Genkit provider format)
+- `ai.ask.fallback_models`: Array of fallback models
+- `ai.ask.api_keys`: Map of provider → env variable reference
+- `ai.ask.conversation.max_turns`: Conversation history limit
+- `ai.ask.agent.mode`: Agent deployment mode (`daemon`|`ephemeral`|`embedded`)
+- `colonies.<colony-id>.ask`: Optional per-colony overrides for model selection
+
+**Rationale for global config:**
+- LLM runs on developer's machine (not in Colony)
+- Extends existing `ai` section (already contains `provider` and `api_key_source`)
+- Developer's personal preferences (model choice, API keys)
+- Consistent with Coral's configuration hierarchy for user-level settings
+
+**Configuration hierarchy (follows standard Coral precedence):**
+1. **Environment variables** (highest priority) - e.g., `CORAL_ASK_MODEL`
+2. **Project config** - `<project>/.coral/config.yaml` (if project-specific overrides needed)
+3. **Colony overrides** - `colonies.<colony-id>.ask` (for colony-specific model selection)
+4. **Global defaults** - `ai.ask` section (developer's default preferences)
+5. **CLI flags** - e.g., `--model` (runtime overrides)
+6. **Built-in defaults** (lowest priority)
 
 ### Genkit Provider Format
 
@@ -320,7 +327,6 @@ Models specified as `<provider>:<model-id>`:
 ### Unit Tests
 
 - Configuration parsing (API key env references, model selection)
-- Cost tracking logic (token counting, daily limits)
 - Context pruning (max turns, token window)
 - Fallback model selection (primary fails → try fallback)
 
@@ -329,7 +335,7 @@ Models specified as `<provider>:<model-id>`:
 - Genkit agent connects to mock MCP server
 - LLM tool call execution (mock Colony responses)
 - Conversation context maintained across turns
-- Cost limits enforced (block after threshold)
+- Fallback model switching on provider errors
 
 ### E2E Tests
 
@@ -357,14 +363,6 @@ coral ask "status"
 # Verify: Falls back to secondary model, user warned
 ```
 
-**Scenario 4: Cost Limit**
-
-```bash
-# Setup: Daily cost already at $19.50 (limit: $20.00)
-coral ask "complex analysis requiring 2000 tokens"
-# Verify: Query blocked with cost limit message
-```
-
 ## Security Considerations
 
 ### API Key Management
@@ -379,13 +377,16 @@ coral ask "complex analysis requiring 2000 tokens"
 **Configuration validation:**
 
 ```yaml
-# GOOD: Environment variable reference
-api_keys:
-  openai: "env://OPENAI_API_KEY"
+# ~/.coral/config.yaml
+ai:
+  ask:
+    # GOOD: Environment variable reference
+    api_keys:
+      openai: "env://OPENAI_API_KEY"
 
-# BAD: Plain text (rejected by config validator)
-api_keys:
-  openai: "sk-proj-abc123..."  # ERROR: Plain text API keys not allowed
+    # BAD: Plain text (rejected by config validator)
+    api_keys:
+      openai: "sk-proj-abc123..."  # ERROR: Plain text API keys not allowed
 ```
 
 ### Data Privacy
@@ -425,13 +426,6 @@ Continue? [y/N]
 - Content sanitization for suspicious patterns (optional, may have false
   positives)
 
-### Cost Control
-
-- Per-request token limits prevent runaway costs
-- Daily spend tracking with warning/blocking thresholds
-- Usage logging for cost auditing
-- User controls costs (their API keys = their budget)
-
 ## Migration Strategy
 
 **From RFD 014 (if partially implemented):**
@@ -445,8 +439,8 @@ Continue? [y/N]
 1. Deploy Colony MCP server updates (if needed, likely already implemented via
    `coral proxy`)
 2. Release CLI with `coral ask` command
-3. Users configure API keys in `~/.coral/config.yaml`
-4. First run prompts for model selection and API key setup
+3. Users configure API keys in `~/.coral/config.yaml` under `ai.ask` section
+4. First run prompts for model selection and API key setup (creates/updates `ai.ask` config)
 
 **No breaking changes:**
 
@@ -454,13 +448,33 @@ Continue? [y/N]
   added)
 - `coral proxy` MCP server already exists (RFD 004)
 
-## Future Enhancements
+## Deferred Features
+
+The following features are deferred to future RFDs:
+
+### Cost Controls (Future RFD)
+
+Token usage tracking and spend limits are a significant feature warranting
+dedicated design. Scope includes:
+
+- Per-request token limits to prevent runaway costs
+- Daily spend tracking with warning/blocking thresholds
+- Usage logging and cost estimation per provider
+- Budget allocation per colony or user
+- Cost visualization and reporting CLI commands
+
+**Rationale for deferral:** Cost control requires careful design around storage
+(usage tracking), UX (warnings vs blocking), and provider-specific cost models.
+Developer API key ownership provides natural cost boundary for v1.
+
+### Additional Future Enhancements
 
 - **Cached insights**: Short-lived cache (1-5min TTL) for repeated questions
 - **Tool calling extensions**: Custom MCP tools via plugins
 - **Shared context**: Multi-user conversations on shared incidents
 - **Proactive alerts**: Agent monitors Colony and suggests investigations
 - **Fine-tuned models**: User-trained models for domain-specific analysis
+- **Daemon mode**: Long-running agent process for local models (Ollama)
 
 ## Appendix
 
@@ -488,8 +502,11 @@ Continue? [y/N]
 - ❌ Slower CLI startup (library loading)
 - Use case: Single-turn queries, minimal setup
 
-**Recommendation:** Default to daemon mode for best UX, with auto-shutdown after
-idle timeout.
+**Recommendation:** Default to **embedded mode** for initial implementation.
+Cloud API latency dominates model loading time, so daemon overhead is not
+justified for v1. Daemon mode can be added later for local models (Ollama) where
+model loading is expensive. Embedded mode simplifies implementation significantly
+(no socket management, no daemon lifecycle).
 
 ### Genkit Go Integration
 
@@ -511,75 +528,104 @@ require (
 // Simplified - actual implementation in internal/agent/genkit
 import (
     "github.com/firebase/genkit/go/genkit"
-    "github.com/firebase/genkit/go/plugins/openai"
+    "github.com/firebase/genkit/go/plugins/googlegenai"  // or openai, ollama
 )
 
-// Initialize Genkit with OpenAI provider
+// Initialize Genkit runtime
 ctx := context.Background()
-if err := openai.Init(ctx, &openai.Config{
-    APIKey: os.Getenv("OPENAI_API_KEY"),
-}); err != nil {
-    return err
-}
+g := genkit.Init(ctx)
 
-// Define model
-model := genkit.DefineModel("openai", "gpt-4o-mini", nil)
+// Initialize provider plugin (API key from env)
+googlegenai.Init(ctx, g, nil)  // Uses GOOGLE_API_KEY env var
 
-// Generate response with tool calls
-resp, err := model.Generate(ctx, &genkit.GenerateRequest{
-    Messages: messages,
-    Tools:    mcpTools,  // Colony MCP tools
+// Get model reference
+model := googlegenai.Model(g, "gemini-1.5-flash")
+
+// Generate response with Colony MCP tools
+resp, err := genkit.Generate(ctx, g, genkit.GenerateRequest{
+    Model:   model,
+    Prompt:  "Why is checkout slow?",
+    Tools:   colonyMCPTools,  // Tools from Colony MCP server
 })
 ```
 
-### MCP Tool Examples
+> **Note**: Genkit Go SDK API is evolving. Verify imports and patterns against
+> current documentation at https://firebase.google.com/docs/genkit-go before
+> implementation.
 
-Tools exposed by Colony MCP server (consumed by Genkit agent):
+### MCP Tool Reference
+
+Tools exposed by Colony MCP server (consumed by Genkit agent). All tools use the
+`coral_` prefix for namespacing.
+
+#### Observability Tools
+
+| Tool                         | Description                                                                         |
+|------------------------------|-------------------------------------------------------------------------------------|
+| `coral_get_service_health`   | Get health status of services (healthy/degraded/unhealthy based on agent heartbeat) |
+| `coral_get_service_topology` | Get service dependency graph discovered from distributed traces                     |
+| `coral_query_events`         | Query operational events (deployments, restarts, crashes, alerts, config changes)   |
+
+#### Beyla Metrics Tools (eBPF-based auto-instrumentation)
+
+| Tool                             | Description                                                                      |
+|----------------------------------|----------------------------------------------------------------------------------|
+| `coral_query_beyla_http_metrics` | Query HTTP RED metrics (rate, errors, duration) with route/method/status filters |
+| `coral_query_beyla_grpc_metrics` | Query gRPC method-level RED metrics with status code breakdown                   |
+| `coral_query_beyla_sql_metrics`  | Query SQL operation metrics with table-level statistics                          |
+| `coral_query_beyla_traces`       | Query distributed traces by service, time range, or duration threshold           |
+| `coral_get_trace_by_id`          | Get specific trace with full span tree and parent-child relationships            |
+
+#### OTLP Telemetry Tools (OpenTelemetry SDK instrumentation)
+
+| Tool                            | Description                                                            |
+|---------------------------------|------------------------------------------------------------------------|
+| `coral_query_telemetry_spans`   | Query OTLP spans from instrumented applications (aggregated summaries) |
+| `coral_query_telemetry_metrics` | Query OTLP metrics (custom application metrics)                        |
+| `coral_query_telemetry_logs`    | Query OTLP logs with full-text search and filters                      |
+
+#### Live Debugging Tools (Phase 3)
+
+| Tool                         | Description                                                                            |
+|------------------------------|----------------------------------------------------------------------------------------|
+| `coral_start_ebpf_collector` | Start on-demand eBPF collector (cpu_profile, syscall_stats, http_latency, tcp_metrics) |
+| `coral_stop_ebpf_collector`  | Stop a running eBPF collector before its duration expires                              |
+| `coral_list_ebpf_collectors` | List currently active eBPF collectors with status and remaining duration               |
+| `coral_exec_command`         | Execute command in application container (kubectl/docker exec semantics)               |
+| `coral_shell_start`          | Start interactive debug shell in agent's environment                                   |
+
+#### Example Tool Schemas
 
 ```json
 {
-  "tools": [
-    {
-      "name": "query_trace_data",
-      "description": "Query distributed traces for a service",
-      "parameters": {
-        "service_id": "string",
-        "time_window": "string (e.g., '1h', '30m')",
-        "filter": "optional SQL-like filter"
-      }
-    },
-    {
-      "name": "query_metrics",
-      "description": "Query time-series metrics",
-      "parameters": {
-        "metric_name": "string",
-        "service_id": "optional string",
-        "aggregation": "p50|p95|p99|mean|max"
-      }
-    },
-    {
-      "name": "get_service_topology",
-      "description": "Get current service dependency graph",
-      "parameters": {}
-    },
-    {
-      "name": "search_logs",
-      "description": "Search recent logs with filters",
-      "parameters": {
-        "query": "string (search text)",
-        "service_id": "optional string",
-        "level": "optional (error|warn|info)"
-      }
-    },
-    {
-      "name": "issue_dynamic_probe",
-      "description": "Start eBPF probe for live investigation",
-      "parameters": {
-        "probe_type": "string",
-        "target_service": "string"
-      }
-    }
-  ]
+  "coral_query_beyla_http_metrics": {
+    "service": "string (required)",
+    "time_range": "string (e.g., '1h', '30m'), default: '1h'",
+    "http_route": "optional string (e.g., '/api/v1/users/:id')",
+    "http_method": "optional enum: GET|POST|PUT|DELETE|PATCH",
+    "status_code_range": "optional enum: 2xx|3xx|4xx|5xx"
+  },
+  "coral_query_beyla_traces": {
+    "trace_id": "optional string (32-char hex)",
+    "service": "optional string",
+    "time_range": "string, default: '1h'",
+    "min_duration_ms": "optional int",
+    "max_traces": "optional int, default: 10"
+  },
+  "coral_start_ebpf_collector": {
+    "collector_type": "enum: cpu_profile|syscall_stats|http_latency|tcp_metrics",
+    "service": "string (required)",
+    "agent_id": "optional string (for disambiguation)",
+    "duration_seconds": "optional int, default: 30, max: 300",
+    "config": "optional object (collector-specific settings)"
+  },
+  "coral_exec_command": {
+    "service": "string (required)",
+    "agent_id": "optional string (recommended for multi-agent scenarios)",
+    "command": "array of strings (e.g., ['ls', '-la', '/app'])",
+    "timeout_seconds": "optional int, default: 30",
+    "working_dir": "optional string"
+  }
 }
 ```
 
@@ -589,9 +635,9 @@ Tools exposed by Colony MCP server (consumed by Genkit agent):
 
 **Design Philosophy:**
 
-- **Developer-centric**: Flexibility and control over model choice, costs
+- **Developer-centric**: Flexibility and control over model choice
 - **Colony stays lightweight**: No LLM runtime, simpler operations
-- **Cost transparency**: User's API keys = clear ownership
+- **Cost ownership**: User's API keys = user owns costs (no shared budget)
 - **Offline-capable**: Ollama support for air-gapped environments
 
 **Relationship to other components:**
