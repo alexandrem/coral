@@ -15,21 +15,6 @@ areas: ["ai", "cli", "mcp"]
 
 **Status:** 🚧 Draft
 
-> **Implementation Viability (2025-11):** ✅ Viable with simplifications.
->
-> **Prerequisites met:**
-> - Colony MCP server implemented (RFD 004) with 16 tools
-> - Genkit Go SDK integrated (`v1.1.0`)
-> - Tool execution works via both MCP stdio and direct RPC
->
-> **Recommended simplifications for v1:**
-> - Use **embedded mode** (not daemon) - simpler, cloud API latency dominates
-> - Call Colony tools via **direct gRPC** (not MCP) - single binary optimization
-> - MCP client layer only needed for external tool composition
->
-> **Dependencies:** Genkit provider plugins for OpenAI/Anthropic/Ollama need
-> verification against current SDK API before implementation.
-
 ## Summary
 
 Implement `coral ask` CLI command using local Genkit-powered LLM agent that
@@ -545,39 +530,39 @@ Tools exposed by Colony MCP server (consumed by Genkit agent). All tools use the
 
 #### Observability Tools
 
-| Tool | Description |
-|------|-------------|
-| `coral_get_service_health` | Get health status of services (healthy/degraded/unhealthy based on agent heartbeat) |
-| `coral_get_service_topology` | Get service dependency graph discovered from distributed traces |
-| `coral_query_events` | Query operational events (deployments, restarts, crashes, alerts, config changes) |
+| Tool                         | Description                                                                         |
+|------------------------------|-------------------------------------------------------------------------------------|
+| `coral_get_service_health`   | Get health status of services (healthy/degraded/unhealthy based on agent heartbeat) |
+| `coral_get_service_topology` | Get service dependency graph discovered from distributed traces                     |
+| `coral_query_events`         | Query operational events (deployments, restarts, crashes, alerts, config changes)   |
 
 #### Beyla Metrics Tools (eBPF-based auto-instrumentation)
 
-| Tool | Description |
-|------|-------------|
+| Tool                             | Description                                                                      |
+|----------------------------------|----------------------------------------------------------------------------------|
 | `coral_query_beyla_http_metrics` | Query HTTP RED metrics (rate, errors, duration) with route/method/status filters |
-| `coral_query_beyla_grpc_metrics` | Query gRPC method-level RED metrics with status code breakdown |
-| `coral_query_beyla_sql_metrics` | Query SQL operation metrics with table-level statistics |
-| `coral_query_beyla_traces` | Query distributed traces by service, time range, or duration threshold |
-| `coral_get_trace_by_id` | Get specific trace with full span tree and parent-child relationships |
+| `coral_query_beyla_grpc_metrics` | Query gRPC method-level RED metrics with status code breakdown                   |
+| `coral_query_beyla_sql_metrics`  | Query SQL operation metrics with table-level statistics                          |
+| `coral_query_beyla_traces`       | Query distributed traces by service, time range, or duration threshold           |
+| `coral_get_trace_by_id`          | Get specific trace with full span tree and parent-child relationships            |
 
 #### OTLP Telemetry Tools (OpenTelemetry SDK instrumentation)
 
-| Tool | Description |
-|------|-------------|
-| `coral_query_telemetry_spans` | Query OTLP spans from instrumented applications (aggregated summaries) |
-| `coral_query_telemetry_metrics` | Query OTLP metrics (custom application metrics) |
-| `coral_query_telemetry_logs` | Query OTLP logs with full-text search and filters |
+| Tool                            | Description                                                            |
+|---------------------------------|------------------------------------------------------------------------|
+| `coral_query_telemetry_spans`   | Query OTLP spans from instrumented applications (aggregated summaries) |
+| `coral_query_telemetry_metrics` | Query OTLP metrics (custom application metrics)                        |
+| `coral_query_telemetry_logs`    | Query OTLP logs with full-text search and filters                      |
 
 #### Live Debugging Tools (Phase 3)
 
-| Tool | Description |
-|------|-------------|
+| Tool                         | Description                                                                            |
+|------------------------------|----------------------------------------------------------------------------------------|
 | `coral_start_ebpf_collector` | Start on-demand eBPF collector (cpu_profile, syscall_stats, http_latency, tcp_metrics) |
-| `coral_stop_ebpf_collector` | Stop a running eBPF collector before its duration expires |
-| `coral_list_ebpf_collectors` | List currently active eBPF collectors with status and remaining duration |
-| `coral_exec_command` | Execute command in application container (kubectl/docker exec semantics) |
-| `coral_shell_start` | Start interactive debug shell in agent's environment |
+| `coral_stop_ebpf_collector`  | Stop a running eBPF collector before its duration expires                              |
+| `coral_list_ebpf_collectors` | List currently active eBPF collectors with status and remaining duration               |
+| `coral_exec_command`         | Execute command in application container (kubectl/docker exec semantics)               |
+| `coral_shell_start`          | Start interactive debug shell in agent's environment                                   |
 
 #### Example Tool Schemas
 
