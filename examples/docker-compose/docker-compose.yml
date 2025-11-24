@@ -30,9 +30,16 @@ services:
     network_mode: "service:demo-app"
     cap_add:
       - NET_ADMIN
+      - SYS_ADMIN      # Required for eBPF (Beyla)
+      - SYS_PTRACE     # Required for eBPF process attachment
+      - SYS_RESOURCE   # Required for memlock rlimit
     devices:
       - /dev/net/tun:/dev/net/tun
-    privileged: false  # Using capabilities; wireguard-go runs in userspace
+    privileged: false  # Using capabilities instead of privileged mode
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
 
 volumes:
   coral-agent-data:

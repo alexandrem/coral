@@ -8,10 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
+	"gopkg.in/yaml.v3"
 
 	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent/telemetry"
@@ -38,6 +41,7 @@ type Manager struct {
 	// Beyla process management.
 	beylaCmd        *exec.Cmd
 	beylaBinaryPath string // Path to extracted binary (cleanup on stop)
+	beylaConfigPath string // Path to generated config file (cleanup on stop)
 
 	// Channels for processed Beyla data.
 	tracesCh  chan *BeylaTrace       // Beyla traces ready for Colony
@@ -237,6 +241,15 @@ func (m *Manager) Stop() error {
 		}
 	}
 
+	// Cleanup generated config file.
+	if m.beylaConfigPath != "" {
+		if err := os.Remove(m.beylaConfigPath); err != nil && !os.IsNotExist(err) {
+			m.logger.Error().Err(err).Str("path", m.beylaConfigPath).Msg("Failed to cleanup Beyla config file")
+		} else {
+			m.logger.Debug().Str("path", m.beylaConfigPath).Msg("Cleaned up Beyla config file")
+		}
+	}
+
 	// Cancel context to stop all goroutines.
 	// IMPORTANT: This must be called BEFORE stopping OTLP receiver.
 	// The OTLP receiver's cleanup loop (RunCleanupLoop) depends on this context.
@@ -401,7 +414,7 @@ func (m *Manager) startOTLPReceiver() error {
 	otlpConfig := telemetry.Config{
 		Disabled:              false,
 		GRPCEndpoint:          "127.0.0.1:4317", // Standard OTLP gRPC port
-		HTTPEndpoint:          m.config.OTLPEndpoint,
+		HTTPEndpoint:          "127.0.0.1:4318", // Standard OTLP HTTP port
 		StorageRetentionHours: 1,
 		Filters: telemetry.FilterConfig{
 			AlwaysCaptureErrors:    true,
@@ -582,11 +595,15 @@ func (m *Manager) startBeyla() error {
 		Str("binary_path", binaryPath).
 		Msg("Found Beyla binary")
 
-	// Build Beyla command line arguments.
-	args := m.buildBeylaArgs()
+	// Generate Beyla config file.
+	configPath, err := m.generateBeylaConfig()
+	if err != nil {
+		return fmt.Errorf("failed to generate beyla config: %w", err)
+	}
+	m.beylaConfigPath = configPath
 
-	// Create command.
-	cmd := exec.CommandContext(m.ctx, binaryPath, args...)
+	// Create command with config file.
+	cmd := exec.CommandContext(m.ctx, binaryPath, "-config", configPath)
 
 	// Configure logging (Beyla logs to stderr).
 	cmd.Stdout = &beylaLogWriter{logger: m.logger, level: "info"}
@@ -613,47 +630,110 @@ func (m *Manager) startBeyla() error {
 	return nil
 }
 
-// buildBeylaArgs constructs command line arguments for Beyla binary.
-func (m *Manager) buildBeylaArgs() []string {
-	args := []string{}
+// beylaConfig represents Beyla's YAML configuration structure.
+type beylaConfig struct {
+	LogLevel  string `yaml:"log_level,omitempty"`
+	Discovery struct {
+		Instrument []struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+		} `yaml:"instrument,omitempty"`
+	} `yaml:"discovery,omitempty"`
+	Attributes struct {
+		Kubernetes struct {
+			Enable string `yaml:"enable,omitempty"`
+		} `yaml:"kubernetes,omitempty"`
+	} `yaml:"attributes,omitempty"`
+	OtelTracesExport *struct {
+		Endpoint string `yaml:"endpoint,omitempty"`
+		Protocol string `yaml:"protocol,omitempty"`
+	} `yaml:"otel_traces_export,omitempty"`
+	OtelMetricsExport *struct {
+		Endpoint string `yaml:"endpoint,omitempty"`
+		Protocol string `yaml:"protocol,omitempty"`
+	} `yaml:"otel_metrics_export,omitempty"`
+	Routes *struct {
+		Unmatch string `yaml:"unmatch,omitempty"`
+	} `yaml:"routes,omitempty"`
+}
 
-	// OTLP export endpoint.
-	if m.config.OTLPEndpoint != "" {
-		args = append(args, "--otel-metrics-export", "otlp")
-		args = append(args, "--otel-metrics-endpoint", "http://"+m.config.OTLPEndpoint)
-		args = append(args, "--otel-traces-export", "otlp")
-		args = append(args, "--otel-traces-endpoint", "http://"+m.config.OTLPEndpoint)
+// generateBeylaConfig creates a Beyla YAML config file and returns the path.
+func (m *Manager) generateBeylaConfig() (string, error) {
+	cfg := beylaConfig{
+		LogLevel: "INFO",
 	}
 
 	// Discovery: open ports.
-	for _, port := range m.config.Discovery.OpenPorts {
-		args = append(args, "--open-port", fmt.Sprintf("%d", port))
+	if len(m.config.Discovery.OpenPorts) > 0 {
+		ports := make([]string, len(m.config.Discovery.OpenPorts))
+		for i, port := range m.config.Discovery.OpenPorts {
+			ports[i] = strconv.Itoa(port)
+		}
+		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+		}{OpenPorts: strings.Join(ports, ",")})
 	}
 
-	// Discovery: process names.
+	// Discovery: process names (exe_name patterns).
 	for _, name := range m.config.Discovery.ProcessNames {
-		args = append(args, "--service-name", name)
+		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+		}{ExeName: name})
 	}
 
-	// Protocol filters.
-	if !m.config.Protocols.HTTPEnabled {
-		args = append(args, "--disable-http")
-	}
-	if !m.config.Protocols.GRPCEnabled {
-		args = append(args, "--disable-grpc")
-	}
-
-	// Sampling rate.
-	if m.config.SamplingRate > 0 && m.config.SamplingRate < 1.0 {
-		args = append(args, "--sampling-rate", fmt.Sprintf("%.2f", m.config.SamplingRate))
+	// Default discovery: if no ports or process names specified, discover all listening processes.
+	if len(cfg.Discovery.Instrument) == 0 {
+		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
+			OpenPorts string `yaml:"open_ports,omitempty"`
+			ExeName   string `yaml:"exe_name,omitempty"`
+		}{OpenPorts: "1-65535"})
 	}
 
-	// Resource attributes.
-	for k, v := range m.config.Attributes {
-		args = append(args, "--otel-resource-attributes", fmt.Sprintf("%s=%s", k, v))
+	// OTLP export endpoint (gRPC).
+	if m.config.OTLPEndpoint != "" {
+		// Beyla requires http:// prefix even for gRPC (uses HTTP/2 transport).
+		endpoint := "http://" + m.config.OTLPEndpoint
+		cfg.OtelTracesExport = &struct {
+			Endpoint string `yaml:"endpoint,omitempty"`
+			Protocol string `yaml:"protocol,omitempty"`
+		}{Endpoint: endpoint, Protocol: "grpc"}
+		cfg.OtelMetricsExport = &struct {
+			Endpoint string `yaml:"endpoint,omitempty"`
+			Protocol string `yaml:"protocol,omitempty"`
+		}{Endpoint: endpoint, Protocol: "grpc"}
 	}
 
-	return args
+	// Use wildcard route matching to capture all routes.
+	cfg.Routes = &struct {
+		Unmatch string `yaml:"unmatch,omitempty"`
+	}{Unmatch: "wildcard"}
+
+	// Marshal to YAML.
+	data, err := yaml.Marshal(&cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal beyla config: %w", err)
+	}
+
+	// Write to temp file.
+	configFile, err := os.CreateTemp("", "beyla-config-*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("failed to create beyla config file: %w", err)
+	}
+	defer configFile.Close()
+
+	if _, err := configFile.Write(data); err != nil {
+		os.Remove(configFile.Name())
+		return "", fmt.Errorf("failed to write beyla config file: %w", err)
+	}
+
+	m.logger.Debug().
+		Str("path", configFile.Name()).
+		Str("config", string(data)).
+		Msg("Generated Beyla config file")
+
+	return configFile.Name(), nil
 }
 
 // monitorBeylaProcess monitors the Beyla process and logs when it exits.
