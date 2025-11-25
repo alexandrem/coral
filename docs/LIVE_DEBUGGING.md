@@ -1,4 +1,4 @@
-# Live Debugging: The Killer Feature
+# Live Debugging: The Killer Feature (in development)
 
 **Coral can debug your running code without redeploying.**
 
@@ -64,12 +64,6 @@ $ coral ask "Why is the payment API slow?"
 | Always-on overhead | Zero overhead when not debugging |
 | Single-process debuggers (delve, gdb) | Distributed debugging across mesh |
 | Manual investigation | LLM orchestrates where to probe |
-
-**This doesn't exist in the market.** Coral is the first tool that combines:
-- LLM-driven analysis
-- On-demand eBPF instrumentation
-- Distributed debugging
-- Zero standing overhead
 
 ## MCP Integration
 
