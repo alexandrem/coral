@@ -151,7 +151,7 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 		}
 		m.storage = storage
 
-		// Initialize Beyla metrics storage (RFD 032 Phase 4).
+		// Initialize Beyla metrics storage (RFD 032).
 		beylaStorage, err := NewBeylaStorage(config.DB, config.DBPath, logger)
 		if err != nil {
 			cancel()
@@ -286,7 +286,7 @@ func (m *Manager) GetMetrics() <-chan *ebpfpb.EbpfEvent {
 	return m.metricsCh
 }
 
-// QueryHTTPMetrics queries Beyla HTTP metrics from local storage (RFD 032 Phase 4).
+// QueryHTTPMetrics queries Beyla HTTP metrics from local storage (RFD 032).
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
 	if m.beylaStorage == nil {
@@ -295,7 +295,7 @@ func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.
 	return m.beylaStorage.QueryHTTPMetrics(ctx, startTime, endTime, serviceNames)
 }
 
-// QueryGRPCMetrics queries Beyla gRPC metrics from local storage (RFD 032 Phase 4).
+// QueryGRPCMetrics queries Beyla gRPC metrics from local storage (RFD 032).
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, error) {
 	if m.beylaStorage == nil {
@@ -304,7 +304,7 @@ func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.
 	return m.beylaStorage.QueryGRPCMetrics(ctx, startTime, endTime, serviceNames)
 }
 
-// QuerySQLMetrics queries Beyla SQL metrics from local storage (RFD 032 Phase 4).
+// QuerySQLMetrics queries Beyla SQL metrics from local storage (RFD 032).
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, error) {
 	if m.beylaStorage == nil {
@@ -442,7 +442,7 @@ func (m *Manager) startOTLPReceiver() error {
 	m.wg.Add(1)
 	go m.consumeMetrics()
 
-	// Start Beyla metrics cleanup loop (RFD 032 Phase 4).
+	// Start Beyla metrics cleanup loop (RFD 032).
 	// Use configured retention or default to 1 hour.
 	retention := 1 * time.Hour
 	if m.config.StorageRetentionHours > 0 {
@@ -523,7 +523,7 @@ func (m *Manager) consumeMetrics() {
 					continue
 				}
 
-				// Store events in local DuckDB for pull-based queries (RFD 032 Phase 4).
+				// Store events in local DuckDB for pull-based queries (RFD 032).
 				for _, event := range events {
 					if m.beylaStorage != nil {
 						if err := m.beylaStorage.StoreEvent(m.ctx, event); err != nil {
