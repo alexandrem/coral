@@ -28,43 +28,6 @@ This document provides technical details about LLM provider support for the
 - Anthropic (`claude-3-5-sonnet-20241022`) - Native MCP support possible
 - Ollama (local models) - For air-gapped/offline deployments
 
----
-
-## Architecture
-
-### Direct SDK Integration
-
-Each provider is implemented directly using its native SDK.
-
-This provides:
-
-- **Full Control**: Direct access to provider-specific features
-- **Better Performance**: No wrapper overhead
-- **Native Tool Calling**: Direct integration with each provider's function
-  calling API
-- **Simpler Debugging**: Clearer error messages and stack traces
-
-### Provider Interface
-
-All providers implement a simple `Provider` interface defined in
-`internal/agent/llm/provider.go`:
-
-```go
-type Provider interface {
-    Name() string
-    Generate(ctx context.Context, req GenerateRequest, streamCallback StreamCallback) (*GenerateResponse, error)
-}
-```
-
-Each provider is responsible for:
-
-1. Converting MCP tools to its native function calling format
-2. Handling streaming responses
-3. Managing conversation history
-4. Converting tool calls back to a standard format
-
----
-
 ## Current Status
 
 ### Google (Gemini) - ✅ Fully Supported
