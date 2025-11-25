@@ -40,8 +40,20 @@ discovery:
         - "stun.cloudflare.com:3478"
 
 ai:
-    provider: "anthropic"  # or "openai"
+    provider: "google"  # Currently only "google" is supported
     api_key_source: "env"  # or "keychain", "file"
+
+    # Coral Ask configuration (RFD 030)
+    ask:
+        default_model: "google:gemini-2.0-flash-exp"
+        api_keys:
+            google: "env://GOOGLE_API_KEY"
+        conversation:
+            max_turns: 10
+            context_window: 8192
+            auto_prune: true
+        agent:
+            mode: "embedded"
 
 preferences:
     auto_update_check: true
@@ -57,10 +69,135 @@ preferences:
 | `discovery.endpoint`            | string   | `http://localhost:8080`      | Discovery service URL                        |
 | `discovery.timeout`             | duration | `10s`                        | Discovery request timeout                    |
 | `discovery.stun_servers`        | []string | `[stun.cloudflare.com:3478]` | STUN servers for NAT traversal               |
-| `ai.provider`                   | string   | `anthropic`                  | AI provider: `anthropic` or `openai`         |
+| `ai.provider`                   | string   | `google`                     | AI provider: currently only `google`         |
 | `ai.api_key_source`             | string   | `env`                        | API key source: `env`, `keychain`, or `file` |
 | `preferences.auto_update_check` | bool     | `true`                       | Check for updates on startup                 |
 | `preferences.telemetry_enabled` | bool     | `false`                      | Enable anonymous telemetry                   |
+
+### AI Configuration (RFD 030)
+
+The `ai.ask` section configures the local LLM agent for `coral ask` command. The
+agent runs on your machine and connects to Colony's MCP server to access
+observability data.
+
+#### Supported Providers for `coral ask`
+
+| Provider      | Model Examples                                                | API Key Required | Local/Cloud | MCP Tool Support | Status       |
+|---------------|---------------------------------------------------------------|------------------|-------------|------------------|--------------|
+| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported  |
+| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                        | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                          | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **Ollama**    | `llama3.2`, `mistral`, `codellama`                            | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
+| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`              | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+
+> **Important:** `coral ask` requires MCP tool calling to access observability
+> data from your colony.
+>
+> **Currently Supported:**
+> - **Google Gemini**: Only provider currently implemented. Uses direct SDK
+    integration with full MCP tool calling support.
+>
+> **Planned Providers:**
+> - **OpenAI**: Implementation needed for GPT-4o and GPT-4o-mini support
+> - **Anthropic**: Native tool calling support available, implementation planned
+> - **Ollama**: For air-gapped/offline deployments
+> - **Grok**: Evaluate tool calling support and implement if viable
+>
+> **Recommendation:** Use Google models for `coral ask`:
+> - Production: `google:gemini-1.5-pro` (stable, long context)
+> - Development: `google:gemini-2.0-flash-exp` (fast, experimental)
+> - Cost-effective: `google:gemini-1.5-flash` (balanced)
+>
+> See `docs/PROVIDERS.md` for detailed implementation status and roadmap.
+
+#### AI Ask Configuration Fields
+
+| Field                                | Type     | Default    | Description                                      |
+|--------------------------------------|----------|------------|--------------------------------------------------|
+| `ai.ask.default_model`               | string   | -          | Default model (format: `provider:model-id`)      |
+| `ai.ask.fallback_models`             | []string | `[]`       | Fallback models if primary fails                 |
+| `ai.ask.api_keys`                    | map      | `{}`       | API keys (use `env://VAR_NAME` format)           |
+| `ai.ask.conversation.max_turns`      | int      | `10`       | Maximum conversation turns to keep               |
+| `ai.ask.conversation.context_window` | int      | `8192`     | Maximum tokens for context                       |
+| `ai.ask.conversation.auto_prune`     | bool     | `true`     | Auto-prune old messages when limit reached       |
+| `ai.ask.agent.mode`                  | string   | `embedded` | Agent mode: `embedded`, `daemon`, or `ephemeral` |
+
+#### Model Format
+
+Models are specified as `provider:model-id`:
+
+**Google (Currently Supported):**
+
+- `google:gemini-2.0-flash-exp` - Gemini 2.0 Flash (fast, experimental)
+- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context window, most capable)
+- `google:gemini-1.5-flash` - Gemini 1.5 Flash (balanced, cost-effective)
+
+**Planned Providers (Not Yet Implemented):**
+
+- `openai:gpt-4o` - Latest GPT-4 Omni (planned)
+- `openai:gpt-4o-mini` - Faster, cheaper GPT-4 Omni (planned)
+- `anthropic:claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet (planned)
+- `ollama:llama3.2` - Local Llama 3.2 (planned for air-gapped deployments)
+- `ollama:mistral` - Local Mistral (planned)
+
+**Current Limitation:**
+
+If you specify a non-Google provider, you'll receive an error:
+```
+provider "openai" is not yet implemented
+
+Currently supported:
+  - google:gemini-2.0-flash-exp (fast, experimental)
+  - google:gemini-1.5-pro (high quality, stable)
+  - google:gemini-1.5-flash (balanced)
+```
+
+#### API Key Configuration
+
+**IMPORTANT:** Never store API keys in plain text. Use environment variable
+references:
+
+```yaml
+ai:
+    ask:
+        api_keys:
+            openai: "env://OPENAI_API_KEY"       # ✅ Correct
+            google: "env://GOOGLE_API_KEY"
+            # openai: "sk-proj-abc123..."        # ❌ NEVER do this
+```
+
+**Setting API Keys:**
+
+```bash
+# In your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export OPENAI_API_KEY=sk-proj-your-key-here
+export GOOGLE_API_KEY=your-google-key-here
+
+# Or for specific session
+export OPENAI_API_KEY=sk-proj-your-key-here
+coral ask "your question"
+```
+
+**Getting API Keys:**
+
+- **OpenAI**: https://platform.openai.com/api-keys
+- **Google AI**: https://aistudio.google.com/app/apikey
+- **Ollama**: No API key needed (runs locally)
+
+#### Per-Colony Overrides
+
+Override AI settings per colony for environment-specific models:
+
+```yaml
+# ~/.coral/colonies/my-app-prod.yaml
+version: "1"
+colony_id: "my-app-prod"
+
+ask:
+    default_model: "openai:gpt-4o"  # Use better model for production
+    fallback_models:
+        - "google:gemini-2.0-flash-exp"
+```
 
 ## Colony Configuration
 
@@ -171,6 +308,48 @@ last_used: "2025-01-15T14:22:00Z"
 | `mcp.enabled_tools`                     | []string | `[]` (all) | Restrict available tools         |
 | `mcp.security.require_rbac_for_actions` | bool     | `false`    | Require RBAC for exec/shell/eBPF |
 | `mcp.security.audit_enabled`            | bool     | `false`    | Enable MCP tool call auditing    |
+
+#### Beyla Observability (RFD 032, RFD 036)
+
+Beyla metrics and traces are collected from agents and stored in the colony's
+DuckDB. Retention policies control how long data is kept.
+
+| Field                         | Type | Default | Description                                              |
+|-------------------------------|------|---------|----------------------------------------------------------|
+| `beyla.poll_interval`         | int  | `60`    | Interval (seconds) to poll agents for Beyla data         |
+| `beyla.retention.http_days`   | int  | `30`    | Retention period for HTTP metrics (days)                 |
+| `beyla.retention.grpc_days`   | int  | `30`    | Retention period for gRPC metrics (days)                 |
+| `beyla.retention.sql_days`    | int  | `14`    | Retention period for SQL metrics (days)                  |
+| `beyla.retention.traces_days` | int  | `7`     | Retention period for distributed traces (days) (RFD 036) |
+
+**Example Configuration:**
+
+```yaml
+beyla:
+    poll_interval: 60  # Poll agents every 60 seconds
+    retention:
+        http_days: 30   # Keep HTTP metrics for 30 days
+        grpc_days: 30   # Keep gRPC metrics for 30 days
+        sql_days: 14    # Keep SQL metrics for 14 days
+        traces_days: 7  # Keep traces for 7 days
+```
+
+**Storage Considerations:**
+
+- **Traces are high-volume:** Distributed traces generate significantly more
+  data than RED metrics. A 7-day retention is recommended for production
+  workloads.
+- **Adjust based on throughput:** High-traffic services may need shorter
+  retention (3-5 days) to manage storage size.
+- **Metrics vs Traces:** HTTP/gRPC metrics are aggregated histograms (lower
+  storage), while traces store individual request spans (higher storage).
+
+**Defaults:** If not specified in config, the following defaults are used:
+
+- Poll interval: 60 seconds
+- HTTP/gRPC retention: 30 days
+- SQL retention: 14 days
+- Trace retention: 7 days
 
 ## Project Configuration
 
@@ -475,8 +654,12 @@ discovery:
     endpoint: "http://localhost:8080"
 
 ai:
-    provider: "anthropic"
+    provider: "google"
     api_key_source: "env"
+    ask:
+        default_model: "google:gemini-2.0-flash-exp"
+        api_keys:
+            google: "env://GOOGLE_API_KEY"
 ```
 
 **Colony Config** (`~/.coral/colonies/myapp-dev.yaml`):
@@ -635,6 +818,143 @@ mcp:
         require_rbac_for_actions: true  # Require auth for exec/shell
         audit_enabled: true             # Log all MCP calls
 ```
+
+### Example 7: Observability with Custom Retention
+
+**Colony Config with Beyla Observability:**
+
+```yaml
+version: "1"
+colony_id: "myapp-prod"
+application_name: "MyApp"
+environment: "production"
+
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/10"
+    public_endpoints:
+        - "colony.example.com:9000"
+
+services:
+    connect_port: 9000
+    dashboard_port: 3000
+
+# Beyla metrics and distributed tracing (RFD 032, RFD 036)
+beyla:
+    poll_interval: 30  # Poll agents every 30 seconds (more frequent)
+    retention:
+        http_days: 90     # Keep HTTP metrics for 90 days
+        grpc_days: 90     # Keep gRPC metrics for 90 days
+        sql_days: 30      # Keep SQL metrics for 30 days
+        traces_days: 14   # Keep traces for 14 days (extended retention)
+```
+
+**Start Colony:**
+
+```bash
+CORAL_PUBLIC_ENDPOINT=colony.example.com:9000 coral colony start
+```
+
+**Storage Impact:**
+
+For a high-traffic service (1000 req/s):
+
+- **Metrics:** ~50 MB/day (aggregated histograms)
+- **Traces:** ~5 GB/day (individual request spans)
+- **14-day trace retention:** ~70 GB total
+
+Consider shorter trace retention (7 days) or sampling for very high throughput
+services.
+
+### Example 8: AI-Powered Diagnostics with Coral Ask
+
+**Global Config** (`~/.coral/config.yaml`):
+
+```yaml
+version: "1"
+default_colony: "myapp-prod"
+
+discovery:
+    endpoint: "http://localhost:8080"
+
+ai:
+    provider: "google"  # Currently only Google is supported
+    api_key_source: "env"
+
+    # Configure coral ask (RFD 030)
+    ask:
+        default_model: "google:gemini-2.0-flash-exp"
+        api_keys:
+            google: "env://GOOGLE_API_KEY"
+        conversation:
+            max_turns: 10
+            context_window: 8192
+            auto_prune: true
+        agent:
+            mode: "embedded"
+```
+
+**Production Colony Override** (`~/.coral/colonies/myapp-prod.yaml`):
+
+```yaml
+version: "1"
+colony_id: "myapp-prod"
+application_name: "MyApp"
+environment: "production"
+
+# Use more stable model for production troubleshooting
+ask:
+    default_model: "google:gemini-1.5-pro"  # More capable, stable model
+
+wireguard:
+    mesh_network_ipv4: "100.64.0.0/10"
+    public_endpoints:
+        - "colony.example.com:9000"
+
+mcp:
+    disabled: false  # MCP server required for coral ask
+```
+
+**Setup:**
+
+```bash
+# 1. Set API key
+export GOOGLE_API_KEY=your-google-key-here
+
+# 2. Start colony
+coral colony start
+
+# 3. Ask questions about your application
+coral ask "what services are currently running?"
+coral ask "show me HTTP latency for the API service"
+coral ask "why is checkout slow?"
+
+# 4. Multi-turn conversations
+coral ask "what's the p95 latency?"
+coral ask "show me the slowest endpoints" --continue
+
+# 5. Override model for specific queries
+coral ask "complex root cause analysis" --model google:gemini-1.5-pro
+
+# 6. JSON output for scripting
+coral ask "list unhealthy services" --json
+
+# 7. Use different Gemini models
+coral ask "quick status check" --model google:gemini-1.5-flash  # Faster
+coral ask "deep analysis" --model google:gemini-1.5-pro  # More capable
+```
+
+**Key Features:**
+
+- **MCP Integration:** LLM accesses all Colony MCP tools (service health,
+  traces, metrics, logs)
+- **Google Gemini:** Currently supported provider with full tool calling
+- **Conversation Context:** Multi-turn conversations with automatic context
+  pruning
+- **Per-Colony Models:** Use faster models for dev, more capable for production
+- **Model Selection:** Choose between speed (Flash) and quality (Pro)
+
+**Future Support:** OpenAI, Anthropic, and Ollama providers are planned but not
+yet implemented. See `docs/PROVIDERS.md` for implementation status.
 
 ## Configuration Validation
 

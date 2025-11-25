@@ -42,7 +42,7 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 		if serviceFilter != "" {
 			matchFound := false
 			for _, svc := range agent.Services {
-				if matchesPattern(svc.ComponentName, serviceFilter) {
+				if matchesPattern(svc.Name, serviceFilter) {
 					matchFound = true
 					break
 				}
@@ -70,11 +70,11 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 		// Build service names list from Services[] array.
 		serviceNames := make([]string, 0, len(agent.Services))
 		for _, svc := range agent.Services {
-			serviceNames = append(serviceNames, svc.ComponentName)
+			serviceNames = append(serviceNames, svc.Name)
 		}
 		servicesStr := strings.Join(serviceNames, ", ")
 		if servicesStr == "" {
-			servicesStr = agent.ComponentName // Fallback for backward compatibility
+			servicesStr = agent.Name // Fallback for backward compatibility
 		}
 
 		serviceStatuses = append(serviceStatuses, map[string]interface{}{
@@ -96,18 +96,19 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 	}
 
 	// Format response.
-	text := fmt.Sprintf("System Health Report:\n\n")
+	text := "System Health Report:\n\n"
 	text += fmt.Sprintf("Overall Status: %s\n\n", overallStatus)
-	text += fmt.Sprintf("Services:\n")
+	text += "Services:\n"
 
 	if len(serviceStatuses) == 0 {
 		text += "  No services connected.\n"
 	} else {
 		for _, svc := range serviceStatuses {
 			statusEmoji := "✓"
-			if svc["status"] == "degraded" {
+			switch svc["status"] {
+			case "degraded":
 				statusEmoji = "⚠"
-			} else if svc["status"] == "unhealthy" {
+			case "unhealthy":
 				statusEmoji = "✗"
 			}
 
@@ -138,18 +139,18 @@ func (s *Server) executeServiceTopologyTool(ctx context.Context, argumentsJSON s
 
 	agents := s.registry.ListAll()
 
-	text := fmt.Sprintf("Service Topology:\n\n")
+	text := "Service Topology:\n\n"
 	text += fmt.Sprintf("Connected Agents (%d):\n", len(agents))
 
 	for _, agent := range agents {
 		// Build service names list from Services[] array (RFD 044).
 		serviceNames := make([]string, 0, len(agent.Services))
 		for _, svc := range agent.Services {
-			serviceNames = append(serviceNames, svc.ComponentName)
+			serviceNames = append(serviceNames, svc.Name)
 		}
 		servicesStr := strings.Join(serviceNames, ", ")
 		if servicesStr == "" {
-			servicesStr = agent.ComponentName // Fallback for backward compatibility
+			servicesStr = agent.Name // Fallback for backward compatibility
 		}
 
 		text += fmt.Sprintf("  - %s (services: %s, mesh IP: %s)\n", agent.AgentID, servicesStr, agent.MeshIPv4)
@@ -440,7 +441,9 @@ func (s *Server) executeStartEBPFCollectorTool(ctx context.Context, argumentsJSO
 	if input.DurationSeconds != nil {
 		text += fmt.Sprintf("Duration: %d seconds\n", *input.DurationSeconds)
 	} else {
-		text += "Duration: 30 seconds (default)\n"
+		if input.ConfigJSON != nil {
+			text += fmt.Sprintf("Config: %s\n", *input.ConfigJSON)
+		}
 	}
 
 	text += "\n"
@@ -638,7 +641,7 @@ func (s *Server) resolveAgent(agentID *string, serviceName string) (*registry.En
 	for _, agent := range agents {
 		// Check Services[] array, not ComponentName (RFD 044).
 		for _, svc := range agent.Services {
-			if matchesPattern(svc.ComponentName, serviceName) {
+			if matchesPattern(svc.Name, serviceName) {
 				matchedAgents = append(matchedAgents, agent)
 				break
 			}

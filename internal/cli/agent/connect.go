@@ -146,7 +146,7 @@ Note:
 
 			for _, spec := range serviceSpecs {
 				req := &agentv1.ConnectServiceRequest{
-					ComponentName:  spec.Name,
+					Name:           spec.Name,
 					Port:           spec.Port,
 					HealthEndpoint: spec.HealthEndpoint,
 					ServiceType:    spec.ServiceType,
@@ -193,7 +193,7 @@ Note:
 					// Find the service status.
 					var serviceStatus *agentv1.ServiceStatus
 					for _, s := range statusResp.Msg.Services {
-						if s.ComponentName == serviceName {
+						if s.Name == serviceName {
 							serviceStatus = s
 							break
 						}

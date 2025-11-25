@@ -52,6 +52,14 @@ func (m *mockColonyClient) StreamTool(ctx context.Context) *connect.BidiStreamFo
 	return nil
 }
 
+func (m *mockColonyClient) RequestCertificate(ctx context.Context, req *connect.Request[colonyv1.RequestCertificateRequest]) (*connect.Response[colonyv1.RequestCertificateResponse], error) {
+	return connect.NewResponse(&colonyv1.RequestCertificateResponse{}), nil
+}
+
+func (m *mockColonyClient) RevokeCertificate(ctx context.Context, req *connect.Request[colonyv1.RevokeCertificateRequest]) (*connect.Response[colonyv1.RevokeCertificateResponse], error) {
+	return connect.NewResponse(&colonyv1.RevokeCertificateResponse{}), nil
+}
+
 // TestMCPProxyInitialize tests the initialize method.
 func TestMCPProxyInitialize(t *testing.T) {
 	// Create mock colony client.

@@ -860,6 +860,226 @@ func (x *QueryTelemetryResponse) GetTotalSpans() int32 {
 	return 0
 }
 
+// RequestCertificateRequest requests a client certificate using a bootstrap token.
+type RequestCertificateRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Bootstrap token (JWT).
+	Jwt string `protobuf:"bytes,1,opt,name=jwt,proto3" json:"jwt,omitempty"`
+	// Certificate signing request (PEM-encoded).
+	Csr           []byte `protobuf:"bytes,2,opt,name=csr,proto3" json:"csr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestCertificateRequest) Reset() {
+	*x = RequestCertificateRequest{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestCertificateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestCertificateRequest) ProtoMessage() {}
+
+func (x *RequestCertificateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestCertificateRequest.ProtoReflect.Descriptor instead.
+func (*RequestCertificateRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RequestCertificateRequest) GetJwt() string {
+	if x != nil {
+		return x.Jwt
+	}
+	return ""
+}
+
+func (x *RequestCertificateRequest) GetCsr() []byte {
+	if x != nil {
+		return x.Csr
+	}
+	return nil
+}
+
+// RequestCertificateResponse returns the issued certificate.
+type RequestCertificateResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Client certificate (PEM-encoded).
+	Certificate []byte `protobuf:"bytes,1,opt,name=certificate,proto3" json:"certificate,omitempty"`
+	// CA certificate chain (PEM-encoded).
+	CaChain []byte `protobuf:"bytes,2,opt,name=ca_chain,json=caChain,proto3" json:"ca_chain,omitempty"`
+	// Certificate expiration timestamp (Unix seconds).
+	ExpiresAt     int64 `protobuf:"varint,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestCertificateResponse) Reset() {
+	*x = RequestCertificateResponse{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestCertificateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestCertificateResponse) ProtoMessage() {}
+
+func (x *RequestCertificateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestCertificateResponse.ProtoReflect.Descriptor instead.
+func (*RequestCertificateResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RequestCertificateResponse) GetCertificate() []byte {
+	if x != nil {
+		return x.Certificate
+	}
+	return nil
+}
+
+func (x *RequestCertificateResponse) GetCaChain() []byte {
+	if x != nil {
+		return x.CaChain
+	}
+	return nil
+}
+
+func (x *RequestCertificateResponse) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
+// RevokeCertificateRequest revokes a previously issued certificate.
+type RevokeCertificateRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Certificate serial number.
+	SerialNumber string `protobuf:"bytes,1,opt,name=serial_number,json=serialNumber,proto3" json:"serial_number,omitempty"`
+	// Revocation reason.
+	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeCertificateRequest) Reset() {
+	*x = RevokeCertificateRequest{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeCertificateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeCertificateRequest) ProtoMessage() {}
+
+func (x *RevokeCertificateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeCertificateRequest.ProtoReflect.Descriptor instead.
+func (*RevokeCertificateRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RevokeCertificateRequest) GetSerialNumber() string {
+	if x != nil {
+		return x.SerialNumber
+	}
+	return ""
+}
+
+func (x *RevokeCertificateRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// RevokeCertificateResponse confirms certificate revocation.
+type RevokeCertificateResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Revocation successful.
+	Success       bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeCertificateResponse) Reset() {
+	*x = RevokeCertificateResponse{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeCertificateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeCertificateResponse) ProtoMessage() {}
+
+func (x *RevokeCertificateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeCertificateResponse.ProtoReflect.Descriptor instead.
+func (*RevokeCertificateResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RevokeCertificateResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_coral_colony_v1_colony_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_colony_proto_rawDesc = "" +
@@ -939,7 +1159,20 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x124\n" +
 	"\x05spans\x18\x02 \x03(\v2\x1e.coral.colony.v1.TelemetrySpanR\x05spans\x12\x1f\n" +
 	"\vtotal_spans\x18\x03 \x01(\x05R\n" +
-	"totalSpans2\xf7\x04\n" +
+	"totalSpans\"?\n" +
+	"\x19RequestCertificateRequest\x12\x10\n" +
+	"\x03jwt\x18\x01 \x01(\tR\x03jwt\x12\x10\n" +
+	"\x03csr\x18\x02 \x01(\fR\x03csr\"x\n" +
+	"\x1aRequestCertificateResponse\x12 \n" +
+	"\vcertificate\x18\x01 \x01(\fR\vcertificate\x12\x19\n" +
+	"\bca_chain\x18\x02 \x01(\fR\acaChain\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\x03R\texpiresAt\"W\n" +
+	"\x18RevokeCertificateRequest\x12#\n" +
+	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"5\n" +
+	"\x19RevokeCertificateResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\xd2\x06\n" +
 	"\rColonyService\x12R\n" +
 	"\tGetStatus\x12!.coral.colony.v1.GetStatusRequest\x1a\".coral.colony.v1.GetStatusResponse\x12U\n" +
 	"\n" +
@@ -949,7 +1182,9 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\bCallTool\x12 .coral.colony.v1.CallToolRequest\x1a!.coral.colony.v1.CallToolResponse\x12Y\n" +
 	"\n" +
 	"StreamTool\x12\".coral.colony.v1.StreamToolRequest\x1a#.coral.colony.v1.StreamToolResponse(\x010\x01\x12R\n" +
-	"\tListTools\x12!.coral.colony.v1.ListToolsRequest\x1a\".coral.colony.v1.ListToolsResponseB\xb4\x01\n" +
+	"\tListTools\x12!.coral.colony.v1.ListToolsRequest\x1a\".coral.colony.v1.ListToolsResponse\x12m\n" +
+	"\x12RequestCertificate\x12*.coral.colony.v1.RequestCertificateRequest\x1a+.coral.colony.v1.RequestCertificateResponse\x12j\n" +
+	"\x11RevokeCertificate\x12).coral.colony.v1.RevokeCertificateRequest\x1a*.coral.colony.v1.RevokeCertificateResponseB\xb4\x01\n" +
 	"\x13com.coral.colony.v1B\vColonyProtoP\x01Z2github.com/coral-io/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
 
 var (
@@ -964,7 +1199,7 @@ func file_coral_colony_v1_colony_proto_rawDescGZIP() []byte {
 	return file_coral_colony_v1_colony_proto_rawDescData
 }
 
-var file_coral_colony_v1_colony_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_coral_colony_v1_colony_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_coral_colony_v1_colony_proto_goTypes = []any{
 	(*GetStatusRequest)(nil),           // 0: coral.colony.v1.GetStatusRequest
 	(*GetStatusResponse)(nil),          // 1: coral.colony.v1.GetStatusResponse
@@ -977,43 +1212,51 @@ var file_coral_colony_v1_colony_proto_goTypes = []any{
 	(*TelemetrySpan)(nil),              // 8: coral.colony.v1.TelemetrySpan
 	(*QueryTelemetryRequest)(nil),      // 9: coral.colony.v1.QueryTelemetryRequest
 	(*QueryTelemetryResponse)(nil),     // 10: coral.colony.v1.QueryTelemetryResponse
-	nil,                                // 11: coral.colony.v1.TelemetrySpan.AttributesEntry
-	(*timestamppb.Timestamp)(nil),      // 12: google.protobuf.Timestamp
-	(*v1.ServiceInfo)(nil),             // 13: coral.mesh.v1.ServiceInfo
-	(*v11.RuntimeContextResponse)(nil), // 14: coral.agent.v1.RuntimeContextResponse
-	(*CallToolRequest)(nil),            // 15: coral.colony.v1.CallToolRequest
-	(*StreamToolRequest)(nil),          // 16: coral.colony.v1.StreamToolRequest
-	(*ListToolsRequest)(nil),           // 17: coral.colony.v1.ListToolsRequest
-	(*CallToolResponse)(nil),           // 18: coral.colony.v1.CallToolResponse
-	(*StreamToolResponse)(nil),         // 19: coral.colony.v1.StreamToolResponse
-	(*ListToolsResponse)(nil),          // 20: coral.colony.v1.ListToolsResponse
+	(*RequestCertificateRequest)(nil),  // 11: coral.colony.v1.RequestCertificateRequest
+	(*RequestCertificateResponse)(nil), // 12: coral.colony.v1.RequestCertificateResponse
+	(*RevokeCertificateRequest)(nil),   // 13: coral.colony.v1.RevokeCertificateRequest
+	(*RevokeCertificateResponse)(nil),  // 14: coral.colony.v1.RevokeCertificateResponse
+	nil,                                // 15: coral.colony.v1.TelemetrySpan.AttributesEntry
+	(*timestamppb.Timestamp)(nil),      // 16: google.protobuf.Timestamp
+	(*v1.ServiceInfo)(nil),             // 17: coral.mesh.v1.ServiceInfo
+	(*v11.RuntimeContextResponse)(nil), // 18: coral.agent.v1.RuntimeContextResponse
+	(*CallToolRequest)(nil),            // 19: coral.colony.v1.CallToolRequest
+	(*StreamToolRequest)(nil),          // 20: coral.colony.v1.StreamToolRequest
+	(*ListToolsRequest)(nil),           // 21: coral.colony.v1.ListToolsRequest
+	(*CallToolResponse)(nil),           // 22: coral.colony.v1.CallToolResponse
+	(*StreamToolResponse)(nil),         // 23: coral.colony.v1.StreamToolResponse
+	(*ListToolsResponse)(nil),          // 24: coral.colony.v1.ListToolsResponse
 }
 var file_coral_colony_v1_colony_proto_depIdxs = []int32{
-	12, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
+	16, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
 	4,  // 1: coral.colony.v1.ListAgentsResponse.agents:type_name -> coral.colony.v1.Agent
-	12, // 2: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
-	13, // 3: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo
-	14, // 4: coral.colony.v1.Agent.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
+	16, // 2: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
+	17, // 3: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo
+	18, // 4: coral.colony.v1.Agent.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
 	4,  // 5: coral.colony.v1.GetTopologyResponse.agents:type_name -> coral.colony.v1.Agent
 	7,  // 6: coral.colony.v1.GetTopologyResponse.connections:type_name -> coral.colony.v1.Connection
-	11, // 7: coral.colony.v1.TelemetrySpan.attributes:type_name -> coral.colony.v1.TelemetrySpan.AttributesEntry
+	15, // 7: coral.colony.v1.TelemetrySpan.attributes:type_name -> coral.colony.v1.TelemetrySpan.AttributesEntry
 	8,  // 8: coral.colony.v1.QueryTelemetryResponse.spans:type_name -> coral.colony.v1.TelemetrySpan
 	0,  // 9: coral.colony.v1.ColonyService.GetStatus:input_type -> coral.colony.v1.GetStatusRequest
 	2,  // 10: coral.colony.v1.ColonyService.ListAgents:input_type -> coral.colony.v1.ListAgentsRequest
 	5,  // 11: coral.colony.v1.ColonyService.GetTopology:input_type -> coral.colony.v1.GetTopologyRequest
 	9,  // 12: coral.colony.v1.ColonyService.QueryTelemetry:input_type -> coral.colony.v1.QueryTelemetryRequest
-	15, // 13: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
-	16, // 14: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
-	17, // 15: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
-	1,  // 16: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
-	3,  // 17: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
-	6,  // 18: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
-	10, // 19: coral.colony.v1.ColonyService.QueryTelemetry:output_type -> coral.colony.v1.QueryTelemetryResponse
-	18, // 20: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
-	19, // 21: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
-	20, // 22: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
-	16, // [16:23] is the sub-list for method output_type
-	9,  // [9:16] is the sub-list for method input_type
+	19, // 13: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
+	20, // 14: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
+	21, // 15: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
+	11, // 16: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
+	13, // 17: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
+	1,  // 18: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
+	3,  // 19: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
+	6,  // 20: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
+	10, // 21: coral.colony.v1.ColonyService.QueryTelemetry:output_type -> coral.colony.v1.QueryTelemetryResponse
+	22, // 22: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
+	23, // 23: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
+	24, // 24: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
+	12, // 25: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
+	14, // 26: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
+	18, // [18:27] is the sub-list for method output_type
+	9,  // [9:18] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -1031,7 +1274,7 @@ func file_coral_colony_v1_colony_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_colony_v1_colony_proto_rawDesc), len(file_coral_colony_v1_colony_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

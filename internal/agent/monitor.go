@@ -45,7 +45,7 @@ func NewServiceMonitor(service *meshv1.ServiceInfo, logger zerolog.Logger) *Serv
 		status:        ServiceStatusUnknown,
 		checkInterval: 10 * time.Second,
 		checkTimeout:  2 * time.Second,
-		logger:        logger.With().Str("service", service.ComponentName).Logger(),
+		logger:        logger.With().Str("service", service.Name).Logger(),
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -158,7 +158,7 @@ func (m *ServiceMonitor) checkHTTPHealth(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("http request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // TODO: errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("unhealthy status code: %d", resp.StatusCode)
@@ -176,7 +176,7 @@ func (m *ServiceMonitor) checkTCPHealth(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tcp connection failed: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // TODO: errcheck
 
 	return nil
 }

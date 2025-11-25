@@ -16,7 +16,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("successful creation", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
+			{Name: "api", Port: 8080},
 		}
 
 		agent, err := New(Config{
@@ -32,9 +32,9 @@ func TestNew(t *testing.T) {
 
 	t.Run("multiple services", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
-			{ComponentName: "frontend", Port: 3000},
-			{ComponentName: "redis", Port: 6379},
+			{Name: "api", Port: 8080},
+			{Name: "frontend", Port: 3000},
+			{Name: "redis", Port: 6379},
 		}
 
 		agent, err := New(Config{
@@ -49,7 +49,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("empty agent_id", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
+			{Name: "api", Port: 8080},
 		}
 
 		_, err := New(Config{
@@ -80,8 +80,8 @@ func TestAgent_StartStop(t *testing.T) {
 	logger := zerolog.Nop()
 
 	services := []*meshv1.ServiceInfo{
-		{ComponentName: "api", Port: 8080},
-		{ComponentName: "frontend", Port: 3000},
+		{Name: "api", Port: 8080},
+		{Name: "frontend", Port: 3000},
 	}
 
 	agent, err := New(Config{
@@ -108,8 +108,8 @@ func TestAgent_GetStatus(t *testing.T) {
 
 	t.Run("all services healthy", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "service1", Port: 8080},
-			{ComponentName: "service2", Port: 8081},
+			{Name: "service1", Port: 8080},
+			{Name: "service2", Port: 8081},
 		}
 
 		agent, err := New(Config{
@@ -132,8 +132,8 @@ func TestAgent_GetStatus(t *testing.T) {
 
 	t.Run("all services unhealthy", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "service1", Port: 8080},
-			{ComponentName: "service2", Port: 8081},
+			{Name: "service1", Port: 8080},
+			{Name: "service2", Port: 8081},
 		}
 
 		agent, err := New(Config{
@@ -156,9 +156,9 @@ func TestAgent_GetStatus(t *testing.T) {
 
 	t.Run("some services unhealthy - degraded", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "service1", Port: 8080},
-			{ComponentName: "service2", Port: 8081},
-			{ComponentName: "service3", Port: 8082},
+			{Name: "service1", Port: 8080},
+			{Name: "service2", Port: 8081},
+			{Name: "service3", Port: 8082},
 		}
 
 		agent, err := New(Config{
@@ -190,8 +190,8 @@ func TestAgent_GetServiceStatuses(t *testing.T) {
 	logger := zerolog.Nop()
 
 	services := []*meshv1.ServiceInfo{
-		{ComponentName: "api", Port: 8080},
-		{ComponentName: "frontend", Port: 3000},
+		{Name: "api", Port: 8080},
+		{Name: "frontend", Port: 3000},
 	}
 
 	agent, err := New(Config{
@@ -228,7 +228,7 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 
 	t.Run("agent with Beyla enabled", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
+			{Name: "api", Port: 8080},
 		}
 
 		beylaConfig := &beyla.Config{
@@ -275,7 +275,7 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 
 	t.Run("agent with Beyla disabled", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
+			{Name: "api", Port: 8080},
 		}
 
 		beylaConfig := &beyla.Config{
@@ -307,7 +307,7 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 
 	t.Run("agent without Beyla config", func(t *testing.T) {
 		services := []*meshv1.ServiceInfo{
-			{ComponentName: "api", Port: 8080},
+			{Name: "api", Port: 8080},
 		}
 
 		agent, err := New(Config{

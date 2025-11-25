@@ -31,8 +31,32 @@ type DiscoveryGlobal struct {
 
 // AIConfig contains AI provider configuration.
 type AIConfig struct {
-	Provider     string `yaml:"provider"`       // "anthropic" or "openai"
-	APIKeySource string `yaml:"api_key_source"` // "env", "keychain", "file"
+	Provider     string    `yaml:"provider"`       // "anthropic" or "openai"
+	APIKeySource string    `yaml:"api_key_source"` // "env", "keychain", "file"
+	Ask          AskConfig `yaml:"ask,omitempty"`  // coral ask LLM configuration (RFD 030)
+}
+
+// AskConfig contains configuration for the coral ask command (RFD 030).
+type AskConfig struct {
+	DefaultModel   string                `yaml:"default_model,omitempty"`   // Primary model (e.g., "openai:gpt-4o-mini")
+	FallbackModels []string              `yaml:"fallback_models,omitempty"` // Fallback models in order
+	APIKeys        map[string]string     `yaml:"api_keys,omitempty"`        // Provider API keys (env:// references)
+	Conversation   AskConversationConfig `yaml:"conversation,omitempty"`    // Conversation settings
+	Agent          AskAgentConfig        `yaml:"agent,omitempty"`           // Agent deployment settings
+}
+
+// AskConversationConfig contains conversation management settings.
+type AskConversationConfig struct {
+	MaxTurns      int  `yaml:"max_turns,omitempty"`      // Maximum conversation history turns
+	ContextWindow int  `yaml:"context_window,omitempty"` // Max tokens for context
+	AutoPrune     bool `yaml:"auto_prune,omitempty"`     // Auto-prune old messages
+}
+
+// AskAgentConfig contains agent deployment mode settings.
+type AskAgentConfig struct {
+	Mode         string        `yaml:"mode,omitempty"`          // "embedded", "daemon", "ephemeral"
+	DaemonSocket string        `yaml:"daemon_socket,omitempty"` // Unix socket for daemon mode
+	IdleTimeout  time.Duration `yaml:"idle_timeout,omitempty"`  // Daemon idle timeout
 }
 
 // Preferences contains user preferences.
@@ -44,19 +68,21 @@ type Preferences struct {
 // ColonyConfig represents ~/.coral/colonies/<colony-id>.yaml config file.
 // The config consists of per-colony identity and security credentials.
 type ColonyConfig struct {
-	Version         string          `yaml:"version"`
-	ColonyID        string          `yaml:"colony_id"`
-	ApplicationName string          `yaml:"application_name"`
-	Environment     string          `yaml:"environment"`
-	ColonySecret    string          `yaml:"colony_secret"`
-	WireGuard       WireGuardConfig `yaml:"wireguard"`
-	Services        ServicesConfig  `yaml:"services"`
-	StoragePath     string          `yaml:"storage_path"`
-	Discovery       DiscoveryColony `yaml:"discovery"`
-	MCP             MCPConfig       `yaml:"mcp,omitempty"`
-	CreatedAt       time.Time       `yaml:"created_at"`
-	CreatedBy       string          `yaml:"created_by"`
-	LastUsed        time.Time       `yaml:"last_used,omitempty"`
+	Version         string            `yaml:"version"`
+	ColonyID        string            `yaml:"colony_id"`
+	ApplicationName string            `yaml:"application_name"`
+	Environment     string            `yaml:"environment"`
+	ColonySecret    string            `yaml:"colony_secret"`
+	WireGuard       WireGuardConfig   `yaml:"wireguard"`
+	Services        ServicesConfig    `yaml:"services"`
+	StoragePath     string            `yaml:"storage_path"`
+	Discovery       DiscoveryColony   `yaml:"discovery"`
+	MCP             MCPConfig         `yaml:"mcp,omitempty"`
+	Beyla           BeylaPollerConfig `yaml:"beyla,omitempty"`
+	Ask             *AskConfig        `yaml:"ask,omitempty"` // Per-colony ask overrides (RFD 030)
+	CreatedAt       time.Time         `yaml:"created_at"`
+	CreatedBy       string            `yaml:"created_by"`
+	LastUsed        time.Time         `yaml:"last_used,omitempty"`
 }
 
 // ServicesConfig contains service port configuration.
@@ -126,6 +152,30 @@ type MCPSecurityConfig struct {
 
 	// AuditEnabled enables auditing of all MCP tool calls.
 	AuditEnabled bool `yaml:"audit_enabled,omitempty"`
+}
+
+// BeylaPollerConfig contains Beyla metrics/traces collection configuration (RFD 032, RFD 036).
+type BeylaPollerConfig struct {
+	// PollInterval is how often to poll agents for Beyla data (seconds).
+	PollInterval int `yaml:"poll_interval,omitempty"`
+
+	// Retention settings for different data types.
+	Retention BeylaRetentionConfig `yaml:"retention,omitempty"`
+}
+
+// BeylaRetentionConfig contains retention periods for Beyla data.
+type BeylaRetentionConfig struct {
+	// HTTPDays is retention period for HTTP metrics (days).
+	HTTPDays int `yaml:"http_days,omitempty"`
+
+	// GRPCDays is retention period for gRPC metrics (days).
+	GRPCDays int `yaml:"grpc_days,omitempty"`
+
+	// SQLDays is retention period for SQL metrics (days).
+	SQLDays int `yaml:"sql_days,omitempty"`
+
+	// TracesDays is retention period for distributed traces (days) (RFD 036).
+	TracesDays int `yaml:"traces_days,omitempty"`
 }
 
 // ProjectConfig represents <project>/.coral/config.yaml config file.
@@ -257,6 +307,21 @@ func DefaultGlobalConfig() *GlobalConfig {
 		AI: AIConfig{
 			Provider:     "anthropic",
 			APIKeySource: "env",
+			Ask: AskConfig{
+				DefaultModel:   "openai:gpt-4o-mini",
+				FallbackModels: []string{"anthropic:claude-3-5-sonnet-20241022"},
+				APIKeys:        make(map[string]string),
+				Conversation: AskConversationConfig{
+					MaxTurns:      10,
+					ContextWindow: 8192,
+					AutoPrune:     true,
+				},
+				Agent: AskAgentConfig{
+					Mode:         "embedded",
+					DaemonSocket: "~/.coral/ask-agent.sock",
+					IdleTimeout:  10 * time.Minute,
+				},
+			},
 		},
 		Preferences: Preferences{
 			AutoUpdateCheck:  true,

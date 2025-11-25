@@ -2,13 +2,13 @@
 
 ## 🏗️ Components Overview
 
-| **Component**         | **Role**                                                                                       | **Key Technology**         |
-|-----------------------|------------------------------------------------------------------------------------------------|----------------------------|
-| **Colony**            | Control plane coordinator managing agent registration, telemetry aggregation, and MCP gateway. | Go, DuckDB, Genkit MCP     |
-| **Agent**             | Local observer collecting eBPF-based observability data with embedded storage.                 | Go, Beyla (eBPF), DuckDB   |
-| **Coral CLI**         | Developer interface with all Coral commands including MCP proxy and AI assistant.              | Go, Cobra, Genkit, Ollama  |
-| **External LLM Apps** | AI assistants (Claude Desktop, IDEs) querying Colony via MCP for observability insights.       | MCP protocol, various LLMs |
-| **Reef**              | Global aggregation service federating multiple colonies with enterprise LLM hosting.           | ClickHouse, LLMs           |
+| **Component**         | **Role**                                                                                       | **Key Technology**              |
+|-----------------------|------------------------------------------------------------------------------------------------|---------------------------------|
+| **Colony**            | Control plane coordinator managing agent registration, telemetry aggregation, and MCP gateway. | Go, DuckDB, MCP (server)        |
+| **Agent**             | Local observer collecting eBPF-based observability data with embedded storage.                 | Go, Beyla (eBPF), OTLP, DuckDB  |
+| **Coral CLI**         | Developer interface with all Coral commands including MCP proxy and AI assistant.              | Go, Cobra, MCP (client), Ollama |
+| **External LLM Apps** | AI assistants (Claude Desktop, IDEs) querying Colony via MCP for observability insights.       | MCP protocol, various LLMs      |
+| **Reef**              | Global aggregation service federating multiple colonies with enterprise LLM hosting.           | ClickHouse, LLMs                |
 
 ## Component Details
 
@@ -22,8 +22,8 @@ The Colony acts as the central control plane for the entire mesh, providing:
   lifecycle management
 - **Data Aggregation:** Polls agents for telemetry data (Beyla metrics, OTLP
   spans/metrics/logs) and creates summaries in local DuckDB
-- **MCP Gateway:** Exposes MCP server (via Genkit) for AI tool calling, enabling
-  external LLM applications to query observability data
+- **MCP Gateway:** Exposes MCP server for AI tool calling, enabling external
+  LLM applications to query observability data
 - **Security Enforcement:** Enforces RBAC and audit logging for all tool calls;
   issues Delegate JWTs for direct agent access
 - **Command Routing:** Routes commands to agents for on-demand actions (eBPF
@@ -37,7 +37,6 @@ aggregation while providing a standard MCP gateway for AI assistant integration.
 
 - Go for core implementation
 - DuckDB for embedded analytics database
-- Genkit MCP plugin for tool registration and discovery
 - Buf Connect for type-safe gRPC APIs
 - WireGuard for mesh networking
 
@@ -95,7 +94,6 @@ by consolidating all Coral operations into a single, well-documented tool.
 **Technology Stack:**
 
 - Go with Cobra for CLI framework
-- Genkit Go SDK for AI integration
 - Ollama for local models or API integration for cloud LLMs
 - Integrated WireGuard configuration
 - Buf Connect client for Colony communication
@@ -137,9 +135,8 @@ Interactive command-line AI assistant for terminal-based observability queries:
 - **Terminal Integration:** Provides AI-powered observability without leaving
   the command line
 - **LLM Flexibility:** Uses local LLM (Ollama) or user's API keys (OpenAI,
-  Anthropic) via Genkit
-- **MCP Client:** Connects to Colony as MCP client using Genkit's native MCP
-  plugin
+  Anthropic)
+- **MCP Client:** Connects to Colony as MCP client
 - **Unified Tools:** Queries Colony data through the same MCP tools as Claude
   Desktop
 - **Investigation Workflows:** Enables rapid incident investigation and system
@@ -286,7 +283,7 @@ Connect gRPC.
               ▼
      ┌────────────────────┐
      │  Colony Server     │
-     │  • MCP Server      │  ← Internal implementation (Genkit)
+     │  • MCP Server      │
      │  • Tool registry   │
      │  • Tool execution  │
      │  • Business logic  │
@@ -308,8 +305,6 @@ Connect gRPC.
 
 **Location:** `internal/colony/mcp/server.go`
 
-- Uses **Genkit Go SDK** (`github.com/firebase/genkit/go/plugins/mcp`) for MCP
-  server implementation
 - Registers all MCP tools: health, topology, Beyla metrics, traces, OTLP
   telemetry
 - Integrated into colony startup (runs automatically with colony)

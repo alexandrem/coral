@@ -1,3 +1,4 @@
+// Package registration manages agent registration with the discovery service.
 package registration
 
 import (
