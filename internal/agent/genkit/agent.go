@@ -2,8 +2,11 @@ package genkit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/firebase/genkit/go/ai"
 	"github.com/firebase/genkit/go/core/api"
@@ -25,6 +28,7 @@ type Agent struct {
 	colonyConfig  *config.ColonyConfig
 	conversations map[string]*Conversation
 	mcpClient     *mcp.GenkitMCPClient
+	debug         bool
 }
 
 // Response represents an agent response.
@@ -41,7 +45,11 @@ type ToolCall struct {
 }
 
 // NewAgent creates a new LLM agent with the given configuration.
-func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig) (*Agent, error) {
+func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bool) (*Agent, error) {
+	if debug {
+		fmt.Fprintln(os.Stderr, "[DEBUG] Initializing Genkit agent")
+	}
+
 	if askCfg == nil {
 		return nil, fmt.Errorf("ask config is required")
 	}
@@ -51,16 +59,34 @@ func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig) (*Agent,
 
 	ctx := context.Background()
 
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Model configuration: %s\n", askCfg.DefaultModel)
+	}
+
 	// Initialize Genkit with the appropriate plugin based on model.
-	g, modelName, provider, err := initializeGenkitWithModel(ctx, askCfg)
+	g, modelName, provider, err := initializeGenkitWithModel(ctx, askCfg, debug)
 	if err != nil {
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to initialize Genkit: %v\n", err)
+		}
 		return nil, fmt.Errorf("failed to initialize Genkit: %w", err)
 	}
 
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Initialized Genkit with provider=%s, model=%s\n", provider, modelName)
+	}
+
 	// Connect to Colony's MCP server.
-	mcpClient, err := connectToColonyMCP(ctx, colonyCfg)
+	mcpClient, err := connectToColonyMCP(ctx, colonyCfg, debug)
 	if err != nil {
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to connect to MCP server: %v\n", err)
+		}
 		return nil, fmt.Errorf("failed to connect to colony MCP server: %w", err)
+	}
+
+	if debug {
+		fmt.Fprintln(os.Stderr, "[DEBUG] Successfully connected to Colony MCP server")
 	}
 
 	return &Agent{
@@ -71,13 +97,18 @@ func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig) (*Agent,
 		colonyConfig:  colonyCfg,
 		conversations: make(map[string]*Conversation),
 		mcpClient:     mcpClient,
+		debug:         debug,
 	}, nil
 }
 
 // connectToColonyMCP connects to the Colony's MCP server via stdio.
-func connectToColonyMCP(ctx context.Context, colonyCfg *config.ColonyConfig) (*mcp.GenkitMCPClient, error) {
+func connectToColonyMCP(ctx context.Context, colonyCfg *config.ColonyConfig, debug bool) (*mcp.GenkitMCPClient, error) {
 	if colonyCfg.MCP.Disabled {
 		return nil, fmt.Errorf("MCP server is disabled for this colony")
+	}
+
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Connecting to Colony MCP server for colony: %s\n", colonyCfg.ColonyID)
 	}
 
 	// Connect to Colony MCP server using stdio transport.
@@ -91,16 +122,39 @@ func connectToColonyMCP(ctx context.Context, colonyCfg *config.ColonyConfig) (*m
 		},
 	}
 
-	client, err := mcp.NewGenkitMCPClient(clientOpts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create MCP client: %w", err)
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] MCP client command: coral colony mcp proxy --colony %s\n", colonyCfg.ColonyID)
 	}
 
-	return client, nil
+	// Create MCP client with timeout to prevent hanging indefinitely.
+	const connectionTimeout = 5 * time.Second
+	type result struct {
+		client *mcp.GenkitMCPClient
+		err    error
+	}
+	resultChan := make(chan result, 1)
+
+	go func() {
+		client, err := mcp.NewGenkitMCPClient(clientOpts)
+		resultChan <- result{client: client, err: err}
+	}()
+
+	select {
+	case res := <-resultChan:
+		if res.err != nil {
+			return nil, fmt.Errorf("failed to create MCP client: %w", res.err)
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] MCP client connection established\n")
+		}
+		return res.client, nil
+	case <-time.After(connectionTimeout):
+		return nil, fmt.Errorf("MCP client connection timed out after %v. Is the colony running? Check with: coral colony list", connectionTimeout)
+	}
 }
 
 // initializeGenkitWithModel initializes Genkit with the correct provider plugin.
-func initializeGenkitWithModel(ctx context.Context, cfg *config.AskConfig) (*genkit.Genkit, string, string, error) {
+func initializeGenkitWithModel(ctx context.Context, cfg *config.AskConfig, debug bool) (*genkit.Genkit, string, string, error) {
 	// Parse model string (format: "provider:model-id").
 	parts := strings.SplitN(cfg.DefaultModel, ":", 2)
 	if len(parts) != 2 {
@@ -110,6 +164,10 @@ func initializeGenkitWithModel(ctx context.Context, cfg *config.AskConfig) (*gen
 	provider := parts[0]
 	modelID := parts[1]
 
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Initializing provider=%s with model=%s\n", provider, modelID)
+	}
+
 	var g *genkit.Genkit
 	var modelName string
 
@@ -118,6 +176,9 @@ func initializeGenkitWithModel(ctx context.Context, cfg *config.AskConfig) (*gen
 		apiKey := cfg.APIKeys["openai"]
 		if apiKey == "" {
 			return nil, "", "", fmt.Errorf("OpenAI API key not configured (set OPENAI_API_KEY)")
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI API key found (length: %d)\n", len(apiKey))
 		}
 		// Initialize OpenAI-compatible plugin.
 		oaiPlugin := &compat_oai.OpenAICompatible{
@@ -132,6 +193,9 @@ func initializeGenkitWithModel(ctx context.Context, cfg *config.AskConfig) (*gen
 			Supports: &multimodal,
 		})
 		modelName = "openai/" + modelID
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Defined OpenAI model: %s\n", modelName)
+		}
 
 	case "grok", "xai":
 		apiKey := cfg.APIKeys["grok"]
@@ -141,6 +205,9 @@ func initializeGenkitWithModel(ctx context.Context, cfg *config.AskConfig) (*gen
 			if apiKey == "" {
 				return nil, "", "", fmt.Errorf("Grok API key not configured (set XAI_API_KEY)")
 			}
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Grok/XAI API key found (length: %d)\n", len(apiKey))
 		}
 		// Initialize OpenAI-compatible plugin with Grok base URL.
 		oaiPlugin := &compat_oai.OpenAICompatible{
@@ -165,18 +232,33 @@ func initializeGenkitWithModel(ctx context.Context, cfg *config.AskConfig) (*gen
 			return model.Generate(ctx, req, cb)
 		})
 		modelName = "grok/" + modelID
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Defined Grok model: %s\n", modelName)
+		}
 
 	case "google", "googleai":
 		apiKey := cfg.APIKeys["google"]
 		if apiKey == "" {
 			return nil, "", "", fmt.Errorf("Google AI API key not configured (set GOOGLE_API_KEY)")
 		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Google AI API key found (length: %d)\n", len(apiKey))
+		}
 		g = genkit.Init(ctx, genkit.WithPlugins(&googlegenai.GoogleAI{APIKey: apiKey}))
 		modelName = "googleai/" + modelID
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Defined Google AI model: %s\n", modelName)
+		}
 
 	case "ollama":
+		if debug {
+			fmt.Fprintln(os.Stderr, "[DEBUG] Initializing Ollama (no API key required)")
+		}
 		g = genkit.Init(ctx, genkit.WithPlugins(&ollama.Ollama{}))
 		modelName = "ollama/" + modelID
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Defined Ollama model: %s\n", modelName)
+		}
 
 	case "anthropic":
 		return nil, "", "", fmt.Errorf("anthropic models are not supported for 'coral ask': Genkit's OpenAI-compatible wrapper doesn't properly support Anthropic's native MCP integration\n\nSupported providers:\n  - openai:gpt-4o, openai:gpt-4o-mini\n  - google:gemini-2.0-flash-exp\n  - ollama:llama3.2 (local)\n\nNote: We may implement custom Anthropic MCP provider in the future")
@@ -190,6 +272,11 @@ func initializeGenkitWithModel(ctx context.Context, cfg *config.AskConfig) (*gen
 
 // Ask sends a question to the LLM and returns the response.
 func (a *Agent) Ask(ctx context.Context, question, conversationID string) (*Response, error) {
+	if a.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Processing question: %q\n", question)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Conversation ID: %s\n", conversationID)
+	}
+
 	// Get or create conversation.
 	conv := a.getOrCreateConversation(conversationID)
 
@@ -200,15 +287,23 @@ func (a *Agent) Ask(ctx context.Context, question, conversationID string) (*Resp
 	})
 
 	// Get MCP tools from Colony server.
+	if a.debug {
+		fmt.Fprintln(os.Stderr, "[DEBUG] Fetching MCP tools from Colony server")
+	}
+
 	tools, err := a.mcpClient.GetActiveTools(ctx, a.genkit)
 	if err != nil {
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to get MCP tools: %v\n", err)
+		}
 		return nil, fmt.Errorf("failed to get MCP tools: %w", err)
 	}
 
-	// Convert tools to ToolRef interface for Genkit.
-	toolRefs := make([]ai.ToolRef, len(tools))
-	for i, t := range tools {
-		toolRefs[i] = t
+	if a.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Retrieved %d MCP tools\n", len(tools))
+		for i, tool := range tools {
+			fmt.Fprintf(os.Stderr, "[DEBUG]   Tool %d: %s\n", i+1, tool.Name())
+		}
 	}
 
 	// Build conversation history for the LLM.
@@ -225,6 +320,66 @@ func (a *Agent) Ask(ctx context.Context, question, conversationID string) (*Resp
 		})
 	}
 
+	if a.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Calling LLM Generate with:\n")
+		fmt.Fprintf(os.Stderr, "[DEBUG]   Model: %s\n", a.modelName)
+		fmt.Fprintf(os.Stderr, "[DEBUG]   Messages: %d\n", len(history))
+
+		// Dump full message content.
+		for i, msg := range history {
+			fmt.Fprintf(os.Stderr, "[DEBUG]   Message[%d]:\n", i)
+			fmt.Fprintf(os.Stderr, "[DEBUG]     Role: %s\n", msg.Role)
+			for j, part := range msg.Content {
+				if part.IsText() {
+					fmt.Fprintf(os.Stderr, "[DEBUG]     Part[%d] (text): %q\n", j, part.Text)
+				} else {
+					fmt.Fprintf(os.Stderr, "[DEBUG]     Part[%d]: (non-text)\n", j)
+				}
+			}
+		}
+
+		fmt.Fprintf(os.Stderr, "[DEBUG]   Tools: %d\n", len(tools))
+
+		// Dump tool schemas.
+		for i, tool := range tools {
+			fmt.Fprintf(os.Stderr, "[DEBUG]   Tool[%d]:\n", i)
+			fmt.Fprintf(os.Stderr, "[DEBUG]     Name: %s\n", tool.Name())
+
+			// Try to dump the schema if available.
+			if def := tool.Definition(); def != nil {
+				fmt.Fprintf(os.Stderr, "[DEBUG]     Description: %s\n", def.Description)
+
+				if def.InputSchema != nil {
+					schemaJSON, err := json.MarshalIndent(def.InputSchema, "      ", "  ")
+					if err == nil {
+						fmt.Fprintf(os.Stderr, "[DEBUG]     InputSchema:\n%s\n", string(schemaJSON))
+					} else {
+						fmt.Fprintf(os.Stderr, "[DEBUG]     InputSchema: (error marshaling: %v)\n", err)
+					}
+				} else {
+					fmt.Fprintf(os.Stderr, "[DEBUG]     InputSchema: nil\n")
+				}
+
+				if def.OutputSchema != nil {
+					schemaJSON, err := json.MarshalIndent(def.OutputSchema, "      ", "  ")
+					if err == nil {
+						fmt.Fprintf(os.Stderr, "[DEBUG]     OutputSchema:\n%s\n", string(schemaJSON))
+					} else {
+						fmt.Fprintf(os.Stderr, "[DEBUG]     OutputSchema: (error marshaling: %v)\n", err)
+					}
+				} else {
+					fmt.Fprintf(os.Stderr, "[DEBUG]     OutputSchema: nil\n")
+				}
+			}
+		}
+	}
+
+	// Convert tools to ToolRef interface for Genkit.
+	toolRefs := make([]ai.ToolRef, len(tools))
+	for i, t := range tools {
+		toolRefs[i] = t
+	}
+
 	// Call LLM using Genkit with MCP tools.
 	resp, err := genkit.Generate(ctx, a.genkit,
 		ai.WithModelName(a.modelName),
@@ -232,11 +387,22 @@ func (a *Agent) Ask(ctx context.Context, question, conversationID string) (*Resp
 		ai.WithTools(toolRefs...),
 	)
 	if err != nil {
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] LLM generation failed: %v\n", err)
+		}
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
+	}
+
+	if a.debug {
+		fmt.Fprintln(os.Stderr, "[DEBUG] LLM generation successful")
 	}
 
 	// Extract answer from response.
 	answer := resp.Text()
+
+	if a.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Response text length: %d characters\n", len(answer))
+	}
 
 	// Extract tool calls from response.
 	var toolCalls []ToolCall
@@ -246,6 +412,13 @@ func (a *Agent) Ask(ctx context.Context, question, conversationID string) (*Resp
 			Input:  toolReq.Input,
 			Output: nil, // Tool output would be in subsequent turns
 		})
+	}
+
+	if a.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Tool requests in response: %d\n", len(toolCalls))
+		for i, tc := range toolCalls {
+			fmt.Fprintf(os.Stderr, "[DEBUG]   Tool request %d: %s\n", i+1, tc.Name)
+		}
 	}
 
 	result := &Response{

@@ -24,6 +24,7 @@ func NewAskCmd() *cobra.Command {
 		stream   bool
 		jsonFlag bool
 		cont     bool // --continue flag for multi-turn conversations
+		debug    bool // --debug flag for verbose logging
 	)
 
 	cmd := &cobra.Command{
@@ -52,7 +53,7 @@ Examples:
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			question := strings.Join(args, " ")
-			return runAsk(cmd.Context(), question, colonyID, model, stream, jsonFlag, cont)
+			return runAsk(cmd.Context(), question, colonyID, model, stream, jsonFlag, cont, debug)
 		},
 	}
 
@@ -61,12 +62,18 @@ Examples:
 	cmd.Flags().BoolVar(&stream, "stream", true, "Stream output progressively (default: true)")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "Output JSON format for scripting")
 	cmd.Flags().BoolVar(&cont, "continue", false, "Continue previous conversation")
+	cmd.Flags().BoolVar(&debug, "debug", false, "Enable debug logging to stderr")
 
 	return cmd
 }
 
 // runAsk executes the ask command.
-func runAsk(ctx context.Context, question, colonyID, modelOverride string, stream, jsonOutput, continueConv bool) error {
+func runAsk(ctx context.Context, question, colonyID, modelOverride string, stream, jsonOutput, continueConv, debug bool) error {
+	// Configure debug logger.
+	if debug {
+		fmt.Fprintln(os.Stderr, "[DEBUG] Debug mode enabled")
+	}
+
 	// Load configuration.
 	loader, err := config.NewLoader()
 	if err != nil {
@@ -109,7 +116,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	}
 
 	// Create Genkit agent.
-	agent, err := genkit.NewAgent(askCfg, colonyCfg)
+	agent, err := genkit.NewAgent(askCfg, colonyCfg, debug)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}

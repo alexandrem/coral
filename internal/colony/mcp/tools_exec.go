@@ -441,7 +441,9 @@ func (s *Server) executeStartEBPFCollectorTool(ctx context.Context, argumentsJSO
 	if input.DurationSeconds != nil {
 		text += fmt.Sprintf("Duration: %d seconds\n", *input.DurationSeconds)
 	} else {
-		text += "Duration: 30 seconds (default)\n"
+		if input.ConfigJSON != nil {
+			text += fmt.Sprintf("Config: %s\n", *input.ConfigJSON)
+		}
 	}
 
 	text += "\n"

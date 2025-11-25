@@ -2,14 +2,34 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/firebase/genkit/go/ai"
 	"github.com/firebase/genkit/go/genkit"
+	"github.com/invopop/jsonschema"
 
 	"github.com/coral-io/coral/internal/colony/database"
 )
+
+// generateInputSchema generates a JSON schema from a Go type.
+func generateInputSchema(inputType interface{}) (map[string]any, error) {
+	reflector := jsonschema.Reflector{}
+	schema := reflector.Reflect(inputType)
+
+	schemaBytes, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal schema: %w", err)
+	}
+
+	var schemaMap map[string]any
+	if err := json.Unmarshal(schemaBytes, &schemaMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal schema: %w", err)
+	}
+
+	return schemaMap, nil
+}
 
 // registerServiceHealthTool registers the coral_get_service_health tool.
 func (s *Server) registerServiceHealthTool() {
@@ -17,17 +37,34 @@ func (s *Server) registerServiceHealthTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(ServiceHealthInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_get_service_health")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_get_service_health",
 		"Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",
-		func(ctx *ai.ToolContext, input ServiceHealthInput) (string, error) {
-			s.auditToolCall("coral_get_service_health", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input from any to ServiceHealthInput.
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput ServiceHealthInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+			s.auditToolCall("coral_get_service_health", typedInput)
 
 			// Get service filter (handle nil pointer).
 			var serviceFilter string
-			if input.ServiceFilter != nil {
-				serviceFilter = *input.ServiceFilter
+			if typedInput.ServiceFilter != nil {
+				serviceFilter = *typedInput.ServiceFilter
 			}
 
 			// Get all agents from registry.
@@ -117,12 +154,30 @@ func (s *Server) registerServiceTopologyTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(ServiceTopologyInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_get_service_topology")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_get_service_topology",
 		"Get service dependency graph discovered from distributed traces. Shows which services communicate and call frequency.",
-		func(ctx *ai.ToolContext, input ServiceTopologyInput) (string, error) {
-			s.auditToolCall("coral_get_service_topology", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input from any to ServiceTopologyInput.
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput ServiceTopologyInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_get_service_topology", typedInput)
 
 			// TODO: Implement topology discovery from traces (RFD 036).
 			// For now, return connected agents as a simple topology.
@@ -151,12 +206,30 @@ func (s *Server) registerQueryEventsTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(QueryEventsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_query_events",
 		"Query operational events tracked by Coral (deployments, restarts, crashes, alerts, configuration changes).",
-		func(ctx *ai.ToolContext, input QueryEventsInput) (string, error) {
-			s.auditToolCall("coral_query_events", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput QueryEventsInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_query_events", typedInput)
 
 			// TODO: Implement event storage and querying.
 			// For now, return placeholder.
@@ -177,17 +250,35 @@ func (s *Server) registerBeylaHTTPMetricsTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(BeylaHTTPMetricsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_query_beyla_http_metrics",
 		"Query HTTP RED metrics collected by Beyla (request rate, error rate, latency distributions). Returns percentiles, status code breakdown, and route-level metrics.",
-		func(ctx *ai.ToolContext, input BeylaHTTPMetricsInput) (string, error) {
-			s.auditToolCall("coral_query_beyla_http_metrics", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput BeylaHTTPMetricsInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_query_beyla_http_metrics", typedInput)
 
 			// Get time range (handle nil pointer).
 			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
+			if typedInput.TimeRange != nil {
+				timeRangeStr = *typedInput.TimeRange
 			}
 
 			// Parse time range.
@@ -198,26 +289,26 @@ func (s *Server) registerBeylaHTTPMetricsTool() {
 
 			// Build filters map.
 			filters := make(map[string]string)
-			if input.HTTPMethod != nil {
-				filters["http_method"] = *input.HTTPMethod
+			if typedInput.HTTPMethod != nil {
+				filters["http_method"] = *typedInput.HTTPMethod
 			}
-			if input.HTTPRoute != nil {
-				filters["http_route"] = *input.HTTPRoute
+			if typedInput.HTTPRoute != nil {
+				filters["http_route"] = *typedInput.HTTPRoute
 			}
-			if input.StatusCodeRange != nil {
-				filters["status_code_range"] = *input.StatusCodeRange
+			if typedInput.StatusCodeRange != nil {
+				filters["status_code_range"] = *typedInput.StatusCodeRange
 			}
 
 			// Query database.
 			dbCtx := context.Background()
-			results, err := s.db.QueryBeylaHTTPMetrics(dbCtx, input.Service, startTime, endTime, filters)
+			results, err := s.db.QueryBeylaHTTPMetrics(dbCtx, typedInput.Service, startTime, endTime, filters)
 			if err != nil {
 				return "", fmt.Errorf("failed to query HTTP metrics: %w", err)
 			}
 
 			// Format response.
 			if len(results) == 0 {
-				text := fmt.Sprintf("Beyla HTTP Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+				text := fmt.Sprintf("Beyla HTTP Metrics for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 				text += "No metrics found for this service in the specified time range.\n\n"
 				text += "This could mean:\n"
 				text += "- The service hasn't received HTTP requests\n"
@@ -229,7 +320,7 @@ func (s *Server) registerBeylaHTTPMetricsTool() {
 			// Calculate statistics from histogram buckets.
 			stats := aggregateHTTPMetrics(results)
 
-			text := fmt.Sprintf("Beyla HTTP Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text := fmt.Sprintf("Beyla HTTP Metrics for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 			text += fmt.Sprintf("Total Requests: %d\n\n", stats.TotalRequests)
 
 			// Show latency percentiles.
@@ -264,17 +355,35 @@ func (s *Server) registerBeylaGRPCMetricsTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(BeylaGRPCMetricsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_query_beyla_grpc_metrics",
 		"Query gRPC method-level RED metrics collected by Beyla. Returns RPC rate, latency distributions, and status code breakdown.",
-		func(ctx *ai.ToolContext, input BeylaGRPCMetricsInput) (string, error) {
-			s.auditToolCall("coral_query_beyla_grpc_metrics", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput BeylaGRPCMetricsInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_query_beyla_grpc_metrics", typedInput)
 
 			// Get time range (handle nil pointer).
 			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
+			if typedInput.TimeRange != nil {
+				timeRangeStr = *typedInput.TimeRange
 			}
 
 			// Parse time range.
@@ -285,23 +394,23 @@ func (s *Server) registerBeylaGRPCMetricsTool() {
 
 			// Build filters map.
 			filters := make(map[string]string)
-			if input.GRPCMethod != nil {
-				filters["grpc_method"] = *input.GRPCMethod
+			if typedInput.GRPCMethod != nil {
+				filters["grpc_method"] = *typedInput.GRPCMethod
 			}
-			if input.StatusCode != nil {
-				filters["status_code"] = fmt.Sprintf("%d", *input.StatusCode)
+			if typedInput.StatusCode != nil {
+				filters["status_code"] = fmt.Sprintf("%d", *typedInput.StatusCode)
 			}
 
 			// Query database.
 			dbCtx := context.Background()
-			results, err := s.db.QueryBeylaGRPCMetrics(dbCtx, input.Service, startTime, endTime, filters)
+			results, err := s.db.QueryBeylaGRPCMetrics(dbCtx, typedInput.Service, startTime, endTime, filters)
 			if err != nil {
 				return "", fmt.Errorf("failed to query gRPC metrics: %w", err)
 			}
 
 			// Format response.
 			if len(results) == 0 {
-				text := fmt.Sprintf("Beyla gRPC Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+				text := fmt.Sprintf("Beyla gRPC Metrics for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 				text += "No metrics found for this service in the specified time range.\n\n"
 				text += "This could mean:\n"
 				text += "- The service hasn't received gRPC requests\n"
@@ -313,7 +422,7 @@ func (s *Server) registerBeylaGRPCMetricsTool() {
 			// Calculate statistics from histogram buckets.
 			stats := aggregateGRPCMetrics(results)
 
-			text := fmt.Sprintf("Beyla gRPC Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text := fmt.Sprintf("Beyla gRPC Metrics for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 			text += fmt.Sprintf("Total RPCs: %d\n\n", stats.TotalRPCs)
 
 			// Show latency percentiles.
@@ -349,17 +458,35 @@ func (s *Server) registerBeylaSQLMetricsTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(BeylaSQLMetricsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_query_beyla_sql_metrics",
 		"Query SQL operation metrics collected by Beyla. Returns query latencies, operation types, and table-level statistics.",
-		func(ctx *ai.ToolContext, input BeylaSQLMetricsInput) (string, error) {
-			s.auditToolCall("coral_query_beyla_sql_metrics", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput BeylaSQLMetricsInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_query_beyla_sql_metrics", typedInput)
 
 			// Get time range (handle nil pointer).
 			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
+			if typedInput.TimeRange != nil {
+				timeRangeStr = *typedInput.TimeRange
 			}
 
 			// Parse time range.
@@ -370,23 +497,23 @@ func (s *Server) registerBeylaSQLMetricsTool() {
 
 			// Build filters map.
 			filters := make(map[string]string)
-			if input.SQLOperation != nil {
-				filters["sql_operation"] = *input.SQLOperation
+			if typedInput.SQLOperation != nil {
+				filters["sql_operation"] = *typedInput.SQLOperation
 			}
-			if input.TableName != nil {
-				filters["table_name"] = *input.TableName
+			if typedInput.TableName != nil {
+				filters["table_name"] = *typedInput.TableName
 			}
 
 			// Query database.
 			dbCtx := context.Background()
-			results, err := s.db.QueryBeylaSQLMetrics(dbCtx, input.Service, startTime, endTime, filters)
+			results, err := s.db.QueryBeylaSQLMetrics(dbCtx, typedInput.Service, startTime, endTime, filters)
 			if err != nil {
 				return "", fmt.Errorf("failed to query SQL metrics: %w", err)
 			}
 
 			// Format response.
 			if len(results) == 0 {
-				text := fmt.Sprintf("Beyla SQL Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+				text := fmt.Sprintf("Beyla SQL Metrics for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 				text += "No metrics found for this service in the specified time range.\n\n"
 				text += "This could mean:\n"
 				text += "- The service hasn't executed SQL queries\n"
@@ -398,7 +525,7 @@ func (s *Server) registerBeylaSQLMetricsTool() {
 			// Calculate statistics from histogram buckets.
 			stats := aggregateSQLMetrics(results)
 
-			text := fmt.Sprintf("Beyla SQL Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text := fmt.Sprintf("Beyla SQL Metrics for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 			text += fmt.Sprintf("Total Queries: %d\n\n", stats.TotalQueries)
 
 			// Show latency percentiles.
@@ -433,17 +560,35 @@ func (s *Server) registerBeylaTracesTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(BeylaTracesInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_query_beyla_traces",
 		"Query distributed traces collected by Beyla. Can search by trace ID, service, time range, or duration threshold.",
-		func(ctx *ai.ToolContext, input BeylaTracesInput) (string, error) {
-			s.auditToolCall("coral_query_beyla_traces", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput BeylaTracesInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_query_beyla_traces", typedInput)
 
 			// Get time range (handle nil pointer).
 			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
+			if typedInput.TimeRange != nil {
+				timeRangeStr = *typedInput.TimeRange
 			}
 
 			// Parse time range.
@@ -454,20 +599,20 @@ func (s *Server) registerBeylaTracesTool() {
 
 			// Get service name (optional).
 			serviceName := ""
-			if input.Service != nil {
-				serviceName = *input.Service
+			if typedInput.Service != nil {
+				serviceName = *typedInput.Service
 			}
 
 			// Get min duration filter (convert from ms to us).
 			var minDurationUs int64
-			if input.MinDurationMs != nil {
-				minDurationUs = int64(*input.MinDurationMs) * 1000
+			if typedInput.MinDurationMs != nil {
+				minDurationUs = int64(*typedInput.MinDurationMs) * 1000
 			}
 
 			// Get max traces limit.
 			maxTraces := 10
-			if input.MaxTraces != nil {
-				maxTraces = *input.MaxTraces
+			if typedInput.MaxTraces != nil {
+				maxTraces = *typedInput.MaxTraces
 			}
 
 			// Query database.
@@ -544,14 +689,32 @@ func (s *Server) registerTraceByIDTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(TraceByIDInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_get_trace_by_id",
 		"Get a specific distributed trace by ID with full span tree showing parent-child relationships and timing.",
-		func(ctx *ai.ToolContext, input TraceByIDInput) (string, error) {
-			s.auditToolCall("coral_get_trace_by_id", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
 
-			text := fmt.Sprintf("Trace %s:\n\n", input.TraceID)
+			var typedInput TraceByIDInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_get_trace_by_id", typedInput)
+
+			text := fmt.Sprintf("Trace %s:\n\n", typedInput.TraceID)
 			text += "Trace not found.\n\n"
 			text += "Note: Trace retrieval is planned (RFD 036).\n"
 
@@ -566,17 +729,35 @@ func (s *Server) registerTelemetrySpansTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(TelemetrySpansInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_query_telemetry_spans",
 		"Query generic OTLP spans (from instrumented applications using OpenTelemetry SDKs). Returns aggregated telemetry summaries. For detailed raw spans, see RFD 041.",
-		func(ctx *ai.ToolContext, input TelemetrySpansInput) (string, error) {
-			s.auditToolCall("coral_query_telemetry_spans", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput TelemetrySpansInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_query_telemetry_spans", typedInput)
 
 			// Get time range (handle nil pointer).
 			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
+			if typedInput.TimeRange != nil {
+				timeRangeStr = *typedInput.TimeRange
 			}
 
 			// Parse time range.
@@ -589,13 +770,13 @@ func (s *Server) registerTelemetrySpansTool() {
 			agents := s.registry.ListAll()
 			var matchingAgents []string
 			for _, agent := range agents {
-				if agent.Name == input.Service {
+				if agent.Name == typedInput.Service {
 					matchingAgents = append(matchingAgents, agent.AgentID)
 				}
 			}
 
 			if len(matchingAgents) == 0 {
-				text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
+				text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 				text += "No agents found running this service.\n\n"
 				text += "Possible reasons:\n"
 				text += "- Service name doesn't match\n"
@@ -616,7 +797,7 @@ func (s *Server) registerTelemetrySpansTool() {
 			}
 
 			if len(allSummaries) == 0 {
-				text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
+				text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 				text += "No telemetry data found in the specified time range.\n\n"
 				text += "Possible reasons:\n"
 				text += "- Service is not instrumented with OpenTelemetry\n"
@@ -627,9 +808,9 @@ func (s *Server) registerTelemetrySpansTool() {
 			}
 
 			// Aggregate stats from summaries.
-			stats := aggregateTelemetrySummaries(allSummaries, input.Operation)
+			stats := aggregateTelemetrySummaries(allSummaries, typedInput.Operation)
 
-			text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", typedInput.Service, timeRangeStr)
 			text += fmt.Sprintf("Total Spans: %d\n", stats.TotalSpans)
 			text += fmt.Sprintf("Error Count: %d (%.1f%%)\n\n", stats.ErrorCount, stats.ErrorRate)
 
@@ -672,6 +853,8 @@ func (s *Server) registerTelemetryMetricsTool() {
 	if !s.isToolEnabled("coral_query_telemetry_metrics") {
 		return
 	}
+
+	// TODO: not finished here for input schema
 
 	genkit.DefineTool(
 		s.genkit,
