@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/coral-io/coral/internal/agent/genkit"
+	askagent "github.com/coral-io/coral/internal/agent/ask"
 	"github.com/coral-io/coral/internal/config"
 )
 
@@ -115,12 +115,16 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		return fmt.Errorf("invalid ask config: %w", err)
 	}
 
-	// Create Genkit agent.
-	agent, err := genkit.NewAgent(askCfg, colonyCfg, debug)
+	// Create agent.
+	agent, err := askagent.NewAgent(askCfg, colonyCfg, debug)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}
-	defer agent.Close()
+	defer func() {
+		if err := agent.Close(); err != nil && debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to close agent: %v\n", err)
+		}
+	}()
 
 	// Load or create conversation.
 	var conversationID string
@@ -139,7 +143,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	}
 
 	// Execute query.
-	resp, err := agent.Ask(ctx, question, conversationID)
+	resp, err := agent.Ask(ctx, question, conversationID, stream)
 	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
@@ -227,7 +231,7 @@ func getConversationMetadataPath(colonyID string) string {
 }
 
 // outputJSON outputs the response in JSON format.
-func outputJSON(resp *genkit.Response) error {
+func outputJSON(resp *askagent.Response) error {
 	output := map[string]interface{}{
 		"answer": resp.Answer,
 		"tool_calls": func() []map[string]interface{} {
@@ -253,7 +257,7 @@ func outputJSON(resp *genkit.Response) error {
 }
 
 // outputTerminal outputs the response to the terminal.
-func outputTerminal(resp *genkit.Response, stream bool) error {
+func outputTerminal(resp *askagent.Response, stream bool) error {
 	fmt.Println(resp.Answer)
 
 	// Show tool usage citations.

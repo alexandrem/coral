@@ -289,6 +289,25 @@ func (a *Agent) Ask(ctx context.Context, question, conversationID string) (*Resp
 	// Get MCP tools from Colony server.
 	if a.debug {
 		fmt.Fprintln(os.Stderr, "[DEBUG] Fetching MCP tools from Colony server")
+
+		// Debug: Call getTools directly to inspect raw MCP tools before conversion.
+		mcpTools, err := a.mcpClient.GetTools(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to get raw MCP tools: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Raw MCP tools received: %d\n", len(mcpTools))
+			if len(mcpTools) > 0 {
+				// Check first tool's schema
+				firstTool := mcpTools[0]
+				fmt.Fprintf(os.Stderr, "[DEBUG] First MCP tool: %s\n", firstTool.Name)
+				fmt.Fprintf(os.Stderr, "[DEBUG] First MCP tool InputSchema.Type: %q\n", firstTool.InputSchema.Type)
+				fmt.Fprintf(os.Stderr, "[DEBUG] First MCP tool InputSchema.Properties: %v\n", firstTool.InputSchema.Properties)
+
+				// Marshal the tool to see the full JSON
+				toolJSON, _ := json.Marshal(firstTool)
+				fmt.Fprintf(os.Stderr, "[DEBUG] First MCP tool as JSON: %s\n", string(toolJSON))
+			}
+		}
 	}
 
 	tools, err := a.mcpClient.GetActiveTools(ctx, a.genkit)

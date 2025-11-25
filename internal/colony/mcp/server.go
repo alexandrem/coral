@@ -8,19 +8,17 @@ import (
 	"io"
 	"time"
 
-	"github.com/firebase/genkit/go/genkit"
-	"github.com/firebase/genkit/go/plugins/mcp"
 	"github.com/invopop/jsonschema"
+	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/logging"
 )
 
-// Server wraps the Genkit MCP server and provides Colony-specific tools.
+// Server wraps the MCP server and provides Colony-specific tools.
 type Server struct {
-	genkit    *genkit.Genkit
-	mcpServer *mcp.GenkitMCPServer
+	mcpServer *server.MCPServer
 	registry  *registry.Registry
 	db        *database.Database
 	config    Config
@@ -62,13 +60,16 @@ func New(registry *registry.Registry, db *database.Database, config Config, logg
 		Bool("audit_enabled", config.AuditEnabled).
 		Msg("Initializing MCP server")
 
-	// Create Genkit instance.
-	ctx := context.Background()
-	g := genkit.Init(ctx)
+	// Create MCP server with tool capabilities.
+	mcpServer := server.NewMCPServer(
+		fmt.Sprintf("coral-%s", config.ColonyID),
+		"1.0.0",
+		server.WithToolCapabilities(true),
+	)
 
-	// Create Server instance first so we can register tools.
+	// Create Server instance.
 	s := &Server{
-		genkit:    g,
+		mcpServer: mcpServer,
 		registry:  registry,
 		db:        db,
 		config:    config,
@@ -76,18 +77,10 @@ func New(registry *registry.Registry, db *database.Database, config Config, logg
 		startedAt: time.Now(),
 	}
 
-	// Register all tools with Genkit.
+	// Register all tools with the MCP server.
 	if err := s.registerTools(); err != nil {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
-
-	// Create Genkit MCP server (exposes registered tools).
-	mcpServer := mcp.NewMCPServer(g, mcp.MCPServerOptions{
-		Name:    fmt.Sprintf("coral-%s", config.ColonyID),
-		Version: "1.0.0",
-	})
-
-	s.mcpServer = mcpServer
 
 	logger.Info().
 		Int("tool_count", len(s.listToolNames())).
@@ -101,8 +94,9 @@ func New(registry *registry.Registry, db *database.Database, config Config, logg
 func (s *Server) ServeStdio(ctx context.Context) error {
 	s.logger.Info().Msg("Starting MCP server on stdio")
 
-	// Use Genkit's stdio transport.
-	return s.mcpServer.ServeStdio()
+	// Use mark3labs/mcp-go stdio transport.
+	// Note: ServeStdio creates its own context and handles signals internally.
+	return server.ServeStdio(s.mcpServer)
 }
 
 // Close stops the MCP server and releases resources.

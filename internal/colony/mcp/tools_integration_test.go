@@ -356,7 +356,6 @@ func TestServerCreation(t *testing.T) {
 		server, err := New(reg, db, config, logger)
 		require.NoError(t, err)
 		assert.NotNil(t, server)
-		assert.NotNil(t, server.genkit)
 		assert.NotNil(t, server.mcpServer)
 		assert.Equal(t, "test-colony", server.config.ColonyID)
 
