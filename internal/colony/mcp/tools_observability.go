@@ -854,14 +854,30 @@ func (s *Server) registerTelemetryMetricsTool() {
 		return
 	}
 
-	// TODO: not finished here for input schema
+	inputSchema, err := generateInputSchema(TelemetryMetricsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
 
-	genkit.DefineTool(
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_query_telemetry_metrics",
 		"Query generic OTLP metrics (from instrumented applications). Returns time-series data for custom application metrics.",
-		func(ctx *ai.ToolContext, input TelemetryMetricsInput) (string, error) {
-			s.auditToolCall("coral_query_telemetry_metrics", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput TelemetryMetricsInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_query_telemetry_metrics", typedInput)
 
 			text := "OTLP Metrics:\n\n"
 			text += "No metrics available yet.\n\n"
@@ -878,12 +894,30 @@ func (s *Server) registerTelemetryLogsTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(TelemetryLogsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_query_telemetry_logs",
 		"Query generic OTLP logs (from instrumented applications). Search application logs with full-text search and filters.",
-		func(ctx *ai.ToolContext, input TelemetryLogsInput) (string, error) {
-			s.auditToolCall("coral_query_telemetry_logs", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput TelemetryLogsInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_query_telemetry_logs", typedInput)
 
 			text := "OTLP Logs:\n\n"
 			text += "No logs available yet.\n\n"

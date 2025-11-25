@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/firebase/genkit/go/ai"
@@ -17,12 +18,30 @@ func (s *Server) registerStartEBPFCollectorTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(StartEBPFCollectorInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_start_ebpf_collector",
 		"Start an on-demand eBPF collector for live debugging (CPU profiling, syscall tracing, network analysis). Collector runs for specified duration.",
-		func(ctx *ai.ToolContext, input StartEBPFCollectorInput) (string, error) {
-			s.auditToolCall("coral_start_ebpf_collector", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput StartEBPFCollectorInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_start_ebpf_collector", typedInput)
 
 			// TODO: Implement eBPF collector startup (RFD 013).
 			// This requires:
@@ -31,12 +50,12 @@ func (s *Server) registerStartEBPFCollectorTool() {
 			// - Colony-to-agent RPC for collector lifecycle management
 			// - Data streaming from agent to colony
 
-			text := fmt.Sprintf("eBPF Collector: %s\n\n", input.CollectorType)
+			text := fmt.Sprintf("eBPF Collector: %s\n\n", typedInput.CollectorType)
 			text += "Status: Not yet implemented\n\n"
-			text += fmt.Sprintf("Target Service: %s\n", input.Service)
+			text += fmt.Sprintf("Target Service: %s\n", typedInput.Service)
 
-			if input.DurationSeconds != nil {
-				text += fmt.Sprintf("Duration: %d seconds\n", *input.DurationSeconds)
+			if typedInput.DurationSeconds != nil {
+				text += fmt.Sprintf("Duration: %d seconds\n", *typedInput.DurationSeconds)
 			} else {
 				text += "Duration: 30 seconds (default)\n"
 			}
@@ -64,16 +83,34 @@ func (s *Server) registerStopEBPFCollectorTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(StopEBPFCollectorInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_stop_ebpf_collector",
 		"Stop a running eBPF collector before its duration expires.",
-		func(ctx *ai.ToolContext, input StopEBPFCollectorInput) (string, error) {
-			s.auditToolCall("coral_stop_ebpf_collector", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput StopEBPFCollectorInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_stop_ebpf_collector", typedInput)
 
 			// TODO: Implement eBPF collector stop (RFD 013).
 
-			text := fmt.Sprintf("eBPF Collector Stop: %s\n\n", input.CollectorID)
+			text := fmt.Sprintf("eBPF Collector Stop: %s\n\n", typedInput.CollectorID)
 			text += "Status: Not yet implemented\n\n"
 			text += "Implementation Status:\n"
 			text += "  - RFD 013 (eBPF framework) is in partial implementation\n"
@@ -96,12 +133,30 @@ func (s *Server) registerListEBPFCollectorsTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(ListEBPFCollectorsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_list_ebpf_collectors",
 		"List currently active eBPF collectors with their status and remaining duration.",
-		func(ctx *ai.ToolContext, input ListEBPFCollectorsInput) (string, error) {
-			s.auditToolCall("coral_list_ebpf_collectors", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput ListEBPFCollectorsInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_list_ebpf_collectors", typedInput)
 
 			// TODO: Implement eBPF collector listing (RFD 013).
 
@@ -129,12 +184,30 @@ func (s *Server) registerExecCommandTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(ExecCommandInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_exec_command",
 		"Execute a command in an application container (kubectl/docker exec semantics). Useful for checking configuration, running diagnostic commands, or inspecting container state.",
-		func(ctx *ai.ToolContext, input ExecCommandInput) (string, error) {
-			s.auditToolCall("coral_exec_command", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput ExecCommandInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_exec_command", typedInput)
 
 			// TODO: Implement container exec (RFD 017).
 			// This requires:
@@ -143,18 +216,18 @@ func (s *Server) registerExecCommandTool() {
 			// - Output streaming and exit code handling
 			// - Security checks and audit logging
 
-			text := fmt.Sprintf("Container Exec: %s\n\n", input.Service)
+			text := fmt.Sprintf("Container Exec: %s\n\n", typedInput.Service)
 			text += "Status: Not yet implemented\n\n"
-			text += fmt.Sprintf("Command: %v\n", input.Command)
+			text += fmt.Sprintf("Command: %v\n", typedInput.Command)
 
-			if input.TimeoutSeconds != nil {
-				text += fmt.Sprintf("Timeout: %d seconds\n", *input.TimeoutSeconds)
+			if typedInput.TimeoutSeconds != nil {
+				text += fmt.Sprintf("Timeout: %d seconds\n", *typedInput.TimeoutSeconds)
 			} else {
 				text += "Timeout: 30 seconds (default)\n"
 			}
 
-			if input.WorkingDir != nil {
-				text += fmt.Sprintf("Working Directory: %s\n", *input.WorkingDir)
+			if typedInput.WorkingDir != nil {
+				text += fmt.Sprintf("Working Directory: %s\n", *typedInput.WorkingDir)
 			}
 
 			text += "\n"
@@ -181,12 +254,30 @@ func (s *Server) registerShellStartTool() {
 		return
 	}
 
-	genkit.DefineTool(
+	inputSchema, err := generateInputSchema(ShellStartInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for tool_name")
+		return
+	}
+
+	genkit.DefineToolWithInputSchema(
 		s.genkit,
 		"coral_shell_start",
 		"Start an interactive debug shell in the agent's environment (not the application container). Provides access to debugging tools (tcpdump, netcat, curl) and agent's data. Returns session ID for audit.",
-		func(ctx *ai.ToolContext, input ShellStartInput) (string, error) {
-			s.auditToolCall("coral_shell_start", input)
+		inputSchema,
+		func(ctx *ai.ToolContext, input any) (string, error) {
+			// Parse input
+			inputBytes, err := json.Marshal(input)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal input: %w", err)
+			}
+
+			var typedInput ShellStartInput
+			if err := json.Unmarshal(inputBytes, &typedInput); err != nil {
+				return "", fmt.Errorf("failed to unmarshal input: %w", err)
+			}
+
+			s.auditToolCall("coral_shell_start", typedInput)
 
 			// TODO: Implement agent shell access (RFD 026).
 			// This requires:
@@ -196,12 +287,12 @@ func (s *Server) registerShellStartTool() {
 			// - Colony-to-agent RPC for shell sessions
 			// - Security controls (RBAC, session recording)
 
-			text := fmt.Sprintf("Agent Debug Shell: %s\n\n", input.Service)
+			text := fmt.Sprintf("Agent Debug Shell: %s\n\n", typedInput.Service)
 			text += "Status: Not yet implemented\n\n"
 
 			shell := "/bin/bash"
-			if input.Shell != nil {
-				shell = *input.Shell
+			if typedInput.Shell != nil {
+				shell = *typedInput.Shell
 			}
 			text += fmt.Sprintf("Shell: %s\n", shell)
 
