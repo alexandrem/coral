@@ -75,10 +75,6 @@ coral ask "System status?" --json
 
 # Use specific model
 coral ask "What's happening?" --model anthropic:claude-3-5-sonnet-20241022
-
-# Cost tracking
-coral ask cost
-# Shows your daily LLM usage and estimated costs
 ```
 
 **How it works:**
