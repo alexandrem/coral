@@ -8,7 +8,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/invopop/jsonschema"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/coral-io/coral/internal/colony/database"
@@ -177,10 +176,9 @@ type ToolMetadata struct {
 // GetToolMetadata returns metadata for all registered tools including their input schemas.
 // This is used by the Colony server's ListTools RPC to populate tool information.
 func (s *Server) GetToolMetadata() ([]ToolMetadata, error) {
-	// Get tool names and descriptions.
-	// Note: Full schema extraction from Genkit tools requires accessing the internal
-	// tool registry, which is not currently exposed by the genkit/mcp library.
-	// We generate schemas manually from our typed input structs using jsonschema reflection.
+	// Get tool names, descriptions, and schemas.
+	// Schemas are generated from typed input structs using jsonschema reflection.
+	// This provides type-safe tool definitions that are consistent across MCP and RPC APIs.
 	toolDescriptions := s.getToolDescriptions()
 	toolSchemas := s.getToolSchemas()
 
@@ -209,12 +207,13 @@ func (s *Server) GetToolMetadata() ([]ToolMetadata, error) {
 
 // getToolSchemas returns a map of tool names to their JSON Schema definitions.
 // Schemas are generated from the typed input structs using reflection.
+// NOTE: This uses the same generateInputSchema() function as tool registration
+// to ensure consistency between MCP stdio and RPC APIs.
 func (s *Server) getToolSchemas() map[string]string {
-	reflector := jsonschema.Reflector{}
-
 	schemas := make(map[string]string)
 
 	// Generate schema for each tool's input type.
+	// Use the same input types as tool registration.
 	toolInputTypes := map[string]interface{}{
 		"coral_get_service_health":       ServiceHealthInput{},
 		"coral_get_service_topology":     ServiceTopologyInput{},
@@ -235,8 +234,19 @@ func (s *Server) getToolSchemas() map[string]string {
 	}
 
 	for toolName, inputType := range toolInputTypes {
-		schema := reflector.Reflect(inputType)
-		schemaBytes, err := json.Marshal(schema)
+		// Use the same generateInputSchema() function to ensure consistency.
+		// This removes $schema and $id fields and uses DoNotReference.
+		schemaMap, err := generateInputSchema(inputType)
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("tool", toolName).
+				Msg("Failed to generate tool schema")
+			schemas[toolName] = "{\"type\": \"object\", \"properties\": {}}"
+			continue
+		}
+
+		schemaBytes, err := json.Marshal(schemaMap)
 		if err != nil {
 			s.logger.Warn().
 				Err(err).
@@ -245,6 +255,7 @@ func (s *Server) getToolSchemas() map[string]string {
 			schemas[toolName] = "{\"type\": \"object\", \"properties\": {}}"
 			continue
 		}
+
 		schemas[toolName] = string(schemaBytes)
 	}
 
@@ -252,7 +263,7 @@ func (s *Server) getToolSchemas() map[string]string {
 }
 
 // getToolDescriptions returns a map of tool names to their descriptions.
-// This mirrors the descriptions used when registering tools via genkit.DefineTool.
+// These descriptions are used when serving tools via both MCP and RPC APIs.
 func (s *Server) getToolDescriptions() map[string]string {
 	return map[string]string{
 		"coral_get_service_health":       "Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",

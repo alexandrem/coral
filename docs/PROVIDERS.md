@@ -1,196 +1,151 @@
 # LLM Provider Support for Coral Ask
 
 This document provides technical details about LLM provider support for the
-`coral ask` command, including current limitations and future implementation
-plans.
+`coral ask` command, including current status and implementation plans.
 
 ## Provider Support Matrix
 
-| Provider      | Status           | MCP Tool Support | Integration Method   | API Key Required | Local/Cloud | Notes                                         |
-|---------------|------------------|------------------|----------------------|------------------|-------------|-----------------------------------------------|
-| **OpenAI**    | ✅ Supported      | ✅ Full           | Genkit `compat_oai`  | Yes              | Cloud       | Recommended for production                    |
-| **Google**    | ✅ Supported      | ✅ Full           | Native Genkit plugin | Yes              | Cloud       | Good alternative, experimental models         |
-| **Ollama**    | ✅ Supported      | ✅ Full           | Native Genkit plugin | No               | Local       | Best for air-gapped/offline deployments       |
-| **Grok**      | ⚠️ Not Supported | ❌ None           | Genkit `compat_oai`  | Yes              | Cloud       | Grammar constraint limitation (see below)     |
-| **Anthropic** | ⚠️ Not Supported | ❌ None           | Genkit `compat_oai`  | Yes              | Cloud       | Wrapper doesn't expose native MCP (see below) |
+| Provider      | Status      | MCP Tool Support | Integration Method   | API Key Required | Local/Cloud | Notes                                |
+|---------------|-------------|------------------|----------------------|------------------|-------------|--------------------------------------|
+| **Google**    | ✅ Supported | ✅ Full           | Direct SDK (`genai`) | Yes              | Cloud       | Currently supported, all models work |
+| **OpenAI**    | 🚧 Planned  | ⚠️ Pending       | Direct SDK (TODO)    | Yes              | Cloud       | Implementation needed                |
+| **Anthropic** | 🚧 Planned  | ⚠️ Pending       | Direct SDK (TODO)    | Yes              | Cloud       | Native MCP support possible          |
+| **Ollama**    | 🚧 Planned  | ⚠️ Pending       | Direct SDK (TODO)    | No               | Local       | Best for air-gapped/offline          |
+| **Grok**      | 🚧 Planned  | ⚠️ Pending       | Direct SDK (TODO)    | Yes              | Cloud       | Implementation needed                |
 
 ### Quick Recommendations
 
-**Production (Cloud):**
+**Currently Supported (Google only):**
 
-- Primary: `openai:gpt-4o-mini` (cost-effective, reliable)
-- Alternative: `google:gemini-2.0-flash-exp` (fast, experimental)
+- **Fast/Cost-effective**: `google:gemini-2.0-flash-exp` - Experimental, fast
+  responses
+- **Production Quality**: `google:gemini-1.5-pro` - Stable, long context window
+- **Balanced**: `google:gemini-1.5-flash` - Good balance of speed and quality
 
-**Production (High Quality):**
+**Coming Soon:**
 
-- Primary: `openai:gpt-4o` (most capable)
-- Alternative: `google:gemini-1.5-pro` (long context)
-
-**Development/Testing:**
-
-- Local: `ollama:llama3.2` (no API key, runs locally)
-- Cloud: `openai:gpt-4o-mini` (cheap, fast)
-
-**Air-gapped/Offline:**
-
-- Only: `ollama:llama3.2` or other Ollama models
+- OpenAI (`gpt-4o`, `gpt-4o-mini`) - Implementation planned
+- Anthropic (`claude-3-5-sonnet-20241022`) - Native MCP support possible
+- Ollama (local models) - For air-gapped/offline deployments
 
 ---
 
-## Current Limitations
+## Architecture
 
-### Grok (xAI) - Not Supported
+### Direct SDK Integration
 
-**Issue:** Grok's API rejects structured output/grammar constraints
+Each provider is implemented directly using its native SDK.
 
-**Root Cause:**
+This provides:
 
-- openai-go library v1.8.2 automatically adds grammar constraints when tools are
-  present
-- Grok API responds with `400 Bad Request: Invalid grammar request`
-- The JSON schema generated has validation issues (`"type":""` empty fields)
+- **Full Control**: Direct access to provider-specific features
+- **Better Performance**: No wrapper overhead
+- **Native Tool Calling**: Direct integration with each provider's function
+  calling API
+- **Simpler Debugging**: Clearer error messages and stack traces
 
-**Technical Details:**
+### Provider Interface
 
-```
-Error: failed to create completion: POST "https://api.x.ai/v1/chat/completions": 400 Bad Request
-"Invalid grammar request: req.grammar_key=('structural_pattern', '{\"begin\":\"<function_call>\"...
-```
-
-**Resolution:** Command fails fast with clear error message directing users to
-supported providers.
-
-**Potential Future Solutions:**
-
-1. xAI adds grammar constraint support to Grok API
-2. openai-go library adds option to disable grammar constraints
-3. We implement custom Grok provider without grammar constraints
-
-**Related Code:**
-
-- Error handling: `internal/cli/ask/ask.go:130-132`
-- Provider initialization: `internal/agent/genkit/agent.go:136-167`
-
----
-
-### Anthropic (Claude) - Not Supported
-
-**Issue:** Genkit's OpenAI-compatible wrapper doesn't integrate with Anthropic's
-native MCP support
-
-**Root Cause:**
-
-- Anthropic models natively support MCP and tool calling
-- Genkit uses `compat_oai` plugin which tries to wrap Anthropic as
-  OpenAI-compatible
-- This wrapper doesn't expose Anthropic's native tool calling capabilities
-- MCP integration requires proper tool definition and execution flow
-
-**Why This Matters:**
-Anthropic's Claude models (especially Claude 3.5 Sonnet) have excellent
-reasoning capabilities that would be valuable for complex debugging and root
-cause analysis tasks. However, the current Genkit abstraction prevents us from
-using these capabilities with MCP tools.
-
-**Future Solution: Custom Anthropic MCP Provider**
-
-We should consider implementing a native Anthropic provider that bypasses
-Genkit's abstraction:
+All providers implement a simple `Provider` interface defined in
+`internal/agent/llm/provider.go`:
 
 ```go
-// Future: internal/agent/anthropic/provider.go
-package anthropic
-
-import (
-    "github.com/anthropics/anthropic-sdk-go"
-    "github.com/mark3labs/mcp-go/client"
-)
-
-// AnthropicMCPProvider directly integrates Anthropic SDK with MCP.
-type AnthropicMCPProvider struct {
-    client    *anthropic.Client
-    mcpClient *client.Client
-}
-
-// Ask implements native tool calling with Anthropic's API.
-func (p *AnthropicMCPProvider) Ask(ctx context.Context, question string, tools []mcp.Tool) (*Response, error) {
-    // Convert MCP tools to Anthropic tool format.
-    anthropicTools := convertMCPToAnthropicTools(tools)
-
-    // Use Anthropic's native tool calling.
-    resp, err := p.client.Messages.Create(ctx, anthropic.MessageCreateParams{
-        Model:    "claude-3-5-sonnet-20241022",
-        Messages: []anthropic.Message{{Role: "user", Content: question}},
-        Tools:    anthropicTools,
-    })
-
-    // Execute tool calls via MCP.
-    for _, toolUse := range resp.ToolUses {
-        result, err := p.mcpClient.CallTool(ctx, toolUse.Name, toolUse.Input)
-        // ... handle result
-    }
-
-    return &Response{...}, nil
+type Provider interface {
+    Name() string
+    Generate(ctx context.Context, req GenerateRequest, streamCallback StreamCallback) (*GenerateResponse, error)
 }
 ```
 
-**Benefits of Custom Implementation:**
+Each provider is responsible for:
 
-1. Direct access to Anthropic's superior reasoning capabilities
-2. Native MCP support without wrapper limitations
-3. Better error handling and debugging
-4. Access to Anthropic-specific features (extended thinking, prompt caching)
-5. Full control over conversation flow and context management
-
-**Implementation Effort:** Medium
-
-- Requires bypassing Genkit for Anthropic provider only
-- Need to implement tool calling loop manually
-- Must handle conversation state and context
-- Testing with various MCP tool configurations
-- Integration with existing agent interface
+1. Converting MCP tools to its native function calling format
+2. Handling streaming responses
+3. Managing conversation history
+4. Converting tool calls back to a standard format
 
 ---
 
-## Supported Providers (Implementation Details)
+## Current Status
 
-### OpenAI
+### Google (Gemini) - ✅ Fully Supported
 
-**Integration:** Genkit `compat_oai` plugin
-**Tool Calling:** Native OpenAI function calling API
-**Status:** ✅ Fully supported
+**Implementation**: `internal/agent/llm/google.go`
+**SDK**: `github.com/google/generative-ai-go/genai`
+**Status**: ✅ Production-ready
 
-**Models:**
+The Google provider uses the official Gemini SDK and supports:
 
-- `openai:gpt-4o` - Latest GPT-4 Omni (most capable)
-- `openai:gpt-4o-mini` - Faster, cheaper variant (recommended)
-- `openai:gpt-4-turbo` - GPT-4 Turbo
+- Full MCP tool calling integration
+- Streaming responses
+- Multi-turn conversations
+- All Gemini models (1.5 Flash, 1.5 Pro, 2.0 Flash Exp)
 
-**Configuration:**
+**Tool Integration**: MCP tools are converted to Gemini `FunctionDeclaration`
+format using JSON schema transformation.
 
-```yaml
-ai:
-    ask:
-        default_model: "openai:gpt-4o-mini"
-        api_keys:
-            openai: "env://OPENAI_API_KEY"
-```
+### Other Providers - 🚧 Not Yet Implemented
+
+The following providers are planned but not yet implemented:
+
+#### OpenAI - 🚧 Planned
+
+**Estimated Effort**: Medium
+**SDK**: `github.com/openai/openai-go` or similar
+**Tool Format**: OpenAI function calling API
+
+Would provide access to:
+
+- GPT-4o (high quality reasoning)
+- GPT-4o-mini (cost-effective)
+- GPT-4 Turbo
+
+#### Anthropic - 🚧 Planned
+
+**Estimated Effort**: Medium
+**SDK**: `github.com/anthropics/anthropic-sdk-go`
+**Tool Format**: Anthropic tool use API
+
+Anthropic's Claude models have excellent reasoning capabilities for debugging:
+
+- Claude 3.5 Sonnet (best reasoning)
+- Native tool calling support
+- Extended thinking mode available
+- Prompt caching for efficiency
+
+#### Ollama - 🚧 Planned
+
+**Estimated Effort**: Medium
+**SDK**: HTTP API or community SDK
+**Tool Format**: Ollama tool calling
+
+Critical for:
+
+- Air-gapped deployments
+- Offline development
+- Local testing without API costs
+
+Models: llama3.2, mistral, codellama, etc.
+
+#### Grok (xAI) - 🚧 Planned
+
+**Estimated Effort**: Medium-High
+**SDK**: OpenAI-compatible API
+**Tool Format**: Function calling (if supported)
+
+**Note**: Need to verify Grok's current tool calling support. Earlier
+limitations may have been resolved
 
 ---
 
-### Google
+## Google Provider Details
 
-**Integration:** Native Genkit `googlegenai` plugin
-**Tool Calling:** Native Gemini function calling
-**Status:** ✅ Fully supported
+### Supported Models
 
-**Models:**
+- `google:gemini-2.0-flash-exp` - Gemini 2.0 Flash (experimental, fastest)
+- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context, most capable)
+- `google:gemini-1.5-flash` - Gemini 1.5 Flash (balanced)
 
-- `google:gemini-2.0-flash-exp` - Gemini 2.0 Flash (experimental, fast)
-- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context, stable)
-- `google:gemini-1.5-flash` - Gemini 1.5 Flash (cost-effective)
-
-**Configuration:**
+### Configuration
 
 ```yaml
 ai:
@@ -200,118 +155,200 @@ ai:
             google: "env://GOOGLE_API_KEY"
 ```
 
----
+### Getting a Google AI API Key
 
-### Ollama
-
-**Integration:** Native Genkit `ollama` plugin
-**Tool Calling:** Ollama tool calling support
-**Status:** ✅ Fully supported
-
-**Models:**
-
-- `ollama:llama3.2` - Meta's Llama 3.2
-- `ollama:mistral` - Mistral AI model
-- `ollama:codellama` - Code-specialized Llama
-
-**Configuration:**
-
-```yaml
-ai:
-    ask:
-        default_model: "ollama:llama3.2"
-        # No API key needed for Ollama
-```
-
-**Prerequisites:**
+1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Create a new API key
+3. Set the environment variable:
 
 ```bash
-# Install Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Pull model
-ollama pull llama3.2
-
-# Verify Ollama is running
-ollama list
+export GOOGLE_API_KEY=your-api-key-here
 ```
+
+### Implementation Notes
+
+The Google provider (`internal/agent/llm/google.go`) implements:
+
+- **Tool Conversion**: JSON Schema → Gemini `FunctionDeclaration`
+- **Streaming**: Chunks are streamed via callback as they arrive
+- **Conversation History**: Managed via Gemini chat sessions
+- **Error Handling**: Proper error propagation from Gemini API
 
 ---
 
 ## Recommendations
 
-### Short-term (Current Implementation)
+### Current (Google Only)
 
-**Production Deployments:**
+**For Production:**
 
-- Primary: `openai:gpt-4o-mini` - Best balance of cost, speed, and quality
-- Fallback: `google:gemini-2.0-flash-exp` - Fast alternative
+- Use `google:gemini-1.5-pro` for best quality and stability
+- Use `google:gemini-1.5-flash` for faster responses at lower cost
 
-**High-Stakes Debugging:**
+**For Development/Testing:**
 
-- Primary: `openai:gpt-4o` - Most capable reasoning
-- Fallback: `google:gemini-1.5-pro` - Long context for complex traces
+- Use `google:gemini-2.0-flash-exp` for fastest iteration
+- Experimental models may have occasional issues
 
-**Air-gapped/Offline:**
+**For Complex Analysis:**
 
-- Only: `ollama:llama3.2` or other Ollama models
+- Use `google:gemini-1.5-pro` for its long context window (up to 2M tokens)
+- Helpful for analyzing large traces or log files
 
-### Long-term (Future Development)
+### Implementation Priorities
 
-1. **Implement Custom Anthropic MCP Provider** (Priority: High)
-    - Would unlock Claude's superior reasoning for complex debugging
-    - Native MCP integration without wrapper limitations
+1. **OpenAI Provider** (Priority: High)
+    - Most requested alternative to Google
+    - GPT-4o has excellent reasoning capabilities
+    - GPT-4o-mini is cost-effective for production
 
-2. **Monitor Grok API Updates** (Priority: Low)
-    - Watch for grammar constraint support in xAI API
-    - Track openai-go library for configuration options
-    - May become viable without custom implementation
+2. **Anthropic Provider** (Priority: High)
+    - Claude 3.5 Sonnet has best-in-class reasoning
+    - Native tool calling support available
+    - Extended thinking mode for complex problems
 
-3. **Evaluate Additional Providers** (Priority: Medium)
-    - Mistral AI (native API, not just Ollama)
-    - Cohere Command R+
-    - Other providers with strong tool calling support
+3. **Ollama Provider** (Priority: Medium)
+    - Critical for air-gapped deployments
+    - Enables offline development and testing
+    - No API costs for local inference
 
-4. **Upstream Contributions** (Priority: Low)
-    - Consider contributing grammar constraint fixes to openai-go
-    - Improve Genkit's OpenAI-compatible wrapper
-    - Document MCP integration patterns for other developers
+4. **Grok Provider** (Priority: Low)
+    - Verify tool calling support status
+    - Evaluate quality vs. other providers
+    - Consider if effort is justified
+
+---
+
+## Adding a New Provider
+
+To implement a new provider, follow these steps:
+
+### 1. Create Provider Implementation
+
+Create a new file in `internal/agent/llm/` (e.g., `openai.go`):
+
+```go
+package llm
+
+import (
+    "context"
+    "github.com/mark3labs/mcp-go/mcp"
+)
+
+type OpenAIProvider struct {
+    client *openai.Client
+    model  string
+}
+
+func NewOpenAIProvider(ctx context.Context, apiKey string, modelName string) (*OpenAIProvider, error) {
+    // Initialize SDK client
+}
+
+func (p *OpenAIProvider) Name() string {
+    return "openai"
+}
+
+func (p *OpenAIProvider) Generate(ctx context.Context, req GenerateRequest, streamCallback StreamCallback) (*GenerateResponse, error) {
+    // 1. Convert MCP tools to provider's tool format
+    // 2. Call provider API with messages and tools
+    // 3. Handle streaming if enabled
+    // 4. Convert response back to standard format
+    // 5. Return GenerateResponse with tool calls
+}
+```
+
+### 2. Add to Agent Factory
+
+Update `internal/agent/ask/agent.go` in the `createProvider` function:
+
+```go
+func createProvider(ctx context.Context, providerName string, modelID string, cfg *config.AskConfig, debug bool) (llm.Provider, error) {
+switch providerName {
+case "google":
+// existing code...
+case "openai": // Add new case
+apiKey := cfg.APIKeys["openai"]
+if apiKey == "" {
+return nil, fmt.Errorf("OpenAI API key not configured")
+}
+return llm.NewOpenAIProvider(ctx, apiKey, modelID)
+// ...
+}
+```
+
+### 3. Update Validation
+
+Update `internal/cli/ask/ask.go` to remove or update any provider-specific
+validation logic.
+
+### 4. Test
+
+```bash
+export OPENAI_API_KEY=sk-...
+coral ask "test question" --model openai:gpt-4o-mini
+```
 
 ---
 
 ## Related Files
 
-- **Provider initialization:** `internal/agent/genkit/agent.go`
-- **Model validation:** `internal/cli/ask/ask.go`
+- **Provider interface:** `internal/agent/llm/provider.go`
+- **Google implementation:** `internal/agent/llm/google.go`
+- **Agent initialization:** `internal/agent/ask/agent.go`
+- **CLI command:** `internal/cli/ask/ask.go`
+- **Configuration:** `internal/config/ask.go`
 - **User documentation:** `docs/CONFIG.md`
 - **Design document:** `RFDs/030-coral-ask-local.md`
-- **Configuration:** `internal/config/ask.go`
 
 ---
 
 ## Testing Provider Support
 
-To test if a provider works with your setup:
+### Testing Google Provider
 
 ```bash
 # Set API key
-export OPENAI_API_KEY=sk-proj-your-key
+export GOOGLE_API_KEY=your-key-here
 
 # Test with a simple query
-coral ask "list all services" --model openai:gpt-4o-mini
+coral ask "list all services" --model google:gemini-2.0-flash-exp
 
-# Test with fallback
-coral ask "what is the current status?" \
-  --model openai:gpt-4o-mini
+# Test streaming
+coral ask "what is the current status?" --model google:gemini-1.5-flash
 
 # Test multi-turn conversation
 coral ask "show me HTTP latency"
 coral ask "what are the slowest endpoints?" --continue
+
+# Test with debug output
+coral ask "analyze error rates" --debug
 ```
 
-If the provider fails with MCP tool calling issues, check:
+### Troubleshooting
 
-1. Provider is listed as ✅ Supported in the matrix above
-2. API key is correctly configured in environment
-3. Model ID format matches `provider:model-id`
-4. Colony MCP server is running (`coral colony start`)
+If queries fail, check:
+
+1. **API Key**: Ensure `GOOGLE_API_KEY` is set correctly
+2. **Model Format**: Use format `provider:model-id` (e.g.,
+   `google:gemini-2.0-flash-exp`)
+3. **Colony Running**: Colony MCP server must be running (`coral colony list`)
+4. **Network**: Ensure you can reach Google AI API endpoints
+5. **Debug Mode**: Use `--debug` flag to see detailed error messages
+
+### Common Errors
+
+**"Google AI API key not configured"**
+
+- Solution: Set `GOOGLE_API_KEY` environment variable
+
+**"unsupported provider: openai"**
+
+- Solution: Provider not yet implemented, use `google:` models for now
+
+**"failed to connect to colony MCP server"**
+
+- Solution: Start colony with `coral colony start` or check `coral colony list`
+
+**"MCP client connection timed out"**
+
+- Solution: Ensure colony is running and responsive

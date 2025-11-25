@@ -19,7 +19,7 @@ type GoogleProvider struct {
 // NewGoogleProvider creates a new Google AI provider.
 func NewGoogleProvider(ctx context.Context, apiKey string, modelName string) (*GoogleProvider, error) {
 	if apiKey == "" {
-		return nil, fmt.Errorf("Google AI API key is required")
+		return nil, fmt.Errorf("Google AI API key is required") // nolint: staticcheck
 	}
 
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
@@ -246,6 +246,12 @@ func convertJSONSchemaToGemini(jsonSchema map[string]interface{}) *genai.Schema 
 				schema.Enum = append(schema.Enum, enumStr)
 			}
 		}
+	}
+
+	// Items (for arrays).
+	// Google AI requires this field for array types.
+	if items, ok := jsonSchema["items"].(map[string]interface{}); ok {
+		schema.Items = convertJSONSchemaToGemini(items)
 	}
 
 	return schema

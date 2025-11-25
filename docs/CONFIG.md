@@ -40,17 +40,13 @@ discovery:
         - "stun.cloudflare.com:3478"
 
 ai:
-    provider: "openai"  # or "google"
+    provider: "google"  # Currently only "google" is supported
     api_key_source: "env"  # or "keychain", "file"
 
     # Coral Ask configuration (RFD 030)
     ask:
-        default_model: "openai:gpt-4o-mini"
-        fallback_models:
-            - "google:gemini-2.0-flash-exp"
-            - "ollama:llama3.2"
+        default_model: "google:gemini-2.0-flash-exp"
         api_keys:
-            openai: "env://OPENAI_API_KEY"
             google: "env://GOOGLE_API_KEY"
         conversation:
             max_turns: 10
@@ -73,7 +69,7 @@ preferences:
 | `discovery.endpoint`            | string   | `http://localhost:8080`      | Discovery service URL                        |
 | `discovery.timeout`             | duration | `10s`                        | Discovery request timeout                    |
 | `discovery.stun_servers`        | []string | `[stun.cloudflare.com:3478]` | STUN servers for NAT traversal               |
-| `ai.provider`                   | string   | `anthropic`                  | AI provider: `anthropic` or `openai`         |
+| `ai.provider`                   | string   | `google`                     | AI provider: currently only `google`         |
 | `ai.api_key_source`             | string   | `env`                        | API key source: `env`, `keychain`, or `file` |
 | `preferences.auto_update_check` | bool     | `true`                       | Check for updates on startup                 |
 | `preferences.telemetry_enabled` | bool     | `false`                      | Enable anonymous telemetry                   |
@@ -86,28 +82,33 @@ observability data.
 
 #### Supported Providers for `coral ask`
 
-| Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status           |
-|---------------|--------------------------------------------------------------|------------------|-------------|------------------|------------------|
-| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ✅ Full           | ✅ Supported      |
-| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported      |
-| **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ✅ Full           | ✅ Supported      |
-| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ❌ None           | ⚠️ Not Supported |
-| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ❌ None           | ⚠️ Not Supported |
+| Provider      | Model Examples                                                | API Key Required | Local/Cloud | MCP Tool Support | Status       |
+|---------------|---------------------------------------------------------------|------------------|-------------|------------------|--------------|
+| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported  |
+| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                        | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                          | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **Ollama**    | `llama3.2`, `mistral`, `codellama`                            | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
+| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`              | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
 
 > **Important:** `coral ask` requires MCP tool calling to access observability
 > data from your colony.
 >
-> **Not Supported Providers:**
-> - **Grok (xAI)**: The openai-go library (v1.8.2) uses grammar constraints for
-    tool calling that Grok's API doesn't support. Results in
-    `400 Bad Request: Invalid grammar request`. May be supported in future
-    versions.
-> - **Anthropic (Claude)**: Genkit's OpenAI-compatible wrapper doesn't properly
-    integrate with Anthropic's native MCP support. We may implement a custom
-    Anthropic MCP provider in the future to enable direct integration.
+> **Currently Supported:**
+> - **Google Gemini**: Only provider currently implemented. Uses direct SDK
+    integration with full MCP tool calling support.
 >
-> **Recommendation:** Use OpenAI (`gpt-4o-mini` for cost-effective) or Google (
-`gemini-2.0-flash-exp`) models for production `coral ask` usage.
+> **Planned Providers:**
+> - **OpenAI**: Implementation needed for GPT-4o and GPT-4o-mini support
+> - **Anthropic**: Native tool calling support available, implementation planned
+> - **Ollama**: For air-gapped/offline deployments
+> - **Grok**: Evaluate tool calling support and implement if viable
+>
+> **Recommendation:** Use Google models for `coral ask`:
+> - Production: `google:gemini-1.5-pro` (stable, long context)
+> - Development: `google:gemini-2.0-flash-exp` (fast, experimental)
+> - Cost-effective: `google:gemini-1.5-flash` (balanced)
+>
+> See `docs/PROVIDERS.md` for detailed implementation status and roadmap.
 
 #### AI Ask Configuration Fields
 
@@ -125,30 +126,31 @@ observability data.
 
 Models are specified as `provider:model-id`:
 
-**OpenAI (Recommended for Production):**
-
-- `openai:gpt-4o` - Latest GPT-4 Omni model (most capable)
-- `openai:gpt-4o-mini` - Faster, cheaper GPT-4 Omni (recommended)
-- `openai:gpt-4-turbo` - GPT-4 Turbo
-
-**Google (Recommended Alternative):**
+**Google (Currently Supported):**
 
 - `google:gemini-2.0-flash-exp` - Gemini 2.0 Flash (fast, experimental)
-- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context window)
-- `google:gemini-1.5-flash` - Gemini 1.5 Flash (cost-effective)
+- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context window, most capable)
+- `google:gemini-1.5-flash` - Gemini 1.5 Flash (balanced, cost-effective)
 
-**Ollama (Local/Air-gapped):**
+**Planned Providers (Not Yet Implemented):**
 
-- `ollama:llama3.2` - Meta's Llama 3.2 (good general purpose)
-- `ollama:mistral` - Mistral AI model
-- `ollama:codellama` - Code-specialized Llama
+- `openai:gpt-4o` - Latest GPT-4 Omni (planned)
+- `openai:gpt-4o-mini` - Faster, cheaper GPT-4 Omni (planned)
+- `anthropic:claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet (planned)
+- `ollama:llama3.2` - Local Llama 3.2 (planned for air-gapped deployments)
+- `ollama:mistral` - Local Mistral (planned)
 
-**❌ Not Supported:**
+**Current Limitation:**
 
-- `grok:*` - Grok models don't support MCP tool calling (grammar constraint
-  limitations)
-- `anthropic:*` - Anthropic models don't work with Genkit's OpenAI-compatible
-  wrapper
+If you specify a non-Google provider, you'll receive an error:
+```
+provider "openai" is not yet implemented
+
+Currently supported:
+  - google:gemini-2.0-flash-exp (fast, experimental)
+  - google:gemini-1.5-pro (high quality, stable)
+  - google:gemini-1.5-flash (balanced)
+```
 
 #### API Key Configuration
 
@@ -652,8 +654,12 @@ discovery:
     endpoint: "http://localhost:8080"
 
 ai:
-    provider: "anthropic"
+    provider: "google"
     api_key_source: "env"
+    ask:
+        default_model: "google:gemini-2.0-flash-exp"
+        api_keys:
+            google: "env://GOOGLE_API_KEY"
 ```
 
 **Colony Config** (`~/.coral/colonies/myapp-dev.yaml`):
@@ -871,17 +877,13 @@ discovery:
     endpoint: "http://localhost:8080"
 
 ai:
-    provider: "openai"
+    provider: "google"  # Currently only Google is supported
     api_key_source: "env"
 
     # Configure coral ask (RFD 030)
     ask:
-        default_model: "openai:gpt-4o-mini"
-        fallback_models:
-            - "google:gemini-1.5-flash"
-            - "ollama:llama3.2"
+        default_model: "google:gemini-2.0-flash-exp"
         api_keys:
-            openai: "env://OPENAI_API_KEY"
             google: "env://GOOGLE_API_KEY"
         conversation:
             max_turns: 10
@@ -899,11 +901,9 @@ colony_id: "myapp-prod"
 application_name: "MyApp"
 environment: "production"
 
-# Use better model for production troubleshooting
+# Use more stable model for production troubleshooting
 ask:
-    default_model: "openai:gpt-4o"  # More capable model for production
-    fallback_models:
-        - "google:gemini-1.5-pro"
+    default_model: "google:gemini-1.5-pro"  # More capable, stable model
 
 wireguard:
     mesh_network_ipv4: "100.64.0.0/10"
@@ -917,8 +917,7 @@ mcp:
 **Setup:**
 
 ```bash
-# 1. Set API keys
-export OPENAI_API_KEY=sk-proj-your-key-here
+# 1. Set API key
 export GOOGLE_API_KEY=your-google-key-here
 
 # 2. Start colony
@@ -934,28 +933,28 @@ coral ask "what's the p95 latency?"
 coral ask "show me the slowest endpoints" --continue
 
 # 5. Override model for specific queries
-coral ask "complex root cause analysis" --model openai:gpt-4o
+coral ask "complex root cause analysis" --model google:gemini-1.5-pro
 
-# 6. Use local model (air-gapped/offline)
-coral ask "current system status" --model ollama:llama3.2
-
-# 7. JSON output for scripting
+# 6. JSON output for scripting
 coral ask "list unhealthy services" --json
+
+# 7. Use different Gemini models
+coral ask "quick status check" --model google:gemini-1.5-flash  # Faster
+coral ask "deep analysis" --model google:gemini-1.5-pro  # More capable
 ```
 
 **Key Features:**
 
 - **MCP Integration:** LLM accesses all Colony MCP tools (service health,
   traces, metrics, logs)
-- **Multi-Provider:** Supports OpenAI, Google, and local Ollama models
-- **Smart Fallbacks:** Automatically uses fallback models if primary fails
+- **Google Gemini:** Currently supported provider with full tool calling
 - **Conversation Context:** Multi-turn conversations with automatic context
   pruning
-- **Per-Colony Models:** Use cheaper models for dev, better models for
-  production
+- **Per-Colony Models:** Use faster models for dev, more capable for production
+- **Model Selection:** Choose between speed (Flash) and quality (Pro)
 
-**Note:** Grok and Anthropic models are not supported due to MCP tool calling
-limitations (see Supported Providers table above).
+**Future Support:** OpenAI, Anthropic, and Ollama providers are planned but not
+yet implemented. See `docs/PROVIDERS.md` for implementation status.
 
 ## Configuration Validation
 

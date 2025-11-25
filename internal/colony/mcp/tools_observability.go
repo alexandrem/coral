@@ -30,205 +30,216 @@ func generateInputSchema(inputType interface{}) (map[string]any, error) {
 		return nil, fmt.Errorf("failed to unmarshal schema: %w", err)
 	}
 
+	// Remove JSON Schema draft-specific fields that MCP clients don't expect.
+	// The MCP protocol expects a simpler schema format with just:
+	// type, properties, required, and property-level constraints.
+	delete(schemaMap, "$schema")
+	delete(schemaMap, "$id")
+
+	// Note: We keep additionalProperties as it's useful for validation.
+
 	return schemaMap, nil
 }
 
-// registerServiceHealthTool registers the coral_get_service_health tool.
-func (s *Server) registerServiceHealthTool() {
-	if !s.isToolEnabled("coral_get_service_health") {
+// registerToolWithSchema is a helper that generates schema, creates tool, and registers it with logging.
+func (s *Server) registerToolWithSchema(
+	name string,
+	description string,
+	inputType interface{},
+	handler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error),
+) {
+	if !s.isToolEnabled(name) {
 		return
 	}
 
 	// Generate JSON schema.
-	inputSchema, err := generateInputSchema(ServiceHealthInput{})
+	inputSchema, err := generateInputSchema(inputType)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_get_service_health")
+		s.logger.Error().Err(err).Str("tool", name).Msg("Failed to generate input schema")
 		return
 	}
 
 	// Marshal schema to JSON bytes for MCP.
 	schemaBytes, err := json.Marshal(inputSchema)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_get_service_health")
+		s.logger.Error().Err(err).Str("tool", name).Msg("Failed to marshal schema")
 		return
 	}
 
-	// Debug: Log what we're registering.
-	s.logger.Debug().RawJSON("inputSchema", schemaBytes).Msg("Generated schema for coral_get_service_health")
-
 	// Create tool with raw schema.
-	tool := mcp.NewToolWithRawSchema(
-		"coral_get_service_health",
-		"Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",
-		schemaBytes,
-	)
+	tool := mcp.NewToolWithRawSchema(name, description, schemaBytes)
 
-	// Debug: Marshal the tool to JSON to see what will be sent over MCP.
-	toolJSON, _ := json.Marshal(tool)
-	s.logger.Debug().RawJSON("toolJSON", toolJSON).Msg("Tool after NewToolWithRawSchema")
+	// Debug: Verify tool IMMEDIATELY after creation
+	s.logger.Info().
+		Str("tool", name).
+		Int("schemaBytes_len", len(schemaBytes)).
+		Int("tool.RawInputSchema_len", len(tool.RawInputSchema)).
+		Str("tool.InputSchema.Type", tool.InputSchema.Type).
+		Msg("Tool created")
+
+	// Debug: Marshal the tool to see what it would look like when serialized
+	testMarshal, _ := json.Marshal(tool)
+	s.logger.Info().
+		Str("tool", name).
+		RawJSON("marshaledTool", testMarshal).
+		Msg("Tool after marshal test")
 
 	// Register tool handler.
-	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Parse arguments.
-		var input ServiceHealthInput
-		if request.Params.Arguments != nil {
-			argBytes, err := json.Marshal(request.Params.Arguments)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
-			}
-			if err := json.Unmarshal(argBytes, &input); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
-			}
-		}
+	s.mcpServer.AddTool(tool, handler)
 
-		s.auditToolCall("coral_get_service_health", input)
+	// Debug: Try to retrieve the tool from the server and marshal it
+	// This will help us see if the tool is corrupted after AddTool
+	s.logger.Info().
+		Str("tool", name).
+		Msg("Tool registered with MCP server")
+}
 
-		// Get service filter (handle nil pointer).
-		var serviceFilter string
-		if input.ServiceFilter != nil {
-			serviceFilter = *input.ServiceFilter
-		}
-
-		// Get all agents from registry.
-		agents := s.registry.ListAll()
-
-		// Build health report.
-		var healthyCount, degradedCount, unhealthyCount int
-		var serviceStatuses []map[string]interface{}
-
-		for _, agent := range agents {
-			// Apply filter if specified.
-			if serviceFilter != "" && !matchesPattern(agent.Name, serviceFilter) {
-				continue
+// registerServiceHealthTool registers the coral_get_service_health tool.
+func (s *Server) registerServiceHealthTool() {
+	s.registerToolWithSchema(
+		"coral_get_service_health",
+		"Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",
+		ServiceHealthInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// Parse arguments.
+			var input ServiceHealthInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
 			}
 
-			// Determine health status based on last seen.
-			status := "healthy"
-			lastSeen := agent.LastSeen
-			timeSinceLastSeen := time.Since(lastSeen)
+			s.auditToolCall("coral_get_service_health", input)
 
-			if timeSinceLastSeen > 5*time.Minute {
-				status = "unhealthy"
-				unhealthyCount++
-			} else if timeSinceLastSeen > 2*time.Minute {
-				status = "degraded"
-				degradedCount++
-			} else {
-				healthyCount++
+			// Get service filter (handle nil pointer).
+			var serviceFilter string
+			if input.ServiceFilter != nil {
+				serviceFilter = *input.ServiceFilter
 			}
 
-			serviceStatuses = append(serviceStatuses, map[string]interface{}{
-				"service":   agent.Name,
-				"agent_id":  agent.AgentID,
-				"status":    status,
-				"last_seen": lastSeen.Format(time.RFC3339),
-				"uptime":    formatDuration(time.Since(agent.RegisteredAt)),
-				"mesh_ip":   agent.MeshIPv4,
-			})
-		}
+			// Get all agents from registry.
+			agents := s.registry.ListAll()
 
-		// Determine overall status.
-		overallStatus := "healthy"
-		if unhealthyCount > 0 {
-			overallStatus = "unhealthy"
-		} else if degradedCount > 0 {
-			overallStatus = "degraded"
-		}
+			// Build health report.
+			var healthyCount, degradedCount, unhealthyCount int
+			var serviceStatuses []map[string]interface{}
 
-		// Format response as text for LLM consumption.
-		text := "System Health Report:\n\n"
-		text += fmt.Sprintf("Overall Status: %s\n\n", overallStatus)
-		text += "Services:\n"
-
-		if len(serviceStatuses) == 0 {
-			text += "  No services connected.\n"
-		} else {
-			for _, svc := range serviceStatuses {
-				statusEmoji := "✓"
-				switch svc["status"] {
-				case "degraded":
-					statusEmoji = "⚠"
-				case "unhealthy":
-					statusEmoji = "✗"
+			for _, agent := range agents {
+				// Apply filter if specified.
+				if serviceFilter != "" && !matchesPattern(agent.Name, serviceFilter) {
+					continue
 				}
 
-				text += fmt.Sprintf("  %s %s: %s (last seen: %s, uptime: %s)\n",
-					statusEmoji,
-					svc["service"],
-					svc["status"],
-					svc["last_seen"],
-					svc["uptime"],
-				)
+				// Determine health status based on last seen.
+				status := "healthy"
+				lastSeen := agent.LastSeen
+				timeSinceLastSeen := time.Since(lastSeen)
+
+				if timeSinceLastSeen > 5*time.Minute {
+					status = "unhealthy"
+					unhealthyCount++
+				} else if timeSinceLastSeen > 2*time.Minute {
+					status = "degraded"
+					degradedCount++
+				} else {
+					healthyCount++
+				}
+
+				serviceStatuses = append(serviceStatuses, map[string]interface{}{
+					"service":   agent.Name,
+					"agent_id":  agent.AgentID,
+					"status":    status,
+					"last_seen": lastSeen.Format(time.RFC3339),
+					"uptime":    formatDuration(time.Since(agent.RegisteredAt)),
+					"mesh_ip":   agent.MeshIPv4,
+				})
 			}
-		}
 
-		text += fmt.Sprintf("\nSummary: %d healthy, %d degraded, %d unhealthy\n",
-			healthyCount, degradedCount, unhealthyCount)
+			// Determine overall status.
+			overallStatus := "healthy"
+			if unhealthyCount > 0 {
+				overallStatus = "unhealthy"
+			} else if degradedCount > 0 {
+				overallStatus = "degraded"
+			}
 
-		return mcp.NewToolResultText(text), nil
-	})
+			// Format response as text for LLM consumption.
+			text := "System Health Report:\n\n"
+			text += fmt.Sprintf("Overall Status: %s\n\n", overallStatus)
+			text += "Services:\n"
+
+			if len(serviceStatuses) == 0 {
+				text += "  No services connected.\n"
+			} else {
+				for _, svc := range serviceStatuses {
+					statusEmoji := "✓"
+					switch svc["status"] {
+					case "degraded":
+						statusEmoji = "⚠"
+					case "unhealthy":
+						statusEmoji = "✗"
+					}
+
+					text += fmt.Sprintf("  %s %s: %s (last seen: %s, uptime: %s)\n",
+						statusEmoji,
+						svc["service"],
+						svc["status"],
+						svc["last_seen"],
+						svc["uptime"],
+					)
+				}
+			}
+
+			text += fmt.Sprintf("\nSummary: %d healthy, %d degraded, %d unhealthy\n",
+				healthyCount, degradedCount, unhealthyCount)
+
+			return mcp.NewToolResultText(text), nil
+		})
 }
 
 // registerServiceTopologyTool registers the coral_get_service_topology tool.
 func (s *Server) registerServiceTopologyTool() {
-	if !s.isToolEnabled("coral_get_service_topology") {
-		return
-	}
-
-	inputSchema, err := generateInputSchema(ServiceTopologyInput{})
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_get_service_topology")
-		return
-	}
-
-	// Marshal schema to JSON bytes for MCP tool.
-	schemaBytes, err := json.Marshal(inputSchema)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_get_service_topology")
-		return
-	}
-
-	// Create MCP tool with raw schema.
-	tool := mcp.NewToolWithRawSchema(
+	s.registerToolWithSchema(
 		"coral_get_service_topology",
 		"Get service dependency graph discovered from distributed traces. Shows which services communicate and call frequency.",
-		schemaBytes,
-	)
-
-	// Register tool handler with MCP server.
-	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Parse arguments from MCP request.
-		var input ServiceTopologyInput
-		if request.Params.Arguments != nil {
-			argBytes, err := json.Marshal(request.Params.Arguments)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+		ServiceTopologyInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// Parse arguments from MCP request.
+			var input ServiceTopologyInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
 			}
-			if err := json.Unmarshal(argBytes, &input); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+
+			s.auditToolCall("coral_get_service_topology", input)
+
+			// TODO: Implement topology discovery from traces (RFD 036).
+			// For now, return connected agents as a simple topology.
+
+			agents := s.registry.ListAll()
+
+			text := "Service Topology:\n\n"
+			text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
+
+			for _, agent := range agents {
+				text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.Name, agent.MeshIPv4)
 			}
-		}
 
-		s.auditToolCall("coral_get_service_topology", input)
+			text += "\n"
+			text += "Note: Dependency graph discovery from distributed traces is not yet implemented.\n"
+			text += "      See RFD 036 for planned trace-based topology analysis.\n"
 
-		// TODO: Implement topology discovery from traces (RFD 036).
-		// For now, return connected agents as a simple topology.
-
-		agents := s.registry.ListAll()
-
-		text := "Service Topology:\n\n"
-		text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
-
-		for _, agent := range agents {
-			text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.Name, agent.MeshIPv4)
-		}
-
-		text += "\n"
-		text += "Note: Dependency graph discovery from distributed traces is not yet implemented.\n"
-		text += "      See RFD 036 for planned trace-based topology analysis.\n"
-
-		return mcp.NewToolResultText(text), nil
-	})
+			return mcp.NewToolResultText(text), nil
+		})
 }
 
 // registerQueryEventsTool registers the coral_query_events tool.

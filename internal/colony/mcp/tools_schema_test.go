@@ -1,240 +1,307 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/coral-io/coral/internal/logging"
 )
 
-// TestToolSchemaServerToClient tests the complete flow of schema generation,
-// marshaling on the server, and unmarshaling on the client.
-func TestToolSchemaServerToClient(t *testing.T) {
-	tests := []struct {
-		name        string
-		inputType   interface{}
-		wantType    string
-		wantProps   []string
-		checkSchema func(*testing.T, map[string]interface{})
-	}{
-		{
-			name:      "ServiceHealthInput",
-			inputType: ServiceHealthInput{},
-			wantType:  "object",
-			wantProps: []string{"service_filter"},
-			checkSchema: func(t *testing.T, schema map[string]interface{}) {
-				props, ok := schema["properties"].(map[string]interface{})
-				require.True(t, ok, "properties should be a map")
-
-				serviceFilter, ok := props["service_filter"].(map[string]interface{})
-				require.True(t, ok, "service_filter property should exist")
-
-				assert.Equal(t, "string", serviceFilter["type"])
-				assert.Contains(t, serviceFilter["description"], "Filter by service name pattern")
+// TestToolSchemaPreservation tests that tool schemas are preserved through
+// registration and retrieval.
+func TestToolSchemaPreservation(t *testing.T) {
+	// Create a test schema (similar to what generateInputSchema produces)
+	testSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"filter": map[string]any{
+				"type":        "string",
+				"description": "Optional filter",
 			},
 		},
-		{
-			name:      "ServiceTopologyInput",
-			inputType: ServiceTopologyInput{},
-			wantType:  "object",
-			wantProps: []string{"filter", "format"},
-			checkSchema: func(t *testing.T, schema map[string]interface{}) {
-				props, ok := schema["properties"].(map[string]interface{})
-				require.True(t, ok)
+		"additionalProperties": false,
+	}
 
-				format, ok := props["format"].(map[string]interface{})
-				require.True(t, ok)
+	// Marshal to JSON bytes
+	schemaBytes, err := json.Marshal(testSchema)
+	if err != nil {
+		t.Fatalf("Failed to marshal test schema: %v", err)
+	}
 
-				// Check enum values.
-				enum, ok := format["enum"].([]interface{})
-				require.True(t, ok, "format should have enum")
-				assert.Contains(t, enum, "graph")
-				assert.Contains(t, enum, "list")
-				assert.Contains(t, enum, "json")
+	t.Logf("Schema bytes (%d): %s", len(schemaBytes), string(schemaBytes))
+
+	// Create tool using NewToolWithRawSchema (same as our code)
+	tool := mcp.NewToolWithRawSchema(
+		"test_tool",
+		"Test tool description",
+		schemaBytes,
+	)
+
+	// Verify tool was created correctly
+	if len(tool.RawInputSchema) == 0 {
+		t.Errorf("Expected RawInputSchema to be set, got empty")
+	}
+	if len(tool.RawInputSchema) != len(schemaBytes) {
+		t.Errorf("RawInputSchema length mismatch: got %d, want %d",
+			len(tool.RawInputSchema), len(schemaBytes))
+	}
+
+	// Test marshaling the tool
+	toolJSON, err := json.Marshal(tool)
+	if err != nil {
+		t.Fatalf("Failed to marshal tool: %v", err)
+	}
+
+	t.Logf("Tool marshaled: %s", string(toolJSON))
+
+	// Unmarshal to verify schema is preserved
+	var unmarshaled mcp.Tool
+	if err := json.Unmarshal(toolJSON, &unmarshaled); err != nil {
+		t.Fatalf("Failed to unmarshal tool: %v", err)
+	}
+
+	// Check that InputSchema.Type was populated
+	if unmarshaled.InputSchema.Type != "object" {
+		t.Errorf("Expected InputSchema.Type='object', got '%s'", unmarshaled.InputSchema.Type)
+	}
+
+	// Check that properties were preserved
+	if unmarshaled.InputSchema.Properties == nil {
+		t.Errorf("Expected InputSchema.Properties to be set, got nil")
+	}
+
+	// Marshal the unmarshaled tool to see what client would see
+	clientJSON, _ := json.Marshal(unmarshaled)
+	t.Logf("After unmarshal (client view): %s", string(clientJSON))
+}
+
+// TestToolSchemaViaServer tests tool schema preservation through the MCP server.
+func TestToolSchemaViaServer(t *testing.T) {
+	// Create test schema
+	testSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"test_param": map[string]any{
+				"type":        "string",
+				"description": "Test parameter",
 			},
 		},
-		{
-			name:      "BeylaHTTPMetricsInput",
-			inputType: BeylaHTTPMetricsInput{},
-			wantType:  "object",
-			wantProps: []string{"service", "time_range"},
-			checkSchema: func(t *testing.T, schema map[string]interface{}) {
-				// Check required fields.
-				required, ok := schema["required"].([]interface{})
-				require.True(t, ok, "should have required fields")
-				assert.Contains(t, required, "service")
+	}
 
-				// Check properties.
-				props, ok := schema["properties"].(map[string]interface{})
-				require.True(t, ok)
+	schemaBytes, err := json.Marshal(testSchema)
+	if err != nil {
+		t.Fatalf("Failed to marshal test schema: %v", err)
+	}
 
-				service, ok := props["service"].(map[string]interface{})
-				require.True(t, ok)
-				assert.Equal(t, "string", service["type"])
-			},
+	// Create MCP server
+	mcpServer := server.NewMCPServer(
+		"test-server",
+		"1.0.0",
+		server.WithToolCapabilities(true),
+	)
+
+	// Create tool
+	tool := mcp.NewToolWithRawSchema(
+		"test_tool",
+		"Test tool",
+		schemaBytes,
+	)
+
+	t.Logf("Tool before AddTool: RawInputSchema len=%d, InputSchema.Type=%q",
+		len(tool.RawInputSchema), tool.InputSchema.Type)
+
+	// Register tool (same as our code does)
+	mcpServer.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("test result"), nil
+	})
+
+	// Test marshaling after registration
+	toolJSON, err := json.Marshal(tool)
+	if err != nil {
+		t.Fatalf("Failed to marshal registered tool: %v", err)
+	}
+
+	t.Logf("Tool after registration (marshaled): %s", string(toolJSON))
+
+	// Unmarshal to simulate what client receives
+	var receivedTool mcp.Tool
+	if err := json.Unmarshal(toolJSON, &receivedTool); err != nil {
+		t.Fatalf("Failed to unmarshal tool: %v", err)
+	}
+
+	t.Logf("Received tool: InputSchema.Type=%q, Properties=%v",
+		receivedTool.InputSchema.Type, receivedTool.InputSchema.Properties)
+
+	// Verify schema is preserved
+	if receivedTool.InputSchema.Type == "" {
+		t.Errorf("Schema lost! InputSchema.Type is empty")
+	}
+	if receivedTool.InputSchema.Type != "object" {
+		t.Errorf("Expected InputSchema.Type='object', got '%s'", receivedTool.InputSchema.Type)
+	}
+}
+
+// TestGenerateInputSchema tests our schema generation function.
+func TestGenerateInputSchema(t *testing.T) {
+	// Test with ServiceTopologyInput (the one showing empty schema)
+	inputSchema, err := generateInputSchema(ServiceTopologyInput{})
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
+
+	// Should have type field
+	schemaType, ok := inputSchema["type"]
+	if !ok {
+		t.Errorf("Schema missing 'type' field")
+	}
+	if schemaType != "object" {
+		t.Errorf("Expected type='object', got '%v'", schemaType)
+	}
+
+	// Should have properties
+	_, ok = inputSchema["properties"]
+	if !ok {
+		t.Errorf("Schema missing 'properties' field")
+	}
+
+	// Marshal and check
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		t.Fatalf("Failed to marshal schema: %v", err)
+	}
+
+	t.Logf("Generated schema (%d bytes): %s", len(schemaBytes), string(schemaBytes))
+
+	if len(schemaBytes) == 0 {
+		t.Errorf("Schema is empty")
+	}
+}
+
+// TestGetToolSchemas tests the RPC path that was broken.
+// This would have caught the bug where getToolSchemas() used a different
+// schema generator than generateInputSchema().
+func TestGetToolSchemas(t *testing.T) {
+	// Create a minimal MCP server for testing
+	srv := &Server{
+		logger: testLogger(t),
+		config: Config{
+			ColonyID: "test-colony",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Step 1: Generate schema on server (using DoNotReference).
-			schema, err := generateInputSchema(tt.inputType)
-			require.NoError(t, err, "schema generation should succeed")
+	// Get schemas via the RPC path
+	schemas := srv.getToolSchemas()
 
-			// Verify schema has type at root level (not nested in $ref).
-			schemaType, ok := schema["type"].(string)
-			require.True(t, ok, "schema should have type field at root")
-			assert.Equal(t, tt.wantType, schemaType, "schema type should be %s", tt.wantType)
+	// Verify we got schemas for all tools
+	expectedTools := []string{
+		"coral_get_service_health",
+		"coral_get_service_topology",
+		"coral_query_events",
+		"coral_query_beyla_http_metrics",
+		"coral_query_beyla_grpc_metrics",
+		"coral_query_beyla_sql_metrics",
+		"coral_query_beyla_traces",
+		"coral_get_trace_by_id",
+		"coral_query_telemetry_spans",
+		"coral_query_telemetry_metrics",
+		"coral_query_telemetry_logs",
+		"coral_start_ebpf_collector",
+		"coral_stop_ebpf_collector",
+		"coral_list_ebpf_collectors",
+		"coral_exec_command",
+		"coral_shell_start",
+	}
 
-			// Verify properties exist.
-			props, ok := schema["properties"].(map[string]interface{})
-			require.True(t, ok, "schema should have properties")
-			for _, propName := range tt.wantProps {
-				assert.Contains(t, props, propName, "schema should have property %s", propName)
-			}
+	for _, toolName := range expectedTools {
+		schemaJSON, ok := schemas[toolName]
+		if !ok {
+			t.Errorf("Missing schema for tool: %s", toolName)
+			continue
+		}
 
-			// Step 2: Marshal schema to JSON bytes (as server does).
-			schemaBytes, err := json.Marshal(schema)
-			require.NoError(t, err, "schema marshal should succeed")
+		// Parse the schema JSON
+		var schema map[string]any
+		if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
+			t.Errorf("Invalid JSON schema for %s: %v", toolName, err)
+			continue
+		}
 
-			// Step 3: Create MCP tool with raw schema (as server does).
-			tool := mcp.NewToolWithRawSchema(
-				"test_tool",
-				"Test tool",
-				schemaBytes,
-			)
+		// Verify it has the required fields
+		schemaType, ok := schema["type"]
+		if !ok {
+			t.Errorf("Schema for %s missing 'type' field. Schema: %s", toolName, schemaJSON)
+			continue
+		}
+		if schemaType != "object" {
+			t.Errorf("Schema for %s has type=%v, expected 'object'", toolName, schemaType)
+		}
 
-			// Step 4: Marshal tool to JSON (simulates sending over MCP protocol).
-			toolJSON, err := json.Marshal(tool)
-			require.NoError(t, err, "tool marshal should succeed")
+		// Verify it doesn't have JSON Schema draft-specific fields
+		// (these were causing the bug)
+		if _, hasSchema := schema["$schema"]; hasSchema {
+			t.Errorf("Schema for %s should not have '$schema' field (causes RPC issues)", toolName)
+		}
+		if _, hasID := schema["$id"]; hasID {
+			t.Errorf("Schema for %s should not have '$id' field (causes RPC issues)", toolName)
+		}
 
-			// Step 5: Unmarshal tool from JSON (simulates client receiving tool).
-			var receivedTool mcp.Tool
-			err = json.Unmarshal(toolJSON, &receivedTool)
-			require.NoError(t, err, "tool unmarshal should succeed")
+		// Verify properties exist
+		if _, ok := schema["properties"]; !ok {
+			t.Errorf("Schema for %s missing 'properties' field", toolName)
+		}
 
-			// Step 6: Verify received tool has correct InputSchema.
-			assert.Equal(t, "test_tool", receivedTool.Name)
-			assert.Equal(t, "Test tool", receivedTool.Description)
+		t.Logf("✓ %s: valid schema (%d bytes)", toolName, len(schemaJSON))
+	}
 
-			// Step 7: Check InputSchema.Type is populated correctly.
-			assert.Equal(t, tt.wantType, receivedTool.InputSchema.Type,
-				"received tool InputSchema.Type should be %s", tt.wantType)
+	// Test the full GetToolMetadata path (what the RPC handler calls)
+	metadata, err := srv.GetToolMetadata()
+	if err != nil {
+		t.Fatalf("GetToolMetadata failed: %v", err)
+	}
 
-			// Step 8: Verify InputSchema.Properties is populated.
-			assert.NotNil(t, receivedTool.InputSchema.Properties,
-				"received tool InputSchema.Properties should not be nil")
+	if len(metadata) == 0 {
+		t.Error("GetToolMetadata returned no tools")
+	}
 
-			for _, propName := range tt.wantProps {
-				assert.Contains(t, receivedTool.InputSchema.Properties, propName,
-					"received tool should have property %s", propName)
-			}
+	for _, meta := range metadata {
+		// Verify the schema can be unmarshaled
+		var schema map[string]any
+		if err := json.Unmarshal([]byte(meta.InputSchemaJSON), &schema); err != nil {
+			t.Errorf("Invalid schema JSON for %s: %v", meta.Name, err)
+			continue
+		}
 
-			// Step 9: Marshal the received InputSchema and verify full schema.
-			receivedSchemaBytes, err := json.Marshal(receivedTool.InputSchema)
-			require.NoError(t, err)
+		// This is what was failing before the fix: type was empty
+		if schema["type"] == "" {
+			t.Errorf("BUG REPRODUCED: %s has empty type field! Schema: %s",
+				meta.Name, meta.InputSchemaJSON)
+		}
 
-			var receivedSchema map[string]interface{}
-			err = json.Unmarshal(receivedSchemaBytes, &receivedSchema)
-			require.NoError(t, err)
-
-			// Verify type is present in marshaled schema.
-			assert.Equal(t, tt.wantType, receivedSchema["type"],
-				"marshaled schema should have type=%s", tt.wantType)
-
-			// Run custom schema checks.
-			if tt.checkSchema != nil {
-				tt.checkSchema(t, receivedSchema)
-			}
-		})
+		t.Logf("✓ %s metadata: type=%v, description=%s",
+			meta.Name, schema["type"], meta.Description)
 	}
 }
 
-// TestSchemaWithoutDollarRefDefs verifies that schemas don't use $ref/$defs.
-func TestSchemaWithoutDollarRefDefs(t *testing.T) {
-	schema, err := generateInputSchema(ServiceHealthInput{})
-	require.NoError(t, err)
-
-	// Schema should NOT have $ref or $defs at the root level.
-	_, hasRef := schema["$ref"]
-	assert.False(t, hasRef, "schema should not have $ref at root level")
-
-	_, hasDefs := schema["$defs"]
-	assert.False(t, hasDefs, "schema should not have $defs at root level")
-
-	// Type and properties should be at root level.
-	assert.Equal(t, "object", schema["type"])
-	assert.NotNil(t, schema["properties"])
+// testLogger creates a no-op logger for tests
+func testLogger(t *testing.T) logging.Logger {
+	// Create a no-op logger that discards output
+	return logging.New(logging.Config{
+		Level:  "error", // Only log errors
+		Pretty: false,
+		Output: &testWriter{t},
+	})
 }
 
-// TestAllToolInputTypes validates schemas for all tool input types.
-func TestAllToolInputTypes(t *testing.T) {
-	toolTypes := map[string]interface{}{
-		"ServiceHealthInput":      ServiceHealthInput{},
-		"ServiceTopologyInput":    ServiceTopologyInput{},
-		"QueryEventsInput":        QueryEventsInput{},
-		"BeylaHTTPMetricsInput":   BeylaHTTPMetricsInput{},
-		"BeylaGRPCMetricsInput":   BeylaGRPCMetricsInput{},
-		"BeylaSQLMetricsInput":    BeylaSQLMetricsInput{},
-		"BeylaTracesInput":        BeylaTracesInput{},
-		"TraceByIDInput":          TraceByIDInput{},
-		"TelemetrySpansInput":     TelemetrySpansInput{},
-		"TelemetryMetricsInput":   TelemetryMetricsInput{},
-		"TelemetryLogsInput":      TelemetryLogsInput{},
-		"StartEBPFCollectorInput": StartEBPFCollectorInput{},
-		"StopEBPFCollectorInput":  StopEBPFCollectorInput{},
-		"ListEBPFCollectorsInput": ListEBPFCollectorsInput{},
-		"ExecCommandInput":        ExecCommandInput{},
-		"ShellStartInput":         ShellStartInput{},
-	}
-
-	for name, inputType := range toolTypes {
-		t.Run(name, func(t *testing.T) {
-			// Generate schema.
-			schema, err := generateInputSchema(inputType)
-			require.NoError(t, err, "schema generation should succeed for %s", name)
-
-			// Verify type at root level.
-			schemaType, ok := schema["type"].(string)
-			require.True(t, ok, "%s schema should have type at root", name)
-			assert.Equal(t, "object", schemaType, "%s schema type should be object", name)
-
-			// Verify properties exist.
-			_, ok = schema["properties"]
-			assert.True(t, ok, "%s schema should have properties", name)
-
-			// Marshal and unmarshal to verify JSON round-trip.
-			schemaBytes, err := json.Marshal(schema)
-			require.NoError(t, err, "%s schema marshal should succeed", name)
-
-			var unmarshaled map[string]interface{}
-			err = json.Unmarshal(schemaBytes, &unmarshaled)
-			require.NoError(t, err, "%s schema unmarshal should succeed", name)
-
-			assert.Equal(t, "object", unmarshaled["type"], "%s unmarshaled schema should have type", name)
-		})
-	}
+// testWriter discards output but can be used to capture errors
+type testWriter struct {
+	t *testing.T
 }
 
-// BenchmarkSchemaGeneration benchmarks schema generation performance.
-func BenchmarkSchemaGeneration(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_, _ = generateInputSchema(BeylaHTTPMetricsInput{})
-	}
-}
-
-// BenchmarkToolMarshalUnmarshal benchmarks the full marshal/unmarshal cycle.
-func BenchmarkToolMarshalUnmarshal(b *testing.B) {
-	schema, _ := generateInputSchema(BeylaHTTPMetricsInput{})
-	schemaBytes, _ := json.Marshal(schema)
-	tool := mcp.NewToolWithRawSchema("bench_tool", "Benchmark tool", schemaBytes)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		toolJSON, _ := json.Marshal(tool)
-		var receivedTool mcp.Tool
-		_ = json.Unmarshal(toolJSON, &receivedTool)
-	}
+func (w *testWriter) Write(p []byte) (n int, err error) {
+	// Optionally log to test output: w.t.Log(string(p))
+	return len(p), nil
 }

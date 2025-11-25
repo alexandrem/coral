@@ -108,7 +108,7 @@ func createProvider(ctx context.Context, providerName string, modelID string, cf
 	case "google":
 		apiKey := cfg.APIKeys["google"]
 		if apiKey == "" {
-			return nil, fmt.Errorf("Google AI API key not configured (set GOOGLE_API_KEY)")
+			return nil, fmt.Errorf("Google AI API key not configured (set GOOGLE_API_KEY)") // nolint: staticcheck
 		}
 		if debug {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Google AI API key found (length: %d)\n", len(apiKey))
@@ -228,6 +228,12 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 
+	// Debug: Log the raw ListToolsResult to see what came from the server
+	if a.debug {
+		rawResultJSON, _ := json.Marshal(toolsResult)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Raw ListToolsResult from server: %s\n", string(rawResultJSON))
+	}
+
 	if a.debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Retrieved %d MCP tools\n", len(toolsResult.Tools))
 		for i, tool := range toolsResult.Tools {
@@ -237,9 +243,21 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 		// Debug: Inspect first tool's schema to verify it's correct.
 		if len(toolsResult.Tools) > 0 {
 			firstTool := toolsResult.Tools[0]
+
+			// Show the full tool as received
+			fullToolJSON, _ := json.Marshal(firstTool)
+			fmt.Fprintf(os.Stderr, "[DEBUG] First tool (full): %s\n", string(fullToolJSON))
+
+			// Show just the InputSchema struct field
 			schemaJSON, _ := json.Marshal(firstTool.InputSchema)
-			fmt.Fprintf(os.Stderr, "[DEBUG] First tool name: %s\n", firstTool.Name)
-			fmt.Fprintf(os.Stderr, "[DEBUG] First tool InputSchema: %s\n", string(schemaJSON))
+			fmt.Fprintf(os.Stderr, "[DEBUG] First tool InputSchema struct: %s\n", string(schemaJSON))
+
+			// Show RawInputSchema if set
+			if len(firstTool.RawInputSchema) > 0 {
+				fmt.Fprintf(os.Stderr, "[DEBUG] First tool RawInputSchema: %s\n", string(firstTool.RawInputSchema))
+			} else {
+				fmt.Fprintf(os.Stderr, "[DEBUG] First tool RawInputSchema: <empty>\n")
+			}
 		}
 	}
 
@@ -268,6 +286,12 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 
 	if a.debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Calling LLM with %d messages and %d tools\n", len(llmMessages), len(toolsResult.Tools))
+
+		// Debug: Show all tool schemas being sent to LLM
+		for i, tool := range toolsResult.Tools {
+			schemaJSON, _ := json.Marshal(tool.InputSchema)
+			fmt.Fprintf(os.Stderr, "[DEBUG] Tool %d (%s): %s\n", i, tool.Name, string(schemaJSON))
+		}
 	}
 
 	resp, err := a.provider.Generate(ctx, generateReq, streamCallback)

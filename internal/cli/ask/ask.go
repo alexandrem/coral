@@ -1,3 +1,12 @@
+// Package ask implements the "coral ask" CLI command for AI-powered application analysis.
+//
+// The ask command allows users to query their application's state using natural language.
+// An LLM agent runs locally and connects to the colony's MCP server to access observability
+// data including metrics, traces, logs, and other telemetry. The agent supports multi-turn
+// conversations, multiple AI providers (OpenAI, Google, Ollama), and both streaming and
+// JSON output modes.
+//
+// See RFD 030 for the complete design and implementation details.
 package ask
 
 import (
@@ -137,9 +146,11 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		conversationID = generateConversationID()
 	}
 
-	// Validate model compatibility with MCP tool calling.
-	if strings.HasPrefix(askCfg.DefaultModel, "grok:") || strings.HasPrefix(askCfg.DefaultModel, "xai:") {
-		return fmt.Errorf("grok models are not supported for 'coral ask': they don't support MCP tool calling due to grammar constraint limitations in openai-go library v1.8.2\n\nSupported providers:\n  - openai:gpt-4o, openai:gpt-4o-mini\n  - google:gemini-2.0-flash-exp\n  - ollama:llama3.2 (local, no API key needed)\n\nSee docs/CONFIG.md for configuration details")
+	// Validate model provider is implemented.
+	// Currently only Google is supported, other providers are planned.
+	providerName := strings.SplitN(askCfg.DefaultModel, ":", 2)[0]
+	if providerName != "google" {
+		return fmt.Errorf("provider %q is not yet implemented\n\nCurrently supported:\n  - google:gemini-2.0-flash-exp (fast, experimental)\n  - google:gemini-1.5-pro (high quality, stable)\n  - google:gemini-1.5-flash (balanced)\n\nPlanned providers:\n  - openai (gpt-4o, gpt-4o-mini)\n  - anthropic (claude-3-5-sonnet)\n  - ollama (local models)\n\nSee docs/PROVIDERS.md for implementation status", providerName)
 	}
 
 	// Execute query.

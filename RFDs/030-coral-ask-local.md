@@ -1,17 +1,17 @@
 ---
 rfd: "030"
-title: "Coral Ask - Local Genkit Integration"
+title: "Coral Ask - Local LLM Integration"
 state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
-dependencies: ["002", "004"]
-database_migrations: []
-areas: ["ai", "cli", "mcp"]
+dependencies: [ "002", "004" ]
+database_migrations: [ ]
+areas: [ "ai", "cli", "mcp" ]
 ---
 
-# RFD 030 - Coral Ask: Local Genkit Integration
+# RFD 030 - Coral Ask: Local LLM Integration
 
 **Status:** 🎉 Implemented
 
@@ -22,11 +22,17 @@ Status progression:
 
 ## Summary
 
-Implement `coral ask` CLI command using local Genkit-powered LLM agent that
-connects to Colony as an MCP client. The LLM runs on the developer's machine (or
-cloud via API keys), while Colony provides a stateless MCP server exposing data
-access tools. This design offloads LLM compute from Colony, enables flexible
-model choice, and maintains cost control at the developer level.
+Implement `coral ask` CLI command using local LLM agent that connects to Colony
+as an MCP client via buf Connect RPC. The LLM runs on the developer's machine
+using direct API integrations, while Colony provides a stateless MCP server
+exposing data access tools. This design offloads LLM compute from Colony,
+enables flexible model choice, and maintains cost control at the developer
+level.
+
+**Implementation Note:** Originally designed with Genkit (Firebase's AI
+framework), the final implementation uses direct LLM API clients for simplicity
+and better control. Currently, only Google AI (Gemini) is supported, with
+additional providers (OpenAI, Anthropic) planned for future iterations.
 
 ## Problem
 
@@ -59,24 +65,25 @@ model choice, and maintains cost control at the developer level.
 
 ## Solution
 
-Implement `coral ask` as a CLI command that spawns or connects to a local Genkit
-agent process. The agent loads the developer's chosen LLM model (local via
-Ollama or cloud via API keys) and connects to the current Colony as an MCP
-client. Colony provides MCP tools for data access (`coral_query_beyla_traces`,
-`coral_get_service_topology`, etc.), and the LLM performs reasoning on the
-developer's machine.
+Implement `coral ask` as a CLI command with an embedded LLM agent. The agent
+uses direct API clients for LLM providers (currently Google AI/Gemini) and
+connects to Colony's MCP server via buf Connect RPC. Colony provides MCP tools
+for data access (`coral_query_beyla_traces`, `coral_get_service_topology`,
+etc.), and the LLM performs reasoning on the developer's machine.
 
 **Key Design Decisions:**
 
-- **Local Genkit agent**: Runs on developer machine, not in Colony server
-    - Supports both local models (Ollama) and cloud APIs (OpenAI, Anthropic,
-      Google)
-    - Developer owns compute costs and chooses model quality/cost trade-offs
+- **Direct LLM API Integration**: Uses native API clients instead of Genkit
+  framework
+    - Currently supports Google AI (Gemini models)
+    - Simpler implementation with better control over API interactions
+    - Future: Add OpenAI and Anthropic providers
 
-- **Colony MCP client**: Agent connects to Colony's MCP server (already
-  implemented via `coral proxy`)
-    - Colony is stateless gateway providing data access tools
-    - No LLM inference in Colony (keeps it lightweight)
+- **Colony RPC Connection**: Agent connects to Colony via buf Connect RPC, not
+  stdio
+    - Colony MCP server serves tool definitions and handles tool execution
+    - Tool schemas marshaled via protobuf for efficient transport
+    - Colony remains stateless gateway for data access
 
 - **Flexible deployment**: Agent can run as:
     - Ephemeral process (spawned per `coral ask` invocation)
@@ -107,25 +114,27 @@ developer's machine.
 Developer Machine                      Colony (Control Plane)
 ┌────────────────────────────┐        ┌───────────────────────────────┐
 │ coral ask "why slow?"      │        │                               │
-│          ↓                 │        │  MCP Server                   │
+│          ↓                 │        │  Colony gRPC Server           │
 │ ┌────────────────────────┐ │        │  ┌───────────────────────────┐│
-│ │ Genkit Agent           │ │        │  │ Tools:                    ││
-│ │                        │ │  MCP   │  │ - coral_get_service_health││
-│ │ LLM (local/cloud):     │◄┼────────┼─►│ - coral_get_service_topol.││
-│ │ - GPT-4 (OpenAI API)   │ │ tools  │  │ - coral_query_beyla_*     ││
-│ │ - Claude (Anthropic)   │ │        │  │ - coral_query_telemetry_* ││
-│ │ - Llama (Ollama local) │ │        │  │ - coral_start_ebpf_coll.  ││
-│ │                        │ │        │  │ - coral_exec_command      ││
-│ │ Context:               │ │        │  └───────────────────────────┘│
-│ │ - Conversation history │ │        │                               │
-│ │ - Colony MCP tools     │ │        │  WireGuard Mesh               │
-│ └────────────────────────┘ │        │  (via coral proxy)            │
+│ │ Ask Agent (Embedded)   │ │        │  │ MCP Tools (RPC):          ││
+│ │                        │ │  buf   │  │ - ListTools()             ││
+│ │ LLM Provider:          │◄┼────────┼─►│ - CallTool()              ││
+│ │ - Gemini (Google AI)   │ │Connect │  │                           ││
+│ │   [Currently supported]│ │  RPC   │  │ Available Tools:          ││
+│ │                        │ │        │  │ - coral_get_service_health││
+│ │ Future:                │ │        │  │ - coral_query_beyla_*     ││
+│ │ - GPT-4 (OpenAI)       │ │        │  │ - coral_query_telemetry_* ││
+│ │ - Claude (Anthropic)   │ │        │  │ - coral_exec_command      ││
+│ │                        │ │        │  └───────────────────────────┘│
+│ │ Context:               │ │        │                               │
+│ │ - Conversation history │ │        │  MCP Server (Internal)        │
+│ │ - Tool schemas (RPC)   │ │        │  - Generates JSON schemas     │
+│ └────────────────────────┘ │        │  - Serves via protobuf        │
 │                            │        │                               │
-│ Config (local):            │        └───────────────────────────────┘
-│ ~/.coral/config.yaml       │
-│   ai.ask:                  │
+│ Config: ~/.coral/config    │        │  WireGuard Mesh               │
+│   ai.ask:                  │        └───────────────────────────────┘
 │   - API keys (env refs)    │
-│   - Model preferences      │
+│   - Model: gemini-1.5-flash│
 └────────────────────────────┘
 ```
 
@@ -133,27 +142,37 @@ Developer Machine                      Colony (Control Plane)
 
 1. **CLI (`internal/cli/ask`)** (new package):
     - Implement `coral ask <question>` command
-    - Spawn or connect to Genkit agent process
-    - Stream LLM responses to terminal (progressive output)
+    - Create embedded agent with LLM provider
+    - Stream LLM responses to terminal
     - Handle conversation context (multi-turn via `--continue` flag)
+    - Persist conversations to `~/.coral/conversations/`
 
-2. **Genkit Agent** (`internal/agent/genkit`)** (new package):
+2. **Ask Agent** (`internal/agent/ask`)** (new package):
     - Load configuration (model selection, API keys from env)
-    - Initialize Genkit runtime with configured providers
-    - Connect to Colony MCP server (via WireGuard mesh, discovered via context)
-    - Execute LLM reasoning with MCP tool calls
+    - Connect to Colony via buf Connect RPC client
+    - Fetch tool definitions from Colony's MCP server
+    - Execute LLM reasoning with tool calls
     - Manage conversation context and token budgets
 
-3. **Configuration** (`~/.coral/config.yaml` - local to developer machine):
+3. **LLM Provider** (`internal/agent/llm`)** (new package):
+    - Provider abstraction for multi-LLM support
+    - Google AI provider (Gemini models) - **currently supported**
+    - Convert MCP tool schemas to provider-specific formats
+    - Handle streaming and non-streaming responses
+    - Future: OpenAI and Anthropic providers
+
+4. **Configuration** (`~/.coral/config.yaml` - local to developer machine):
     - Extends existing `ai` section with new `ask` subsection
     - Config path: `ai.ask` in global config
-    - Support for multiple providers with fallbacks
+    - Currently: Single provider (Google AI)
+    - Future: Multiple providers with fallbacks
     - Optional per-colony overrides in `colonies.<colony-id>.ask`
 
-4. **MCP Integration** (uses existing `coral proxy` implementation):
-    - Colony already exposes MCP server (RFD 004)
-    - Agent connects as MCP client
-    - No changes needed to Colony MCP server
+5. **MCP Integration** (uses existing Colony MCP server):
+    - Colony exposes MCP tools via buf Connect RPC
+    - Agent calls `ListTools()` RPC to get tool definitions
+    - Agent calls `CallTool()` RPC to execute tools
+    - Schemas marshaled via protobuf (fixed to preserve array `items` field)
 
 **Configuration Example:**
 
@@ -163,45 +182,50 @@ version: "1"
 default_colony: "my-app-prod"
 
 discovery:
-  endpoint: "http://localhost:8080"
+    endpoint: "http://localhost:8080"
 
 # AI configuration (extends existing ai section)
 ai:
-  provider: "anthropic"  # Existing field
-  api_key_source: "env"  # Existing field
+    provider: "google"        # For coral ask (currently only Google AI supported)
+    api_key_source: "env"     # API keys from environment variables
 
-  # NEW: coral ask LLM configuration
-  ask:
-    # Default model (Genkit provider format)
-    default_model: "openai:gpt-4o-mini"
+    # coral ask LLM configuration
+    ask:
+        # Default model (currently only Google AI models supported)
+        default_model: "gemini-1.5-flash"   # Fast, cost-effective
+        # Alternative: "gemini-1.5-pro" for more complex analysis
 
-    # Fallback models (tried in order if primary fails)
-    fallback_models:
-      - "anthropic:claude-3-5-sonnet-20241022"
-      - "ollama:llama3.2"
+        # API key reference (NEVER plain text)
+        google_api_key: "env://GOOGLE_API_KEY"
 
-    # API keys (reference environment variables - NEVER plain text)
-    api_keys:
-      openai: "env://OPENAI_API_KEY"
-      anthropic: "env://ANTHROPIC_API_KEY"
-
-    # Conversation settings
-    conversation:
-      max_turns: 10             # Conversation history limit
-      context_window: 8192      # Max tokens for context
-      auto_prune: true          # Prune old messages when limit reached
-
-    # Agent deployment mode
-    agent:
-      mode: "embedded"          # "daemon" | "ephemeral" | "embedded"
-      daemon_socket: "~/.coral/ask-agent.sock"
-      idle_timeout: "10m"       # Shutdown daemon after inactivity
+        # Conversation settings
+        conversation:
+            max_turns: 10             # Conversation history limit
+            context_window: 8192      # Max tokens for context
+            auto_prune: true          # Prune old messages when limit reached
 
 # Per-colony overrides (optional)
 colonies:
-  my-app-production-xyz:
+    my-app-production-xyz:
+        ask:
+            default_model: "gemini-1.5-pro"  # Use more capable model for production
+```
+
+**Future Configuration (when multi-provider support is added):**
+
+```yaml
+ai:
     ask:
-      default_model: "anthropic:claude-3-5-sonnet-20241022"  # Use better model for prod
+        # Multiple providers with fallbacks
+        default_model: "openai:gpt-4o-mini"
+        fallback_models:
+            - "google:gemini-1.5-flash"
+            - "anthropic:claude-3-5-sonnet"
+
+        api_keys:
+            openai: "env://OPENAI_API_KEY"
+            google: "env://GOOGLE_API_KEY"
+            anthropic: "env://ANTHROPIC_API_KEY"
 ```
 
 ## Implementation Plan
@@ -215,9 +239,12 @@ colonies:
 ### Phase 2: Core Agent Implementation
 
 - [x] Implement provider abstraction for multi-provider support
-- [x] Implement LLM API clients using Genkit (OpenAI, Google AI, Ollama)
-- [x] Add MCP client implementation (connect to Colony via stdio proxy)
+- [x] Implement Google AI (Gemini) provider with direct API client
+- [x] Add Colony RPC client (buf Connect) for MCP tool access
 - [x] Implement conversation context management (history, pruning)
+- [x] Fix schema generation: Use consistent `generateInputSchema()` for RPC and
+  MCP paths
+- [x] Fix array schema conversion: Add `items` field support for Google AI API
 
 ### Phase 3: CLI Integration
 
@@ -231,7 +258,8 @@ colonies:
 
 - [x] Unit tests: All existing tests pass
 - [ ] Integration tests: Genkit agent ↔ Colony MCP (deferred to future work)
-- [ ] E2E tests: `coral ask` against seeded Colony data (deferred to future work)
+- [ ] E2E tests: `coral ask` against seeded Colony data (deferred to future
+  work)
 - [x] Documentation: RFD updated with implementation status
 
 ## API Changes
@@ -288,7 +316,8 @@ coral ask "list unhealthy services" --json
 
 ### Configuration Changes
 
-New `ai.ask` subsection in `~/.coral/config.yaml` (extends existing `ai` section):
+New `ai.ask` subsection in `~/.coral/config.yaml` (extends existing `ai`
+section):
 
 - `ai.ask.default_model`: Primary model to use (Genkit provider format)
 - `ai.ask.fallback_models`: Array of fallback models
@@ -298,29 +327,52 @@ New `ai.ask` subsection in `~/.coral/config.yaml` (extends existing `ai` section
 - `colonies.<colony-id>.ask`: Optional per-colony overrides for model selection
 
 **Rationale for global config:**
+
 - LLM runs on developer's machine (not in Colony)
-- Extends existing `ai` section (already contains `provider` and `api_key_source`)
+- Extends existing `ai` section (already contains `provider` and
+  `api_key_source`)
 - Developer's personal preferences (model choice, API keys)
 - Consistent with Coral's configuration hierarchy for user-level settings
 
 **Configuration hierarchy (follows standard Coral precedence):**
+
 1. **Environment variables** (highest priority) - e.g., `CORAL_ASK_MODEL`
-2. **Project config** - `<project>/.coral/config.yaml` (if project-specific overrides needed)
-3. **Colony overrides** - `colonies.<colony-id>.ask` (for colony-specific model selection)
+2. **Project config** - `<project>/.coral/config.yaml` (if project-specific
+   overrides needed)
+3. **Colony overrides** - `colonies.<colony-id>.ask` (for colony-specific model
+   selection)
 4. **Global defaults** - `ai.ask` section (developer's default preferences)
 5. **CLI flags** - e.g., `--model` (runtime overrides)
 6. **Built-in defaults** (lowest priority)
 
-### Genkit Provider Format
+### Supported LLM Providers
 
-Models specified as `<provider>:<model-id>`:
+**Currently Supported:**
 
-- **OpenAI** (Recommended): `openai:gpt-4o`, `openai:gpt-4o-mini`
-- **Grok** (xAI): `grok:grok-2-1212`, `grok:grok-2-vision-1212`, `grok:grok-beta`
-- **Google**: `google:gemini-1.5-pro`, `google:gemini-1.5-flash`
-- **Ollama** (Local): `ollama:llama3.2`, `ollama:mistral`
+- **Google AI (Gemini)**: `gemini-1.5-flash`, `gemini-1.5-pro`,
+  `gemini-2.0-flash-exp`
+    - Fastest implementation: Direct API integration via
+      `google.golang.org/genai`
+    - Full tool calling support with proper schema conversion
+    - Best for: Quick queries (flash), complex analysis (pro)
 
-> **Note:** Anthropic (Claude) models are not currently supported due to tool calling limitations in Genkit's OpenAI-compatible wrapper. While Claude natively supports tool use, the current Genkit integration doesn't expose this functionality for MCP tools.
+**Planned (Future Implementation):**
+
+- **OpenAI**: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
+    - Provider abstraction ready, needs API client implementation
+    - Full tool calling support expected
+
+- **Anthropic (Claude)**: `claude-3-5-sonnet`, `claude-3-5-haiku`
+    - Provider abstraction ready, needs API client implementation
+    - Full tool calling support expected
+
+- **Ollama (Local)**: `llama3.2`, `mistral`, `codellama`
+    - For air-gapped/offline environments
+    - Requires local Ollama installation
+
+> **Implementation Note:** Originally planned with Genkit framework, we switched
+> to direct API clients for better control and simpler implementation. Genkit
+> dependency only remains in debug tools (`cmd/debug-schema`).
 
 ## Testing Strategy
 
@@ -379,14 +431,14 @@ coral ask "status"
 ```yaml
 # ~/.coral/config.yaml
 ai:
-  ask:
-    # GOOD: Environment variable reference
-    api_keys:
-      openai: "env://OPENAI_API_KEY"
+    ask:
+        # GOOD: Environment variable reference
+        api_keys:
+            openai: "env://OPENAI_API_KEY"
 
-    # BAD: Plain text (rejected by config validator)
-    api_keys:
-      openai: "sk-proj-abc123..."  # ERROR: Plain text API keys not allowed
+        # BAD: Plain text (rejected by config validator)
+        api_keys:
+            openai: "sk-proj-abc123..."  # ERROR: Plain text API keys not allowed
 ```
 
 ### Data Privacy
@@ -440,7 +492,8 @@ Continue? [y/N]
    `coral proxy`)
 2. Release CLI with `coral ask` command
 3. Users configure API keys in `~/.coral/config.yaml` under `ai.ask` section
-4. First run prompts for model selection and API key setup (creates/updates `ai.ask` config)
+4. First run prompts for model selection and API key setup (creates/updates
+   `ai.ask` config)
 
 **No breaking changes:**
 
@@ -505,7 +558,8 @@ Developer API key ownership provides natural cost boundary for v1.
 **Recommendation:** Default to **embedded mode** for initial implementation.
 Cloud API latency dominates model loading time, so daemon overhead is not
 justified for v1. Daemon mode can be added later for local models (Ollama) where
-model loading is expensive. Embedded mode simplifies implementation significantly
+model loading is expensive. Embedded mode simplifies implementation
+significantly
 (no socket management, no daemon lifecycle).
 
 ### Genkit Go Integration
@@ -515,10 +569,10 @@ model loading is expensive. Embedded mode simplifies implementation significantl
 ```go
 // go.mod
 require (
-    github.com/firebase/genkit/go v0.x.x
-    github.com/firebase/genkit/go/plugins/openai v0.x.x
-    github.com/firebase/genkit/go/plugins/anthropic v0.x.x
-    github.com/firebase/genkit/go/plugins/ollama v0.x.x
+github.com/firebase/genkit/go v0.x.x
+github.com/firebase/genkit/go /plugins/openai v0.x.x
+github.com/firebase/genkit/go /plugins/anthropic v0.x.x
+github.com/firebase/genkit/go /plugins/ollama v0.x.x
 )
 ```
 
@@ -527,8 +581,8 @@ require (
 ```go
 // Simplified - actual implementation in internal/agent/genkit
 import (
-    "github.com/firebase/genkit/go/genkit"
-    "github.com/firebase/genkit/go/plugins/googlegenai"  // or openai, ollama
+"github.com/firebase/genkit/go/genkit"
+"github.com/firebase/genkit/go/plugins/googlegenai" // or openai, ollama
 )
 
 // Initialize Genkit runtime
@@ -536,16 +590,16 @@ ctx := context.Background()
 g := genkit.Init(ctx)
 
 // Initialize provider plugin (API key from env)
-googlegenai.Init(ctx, g, nil)  // Uses GOOGLE_API_KEY env var
+googlegenai.Init(ctx, g, nil) // Uses GOOGLE_API_KEY env var
 
 // Get model reference
 model := googlegenai.Model(g, "gemini-1.5-flash")
 
 // Generate response with Colony MCP tools
 resp, err := genkit.Generate(ctx, g, genkit.GenerateRequest{
-    Model:   model,
-    Prompt:  "Why is checkout slow?",
-    Tools:   colonyMCPTools,  // Tools from Colony MCP server
+Model:   model,
+Prompt:  "Why is checkout slow?",
+Tools:   colonyMCPTools, // Tools from Colony MCP server
 })
 ```
 
@@ -598,34 +652,34 @@ Tools exposed by Colony MCP server (consumed by Genkit agent). All tools use the
 
 ```json
 {
-  "coral_query_beyla_http_metrics": {
-    "service": "string (required)",
-    "time_range": "string (e.g., '1h', '30m'), default: '1h'",
-    "http_route": "optional string (e.g., '/api/v1/users/:id')",
-    "http_method": "optional enum: GET|POST|PUT|DELETE|PATCH",
-    "status_code_range": "optional enum: 2xx|3xx|4xx|5xx"
-  },
-  "coral_query_beyla_traces": {
-    "trace_id": "optional string (32-char hex)",
-    "service": "optional string",
-    "time_range": "string, default: '1h'",
-    "min_duration_ms": "optional int",
-    "max_traces": "optional int, default: 10"
-  },
-  "coral_start_ebpf_collector": {
-    "collector_type": "enum: cpu_profile|syscall_stats|http_latency|tcp_metrics",
-    "service": "string (required)",
-    "agent_id": "optional string (for disambiguation)",
-    "duration_seconds": "optional int, default: 30, max: 300",
-    "config": "optional object (collector-specific settings)"
-  },
-  "coral_exec_command": {
-    "service": "string (required)",
-    "agent_id": "optional string (recommended for multi-agent scenarios)",
-    "command": "array of strings (e.g., ['ls', '-la', '/app'])",
-    "timeout_seconds": "optional int, default: 30",
-    "working_dir": "optional string"
-  }
+    "coral_query_beyla_http_metrics": {
+        "service": "string (required)",
+        "time_range": "string (e.g., '1h', '30m'), default: '1h'",
+        "http_route": "optional string (e.g., '/api/v1/users/:id')",
+        "http_method": "optional enum: GET|POST|PUT|DELETE|PATCH",
+        "status_code_range": "optional enum: 2xx|3xx|4xx|5xx"
+    },
+    "coral_query_beyla_traces": {
+        "trace_id": "optional string (32-char hex)",
+        "service": "optional string",
+        "time_range": "string, default: '1h'",
+        "min_duration_ms": "optional int",
+        "max_traces": "optional int, default: 10"
+    },
+    "coral_start_ebpf_collector": {
+        "collector_type": "enum: cpu_profile|syscall_stats|http_latency|tcp_metrics",
+        "service": "string (required)",
+        "agent_id": "optional string (for disambiguation)",
+        "duration_seconds": "optional int, default: 30, max: 300",
+        "config": "optional object (collector-specific settings)"
+    },
+    "coral_exec_command": {
+        "service": "string (required)",
+        "agent_id": "optional string (recommended for multi-agent scenarios)",
+        "command": "array of strings (e.g., ['ls', '-la', '/app'])",
+        "timeout_seconds": "optional int, default: 30",
+        "working_dir": "optional string"
+    }
 }
 ```
 
@@ -635,32 +689,44 @@ Tools exposed by Colony MCP server (consumed by Genkit agent). All tools use the
 
 **Core Capability:** ✅ Fully Implemented
 
-The `coral ask` command is fully functional with MCP tool integration. The command connects to a running Colony's MCP server and enables LLMs to access observability data, metrics, traces, and logs through tool calling.
+The `coral ask` command is fully functional with MCP tool integration via buf
+Connect RPC. The command connects to a running Colony's MCP server and enables
+LLMs to access observability data, metrics, traces, and logs through tool
+calling.
 
 **What Works Now:**
 
-- ✅ CLI command: `coral ask <question>` with all flags (`--model`, `--continue`, `--json`, `--stream`)
-- ✅ Configuration: `ai.ask` section in `~/.coral/config.yaml` with per-colony overrides
+- ✅ CLI command: `coral ask <question>` with all flags (`--model`, `--continue`,
+  `--json`, `--stream`)
+- ✅ Configuration: `ai.ask` section in `~/.coral/config.yaml` with per-colony
+  overrides
 - ✅ Config resolution: Full hierarchy (env vars → colony → global → defaults)
-- ✅ Genkit LLM integration: OpenAI (via compat_oai), Google AI, Ollama
-- ✅ MCP client: Connects to Colony MCP server via stdio proxy
-- ✅ Tool calling: LLM can access all Colony MCP tools (coral_get_service_health, coral_query_beyla_traces, etc.)
-- ✅ Conversation management: Full multi-turn conversations with context tracking and auto-pruning
-- ✅ Conversation persistence: `--continue` flag loads previous conversation for follow-up questions
+- ✅ Google AI (Gemini) integration: Direct API client with full tool calling
+  support
+- ✅ Colony RPC client: Connects to Colony MCP server via buf Connect RPC
+- ✅ Tool calling: LLM can access all Colony MCP tools (coral_get_service_health,
+  coral_query_beyla_traces, etc.)
+- ✅ Conversation management: Full multi-turn conversations with context tracking
+  and auto-pruning
+- ✅ Conversation persistence: `--continue` flag loads previous conversation for
+  follow-up questions
 - ✅ JSON output: `--json` flag for structured output
 - ✅ Build verification: Compiles successfully, all tests pass
+- ✅ Schema fixes: Consistent schema generation across RPC and MCP paths
+- ✅ Array schema support: Proper `items` field conversion for Google AI API
 
 **Example Usage:**
+
 ```bash
 # 1. Configure API key and model in ~/.coral/config.yaml
 # ai:
+#   provider: "google"
 #   ask:
-#     default_model: "openai:gpt-4o-mini"
-#     api_keys:
-#       openai: "env://OPENAI_API_KEY"
+#     default_model: "gemini-1.5-flash"
+#     google_api_key: "env://GOOGLE_API_KEY"
 
 # 2. Set API key in environment
-export OPENAI_API_KEY=sk-...
+export GOOGLE_API_KEY=your-api-key-here
 
 # 3. Start colony (required for MCP tools)
 coral colony start
@@ -668,7 +734,7 @@ coral colony start
 # 4. Ask questions about your application
 coral ask "what services are currently running?"
 coral ask "show me HTTP latency for the API service"
-coral ask "why is checkout slow?" --model anthropic:claude-3-5-sonnet-20241022
+coral ask "why is checkout slow?" --model gemini-1.5-pro
 
 # 5. Multi-turn conversations
 coral ask "what's the p95 latency?"
@@ -676,15 +742,94 @@ coral ask "show me the slowest endpoints" --continue
 ```
 
 **Files Implemented:**
-- `internal/config/schema.go` - AskConfig structs (updated)
-- `internal/config/ask_resolver.go` - Config resolution logic
-- `internal/cli/ask/ask.go` - CLI command with conversation persistence and output formatting
-- `internal/agent/genkit/agent.go` - Genkit agent with MCP client integration
-- `internal/agent/genkit/conversation.go` - Multi-turn conversation management
+
+- `internal/config/schema.go` - AskConfig structs
+- `internal/config/ask_resolver.go` - Config resolution logic with hierarchy
+  support
+- `internal/cli/ask/ask.go` - CLI command with conversation persistence and
+  output formatting
+- `internal/agent/ask/agent.go` - Ask agent with Colony RPC client integration
+- `internal/agent/ask/conversation.go` - Multi-turn conversation management
+- `internal/agent/llm/provider.go` - LLM provider abstraction
+- `internal/agent/llm/google.go` - Google AI (Gemini) provider implementation
+- `internal/colony/mcp/server.go` - MCP server with schema generation fixes
+- `internal/colony/mcp/tools_observability.go` - Tool registration with
+  consistent schema generation
+
+## Key Implementation Challenges & Fixes
+
+During implementation, we encountered and resolved several critical issues:
+
+### 1. Schema Generation Inconsistency (RPC vs MCP Paths)
+
+**Problem:** Tool schemas were generated differently for RPC API vs MCP stdio
+paths, causing empty schemas to be sent to clients.
+
+- RPC path (`getToolSchemas()`): Used default `jsonschema.Reflector{}` with
+  `$schema` and `$id` fields
+- MCP path (`generateInputSchema()`): Used `DoNotReference: true` and removed
+  `$schema`/`$id`
+
+**Fix:** Unified both paths to use `generateInputSchema()`, ensuring consistent
+schema generation across all transports.
+
+**Files:** `internal/colony/mcp/server.go:214-265`
+
+### 2. Array Schema Conversion for Google AI
+
+**Problem:** Google AI API rejected tool schemas with array parameters,
+reporting:
+
+```
+properties[command].items: missing field
+```
+
+The `convertJSONSchemaToGemini()` function wasn't converting the `items` field
+for array types, which Google AI requires.
+
+**Fix:** Added `items` field support in schema converter:
+
+```go
+// Items (for arrays). Google AI requires this field for array types.
+if items, ok := jsonSchema["items"].(map[string]interface{}); ok {
+schema.Items = convertJSONSchemaToGemini(items)
+}
+```
+
+**Files:** `internal/agent/llm/google.go:251-255`
+
+**Tests:** `internal/agent/llm/google_test.go` - Added comprehensive tests for
+array schema conversion
+
+### 3. MCP Client Initialization
+
+**Problem:** MCP client wasn't being initialized before use, causing "client not
+initialized" errors.
+
+**Fix:** Added explicit `Initialize()` call with protocol handshake after client
+creation.
+
+**Files:** `internal/agent/ask/agent.go:138-162`
 
 ## Future Enhancements
 
-The core `coral ask` functionality is complete. The following features are deferred to future work:
+The core `coral ask` functionality is complete. The following features are
+deferred to future work:
+
+### Multi-Provider Support (High Priority)
+
+**Current:** Only Google AI (Gemini) is supported
+**Planned:** Add OpenAI and Anthropic providers with fallback support
+
+- Implement OpenAI provider (`internal/agent/llm/openai.go`)
+- Implement Anthropic provider (`internal/agent/llm/anthropic.go`)
+- Add provider fallback logic (try primary, fall back on errors)
+- Update configuration schema to support multiple API keys
+- Add Ollama provider for local/offline use
+
+**Rationale:** Different models excel at different tasks. GPT-4o is strong for
+complex reasoning, Claude for code analysis, and Gemini for cost-effectiveness.
+Provider fallbacks improve reliability.
 
 ### Enhanced UX (Future RFD)
 
@@ -703,6 +848,7 @@ The core `coral ask` functionality is complete. The following features are defer
 ### Production Features (Future RFD - Cost Controls)
 
 **Cost Controls:**
+
 - Token usage tracking per query and per day
 - Daily/monthly spend limits with configurable thresholds
 - Budget warnings and blocking thresholds
@@ -710,12 +856,14 @@ The core `coral ask` functionality is complete. The following features are defer
 - Usage reporting CLI commands
 
 **Advanced Agent Features:**
+
 - Model fallback implementation (try primary, fall back to secondary on errors)
 - Response caching with short TTL (1-5min) for repeated questions
 - Daemon mode for local models (Ollama) to amortize model loading
 - Multi-agent conversations with shared context
 
 **Monitoring & Observability:**
+
 - Query logging and audit trail (who asked what, when)
 - Performance metrics (latency, token usage, tool calls)
 - Error rate tracking and alerting
