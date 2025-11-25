@@ -19,39 +19,48 @@ that enables unified observability and control across fragmented environments.
 - **Orchestration substrate** - Debug commands work the same everywhere
 - **Application-scoped** - One mesh per app, not infrastructure-wide
 
-## Three-tier design with separated LLM
+## System Architecture
 
 ```
-Developer Workstation               Enterprise (Optional)
-┌────────────────────┐             ┌──────────────────────┐
-│  coral ask         │             │   Reef               │
-│  (Local Genkit)    │             │   Multi-colony       │
-│                    │             │   Server-side LLM    │
-│  Uses your own     │             │   ClickHouse         │
-│  LLM API keys      │             │   (Aggregated data)  │
-│  (OpenAI/Anthropic │             └──────────┬───────────┘
-│   /Ollama)         │                        │
-│                    │                        │ Federation
-└─────────┬──────────┘                        │ (WireGuard)
-          │ MCP Client                        │
-          ▼                                   ▼
-         ┌─────────────────────┐    ┌─────────────────────┐
-         │   Colony            │◄───┤   Colony            │
-         │   MCP Gateway       │    │   MCP Gateway       │
-         │   Aggregates data   │    │   (Production)      │
-         │   DuckDB/ClickHouse │    │   ClickHouse        │
-         └──┬────────┬─────────┘    └─────────────────────┘
-            │        │
-    ┌───────▼──┐  ┌──▼───────┐
-    │ Agent    │  │ Agent    │      ← Local observers
-    │ Frontend │  │ API      │        Watch processes, connections
-    └────┬─────┘  └─────┬────┘        Coordinate control actions
-         │              │              Embedded DuckDB
-    ┌────▼─────┐   ┌────▼─────┐
-    │ Your     │   │ Your     │      ← Your services
-    │ Frontend │   │ API      │        Run normally
-    │ + SDK    │   │ + SDK    │        (SDK optional)
-    └──────────┘   └──────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  External AI Assistants / coral ask                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │ Claude       │  │ VS Code /    │  │ coral ask    │           │
+│  │ Desktop      │  │ Cursor       │  │ (terminal)   │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+│         │ Anthropic       │ OpenAI          │ Ollama            │
+│         └─────────────────┴─────────────────┘                   │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ MCP Protocol (stdio)
+                          │ Natural language queries
+                          ▼
+                 ┌────────────────────┐
+                 │  MCP Proxy         │
+                 │  (Protocol Bridge) │
+                 └─────────┬──────────┘
+                           │ gRPC
+                           ▼
+                 ┌────────────────────┐
+                 │  Colony Server     │
+                 │  • MCP Server      │
+                 │  • Tool Registry   │
+                 │  • DuckDB          │
+                 └─────────┬──────────┘
+                           │ Mesh Network
+                           ▼
+      ┌────────────────────┴────────────────────┐
+      │                                         │
+      ▼                                         ▼
+┌───────────┐                             ┌───────────┐
+│  Agent    │                             │  Agent    │
+│  • eBPF   │        ...more agents...    │  • eBPF   │
+│  • OTLP   │                             │  • OTLP   │
+└─────┬─────┘                             └─────┬─────┘
+      │                                         │
+┌─────▼─────┐                             ┌─────▼─────┐
+│ Service A │                             │ Service B │
+│ (+ SDK)   │                             │ (No SDK)  │
+└───────────┘                             └───────────┘
 ```
 
 **Key principles:**
@@ -68,50 +77,3 @@ Developer Workstation               Enterprise (Optional)
 - **Control plane only** - Agents never proxy/intercept application traffic
 - **Application-scoped** - One mesh per app (not infrastructure-wide)
 - **SDK optional** - Basic observability works without code changes
-
-## Multi-Colony Federation (Reef)
-
-**Optional centralized layer for enterprises.**
-
-For enterprises managing multiple environments (dev, staging, prod) or multiple
-applications, Coral offers **Reef** - a federation layer that aggregates data
-across colonies.
-
-**Note:** Reef is the **only centralized component** in Coral, and it's
-**optional**. Most users run Coral fully decentralized (just Colony + Agents).
-Reef is for enterprises that need cross-colony analysis and want to provide a
-centralized LLM for their organization.
-
-### Architecture
-
-```
-Developer/External          Reef (Enterprise)           Colonies
-┌──────────────┐          ┌────────────────┐        ┌──────────────┐
-│ coral reef   │──HTTPS──▶│  Reef Server   │◄──────▶│ my-app-prod  │
-│ CLI          │          │                │ Mesh   │              │
-│              │          │ Server-side    │        └──────────────┘
-└──────────────┘          │ LLM (Genkit)   │        ┌──────────────┐
-                          │                │◄──────▶│ my-app-dev   │
-┌──────────────┐          │ ClickHouse     │ Mesh   │              │
-│ Slack Bot    │──HTTPS──▶│                │        └──────────────┘
-└──────────────┘          │ Public HTTPS + │        ┌──────────────┐
-                          │ Private Mesh   │◄──────▶│ other-app    │
-┌──────────────┐          │                │ Mesh   │              │
-│ GitHub       │──HTTPS──▶└────────────────┘        └──────────────┘
-│ Actions      │
-└──────────────┘
-```
-
-### Key Features
-
-- **Dual Interface**: Private WireGuard mesh (colonies) + public HTTPS (
-  external integrations)
-- **Aggregated Analytics**: Query across all colonies for cross-environment
-  analysis
-- **Server-side LLM**: Reef hosts its own Genkit service with org-wide LLM
-  configuration
-- **ClickHouse Storage**: Scalable time-series database for federated metrics
-- **External Integrations**: Slack bots, GitHub Actions, mobile apps via public
-  API/MCP
-- **Authentication**: API tokens, JWT, and mTLS for secure access
-- **RBAC**: Role-based permissions for different operations
