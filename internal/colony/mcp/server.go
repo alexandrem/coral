@@ -8,19 +8,16 @@ import (
 	"io"
 	"time"
 
-	"github.com/firebase/genkit/go/genkit"
-	"github.com/firebase/genkit/go/plugins/mcp"
-	"github.com/invopop/jsonschema"
+	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/logging"
 )
 
-// Server wraps the Genkit MCP server and provides Colony-specific tools.
+// Server wraps the MCP server and provides Colony-specific tools.
 type Server struct {
-	genkit    *genkit.Genkit
-	mcpServer *mcp.GenkitMCPServer
+	mcpServer *server.MCPServer
 	registry  *registry.Registry
 	db        *database.Database
 	config    Config
@@ -62,13 +59,16 @@ func New(registry *registry.Registry, db *database.Database, config Config, logg
 		Bool("audit_enabled", config.AuditEnabled).
 		Msg("Initializing MCP server")
 
-	// Create Genkit instance.
-	ctx := context.Background()
-	g := genkit.Init(ctx)
+	// Create MCP server with tool capabilities.
+	mcpServer := server.NewMCPServer(
+		fmt.Sprintf("coral-%s", config.ColonyID),
+		"1.0.0",
+		server.WithToolCapabilities(true),
+	)
 
-	// Create Server instance first so we can register tools.
+	// Create Server instance.
 	s := &Server{
-		genkit:    g,
+		mcpServer: mcpServer,
 		registry:  registry,
 		db:        db,
 		config:    config,
@@ -76,18 +76,10 @@ func New(registry *registry.Registry, db *database.Database, config Config, logg
 		startedAt: time.Now(),
 	}
 
-	// Register all tools with Genkit.
+	// Register all tools with the MCP server.
 	if err := s.registerTools(); err != nil {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
-
-	// Create Genkit MCP server (exposes registered tools).
-	mcpServer := mcp.NewMCPServer(g, mcp.MCPServerOptions{
-		Name:    fmt.Sprintf("coral-%s", config.ColonyID),
-		Version: "1.0.0",
-	})
-
-	s.mcpServer = mcpServer
 
 	logger.Info().
 		Int("tool_count", len(s.listToolNames())).
@@ -101,8 +93,9 @@ func New(registry *registry.Registry, db *database.Database, config Config, logg
 func (s *Server) ServeStdio(ctx context.Context) error {
 	s.logger.Info().Msg("Starting MCP server on stdio")
 
-	// Use Genkit's stdio transport.
-	return s.mcpServer.ServeStdio()
+	// Use mark3labs/mcp-go stdio transport.
+	// Note: ServeStdio creates its own context and handles signals internally.
+	return server.ServeStdio(s.mcpServer)
 }
 
 // Close stops the MCP server and releases resources.
@@ -183,10 +176,9 @@ type ToolMetadata struct {
 // GetToolMetadata returns metadata for all registered tools including their input schemas.
 // This is used by the Colony server's ListTools RPC to populate tool information.
 func (s *Server) GetToolMetadata() ([]ToolMetadata, error) {
-	// Get tool names and descriptions.
-	// Note: Full schema extraction from Genkit tools requires accessing the internal
-	// tool registry, which is not currently exposed by the genkit/mcp library.
-	// We generate schemas manually from our typed input structs using jsonschema reflection.
+	// Get tool names, descriptions, and schemas.
+	// Schemas are generated from typed input structs using jsonschema reflection.
+	// This provides type-safe tool definitions that are consistent across MCP and RPC APIs.
 	toolDescriptions := s.getToolDescriptions()
 	toolSchemas := s.getToolSchemas()
 
@@ -215,12 +207,13 @@ func (s *Server) GetToolMetadata() ([]ToolMetadata, error) {
 
 // getToolSchemas returns a map of tool names to their JSON Schema definitions.
 // Schemas are generated from the typed input structs using reflection.
+// NOTE: This uses the same generateInputSchema() function as tool registration
+// to ensure consistency between MCP stdio and RPC APIs.
 func (s *Server) getToolSchemas() map[string]string {
-	reflector := jsonschema.Reflector{}
-
 	schemas := make(map[string]string)
 
 	// Generate schema for each tool's input type.
+	// Use the same input types as tool registration.
 	toolInputTypes := map[string]interface{}{
 		"coral_get_service_health":       ServiceHealthInput{},
 		"coral_get_service_topology":     ServiceTopologyInput{},
@@ -241,8 +234,19 @@ func (s *Server) getToolSchemas() map[string]string {
 	}
 
 	for toolName, inputType := range toolInputTypes {
-		schema := reflector.Reflect(inputType)
-		schemaBytes, err := json.Marshal(schema)
+		// Use the same generateInputSchema() function to ensure consistency.
+		// This removes $schema and $id fields and uses DoNotReference.
+		schemaMap, err := generateInputSchema(inputType)
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("tool", toolName).
+				Msg("Failed to generate tool schema")
+			schemas[toolName] = "{\"type\": \"object\", \"properties\": {}}"
+			continue
+		}
+
+		schemaBytes, err := json.Marshal(schemaMap)
 		if err != nil {
 			s.logger.Warn().
 				Err(err).
@@ -251,6 +255,7 @@ func (s *Server) getToolSchemas() map[string]string {
 			schemas[toolName] = "{\"type\": \"object\", \"properties\": {}}"
 			continue
 		}
+
 		schemas[toolName] = string(schemaBytes)
 	}
 
@@ -258,7 +263,7 @@ func (s *Server) getToolSchemas() map[string]string {
 }
 
 // getToolDescriptions returns a map of tool names to their descriptions.
-// This mirrors the descriptions used when registering tools via genkit.DefineTool.
+// These descriptions are used when serving tools via both MCP and RPC APIs.
 func (s *Server) getToolDescriptions() map[string]string {
 	return map[string]string{
 		"coral_get_service_health":       "Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",

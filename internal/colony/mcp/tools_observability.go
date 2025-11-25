@@ -2,26 +2,117 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/firebase/genkit/go/ai"
-	"github.com/firebase/genkit/go/genkit"
+	"github.com/invopop/jsonschema"
+	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/coral-io/coral/internal/colony/database"
 )
 
-// registerServiceHealthTool registers the coral_get_service_health tool.
-func (s *Server) registerServiceHealthTool() {
-	if !s.isToolEnabled("coral_get_service_health") {
+// generateInputSchema generates a JSON schema from a Go type.
+func generateInputSchema(inputType interface{}) (map[string]any, error) {
+	// Use reflector without $ref/$defs to get inline schema that LLMs can understand.
+	reflector := jsonschema.Reflector{
+		DoNotReference: true, // Inline all schemas instead of using $ref/$defs
+	}
+	schema := reflector.Reflect(inputType)
+
+	schemaBytes, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal schema: %w", err)
+	}
+
+	var schemaMap map[string]any
+	if err := json.Unmarshal(schemaBytes, &schemaMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal schema: %w", err)
+	}
+
+	// Remove JSON Schema draft-specific fields that MCP clients don't expect.
+	// The MCP protocol expects a simpler schema format with just:
+	// type, properties, required, and property-level constraints.
+	delete(schemaMap, "$schema")
+	delete(schemaMap, "$id")
+
+	// Note: We keep additionalProperties as it's useful for validation.
+
+	return schemaMap, nil
+}
+
+// registerToolWithSchema is a helper that generates schema, creates tool, and registers it with logging.
+func (s *Server) registerToolWithSchema(
+	name string,
+	description string,
+	inputType interface{},
+	handler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error),
+) {
+	if !s.isToolEnabled(name) {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	// Generate JSON schema.
+	inputSchema, err := generateInputSchema(inputType)
+	if err != nil {
+		s.logger.Error().Err(err).Str("tool", name).Msg("Failed to generate input schema")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Str("tool", name).Msg("Failed to marshal schema")
+		return
+	}
+
+	// Create tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(name, description, schemaBytes)
+
+	// Debug: Verify tool IMMEDIATELY after creation
+	s.logger.Info().
+		Str("tool", name).
+		Int("schemaBytes_len", len(schemaBytes)).
+		Int("tool.RawInputSchema_len", len(tool.RawInputSchema)).
+		Str("tool.InputSchema.Type", tool.InputSchema.Type).
+		Msg("Tool created")
+
+	// Debug: Marshal the tool to see what it would look like when serialized
+	testMarshal, _ := json.Marshal(tool)
+	s.logger.Info().
+		Str("tool", name).
+		RawJSON("marshaledTool", testMarshal).
+		Msg("Tool after marshal test")
+
+	// Register tool handler.
+	s.mcpServer.AddTool(tool, handler)
+
+	// Debug: Try to retrieve the tool from the server and marshal it
+	// This will help us see if the tool is corrupted after AddTool
+	s.logger.Info().
+		Str("tool", name).
+		Msg("Tool registered with MCP server")
+}
+
+// registerServiceHealthTool registers the coral_get_service_health tool.
+func (s *Server) registerServiceHealthTool() {
+	s.registerToolWithSchema(
 		"coral_get_service_health",
 		"Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",
-		func(ctx *ai.ToolContext, input ServiceHealthInput) (string, error) {
+		ServiceHealthInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// Parse arguments.
+			var input ServiceHealthInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
 			s.auditToolCall("coral_get_service_health", input)
 
 			// Get service filter (handle nil pointer).
@@ -106,22 +197,29 @@ func (s *Server) registerServiceHealthTool() {
 			text += fmt.Sprintf("\nSummary: %d healthy, %d degraded, %d unhealthy\n",
 				healthyCount, degradedCount, unhealthyCount)
 
-			return text, nil
-		},
-	)
+			return mcp.NewToolResultText(text), nil
+		})
 }
 
 // registerServiceTopologyTool registers the coral_get_service_topology tool.
 func (s *Server) registerServiceTopologyTool() {
-	if !s.isToolEnabled("coral_get_service_topology") {
-		return
-	}
-
-	genkit.DefineTool(
-		s.genkit,
+	s.registerToolWithSchema(
 		"coral_get_service_topology",
 		"Get service dependency graph discovered from distributed traces. Shows which services communicate and call frequency.",
-		func(ctx *ai.ToolContext, input ServiceTopologyInput) (string, error) {
+		ServiceTopologyInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// Parse arguments from MCP request.
+			var input ServiceTopologyInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
 			s.auditToolCall("coral_get_service_topology", input)
 
 			// TODO: Implement topology discovery from traces (RFD 036).
@@ -140,9 +238,8 @@ func (s *Server) registerServiceTopologyTool() {
 			text += "Note: Dependency graph discovery from distributed traces is not yet implemented.\n"
 			text += "      See RFD 036 for planned trace-based topology analysis.\n"
 
-			return text, nil
-		},
-	)
+			return mcp.NewToolResultText(text), nil
+		})
 }
 
 // registerQueryEventsTool registers the coral_query_events tool.
@@ -151,24 +248,52 @@ func (s *Server) registerQueryEventsTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(QueryEventsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_events")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_events")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_query_events",
 		"Query operational events tracked by Coral (deployments, restarts, crashes, alerts, configuration changes).",
-		func(ctx *ai.ToolContext, input QueryEventsInput) (string, error) {
-			s.auditToolCall("coral_query_events", input)
-
-			// TODO: Implement event storage and querying.
-			// For now, return placeholder.
-
-			text := "Operational Events:\n\n"
-			text += "No events tracked yet.\n\n"
-			text += "Note: Event storage and querying is planned for future implementation.\n"
-			text += "      Events will include deployments, restarts, crashes, and configuration changes.\n"
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input QueryEventsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_query_events", input)
+
+		// TODO: Implement event storage and querying.
+		// For now, return placeholder.
+
+		text := "Operational Events:\n\n"
+		text += "No events tracked yet.\n\n"
+		text += "Note: Event storage and querying is planned for future implementation.\n"
+		text += "      Events will include deployments, restarts, crashes, and configuration changes.\n"
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // registerBeylaHTTPMetricsTool registers the coral_query_beyla_http_metrics tool.
@@ -177,85 +302,113 @@ func (s *Server) registerBeylaHTTPMetricsTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(BeylaHTTPMetricsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_beyla_http_metrics")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_beyla_http_metrics")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_query_beyla_http_metrics",
 		"Query HTTP RED metrics collected by Beyla (request rate, error rate, latency distributions). Returns percentiles, status code breakdown, and route-level metrics.",
-		func(ctx *ai.ToolContext, input BeylaHTTPMetricsInput) (string, error) {
-			s.auditToolCall("coral_query_beyla_http_metrics", input)
-
-			// Get time range (handle nil pointer).
-			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
-			}
-
-			// Parse time range.
-			startTime, endTime, err := parseTimeRange(timeRangeStr)
-			if err != nil {
-				return "", fmt.Errorf("invalid time_range '%s': %w", timeRangeStr, err)
-			}
-
-			// Build filters map.
-			filters := make(map[string]string)
-			if input.HTTPMethod != nil {
-				filters["http_method"] = *input.HTTPMethod
-			}
-			if input.HTTPRoute != nil {
-				filters["http_route"] = *input.HTTPRoute
-			}
-			if input.StatusCodeRange != nil {
-				filters["status_code_range"] = *input.StatusCodeRange
-			}
-
-			// Query database.
-			dbCtx := context.Background()
-			results, err := s.db.QueryBeylaHTTPMetrics(dbCtx, input.Service, startTime, endTime, filters)
-			if err != nil {
-				return "", fmt.Errorf("failed to query HTTP metrics: %w", err)
-			}
-
-			// Format response.
-			if len(results) == 0 {
-				text := fmt.Sprintf("Beyla HTTP Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
-				text += "No metrics found for this service in the specified time range.\n\n"
-				text += "This could mean:\n"
-				text += "- The service hasn't received HTTP requests\n"
-				text += "- Beyla is not running on the agent\n"
-				text += "- The service name doesn't match\n"
-				return text, nil
-			}
-
-			// Calculate statistics from histogram buckets.
-			stats := aggregateHTTPMetrics(results)
-
-			text := fmt.Sprintf("Beyla HTTP Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
-			text += fmt.Sprintf("Total Requests: %d\n\n", stats.TotalRequests)
-
-			// Show latency percentiles.
-			text += "Latency Percentiles:\n"
-			text += fmt.Sprintf("  P50: %.1fms\n", stats.P50)
-			text += fmt.Sprintf("  P95: %.1fms\n", stats.P95)
-			text += fmt.Sprintf("  P99: %.1fms\n\n", stats.P99)
-
-			// Show status code breakdown.
-			text += "Status Code Breakdown:\n"
-			for code, count := range stats.StatusCodes {
-				percentage := float64(count) / float64(stats.TotalRequests) * 100
-				text += fmt.Sprintf("  %d: %d requests (%.1f%%)\n", code, count, percentage)
-			}
-			text += "\n"
-
-			// Show top routes by request count.
-			text += "Top Routes:\n"
-			topRoutes := getTopRoutes(results, 5)
-			for _, route := range topRoutes {
-				text += fmt.Sprintf("  %s: %d requests\n", route.Route, route.Count)
-			}
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input BeylaHTTPMetricsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_query_beyla_http_metrics", input)
+
+		// Get time range (handle nil pointer).
+		timeRangeStr := "1h"
+		if input.TimeRange != nil {
+			timeRangeStr = *input.TimeRange
+		}
+
+		// Parse time range.
+		startTime, endTime, err := parseTimeRange(timeRangeStr)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid time_range '%s': %v", timeRangeStr, err)), nil
+		}
+
+		// Build filters map.
+		filters := make(map[string]string)
+		if input.HTTPMethod != nil {
+			filters["http_method"] = *input.HTTPMethod
+		}
+		if input.HTTPRoute != nil {
+			filters["http_route"] = *input.HTTPRoute
+		}
+		if input.StatusCodeRange != nil {
+			filters["status_code_range"] = *input.StatusCodeRange
+		}
+
+		// Query database.
+		dbCtx := context.Background()
+		results, err := s.db.QueryBeylaHTTPMetrics(dbCtx, input.Service, startTime, endTime, filters)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to query HTTP metrics: %v", err)), nil
+		}
+
+		// Format response.
+		if len(results) == 0 {
+			text := fmt.Sprintf("Beyla HTTP Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text += "No metrics found for this service in the specified time range.\n\n"
+			text += "This could mean:\n"
+			text += "- The service hasn't received HTTP requests\n"
+			text += "- Beyla is not running on the agent\n"
+			text += "- The service name doesn't match\n"
+			return mcp.NewToolResultText(text), nil
+		}
+
+		// Calculate statistics from histogram buckets.
+		stats := aggregateHTTPMetrics(results)
+
+		text := fmt.Sprintf("Beyla HTTP Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+		text += fmt.Sprintf("Total Requests: %d\n\n", stats.TotalRequests)
+
+		// Show latency percentiles.
+		text += "Latency Percentiles:\n"
+		text += fmt.Sprintf("  P50: %.1fms\n", stats.P50)
+		text += fmt.Sprintf("  P95: %.1fms\n", stats.P95)
+		text += fmt.Sprintf("  P99: %.1fms\n\n", stats.P99)
+
+		// Show status code breakdown.
+		text += "Status Code Breakdown:\n"
+		for code, count := range stats.StatusCodes {
+			percentage := float64(count) / float64(stats.TotalRequests) * 100
+			text += fmt.Sprintf("  %d: %d requests (%.1f%%)\n", code, count, percentage)
+		}
+		text += "\n"
+
+		// Show top routes by request count.
+		text += "Top Routes:\n"
+		topRoutes := getTopRoutes(results, 5)
+		for _, route := range topRoutes {
+			text += fmt.Sprintf("  %s: %d requests\n", route.Route, route.Count)
+		}
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // registerBeylaGRPCMetricsTool registers the coral_query_beyla_grpc_metrics tool.
@@ -264,83 +417,111 @@ func (s *Server) registerBeylaGRPCMetricsTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(BeylaGRPCMetricsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_beyla_grpc_metrics")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_beyla_grpc_metrics")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_query_beyla_grpc_metrics",
 		"Query gRPC method-level RED metrics collected by Beyla. Returns RPC rate, latency distributions, and status code breakdown.",
-		func(ctx *ai.ToolContext, input BeylaGRPCMetricsInput) (string, error) {
-			s.auditToolCall("coral_query_beyla_grpc_metrics", input)
-
-			// Get time range (handle nil pointer).
-			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
-			}
-
-			// Parse time range.
-			startTime, endTime, err := parseTimeRange(timeRangeStr)
-			if err != nil {
-				return "", fmt.Errorf("invalid time_range '%s': %w", timeRangeStr, err)
-			}
-
-			// Build filters map.
-			filters := make(map[string]string)
-			if input.GRPCMethod != nil {
-				filters["grpc_method"] = *input.GRPCMethod
-			}
-			if input.StatusCode != nil {
-				filters["status_code"] = fmt.Sprintf("%d", *input.StatusCode)
-			}
-
-			// Query database.
-			dbCtx := context.Background()
-			results, err := s.db.QueryBeylaGRPCMetrics(dbCtx, input.Service, startTime, endTime, filters)
-			if err != nil {
-				return "", fmt.Errorf("failed to query gRPC metrics: %w", err)
-			}
-
-			// Format response.
-			if len(results) == 0 {
-				text := fmt.Sprintf("Beyla gRPC Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
-				text += "No metrics found for this service in the specified time range.\n\n"
-				text += "This could mean:\n"
-				text += "- The service hasn't received gRPC requests\n"
-				text += "- Beyla is not running on the agent\n"
-				text += "- The service name doesn't match\n"
-				return text, nil
-			}
-
-			// Calculate statistics from histogram buckets.
-			stats := aggregateGRPCMetrics(results)
-
-			text := fmt.Sprintf("Beyla gRPC Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
-			text += fmt.Sprintf("Total RPCs: %d\n\n", stats.TotalRPCs)
-
-			// Show latency percentiles.
-			text += "Latency Percentiles:\n"
-			text += fmt.Sprintf("  P50: %.1fms\n", stats.P50)
-			text += fmt.Sprintf("  P95: %.1fms\n", stats.P95)
-			text += fmt.Sprintf("  P99: %.1fms\n\n", stats.P99)
-
-			// Show status code breakdown.
-			text += "Status Code Breakdown:\n"
-			for code, count := range stats.StatusCodes {
-				percentage := float64(count) / float64(stats.TotalRPCs) * 100
-				statusName := grpcStatusName(code)
-				text += fmt.Sprintf("  %d (%s): %d requests (%.1f%%)\n", code, statusName, count, percentage)
-			}
-			text += "\n"
-
-			// Show top methods by request count.
-			text += "Top Methods:\n"
-			topMethods := getTopGRPCMethods(results, 5)
-			for _, method := range topMethods {
-				text += fmt.Sprintf("  %s: %d requests\n", method.Method, method.Count)
-			}
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input BeylaGRPCMetricsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_query_beyla_grpc_metrics", input)
+
+		// Get time range (handle nil pointer).
+		timeRangeStr := "1h"
+		if input.TimeRange != nil {
+			timeRangeStr = *input.TimeRange
+		}
+
+		// Parse time range.
+		startTime, endTime, err := parseTimeRange(timeRangeStr)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid time_range '%s': %v", timeRangeStr, err)), nil
+		}
+
+		// Build filters map.
+		filters := make(map[string]string)
+		if input.GRPCMethod != nil {
+			filters["grpc_method"] = *input.GRPCMethod
+		}
+		if input.StatusCode != nil {
+			filters["status_code"] = fmt.Sprintf("%d", *input.StatusCode)
+		}
+
+		// Query database.
+		dbCtx := context.Background()
+		results, err := s.db.QueryBeylaGRPCMetrics(dbCtx, input.Service, startTime, endTime, filters)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to query gRPC metrics: %v", err)), nil
+		}
+
+		// Format response.
+		if len(results) == 0 {
+			text := fmt.Sprintf("Beyla gRPC Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text += "No metrics found for this service in the specified time range.\n\n"
+			text += "This could mean:\n"
+			text += "- The service hasn't received gRPC requests\n"
+			text += "- Beyla is not running on the agent\n"
+			text += "- The service name doesn't match\n"
+			return mcp.NewToolResultText(text), nil
+		}
+
+		// Calculate statistics from histogram buckets.
+		stats := aggregateGRPCMetrics(results)
+
+		text := fmt.Sprintf("Beyla gRPC Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+		text += fmt.Sprintf("Total RPCs: %d\n\n", stats.TotalRPCs)
+
+		// Show latency percentiles.
+		text += "Latency Percentiles:\n"
+		text += fmt.Sprintf("  P50: %.1fms\n", stats.P50)
+		text += fmt.Sprintf("  P95: %.1fms\n", stats.P95)
+		text += fmt.Sprintf("  P99: %.1fms\n\n", stats.P99)
+
+		// Show status code breakdown.
+		text += "Status Code Breakdown:\n"
+		for code, count := range stats.StatusCodes {
+			percentage := float64(count) / float64(stats.TotalRPCs) * 100
+			statusName := grpcStatusName(code)
+			text += fmt.Sprintf("  %d (%s): %d requests (%.1f%%)\n", code, statusName, count, percentage)
+		}
+		text += "\n"
+
+		// Show top methods by request count.
+		text += "Top Methods:\n"
+		topMethods := getTopGRPCMethods(results, 5)
+		for _, method := range topMethods {
+			text += fmt.Sprintf("  %s: %d requests\n", method.Method, method.Count)
+		}
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // registerBeylaSQLMetricsTool registers the coral_query_beyla_sql_metrics tool.
@@ -349,82 +530,110 @@ func (s *Server) registerBeylaSQLMetricsTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(BeylaSQLMetricsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_beyla_sql_metrics")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_beyla_sql_metrics")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_query_beyla_sql_metrics",
 		"Query SQL operation metrics collected by Beyla. Returns query latencies, operation types, and table-level statistics.",
-		func(ctx *ai.ToolContext, input BeylaSQLMetricsInput) (string, error) {
-			s.auditToolCall("coral_query_beyla_sql_metrics", input)
-
-			// Get time range (handle nil pointer).
-			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
-			}
-
-			// Parse time range.
-			startTime, endTime, err := parseTimeRange(timeRangeStr)
-			if err != nil {
-				return "", fmt.Errorf("invalid time_range '%s': %w", timeRangeStr, err)
-			}
-
-			// Build filters map.
-			filters := make(map[string]string)
-			if input.SQLOperation != nil {
-				filters["sql_operation"] = *input.SQLOperation
-			}
-			if input.TableName != nil {
-				filters["table_name"] = *input.TableName
-			}
-
-			// Query database.
-			dbCtx := context.Background()
-			results, err := s.db.QueryBeylaSQLMetrics(dbCtx, input.Service, startTime, endTime, filters)
-			if err != nil {
-				return "", fmt.Errorf("failed to query SQL metrics: %w", err)
-			}
-
-			// Format response.
-			if len(results) == 0 {
-				text := fmt.Sprintf("Beyla SQL Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
-				text += "No metrics found for this service in the specified time range.\n\n"
-				text += "This could mean:\n"
-				text += "- The service hasn't executed SQL queries\n"
-				text += "- Beyla is not running on the agent\n"
-				text += "- The service name doesn't match\n"
-				return text, nil
-			}
-
-			// Calculate statistics from histogram buckets.
-			stats := aggregateSQLMetrics(results)
-
-			text := fmt.Sprintf("Beyla SQL Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
-			text += fmt.Sprintf("Total Queries: %d\n\n", stats.TotalQueries)
-
-			// Show latency percentiles.
-			text += "Latency Percentiles:\n"
-			text += fmt.Sprintf("  P50: %.1fms\n", stats.P50)
-			text += fmt.Sprintf("  P95: %.1fms\n", stats.P95)
-			text += fmt.Sprintf("  P99: %.1fms\n\n", stats.P99)
-
-			// Show operation breakdown.
-			text += "Operation Breakdown:\n"
-			for op, count := range stats.Operations {
-				percentage := float64(count) / float64(stats.TotalQueries) * 100
-				text += fmt.Sprintf("  %s: %d queries (%.1f%%)\n", op, count, percentage)
-			}
-			text += "\n"
-
-			// Show top tables by query count.
-			text += "Top Tables:\n"
-			topTables := getTopSQLTables(results, 5)
-			for _, table := range topTables {
-				text += fmt.Sprintf("  %s: %d queries\n", table.Table, table.Count)
-			}
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input BeylaSQLMetricsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_query_beyla_sql_metrics", input)
+
+		// Get time range (handle nil pointer).
+		timeRangeStr := "1h"
+		if input.TimeRange != nil {
+			timeRangeStr = *input.TimeRange
+		}
+
+		// Parse time range.
+		startTime, endTime, err := parseTimeRange(timeRangeStr)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid time_range '%s': %v", timeRangeStr, err)), nil
+		}
+
+		// Build filters map.
+		filters := make(map[string]string)
+		if input.SQLOperation != nil {
+			filters["sql_operation"] = *input.SQLOperation
+		}
+		if input.TableName != nil {
+			filters["table_name"] = *input.TableName
+		}
+
+		// Query database.
+		dbCtx := context.Background()
+		results, err := s.db.QueryBeylaSQLMetrics(dbCtx, input.Service, startTime, endTime, filters)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to query SQL metrics: %v", err)), nil
+		}
+
+		// Format response.
+		if len(results) == 0 {
+			text := fmt.Sprintf("Beyla SQL Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text += "No metrics found for this service in the specified time range.\n\n"
+			text += "This could mean:\n"
+			text += "- The service hasn't executed SQL queries\n"
+			text += "- Beyla is not running on the agent\n"
+			text += "- The service name doesn't match\n"
+			return mcp.NewToolResultText(text), nil
+		}
+
+		// Calculate statistics from histogram buckets.
+		stats := aggregateSQLMetrics(results)
+
+		text := fmt.Sprintf("Beyla SQL Metrics for %s (last %s):\n\n", input.Service, timeRangeStr)
+		text += fmt.Sprintf("Total Queries: %d\n\n", stats.TotalQueries)
+
+		// Show latency percentiles.
+		text += "Latency Percentiles:\n"
+		text += fmt.Sprintf("  P50: %.1fms\n", stats.P50)
+		text += fmt.Sprintf("  P95: %.1fms\n", stats.P95)
+		text += fmt.Sprintf("  P99: %.1fms\n\n", stats.P99)
+
+		// Show operation breakdown.
+		text += "Operation Breakdown:\n"
+		for op, count := range stats.Operations {
+			percentage := float64(count) / float64(stats.TotalQueries) * 100
+			text += fmt.Sprintf("  %s: %d queries (%.1f%%)\n", op, count, percentage)
+		}
+		text += "\n"
+
+		// Show top tables by query count.
+		text += "Top Tables:\n"
+		topTables := getTopSQLTables(results, 5)
+		for _, table := range topTables {
+			text += fmt.Sprintf("  %s: %d queries\n", table.Table, table.Count)
+		}
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // registerBeylaTracesTool registers the coral_query_beyla_traces tool.
@@ -433,109 +642,137 @@ func (s *Server) registerBeylaTracesTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(BeylaTracesInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_beyla_traces")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_beyla_traces")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_query_beyla_traces",
 		"Query distributed traces collected by Beyla. Can search by trace ID, service, time range, or duration threshold.",
-		func(ctx *ai.ToolContext, input BeylaTracesInput) (string, error) {
-			s.auditToolCall("coral_query_beyla_traces", input)
-
-			// Get time range (handle nil pointer).
-			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
-			}
-
-			// Parse time range.
-			startTime, endTime, err := parseTimeRange(timeRangeStr)
-			if err != nil {
-				return "", fmt.Errorf("invalid time_range '%s': %w", timeRangeStr, err)
-			}
-
-			// Get service name (optional).
-			serviceName := ""
-			if input.Service != nil {
-				serviceName = *input.Service
-			}
-
-			// Get min duration filter (convert from ms to us).
-			var minDurationUs int64
-			if input.MinDurationMs != nil {
-				minDurationUs = int64(*input.MinDurationMs) * 1000
-			}
-
-			// Get max traces limit.
-			maxTraces := 10
-			if input.MaxTraces != nil {
-				maxTraces = *input.MaxTraces
-			}
-
-			// Query database.
-			dbCtx := context.Background()
-			results, err := s.db.QueryBeylaTraces(dbCtx, serviceName, startTime, endTime, minDurationUs, maxTraces)
-			if err != nil {
-				return "", fmt.Errorf("failed to query traces: %w", err)
-			}
-
-			// Format response.
-			if len(results) == 0 {
-				text := "Beyla Distributed Traces:\n\n"
-				text += "No traces found matching the criteria.\n\n"
-				text += "This could mean:\n"
-				text += "- No distributed traces in the time range\n"
-				text += "- Beyla tracing is not enabled\n"
-				text += "- Duration threshold too high\n"
-				return text, nil
-			}
-
-			// Group spans by trace ID.
-			traceMap := make(map[string][]*database.BeylaTraceResult)
-			for _, span := range results {
-				traceMap[span.TraceID] = append(traceMap[span.TraceID], span)
-			}
-
-			text := fmt.Sprintf("Beyla Distributed Traces (showing %d traces):\n\n", len(traceMap))
-
-			// Show each trace.
-			traceNum := 0
-			for traceID, spans := range traceMap {
-				traceNum++
-				if traceNum > maxTraces {
-					break
-				}
-
-				// Calculate trace duration.
-				var minStartTime, maxEndTime time.Time
-				for i, span := range spans {
-					if i == 0 || span.StartTime.Before(minStartTime) {
-						minStartTime = span.StartTime
-					}
-					endTime := span.StartTime.Add(time.Duration(span.DurationUs) * time.Microsecond)
-					if i == 0 || endTime.After(maxEndTime) {
-						maxEndTime = endTime
-					}
-				}
-				totalDuration := maxEndTime.Sub(minStartTime)
-
-				text += fmt.Sprintf("Trace %d: %s\n", traceNum, traceID)
-				text += fmt.Sprintf("  Duration: %.1fms\n", float64(totalDuration.Microseconds())/1000.0)
-				text += fmt.Sprintf("  Spans: %d\n", len(spans))
-				text += fmt.Sprintf("  Services: %s\n", getUniqueServices(spans))
-				text += "\n"
-
-				// Show top 3 slowest spans in this trace.
-				slowestSpans := getTopSlowestSpans(spans, 3)
-				text += "  Top slowest spans:\n"
-				for _, span := range slowestSpans {
-					durationMs := float64(span.DurationUs) / 1000.0
-					text += fmt.Sprintf("    - %s (%s): %.1fms\n", span.SpanName, span.ServiceName, durationMs)
-				}
-				text += "\n"
-			}
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input BeylaTracesInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_query_beyla_traces", input)
+
+		// Get time range (handle nil pointer).
+		timeRangeStr := "1h"
+		if input.TimeRange != nil {
+			timeRangeStr = *input.TimeRange
+		}
+
+		// Parse time range.
+		startTime, endTime, err := parseTimeRange(timeRangeStr)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid time_range '%s': %v", timeRangeStr, err)), nil
+		}
+
+		// Get service name (optional).
+		serviceName := ""
+		if input.Service != nil {
+			serviceName = *input.Service
+		}
+
+		// Get min duration filter (convert from ms to us).
+		var minDurationUs int64
+		if input.MinDurationMs != nil {
+			minDurationUs = int64(*input.MinDurationMs) * 1000
+		}
+
+		// Get max traces limit.
+		maxTraces := 10
+		if input.MaxTraces != nil {
+			maxTraces = *input.MaxTraces
+		}
+
+		// Query database.
+		dbCtx := context.Background()
+		results, err := s.db.QueryBeylaTraces(dbCtx, serviceName, startTime, endTime, minDurationUs, maxTraces)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to query traces: %v", err)), nil
+		}
+
+		// Format response.
+		if len(results) == 0 {
+			text := "Beyla Distributed Traces:\n\n"
+			text += "No traces found matching the criteria.\n\n"
+			text += "This could mean:\n"
+			text += "- No distributed traces in the time range\n"
+			text += "- Beyla tracing is not enabled\n"
+			text += "- Duration threshold too high\n"
+			return mcp.NewToolResultText(text), nil
+		}
+
+		// Group spans by trace ID.
+		traceMap := make(map[string][]*database.BeylaTraceResult)
+		for _, span := range results {
+			traceMap[span.TraceID] = append(traceMap[span.TraceID], span)
+		}
+
+		text := fmt.Sprintf("Beyla Distributed Traces (showing %d traces):\n\n", len(traceMap))
+
+		// Show each trace.
+		traceNum := 0
+		for traceID, spans := range traceMap {
+			traceNum++
+			if traceNum > maxTraces {
+				break
+			}
+
+			// Calculate trace duration.
+			var minStartTime, maxEndTime time.Time
+			for i, span := range spans {
+				if i == 0 || span.StartTime.Before(minStartTime) {
+					minStartTime = span.StartTime
+				}
+				endTime := span.StartTime.Add(time.Duration(span.DurationUs) * time.Microsecond)
+				if i == 0 || endTime.After(maxEndTime) {
+					maxEndTime = endTime
+				}
+			}
+			totalDuration := maxEndTime.Sub(minStartTime)
+
+			text += fmt.Sprintf("Trace %d: %s\n", traceNum, traceID)
+			text += fmt.Sprintf("  Duration: %.1fms\n", float64(totalDuration.Microseconds())/1000.0)
+			text += fmt.Sprintf("  Spans: %d\n", len(spans))
+			text += fmt.Sprintf("  Services: %s\n", getUniqueServices(spans))
+			text += "\n"
+
+			// Show top 3 slowest spans in this trace.
+			slowestSpans := getTopSlowestSpans(spans, 3)
+			text += "  Top slowest spans:\n"
+			for _, span := range slowestSpans {
+				durationMs := float64(span.DurationUs) / 1000.0
+				text += fmt.Sprintf("    - %s (%s): %.1fms\n", span.SpanName, span.ServiceName, durationMs)
+			}
+			text += "\n"
+		}
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // registerTraceByIDTool registers the coral_get_trace_by_id tool.
@@ -544,20 +781,48 @@ func (s *Server) registerTraceByIDTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(TraceByIDInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_get_trace_by_id")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_get_trace_by_id")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_get_trace_by_id",
 		"Get a specific distributed trace by ID with full span tree showing parent-child relationships and timing.",
-		func(ctx *ai.ToolContext, input TraceByIDInput) (string, error) {
-			s.auditToolCall("coral_get_trace_by_id", input)
-
-			text := fmt.Sprintf("Trace %s:\n\n", input.TraceID)
-			text += "Trace not found.\n\n"
-			text += "Note: Trace retrieval is planned (RFD 036).\n"
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input TraceByIDInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_get_trace_by_id", input)
+
+		text := fmt.Sprintf("Trace %s:\n\n", input.TraceID)
+		text += "Trace not found.\n\n"
+		text += "Note: Trace retrieval is planned (RFD 036).\n"
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // registerTelemetrySpansTool registers the coral_query_telemetry_spans tool.
@@ -566,105 +831,133 @@ func (s *Server) registerTelemetrySpansTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(TelemetrySpansInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_telemetry_spans")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_telemetry_spans")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_query_telemetry_spans",
 		"Query generic OTLP spans (from instrumented applications using OpenTelemetry SDKs). Returns aggregated telemetry summaries. For detailed raw spans, see RFD 041.",
-		func(ctx *ai.ToolContext, input TelemetrySpansInput) (string, error) {
-			s.auditToolCall("coral_query_telemetry_spans", input)
-
-			// Get time range (handle nil pointer).
-			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
-			}
-
-			// Parse time range.
-			startTime, endTime, err := parseTimeRange(timeRangeStr)
-			if err != nil {
-				return "", fmt.Errorf("invalid time_range '%s': %w", timeRangeStr, err)
-			}
-
-			// Find agents for this service.
-			agents := s.registry.ListAll()
-			var matchingAgents []string
-			for _, agent := range agents {
-				if agent.Name == input.Service {
-					matchingAgents = append(matchingAgents, agent.AgentID)
-				}
-			}
-
-			if len(matchingAgents) == 0 {
-				text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
-				text += "No agents found running this service.\n\n"
-				text += "Possible reasons:\n"
-				text += "- Service name doesn't match\n"
-				text += "- No agents connected\n"
-				return text, nil
-			}
-
-			// Query summaries for each agent.
-			dbCtx := context.Background()
-			var allSummaries []database.TelemetrySummary
-			for _, agentID := range matchingAgents {
-				summaries, err := s.db.QueryTelemetrySummaries(dbCtx, agentID, startTime, endTime)
-				if err != nil {
-					s.logger.Warn().Err(err).Str("agent_id", agentID).Msg("Failed to query telemetry summaries")
-					continue
-				}
-				allSummaries = append(allSummaries, summaries...)
-			}
-
-			if len(allSummaries) == 0 {
-				text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
-				text += "No telemetry data found in the specified time range.\n\n"
-				text += "Possible reasons:\n"
-				text += "- Service is not instrumented with OpenTelemetry\n"
-				text += "- No traffic during this period\n"
-				text += "- Data retention expired (summaries kept for 24h)\n\n"
-				text += "Note: This returns aggregated summaries. For raw spans, see RFD 041.\n"
-				return text, nil
-			}
-
-			// Aggregate stats from summaries.
-			stats := aggregateTelemetrySummaries(allSummaries, input.Operation)
-
-			text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
-			text += fmt.Sprintf("Total Spans: %d\n", stats.TotalSpans)
-			text += fmt.Sprintf("Error Count: %d (%.1f%%)\n\n", stats.ErrorCount, stats.ErrorRate)
-
-			// Show latency percentiles.
-			text += "Latency Percentiles:\n"
-			text += fmt.Sprintf("  P50: %.1fms\n", stats.P50)
-			text += fmt.Sprintf("  P95: %.1fms\n", stats.P95)
-			text += fmt.Sprintf("  P99: %.1fms\n\n", stats.P99)
-
-			// Show breakdown by span kind.
-			if len(stats.SpanKinds) > 0 {
-				text += "Span Kinds:\n"
-				for kind, count := range stats.SpanKinds {
-					percentage := float64(count) / float64(stats.TotalSpans) * 100
-					text += fmt.Sprintf("  %s: %d spans (%.1f%%)\n", kind, count, percentage)
-				}
-				text += "\n"
-			}
-
-			// Show sample traces if available.
-			if len(stats.SampleTraces) > 0 {
-				text += "Sample Trace IDs:\n"
-				for i, traceID := range stats.SampleTraces {
-					if i >= 5 {
-						break
-					}
-					text += fmt.Sprintf("  - %s\n", traceID)
-				}
-			}
-
-			text += "\nNote: This shows aggregated summaries (1-minute buckets). For detailed raw spans, see RFD 041.\n"
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input TelemetrySpansInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_query_telemetry_spans", input)
+
+		// Get time range (handle nil pointer).
+		timeRangeStr := "1h"
+		if input.TimeRange != nil {
+			timeRangeStr = *input.TimeRange
+		}
+
+		// Parse time range.
+		startTime, endTime, err := parseTimeRange(timeRangeStr)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid time_range '%s': %v", timeRangeStr, err)), nil
+		}
+
+		// Find agents for this service.
+		agents := s.registry.ListAll()
+		var matchingAgents []string
+		for _, agent := range agents {
+			if agent.Name == input.Service {
+				matchingAgents = append(matchingAgents, agent.AgentID)
+			}
+		}
+
+		if len(matchingAgents) == 0 {
+			text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text += "No agents found running this service.\n\n"
+			text += "Possible reasons:\n"
+			text += "- Service name doesn't match\n"
+			text += "- No agents connected\n"
+			return mcp.NewToolResultText(text), nil
+		}
+
+		// Query summaries for each agent.
+		dbCtx := context.Background()
+		var allSummaries []database.TelemetrySummary
+		for _, agentID := range matchingAgents {
+			summaries, err := s.db.QueryTelemetrySummaries(dbCtx, agentID, startTime, endTime)
+			if err != nil {
+				s.logger.Warn().Err(err).Str("agent_id", agentID).Msg("Failed to query telemetry summaries")
+				continue
+			}
+			allSummaries = append(allSummaries, summaries...)
+		}
+
+		if len(allSummaries) == 0 {
+			text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
+			text += "No telemetry data found in the specified time range.\n\n"
+			text += "Possible reasons:\n"
+			text += "- Service is not instrumented with OpenTelemetry\n"
+			text += "- No traffic during this period\n"
+			text += "- Data retention expired (summaries kept for 24h)\n\n"
+			text += "Note: This returns aggregated summaries. For raw spans, see RFD 041.\n"
+			return mcp.NewToolResultText(text), nil
+		}
+
+		// Aggregate stats from summaries.
+		stats := aggregateTelemetrySummaries(allSummaries, input.Operation)
+
+		text := fmt.Sprintf("OTLP Telemetry for %s (last %s):\n\n", input.Service, timeRangeStr)
+		text += fmt.Sprintf("Total Spans: %d\n", stats.TotalSpans)
+		text += fmt.Sprintf("Error Count: %d (%.1f%%)\n\n", stats.ErrorCount, stats.ErrorRate)
+
+		// Show latency percentiles.
+		text += "Latency Percentiles:\n"
+		text += fmt.Sprintf("  P50: %.1fms\n", stats.P50)
+		text += fmt.Sprintf("  P95: %.1fms\n", stats.P95)
+		text += fmt.Sprintf("  P99: %.1fms\n\n", stats.P99)
+
+		// Show breakdown by span kind.
+		if len(stats.SpanKinds) > 0 {
+			text += "Span Kinds:\n"
+			for kind, count := range stats.SpanKinds {
+				percentage := float64(count) / float64(stats.TotalSpans) * 100
+				text += fmt.Sprintf("  %s: %d spans (%.1f%%)\n", kind, count, percentage)
+			}
+			text += "\n"
+		}
+
+		// Show sample traces if available.
+		if len(stats.SampleTraces) > 0 {
+			text += "Sample Trace IDs:\n"
+			for i, traceID := range stats.SampleTraces {
+				if i >= 5 {
+					break
+				}
+				text += fmt.Sprintf("  - %s\n", traceID)
+			}
+		}
+
+		text += "\nNote: This shows aggregated summaries (1-minute buckets). For detailed raw spans, see RFD 041.\n"
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // registerTelemetryMetricsTool registers the coral_query_telemetry_metrics tool.
@@ -673,20 +966,48 @@ func (s *Server) registerTelemetryMetricsTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(TelemetryMetricsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_telemetry_metrics")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_telemetry_metrics")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_query_telemetry_metrics",
 		"Query generic OTLP metrics (from instrumented applications). Returns time-series data for custom application metrics.",
-		func(ctx *ai.ToolContext, input TelemetryMetricsInput) (string, error) {
-			s.auditToolCall("coral_query_telemetry_metrics", input)
-
-			text := "OTLP Metrics:\n\n"
-			text += "No metrics available yet.\n\n"
-			text += "Note: OTLP metrics querying is implemented (RFD 025) but requires telemetry data.\n"
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input TelemetryMetricsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_query_telemetry_metrics", input)
+
+		text := "OTLP Metrics:\n\n"
+		text += "No metrics available yet.\n\n"
+		text += "Note: OTLP metrics querying is implemented (RFD 025) but requires telemetry data.\n"
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // registerTelemetryLogsTool registers the coral_query_telemetry_logs tool.
@@ -695,20 +1016,48 @@ func (s *Server) registerTelemetryLogsTool() {
 		return
 	}
 
-	genkit.DefineTool(
-		s.genkit,
+	inputSchema, err := generateInputSchema(TelemetryLogsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_telemetry_logs")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_telemetry_logs")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
 		"coral_query_telemetry_logs",
 		"Query generic OTLP logs (from instrumented applications). Search application logs with full-text search and filters.",
-		func(ctx *ai.ToolContext, input TelemetryLogsInput) (string, error) {
-			s.auditToolCall("coral_query_telemetry_logs", input)
-
-			text := "OTLP Logs:\n\n"
-			text += "No logs available yet.\n\n"
-			text += "Note: OTLP log querying is implemented (RFD 025) but requires telemetry data.\n"
-
-			return text, nil
-		},
+		schemaBytes,
 	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input TelemetryLogsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_query_telemetry_logs", input)
+
+		text := "OTLP Logs:\n\n"
+		text += "No logs available yet.\n\n"
+		text += "Note: OTLP log querying is implemented (RFD 025) but requires telemetry data.\n"
+
+		return mcp.NewToolResultText(text), nil
+	})
 }
 
 // matchesPattern checks if a string matches a simple glob pattern.
