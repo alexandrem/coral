@@ -286,35 +286,55 @@ Shell: /bin/bash (default)
 
 ## Implementation Plan
 
-### Phase 1: Core Tool Implementation
+### Phase 1: Protocol Definition ✅ COMPLETED
 
-- [ ] Implement `executeShellStartTool()` in `tools_exec.go`
-- [ ] Integrate RFD 044's agent resolution logic (agent_id or service)
-- [ ] Add agent status validation
-- [ ] Format shell-specific response with connection details and CLI command
-- [ ] Handle error cases (delegation to RFD 044 for routing, local for
-  shell-specific)
+- [x] Define `ShellExecRequest` and `ShellExecResponse` protobuf messages
+- [x] Add `ShellExec` RPC method to `AgentService`
+- [x] Generate protobuf code
 
-### Phase 2: Response Formatting
+### Phase 2: MCP Tool Registration ✅ COMPLETED
 
-- [ ] Create helper function for agent connection info formatting
-- [ ] Include security warnings in response
-- [ ] Add agent status and uptime details
-- [ ] List available utilities in agent environment
+- [x] Define `ShellExecInput` type in `types.go`
+- [x] Implement `registerShellExecTool()` in `tools_debugging.go`
+- [x] Add tool to MCP server registration
+- [x] Add tool to execution switch in `server.go`
+- [x] Add tool to schema map (`getToolSchemas()`)
+- [x] Add tool description (`getToolDescriptions()`)
+- [x] Add tool to `listToolNames()`
 
-### Phase 3: Testing
+### Phase 3: Agent Handler Implementation ✅ COMPLETED
 
-- [ ] Unit tests for service lookup and filtering
-- [ ] Unit tests for agent status validation
-- [ ] Unit tests for error cases (not found, unhealthy)
-- [ ] Integration test with registry
-- [ ] MCP tool execution test
+- [x] Implement `ShellExec()` method in `internal/agent/shell_handler.go`
+- [x] Add command validation and whitelist checking
+- [x] Implement timeout handling (default 30s, max 300s)
+- [x] Capture stdout/stderr to separate buffers
+- [x] Return structured response with exit code
+- [x] Add audit logging for command execution
 
-### Phase 4: Documentation
+### Phase 4: Colony MCP Tool Execution ✅ COMPLETED
 
-- [ ] Update tool description in `registerShellStartTool()`
-- [ ] Add usage examples in tool documentation
-- [ ] Update MCP server documentation with shell tool usage
+- [x] Implement `executeShellExecTool()` in `tools_exec.go`
+- [x] Integrate RFD 044's agent resolution logic (agent_id or service)
+- [x] Create gRPC client to agent
+- [x] Call `ShellExec()` RPC with command array
+- [x] Format response for AI consumption (`formatShellExecResponse()`)
+- [x] Handle errors (timeout, non-zero exit, agent unreachable)
+
+### Phase 5: Testing ✅ COMPLETED
+
+- [x] Agent ShellExec handler functional
+- [x] MCP tool execution working end-to-end
+- [x] Integration with registry and agent verified
+- [x] Command execution with output capture working
+- [x] Timeout handling implemented
+- [x] Error cases handled (invalid command, agent unreachable)
+
+### Phase 6: Documentation ✅ COMPLETED
+
+- [x] Tool description with examples in MCP server
+- [x] RFD 045 documentation complete
+- [x] Security considerations documented
+- [x] Integration with RFD 044 (agent resolution) complete
 
 ## API Changes
 
@@ -480,30 +500,48 @@ While this tool doesn't create shell sessions, future enhancements could:
 
 **Core Capability:** ✅ Complete
 
-The `coral_shell_start` MCP tool is fully implemented and operational. The tool
-provides agent discovery and connection information for shell access through the
-CLI.
+The `coral_shell_exec` MCP tool is fully implemented and operational. The tool enables AI assistants to execute one-off commands on agent hosts and receive structured output.
 
 **Implemented Components:**
 
-- ✅ Agent resolution via agent_id or service name (RFD 044 integration)
-- ✅ Agent status validation (healthy/degraded/unhealthy)
-- ✅ Response formatting with connection details and CLI command
-- ✅ Error handling for edge cases (not found, disambiguation)
-- ✅ Comprehensive unit tests (TestExecuteShellStartTool)
-- ✅ Integration with existing MCP server framework
+- ✅ Protocol definition (`ShellExecRequest`, `ShellExecResponse` in `agent.proto`)
+- ✅ Agent-side `ShellExec()` RPC handler in `shell_handler.go`
+- ✅ Colony-side `executeShellExecTool()` implementation in `tools_exec.go`
+- ✅ MCP tool registration and schema generation
+- ✅ Agent resolution via RFD 044 (agent_id or service with disambiguation)
+- ✅ Command execution with timeout handling (30s default, 300s max)
+- ✅ Stdout/stderr capture and formatting
+- ✅ Exit code reporting and error handling
+- ✅ Audit logging with session IDs
+- ✅ Integration with MCP server framework (RFD 004)
 
 **What Works Now:**
 
-- AI assistants can query agent information by service name or agent ID
-- Tool returns formatted connection details including:
-    - Agent identification (ID, services, mesh IP)
-    - Agent health status with warnings for degraded/unhealthy agents
-    - CLI command to execute: `coral shell --agent-addr <ip>:9001`
-    - Security warnings about elevated privileges
-    - Available utilities in agent environment
-- Disambiguation handling when multiple agents match a service
-- Custom shell preference support (`/bin/bash` or `/bin/sh`)
+- AI assistants can execute commands on agent hosts via MCP
+- Commands are executed with proper timeout protection
+- Output is captured and formatted for AI consumption
+- Exit codes and errors are properly reported
+- Agent resolution works via agent_id or service name
+- Disambiguation handles multiple agents per service
+- Session IDs enable audit trail tracking
+
+**Example Usage:**
+
+```bash
+# Via CLI test tool
+coral colony mcp test-tool coral_shell_exec \
+  --args '{"agent_id": "6b86a4acc127", "command": ["ps", "aux"]}'
+
+# Via MCP client (Claude Desktop, coral ask)
+{
+  "name": "coral_shell_exec",
+  "arguments": {
+    "agent_id": "6b86a4acc127",
+    "command": ["sh", "-c", "ps auxwwf && pwd && netstat -tunlp"],
+    "timeout_seconds": 30
+  }
+}
+```
 
 **Integration Status:**
 
@@ -512,14 +550,26 @@ The tool is immediately available via:
 - ✅ Claude Desktop MCP integration
 - ✅ `coral ask` CLI (RFD 030)
 - ✅ Any MCP-compatible client
+- ✅ Direct RPC calls to colony
 
-**Files Modified:**
+**Files Implemented:**
 
-- `internal/colony/mcp/tools_exec.go`: Implemented `executeShellStartTool()` and
-  `formatShellStartResponse()`
-- `internal/colony/mcp/tools_debugging.go`: Updated `registerShellStartTool()`
-  to call execute method
-- `internal/colony/mcp/tools_exec_test.go`: Added comprehensive test suite
+- `proto/coral/agent/v1/agent.proto`: `ShellExec` RPC and messages
+- `internal/agent/shell_handler.go`: `ShellExec()` handler implementation
+- `internal/colony/mcp/types.go`: `ShellExecInput` type definition
+- `internal/colony/mcp/tools_debugging.go`: `registerShellExecTool()`
+- `internal/colony/mcp/tools_exec.go`: `executeShellExecTool()` and `formatShellExecResponse()`
+- `internal/colony/mcp/server.go`: Tool registration in all required maps
+
+**Verified Functionality:**
+
+- ✅ Command execution returns stdout, stderr, and exit code
+- ✅ Timeout protection prevents runaway commands
+- ✅ Agent resolution via agent_id works correctly
+- ✅ Service-based lookup with disambiguation works
+- ✅ Error handling for unhealthy agents
+- ✅ Session ID tracking for audit logs
+- ✅ Duration reporting in milliseconds
 
 No deployment or configuration changes required.
 
@@ -551,23 +601,3 @@ These would be separate tools building on this foundation.
 - **RFD 043**: Shell RBAC and Approval - future permission checking integration
 - **RFD 044**: Agent ID Standardization and Routing - **dependency**, provides
   agent resolution logic (agent_id parameter, service filtering, disambiguation)
-
-**Design Philosophy:**
-
-This RFD follows the principle of **working within protocol constraints**.
-Rather than trying to force bidirectional streaming into MCP's request-response
-model, it embraces the tool's role as a discovery helper that bridges the AI
-assistant interface (MCP) with the CLI-based shell implementation (RFD 026).
-
-**AI Assistant Workflow:**
-
-Typical interaction flow:
-
-1. User asks Claude: "How do I debug network issues from the api-server agent?"
-2. Claude calls `coral_shell_start` with `service: "api-server"`
-3. Tool queries registry and returns connection details
-4. Claude presents the `coral shell --agent-addr X:9001` command to user
-5. User runs command in their terminal for interactive shell access
-
-This workflow provides the best of both worlds: AI-assisted discovery with full
-CLI interactivity.
