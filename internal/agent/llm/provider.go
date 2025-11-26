@@ -30,9 +30,10 @@ type ToolCall struct {
 
 // GenerateRequest contains the parameters for LLM generation.
 type GenerateRequest struct {
-	Messages []Message
-	Tools    []mcp.Tool // MCP tools available to the LLM
-	Stream   bool       // Whether to stream the response
+	Messages     []Message
+	Tools        []mcp.Tool // MCP tools available to the LLM
+	Stream       bool       // Whether to stream the response
+	SystemPrompt string     // System instructions for parameter extraction and behavior guidance
 }
 
 // GenerateResponse contains the LLM's response.

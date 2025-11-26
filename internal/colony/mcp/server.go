@@ -151,6 +151,10 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 	case "coral_shell_start":
 		return s.executeShellStartTool(ctx, argumentsJSON)
 
+	// Service discovery (RFD 054)
+	case "coral_list_services":
+		return s.executeListServicesTool(ctx, argumentsJSON)
+
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -231,6 +235,7 @@ func (s *Server) getToolSchemas() map[string]string {
 		"coral_list_ebpf_collectors":     ListEBPFCollectorsInput{},
 		"coral_exec_command":             ExecCommandInput{},
 		"coral_shell_start":              ShellStartInput{},
+		"coral_list_services":            ListServicesInput{},
 	}
 
 	for toolName, inputType := range toolInputTypes {
@@ -282,6 +287,7 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_list_ebpf_collectors":     "List currently active eBPF collectors with their status and remaining duration.",
 		"coral_exec_command":             "Execute a command in an application container (kubectl/docker exec semantics). Useful for checking configuration, running diagnostic commands, or inspecting container state.",
 		"coral_shell_start":              "Start an interactive debug shell in the agent's environment (not the application container). Provides access to debugging tools (tcpdump, netcat, curl) and agent's data. Returns session ID for audit.",
+		"coral_list_services":            "List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
 	}
 }
 
@@ -306,6 +312,9 @@ func (s *Server) registerTools() error {
 	s.registerListEBPFCollectorsTool()
 	s.registerExecCommandTool()
 	s.registerShellStartTool()
+
+	// Register service discovery tools (RFD 054).
+	s.registerListServicesTool()
 
 	// TODO: Register analysis tools (Phase 4).
 	// s.registerCorrelateEventsTool()
@@ -340,6 +349,7 @@ func (s *Server) listToolNames() []string {
 		"coral_list_ebpf_collectors",
 		"coral_exec_command",
 		"coral_shell_start",
+		"coral_list_services",
 	}
 }
 
