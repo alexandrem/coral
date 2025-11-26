@@ -1,4 +1,6 @@
-# Coral CLI Reference
+# Coral CLI Guide
+
+**For quick command syntax, see [CLI_REFERENCE.md](./CLI_REFERENCE.md)**
 
 **Last Updated**: 2025-11-20
 
@@ -7,27 +9,26 @@
 ## Overview
 
 The Coral CLI (`coral`) provides a unified interface for debugging distributed
-applications, querying metrics, and managing the Coral mesh network. This
-document covers all CLI commands with practical examples.
+applications, querying metrics, and managing the Coral mesh network. This guide
+covers concepts, workflows, and detailed examples.
 
-**Key Commands:**
+**Quick command reference:** See [CLI_REFERENCE.md](./CLI_REFERENCE.md)
 
-- `coral init` - Initialize Coral configuration
-- `coral config` - Manage config contexts (kubectl-style)
-- `coral agent` - Manage agents (start, status)
-- `coral colony` - Manage colony server
-- `coral connect` - Connect to services
-- `coral ask` - Natural language debugging queries
-- `coral duckdb` - Query agent and colony metrics databases
-- `coral shell` - Interactive shell on agents
+**Key Capabilities:**
+
+- **Mesh networking** - WireGuard-based secure connectivity
+- **Config management** - kubectl-style context switching
+- **Observability** - Real-time metrics and distributed tracing
+- **AI-powered debugging** - Natural language queries with your own LLM
+- **Direct SQL access** - Query agent databases with DuckDB
 
 ---
 
 ## Installation
 
 ```bash
-# Install Coral CLI
-# TODO - for now: make build-dev
+# Build from source (for now)
+make build-dev
 
 # Verify installation
 coral version
@@ -35,63 +36,23 @@ coral version
 
 ---
 
-## Quick Start
+## Quick Start Workflow
 
-```bash
-# 1. Initialize Coral
-coral init <colony name>
+**Initial Setup:**
 
-# 2. Start a colony (central coordinator)
-coral colony start
+1. **Initialize** - `coral init <colony-name>` creates `~/.coral/config.yaml` and WireGuard keypair
+2. **Start Colony** - `coral colony start` launches the central coordinator
+3. **Start Agents** - `coral agent start` on each monitored machine
+4. **Connect Services** - `coral connect frontend:3000 api:8080`
+5. **Query** - `coral ask "what services are running?"`
 
-# 3. Start an agent (on each machine you want to monitor)
-coral agent start
-
-# 4. Check status
-coral status
-
-# 5. Query your infrastructure
-coral ask "what services are running?"
-```
+See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for command syntax.
 
 ---
 
-## Command Reference
+## Configuration Management
 
-### `coral init`
-
-Initialize Coral colony configuration in `~/.coral/`.
-
-```bash
-coral init <colony name>
-
-# Output:
-✓ Created ~/.coral/config.yaml
-✓ Generated WireGuard keypair
-✓ Configuration complete
-
-Next steps:
-  1. Start colony: coral colony start
-  2. Start agents: coral agent start
-```
-
-**Configuration File** (`~/.coral/config.yaml`):
-
-```yaml
-colony:
-    url: http://localhost:9000
-
-agent:
-    id: agent-<hostname>
-    colony_url: http://localhost:9000
-```
-
----
-
-### `coral config`
-
-Manage Coral configuration with kubectl-inspired commands. Switch between
-colonies, validate configs, and inspect merged configuration.
+Coral uses a kubectl-inspired config system for managing multiple colonies (environments).
 
 **Configuration Priority:**
 
@@ -99,317 +60,160 @@ colonies, validate configs, and inspect merged configuration.
 2. Project config (`.coral/config.yaml` in current directory)
 3. Global config (`~/.coral/config.yaml`)
 
-**Environment Variables:**
-
-- `CORAL_CONFIG` - Override config directory (default: `~/.coral`)
-- `CORAL_COLONY_ID` - Override active colony
-
-#### `coral config get-contexts`
-
-List all configured colonies with the current context marked.
+**Workflow Example:**
 
 ```bash
+# List available colonies
 coral config get-contexts
 
-# Output:
-CURRENT    COLONY-ID                  APPLICATION     ENVIRONMENT  RESOLUTION
-*          myapp-dev-abc123           myapp           dev          global
-           myapp-prod-xyz789          myapp           prod         -
-```
-
-```bash
-# JSON output for scripting
-coral config get-contexts --json
-```
-
-#### `coral config current-context`
-
-Show the current active colony.
-
-```bash
-coral config current-context
-# Output: myapp-dev-abc123
-
-# With resolution details
-coral config current-context --verbose
-# Output:
-# myapp-dev-abc123
-# Resolution: global default (~/.coral/config.yaml)
-```
-
-#### `coral config use-context`
-
-Set the default colony for commands.
-
-```bash
+# Switch to production colony
 coral config use-context myapp-prod-xyz789
-# Output: Default colony set to: myapp-prod-xyz789
-```
 
-#### `coral config view`
+# Verify current context
+coral config current-context
 
-Show merged configuration with source annotations.
-
-```bash
-# View current colony config
+# View merged configuration with source annotations
 coral config view
 
-# View specific colony
-coral config view --colony myapp-prod-xyz789
-
-# Raw YAML output (for piping/editing)
-coral config view --raw
-```
-
-**Output:**
-
-```yaml
-# Colony: myapp-dev-abc123
-# Resolution: global:~/.coral/config.yaml
-#
-# Config sources (priority order):
-#   1. Environment variables (highest)
-#   2. Project config (.coral/config.yaml) - not present
-#   3. Colony config (~/.coral/colonies/myapp-dev-abc123/config.yaml)
-#   4. Global config (~/.coral/config.yaml)
-
-colony_id: myapp-dev-abc123                  # colony
-application_name: myapp                      # colony
-environment: dev                             # colony
-
-discovery:
-  endpoint: http://localhost:8080            # global
-
-wireguard:
-  port: 41580                                # colony
-  mesh_ipv4: 100.64.0.1                      # colony
-```
-
-#### `coral config validate`
-
-Validate all colony configurations.
-
-```bash
+# Validate all colony configs
 coral config validate
-
-# Output:
-  myapp-dev-abc123: valid
-  myapp-prod-xyz789: valid
-
-Validation summary: 2 valid, 0 invalid
 ```
 
-```bash
-# JSON output
-coral config validate --json
-```
-
-#### `coral config delete-context`
-
-Delete a colony configuration (interactive confirmation required).
-
-```bash
-coral config delete-context myapp-dev-abc123
-
-# Output:
-  This will permanently delete colony "myapp-dev-abc123" including:
-   - Config, CA certificates, and all colony data
-   - Directory: /Users/you/.coral/colonies/myapp-dev-abc123
-
-To confirm, type the colony name: myapp-dev-abc123
-Deleted colony: myapp-dev-abc123
-```
+See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for all `coral config` commands.
 
 ---
 
-### `coral agent`
+## AI-Powered Debugging
 
-Manage Coral agents that monitor services.
+Coral integrates with your own LLM (OpenAI, Anthropic, or local Ollama) to provide
+natural language debugging queries.
 
-#### `coral agent start`
-
-Start an agent daemon.
-
-```bash
-# Start agent with default config
-coral agent start
-
-# Start with custom config
-coral agent start --config /etc/coral/agent.yaml
-
-# Start with specific colony
-coral agent start --colony-url http://colony.example.com:9000
-```
-
-#### `coral agent status`
-
-Show agent status and connected services.
+**Setup:**
 
 ```bash
-coral agent status
-
-# Output:
-Agent: agent-prod-1
-Status: healthy
-Mesh IP: 10.42.1.5
-Colony: http://localhost:9000
-
-Connected Services:
-NAME           STATUS    PORT   LAST CHECK
-api-server     healthy   8080   2s ago
-auth-service   healthy   8081   1s ago
-database       healthy   5432   3s ago
+# First-time configuration
+coral ask config
+# Choose provider: OpenAI, Anthropic, or Ollama
+# Provide API key (stored locally in ~/.coral/)
 ```
+
+**Privacy & Cost:**
+- Uses YOUR LLM API keys (never sent to Coral servers)
+- Runs locally as a Genkit agent on your workstation
+- Connects to Colony as MCP server for observability data
+- You control model choice, costs, and data privacy
+
+**Example Workflows:**
+
+```bash
+# Investigate performance issues
+coral ask "Why is the API slow?"
+# → Queries recent metrics, identifies bottlenecks
+
+# Debug errors
+coral ask "Show me errors in the last hour"
+# → Retrieves error spans, correlates with metrics
+
+# Understand system state
+coral ask "What changed in the last hour?"
+# → Compares current vs historical data
+
+# Get service health overview
+coral ask "Are there any unhealthy services?"
+# → Checks agent status, service health
+```
+
+See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for `coral ask` syntax.
 
 ---
 
-### `coral colony`
+## SQL Metrics Queries with DuckDB
 
-Manage the colony server (central coordinator).
+Coral provides direct SQL access to agent databases using DuckDB, enabling powerful
+real-time analysis without serialization overhead.
 
-#### `coral colony start`
+**Why DuckDB?**
 
-Start the colony server.
+- **Zero overhead** - Native binary protocol over HTTP
+- **Full SQL** - Complete DuckDB SQL dialect with analytics functions
+- **Real-time** - Query live agent data (~1 hour retention)
+- **Multi-source** - Join data across multiple agents
+- **Flexible output** - Table, CSV, or JSON formats
 
-```bash
-# Start colony with default config
-coral colony start
+**Available Databases:**
 
-# Start with custom config
-coral colony start --config /etc/coral/colony.yaml
+- `metrics.duckdb` - Agent database (OTLP spans + eBPF HTTP/gRPC/SQL metrics)
+- Custom databases registered by agents
 
-# Start with specific port
-coral colony start --port 9000
-```
-
----
-
-### `coral connect`
-
-Connect to a service through an agent.
+**Common Use Cases:**
 
 ```bash
-# Connect to a service by name and port
-coral connect api-server:8080
+# Discover what's available
+coral duckdb list-agents
 
-# Connect to specific agent
-coral connect api-server:8080 --agent agent-prod-1
+# One-shot queries
+coral duckdb query agent-prod-1 "SELECT * FROM spans WHERE status='error' LIMIT 10"
+
+# Interactive exploration
+coral duckdb shell agent-prod-1
+
+# Multi-agent analysis
+coral duckdb shell --agents agent-1,agent-2,agent-3
 ```
 
----
-
-### `coral ask`
-
-Natural language queries about your infrastructure.
-
-```bash
-# General questions
-coral ask "what services are running?"
-coral ask "why is the API slow?"
-coral ask "show me recent errors"
-
-# Service-specific
-coral ask "what's wrong with the auth service?"
-coral ask "show me database query performance"
-
-# Historical analysis
-coral ask "what happened 2 hours ago?"
-coral ask "show me error trends this week"
-```
+See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for command syntax.
 
 ---
 
-## `coral duckdb` - SQL Metrics Queries
+### Architecture Overview
 
-The `coral duckdb` command provides direct SQL access to all agent databases using
-DuckDB's remote attach feature. Query real-time agent metrics (~1 hour
-retention) including telemetry spans, Beyla metrics, and any custom databases.
+**How it works:**
 
-**Key Features:**
+1. Agents serve DuckDB files at `http://agent:9001/duckdb/<database-name>`
+2. CLI discovers databases via `/duckdb` endpoint
+3. CLI attaches databases using DuckDB's `httpfs` extension
+4. Queries execute directly against agent storage
 
-- **Zero serialization overhead** - Native DuckDB binary protocol
-- **Full SQL power** - Use complete DuckDB SQL dialect
-- **Multi-database support** - Access telemetry, Beyla, and custom databases
-- **Interactive shell** - REPL with readline, history, multi-line queries
-- **Multiple output formats** - Table, CSV, JSON
-- **Multi-agent queries** - Join data from multiple agents
+**Data Retention:**
 
-**Architecture:**
-
-- Agents serve local DuckDB files at `http://agent:9001/duckdb/<database-name>`
-  - `telemetry.duckdb` - OTLP telemetry spans (RFD 025)
-  - `beyla.duckdb` - Beyla HTTP/gRPC/SQL metrics (RFD 032)
-  - Custom databases registered by agents
-- Colony serves aggregated database at `http://colony:9000/duckdb/metrics.duckdb` (RFD 046 - future)
-- CLI attaches via HTTP using DuckDB's `httpfs` extension
-- Database discovery via `/duckdb` endpoint (lists available databases)
+- **Agents**: ~1 hour of metrics (real-time debugging)
+- **Colony** (future): 30 days HTTP/gRPC, 14 days SQL (historical analysis)
 
 ---
 
-### `coral duckdb list-agents` (alias: `list`)
+### Discovering Databases
 
-List all agents with their available databases.
+List all agents and their available databases:
 
 ```bash
 coral duckdb list-agents
-# or
-coral duckdb list
+
+# Example output:
+# AGENT ID        STATUS    LAST SEEN           DATABASES
+# agent-prod-1    healthy   2025-11-20 10:30    metrics.duckdb
+# agent-prod-2    healthy   2025-11-20 10:29    metrics.duckdb
 ```
-
-**Output:**
-
-```
-AGENT ID        STATUS    LAST SEEN           DATABASES
-agent-prod-1    healthy   2025-11-20 10:30    telemetry.duckdb, beyla.duckdb
-agent-prod-2    healthy   2025-11-20 10:29    telemetry.duckdb, beyla.duckdb
-agent-dev-1     degraded  2025-11-20 09:15    telemetry.duckdb
-agent-test-1    healthy   2025-11-20 10:28    -
-
-Total: 4 agents (3 with databases, 5 total databases)
-```
-
-**What it shows:**
-
-- **Agent ID** - Unique identifier for each agent
-- **Status** - Health status (healthy/degraded/unhealthy)
-- **Last Seen** - Last heartbeat timestamp
-- **Databases** - Comma-separated list of available databases for querying
 
 ---
 
-### `coral duckdb query` - One-Shot Queries
+### Query Examples
 
-Execute a SQL query against an agent database and print results.
-
-**Syntax:**
-
-```bash
-coral duckdb query <agent-id> "<sql>" [--database <db-name>] [--format table|csv|json]
-```
-
-**Flags:**
-
-- `--database, -d` - Database name to query (e.g., `telemetry.duckdb`, `beyla.duckdb`)
-  - If omitted, uses the first available database
-- `--format, -f` - Output format: `table` (default), `csv`, or `json`
-
-#### Basic Query Examples
+#### Basic Queries
 
 **Query telemetry spans:**
 
 ```bash
-# Explicitly specify database
-coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10" --database telemetry.duckdb
-
 # Auto-detect first available database
 coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10"
-# Using database: telemetry.duckdb
+
+# Explicitly specify database
+coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10" -d metrics.duckdb
 ```
 
 **Query recent HTTP requests (Beyla):**
 
 ```bash
-coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10" -d beyla.duckdb
+coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10" -d metrics.duckdb
 ```
 
 **Output (table format):**
@@ -425,431 +229,157 @@ timestamp            service_name  http_method  http_route  http_status_code  la
 (10 rows)
 ```
 
-#### Telemetry Span Queries
+#### Performance Analysis
 
-**Query error spans:**
-
-```bash
-coral duckdb query agent-prod-1 \
-  "SELECT trace_id, span_id, name, status, duration_ms
-   FROM spans
-   WHERE status = 'error'
-   ORDER BY timestamp DESC
-   LIMIT 20" \
-  -d telemetry.duckdb
-```
-
-**High-latency operations:**
+**Find high-latency operations (telemetry):**
 
 ```bash
 coral duckdb query agent-prod-1 \
-  "SELECT name, service_name, AVG(duration_ms) as avg_duration_ms, COUNT(*) as count
+  "SELECT name, service_name, AVG(duration_ms) as avg_ms, COUNT(*) as count
    FROM spans
-   WHERE timestamp > now() - INTERVAL '10 minutes'
-     AND duration_ms > 500
+   WHERE timestamp > now() - INTERVAL '10 minutes' AND duration_ms > 500
    GROUP BY name, service_name
-   ORDER BY avg_duration_ms DESC" \
-  -d telemetry.duckdb
+   ORDER BY avg_ms DESC"
 ```
 
-#### Aggregation Queries (Beyla)
-
-**Request count by service:**
+**P99 latency by endpoint (Beyla):**
 
 ```bash
 coral duckdb query agent-prod-1 \
-  "SELECT service_name, COUNT(*) as request_count
-   FROM beyla_http_metrics_local
-   WHERE timestamp > now() - INTERVAL '5 minutes'
-   GROUP BY service_name
-   ORDER BY request_count DESC" \
-  -d beyla.duckdb
-```
-
-**Output:**
-
-```
-service_name     request_count
-api-server       15478
-auth-service     8234
-payment-gateway  3421
-
-(3 rows)
-```
-
-**P99 latency by endpoint:**
-
-```bash
-coral duckdb query agent-prod-1 \
-  "SELECT
-     http_route,
-     COUNT(*) as count,
-     AVG(latency_bucket_ms) as avg_latency_ms,
-     PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_bucket_ms) as p99_latency_ms
+  "SELECT http_route,
+          PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_bucket_ms) as p99_ms
    FROM beyla_http_metrics_local
    WHERE timestamp > now() - INTERVAL '10 minutes'
    GROUP BY http_route
-   ORDER BY p99_latency_ms DESC
-   LIMIT 10"
+   ORDER BY p99_ms DESC LIMIT 10"
 ```
 
-#### Error Analysis
+#### Error Detection
 
-**Find 5xx errors:**
+**Find error spans (telemetry):**
 
 ```bash
 coral duckdb query agent-prod-1 \
-  "SELECT
-     timestamp,
-     service_name,
-     http_method,
-     http_route,
-     http_status_code,
-     count
-   FROM beyla_http_metrics_local
-   WHERE http_status_code >= 500
-   ORDER BY timestamp DESC
-   LIMIT 20"
+  "SELECT trace_id, name, service_name, duration_ms
+   FROM spans
+   WHERE status = 'error' AND timestamp > now() - INTERVAL '1 hour'
+   ORDER BY timestamp DESC LIMIT 20"
 ```
 
-**Error rate by service:**
+**5xx error rate (Beyla):**
 
 ```bash
 coral duckdb query agent-prod-1 \
-  "SELECT
-     service_name,
-     COUNT(*) as total_requests,
-     SUM(CASE WHEN http_status_code >= 500 THEN 1 ELSE 0 END) as errors,
-     (SUM(CASE WHEN http_status_code >= 500 THEN 1 ELSE 0 END)::FLOAT / COUNT(*) * 100) as error_rate_pct
+  "SELECT service_name,
+          COUNT(*) as total,
+          SUM(CASE WHEN http_status_code >= 500 THEN 1 ELSE 0 END) as errors
    FROM beyla_http_metrics_local
    WHERE timestamp > now() - INTERVAL '1 hour'
    GROUP BY service_name"
 ```
 
-#### gRPC Metrics
+#### Data Export
 
-**Query gRPC methods:**
-
-```bash
-coral duckdb query agent-prod-1 \
-  "SELECT
-     service_name,
-     grpc_method,
-     COUNT(*) as call_count,
-     AVG(latency_bucket_ms) as avg_latency_ms,
-     grpc_status_code
-   FROM beyla_grpc_metrics_local
-   WHERE timestamp > now() - INTERVAL '15 minutes'
-   GROUP BY service_name, grpc_method, grpc_status_code
-   ORDER BY call_count DESC"
-```
-
-#### SQL Query Metrics
-
-**Slow database queries:**
+**Export to CSV:**
 
 ```bash
 coral duckdb query agent-prod-1 \
-  "SELECT
-     table_name,
-     sql_operation,
-     COUNT(*) as query_count,
-     AVG(latency_bucket_ms) as avg_latency_ms,
-     MAX(latency_bucket_ms) as max_latency_ms
-   FROM beyla_sql_metrics_local
-   WHERE timestamp > now() - INTERVAL '10 minutes'
-     AND latency_bucket_ms > 100
-   GROUP BY table_name, sql_operation
-   ORDER BY avg_latency_ms DESC"
-```
-
-#### CSV Export
-
-Export query results to CSV for analysis in spreadsheets or BI tools.
-
-```bash
-coral duckdb query agent-prod-1 \
-  "SELECT
-     service_name,
-     http_route,
-     COUNT(*) as count,
-     AVG(latency_bucket_ms) as avg_latency
+  "SELECT service_name, http_route, COUNT(*) as count
    FROM beyla_http_metrics_local
-   WHERE timestamp > now() - INTERVAL '1 hour'
    GROUP BY service_name, http_route" \
   --format csv > metrics.csv
 ```
 
-**Output (metrics.csv):**
-
-```csv
-service_name,http_route,count,avg_latency
-api-server,/checkout,1547,45.2
-api-server,/products,3421,12.5
-auth-service,/login,892,23.1
-```
-
-#### JSON Export
-
-Export as JSON for programmatic processing.
+**Export to JSON:**
 
 ```bash
 coral duckdb query agent-prod-1 \
-  "SELECT * FROM beyla_http_metrics_local LIMIT 5" \
+  "SELECT * FROM beyla_http_metrics_local LIMIT 100" \
   --format json | jq '.'
-```
-
-**Output:**
-
-```json
-[
-    {
-        "timestamp": "2025-11-20 10:25:14",
-        "service_name": "api-server",
-        "http_method": "POST",
-        "http_route": "/checkout",
-        "http_status_code": 200,
-        "latency_bucket_ms": 45.2,
-        "count": 1547
-    },
-    ...
-]
 ```
 
 ---
 
-### `coral duckdb shell` - Interactive SQL Shell
+### Interactive SQL Shell
 
-Open an interactive DuckDB REPL for exploring agent databases.
+For exploratory analysis, use the interactive shell with readline support, command history,
+and multi-line query editing.
 
-**Syntax:**
-
-```bash
-coral duckdb shell <agent-id> [--database <db-name>]
-coral duckdb shell --agents <agent-1>,<agent-2>,<agent-3> [--database <db-name>]
-```
-
-**Flags:**
-
-- `--database, -d` - Database name to attach (e.g., `telemetry.duckdb`, `beyla.duckdb`)
-  - If omitted, uses the first available database
-- `--agents` - Comma-separated list of agent IDs for multi-agent queries
-
-#### Basic Shell Usage
-
-**Start interactive shell with auto-detected database:**
+**Start a shell:**
 
 ```bash
+# Single agent
 coral duckdb shell agent-prod-1
+
+# Multiple agents (for cross-agent queries)
+coral duckdb shell --agents agent-prod-1,agent-prod-2,agent-prod-3
 ```
 
-**Output:**
+**Shell meta-commands:**
 
-```
-Using database: telemetry.duckdb (agent: agent-prod-1)
-DuckDB interactive shell. Type '.exit' to quit, '.help' for help.
+- `.tables` - List all tables
+- `.databases` - Show attached databases
+- `.help` - Show help
+- `.exit` - Exit shell
 
-Attached agent database: agent_agent_prod_1
-
-duckdb>
-```
-
-**Start shell with specific database:**
-
-```bash
-coral duckdb shell agent-prod-1 --database beyla.duckdb
-# or
-coral duckdb shell agent-prod-1 -d telemetry.duckdb
-```
-
-#### Meta-Commands
-
-The shell supports special meta-commands (prefix with `.`):
+**Example debugging session:**
 
 ```sql
--- List all tables
-duckdb
-> .tables
-beyla_http_metrics_local
-beyla_grpc_metrics_local
-beyla_sql_metrics_local
-
--- Show attached databases
-duckdb> .databases
-agent_agent_prod_1
-
--- Show help
-duckdb> .help
-Meta-commands:
-  .tables     - List all tables in attached databases
-  .databases  - Show attached databases
-  .help       - Show this help message
-  .exit       - Exit shell
-  .quit       - Exit shell
-
-Query syntax:
-  -
-End queries with semicolon (;)
-  - Use Ctrl+C to cancel current query
-  - Use Ctrl+D or .exit to quit
-
--- Exit shell
-duckdb> .exit
-```
-
-#### Multi-Line Queries
-
-The shell supports multi-line SQL queries:
-
-```sql
-duckdb
->
-SELECT
-    ..> service_name, ..> COUNT (*) as count, ..> AVG (latency_bucket_ms) as avg_latency
-    ..>
-FROM beyla_http_metrics_local
-    ..>
-WHERE timestamp
-    > now() - INTERVAL '5 minutes'
-    ..
-    >
-GROUP BY service_name;
-
-service_name
-count  avg_latency
-api-server       1547   45.2
-auth-service     892    23.1
-(2 rows in 45ms)
-
-duckdb>
-```
-
-#### Interactive Exploration Example
-
-**Full debugging session:**
-
-```sql
-duckdb
-> -- Start by listing tables
 duckdb> .tables
 beyla_http_metrics_local
 beyla_grpc_metrics_local
-beyla_sql_metrics_local
+spans
 
-duckdb> -- Check recent HTTP traffic
-duckdb>
-SELECT service_name,
-       COUNT(*) as request_count
-    ..>
+duckdb> -- Check recent traffic
+SELECT service_name, COUNT(*) as requests
 FROM beyla_http_metrics_local
-         ..>
-WHERE timestamp
-    > now() - INTERVAL '5 minutes'
-    ..
-    >
+WHERE timestamp > now() - INTERVAL '5 minutes'
 GROUP BY service_name;
 
-service_name
-request_count
-api-server       1547
-auth-service     892
+service_name    requests
+api-server      1547
+auth-service    892
 (2 rows in 23ms)
 
-duckdb> -- Investigate errors
-duckdb>
-SELECT
-    ..> timestamp, ..> http_route, ..> http_status_code, ..> count
-    ..>
+duckdb> -- Find errors
+SELECT timestamp, http_route, http_status_code
 FROM beyla_http_metrics_local
-    ..>
 WHERE http_status_code >= 500
-    ..
-    >
-ORDER BY timestamp DESC
-    ..> LIMIT 5;
+ORDER BY timestamp DESC LIMIT 5;
 
-timestamp            http_route  http_status_code  count
-2025-11-20 10:25:14  /checkout   500               3
-2025-11-20 10:24:58  /products   503               1
+timestamp            http_route  http_status_code
+2025-11-20 10:25:14  /checkout   500
+2025-11-20 10:24:58  /products   503
 (2 rows in 12ms)
-
-duckdb> -- Check latency for specific endpoint
-duckdb>
-SELECT
-    ..> AVG (latency_bucket_ms) as avg_ms, ..> PERCENTILE_CONT(0.99) WITHIN
-GROUP (ORDER BY latency_bucket_ms) as p99_ms
-    ..>
-FROM beyla_http_metrics_local
-    ..>
-WHERE http_route = '/checkout';
-
-avg_ms
-p99_ms
-45.2    250.0
-(1 row in 8ms)
 
 duckdb> .exit
 ```
 
-#### Multi-Agent Queries
+**Multi-agent queries:**
 
-Attach multiple agent databases and query across them. When using `--agents`, the same database is attached from each agent.
-
-```bash
-# Query same database across multiple agents
-coral duckdb shell --agents agent-prod-1,agent-prod-2,agent-prod-3 --database beyla.duckdb
-```
-
-**Output:**
-
-```
-Using database: beyla.duckdb (agent: agent-prod-1)
-Using database: beyla.duckdb (agent: agent-prod-2)
-Using database: beyla.duckdb (agent: agent-prod-3)
-DuckDB interactive shell. Type '.exit' to quit, '.help' for help.
-
-Attached databases: agent_agent_prod_1, agent_agent_prod_2, agent_agent_prod_3
-
-duckdb>
-```
-
-**Query across all agents:**
+When querying multiple agents, databases are prefixed with agent IDs:
 
 ```sql
-duckdb
-> -- Aggregate requests from all agents
-duckdb>
-SELECT service_name,
-       SUM(count) as total_requests
-    ..>
+-- Aggregate across all agents
+SELECT service_name, SUM(count) as total
 FROM (
-         ..>   SELECT * FROM agent_agent_prod_1.beyla_http_metrics_local
-    ..>   UNION ALL
-    ..>   SELECT * FROM agent_agent_prod_2.beyla_http_metrics_local
-    ..>   UNION ALL
-    ..>   SELECT * FROM agent_agent_prod_3.beyla_http_metrics_local
-    ..> ) ..>
-WHERE timestamp
-    > now() - INTERVAL '10 minutes'
-    ..
-    >
+  SELECT * FROM agent_agent_prod_1.beyla_http_metrics_local
+  UNION ALL
+  SELECT * FROM agent_agent_prod_2.beyla_http_metrics_local
+  UNION ALL
+  SELECT * FROM agent_agent_prod_3.beyla_http_metrics_local
+)
+WHERE timestamp > now() - INTERVAL '10 minutes'
 GROUP BY service_name;
-
-service_name
-total_requests
-api-server       45892
-auth-service     23451
-payment-gateway  12087
-(3 rows in 125ms)
 ```
 
 ---
 
 ### Available Tables and Schema
 
-#### Telemetry Database (`telemetry.duckdb`)
+#### Agent Database (`metrics.duckdb`)
 
-The telemetry database stores OTLP spans from instrumented applications.
+The agent database stores both OTLP spans and eBPF metrics.
 
 ##### `spans` Table
 
@@ -890,11 +420,11 @@ ORDER BY timestamp;
 
 ---
 
-#### Beyla Database (`beyla.duckdb`)
+##### Beyla Metrics Tables
 
-The Beyla database stores eBPF-collected HTTP, gRPC, and SQL metrics.
+eBPF-collected HTTP, gRPC, and SQL metrics (stored in `metrics.duckdb`).
 
-##### `beyla_http_metrics_local` (Agent)
+**`beyla_http_metrics_local` Table**
 
 HTTP request metrics with RED (Rate, Errors, Duration) data.
 
@@ -910,7 +440,7 @@ HTTP request metrics with RED (Rate, Errors, Duration) data.
 - `attributes` (JSON) - Additional metadata
 - `created_at` (TIMESTAMP) - When metric was stored
 
-#### `beyla_grpc_metrics_local` (Agent)
+**`beyla_grpc_metrics_local` Table**
 
 gRPC method call metrics.
 
@@ -925,7 +455,7 @@ gRPC method call metrics.
 - `attributes` (JSON) - Additional metadata
 - `created_at` (TIMESTAMP) - When metric was stored
 
-#### `beyla_sql_metrics_local` (Agent)
+**`beyla_sql_metrics_local` Table**
 
 Database query metrics.
 
@@ -1038,7 +568,7 @@ The CLI automatically discovers available databases from agents using the `/duck
 **How it works:**
 
 1. CLI queries agent at `http://<agent-mesh-ip>:9001/duckdb`
-2. Agent returns JSON list: `{"databases": ["telemetry.duckdb", "beyla.duckdb"]}`
+2. Agent returns JSON list: `{"databases": ["metrics.duckdb"]}`
 3. If `--database` not specified, CLI uses first available database
 4. Database list shown in `coral duckdb list-agents` output
 
@@ -1050,7 +580,7 @@ coral duckdb list-agents
 
 # Query specific agent's databases via HTTP
 curl http://10.42.1.5:9001/duckdb
-# Returns: {"databases":["telemetry.duckdb","beyla.duckdb"]}
+# Returns: {"databases":["metrics.duckdb"]}
 ```
 
 **Registering custom databases:**
@@ -1158,15 +688,14 @@ ping <agent-mesh-ip>
 ```bash
 # Verify agent HTTP server is running and databases are registered
 curl http://<agent-mesh-ip>:9001/duckdb
-# Should return: {"databases":["telemetry.duckdb","beyla.duckdb"]}
+# Should return: {"databases":["metrics.duckdb"]}
 
 # Check firewall rules
 # Agent must allow port 9001 from WireGuard mesh (not public internet)
 
 # Verify agent database path is configured
-# Check agent.yaml for database_path settings:
-#   telemetry.database_path: ~/.coral/agent/telemetry.duckdb
-#   beyla.db_path: ~/.coral/agent/beyla.duckdb
+# Check agent.yaml for database_path setting:
+#   database_path: ~/.coral/agent/metrics.duckdb
 ```
 
 #### "query timeout"
@@ -1185,8 +714,8 @@ curl http://<agent-mesh-ip>:9001/duckdb
 ## Related Documentation
 
 - **RFD 039** - DuckDB Remote Query CLI (detailed specification)
-- **RFD 025** - OTLP Telemetry Receiver (spans in `telemetry.duckdb`)
-- **RFD 032** - Beyla RED Metrics Integration (metrics in `beyla.duckdb`)
+- **RFD 025** - OTLP Telemetry Receiver (spans in `metrics.duckdb`)
+- **RFD 032** - Beyla RED Metrics Integration (HTTP/gRPC/SQL metrics in `metrics.duckdb`)
 - **RFD 038** - CLI-to-Agent Direct Mesh Connectivity
 - **RFD 046** - Colony DuckDB Remote Query (historical data - future)
 - **DuckDB Documentation** - https://duckdb.org/docs/
