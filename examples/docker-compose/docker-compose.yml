@@ -20,17 +20,26 @@ services:
       #- --connect
       #- demo-app:8080
     environment:
-      CORAL_COLONY_ID: ${CORAL_COLONY_ID:-sockshop-demo}
+      # Config-less mode: only CORAL_COLONY_ID and CORAL_COLONY_SECRET are required.
+      CORAL_COLONY_ID: ${CORAL_COLONY_ID}
+      CORAL_COLONY_SECRET: ${CORAL_COLONY_SECRET}
       CORAL_DISCOVERY_ENDPOINT: ${CORAL_DISCOVERY_ENDPOINT:-http://host.docker.internal:8080}
-      CORAL_WIREGUARD_PORT: "41821" # Static port for WireGuard (required for Docker NAT traversal)
     depends_on:
       - demo-app
     pid: "service:demo-app"
     network_mode: "service:demo-app"
-    volumes:
-      - ${HOST_CORAL_DIR:-~/.coral}:/root/.coral:ro
     cap_add:
       - NET_ADMIN
+      - SYS_ADMIN      # Required for eBPF (Beyla)
+      - SYS_PTRACE     # Required for eBPF process attachment
+      - SYS_RESOURCE   # Required for memlock rlimit
     devices:
       - /dev/net/tun:/dev/net/tun
-    privileged: false  # Using capabilities; wireguard-go runs in userspace
+    privileged: false  # Using capabilities instead of privileged mode
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+volumes:
+  coral-agent-data:

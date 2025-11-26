@@ -69,7 +69,7 @@ CREATE TABLE metrics (
   timestamp TIMESTAMP,
   metric_name TEXT,
   value DOUBLE,
-  labels JSONB,  -- service, host, etc.
+  labels TEXT,  -- JSON string: service, host, etc.
   INDEX idx_timestamp (timestamp)
 );
 
@@ -79,7 +79,7 @@ CREATE TABLE events (
   timestamp TIMESTAMP,
   event_type TEXT,  -- start, stop, crash, deploy
   process_name TEXT,
-  details JSONB
+  details TEXT  -- JSON string
 );
 
 -- Network connections (current state)
@@ -140,23 +140,26 @@ Agent observes → Store in local DuckDB → Push summaries to colony
 **DuckDB Schema (Colony)**:
 ```sql
 -- Services in the mesh
-CREATE TABLE services (
+CREATE TABLE IF NOT EXISTS services (
   id TEXT PRIMARY KEY,
-  name TEXT,
-  mesh_id TEXT,
+  name TEXT NOT NULL,
+  app_id TEXT NOT NULL,
   version TEXT,
-  agent_id TEXT,
-  labels JSONB,
-  last_seen TIMESTAMP,
-  status TEXT
+  agent_id TEXT NOT NULL,
+  labels TEXT,  -- JSON string
+  last_seen TIMESTAMP NOT NULL,
+  status TEXT NOT NULL  -- running, stopped, error
 );
+CREATE INDEX IF NOT EXISTS idx_services_agent_id ON services(agent_id);
+CREATE INDEX IF NOT EXISTS idx_services_status ON services(status);
+CREATE INDEX IF NOT EXISTS idx_services_last_seen ON services(last_seen);
 
 -- Aggregated metrics (downsampled)
-CREATE TABLE metric_summaries (
-  timestamp TIMESTAMP,
-  service_id TEXT,
-  metric_name TEXT,
-  interval TEXT,  -- '5m', '15m', '1h', '1d'
+CREATE TABLE IF NOT EXISTS metric_summaries (
+  timestamp TIMESTAMP NOT NULL,
+  service_id TEXT NOT NULL,
+  metric_name TEXT NOT NULL,
+  interval TEXT NOT NULL,  -- '5m', '15m', '1h', '1d'
   p50 DOUBLE,
   p95 DOUBLE,
   p99 DOUBLE,
@@ -165,57 +168,70 @@ CREATE TABLE metric_summaries (
   count INTEGER,
   PRIMARY KEY (timestamp, service_id, metric_name, interval)
 );
+CREATE INDEX IF NOT EXISTS idx_metric_summaries_service_id ON metric_summaries(service_id);
+CREATE INDEX IF NOT EXISTS idx_metric_summaries_metric_name ON metric_summaries(metric_name);
 
 -- Event log (important events only)
-CREATE TABLE events (
+CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
-  timestamp TIMESTAMP,
-  service_id TEXT,
-  event_type TEXT,  -- deploy, crash, restart, alert, connection
-  details JSONB,
-  correlation_group TEXT  -- For related events
+  timestamp TIMESTAMP NOT NULL,
+  service_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,  -- deploy, crash, restart, alert, connection
+  details TEXT,  -- JSON string
+  correlation_group TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_events_service_id ON events(service_id);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_group);
 
 -- AI-generated insights
-CREATE TABLE insights (
+CREATE TABLE IF NOT EXISTS insights (
   id INTEGER PRIMARY KEY,
-  created_at TIMESTAMP,
-  insight_type TEXT,  -- anomaly, pattern, recommendation
-  priority TEXT,  -- high, medium, low
-  title TEXT,
-  summary TEXT,
-  details JSONB,
-  affected_services TEXT[],
-  status TEXT,  -- active, dismissed, resolved
-  confidence DOUBLE,  -- 0.0 to 1.0
+  created_at TIMESTAMP NOT NULL,
+  insight_type TEXT NOT NULL,  -- anomaly, pattern, recommendation
+  priority TEXT NOT NULL,  -- high, medium, low
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  details TEXT,  -- JSON string
+  affected_services TEXT,  -- JSON array
+  status TEXT NOT NULL,  -- active, dismissed, resolved
+  confidence DOUBLE,
   expires_at TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_insights_status ON insights(status);
+CREATE INDEX IF NOT EXISTS idx_insights_priority ON insights(priority);
+CREATE INDEX IF NOT EXISTS idx_insights_created_at ON insights(created_at);
 
 -- Service topology (auto-discovered)
-CREATE TABLE service_connections (
-  from_service TEXT,
-  to_service TEXT,
-  protocol TEXT,
-  first_observed TIMESTAMP,
-  last_observed TIMESTAMP,
-  connection_count INTEGER,
+CREATE TABLE IF NOT EXISTS service_connections (
+  from_service TEXT NOT NULL,
+  to_service TEXT NOT NULL,
+  protocol TEXT NOT NULL,
+  first_observed TIMESTAMP NOT NULL,
+  last_observed TIMESTAMP NOT NULL,
+  connection_count INTEGER NOT NULL,
   PRIMARY KEY (from_service, to_service, protocol)
 );
+CREATE INDEX IF NOT EXISTS idx_service_connections_from ON service_connections(from_service);
+CREATE INDEX IF NOT EXISTS idx_service_connections_to ON service_connections(to_service);
 
 -- Learned baselines
-CREATE TABLE baselines (
-  service_id TEXT,
-  metric_name TEXT,
-  time_window TEXT,  -- '1h', '1d', '7d'
+CREATE TABLE IF NOT EXISTS baselines (
+  service_id TEXT NOT NULL,
+  metric_name TEXT NOT NULL,
+  time_window TEXT NOT NULL,  -- '1h', '1d', '7d'
   mean DOUBLE,
   stddev DOUBLE,
   p50 DOUBLE,
   p95 DOUBLE,
   p99 DOUBLE,
   sample_count INTEGER,
-  last_updated TIMESTAMP,
+  last_updated TIMESTAMP NOT NULL,
   PRIMARY KEY (service_id, metric_name, time_window)
 );
+CREATE INDEX IF NOT EXISTS idx_baselines_service_id ON baselines(service_id);
+CREATE INDEX IF NOT EXISTS idx_baselines_metric_name ON baselines(metric_name);
 ```
 
 **Data Flow**:

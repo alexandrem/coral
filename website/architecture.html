@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture - Coral</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-icon">🪸</span>
+                    <span class="logo-text">Coral</span>
+                </div>
+                <nav class="nav">
+                    <a href="index.html">Home</a>
+                    <a href="index.html#get-started">Get Started</a>
+                    <a href="https://github.com/alexandrem/coral-mesh" target="_blank">GitHub</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Architecture Section -->
+    <section class="architecture-page">
+        <div class="container">
+            <div class="section-header">
+                <h1>System Architecture</h1>
+                <p class="section-subtitle">Complete data flow from AI query to live instrumentation</p>
+            </div>
+
+            <!-- Detailed Architecture Diagram -->
+            <div class="architecture-diagram">
+                <div class="mcp-flow-container mcp-flow-vertical">
+                    <!-- Clients Column -->
+                    <div class="flow-column flow-column-stacked">
+                        <!-- External AI -->
+                        <div class="flow-node node-client">
+                            <div class="node-icon-wrapper">
+                                <span class="node-icon">🤖</span>
+                            </div>
+                            <h4>External AI</h4>
+                            <div class="node-detail">Claude • VS Code • Cursor</div>
+                        </div>
+
+                        <!-- Coral CLI -->
+                        <div class="flow-node node-coral-cli">
+                            <div class="node-icon-wrapper icon-coral">
+                                <span class="node-icon">⌨️</span>
+                            </div>
+                            <h4>Coral Ask</h4>
+                            <div class="node-detail">Built-in Terminal AI</div>
+                        </div>
+                    </div>
+
+                    <!-- Arrow 1 -->
+                    <div class="flow-arrow">
+                        <div class="arrow-line">
+                            <div class="arrow-packet"></div>
+                        </div>
+                        <div class="arrow-label">MCP Protocol</div>
+                    </div>
+
+                    <!-- Proxy Column -->
+                    <div class="flow-column">
+                        <div class="flow-node node-proxy">
+                            <div class="node-icon-wrapper icon-proxy">
+                                <span class="node-icon">🔄</span>
+                            </div>
+                            <h4>MCP Proxy</h4>
+                            <div class="node-detail">Protocol Bridge</div>
+                        </div>
+                    </div>
+
+                    <!-- Arrow 2 -->
+                    <div class="flow-arrow">
+                        <div class="arrow-line">
+                            <div class="arrow-packet"></div>
+                        </div>
+                        <div class="arrow-label">gRPC</div>
+                    </div>
+
+                    <!-- Colony Column -->
+                    <div class="flow-column">
+                        <div class="flow-node node-server flow-node-detailed">
+                            <div class="node-icon-wrapper">
+                                <span class="node-icon">🧠</span>
+                            </div>
+                            <h4>Colony Server</h4>
+                            <ul class="node-features">
+                                <li>MCP Server (Genkit)</li>
+                                <li>Service Health & Query</li>
+                                <li>RBAC & Audit Logging</li>
+                                <li>Telemetry Aggregation (DuckDB)</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Parallel Section: WireGuard & Discovery -->
+                    <div class="flow-parallel-section">
+                        <!-- Left: Data Plane (WireGuard) -->
+                        <div class="flow-path-main">
+                            <div class="flow-arrow arrow-long">
+                                <div class="arrow-line">
+                                    <div class="arrow-packet packet-reverse"></div>
+                                </div>
+                                <div class="arrow-label">WireGuard Mesh</div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Control Plane (Discovery) -->
+                        <div class="flow-path-side">
+                            <div class="flow-arrow arrow-short">
+                                <div class="arrow-line"></div>
+                            </div>
+
+                            <div class="flow-node node-discovery-micro">
+                                <div class="node-icon-wrapper icon-discovery">
+                                    <span class="node-icon">🧭</span>
+                                </div>
+                                <h4>Discovery</h4>
+                            </div>
+
+                            <div class="flow-arrow arrow-short">
+                                <div class="arrow-line"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Agents Column -->
+                    <div class="flow-column">
+                        <div class="flow-node node-agent flow-node-detailed">
+                            <div class="node-icon-wrapper">
+                                <span class="node-icon">👁️</span>
+                            </div>
+                            <h4>Agents</h4>
+                            <ul class="node-features">
+                                <li>eBPF (Beyla) Metrics</li>
+                                <li>OTLP Receiver</li>
+                                <li>Telemetry (DuckDB)</li>
+                                <li>shell/exec</li>
+                                <li>Live Probes</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Arrow 4 -->
+                    <div class="flow-arrow">
+                        <div class="arrow-line">
+                            <div class="arrow-packet"></div>
+                            <div class="arrow-packet packet-reverse"></div>
+                        </div>
+                        <div class="arrow-label">Instrumentation</div>
+                    </div>
+
+                    <!-- Application Column -->
+                    <div class="flow-column">
+                        <div class="flow-node node-app">
+                            <div class="node-icon-wrapper icon-app">
+                                <span class="node-icon">📦</span>
+                            </div>
+                            <h4>Application</h4>
+                            <div class="node-detail">SDK & Runtime</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Architecture Components -->
+            <div class="arch-components">
+                <h2>Architecture Components</h2>
+                <div class="arch-grid">
+                    <div class="arch-tier">
+                        <div class="tier-icon">⌨️</div>
+                        <h4>Coral CLI</h4>
+                        <p>The unified command-line interface for all Coral interactions. Includes the <strong>Coral
+                                Ask</strong> terminal assistant and manages the <strong>MCP Proxy</strong>.</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">🔄</div>
+                        <h4>MCP Proxy</h4>
+                        <p>Built into the Coral CLI, this lightweight bridge translates between the Model Context
+                            Protocol (stdio) used by AI assistants and the gRPC protocol used by the Colony server.</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">🧠</div>
+                        <h4>Colony</h4>
+                        <p>Central coordinator with MCP server, DuckDB storage, and AI orchestration. Provides the
+                            unified interface for all AI assistants to query distributed observability data.</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">🧭</div>
+                        <h4>Discovery Service</h4>
+                        <p>Global registry that coordinates WireGuard key exchange and NAT traversal, enabling secure
+                            agent-to-colony connections across any network.</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">👁️</div>
+                        <h4>Agents</h4>
+                        <p>Local observers using eBPF, OTLP, and shell commands to gather telemetry. Run as a sidecar or
+                            node agent (DaemonSet) to monitor services with local DuckDB storage.</p>
+                    </div>
+                    <div class="arch-tier">
+                        <div class="tier-icon">⚙️</div>
+                        <h4>SDK (Optional)</h4>
+                        <p>Advanced features like live probes and runtime instrumentation. Enables on-demand eBPF
+                            uprobes for deep debugging without redeploying.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Key Features -->
+            <div class="arch-features">
+                <h2>Key Architecture Features</h2>
+                <div class="feature-list">
+                    <div class="feature-item-large">
+                        <h3>🔌 Universal MCP Integration</h3>
+                        <p>Colony exposes a standard MCP server that works with any AI assistant: Claude Desktop, VS
+                            Code, Cursor, or custom applications. The coral mcp proxy translates between MCP protocol
+                            (stdio) and Buf Connect gRPC for type-safe communication.</p>
+                    </div>
+                    <div class="feature-item-large">
+                        <h3>🔐 Encrypted WireGuard Mesh</h3>
+                        <p>All components connect via an encrypted WireGuard mesh coordinated by the <strong>Discovery
+                                Service</strong>. Works across any network boundary with no VPN configuration, firewall
+                            rules, or per-environment tooling required.</p>
+                    </div>
+                    <div class="feature-item-large">
+                        <h3>📊 Edge-Based Observability</h3>
+                        <p>Agents run on each service (sidecar or node agent) with local DuckDB storage for recent data
+                            (~6hr rolling window).
+                            Colony polls agents for summaries, reducing network overhead while maintaining fast queries
+                            for detailed telemetry.</p>
+                    </div>
+                    <div class="feature-item-large">
+                        <h3>🎯 Progressive Integration</h3>
+                        <p>Start with Level 0 (zero-config eBPF), optionally add Level 1 (OTLP for OpenTelemetry apps),
+                            Level 2 (shell/exec diagnostics), and Level 3 (SDK Live Probes): App owners can integrate a
+                            language-specific SDK to launch a runtime bridge with the agent, enabling live probes and
+                            deep runtime control.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Back Link -->
+            <div class="back-link">
+                <a href="index.html" class="btn btn-secondary">← Back to Home</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-left">
+                    <div class="footer-logo">Coral</div>
+                    <p class="footer-tagline">Application Intelligence Mesh</p>
+                </div>
+                <nav class="footer-nav">
+                    <a href="index.html">Home</a>
+                    <a href="architecture.html">Architecture</a>
+                    <a href="https://github.com/alexandrem/coral-mesh">GitHub</a>
+                </nav>
+                <div class="footer-right">
+                    <p>&copy; 2025 Coral</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+
+</html>

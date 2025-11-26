@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"sync"
@@ -44,7 +45,7 @@ func NewServiceMonitor(service *meshv1.ServiceInfo, logger zerolog.Logger) *Serv
 		status:        ServiceStatusUnknown,
 		checkInterval: 10 * time.Second,
 		checkTimeout:  2 * time.Second,
-		logger:        logger.With().Str("service", service.ComponentName).Logger(),
+		logger:        logger.With().Str("service", service.Name).Logger(),
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -76,7 +77,23 @@ func (m *ServiceMonitor) GetStatus() (ServiceStatus, time.Time, error) {
 
 // monitorLoop runs the health check loop.
 func (m *ServiceMonitor) monitorLoop() {
-	// Perform initial check immediately.
+	// Add random initial delay (up to 30% of check interval) to prevent thundering
+	// herd when multiple services start simultaneously.
+	maxJitter := int64(m.checkInterval) * 30 / 100
+	initialDelay := time.Duration(rand.Int64N(maxJitter))
+
+	m.logger.Debug().
+		Dur("initial_delay", initialDelay).
+		Msg("Waiting before first health check to prevent thundering herd")
+
+	select {
+	case <-m.ctx.Done():
+		return
+	case <-time.After(initialDelay):
+		// Continue to first check.
+	}
+
+	// Perform initial check after jitter delay.
 	m.performHealthCheck()
 
 	ticker := time.NewTicker(m.checkInterval)
@@ -141,7 +158,7 @@ func (m *ServiceMonitor) checkHTTPHealth(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("http request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // TODO: errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("unhealthy status code: %d", resp.StatusCode)
@@ -159,7 +176,7 @@ func (m *ServiceMonitor) checkTCPHealth(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tcp connection failed: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // TODO: errcheck
 
 	return nil
 }

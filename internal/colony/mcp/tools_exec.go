@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 )
@@ -42,7 +46,7 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 		if serviceFilter != "" {
 			matchFound := false
 			for _, svc := range agent.Services {
-				if matchesPattern(svc.ComponentName, serviceFilter) {
+				if matchesPattern(svc.Name, serviceFilter) {
 					matchFound = true
 					break
 				}
@@ -70,11 +74,11 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 		// Build service names list from Services[] array.
 		serviceNames := make([]string, 0, len(agent.Services))
 		for _, svc := range agent.Services {
-			serviceNames = append(serviceNames, svc.ComponentName)
+			serviceNames = append(serviceNames, svc.Name)
 		}
 		servicesStr := strings.Join(serviceNames, ", ")
 		if servicesStr == "" {
-			servicesStr = agent.ComponentName // Fallback for backward compatibility
+			servicesStr = agent.Name // Fallback for backward compatibility
 		}
 
 		serviceStatuses = append(serviceStatuses, map[string]interface{}{
@@ -96,18 +100,19 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 	}
 
 	// Format response.
-	text := fmt.Sprintf("System Health Report:\n\n")
+	text := "System Health Report:\n\n"
 	text += fmt.Sprintf("Overall Status: %s\n\n", overallStatus)
-	text += fmt.Sprintf("Services:\n")
+	text += "Services:\n"
 
 	if len(serviceStatuses) == 0 {
 		text += "  No services connected.\n"
 	} else {
 		for _, svc := range serviceStatuses {
 			statusEmoji := "✓"
-			if svc["status"] == "degraded" {
+			switch svc["status"] {
+			case "degraded":
 				statusEmoji = "⚠"
-			} else if svc["status"] == "unhealthy" {
+			case "unhealthy":
 				statusEmoji = "✗"
 			}
 
@@ -138,18 +143,18 @@ func (s *Server) executeServiceTopologyTool(ctx context.Context, argumentsJSON s
 
 	agents := s.registry.ListAll()
 
-	text := fmt.Sprintf("Service Topology:\n\n")
+	text := "Service Topology:\n\n"
 	text += fmt.Sprintf("Connected Agents (%d):\n", len(agents))
 
 	for _, agent := range agents {
 		// Build service names list from Services[] array (RFD 044).
 		serviceNames := make([]string, 0, len(agent.Services))
 		for _, svc := range agent.Services {
-			serviceNames = append(serviceNames, svc.ComponentName)
+			serviceNames = append(serviceNames, svc.Name)
 		}
 		servicesStr := strings.Join(serviceNames, ", ")
 		if servicesStr == "" {
-			servicesStr = agent.ComponentName // Fallback for backward compatibility
+			servicesStr = agent.Name // Fallback for backward compatibility
 		}
 
 		text += fmt.Sprintf("  - %s (services: %s, mesh IP: %s)\n", agent.AgentID, servicesStr, agent.MeshIPv4)
@@ -440,7 +445,9 @@ func (s *Server) executeStartEBPFCollectorTool(ctx context.Context, argumentsJSO
 	if input.DurationSeconds != nil {
 		text += fmt.Sprintf("Duration: %d seconds\n", *input.DurationSeconds)
 	} else {
-		text += "Duration: 30 seconds (default)\n"
+		if input.ConfigJSON != nil {
+			text += fmt.Sprintf("Config: %s\n", *input.ConfigJSON)
+		}
 	}
 
 	text += "\n"
@@ -569,14 +576,19 @@ func (s *Server) executeExecCommandTool(ctx context.Context, argumentsJSON strin
 	return text, nil
 }
 
-// executeShellStartTool executes coral_shell_start.
-func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string) (string, error) {
-	var input ShellStartInput
+// executeShellExecTool executes coral_shell_exec (RFD 045).
+func (s *Server) executeShellExecTool(ctx context.Context, argumentsJSON string) (string, error) {
+	var input ShellExecInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
-	s.auditToolCall("coral_shell_start", input)
+	s.auditToolCall("coral_shell_exec", input)
+
+	// Validate command.
+	if len(input.Command) == 0 {
+		return "", fmt.Errorf("command cannot be empty")
+	}
 
 	// Resolve target agent (RFD 044: agent ID or service name with disambiguation).
 	agent, err := s.resolveAgent(input.AgentID, input.Service)
@@ -584,35 +596,51 @@ func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string
 		return "", err
 	}
 
-	text := fmt.Sprintf("Agent Debug Shell: %s (agent: %s)\n\n", input.Service, agent.AgentID)
-	text += "Status: Not yet implemented\n\n"
-
-	shell := "/bin/bash"
-	if input.Shell != nil {
-		shell = *input.Shell
+	// Validate agent status.
+	status := registry.DetermineStatus(agent.LastSeen, time.Now())
+	if status == registry.StatusUnhealthy {
+		return "", fmt.Errorf("agent %s is unhealthy (last seen %s ago) - command execution may fail",
+			agent.AgentID, formatDuration(time.Since(agent.LastSeen)))
 	}
-	text += fmt.Sprintf("Shell: %s\n", shell)
 
-	text += "\n"
-	text += "Implementation Status:\n"
-	text += "  - RFD 026 (shell command) is in draft status\n"
-	text += "  - Agent shell server is not yet implemented\n"
-	text += "  - TTY handling and session management are pending\n"
-	text += "\n"
-	text += "Once implemented, this tool will:\n"
-	text += "  1. Locate target agent via registry\n"
-	text += "  2. Start interactive shell in agent's container\n"
-	text += "  3. Provide access to debugging utilities (tcpdump, netcat, curl, etc.)\n"
-	text += "  4. Enable network debugging from agent's perspective\n"
-	text += "  5. Allow querying agent's local DuckDB for raw telemetry\n"
-	text += "  6. Record full session for audit (elevated privileges)\n"
-	text += "\n"
-	text += "Security Note:\n"
-	text += "  - Agent shells have elevated privileges (CRI socket access, host network)\n"
-	text += "  - All sessions will be fully recorded for audit compliance\n"
-	text += "  - RBAC checks will be enforced before allowing access\n"
+	// Create gRPC client to agent.
+	agentURL := fmt.Sprintf("http://%s:9001", agent.MeshIPv4)
+	client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
 
-	return text, nil
+	// Prepare request.
+	timeout := uint32(30)
+	if input.TimeoutSeconds != nil {
+		timeout = *input.TimeoutSeconds
+		if timeout > 300 {
+			timeout = 300
+		}
+	}
+
+	req := &agentv1.ShellExecRequest{
+		Command:        input.Command,
+		UserId:         "mcp-server", // TODO: Get from MCP context
+		TimeoutSeconds: timeout,
+	}
+
+	if input.WorkingDir != nil {
+		req.WorkingDir = *input.WorkingDir
+	}
+
+	if input.Env != nil {
+		req.Env = input.Env
+	}
+
+	// Execute command with timeout.
+	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout+5)*time.Second)
+	defer cancel()
+
+	resp, err := client.ShellExec(execCtx, connect.NewRequest(req))
+	if err != nil {
+		return "", fmt.Errorf("failed to execute command on agent %s: %w", agent.AgentID, err)
+	}
+
+	// Format response.
+	return formatShellExecResponse(agent, resp.Msg), nil
 }
 
 // Helper functions for agent resolution and disambiguation (RFD 044).
@@ -638,7 +666,7 @@ func (s *Server) resolveAgent(agentID *string, serviceName string) (*registry.En
 	for _, agent := range agents {
 		// Check Services[] array, not ComponentName (RFD 044).
 		for _, svc := range agent.Services {
-			if matchesPattern(svc.ComponentName, serviceName) {
+			if matchesPattern(svc.Name, serviceName) {
 				matchedAgents = append(matchedAgents, agent)
 				break
 			}
@@ -755,6 +783,59 @@ func formatTraceByID(trace *database.BeylaTraceResult, format string) string {
 	text += fmt.Sprintf("Status: %d\n", trace.StatusCode)
 	if trace.ParentSpanID != "" {
 		text += fmt.Sprintf("Parent Span: %s\n", trace.ParentSpanID)
+	}
+
+	return text
+}
+
+// formatShellExecResponse formats the response for coral_shell_exec tool (RFD 045).
+// Returns formatted command output with exit code and execution details.
+func formatShellExecResponse(agent *registry.Entry, resp *agentv1.ShellExecResponse) string {
+	// Build service names list.
+	serviceNames := make([]string, 0, len(agent.Services))
+	for _, svc := range agent.Services {
+		serviceNames = append(serviceNames, svc.Name)
+	}
+	servicesStr := strings.Join(serviceNames, ", ")
+	if servicesStr == "" {
+		servicesStr = agent.Name
+	}
+
+	var text string
+
+	// Header with execution details.
+	text += fmt.Sprintf("Command executed on agent %s (%s)\n", agent.AgentID, servicesStr)
+	text += fmt.Sprintf("Duration: %dms | Exit Code: %d | Session: %s\n\n",
+		resp.DurationMs, resp.ExitCode, resp.SessionId)
+
+	// Show error if present.
+	if resp.Error != "" {
+		text += fmt.Sprintf("❌ Error: %s\n\n", resp.Error)
+	}
+
+	// Show stdout.
+	if len(resp.Stdout) > 0 {
+		text += "STDOUT:\n"
+		text += "```\n"
+		text += string(resp.Stdout)
+		text += "\n```\n\n"
+	} else {
+		text += "STDOUT: (empty)\n\n"
+	}
+
+	// Show stderr if present.
+	if len(resp.Stderr) > 0 {
+		text += "STDERR:\n"
+		text += "```\n"
+		text += string(resp.Stderr)
+		text += "\n```\n\n"
+	}
+
+	// Add status summary.
+	if resp.ExitCode == 0 && resp.Error == "" {
+		text += "✅ Command completed successfully\n"
+	} else if resp.ExitCode != 0 {
+		text += fmt.Sprintf("⚠️  Command exited with non-zero code: %d\n", resp.ExitCode)
 	}
 
 	return text

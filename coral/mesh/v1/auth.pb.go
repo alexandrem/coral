@@ -27,7 +27,7 @@ const (
 // Service information for multi-service agents.
 type ServiceInfo struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	ComponentName  string                 `protobuf:"bytes,1,opt,name=component_name,json=componentName,proto3" json:"component_name,omitempty"`                                        // "frontend", "redis", "metrics"
+	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                                                                               // "frontend", "redis", "metrics"
 	Port           int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`                                                                              // Service port number
 	HealthEndpoint string                 `protobuf:"bytes,3,opt,name=health_endpoint,json=healthEndpoint,proto3" json:"health_endpoint,omitempty"`                                     // Optional: "/health", "/metrics", ""
 	ServiceType    string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`                                              // Optional: "http", "redis", "postgres", "prometheus"
@@ -66,9 +66,9 @@ func (*ServiceInfo) Descriptor() ([]byte, []int) {
 	return file_coral_mesh_v1_auth_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *ServiceInfo) GetComponentName() string {
+func (x *ServiceInfo) GetName() string {
 	if x != nil {
-		return x.ComponentName
+		return x.Name
 	}
 	return ""
 }
@@ -515,9 +515,9 @@ var File_coral_mesh_v1_auth_proto protoreflect.FileDescriptor
 
 const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\x8f\x02\n" +
-	"\vServiceInfo\x12%\n" +
-	"\x0ecomponent_name\x18\x01 \x01(\tR\rcomponentName\x12\x12\n" +
+	"\x18coral/mesh/v1/auth.proto\x12\rcoral.mesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\xfc\x01\n" +
+	"\vServiceInfo\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
 	"\x0fhealth_endpoint\x18\x03 \x01(\tR\x0ehealthEndpoint\x12!\n" +
 	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12>\n" +

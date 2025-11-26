@@ -12,7 +12,7 @@ func (d *Database) initSchema() error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	// Execute all DDL statements.
 	for _, ddl := range schemaDDL {
@@ -201,11 +201,12 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_beyla_sql_service_time ON beyla_sql_metrics(service_name, timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_sql_operation ON beyla_sql_metrics(sql_operation, timestamp DESC)`,
 
-	// Beyla traces - distributed trace spans (RFD 032).
+	// Beyla traces - distributed trace spans (RFD 036).
 	`CREATE TABLE IF NOT EXISTS beyla_traces (
 		trace_id VARCHAR(32) NOT NULL,
 		span_id VARCHAR(16) NOT NULL,
 		parent_span_id VARCHAR(16),
+		agent_id VARCHAR NOT NULL,
 		service_name TEXT NOT NULL,
 		span_name TEXT NOT NULL,
 		span_kind VARCHAR(10),
@@ -219,4 +220,42 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_service_time ON beyla_traces(service_name, start_time DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_trace_id ON beyla_traces(trace_id, start_time DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_duration ON beyla_traces(duration_us DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_beyla_traces_agent_id ON beyla_traces(agent_id, start_time DESC)`,
+
+	// Agent IP allocations - persistent IP allocation for agents (RFD 019).
+	`CREATE TABLE IF NOT EXISTS agent_ip_allocations (
+		agent_id TEXT PRIMARY KEY,
+		ip_address TEXT NOT NULL UNIQUE,
+		allocated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_agent_ip_allocations_ip ON agent_ip_allocations(ip_address)`,
+
+	`CREATE TABLE IF NOT EXISTS issued_certificates (
+		serial_number TEXT PRIMARY KEY,
+		agent_id TEXT NOT NULL,
+		colony_id TEXT NOT NULL,
+		certificate_pem TEXT NOT NULL,
+		issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		expires_at TIMESTAMP NOT NULL,
+		revoked_at TIMESTAMP,
+		revocation_reason TEXT,
+		status TEXT NOT NULL DEFAULT 'active'
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_agent ON issued_certificates(agent_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_colony ON issued_certificates(colony_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_status ON issued_certificates(status)`,
+	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_expires ON issued_certificates(expires_at)`,
+
+	`CREATE TABLE IF NOT EXISTS certificate_revocations (
+		id INTEGER PRIMARY KEY,
+		serial_number TEXT NOT NULL,
+		revoked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		reason TEXT NOT NULL,
+		revoked_by TEXT
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_certificate_revocations_serial ON certificate_revocations(serial_number)`,
 }

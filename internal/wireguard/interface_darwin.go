@@ -31,7 +31,7 @@ func CreateTUN(name string, mtu int, logger zerolog.Logger) (*Interface, error) 
 
 	realName, err := tunDevice.Name()
 	if err != nil {
-		tunDevice.Close()
+		_ = tunDevice.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to get TUN device name: %w", err)
 	}
 

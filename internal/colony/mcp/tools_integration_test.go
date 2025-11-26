@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 	"github.com/coral-io/coral/internal/logging"
-	"github.com/firebase/genkit/go/ai"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestServiceHealthTool tests the coral_get_service_health tool integration.
@@ -81,8 +81,7 @@ func TestServiceHealthTool(t *testing.T) {
 
 	// Test 1: Get all services health.
 	t.Run("all services", func(t *testing.T) {
-		ctx := &ai.ToolContext{}
-		result, err := testServiceHealthCall(ctx, server, ServiceHealthInput{})
+		result, err := testServiceHealthCall(server, ServiceHealthInput{})
 
 		require.NoError(t, err)
 		assert.Contains(t, result, "System Health Report")
@@ -100,9 +99,8 @@ func TestServiceHealthTool(t *testing.T) {
 
 	// Test 2: Filter by service pattern.
 	t.Run("filter by pattern", func(t *testing.T) {
-		ctx := &ai.ToolContext{}
 		filter := "api*"
-		result, err := testServiceHealthCall(ctx, server, ServiceHealthInput{
+		result, err := testServiceHealthCall(server, ServiceHealthInput{
 			ServiceFilter: &filter,
 		})
 
@@ -121,8 +119,7 @@ func TestServiceHealthTool(t *testing.T) {
 			logger:   logger,
 		}
 
-		ctx := &ai.ToolContext{}
-		result, err := testServiceHealthCall(ctx, emptyServer, ServiceHealthInput{})
+		result, err := testServiceHealthCall(emptyServer, ServiceHealthInput{})
 
 		require.NoError(t, err)
 		assert.Contains(t, result, "No services connected")
@@ -130,8 +127,7 @@ func TestServiceHealthTool(t *testing.T) {
 }
 
 // testServiceHealthCall is a helper to test the service health tool.
-// This simulates what Genkit does when calling the tool.
-func testServiceHealthCall(ctx *ai.ToolContext, s *Server, input ServiceHealthInput) (string, error) {
+func testServiceHealthCall(s *Server, input ServiceHealthInput) (string, error) {
 	// Get service filter (handle nil pointer).
 	var serviceFilter string
 	if input.ServiceFilter != nil {
@@ -147,7 +143,7 @@ func testServiceHealthCall(ctx *ai.ToolContext, s *Server, input ServiceHealthIn
 
 	for _, agent := range agents {
 		// Apply filter if specified.
-		if serviceFilter != "" && !matchesPattern(agent.ComponentName, serviceFilter) {
+		if serviceFilter != "" && !matchesPattern(agent.Name, serviceFilter) {
 			continue
 		}
 
@@ -167,7 +163,7 @@ func testServiceHealthCall(ctx *ai.ToolContext, s *Server, input ServiceHealthIn
 		}
 
 		serviceStatuses = append(serviceStatuses, map[string]interface{}{
-			"service":   agent.ComponentName,
+			"service":   agent.Name,
 			"agent_id":  agent.AgentID,
 			"status":    status,
 			"last_seen": lastSeen.Format(time.RFC3339),
@@ -195,9 +191,10 @@ func testServiceHealthCall(ctx *ai.ToolContext, s *Server, input ServiceHealthIn
 	} else {
 		for _, svc := range serviceStatuses {
 			statusEmoji := "✓"
-			if svc["status"] == "degraded" {
+			switch svc["status"] {
+			case "degraded":
 				statusEmoji = "⚠"
-			} else if svc["status"] == "unhealthy" {
+			case "unhealthy":
 				statusEmoji = "✗"
 			}
 
@@ -243,11 +240,11 @@ func TestServiceTopologyTool(t *testing.T) {
 		// It should list connected agents.
 		agents := server.registry.ListAll()
 
-		text := fmt.Sprintf("Service Topology:\n\n")
+		text := "Service Topology:\n\n"
 		text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
 
 		for _, agent := range agents {
-			text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.ComponentName, agent.MeshIPv4)
+			text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.Name, agent.MeshIPv4)
 		}
 
 		text += "\nNote: Dependency graph discovery from distributed traces is not yet implemented.\n"
@@ -354,7 +351,6 @@ func TestServerCreation(t *testing.T) {
 		server, err := New(reg, db, config, logger)
 		require.NoError(t, err)
 		assert.NotNil(t, server)
-		assert.NotNil(t, server.genkit)
 		assert.NotNil(t, server.mcpServer)
 		assert.Equal(t, "test-colony", server.config.ColonyID)
 

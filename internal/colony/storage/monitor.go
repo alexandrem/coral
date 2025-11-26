@@ -1,3 +1,4 @@
+// Package storage provides colony data storage and monitoring.
 package storage
 
 import (

@@ -54,6 +54,8 @@ const (
 	AgentServiceQueryBeylaMetricsProcedure = "/coral.agent.v1.AgentService/QueryBeylaMetrics"
 	// AgentServiceShellProcedure is the fully-qualified name of the AgentService's Shell RPC.
 	AgentServiceShellProcedure = "/coral.agent.v1.AgentService/Shell"
+	// AgentServiceShellExecProcedure is the fully-qualified name of the AgentService's ShellExec RPC.
+	AgentServiceShellExecProcedure = "/coral.agent.v1.AgentService/ShellExec"
 	// AgentServiceResizeShellTerminalProcedure is the fully-qualified name of the AgentService's
 	// ResizeShellTerminal RPC.
 	AgentServiceResizeShellTerminalProcedure = "/coral.agent.v1.AgentService/ResizeShellTerminal"
@@ -81,6 +83,8 @@ type AgentServiceClient interface {
 	QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error)
 	// Shell: Interactive shell session in agent environment (RFD 026).
 	Shell(context.Context) *connect.BidiStreamForClient[v1.ShellRequest, v1.ShellResponse]
+	// ShellExec: One-off command execution in agent environment (RFD 045).
+	ShellExec(context.Context, *connect.Request[v1.ShellExecRequest]) (*connect.Response[v1.ShellExecResponse], error)
 	// Resize shell terminal (RFD 026).
 	ResizeShellTerminal(context.Context, *connect.Request[v1.ResizeShellTerminalRequest]) (*connect.Response[v1.ResizeShellTerminalResponse], error)
 	// Send signal to shell session (RFD 026).
@@ -142,6 +146,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("Shell")),
 			connect.WithClientOptions(opts...),
 		),
+		shellExec: connect.NewClient[v1.ShellExecRequest, v1.ShellExecResponse](
+			httpClient,
+			baseURL+AgentServiceShellExecProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ShellExec")),
+			connect.WithClientOptions(opts...),
+		),
 		resizeShellTerminal: connect.NewClient[v1.ResizeShellTerminalRequest, v1.ResizeShellTerminalResponse](
 			httpClient,
 			baseURL+AgentServiceResizeShellTerminalProcedure,
@@ -172,6 +182,7 @@ type agentServiceClient struct {
 	queryTelemetry      *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
 	queryBeylaMetrics   *connect.Client[v1.QueryBeylaMetricsRequest, v1.QueryBeylaMetricsResponse]
 	shell               *connect.Client[v1.ShellRequest, v1.ShellResponse]
+	shellExec           *connect.Client[v1.ShellExecRequest, v1.ShellExecResponse]
 	resizeShellTerminal *connect.Client[v1.ResizeShellTerminalRequest, v1.ResizeShellTerminalResponse]
 	sendShellSignal     *connect.Client[v1.SendShellSignalRequest, v1.SendShellSignalResponse]
 	killShellSession    *connect.Client[v1.KillShellSessionRequest, v1.KillShellSessionResponse]
@@ -212,6 +223,11 @@ func (c *agentServiceClient) Shell(ctx context.Context) *connect.BidiStreamForCl
 	return c.shell.CallBidiStream(ctx)
 }
 
+// ShellExec calls coral.agent.v1.AgentService.ShellExec.
+func (c *agentServiceClient) ShellExec(ctx context.Context, req *connect.Request[v1.ShellExecRequest]) (*connect.Response[v1.ShellExecResponse], error) {
+	return c.shellExec.CallUnary(ctx, req)
+}
+
 // ResizeShellTerminal calls coral.agent.v1.AgentService.ResizeShellTerminal.
 func (c *agentServiceClient) ResizeShellTerminal(ctx context.Context, req *connect.Request[v1.ResizeShellTerminalRequest]) (*connect.Response[v1.ResizeShellTerminalResponse], error) {
 	return c.resizeShellTerminal.CallUnary(ctx, req)
@@ -243,6 +259,8 @@ type AgentServiceHandler interface {
 	QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error)
 	// Shell: Interactive shell session in agent environment (RFD 026).
 	Shell(context.Context, *connect.BidiStream[v1.ShellRequest, v1.ShellResponse]) error
+	// ShellExec: One-off command execution in agent environment (RFD 045).
+	ShellExec(context.Context, *connect.Request[v1.ShellExecRequest]) (*connect.Response[v1.ShellExecResponse], error)
 	// Resize shell terminal (RFD 026).
 	ResizeShellTerminal(context.Context, *connect.Request[v1.ResizeShellTerminalRequest]) (*connect.Response[v1.ResizeShellTerminalResponse], error)
 	// Send signal to shell session (RFD 026).
@@ -300,6 +318,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("Shell")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceShellExecHandler := connect.NewUnaryHandler(
+		AgentServiceShellExecProcedure,
+		svc.ShellExec,
+		connect.WithSchema(agentServiceMethods.ByName("ShellExec")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceResizeShellTerminalHandler := connect.NewUnaryHandler(
 		AgentServiceResizeShellTerminalProcedure,
 		svc.ResizeShellTerminal,
@@ -334,6 +358,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceQueryBeylaMetricsHandler.ServeHTTP(w, r)
 		case AgentServiceShellProcedure:
 			agentServiceShellHandler.ServeHTTP(w, r)
+		case AgentServiceShellExecProcedure:
+			agentServiceShellExecHandler.ServeHTTP(w, r)
 		case AgentServiceResizeShellTerminalProcedure:
 			agentServiceResizeShellTerminalHandler.ServeHTTP(w, r)
 		case AgentServiceSendShellSignalProcedure:
@@ -375,6 +401,10 @@ func (UnimplementedAgentServiceHandler) QueryBeylaMetrics(context.Context, *conn
 
 func (UnimplementedAgentServiceHandler) Shell(context.Context, *connect.BidiStream[v1.ShellRequest, v1.ShellResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.Shell is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ShellExec(context.Context, *connect.Request[v1.ShellExecRequest]) (*connect.Response[v1.ShellExecResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.ShellExec is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ResizeShellTerminal(context.Context, *connect.Request[v1.ResizeShellTerminalRequest]) (*connect.Response[v1.ResizeShellTerminalResponse], error) {

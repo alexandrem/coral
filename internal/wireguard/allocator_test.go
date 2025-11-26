@@ -146,7 +146,7 @@ func TestIPAllocator_ReuseReleasedIP(t *testing.T) {
 
 	// Allocate and release
 	ip1, _ := allocator.Allocate("agent1")
-	allocator.Release(ip1)
+	_ = allocator.Release(ip1)
 
 	// Next allocation should reuse the released IP
 	ip2, _ := allocator.Allocate("agent2")
@@ -164,18 +164,18 @@ func TestIPAllocator_AllocatedCount(t *testing.T) {
 		t.Errorf("expected 0 allocated IPs, got %d", allocator.AllocatedCount())
 	}
 
-	allocator.Allocate("agent1")
+	_, _ = allocator.Allocate("agent1")
 	if allocator.AllocatedCount() != 1 {
 		t.Errorf("expected 1 allocated IP, got %d", allocator.AllocatedCount())
 	}
 
-	allocator.Allocate("agent2")
+	_, _ = allocator.Allocate("agent2")
 	if allocator.AllocatedCount() != 2 {
 		t.Errorf("expected 2 allocated IPs, got %d", allocator.AllocatedCount())
 	}
 
 	ip, _ := allocator.GetAgentIP("agent1")
-	allocator.Release(ip)
+	_ = allocator.Release(ip)
 	if allocator.AllocatedCount() != 1 {
 		t.Errorf("expected 1 allocated IP after release, got %d", allocator.AllocatedCount())
 	}

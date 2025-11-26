@@ -65,7 +65,7 @@ func TestManager_DisabledRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start should not fail when disabled: %v", err)
 	}
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }()
 
 	// Should not be registered since it's disabled.
 	if manager.IsRegistered() {
@@ -101,7 +101,7 @@ func TestManager_AutoRegisterDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start should not fail when auto-register disabled: %v", err)
 	}
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }()
 
 	// Should not be registered since auto-register is disabled.
 	if manager.IsRegistered() {
@@ -137,7 +137,7 @@ func TestManager_StartWithInvalidEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start should not fail when discovery unavailable: %v", err)
 	}
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }()
 
 	// Wait a bit for registration attempts.
 	time.Sleep(1 * time.Second)
