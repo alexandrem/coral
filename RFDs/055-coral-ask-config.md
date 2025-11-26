@@ -1,5 +1,5 @@
 ---
-rfd: "054"
+rfd: "055"
 title: "Coral Ask Config - Interactive LLM Configuration"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "ai", "cli", "ux" ]
 ---
 
-# RFD 054 - Coral Ask Config: Interactive LLM Configuration
+# RFD 055 - Coral Ask Config: Interactive LLM Configuration
 
 **Status:** 🚧 Draft
 
@@ -791,11 +791,3 @@ the design for the interactive configuration wizard.
 - ⏳ Provider registry: Not yet implemented
 - ⏳ Interactive prompts: Not yet implemented
 - ⏳ Validation logic: Not yet implemented
-
-**Next Steps:**
-
-1. Review and approve RFD
-2. Implement provider registry
-3. Implement interactive prompts
-4. Add validation logic
-5. Testing and documentation
