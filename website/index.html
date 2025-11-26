@@ -29,6 +29,223 @@
 
     <!-- Hero Section -->
     <section class="hero">
+        <!-- Coral Reef Background SVG -->
+        <svg class="hero-coral-bg" version="1.1" xmlns="http://www.w3.org/2000/svg"
+            xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 800 600"
+            style="enable-background:new 0 0 800 600;" xml:space="preserve">
+            <style type="text/css">
+                /* --- Color Palette --- */
+                .water-bg {
+                    fill: url(#waterGradient);
+                }
+
+                /* New Bottom/Coral Palette */
+                .sand-bottom {
+                    fill: #cec2a5;
+                }
+
+                /* Sand/rubble at the very bottom */
+                .coral-rock-base {
+                    fill: #8f5e43;
+                }
+
+                /* Darkest shadow layer of hard coral */
+                .coral-rock-mid {
+                    fill: #cba38b;
+                }
+
+                /* Main body color of hard coral (pink/tan) */
+                .coral-rock-light {
+                    fill: #eacfb9;
+                }
+
+                /* Highlights/texture bumps */
+
+                .coral-bg-struc {
+                    fill: #2c4e66;
+                }
+
+                /* Distant dark reef shapes */
+
+                /* Sea Fans (Gorgonians) */
+                .seafan-purple {
+                    fill: none;
+                    stroke: #9a5a9b;
+                    stroke-width: 3.5;
+                    stroke-linecap: round;
+                }
+
+                .seafan-pink {
+                    fill: none;
+                    stroke: #e08db9;
+                    stroke-width: 2.5;
+                    stroke-linecap: round;
+                }
+
+                .bubble {
+                    fill: #ffffff;
+                    opacity: 0.5;
+                }
+
+                /* --- Animations --- */
+                @keyframes sway-gentle {
+
+                    0%,
+                    100% {
+                        transform: rotate(-2deg);
+                    }
+
+                    50% {
+                        transform: rotate(2deg);
+                    }
+                }
+
+                @keyframes sway-breezy {
+
+                    0%,
+                    100% {
+                        transform: rotate(1deg) scaleX(0.98);
+                    }
+
+                    50% {
+                        transform: rotate(-3deg) scaleX(1.02);
+                    }
+                }
+
+                @keyframes bubbles-rise {
+                    0% {
+                        transform: translateY(0) translateX(0);
+                        opacity: 0;
+                    }
+
+                    10% {
+                        opacity: 0.7;
+                    }
+
+                    50% {
+                        transform: translateY(-250px) translateX(-15px);
+                    }
+
+                    100% {
+                        transform: translateY(-500px) translateX(10px);
+                        opacity: 0;
+                    }
+                }
+
+                /* Applying Animations */
+                .fan-anim-1 {
+                    transform-origin: bottom center;
+                    animation: sway-gentle 7s ease-in-out infinite;
+                }
+
+                .fan-anim-2 {
+                    transform-origin: bottom center;
+                    animation: sway-breezy 5s ease-in-out infinite alternate;
+                }
+
+                .bubble-1 {
+                    animation: bubbles-rise 6s linear infinite;
+                }
+
+                .bubble-2 {
+                    animation: bubbles-rise 8s linear infinite 2s;
+                }
+
+                .bubble-3 {
+                    animation: bubbles-rise 5s linear infinite 1s;
+                }
+
+                .bubble-4 {
+                    animation: bubbles-rise 7s linear infinite 3s;
+                }
+            </style>
+
+            <defs>
+                <linearGradient id="waterGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#1a5c8a" /> <!-- Slightly richer blue top -->
+                    <stop offset="100%" style="stop-color:#0a2f4d" /> <!-- Deep dark blue bottom -->
+                </linearGradient>
+            </defs>
+
+            /* === Background === */
+            <rect class="water-bg" width="800" height="600" />
+
+            <!-- Distant, dark reef structures for depth -->
+            <path class="coral-bg-struc"
+                d="M-50,600 V400 c60-20, 150,10, 200,30 c80,32, 150-10, 250,0 c120,12, 200-30, 300-10 c50,10, 80,40, 100,80 v120 H-50z"
+                opacity="0.6" />
+
+
+            /* === Midground: Swaying Sea Fans === */
+            <!-- Back Left Fan (Purple) -->
+            <g class="fan-anim-1" transform="translate(120, 450) scale(0.9)">
+                <path class="seafan-purple"
+                    d="M0,150 C-20,100 -60,60 -40,10 M-15,130 C5,90 35,50 20,-10 M0,150 C0,100 5,40 -5,-30 M-25,100 C-45,70 -70,30 -60,-10" />
+            </g>
+
+            <!-- Center Right Fan (Pinkish) -->
+            <g class="fan-anim-2" transform="translate(480, 420) scale(1.1)">
+                <path class="seafan-pink"
+                    d="M0,160 C-15,110 -40,60 -20,10 M10,140 C30,100 60,60 40,-10 M0,160 C5,110 10,50 5,-40 M-20,120 C-40,90 -65,50 -50,0 M25,110 C50,80 75,50 60,0" />
+            </g>
+
+            <!-- Far Right Fan (Purple) -->
+            <g class="fan-anim-1" transform="translate(680, 480) scale(0.8)">
+                <path class="seafan-purple"
+                    d="M0,140 C-25,100 -45,50 -25,0 M15,120 C35,80 55,40 35,-20 M0,140 C-5,90 5,40 0,-30" />
+            </g>
+
+
+            /* === Improved Foreground: Textured Hard Corals === */
+
+            <!-- 1. Sand/Rubble Base Layer -->
+            <path class="sand-bottom" d="M0,600 L0,580 C150,590 300,575 450,585 C600,595 700,570 800,580 L800,600 Z" />
+
+            <!-- Coral Structure Left -->
+            <g transform="translate(0,0)">
+                <!-- Base Shadow Structure -->
+                <path class="coral-rock-base"
+                    d="M-20,600 L-20,550 C50,520 150,500 250,530 C320,550 380,580 420,600 Z" />
+                <!-- Mid-tone rounded shapes (Boulder Corals) -->
+                <path class="coral-rock-mid" d="M0,600 C10,540 80,510 180,530 C260,545 320,580 350,600 Z" />
+                <path class="coral-rock-mid"
+                    d="M150,580 C180,540 280,530 360,560 C400,575 420,590 430,600 L150,600 Z" />
+                <!-- Texture Highlights (Polyps/Bumps) -->
+                <g class="coral-rock-light" opacity="0.7">
+                    <ellipse cx="120" cy="550" rx="40" ry="20" />
+                    <ellipse cx="200" cy="560" rx="50" ry="25" />
+                    <ellipse cx="280" cy="575" rx="35" ry="18" />
+                    <circle cx="160" cy="540" r="15" />
+                    <circle cx="230" cy="550" r="10" />
+                </g>
+            </g>
+
+            <!-- Coral Structure Right -->
+            <g transform="translate(400,20)">
+                <!-- Base Shadow Structure -->
+                <path class="coral-rock-base" d="M50,600 C80,560 200,530 300,550 C380,565 420,590 450,600 Z" />
+                <!-- Mid-tone rounded shapes -->
+                <path class="coral-rock-mid" d="M80,600 C120,550 250,540 350,570 C400,585 430,595 450,600 L80,600 Z" />
+                <!-- Texture Highlights -->
+                <g class="coral-rock-light" opacity="0.7">
+                    <ellipse cx="200" cy="570" rx="60" ry="30" />
+                    <ellipse cx="320" cy="585" rx="50" ry="20" />
+                    <circle cx="250" cy="565" r="18" />
+                    <circle cx="170" cy="580" r="12" />
+                </g>
+            </g>
+
+
+            /* === Bubbles === */
+            <g transform="translate(0, 600)">
+                <circle class="bubble bubble-1" cx="200" cy="10" r="6" />
+                <circle class="bubble bubble-2" cx="450" cy="30" r="9" />
+                <circle class="bubble bubble-3" cx="600" cy="0" r="5" />
+                <circle class="bubble bubble-4" cx="720" cy="20" r="7" />
+            </g>
+
+        </svg>
+
         <div class="container">
             <div class="hero-content">
                 <div class="hero-badge">🚧 Early Development</div>
@@ -119,6 +336,7 @@
             </div>
         </div>
     </section>
+
 
     <!-- Problem/Solution Section -->
     <section class="problem-solution">
