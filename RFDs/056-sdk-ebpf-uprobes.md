@@ -1,68 +1,100 @@
 ---
-rfd: "046"
+rfd: "056"
 title: "SDK-Integrated eBPF Uprobes for Live Debugging"
 state: "draft"
 breaking_changes: false
 testing_required: true
 database_changes: true
 api_changes: true
-dependencies: ["013", "018"]
-database_migrations: []
-areas: ["sdk", "ebpf", "debugging", "observability"]
+dependencies: [ "013", "018" ]
+database_migrations: [ ]
+areas: [ "sdk", "ebpf", "debugging", "observability" ]
 ---
 
-# RFD 046 - SDK-Integrated eBPF Uprobes for Live Debugging
+# RFD 056 - SDK-Integrated eBPF Uprobes for Live Debugging
 
 **Status:** 🚧 Draft
 
 ## Summary
 
-Enable on-demand live debugging of applications via SDK-integrated eBPF uprobes, allowing developers to dynamically attach probes to specific functions without redeployment. The Coral SDK discovers function offsets at runtime and coordinates with the agent to inject eBPF uprobes, providing deep visibility into application behavior for time-limited debugging sessions orchestrated by the colony.
+Enable on-demand live debugging of applications via SDK-integrated eBPF uprobes,
+allowing developers to dynamically attach probes to specific functions without
+redeployment. The Coral SDK discovers function offsets at runtime and
+coordinates with the agent to inject eBPF uprobes, providing deep visibility
+into application behavior for time-limited debugging sessions orchestrated by
+the colony.
 
 ## Problem
 
 **Current behavior/limitations:**
 
-- RFD 013 provides passive eBPF collection (HTTP latency, CPU profiling, syscall stats) but cannot trace application-specific functions.
-- Debugging production issues requires either adding extensive logging (redeploy), using SDK profiling (overhead), or ssh + manual debugging (security risk).
-- No way to dynamically instrument specific functions like `handleCheckout`, `processPayment`, or `validateCard` without code changes.
-- Traditional debuggers (gdb, delve) require stopping the process or significant overhead, unsuitable for production.
-- Distributed tracing shows high-level spans but not function-level execution details.
+- RFD 013 provides passive eBPF collection (HTTP latency, CPU profiling, syscall
+  stats) but cannot trace application-specific functions.
+- Debugging production issues requires either adding extensive logging (
+  redeploy), using SDK profiling (overhead), or ssh + manual debugging (security
+  risk).
+- No way to dynamically instrument specific functions like `handleCheckout`,
+  `processPayment`, or `validateCard` without code changes.
+- Traditional debuggers (gdb, delve) require stopping the process or significant
+  overhead, unsuitable for production.
+- Distributed tracing shows high-level spans but not function-level execution
+  details.
 
 **Why this matters:**
 
-- Production incidents need quick root cause analysis: "Why is `handleCheckout` slow?" requires function-level timing, argument inspection, and call counts.
-- Deploying debug builds or adding extensive logging for one-off investigations is wasteful and slow.
-- SSH access to production systems violates security policies and creates audit risks.
-- AI-driven diagnostics need precise function-level data to make actionable recommendations.
+- Production incidents need quick root cause analysis: "Why is `handleCheckout`
+  slow?" requires function-level timing, argument inspection, and call counts.
+- Deploying debug builds or adding extensive logging for one-off investigations
+  is wasteful and slow.
+- SSH access to production systems violates security policies and creates audit
+  risks.
+- AI-driven diagnostics need precise function-level data to make actionable
+  recommendations.
 
 **Use cases affected:**
 
-- Debugging slow checkout transactions: "Attach probe to `handleCheckout`, show latency distribution and arguments for 60 seconds."
-- Finding which function in a call chain is slow: "Trace all functions in `/api/checkout` request path for 5 minutes."
-- Counting how often error paths execute: "Attach probe to `handlePaymentError`, count calls, capture error codes."
-- Validating optimization impact: "Before/after comparison of `validateCard` execution time."
+- Debugging slow checkout transactions: "Attach probe to `handleCheckout`, show
+  latency distribution and arguments for 60 seconds."
+- Finding which function in a call chain is slow: "Trace all functions in
+  `/api/checkout` request path for 5 minutes."
+- Counting how often error paths execute: "Attach probe to `handlePaymentError`,
+  count calls, capture error codes."
+- Validating optimization impact: "Before/after comparison of `validateCard`
+  execution time."
 
 ## Solution
 
-Extend Coral with SDK-integrated runtime monitoring that bridges application code with agent eBPF capabilities. The SDK discovers function offsets using runtime reflection and DWARF debug info, then coordinates with the agent to attach uprobes dynamically via colony-orchestrated debugging sessions.
+Extend Coral with SDK-integrated runtime monitoring that bridges application
+code with agent eBPF capabilities. The SDK discovers function offsets using
+runtime reflection and DWARF debug info, then coordinates with the agent to
+attach uprobes dynamically via colony-orchestrated debugging sessions.
 
 ### Key Design Decisions
 
-- **SDK as bridge**: Go SDK embeds in application, exposes function metadata, communicates with local agent.
-- **Automatic offset discovery**: SDK uses runtime reflection (Go) and DWARF parsing to find function entry points.
-- **Colony orchestration**: CLI sends debug requests to colony, colony coordinates agent + SDK.
-- **Time-limited sessions**: All debug attachments expire after duration (default 60s, max 600s).
-- **Zero code changes**: SDK integration requires only `coral.EnableRuntimeMonitoring()` call, no instrumentation in business logic.
-- **eBPF safety**: Uprobes are read-only (no modification), automatically detach on expiry, enforced resource limits.
-- **Language-specific bridges**: Initial Go support via runtime reflection, future: Python (inspect module), Node.js (V8 debugging API).
+- **SDK as bridge**: Go SDK embeds in application, exposes function metadata,
+  communicates with local agent.
+- **Automatic offset discovery**: SDK uses runtime reflection (Go) and DWARF
+  parsing to find function entry points.
+- **Colony orchestration**: CLI sends debug requests to colony, colony
+  coordinates agent + SDK.
+- **Time-limited sessions**: All debug attachments expire after duration (
+  default 60s, max 600s).
+- **Zero code changes**: SDK integration requires only
+  `coral.EnableRuntimeMonitoring()` call, no instrumentation in business logic.
+- **eBPF safety**: Uprobes are read-only (no modification), automatically detach
+  on expiry, enforced resource limits.
+- **Language-specific bridges**: Initial Go support via runtime reflection,
+  future: Python (inspect module), Node.js (V8 debugging API).
 
 ### Benefits
 
 - **Fast debugging**: Attach probes in seconds without redeployment or SSH.
-- **Function-level precision**: See exactly which function is slow, not just endpoint-level metrics.
-- **Production-safe**: Time-limited, read-only, minimal overhead (<1% per probe).
-- **AI-enhanced troubleshooting**: `coral ask "Why is checkout slow?"` automatically attaches relevant probes and analyzes results.
+- **Function-level precision**: See exactly which function is slow, not just
+  endpoint-level metrics.
+- **Production-safe**: Time-limited, read-only, minimal overhead (<1% per
+  probe).
+- **AI-enhanced troubleshooting**: `coral ask "Why is checkout slow?"`
+  automatically attaches relevant probes and analyzes results.
 - **Audit-friendly**: All debug sessions logged with who, what, when, results.
 
 ### Architecture Overview
@@ -74,83 +106,83 @@ Extend Coral with SDK-integrated runtime monitoring that bridges application cod
 │  ┌─────────────────────────────────────────────────────┐ │
 │  │ Business Logic                                      │ │
 │  │                                                     │ │
-│  │  func handleCheckout(ctx, req) {                   │ │
-│  │    // No instrumentation needed                    │ │
+│  │  func handleCheckout(ctx, req) {                    │ │
+│  │    // No instrumentation needed                     │ │
 │  │  }                                                  │ │
 │  │                                                     │ │
-│  │  func processPayment(ctx, amount) {                │ │
-│  │    // No instrumentation needed                    │ │
+│  │  func processPayment(ctx, amount) {                 │ │
+│  │    // No instrumentation needed                     │ │
 │  │  }                                                  │ │
 │  └─────────────────────────────────────────────────────┘ │
-│                                                           │
+│                                                          │
 │  ┌─────────────────────────────────────────────────────┐ │
-│  │ Coral SDK (imported as library)                    │ │
+│  │ Coral SDK (imported as library)                     │ │
 │  │                                                     │ │
-│  │  coral.RegisterService("api", ...)                 │ │
-│  │  coral.EnableRuntimeMonitoring() ← runs goroutine  │ │
+│  │  coral.RegisterService("api", ...)                  │ │
+│  │  coral.EnableRuntimeMonitoring() ← runs goroutine   │ │
 │  │                                                     │ │
-│  │  - Discovers function offsets via reflection       │ │
-│  │  - Parses DWARF debug info from binary             │ │
-│  │  - Maintains symbol table                          │ │
-│  │  - Listens for agent debug requests (gRPC)         │ │
-│  │  - Returns offset map to agent                     │ │
+│  │  - Discovers function offsets via reflection        │ │
+│  │  - Parses DWARF debug info from binary              │ │
+│  │  - Maintains symbol table                           │ │
+│  │  - Listens for agent debug requests (gRPC)          │ │
+│  │  - Returns offset map to agent                      │ │
 │  └─────────────────────────────────────────────────────┘ │
-│                         ▲                                 │
-│                         │ gRPC (localhost)                │
-└─────────────────────────┼─────────────────────────────────┘
+│                         ▲                                │
+│                         │ gRPC (localhost)               │
+└─────────────────────────┼────────────────────────────────┘
                           │
                           ▼
-┌───────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────┐
 │ Coral Agent (sidecar or node-level)                      │
-│                                                           │
+│                                                          │
 │  ┌─────────────────────────────────────────────────────┐ │
 │  │ Debug Session Manager                               │ │
-│  │  - Receives debug requests from colony             │ │
-│  │  - Queries SDK for function offsets                │ │
-│  │  - Attaches eBPF uprobes to process                │ │
-│  │  - Collects events from BPF maps                   │ │
-│  │  - Streams results to colony                       │ │
-│  │  - Auto-detaches on expiry                         │ │
+│  │  - Receives debug requests from colony              │ │
+│  │  - Queries SDK for function offsets                 │ │
+│  │  - Attaches eBPF uprobes to process                 │ │
+│  │  - Collects events from BPF maps                    │ │
+│  │  - Streams results to colony                        │ │
+│  │  - Auto-detaches on expiry                          │ │
 │  └─────────────────────────────────────────────────────┘ │
-│                         │                                 │
-│                         ▼                                 │
+│                         │                                │
+│                         ▼                                │
 │  ┌─────────────────────────────────────────────────────┐ │
 │  │ eBPF Uprobes (kernel level)                         │ │
 │  │                                                     │ │
-│  │  uprobe:/proc/1234/exe:0x12af0 {                   │ │
-│  │    // handleCheckout entry                         │ │
-│  │    record timestamp, args, PID                     │ │
+│  │  uprobe:/proc/1234/exe:0x12af0 {                    │ │
+│  │    // handleCheckout entry                          │ │
+│  │    record timestamp, args, PID                      │ │
 │  │  }                                                  │ │
 │  │                                                     │ │
-│  │  uretprobe:/proc/1234/exe:0x12af0 {                │ │
-│  │    // handleCheckout return                        │ │
-│  │    record duration, return value                   │ │
+│  │  uretprobe:/proc/1234/exe:0x12af0 {                 │ │
+│  │    // handleCheckout return                         │ │
+│  │    record duration, return value                    │ │
 │  │  }                                                  │ │
 │  └─────────────────────────────────────────────────────┘ │
-└───────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────┘
                           │
                           ▼
-┌───────────────────────────────────────────────────────────┐
-│ Colony (orchestrator)                                     │
-│                                                           │
+┌──────────────────────────────────────────────────────────┐
+│ Colony (orchestrator)                                    │
+│                                                          │
 │  - Receives debug requests from CLI                      │
 │  - Resolves target agents with SDK capability            │
 │  - Sends AttachUprobe RPC to agent(s)                    │
 │  - Streams results back to CLI                           │
 │  - Stores debug session history in DuckDB                │
 │  - Provides data to AI for analysis                      │
-└───────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────┘
                           ▲
                           │
                           ▼
-┌───────────────────────────────────────────────────────────┐
-│ CLI / AI                                                  │
-│                                                           │
+┌──────────────────────────────────────────────────────────┐
+│ CLI / AI                                                 │
+│                                                          │
 │  $ coral debug attach api --function handleCheckout      │
 │  $ coral debug trace api --path "/api/checkout"          │
 │  $ coral ask "Why is checkout slow?"                     │
 │    → AI automatically attaches probes, analyzes results  │
-└───────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Component Changes
@@ -259,19 +291,21 @@ message NotifyDebugSessionResponse {}
 
 **Capability detection** (extends RFD 018 + per-service discovery):
 
-SDK integration is **per-service**, not per-agent. An agent (especially node agents or multi-service agents) might monitor multiple services, each with different SDK capabilities.
+SDK integration is **per-service**, not per-agent. An agent (especially node
+agents or multi-service agents) might monitor multiple services, each with
+different SDK capabilities.
 
 **Two-level capability model:**
 
 1. **Agent-level**: Can the agent support uprobe debugging in general?
-   - Kernel version check (4.7+ with uprobe support)
-   - eBPF capabilities present
-   - Reported in `RuntimeContextResponse` (RFD 018)
+    - Kernel version check (4.7+ with uprobe support)
+    - eBPF capabilities present
+    - Reported in `RuntimeContextResponse` (RFD 018)
 
 2. **Service-level**: Does each specific service have SDK integration?
-   - Per-service SDK connection status
-   - Per-service function discovery
-   - Reported in service discovery/registration
+    - Per-service SDK connection status
+    - Per-service function discovery
+    - Reported in service discovery/registration
 
 **Agent runtime context** (extends `RuntimeContextResponse` from RFD 018):
 
@@ -364,21 +398,22 @@ Colony stores per-service SDK capabilities:
 
 ```sql
 -- DuckDB schema for service registry
-CREATE TABLE services (
-    service_name VARCHAR PRIMARY KEY,
-    agent_id VARCHAR NOT NULL,
+CREATE TABLE services
+(
+    service_name      VARCHAR PRIMARY KEY,
+    agent_id          VARCHAR NOT NULL,
     -- ... existing fields
 
     -- SDK capabilities
-    sdk_enabled BOOLEAN DEFAULT false,
-    sdk_version VARCHAR,
+    sdk_enabled       BOOLEAN DEFAULT false,
+    sdk_version       VARCHAR,
     has_dwarf_symbols BOOLEAN,
-    function_count INTEGER,
-    sdk_last_check TIMESTAMP,
+    function_count    INTEGER,
+    sdk_last_check    TIMESTAMP,
 
     -- Binary info for cache invalidation
-    binary_path VARCHAR,
-    binary_hash VARCHAR
+    binary_path       VARCHAR,
+    binary_hash       VARCHAR
 );
 
 -- Query services with SDK capability
@@ -507,7 +542,8 @@ This two-level model (agent + service) is crucial for:
    └─ legacy-service (no SDK)
    ```
 
-3. **Sidecar agents**: Even in sidecar mode, a pod might have multiple containers
+3. **Sidecar agents**: Even in sidecar mode, a pod might have multiple
+   containers
    ```
    Pod: api-pod
    ├─ app container (SDK ✓)
@@ -515,6 +551,7 @@ This two-level model (agent + service) is crucial for:
    ```
 
 **Minimum requirements:**
+
 - **Agent**: Kernel 4.7+ with uprobe support, CAP_BPF or CAP_SYS_ADMIN
 - **Service**: Go SDK integration with `coral.EnableRuntimeMonitoring()`
 - **Optional**: DWARF debug symbols (enables full function discovery)
@@ -615,31 +652,33 @@ message TraceEvent {
 **DuckDB storage** (debug session history):
 
 ```sql
-CREATE TABLE debug_sessions (
-    session_id VARCHAR PRIMARY KEY,
-    service_name VARCHAR NOT NULL,
-    function_name VARCHAR NOT NULL,
-    agent_id VARCHAR NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
-    detached_at TIMESTAMPTZ,
-    status VARCHAR NOT NULL,
-    event_count BIGINT DEFAULT 0,
-    requested_by VARCHAR NOT NULL,  -- Audit: who started session
-    INDEX idx_debug_sessions_service (service_name, started_at DESC)
+CREATE TABLE debug_sessions
+(
+    session_id    VARCHAR PRIMARY KEY,
+    service_name  VARCHAR     NOT NULL,
+    function_name VARCHAR     NOT NULL,
+    agent_id      VARCHAR     NOT NULL,
+    started_at    TIMESTAMPTZ NOT NULL,
+    expires_at    TIMESTAMPTZ NOT NULL,
+    detached_at   TIMESTAMPTZ,
+    status        VARCHAR     NOT NULL,
+    event_count   BIGINT DEFAULT 0,
+    requested_by  VARCHAR     NOT NULL, -- Audit: who started session
+    INDEX         idx_debug_sessions_service (service_name, started_at DESC)
 );
 
-CREATE TABLE uprobe_events (
-    timestamp TIMESTAMPTZ NOT NULL,
-    session_id VARCHAR NOT NULL,
-    agent_id VARCHAR NOT NULL,
-    service_name VARCHAR NOT NULL,
-    function_name VARCHAR NOT NULL,
-    event_type VARCHAR NOT NULL,    -- 'entry' or 'exit'
-    duration_ns BIGINT,             -- NULL for entry events
-    pid INTEGER NOT NULL,
-    tid INTEGER NOT NULL,
-    labels MAP(VARCHAR, VARCHAR),
+CREATE TABLE uprobe_events
+(
+    timestamp     TIMESTAMPTZ NOT NULL,
+    session_id    VARCHAR     NOT NULL,
+    agent_id      VARCHAR     NOT NULL,
+    service_name  VARCHAR     NOT NULL,
+    function_name VARCHAR     NOT NULL,
+    event_type    VARCHAR     NOT NULL, -- 'entry' or 'exit'
+    duration_ns   BIGINT,               -- NULL for entry events
+    pid           INTEGER     NOT NULL,
+    tid           INTEGER     NOT NULL,
+    labels        MAP(VARCHAR, VARCHAR),
     PRIMARY KEY (timestamp, session_id, pid, tid)
 );
 
@@ -850,13 +889,16 @@ Would you like me to:
 
 **AI Decision Logic:**
 
-The AI analyzes the query and current metrics to determine which functions to probe:
+The AI analyzes the query and current metrics to determine which functions to
+probe:
 
 1. **Parse query intent**: Identify service (payment), metric type (latency).
-2. **Check baseline metrics**: Compare current vs baseline (2.3s vs 150ms = major regression).
+2. **Check baseline metrics**: Compare current vs baseline (2.3s vs 150ms =
+   major regression).
 3. **Select candidate functions**:
-   - Entry point: `ProcessPayment` (top-level function)
-   - Known bottlenecks: `ValidateCard`, `QueryTransactions` (from historical data)
+    - Entry point: `ProcessPayment` (top-level function)
+    - Known bottlenecks: `ValidateCard`, `QueryTransactions` (from historical
+      data)
 4. **Attach probes**: Request debug session for 30-60s.
 5. **Analyze results**: Build call tree, identify slowest leaf function.
 6. **Generate recommendations**: Based on function profiling and context.
@@ -903,7 +945,8 @@ coral debug query <service> --function <name> [--since <dur>]
 
 ### MCP Tools (For Claude Desktop / AI Integration)
 
-Enable AI assistants to attach dynamic probes and debug production applications via MCP (Model Context Protocol).
+Enable AI assistants to attach dynamic probes and debug production applications
+via MCP (Model Context Protocol).
 
 **Tool: `coral_attach_uprobe`**
 
@@ -935,7 +978,10 @@ Attach eBPF uprobe to specific function for live debugging.
                 "default": 1
             }
         },
-        "required": ["service", "function"]
+        "required": [
+            "service",
+            "function"
+        ]
     }
 }
 ```
@@ -990,7 +1036,10 @@ Auto-discover and trace all functions in HTTP request path.
                 "default": "60s"
             }
         },
-        "required": ["service", "path"]
+        "required": [
+            "service",
+            "path"
+        ]
     }
 }
 ```
@@ -1048,7 +1097,11 @@ List active and recent debug sessions.
             },
             "status": {
                 "type": "string",
-                "enum": ["active", "expired", "all"],
+                "enum": [
+                    "active",
+                    "expired",
+                    "all"
+                ],
                 "description": "Filter by status. Default: active",
                 "default": "active"
             }
@@ -1073,7 +1126,9 @@ Stop debug session and detach probes.
                 "description": "Debug session ID to detach"
             }
         },
-        "required": ["session_id"]
+        "required": [
+            "session_id"
+        ]
     }
 }
 ```
@@ -1095,12 +1150,18 @@ Query results from completed debug session.
             },
             "format": {
                 "type": "string",
-                "enum": ["summary", "full", "histogram"],
+                "enum": [
+                    "summary",
+                    "full",
+                    "histogram"
+                ],
                 "description": "Result format. Default: summary",
                 "default": "summary"
             }
         },
-        "required": ["session_id"]
+        "required": [
+            "session_id"
+        ]
     }
 }
 ```
@@ -1123,7 +1184,9 @@ Query results from completed debug session.
         {
             "duration": "234.5ms",
             "timestamp": "2025-11-17T15:30:42Z",
-            "labels": {"user_id": "u_12345"}
+            "labels": {
+                "user_id": "u_12345"
+            }
         }
     ]
 }
@@ -1149,7 +1212,9 @@ Query available functions that can be probed in a service.
                 "description": "Regex filter for function names (e.g., 'handle.*', 'process.*')"
             }
         },
-        "required": ["service"]
+        "required": [
+            "service"
+        ]
     }
 }
 ```
@@ -1260,17 +1325,17 @@ server.RegisterTool("coral_list_probeable_functions", listProbeableFunctionsTool
 import "github.com/coral-io/coral-go"
 
 func main() {
-    // Register service with Coral
-    coral.RegisterService("api", coral.Options{
-        Port:           8080,
-        HealthEndpoint: "/health",
-        AgentAddr:      "localhost:9091", // Default
-    })
+// Register service with Coral
+coral.RegisterService("api", coral.Options{
+Port:           8080,
+HealthEndpoint: "/health",
+AgentAddr:      "localhost:9091", // Default
+})
 
-    // Enable runtime monitoring (starts background goroutine)
-    coral.EnableRuntimeMonitoring()
+// Enable runtime monitoring (starts background goroutine)
+coral.EnableRuntimeMonitoring()
 
-    // ... application code
+// ... application code
 }
 ```
 
@@ -1278,14 +1343,18 @@ func main() {
 
 **DWARF Debug Info (Optional but Recommended):**
 
-eBPF uprobes work best with DWARF debug information for discovering function offsets. However, the SDK can work without DWARF using runtime reflection (Go-specific), with some limitations.
+eBPF uprobes work best with DWARF debug information for discovering function
+offsets. However, the SDK can work without DWARF using runtime reflection (
+Go-specific), with some limitations.
 
 **With DWARF (Recommended):**
+
 - Full function metadata (file paths, line numbers, parameter names)
 - Works for all functions including unexported ones
 - More reliable offset calculation
 
 **Without DWARF (Limited):**
+
 - Uses Go runtime reflection for offset discovery (exported functions only)
 - No file path or line number information
 - May miss inlined functions
@@ -1315,17 +1384,17 @@ go build -ldflags="-s -w" -o myapp
 **Build Flags Explained:**
 
 - **`-s`**: Strips symbol table (reduces binary size ~5%)
-  - ✅ Uprobes **still work** - DWARF remains
-  - Symbol table is separate from DWARF debug info
+    - ✅ Uprobes **still work** - DWARF remains
+    - Symbol table is separate from DWARF debug info
 
 - **`-w`**: Strips DWARF debug information (reduces binary size ~20-30%)
-  - ❌ Uprobes **will NOT work** - no function offsets available
-  - This is what you must avoid
+    - ❌ Uprobes **will NOT work** - no function offsets available
+    - This is what you must avoid
 
 - **`-gcflags="all=-N -l"`**: Disables optimizations and inlining
-  - ⚠️ **NOT required** for uprobes
-  - Only needed for interactive debugging (gdb, delve)
-  - Significant performance impact - avoid in production
+    - ⚠️ **NOT required** for uprobes
+    - Only needed for interactive debugging (gdb, delve)
+    - Significant performance impact - avoid in production
 
 **Recommended Production Build:**
 
@@ -1356,17 +1425,20 @@ If DWARF is present, you'll see function names, file paths, and line numbers.
 
 **SDK Behavior:**
 
-- **Startup check**: SDK checks for DWARF and falls back to runtime reflection if unavailable
-- **Warning message**: If DWARF missing, logs warning with capability degradation:
+- **Startup check**: SDK checks for DWARF and falls back to runtime reflection
+  if unavailable
+- **Warning message**: If DWARF missing, logs warning with capability
+  degradation:
   ```
   [Coral SDK] WARN: No DWARF debug info found in binary
   [Coral SDK] Using runtime reflection (exported functions only)
   [Coral SDK] For full uprobe support, rebuild without -ldflags="-w"
   ```
 - **Graceful degradation**:
-  - With DWARF: Full function discovery (all functions, with metadata)
-  - Without DWARF: Limited function discovery (exported functions only, no metadata)
-  - Application continues normally in both cases
+    - With DWARF: Full function discovery (all functions, with metadata)
+    - Without DWARF: Limited function discovery (exported functions only, no
+      metadata)
+    - Application continues normally in both cases
 
 **Docker/Kubernetes Deployment:**
 
@@ -1392,22 +1464,28 @@ ENTRYPOINT ["/myapp"]
 
 **Size Impact:**
 
-| Build Flags | Binary Size | Uprobe Support | Function Discovery | Use Case |
-|-------------|-------------|----------------|-------------------|----------|
-| None | 100% (baseline) | ✅ Full | All functions + metadata | Development |
-| `-ldflags="-s"` | ~95% | ✅ Full | All functions + metadata | **Production (recommended)** |
-| `-ldflags="-w"` | ~70% | ⚠️ Limited | Exported only, no metadata | Size-constrained |
-| `-ldflags="-s -w"` | ~65% | ⚠️ Limited | Exported only, no metadata | Size-constrained |
+| Build Flags        | Binary Size     | Uprobe Support | Function Discovery         | Use Case                     |
+|--------------------|-----------------|----------------|----------------------------|------------------------------|
+| None               | 100% (baseline) | ✅ Full         | All functions + metadata   | Development                  |
+| `-ldflags="-s"`    | ~95%            | ✅ Full         | All functions + metadata   | **Production (recommended)** |
+| `-ldflags="-w"`    | ~70%            | ⚠️ Limited     | Exported only, no metadata | Size-constrained             |
+| `-ldflags="-s -w"` | ~65%            | ⚠️ Limited     | Exported only, no metadata | Size-constrained             |
 
 **Typical binary sizes:**
+
 - Small service (10 MB): DWARF adds ~500 KB
 - Medium service (50 MB): DWARF adds ~10 MB
 - Large service (200 MB): DWARF adds ~50 MB
 
 **Recommendation:**
-- **Preferred**: Keep DWARF in production (`-ldflags="-s"` only). The ~20% size increase enables full function discovery and better debugging.
-- **Acceptable**: Strip DWARF for size-constrained environments (`-ldflags="-s -w"`). Uprobe debugging still works but with limited function visibility (exported functions only).
-- Most container registries compress layers, reducing actual storage impact of DWARF.
+
+- **Preferred**: Keep DWARF in production (`-ldflags="-s"` only). The ~20% size
+  increase enables full function discovery and better debugging.
+- **Acceptable**: Strip DWARF for size-constrained environments (
+  `-ldflags="-s -w"`). Uprobe debugging still works but with limited function
+  visibility (exported functions only).
+- Most container registries compress layers, reducing actual storage impact of
+  DWARF.
 
 ### Agent Configuration
 
@@ -1431,7 +1509,7 @@ agent:
 
         # DWARF requirement (optional)
         require_dwarf: false  # Allow uprobe debugging even without DWARF
-                              # Set true to enforce DWARF (reject binaries without debug symbols)
+        # Set true to enforce DWARF (reject binaries without debug symbols)
 ```
 
 ### Colony Configuration
@@ -1571,13 +1649,16 @@ colony:
 ### Authentication & Authorization
 
 - **CLI authentication**: Requires valid Coral credentials.
-- **RBAC**: Separate permission for debug operations (`debug:attach`, `debug:detach`).
+- **RBAC**: Separate permission for debug operations (`debug:attach`,
+  `debug:detach`).
 - **Audit logging**: All debug sessions logged with user identity.
-- **Approval workflow (future)**: Require manager approval for production debug sessions.
+- **Approval workflow (future)**: Require manager approval for production debug
+  sessions.
 
 ### Data Privacy
 
-- **No PII capture by default**: Arguments/return values not captured unless explicitly enabled.
+- **No PII capture by default**: Arguments/return values not captured unless
+  explicitly enabled.
 - **Sampling**: High sample rates (e.g., 1 in 100) reduce data volume.
 - **Short retention**: Events retained for 24 hours only.
 - **Access controls**: Debug data requires same permissions as service access.
@@ -1592,16 +1673,20 @@ colony:
 
 ### Rollout
 
-1. **Deploy SDK**: Add `coral-go` dependency to applications, deploy with `EnableRuntimeMonitoring()`.
-2. **Deploy agent**: Update agents with debug session manager (backward compatible).
+1. **Deploy SDK**: Add `coral-go` dependency to applications, deploy with
+   `EnableRuntimeMonitoring()`.
+2. **Deploy agent**: Update agents with debug session manager (backward
+   compatible).
 3. **Deploy colony**: Update colony with DebugService RPC handlers.
 4. **Deploy CLI**: Update CLI with `coral debug` commands.
 5. **Enable AI**: Configure AI to use debug capabilities.
 
 ### Backward Compatibility
 
-- **Agents without SDK capability**: CLI shows clear error ("service does not have SDK integration").
-- **Applications without SDK**: Agent detects missing SDK gRPC server, reports capability as unavailable.
+- **Agents without SDK capability**: CLI shows clear error ("service does not
+  have SDK integration").
+- **Applications without SDK**: Agent detects missing SDK gRPC server, reports
+  capability as unavailable.
 - **Legacy agents**: Colony filters agents by `CanDebugUprobes` capability.
 
 ## Future Enhancements
@@ -1615,11 +1700,14 @@ colony:
 
 ### Advanced Debugging Features
 
-- **Conditional breakpoints**: Attach probe only when condition met (e.g., `user_id == "u_12345"`).
-- **Argument capture**: Capture function arguments (requires parsing function signatures).
+- **Conditional breakpoints**: Attach probe only when condition met (e.g.,
+  `user_id == "u_12345"`).
+- **Argument capture**: Capture function arguments (requires parsing function
+  signatures).
 - **Return value capture**: Capture return values for analysis.
 - **Call stacks**: Capture full call stacks for each uprobe hit.
-- **Watchpoints**: Track when specific variables are read/written (complex, low priority).
+- **Watchpoints**: Track when specific variables are read/written (complex, low
+  priority).
 
 ### Distributed Tracing Integration
 
@@ -1640,45 +1728,45 @@ colony:
 ```go
 // SDK internal implementation
 func discoverFunctionOffsets() (map[string]uint64, error) {
-    // 1. Get executable path
-    exePath, err := os.Executable()
-    if err != nil {
-        return nil, err
-    }
+// 1. Get executable path
+exePath, err := os.Executable()
+if err != nil {
+return nil, err
+}
 
-    // 2. Open ELF file
-    elfFile, err := elf.Open(exePath)
-    if err != nil {
-        return nil, err
-    }
-    defer elfFile.Close()
+// 2. Open ELF file
+elfFile, err := elf.Open(exePath)
+if err != nil {
+return nil, err
+}
+defer elfFile.Close()
 
-    // 3. Parse DWARF debug info
-    dwarfData, err := elfFile.DWARF()
-    if err != nil {
-        return nil, fmt.Errorf("no debug symbols: %w", err)
-    }
+// 3. Parse DWARF debug info
+dwarfData, err := elfFile.DWARF()
+if err != nil {
+return nil, fmt.Errorf("no debug symbols: %w", err)
+}
 
-    offsets := make(map[string]uint64)
+offsets := make(map[string]uint64)
 
-    // 4. Iterate over compilation units
-    reader := dwarfData.Reader()
-    for {
-        entry, err := reader.Next()
-        if entry == nil || err != nil {
-            break
-        }
+// 4. Iterate over compilation units
+reader := dwarfData.Reader()
+for {
+entry, err := reader.Next()
+if entry == nil || err != nil {
+break
+}
 
-        // 5. Find function entries
-        if entry.Tag == dwarf.TagSubprogram {
-            name := entry.Val(dwarf.AttrName).(string)
-            lowPC := entry.Val(dwarf.AttrLowpc).(uint64)
+// 5. Find function entries
+if entry.Tag == dwarf.TagSubprogram {
+name := entry.Val(dwarf.AttrName).(string)
+lowPC := entry.Val(dwarf.AttrLowpc).(uint64)
 
-            offsets[name] = lowPC
-        }
-    }
+offsets[name] = lowPC
+}
+}
 
-    return offsets, nil
+return offsets, nil
 }
 ```
 
@@ -1834,7 +1922,8 @@ $ coral debug attach checkout-api --function handleCheckout --duration 60s
 
 ## Dependencies
 
-- **RFD 013**: eBPF-Based Application Introspection (provides eBPF infrastructure)
+- **RFD 013**: eBPF-Based Application Introspection (provides eBPF
+  infrastructure)
 - **RFD 018**: Agent Runtime Context Reporting (capability detection)
 
 ## References
@@ -1842,4 +1931,5 @@ $ coral debug attach checkout-api --function handleCheckout --duration 60s
 - Go DWARF documentation: https://pkg.go.dev/debug/dwarf
 - eBPF uprobes: https://www.kernel.org/doc/html/latest/trace/uprobetracer.html
 - libbpf: https://github.com/libbpf/libbpf
-- BCC uprobes: https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#4-uprobes
+- BCC
+  uprobes: https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#4-uprobes
