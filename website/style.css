@@ -6,32 +6,36 @@
 }
 
 :root {
-    /* Dark theme colors */
-    --bg-primary: #000000;
-    --bg-secondary: #0a0a0f;
-    --bg-tertiary: #14141f;
-    --bg-card: #1a1a2e;
+    /* Dark theme colors - Deeper, richer background */
+    --bg-primary: #050505;
+    --bg-secondary: #0a0a0a;
+    --bg-tertiary: #111111;
+    --bg-card: #161616;
 
-    /* Accent colors - Bold purples */
-    --accent-primary: #7c3aed;
-    --accent-secondary: #a855f7;
-    --accent-tertiary: #06b6d4;
-    --accent-highlight: #ec4899;
+    /* Accent colors - Teal & Coral */
+    --accent-primary: #14b8a6;
+    /* Teal 500 */
+    --accent-secondary: #0d9488;
+    /* Teal 600 */
+    --accent-tertiary: #2dd4bf;
+    /* Teal 400 */
+    --accent-highlight: #f43f5e;
+    /* Rose/Coral for contrast */
 
     /* Text colors */
     --text-primary: #ffffff;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
 
     /* Border colors */
-    --border-color: #1e293b;
-    --border-accent: #334155;
+    --border-color: #27272a;
+    --border-accent: #3f3f46;
 
-    /* Gradients - More dramatic */
-    --gradient-primary: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%);
+    /* Gradients - Teal focused */
+    --gradient-primary: linear-gradient(135deg, #14b8a6 0%, #0d9488 50%, #2dd4bf 100%);
     --gradient-secondary: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
-    --gradient-hero: radial-gradient(ellipse at top, rgba(124, 58, 237, 0.15) 0%, transparent 50%),
-        radial-gradient(ellipse at bottom right, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
+    --gradient-hero: radial-gradient(ellipse at top, rgba(20, 184, 166, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at bottom right, rgba(244, 63, 94, 0.1) 0%, transparent 50%);
 
     /* Spacing */
     --spacing-xs: 0.5rem;
@@ -69,7 +73,7 @@ body {
     right: 0;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(20px) saturate(180%);
-    border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+    border-bottom: 1px solid rgba(20, 184, 166, 0.1);
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
     z-index: 1000;
     padding: var(--spacing-sm) 0;
@@ -128,7 +132,7 @@ body {
 .btn-primary {
     background: var(--gradient-primary);
     color: var(--text-primary);
-    box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+    box-shadow: 0 4px 14px rgba(20, 184, 166, 0.4);
     position: relative;
     overflow: hidden;
 }
@@ -150,7 +154,7 @@ body {
 
 .btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 0 12px 28px rgba(124, 58, 237, 0.5), 0 0 40px rgba(168, 85, 247, 0.3);
+    box-shadow: 0 12px 28px rgba(20, 184, 166, 0.5), 0 0 40px rgba(13, 148, 136, 0.3);
 }
 
 .btn-secondary {
@@ -161,7 +165,7 @@ body {
 
 .btn-secondary:hover {
     border-color: var(--accent-primary);
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(6, 182, 212, 0.1);
 }
 
 .btn-large {
@@ -186,7 +190,7 @@ body {
     width: 100%;
     max-width: 1400px;
     height: 100%;
-    background: radial-gradient(ellipse 80% 60% at 50% 20%, rgba(124, 58, 237, 0.2) 0%, transparent 60%);
+    background: radial-gradient(ellipse 80% 60% at 50% 20%, rgba(20, 184, 166, 0.2) 0%, transparent 60%);
     filter: blur(100px);
     z-index: -1;
 }
@@ -198,7 +202,7 @@ body {
     right: 0;
     width: 50%;
     height: 50%;
-    background: radial-gradient(circle, rgba(236, 72, 153, 0.15) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(244, 63, 94, 0.15) 0%, transparent 70%);
     filter: blur(100px);
     z-index: -1;
 }
@@ -212,8 +216,8 @@ body {
 .hero-badge {
     display: inline-block;
     padding: 0.5rem 1rem;
-    background: rgba(99, 102, 241, 0.1);
-    border: 1px solid rgba(99, 102, 241, 0.3);
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.3);
     border-radius: 2rem;
     color: var(--accent-primary);
     font-size: 0.875rem;
@@ -428,7 +432,7 @@ body {
     transform: translate(-50%, -50%);
     width: 100%;
     height: 100%;
-    background: radial-gradient(circle at center, rgba(124, 58, 237, 0.1) 0%, transparent 70%);
+    background: radial-gradient(circle at center, rgba(20, 184, 166, 0.1) 0%, transparent 70%);
     z-index: 0;
     pointer-events: none;
 }
@@ -477,7 +481,7 @@ body {
 .flow-node:hover {
     transform: translateY(-4px);
     box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
-    border-color: rgba(124, 58, 237, 0.5);
+    border-color: rgba(20, 184, 166, 0.5);
 }
 
 .node-client:hover {
@@ -485,11 +489,11 @@ body {
 }
 
 .node-server:hover {
-    border-color: rgba(124, 58, 237, 0.5);
+    border-color: rgba(20, 184, 166, 0.5);
 }
 
 .node-agent:hover {
-    border-color: rgba(236, 72, 153, 0.5);
+    border-color: rgba(244, 63, 94, 0.5);
 }
 
 /* Coral CLI Node */
@@ -591,17 +595,17 @@ body {
 
 /* Proxy Node */
 .node-proxy {
-    background: rgba(168, 85, 247, 0.05);
+    background: rgba(13, 148, 136, 0.05);
 }
 
 .node-proxy:hover {
-    border-color: rgba(168, 85, 247, 0.5);
-    box-shadow: 0 10px 20px rgba(168, 85, 247, 0.15);
+    border-color: rgba(13, 148, 136, 0.5);
+    box-shadow: 0 10px 20px rgba(13, 148, 136, 0.15);
 }
 
 .icon-proxy {
-    background: rgba(168, 85, 247, 0.1);
-    border-color: rgba(168, 85, 247, 0.2);
+    background: rgba(13, 148, 136, 0.1);
+    border-color: rgba(13, 148, 136, 0.2);
 }
 
 /* Flow Arrow */
@@ -708,11 +712,11 @@ body {
 .terminal-advanced {
     margin-top: var(--spacing-md);
     border: 2px solid var(--accent-primary);
-    box-shadow: 0 0 40px rgba(124, 58, 237, 0.3);
+    box-shadow: 0 0 40px rgba(20, 184, 166, 0.3);
 }
 
 .terminal-advanced .terminal-header {
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(168, 85, 247, 0.2));
+    background: linear-gradient(135deg, rgba(20, 184, 166, 0.2), rgba(13, 148, 136, 0.2));
     border-bottom: 1px solid var(--accent-primary);
 }
 
@@ -743,7 +747,7 @@ body {
 .example-note {
     margin-top: var(--spacing-md);
     padding: var(--spacing-sm) var(--spacing-md);
-    background: rgba(124, 58, 237, 0.1);
+    background: rgba(20, 184, 166, 0.1);
     border-left: 4px solid var(--accent-primary);
     border-radius: var(--radius-md);
     text-align: left;
@@ -877,7 +881,7 @@ body {
     background: linear-gradient(145deg, rgba(20, 20, 30, 0.6), rgba(30, 30, 40, 0.6));
     border-radius: var(--radius-xl);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 0 40px rgba(124, 58, 237, 0.1);
+    box-shadow: 0 0 40px rgba(20, 184, 166, 0.1);
     position: relative;
     overflow: hidden;
 }
@@ -889,7 +893,7 @@ body {
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(124, 58, 237, 0.5), transparent);
+    background: linear-gradient(90deg, transparent, rgba(20, 184, 166, 0.5), transparent);
 }
 
 .solution-eyebrow {
@@ -967,8 +971,8 @@ body {
 .feature-card:hover {
     border-color: var(--accent-primary);
     transform: translateY(-8px);
-    box-shadow: 0 20px 60px rgba(124, 58, 237, 0.3), 0 0 0 1px rgba(124, 58, 237, 0.2);
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%);
+    box-shadow: 0 20px 60px rgba(20, 184, 166, 0.3), 0 0 0 1px rgba(20, 184, 166, 0.2);
+    background: linear-gradient(135deg, rgba(20, 184, 166, 0.05) 0%, rgba(13, 148, 136, 0.05) 100%);
 }
 
 .feature-icon {
@@ -1070,7 +1074,7 @@ body {
 .diff-card:hover {
     border-color: var(--accent-primary);
     transform: translateY(-8px);
-    box-shadow: 0 20px 60px rgba(124, 58, 237, 0.25);
+    box-shadow: 0 20px 60px rgba(20, 184, 166, 0.25);
 }
 
 .diff-number {
@@ -1123,7 +1127,7 @@ body {
     font-size: 1.5rem;
     font-weight: 900;
     flex-shrink: 0;
-    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.4);
+    box-shadow: 0 8px 24px rgba(20, 184, 166, 0.4);
 }
 
 .flow-content {
@@ -1162,7 +1166,7 @@ body {
 .pillar-item:hover {
     border-color: var(--accent-primary);
     transform: translateY(-4px);
-    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.2);
+    box-shadow: 0 8px 24px rgba(20, 184, 166, 0.2);
 }
 
 .pillar-badge {
@@ -1192,15 +1196,15 @@ body {
 }
 
 .pillar-item.level-2 .pillar-badge {
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(124, 58, 237, 0.1));
+    background: linear-gradient(135deg, rgba(20, 184, 166, 0.2), rgba(20, 184, 166, 0.1));
     color: var(--accent-primary);
-    border: 1px solid rgba(124, 58, 237, 0.3);
+    border: 1px solid rgba(20, 184, 166, 0.3);
 }
 
 .pillar-item.level-3 .pillar-badge {
-    background: linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(236, 72, 153, 0.1));
+    background: linear-gradient(135deg, rgba(244, 63, 94, 0.2), rgba(244, 63, 94, 0.1));
     color: var(--accent-highlight);
-    border: 1px solid rgba(236, 72, 153, 0.3);
+    border: 1px solid rgba(244, 63, 94, 0.3);
 }
 
 .pillar-icon {
@@ -1320,7 +1324,7 @@ body {
 .arch-tier:hover {
     border-color: var(--accent-primary);
     transform: translateY(-4px);
-    box-shadow: 0 12px 40px rgba(124, 58, 237, 0.2);
+    box-shadow: 0 12px 40px rgba(20, 184, 166, 0.2);
 }
 
 .tier-icon {
@@ -1589,7 +1593,7 @@ html {
 
 /* Selection */
 ::selection {
-    background: rgba(99, 102, 241, 0.3);
+    background: rgba(6, 182, 212, 0.3);
     color: var(--text-primary);
 }
 
