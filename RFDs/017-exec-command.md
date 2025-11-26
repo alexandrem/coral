@@ -14,7 +14,10 @@ areas: [ "cli", "agent", "execution", "security" ]
 
 # RFD 017 - Exec Command Implementation
 
-**Status:** 🚧 Draft
+**Status:** ❌ Superseded by RFD 056
+
+**Reason:** This RFD proposed depending on CRI socket mount. `nsenter`
+approach described in RFD 056 is simpler and more portable.
 
 ## Summary
 
