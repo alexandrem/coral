@@ -194,6 +194,33 @@ $ coral ask "check health of all services"
 - Only if Phase 1 doesn't hit 70%+ accuracy
 - Adds ~100 tokens but demonstrates patterns clearly
 
+**External Agent Support** (Future - after Phase 1 validation):
+
+External AI agents (Claude Desktop, other MCP clients) connecting to Coral's
+MCP server won't have the system prompt or service context that `coral ask`
+has. Consider these improvements:
+
+1. **Service Discovery Tool**:
+    - Add `coral_list_services` tool to MCP server
+    - External agents can call this first to get available services
+    - Returns: `["coral", "payment-api", "user-service", ...]`
+    - Example workflow: Agent → list services → query with service name
+
+2. **MCP Resources**:
+    - Expose service list as MCP resource (`services/available`)
+    - MCP-native way to provide context to external clients
+    - Agents can read resources before making tool calls
+
+3. **Self-Sufficient Tool Descriptions**:
+    - Enhance schemas with extraction hints for external agents
+    - Example: "TIP: Call coral_list_services first if unknown"
+    - Works universally for both coral ask and external agents
+
+4. **Accepted UX Difference**:
+    - `coral ask`: Smart extraction with system prompt (best UX)
+    - External agents: May need discovery call or clarification (acceptable)
+    - Different contexts warrant different user experiences
+
 ---
 
 ## Implementation Status
