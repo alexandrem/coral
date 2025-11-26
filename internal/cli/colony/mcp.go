@@ -84,58 +84,59 @@ This shows the tools that can be called by MCP clients like Claude Desktop.`,
 				return fmt.Errorf("failed to load colony config: %w", err)
 			}
 
+			// Get connect port.
+			connectPort := colonyConfig.Services.ConnectPort
+			if connectPort == 0 {
+				connectPort = 9000
+			}
+
+			// Connect to colony to get actual registered tools.
+			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
+			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Check if colony is running.
+			if _, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err != nil {
+				return fmt.Errorf("colony is not running (failed to connect on port %d): %w\n\nRun 'coral colony start' first", connectPort, err)
+			}
+
+			// Get tools from colony via RPC.
+			resp, err := client.ListTools(ctx, connect.NewRequest(&colonyv1.ListToolsRequest{}))
+			if err != nil {
+				return fmt.Errorf("failed to list tools: %w", err)
+			}
+
 			fmt.Printf("Available MCP Tools for colony %s:\n\n", colonyID)
 
-			// List all tools.
-			tools := []struct {
-				name        string
-				description string
-				required    []string
-			}{
-				// Observability tools
-				{"coral_get_service_health", "Get current health status of services", []string{}},
-				{"coral_get_service_topology", "Get service dependency graph", []string{}},
-				{"coral_query_events", "Query operational events", []string{}},
-				{"coral_query_beyla_http_metrics", "Query HTTP RED metrics from Beyla", []string{"service"}},
-				{"coral_query_beyla_grpc_metrics", "Query gRPC metrics from Beyla", []string{"service"}},
-				{"coral_query_beyla_sql_metrics", "Query SQL metrics from Beyla", []string{"service"}},
-				{"coral_query_beyla_traces", "Query distributed traces", []string{}},
-				{"coral_get_trace_by_id", "Get specific trace by ID", []string{"trace_id"}},
-				{"coral_query_telemetry_spans", "Query OTLP spans", []string{"service"}},
-				{"coral_query_telemetry_metrics", "Query OTLP metrics", []string{}},
-				{"coral_query_telemetry_logs", "Query OTLP logs", []string{}},
-
-				// Live debugging tools (Phase 3)
-				{"coral_start_ebpf_collector", "Start on-demand eBPF profiling", []string{"collector_type", "service"}},
-				{"coral_stop_ebpf_collector", "Stop running eBPF collector", []string{"collector_id"}},
-				{"coral_list_ebpf_collectors", "List active eBPF collectors", []string{}},
-				{"coral_exec_command", "Execute command in container", []string{"service", "command"}},
-				{"coral_shell_start", "Interactive agent debug shell", []string{"service"}},
-			}
-
-			// Filter based on enabled tools if configured.
-			enabledTools := colonyConfig.MCP.EnabledTools
-			isToolEnabled := func(name string) bool {
-				if len(enabledTools) == 0 {
-					return true
-				}
-				for _, t := range enabledTools {
-					if t == name {
-						return true
-					}
-				}
-				return false
-			}
-
-			for _, tool := range tools {
-				if !isToolEnabled(tool.name) {
+			// Display tools from RPC response.
+			for _, tool := range resp.Msg.Tools {
+				if !tool.Enabled {
 					continue
 				}
 
-				fmt.Printf("  %s\n", tool.name)
-				fmt.Printf("    %s\n", tool.description)
-				if len(tool.required) > 0 {
-					fmt.Printf("    Required: %v\n", tool.required)
+				fmt.Printf("  %s\n", tool.Name)
+				fmt.Printf("    %s\n", tool.Description)
+
+				// Parse schema to extract required fields.
+				if tool.InputSchemaJson != "" {
+					var schema map[string]interface{}
+					if err := json.Unmarshal([]byte(tool.InputSchemaJson), &schema); err == nil {
+						if _, ok := schema["properties"].(map[string]interface{}); ok {
+							required := []string{}
+							if reqList, ok := schema["required"].([]interface{}); ok {
+								for _, r := range reqList {
+									if rStr, ok := r.(string); ok {
+										required = append(required, rStr)
+									}
+								}
+							}
+							if len(required) > 0 {
+								fmt.Printf("    Required: %v\n", required)
+							}
+						}
+					}
 				}
 				fmt.Println()
 			}

@@ -288,36 +288,36 @@ func (s *Server) registerExecCommandTool() {
 	})
 }
 
-// registerShellStartTool registers the coral_shell_start tool.
-func (s *Server) registerShellStartTool() {
-	if !s.isToolEnabled("coral_shell_start") {
+// registerShellExecTool registers the coral_shell_exec tool (RFD 045).
+func (s *Server) registerShellExecTool() {
+	if !s.isToolEnabled("coral_shell_exec") {
 		return
 	}
 
-	inputSchema, err := generateInputSchema(ShellStartInput{})
+	inputSchema, err := generateInputSchema(ShellExecInput{})
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_shell_start")
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_shell_exec")
 		return
 	}
 
 	// Marshal schema to JSON bytes for MCP tool.
 	schemaBytes, err := json.Marshal(inputSchema)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_shell_start")
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_shell_exec")
 		return
 	}
 
 	// Create MCP tool with raw schema.
 	tool := mcp.NewToolWithRawSchema(
-		"coral_shell_start",
-		"Discover agent shell access information and get CLI command to connect. Returns connection details, agent status, and the coral shell command to execute for interactive access.",
+		"coral_shell_exec",
+		"Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
 		schemaBytes,
 	)
 
 	// Register tool handler with MCP server.
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Parse arguments from MCP request.
-		var input ShellStartInput
+		var input ShellExecInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
 			if err != nil {
@@ -334,7 +334,7 @@ func (s *Server) registerShellStartTool() {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to marshal input: %v", err)), nil
 		}
 
-		result, err := s.executeShellStartTool(ctx, string(argumentsJSON))
+		result, err := s.executeShellExecTool(ctx, string(argumentsJSON))
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

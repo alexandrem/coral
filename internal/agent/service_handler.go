@@ -338,6 +338,14 @@ func (h *ServiceHandler) Shell(
 	return h.shellHandler.Shell(ctx, stream)
 }
 
+// ShellExec implements the ShellExec RPC (RFD 045).
+func (h *ServiceHandler) ShellExec(
+	ctx context.Context,
+	req *connect.Request[agentv1.ShellExecRequest],
+) (*connect.Response[agentv1.ShellExecResponse], error) {
+	return h.shellHandler.ShellExec(ctx, req)
+}
+
 // ResizeShellTerminal implements the ResizeShellTerminal RPC (RFD 026).
 func (h *ServiceHandler) ResizeShellTerminal(
 	ctx context.Context,

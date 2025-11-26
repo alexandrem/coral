@@ -56,6 +56,155 @@ func NewShellHandler(logger logging.Logger) *ShellHandler {
 	}
 }
 
+// ShellExec executes a one-off command and returns the output (RFD 045).
+func (h *ShellHandler) ShellExec(
+	ctx context.Context,
+	req *connect.Request[agentv1.ShellExecRequest],
+) (*connect.Response[agentv1.ShellExecResponse], error) {
+	input := req.Msg
+
+	// Validate command.
+	if len(input.Command) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("command cannot be empty"))
+	}
+
+	// Generate session ID for audit.
+	sessionID := uuid.New().String()
+
+	// Determine timeout (default: 30s, max: 300s).
+	timeout := time.Duration(input.TimeoutSeconds) * time.Second
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+	if timeout > 300*time.Second {
+		timeout = 300 * time.Second
+	}
+
+	// Create timeout context.
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Log execution start.
+	h.logger.Info().
+		Str("session_id", sessionID).
+		Str("user_id", input.UserId).
+		Strs("command", input.Command).
+		Uint32("timeout_seconds", input.TimeoutSeconds).
+		Msg("Executing shell command")
+
+	startTime := time.Now()
+
+	// Create command.
+	cmd := exec.CommandContext(execCtx, input.Command[0], input.Command[1:]...)
+
+	// Set working directory if specified.
+	if input.WorkingDir != "" {
+		cmd.Dir = input.WorkingDir
+	}
+
+	// Set environment variables.
+	cmd.Env = os.Environ()
+	for k, v := range input.Env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Create buffers for stdout and stderr.
+	var stdout, stderr []byte
+	var stdoutBuf, stderrBuf []byte
+
+	// Capture stdout.
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create stdout pipe: %w", err))
+	}
+
+	// Capture stderr.
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create stderr pipe: %w", err))
+	}
+
+	// Start command.
+	if err := cmd.Start(); err != nil {
+		h.logger.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to start command")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start command: %w", err))
+	}
+
+	// Read stdout and stderr concurrently.
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		stdoutBuf, _ = io.ReadAll(stdoutPipe)
+	}()
+
+	go func() {
+		defer wg.Done()
+		stderrBuf, _ = io.ReadAll(stderrPipe)
+	}()
+
+	// Wait for command to complete.
+	execErr := cmd.Wait()
+	wg.Wait()
+
+	stdout = stdoutBuf
+	stderr = stderrBuf
+
+	duration := time.Since(startTime)
+	exitCode := int32(0)
+	errorMsg := ""
+
+	if execErr != nil {
+		// Check if it's a timeout.
+		if execCtx.Err() == context.DeadlineExceeded {
+			errorMsg = fmt.Sprintf("command timed out after %s", timeout)
+			exitCode = -1
+			h.logger.Warn().
+				Str("session_id", sessionID).
+				Str("error", errorMsg).
+				Msg("Command execution timeout")
+		} else {
+			// Extract exit code from error.
+			if exitError, ok := execErr.(*exec.ExitError); ok {
+				exitCode = int32(exitError.ExitCode())
+			} else {
+				exitCode = -1
+				errorMsg = execErr.Error()
+			}
+			h.logger.Warn().
+				Err(execErr).
+				Str("session_id", sessionID).
+				Int32("exit_code", exitCode).
+				Msg("Command execution failed")
+		}
+	}
+
+	// Log execution complete.
+	h.logger.Info().
+		Str("session_id", sessionID).
+		Int32("exit_code", exitCode).
+		Uint32("duration_ms", uint32(duration.Milliseconds())).
+		Int("stdout_bytes", len(stdout)).
+		Int("stderr_bytes", len(stderr)).
+		Msg("Shell command execution completed")
+
+	// Return response.
+	resp := &agentv1.ShellExecResponse{
+		Stdout:     stdout,
+		Stderr:     stderr,
+		ExitCode:   exitCode,
+		SessionId:  sessionID,
+		DurationMs: uint32(duration.Milliseconds()),
+		Error:      errorMsg,
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 // Shell implements the streaming shell RPC (RFD 026).
 func (h *ShellHandler) Shell(
 	ctx context.Context,

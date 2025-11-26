@@ -346,6 +346,10 @@ func (h *testAgentHandler) Shell(ctx context.Context, stream *connect.BidiStream
 	return connect.NewError(connect.CodeUnimplemented, nil)
 }
 
+func (h *testAgentHandler) ShellExec(ctx context.Context, req *connect.Request[agentv1.ShellExecRequest]) (*connect.Response[agentv1.ShellExecResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
 func (h *testAgentHandler) ResizeShellTerminal(ctx context.Context, req *connect.Request[agentv1.ResizeShellTerminalRequest]) (*connect.Response[agentv1.ResizeShellTerminalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }

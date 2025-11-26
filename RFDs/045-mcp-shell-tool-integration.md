@@ -1,7 +1,7 @@
 ---
 rfd: "045"
 title: "MCP Shell Exec Tool - One-Off Command Execution"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -14,7 +14,7 @@ areas: [ "mcp", "shell", "debugging" ]
 
 # RFD 045 - MCP Shell Exec Tool - One-Off Command Execution
 
-**Status:** 🚧 Draft (Pivoted from discovery helper)
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -65,8 +65,6 @@ programmatically. This creates several problems:
   8080`
 - **Process inspection**: "What's consuming CPU?" → AI executes `top -bn1` and
   identifies culprit
-- **Data access**: "Query agent's telemetry database" → AI runs `duckdb
-  /data/telemetry.db "SELECT ..."`
 
 **Interactive vs One-Off Execution:**
 
@@ -183,19 +181,56 @@ AI analyzes: "Yes, nginx is running with PID 1234"
 
 ### Component Changes
 
-**1. MCP Tool Execution** (`internal/colony/mcp/tools_exec.go`):
+**1. Protocol Definition** (`coral/agent/v1/agent.proto`):
 
-Replace placeholder in `executeShellStartTool()` with:
+Add new RPC method and messages:
 
-- Parse `ShellStartInput` (service name, agent_id, optional shell preference)
-- **Use agent resolution from RFD 044** (Agent ID Standardization):
-    - If `agent_id` specified: Direct lookup via `registry.Get(agent_id)`
-    - If `service` specified: Filter by `Services[]` array (RFD 044)
-    - Handle disambiguation errors per RFD 044 (multiple agents → list agent
-      IDs)
-- Validate agent status using `registry.DetermineStatus()`
-- Format shell-specific response with connection details
-- Handle error cases (agent not found, unhealthy, authorization failures)
+```protobuf
+message ShellExecRequest {
+  repeated string command = 1;       // Command as array (no shell interpretation)
+  string user_id = 2;                // For audit
+  uint32 timeout_seconds = 3;        // Default: 30, max: 300
+}
+
+message ShellExecResponse {
+  bytes stdout = 1;
+  bytes stderr = 2;
+  int32 exit_code = 3;
+  string session_id = 4;             // For audit logging
+  uint32 duration_ms = 5;            // Execution time
+}
+
+service AgentService {
+  // Existing Shell RPC (interactive)
+  rpc Shell(stream ShellRequest) returns (stream ShellResponse);
+
+  // New: One-off command execution
+  rpc ShellExec(ShellExecRequest) returns (ShellExecResponse);
+}
+```
+
+**2. Agent Handler** (`internal/agent/shell_handler.go`):
+
+Add `ShellExec()` method:
+
+- Parse and validate command array
+- Create `exec.Command()` (no PTY needed)
+- Set timeout context (default 30s, max 300s)
+- Capture stdout/stderr to separate buffers
+- Execute and wait for completion
+- Log execution for audit
+- Return structured response
+
+**3. MCP Tool** (`internal/colony/mcp/tools_exec.go`):
+
+Implement new `executeShellExecTool()`:
+
+- Parse `ShellExecInput` (service/agent_id, command array, timeout)
+- Resolve agent via RFD 044 (reuse existing `resolveAgent()`)
+- Create gRPC client to agent
+- Call `ShellExec()` RPC
+- Format output for AI consumption
+- Handle errors (timeout, non-zero exit, agent unreachable)
 
 **2. Response Format**:
 
@@ -374,7 +409,7 @@ coral shell --agent-addr 10.100.0.5:9001 --user-id developer@example.com
 **Full Workflow:**
 
 1. Deploy test agent with known service name
-2. Call `coral_shell_start` via MCP
+2. Call `coral_shell_exec` via MCP
 3. Parse returned CLI command
 4. Execute CLI command to verify shell access
 5. Validate shell session works as expected
@@ -489,20 +524,6 @@ The tool is immediately available via:
 No deployment or configuration changes required.
 
 ## Deferred Features
-
-**Direct Shell Access via MCP** (Not Feasible)
-
-Direct interactive shell access via MCP is not feasible due to protocol
-limitations:
-
-- MCP uses request-response model (single request → single response)
-- Interactive shells require bidirectional streaming (stdin, stdout, resize,
-  signals)
-- Terminal features (raw mode, PTY, ANSI escapes) require real-time I/O
-- No standard way to maintain long-lived streaming connections in MCP
-
-This is a protocol limitation, not a missing feature. The CLI-based approach
-defined in this RFD is the correct design.
 
 **Session Management via MCP** (RFD 042, 043)
 
