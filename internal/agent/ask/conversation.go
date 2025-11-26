@@ -1,11 +1,16 @@
 package ask
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/coral-io/coral/internal/agent/llm"
+)
 
 // Message represents a conversation message.
 type Message struct {
-	Role    string
-	Content string
+	Role          string
+	Content       string
+	ToolResponses []llm.ToolResponse
 }
 
 // Conversation tracks a conversation history.

@@ -311,6 +311,8 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 			fmt.Fprintf(os.Stderr, "[DEBUG] Processing %d tool calls\n", len(resp.ToolCalls))
 		}
 
+		// Execute all tool calls.
+		var toolResponses []llm.ToolResponse
 		for _, tc := range resp.ToolCalls {
 			if a.debug {
 				fmt.Fprintf(os.Stderr, "[DEBUG] Executing tool: %s\n", tc.Name)
@@ -332,10 +334,28 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 				return nil, fmt.Errorf("tool call failed: %w", err)
 			}
 
+			// Extract text content from tool result.
+			var resultContent string
+			if len(toolResult.Content) > 0 {
+				// MCP returns content as an array of text/image/resource items.
+				// For now, just concatenate text content.
+				for _, content := range toolResult.Content {
+					if textContent, ok := mcp.AsTextContent(content); ok {
+						resultContent += textContent.Text
+					}
+				}
+			}
+
 			toolCallResults = append(toolCallResults, ToolCall{
 				Name:   tc.Name,
 				Input:  args,
 				Output: toolResult,
+			})
+
+			toolResponses = append(toolResponses, llm.ToolResponse{
+				CallID:  tc.ID,
+				Name:    tc.Name,
+				Content: resultContent,
 			})
 
 			if a.debug {
@@ -343,11 +363,62 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 			}
 		}
 
-		// TODO: Send tool results back to LLM for final answer.
-		// For now, just return the tool call results.
+		// Add assistant's tool call response to conversation.
+		conv.AddMessage(Message{
+			Role:    "assistant",
+			Content: resp.Content,
+		})
+
+		// Add tool results to conversation.
+		conv.AddMessage(Message{
+			Role:          "tool",
+			ToolResponses: toolResponses,
+		})
+
+		// Send tool results back to LLM for final answer.
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Sending tool results back to LLM for final answer\n")
+		}
+
+		// Convert conversation messages to LLM format.
+		var llmMessages []llm.Message
+		for _, msg := range conv.GetMessages() {
+			llmMessages = append(llmMessages, llm.Message{
+				Role:          msg.Role,
+				Content:       msg.Content,
+				ToolResponses: msg.ToolResponses,
+			})
+		}
+
+		// Call LLM again with tool results.
+		finalReq := llm.GenerateRequest{
+			Messages: llmMessages,
+			Tools:    toolsResult.Tools,
+			Stream:   stream,
+		}
+
+		finalResp, err := a.provider.Generate(ctx, finalReq, streamCallback)
+		if err != nil {
+			return nil, fmt.Errorf("LLM final response failed: %w", err)
+		}
+
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Final LLM response: content_length=%d\n", len(finalResp.Content))
+		}
+
+		// Add final response to conversation.
+		conv.AddMessage(Message{
+			Role:    "assistant",
+			Content: finalResp.Content,
+		})
+
+		return &Response{
+			Answer:    finalResp.Content,
+			ToolCalls: toolCallResults,
+		}, nil
 	}
 
-	// Add assistant response to conversation.
+	// No tool calls - just add the response to conversation.
 	conv.AddMessage(Message{
 		Role:    "assistant",
 		Content: resp.Content,
