@@ -25,6 +25,18 @@ service AgentService {
 
   // Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
   rpc QueryBeylaMetrics(QueryBeylaMetricsRequest) returns (QueryBeylaMetricsResponse);
+
+  // Shell: Interactive shell session in agent environment (RFD 026).
+  rpc Shell(stream ShellRequest) returns (stream ShellResponse);
+
+  // Resize shell terminal (RFD 026).
+  rpc ResizeShellTerminal(ResizeShellTerminalRequest) returns (ResizeShellTerminalResponse);
+
+  // Send signal to shell session (RFD 026).
+  rpc SendShellSignal(SendShellSignalRequest) returns (SendShellSignalResponse);
+
+  // Kill shell session (RFD 026).
+  rpc KillShellSession(KillShellSessionRequest) returns (KillShellSessionResponse);
 }
 
 message GetRuntimeContextRequest {
@@ -58,6 +70,9 @@ message RuntimeContextResponse {
 
   // eBPF capabilities (RFD 013).
   EbpfCapabilities ebpf_capabilities = 9;
+
+  // Agent ID.
+  string agent_id = 10;
 }
 
 message PlatformInfo {
@@ -150,7 +165,7 @@ enum SidecarMode {
 // ConnectService RPC messages.
 message ConnectServiceRequest {
   // Service name.
-  string component_name = 1;
+  string name = 1;
 
   // Service port number.
   int32 port = 2;
@@ -202,7 +217,7 @@ message ListServicesResponse {
 
 message ServiceStatus {
   // Service name.
-  string component_name = 1;
+  string name = 1;
 
   // Service port number.
   int32 port = 2;
@@ -328,6 +343,15 @@ message QueryBeylaMetricsRequest {
 
   // Metric types to query (empty = all types).
   repeated BeylaMetricType metric_types = 4;
+
+  // Filter by specific trace ID (RFD 036).
+  string trace_id = 5;
+
+  // Limit number of traces returned (default: 100, max: 1000) (RFD 036).
+  int32 max_traces = 6;
+
+  // Include traces in response (default: false for backward compatibility) (RFD 036).
+  bool include_traces = 7;
 }
 
 // BeylaMetricType specifies which Beyla metrics to query.
@@ -351,6 +375,12 @@ message QueryBeylaMetricsResponse {
 
   // Total metrics returned.
   int32 total_metrics = 4;
+
+  // Trace spans (RFD 036).
+  repeated BeylaTraceSpan trace_spans = 5;
+
+  // Total traces returned (RFD 036).
+  int32 total_traces = 6;
 }
 
 // BeylaHttpMetric represents aggregated HTTP RED metrics.
@@ -435,5 +465,113 @@ message BeylaSqlMetric {
 
   // Additional attributes.
   map<string, string> attributes = 8;
+}
+
+// BeylaTraceSpan represents a distributed trace span (RFD 036).
+message BeylaTraceSpan {
+  // Trace ID (32-char hex string).
+  string trace_id = 1;
+
+  // Span ID (16-char hex string).
+  string span_id = 2;
+
+  // Parent span ID (empty if root span).
+  string parent_span_id = 3;
+
+  // Service name.
+  string service_name = 4;
+
+  // Span name (e.g., "GET /api/v1/users/:id").
+  string span_name = 5;
+
+  // Span kind ("server", "client", "producer", "consumer").
+  string span_kind = 6;
+
+  // Start timestamp (Unix milliseconds).
+  int64 start_time = 7;
+
+  // Duration (microseconds).
+  int64 duration_us = 8;
+
+  // HTTP/gRPC status code.
+  uint32 status_code = 9;
+
+  // Additional attributes.
+  map<string, string> attributes = 10;
+}
+
+// Shell RPC messages (RFD 026).
+
+message ShellRequest {
+  oneof payload {
+    ShellStart start = 1;     // First message from client
+    bytes stdin = 2;          // Stdin data from client
+    ShellResize resize = 3;   // Terminal resize event
+    ShellSignal signal = 4;   // Signal to send to shell
+  }
+}
+
+message ShellStart {
+  string shell = 1;             // /bin/bash, /bin/sh (default: /bin/bash)
+  map<string, string> env = 2;  // Additional environment variables
+  TerminalSize size = 3;        // Initial terminal size
+  string user_id = 4;           // User making request (for audit)
+  string approval_id = 5;       // Approval request ID (if required)
+}
+
+message ShellResponse {
+  oneof payload {
+    bytes output = 1;         // Stdout/stderr data from shell
+    ShellExit exit = 2;       // Final message with exit code
+  }
+}
+
+message ShellExit {
+  int32 exit_code = 1;
+  string session_id = 2;  // Session ID for audit reference
+}
+
+message TerminalSize {
+  uint32 rows = 1;
+  uint32 cols = 2;
+}
+
+message ShellResize {
+  uint32 rows = 1;
+  uint32 cols = 2;
+}
+
+message ShellSignal {
+  string signal = 1;  // SIGINT, SIGTERM, SIGTSTP, etc.
+}
+
+message ResizeShellTerminalRequest {
+  string session_id = 1;
+  uint32 rows = 2;
+  uint32 cols = 3;
+}
+
+message ResizeShellTerminalResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message SendShellSignalRequest {
+  string session_id = 1;
+  string signal = 2;
+}
+
+message SendShellSignalResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message KillShellSessionRequest {
+  string session_id = 1;
+}
+
+message KillShellSessionResponse {
+  bool success = 1;
+  string error = 2;
 }
 

@@ -25,11 +25,13 @@ func NewConnectCmd() *cobra.Command {
 		port      int
 		healthURL string
 		agentAddr string
+		agent     string
+		wait      bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "connect <service-spec>...",
-		Short: "Connect agent to observe one or more services",
+		Short: "Connect one or more services",
 		Long: `Connect a running Coral agent to observe services or application components.
 
 The agent must already be running (via 'coral agent start') before using this command.
@@ -53,10 +55,21 @@ Examples:
   coral connect frontend:3000:/health redis:6379 metrics:9090:/metrics
   coral connect api:8080:/health:http cache:6379::redis worker:9000
 
+  # Wait for initial health checks (interactive sessions)
+  coral connect frontend:3000 --wait
+
+  # Connect to service on remote agent by agent ID
+  coral connect frontend:3000 --agent hostname-api-1
+
+  # Connect to service on remote agent by agent URL
+  coral connect frontend:3000 --agent-url http://10.42.0.5:9001
+
 Note:
   - This command requires a running agent ('coral agent start')
   - Legacy flags (--port, --health) only work with single service specifications
-  - Services are added to the agent dynamically without restart`,
+  - Services are added to the agent dynamically without restart
+  - Use --wait in interactive sessions to see immediate health status
+  - Omit --wait in init containers where services start after connection`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Parse service specifications
@@ -68,6 +81,21 @@ Note:
 			// Validate service specs
 			if err := ValidateServiceSpecs(serviceSpecs); err != nil {
 				return fmt.Errorf("invalid service configuration: %w", err)
+			}
+
+			// RFD 044: Agent ID resolution via colony registry.
+			// If --agent is specified, query colony to resolve mesh IP.
+			if agent != "" {
+				if agentAddr != "" {
+					return fmt.Errorf("cannot specify both --agent and --agent-url")
+				}
+
+				// Resolve agent ID to mesh IP via colony registry.
+				resolvedAddr, err := resolveAgentID(cmd.Context(), agent, "")
+				if err != nil {
+					return fmt.Errorf("failed to resolve agent ID: %w", err)
+				}
+				agentAddr = resolvedAddr
 			}
 
 			// Discover local agent
@@ -107,16 +135,18 @@ Note:
 			// Create gRPC client
 			client := agentv1connect.NewAgentServiceClient(
 				http.DefaultClient,
-				agentAddr,
+				fmt.Sprintf("http://%s", agentAddr),
 			)
 
 			// Connect each service
 			ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 			defer cancel()
 
+			connectedServices := make([]string, 0, len(serviceSpecs))
+
 			for _, spec := range serviceSpecs {
 				req := &agentv1.ConnectServiceRequest{
-					ComponentName:  spec.Name,
+					Name:           spec.Name,
 					Port:           spec.Port,
 					HealthEndpoint: spec.HealthEndpoint,
 					ServiceType:    spec.ServiceType,
@@ -132,11 +162,90 @@ Note:
 					return fmt.Errorf("agent rejected service connection %s: %s", spec.Name, resp.Msg.Error)
 				}
 
-				fmt.Printf("✓ Connected: %s\n", spec.Name)
+				if wait {
+					fmt.Printf("✓ Connected: %s (waiting for initial health check...)\n", spec.Name)
+				} else {
+					fmt.Printf("✓ Connected: %s\n", spec.Name)
+				}
+				connectedServices = append(connectedServices, spec.Name)
+			}
+
+			// If --wait flag is set, wait for and display initial health checks.
+			if wait {
+				// Wait for initial health checks to complete.
+				// Health checks have random jitter up to 30% of interval (3s for 10s interval),
+				// so we wait 4s to catch most of the immediate checks.
+				fmt.Println("\nPerforming initial health checks...")
+				time.Sleep(4 * time.Second)
+
+				// Query service statuses.
+				statusResp, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+				if err != nil {
+					fmt.Println("\n✓ All services connected successfully")
+					fmt.Println("\n⚠ Could not retrieve initial health status")
+					fmt.Println("\nUse 'coral agent status' to view service health")
+					return nil
+				}
+
+				// Display health status for each connected service.
+				fmt.Println()
+				for _, serviceName := range connectedServices {
+					// Find the service status.
+					var serviceStatus *agentv1.ServiceStatus
+					for _, s := range statusResp.Msg.Services {
+						if s.Name == serviceName {
+							serviceStatus = s
+							break
+						}
+					}
+
+					if serviceStatus == nil {
+						fmt.Printf("  • %s: ⚠ Status unknown\n", serviceName)
+						continue
+					}
+
+					// Format health check timing.
+					var timingInfo string
+					if serviceStatus.LastCheck != nil {
+						elapsed := time.Since(serviceStatus.LastCheck.AsTime())
+						if elapsed < 1*time.Second {
+							timingInfo = fmt.Sprintf(" (%dms ago)", elapsed.Milliseconds())
+						} else {
+							timingInfo = fmt.Sprintf(" (%.1fs ago)", elapsed.Seconds())
+						}
+					}
+
+					// Display status with appropriate icon.
+					switch serviceStatus.Status {
+					case "healthy":
+						fmt.Printf("  • %s: ✓ Healthy%s\n", serviceName, timingInfo)
+					case "unhealthy":
+						errorMsg := ""
+						if serviceStatus.Error != "" {
+							errorMsg = fmt.Sprintf(": %s", serviceStatus.Error)
+						}
+						fmt.Printf("  • %s: ✗ Unhealthy%s%s\n", serviceName, timingInfo, errorMsg)
+					case "unknown":
+						fmt.Printf("  • %s: ⚠ Checking...%s\n", serviceName, timingInfo)
+					default:
+						fmt.Printf("  • %s: ? Unknown status\n", serviceName)
+					}
+				}
 			}
 
 			fmt.Println("\n✓ All services connected successfully")
-			fmt.Println("\nUse 'coral agent status' to view service health")
+
+			// Show helpful next steps.
+			if wait {
+				fmt.Println("\nNext steps:")
+				fmt.Println("  • View detailed status: coral agent status")
+				fmt.Println("  • Stream logs: coral agent logs")
+				if len(connectedServices) > 1 {
+					fmt.Printf("  • Disconnect a service: coral agent disconnect <service-name>\n")
+				}
+			} else {
+				fmt.Println("\nUse 'coral agent status' to view service health")
+			}
 
 			return nil
 		},
@@ -144,24 +253,26 @@ Note:
 
 	cmd.Flags().IntVarP(&port, "port", "p", 0, "Service port (legacy, only works with single service)")
 	cmd.Flags().StringVar(&healthURL, "health", "", "Health check endpoint (legacy, only works with single service)")
-	cmd.Flags().StringVar(&agentAddr, "agent", "", "Agent address (default: auto-discover)")
+	cmd.Flags().StringVar(&agentAddr, "agent-url", "", "Agent URL (default: auto-discover)")
+	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for initial health checks and display status (recommended for interactive use)")
 
 	return cmd
 }
 
 // discoverLocalAgent attempts to discover a running local agent.
 func discoverLocalAgent() (string, error) {
-	// Try common agent endpoints in order
+	// Try common agent endpoints in order.
 	candidates := []string{
-		fmt.Sprintf("http://localhost:%d", defaultAgentPort),
-		fmt.Sprintf("http://127.0.0.1:%d", defaultAgentPort),
+		fmt.Sprintf("localhost:%d", defaultAgentPort),
+		fmt.Sprintf("127.0.0.1:%d", defaultAgentPort),
 	}
 
 	for _, addr := range candidates {
-		// Try to connect to agent
+		// Try to connect to agent.
 		client := agentv1connect.NewAgentServiceClient(
 			http.DefaultClient,
-			addr,
+			fmt.Sprintf("http://%s", addr),
 		)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -173,7 +284,7 @@ func discoverLocalAgent() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no agent found at common endpoints: %s", strings.Join(candidates, ", "))
+	return "", fmt.Errorf("no agent found at common endpoints")
 }
 
 // parseServiceSpecsWithLegacySupport parses service specs with backward compatibility.

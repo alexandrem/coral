@@ -14,12 +14,12 @@ func TestRegistry_Register(t *testing.T) {
 	reg := New(5 * time.Minute)
 
 	t.Run("successful registration", func(t *testing.T) {
-		entry, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 		assert.Equal(t, "mesh-1", entry.MeshID)
 		assert.Equal(t, "pubkey-1", entry.PubKey)
 		assert.Equal(t, []string{"10.0.0.1:41820"}, entry.Endpoints)
-		assert.Equal(t, "10.42.0.1", entry.MeshIPv4)
+		assert.Equal(t, "100.64.0.1", entry.MeshIPv4)
 		assert.Equal(t, "fd42::1", entry.MeshIPv6)
 		assert.Equal(t, uint32(9000), entry.ConnectPort)
 		assert.Equal(t, "prod", entry.Metadata["env"])
@@ -62,13 +62,13 @@ func TestRegistry_Register(t *testing.T) {
 		reg := New(5 * time.Minute)
 
 		// Initial registration
-		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 
 		time.Sleep(10 * time.Millisecond)
 
 		// Update with same pubkey (should succeed - this is a renewal)
-		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "10.42.0.2", "fd42::2", 9001, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "100.64.0.2", "fd42::2", 9001, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 
 		assert.Equal(t, "pubkey-1", entry2.PubKey)
@@ -81,7 +81,7 @@ func TestRegistry_Lookup(t *testing.T) {
 	reg := New(5 * time.Minute)
 
 	t.Run("lookup existing colony", func(t *testing.T) {
-		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "10.42.0.1", "fd42::1", 9000, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 		require.NoError(t, err)
 
 		entry, err := reg.Lookup("mesh-1")
@@ -123,10 +123,10 @@ func TestRegistry_Count(t *testing.T) {
 
 	assert.Equal(t, 0, reg.Count())
 
-	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 	assert.Equal(t, 1, reg.Count())
 
-	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 	assert.Equal(t, 2, reg.Count())
 }
 
@@ -134,8 +134,8 @@ func TestRegistry_CountActive(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register two colonies
-	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
-	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 
 	assert.Equal(t, 2, reg.CountActive())
 
@@ -149,8 +149,8 @@ func TestRegistry_Cleanup(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register two colonies
-	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
-	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 
 	assert.Equal(t, 2, reg.Count())
 
@@ -167,8 +167,8 @@ func TestRegistry_StartCleanup(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register colonies
-	reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
-	reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
 
 	assert.Equal(t, 2, reg.Count())
 
@@ -194,7 +194,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	// Concurrent writes
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			reg.Register(
+			_, _ = reg.Register(
 				"mesh-concurrent",
 				"pubkey",
 				[]string{"10.0.0.1:41820"},
@@ -215,7 +215,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	// Concurrent reads
 	for i := 0; i < 10; i++ {
 		go func() {
-			reg.Lookup("mesh-concurrent")
+			_, _ = reg.Lookup("mesh-concurrent")
 			done <- true
 		}()
 	}
@@ -399,8 +399,8 @@ func TestRegistry_RelayManagement(t *testing.T) {
 		}
 
 		// Allocate multiple sessions
-		reg.AllocateRelay("session-4", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
-		reg.AllocateRelay("session-5", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
+		_, _ = reg.AllocateRelay("session-4", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
+		_, _ = reg.AllocateRelay("session-5", "mesh-1", "agent-key", "colony-key", relayEndpoint, "relay-1")
 
 		// Wait for expiration
 		time.Sleep(100 * time.Millisecond)

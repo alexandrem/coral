@@ -1,0 +1,45 @@
+services:
+  demo-app:
+    platform: linux/arm64
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - type: tmpfs
+        target: /usr/share/nginx/html
+    command: >
+      sh -c "echo '<html><body><h1>Hello from the Coral demo app</h1></body></html>' > /usr/share/nginx/html/index.html && nginx -g 'daemon off;'"
+
+  coral-agent:
+    platform: linux/arm64
+    build:
+      context: ../..
+    command:
+      - agent
+      - start
+      #- --connect
+      #- demo-app:8080
+    environment:
+      # Config-less mode: only CORAL_COLONY_ID and CORAL_COLONY_SECRET are required.
+      CORAL_COLONY_ID: ${CORAL_COLONY_ID}
+      CORAL_COLONY_SECRET: ${CORAL_COLONY_SECRET}
+      CORAL_DISCOVERY_ENDPOINT: ${CORAL_DISCOVERY_ENDPOINT:-http://host.docker.internal:8080}
+    depends_on:
+      - demo-app
+    pid: "service:demo-app"
+    network_mode: "service:demo-app"
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN      # Required for eBPF (Beyla)
+      - SYS_PTRACE     # Required for eBPF process attachment
+      - SYS_RESOURCE   # Required for memlock rlimit
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    privileged: false  # Using capabilities instead of privileged mode
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+volumes:
+  coral-agent-data:

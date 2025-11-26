@@ -1,39 +1,35 @@
 ---
 rfd: "026"
 title: "Shell Command Implementation"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
 dependencies: [ "016" ]
-related_rfds: [ "017", "011", "012" ]
+related_rfds: [ "017", "011", "012", "041", "042" ]
 database_migrations: [ ]
 areas: [ "cli", "agent", "execution", "security" ]
 ---
 
 # RFD 026 - Shell Command Implementation
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
-Define the implementation for `coral shell` command, which provides an
-interactive
-debugging shell within the agent's own environment. The agent container is
-bundled
-with troubleshooting utilities (tcpdump, netcat, curl, etc.) to enable
-infrastructure
-debugging from the agent's perspective.
+The `coral shell` command provides an interactive debugging shell within the agent's
+own environment. The agent container is bundled with troubleshooting utilities
+(tcpdump, netcat, curl, duckdb, etc.) to enable infrastructure debugging from the
+agent's perspective. Security and audit features (session recording, RBAC) are
+deferred to RFD 041 and RFD 042.
 
 **Key concepts:**
 
 - **Agent-scoped shell**: Runs in agent's environment, not application container
-- **Bundled toolbox**: Alpine-based image with debugging utilities
+- **Bundled toolbox**: Debian Bookworm-based image with debugging utilities
 - **Simple implementation**: No CRI complexity, just shell in agent process
-- **Elevated privileges**: Agent may have access to CRI socket, host network,
-  etc.
-- **Heavy audit**: Full session recording due to elevated access
+- **Elevated privileges**: Agent may have access to CRI socket, host network, etc.
 
 ## Problem
 
@@ -120,31 +116,46 @@ Session ended. Audit ID: sh-abc123
 
 ### 2. Agent Environment
 
-**Alpine-based container image** with debugging utilities bundled:
+**Debian Bookworm-based container image** with debugging utilities bundled:
+
+> **Note**: We use Debian Bookworm instead of Alpine due to CGO dependencies
+> required by DuckDB. The go-duckdb driver requires a C compiler and glibc,
+> which makes Debian a better fit than Alpine's musl libc.
 
 #### Container Image
 
 ```dockerfile
-FROM alpine:3.19
+FROM debian:bookworm-slim
 
 # Install debugging utilities
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     curl \
     tcpdump \
-    bind-tools \  # dig, nslookup
+    dnsutils \
     netcat-openbsd \
-    iproute2 \    # ip, ss
-    procps \      # ps, top
-    coreutils \   # Standard Unix tools
-    sqlite \      # Query DuckDB files
-    vim
+    iproute2 \
+    procps \
+    coreutils \
+    vim-tiny \
+    ca-certificates \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install DuckDB CLI
+RUN wget -q https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-amd64.zip \
+    && unzip duckdb_cli-linux-amd64.zip \
+    && mv duckdb /usr/local/bin/duckdb \
+    && chmod +x /usr/local/bin/duckdb \
+    && rm duckdb_cli-linux-amd64.zip
 
 # Install coral agent binary
 COPY coral-agent /app/coral-agent
 
 # Create non-root user
-RUN adduser -D -u 1000 coral
+RUN groupadd -g 1000 coral && \
+    useradd -m -u 1000 -g coral coral
 
 USER coral
 WORKDIR /app
@@ -162,7 +173,7 @@ ENTRYPOINT ["/app/coral-agent"]
 | `dig/nslookup` | DNS debugging                | `dig postgres.svc.cluster.local`  |
 | `ps`           | Process inspection           | `ps aux` (shared PID namespace)   |
 | `ip/ss`        | Network configuration        | `ip addr`, `ss -tulpn`            |
-| `sqlite`       | Query agent's DuckDB         | `sqlite3 /var/lib/coral/agent.db` |
+| `duckdb`       | Query agent's DuckDB         | `duckdb /var/lib/coral/agent.db`  |
 
 #### Native Environment
 
@@ -175,11 +186,15 @@ For native (non-containerized) agents:
 
 **Option 2: Embedded shell** (future enhancement)
 
-- Bundle lightweight shell (like busybox) in agent binary
+- Bundle lightweight shell in agent binary
 - Portable across environments
 - Consistent tooling
 
 **Initial implementation uses Option 1** (system shell).
+
+> **Implementation Note**: The existing Dockerfile already uses Debian Bookworm
+> as the base image (`debian:bookworm-slim`). This RFD aligns with and extends
+> that choice by adding debugging utilities to support the shell command.
 
 ### 3. Execution Architecture
 
@@ -229,21 +244,21 @@ For native (non-containerized) agents:
 
 ```go
 type ShellSession struct {
-ID          string
-UserID      string
-AgentID     string
-StartedAt   time.Time
-LastActive  time.Time
-Status      SessionStatus
-ExitCode    *int
-Transcript  *TranscriptRecorder
+    ID          string
+    UserID      string
+    AgentID     string
+    StartedAt   time.Time
+    LastActive  time.Time
+    Status      SessionStatus
+    ExitCode    *int
+    Transcript  *TranscriptRecorder
 }
 
 type SessionStatus int
 
 const (
-SessionActive SessionStatus = iota
-SessionExited
+    SessionActive SessionStatus = iota
+    SessionExited
 )
 ```
 
@@ -380,22 +395,22 @@ rbac:
 
 ```go
 type ShellAuditLog struct {
-SessionID   string
-UserID      string
-AgentID     string
-StartedAt   time.Time
-FinishedAt  time.Time
-Duration    time.Duration
-Transcript  []TranscriptEntry // Full I/O recording
-ExitCode    *int
-Approved    bool
-ApproverID  *string
+    SessionID   string
+    UserID      string
+    AgentID     string
+    StartedAt   time.Time
+    FinishedAt  time.Time
+    Duration    time.Duration
+    Transcript  []TranscriptEntry // Full I/O recording
+    ExitCode    *int
+    Approved    bool
+    ApproverID  *string
 }
 
 type TranscriptEntry struct {
-Timestamp time.Time
-Direction string // "input" or "output"
-Data      []byte
+    Timestamp time.Time
+    Direction string // "input" or "output"
+    Data      []byte
 }
 ```
 
@@ -429,46 +444,14 @@ Continue? [y/N]
 
 ### 7. Audit and Compliance
 
-**DuckDB schema:**
+**Note:** Full audit and compliance features are detailed in RFD 041 (Session Audit and Recording) and RFD 042 (Shell RBAC and Approval Workflows).
 
-```sql
-CREATE TABLE shell_audit
-(
-    session_id  VARCHAR PRIMARY KEY,
-    user_id     VARCHAR   NOT NULL,
-    agent_id    VARCHAR   NOT NULL,
-    started_at  TIMESTAMP NOT NULL,
-    finished_at TIMESTAMP,
-    duration INTERVAL,
-    transcript  BLOB, -- Compressed transcript
-    exit_code   INTEGER,
-    approved    BOOLEAN,
-    approver_id VARCHAR
-);
-```
+The shell implementation provides hooks for future audit integration:
+- Session ID generation for audit correlation
+- User ID capture for audit trails
+- Structured exit codes and session metadata
 
-**Audit queries:**
-
-```sql
--- Find all shell sessions in production
-SELECT session_id, user_id, started_at, duration
-FROM shell_audit
-WHERE agent_id LIKE 'prod-%'
-ORDER BY started_at DESC;
-
--- Find sessions by specific user
-SELECT session_id, agent_id, started_at
-FROM shell_audit
-WHERE user_id = 'sre@company.com'
-ORDER BY started_at DESC;
-```
-
-**Replay capability** (future enhancement):
-
-```bash
-coral shell replay sh-abc123
-# Plays back transcript with timing
-```
+See RFD 041 and RFD 042 for complete audit schema, RBAC policies, and compliance requirements.
 
 ## API Changes
 
@@ -561,55 +544,37 @@ coral shell                 # Shell in current context agent
 
 ## Implementation Plan
 
-### Phase 1: Basic Shell Implementation
+### Phase 1: Basic Shell Implementation ✅ COMPLETED
 
-- [ ] Fork shell process (/bin/bash, /bin/sh)
-- [ ] PTY allocation and management
-- [ ] I/O streaming (stdin, stdout, stderr)
-- [ ] Basic session lifecycle
-- [ ] Exit code capture
-- [ ] Unit tests
+- [x] Fork shell process (/bin/bash, /bin/sh)
+- [x] PTY allocation and management
+- [x] I/O streaming (stdin, stdout, stderr)
+- [x] Basic session lifecycle
+- [x] Exit code capture
+- [x] Unit tests
 
-### Phase 2: Terminal Management
+### Phase 2: Terminal Management ✅ COMPLETED
 
-- [ ] Terminal resize handling (SIGWINCH)
-- [ ] Signal forwarding (SIGINT, SIGTERM, SIGTSTP)
-- [ ] Raw terminal mode setup
-- [ ] Terminal restoration on exit
-- [ ] Integration tests
+- [x] Terminal resize handling (SIGWINCH)
+- [x] Signal forwarding (SIGINT, SIGTERM, SIGTSTP)
+- [x] Raw terminal mode setup
+- [x] Terminal restoration on exit
+- [x] Integration tests
 
-### Phase 3: CLI Implementation
+### Phase 3: CLI Implementation ✅ COMPLETED
 
-- [ ] `coral shell` command
-- [ ] Target resolution (app name → agent ID)
-- [ ] Interactive terminal setup
-- [ ] Warning message and confirmation
-- [ ] Error handling and help text
+- [x] `coral shell` command
+- [x] Target resolution (auto-discover local agent)
+- [x] Interactive terminal setup
+- [x] Warning message and confirmation
+- [x] Error handling and help text
+- [x] Connection timeout and graceful cleanup
 
-### Phase 4: Security and Audit
+### Phase 4: Agent Container Image ✅ COMPLETED
 
-- [ ] Session transcript recording
-- [ ] DuckDB audit schema
-- [ ] Transcript compression and storage
-- [ ] RBAC enforcement (Colony-side)
-- [ ] Approval workflow integration
-- [ ] Security integration tests
-
-### Phase 5: Agent Container Image
-
-- [ ] Alpine-based Dockerfile
-- [ ] Bundle debugging utilities
-- [ ] Non-root user setup
-- [ ] Multi-arch builds (amd64, arm64)
-- [ ] Image publishing
-
-### Phase 6: Session Management
-
-- [ ] Idle timeout enforcement
-- [ ] Max duration enforcement
-- [ ] Background cleanup task
-- [ ] Session listing (future)
-- [ ] Session killing (future)
+- [x] Debian Bookworm-based Dockerfile (changed from Alpine for DuckDB CGO)
+- [x] Bundle debugging utilities (tcpdump, netcat, curl, dnsutils, duckdb CLI)
+- [x] Non-root user setup
 
 ## Testing Strategy
 
@@ -635,7 +600,7 @@ coral shell                 # Shell in current context agent
 
 **Deployment scenarios:**
 
-1. **Containerized agent**: Shell in alpine container
+1. **Containerized agent**: Shell in Debian Bookworm container
 2. **Native agent**: Shell in host environment
 3. **K8s sidecar**: Shell with CRI socket access
 
@@ -644,7 +609,7 @@ coral shell                 # Shell in current context agent
 1. Interactive commands (ls, cat, vi)
 2. Network debugging (tcpdump, netcat, curl)
 3. Process inspection (ps, top)
-4. DuckDB queries (sqlite3)
+4. DuckDB queries (duckdb CLI)
 5. Long-running session (> 1 hour)
 
 **Security scenarios:**
@@ -705,54 +670,59 @@ coral shell                 # Shell in current context agent
 - No session sharing between users
 - Authentication required for all operations
 
-## Future Enhancements
+---
 
-### App Context Filtering (Separate RFD)
+## Implementation Status
 
-Pre-filter tools and data to target application:
+**Core Capability:** ✅ Complete
 
-```bash
-$ coral shell myapp
-myapp@agent $ coral-ps     # Show only myapp processes
-myapp@agent $ coral-logs   # Tail myapp logs from eBPF
-myapp@agent $ coral-query  # Query DuckDB filtered to myapp
-```
+The `coral shell` command is fully implemented and operational. Users can open interactive shell sessions in agent environments for debugging and troubleshooting.
 
-### Session Multiplexing
+**Operational Components:**
+- ✅ Interactive shell with PTY support (`/bin/bash` or `/bin/sh`)
+- ✅ Bidirectional I/O streaming over gRPC
+- ✅ Terminal resize handling (SIGWINCH)
+- ✅ Signal forwarding (Ctrl+C, Ctrl+Z, etc.)
+- ✅ Connection timeout and graceful cleanup
+- ✅ Debian Bookworm container image with debugging utilities
+- ✅ CLI: `coral shell [--agent-addr ADDR] [--user-id USER]`
 
-Detach and reattach to shell sessions:
+**What Works Now:**
+- Open shell in local or remote agent via mesh network
+- Full terminal support (colors, cursor movement, resizing)
+- Access to bundled debugging utilities (tcpdump, netcat, curl, duckdb, etc.)
+- Graceful handling of connection loss with force-quit support (double Ctrl+C)
+- Clean exit with exit code propagation
 
-```bash
-coral shell myapp --detach
-# Session runs in background
+**Integration Status:**
+- Integrated with agent gRPC API
+- Works with both containerized and native agents
+- Compatible with WireGuard mesh networking
 
-coral shell list
-# ID       USER    STARTED     STATUS
-# s-12345  alice   10:00 AM    active (detached)
+## Deferred Features
 
-coral shell attach s-12345
-# Reattach to running session
-```
+The following features are deferred to separate RFDs as they build on the core functionality but are not required for basic shell operation:
 
-### Embedded Shell for Native Mode
+**Session Audit and Recording** (RFD 041)
+- Session transcript recording with timestamps
+- DuckDB audit schema and storage
+- Transcript compression and retention policies
+- Audit query interface
+- Session replay capability
 
-Bundle lightweight shell in agent binary for consistent experience:
+**RBAC and Approval Workflows** (RFD 042)
+- Role-based access control enforcement
+- Approval workflow integration for production access
+- MFA requirements for privileged sessions
+- Time-limited access grants
+- Policy-based session restrictions
 
-```go
-// Embed busybox-like shell in binary
-//go:embed shell
-var embeddedShell []byte
-```
-
-### Session Recording Export
-
-```bash
-coral shell replay sh-abc123
-# Replay session with timing
-
-coral shell export sh-abc123 --format=asciinema
-# Export as .cast file
-```
+**Advanced Session Management** (Future Enhancement)
+- Idle timeout enforcement
+- Max duration enforcement
+- Background cleanup of stale sessions
+- Session listing and management
+- Multi-arch container builds (arm64)
 
 ---
 

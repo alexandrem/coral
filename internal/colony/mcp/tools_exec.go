@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/coral-io/coral/internal/colony/database"
+	"github.com/coral-io/coral/internal/colony/registry"
 )
 
 // Tool execution wrappers for direct RPC calls.
@@ -36,9 +38,18 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 	var serviceStatuses []map[string]interface{}
 
 	for _, agent := range agents {
-		// Apply filter if specified.
-		if serviceFilter != "" && !matchesPattern(agent.ComponentName, serviceFilter) {
-			continue
+		// Apply filter if specified (RFD 044: use Services[] array, not ComponentName).
+		if serviceFilter != "" {
+			matchFound := false
+			for _, svc := range agent.Services {
+				if matchesPattern(svc.Name, serviceFilter) {
+					matchFound = true
+					break
+				}
+			}
+			if !matchFound {
+				continue
+			}
 		}
 
 		// Determine health status based on last seen.
@@ -56,8 +67,18 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 			healthyCount++
 		}
 
+		// Build service names list from Services[] array.
+		serviceNames := make([]string, 0, len(agent.Services))
+		for _, svc := range agent.Services {
+			serviceNames = append(serviceNames, svc.Name)
+		}
+		servicesStr := strings.Join(serviceNames, ", ")
+		if servicesStr == "" {
+			servicesStr = agent.Name // Fallback for backward compatibility
+		}
+
 		serviceStatuses = append(serviceStatuses, map[string]interface{}{
-			"service":   agent.ComponentName,
+			"service":   servicesStr,
 			"agent_id":  agent.AgentID,
 			"status":    status,
 			"last_seen": lastSeen.Format(time.RFC3339),
@@ -75,18 +96,19 @@ func (s *Server) executeServiceHealthTool(ctx context.Context, argumentsJSON str
 	}
 
 	// Format response.
-	text := fmt.Sprintf("System Health Report:\n\n")
+	text := "System Health Report:\n\n"
 	text += fmt.Sprintf("Overall Status: %s\n\n", overallStatus)
-	text += fmt.Sprintf("Services:\n")
+	text += "Services:\n"
 
 	if len(serviceStatuses) == 0 {
 		text += "  No services connected.\n"
 	} else {
 		for _, svc := range serviceStatuses {
 			statusEmoji := "✓"
-			if svc["status"] == "degraded" {
+			switch svc["status"] {
+			case "degraded":
 				statusEmoji = "⚠"
-			} else if svc["status"] == "unhealthy" {
+			case "unhealthy":
 				statusEmoji = "✗"
 			}
 
@@ -117,11 +139,21 @@ func (s *Server) executeServiceTopologyTool(ctx context.Context, argumentsJSON s
 
 	agents := s.registry.ListAll()
 
-	text := fmt.Sprintf("Service Topology:\n\n")
-	text += fmt.Sprintf("Connected Services (%d):\n", len(agents))
+	text := "Service Topology:\n\n"
+	text += fmt.Sprintf("Connected Agents (%d):\n", len(agents))
 
 	for _, agent := range agents {
-		text += fmt.Sprintf("  - %s (mesh IP: %s)\n", agent.ComponentName, agent.MeshIPv4)
+		// Build service names list from Services[] array (RFD 044).
+		serviceNames := make([]string, 0, len(agent.Services))
+		for _, svc := range agent.Services {
+			serviceNames = append(serviceNames, svc.Name)
+		}
+		servicesStr := strings.Join(serviceNames, ", ")
+		if servicesStr == "" {
+			servicesStr = agent.Name // Fallback for backward compatibility
+		}
+
+		text += fmt.Sprintf("  - %s (services: %s, mesh IP: %s)\n", agent.AgentID, servicesStr, agent.MeshIPv4)
 	}
 
 	text += "\n"
@@ -396,14 +428,22 @@ func (s *Server) executeStartEBPFCollectorTool(ctx context.Context, argumentsJSO
 
 	s.auditToolCall("coral_start_ebpf_collector", input)
 
+	// Resolve target agent (RFD 044: agent ID or service name with disambiguation).
+	agent, err := s.resolveAgent(input.AgentID, input.Service)
+	if err != nil {
+		return "", err
+	}
+
 	text := fmt.Sprintf("eBPF Collector: %s\n\n", input.CollectorType)
 	text += "Status: Not yet implemented\n\n"
-	text += fmt.Sprintf("Target Service: %s\n", input.Service)
+	text += fmt.Sprintf("Target Service: %s (agent: %s)\n", input.Service, agent.AgentID)
 
 	if input.DurationSeconds != nil {
 		text += fmt.Sprintf("Duration: %d seconds\n", *input.DurationSeconds)
 	} else {
-		text += "Duration: 30 seconds (default)\n"
+		if input.ConfigJSON != nil {
+			text += fmt.Sprintf("Config: %s\n", *input.ConfigJSON)
+		}
 	}
 
 	text += "\n"
@@ -454,7 +494,24 @@ func (s *Server) executeListEBPFCollectorsTool(ctx context.Context, argumentsJSO
 
 	s.auditToolCall("coral_list_ebpf_collectors", input)
 
+	// Optionally filter by agent (RFD 044: agent ID or service name with disambiguation).
+	var targetAgentID string
+	if input.AgentID != nil || (input.Service != nil && *input.Service != "") {
+		serviceName := ""
+		if input.Service != nil {
+			serviceName = *input.Service
+		}
+		agent, err := s.resolveAgent(input.AgentID, serviceName)
+		if err != nil {
+			return "", err
+		}
+		targetAgentID = agent.AgentID
+	}
+
 	text := "Active eBPF Collectors:\n\n"
+	if targetAgentID != "" {
+		text = fmt.Sprintf("Active eBPF Collectors (agent: %s):\n\n", targetAgentID)
+	}
 	text += "No active collectors.\n\n"
 	text += "Implementation Status:\n"
 	text += "  - RFD 013 (eBPF framework) is in partial implementation\n"
@@ -479,7 +536,13 @@ func (s *Server) executeExecCommandTool(ctx context.Context, argumentsJSON strin
 
 	s.auditToolCall("coral_exec_command", input)
 
-	text := fmt.Sprintf("Container Exec: %s\n\n", input.Service)
+	// Resolve target agent (RFD 044: agent ID or service name with disambiguation).
+	agent, err := s.resolveAgent(input.AgentID, input.Service)
+	if err != nil {
+		return "", err
+	}
+
+	text := fmt.Sprintf("Container Exec: %s (agent: %s)\n\n", input.Service, agent.AgentID)
 	text += "Status: Not yet implemented\n\n"
 	text += fmt.Sprintf("Command: %v\n", input.Command)
 
@@ -518,7 +581,13 @@ func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string
 
 	s.auditToolCall("coral_shell_start", input)
 
-	text := fmt.Sprintf("Agent Debug Shell: %s\n\n", input.Service)
+	// Resolve target agent (RFD 044: agent ID or service name with disambiguation).
+	agent, err := s.resolveAgent(input.AgentID, input.Service)
+	if err != nil {
+		return "", err
+	}
+
+	text := fmt.Sprintf("Agent Debug Shell: %s (agent: %s)\n\n", input.Service, agent.AgentID)
 	text += "Status: Not yet implemented\n\n"
 
 	shell := "/bin/bash"
@@ -547,6 +616,56 @@ func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string
 	text += "  - RBAC checks will be enforced before allowing access\n"
 
 	return text, nil
+}
+
+// Helper functions for agent resolution and disambiguation (RFD 044).
+
+// resolveAgent resolves an agent by either agent ID or service name.
+// If agent_id is specified, it takes precedence and must match exactly one agent.
+// If only service is specified, it filters by service name and requires unique match.
+// Returns error with agent ID list if multiple agents match the service.
+func (s *Server) resolveAgent(agentID *string, serviceName string) (*registry.Entry, error) {
+	// Agent ID lookup takes precedence (unambiguous).
+	if agentID != nil && *agentID != "" {
+		agent, err := s.registry.Get(*agentID)
+		if err != nil {
+			return nil, fmt.Errorf("agent not found: %s", *agentID)
+		}
+		return agent, nil
+	}
+
+	// Fallback: Service-based lookup (with disambiguation).
+	agents := s.registry.ListAll()
+	var matchedAgents []*registry.Entry
+
+	for _, agent := range agents {
+		// Check Services[] array, not ComponentName (RFD 044).
+		for _, svc := range agent.Services {
+			if matchesPattern(svc.Name, serviceName) {
+				matchedAgents = append(matchedAgents, agent)
+				break
+			}
+		}
+	}
+
+	if len(matchedAgents) == 0 {
+		return nil, fmt.Errorf("no agents found for service '%s'", serviceName)
+	}
+
+	// Disambiguation requirement (RFD 044).
+	if len(matchedAgents) > 1 {
+		var agentIDs []string
+		for _, a := range matchedAgents {
+			agentIDs = append(agentIDs, a.AgentID)
+		}
+		return nil, fmt.Errorf(
+			"multiple agents found for service '%s': %s\nPlease specify agent_id parameter to disambiguate",
+			serviceName,
+			strings.Join(agentIDs, ", "),
+		)
+	}
+
+	return matchedAgents[0], nil
 }
 
 // Formatting helper functions (referenced by execution methods).

@@ -28,7 +28,7 @@ func extractBeylaBinary() (string, error) {
 	// Write the embedded binary to the temp directory.
 	binaryPath := filepath.Join(tmpDir, "beyla")
 	if err := os.WriteFile(binaryPath, beylaEmbeddedBinary, 0755); err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir) // TODO: errcheck
 		return "", fmt.Errorf("failed to write Beyla binary: %w", err)
 	}
 
@@ -59,7 +59,7 @@ func getBeylaBinaryPath() (string, error) {
 		return path, nil
 	}
 
-	return "", fmt.Errorf("Beyla binary not found: set BEYLA_PATH, embed binary via 'go generate', or install Beyla in PATH")
+	return "", fmt.Errorf("beyla binary not found: set BEYLA_PATH, embed binary via 'go generate', or install Beyla in PATH")
 }
 
 // findBeylaInPath searches for the beyla binary in system PATH.

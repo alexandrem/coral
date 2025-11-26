@@ -30,7 +30,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wireguard-tools \
     iptables \
     iproute2 \
+    bash \
+    curl \
+    tcpdump \
+    dnsutils \
+    netcat-openbsd \
+    net-tools \
+    procps \
+    vim-tiny \
+    wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install DuckDB CLI for shell debugging (RFD 026).
+RUN wget -q https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-amd64.zip \
+    && unzip duckdb_cli-linux-amd64.zip \
+    && mv duckdb /usr/local/bin/duckdb \
+    && chmod +x /usr/local/bin/duckdb \
+    && rm duckdb_cli-linux-amd64.zip
 
 # Create coral user.
 RUN groupadd -g 1000 coral && \

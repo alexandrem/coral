@@ -1,3 +1,4 @@
+// Package initcmd provides the CLI command for initializing coral configuration.
 package initcmd
 
 import (
@@ -6,11 +7,12 @@ import (
 	"os/user"
 	"path/filepath"
 
+	"github.com/spf13/cobra"
+
 	"github.com/coral-io/coral/internal/auth"
+	"github.com/coral-io/coral/internal/colony/ca"
 	"github.com/coral-io/coral/internal/config"
 	"github.com/coral-io/coral/internal/constants"
-
-	"github.com/spf13/cobra"
 )
 
 // NewInitCmd creates the init command
@@ -117,35 +119,53 @@ func runInit(appName, environment, storagePath, discoveryURL string) error {
 	}
 
 	// Save configurations
-	fmt.Print("✓ Created colony ID: ")
-	fmt.Println(colonyID)
+	fmt.Printf("Initializing colony: %s...\n\n", appName)
 
 	if err := loader.SaveColonyConfig(colonyConfig); err != nil {
 		return fmt.Errorf("failed to save colony config: %w", err)
 	}
-	fmt.Print("✓ Generated WireGuard keypair\n")
-	fmt.Print("✓ Created colony secret\n")
 
 	if err := loader.SaveGlobalConfig(globalConfig); err != nil {
 		return fmt.Errorf("failed to save global config: %w", err)
 	}
-	fmt.Printf("✓ Configuration saved to %s\n", loader.ColonyConfigPath(colonyID))
+
+	// Generate Certificate Authority (RFD 047).
+	// CA is stored in ~/.coral/colonies/<colony-id>/ca/
+	colonyDir := loader.ColonyDir(colonyID)
+	caDir := filepath.Join(colonyDir, "ca")
+	caResult, err := ca.Initialize(caDir, colonyID)
+	if err != nil {
+		return fmt.Errorf("failed to initialize CA: %w", err)
+	}
+
+	// Print output per RFD 047 format.
+	fmt.Println("Generated Certificate Authority:")
+	fmt.Printf("  Root CA:              %s\n", caResult.RootCAPath)
+	fmt.Printf("  Root CA Key:          %s (SECRET)\n", filepath.Join(caDir, "root-ca.key"))
+	fmt.Printf("  Server Intermediate:  %s\n", caResult.ServerIntPath)
+	fmt.Printf("  Agent Intermediate:   %s\n", caResult.AgentIntPath)
+	fmt.Printf("  Policy Signing Cert:  %s\n", caResult.PolicySignPath)
+
+	fmt.Println("\nRoot CA Fingerprint (distribute to agents):")
+	fmt.Printf("  sha256:%s\n", caResult.RootFingerprint)
+
+	fmt.Println("\nColony Server Identity:")
+	fmt.Printf("  SPIFFE ID: %s\n", caResult.ColonySPIFFEID)
+
+	fmt.Println("\n⚠️  IMPORTANT: Keep root-ca.key secure (offline storage or HSM recommended)")
 
 	// Create project-local config
 	projectConfig := config.DefaultProjectConfig(colonyID)
 	if err := config.SaveProjectConfig(".", projectConfig); err != nil {
 		return fmt.Errorf("failed to save project config: %w", err)
 	}
-	fmt.Print("✓ Created project config (.coral/config.yaml)\n")
 
-	fmt.Println("\nColony initialized successfully!")
-	fmt.Println("\nNext steps:")
-	fmt.Println("  To start the colony:")
-	fmt.Println("    coral colony start")
-	fmt.Println("\n  To connect agents:")
-	fmt.Printf("    coral connect <service> --colony %s\n", colonyID)
-	fmt.Println("\n  For remote agents (Kubernetes, VMs), export credentials:")
-	fmt.Printf("    coral colony export %s\n", colonyID)
+	fmt.Println("\nDeploy agents with:")
+	fmt.Printf("  export CORAL_COLONY_ID=%s\n", colonyID)
+	fmt.Printf("  export CORAL_CA_FINGERPRINT=sha256:%s\n", caResult.RootFingerprint)
+	fmt.Println("  coral agent start")
+
+	fmt.Println("\n✓ Colony initialized successfully")
 
 	return nil
 }

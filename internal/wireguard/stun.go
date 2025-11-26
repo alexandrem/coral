@@ -32,7 +32,7 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 		logger.Warn().Err(err).Msg("Failed to create UDP connection for STUN")
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // TODO: errcheck
 
 	// Try each STUN server with individual timeouts
 	for _, stunServer := range stunServers {
@@ -43,7 +43,7 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 
 		// Set a fresh deadline for each attempt (3 seconds per server)
 		deadline := time.Now().Add(3 * time.Second)
-		conn.SetReadDeadline(deadline)
+		_ = conn.SetReadDeadline(deadline) // TODO: errcheck
 
 		endpoint, err := querySTUNServer(conn, stunServer, logger)
 		if err != nil {
@@ -143,10 +143,10 @@ func ClassifyNAT(stunServers []string, localPort int, logger logging.Logger) dis
 		logger.Warn().Err(err).Msg("Failed to create UDP connection for NAT classification")
 		return discoveryv1.NatHint_NAT_UNKNOWN
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // TODO: errcheck
 
 	// Query first STUN server with timeout
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second)) // TODO: errcheck
 	endpoint1, err := querySTUNServer(conn, stunServers[0], logger)
 	if err != nil || endpoint1 == nil {
 		logger.Debug().Err(err).Msg("Failed to query first STUN server for NAT classification")
@@ -154,7 +154,7 @@ func ClassifyNAT(stunServers []string, localPort int, logger logging.Logger) dis
 	}
 
 	// Query second STUN server with fresh timeout
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second)) // TODO: errcheck
 	endpoint2, err := querySTUNServer(conn, stunServers[1], logger)
 	if err != nil || endpoint2 == nil {
 		logger.Debug().Err(err).Msg("Failed to query second STUN server for NAT classification")

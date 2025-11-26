@@ -87,10 +87,11 @@ type TelemetryLogsInput struct {
 
 // StartEBPFCollectorInput is the input for coral_start_ebpf_collector.
 type StartEBPFCollectorInput struct {
-	CollectorType   string                 `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
-	Service         string                 `json:"service" jsonschema:"description=Target service name"`
-	DurationSeconds *int                   `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
-	Config          map[string]interface{} `json:"config,omitempty" jsonschema:"description=Optional collector-specific configuration (sample rate filters etc.)"`
+	CollectorType   string  `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
+	Service         string  `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
+	AgentID         *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
+	DurationSeconds *int    `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
+	ConfigJSON      *string `json:"config_json,omitempty" jsonschema:"description=Optional collector-specific configuration as JSON string"`
 }
 
 // StopEBPFCollectorInput is the input for coral_stop_ebpf_collector.
@@ -100,12 +101,14 @@ type StopEBPFCollectorInput struct {
 
 // ListEBPFCollectorsInput is the input for coral_list_ebpf_collectors.
 type ListEBPFCollectorsInput struct {
-	Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service"`
+	Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
+	AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
 }
 
 // ExecCommandInput is the input for coral_exec_command.
 type ExecCommandInput struct {
-	Service        string   `json:"service" jsonschema:"description=Target service name"`
+	Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
+	AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
 	Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
 	TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
 	WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
@@ -113,6 +116,7 @@ type ExecCommandInput struct {
 
 // ShellStartInput is the input for coral_shell_start.
 type ShellStartInput struct {
-	Service string  `json:"service" jsonschema:"description=Service whose agent to connect to"`
+	Service string  `json:"service" jsonschema:"description=Service whose agent to connect to (use agent_id for disambiguation)"`
+	AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
 	Shell   *string `json:"shell,omitempty" jsonschema:"description=Shell to use,enum=/bin/bash,enum=/bin/sh,default=/bin/bash"`
 }

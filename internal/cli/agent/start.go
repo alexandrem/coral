@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -14,13 +15,17 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/marcboeker/go-duckdb"
 	"github.com/spf13/cobra"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
 	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
 	"github.com/coral-io/coral/internal/agent"
+	"github.com/coral-io/coral/internal/agent/beyla"
 	"github.com/coral-io/coral/internal/agent/telemetry"
 	"github.com/coral-io/coral/internal/auth"
 	"github.com/coral-io/coral/internal/config"
@@ -46,6 +51,7 @@ type AgentConfig struct {
 		Disabled              bool   `yaml:"disabled"`
 		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
 		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
+		DatabasePath          string `yaml:"database_path,omitempty"`
 		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
 		Filters               struct {
 			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty"`
@@ -162,9 +168,10 @@ Examples:
 				Str("mode", agentMode).
 				Msg("Starting Coral agent")
 
-			if agentMode == "passive" {
+			switch agentMode {
+			case "passive":
 				logger.Info().Msg("Agent running in passive mode - use 'coral connect' to attach services")
-			} else if agentMode == "monitor-all" {
+			case "monitor-all":
 				logger.Info().Msg("Agent running in monitor-all mode - auto-discovering processes")
 			}
 
@@ -183,15 +190,20 @@ Examples:
 				Str("colony_id", cfg.ColonyID).
 				Msg("Querying discovery service for colony information")
 
+			// Attempt to query discovery service.
+			// If this fails, agent will continue startup and retry in background.
 			colonyInfo, err := queryDiscoveryForColony(cfg, logger)
 			if err != nil {
-				return fmt.Errorf("failed to query discovery service: %w", err)
+				logger.Warn().
+					Err(err).
+					Msg("Failed to query discovery service - will retry in background")
+				colonyInfo = nil // Agent will start in waiting_discovery state
+			} else {
+				logger.Info().
+					Str("colony_pubkey", colonyInfo.Pubkey).
+					Strs("endpoints", colonyInfo.Endpoints).
+					Msg("Received colony information from discovery")
 			}
-
-			logger.Info().
-				Str("colony_pubkey", colonyInfo.Pubkey).
-				Strs("endpoints", colonyInfo.Endpoints).
-				Msg("Received colony information from discovery")
 
 			// Generate WireGuard keys for this agent.
 			agentKeys, err := auth.GenerateWireGuardKeyPair()
@@ -234,13 +246,20 @@ Examples:
 				}
 			}
 
-			// Create and start WireGuard device.
+			// Create and start WireGuard device (RFD 019: without peer, without IP).
 			// This also performs STUN discovery before starting WireGuard to avoid port conflicts.
-			wgDevice, agentObservedEndpoint, err := setupAgentWireGuard(agentKeys, colonyInfo, stunServers, enableRelay, wgPort, logger)
+			wgDevice, agentObservedEndpoint, _, err := setupAgentWireGuard(
+				agentKeys,
+				colonyInfo,
+				stunServers,
+				enableRelay,
+				wgPort,
+				logger,
+			)
 			if err != nil {
 				return fmt.Errorf("failed to setup WireGuard: %w", err)
 			}
-			defer wgDevice.Stop()
+			defer func() { _ = wgDevice.Stop() }() // TODO: errcheck
 
 			// Generate agent ID early so we can use it for registration
 			agentID := generateAgentID(serviceSpecs)
@@ -261,100 +280,126 @@ Examples:
 				logger.Info().Msg("No observed endpoint available (STUN not configured or failed), skipping discovery service registration")
 			}
 
-			// Register with colony.
-			registrationResult, err := registerWithColony(cfg, agentID, serviceSpecs, agentKeys.PublicKey, colonyInfo, logger)
+			// Create and start runtime service early so it's available for registration (RFD 018).
+			// This ensures the runtime context is detected before we attempt colony registration.
+			runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
+				AgentID:         agentID,
+				Logger:          logger,
+				Version:         "dev", // TODO: Get version from build info
+				RefreshInterval: 5 * time.Minute,
+			})
 			if err != nil {
-				return fmt.Errorf("failed to register with colony: %w", err)
+				return fmt.Errorf("failed to create runtime service: %w", err)
 			}
 
-			// Parse registration result (format: "IP|SUBNET")
-			parts := strings.Split(registrationResult, "|")
-			if len(parts) != 2 {
-				return fmt.Errorf("invalid registration response format")
+			if err := runtimeService.Start(); err != nil {
+				return fmt.Errorf("failed to start runtime service: %w", err)
 			}
-			meshIPStr := parts[0]
-			meshSubnetStr := parts[1]
+			defer func() { _ = runtimeService.Stop() }() // TODO: errcheck
 
-			// Assign IP to the agent's WireGuard interface
-			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("ip", meshIPStr).
-				Str("subnet", meshSubnetStr).
-				Msg("Assigning IP address to agent WireGuard interface")
+			// Create connection manager to handle registration and reconnection.
+			connMgr := NewConnectionManager(
+				agentID,
+				colonyInfo,
+				cfg,
+				serviceSpecs,
+				agentKeys.PublicKey,
+				wgDevice,
+				runtimeService,
+				logger,
+			)
 
-			// Parse IP and subnet for interface assignment
-			meshIP := net.ParseIP(meshIPStr)
-			if meshIP == nil {
-				return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
-			}
-
-			_, meshSubnet, err := net.ParseCIDR(meshSubnetStr)
-			if err != nil {
-				return fmt.Errorf("invalid mesh subnet from colony: %w", err)
-			}
-
-			iface := wgDevice.Interface()
-			if iface == nil {
-				return fmt.Errorf("WireGuard device has no interface")
-			}
-
-			if err := iface.AssignIP(meshIP, meshSubnet); err != nil {
-				return fmt.Errorf("failed to assign IP to agent interface: %w", err)
-			}
-
-			logger.Info().
-				Str("interface", wgDevice.InterfaceName()).
-				Str("ip", meshIPStr).
-				Msg("Successfully assigned IP to agent WireGuard interface")
-
-			// Delete all existing routes for this interface to clear cached source IPs.
-			// When we used a temporary IP, the kernel cached it as the source address.
-			logger.Info().Msg("Flushing routes to clear temporary IP cache")
-			if err := wgDevice.FlushAllPeerRoutes(); err != nil {
-				logger.Warn().Err(err).Msg("Failed to flush peer routes")
-			}
-
-			// Wait for route deletion to complete.
-			time.Sleep(200 * time.Millisecond)
-
-			// Re-add peer routes with the new IP as source.
-			if err := wgDevice.RefreshPeerRoutes(); err != nil {
-				logger.Warn().Err(err).Msg("Failed to refresh peer routes after IP change")
-			}
-
-			// Wait briefly for IP and route changes to propagate through the kernel.
-			// Without this delay, connection attempts may fail with "can't assign requested address".
-			time.Sleep(500 * time.Millisecond)
-
-			// Trigger WireGuard handshake by attempting to connect to colony over mesh.
-			// This ensures the tunnel is established before we try to send heartbeats.
-			connectPort := colonyInfo.ConnectPort
-			if connectPort == 0 {
-				connectPort = 9000
-			}
-			meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
-			logger.Info().
-				Str("mesh_addr", meshAddr).
-				Msg("Testing connectivity to colony via mesh to establish WireGuard handshake")
-
-			conn, err := net.DialTimeout("tcp", meshAddr, 5*time.Second)
+			// Attempt initial registration with colony.
+			// If this fails, agent will continue startup and attempt reconnection in background.
+			meshIPStr, meshSubnetStr, err := connMgr.AttemptRegistration()
 			if err != nil {
 				logger.Warn().
 					Err(err).
-					Str("mesh_addr", meshAddr).
-					Msg("Unable to establish connection to colony via mesh - handshake may not be complete")
+					Msg("Failed initial registration with colony - will retry in background")
+				// Agent continues in unregistered state, reconnection loop will handle retries.
 			} else {
-				conn.Close()
+				// Parse IP and subnet for mesh configuration (RFD 019).
+				meshIP := net.ParseIP(meshIPStr)
+				if meshIP == nil {
+					return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
+				}
+
+				_, meshSubnet, err := net.ParseCIDR(meshSubnetStr)
+				if err != nil {
+					return fmt.Errorf("invalid mesh subnet from colony: %w", err)
+				}
+
+				// Configure agent mesh with permanent IP (RFD 019).
+				// This assigns the IP and adds the colony as a peer with correct routing.
 				logger.Info().
-					Str("mesh_addr", meshAddr).
-					Msg("Successfully established WireGuard tunnel to colony")
+					Str("mesh_ip", meshIPStr).
+					Str("subnet", meshSubnetStr).
+					Msg("Configuring agent mesh with permanent IP from colony")
+
+				// Get colony endpoint from connection manager (handles cases where discovery succeeded later).
+				colonyEndpointForMesh := connMgr.GetColonyEndpoint()
+				if colonyEndpointForMesh == "" {
+					return fmt.Errorf("no colony endpoint available for mesh configuration")
+				}
+
+				if err := configureAgentMesh(wgDevice, meshIP, meshSubnet, connMgr.GetColonyInfo(), colonyEndpointForMesh, logger); err != nil {
+					return fmt.Errorf("failed to configure agent mesh: %w", err)
+				}
+
+				logger.Info().
+					Str("mesh_ip", meshIPStr).
+					Msg("Agent mesh configured successfully - tunnel ready")
+
+				// Get connect port for heartbeat.
+				currentColonyInfo := connMgr.GetColonyInfo()
+				if currentColonyInfo != nil {
+					connectPort := currentColonyInfo.ConnectPort
+					if connectPort == 0 {
+						connectPort = 9000
+					}
+					meshAddr := net.JoinHostPort(currentColonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
+					logger.Info().
+						Str("mesh_addr", meshAddr).
+						Msg("Testing connectivity to colony via mesh to establish WireGuard handshake")
+
+					conn, err := net.DialTimeout("tcp", meshAddr, 5*time.Second)
+					if err != nil {
+						logger.Warn().
+							Err(err).
+							Str("mesh_addr", meshAddr).
+							Msg("Unable to establish connection to colony via mesh - handshake may not be complete")
+					} else {
+						_ = conn.Close() // TODO: errcheck
+						logger.Info().
+							Str("mesh_addr", meshAddr).
+							Msg("Successfully established WireGuard tunnel to colony")
+					}
+				}
 			}
 
-			logger.Info().
-				Str("agent_id", agentID).
-				Str("mesh_ip", meshIPStr).
-				Int("service_count", len(serviceSpecs)).
-				Msg("Agent connected successfully")
+			// Log agent startup status.
+			currentIP, _ := connMgr.GetAssignedIP()
+			currentState := connMgr.GetState()
+			if currentIP != "" {
+				logger.Info().
+					Str("agent_id", agentID).
+					Str("mesh_ip", currentIP).
+					Int("service_count", len(serviceSpecs)).
+					Str("state", currentState.String()).
+					Msg("Agent connected successfully")
+			} else if currentState == StateWaitingDiscovery {
+				logger.Info().
+					Str("agent_id", agentID).
+					Int("service_count", len(serviceSpecs)).
+					Str("state", currentState.String()).
+					Msg("Agent started (waiting for discovery service - will connect when available)")
+			} else {
+				logger.Info().
+					Str("agent_id", agentID).
+					Int("service_count", len(serviceSpecs)).
+					Str("state", currentState.String()).
+					Msg("Agent started (unregistered - attempting reconnection in background)")
+			}
 
 			// Start agent instance (always created, even in passive mode).
 			serviceInfos := make([]*meshv1.ServiceInfo, len(serviceSpecs))
@@ -362,10 +407,62 @@ Examples:
 				serviceInfos[i] = spec.ToProto()
 			}
 
+			// Create shared DuckDB database for all agent data (telemetry + Beyla + custom).
+			// All tables (spans, beyla_http_metrics_local, etc.) live in the same database.
+			var sharedDB *sql.DB
+			var sharedDBPath string
+			homeDir, err := os.UserHomeDir()
+			if err == nil {
+				// Create parent directories if they don't exist.
+				dbDir := homeDir + "/.coral/agent"
+				if err := os.MkdirAll(dbDir, 0755); err != nil {
+					logger.Warn().Err(err).Msg("Failed to create agent directory - using in-memory storage")
+				} else {
+					sharedDBPath = dbDir + "/metrics.duckdb"
+					sharedDB, err = sql.Open("duckdb", sharedDBPath)
+					if err != nil {
+						logger.Warn().Err(err).Msg("Failed to create shared metrics database - using in-memory storage")
+						sharedDB = nil
+						sharedDBPath = ""
+					} else {
+						logger.Info().
+							Str("db_path", sharedDBPath).
+							Msg("Initialized shared metrics database")
+					}
+				}
+			} else {
+				logger.Warn().Err(err).Msg("Failed to get user home directory - using in-memory storage")
+			}
+
+			// Initialize Beyla configuration (RFD 032).
+			var beylaConfig *beyla.Config
+			if sharedDB != nil {
+				beylaConfig = &beyla.Config{
+					Enabled:               true,
+					OTLPEndpoint:          "127.0.0.1:4317", // Local OTLP gRPC receiver
+					DB:                    sharedDB,
+					DBPath:                sharedDBPath,
+					StorageRetentionHours: 1, // Default: 1 hour
+				}
+			}
+
+			// Close shared database LAST (defer added first = executes last in LIFO order).
+			if sharedDB != nil {
+				defer func() {
+					logger.Info().Msg("Closing shared database")
+					if err := sharedDB.Close(); err != nil {
+						logger.Error().Err(err).Msg("Failed to close shared database")
+					} else {
+						logger.Info().Msg("Closed shared database")
+					}
+				}()
+			}
+
 			agentInstance, err := agent.New(agent.Config{
-				AgentID:  agentID,
-				Services: serviceInfos,
-				Logger:   logger,
+				AgentID:     agentID,
+				Services:    serviceInfos,
+				BeylaConfig: beylaConfig,
+				Logger:      logger,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to create agent: %w", err)
@@ -374,22 +471,24 @@ Examples:
 			if err := agentInstance.Start(); err != nil {
 				return fmt.Errorf("failed to start agent: %w", err)
 			}
-			defer agentInstance.Stop()
+			defer func() { _ = agentInstance.Stop() }() // TODO: errcheck
 
 			// Create context for background operations.
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			// Start OTLP receiver if telemetry is not disabled (RFD 025).
-			// Telemetry is enabled by default.
+			// Telemetry is enabled by default and uses the shared database.
+			// This receiver handles BOTH application telemetry AND Beyla's output.
 			var otlpReceiver *agent.TelemetryReceiver
-			if !agentCfg.Telemetry.Disabled {
+			if !agentCfg.Telemetry.Disabled && sharedDB != nil {
 				logger.Info().Msg("Starting OTLP receiver for telemetry collection")
 
 				telemetryConfig := telemetry.Config{
 					Disabled:              agentCfg.Telemetry.Disabled,
 					GRPCEndpoint:          agentCfg.Telemetry.GRPCEndpoint,
 					HTTPEndpoint:          agentCfg.Telemetry.HTTPEndpoint,
+					DatabasePath:          sharedDBPath, // Use shared database path
 					StorageRetentionHours: agentCfg.Telemetry.StorageRetentionHours,
 					AgentID:               agentID,
 				}
@@ -424,7 +523,7 @@ Examples:
 					telemetryConfig.StorageRetentionHours = 1 // Default: 1 hour
 				}
 
-				otlpReceiver, err = agent.NewTelemetryReceiver(telemetryConfig, logger)
+				otlpReceiver, err = agent.NewTelemetryReceiverWithSharedDB(telemetryConfig, sharedDB, sharedDBPath, logger)
 				if err != nil {
 					logger.Warn().Err(err).Msg("Failed to create OTLP receiver - telemetry disabled")
 				} else {
@@ -445,8 +544,10 @@ Examples:
 						}()
 					}
 				}
-			} else {
+			} else if agentCfg.Telemetry.Disabled {
 				logger.Info().Msg("Telemetry collection is disabled")
+			} else {
+				logger.Warn().Msg("Telemetry disabled - shared database not available")
 			}
 
 			// Log initial status.
@@ -465,23 +566,14 @@ Examples:
 				logger.Info().Msg("Agent started in passive mode - waiting for service connections via 'coral connect'")
 			}
 
-			// Create and start runtime service for status API.
-			runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
-				Logger:          logger,
-				Version:         "dev", // TODO: Get version from build info
-				RefreshInterval: 5 * time.Minute,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create runtime service: %w", err)
-			}
+			// NOTE: Runtime service was created and started earlier (before ConnectionManager)
+			// to ensure runtime context is available during colony registration (RFD 018).
 
-			if err := runtimeService.Start(); err != nil {
-				return fmt.Errorf("failed to start runtime service: %w", err)
-			}
-			defer runtimeService.Stop()
+			// Create shell handler (RFD 026).
+			shellHandler := agent.NewShellHandler(logger)
 
 			// Create service handler and HTTP server for gRPC API.
-			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver)
+			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler)
 			path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 			mux := http.NewServeMux()
@@ -511,35 +603,125 @@ Examples:
 				}
 			})
 
-			httpServer := &http.Server{
-				Addr:    ":9001",
-				Handler: mux,
+			// Add /duckdb/ endpoint for serving DuckDB files (RFD 039).
+			// Register the shared metrics database containing all agent data.
+			duckdbHandler := agent.NewDuckDBHandler(logger)
+			registeredCount := 0
+
+			// Register shared metrics database (if using file-based storage).
+			if sharedDBPath != "" {
+				if err := duckdbHandler.RegisterDatabase("metrics.duckdb", sharedDBPath); err != nil {
+					logger.Warn().Err(err).Msg("Failed to register metrics database for HTTP serving")
+				} else {
+					logger.Info().
+						Str("db_name", "metrics.duckdb").
+						Str("db_path", sharedDBPath).
+						Msg("Shared metrics database registered for HTTP serving")
+					registeredCount++
+				}
 			}
 
-			// Start HTTP server in background.
+			// TODO: Register additional custom databases from configuration.
+
+			if registeredCount == 0 {
+				logger.Warn().Msg("No DuckDB databases registered for HTTP serving (all using in-memory storage)")
+			} else {
+				logger.Info().
+					Int("count", registeredCount).
+					Msg("DuckDB databases available for remote queries")
+			}
+
+			mux.Handle("/duckdb/", duckdbHandler)
+
+			// Enable HTTP/2 Cleartext (h2c) for bidirectional streaming (RFD 026).
+			h2s := &http2.Server{}
+			httpHandler := h2c.NewHandler(mux, h2s)
+
+			// Create two HTTP servers for security (RFD 039):
+			// 1. Mesh IP: Accessible from other agents/colony via WireGuard
+			// 2. Localhost: Accessible locally for debugging (not exposed externally)
+			var meshServer, localhostServer *http.Server
+
+			// Server 1: Bind to WireGuard mesh IP (secure remote access).
+			if meshIPStr != "" {
+				meshAddr := net.JoinHostPort(meshIPStr, "9001")
+				meshServer = &http.Server{
+					Addr:    meshAddr,
+					Handler: httpHandler,
+				}
+
+				go func() {
+					logger.Info().
+						Str("addr", meshAddr).
+						Msg("Agent API listening on WireGuard mesh")
+
+					if err := meshServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+						logger.Error().
+							Err(err).
+							Str("addr", meshAddr).
+							Msg("Mesh API server error")
+					}
+				}()
+			} else {
+				logger.Warn().Msg("No mesh IP available, skipping mesh server (agent not registered)")
+			}
+
+			// Server 2: Bind to localhost (local debugging only).
+			localhostAddr := "127.0.0.1:9001"
+			localhostServer = &http.Server{
+				Addr:    localhostAddr,
+				Handler: httpHandler,
+			}
+
 			go func() {
 				logger.Info().
-					Int("port", 9001).
-					Msg("Agent status API listening")
+					Str("addr", localhostAddr).
+					Msg("Agent API listening on localhost")
 
-				if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				if err := localhostServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					logger.Error().
 						Err(err).
-						Msg("Status API server error")
+						Str("addr", localhostAddr).
+						Msg("Localhost API server error")
 				}
 			}()
+
+			// Graceful shutdown for both servers.
 			defer func() {
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				if err := httpServer.Shutdown(shutdownCtx); err != nil {
-					logger.Error().Err(err).Msg("Failed to shutdown status API server")
+
+				if meshServer != nil {
+					if err := meshServer.Shutdown(shutdownCtx); err != nil {
+						logger.Error().Err(err).Msg("Failed to shutdown mesh API server")
+					}
+				}
+
+				if err := localhostServer.Shutdown(shutdownCtx); err != nil {
+					logger.Error().Err(err).Msg("Failed to shutdown localhost API server")
 				}
 			}()
 
 			logger.Info().Msg("Agent started successfully - waiting for shutdown signal")
 
-			// Start heartbeat loop in background to keep agent status healthy
-			go startHeartbeatLoop(ctx, agentID, colonyInfo.MeshIpv4, colonyInfo.ConnectPort, 15*time.Second, logger)
+			// Start discovery loop in background to handle discovery service reconnection.
+			// This callback is invoked when discovery succeeds after initially failing.
+			go connMgr.StartDiscoveryLoop(ctx, func(discoveredColonyInfo *discoverypb.LookupColonyResponse) {
+				logger.Info().
+					Str("colony_pubkey", discoveredColonyInfo.Pubkey).
+					Msg("Discovery succeeded - configuring mesh and attempting registration")
+
+				// Note: At this point, WireGuard device exists but colony peer isn't configured yet.
+				// The mesh configuration and registration will happen through the reconnection loop
+				// which will be triggered automatically when state transitions from waiting_discovery
+				// to unregistered.
+			})
+
+			// Start heartbeat loop in background to keep agent status healthy.
+			go connMgr.StartHeartbeatLoop(ctx, 15*time.Second)
+
+			// Start reconnection loop in background to handle colony reconnection.
+			go connMgr.StartReconnectionLoop(ctx)
 
 			// Wait for interrupt signal.
 			sigChan := make(chan os.Signal, 1)
@@ -793,7 +975,7 @@ func gatherMeshNetworkInfo(
 			connTest["error"] = err.Error()
 		} else {
 			connTest["reachable"] = true
-			conn.Close()
+			_ = conn.Close() // TODO: errcheck
 		}
 
 		info["colony_connectivity"] = connTest

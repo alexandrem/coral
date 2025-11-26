@@ -1,3 +1,4 @@
+// Package wireguard provides WireGuard mesh network management.
 package wireguard
 
 import (

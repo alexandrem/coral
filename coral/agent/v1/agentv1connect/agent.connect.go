@@ -52,6 +52,17 @@ const (
 	// AgentServiceQueryBeylaMetricsProcedure is the fully-qualified name of the AgentService's
 	// QueryBeylaMetrics RPC.
 	AgentServiceQueryBeylaMetricsProcedure = "/coral.agent.v1.AgentService/QueryBeylaMetrics"
+	// AgentServiceShellProcedure is the fully-qualified name of the AgentService's Shell RPC.
+	AgentServiceShellProcedure = "/coral.agent.v1.AgentService/Shell"
+	// AgentServiceResizeShellTerminalProcedure is the fully-qualified name of the AgentService's
+	// ResizeShellTerminal RPC.
+	AgentServiceResizeShellTerminalProcedure = "/coral.agent.v1.AgentService/ResizeShellTerminal"
+	// AgentServiceSendShellSignalProcedure is the fully-qualified name of the AgentService's
+	// SendShellSignal RPC.
+	AgentServiceSendShellSignalProcedure = "/coral.agent.v1.AgentService/SendShellSignal"
+	// AgentServiceKillShellSessionProcedure is the fully-qualified name of the AgentService's
+	// KillShellSession RPC.
+	AgentServiceKillShellSessionProcedure = "/coral.agent.v1.AgentService/KillShellSession"
 )
 
 // AgentServiceClient is a client for the coral.agent.v1.AgentService service.
@@ -68,6 +79,14 @@ type AgentServiceClient interface {
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 	// Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
 	QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error)
+	// Shell: Interactive shell session in agent environment (RFD 026).
+	Shell(context.Context) *connect.BidiStreamForClient[v1.ShellRequest, v1.ShellResponse]
+	// Resize shell terminal (RFD 026).
+	ResizeShellTerminal(context.Context, *connect.Request[v1.ResizeShellTerminalRequest]) (*connect.Response[v1.ResizeShellTerminalResponse], error)
+	// Send signal to shell session (RFD 026).
+	SendShellSignal(context.Context, *connect.Request[v1.SendShellSignalRequest]) (*connect.Response[v1.SendShellSignalResponse], error)
+	// Kill shell session (RFD 026).
+	KillShellSession(context.Context, *connect.Request[v1.KillShellSessionRequest]) (*connect.Response[v1.KillShellSessionResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the coral.agent.v1.AgentService service. By
@@ -117,17 +136,45 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("QueryBeylaMetrics")),
 			connect.WithClientOptions(opts...),
 		),
+		shell: connect.NewClient[v1.ShellRequest, v1.ShellResponse](
+			httpClient,
+			baseURL+AgentServiceShellProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("Shell")),
+			connect.WithClientOptions(opts...),
+		),
+		resizeShellTerminal: connect.NewClient[v1.ResizeShellTerminalRequest, v1.ResizeShellTerminalResponse](
+			httpClient,
+			baseURL+AgentServiceResizeShellTerminalProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ResizeShellTerminal")),
+			connect.WithClientOptions(opts...),
+		),
+		sendShellSignal: connect.NewClient[v1.SendShellSignalRequest, v1.SendShellSignalResponse](
+			httpClient,
+			baseURL+AgentServiceSendShellSignalProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SendShellSignal")),
+			connect.WithClientOptions(opts...),
+		),
+		killShellSession: connect.NewClient[v1.KillShellSessionRequest, v1.KillShellSessionResponse](
+			httpClient,
+			baseURL+AgentServiceKillShellSessionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("KillShellSession")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
-	getRuntimeContext *connect.Client[v1.GetRuntimeContextRequest, v1.RuntimeContextResponse]
-	connectService    *connect.Client[v1.ConnectServiceRequest, v1.ConnectServiceResponse]
-	disconnectService *connect.Client[v1.DisconnectServiceRequest, v1.DisconnectServiceResponse]
-	listServices      *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
-	queryTelemetry    *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
-	queryBeylaMetrics *connect.Client[v1.QueryBeylaMetricsRequest, v1.QueryBeylaMetricsResponse]
+	getRuntimeContext   *connect.Client[v1.GetRuntimeContextRequest, v1.RuntimeContextResponse]
+	connectService      *connect.Client[v1.ConnectServiceRequest, v1.ConnectServiceResponse]
+	disconnectService   *connect.Client[v1.DisconnectServiceRequest, v1.DisconnectServiceResponse]
+	listServices        *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
+	queryTelemetry      *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
+	queryBeylaMetrics   *connect.Client[v1.QueryBeylaMetricsRequest, v1.QueryBeylaMetricsResponse]
+	shell               *connect.Client[v1.ShellRequest, v1.ShellResponse]
+	resizeShellTerminal *connect.Client[v1.ResizeShellTerminalRequest, v1.ResizeShellTerminalResponse]
+	sendShellSignal     *connect.Client[v1.SendShellSignalRequest, v1.SendShellSignalResponse]
+	killShellSession    *connect.Client[v1.KillShellSessionRequest, v1.KillShellSessionResponse]
 }
 
 // GetRuntimeContext calls coral.agent.v1.AgentService.GetRuntimeContext.
@@ -160,6 +207,26 @@ func (c *agentServiceClient) QueryBeylaMetrics(ctx context.Context, req *connect
 	return c.queryBeylaMetrics.CallUnary(ctx, req)
 }
 
+// Shell calls coral.agent.v1.AgentService.Shell.
+func (c *agentServiceClient) Shell(ctx context.Context) *connect.BidiStreamForClient[v1.ShellRequest, v1.ShellResponse] {
+	return c.shell.CallBidiStream(ctx)
+}
+
+// ResizeShellTerminal calls coral.agent.v1.AgentService.ResizeShellTerminal.
+func (c *agentServiceClient) ResizeShellTerminal(ctx context.Context, req *connect.Request[v1.ResizeShellTerminalRequest]) (*connect.Response[v1.ResizeShellTerminalResponse], error) {
+	return c.resizeShellTerminal.CallUnary(ctx, req)
+}
+
+// SendShellSignal calls coral.agent.v1.AgentService.SendShellSignal.
+func (c *agentServiceClient) SendShellSignal(ctx context.Context, req *connect.Request[v1.SendShellSignalRequest]) (*connect.Response[v1.SendShellSignalResponse], error) {
+	return c.sendShellSignal.CallUnary(ctx, req)
+}
+
+// KillShellSession calls coral.agent.v1.AgentService.KillShellSession.
+func (c *agentServiceClient) KillShellSession(ctx context.Context, req *connect.Request[v1.KillShellSessionRequest]) (*connect.Response[v1.KillShellSessionResponse], error) {
+	return c.killShellSession.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the coral.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// Get runtime context information.
@@ -174,6 +241,14 @@ type AgentServiceHandler interface {
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 	// Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
 	QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error)
+	// Shell: Interactive shell session in agent environment (RFD 026).
+	Shell(context.Context, *connect.BidiStream[v1.ShellRequest, v1.ShellResponse]) error
+	// Resize shell terminal (RFD 026).
+	ResizeShellTerminal(context.Context, *connect.Request[v1.ResizeShellTerminalRequest]) (*connect.Response[v1.ResizeShellTerminalResponse], error)
+	// Send signal to shell session (RFD 026).
+	SendShellSignal(context.Context, *connect.Request[v1.SendShellSignalRequest]) (*connect.Response[v1.SendShellSignalResponse], error)
+	// Kill shell session (RFD 026).
+	KillShellSession(context.Context, *connect.Request[v1.KillShellSessionRequest]) (*connect.Response[v1.KillShellSessionResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -219,6 +294,30 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("QueryBeylaMetrics")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceShellHandler := connect.NewBidiStreamHandler(
+		AgentServiceShellProcedure,
+		svc.Shell,
+		connect.WithSchema(agentServiceMethods.ByName("Shell")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceResizeShellTerminalHandler := connect.NewUnaryHandler(
+		AgentServiceResizeShellTerminalProcedure,
+		svc.ResizeShellTerminal,
+		connect.WithSchema(agentServiceMethods.ByName("ResizeShellTerminal")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSendShellSignalHandler := connect.NewUnaryHandler(
+		AgentServiceSendShellSignalProcedure,
+		svc.SendShellSignal,
+		connect.WithSchema(agentServiceMethods.ByName("SendShellSignal")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceKillShellSessionHandler := connect.NewUnaryHandler(
+		AgentServiceKillShellSessionProcedure,
+		svc.KillShellSession,
+		connect.WithSchema(agentServiceMethods.ByName("KillShellSession")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceGetRuntimeContextProcedure:
@@ -233,6 +332,14 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceQueryTelemetryHandler.ServeHTTP(w, r)
 		case AgentServiceQueryBeylaMetricsProcedure:
 			agentServiceQueryBeylaMetricsHandler.ServeHTTP(w, r)
+		case AgentServiceShellProcedure:
+			agentServiceShellHandler.ServeHTTP(w, r)
+		case AgentServiceResizeShellTerminalProcedure:
+			agentServiceResizeShellTerminalHandler.ServeHTTP(w, r)
+		case AgentServiceSendShellSignalProcedure:
+			agentServiceSendShellSignalHandler.ServeHTTP(w, r)
+		case AgentServiceKillShellSessionProcedure:
+			agentServiceKillShellSessionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -264,4 +371,20 @@ func (UnimplementedAgentServiceHandler) QueryTelemetry(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QueryBeylaMetrics is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) Shell(context.Context, *connect.BidiStream[v1.ShellRequest, v1.ShellResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.Shell is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ResizeShellTerminal(context.Context, *connect.Request[v1.ResizeShellTerminalRequest]) (*connect.Response[v1.ResizeShellTerminalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.ResizeShellTerminal is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SendShellSignal(context.Context, *connect.Request[v1.SendShellSignalRequest]) (*connect.Response[v1.SendShellSignalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.SendShellSignal is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) KillShellSession(context.Context, *connect.Request[v1.KillShellSessionRequest]) (*connect.Response[v1.KillShellSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.KillShellSession is not implemented"))
 }

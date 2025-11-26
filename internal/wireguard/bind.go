@@ -107,7 +107,7 @@ func listenNet(network string, port int) (*net.UDPConn, int, error) {
 
 	udpConn, ok := conn.(*net.UDPConn)
 	if !ok {
-		conn.Close()
+		_ = conn.Close()
 		return nil, 0, errors.New("failed to cast to UDPConn")
 	}
 
@@ -142,7 +142,7 @@ func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 		if err == nil {
 			ipv6, port, err = listenNet("udp6", port)
 			if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
-				ipv4.Close()
+				_ = ipv4.Close() // TODO: errcheck
 				return nil, 0, err
 			}
 		}
@@ -153,8 +153,8 @@ func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 			ipv4Addr := ipv4.LocalAddr().(*net.UDPAddr)
 			ipv6Addr := ipv6.LocalAddr().(*net.UDPAddr)
 			if ipv4Addr.Port != ipv6Addr.Port {
-				ipv4.Close()
-				ipv6.Close()
+				_ = ipv4.Close() // TODO: errcheck
+				_ = ipv6.Close() // TODO: errcheck
 				tries++
 				if tries >= 100 {
 					return nil, 0, errors.New("failed to get matching ipv4 and ipv6 ports after 100 tries")

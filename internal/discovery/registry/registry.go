@@ -1,3 +1,4 @@
+// Package registry provides agent registry for the discovery service.
 package registry
 
 import (

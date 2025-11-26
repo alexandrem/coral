@@ -107,7 +107,7 @@ func ParseServiceSpec(spec string) (*ServiceSpec, error) {
 // ToProto converts a ServiceSpec to the protobuf ServiceInfo message.
 func (s *ServiceSpec) ToProto() *meshv1.ServiceInfo {
 	return &meshv1.ServiceInfo{
-		ComponentName:  s.Name,
+		Name:           s.Name,
 		Port:           s.Port,
 		HealthEndpoint: s.HealthEndpoint,
 		ServiceType:    s.ServiceType,

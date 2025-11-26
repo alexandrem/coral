@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"net"
+	"os"
 	"time"
 
 	"github.com/coral-io/coral/internal/constants"
@@ -28,8 +31,32 @@ type DiscoveryGlobal struct {
 
 // AIConfig contains AI provider configuration.
 type AIConfig struct {
-	Provider     string `yaml:"provider"`       // "anthropic" or "openai"
-	APIKeySource string `yaml:"api_key_source"` // "env", "keychain", "file"
+	Provider     string    `yaml:"provider"`       // "anthropic" or "openai"
+	APIKeySource string    `yaml:"api_key_source"` // "env", "keychain", "file"
+	Ask          AskConfig `yaml:"ask,omitempty"`  // coral ask LLM configuration (RFD 030)
+}
+
+// AskConfig contains configuration for the coral ask command (RFD 030).
+type AskConfig struct {
+	DefaultModel   string                `yaml:"default_model,omitempty"`   // Primary model (e.g., "openai:gpt-4o-mini")
+	FallbackModels []string              `yaml:"fallback_models,omitempty"` // Fallback models in order
+	APIKeys        map[string]string     `yaml:"api_keys,omitempty"`        // Provider API keys (env:// references)
+	Conversation   AskConversationConfig `yaml:"conversation,omitempty"`    // Conversation settings
+	Agent          AskAgentConfig        `yaml:"agent,omitempty"`           // Agent deployment settings
+}
+
+// AskConversationConfig contains conversation management settings.
+type AskConversationConfig struct {
+	MaxTurns      int  `yaml:"max_turns,omitempty"`      // Maximum conversation history turns
+	ContextWindow int  `yaml:"context_window,omitempty"` // Max tokens for context
+	AutoPrune     bool `yaml:"auto_prune,omitempty"`     // Auto-prune old messages
+}
+
+// AskAgentConfig contains agent deployment mode settings.
+type AskAgentConfig struct {
+	Mode         string        `yaml:"mode,omitempty"`          // "embedded", "daemon", "ephemeral"
+	DaemonSocket string        `yaml:"daemon_socket,omitempty"` // Unix socket for daemon mode
+	IdleTimeout  time.Duration `yaml:"idle_timeout,omitempty"`  // Daemon idle timeout
 }
 
 // Preferences contains user preferences.
@@ -41,19 +68,21 @@ type Preferences struct {
 // ColonyConfig represents ~/.coral/colonies/<colony-id>.yaml config file.
 // The config consists of per-colony identity and security credentials.
 type ColonyConfig struct {
-	Version         string          `yaml:"version"`
-	ColonyID        string          `yaml:"colony_id"`
-	ApplicationName string          `yaml:"application_name"`
-	Environment     string          `yaml:"environment"`
-	ColonySecret    string          `yaml:"colony_secret"`
-	WireGuard       WireGuardConfig `yaml:"wireguard"`
-	Services        ServicesConfig  `yaml:"services"`
-	StoragePath     string          `yaml:"storage_path"`
-	Discovery       DiscoveryColony `yaml:"discovery"`
-	MCP             MCPConfig       `yaml:"mcp,omitempty"`
-	CreatedAt       time.Time       `yaml:"created_at"`
-	CreatedBy       string          `yaml:"created_by"`
-	LastUsed        time.Time       `yaml:"last_used,omitempty"`
+	Version         string            `yaml:"version"`
+	ColonyID        string            `yaml:"colony_id"`
+	ApplicationName string            `yaml:"application_name"`
+	Environment     string            `yaml:"environment"`
+	ColonySecret    string            `yaml:"colony_secret"`
+	WireGuard       WireGuardConfig   `yaml:"wireguard"`
+	Services        ServicesConfig    `yaml:"services"`
+	StoragePath     string            `yaml:"storage_path"`
+	Discovery       DiscoveryColony   `yaml:"discovery"`
+	MCP             MCPConfig         `yaml:"mcp,omitempty"`
+	Beyla           BeylaPollerConfig `yaml:"beyla,omitempty"`
+	Ask             *AskConfig        `yaml:"ask,omitempty"` // Per-colony ask overrides (RFD 030)
+	CreatedAt       time.Time         `yaml:"created_at"`
+	CreatedBy       string            `yaml:"created_by"`
+	LastUsed        time.Time         `yaml:"last_used,omitempty"`
 }
 
 // ServicesConfig contains service port configuration.
@@ -72,19 +101,24 @@ type ServicesConfig struct {
 //
 //	CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start
 //
+// Multiple endpoints can be specified (comma-separated):
+//
+//	CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
+//
 // The mesh IPs (mesh_ipv4, mesh_ipv6) are only used INSIDE the tunnel for
 // service communication, not for establishing the initial connection.
 type WireGuardConfig struct {
-	PrivateKey          string `yaml:"private_key"`
-	PublicKey           string `yaml:"public_key"`
-	Port                int    `yaml:"port"`                           // WireGuard UDP listen port
-	InterfaceName       string `yaml:"interface_name,omitempty"`       // Interface name (e.g., wg0)
-	MeshIPv4            string `yaml:"mesh_ipv4,omitempty"`            // IPv4 address inside tunnel
-	MeshIPv6            string `yaml:"mesh_ipv6,omitempty"`            // IPv6 address inside tunnel
-	MeshNetworkIPv4     string `yaml:"mesh_network_ipv4,omitempty"`    // IPv4 network CIDR
-	MeshNetworkIPv6     string `yaml:"mesh_network_ipv6,omitempty"`    // IPv6 network CIDR
-	MTU                 int    `yaml:"mtu,omitempty"`                  // Interface MTU
-	PersistentKeepalive int    `yaml:"persistent_keepalive,omitempty"` // Keepalive interval (seconds)
+	PrivateKey          string   `yaml:"private_key"`
+	PublicKey           string   `yaml:"public_key"`
+	Port                int      `yaml:"port"`                           // WireGuard UDP listen port
+	PublicEndpoints     []string `yaml:"public_endpoints,omitempty"`     // Public endpoints for agent connections
+	InterfaceName       string   `yaml:"interface_name,omitempty"`       // Interface name (e.g., wg0)
+	MeshIPv4            string   `yaml:"mesh_ipv4,omitempty"`            // IPv4 address inside tunnel
+	MeshIPv6            string   `yaml:"mesh_ipv6,omitempty"`            // IPv6 address inside tunnel
+	MeshNetworkIPv4     string   `yaml:"mesh_network_ipv4,omitempty"`    // IPv4 network CIDR
+	MeshNetworkIPv6     string   `yaml:"mesh_network_ipv6,omitempty"`    // IPv6 network CIDR
+	MTU                 int      `yaml:"mtu,omitempty"`                  // Interface MTU
+	PersistentKeepalive int      `yaml:"persistent_keepalive,omitempty"` // Keepalive interval (seconds)
 }
 
 // DiscoveryColony contains colony-specific discovery settings.
@@ -118,6 +152,30 @@ type MCPSecurityConfig struct {
 
 	// AuditEnabled enables auditing of all MCP tool calls.
 	AuditEnabled bool `yaml:"audit_enabled,omitempty"`
+}
+
+// BeylaPollerConfig contains Beyla metrics/traces collection configuration (RFD 032, RFD 036).
+type BeylaPollerConfig struct {
+	// PollInterval is how often to poll agents for Beyla data (seconds).
+	PollInterval int `yaml:"poll_interval,omitempty"`
+
+	// Retention settings for different data types.
+	Retention BeylaRetentionConfig `yaml:"retention,omitempty"`
+}
+
+// BeylaRetentionConfig contains retention periods for Beyla data.
+type BeylaRetentionConfig struct {
+	// HTTPDays is retention period for HTTP metrics (days).
+	HTTPDays int `yaml:"http_days,omitempty"`
+
+	// GRPCDays is retention period for gRPC metrics (days).
+	GRPCDays int `yaml:"grpc_days,omitempty"`
+
+	// SQLDays is retention period for SQL metrics (days).
+	SQLDays int `yaml:"sql_days,omitempty"`
+
+	// TracesDays is retention period for distributed traces (days) (RFD 036).
+	TracesDays int `yaml:"traces_days,omitempty"`
 }
 
 // ProjectConfig represents <project>/.coral/config.yaml config file.
@@ -249,6 +307,21 @@ func DefaultGlobalConfig() *GlobalConfig {
 		AI: AIConfig{
 			Provider:     "anthropic",
 			APIKeySource: "env",
+			Ask: AskConfig{
+				DefaultModel:   "openai:gpt-4o-mini",
+				FallbackModels: []string{"anthropic:claude-3-5-sonnet-20241022"},
+				APIKeys:        make(map[string]string),
+				Conversation: AskConversationConfig{
+					MaxTurns:      10,
+					ContextWindow: 8192,
+					AutoPrune:     true,
+				},
+				Agent: AskAgentConfig{
+					Mode:         "embedded",
+					DaemonSocket: "~/.coral/ask-agent.sock",
+					IdleTimeout:  10 * time.Minute,
+				},
+			},
 		},
 		Preferences: Preferences{
 			AutoUpdateCheck:  true,
@@ -335,4 +408,57 @@ func DefaultAgentConfig(agentID string) *AgentConfig {
 			},
 		},
 	}
+}
+
+// ResolveMeshSubnet resolves the mesh subnet to use, with the following precedence:
+// 1. Environment variable CORAL_MESH_SUBNET
+// 2. Config file value (cfg.WireGuard.MeshNetworkIPv4)
+// 3. Default from constants
+//
+// Returns the resolved subnet and the colony's IP address within that subnet.
+func ResolveMeshSubnet(cfg *ColonyConfig) (subnet string, colonyIP string, err error) {
+	// Check environment variable first
+	if envSubnet := os.Getenv("CORAL_MESH_SUBNET"); envSubnet != "" {
+		ipNet, err := ValidateMeshSubnet(envSubnet)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid CORAL_MESH_SUBNET environment variable: %w", err)
+		}
+
+		// Calculate colony IP (.1 in the subnet)
+		colonyIP := calculateColonyIP(ipNet)
+
+		return envSubnet, colonyIP, nil
+	}
+
+	// Use config value if set
+	if cfg.WireGuard.MeshNetworkIPv4 != "" {
+		ipNet, err := ValidateMeshSubnet(cfg.WireGuard.MeshNetworkIPv4)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid mesh_network_ipv4 in config: %w", err)
+		}
+
+		// Use configured colony IP if set, otherwise calculate it
+		colonyIP := cfg.WireGuard.MeshIPv4
+		if colonyIP == "" {
+			colonyIP = calculateColonyIP(ipNet)
+		}
+
+		return cfg.WireGuard.MeshNetworkIPv4, colonyIP, nil
+	}
+
+	// Fall back to default
+	return constants.DefaultColonyMeshIPv4Subnet, constants.DefaultColonyMeshIPv4, nil
+}
+
+// calculateColonyIP calculates the colony IP address for a given subnet.
+// The colony always gets the .1 address (first usable IP after network address).
+func calculateColonyIP(subnet *net.IPNet) string {
+	// Make a copy of the network IP
+	ip := make(net.IP, len(subnet.IP))
+	copy(ip, subnet.IP)
+
+	// Increment to .1 (colony address)
+	ip[len(ip)-1]++
+
+	return ip.String()
 }

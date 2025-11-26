@@ -43,7 +43,7 @@ func TestTelemetryE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent database: %v", err)
 	}
-	defer agentDB.Close()
+	defer func() { _ = agentDB.Close() }() // TODO: errcheck
 
 	agentStorage, err := telemetry.NewStorage(agentDB, logger)
 	if err != nil {
@@ -51,7 +51,9 @@ func TestTelemetryE2E(t *testing.T) {
 	}
 
 	// Store test spans (simulating OTLP ingestion)
-	now := time.Now()
+	// Use a fixed base time within the same minute bucket to avoid flakiness
+	// when test runs near minute boundaries.
+	now := time.Now().Truncate(time.Minute).Add(30 * time.Second)
 	testSpans := []telemetry.Span{
 		{
 			Timestamp:   now.Add(-2 * time.Second),
@@ -123,7 +125,7 @@ func TestTelemetryE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent: %v", err)
 	}
-	defer agentInstance.Stop()
+	defer func() { _ = agentInstance.Stop() }() // TODO: errcheck
 
 	runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
 		Logger:          logger,
@@ -134,8 +136,8 @@ func TestTelemetryE2E(t *testing.T) {
 		t.Fatalf("Failed to create runtime service: %v", err)
 	}
 
-	// Create service handler - we'll pass nil for telemetry since we're testing directly
-	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver)
+	// Create service handler - we'll pass nil for telemetry and shell since we're testing directly
+	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, nil)
 
 	// Create test handler that uses our storage directly
 	testHandler := &testAgentHandler{
@@ -147,15 +149,15 @@ func TestTelemetryE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create agent listener: %v", err)
 	}
-	defer agentListener.Close()
+	defer func() { _ = agentListener.Close() }() // TODO: errcheck
 
 	_, agentHandler := agentv1connect.NewAgentServiceHandler(testHandler)
 	agentMux := http.NewServeMux()
 	agentMux.Handle("/coral.agent.v1.AgentService/", agentHandler)
 
 	agentServer := &http.Server{Handler: agentMux}
-	go agentServer.Serve(agentListener)
-	defer agentServer.Close()
+	go func() { _ = agentServer.Serve(agentListener) }() // TODO: errcheck
+	defer func() { _ = agentServer.Close() }()           // TODO: errcheck
 
 	agentAddr := agentListener.Addr().String()
 	t.Logf("✓ Agent listening on: %s", agentAddr)
@@ -214,7 +216,7 @@ func TestTelemetryE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create colony database: %v", err)
 	}
-	defer colonyDB.Close()
+	defer func() { _ = colonyDB.Close() }() // TODO: errcheck
 
 	// Store summaries
 	err = colonyDB.InsertTelemetrySummaries(ctx, summaries)
@@ -337,5 +339,21 @@ func (h *testAgentHandler) ListServices(ctx context.Context, req *connect.Reques
 }
 
 func (h *testAgentHandler) QueryBeylaMetrics(ctx context.Context, req *connect.Request[agentv1.QueryBeylaMetricsRequest]) (*connect.Response[agentv1.QueryBeylaMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) Shell(ctx context.Context, stream *connect.BidiStream[agentv1.ShellRequest, agentv1.ShellResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) ResizeShellTerminal(ctx context.Context, req *connect.Request[agentv1.ResizeShellTerminalRequest]) (*connect.Response[agentv1.ResizeShellTerminalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) SendShellSignal(ctx context.Context, req *connect.Request[agentv1.SendShellSignalRequest]) (*connect.Response[agentv1.SendShellSignalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) KillShellSession(ctx context.Context, req *connect.Request[agentv1.KillShellSessionRequest]) (*connect.Response[agentv1.KillShellSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }

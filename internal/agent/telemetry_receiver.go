@@ -17,6 +17,8 @@ type TelemetryReceiver struct {
 	receiver *telemetry.OTLPReceiver
 	storage  *telemetry.Storage
 	db       *sql.DB
+	dbPath   string // Database file path for HTTP serving (RFD 039).
+	ownsDB   bool   // Whether this receiver owns the database (should close it on Stop).
 	logger   zerolog.Logger
 }
 
@@ -26,8 +28,16 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 		return nil, fmt.Errorf("telemetry is disabled")
 	}
 
-	// Create in-memory DuckDB for span storage.
-	db, err := sql.Open("duckdb", ":memory:")
+	// Determine database path: use file-based storage for HTTP serving.
+	// Default to ~/.coral/agent/telemetry.duckdb if not specified.
+	dbPath := config.DatabasePath
+	if dbPath == "" {
+		dbPath = ":memory:"
+		logger.Warn().Msg("No database path configured, using in-memory storage (HTTP serving disabled)")
+	}
+
+	// Create DuckDB database.
+	db, err := sql.Open("duckdb", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telemetry database: %w", err)
 	}
@@ -35,14 +45,14 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 	// Create storage.
 	storage, err := telemetry.NewStorage(db, logger)
 	if err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to create telemetry storage: %w", err)
 	}
 
 	// Create OTLP receiver.
 	receiver, err := telemetry.NewOTLPReceiver(config, storage, logger)
 	if err != nil {
-		db.Close()
+		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to create OTLP receiver: %w", err)
 	}
 
@@ -50,12 +60,53 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 		receiver: receiver,
 		storage:  storage,
 		db:       db,
+		dbPath:   dbPath,
+		ownsDB:   true, // This receiver created the database, so it owns it.
+		logger:   logger,
+	}, nil
+}
+
+// NewTelemetryReceiverWithSharedDB creates a telemetry receiver using a shared database.
+// The receiver will NOT close the database on Stop() since it doesn't own it.
+func NewTelemetryReceiverWithSharedDB(config telemetry.Config, db *sql.DB, dbPath string, logger zerolog.Logger) (*TelemetryReceiver, error) {
+	if config.Disabled {
+		return nil, fmt.Errorf("telemetry is disabled")
+	}
+
+	if db == nil {
+		return nil, fmt.Errorf("shared database is required")
+	}
+
+	// Create storage using the shared database.
+	storage, err := telemetry.NewStorage(db, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create telemetry storage: %w", err)
+	}
+
+	// Create OTLP receiver.
+	receiver, err := telemetry.NewOTLPReceiver(config, storage, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OTLP receiver: %w", err)
+	}
+
+	return &TelemetryReceiver{
+		receiver: receiver,
+		storage:  storage,
+		db:       db,
+		dbPath:   dbPath,
+		ownsDB:   false, // Database is shared, don't close it on Stop().
 		logger:   logger,
 	}, nil
 }
 
 // Start starts the telemetry receiver.
 func (r *TelemetryReceiver) Start(ctx context.Context) error {
+	// Start cleanup loop (RFD 032).
+	// Use configured retention or default to 1 hour.
+	retention := 1 * time.Hour
+	// TODO: Pass retention from config. For now, hardcode to 1h to match default.
+	go r.storage.RunCleanupLoop(ctx, retention)
+
 	return r.receiver.Start(ctx)
 }
 
@@ -65,8 +116,11 @@ func (r *TelemetryReceiver) Stop() error {
 		return err
 	}
 
-	if err := r.db.Close(); err != nil {
-		return fmt.Errorf("failed to close telemetry database: %w", err)
+	// Only close the database if we own it (not using a shared database).
+	if r.ownsDB {
+		if err := r.db.Close(); err != nil {
+			return fmt.Errorf("failed to close telemetry database: %w", err)
+		}
 	}
 
 	return nil
@@ -76,4 +130,13 @@ func (r *TelemetryReceiver) Stop() error {
 // This is called by the QueryTelemetry RPC handler.
 func (r *TelemetryReceiver) QuerySpans(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]telemetry.Span, error) {
 	return r.receiver.QuerySpans(ctx, startTime, endTime, serviceNames)
+}
+
+// GetDatabasePath returns the file path to the telemetry DuckDB database (RFD 039).
+// Returns empty string if database is in-memory.
+func (r *TelemetryReceiver) GetDatabasePath() string {
+	if r.dbPath == ":memory:" {
+		return ""
+	}
+	return r.dbPath
 }

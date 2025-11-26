@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
+	"github.com/coral-io/coral/internal/colony/ca"
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 )
@@ -21,14 +22,28 @@ func newTestServer(t *testing.T, config Config) *Server {
 	reg := registry.New()
 	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 
-	// Create temporary database for testing
+	// Create temporary database for testing.
 	tmpDir := t.TempDir()
 	db, err := database.New(tmpDir, config.ColonyID, logger)
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
 
-	return New(reg, db, config, logger)
+	// Create CA directory within temp directory.
+	caDir := filepath.Join(tmpDir, "ca")
+
+	// Initialize CA manager for testing (RFD 047).
+	jwtSigningKey := []byte("test-signing-key")
+	caManager, err := ca.NewManager(db.DB(), ca.Config{
+		ColonyID:      config.ColonyID,
+		CADir:         caDir,
+		JWTSigningKey: jwtSigningKey,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create test CA manager: %v", err)
+	}
+
+	return New(reg, db, caManager, config, logger)
 }
 
 func TestServer_GetStatus(t *testing.T) {
@@ -70,8 +85,8 @@ func TestServer_GetStatus(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register healthy agents.
-		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+		_, _ = server.registry.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = server.registry.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 
 		req := connect.NewRequest(&colonyv1.GetStatusRequest{})
 		resp, err := server.GetStatus(context.Background(), req)
@@ -92,8 +107,8 @@ func TestServer_GetStatus(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register agents and manipulate their LastSeen.
-		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-		server.registry.Register("agent-degraded", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+		_, _ = server.registry.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = server.registry.Register("agent-degraded", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 
 		// Manually set LastSeen to make one degraded.
 		entries := server.registry.ListAll()
@@ -123,8 +138,8 @@ func TestServer_GetStatus(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register agents and manipulate their LastSeen.
-		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-		server.registry.Register("agent-unhealthy", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+		_, _ = server.registry.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = server.registry.Register("agent-unhealthy", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 
 		// Manually set LastSeen to make one unhealthy.
 		entries := server.registry.ListAll()
@@ -164,7 +179,7 @@ func TestServer_GetStatus(t *testing.T) {
 		// Create temporary directory with files.
 		tmpDir, err := os.MkdirTemp("", "coral-server-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 
 		testFile := filepath.Join(tmpDir, "test.db")
 		testContent := []byte("test database content")
@@ -213,9 +228,9 @@ func TestServer_ListAgents(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register multiple agents.
-		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
-		server.registry.Register("agent-3", "worker", "10.42.0.4", "fd42::4", nil, nil, "")
+		_, _ = server.registry.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = server.registry.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
+		_, _ = server.registry.Register("agent-3", "worker", "100.64.0.4", "fd42::4", nil, nil, "")
 
 		req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
 		resp, err := server.ListAgents(context.Background(), req)
@@ -227,6 +242,7 @@ func TestServer_ListAgents(t *testing.T) {
 		agentIDs := make(map[string]bool)
 		for _, agent := range resp.Msg.Agents {
 			agentIDs[agent.AgentId] = true
+			//nolint:staticcheck // ComponentName is deprecated but kept for backward compatibility
 			assert.NotEmpty(t, agent.ComponentName)
 			assert.NotEmpty(t, agent.Status)
 			assert.NotNil(t, agent.LastSeen)
@@ -245,9 +261,9 @@ func TestServer_ListAgents(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register agents.
-		server.registry.Register("agent-healthy", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-		server.registry.Register("agent-degraded", "api", "10.42.0.3", "fd42::3", nil, nil, "")
-		server.registry.Register("agent-unhealthy", "worker", "10.42.0.4", "fd42::4", nil, nil, "")
+		_, _ = server.registry.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = server.registry.Register("agent-degraded", "api", "100.64.0.3", "fd42::3", nil, nil, "")
+		_, _ = server.registry.Register("agent-unhealthy", "worker", "100.64.0.4", "fd42::4", nil, nil, "")
 
 		// Manually set LastSeen timestamps.
 		entries := server.registry.ListAll()
@@ -307,8 +323,8 @@ func TestServer_GetTopology(t *testing.T) {
 		server := newTestServer(t, config)
 
 		// Register agents.
-		server.registry.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-		server.registry.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+		_, _ = server.registry.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+		_, _ = server.registry.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 
 		req := connect.NewRequest(&colonyv1.GetTopologyRequest{})
 		resp, err := server.GetTopology(context.Background(), req)
@@ -344,16 +360,16 @@ func TestServer_determineColonyStatus(t *testing.T) {
 		{
 			name: "all healthy agents",
 			setupAgents: func(reg *registry.Registry) {
-				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+				_, _ = reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+				_, _ = reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 			},
 			expectedStatus: "running",
 		},
 		{
 			name: "one degraded agent",
 			setupAgents: func(reg *registry.Registry) {
-				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+				_, _ = reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+				_, _ = reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 
 				// Make agent-2 degraded.
 				entries := reg.ListAll()
@@ -369,8 +385,8 @@ func TestServer_determineColonyStatus(t *testing.T) {
 		{
 			name: "one unhealthy agent",
 			setupAgents: func(reg *registry.Registry) {
-				reg.Register("agent-1", "frontend", "10.42.0.2", "fd42::2", nil, nil, "")
-				reg.Register("agent-2", "api", "10.42.0.3", "fd42::3", nil, nil, "")
+				_, _ = reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
+				_, _ = reg.Register("agent-2", "api", "100.64.0.3", "fd42::3", nil, nil, "")
 
 				// Make agent-2 unhealthy.
 				entries := reg.ListAll()

@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewIPAllocator(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.42.0.0/16")
+	_, subnet, _ := net.ParseCIDR("100.64.0.0/10")
 
 	allocator, err := NewIPAllocator(subnet)
 	if err != nil {
@@ -18,14 +18,14 @@ func TestNewIPAllocator(t *testing.T) {
 	}
 
 	// Verify next IP is .2 (skipping .0 and .1)
-	expectedIP := net.ParseIP("10.42.0.2")
+	expectedIP := net.ParseIP("100.64.0.2")
 	if !allocator.nextIP.Equal(expectedIP) {
 		t.Errorf("expected next IP %s, got %s", expectedIP, allocator.nextIP)
 	}
 }
 
 func TestIPAllocator_Allocate(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.42.0.0/24")
+	_, subnet, _ := net.ParseCIDR("100.64.0.0/24")
 	allocator, _ := NewIPAllocator(subnet)
 
 	// Allocate first IP
@@ -34,7 +34,7 @@ func TestIPAllocator_Allocate(t *testing.T) {
 		t.Fatalf("Allocate failed: %v", err)
 	}
 
-	expectedIP1 := net.ParseIP("10.42.0.2")
+	expectedIP1 := net.ParseIP("100.64.0.2")
 	if !ip1.Equal(expectedIP1) {
 		t.Errorf("expected IP %s, got %s", expectedIP1, ip1)
 	}
@@ -45,7 +45,7 @@ func TestIPAllocator_Allocate(t *testing.T) {
 		t.Fatalf("Allocate failed: %v", err)
 	}
 
-	expectedIP2 := net.ParseIP("10.42.0.3")
+	expectedIP2 := net.ParseIP("100.64.0.3")
 	if !ip2.Equal(expectedIP2) {
 		t.Errorf("expected IP %s, got %s", expectedIP2, ip2)
 	}
@@ -67,7 +67,7 @@ func TestIPAllocator_Allocate(t *testing.T) {
 }
 
 func TestIPAllocator_Release(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.42.0.0/24")
+	_, subnet, _ := net.ParseCIDR("100.64.0.0/24")
 	allocator, _ := NewIPAllocator(subnet)
 
 	// Allocate and release
@@ -93,7 +93,7 @@ func TestIPAllocator_Release(t *testing.T) {
 }
 
 func TestIPAllocator_ReleaseByAgent(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.42.0.0/24")
+	_, subnet, _ := net.ParseCIDR("100.64.0.0/24")
 	allocator, _ := NewIPAllocator(subnet)
 
 	// Allocate
@@ -117,7 +117,7 @@ func TestIPAllocator_ReleaseByAgent(t *testing.T) {
 }
 
 func TestIPAllocator_GetAgentIP(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.42.0.0/24")
+	_, subnet, _ := net.ParseCIDR("100.64.0.0/24")
 	allocator, _ := NewIPAllocator(subnet)
 
 	// Allocate
@@ -141,12 +141,12 @@ func TestIPAllocator_GetAgentIP(t *testing.T) {
 }
 
 func TestIPAllocator_ReuseReleasedIP(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.42.0.0/24")
+	_, subnet, _ := net.ParseCIDR("100.64.0.0/24")
 	allocator, _ := NewIPAllocator(subnet)
 
 	// Allocate and release
 	ip1, _ := allocator.Allocate("agent1")
-	allocator.Release(ip1)
+	_ = allocator.Release(ip1)
 
 	// Next allocation should reuse the released IP
 	ip2, _ := allocator.Allocate("agent2")
@@ -157,25 +157,25 @@ func TestIPAllocator_ReuseReleasedIP(t *testing.T) {
 }
 
 func TestIPAllocator_AllocatedCount(t *testing.T) {
-	_, subnet, _ := net.ParseCIDR("10.42.0.0/24")
+	_, subnet, _ := net.ParseCIDR("100.64.0.0/24")
 	allocator, _ := NewIPAllocator(subnet)
 
 	if allocator.AllocatedCount() != 0 {
 		t.Errorf("expected 0 allocated IPs, got %d", allocator.AllocatedCount())
 	}
 
-	allocator.Allocate("agent1")
+	_, _ = allocator.Allocate("agent1")
 	if allocator.AllocatedCount() != 1 {
 		t.Errorf("expected 1 allocated IP, got %d", allocator.AllocatedCount())
 	}
 
-	allocator.Allocate("agent2")
+	_, _ = allocator.Allocate("agent2")
 	if allocator.AllocatedCount() != 2 {
 		t.Errorf("expected 2 allocated IPs, got %d", allocator.AllocatedCount())
 	}
 
 	ip, _ := allocator.GetAgentIP("agent1")
-	allocator.Release(ip)
+	_ = allocator.Release(ip)
 	if allocator.AllocatedCount() != 1 {
 		t.Errorf("expected 1 allocated IP after release, got %d", allocator.AllocatedCount())
 	}
@@ -187,9 +187,9 @@ func TestIncrementIP(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"simple increment", "10.42.0.1", "10.42.0.2"},
-		{"rollover to next octet", "10.42.0.255", "10.42.1.0"},
-		{"double rollover", "10.42.255.255", "10.43.0.0"},
+		{"simple increment", "100.64.0.1", "100.64.0.2"},
+		{"rollover to next octet", "100.64.0.255", "100.64.1.0"},
+		{"double rollover", "100.64.255.255", "100.65.0.0"},
 	}
 
 	for _, tt := range tests {

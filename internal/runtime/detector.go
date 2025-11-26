@@ -1,3 +1,4 @@
+// Package runtime provides runtime environment detection and platform utilities.
 package runtime
 
 import (
