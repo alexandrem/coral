@@ -108,22 +108,27 @@ coral duckdb shell --agents <agent-1>,<agent-2>,... [-d <database>]
 ### Available Databases
 
 **Agent:**
+
 - `metrics.duckdb` - All agent metrics (spans, HTTP/gRPC/SQL metrics)
 
 **Colony (future):**
+
 - `metrics.duckdb` - Aggregated historical data
 
 ### Agent Key Tables
 
 **Beyla (eBPF metrics):**
+
 - `beyla_http_metrics_local` - HTTP RED metrics
 - `beyla_grpc_metrics_local` - gRPC call metrics
 - `beyla_sql_metrics_local` - Database query metrics
 
 **Beyla (eBPF traces):**
+
 - `beyla_traces_local` - OTLP distributed tracing spans
 
 **Telemetry (OTel):**
+
 - `otel_spans_local` - OTLP distributed tracing spans
 
 ---
@@ -139,6 +144,35 @@ coral debug trace <service> --path <path> --duration <time>
 coral debug list <service>
 coral debug detach <service> [--all]
 coral debug logs <service>
+```
+
+---
+
+## Agent Shell Access
+
+```bash
+# Interactive shell
+coral shell [--agent <agent-id>] [--agent-addr <address>] [--user-id <user>]
+
+# One-off command execution (like kubectl exec)
+coral shell [--agent <agent-id>] -- <command> [args...]
+
+# Examples - Interactive mode:
+coral shell                                   # Local agent
+coral shell --agent hostname-api-1            # Specific agent by ID
+coral shell --agent-addr 100.64.0.5:9001      # Specific agent by address
+
+# Examples - Command execution mode:
+coral shell -- ps aux                         # Execute command on local agent
+coral shell --agent 6b86a4acc127 -- ps aux    # Execute on specific agent
+coral shell -- sh -c "ps aux && netstat -tunlp"  # Complex command with shell
+coral shell --user-id alice@company.com -- whoami  # With audit user ID
+
+# Available tools in agent shell:
+#   - Network: tcpdump, netcat, curl, dig
+#   - Process: ps, top
+#   - Database: duckdb (query agent's local database)
+#   - Files: agent config, logs, data
 ```
 
 ---

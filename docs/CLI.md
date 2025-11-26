@@ -40,7 +40,8 @@ coral version
 
 **Initial Setup:**
 
-1. **Initialize** - `coral init <colony-name>` creates `~/.coral/config.yaml` and WireGuard keypair
+1. **Initialize** - `coral init <colony-name>` creates `~/.coral/config.yaml`
+   and WireGuard keypair
 2. **Start Colony** - `coral colony start` launches the central coordinator
 3. **Start Agents** - `coral agent start` on each monitored machine
 4. **Connect Services** - `coral connect frontend:3000 api:8080`
@@ -52,7 +53,8 @@ See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for command syntax.
 
 ## Configuration Management
 
-Coral uses a kubectl-inspired config system for managing multiple colonies (environments).
+Coral uses a kubectl-inspired config system for managing multiple colonies (
+environments).
 
 **Configuration Priority:**
 
@@ -85,7 +87,8 @@ See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for all `coral config` commands.
 
 ## AI-Powered Debugging
 
-Coral integrates with your own LLM (OpenAI, Anthropic, or local Ollama) to provide
+Coral integrates with your own LLM (OpenAI, Anthropic, or local Ollama) to
+provide
 natural language debugging queries.
 
 **Setup:**
@@ -98,6 +101,7 @@ coral ask config
 ```
 
 **Privacy & Cost:**
+
 - Uses YOUR LLM API keys (never sent to Coral servers)
 - Runs locally as a Genkit agent on your workstation
 - Connects to Colony as MCP server for observability data
@@ -129,7 +133,8 @@ See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for `coral ask` syntax.
 
 ## SQL Metrics Queries with DuckDB
 
-Coral provides direct SQL access to agent databases using DuckDB, enabling powerful
+Coral provides direct SQL access to agent databases using DuckDB, enabling
+powerful
 real-time analysis without serialization overhead.
 
 **Why DuckDB?**
@@ -302,7 +307,8 @@ coral duckdb query agent-prod-1 \
 
 ### Interactive SQL Shell
 
-For exploratory analysis, use the interactive shell with readline support, command history,
+For exploratory analysis, use the interactive shell with readline support,
+command history,
 and multi-line query editing.
 
 **Start a shell:**
@@ -325,7 +331,8 @@ coral duckdb shell --agents agent-prod-1,agent-prod-2,agent-prod-3
 **Example debugging session:**
 
 ```sql
-duckdb> .tables
+duckdb
+> .tables
 beyla_http_metrics_local
 beyla_grpc_metrics_local
 spans
@@ -336,7 +343,8 @@ FROM beyla_http_metrics_local
 WHERE timestamp > now() - INTERVAL '5 minutes'
 GROUP BY service_name;
 
-service_name    requests
+service_name
+requests
 api-server      1547
 auth-service    892
 (2 rows in 23ms)
@@ -362,13 +370,14 @@ When querying multiple agents, databases are prefixed with agent IDs:
 ```sql
 -- Aggregate across all agents
 SELECT service_name, SUM(count) as total
-FROM (
-  SELECT * FROM agent_agent_prod_1.beyla_http_metrics_local
-  UNION ALL
-  SELECT * FROM agent_agent_prod_2.beyla_http_metrics_local
-  UNION ALL
-  SELECT * FROM agent_agent_prod_3.beyla_http_metrics_local
-)
+FROM (SELECT *
+      FROM agent_agent_prod_1.beyla_http_metrics_local
+      UNION ALL
+      SELECT *
+      FROM agent_agent_prod_2.beyla_http_metrics_local
+      UNION ALL
+      SELECT *
+      FROM agent_agent_prod_3.beyla_http_metrics_local)
 WHERE timestamp > now() - INTERVAL '10 minutes'
 GROUP BY service_name;
 ```
@@ -409,7 +418,8 @@ Distributed tracing spans with full OpenTelemetry compatibility.
 SELECT DISTINCT trace_id, name, service_name
 FROM spans
 WHERE status = 'error'
-  AND timestamp > now() - INTERVAL '1 hour';
+  AND timestamp
+    > now() - INTERVAL '1 hour';
 
 -- Trace latency breakdown
 SELECT trace_id, span_id, name, duration_ms
@@ -563,7 +573,8 @@ ORDER BY latency_bucket_ms DESC;
 
 ### Database Discovery
 
-The CLI automatically discovers available databases from agents using the `/duckdb` HTTP endpoint.
+The CLI automatically discovers available databases from agents using the
+`/duckdb` HTTP endpoint.
 
 **How it works:**
 
@@ -579,7 +590,7 @@ The CLI automatically discovers available databases from agents using the `/duck
 coral duckdb list-agents
 
 # Query specific agent's databases via HTTP
-curl http://10.42.1.5:9001/duckdb
+curl http://100.64.0.5:9001/duckdb
 # Returns: {"databases":["metrics.duckdb"]}
 ```
 
@@ -711,12 +722,319 @@ curl http://<agent-mesh-ip>:9001/duckdb
 
 ---
 
+## Agent Shell Access
+
+Coral provides interactive shell access to agent environments for debugging and
+diagnostics. This enables direct access to the agent's container/process with
+full terminal capabilities.
+
+**Key Features:**
+
+- **Interactive terminal** - Full PTY support with readline, signals, and
+  terminal resize
+- **Debugging utilities** - Network tools (tcpdump, netcat, curl), process
+  inspection (ps, top)
+- **Direct database access** - Query agent's local DuckDB database
+- **Agent resolution** - Connect by agent ID or explicit address
+- **Audit logging** - All sessions are recorded with session IDs
+
+**Security Considerations:**
+
+⚠️ **WARNING**: Agent shells run with elevated privileges:
+
+- Access to CRI socket (can exec into containers)
+- eBPF monitoring capabilities
+- WireGuard mesh network access
+- Agent configuration and storage access
+
+All sessions are fully audited and recorded.
+
+### Basic Usage
+
+**Connect to local agent:**
+
+```bash
+coral shell
+```
+
+**Connect to specific agent by ID:**
+
+```bash
+coral shell --agent hostname-api-1
+```
+
+**Connect to agent by explicit address:**
+
+```bash
+coral shell --agent-addr 100.64.0.5:9001
+```
+
+**Specify user ID for audit:**
+
+```bash
+coral shell --user-id alice@company.com
+```
+
+See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for command syntax.
+
+---
+
+### Agent Resolution
+
+The `coral shell` command supports multiple ways to specify the target agent:
+
+**1. Auto-discovery (local agent):**
+
+```bash
+coral shell
+# Connects to localhost:9001 (default agent port)
+```
+
+**2. Agent ID (via colony registry):**
+
+```bash
+coral shell --agent hostname-api-1
+# Colony resolves agent ID → mesh IP (e.g., 100.64.0.5)
+# Requires colony to be running
+```
+
+**3. Explicit address:**
+
+```bash
+coral shell --agent-addr 100.64.0.5:9001
+# Direct connection to mesh IP
+# No colony lookup required
+```
+
+**Agent ID disambiguation:**
+
+When multiple agents serve the same service, use agent ID for unambiguous
+targeting:
+
+```bash
+# List agents to find IDs
+coral colony agents
+
+# Connect to specific agent
+coral shell --agent hostname-api-2
+```
+
+---
+
+### Available Tools
+
+Agent shells provide access to debugging utilities:
+
+**Network diagnostics:**
+
+- `tcpdump` - Packet capture and analysis
+- `netcat` (nc) - TCP/UDP connections
+- `curl` - HTTP requests
+- `dig` / `nslookup` - DNS queries
+- `ss` / `netstat` - Socket statistics
+- `ip` - Network interface configuration
+
+**Process inspection:**
+
+- `ps` - Process listing
+- `top` - Real-time process monitoring
+- `lsof` - Open files and sockets
+
+**Database access:**
+
+- `duckdb` - Query agent's local database directly
+
+**File access:**
+
+- Agent configuration files
+- Agent logs
+- Agent data storage
+
+---
+
+### Example Workflows
+
+#### Network Debugging
+
+**Check listening ports:**
+
+```bash
+coral shell --agent hostname-api-1
+
+# In shell:
+ss -tlnp
+# Shows all listening TCP ports with process names
+```
+
+**Capture HTTP traffic:**
+
+```bash
+coral shell --agent hostname-api-1
+
+# In shell:
+tcpdump -i any -A 'tcp port 8080' -c 20
+# Captures 20 HTTP packets on port 8080
+```
+
+**Test connectivity:**
+
+```bash
+coral shell --agent hostname-api-1
+
+# In shell:
+curl -v http://localhost:8080/health
+# Tests local service health endpoint
+```
+
+#### Process Debugging
+
+**Find resource-intensive processes:**
+
+```bash
+coral shell --agent hostname-api-1
+
+# In shell:
+top -bn1 | head -20
+# Shows top processes by CPU/memory
+```
+
+**Check if service is running:**
+
+```bash
+coral shell --agent hostname-api-1
+
+# In shell:
+ps auxwwf | grep nginx
+# Shows nginx processes with full command lines
+```
+
+#### Database Queries
+
+**Query agent's local database:**
+
+```bash
+coral shell --agent hostname-api-1
+
+# In shell:
+duckdb ~/.coral/agent/metrics.duckdb
+
+# In DuckDB:
+SELECT * FROM beyla_http_metrics_local
+WHERE timestamp > now() - INTERVAL '5 minutes'
+LIMIT 10;
+```
+
+---
+
+### Session Management
+
+**Terminal features:**
+
+- **Readline support** - Command history, line editing (Ctrl+A, Ctrl+E, etc.)
+- **Signal handling** - Ctrl+C, Ctrl+Z work as expected
+- **Terminal resize** - Window resize events are forwarded
+- **Exit codes** - Shell exit code is preserved
+
+**Exiting the shell:**
+
+```bash
+# Type exit or press Ctrl+D
+exit
+
+# Or use Ctrl+D (EOF)
+^D
+```
+
+**Session audit:**
+
+All shell sessions are logged with:
+
+- Session ID (UUID)
+- User ID (from `--user-id` or `$USER`)
+- Agent ID
+- Start/end timestamps
+- Commands executed (future: RFD 042)
+
+---
+
+### Security and RBAC
+
+**Current security model:**
+
+- Shell access requires WireGuard mesh connectivity
+- Agent validates source IP (must be from colony or authorized peer)
+- All sessions are audited with session IDs
+- User ID tracking for accountability
+
+**Future enhancements (RFD 043):**
+
+- RBAC policies for shell access
+- Approval workflows for production access
+- Command whitelisting/blacklisting
+- Session recording and playback
+
+---
+
+### Troubleshooting
+
+#### "failed to connect to agent"
+
+**Problem:** Cannot establish connection to agent.
+
+**Solutions:**
+
+```bash
+# Verify agent is running
+coral agent status
+
+# Check WireGuard mesh connectivity
+ping 100.64.0.5
+
+# Verify agent HTTP server is listening
+curl http://100.64.0.5:9001/health
+
+# Check colony is running (for agent ID resolution)
+coral colony status
+```
+
+#### "agent not found"
+
+**Problem:** Agent ID not found in colony registry.
+
+**Solutions:**
+
+```bash
+# List all connected agents
+coral colony agents
+
+# Verify agent ID is correct
+coral colony agents | grep hostname-api
+
+# Use explicit address instead
+coral shell --agent-addr 100.64.0.5:9001
+```
+
+#### "permission denied"
+
+**Problem:** Agent rejects connection.
+
+**Solutions:**
+
+- Verify source IP is in agent's AllowedIPs (WireGuard config)
+- Check agent logs for rejection reason
+- Ensure colony is running (for colony-mediated routing)
+
+---
+
 ## Related Documentation
 
+- **RFD 026** - Shell Command Implementation (agent shell access)
 - **RFD 039** - DuckDB Remote Query CLI (detailed specification)
 - **RFD 025** - OTLP Telemetry Receiver (spans in `metrics.duckdb`)
-- **RFD 032** - Beyla RED Metrics Integration (HTTP/gRPC/SQL metrics in `metrics.duckdb`)
+- **RFD 032** - Beyla RED Metrics Integration (HTTP/gRPC/SQL metrics in
+  `metrics.duckdb`)
 - **RFD 038** - CLI-to-Agent Direct Mesh Connectivity
+- **RFD 045** - MCP Shell Exec Tool (one-off command execution via MCP)
 - **RFD 046** - Colony DuckDB Remote Query (historical data - future)
 - **DuckDB Documentation** - https://duckdb.org/docs/
 
