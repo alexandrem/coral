@@ -148,8 +148,8 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 		return s.executeListEBPFCollectorsTool(ctx, argumentsJSON)
 	case "coral_exec_command":
 		return s.executeExecCommandTool(ctx, argumentsJSON)
-	case "coral_shell_start":
-		return s.executeShellStartTool(ctx, argumentsJSON)
+	case "coral_shell_exec":
+		return s.executeShellExecTool(ctx, argumentsJSON)
 
 	// Service discovery (RFD 054)
 	case "coral_list_services":
@@ -234,7 +234,7 @@ func (s *Server) getToolSchemas() map[string]string {
 		"coral_stop_ebpf_collector":      StopEBPFCollectorInput{},
 		"coral_list_ebpf_collectors":     ListEBPFCollectorsInput{},
 		"coral_exec_command":             ExecCommandInput{},
-		"coral_shell_start":              ShellStartInput{},
+		"coral_shell_exec":               ShellExecInput{},
 		"coral_list_services":            ListServicesInput{},
 	}
 
@@ -286,7 +286,7 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_stop_ebpf_collector":      "Stop a running eBPF collector before its duration expires.",
 		"coral_list_ebpf_collectors":     "List currently active eBPF collectors with their status and remaining duration.",
 		"coral_exec_command":             "Execute a command in an application container (kubectl/docker exec semantics). Useful for checking configuration, running diagnostic commands, or inspecting container state.",
-		"coral_shell_start":              "Start an interactive debug shell in the agent's environment (not the application container). Provides access to debugging tools (tcpdump, netcat, curl) and agent's data. Returns session ID for audit.",
+		"coral_shell_exec":               "Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
 		"coral_list_services":            "List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
 	}
 }
@@ -311,7 +311,7 @@ func (s *Server) registerTools() error {
 	s.registerStopEBPFCollectorTool()
 	s.registerListEBPFCollectorsTool()
 	s.registerExecCommandTool()
-	s.registerShellStartTool()
+	s.registerShellExecTool()
 
 	// Register service discovery tools (RFD 054).
 	s.registerListServicesTool()
@@ -348,7 +348,7 @@ func (s *Server) listToolNames() []string {
 		"coral_stop_ebpf_collector",
 		"coral_list_ebpf_collectors",
 		"coral_exec_command",
-		"coral_shell_start",
+		"coral_shell_exec",
 		"coral_list_services",
 	}
 }

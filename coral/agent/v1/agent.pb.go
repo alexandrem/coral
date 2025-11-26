@@ -2988,6 +2988,178 @@ func (x *KillShellSessionResponse) GetError() string {
 	return ""
 }
 
+type ShellExecRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Command as array (no shell interpretation - prevents injection).
+	// Example: ["ps", "aux"] or ["tcpdump", "-i", "any", "port", "80"]
+	Command []string `protobuf:"bytes,1,rep,name=command,proto3" json:"command,omitempty"`
+	// User making request (for audit).
+	UserId string `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// Timeout in seconds (default: 30, max: 300).
+	TimeoutSeconds uint32 `protobuf:"varint,3,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
+	// Working directory (default: agent's working dir).
+	WorkingDir string `protobuf:"bytes,4,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	// Additional environment variables.
+	Env           map[string]string `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShellExecRequest) Reset() {
+	*x = ShellExecRequest{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShellExecRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShellExecRequest) ProtoMessage() {}
+
+func (x *ShellExecRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShellExecRequest.ProtoReflect.Descriptor instead.
+func (*ShellExecRequest) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *ShellExecRequest) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *ShellExecRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *ShellExecRequest) GetTimeoutSeconds() uint32 {
+	if x != nil {
+		return x.TimeoutSeconds
+	}
+	return 0
+}
+
+func (x *ShellExecRequest) GetWorkingDir() string {
+	if x != nil {
+		return x.WorkingDir
+	}
+	return ""
+}
+
+func (x *ShellExecRequest) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+type ShellExecResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Standard output from command.
+	Stdout []byte `protobuf:"bytes,1,opt,name=stdout,proto3" json:"stdout,omitempty"`
+	// Standard error from command.
+	Stderr []byte `protobuf:"bytes,2,opt,name=stderr,proto3" json:"stderr,omitempty"`
+	// Exit code from command.
+	ExitCode int32 `protobuf:"varint,3,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	// Session ID for audit reference.
+	SessionId string `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Execution duration in milliseconds.
+	DurationMs uint32 `protobuf:"varint,5,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	// Error message if execution failed (timeout, command not found, etc.).
+	Error         string `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShellExecResponse) Reset() {
+	*x = ShellExecResponse{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShellExecResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShellExecResponse) ProtoMessage() {}
+
+func (x *ShellExecResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShellExecResponse.ProtoReflect.Descriptor instead.
+func (*ShellExecResponse) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *ShellExecResponse) GetStdout() []byte {
+	if x != nil {
+		return x.Stdout
+	}
+	return nil
+}
+
+func (x *ShellExecResponse) GetStderr() []byte {
+	if x != nil {
+		return x.Stderr
+	}
+	return nil
+}
+
+func (x *ShellExecResponse) GetExitCode() int32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
+}
+
+func (x *ShellExecResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ShellExecResponse) GetDurationMs() uint32 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *ShellExecResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_coral_agent_v1_agent_proto_rawDesc = "" +
@@ -3250,7 +3422,26 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\"J\n" +
 	"\x18KillShellSessionResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error*\xa9\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x84\x02\n" +
+	"\x10ShellExecRequest\x12\x18\n" +
+	"\acommand\x18\x01 \x03(\tR\acommand\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\tR\x06userId\x12'\n" +
+	"\x0ftimeout_seconds\x18\x03 \x01(\rR\x0etimeoutSeconds\x12\x1f\n" +
+	"\vworking_dir\x18\x04 \x01(\tR\n" +
+	"workingDir\x12;\n" +
+	"\x03env\x18\x05 \x03(\v2).coral.agent.v1.ShellExecRequest.EnvEntryR\x03env\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb6\x01\n" +
+	"\x11ShellExecResponse\x12\x16\n" +
+	"\x06stdout\x18\x01 \x01(\fR\x06stdout\x12\x16\n" +
+	"\x06stderr\x18\x02 \x01(\fR\x06stderr\x12\x1b\n" +
+	"\texit_code\x18\x03 \x01(\x05R\bexitCode\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x1f\n" +
+	"\vduration_ms\x18\x05 \x01(\rR\n" +
+	"durationMs\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error*\xa9\x01\n" +
 	"\x0eRuntimeContext\x12\x1b\n" +
 	"\x17RUNTIME_CONTEXT_UNKNOWN\x10\x00\x12\x1a\n" +
 	"\x16RUNTIME_CONTEXT_NATIVE\x10\x01\x12\x1a\n" +
@@ -3272,7 +3463,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x1dBEYLA_METRIC_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16BEYLA_METRIC_TYPE_HTTP\x10\x01\x12\x1a\n" +
 	"\x16BEYLA_METRIC_TYPE_GRPC\x10\x02\x12\x19\n" +
-	"\x15BEYLA_METRIC_TYPE_SQL\x10\x032\xeb\a\n" +
+	"\x15BEYLA_METRIC_TYPE_SQL\x10\x032\xbd\b\n" +
 	"\fAgentService\x12e\n" +
 	"\x11GetRuntimeContext\x12(.coral.agent.v1.GetRuntimeContextRequest\x1a&.coral.agent.v1.RuntimeContextResponse\x12_\n" +
 	"\x0eConnectService\x12%.coral.agent.v1.ConnectServiceRequest\x1a&.coral.agent.v1.ConnectServiceResponse\x12h\n" +
@@ -3280,7 +3471,8 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\fListServices\x12#.coral.agent.v1.ListServicesRequest\x1a$.coral.agent.v1.ListServicesResponse\x12_\n" +
 	"\x0eQueryTelemetry\x12%.coral.agent.v1.QueryTelemetryRequest\x1a&.coral.agent.v1.QueryTelemetryResponse\x12h\n" +
 	"\x11QueryBeylaMetrics\x12(.coral.agent.v1.QueryBeylaMetricsRequest\x1a).coral.agent.v1.QueryBeylaMetricsResponse\x12H\n" +
-	"\x05Shell\x12\x1c.coral.agent.v1.ShellRequest\x1a\x1d.coral.agent.v1.ShellResponse(\x010\x01\x12n\n" +
+	"\x05Shell\x12\x1c.coral.agent.v1.ShellRequest\x1a\x1d.coral.agent.v1.ShellResponse(\x010\x01\x12P\n" +
+	"\tShellExec\x12 .coral.agent.v1.ShellExecRequest\x1a!.coral.agent.v1.ShellExecResponse\x12n\n" +
 	"\x13ResizeShellTerminal\x12*.coral.agent.v1.ResizeShellTerminalRequest\x1a+.coral.agent.v1.ResizeShellTerminalResponse\x12b\n" +
 	"\x0fSendShellSignal\x12&.coral.agent.v1.SendShellSignalRequest\x1a'.coral.agent.v1.SendShellSignalResponse\x12e\n" +
 	"\x10KillShellSession\x12'.coral.agent.v1.KillShellSessionRequest\x1a(.coral.agent.v1.KillShellSessionResponseB\xac\x01\n" +
@@ -3300,7 +3492,7 @@ func file_coral_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(RuntimeContext)(0),                 // 0: coral.agent.v1.RuntimeContext
 	(SidecarMode)(0),                    // 1: coral.agent.v1.SidecarMode
@@ -3343,15 +3535,18 @@ var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(*SendShellSignalResponse)(nil),     // 38: coral.agent.v1.SendShellSignalResponse
 	(*KillShellSessionRequest)(nil),     // 39: coral.agent.v1.KillShellSessionRequest
 	(*KillShellSessionResponse)(nil),    // 40: coral.agent.v1.KillShellSessionResponse
-	nil,                                 // 41: coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	nil,                                 // 42: coral.agent.v1.ServiceStatus.LabelsEntry
-	nil,                                 // 43: coral.agent.v1.TelemetrySpan.AttributesEntry
-	nil,                                 // 44: coral.agent.v1.BeylaHttpMetric.AttributesEntry
-	nil,                                 // 45: coral.agent.v1.BeylaGrpcMetric.AttributesEntry
-	nil,                                 // 46: coral.agent.v1.BeylaSqlMetric.AttributesEntry
-	nil,                                 // 47: coral.agent.v1.BeylaTraceSpan.AttributesEntry
-	nil,                                 // 48: coral.agent.v1.ShellStart.EnvEntry
-	(*timestamppb.Timestamp)(nil),       // 49: google.protobuf.Timestamp
+	(*ShellExecRequest)(nil),            // 41: coral.agent.v1.ShellExecRequest
+	(*ShellExecResponse)(nil),           // 42: coral.agent.v1.ShellExecResponse
+	nil,                                 // 43: coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	nil,                                 // 44: coral.agent.v1.ServiceStatus.LabelsEntry
+	nil,                                 // 45: coral.agent.v1.TelemetrySpan.AttributesEntry
+	nil,                                 // 46: coral.agent.v1.BeylaHttpMetric.AttributesEntry
+	nil,                                 // 47: coral.agent.v1.BeylaGrpcMetric.AttributesEntry
+	nil,                                 // 48: coral.agent.v1.BeylaSqlMetric.AttributesEntry
+	nil,                                 // 49: coral.agent.v1.BeylaTraceSpan.AttributesEntry
+	nil,                                 // 50: coral.agent.v1.ShellStart.EnvEntry
+	nil,                                 // 51: coral.agent.v1.ShellExecRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),       // 52: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	6,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
@@ -3360,56 +3555,59 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	7,  // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
 	9,  // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
 	8,  // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
-	49, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
+	52, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
 	17, // 7: coral.agent.v1.RuntimeContextResponse.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
-	41, // 8: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	43, // 8: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
 	16, // 9: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
-	42, // 10: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
-	49, // 11: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
+	44, // 10: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
+	52, // 11: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
 	2,  // 12: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
 	18, // 13: coral.agent.v1.EbpfCapabilities.beyla:type_name -> coral.agent.v1.BeylaCapabilities
-	43, // 14: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
+	45, // 14: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
 	19, // 15: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
 	3,  // 16: coral.agent.v1.QueryBeylaMetricsRequest.metric_types:type_name -> coral.agent.v1.BeylaMetricType
 	24, // 17: coral.agent.v1.QueryBeylaMetricsResponse.http_metrics:type_name -> coral.agent.v1.BeylaHttpMetric
 	25, // 18: coral.agent.v1.QueryBeylaMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.BeylaGrpcMetric
 	26, // 19: coral.agent.v1.QueryBeylaMetricsResponse.sql_metrics:type_name -> coral.agent.v1.BeylaSqlMetric
 	27, // 20: coral.agent.v1.QueryBeylaMetricsResponse.trace_spans:type_name -> coral.agent.v1.BeylaTraceSpan
-	44, // 21: coral.agent.v1.BeylaHttpMetric.attributes:type_name -> coral.agent.v1.BeylaHttpMetric.AttributesEntry
-	45, // 22: coral.agent.v1.BeylaGrpcMetric.attributes:type_name -> coral.agent.v1.BeylaGrpcMetric.AttributesEntry
-	46, // 23: coral.agent.v1.BeylaSqlMetric.attributes:type_name -> coral.agent.v1.BeylaSqlMetric.AttributesEntry
-	47, // 24: coral.agent.v1.BeylaTraceSpan.attributes:type_name -> coral.agent.v1.BeylaTraceSpan.AttributesEntry
+	46, // 21: coral.agent.v1.BeylaHttpMetric.attributes:type_name -> coral.agent.v1.BeylaHttpMetric.AttributesEntry
+	47, // 22: coral.agent.v1.BeylaGrpcMetric.attributes:type_name -> coral.agent.v1.BeylaGrpcMetric.AttributesEntry
+	48, // 23: coral.agent.v1.BeylaSqlMetric.attributes:type_name -> coral.agent.v1.BeylaSqlMetric.AttributesEntry
+	49, // 24: coral.agent.v1.BeylaTraceSpan.attributes:type_name -> coral.agent.v1.BeylaTraceSpan.AttributesEntry
 	29, // 25: coral.agent.v1.ShellRequest.start:type_name -> coral.agent.v1.ShellStart
 	33, // 26: coral.agent.v1.ShellRequest.resize:type_name -> coral.agent.v1.ShellResize
 	34, // 27: coral.agent.v1.ShellRequest.signal:type_name -> coral.agent.v1.ShellSignal
-	48, // 28: coral.agent.v1.ShellStart.env:type_name -> coral.agent.v1.ShellStart.EnvEntry
+	50, // 28: coral.agent.v1.ShellStart.env:type_name -> coral.agent.v1.ShellStart.EnvEntry
 	32, // 29: coral.agent.v1.ShellStart.size:type_name -> coral.agent.v1.TerminalSize
 	31, // 30: coral.agent.v1.ShellResponse.exit:type_name -> coral.agent.v1.ShellExit
-	4,  // 31: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
-	10, // 32: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
-	12, // 33: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
-	14, // 34: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
-	20, // 35: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
-	22, // 36: coral.agent.v1.AgentService.QueryBeylaMetrics:input_type -> coral.agent.v1.QueryBeylaMetricsRequest
-	28, // 37: coral.agent.v1.AgentService.Shell:input_type -> coral.agent.v1.ShellRequest
-	35, // 38: coral.agent.v1.AgentService.ResizeShellTerminal:input_type -> coral.agent.v1.ResizeShellTerminalRequest
-	37, // 39: coral.agent.v1.AgentService.SendShellSignal:input_type -> coral.agent.v1.SendShellSignalRequest
-	39, // 40: coral.agent.v1.AgentService.KillShellSession:input_type -> coral.agent.v1.KillShellSessionRequest
-	5,  // 41: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
-	11, // 42: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
-	13, // 43: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
-	15, // 44: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
-	21, // 45: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
-	23, // 46: coral.agent.v1.AgentService.QueryBeylaMetrics:output_type -> coral.agent.v1.QueryBeylaMetricsResponse
-	30, // 47: coral.agent.v1.AgentService.Shell:output_type -> coral.agent.v1.ShellResponse
-	36, // 48: coral.agent.v1.AgentService.ResizeShellTerminal:output_type -> coral.agent.v1.ResizeShellTerminalResponse
-	38, // 49: coral.agent.v1.AgentService.SendShellSignal:output_type -> coral.agent.v1.SendShellSignalResponse
-	40, // 50: coral.agent.v1.AgentService.KillShellSession:output_type -> coral.agent.v1.KillShellSessionResponse
-	41, // [41:51] is the sub-list for method output_type
-	31, // [31:41] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	51, // 31: coral.agent.v1.ShellExecRequest.env:type_name -> coral.agent.v1.ShellExecRequest.EnvEntry
+	4,  // 32: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
+	10, // 33: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
+	12, // 34: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
+	14, // 35: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
+	20, // 36: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
+	22, // 37: coral.agent.v1.AgentService.QueryBeylaMetrics:input_type -> coral.agent.v1.QueryBeylaMetricsRequest
+	28, // 38: coral.agent.v1.AgentService.Shell:input_type -> coral.agent.v1.ShellRequest
+	41, // 39: coral.agent.v1.AgentService.ShellExec:input_type -> coral.agent.v1.ShellExecRequest
+	35, // 40: coral.agent.v1.AgentService.ResizeShellTerminal:input_type -> coral.agent.v1.ResizeShellTerminalRequest
+	37, // 41: coral.agent.v1.AgentService.SendShellSignal:input_type -> coral.agent.v1.SendShellSignalRequest
+	39, // 42: coral.agent.v1.AgentService.KillShellSession:input_type -> coral.agent.v1.KillShellSessionRequest
+	5,  // 43: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
+	11, // 44: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
+	13, // 45: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
+	15, // 46: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
+	21, // 47: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
+	23, // 48: coral.agent.v1.AgentService.QueryBeylaMetrics:output_type -> coral.agent.v1.QueryBeylaMetricsResponse
+	30, // 49: coral.agent.v1.AgentService.Shell:output_type -> coral.agent.v1.ShellResponse
+	42, // 50: coral.agent.v1.AgentService.ShellExec:output_type -> coral.agent.v1.ShellExecResponse
+	36, // 51: coral.agent.v1.AgentService.ResizeShellTerminal:output_type -> coral.agent.v1.ResizeShellTerminalResponse
+	38, // 52: coral.agent.v1.AgentService.SendShellSignal:output_type -> coral.agent.v1.SendShellSignalResponse
+	40, // 53: coral.agent.v1.AgentService.KillShellSession:output_type -> coral.agent.v1.KillShellSessionResponse
+	43, // [43:54] is the sub-list for method output_type
+	32, // [32:43] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_agent_proto_init() }
@@ -3433,7 +3631,7 @@ func file_coral_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_agent_proto_rawDesc), len(file_coral_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   45,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

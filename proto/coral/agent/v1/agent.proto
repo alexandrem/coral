@@ -29,6 +29,9 @@ service AgentService {
   // Shell: Interactive shell session in agent environment (RFD 026).
   rpc Shell(stream ShellRequest) returns (stream ShellResponse);
 
+  // ShellExec: One-off command execution in agent environment (RFD 045).
+  rpc ShellExec(ShellExecRequest) returns (ShellExecResponse);
+
   // Resize shell terminal (RFD 026).
   rpc ResizeShellTerminal(ResizeShellTerminalRequest) returns (ResizeShellTerminalResponse);
 
@@ -573,5 +576,45 @@ message KillShellSessionRequest {
 message KillShellSessionResponse {
   bool success = 1;
   string error = 2;
+}
+
+// ShellExec RPC messages (RFD 045 - one-off command execution).
+
+message ShellExecRequest {
+  // Command as array (no shell interpretation - prevents injection).
+  // Example: ["ps", "aux"] or ["tcpdump", "-i", "any", "port", "80"]
+  repeated string command = 1;
+
+  // User making request (for audit).
+  string user_id = 2;
+
+  // Timeout in seconds (default: 30, max: 300).
+  uint32 timeout_seconds = 3;
+
+  // Working directory (default: agent's working dir).
+  string working_dir = 4;
+
+  // Additional environment variables.
+  map<string, string> env = 5;
+}
+
+message ShellExecResponse {
+  // Standard output from command.
+  bytes stdout = 1;
+
+  // Standard error from command.
+  bytes stderr = 2;
+
+  // Exit code from command.
+  int32 exit_code = 3;
+
+  // Session ID for audit reference.
+  string session_id = 4;
+
+  // Execution duration in milliseconds.
+  uint32 duration_ms = 5;
+
+  // Error message if execution failed (timeout, command not found, etc.).
+  string error = 6;
 }
 
