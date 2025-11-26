@@ -587,35 +587,11 @@ func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string
 		return "", err
 	}
 
-	text := fmt.Sprintf("Agent Debug Shell: %s (agent: %s)\n\n", input.Service, agent.AgentID)
-	text += "Status: Not yet implemented\n\n"
+	// Validate agent status.
+	status := registry.DetermineStatus(agent.LastSeen, time.Now())
 
-	shell := "/bin/bash"
-	if input.Shell != nil {
-		shell = *input.Shell
-	}
-	text += fmt.Sprintf("Shell: %s\n", shell)
-
-	text += "\n"
-	text += "Implementation Status:\n"
-	text += "  - RFD 026 (shell command) is in draft status\n"
-	text += "  - Agent shell server is not yet implemented\n"
-	text += "  - TTY handling and session management are pending\n"
-	text += "\n"
-	text += "Once implemented, this tool will:\n"
-	text += "  1. Locate target agent via registry\n"
-	text += "  2. Start interactive shell in agent's container\n"
-	text += "  3. Provide access to debugging utilities (tcpdump, netcat, curl, etc.)\n"
-	text += "  4. Enable network debugging from agent's perspective\n"
-	text += "  5. Allow querying agent's local DuckDB for raw telemetry\n"
-	text += "  6. Record full session for audit (elevated privileges)\n"
-	text += "\n"
-	text += "Security Note:\n"
-	text += "  - Agent shells have elevated privileges (CRI socket access, host network)\n"
-	text += "  - All sessions will be fully recorded for audit compliance\n"
-	text += "  - RBAC checks will be enforced before allowing access\n"
-
-	return text, nil
+	// Format response with connection details.
+	return formatShellStartResponse(agent, status, input.Shell), nil
 }
 
 // Helper functions for agent resolution and disambiguation (RFD 044).
@@ -759,6 +735,81 @@ func formatTraceByID(trace *database.BeylaTraceResult, format string) string {
 	if trace.ParentSpanID != "" {
 		text += fmt.Sprintf("Parent Span: %s\n", trace.ParentSpanID)
 	}
+
+	return text
+}
+
+// formatShellStartResponse formats the response for coral_shell_start tool.
+// Returns connection details and CLI command for accessing the agent shell.
+func formatShellStartResponse(agent *registry.Entry, status registry.AgentStatus, shellPreference *string) string {
+	// Build service names list from Services[] array.
+	serviceNames := make([]string, 0, len(agent.Services))
+	for _, svc := range agent.Services {
+		serviceNames = append(serviceNames, svc.Name)
+	}
+	servicesStr := strings.Join(serviceNames, ", ")
+	if servicesStr == "" {
+		servicesStr = agent.Name // Fallback for backward compatibility
+	}
+
+	// Determine shell to use.
+	shell := "/bin/bash"
+	if shellPreference != nil {
+		shell = *shellPreference
+	}
+
+	// Calculate time since last seen.
+	timeSinceLastSeen := time.Since(agent.LastSeen)
+	var lastSeenStr string
+	if timeSinceLastSeen < time.Minute {
+		lastSeenStr = fmt.Sprintf("%d seconds ago", int(timeSinceLastSeen.Seconds()))
+	} else if timeSinceLastSeen < time.Hour {
+		lastSeenStr = fmt.Sprintf("%d minutes ago", int(timeSinceLastSeen.Minutes()))
+	} else {
+		lastSeenStr = fmt.Sprintf("%d hours ago", int(timeSinceLastSeen.Hours()))
+	}
+
+	// Calculate uptime.
+	uptime := formatDuration(time.Since(agent.RegisteredAt))
+
+	// Format response.
+	text := fmt.Sprintf("Shell Access Available: %s\n\n", servicesStr)
+
+	text += "Agent Details:\n"
+	text += fmt.Sprintf("  - Agent ID: %s\n", agent.AgentID)
+	text += fmt.Sprintf("  - Service: %s\n", servicesStr)
+	text += fmt.Sprintf("  - Mesh IP: %s\n", agent.MeshIPv4)
+	text += fmt.Sprintf("  - Status: %s (last seen %s)\n", status, lastSeenStr)
+	text += fmt.Sprintf("  - Uptime: %s\n", uptime)
+	text += "\n"
+
+	// Add status warning if degraded or unhealthy.
+	if status == registry.StatusDegraded {
+		text += "⚠️  Warning: Agent is in degraded state (last seen > 30s ago).\n"
+		text += "    The agent may be experiencing connectivity issues.\n\n"
+	} else if status == registry.StatusUnhealthy {
+		text += "❌ Warning: Agent is unhealthy (last seen > 2m ago).\n"
+		text += "    The agent may be offline or unreachable.\n"
+		text += "    Connection attempts may fail.\n\n"
+	}
+
+	text += "Connection Command:\n"
+	text += fmt.Sprintf("  coral shell --agent-addr %s:9001", agent.MeshIPv4)
+	if shell != "/bin/bash" {
+		text += fmt.Sprintf(" --shell %s", shell)
+	}
+	text += "\n\n"
+
+	text += "⚠️  Warning: Agent shells have elevated privileges:\n"
+	text += "  • CRI socket access (can exec into containers)\n"
+	text += "  • eBPF monitoring data access\n"
+	text += "  • WireGuard mesh network access\n"
+	text += "  • All sessions are fully recorded for audit\n\n"
+
+	text += "Available Utilities:\n"
+	text += "  tcpdump, netcat, curl, duckdb, dig/nslookup, ps, ip, ss, vim\n\n"
+
+	text += fmt.Sprintf("Shell: %s\n", shell)
 
 	return text
 }

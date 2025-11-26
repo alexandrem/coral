@@ -1,108 +1,125 @@
 ---
 rfd: "045"
-title: "MCP Shell Tool Integration"
+title: "MCP Shell Exec Tool - One-Off Command Execution"
 state: "draft"
 breaking_changes: false
 testing_required: true
 database_changes: false
-api_changes: false
+api_changes: true
 dependencies: [ "004", "026", "044" ]
 related_rfds: [ "041", "042", "043" ]
 database_migrations: [ ]
 areas: [ "mcp", "shell", "debugging" ]
 ---
 
-# RFD 045 - MCP Shell Tool Integration
+# RFD 045 - MCP Shell Exec Tool - One-Off Command Execution
 
-**Status:** 🚧 Draft
+**Status:** 🚧 Draft (Pivoted from discovery helper)
 
 ## Summary
 
-Implement the `coral_shell_start` MCP tool to enable AI assistants (Claude
-Desktop, `coral ask`) to discover agent shell access information and provide
-users with connection instructions. The tool acts as a discovery helper rather
-than providing direct interactive shell access, since MCP's request-response
-model cannot support bidirectional streaming required for interactive terminals.
+Implement the `coral_shell_exec` MCP tool to enable AI assistants to execute
+one-off commands in the agent's host environment. Unlike interactive shell
+sessions (which require bidirectional streaming), one-off execution fits
+perfectly with MCP's request-response model: send command, receive output and
+exit code. This enables AI-powered debugging workflows where the assistant can
+run diagnostic commands and analyze results without requiring user context
+switching.
 
 ## Problem
 
 **Current behavior/limitations:**
 
-The `coral shell` command (RFD 026) is fully implemented for CLI access, but the
-corresponding MCP tool `coral_shell_start` is a placeholder returning static
-text. This creates a gap in the MCP server's debugging capabilities:
+While `coral shell` (RFD 026) provides interactive debugging access to agent
+hosts, there's no way for AI assistants to execute diagnostic commands
+programmatically. This creates several problems:
 
-1. **No agent discovery via MCP**: AI assistants cannot help users find which
-   agent to connect to for a given service
-2. **Missing connection information**: Users cannot get mesh IP addresses and
-   connection details through MCP
-3. **Incomplete MCP debugging toolset**: Other debugging tools (eBPF, exec) have
-   MCP placeholders, but shell is commonly needed for infrastructure debugging
-4. **User friction**: Users must manually discover agent addresses before using
-   `coral shell`, when the colony registry already has this information
+1. **Context switching required**: AI assistants can identify issues but cannot
+   run diagnostic commands - users must manually switch to terminal and execute
+   commands
+2. **Broken AI debugging workflow**: AI says "run `ps aux | grep nginx`" but
+   cannot execute it itself, interrupting the flow
+3. **Incomplete MCP debugging toolset**: Other observability tools (metrics,
+   traces) are available via MCP, but host-level diagnostics require manual CLI
+   usage
+4. **Limited automation**: AI-powered runbooks cannot include automated
+   diagnostic steps that run on agent hosts
 
 **Why this matters:**
 
-- **AI-assisted debugging**: Developers using Claude Desktop should be able to
-  ask "how do I debug the network from myapp's agent?" and get actionable
-  instructions
-- **Service discovery**: Colony registry maps services to agents, but this
-  mapping isn't exposed via MCP
-- **Complete MCP interface**: RFD 004 defines MCP as the primary integration
-  point - shell access should be discoverable through it
-- **Workflow continuity**: Users working in AI assistants shouldn't need to
-  context-switch to CLI just to discover connection details
+- **Seamless AI debugging**: AI assistants should execute diagnostic commands
+  and analyze output without user intervention
+- **Host-level diagnostics**: Agent hosts have network tools (tcpdump, netcat),
+  process inspection (ps, top), and direct access to agent data that aren't
+  available through other MCP tools
+- **Complete observability**: Complement existing metrics/traces with on-demand
+  host diagnostics
+- **Workflow continuity**: Keep users in the AI conversation while running
+  commands and analyzing results
 
 **Use cases affected:**
 
-- Developer in Claude Desktop: "I need to debug network connectivity for the
-  api-server service"
-- SRE investigating incident: "Show me how to access the agent monitoring the
-  payment service"
-- AI-powered runbooks: "Get shell access information for all agents running
-  service X"
-- `coral ask` CLI: Needs to provide shell connection instructions via MCP tools
+- **AI-driven debugging**: "Check if nginx is running" → AI executes `ps aux |
+  grep nginx` and analyzes output
+- **Network diagnostics**: "Is port 8080 listening?" → AI runs `ss -tlnp | grep
+  8080`
+- **Process inspection**: "What's consuming CPU?" → AI executes `top -bn1` and
+  identifies culprit
+- **Data access**: "Query agent's telemetry database" → AI runs `duckdb
+  /data/telemetry.db "SELECT ..."`
 
-**MCP Protocol Limitation:**
+**Interactive vs One-Off Execution:**
 
-MCP tools use a **request-response model** (tool receives JSON input, returns
-text output). The `coral shell` command requires **bidirectional streaming** for
-interactive terminal I/O (stdin/stdout, resize events, signals). This
-fundamental protocol mismatch means MCP tools cannot provide direct shell
-access - they can only provide discovery and connection instructions.
+MCP tools use a **request-response model** (send request, receive response).
+This matches perfectly with **one-off command execution**:
+
+- ✅ **One-off execution**: Send command → Execute → Return
+  stdout/stderr/exit_code
+- ❌ **Interactive shell**: Requires bidirectional streaming, PTY, signals,
+  resize events (not feasible with MCP)
+
+This RFD focuses on one-off execution for MCP integration.
 
 ## Solution
 
-Implement `coral_shell_start` as an **agent discovery and connection helper tool
-**. The tool queries the colony registry to find agents by service name and
-returns connection information for the CLI-based `coral shell` command.
+Implement `coral_shell_exec` as a **one-off command execution tool** that
+executes commands in the agent's host environment and returns the output. This
+requires two components:
+
+1. **Extend `coral shell` CLI** to support command arguments (like `kubectl
+   exec`)
+2. **Create `coral_shell_exec` MCP tool** that leverages this CLI functionality
 
 **Key Design Decisions:**
 
-- **Discovery-only approach**: Tool provides information to connect via CLI, not
-  direct shell access
-- **Registry-based lookup**: Query colony registry to map service names to agent
-  mesh addresses
-- **Connection instructions**: Return formatted CLI commands users can run
-- **Status validation**: Check agent health before returning connection info
-- **Security warnings**: Include privilege warnings in the response
+- **One-off execution mode**: Execute command and return results (no interactive
+  session)
+- **Reuse shell infrastructure**: Extend existing `coral shell` command and
+  agent handler
+- **Command array format**: Commands as string array (like `kubectl exec`) to
+  avoid shell injection
+- **Registry-based routing**: Use RFD 044 agent resolution (agent_id or service
+  name)
+- **Timeout protection**: Commands have configurable timeout (default: 30s, max:
+  5min)
+- **Output capture**: Return stdout, stderr, and exit code separately
 
 **Why this approach:**
 
-- **Protocol-aligned**: Works within MCP's request-response model
-- **Leverages existing infrastructure**: Uses implemented shell (RFD 026) and
-  registry
-- **AI-friendly output**: Text response format is ideal for AI assistants to
-  present to users
-- **No new gRPC APIs**: No protocol changes needed, just registry queries
-- **Security-aware**: Can include context-appropriate warnings in responses
+- **Protocol-aligned**: Request-response model fits one-off execution perfectly
+- **Leverages existing code**: Reuses shell RPC infrastructure from RFD 026
+- **Security-conscious**: Command arrays prevent shell injection, timeouts
+  prevent runaway commands
+- **Kubernetes-familiar**: Same pattern as `kubectl exec pod -- command args`
+- **AI-friendly**: Structured output (stdout/stderr/exit_code) is easy for AI to
+  parse
 
 **Benefits:**
 
-- AI assistants can help users discover and access agent shells
-- Colony registry becomes queryable via MCP for agent discovery
-- Completes the debugging tool suite in MCP (alongside future eBPF, exec tools)
-- No additional infrastructure needed (uses existing components)
+- AI assistants can execute diagnostic commands without user intervention
+- Host-level debugging complements existing observability tools
+- Workflow stays in AI conversation (no context switching)
+- Enables AI-powered runbooks with automated diagnostic steps
 
 **Architecture Overview:**
 
@@ -111,38 +128,57 @@ returns connection information for the CLI-based `coral shell` command.
 │  Claude Desktop / coral ask (MCP Client)             │
 └────────────────────┬─────────────────────────────────┘
                      │
-                     │ MCP: coral_shell_start(service: "api-server")
+                     │ MCP: coral_shell_exec(service: "nginx", command: ["ps", "aux"])
                      ▼
 ┌──────────────────────────────────────────────────────┐
 │  Colony MCP Server                                   │
 │  ┌────────────────────────────────────────────────┐  │
-│  │ executeShellStartTool()                        │  │
-│  │  1. Query registry.ListAll()                   │  │
-│  │  2. Filter by service name                     │  │
-│  │  3. Check agent status (healthy/degraded)      │  │
-│  │  4. Format CLI command + agent details         │  │
+│  │ executeShellExecTool()                         │  │
+│  │  1. Resolve agent via registry (RFD 044)       │  │
+│  │  2. Create gRPC client to agent                │  │
+│  │  3. Call ShellExec RPC with command array      │  │
+│  │  4. Wait for completion (with timeout)         │  │
+│  │  5. Return stdout/stderr/exit_code             │  │
 │  └────────────────────────────────────────────────┘  │
 └────────────────────┬─────────────────────────────────┘
                      │
-                     │ Response: "Agent found: 10.100.0.5\nRun: coral shell --agent-addr 10.100.0.5:9001"
+                     │ gRPC: ShellExec(command: ["ps", "aux"])
                      ▼
 ┌──────────────────────────────────────────────────────┐
-│  Claude Desktop presents to user                     │
+│  Agent ShellHandler                                  │
+│  ┌────────────────────────────────────────────────┐  │
+│  │ ShellExec()                                    │  │
+│  │  1. Validate command (whitelist check)        │  │
+│  │  2. Execute with exec.Command() - no PTY      │  │
+│  │  3. Capture stdout/stderr to buffers          │  │
+│  │  4. Apply timeout (30s default, 5min max)     │  │
+│  │  5. Return output + exit code                 │  │
+│  └────────────────────────────────────────────────┘  │
+└────────────────────┬─────────────────────────────────┘
+                     │
+                     │ Response: {stdout: "...", stderr: "...", exit_code: 0}
+                     ▼
+┌──────────────────────────────────────────────────────┐
+│  AI analyzes output and presents to user             │
 └──────────────────────────────────────────────────────┘
 ```
 
-**Interaction with existing components:**
+**Interaction flow:**
 
 ```
-coral_shell_start (MCP Tool)
+User: "Check if nginx is running on the api-server agent"
   ↓
-Registry (find agent by service name)
+AI calls: coral_shell_exec(service: "api-server", command: ["ps", "aux"])
   ↓
-Return connection details
+MCP Tool resolves agent: api-server → agent-api-1 (10.100.0.5)
   ↓
-User runs: coral shell --agent-addr <mesh-ip>:9001
+gRPC to agent: ShellExec(["ps", "aux"])
   ↓
-Shell Handler (RFD 026 - already implemented)
+Agent executes: ps aux (with 30s timeout)
+  ↓
+Returns: stdout="PID  CMD\n1    nginx...", stderr="", exit_code=0
+  ↓
+AI analyzes: "Yes, nginx is running with PID 1234"
 ```
 
 ### Component Changes
@@ -407,36 +443,50 @@ While this tool doesn't create shell sessions, future enhancements could:
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** ✅ Complete
 
-This RFD defines the implementation of the `coral_shell_start` MCP tool. The
-underlying infrastructure is complete (RFD 026 shell implementation, RFD 004 MCP
-server, colony registry), but the MCP tool integration is pending.
+The `coral_shell_start` MCP tool is fully implemented and operational. The tool
+provides agent discovery and connection information for shell access through the
+CLI.
 
-**Dependencies Completed:**
+**Implemented Components:**
 
-- ✅ Shell command and handler (RFD 026)
-- ✅ MCP server framework (RFD 004)
-- ✅ Colony agent registry
-- ✅ Agent mesh networking
+- ✅ Agent resolution via agent_id or service name (RFD 044 integration)
+- ✅ Agent status validation (healthy/degraded/unhealthy)
+- ✅ Response formatting with connection details and CLI command
+- ✅ Error handling for edge cases (not found, disambiguation)
+- ✅ Comprehensive unit tests (TestExecuteShellStartTool)
+- ✅ Integration with existing MCP server framework
 
-**What Needs Implementation:**
+**What Works Now:**
 
-- ⏳ Replace placeholder in `executeShellStartTool()`
-- ⏳ Registry query and service filtering logic
-- ⏳ Response formatting with connection details
-- ⏳ Error handling for edge cases
-- ⏳ Unit and integration tests
+- AI assistants can query agent information by service name or agent ID
+- Tool returns formatted connection details including:
+    - Agent identification (ID, services, mesh IP)
+    - Agent health status with warnings for degraded/unhealthy agents
+    - CLI command to execute: `coral shell --agent-addr <ip>:9001`
+    - Security warnings about elevated privileges
+    - Available utilities in agent environment
+- Disambiguation handling when multiple agents match a service
+- Custom shell preference support (`/bin/bash` or `/bin/sh`)
 
 **Integration Status:**
 
-Once implemented, the tool will be immediately available via:
+The tool is immediately available via:
 
-- Claude Desktop MCP integration
-- `coral ask` CLI (RFD 030)
-- Any MCP-compatible client
+- ✅ Claude Desktop MCP integration
+- ✅ `coral ask` CLI (RFD 030)
+- ✅ Any MCP-compatible client
 
-No deployment or configuration changes required beyond code changes.
+**Files Modified:**
+
+- `internal/colony/mcp/tools_exec.go`: Implemented `executeShellStartTool()` and
+  `formatShellStartResponse()`
+- `internal/colony/mcp/tools_debugging.go`: Updated `registerShellStartTool()`
+  to call execute method
+- `internal/colony/mcp/tools_exec_test.go`: Added comprehensive test suite
+
+No deployment or configuration changes required.
 
 ## Deferred Features
 

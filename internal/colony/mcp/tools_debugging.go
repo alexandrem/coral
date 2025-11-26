@@ -310,7 +310,7 @@ func (s *Server) registerShellStartTool() {
 	// Create MCP tool with raw schema.
 	tool := mcp.NewToolWithRawSchema(
 		"coral_shell_start",
-		"Start an interactive debug shell in the agent's environment (not the application container). Provides access to debugging tools (tcpdump, netcat, curl) and agent's data. Returns session ID for audit.",
+		"Discover agent shell access information and get CLI command to connect. Returns connection details, agent status, and the coral shell command to execute for interactive access.",
 		schemaBytes,
 	)
 
@@ -328,44 +328,17 @@ func (s *Server) registerShellStartTool() {
 			}
 		}
 
-		s.auditToolCall("coral_shell_start", input)
-
-		// TODO: Implement agent shell access (RFD 026).
-		// This requires:
-		// - Agent shell server implementation
-		// - TTY allocation and terminal handling
-		// - Session management and audit logging
-		// - Colony-to-agent RPC for shell sessions
-		// - Security controls (RBAC, session recording)
-
-		text := fmt.Sprintf("Agent Debug Shell: %s\n\n", input.Service)
-		text += "Status: Not yet implemented\n\n"
-
-		shell := "/bin/bash"
-		if input.Shell != nil {
-			shell = *input.Shell
+		// Convert to JSON and call execute method.
+		argumentsJSON, err := json.Marshal(input)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to marshal input: %v", err)), nil
 		}
-		text += fmt.Sprintf("Shell: %s\n", shell)
 
-		text += "\n"
-		text += "Implementation Status:\n"
-		text += "  - RFD 026 (shell command) is in draft status\n"
-		text += "  - Agent shell server is not yet implemented\n"
-		text += "  - TTY handling and session management are pending\n"
-		text += "\n"
-		text += "Once implemented, this tool will:\n"
-		text += "  1. Locate target agent via registry\n"
-		text += "  2. Start interactive shell in agent's container\n"
-		text += "  3. Provide access to debugging utilities (tcpdump, netcat, curl, etc.)\n"
-		text += "  4. Enable network debugging from agent's perspective\n"
-		text += "  5. Allow querying agent's local DuckDB for raw telemetry\n"
-		text += "  6. Record full session for audit (elevated privileges)\n"
-		text += "\n"
-		text += "Security Note:\n"
-		text += "  - Agent shells have elevated privileges (CRI socket access, host network)\n"
-		text += "  - All sessions will be fully recorded for audit compliance\n"
-		text += "  - RBAC checks will be enforced before allowing access\n"
+		result, err := s.executeShellStartTool(ctx, string(argumentsJSON))
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 
-		return mcp.NewToolResultText(text), nil
+		return mcp.NewToolResultText(result), nil
 	})
 }
