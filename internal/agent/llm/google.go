@@ -42,6 +42,13 @@ func (p *GoogleProvider) Name() string {
 func (p *GoogleProvider) Generate(ctx context.Context, req GenerateRequest, streamCallback StreamCallback) (*GenerateResponse, error) {
 	model := p.client.GenerativeModel(p.model)
 
+	// Set system instruction if provided (RFD 054).
+	if req.SystemPrompt != "" {
+		model.SystemInstruction = &genai.Content{
+			Parts: []genai.Part{genai.Text(req.SystemPrompt)},
+		}
+	}
+
 	// Convert MCP tools to Gemini function declarations.
 	if len(req.Tools) > 0 {
 		tools, err := convertMCPToolsToGemini(req.Tools)
