@@ -1,21 +1,23 @@
 # Discovery Service Architecture
 
-The Discovery Service enables dynamic agent-to-Colony connections, NAT
-traversal, and multi-region deployments. This document explains how agents find
-Colonies, how split-brain scenarios are prevented, and how failover works.
+**Implementation Status**: RFD 001 (Implemented)
+
+The Discovery Service enables dynamic agent-to-Colony connections and NAT
+traversal. This document explains how agents find Colonies and how split-brain
+scenarios are prevented.
 
 ## Purpose
 
 **Problem**: Agents and Colonies may be behind NATs, have dynamic IPs, or span
 multiple regions. Hardcoding endpoints doesn't scale.
 
-**Solution**: A lightweight Discovery Service that:
+**Solution**: A lightweight Discovery Service with:
 
-- Maintains a registry of active Colonies
-- Enables agents to find their Colony by ID
-- Coordinates WireGuard key exchange
-- Assists with NAT traversal
-- Prevents split-brain scenarios via leases
+- In-memory registry of active Colonies
+- Lease-based registration (prevents split-brain)
+- Colony discovery by ID
+- WireGuard public key exchange
+- STUN-based NAT traversal assistance
 
 ## Architecture Overview
 
@@ -35,8 +37,7 @@ multiple regions. Hardcoding endpoints doesn't scale.
 │  └────────────────────────────────────────────────────────┘ │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  NAT Traversal Helper                                  │ │
-│  │  - STUN-like endpoint detection                        │ │
-│  │  - Relay fallback (TURN-like)                          │ │
+│  │  - STUN-based endpoint detection (RFD 023)            │ │
 │  └────────────────────────────────────────────────────────┘ │
 └──────────┬──────────────────────────────┬──────────────────┘
            │                              │
@@ -192,8 +193,7 @@ GET https://discovery.coral.io/v1/colonies/prod-us-east
     "lease_expires_at": "2025-11-01T12:01:00Z",
     "nat_traversal": {
         "method": "direct",
-        "stun_server": "stun.coral.io:3478",
-        "relay_available": true
+        "stun_server": "stun.cloudflare.com:3478"
     }
 }
 ```
@@ -422,78 +422,15 @@ T5: Agents retry, query Discovery Service
 
 **For faster failover, see High Availability below.**
 
-### Scenario 5: High Availability (Leader Election)
+### High Availability
 
-**Problem with naive approach:** Two Colonies with same ID → split-brain
-rejected by Discovery Service.
+**Status**: Not yet implemented. For HA deployments, consider:
 
-**Solution:** Use **Raft consensus** for HA, only leader registers.
+- Running multiple colonies with different IDs (e.g., `prod-us-east`, `prod-us-west`)
+- Using Kubernetes StatefulSets with persistent storage
+- Implementing leader election in a future RFD
 
-**Setup:**
-
-- 3 Colony instances: `colony-1`, `colony-2`, `colony-3`
-- All configured with `colony_id: prod-colony`
-- Raft consensus elects leader
-
-**How it works:**
-
-```yaml
-# Colony configuration (all 3 instances)
-colony:
-    id: prod-colony
-    ha:
-        enabled: true
-        raft:
-            node_id: colony-1  # Unique per instance
-            peers:
-                - colony-2.internal:7001
-                - colony-3.internal:7001
-    discovery:
-        url: https://discovery.coral.io
-        register_if_leader: true  # Only leader registers
-```
-
-**Timeline:**
-
-```
-T0: All 3 Colonies start
-    - Raft election occurs
-    - Colony-1 elected leader
-
-T1: Colony-1 (leader) registers with Discovery Service
-    POST /register { colony_id: "prod-colony", endpoint: "203.0.113.5:51820" }
-    → Success
-
-T2: Colony-2 and Colony-3 (followers) do NOT register
-    - They standby, sync state from leader
-    - Do not attempt Discovery Service registration
-
-T3: Agents connect
-    - Query Discovery Service: "prod-colony"
-    - Get Colony-1 endpoint
-    - All agents connect to leader
-
-T4: Colony-1 crashes
-    - Raft detects leader failure
-    - Colony-2 elected new leader (~2s)
-
-T5: Colony-2 (new leader) registers with Discovery Service
-    POST /register { colony_id: "prod-colony", endpoint: "203.0.113.6:51820" }
-    → Success (Colony-1's lease may still be active, but this is the new leader)
-
-    Note: Discovery Service should support "force register if Raft term higher"
-    to handle immediate failover without waiting for lease expiration.
-
-T6: Agents detect disconnect, retry
-    - Query Discovery Service: "prod-colony"
-    - Get Colony-2 endpoint (new leader)
-    - Reconnect (~5s total downtime)
-```
-
-**Downtime:** ~5s (Raft election + reconnection) vs. 60s without HA.
-
-**Implementation Note:** Raft-based HA is **Phase 2** (not MVP). Initially, only
-single-Colony deployments supported.
+Currently, single Colony per colony_id is supported.
 
 ## NAT Traversal
 
@@ -505,7 +442,7 @@ single-Colony deployments supported.
 | Yes           | No         | **Direct**               | Agent connects to Colony's public IP        |
 | No            | Yes        | **STUN**                 | Colony discovers its public IP via STUN     |
 | Yes           | Yes        | **STUN + Hole Punching** | Both sides coordinate via Discovery Service |
-| Symmetric NAT | Any        | **TURN Relay**           | Fallback when hole punching fails           |
+| Symmetric NAT | Any        | **Not supported yet**    | See RFD 029 for symmetric NAT solutions     |
 
 ### STUN-like Endpoint Discovery
 
@@ -534,127 +471,41 @@ single-Colony deployments supported.
 
 **Agent uses this endpoint** to connect directly to Colony.
 
-### Symmetric NAT (TURN-like Relay)
+### Symmetric NAT
 
-**Problem:** Both sides behind symmetric NAT, hole punching fails.
+**Status**: Not yet implemented. See RFD 029 for planned symmetric NAT solutions.
 
-**Solution:** Discovery Service provides relay.
+Currently, symmetric NAT scenarios require:
+- At least one side (Colony or Agent) with public IP or non-symmetric NAT
+- Or manual WireGuard endpoint configuration
 
-**Flow:**
+## Current Implementation (RFD 001)
 
-```
-1. Agent and Colony both connect to Discovery Service relay
-   Agent → discovery.coral.io:51822
-   Colony → discovery.coral.io:51822
+**Implemented Features:**
 
-2. Discovery Service proxies WireGuard packets
-   Agent ←→ Discovery Relay ←→ Colony
-
-3. WireGuard tunnel established through relay
-
-4. Once tunnel up, data flows through relay
-   (Performance impact: 2x latency, relay bandwidth cost)
-```
-
-**Fallback only when necessary.** Most deployments avoid this.
-
-## Implementation Phases
-
-### Phase 1: MVP (Simple, No HA)
-
-**Features:**
-
-- Lease-based registration (prevents split-brain)
+- In-memory lease-based registry (prevents split-brain)
 - Agent discovery by Colony ID
-- STUN-like endpoint discovery
-- 60s failover window (acceptable for MVP)
+- STUN-based endpoint discovery (via public STUN servers)
+- WireGuard public key exchange
+- HTTP/JSON API for registration and queries
 
-**Limitations:**
-
-- No HA (single Colony per ID)
-- No Raft (manual failover required)
-- No TURN relay (direct/STUN only)
-
-**Config:**
+**Configuration Example:**
 
 ```yaml
 # Colony
 colony:
     id: prod-colony
     discovery:
-        url: https://discovery.coral.io
-        lease_ttl: 60s
-        heartbeat_interval: 30s
+        endpoint: https://discovery.coral.io
 
 # Agent
 agent:
-    colony:
-        id: prod-colony
-        auto_discover: true
-        discovery_url: https://discovery.coral.io
-```
-
-### Phase 2: High Availability
-
-**Features:**
-
-- Raft consensus for Colony HA
-- Leader election (3 or 5 Colony instances)
-- Fast failover (<5s instead of 60s)
-- Discovery Service respects Raft term for immediate failover
-
-**Config:**
-
-```yaml
-colony:
-    id: prod-colony
-    ha:
-        enabled: true
-        raft:
-            node_id: colony-1
-            peers:
-                - colony-2.internal:7001
-                - colony-3.internal:7001
-            election_timeout: 2s
+    colony_id: prod-colony
     discovery:
-        url: https://discovery.coral.io
-        register_if_leader: true
+        endpoint: https://discovery.coral.io
 ```
 
-### Phase 3: Federation (Multi-Region)
-
-**Features:**
-
-- Reef layer coordinates multiple Colonies
-- Cross-region queries route via Reef
-- Each Colony has unique ID (`prod-us-east`, `prod-eu-west`)
-- Discovery Service returns region hints for latency optimization
-
-**Config:**
-
-```yaml
-# Reef
-reef:
-    id: global-reef
-    colonies:
-        -   id: prod-us-east
-            region: us-east-1
-            discovery_url: https://discovery.coral.io
-        -   id: prod-eu-west
-            region: eu-west-1
-            discovery_url: https://discovery.coral.io
-
-# Agent (with region hint)
-agent:
-    colony:
-        id: prod  # Reef resolves to nearest: prod-us-east or prod-eu-west
-        region_hint: us-east-1
-        auto_discover: true
-        discovery_url: https://discovery.coral.io
-```
-
-**Discovery Service enhancement:** Can return multiple Colonies for a prefix,
-agent selects by region.
+**Implementation Details**: See RFD 001 for complete specification.
 
 ## Security Considerations
 
@@ -927,25 +778,10 @@ Agent: Direct connection not possible, relay required
 
 ## Future Enhancements
 
-### Geo-Distributed Discovery
+See related RFDs for planned features:
 
-- Multiple Discovery Service instances (US, EU, Asia)
-- Gossip protocol for registry sync
-- Agents query nearest Discovery Service
-
-### Cryptographic Proof
-
-- Colony signs registration with WireGuard private key
-- Prevents lease hijacking by verifying ownership
-
-### Metrics & Monitoring
-
-- Discovery Service exports Prometheus metrics
-- Track registration rate, query latency, NAT types
-- Alert on anomalies (sudden Colony churn)
-
-### TURN-like Relay
-
-- Full TURN protocol implementation
-- Fallback for symmetric NAT scenarios
-- Load balancing across relay nodes
+- **RFD 029**: Symmetric NAT support and relay solutions
+- **High Availability**: Leader election and multi-instance colonies
+- **Federation**: Multi-region Reef architecture
+- **Geo-Distributed Discovery**: Regional discovery endpoints with gossip sync
+- **Cryptographic Proof**: Sign registrations with WireGuard keys
