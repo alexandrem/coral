@@ -196,8 +196,68 @@ func (a *Agent) Close() error {
 	return nil
 }
 
+// buildSystemPrompt builds the system prompt with service context (RFD 054).
+func (a *Agent) buildSystemPrompt(ctx context.Context) string {
+	// Fetch available services from the colony.
+	serviceList := a.fetchServiceList(ctx)
+
+	// Build system prompt with parameter extraction rules.
+	prompt := `You are an observability assistant for Coral distributed systems.
+
+PARAMETER EXTRACTION RULES:
+1. Service names: Extract exactly as mentioned (e.g., "coral service" → "coral")
+   Available services: ` + serviceList + `
+2. Time ranges: Convert natural language (e.g., "last hour" → "1h", "30 min" → "30m")
+3. HTTP methods: Extract from context (e.g., "GET requests" → "GET")
+4. Status codes: Map phrases (e.g., "errors" → "5xx", "success" → "2xx")
+
+Always extract ALL relevant parameters from the user's query before asking for clarification.`
+
+	return prompt
+}
+
+// fetchServiceList fetches the list of available services from the colony.
+func (a *Agent) fetchServiceList(ctx context.Context) string {
+	// Call coral_list_services tool to get available services.
+	req := mcp.CallToolRequest{}
+	req.Params.Name = "coral_list_services"
+	req.Params.Arguments = map[string]interface{}{}
+
+	result, err := a.mcpClient.CallTool(ctx, req)
+	if err != nil {
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch service list: %v\n", err)
+		}
+		return "(service list unavailable)"
+	}
+
+	// Parse the result to extract service names.
+	if len(result.Content) > 0 {
+		if textContent, ok := mcp.AsTextContent(result.Content[0]); ok {
+			// Parse JSON response.
+			var output struct {
+				Services []struct {
+					Name string `json:"name"`
+				} `json:"services"`
+			}
+			if err := json.Unmarshal([]byte(textContent.Text), &output); err == nil {
+				// Build comma-separated list of service names.
+				names := make([]string, 0, len(output.Services))
+				for _, svc := range output.Services {
+					names = append(names, svc.Name)
+				}
+				if len(names) > 0 {
+					return strings.Join(names, ", ")
+				}
+			}
+		}
+	}
+
+	return "(no services registered)"
+}
+
 // Ask sends a question to the agent and returns the response.
-func (a *Agent) Ask(ctx context.Context, question string, conversationID string, stream bool) (*Response, error) {
+func (a *Agent) Ask(ctx context.Context, question string, conversationID string, stream bool, dryRun bool) (*Response, error) {
 	if a.debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Processing question: %q\n", question)
 	}
@@ -217,6 +277,12 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 		Role:    "user",
 		Content: question,
 	})
+
+	// Build system prompt with service context (RFD 054).
+	systemPrompt := a.buildSystemPrompt(ctx)
+	if a.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] System prompt: %s\n", systemPrompt)
+	}
 
 	// Get MCP tools from Colony server.
 	if a.debug {
@@ -279,9 +345,10 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 	}
 
 	generateReq := llm.GenerateRequest{
-		Messages: llmMessages,
-		Tools:    toolsResult.Tools,
-		Stream:   stream,
+		Messages:     llmMessages,
+		Tools:        toolsResult.Tools,
+		Stream:       stream,
+		SystemPrompt: systemPrompt,
 	}
 
 	if a.debug {
@@ -292,6 +359,42 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 			schemaJSON, _ := json.Marshal(tool.InputSchema)
 			fmt.Fprintf(os.Stderr, "[DEBUG] Tool %d (%s): %s\n", i, tool.Name, string(schemaJSON))
 		}
+
+		// Debug: Show complete payload being sent to LLM
+		fmt.Fprintln(os.Stderr, "\n[DEBUG] ===== LLM REQUEST PAYLOAD =====")
+		fmt.Fprintf(os.Stderr, "[DEBUG] System Prompt:\n%s\n\n", generateReq.SystemPrompt)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Messages (%d):\n", len(generateReq.Messages))
+		for i, msg := range generateReq.Messages {
+			fmt.Fprintf(os.Stderr, "[DEBUG]   Message %d [%s]: %s\n", i+1, msg.Role, msg.Content)
+			if len(msg.ToolResponses) > 0 {
+				fmt.Fprintf(os.Stderr, "[DEBUG]     Tool Responses: %d\n", len(msg.ToolResponses))
+			}
+		}
+		fmt.Fprintf(os.Stderr, "[DEBUG] Tools: %d available\n", len(generateReq.Tools))
+		fmt.Fprintf(os.Stderr, "[DEBUG] Stream: %v\n", generateReq.Stream)
+		fmt.Fprintln(os.Stderr, "[DEBUG] ==============================")
+		fmt.Fprintln(os.Stderr, "")
+	}
+
+	// Dry-run mode: prompt user before sending to LLM
+	if dryRun {
+		fmt.Fprintln(os.Stderr, "\n[DRY-RUN] Ready to send request to LLM provider")
+		fmt.Fprintf(os.Stderr, "[DRY-RUN] Model: %s\n", a.modelName)
+		fmt.Fprintf(os.Stderr, "[DRY-RUN] System prompt length: %d chars\n", len(generateReq.SystemPrompt))
+		fmt.Fprintf(os.Stderr, "[DRY-RUN] Message count: %d\n", len(generateReq.Messages))
+		fmt.Fprintf(os.Stderr, "[DRY-RUN] Tool count: %d\n", len(generateReq.Tools))
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprint(os.Stderr, "[DRY-RUN] Send this request to the LLM? (y/N): ")
+
+		var response string
+		if _, err := fmt.Fscanln(os.Stdin, &response); err != nil {
+			return nil, fmt.Errorf("failed to read response from LLM provider: %w", err)
+		}
+		if response != "y" && response != "Y" {
+			return nil, fmt.Errorf("dry-run aborted by user")
+		}
+		fmt.Fprintln(os.Stderr, "[DRY-RUN] Proceeding with LLM request...")
+		fmt.Fprintln(os.Stderr, "")
 	}
 
 	resp, err := a.provider.Generate(ctx, generateReq, streamCallback)
@@ -311,6 +414,8 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 			fmt.Fprintf(os.Stderr, "[DEBUG] Processing %d tool calls\n", len(resp.ToolCalls))
 		}
 
+		// Execute all tool calls.
+		var toolResponses []llm.ToolResponse
 		for _, tc := range resp.ToolCalls {
 			if a.debug {
 				fmt.Fprintf(os.Stderr, "[DEBUG] Executing tool: %s\n", tc.Name)
@@ -332,10 +437,28 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 				return nil, fmt.Errorf("tool call failed: %w", err)
 			}
 
+			// Extract text content from tool result.
+			var resultContent string
+			if len(toolResult.Content) > 0 {
+				// MCP returns content as an array of text/image/resource items.
+				// For now, just concatenate text content.
+				for _, content := range toolResult.Content {
+					if textContent, ok := mcp.AsTextContent(content); ok {
+						resultContent += textContent.Text
+					}
+				}
+			}
+
 			toolCallResults = append(toolCallResults, ToolCall{
 				Name:   tc.Name,
 				Input:  args,
 				Output: toolResult,
+			})
+
+			toolResponses = append(toolResponses, llm.ToolResponse{
+				CallID:  tc.ID,
+				Name:    tc.Name,
+				Content: resultContent,
 			})
 
 			if a.debug {
@@ -343,11 +466,109 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 			}
 		}
 
-		// TODO: Send tool results back to LLM for final answer.
-		// For now, just return the tool call results.
+		// Add assistant's tool call response to conversation.
+		conv.AddMessage(Message{
+			Role:    "assistant",
+			Content: resp.Content,
+		})
+
+		// Add tool results to conversation.
+		conv.AddMessage(Message{
+			Role:          "tool",
+			ToolResponses: toolResponses,
+		})
+
+		// Send tool results back to LLM for final answer.
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Sending tool results back to LLM for final answer\n")
+		}
+
+		// Convert conversation messages to LLM format.
+		var llmMessages []llm.Message
+		for _, msg := range conv.GetMessages() {
+			llmMessages = append(llmMessages, llm.Message{
+				Role:          msg.Role,
+				Content:       msg.Content,
+				ToolResponses: msg.ToolResponses,
+			})
+		}
+
+		// Call LLM again with tool results.
+		finalReq := llm.GenerateRequest{
+			Messages:     llmMessages,
+			Tools:        toolsResult.Tools,
+			Stream:       stream,
+			SystemPrompt: systemPrompt,
+		}
+
+		if a.debug {
+			fmt.Fprintln(os.Stderr, "\n[DEBUG] ===== FINAL LLM REQUEST (After Tool Calls) =====")
+			fmt.Fprintf(os.Stderr, "[DEBUG] System Prompt:\n%s\n\n", finalReq.SystemPrompt)
+			fmt.Fprintf(os.Stderr, "[DEBUG] Messages (%d):\n", len(finalReq.Messages))
+			for i, msg := range finalReq.Messages {
+				fmt.Fprintf(os.Stderr, "[DEBUG]   Message %d [%s]: %s\n", i+1, msg.Role, msg.Content)
+				if len(msg.ToolResponses) > 0 {
+					fmt.Fprintf(os.Stderr, "[DEBUG]     Tool Responses: %d\n", len(msg.ToolResponses))
+					for j, tr := range msg.ToolResponses {
+						// Show first 200 chars of tool response content
+						content := tr.Content
+						if len(content) > 200 {
+							content = content[:200] + "..."
+						}
+						fmt.Fprintf(os.Stderr, "[DEBUG]       Response %d [%s]: %s\n", j+1, tr.Name, content)
+					}
+				}
+			}
+			fmt.Fprintf(os.Stderr, "[DEBUG] Tools: %d available\n", len(finalReq.Tools))
+			fmt.Fprintf(os.Stderr, "[DEBUG] Stream: %v\n", finalReq.Stream)
+			fmt.Fprintln(os.Stderr, "[DEBUG] ==========================================")
+			fmt.Fprintln(os.Stderr, "")
+		}
+
+		// Dry-run mode: prompt before final LLM call
+		if dryRun {
+			fmt.Fprintln(os.Stderr, "\n[DRY-RUN] Ready to send final request to LLM (with tool results)")
+			fmt.Fprintf(os.Stderr, "[DRY-RUN] Message count: %d\n", len(finalReq.Messages))
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprint(os.Stderr, "[DRY-RUN] Send final request to the LLM? (y/N): ")
+
+			var response string
+			if _, err := fmt.Fscanln(os.Stdin, &response); err != nil {
+				return nil, fmt.Errorf("failed to read final response from LLM: %w", err)
+			}
+			if response != "y" && response != "Y" {
+				// Return partial response with tool calls but no final answer
+				return &Response{
+					Answer:    "(dry-run aborted before final LLM call)",
+					ToolCalls: toolCallResults,
+				}, nil
+			}
+			fmt.Fprintln(os.Stderr, "[DRY-RUN] Proceeding with final LLM request...")
+			fmt.Fprintln(os.Stderr, "")
+		}
+
+		finalResp, err := a.provider.Generate(ctx, finalReq, streamCallback)
+		if err != nil {
+			return nil, fmt.Errorf("LLM final response failed: %w", err)
+		}
+
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Final LLM response: content_length=%d\n", len(finalResp.Content))
+		}
+
+		// Add final response to conversation.
+		conv.AddMessage(Message{
+			Role:    "assistant",
+			Content: finalResp.Content,
+		})
+
+		return &Response{
+			Answer:    finalResp.Content,
+			ToolCalls: toolCallResults,
+		}, nil
 	}
 
-	// Add assistant response to conversation.
+	// No tool calls - just add the response to conversation.
 	conv.AddMessage(Message{
 		Role:    "assistant",
 		Content: resp.Content,

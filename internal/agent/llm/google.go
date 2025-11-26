@@ -42,6 +42,13 @@ func (p *GoogleProvider) Name() string {
 func (p *GoogleProvider) Generate(ctx context.Context, req GenerateRequest, streamCallback StreamCallback) (*GenerateResponse, error) {
 	model := p.client.GenerativeModel(p.model)
 
+	// Set system instruction if provided (RFD 054).
+	if req.SystemPrompt != "" {
+		model.SystemInstruction = &genai.Content{
+			Parts: []genai.Part{genai.Text(req.SystemPrompt)},
+		}
+	}
+
 	// Convert MCP tools to Gemini function declarations.
 	if len(req.Tools) > 0 {
 		tools, err := convertMCPToolsToGemini(req.Tools)
@@ -56,26 +63,54 @@ func (p *GoogleProvider) Generate(ctx context.Context, req GenerateRequest, stre
 
 	// Convert messages to Gemini format.
 	// Note: Gemini chat expects alternating user/model messages.
-	// We'll handle the conversation history and current question separately.
+	// We'll handle the conversation history and current message separately.
 	var history []*genai.Content
-	var currentMessage string
+	var currentParts []genai.Part
 
 	for i, msg := range req.Messages {
 		role := "user"
 		if msg.Role == "assistant" || msg.Role == "model" {
 			role = "model"
 		}
-
-		content := &genai.Content{
-			Role: role,
-			Parts: []genai.Part{
-				genai.Text(msg.Content),
-			},
+		// Tool responses are sent as "user" role with FunctionResponse parts.
+		if msg.Role == "tool" {
+			role = "user"
 		}
 
-		// Last message is the current question, everything else is history.
+		var parts []genai.Part
+
+		// Add text content if present.
+		if msg.Content != "" {
+			parts = append(parts, genai.Text(msg.Content))
+		}
+
+		// Add tool responses if present (for tool role).
+		if len(msg.ToolResponses) > 0 {
+			for _, tr := range msg.ToolResponses {
+				// Parse tool response content as JSON map.
+				var responseData map[string]any
+				if err := json.Unmarshal([]byte(tr.Content), &responseData); err != nil {
+					// If not JSON, wrap as plain text in a map.
+					responseData = map[string]any{
+						"result": tr.Content,
+					}
+				}
+
+				parts = append(parts, genai.FunctionResponse{
+					Name:     tr.Name,
+					Response: responseData,
+				})
+			}
+		}
+
+		content := &genai.Content{
+			Role:  role,
+			Parts: parts,
+		}
+
+		// Last message is the current message, everything else is history.
 		if i == len(req.Messages)-1 {
-			currentMessage = msg.Content
+			currentParts = parts
 		} else {
 			history = append(history, content)
 		}
@@ -86,7 +121,7 @@ func (p *GoogleProvider) Generate(ctx context.Context, req GenerateRequest, stre
 	// Send the current message.
 	if req.Stream && streamCallback != nil {
 		// Streaming response.
-		iter := chat.SendMessageStream(ctx, genai.Text(currentMessage))
+		iter := chat.SendMessageStream(ctx, currentParts...)
 		var fullResponse string
 		var toolCalls []ToolCall
 
@@ -137,7 +172,7 @@ func (p *GoogleProvider) Generate(ctx context.Context, req GenerateRequest, stre
 	}
 
 	// Non-streaming response.
-	resp, err := chat.SendMessage(ctx, genai.Text(currentMessage))
+	resp, err := chat.SendMessage(ctx, currentParts...)
 	if err != nil {
 		return nil, fmt.Errorf("generate error: %w", err)
 	}
@@ -181,10 +216,18 @@ func convertMCPToolsToGemini(mcpTools []mcp.Tool) ([]*genai.Tool, error) {
 	var declarations []*genai.FunctionDeclaration
 
 	for _, mcpTool := range mcpTools {
-		// Marshal the tool's input schema to get the JSON schema.
-		schemaJSON, err := json.Marshal(mcpTool.InputSchema)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal schema for tool %s: %w", mcpTool.Name, err)
+		// Get the tool's input schema as JSON.
+		// Prefer RawInputSchema if available (set by NewToolWithRawSchema),
+		// otherwise marshal InputSchema struct.
+		var schemaJSON []byte
+		var err error
+		if len(mcpTool.RawInputSchema) > 0 {
+			schemaJSON = mcpTool.RawInputSchema
+		} else {
+			schemaJSON, err = json.Marshal(mcpTool.InputSchema)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal schema for tool %s: %w", mcpTool.Name, err)
+			}
 		}
 
 		// Parse into a generic map.

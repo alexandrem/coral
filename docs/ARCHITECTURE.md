@@ -173,7 +173,7 @@ in the infrastructure.
 - MCP protocol for communication
 - User-provided LLM APIs (Anthropic, OpenAI) or local models (Ollama)
 
-### Reef
+### Reef (Upcoming)
 
 **Role:** Global Aggregation & Enterprise LLM Host
 

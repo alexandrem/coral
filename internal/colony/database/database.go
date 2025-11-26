@@ -129,3 +129,46 @@ func (d *Database) Path() string {
 func (d *Database) ColonyID() string {
 	return d.colonyID
 }
+
+// QueryAllServiceNames returns all unique service names from observability data.
+// This includes services from Beyla metrics, traces, and OTEL summaries.
+func (d *Database) QueryAllServiceNames(ctx context.Context) ([]string, error) {
+	query := `
+		SELECT DISTINCT service_name FROM (
+			SELECT DISTINCT service_name FROM beyla_http_metrics
+			UNION
+			SELECT DISTINCT service_name FROM beyla_grpc_metrics
+			UNION
+			SELECT DISTINCT service_name FROM beyla_sql_metrics
+			UNION
+			SELECT DISTINCT service_name FROM beyla_traces
+			UNION
+			SELECT DISTINCT service_name FROM otel_summaries
+		)
+		WHERE service_name IS NOT NULL AND service_name != ''
+		ORDER BY service_name
+	`
+
+	rows, err := d.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query service names: %w", err)
+	}
+	defer func(rows *sql.Rows) {
+		_ = rows.Close() // TODO: errcheck
+	}(rows)
+
+	var services []string
+	for rows.Next() {
+		var serviceName string
+		if err := rows.Scan(&serviceName); err != nil {
+			return nil, fmt.Errorf("failed to scan service name: %w", err)
+		}
+		services = append(services, serviceName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return services, nil
+}

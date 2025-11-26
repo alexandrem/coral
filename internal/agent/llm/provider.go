@@ -9,8 +9,16 @@ import (
 
 // Message represents a chat message.
 type Message struct {
-	Role    string // "user", "assistant", "system"
-	Content string
+	Role          string         // "user", "assistant", "system", "tool"
+	Content       string         // Text content (for user/assistant messages)
+	ToolResponses []ToolResponse // Tool responses (for tool role)
+}
+
+// ToolResponse represents the result of a tool call.
+type ToolResponse struct {
+	CallID  string // ID of the tool call this responds to
+	Name    string // Tool name
+	Content string // Tool output (text or JSON)
 }
 
 // ToolCall represents a tool call made by the LLM.
@@ -22,9 +30,10 @@ type ToolCall struct {
 
 // GenerateRequest contains the parameters for LLM generation.
 type GenerateRequest struct {
-	Messages []Message
-	Tools    []mcp.Tool // MCP tools available to the LLM
-	Stream   bool       // Whether to stream the response
+	Messages     []Message
+	Tools        []mcp.Tool // MCP tools available to the LLM
+	Stream       bool       // Whether to stream the response
+	SystemPrompt string     // System instructions for parameter extraction and behavior guidance
 }
 
 // GenerateResponse contains the LLM's response.
