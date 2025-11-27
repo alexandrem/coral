@@ -220,7 +220,7 @@ spec:
 
             initContainers: # ADDED
                 -   name: coral-agent
-                    image: coral-io/agent:latest
+                    image: ghcr.io/coral-mesh/agent:latest
                     restartPolicy: Always
                     command: [ "coral", "agent", "start", "--monitor-all" ]
                     env:

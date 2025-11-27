@@ -242,7 +242,7 @@ func main() {
 // main.go - After (with SDK)
 package main
 
-import coral "github.com/coral-io/sdk-go"
+import coral "github.com/coral-mesh/sdk-go"
 
 func main() {
     // Add 4 lines for SDK

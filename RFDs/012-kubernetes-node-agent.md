@@ -835,7 +835,7 @@ spec:
             hostPID: true
             containers:
                 -   name: coral-agent
-                    image: ghcr.io/coral-io/agent:latest
+                    image: ghcr.io/coral-mesh/agent:latest
                     args:
                         - agent
                         - node
