@@ -146,10 +146,10 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 		return s.executeStopEBPFCollectorTool(ctx, argumentsJSON)
 	case "coral_list_ebpf_collectors":
 		return s.executeListEBPFCollectorsTool(ctx, argumentsJSON)
-	case "coral_exec_command":
-		return s.executeExecCommandTool(ctx, argumentsJSON)
 	case "coral_shell_exec":
 		return s.executeShellExecTool(ctx, argumentsJSON)
+	case "coral_container_exec":
+		return s.executeContainerExecTool(ctx, argumentsJSON)
 
 	// Service discovery (RFD 054)
 	case "coral_list_services":
@@ -233,8 +233,8 @@ func (s *Server) getToolSchemas() map[string]string {
 		"coral_start_ebpf_collector":     StartEBPFCollectorInput{},
 		"coral_stop_ebpf_collector":      StopEBPFCollectorInput{},
 		"coral_list_ebpf_collectors":     ListEBPFCollectorsInput{},
-		"coral_exec_command":             ExecCommandInput{},
 		"coral_shell_exec":               ShellExecInput{},
+		"coral_container_exec":           ContainerExecInput{},
 		"coral_list_services":            ListServicesInput{},
 	}
 
@@ -285,8 +285,8 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_start_ebpf_collector":     "Start an on-demand eBPF collector for live debugging (CPU profiling, syscall tracing, network analysis). Collector runs for specified duration.",
 		"coral_stop_ebpf_collector":      "Stop a running eBPF collector before its duration expires.",
 		"coral_list_ebpf_collectors":     "List currently active eBPF collectors with their status and remaining duration.",
-		"coral_exec_command":             "Execute a command in an application container (kubectl/docker exec semantics). Useful for checking configuration, running diagnostic commands, or inspecting container state.",
 		"coral_shell_exec":               "Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
+		"coral_container_exec":           "Execute a command in a container's namespace using nsenter. Access container-mounted configs, logs, and volumes that are not visible from the agent's host filesystem. Works in sidecar and node agent deployments. Returns stdout, stderr, exit code, and container PID. Use for commands like 'cat /app/config.yaml', 'ls /data'.",
 		"coral_list_services":            "List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
 	}
 }
@@ -310,7 +310,6 @@ func (s *Server) registerTools() error {
 	s.registerStartEBPFCollectorTool()
 	s.registerStopEBPFCollectorTool()
 	s.registerListEBPFCollectorsTool()
-	s.registerExecCommandTool()
 	s.registerShellExecTool()
 
 	// Register service discovery tools (RFD 054).
@@ -347,8 +346,8 @@ func (s *Server) listToolNames() []string {
 		"coral_start_ebpf_collector",
 		"coral_stop_ebpf_collector",
 		"coral_list_ebpf_collectors",
-		"coral_exec_command",
 		"coral_shell_exec",
+		"coral_container_exec",
 		"coral_list_services",
 	}
 }

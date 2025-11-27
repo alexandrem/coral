@@ -105,15 +105,6 @@ type ListEBPFCollectorsInput struct {
 	AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
 }
 
-// ExecCommandInput is the input for coral_exec_command.
-type ExecCommandInput struct {
-	Service        string   `json:"service" jsonschema:"description=Target service name (deprecated in multi-agent scenarios, use agent_id)"`
-	AgentID        *string  `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
-	Command        []string `json:"command" jsonschema:"description=Command and arguments to execute (e.g. ['ls' '-la' '/app'])"`
-	TimeoutSeconds *int     `json:"timeout_seconds,omitempty" jsonschema:"description=Command timeout,default=30"`
-	WorkingDir     *string  `json:"working_dir,omitempty" jsonschema:"description=Optional: Working directory"`
-}
-
 // ShellExecInput is the input for coral_shell_exec (RFD 045).
 type ShellExecInput struct {
 	Service        string            `json:"service" jsonschema:"description=Service whose agent to execute command on (use agent_id for disambiguation)"`
@@ -122,4 +113,16 @@ type ShellExecInput struct {
 	TimeoutSeconds *uint32           `json:"timeout_seconds,omitempty" jsonschema:"description=Timeout in seconds,default=30,maximum=300"`
 	WorkingDir     *string           `json:"working_dir,omitempty" jsonschema:"description=Working directory for command execution"`
 	Env            map[string]string `json:"env,omitempty" jsonschema:"description=Additional environment variables"`
+}
+
+// ContainerExecInput is the input for coral_container_exec (RFD 056).
+type ContainerExecInput struct {
+	Service        string            `json:"service" jsonschema:"description=Service whose container to execute command in (use agent_id for disambiguation)"`
+	AgentID        *string           `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup)"`
+	ContainerName  *string           `json:"container_name,omitempty" jsonschema:"description=Container name (optional in sidecar mode)"`
+	Command        []string          `json:"command" jsonschema:"description=Command as array (e.g. [\"cat\" \"/app/config.yaml\"]),minItems=1"`
+	TimeoutSeconds *uint32           `json:"timeout_seconds,omitempty" jsonschema:"description=Timeout in seconds,default=30,maximum=300"`
+	WorkingDir     *string           `json:"working_dir,omitempty" jsonschema:"description=Working directory in container namespace"`
+	Env            map[string]string `json:"env,omitempty" jsonschema:"description=Additional environment variables"`
+	Namespaces     []string          `json:"namespaces,omitempty" jsonschema:"description=Namespaces to enter (default: [\"mnt\"])"`
 }

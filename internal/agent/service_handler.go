@@ -17,15 +17,17 @@ type ServiceHandler struct {
 	runtimeService    *RuntimeService
 	telemetryReceiver *TelemetryReceiver
 	shellHandler      *ShellHandler
+	containerHandler  *ContainerHandler
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler) *ServiceHandler {
+func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler, containerHandler *ContainerHandler) *ServiceHandler {
 	return &ServiceHandler{
 		agent:             agent,
 		runtimeService:    runtimeService,
 		telemetryReceiver: telemetryReceiver,
 		shellHandler:      shellHandler,
+		containerHandler:  containerHandler,
 	}
 }
 
@@ -344,6 +346,14 @@ func (h *ServiceHandler) ShellExec(
 	req *connect.Request[agentv1.ShellExecRequest],
 ) (*connect.Response[agentv1.ShellExecResponse], error) {
 	return h.shellHandler.ShellExec(ctx, req)
+}
+
+// ContainerExec implements the ContainerExec RPC (RFD 056).
+func (h *ServiceHandler) ContainerExec(
+	ctx context.Context,
+	req *connect.Request[agentv1.ContainerExecRequest],
+) (*connect.Response[agentv1.ContainerExecResponse], error) {
+	return h.containerHandler.ContainerExec(ctx, req)
 }
 
 // ResizeShellTerminal implements the ResizeShellTerminal RPC (RFD 026).
