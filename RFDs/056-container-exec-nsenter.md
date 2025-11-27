@@ -588,6 +588,8 @@ implementation that works across multiple deployment modes.
 - ✅ Container PID detection via /proc scanning
 - ✅ Namespace selection (mnt, pid, net, ipc, uts, cgroup)
 - ✅ Colony MCP tool: `coral_container_exec`
+- ✅ CLI tool: `coral exec SERVICE`
+- ✅ Service-based agent resolution via colony registry
 - ✅ Timeout enforcement and error handling
 - ✅ Audit logging with session IDs
 
@@ -598,7 +600,9 @@ implementation that works across multiple deployment modes.
 - Automatic container PID detection via /proc scanning
 - Works in sidecar mode (shared PID namespace)
 - Works in node agent mode (hostPID: true)
-- MCP tool integration for Claude Desktop
+- MCP tool integration for Claude Desktop (`coral_container_exec`)
+- CLI tool for ad-hoc debugging (`coral exec SERVICE`)
+- Service-centric targeting (by service name, not container ID)
 - Command output formatting with stdout/stderr separation
 - Exit code reporting and error handling
 
@@ -610,6 +614,45 @@ implementation that works across multiple deployment modes.
 - Colony: `internal/colony/mcp/types.go` (ContainerExecInput)
 - Colony: `internal/colony/mcp/tools_exec.go` (executeContainerExecTool)
 - Colony: `internal/colony/mcp/server.go` (tool registration)
+- CLI: `internal/cli/agent/exec.go` (coral exec command)
+
+**CLI Tool:**
+
+The `coral exec` command provides ad-hoc container command execution for debugging:
+
+```bash
+# Execute command in service's container
+coral exec nginx cat /etc/nginx/nginx.conf
+
+# List files in service's data volume
+coral exec api-server -- ls -la /data
+
+# Check processes with pid namespace
+coral exec nginx --namespaces mnt,pid ps aux
+
+# Target specific agent
+coral exec nginx --agent hostname-api-1 cat /app/config.yaml
+
+# Custom timeout and working directory
+coral exec app --timeout 60 --working-dir /app find . -name "*.log"
+
+# Pass environment variables
+coral exec api --env DEBUG=true env
+```
+
+**Key Distinctions:**
+
+| Command | Target | Use Case |
+|---------|--------|----------|
+| `coral shell SERVICE` | Agent host environment | Host diagnostics, agent debugging |
+| `coral exec SERVICE` | Service container (nsenter) | Container files, configs, volumes |
+
+The CLI tool:
+- Targets services by name (resolves to agent via colony registry)
+- Uses service name as primary anchor (not container/namespace)
+- Supports same parameters as MCP tool (timeout, namespaces, env vars)
+- Returns command output to stdout/stderr with proper exit codes
+- Includes verbose mode (CORAL_VERBOSE=1) for debugging
 
 **Deployment Requirements:**
 
