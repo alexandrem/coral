@@ -33,6 +33,7 @@ The Coral Agent exposes the following ports:
 |----------|----------------------|------------------------------------|----------------------------------------|---------------------|
 | **4317** | OTLP/gRPC            | OpenTelemetry trace ingestion      | Configurable (default: `0.0.0.0:4317`) | Applications, Beyla |
 | **4318** | OTLP/HTTP            | OpenTelemetry trace ingestion      | Configurable (default: `0.0.0.0:4318`) | Applications, Beyla |
+| **4319** | OTLP/gRPC            | Internal Beyla trace ingestion     | Localhost only (`127.0.0.1:4319`)      | Beyla (Internal)    |
 | **9001** | HTTP/2 (Connect RPC) | Agent API for colony communication | Mesh IP + localhost                    | Colony, local CLI   |
 
 **Network Topology:**
@@ -41,22 +42,22 @@ The Coral Agent exposes the following ports:
 ┌─────────────────────────────────────────────────────────────┐
 │  Host / Container                                           │
 │                                                             │
-│  ┌──────────────┐         ┌──────────────────────────────┐ │
-│  │ Application  │ OTLP    │  Coral Agent                 │ │
-│  │ (OTel SDK)   ├────────►│  • OTLP Receivers            │ │
-│  └──────────────┘  :4317  │    - gRPC: 4317              │ │
-│                    :4318  │    - HTTP: 4318              │ │
-│  ┌──────────────┐         │  • Agent API: 9001           │ │
-│  │ Beyla        │ OTLP    │    (Connect RPC)             │ │
-│  │ (eBPF)       ├────────►│                              │ │
-│  └──────────────┘  :4317  └──────────────┬───────────────┘ │
-│                                           │                 │
-└───────────────────────────────────────────┼─────────────────┘
+│  ┌──────────────┐         ┌───────────────────────────────┐ │
+│  │ Application  │ OTLP    │  Coral Agent                  │ │
+│  │ (OTel SDK)   ├────────►│  • OTLP Receivers             │ │
+│  └──────────────┘  :4317  │    - gRPC: 4317               │ │
+│                    :4318  │    - HTTP: 4318               │ │
+│  ┌──────────────┐         │  • Beyla Receiver             │ │
+│  │ Beyla        │ OTLP    │    - gRPC: 4319               │ │
+│  │ (eBPF)       ├────────►│  • Agent API: 9001            │ │
+│  └──────────────┘  :4319  │    (Connect RPC)              │ │
+│                           └───────────────▲───────────────┘ │
+└───────────────────────────────────────────│─────────────────┘
                                             │ WireGuard mesh
                                             │ :9001
-                                            ▼
+                                            │
                                  ┌──────────────────┐
-                                 │ Colony           │
+                                 │ Colony           │ --- Colony pulls data
                                  │ (gRPC client)    │
                                  └──────────────────┘
 ```
@@ -103,21 +104,21 @@ Use any OpenTelemetry SDK to send traces to the agent:
 
 ```go
 import (
-"go.opentelemetry.io/otel"
-"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-sdktrace "go.opentelemetry.io/otel/sdk/trace"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+    sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Configure OTLP exporter pointing to agent.
 exporter, _ := otlptracegrpc.New(
-context.Background(),
-otlptracegrpc.WithEndpoint("localhost:4317"),
-otlptracegrpc.WithInsecure(),
+    context.Background(),
+    otlptracegrpc.WithEndpoint("localhost:4317"),
+    otlptracegrpc.WithInsecure(),
 )
 
 // Create trace provider.
 tp := sdktrace.NewTracerProvider(
-sdktrace.WithBatcher(exporter),
+    sdktrace.WithBatcher(exporter),
 )
 otel.SetTracerProvider(tp)
 ```
@@ -177,14 +178,11 @@ protocols **without requiring code changes** to your applications.
 
 **Beyla Output:**
 
-- Beyla exports metrics and traces via OTLP to the agent's local receiver
-- Default: `localhost:4317` (gRPC) or `localhost:4318` (HTTP)
-- Agent ingests Beyla's output through the same OTLP receivers that handle
-  application traces
-- No additional ports required - reuses existing OTLP infrastructure
-
-**See:** `RFDs/032-beyla-red-metrics-integration.md` for complete architecture
-and design details.
+- Beyla exports metrics and traces via OTLP to the agent's dedicated local
+  receiver
+- Default: `localhost:4319` (gRPC)
+- Agent ingests Beyla's output through this dedicated OTLP receiver to avoid
+  conflicts with application traces
 
 ### Beyla Configuration Structure
 
@@ -288,7 +286,7 @@ with the colony and local CLI tools.
 ### Port 9001 - Agent API
 
 **Purpose**: Colony queries, service management, telemetry requests, remote
-shell execution (RFD 026)
+shell execution
 
 **Binding:**
 
@@ -302,7 +300,7 @@ shell execution (RFD 026)
 
 - `/coral.agent.v1.AgentService/*` - Main agent API
 - `/status` - Runtime and mesh network debugging info (JSON)
-- `/duckdb/<database-name>` - Remote DuckDB query endpoint (RFD 039)
+- `/duckdb/<database-name>` - Remote DuckDB query endpoint
 
 **Security:**
 
@@ -485,9 +483,9 @@ telemetry:
 
 ```go
 exporter, _ := otlptracegrpc.New(
-context.Background(),
-otlptracegrpc.WithEndpoint("localhost:4317"),
-otlptracegrpc.WithInsecure(),
+    context.Background(),
+    otlptracegrpc.WithEndpoint("localhost:4317"),
+    otlptracegrpc.WithInsecure(),
 )
 ```
 
@@ -512,64 +510,15 @@ telemetry:
 **Rationale**: Low sample rate reduces storage/network while still capturing
 errors and slow requests.
 
-### Example 3: Kubernetes Sidecar
+### Example 3: Kubernetes
 
-**Use Case**: Agent running as a sidecar in Kubernetes.
+For detailed Kubernetes deployment instructions, configurations, and manifests (Sidecar, DaemonSet, etc.), please refer to the [Kubernetes Deployments Documentation](../deployments/k8s/README.md).
 
-**Deployment**:
 
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-    name: myapp
-spec:
-    containers:
-        # Application container
-        -   name: app
-            image: myapp:latest
-            env:
-                -   name: OTEL_EXPORTER_OTLP_ENDPOINT
-                    value: "http://localhost:4317"
-
-        # Coral agent sidecar
-        -   name: coral-agent
-            image: coral-agent:latest
-            ports:
-                # OTLP receivers (for applications & Beyla)
-                -   containerPort: 4317
-                    name: otlp-grpc
-                    protocol: TCP
-                -   containerPort: 4318
-                    name: otlp-http
-                    protocol: TCP
-                # Agent API (colony communication - mesh only)
-                -   containerPort: 9001
-                    name: agent-api
-                    protocol: TCP
-            # Note: Port 9001 is NOT exposed as a Service - colony accesses via mesh IP
-```
-
-**Agent Configuration**:
-
-```yaml
-telemetry:
-    disabled: false
-    grpc_endpoint: "0.0.0.0:4317"
-    http_endpoint: "0.0.0.0:4318"
-    storage_retention_hours: 1
-    filters:
-        always_capture_errors: true
-        high_latency_threshold_ms: 1000.0  # Higher threshold for K8s
-        sample_rate: 0.10
-```
 
 ### Example 4: Serverless (Lambda/Cloud Run)
 
 **Use Case**: Serverless workloads exporting to regional OTLP agent.
-
-**See**: `RFDs/034-serverless-otlp-forwarding.md` for detailed serverless
-integration.
 
 **Configuration** (Regional Agent):
 
@@ -799,35 +748,9 @@ grpc_endpoint: "0.0.0.0:4317"
 import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 handler := otelhttp.NewHandler(myHandler, "server",
-otelhttp.WithFilter(func (r *http.Request) bool {
-// Exclude certain paths from tracing
-return !strings.HasPrefix(r.URL.Path, "/health")
-}),
+    otelhttp.WithFilter(func (r *http.Request) bool {
+        // Exclude certain paths from tracing
+        return !strings.HasPrefix(r.URL.Path, "/health")
+    }),
 )
 ```
-
----
-
-## Related Documentation
-
-- **RFD 025**: Basic OpenTelemetry Ingestion (
-  `RFDs/025-basic-otel-ingestion.md`)
-- **RFD 026**: Shell Execution Protocol - Agent API port 9001 (
-  `RFDs/026-shell-execution-protocol.md`)
-- **RFD 032**: Beyla Integration for RED Metrics Collection (
-  `RFDs/032-beyla-red-metrics-integration.md`)
-- **RFD 034**: Serverless OTLP Forwarding (
-  `RFDs/034-serverless-otlp-forwarding.md`)
-- **RFD 039**: Remote DuckDB Query Protocol - Agent data access via port 9001 (
-  `RFDs/039-remote-duckdb-query-protocol.md`)
-- **Concept**: Coral Architecture (`docs/CONCEPT.md`)
-
----
-
-## Support
-
-For questions or issues:
-
-- Check agent logs: `journalctl -u coral-agent -f`
-- Review RFD 025 for architecture details
-- File issues at: https://github.com/coral-io/coral/issues
