@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/firebase/genkit/go/ai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -82,8 +81,7 @@ func TestServiceHealthTool(t *testing.T) {
 
 	// Test 1: Get all services health.
 	t.Run("all services", func(t *testing.T) {
-		ctx := &ai.ToolContext{}
-		result, err := testServiceHealthCall(ctx, server, ServiceHealthInput{})
+		result, err := testServiceHealthCall(server, ServiceHealthInput{})
 
 		require.NoError(t, err)
 		assert.Contains(t, result, "System Health Report")
@@ -101,9 +99,8 @@ func TestServiceHealthTool(t *testing.T) {
 
 	// Test 2: Filter by service pattern.
 	t.Run("filter by pattern", func(t *testing.T) {
-		ctx := &ai.ToolContext{}
 		filter := "api*"
-		result, err := testServiceHealthCall(ctx, server, ServiceHealthInput{
+		result, err := testServiceHealthCall(server, ServiceHealthInput{
 			ServiceFilter: &filter,
 		})
 
@@ -122,8 +119,7 @@ func TestServiceHealthTool(t *testing.T) {
 			logger:   logger,
 		}
 
-		ctx := &ai.ToolContext{}
-		result, err := testServiceHealthCall(ctx, emptyServer, ServiceHealthInput{})
+		result, err := testServiceHealthCall(emptyServer, ServiceHealthInput{})
 
 		require.NoError(t, err)
 		assert.Contains(t, result, "No services connected")
@@ -131,8 +127,7 @@ func TestServiceHealthTool(t *testing.T) {
 }
 
 // testServiceHealthCall is a helper to test the service health tool.
-// This simulates what Genkit does when calling the tool.
-func testServiceHealthCall(ctx *ai.ToolContext, s *Server, input ServiceHealthInput) (string, error) {
+func testServiceHealthCall(s *Server, input ServiceHealthInput) (string, error) {
 	// Get service filter (handle nil pointer).
 	var serviceFilter string
 	if input.ServiceFilter != nil {
@@ -356,7 +351,6 @@ func TestServerCreation(t *testing.T) {
 		server, err := New(reg, db, config, logger)
 		require.NoError(t, err)
 		assert.NotNil(t, server)
-		assert.NotNil(t, server.genkit)
 		assert.NotNil(t, server.mcpServer)
 		assert.Equal(t, "test-colony", server.config.ColonyID)
 

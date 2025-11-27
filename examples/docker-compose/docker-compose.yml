@@ -33,6 +33,7 @@ services:
       - SYS_ADMIN      # Required for eBPF (Beyla)
       - SYS_PTRACE     # Required for eBPF process attachment
       - SYS_RESOURCE   # Required for memlock rlimit
+      - BPF
     devices:
       - /dev/net/tun:/dev/net/tun
     privileged: false  # Using capabilities instead of privileged mode

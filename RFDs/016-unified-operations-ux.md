@@ -1,26 +1,32 @@
 ---
 rfd: "016"
 title: "Unified Operations UX Architecture"
-state: "draft"
+state: "completed"
 breaking_changes: true
 testing_required: true
 database_changes: false
 api_changes: true
 dependencies: [ "001", "007", "010", "011", "014" ]
-related_rfds: [ "006", "012", "013", "015" ]
+related_rfds: [ "006", "012", "013", "015", "038", "044", "058" ]
 database_migrations: [ ]
 areas: [ "cli", "agent", "colony", "ux", "deployment" ]
 ---
 
 # RFD 016 - Unified Operations UX Architecture
 
-**Status:** 🚧 Draft
+**Status:** ✅ Completed
 
 ## Summary
 
 Establish a comprehensive UX architecture for Coral that provides unified
 operations across all deployment contexts (local dev, Docker, Kubernetes) with
-runtime-adaptive behavior. This RFD defines the complete command structure (
+runtime-adaptive behavior.
+
+> [!NOTE]
+> **Meta RFD**: This RFD serves as a high-level architecture document that orchestrates
+> multiple component RFDs. See [Implementation Status](#implementation-status) for details.
+
+This RFD defines the complete command structure (
 `run`, `connect`, `shell`, `exec`), agent runtime contexts, Colony connectivity
 modes, and mesh-enabled remote operations that together form Coral's "unified
 operations mesh with AI co-pilot."
@@ -164,7 +170,7 @@ See: https://coral.io/docs/platform-support
 | `coral exec <cmd>`    | ✅ Direct to local agent | ✅ Via Colony routing  |
 | `coral shell`         | ✅ Direct to local agent | ✅ Via Colony routing  |
 | `coral connect <uri>` | ✅ Direct to local agent | ✅ Via Colony routing  |
-| `coral ask "<q>"`     | ❌ Needs Colony for AI   | ✅ Always via Colony   |
+
 | `coral agent list`    | ❌ Needs Colony registry | ✅ Always via Colony   |
 
 **CLI auto-discovery** (tries in order):
@@ -210,14 +216,19 @@ coral exec --label=region=us-east "df -h"
 coral exec --env=production --all "systemctl status"
 ```
 
-**Colony acts as router**:
+**Colony provides resolution and connectivity**:
 
-- Resolves target (service name → agent ID)
-- Enforces RBAC (can user access this?)
-- Routes via WireGuard mesh
-- Streams response back to CLI
+- **Resolution**: Resolves target (service name → agent ID → mesh IP)
+- **RBAC Enforcement**: Checks permissions before granting access (RFD 058)
+- **Connectivity**: Enables direct CLI-to-agent connections
+  - **Local colony**: CLI routes to agents via colony's WireGuard interface (L3 routing)
+  - **Remote colony**: CLI establishes direct mesh connection via AllowedIPs orchestration (RFD 038)
+- **Approval Workflows**: Production access triggers approval before
+  granting connectivity (RFD 058)
 
-**RBAC & Approvals**:
+**Note**: Colony provides **control plane functions** (resolution, RBAC, connectivity orchestration) but does NOT proxy data-plane traffic. CLI connects directly to agents over the WireGuard mesh for efficiency. See RFD 038 for direct connectivity architecture and RFD 044 for agent ID resolution.
+
+**RBAC & Approvals** (RFD 058):
 
 ```yaml
 rbac:
@@ -463,7 +474,6 @@ in **RFD 026**.
 
 Colony **adds**:
 
-- AI queries (`coral ask`)
 - Remote operations (mesh routing)
 - Cross-service correlation
 - RBAC and approvals
@@ -573,38 +583,6 @@ See: <documentation link>
 | `130`     | User interrupt    | Ctrl+C (SIGINT)                                    |
 
 #### Error Templates
-
-**Colony unavailable (commands requiring AI):**
-
-```bash
-$ coral ask "why is checkout slow?"
-
-Error: Colony connection required for AI queries
-
-No Colony found via auto-discovery or config.
-
-Troubleshooting:
-  1. Start local Colony:
-     coral colony start
-
-  2. Connect to remote Colony:
-     coral proxy start https://colony.company.internal
-
-  3. Check Colony status:
-     coral colony status
-
-  4. Verify Colony URL in config:
-     cat ~/.coral/config.yaml
-
-Current discovery attempts:
-  ✗ Unix socket: /var/run/coral-colony.sock (not found)
-  ✗ HTTP: localhost:8080 (connection refused)
-  ✗ Docker: colony:8080 (not found)
-  ✗ Config: ~/.coral/config.yaml (no colony URL)
-
-See: https://coral.io/docs/colony-setup
-Exit code: 3
-```
 
 **Unsupported operation for runtime context:**
 
@@ -1004,32 +982,31 @@ preferences:
 - [ ] Graceful fallback to agent-only
 - [ ] Helpful error messages when Colony needed but unavailable
 
-### Phase 5: Remote Operations (Colony Routing)
+### Phase 5: Remote Operations (Direct Connectivity)
 
-- [ ] `RouteCommand` RPC in Colony
-- [ ] Target resolution (agent ID, service name, labels)
-- [ ] Command routing via WireGuard mesh
-- [ ] Stream proxying (Colony → Agent → CLI)
-- [ ] Multi-agent operations (`--all` flag)
+- [ ] Target resolution (agent ID, service name, labels) - RFD 044
+- [ ] Direct CLI-to-agent connectivity for remote colony - RFD 038
+  - [ ] AllowedIPs orchestration via Colony
+  - [ ] Ephemeral mesh IP allocation for CLI tools
+  - [ ] Cleanup on session end
+- [ ] Multi-agent operations (`--all` flag, `--label` filtering)
+- [ ] Service-based targeting with disambiguation
 
-### Phase 6: RBAC & Approvals
+**Note**: Phase 5 uses **direct connectivity** (CLI → Agent over mesh) rather than Colony proxying for efficiency. Colony provides control plane functions (resolution, RBAC, AllowedIPs orchestration) but does not proxy data traffic. See RFD 038 for architecture details.
 
-- [ ] `CheckPermission` RPC in Colony
-- [ ] RBAC config schema (user roles, environment permissions)
-- [ ] **MVP**: CLI-based approval workflow
-    - Requester runs `coral shell --env=production`
-    - Colony creates approval request
-    - Approver runs `coral approval approve <request-id>`
-    - CLI polls for approval status
-- [ ] Audit logging (who, what, when, approved by)
-- [ ] Production safeguards (timeouts, session limits)
-- [ ] **Future**: External approval channels (Slack, email, UI) - deferred to
-  Phase 6.1
+### Phase 6: RBAC & Approvals (RFD 058)
 
-**Note**: Phase 6 MVP uses CLI for both requesting and approving. External
-integrations (Slack bot, email notifications, web UI) are valuable but deferred
-to reduce initial complexity. See Future Enhancements for approval channel
-expansion plans.
+**Note**: RBAC enforcement is extracted to dedicated RFD 058 for
+comprehensive system-wide coverage. Phase 6 focuses on integration points:
+
+- [ ] Integrate with Colony RBAC engine (RFD 058)
+- [ ] Permission checks before granting agent access
+- [ ] Approval workflow integration for production access
+- [ ] Audit logging of access decisions
+- [ ] CLI support for approval requests/responses
+
+**See RFD 058** for complete RBAC architecture, policy schemas, enforcement
+points, and approval workflows.
 
 ### Phase 7: `coral proxy` Command
 
@@ -1112,16 +1089,6 @@ context.
 
 **Status**: ✅ Compatible
 
-### RFD 014 - Colony LLM Integration
-
-**Changes:**
-
-- `coral ask` **requires Colony** (document clearly)
-- CLI shows helpful error if Colony unavailable
-- `coral proxy` enables remote AI queries
-
-**Status**: ✅ Compatible, clarifications needed
-
 ### RFD 015 - LLM Context Schema
 
 **No changes required.** Context schema used by Colony regardless of how data
@@ -1162,7 +1129,6 @@ arrives.
 
 **Colony-enabled operations:**
 
-- `coral ask "question"` → AI query
 - `coral shell --service=api` → remote shell
 - `coral exec --env=production --all "df -h"` → fleet-wide
 
@@ -1691,3 +1657,17 @@ This is the **foundational UX RFD** that ties together:
 - Production-safe RBAC
 
 **This enables the "unified operations mesh with AI co-pilot" vision.**
+
+## Implementation Status
+
+This Meta RFD is implemented through the following component RFDs:
+
+- **`coral exec`**: ✅ Implemented via [RFD 056](056-container-exec-nsenter.md) (Container Exec).
+- **`coral shell`**: ✅ Implemented via [RFD 026](026-shell-command-implementation.md) (Shell Command).
+- **`coral connect`**: ✅ Implemented via [RFD 011](011-multi-service-agents.md) (Multi-service Agents).
+- **`coral run`**: ❌ Not implemented (deferred).
+- **Agent ID Resolution**: ✅ Implemented via [RFD 044](044-agent-id-standardization-and-routing.md).
+- **RBAC & Approvals**: ❌ Not implemented (defined in [RFD 058](058-rbac-enforcement-system.md)).
+- **Direct Connectivity**: ❌ Not implemented (defined in [RFD 038](038-cli-agent-direct-connectivity.md)).
+- **Runtime Context Detection**: ✅ Implemented.
+- **Colony Connectivity**: ✅ Implemented.

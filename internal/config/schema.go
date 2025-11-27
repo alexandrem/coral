@@ -31,8 +31,32 @@ type DiscoveryGlobal struct {
 
 // AIConfig contains AI provider configuration.
 type AIConfig struct {
-	Provider     string `yaml:"provider"`       // "anthropic" or "openai"
-	APIKeySource string `yaml:"api_key_source"` // "env", "keychain", "file"
+	Provider     string    `yaml:"provider"`       // "anthropic" or "openai"
+	APIKeySource string    `yaml:"api_key_source"` // "env", "keychain", "file"
+	Ask          AskConfig `yaml:"ask,omitempty"`  // coral ask LLM configuration (RFD 030)
+}
+
+// AskConfig contains configuration for the coral ask command (RFD 030).
+type AskConfig struct {
+	DefaultModel   string                `yaml:"default_model,omitempty"`   // Primary model (e.g., "openai:gpt-4o-mini")
+	FallbackModels []string              `yaml:"fallback_models,omitempty"` // Fallback models in order
+	APIKeys        map[string]string     `yaml:"api_keys,omitempty"`        // Provider API keys (env:// references)
+	Conversation   AskConversationConfig `yaml:"conversation,omitempty"`    // Conversation settings
+	Agent          AskAgentConfig        `yaml:"agent,omitempty"`           // Agent deployment settings
+}
+
+// AskConversationConfig contains conversation management settings.
+type AskConversationConfig struct {
+	MaxTurns      int  `yaml:"max_turns,omitempty"`      // Maximum conversation history turns
+	ContextWindow int  `yaml:"context_window,omitempty"` // Max tokens for context
+	AutoPrune     bool `yaml:"auto_prune,omitempty"`     // Auto-prune old messages
+}
+
+// AskAgentConfig contains agent deployment mode settings.
+type AskAgentConfig struct {
+	Mode         string        `yaml:"mode,omitempty"`          // "embedded", "daemon", "ephemeral"
+	DaemonSocket string        `yaml:"daemon_socket,omitempty"` // Unix socket for daemon mode
+	IdleTimeout  time.Duration `yaml:"idle_timeout,omitempty"`  // Daemon idle timeout
 }
 
 // Preferences contains user preferences.
@@ -55,6 +79,7 @@ type ColonyConfig struct {
 	Discovery       DiscoveryColony   `yaml:"discovery"`
 	MCP             MCPConfig         `yaml:"mcp,omitempty"`
 	Beyla           BeylaPollerConfig `yaml:"beyla,omitempty"`
+	Ask             *AskConfig        `yaml:"ask,omitempty"` // Per-colony ask overrides (RFD 030)
 	CreatedAt       time.Time         `yaml:"created_at"`
 	CreatedBy       string            `yaml:"created_by"`
 	LastUsed        time.Time         `yaml:"last_used,omitempty"`
@@ -282,6 +307,21 @@ func DefaultGlobalConfig() *GlobalConfig {
 		AI: AIConfig{
 			Provider:     "anthropic",
 			APIKeySource: "env",
+			Ask: AskConfig{
+				DefaultModel:   "openai:gpt-4o-mini",
+				FallbackModels: []string{"anthropic:claude-3-5-sonnet-20241022"},
+				APIKeys:        make(map[string]string),
+				Conversation: AskConversationConfig{
+					MaxTurns:      10,
+					ContextWindow: 8192,
+					AutoPrune:     true,
+				},
+				Agent: AskAgentConfig{
+					Mode:         "embedded",
+					DaemonSocket: "~/.coral/ask-agent.sock",
+					IdleTimeout:  10 * time.Minute,
+				},
+			},
 		},
 		Preferences: Preferences{
 			AutoUpdateCheck:  true,

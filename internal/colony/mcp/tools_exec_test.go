@@ -321,3 +321,7 @@ func TestServiceFiltering(t *testing.T) {
 		assert.Contains(t, err.Error(), "no agents found")
 	})
 }
+
+// Note: TestExecuteShellStartTool removed - replaced by coral_shell_exec in RFD 045.
+// The old coral_shell_start was a discovery helper that has been scrapped.
+// New tests for coral_shell_exec will be added when the agent-side implementation is complete.

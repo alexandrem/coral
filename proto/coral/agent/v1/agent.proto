@@ -29,6 +29,12 @@ service AgentService {
   // Shell: Interactive shell session in agent environment (RFD 026).
   rpc Shell(stream ShellRequest) returns (stream ShellResponse);
 
+  // ShellExec: One-off command execution in agent environment (RFD 045).
+  rpc ShellExec(ShellExecRequest) returns (ShellExecResponse);
+
+  // ContainerExec: Execute command in container namespace (RFD 056).
+  rpc ContainerExec(ContainerExecRequest) returns (ContainerExecResponse);
+
   // Resize shell terminal (RFD 026).
   rpc ResizeShellTerminal(ResizeShellTerminalRequest) returns (ResizeShellTerminalResponse);
 
@@ -129,6 +135,67 @@ message Capabilities {
 
   // Can monitor/observe (always true).
   bool can_connect = 4;
+
+  // Detailed exec mode information (RFD 057).
+  ExecCapabilities exec_capabilities = 5;
+
+  // Linux capabilities granted to agent (RFD 057).
+  LinuxCapabilities linux_capabilities = 6;
+}
+
+// LinuxCapabilities represents Linux kernel capabilities granted to the agent (RFD 057).
+// Mapped from /proc/self/status Cap* fields.
+message LinuxCapabilities {
+  // WireGuard mesh networking (required for all deployments).
+  bool cap_net_admin = 1;
+
+  // Container namespace execution via nsenter (coral exec nsenter mode).
+  bool cap_sys_admin = 2;
+
+  // Process inspection via /proc (required for coral exec PID detection).
+  bool cap_sys_ptrace = 3;
+
+  // eBPF memory locking (required for eBPF collectors).
+  bool cap_sys_resource = 4;
+
+  // Modern eBPF without CAP_SYS_ADMIN (kernel 5.8+).
+  bool cap_bpf = 5;
+
+  // Performance monitoring eBPF (kernel 5.8+).
+  bool cap_perfmon = 6;
+
+  // Additional capabilities for future use.
+  bool cap_dac_override = 7;
+  bool cap_setuid = 8;
+  bool cap_setgid = 9;
+}
+
+// ExecCapabilities describes available container execution modes (RFD 057).
+message ExecCapabilities {
+  // Exec mode available to the agent.
+  ExecMode mode = 1;
+
+  // Can access container mount namespace (nsenter -m).
+  bool mount_namespace_access = 2;
+
+  // Can access container PID namespace (nsenter -p).
+  bool pid_namespace_access = 3;
+
+  // Requirements for nsenter mode.
+  bool has_sys_admin = 4;   // CAP_SYS_ADMIN available
+  bool has_sys_ptrace = 5;  // CAP_SYS_PTRACE available
+  bool has_shared_pid_ns = 6; // Shared PID namespace or hostPID
+
+  // Fallback to CRI if nsenter not available.
+  bool cri_socket_available = 7;
+}
+
+// ExecMode defines the container execution mode (RFD 057).
+enum ExecMode {
+  EXEC_MODE_UNKNOWN = 0;  // Not yet detected
+  EXEC_MODE_NONE = 1;     // No exec support
+  EXEC_MODE_CRI = 2;      // CRI-based exec (limited, no mount namespace)
+  EXEC_MODE_NSENTER = 3;  // nsenter-based exec (full container filesystem access)
 }
 
 enum RuntimeContext {
@@ -573,5 +640,98 @@ message KillShellSessionRequest {
 message KillShellSessionResponse {
   bool success = 1;
   string error = 2;
+}
+
+// ShellExec RPC messages (RFD 045 - one-off command execution).
+
+message ShellExecRequest {
+  // Command as array (no shell interpretation - prevents injection).
+  // Example: ["ps", "aux"] or ["tcpdump", "-i", "any", "port", "80"]
+  repeated string command = 1;
+
+  // User making request (for audit).
+  string user_id = 2;
+
+  // Timeout in seconds (default: 30, max: 300).
+  uint32 timeout_seconds = 3;
+
+  // Working directory (default: agent's working dir).
+  string working_dir = 4;
+
+  // Additional environment variables.
+  map<string, string> env = 5;
+}
+
+message ShellExecResponse {
+  // Standard output from command.
+  bytes stdout = 1;
+
+  // Standard error from command.
+  bytes stderr = 2;
+
+  // Exit code from command.
+  int32 exit_code = 3;
+
+  // Session ID for audit reference.
+  string session_id = 4;
+
+  // Execution duration in milliseconds.
+  uint32 duration_ms = 5;
+
+  // Error message if execution failed (timeout, command not found, etc.).
+  string error = 6;
+}
+
+// ContainerExec RPC messages (RFD 056 - container namespace execution).
+
+message ContainerExecRequest {
+  // Container name (optional in sidecar mode - defaults to main container).
+  string container_name = 1;
+
+  // Command as array (no shell interpretation).
+  // Example: ["cat", "/app/config.yaml"] or ["ls", "-la", "/etc/nginx"]
+  repeated string command = 2;
+
+  // User making request (for audit).
+  string user_id = 3;
+
+  // Timeout in seconds (default: 30, max: 300).
+  uint32 timeout_seconds = 4;
+
+  // Working directory (optional, uses container's default).
+  string working_dir = 5;
+
+  // Additional environment variables.
+  map<string, string> env = 6;
+
+  // Namespaces to enter (default: ["mnt"] for sidecar mode).
+  // Options: "mnt", "pid", "net", "ipc", "uts", "cgroup"
+  repeated string namespaces = 7;
+}
+
+message ContainerExecResponse {
+  // Standard output from command.
+  bytes stdout = 1;
+
+  // Standard error from command.
+  bytes stderr = 2;
+
+  // Exit code from command.
+  int32 exit_code = 3;
+
+  // Session ID for audit reference.
+  string session_id = 4;
+
+  // Execution duration in milliseconds.
+  uint32 duration_ms = 5;
+
+  // Error message if execution failed.
+  string error = 6;
+
+  // Container PID used for nsenter (for debugging).
+  int32 container_pid = 7;
+
+  // Namespaces that were entered.
+  repeated string namespaces_entered = 8;
 }
 

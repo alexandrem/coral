@@ -70,10 +70,11 @@ type AgentConfig struct {
 // NewStartCmd creates the start command for agents.
 func NewStartCmd() *cobra.Command {
 	var (
-		configFile string
-		colonyID   string
-		daemon     bool
-		monitorAll bool
+		configFile     string
+		colonyID       string
+		daemon         bool
+		monitorAll     bool
+		connectService []string // Service URIs to connect at startup (e.g., "frontend:3000")
 	)
 
 	cmd := &cobra.Command{
@@ -122,6 +123,9 @@ Examples:
   # Passive mode (no services, use 'coral connect' later)
   coral agent start
 
+  # Connect to services at startup
+  coral agent start --connect frontend:3000 --connect api:8080:/health
+
   # With config file
   coral agent start --config /etc/coral/agent.yaml
 
@@ -138,6 +142,16 @@ Examples:
 			cfg, serviceSpecs, agentCfg, err := loadAgentConfig(configFile, colonyID)
 			if err != nil {
 				return fmt.Errorf("failed to load agent configuration: %w", err)
+			}
+
+			// Parse services from --connect flag (RFD 053).
+			if len(connectService) > 0 {
+				connectSpecs, err := ParseMultipleServiceSpecs(connectService)
+				if err != nil {
+					return fmt.Errorf("failed to parse --connect services: %w", err)
+				}
+				// Merge with config file services (--connect takes precedence).
+				serviceSpecs = append(serviceSpecs, connectSpecs...)
 			}
 
 			// Validate service specs (if any provided)
@@ -434,15 +448,36 @@ Examples:
 				logger.Warn().Err(err).Msg("Failed to get user home directory - using in-memory storage")
 			}
 
-			// Initialize Beyla configuration (RFD 032).
+			// Initialize Beyla configuration (RFD 032 + RFD 053).
 			var beylaConfig *beyla.Config
 			if sharedDB != nil {
+				// Extract ports from services for Beyla discovery (RFD 053).
+				discoveryPorts := make([]int, 0, len(serviceSpecs))
+				for _, spec := range serviceSpecs {
+					discoveryPorts = append(discoveryPorts, int(spec.Port))
+				}
+
 				beylaConfig = &beyla.Config{
-					Enabled:               true,
-					OTLPEndpoint:          "127.0.0.1:4317", // Local OTLP gRPC receiver
+					Enabled:      true,
+					OTLPEndpoint: "127.0.0.1:4317", // Local OTLP gRPC receiver
+					Discovery: beyla.DiscoveryConfig{
+						OpenPorts: discoveryPorts,
+					},
+					Protocols: beyla.ProtocolsConfig{
+						HTTPEnabled: true,
+						GRPCEnabled: true,
+						SQLEnabled:  true,
+					},
 					DB:                    sharedDB,
 					DBPath:                sharedDBPath,
 					StorageRetentionHours: 1, // Default: 1 hour
+					MonitorAll:            monitorAll,
+				}
+
+				if monitorAll {
+					logger.Info().Msg("Monitor-all mode enabled - Beyla will instrument all listening processes")
+				} else if len(serviceSpecs) == 0 {
+					logger.Info().Msg("No services configured - Beyla will not start (use --monitor-all or --connect to enable)")
 				}
 			}
 
@@ -572,8 +607,11 @@ Examples:
 			// Create shell handler (RFD 026).
 			shellHandler := agent.NewShellHandler(logger)
 
+			// Create container handler (RFD 056).
+			containerHandler := agent.NewContainerHandler(logger)
+
 			// Create service handler and HTTP server for gRPC API.
-			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler)
+			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler)
 			path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 			mux := http.NewServeMux()
@@ -741,6 +779,7 @@ Examples:
 	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID to connect to (overrides config file)")
 	cmd.Flags().BoolVar(&daemon, "daemon", false, "Run in background (requires PID file support)")
 	cmd.Flags().BoolVar(&monitorAll, "monitor-all", false, "Monitor all processes (auto-discovery mode)")
+	cmd.Flags().StringArrayVar(&connectService, "connect", []string{}, "Service to connect at startup (format: name:port[:health][:type], can be specified multiple times)")
 
 	return cmd
 }

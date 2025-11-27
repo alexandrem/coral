@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-io/coral/internal/colony/database"
 	"github.com/coral-io/coral/internal/colony/registry"
 )
@@ -441,7 +445,9 @@ func (s *Server) executeStartEBPFCollectorTool(ctx context.Context, argumentsJSO
 	if input.DurationSeconds != nil {
 		text += fmt.Sprintf("Duration: %d seconds\n", *input.DurationSeconds)
 	} else {
-		text += "Duration: 30 seconds (default)\n"
+		if input.ConfigJSON != nil {
+			text += fmt.Sprintf("Config: %s\n", *input.ConfigJSON)
+		}
 	}
 
 	text += "\n"
@@ -525,14 +531,19 @@ func (s *Server) executeListEBPFCollectorsTool(ctx context.Context, argumentsJSO
 	return text, nil
 }
 
-// executeExecCommandTool executes coral_exec_command.
-func (s *Server) executeExecCommandTool(ctx context.Context, argumentsJSON string) (string, error) {
-	var input ExecCommandInput
+// executeShellExecTool executes coral_shell_exec (RFD 045).
+func (s *Server) executeShellExecTool(ctx context.Context, argumentsJSON string) (string, error) {
+	var input ShellExecInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
-	s.auditToolCall("coral_exec_command", input)
+	s.auditToolCall("coral_shell_exec", input)
+
+	// Validate command.
+	if len(input.Command) == 0 {
+		return "", fmt.Errorf("command cannot be empty")
+	}
 
 	// Resolve target agent (RFD 044: agent ID or service name with disambiguation).
 	agent, err := s.resolveAgent(input.AgentID, input.Service)
@@ -540,44 +551,66 @@ func (s *Server) executeExecCommandTool(ctx context.Context, argumentsJSON strin
 		return "", err
 	}
 
-	text := fmt.Sprintf("Container Exec: %s (agent: %s)\n\n", input.Service, agent.AgentID)
-	text += "Status: Not yet implemented\n\n"
-	text += fmt.Sprintf("Command: %v\n", input.Command)
+	// Validate agent status.
+	status := registry.DetermineStatus(agent.LastSeen, time.Now())
+	if status == registry.StatusUnhealthy {
+		return "", fmt.Errorf("agent %s is unhealthy (last seen %s ago) - command execution may fail",
+			agent.AgentID, formatDuration(time.Since(agent.LastSeen)))
+	}
 
+	// Create gRPC client to agent.
+	agentURL := fmt.Sprintf("http://%s:9001", agent.MeshIPv4)
+	client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
+
+	// Prepare request.
+	timeout := uint32(30)
 	if input.TimeoutSeconds != nil {
-		text += fmt.Sprintf("Timeout: %d seconds\n", *input.TimeoutSeconds)
-	} else {
-		text += "Timeout: 30 seconds (default)\n"
+		timeout = *input.TimeoutSeconds
+		if timeout > 300 {
+			timeout = 300
+		}
+	}
+
+	req := &agentv1.ShellExecRequest{
+		Command:        input.Command,
+		UserId:         "mcp-server", // TODO: Get from MCP context
+		TimeoutSeconds: timeout,
 	}
 
 	if input.WorkingDir != nil {
-		text += fmt.Sprintf("Working Directory: %s\n", *input.WorkingDir)
+		req.WorkingDir = *input.WorkingDir
 	}
 
-	text += "\n"
-	text += "Implementation Status:\n"
-	text += "  - RFD 017 (exec command) is in draft status\n"
-	text += "  - CRI integration (containerd, CRI-O, Docker) is not yet implemented\n"
-	text += "  - Colony-to-agent RPC for exec is pending\n"
-	text += "\n"
-	text += "Once implemented, this tool will:\n"
-	text += "  1. Locate target container via agent registry\n"
-	text += "  2. Use CRI to execute command in application container\n"
-	text += "  3. Stream stdout/stderr back to colony\n"
-	text += "  4. Return exit code and full output\n"
-	text += "  5. Support both one-off commands and interactive sessions\n"
+	if input.Env != nil {
+		req.Env = input.Env
+	}
 
-	return text, nil
+	// Execute command with timeout.
+	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout+5)*time.Second)
+	defer cancel()
+
+	resp, err := client.ShellExec(execCtx, connect.NewRequest(req))
+	if err != nil {
+		return "", fmt.Errorf("failed to execute command on agent %s: %w", agent.AgentID, err)
+	}
+
+	// Format response.
+	return formatShellExecResponse(agent, resp.Msg), nil
 }
 
-// executeShellStartTool executes coral_shell_start.
-func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string) (string, error) {
-	var input ShellStartInput
+// executeContainerExecTool executes coral_container_exec (RFD 056).
+func (s *Server) executeContainerExecTool(ctx context.Context, argumentsJSON string) (string, error) {
+	var input ContainerExecInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
-	s.auditToolCall("coral_shell_start", input)
+	s.auditToolCall("coral_container_exec", input)
+
+	// Validate command.
+	if len(input.Command) == 0 {
+		return "", fmt.Errorf("command cannot be empty")
+	}
 
 	// Resolve target agent (RFD 044: agent ID or service name with disambiguation).
 	agent, err := s.resolveAgent(input.AgentID, input.Service)
@@ -585,35 +618,59 @@ func (s *Server) executeShellStartTool(ctx context.Context, argumentsJSON string
 		return "", err
 	}
 
-	text := fmt.Sprintf("Agent Debug Shell: %s (agent: %s)\n\n", input.Service, agent.AgentID)
-	text += "Status: Not yet implemented\n\n"
-
-	shell := "/bin/bash"
-	if input.Shell != nil {
-		shell = *input.Shell
+	// Validate agent status.
+	status := registry.DetermineStatus(agent.LastSeen, time.Now())
+	if status == registry.StatusUnhealthy {
+		return "", fmt.Errorf("agent %s is unhealthy (last seen %s ago) - command execution may fail",
+			agent.AgentID, formatDuration(time.Since(agent.LastSeen)))
 	}
-	text += fmt.Sprintf("Shell: %s\n", shell)
 
-	text += "\n"
-	text += "Implementation Status:\n"
-	text += "  - RFD 026 (shell command) is in draft status\n"
-	text += "  - Agent shell server is not yet implemented\n"
-	text += "  - TTY handling and session management are pending\n"
-	text += "\n"
-	text += "Once implemented, this tool will:\n"
-	text += "  1. Locate target agent via registry\n"
-	text += "  2. Start interactive shell in agent's container\n"
-	text += "  3. Provide access to debugging utilities (tcpdump, netcat, curl, etc.)\n"
-	text += "  4. Enable network debugging from agent's perspective\n"
-	text += "  5. Allow querying agent's local DuckDB for raw telemetry\n"
-	text += "  6. Record full session for audit (elevated privileges)\n"
-	text += "\n"
-	text += "Security Note:\n"
-	text += "  - Agent shells have elevated privileges (CRI socket access, host network)\n"
-	text += "  - All sessions will be fully recorded for audit compliance\n"
-	text += "  - RBAC checks will be enforced before allowing access\n"
+	// Create gRPC client to agent.
+	agentURL := fmt.Sprintf("http://%s:9001", agent.MeshIPv4)
+	client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
 
-	return text, nil
+	// Prepare request.
+	timeout := uint32(30)
+	if input.TimeoutSeconds != nil {
+		timeout = *input.TimeoutSeconds
+		if timeout > 300 {
+			timeout = 300
+		}
+	}
+
+	req := &agentv1.ContainerExecRequest{
+		Command:        input.Command,
+		UserId:         "mcp-server", // TODO: Get from MCP context
+		TimeoutSeconds: timeout,
+	}
+
+	if input.ContainerName != nil {
+		req.ContainerName = *input.ContainerName
+	}
+
+	if input.WorkingDir != nil {
+		req.WorkingDir = *input.WorkingDir
+	}
+
+	if input.Env != nil {
+		req.Env = input.Env
+	}
+
+	if len(input.Namespaces) > 0 {
+		req.Namespaces = input.Namespaces
+	}
+
+	// Execute command with timeout.
+	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout+5)*time.Second)
+	defer cancel()
+
+	resp, err := client.ContainerExec(execCtx, connect.NewRequest(req))
+	if err != nil {
+		return "", fmt.Errorf("failed to execute command in container on agent %s: %w", agent.AgentID, err)
+	}
+
+	// Format response.
+	return formatContainerExecResponse(agent, resp.Msg), nil
 }
 
 // Helper functions for agent resolution and disambiguation (RFD 044).
@@ -756,6 +813,114 @@ func formatTraceByID(trace *database.BeylaTraceResult, format string) string {
 	text += fmt.Sprintf("Status: %d\n", trace.StatusCode)
 	if trace.ParentSpanID != "" {
 		text += fmt.Sprintf("Parent Span: %s\n", trace.ParentSpanID)
+	}
+
+	return text
+}
+
+// formatShellExecResponse formats the response for coral_shell_exec tool (RFD 045).
+// Returns formatted command output with exit code and execution details.
+func formatShellExecResponse(agent *registry.Entry, resp *agentv1.ShellExecResponse) string {
+	// Build service names list.
+	serviceNames := make([]string, 0, len(agent.Services))
+	for _, svc := range agent.Services {
+		serviceNames = append(serviceNames, svc.Name)
+	}
+	servicesStr := strings.Join(serviceNames, ", ")
+	if servicesStr == "" {
+		servicesStr = agent.Name
+	}
+
+	var text string
+
+	// Header with execution details.
+	text += fmt.Sprintf("Command executed on agent %s (%s)\n", agent.AgentID, servicesStr)
+	text += fmt.Sprintf("Duration: %dms | Exit Code: %d | Session: %s\n\n",
+		resp.DurationMs, resp.ExitCode, resp.SessionId)
+
+	// Show error if present.
+	if resp.Error != "" {
+		text += fmt.Sprintf("❌ Error: %s\n\n", resp.Error)
+	}
+
+	// Show stdout.
+	if len(resp.Stdout) > 0 {
+		text += "STDOUT:\n"
+		text += "```\n"
+		text += string(resp.Stdout)
+		text += "\n```\n\n"
+	} else {
+		text += "STDOUT: (empty)\n\n"
+	}
+
+	// Show stderr if present.
+	if len(resp.Stderr) > 0 {
+		text += "STDERR:\n"
+		text += "```\n"
+		text += string(resp.Stderr)
+		text += "\n```\n\n"
+	}
+
+	// Add status summary.
+	if resp.ExitCode == 0 && resp.Error == "" {
+		text += "✅ Command completed successfully\n"
+	} else if resp.ExitCode != 0 {
+		text += fmt.Sprintf("⚠️  Command exited with non-zero code: %d\n", resp.ExitCode)
+	}
+
+	return text
+}
+
+// formatContainerExecResponse formats the response for coral_container_exec tool (RFD 056).
+// Returns formatted command output with exit code, container PID, and execution details.
+func formatContainerExecResponse(agent *registry.Entry, resp *agentv1.ContainerExecResponse) string {
+	// Build service names list.
+	serviceNames := make([]string, 0, len(agent.Services))
+	for _, svc := range agent.Services {
+		serviceNames = append(serviceNames, svc.Name)
+	}
+	servicesStr := strings.Join(serviceNames, ", ")
+	if servicesStr == "" {
+		servicesStr = agent.Name
+	}
+
+	var text string
+
+	// Header with execution details.
+	text += fmt.Sprintf("Command executed in container namespace on agent %s (%s)\n", agent.AgentID, servicesStr)
+	text += fmt.Sprintf("Container PID: %d | Namespaces: %s\n",
+		resp.ContainerPid, strings.Join(resp.NamespacesEntered, ", "))
+	text += fmt.Sprintf("Duration: %dms | Exit Code: %d | Session: %s\n\n",
+		resp.DurationMs, resp.ExitCode, resp.SessionId)
+
+	// Show error if present.
+	if resp.Error != "" {
+		text += fmt.Sprintf("❌ Error: %s\n\n", resp.Error)
+	}
+
+	// Show stdout.
+	if len(resp.Stdout) > 0 {
+		text += "STDOUT:\n"
+		text += "```\n"
+		text += string(resp.Stdout)
+		text += "\n```\n\n"
+	} else {
+		text += "STDOUT: (empty)\n\n"
+	}
+
+	// Show stderr if present.
+	if len(resp.Stderr) > 0 {
+		text += "STDERR:\n"
+		text += "```\n"
+		text += string(resp.Stderr)
+		text += "\n```\n\n"
+	}
+
+	// Add status summary.
+	if resp.ExitCode == 0 && resp.Error == "" {
+		text += "✅ Command completed successfully\n"
+	} else if resp.ExitCode != 0 {
+		text += fmt.Sprintf("⚠️  Command exited with non-zero code: %d\n", resp.ExitCode)
 	}
 
 	return text

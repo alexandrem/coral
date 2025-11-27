@@ -35,9 +35,9 @@ func NewShellCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "shell",
-		Short: "Open interactive shell in agent environment",
-		Long: `Open an interactive shell session within the agent's environment.
+		Use:   "shell [command...]",
+		Short: "Open interactive shell or execute command in agent environment",
+		Long: `Open an interactive shell session or execute a one-off command in the agent's environment.
 
 This provides access to the agent's container/process with debugging utilities:
   - Network tools: tcpdump, netcat, curl, dig
@@ -54,23 +54,34 @@ This provides access to the agent's container/process with debugging utilities:
 All sessions are fully recorded for audit purposes.
 
 Examples:
-  # Open shell in local agent
+  # Open interactive shell in local agent
   coral shell
+
+  # Execute one-off command (like kubectl exec)
+  coral shell -- ps aux
+  coral shell -- sh -c "ps aux && netstat -tunlp"
 
   # Specify agent by ID
   coral shell --agent hostname-api-1
+  coral shell --agent hostname-api-1 -- ps aux
 
   # Specify agent address explicitly
-  coral shell --agent-addr localhost:9001
+  coral shell --agent-addr localhost:9001 -- ls -la
 
   # Specify user ID for audit
-  coral shell --user-id alice@company.com
+  coral shell --user-id alice@company.com -- whoami
 
-The shell session will:
-  - Use /bin/bash if available, otherwise /bin/sh
-  - Set environment variables for agent context (CORAL_AGENT_ID, etc.)
-  - Support terminal resize and signals (Ctrl+C, Ctrl+Z)
-  - Exit cleanly with the shell's exit code`,
+Interactive mode:
+  - Uses /bin/bash if available, otherwise /bin/sh
+  - Sets environment variables for agent context (CORAL_AGENT_ID, etc.)
+  - Supports terminal resize and signals (Ctrl+C, Ctrl+Z)
+  - Exits cleanly with the shell's exit code
+
+Command execution mode:
+  - Executes command and returns stdout/stderr
+  - Returns command's exit code
+  - Timeout: 30s (default), max 300s with --timeout
+  - No TTY required`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -98,9 +109,16 @@ The shell session will:
 				}
 			}
 
+			// Check if command execution mode (args provided).
+			if len(args) > 0 {
+				// One-off command execution (like kubectl exec).
+				return runCommandExecution(ctx, agentAddr, userID, args)
+			}
+
+			// Interactive shell mode.
 			// Ensure we're running in a terminal.
 			if !term.IsTerminal(int(os.Stdin.Fd())) {
-				return fmt.Errorf("shell command requires a TTY (interactive terminal)")
+				return fmt.Errorf("interactive shell requires a TTY (use command execution mode for non-interactive: coral shell -- command)")
 			}
 
 			// Show warning and get confirmation.
@@ -133,6 +151,77 @@ The shell session will:
 	cmd.Flags().StringVar(&userID, "user-id", "", "User ID for audit (default: $USER)")
 
 	return cmd
+}
+
+// runCommandExecution executes a one-off command on the agent (RFD 045).
+// This is similar to kubectl exec pod -- command args.
+func runCommandExecution(ctx context.Context, agentAddr, userID string, command []string) error {
+	// Get current user if not specified.
+	if userID == "" {
+		userID = os.Getenv("USER")
+		if userID == "" {
+			userID = "unknown"
+		}
+	}
+
+	// Normalize agent address (strip http:// or https:// prefix if present).
+	normalizedAddr := agentAddr
+	if strings.HasPrefix(agentAddr, "http://") {
+		normalizedAddr = strings.TrimPrefix(agentAddr, "http://")
+	} else if strings.HasPrefix(agentAddr, "https://") {
+		normalizedAddr = strings.TrimPrefix(agentAddr, "https://")
+	}
+
+	// Create HTTP client.
+	httpClient := &http.Client{
+		Timeout: 35 * time.Second, // Slightly longer than default command timeout
+	}
+	client := agentv1connect.NewAgentServiceClient(
+		httpClient,
+		fmt.Sprintf("http://%s", normalizedAddr),
+	)
+
+	// Prepare request.
+	req := &agentv1.ShellExecRequest{
+		Command:        command,
+		UserId:         userID,
+		TimeoutSeconds: 30, // Default timeout
+	}
+
+	// Execute command with timeout.
+	execCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	defer cancel()
+
+	resp, err := client.ShellExec(execCtx, connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("failed to execute command on agent: %w", err)
+	}
+
+	// Write stdout.
+	if len(resp.Msg.Stdout) > 0 {
+		if _, err := os.Stdout.Write(resp.Msg.Stdout); err != nil {
+			return fmt.Errorf("failed to write stdout: %w", err)
+		}
+	}
+
+	// Write stderr.
+	if len(resp.Msg.Stderr) > 0 {
+		if _, err := os.Stderr.Write(resp.Msg.Stderr); err != nil {
+			return fmt.Errorf("failed to write stderr: %w", err)
+		}
+	}
+
+	// Show error if present.
+	if resp.Msg.Error != "" {
+		fmt.Fprintf(os.Stderr, "\nError: %s\n", resp.Msg.Error)
+	}
+
+	// Exit with command's exit code.
+	if resp.Msg.ExitCode != 0 {
+		os.Exit(int(resp.Msg.ExitCode))
+	}
+
+	return nil
 }
 
 // runShellSession runs the interactive shell session.
