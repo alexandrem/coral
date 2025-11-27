@@ -21,6 +21,7 @@ covers concepts, workflows, and detailed examples.
 - **Observability** - Real-time metrics and distributed tracing
 - **AI-powered debugging** - Natural language queries with your own LLM
 - **Direct SQL access** - Query agent databases with DuckDB
+- **Container execution** - Execute commands in service containers via nsenter
 
 ---
 
@@ -1026,9 +1027,341 @@ coral shell --agent-addr 100.64.0.5:9001
 
 ---
 
+## Container Execution
+
+Coral provides the ability to execute commands within service container namespaces using `nsenter`. This enables access to container-mounted files, configs, and volumes that are not visible from the agent's host filesystem.
+
+**Key Features:**
+
+- **Container filesystem access** - Read configs, logs, and volumes as mounted in the container
+- **Namespace isolation** - Enter mount, PID, network, and other Linux namespaces
+- **Service-based targeting** - Execute by service name, not container ID
+- **Multi-deployment support** - Works with docker-compose sidecars, Kubernetes sidecars, and DaemonSets
+- **Audit logging** - All executions are recorded with session IDs
+
+**Security Considerations:**
+
+⚠️ **WARNING**: Container exec requires elevated privileges:
+
+- CAP_SYS_ADMIN capability (for nsenter)
+- CAP_SYS_PTRACE capability (for /proc inspection)
+- Access to container PIDs via shared PID namespace or hostPID
+
+All executions are fully audited and recorded.
+
+### Basic Usage
+
+**Execute in service container:**
+
+```bash
+coral exec <service> <command> [args...]
+```
+
+**Target specific agent:**
+
+```bash
+coral exec <service> --agent <agent-id> <command> [args...]
+```
+
+**Execute with timeout:**
+
+```bash
+coral exec <service> --timeout 60 <command> [args...]
+```
+
+See docs/CLI_REFERENCE.md:180 for command syntax.
+
+---
+
+### Key Differences: coral shell vs coral exec
+
+Understanding when to use each command is critical:
+
+| Command | Target | Filesystem View | Use Case |
+|---------|--------|-----------------|----------|
+| `coral shell` | Agent host environment | Agent's filesystem | Host diagnostics, network debugging, agent management |
+| `coral exec` | Service container (nsenter) | Container's mounted volumes/configs | Container configs, app files, mounted volumes |
+
+**Examples:**
+
+```bash
+# coral shell - Agent host environment
+coral shell --agent api-1
+# In shell: ps aux, tcpdump -i any, ss -tulpn
+# Sees: agent's processes, host network, host filesystem
+
+# coral exec - Service container namespace
+coral exec api cat /app/config.yaml
+# Executes: nsenter into container's mount namespace
+# Sees: container's filesystem, mounted configs, volumes
+```
+
+**When to use coral shell:**
+- Network diagnostics: `tcpdump`, `netstat`, `ss -tulpn`
+- Process inspection: `ps aux`, `top`, `pgrep`
+- Host filesystem: agent logs, system files
+- System commands: `uptime`, `free -h`, `df -h`
+
+**When to use coral exec:**
+- App configs: `/app/config.yaml`, `/etc/nginx/nginx.conf`
+- Mounted volumes: `/data`, `/logs`, `/var/lib`
+- Container environment: `env`, `pwd`, `id`
+- App-specific files: `/usr/share/nginx/html`
+
+---
+
+### Service Resolution
+
+The `coral exec` command supports multiple ways to specify the target:
+
+**1. By service name (automatic agent resolution):**
+
+```bash
+coral exec nginx cat /etc/nginx/nginx.conf
+# Colony resolves "nginx" service → agent mesh IP
+```
+
+**2. By service name + specific agent:**
+
+```bash
+coral exec nginx --agent hostname-api-1 cat /app/config.yaml
+# Targets specific agent running the nginx service
+```
+
+**3. By service name + explicit address:**
+
+```bash
+coral exec nginx --agent-addr 100.64.0.5:9001 cat /app/config.yaml
+# Direct connection to agent mesh IP
+# No colony lookup required
+```
+
+**Service disambiguation:**
+
+When multiple agents serve the same service, specify the agent ID:
+
+```bash
+# List agents to find IDs
+coral colony agents
+
+# Target specific agent
+coral exec nginx --agent hostname-api-2 cat /app/config.yaml
+```
+
+---
+
+### Common Use Cases
+
+#### Read Application Configs
+
+**Read nginx config from container:**
+
+```bash
+coral exec nginx cat /etc/nginx/nginx.conf
+```
+
+**Read application config:**
+
+```bash
+coral exec api-server cat /app/config.yaml
+```
+
+**Verify environment variables:**
+
+```bash
+coral exec api-server env
+```
+
+#### Inspect Mounted Volumes
+
+**List files in data volume:**
+
+```bash
+# Be careful to use -- notation when command has hyphens
+coral exec api-server -- ls -la /data
+```
+
+**Check volume permissions:**
+
+```bash
+coral exec api-server -- ls -ld /data /logs /uploads
+```
+
+**Find large files in volumes:**
+
+```bash
+coral exec api-server -- du -sh /data/*
+```
+
+#### Debug Container State
+
+**Check running processes (with pid namespace):**
+
+```bash
+coral exec nginx --namespaces mnt,pid ps aux
+```
+
+**Verify working directory:**
+
+```bash
+coral exec app --working-dir /app pwd
+```
+
+**Test file accessibility:**
+
+```bash
+coral exec api-server test -r /app/config.yaml && echo "readable"
+```
+
+#### Multi-Container Pods
+
+**Execute in specific container:**
+
+```bash
+coral exec web --container nginx cat /etc/nginx/nginx.conf
+coral exec web --container app cat /app/config.yaml
+```
+
+---
+
+### Advanced Options
+
+#### Namespace Selection
+
+By default, `coral exec` enters only the mount namespace (`mnt`). You can specify additional namespaces:
+
+```bash
+# Mount namespace only (default)
+coral exec nginx cat /etc/nginx/nginx.conf
+
+# Mount + PID namespaces
+coral exec nginx --namespaces mnt,pid ps aux
+
+# All namespaces (full isolation)
+coral exec nginx --namespaces mnt,pid,net,ipc,uts ps aux
+```
+
+**Available namespaces:**
+- `mnt` - Mount namespace (filesystem)
+- `pid` - PID namespace (processes)
+- `net` - Network namespace
+- `ipc` - IPC namespace
+- `uts` - UTS namespace (hostname)
+- `cgroup` - Cgroup namespace
+
+#### Working Directory
+
+```bash
+# Execute in specific directory
+coral exec app --working-dir /app ls -la
+
+# Verify current directory
+coral exec app --working-dir /data pwd
+# Output: /data
+```
+
+#### Environment Variables
+
+```bash
+# Pass environment variables
+coral exec api --env DEBUG=true --env LOG_LEVEL=debug env
+
+# Use for debugging
+coral exec api --env VERBOSE=1 /app/healthcheck.sh
+```
+
+#### Timeout Control
+
+```bash
+# Default timeout: 30 seconds
+coral exec api cat /app/config.yaml
+
+# Longer timeout for slow commands
+coral exec logs-processor --timeout 120 -- find /data -name "*.log"
+
+# Maximum timeout: 300 seconds (5 minutes)
+coral exec backup --timeout 300 tar czf /tmp/backup.tar.gz /data
+```
+
+---
+
+### Troubleshooting
+
+#### "service not found"
+
+**Problem:** Cannot resolve service name to agent.
+
+**Solutions:**
+
+```bash
+# List available services
+coral colony agents
+
+# Verify colony is running
+coral colony status
+
+# Use explicit agent address
+coral exec nginx --agent-addr 100.64.0.5:9001 cat /etc/nginx/nginx.conf
+```
+
+#### "failed to execute command in container"
+
+**Problem:** nsenter failed to enter container namespace.
+
+**Common causes:**
+
+- **Missing capabilities**: Agent lacks CAP_SYS_ADMIN or CAP_SYS_PTRACE
+- **PID namespace not shared**: Agent cannot see container PIDs
+- **nsenter not available**: Binary not in agent container
+
+**Solutions:**
+
+```bash
+# Verify agent has required capabilities
+# Check docker-compose.yml or K8s manifest for:
+#   cap_add: [SYS_ADMIN, SYS_PTRACE]
+
+# Verify PID namespace sharing
+# Docker-compose: pid: "service:app"
+# Kubernetes: shareProcessNamespace: true OR hostPID: true
+
+# Verify nsenter is available in agent container
+coral shell --agent api-1
+# In shell: which nsenter
+```
+
+#### "no container PID found"
+
+**Problem:** Agent cannot detect container process.
+
+**Solutions:**
+
+- Verify shared PID namespace configuration
+- Check that application container is running
+- For DaemonSet mode, ensure `hostPID: true` is set
+- Use verbose mode to debug: `CORAL_VERBOSE=1 coral exec ...`
+
+#### "timeout exceeded"
+
+**Problem:** Command took longer than timeout.
+
+**Solutions:**
+
+```bash
+# Increase timeout
+coral exec logs-processor --timeout 120 find /data -name "*.log"
+
+# For very long operations, use coral shell instead
+coral shell --agent api-1
+# In shell: find /data -name "*.log"
+```
+
+---
+
 ## Related Documentation
 
 - **RFD 026** - Shell Command Implementation (agent shell access)
+- **RFD 056** - Container Exec via nsenter (container namespace execution)
 - **RFD 039** - DuckDB Remote Query CLI (detailed specification)
 - **RFD 025** - OTLP Telemetry Receiver (spans in `metrics.duckdb`)
 - **RFD 032** - Beyla RED Metrics Integration (HTTP/gRPC/SQL metrics in

@@ -177,16 +177,40 @@ coral shell --user-id alice@company.com -- whoami  # With audit user ID
 
 ---
 
-## Diagnostic Commands
+## Container Execution
 
 ```bash
-# Execute commands on agent hosts
-coral exec <service> <command>
+# Execute commands in service containers (nsenter mode)
+coral exec <service> <command> [args...] [flags]
 
-# Examples:
-coral exec api "netstat -an | grep ESTABLISHED"
-coral exec api "ps aux | grep node"
-coral exec api "lsof -i :8080"
+# Flags:
+#   --agent <agent-id>              Target specific agent by ID
+#   --agent-addr <address>          Target specific agent by address
+#   --colony <colony-id>            Colony ID (default: auto-detect)
+#   --user-id <user>                User ID for audit (default: $USER)
+#   --container <name>              Container name (multi-container pods)
+#   --timeout <seconds>             Timeout in seconds (max 300, default: 30)
+#   --working-dir <path>            Working directory in container
+#   --env <KEY=VALUE>               Environment variables (repeatable)
+#   --namespaces <ns1,ns2,...>      Namespaces to enter (default: mnt)
+#                                   Options: mnt,pid,net,ipc,uts,cgroup
+
+# Examples - Basic usage:
+coral exec nginx cat /etc/nginx/nginx.conf
+coral exec api-server -- ls -la /data
+coral exec web -- ps aux
+
+# Examples - Advanced options:
+coral exec nginx --agent hostname-api-1 cat /app/config.yaml
+coral exec app --working-dir /app -- find . -name "*.log"
+coral exec api --env DEBUG=true env
+coral exec nginx --namespaces mnt,pid ps aux
+coral exec logs-processor --timeout 60 -- find /data -name "*.log"
+coral exec web --container nginx cat /etc/nginx/nginx.conf
+
+# Key differences:
+#   coral shell    → Runs on AGENT HOST (agent's environment)
+#   coral exec     → Runs in SERVICE CONTAINER (via nsenter)
 ```
 
 ---
