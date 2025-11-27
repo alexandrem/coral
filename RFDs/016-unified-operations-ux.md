@@ -7,7 +7,7 @@ testing_required: true
 database_changes: false
 api_changes: true
 dependencies: [ "001", "007", "010", "011", "014" ]
-related_rfds: [ "006", "012", "013", "015", "038", "044", "046" ]
+related_rfds: [ "006", "012", "013", "015", "038", "044", "058" ]
 database_migrations: [ ]
 areas: [ "cli", "agent", "colony", "ux", "deployment" ]
 ---
@@ -213,15 +213,16 @@ coral exec --env=production --all "systemctl status"
 **Colony provides resolution and connectivity**:
 
 - **Resolution**: Resolves target (service name → agent ID → mesh IP)
-- **RBAC Enforcement**: Checks permissions before granting access (RFD 046)
+- **RBAC Enforcement**: Checks permissions before granting access (RFD 058)
 - **Connectivity**: Enables direct CLI-to-agent connections
   - **Local colony**: CLI routes to agents via colony's WireGuard interface (L3 routing)
   - **Remote colony**: CLI establishes direct mesh connection via AllowedIPs orchestration (RFD 038)
-- **Approval Workflows**: Production access triggers approval before granting connectivity (RFD 046)
+- **Approval Workflows**: Production access triggers approval before
+  granting connectivity (RFD 058)
 
 **Note**: Colony provides **control plane functions** (resolution, RBAC, connectivity orchestration) but does NOT proxy data-plane traffic. CLI connects directly to agents over the WireGuard mesh for efficiency. See RFD 038 for direct connectivity architecture and RFD 044 for agent ID resolution.
 
-**RBAC & Approvals** (RFD 046):
+**RBAC & Approvals** (RFD 058):
 
 ```yaml
 rbac:
@@ -1020,17 +1021,19 @@ preferences:
 
 **Note**: Phase 5 uses **direct connectivity** (CLI → Agent over mesh) rather than Colony proxying for efficiency. Colony provides control plane functions (resolution, RBAC, AllowedIPs orchestration) but does not proxy data traffic. See RFD 038 for architecture details.
 
-### Phase 6: RBAC & Approvals (RFD 046)
+### Phase 6: RBAC & Approvals (RFD 058)
 
-**Note**: RBAC enforcement is extracted to dedicated RFD 046 for comprehensive system-wide coverage. Phase 6 focuses on integration points:
+**Note**: RBAC enforcement is extracted to dedicated RFD 058 for
+comprehensive system-wide coverage. Phase 6 focuses on integration points:
 
-- [ ] Integrate with Colony RBAC engine (RFD 046)
+- [ ] Integrate with Colony RBAC engine (RFD 058)
 - [ ] Permission checks before granting agent access
 - [ ] Approval workflow integration for production access
 - [ ] Audit logging of access decisions
 - [ ] CLI support for approval requests/responses
 
-**See RFD 046** for complete RBAC architecture, policy schemas, enforcement points, and approval workflows.
+**See RFD 058** for complete RBAC architecture, policy schemas, enforcement
+points, and approval workflows.
 
 ### Phase 7: `coral proxy` Command
 

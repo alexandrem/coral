@@ -1,5 +1,5 @@
 ---
-rfd: "046"
+rfd: "058"
 title: "System-Wide RBAC Enforcement"
 state: "draft"
 breaking_changes: false
@@ -12,24 +12,31 @@ database_migrations: [ "rbac_policies", "rbac_roles", "rbac_approvals", "rbac_au
 areas: [ "security", "rbac", "auth", "colony", "cli" ]
 ---
 
-# RFD 046 - System-Wide RBAC Enforcement
+# RFD 058 - System-Wide RBAC Enforcement
 
 **Status:** 🚧 Draft
 
 ## Summary
 
-Implement a comprehensive role-based access control (RBAC) system for all Coral operations (shell, exec, ask, colony admin, agent access) with flexible policy definitions, approval workflows, and centralized enforcement at the Colony level. This provides the security foundation for production deployments with least-privilege access, change control, and compliance requirements.
+Implement a comprehensive role-based access control (RBAC) system for all Coral
+operations (shell, exec, ask, colony admin, agent access) with flexible policy
+definitions, approval workflows, and centralized enforcement at the Colony
+level. This provides the security foundation for production deployments with
+least-privilege access, change control, and compliance requirements.
 
 ## Problem
 
 **Current limitations:**
 
-Multiple RFDs define individual RBAC requirements (RFD 016 for operations, RFD 043 for shell) but lack a unified RBAC architecture:
+Multiple RFDs define individual RBAC requirements (RFD 016 for operations, RFD
+043 for shell) but lack a unified RBAC architecture:
 
 1. **No centralized RBAC engine**: Each feature re-implements permission checks
 2. **Inconsistent policy format**: Different RFDs propose different YAML schemas
-3. **No user identity integration**: Assumes authenticated users but doesn't define identity source
-4. **No approval workflow reuse**: RFD 043 defines shell approvals, but exec/ask need same pattern
+3. **No user identity integration**: Assumes authenticated users but doesn't
+   define identity source
+4. **No approval workflow reuse**: RFD 043 defines shell approvals, but exec/ask
+   need same pattern
 5. **Unclear enforcement points**: Should Colony or Agent enforce? When?
 6. **No audit trail standard**: Different components log differently
 
@@ -52,15 +59,21 @@ Multiple RFDs define individual RBAC requirements (RFD 016 for operations, RFD 0
 
 ## Solution
 
-Implement a centralized RBAC engine in Colony with policy-based access control, approval workflows, and comprehensive audit logging that works across all Coral operations.
+Implement a centralized RBAC engine in Colony with policy-based access control,
+approval workflows, and comprehensive audit logging that works across all Coral
+operations.
 
 **Key Design Decisions:**
 
-1. **Colony-enforced RBAC**: All permission checks happen at Colony (single enforcement point)
+1. **Colony-enforced RBAC**: All permission checks happen at Colony (single
+   enforcement point)
 2. **Policy-based model**: Flexible policies map roles → resources → permissions
-3. **Resource hierarchy**: Environments > Agents > Operations (inherited permissions)
-4. **Approval workflows**: Reusable approval engine for any operation requiring review
-5. **Identity integration**: Support multiple identity sources (OIDC, mTLS, API keys)
+3. **Resource hierarchy**: Environments > Agents > Operations (inherited
+   permissions)
+4. **Approval workflows**: Reusable approval engine for any operation requiring
+   review
+5. **Identity integration**: Support multiple identity sources (OIDC, mTLS, API
+   keys)
 6. **Audit-first design**: All decisions logged before execution
 7. **Fail-secure default**: Deny access if policy evaluation fails
 
@@ -93,60 +106,60 @@ Implement a centralized RBAC engine in Colony with policy-based access control, 
 │ Colony: RBAC Enforcement Point                           │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │ 1. Extract User Identity                          │  │
-│  │    - OIDC: email, groups                          │  │
-│  │    - mTLS: certificate CN                         │  │
-│  │    - API key: key ID → user mapping               │  │
+│  │ 1. Extract User Identity                           │  │
+│  │    - OIDC: email, groups                           │  │
+│  │    - mTLS: certificate CN                          │  │
+│  │    - API key: key ID → user mapping                │  │
 │  └────────────────────────────────────────────────────┘  │
 │                  │                                       │
 │                  ▼                                       │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │ 2. Resolve Resource                               │  │
-│  │    - agent ID → environment, region, labels       │  │
-│  │    - service name → environment                   │  │
-│  │    - colony → admin resource                      │  │
+│  │ 2. Resolve Resource                                │  │
+│  │    - agent ID → environment, region, labels        │  │
+│  │    - service name → environment                    │  │
+│  │    - colony → admin resource                       │  │
 │  └────────────────────────────────────────────────────┘  │
 │                  │                                       │
 │                  ▼                                       │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │ 3. Evaluate Policy                                │  │
-│  │    PolicyEngine.CheckPermission(                  │  │
-│  │      user, operation, resource                    │  │
-│  │    ) → Allow | Deny | RequireApproval             │  │
+│  │ 3. Evaluate Policy                                 │  │
+│  │    PolicyEngine.CheckPermission(                   │  │
+│  │      user, operation, resource                     │  │
+│  │    ) → Allow | Deny | RequireApproval              │  │
 │  └────────────────────────────────────────────────────┘  │
 │                  │                                       │
-│       ┌──────────┴──────────┐                           │
-│       ▼                     ▼                           │
-│   ┌──────┐            ┌──────────────┐                  │
-│   │Allow │            │RequireApproval│                 │
-│   └──┬───┘            └───────┬──────┘                  │
-│      │                        │                         │
-│      │                        ▼                         │
-│      │              ┌─────────────────────┐             │
-│      │              │ 4. Approval Workflow│             │
-│      │              │  - Create request   │             │
-│      │              │  - Notify approvers │             │
-│      │              │  - Wait for decision│             │
-│      │              └─────────┬───────────┘             │
-│      │                        │                         │
-│      │              ┌─────────┴─────────┐               │
-│      │              │                   │               │
-│      │              ▼                   ▼               │
-│      │          Approved             Denied             │
-│      │              │                   │               │
-│      └──────────────┴───────────────────┘               │
-│                     │                                   │
-│                     ▼                                   │
+│       ┌──────────┴──────────┐                            │
+│       ▼                     ▼                            │
+│   ┌──────┐            ┌──────────────┐                   │
+│   │Allow │            │RequireApproval│                  │
+│   └──┬───┘            └───────┬──────┘                   │
+│      │                        │                          │
+│      │                        ▼                          │
+│      │              ┌─────────────────────┐              │
+│      │              │ 4. Approval Workflow│              │
+│      │              │  - Create request   │              │
+│      │              │  - Notify approvers │              │
+│      │              │  - Wait for decision│              │
+│      │              └─────────┬───────────┘              │
+│      │                        │                          │
+│      │              ┌─────────┴─────────┐                │
+│      │              │                   │                │
+│      │              ▼                   ▼                │
+│      │          Approved             Denied              │
+│      │              │                   │                │
+│      └──────────────┴───────────────────┘                │
+│                     │                                    │
+│                     ▼                                    │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │ 5. Audit Log                                      │  │
-│  │    - Record decision (allow/deny/approved)        │  │
-│  │    - Store: user, operation, resource, timestamp  │  │
+│  │ 5. Audit Log                                       │  │
+│  │    - Record decision (allow/deny/approved)         │  │
+│  │    - Store: user, operation, resource, timestamp   │  │
 │  └────────────────────────────────────────────────────┘  │
-│                     │                                   │
-│                     ▼                                   │
-│              Grant Access                               │
-│              (issue token with TTL)                     │
-└────────────────┬────────────────────────────────────────┘
+│                     │                                    │
+│                     ▼                                    │
+│              Grant Access                                │
+│              (issue token with TTL)                      │
+└────────────────┬─────────────────────────────────────────┘
                  │
                  ▼ Access token
         ┌────────────────┐
@@ -157,60 +170,60 @@ Implement a centralized RBAC engine in Colony with policy-based access control, 
 ### Component Changes
 
 1. **RBAC Policy Engine** (`internal/colony/rbac/engine.go`):
-   - Load policies from database and config files
-   - Evaluate permission requests (user + operation + resource)
-   - Return: Allow, Deny, or RequireApproval
-   - Support policy hierarchies (environment → agent → operation)
-   - Cache policy evaluations for performance
+    - Load policies from database and config files
+    - Evaluate permission requests (user + operation + resource)
+    - Return: Allow, Deny, or RequireApproval
+    - Support policy hierarchies (environment → agent → operation)
+    - Cache policy evaluations for performance
 
 2. **Approval Workflow Engine** (`internal/colony/approval/workflow.go`):
-   - Create approval requests with context
-   - Notify approvers (CLI, Slack, email)
-   - Track approval state (pending, approved, denied, expired)
-   - Time-limited approvals (default: 1 hour)
-   - Multi-approver support (require N of M approvers)
+    - Create approval requests with context
+    - Notify approvers (CLI, Slack, email)
+    - Track approval state (pending, approved, denied, expired)
+    - Time-limited approvals (default: 1 hour)
+    - Multi-approver support (require N of M approvers)
 
 3. **Identity Integration** (`internal/colony/auth/identity.go`):
-   - Extract user identity from request context
-   - Support multiple identity sources:
-     - OIDC (RFD 020): email, groups, claims
-     - mTLS (RFD 022): certificate CN, SANs
-     - API keys: key ID → user mapping
-   - Normalize to common identity format
+    - Extract user identity from request context
+    - Support multiple identity sources:
+        - OIDC (RFD 020): email, groups, claims
+        - mTLS (RFD 022): certificate CN, SANs
+        - API keys: key ID → user mapping
+    - Normalize to common identity format
 
 4. **Audit Logger** (`internal/colony/audit/logger.go`):
-   - Log all RBAC decisions (allow, deny, approval)
-   - Store: user, operation, resource, decision, timestamp
-   - Export to DuckDB for querying
-   - Retention policies and compression
+    - Log all RBAC decisions (allow, deny, approval)
+    - Store: user, operation, resource, decision, timestamp
+    - Export to DuckDB for querying
+    - Retention policies and compression
 
 5. **Colony RPC Integration**:
-   - Add RBAC checks to all Colony RPCs
-   - Shell, exec, ask, admin operations
-   - Agent registration (restrict who can register agents)
-   - Colony configuration changes
+    - Add RBAC checks to all Colony RPCs
+    - Shell, exec, ask, admin operations
+    - Agent registration (restrict who can register agents)
+    - Colony configuration changes
 
 6. **CLI Integration**:
-   - Handle approval requests (display status, wait for approval)
-   - New commands for approvers: `coral approval list|approve|deny`
-   - Display permission errors with policy hints
+    - Handle approval requests (display status, wait for approval)
+    - New commands for approvers: `coral approval list|approve|deny`
+    - Display permission errors with policy hints
 
 **Configuration Example:**
 
 ```yaml
 # ~/.coral/colonies/my-colony.yaml
 rbac:
-  enabled: true
-  policy_file: /etc/coral/rbac-policies.yaml
-  approval:
-    default_ttl: 1h
-    max_ttl: 24h
-    notification_channels:
-      - slack://approvals-channel
-      - email://sre-oncall@company.com
+    enabled: true
+    policy_file: /etc/coral/rbac-policies.yaml
+    approval:
+        default_ttl: 1h
+        max_ttl: 24h
+        notification_channels:
+            - slack://approvals-channel
+            - email://sre-oncall@company.com
 
-  # Default policy: deny all (fail-secure)
-  default_policy: deny
+    # Default policy: deny all (fail-secure)
+    default_policy: deny
 ```
 
 ## RBAC Policy Format
@@ -220,149 +233,149 @@ rbac:
 ```yaml
 # /etc/coral/rbac-policies.yaml
 rbac:
-  # Role definitions
-  roles:
-    - name: developer
-      description: Software engineers working on applications
+    # Role definitions
+    roles:
+        -   name: developer
+            description: Software engineers working on applications
 
-    - name: sre
-      description: Site reliability engineers managing production
+        -   name: sre
+            description: Site reliability engineers managing production
 
-    - name: security
-      description: Security team with broad access
+        -   name: security
+            description: Security team with broad access
 
-    - name: contractor
-      description: External contractors with limited access
+        -   name: contractor
+            description: External contractors with limited access
 
-    - name: admin
-      description: Coral administrators with full system access
+        -   name: admin
+            description: Coral administrators with full system access
 
-  # Policy rules (evaluated in order)
-  policies:
-    # Admin role: full access to everything
-    - name: admin-full-access
-      roles: [ admin ]
-      resources:
-        - type: "*"
-          environments: [ "*" ]
-      operations: [ "*" ]
-      effect: allow
+    # Policy rules (evaluated in order)
+    policies:
+        # Admin role: full access to everything
+        -   name: admin-full-access
+            roles: [ admin ]
+            resources:
+                -   type: "*"
+                    environments: [ "*" ]
+            operations: [ "*" ]
+            effect: allow
 
-    # Security team: full access to agents, requires MFA for shell
-    - name: security-agent-access
-      roles: [ security ]
-      resources:
-        - type: agent
-          environments: [ dev, staging, production ]
-      operations: [ shell, exec, connect, status ]
-      effect: allow
-      conditions:
-        require_mfa:
-          - shell  # Only shell requires MFA
+        # Security team: full access to agents, requires MFA for shell
+        -   name: security-agent-access
+            roles: [ security ]
+            resources:
+                -   type: agent
+                    environments: [ dev, staging, production ]
+            operations: [ shell, exec, connect, status ]
+            effect: allow
+            conditions:
+                require_mfa:
+                    - shell  # Only shell requires MFA
 
-    # SRE: dev/staging full access
-    - name: sre-nonprod-access
-      roles: [ sre ]
-      resources:
-        - type: agent
-          environments: [ dev, staging ]
-      operations: [ shell, exec, connect, status ]
-      effect: allow
+        # SRE: dev/staging full access
+        -   name: sre-nonprod-access
+            roles: [ sre ]
+            resources:
+                -   type: agent
+                    environments: [ dev, staging ]
+            operations: [ shell, exec, connect, status ]
+            effect: allow
 
-    # SRE: production shell requires approval
-    - name: sre-prod-shell-approval
-      roles: [ sre ]
-      resources:
-        - type: agent
-          environments: [ production ]
-      operations: [ shell ]
-      effect: require_approval
-      approval:
-        approvers:
-          roles: [ sre, admin ]
-          min_approvals: 1
-        ttl: 1h
-        require_mfa: true
+        # SRE: production shell requires approval
+        -   name: sre-prod-shell-approval
+            roles: [ sre ]
+            resources:
+                -   type: agent
+                    environments: [ production ]
+            operations: [ shell ]
+            effect: require_approval
+            approval:
+                approvers:
+                    roles: [ sre, admin ]
+                    min_approvals: 1
+                ttl: 1h
+                require_mfa: true
 
-    # SRE: production exec/status allowed (read-only)
-    - name: sre-prod-readonly
-      roles: [ sre ]
-      resources:
-        - type: agent
-          environments: [ production ]
-      operations: [ exec, status, connect ]
-      effect: allow
-      conditions:
-        # Restrict exec to safe read-only commands
-        allowed_commands:
-          - "ps aux"
-          - "df -h"
-          - "netstat -an"
-          - "curl localhost/*"  # Health checks only
+        # SRE: production exec/status allowed (read-only)
+        -   name: sre-prod-readonly
+            roles: [ sre ]
+            resources:
+                -   type: agent
+                    environments: [ production ]
+            operations: [ exec, status, connect ]
+            effect: allow
+            conditions:
+                # Restrict exec to safe read-only commands
+                allowed_commands:
+                    - "ps aux"
+                    - "df -h"
+                    - "netstat -an"
+                    - "curl localhost/*"  # Health checks only
 
-    # Developer: dev access only
-    - name: developer-dev-access
-      roles: [ developer ]
-      resources:
-        - type: agent
-          environments: [ dev ]
-      operations: [ shell, exec, connect, status ]
-      effect: allow
+        # Developer: dev access only
+        -   name: developer-dev-access
+            roles: [ developer ]
+            resources:
+                -   type: agent
+                    environments: [ dev ]
+            operations: [ shell, exec, connect, status ]
+            effect: allow
 
-    # Contractor: time-limited dev access
-    - name: contractor-limited-access
-      roles: [ contractor ]
-      resources:
-        - type: agent
-          environments: [ dev ]
-      operations: [ exec, status ]  # No shell access
-      effect: allow
-      conditions:
-        time_window:
-          start: "2025-01-01T00:00:00Z"
-          end: "2025-06-30T23:59:59Z"
+        # Contractor: time-limited dev access
+        -   name: contractor-limited-access
+            roles: [ contractor ]
+            resources:
+                -   type: agent
+                    environments: [ dev ]
+            operations: [ exec, status ]  # No shell access
+            effect: allow
+            conditions:
+                time_window:
+                    start: "2025-01-01T00:00:00Z"
+                    end: "2025-06-30T23:59:59Z"
 
-    # AI access: can use 'coral ask' but not shell/exec
-    - name: ai-query-access
-      users: [ "ai-agent@coral.internal" ]
-      resources:
-        - type: colony
-        - type: agent
-          environments: [ "*" ]
-      operations: [ ask, status, list ]
-      effect: allow
+        # AI access: can use 'coral ask' but not shell/exec
+        -   name: ai-query-access
+            users: [ "ai-agent@coral.internal" ]
+            resources:
+                -   type: colony
+                -   type: agent
+                    environments: [ "*" ]
+            operations: [ ask, status, list ]
+            effect: allow
 
-    # Default deny: catches all unmatched requests
-    - name: default-deny
-      roles: [ "*" ]
-      resources:
-        - type: "*"
-      operations: [ "*" ]
-      effect: deny
+        # Default deny: catches all unmatched requests
+        -   name: default-deny
+            roles: [ "*" ]
+            resources:
+                -   type: "*"
+            operations: [ "*" ]
+            effect: deny
 
-  # User-to-role assignments
-  users:
-    - email: alice@company.com
-      roles: [ developer ]
+    # User-to-role assignments
+    users:
+        -   email: alice@company.com
+            roles: [ developer ]
 
-    - email: bob@company.com
-      roles: [ sre ]
+        -   email: bob@company.com
+            roles: [ sre ]
 
-    - email: security@company.com
-      roles: [ security ]
+        -   email: security@company.com
+            roles: [ security ]
 
-    - email: charlie@contractor.com
-      roles: [ contractor ]
-      metadata:
-        contract_end: "2025-06-30"
+        -   email: charlie@contractor.com
+            roles: [ contractor ]
+            metadata:
+                contract_end: "2025-06-30"
 
-    - email: admin@company.com
-      roles: [ admin ]
+        -   email: admin@company.com
+            roles: [ admin ]
 
-    # Service account for AI
-    - email: ai-agent@coral.internal
-      roles: [ ]  # No standard role, uses specific policy
-      type: service_account
+        # Service account for AI
+        -   email: ai-agent@coral.internal
+            roles: [ ]  # No standard role, uses specific policy
+            type: service_account
 ```
 
 ## Policy Evaluation Logic
@@ -398,56 +411,56 @@ For request (user, operation, resource):
 
 ### Resource Types
 
-| Resource Type | Description | Examples |
-|---------------|-------------|----------|
-| `agent` | Individual agents | Specific agent ID, environment, region |
-| `colony` | Colony administration | Config changes, user management |
-| `approval` | Approval requests | Approve/deny requests |
-| `audit` | Audit logs | Query audit history |
+| Resource Type | Description           | Examples                               |
+|---------------|-----------------------|----------------------------------------|
+| `agent`       | Individual agents     | Specific agent ID, environment, region |
+| `colony`      | Colony administration | Config changes, user management        |
+| `approval`    | Approval requests     | Approve/deny requests                  |
+| `audit`       | Audit logs            | Query audit history                    |
 
 ### Operations
 
-| Operation | Description | Resource Types |
-|-----------|-------------|----------------|
-| `shell` | Interactive shell access | agent |
-| `exec` | Execute commands | agent |
-| `connect` | Attach to processes | agent |
-| `status` | Query status | agent, colony |
-| `ask` | AI queries | colony, agent |
-| `list` | List resources | agent, colony |
-| `approve` | Approve requests | approval |
-| `deny` | Deny requests | approval |
-| `configure` | Change configuration | colony |
+| Operation   | Description              | Resource Types |
+|-------------|--------------------------|----------------|
+| `shell`     | Interactive shell access | agent          |
+| `exec`      | Execute commands         | agent          |
+| `connect`   | Attach to processes      | agent          |
+| `status`    | Query status             | agent, colony  |
+| `ask`       | AI queries               | colony, agent  |
+| `list`      | List resources           | agent, colony  |
+| `approve`   | Approve requests         | approval       |
+| `deny`      | Deny requests            | approval       |
+| `configure` | Change configuration     | colony         |
 
 ### Conditions
 
 ```yaml
 conditions:
-  # Require MFA for specific operations
-  require_mfa:
-    - shell
-    - configure
+    # Require MFA for specific operations
+    require_mfa:
+        - shell
+        - configure
 
-  # Restrict exec to safe commands
-  allowed_commands:
-    - "ps aux"
-    - "df -h"
-    - "curl localhost:*"
+    # Restrict exec to safe commands
+    allowed_commands:
+        - "ps aux"
+        - "df -h"
+        - "curl localhost:*"
 
-  # Time-based access (contractor windows)
-  time_window:
-    start: "2025-01-01T00:00:00Z"
-    end: "2025-06-30T23:59:59Z"
+    # Time-based access (contractor windows)
+    time_window:
+        start: "2025-01-01T00:00:00Z"
+        end: "2025-06-30T23:59:59Z"
 
-  # IP whitelist (office network only)
-  ip_whitelist:
-    - "10.0.0.0/8"
-    - "192.168.1.0/24"
+    # IP whitelist (office network only)
+    ip_whitelist:
+        - "10.0.0.0/8"
+        - "192.168.1.0/24"
 
-  # Label matching (agent labels)
-  agent_labels:
-    team: platform
-    region: us-east
+    # Label matching (agent labels)
+    agent_labels:
+        team: platform
+        region: us-east
 ```
 
 ## Approval Workflows
@@ -481,9 +494,9 @@ requested_by: "bob@company.com"
 requested_at: "2025-11-19T10:30:00Z"
 operation: "shell"
 resource:
-  type: "agent"
-  agent_id: "prod-api-01"
-  environment: "production"
+    type: "agent"
+    agent_id: "prod-api-01"
+    environment: "production"
 status: "pending"  # pending, approved, denied, expired
 approved_by: null
 approved_at: null
@@ -497,29 +510,29 @@ approval_token: null  # Generated when approved
 
 ```yaml
 approval:
-  notification_channels:
-    # CLI notification (approver polling)
-    - type: cli
+    notification_channels:
+        # CLI notification (approver polling)
+        -   type: cli
 
-    # Slack bot
-    - type: slack
-      webhook: "https://hooks.slack.com/..."
-      channel: "#sre-approvals"
-      template: |
-        🔐 Approval Request #{{.ID}}
-        User: {{.User}}
-        Operation: {{.Operation}}
-        Resource: {{.Resource.AgentID}} ({{.Resource.Environment}})
-        Justification: {{.Justification}}
+        # Slack bot
+        -   type: slack
+            webhook: "https://hooks.slack.com/..."
+            channel: "#sre-approvals"
+            template: |
+                🔐 Approval Request #{{.ID}}
+                User: {{.User}}
+                Operation: {{.Operation}}
+                Resource: {{.Resource.AgentID}} ({{.Resource.Environment}})
+                Justification: {{.Justification}}
 
-        Approve: `coral approval approve {{.ID}}`
-        Deny: `coral approval deny {{.ID}}`
+                Approve: `coral approval approve {{.ID}}`
+                Deny: `coral approval deny {{.ID}}`
 
-    # Email notification
-    - type: email
-      smtp_server: "smtp.company.com"
-      from: "coral-approvals@company.com"
-      to: "sre-oncall@company.com"
+        # Email notification
+        -   type: email
+            smtp_server: "smtp.company.com"
+            from: "coral-approvals@company.com"
+            to: "sre-oncall@company.com"
 ```
 
 ### Approver Workflow (CLI)
@@ -643,11 +656,11 @@ Connecting to agent prod-api-01...
 
 - [ ] Add RBAC middleware to Colony gRPC server
 - [ ] Integrate permission checks for:
-  - [ ] Shell access (RFD 026)
-  - [ ] Exec commands (RFD 017)
-  - [ ] Ask queries (RFD 014)
-  - [ ] Agent registration
-  - [ ] Colony admin operations
+    - [ ] Shell access (RFD 026)
+    - [ ] Exec commands (RFD 017)
+    - [ ] Ask queries (RFD 014)
+    - [ ] Agent registration
+    - [ ] Colony admin operations
 - [ ] Return approval-required errors with request ID
 
 ### Phase 6: CLI Integration
@@ -675,97 +688,97 @@ Connecting to agent prod-api-01...
 
 ```protobuf
 service ColonyService {
-  // Check permission for operation
-  rpc CheckPermission(CheckPermissionRequest) returns (CheckPermissionResponse);
+    // Check permission for operation
+    rpc CheckPermission(CheckPermissionRequest) returns (CheckPermissionResponse);
 
-  // Approval workflow
-  rpc CreateApprovalRequest(CreateApprovalRequestRequest) returns (CreateApprovalRequestResponse);
-  rpc ListApprovalRequests(ListApprovalRequestsRequest) returns (ListApprovalRequestsResponse);
-  rpc GetApprovalRequest(GetApprovalRequestRequest) returns (GetApprovalRequestResponse);
-  rpc ApproveRequest(ApproveRequestRequest) returns (ApproveRequestResponse);
-  rpc DenyRequest(DenyRequestRequest) returns (DenyRequestResponse);
+    // Approval workflow
+    rpc CreateApprovalRequest(CreateApprovalRequestRequest) returns (CreateApprovalRequestResponse);
+    rpc ListApprovalRequests(ListApprovalRequestsRequest) returns (ListApprovalRequestsResponse);
+    rpc GetApprovalRequest(GetApprovalRequestRequest) returns (GetApprovalRequestResponse);
+    rpc ApproveRequest(ApproveRequestRequest) returns (ApproveRequestResponse);
+    rpc DenyRequest(DenyRequestRequest) returns (DenyRequestResponse);
 }
 
 message CheckPermissionRequest {
-  string user_id = 1;
-  string operation = 2;  // shell, exec, ask, etc.
-  Resource resource = 3;
-  string justification = 4;  // Optional: reason for access
+    string user_id = 1;
+    string operation = 2;  // shell, exec, ask, etc.
+    Resource resource = 3;
+    string justification = 4;  // Optional: reason for access
 }
 
 message Resource {
-  string type = 1;  // agent, colony, approval
-  string agent_id = 2;  // For agent resources
-  string environment = 3;
-  map<string, string> labels = 4;
+    string type = 1;  // agent, colony, approval
+    string agent_id = 2;  // For agent resources
+    string environment = 3;
+    map<string, string> labels = 4;
 }
 
 message CheckPermissionResponse {
-  PermissionResult result = 1;
-  string approval_request_id = 2;  // If result = REQUIRE_APPROVAL
-  string denial_reason = 3;  // If result = DENY
-  string policy_name = 4;  // Policy that matched
+    PermissionResult result = 1;
+    string approval_request_id = 2;  // If result = REQUIRE_APPROVAL
+    string denial_reason = 3;  // If result = DENY
+    string policy_name = 4;  // Policy that matched
 }
 
 enum PermissionResult {
-  PERMISSION_ALLOW = 0;
-  PERMISSION_DENY = 1;
-  PERMISSION_REQUIRE_APPROVAL = 2;
+    PERMISSION_ALLOW = 0;
+    PERMISSION_DENY = 1;
+    PERMISSION_REQUIRE_APPROVAL = 2;
 }
 
 message CreateApprovalRequestRequest {
-  string user_id = 1;
-  string operation = 2;
-  Resource resource = 3;
-  string justification = 4;
+    string user_id = 1;
+    string operation = 2;
+    Resource resource = 3;
+    string justification = 4;
 }
 
 message CreateApprovalRequestResponse {
-  string approval_request_id = 1;
-  google.protobuf.Timestamp expires_at = 2;
-  repeated string notified_approvers = 3;
+    string approval_request_id = 1;
+    google.protobuf.Timestamp expires_at = 2;
+    repeated string notified_approvers = 3;
 }
 
 message ListApprovalRequestsRequest {
-  string status_filter = 1;  // pending, approved, denied, expired
-  string user_filter = 2;  // Filter by requester
+    string status_filter = 1;  // pending, approved, denied, expired
+    string user_filter = 2;  // Filter by requester
 }
 
 message ListApprovalRequestsResponse {
-  repeated ApprovalRequest requests = 1;
+    repeated ApprovalRequest requests = 1;
 }
 
 message ApprovalRequest {
-  string approval_request_id = 1;
-  string requested_by = 2;
-  google.protobuf.Timestamp requested_at = 3;
-  string operation = 4;
-  Resource resource = 5;
-  string status = 6;  // pending, approved, denied, expired
-  string approved_by = 7;
-  google.protobuf.Timestamp approved_at = 8;
-  google.protobuf.Timestamp expires_at = 9;
-  string justification = 10;
+    string approval_request_id = 1;
+    string requested_by = 2;
+    google.protobuf.Timestamp requested_at = 3;
+    string operation = 4;
+    Resource resource = 5;
+    string status = 6;  // pending, approved, denied, expired
+    string approved_by = 7;
+    google.protobuf.Timestamp approved_at = 8;
+    google.protobuf.Timestamp expires_at = 9;
+    string justification = 10;
 }
 
 message ApproveRequestRequest {
-  string approval_request_id = 1;
-  string approver_id = 2;
+    string approval_request_id = 1;
+    string approver_id = 2;
 }
 
 message ApproveRequestResponse {
-  string approval_token = 1;  // Token to use for accessing resource
-  google.protobuf.Timestamp expires_at = 2;  // When approval expires
+    string approval_token = 1;  // Token to use for accessing resource
+    google.protobuf.Timestamp expires_at = 2;  // When approval expires
 }
 
 message DenyRequestRequest {
-  string approval_request_id = 1;
-  string approver_id = 2;
-  string reason = 3;
+    string approval_request_id = 1;
+    string approver_id = 2;
+    string reason = 3;
 }
 
 message DenyRequestResponse {
-  bool success = 1;
+    bool success = 1;
 }
 ```
 
@@ -796,75 +809,187 @@ coral rbac audit --operation=shell --environment=production
 
 ```sql
 -- RBAC policies (can also load from YAML)
-CREATE TABLE IF NOT EXISTS rbac_policies (
-  policy_id TEXT PRIMARY KEY,
-  policy_name TEXT NOT NULL,
-  roles TEXT[],  -- Array of role names
-  users TEXT[],  -- Array of user emails (for user-specific policies)
-  resource_type TEXT NOT NULL,
-  resource_environments TEXT[],
-  operations TEXT[] NOT NULL,
-  effect TEXT NOT NULL CHECK (effect IN ('allow', 'deny', 'require_approval')),
-  conditions JSONB,  -- JSON blob for complex conditions
-  priority INTEGER NOT NULL DEFAULT 100,  -- Lower = higher priority
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+CREATE TABLE IF NOT EXISTS rbac_policies
+(
+    policy_id
+    TEXT
+    PRIMARY
+    KEY,
+    policy_name
+    TEXT
+    NOT
+    NULL,
+    roles
+    TEXT[], -- Array of role names
+    users
+    TEXT[], -- Array of user emails (for user-specific policies)
+    resource_type
+    TEXT
+    NOT
+    NULL,
+    resource_environments
+    TEXT[],
+    operations
+    TEXT[]
+    NOT
+    NULL,
+    effect
+    TEXT
+    NOT
+    NULL
+    CHECK (
+    effect
+    IN
+(
+    'allow',
+    'deny',
+    'require_approval'
+)),
+    conditions JSONB, -- JSON blob for complex conditions
+    priority INTEGER NOT NULL DEFAULT 100, -- Lower = higher priority
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
 
 -- User-to-role assignments
-CREATE TABLE IF NOT EXISTS rbac_user_roles (
-  user_email TEXT NOT NULL,
-  role_name TEXT NOT NULL,
-  granted_by TEXT,
-  granted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  expires_at TIMESTAMP,  -- NULL = no expiration
-  PRIMARY KEY (user_email, role_name)
-);
+CREATE TABLE IF NOT EXISTS rbac_user_roles
+(
+    user_email
+    TEXT
+    NOT
+    NULL,
+    role_name
+    TEXT
+    NOT
+    NULL,
+    granted_by
+    TEXT,
+    granted_at
+    TIMESTAMP
+    NOT
+    NULL
+    DEFAULT
+    CURRENT_TIMESTAMP,
+    expires_at
+    TIMESTAMP, -- NULL = no expiration
+    PRIMARY
+    KEY
+(
+    user_email,
+    role_name
+)
+    );
 
 -- Approval requests
-CREATE TABLE IF NOT EXISTS rbac_approval_requests (
-  approval_id TEXT PRIMARY KEY,
-  requested_by TEXT NOT NULL,
-  requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  operation TEXT NOT NULL,
-  resource_type TEXT NOT NULL,
-  resource_id TEXT NOT NULL,
-  resource_environment TEXT,
-  resource_labels JSONB,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'expired')),
-  approved_by TEXT,
-  approved_at TIMESTAMP,
-  expires_at TIMESTAMP NOT NULL,  -- Request expiration
-  approval_ttl INTERVAL,  -- How long approval is valid
-  justification TEXT,
-  approval_token TEXT,  -- Generated when approved
-  policy_name TEXT  -- Policy that required approval
-);
+CREATE TABLE IF NOT EXISTS rbac_approval_requests
+(
+    approval_id
+    TEXT
+    PRIMARY
+    KEY,
+    requested_by
+    TEXT
+    NOT
+    NULL,
+    requested_at
+    TIMESTAMP
+    NOT
+    NULL
+    DEFAULT
+    CURRENT_TIMESTAMP,
+    operation
+    TEXT
+    NOT
+    NULL,
+    resource_type
+    TEXT
+    NOT
+    NULL,
+    resource_id
+    TEXT
+    NOT
+    NULL,
+    resource_environment
+    TEXT,
+    resource_labels
+    JSONB,
+    status
+    TEXT
+    NOT
+    NULL
+    CHECK (
+    status
+    IN
+(
+    'pending',
+    'approved',
+    'denied',
+    'expired'
+)),
+    approved_by TEXT,
+    approved_at TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL, -- Request expiration
+    approval_ttl INTERVAL, -- How long approval is valid
+    justification TEXT,
+    approval_token TEXT, -- Generated when approved
+    policy_name TEXT -- Policy that required approval
+    );
 
-CREATE INDEX idx_approval_status ON rbac_approval_requests(status);
-CREATE INDEX idx_approval_requester ON rbac_approval_requests(requested_by);
-CREATE INDEX idx_approval_expires ON rbac_approval_requests(expires_at);
+CREATE INDEX idx_approval_status ON rbac_approval_requests (status);
+CREATE INDEX idx_approval_requester ON rbac_approval_requests (requested_by);
+CREATE INDEX idx_approval_expires ON rbac_approval_requests (expires_at);
 
 -- RBAC audit log
-CREATE TABLE IF NOT EXISTS rbac_audit_log (
-  audit_id TEXT PRIMARY KEY,
-  timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_id TEXT NOT NULL,
-  operation TEXT NOT NULL,
-  resource_type TEXT NOT NULL,
-  resource_id TEXT,
-  resource_environment TEXT,
-  decision TEXT NOT NULL CHECK (decision IN ('allow', 'deny', 'require_approval')),
-  policy_name TEXT,  -- Policy that matched
-  approval_id TEXT,  -- If approved access
-  denial_reason TEXT,  -- If denied
-  client_ip TEXT,
-  user_agent TEXT
-);
+CREATE TABLE IF NOT EXISTS rbac_audit_log
+(
+    audit_id
+    TEXT
+    PRIMARY
+    KEY,
+    timestamp
+    TIMESTAMP
+    NOT
+    NULL
+    DEFAULT
+    CURRENT_TIMESTAMP,
+    user_id
+    TEXT
+    NOT
+    NULL,
+    operation
+    TEXT
+    NOT
+    NULL,
+    resource_type
+    TEXT
+    NOT
+    NULL,
+    resource_id
+    TEXT,
+    resource_environment
+    TEXT,
+    decision
+    TEXT
+    NOT
+    NULL
+    CHECK (
+    decision
+    IN
+(
+    'allow',
+    'deny',
+    'require_approval'
+)),
+    policy_name TEXT, -- Policy that matched
+    approval_id TEXT, -- If approved access
+    denial_reason TEXT, -- If denied
+    client_ip TEXT,
+    user_agent TEXT
+    );
 
-CREATE INDEX idx_audit_timestamp ON rbac_audit_log(timestamp);
-CREATE INDEX idx_audit_user ON rbac_audit_log(user_id);
-CREATE INDEX idx_audit_operation ON rbac_audit_log(operation);
-CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
+CREATE INDEX idx_audit_timestamp ON rbac_audit_log (timestamp);
+CREATE INDEX idx_audit_user ON rbac_audit_log (user_id);
+CREATE INDEX idx_audit_operation ON rbac_audit_log (operation);
+CREATE INDEX idx_audit_resource ON rbac_audit_log (resource_type, resource_id);
 ```
 
 ## Testing Strategy
@@ -872,6 +997,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 ### Unit Tests
 
 **Policy Engine:**
+
 - Policy loading from YAML
 - Policy matching algorithm (user, resource, operation)
 - Condition evaluation (time windows, IP whitelist, etc.)
@@ -879,6 +1005,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 - Policy priority/ordering
 
 **Approval Workflow:**
+
 - Request creation and storage
 - State transitions (pending → approved/denied/expired)
 - TTL enforcement
@@ -888,6 +1015,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 ### Integration Tests
 
 **RBAC Enforcement:**
+
 - Shell access with approval workflow
 - Exec command permission checks
 - AI query restrictions
@@ -895,6 +1023,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 - Identity extraction from different auth methods
 
 **Approval Flow:**
+
 - Create request → notify → approve → grant access
 - Create request → deny → access denied
 - Create request → timeout → access denied
@@ -903,6 +1032,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 ### E2E Tests
 
 **Production Scenarios:**
+
 1. Developer attempts production shell → denied
 2. SRE requests production shell → approval required → granted → shell access
 3. Security team accesses production shell → allowed immediately
@@ -911,6 +1041,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 6. Admin modifies Colony config → allowed
 
 **Security Scenarios:**
+
 - Tampered approval token → rejected
 - Expired approval → access denied
 - Approval for different resource → rejected
@@ -923,6 +1054,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 **Risk:** Policy evaluation failure could allow unauthorized access.
 
 **Mitigations:**
+
 - Default policy: DENY if no policy matches
 - Deny access if policy file is missing/corrupt
 - Deny access if RBAC engine crashes
@@ -933,6 +1065,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 **Risk:** Stolen approval tokens grant unauthorized access.
 
 **Mitigations:**
+
 - Short TTL (default: 1 hour)
 - Signed tokens (HMAC with Colony secret)
 - Single-use tokens (invalidated after use)
@@ -944,6 +1077,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 **Risk:** Malicious policy files could grant unauthorized access.
 
 **Mitigations:**
+
 - Policy files loaded only from trusted paths
 - YAML parser with strict schema validation
 - Immutable policies in database (require admin role to modify)
@@ -955,6 +1089,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 **Risk:** Users might escalate privileges through role manipulation.
 
 **Mitigations:**
+
 - Only admins can assign roles
 - Role changes audited
 - Separation of duties (approvers can't approve own requests)
@@ -965,6 +1100,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 **Risk:** Attackers might delete audit logs to hide access.
 
 **Mitigations:**
+
 - Write-only audit log (no delete/update permissions)
 - Replicate audit logs to external SIEM (immutable storage)
 - Audit log integrity checks (detect gaps)
@@ -1012,35 +1148,43 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 ## Relationship to Other RFDs
 
 **RFD 016 (Unified Operations UX):**
+
 - Defines operations (shell, exec, run) that need RBAC
 - This RFD provides RBAC enforcement for all operations
 
 **RFD 017 (Exec Command):**
+
 - Exec operations checked by RBAC engine
 - Restricted commands enforced via policy conditions
 
 **RFD 020 (OIDC Auth):**
+
 - OIDC provides user identity (email, groups)
 - This RFD extracts identity for RBAC evaluation
 
 **RFD 022 (mTLS Auth):**
+
 - mTLS provides certificate-based identity
 - This RFD extracts CN/SANs for RBAC evaluation
 
 **RFD 026 (Shell Command):**
+
 - Shell access is highest-risk operation
 - This RFD enforces approval workflows for production shell
 
 **RFD 038 (Direct Connectivity):**
+
 - RBAC checks happen before granting AllowedIPs access
 - Approval token required to establish direct connection
 
 **RFD 043 (Shell RBAC):**
+
 - RFD 043 is shell-specific implementation
 - This RFD provides general RBAC framework
 - RFD 043 uses approval workflows defined here
 
 **RFD 044 (Agent ID Routing):**
+
 - Agent ID resolution integrated with RBAC checks
 - Resolve agent → check permissions → grant access
 
@@ -1049,6 +1193,7 @@ CREATE INDEX idx_audit_resource ON rbac_audit_log(resource_type, resource_id);
 ### Dynamic Policies from External Sources
 
 Load policies from:
+
 - HashiCorp Vault (dynamic credentials)
 - AWS IAM (integrate with cloud provider)
 - LDAP/Active Directory (enterprise directory)
@@ -1057,6 +1202,7 @@ Load policies from:
 ### Attribute-Based Access Control (ABAC)
 
 Extend beyond roles to attributes:
+
 - User attributes: department, seniority, clearance level
 - Resource attributes: data classification, compliance zone
 - Environmental attributes: time of day, geolocation, device posture
@@ -1064,6 +1210,7 @@ Extend beyond roles to attributes:
 ### Risk-Based Access Control
 
 Adjust requirements based on risk score:
+
 - Low risk (dev environment) → no approval
 - Medium risk (staging) → approval recommended
 - High risk (production) → approval + MFA required
@@ -1072,6 +1219,7 @@ Adjust requirements based on risk score:
 ### Just-In-Time (JIT) Access
 
 Automated approval based on:
+
 - On-call rotation (auto-approve on-call SREs)
 - Incident response (auto-approve during incident)
 - Break-glass (emergency access with post-incident review)
@@ -1088,33 +1236,40 @@ Automated approval based on:
 
 **Core Capability:** ⏳ Not Started
 
-This RFD defines the comprehensive RBAC architecture for Coral. Implementation pending.
+This RFD defines the comprehensive RBAC architecture for Coral. Implementation
+pending.
 
 **Dependencies:**
+
 - ⏳ RFD 020 (OIDC Auth) - for user identity
 - ⏳ RFD 022 (mTLS Auth) - for certificate-based identity
 - ✅ RFD 006 (Colony RPC) - foundation for adding RBAC checks
 
 **Integration Points:**
+
 - All Colony RPCs will check permissions before execution
 - CLI will handle approval workflows transparently
 - Agents will validate approval tokens on access
 
 ## Deferred Features
 
-The following features build on the core RBAC foundation but are not required for initial deployment:
+The following features build on the core RBAC foundation but are not required
+for initial deployment:
 
 **Advanced Policy Sources** (Future)
+
 - HashiCorp Vault integration
 - Open Policy Agent (OPA) support
 - LDAP/Active Directory sync
 
 **Risk-Based Access Control** (Future)
+
 - Dynamic risk scoring
 - Context-aware policy adjustment
 - Anomaly detection integration
 
 **Just-In-Time Access** (Blocked by Incident Management - RFD TBD)
+
 - Auto-approval during incidents
 - On-call rotation integration
 - Break-glass access with review
@@ -1125,7 +1280,8 @@ The following features build on the core RBAC foundation but are not required fo
 
 **Why This RFD:**
 
-Coral needs a unified RBAC system that works across all operations. Rather than implement RBAC piecemeal in each feature RFD, this provides:
+Coral needs a unified RBAC system that works across all operations. Rather than
+implement RBAC piecemeal in each feature RFD, this provides:
 
 - Single source of truth for authorization
 - Consistent policy language
@@ -1135,6 +1291,7 @@ Coral needs a unified RBAC system that works across all operations. Rather than 
 **Relationship to RFD 043:**
 
 RFD 043 focused on shell-specific RBAC. This RFD:
+
 - Generalizes the approach for all operations
 - Defines reusable approval workflows
 - Provides the RBAC engine RFD 043 can use
@@ -1144,6 +1301,7 @@ RFD 043 can be implemented as a consumer of this RFD's RBAC engine.
 **Production Readiness:**
 
 RBAC is critical for production deployments. This RFD provides:
+
 - Compliance readiness (SOC2, ISO 27001, HIPAA)
 - Least-privilege access
 - Change control for production
