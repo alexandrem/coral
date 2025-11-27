@@ -1,7 +1,7 @@
 ---
 rfd: "016"
 title: "Unified Operations UX Architecture"
-state: "draft"
+state: "completed"
 breaking_changes: true
 testing_required: true
 database_changes: false
@@ -14,13 +14,19 @@ areas: [ "cli", "agent", "colony", "ux", "deployment" ]
 
 # RFD 016 - Unified Operations UX Architecture
 
-**Status:** 🚧 Draft
+**Status:** ✅ Completed
 
 ## Summary
 
 Establish a comprehensive UX architecture for Coral that provides unified
 operations across all deployment contexts (local dev, Docker, Kubernetes) with
-runtime-adaptive behavior. This RFD defines the complete command structure (
+runtime-adaptive behavior.
+
+> [!NOTE]
+> **Meta RFD**: This RFD serves as a high-level architecture document that orchestrates
+> multiple component RFDs. See [Implementation Status](#implementation-status) for details.
+
+This RFD defines the complete command structure (
 `run`, `connect`, `shell`, `exec`), agent runtime contexts, Colony connectivity
 modes, and mesh-enabled remote operations that together form Coral's "unified
 operations mesh with AI co-pilot."
@@ -164,7 +170,7 @@ See: https://coral.io/docs/platform-support
 | `coral exec <cmd>`    | ✅ Direct to local agent | ✅ Via Colony routing  |
 | `coral shell`         | ✅ Direct to local agent | ✅ Via Colony routing  |
 | `coral connect <uri>` | ✅ Direct to local agent | ✅ Via Colony routing  |
-| `coral ask "<q>"`     | ❌ Needs Colony for AI   | ✅ Always via Colony   |
+
 | `coral agent list`    | ❌ Needs Colony registry | ✅ Always via Colony   |
 
 **CLI auto-discovery** (tries in order):
@@ -468,7 +474,6 @@ in **RFD 026**.
 
 Colony **adds**:
 
-- AI queries (`coral ask`)
 - Remote operations (mesh routing)
 - Cross-service correlation
 - RBAC and approvals
@@ -578,38 +583,6 @@ See: <documentation link>
 | `130`     | User interrupt    | Ctrl+C (SIGINT)                                    |
 
 #### Error Templates
-
-**Colony unavailable (commands requiring AI):**
-
-```bash
-$ coral ask "why is checkout slow?"
-
-Error: Colony connection required for AI queries
-
-No Colony found via auto-discovery or config.
-
-Troubleshooting:
-  1. Start local Colony:
-     coral colony start
-
-  2. Connect to remote Colony:
-     coral proxy start https://colony.company.internal
-
-  3. Check Colony status:
-     coral colony status
-
-  4. Verify Colony URL in config:
-     cat ~/.coral/config.yaml
-
-Current discovery attempts:
-  ✗ Unix socket: /var/run/coral-colony.sock (not found)
-  ✗ HTTP: localhost:8080 (connection refused)
-  ✗ Docker: colony:8080 (not found)
-  ✗ Config: ~/.coral/config.yaml (no colony URL)
-
-See: https://coral.io/docs/colony-setup
-Exit code: 3
-```
 
 **Unsupported operation for runtime context:**
 
@@ -1116,16 +1089,6 @@ context.
 
 **Status**: ✅ Compatible
 
-### RFD 014 - Colony LLM Integration
-
-**Changes:**
-
-- `coral ask` **requires Colony** (document clearly)
-- CLI shows helpful error if Colony unavailable
-- `coral proxy` enables remote AI queries
-
-**Status**: ✅ Compatible, clarifications needed
-
 ### RFD 015 - LLM Context Schema
 
 **No changes required.** Context schema used by Colony regardless of how data
@@ -1166,7 +1129,6 @@ arrives.
 
 **Colony-enabled operations:**
 
-- `coral ask "question"` → AI query
 - `coral shell --service=api` → remote shell
 - `coral exec --env=production --all "df -h"` → fleet-wide
 
@@ -1695,3 +1657,17 @@ This is the **foundational UX RFD** that ties together:
 - Production-safe RBAC
 
 **This enables the "unified operations mesh with AI co-pilot" vision.**
+
+## Implementation Status
+
+This Meta RFD is implemented through the following component RFDs:
+
+- **`coral exec`**: ✅ Implemented via [RFD 056](056-container-exec-nsenter.md) (Container Exec).
+- **`coral shell`**: ✅ Implemented via [RFD 026](026-shell-command-implementation.md) (Shell Command).
+- **`coral connect`**: ✅ Implemented via [RFD 011](011-multi-service-agents.md) (Multi-service Agents).
+- **`coral run`**: ❌ Not implemented (deferred).
+- **Agent ID Resolution**: ✅ Implemented via [RFD 044](044-agent-id-standardization-and-routing.md).
+- **RBAC & Approvals**: ❌ Not implemented (defined in [RFD 058](058-rbac-enforcement-system.md)).
+- **Direct Connectivity**: ✅ Implemented via [RFD 038](038-cli-agent-direct-connectivity.md).
+- **Runtime Context Detection**: ✅ Implemented.
+- **Colony Connectivity**: ✅ Implemented.
