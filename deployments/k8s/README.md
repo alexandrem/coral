@@ -90,6 +90,19 @@ spec:
                 - SYS_RESOURCE     # For eBPF memlock
 ```
 
+### Port Configuration
+
+The Coral agent exposes the following ports which should be configured in your Pod/DaemonSet specs:
+
+| Port     | Protocol | Purpose                            | Access              |
+|----------|----------|------------------------------------|---------------------|
+| **4317** | TCP      | OTLP/gRPC trace ingestion          | Applications, Beyla |
+| **4318** | TCP      | OTLP/HTTP trace ingestion          | Applications, Beyla |
+| **4319** | TCP      | Internal Beyla trace ingestion     | Localhost only      |
+| **9001** | TCP      | Agent API for colony communication | Mesh IP + localhost |
+
+**Note**: Port 9001 is NOT exposed as a Kubernetes Service. The colony accesses the agent directly via the WireGuard mesh IP.
+
 ---
 
 ## Capabilities Reference
