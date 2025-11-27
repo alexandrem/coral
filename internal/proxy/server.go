@@ -1,3 +1,4 @@
+// Package proxy implements the local proxy server for agent connections.
 package proxy
 
 import (

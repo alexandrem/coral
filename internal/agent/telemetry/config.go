@@ -1,5 +1,12 @@
 package telemetry
 
+import "context"
+
+// SpanHandler is a callback function for custom span processing.
+// When set, the OTLP receiver calls this instead of storing to default storage.
+// This allows Beyla to intercept spans and store them in beyla_traces_local.
+type SpanHandler func(ctx context.Context, span Span) error
+
 // Config contains configuration for the OTLP receiver and telemetry processing.
 type Config struct {
 	// Disabled indicates if telemetry collection is disabled.
@@ -20,9 +27,19 @@ type Config struct {
 	// AgentID is the identifier of this agent.
 	AgentID string
 
+	// DatabasePath is the file path for DuckDB storage (RFD 039).
+	// If empty, uses in-memory storage (:memory:).
+	// Example: ~/.coral/agent/telemetry.duckdb
+	DatabasePath string
+
 	// StorageRetentionHours defines how long to keep spans in local storage.
 	// Default: 1 hour (pull-based architecture - colony queries recent data).
 	StorageRetentionHours int
+
+	// SpanHandler is an optional callback for custom span processing.
+	// When set, spans are passed to this handler instead of default storage.
+	// Used by Beyla to route traces to beyla_traces_local table.
+	SpanHandler SpanHandler
 }
 
 // FilterConfig defines static filtering rules (RFD 025).

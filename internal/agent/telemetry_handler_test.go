@@ -24,7 +24,7 @@ func TestQueryTelemetry_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	storage, err := telemetry.NewStorage(db, logger)
 	if err != nil {
@@ -169,7 +169,7 @@ func TestQueryTelemetry_ServiceFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	storage, err := telemetry.NewStorage(db, logger)
 	if err != nil {
@@ -258,7 +258,7 @@ func TestQueryTelemetry_TimeRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	storage, err := telemetry.NewStorage(db, logger)
 	if err != nil {
@@ -341,7 +341,7 @@ func TestQueryTelemetry_EmptyResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // TODO: errcheck
 
 	storage, err := telemetry.NewStorage(db, logger)
 	if err != nil {

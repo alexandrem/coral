@@ -17,15 +17,17 @@ type ServiceHandler struct {
 	runtimeService    *RuntimeService
 	telemetryReceiver *TelemetryReceiver
 	shellHandler      *ShellHandler
+	containerHandler  *ContainerHandler
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler) *ServiceHandler {
+func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler, containerHandler *ContainerHandler) *ServiceHandler {
 	return &ServiceHandler{
 		agent:             agent,
 		runtimeService:    runtimeService,
 		telemetryReceiver: telemetryReceiver,
 		shellHandler:      shellHandler,
+		containerHandler:  containerHandler,
 	}
 }
 
@@ -50,7 +52,7 @@ func (h *ServiceHandler) ConnectService(
 ) (*connect.Response[agentv1.ConnectServiceResponse], error) {
 	// Convert request to ServiceInfo.
 	serviceInfo := &meshv1.ServiceInfo{
-		ComponentName:  req.Msg.ComponentName,
+		Name:           req.Msg.Name,
 		Port:           req.Msg.Port,
 		HealthEndpoint: req.Msg.HealthEndpoint,
 		ServiceType:    req.Msg.ServiceType,
@@ -68,7 +70,7 @@ func (h *ServiceHandler) ConnectService(
 
 	return connect.NewResponse(&agentv1.ConnectServiceResponse{
 		Success:     true,
-		ServiceName: req.Msg.ComponentName,
+		ServiceName: req.Msg.Name,
 	}), nil
 }
 
@@ -112,7 +114,7 @@ func (h *ServiceHandler) ListServices(
 		serviceInfo := monitor.service
 
 		serviceStatuses = append(serviceStatuses, &agentv1.ServiceStatus{
-			ComponentName:  serviceInfo.ComponentName,
+			Name:           serviceInfo.Name,
 			Port:           serviceInfo.Port,
 			HealthEndpoint: serviceInfo.HealthEndpoint,
 			ServiceType:    serviceInfo.ServiceType,
@@ -293,6 +295,40 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 	// Calculate total metrics.
 	response.TotalMetrics = int32(len(response.HttpMetrics) + len(response.GrpcMetrics) + len(response.SqlMetrics))
 
+	// Query traces if requested (RFD 036).
+	if req.Msg.IncludeTraces {
+		// Apply default max_traces if not specified.
+		maxTraces := req.Msg.MaxTraces
+		if maxTraces == 0 {
+			maxTraces = 100 // Default limit.
+		} else if maxTraces > 1000 {
+			maxTraces = 1000 // Max limit.
+		}
+
+		traceSpans, err := h.agent.beylaManager.QueryTraces(ctx, startTime, endTime, req.Msg.ServiceNames, req.Msg.TraceId, maxTraces)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+
+		// Convert internal protobuf format (mesh.v1) to API format (agent.v1).
+		for _, span := range traceSpans {
+			response.TraceSpans = append(response.TraceSpans, &agentv1.BeylaTraceSpan{
+				TraceId:      span.TraceId,
+				SpanId:       span.SpanId,
+				ParentSpanId: span.ParentSpanId,
+				ServiceName:  span.ServiceName,
+				SpanName:     span.SpanName,
+				SpanKind:     span.SpanKind,
+				StartTime:    span.StartTime.AsTime().UnixMilli(),
+				DurationUs:   span.Duration.AsDuration().Microseconds(),
+				StatusCode:   span.StatusCode,
+				Attributes:   span.Attributes,
+			})
+		}
+
+		response.TotalTraces = int32(len(response.TraceSpans))
+	}
+
 	return connect.NewResponse(response), nil
 }
 
@@ -302,6 +338,22 @@ func (h *ServiceHandler) Shell(
 	stream *connect.BidiStream[agentv1.ShellRequest, agentv1.ShellResponse],
 ) error {
 	return h.shellHandler.Shell(ctx, stream)
+}
+
+// ShellExec implements the ShellExec RPC (RFD 045).
+func (h *ServiceHandler) ShellExec(
+	ctx context.Context,
+	req *connect.Request[agentv1.ShellExecRequest],
+) (*connect.Response[agentv1.ShellExecResponse], error) {
+	return h.shellHandler.ShellExec(ctx, req)
+}
+
+// ContainerExec implements the ContainerExec RPC (RFD 056).
+func (h *ServiceHandler) ContainerExec(
+	ctx context.Context,
+	req *connect.Request[agentv1.ContainerExecRequest],
+) (*connect.Response[agentv1.ContainerExecResponse], error) {
+	return h.containerHandler.ContainerExec(ctx, req)
 }
 
 // ResizeShellTerminal implements the ResizeShellTerminal RPC (RFD 026).

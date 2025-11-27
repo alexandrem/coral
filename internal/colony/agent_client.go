@@ -1,3 +1,4 @@
+// Package colony implements the central coordinator for distributed agents.
 package colony
 
 import (

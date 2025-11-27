@@ -52,6 +52,12 @@ const (
 	ColonyServiceStreamToolProcedure = "/coral.colony.v1.ColonyService/StreamTool"
 	// ColonyServiceListToolsProcedure is the fully-qualified name of the ColonyService's ListTools RPC.
 	ColonyServiceListToolsProcedure = "/coral.colony.v1.ColonyService/ListTools"
+	// ColonyServiceRequestCertificateProcedure is the fully-qualified name of the ColonyService's
+	// RequestCertificate RPC.
+	ColonyServiceRequestCertificateProcedure = "/coral.colony.v1.ColonyService/RequestCertificate"
+	// ColonyServiceRevokeCertificateProcedure is the fully-qualified name of the ColonyService's
+	// RevokeCertificate RPC.
+	ColonyServiceRevokeCertificateProcedure = "/coral.colony.v1.ColonyService/RevokeCertificate"
 )
 
 // ColonyServiceClient is a client for the coral.colony.v1.ColonyService service.
@@ -70,6 +76,10 @@ type ColonyServiceClient interface {
 	StreamTool(context.Context) *connect.BidiStreamForClient[v1.StreamToolRequest, v1.StreamToolResponse]
 	// List available MCP tools.
 	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
+	// Request a client certificate using a bootstrap token.
+	RequestCertificate(context.Context, *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error)
+	// Revoke an issued certificate.
+	RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error)
 }
 
 // NewColonyServiceClient constructs a client for the coral.colony.v1.ColonyService service. By
@@ -125,18 +135,32 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("ListTools")),
 			connect.WithClientOptions(opts...),
 		),
+		requestCertificate: connect.NewClient[v1.RequestCertificateRequest, v1.RequestCertificateResponse](
+			httpClient,
+			baseURL+ColonyServiceRequestCertificateProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("RequestCertificate")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeCertificate: connect.NewClient[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse](
+			httpClient,
+			baseURL+ColonyServiceRevokeCertificateProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("RevokeCertificate")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // colonyServiceClient implements ColonyServiceClient.
 type colonyServiceClient struct {
-	getStatus      *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
-	listAgents     *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	getTopology    *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
-	queryTelemetry *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
-	callTool       *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
-	streamTool     *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
-	listTools      *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
+	getStatus          *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
+	listAgents         *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	getTopology        *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
+	queryTelemetry     *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
+	callTool           *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
+	streamTool         *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
+	listTools          *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
+	requestCertificate *connect.Client[v1.RequestCertificateRequest, v1.RequestCertificateResponse]
+	revokeCertificate  *connect.Client[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -174,6 +198,16 @@ func (c *colonyServiceClient) ListTools(ctx context.Context, req *connect.Reques
 	return c.listTools.CallUnary(ctx, req)
 }
 
+// RequestCertificate calls coral.colony.v1.ColonyService.RequestCertificate.
+func (c *colonyServiceClient) RequestCertificate(ctx context.Context, req *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error) {
+	return c.requestCertificate.CallUnary(ctx, req)
+}
+
+// RevokeCertificate calls coral.colony.v1.ColonyService.RevokeCertificate.
+func (c *colonyServiceClient) RevokeCertificate(ctx context.Context, req *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error) {
+	return c.revokeCertificate.CallUnary(ctx, req)
+}
+
 // ColonyServiceHandler is an implementation of the coral.colony.v1.ColonyService service.
 type ColonyServiceHandler interface {
 	// Get colony status and health.
@@ -190,6 +224,10 @@ type ColonyServiceHandler interface {
 	StreamTool(context.Context, *connect.BidiStream[v1.StreamToolRequest, v1.StreamToolResponse]) error
 	// List available MCP tools.
 	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
+	// Request a client certificate using a bootstrap token.
+	RequestCertificate(context.Context, *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error)
+	// Revoke an issued certificate.
+	RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error)
 }
 
 // NewColonyServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -241,6 +279,18 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("ListTools")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceRequestCertificateHandler := connect.NewUnaryHandler(
+		ColonyServiceRequestCertificateProcedure,
+		svc.RequestCertificate,
+		connect.WithSchema(colonyServiceMethods.ByName("RequestCertificate")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceRevokeCertificateHandler := connect.NewUnaryHandler(
+		ColonyServiceRevokeCertificateProcedure,
+		svc.RevokeCertificate,
+		connect.WithSchema(colonyServiceMethods.ByName("RevokeCertificate")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.ColonyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ColonyServiceGetStatusProcedure:
@@ -257,6 +307,10 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceStreamToolHandler.ServeHTTP(w, r)
 		case ColonyServiceListToolsProcedure:
 			colonyServiceListToolsHandler.ServeHTTP(w, r)
+		case ColonyServiceRequestCertificateProcedure:
+			colonyServiceRequestCertificateHandler.ServeHTTP(w, r)
+		case ColonyServiceRevokeCertificateProcedure:
+			colonyServiceRevokeCertificateHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -292,4 +346,12 @@ func (UnimplementedColonyServiceHandler) StreamTool(context.Context, *connect.Bi
 
 func (UnimplementedColonyServiceHandler) ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ListTools is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) RequestCertificate(context.Context, *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.RequestCertificate is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.RevokeCertificate is not implemented"))
 }

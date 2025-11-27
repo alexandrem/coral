@@ -1,20 +1,22 @@
 ---
 rfd: "020"
 title: "mTLS Authentication for Agent Registration"
-state: "draft"
+state: "abandoned"
 breaking_changes: false
 testing_required: true
 database_changes: true
 api_changes: true
 dependencies: [ "019" ]
-related_rfds: [ "019" ]
-database_migrations: [ "002-agent-certificates" ]
+related_rfds: [ "022" ]
+database_migrations: []
 areas: [ "security", "colony", "agent" ]
 ---
 
 # RFD 020 - mTLS Authentication for Agent Registration
 
-**Status:** 🚧 Draft
+**Status:** ❌ Abandoned
+
+> **DEPRECATION NOTICE**: This RFD has been abandoned in favor of RFD 022.
 
 ## Summary
 

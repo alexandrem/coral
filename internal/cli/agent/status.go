@@ -87,12 +87,19 @@ The agent must be running and accessible.`,
 
 			runtimeCtx := resp.Msg
 
-			// Output in requested format
-			if jsonOutput {
-				return outputAgentStatusJSON(runtimeCtx)
+			// Query connected services (ListServices RPC).
+			var services []*agentv1.ServiceStatus
+			servicesResp, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+			if err == nil && servicesResp != nil {
+				services = servicesResp.Msg.Services
 			}
 
-			return outputAgentStatusTable(runtimeCtx)
+			// Output in requested format
+			if jsonOutput {
+				return outputAgentStatusJSON(runtimeCtx, services)
+			}
+
+			return outputAgentStatusTable(runtimeCtx, services)
 		},
 	}
 
@@ -105,8 +112,16 @@ The agent must be running and accessible.`,
 }
 
 // outputAgentStatusJSON outputs agent status in JSON format.
-func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse) error {
-	data, err := json.MarshalIndent(ctx, "", "  ")
+func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus) error {
+	output := map[string]interface{}{
+		"runtime_context": ctx,
+	}
+
+	if len(services) > 0 {
+		output["services"] = services
+	}
+
+	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
@@ -116,11 +131,17 @@ func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse) error {
 }
 
 // outputAgentStatusTable outputs agent status in human-readable format.
-func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
+func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus) error {
 	fmt.Println()
 	fmt.Println("Agent Status")
 	fmt.Println("============")
 	fmt.Println()
+
+	fmt.Printf("Agent ID:     %s\n", ctx.AgentId)
+	fmt.Println()
+
+	// Connected Services section.
+	printServices(services)
 
 	// Platform section
 	fmt.Println("Platform:")
@@ -154,11 +175,56 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
 
 	// Capabilities section
 	fmt.Println("Capabilities:")
-	fmt.Printf("  %s coral connect   %s\n", formatCapability(ctx.Capabilities.CanConnect), "Monitor and observe")
-	fmt.Printf("  %s coral exec      %s\n", formatCapability(ctx.Capabilities.CanExec), "Execute in containers")
-	fmt.Printf("  %s coral shell     %s\n", formatCapability(ctx.Capabilities.CanShell), "Interactive shell")
-	fmt.Printf("  %s coral run       %s\n", formatCapability(ctx.Capabilities.CanRun), "Launch new containers")
+	fmt.Printf("  %s coral connect       %s\n", formatCapability(ctx.Capabilities.CanConnect), "Monitor and observe")
+
+	// RFD 057: Enhanced exec capability display
+	if ctx.Capabilities.ExecCapabilities != nil {
+		execCaps := ctx.Capabilities.ExecCapabilities
+		execIcon := formatCapability(ctx.Capabilities.CanExec)
+		execDesc := "Execute in containers"
+
+		switch execCaps.Mode {
+		case agentv1.ExecMode_EXEC_MODE_NSENTER:
+			execDesc = "Execute in containers (nsenter mode - full access)"
+		case agentv1.ExecMode_EXEC_MODE_CRI:
+			execDesc = "Execute in containers (CRI mode - limited)"
+			execIcon = "⚠️"
+		case agentv1.ExecMode_EXEC_MODE_NONE:
+			execDesc = "Execute in containers (not available)"
+			execIcon = "❌"
+		}
+
+		fmt.Printf("  %s coral exec          %s\n", execIcon, execDesc)
+		if execCaps.Mode != agentv1.ExecMode_EXEC_MODE_UNKNOWN {
+			fmt.Printf("     Mode:               %s\n", formatExecMode(execCaps.Mode))
+			if execCaps.Mode == agentv1.ExecMode_EXEC_MODE_NSENTER || !execCaps.MountNamespaceAccess {
+				fmt.Printf("     Mount Namespace:    %s", formatCapability(execCaps.MountNamespaceAccess))
+				if !execCaps.MountNamespaceAccess {
+					fmt.Printf(" (requires CAP_SYS_ADMIN + CAP_SYS_PTRACE)")
+				}
+				fmt.Println()
+			}
+		}
+	} else {
+		fmt.Printf("  %s coral exec          %s\n", formatCapability(ctx.Capabilities.CanExec), "Execute in containers")
+	}
+
+	fmt.Printf("  %s coral shell         %s\n", formatCapability(ctx.Capabilities.CanShell), "Interactive shell")
+	fmt.Printf("  %s coral run           %s\n", formatCapability(ctx.Capabilities.CanRun), "Launch new containers")
 	fmt.Println()
+
+	// RFD 057: Linux Capabilities section
+	if ctx.Capabilities.LinuxCapabilities != nil {
+		linuxCaps := ctx.Capabilities.LinuxCapabilities
+		fmt.Println("Linux Capabilities:")
+		fmt.Printf("  %s CAP_NET_ADMIN       WireGuard mesh networking\n", formatCapability(linuxCaps.CapNetAdmin))
+		fmt.Printf("  %s CAP_SYS_ADMIN       Container namespace execution (coral exec)\n", formatCapability(linuxCaps.CapSysAdmin))
+		fmt.Printf("  %s CAP_SYS_PTRACE      Process inspection (/proc)\n", formatCapability(linuxCaps.CapSysPtrace))
+		fmt.Printf("  %s CAP_SYS_RESOURCE    eBPF memory locking\n", formatCapability(linuxCaps.CapSysResource))
+		fmt.Printf("  %s CAP_BPF             Modern eBPF (kernel 5.8+)\n", formatCapability(linuxCaps.CapBpf))
+		fmt.Printf("  %s CAP_PERFMON         Performance monitoring\n", formatCapability(linuxCaps.CapPerfmon))
+		fmt.Println()
+	}
 
 	// eBPF capabilities section
 	if ctx.EbpfCapabilities != nil {
@@ -215,6 +281,54 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse) error {
 	return nil
 }
 
+func printServices(services []*agentv1.ServiceStatus) {
+	if len(services) > 0 {
+		fmt.Println("Connected Services:")
+		for _, svc := range services {
+			statusIcon := ""
+			switch svc.Status {
+			case "healthy":
+				statusIcon = "✓"
+			case "unhealthy":
+				statusIcon = "✗"
+			case "unknown":
+				statusIcon = "⚠"
+			default:
+				statusIcon = "?"
+			}
+
+			fmt.Printf("  %s %-20s port %d", statusIcon, svc.Name, svc.Port)
+			if svc.HealthEndpoint != "" {
+				fmt.Printf(" (health: %s)", svc.HealthEndpoint)
+			}
+			if svc.ServiceType != "" {
+				fmt.Printf(" [%s]", svc.ServiceType)
+			}
+			fmt.Println()
+
+			// Show error if unhealthy.
+			if svc.Status == "unhealthy" && svc.Error != "" {
+				fmt.Printf("    Error: %s\n", svc.Error)
+			}
+
+			// Show last check time.
+			if svc.LastCheck != nil {
+				elapsed := time.Since(svc.LastCheck.AsTime())
+				var timingStr string
+				if elapsed < time.Minute {
+					timingStr = fmt.Sprintf("%ds ago", int(elapsed.Seconds()))
+				} else if elapsed < time.Hour {
+					timingStr = fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
+				} else {
+					timingStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
+				}
+				fmt.Printf("    Last check: %s\n", timingStr)
+			}
+		}
+		fmt.Println()
+	}
+}
+
 // formatRuntimeType formats runtime type for display.
 func formatRuntimeType(rt agentv1.RuntimeContext) string {
 	switch rt {
@@ -251,6 +365,20 @@ func formatCapability(supported bool) string {
 		return "✅"
 	}
 	return "❌"
+}
+
+// formatExecMode formats exec mode for display (RFD 057).
+func formatExecMode(mode agentv1.ExecMode) string {
+	switch mode {
+	case agentv1.ExecMode_EXEC_MODE_NSENTER:
+		return "nsenter (full container filesystem access)"
+	case agentv1.ExecMode_EXEC_MODE_CRI:
+		return "CRI (limited - no mount namespace access)"
+	case agentv1.ExecMode_EXEC_MODE_NONE:
+		return "none (exec not available)"
+	default:
+		return "unknown"
+	}
 }
 
 // formatVisibilityScope formats visibility scope for display.

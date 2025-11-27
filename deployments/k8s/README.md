@@ -3,6 +3,141 @@
 This directory contains Kubernetes manifests for deploying Coral agents in
 various configurations.
 
+
+## Deployment Requirements
+
+### Docker-compose Sidecar
+
+```yaml
+services:
+  app:
+    image: nginx:alpine
+
+  coral-agent:
+    image: coral-agent:latest
+    pid: "service:app"           # Share PID namespace with app
+    network_mode: "service:app"  # Share network namespace
+    cap_add:
+      - NET_ADMIN                # For WireGuard mesh
+      - SYS_ADMIN                # For nsenter (coral exec)
+      - SYS_PTRACE               # For /proc inspection (coral exec)
+      - SYS_RESOURCE             # For eBPF memlock
+```
+
+### Kubernetes Sidecar (Native - K8s 1.28+)
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  shareProcessNamespace: true
+  initContainers:
+    - name: coral-agent
+      image: coral-agent:latest
+      restartPolicy: Always      # Makes initContainer long-running
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN          # For WireGuard mesh
+            - SYS_ADMIN          # For nsenter (coral exec)
+            - SYS_PTRACE         # For /proc inspection (coral exec)
+            - SYS_RESOURCE       # For eBPF memlock
+  containers:
+    - name: app
+      image: nginx:alpine
+```
+
+### Kubernetes Sidecar (Regular)
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  shareProcessNamespace: true
+  containers:
+    - name: app
+      image: nginx:alpine
+    - name: coral-agent
+      image: coral-agent:latest
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN          # For WireGuard mesh
+            - SYS_ADMIN          # For nsenter (coral exec)
+            - SYS_PTRACE         # For /proc inspection (coral exec)
+            - SYS_RESOURCE       # For eBPF memlock
+```
+
+### Kubernetes DaemonSet (Node Agent)
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+spec:
+  template:
+    spec:
+      hostPID: true              # See all processes on node
+      hostNetwork: true
+      containers:
+        - name: agent
+          image: coral-agent:latest
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN        # For WireGuard mesh
+                - SYS_ADMIN        # For nsenter (coral exec)
+                - SYS_PTRACE       # For /proc inspection (coral exec)
+                - SYS_RESOURCE     # For eBPF memlock
+```
+
+---
+
+## Capabilities Reference
+
+Understanding which capabilities enable which features is critical for security and functionality.
+
+### Capability to Feature Mapping
+
+| Capability                | Feature Enabled                                           | Required For                                                 | Alternative                                         |
+|---------------------------|-----------------------------------------------------------|--------------------------------------------------------------|-----------------------------------------------------|
+| **NET_ADMIN**             | WireGuard mesh networking                                 | Mesh connectivity between agents and colony                  | None - required for WireGuard                       |
+| **SYS_ADMIN**             | Container namespace execution (`coral exec` nsenter mode) | Accessing container-mounted configs, volumes, and filesystem | CRI-based exec (limited, no mount namespace access) |
+| **SYS_PTRACE**            | Process inspection via /proc                              | Container PID detection for `coral exec`                     | None - required for nsenter PID detection           |
+| **SYS_RESOURCE**          | eBPF memory locking                                       | eBPF collector initialization                                | Use non-eBPF deployment mode                        |
+| **BPF** (kernel 5.8+)     | Modern eBPF without SYS_ADMIN                             | eBPF collectors on modern kernels                            | Use SYS_ADMIN on older kernels                      |
+| **PERFMON** (kernel 5.8+) | Performance monitoring eBPF                               | eBPF performance collectors                                  | Use SYS_ADMIN on older kernels                      |
+
+### Feature to Capability Mapping
+
+| Feature                      | Required Capabilities        | Deployment Modes Supporting This      |
+|------------------------------|------------------------------|---------------------------------------|
+| **WireGuard mesh**           | NET_ADMIN                    | All modes                             |
+| **`coral connect`**          | (CRI socket access)          | All modes                             |
+| **`coral shell`**            | (none - basic exec)          | All modes                             |
+| **`coral exec` (nsenter)**   | SYS_ADMIN + SYS_PTRACE       | eBPF Full, eBPF Privileged, DaemonSet |
+| **`coral exec` (CRI)**       | (CRI socket access)          | Restricted, eBPF Minimal              |
+| **eBPF collectors (modern)** | BPF + PERFMON + SYS_RESOURCE | eBPF Minimal                          |
+| **eBPF collectors (legacy)** | SYS_ADMIN + SYS_RESOURCE     | eBPF Full, eBPF Privileged, DaemonSet |
+
+### Deployment Mode Capability Summary
+
+| Mode                | Capabilities                                             | `coral exec` nsenter | eBPF Support       | PodSecurity Level |
+|---------------------|----------------------------------------------------------|----------------------|--------------------|-------------------|
+| **Restricted**      | None                                                     | ❌ (CRI only)         | ❌                  | `restricted`      |
+| **eBPF Minimal**    | BPF, PERFMON, NET_ADMIN, SYS_RESOURCE                    | ❌ (CRI only)         | ✅ (modern kernels) | `baseline`        |
+| **eBPF Full**       | SYS_ADMIN, SYS_PTRACE, NET_ADMIN, SYS_RESOURCE           | ✅                    | ✅ (all kernels)    | `baseline`        |
+| **eBPF Privileged** | privileged: true                                         | ✅                    | ✅ (maximum)        | `privileged`      |
+| **DaemonSet**       | SYS_ADMIN, SYS_PTRACE, NET_ADMIN, SYS_RESOURCE + hostPID | ✅                    | ✅                  | `privileged`      |
+
+**Key Insights**:
+
+- **For full `coral exec` functionality**: Use eBPF Full, eBPF Privileged, or DaemonSet modes
+- **For eBPF without SYS_ADMIN**: Use eBPF Minimal mode (requires kernel 5.8+)
+- **For maximum security**: Use Restricted mode (no nsenter, no eBPF)
+- **For production observability**: Use DaemonSet mode (best visibility and performance)
+
+---
+
 ## Deployment Modes
 
 ### DaemonSet (Node-Level)
@@ -42,20 +177,30 @@ Most secure deployment with no eBPF support.
 **Features**:
 
 - ✅ `coral connect` - Monitor containers via CRI
-- ✅ `coral shell` - Interactive debugging
-- ✅ `coral exec` - Execute commands
+- ✅ `coral shell` - Interactive debugging (agent host only)
+- ⚠️ `coral exec` - **LIMITED**: CRI-based exec only (not nsenter)
+  - ❌ Cannot access container mount namespace
+  - ❌ Cannot read container-mounted configs/volumes
+  - ✅ Can execute commands via CRI runtime
 - ❌ eBPF collectors - Not supported
 - ✅ PodSecurity: `restricted` compatible
 
 **Requirements**:
 
 - None (works on any Kubernetes cluster)
+- CRI runtime socket access for limited exec functionality
+
+**Limitations**:
+
+- **No `coral exec` nsenter mode**: Requires CAP_SYS_ADMIN + CAP_SYS_PTRACE (not available in restricted mode)
+- For full `coral exec` functionality (container filesystem access), use eBPF Full or Privileged modes
 
 **Use Cases**:
 
 - Production workloads with strict security policies
 - Multi-tenant environments
 - Compliance-heavy industries (finance, healthcare, government)
+- When CRI-based exec is sufficient (no need for container filesystem access)
 
 ---
 
@@ -350,7 +495,7 @@ rejected"
 ## References
 
 - [RFD 016: Unified Operations UX](../../RFDs/016-unified-operations-ux.md)
-- [RFD 017: Exec Command Implementation](../../RFDs/017-exec-command-implementation.md)
+- [RFD 056: Container Exec via nsenter](../../RFDs/056-container-exec-nsenter.md) (supersedes RFD 017)
 - [RFD 026: Shell Command Implementation](../../RFDs/026-shell-command-implementation.md)
 - [RFD 013: eBPF-Based Introspection](../../RFDs/013-ebpf-introspection.md)
 - [RFD 012: Kubernetes Node Agent](../../RFDs/012-kubernetes-node-agent.md)

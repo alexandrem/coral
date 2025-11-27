@@ -1,3 +1,4 @@
+// Package ebpf provides eBPF-based system observability capabilities.
 package ebpf
 
 import (

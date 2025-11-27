@@ -1,3 +1,4 @@
+// Package registry provides service registration and discovery for the colony.
 package registry
 
 import (
@@ -27,7 +28,7 @@ const (
 // Entry represents a registered agent in the colony.
 type Entry struct {
 	AgentID         string
-	ComponentName   string // Deprecated: Use Services field for multi-service agents
+	Name            string // Deprecated: Use Services field for multi-service agents
 	MeshIPv4        string
 	MeshIPv6        string
 	RegisteredAt    time.Time
@@ -55,7 +56,7 @@ func New() *Registry {
 // Multi-service agents should provide services instead.
 // Agents can register without services and add them later.
 func (r *Registry) Register(
-	agentID, componentName, meshIPv4, meshIPv6 string,
+	agentID, name, meshIPv4, meshIPv6 string,
 	services []*meshv1.ServiceInfo,
 	runtimeContext *agentv1.RuntimeContextResponse,
 	protocolVersion string,
@@ -72,7 +73,7 @@ func (r *Registry) Register(
 	// Check if agent already exists.
 	if existing, ok := r.entries[agentID]; ok {
 		// Update existing entry.
-		existing.ComponentName = componentName
+		existing.Name = name
 		existing.MeshIPv4 = meshIPv4
 		existing.MeshIPv6 = meshIPv6
 		existing.LastSeen = now
@@ -85,7 +86,7 @@ func (r *Registry) Register(
 	// Create new entry.
 	entry := &Entry{
 		AgentID:         agentID,
-		ComponentName:   componentName,
+		Name:            name,
 		MeshIPv4:        meshIPv4,
 		MeshIPv6:        meshIPv6,
 		RegisteredAt:    now,

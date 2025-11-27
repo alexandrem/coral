@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -19,7 +20,7 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO beyla_http_metrics (
@@ -31,7 +32,7 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }() // TODO: errcheck
 
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
@@ -92,7 +93,7 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO beyla_grpc_metrics (
@@ -104,7 +105,7 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }() // TODO: errcheck
 
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
@@ -164,7 +165,7 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // TODO: errcheck
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO beyla_sql_metrics (
@@ -176,7 +177,7 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }() // TODO: errcheck
 
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
@@ -222,6 +223,73 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 		Int("metric_count", len(metrics)).
 		Str("agent_id", agentID).
 		Msg("Inserted Beyla SQL metrics")
+
+	return nil
+}
+
+// InsertBeylaTraces inserts Beyla trace spans into the database (RFD 036).
+func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans []*agentv1.BeylaTraceSpan) error {
+	if len(spans) == 0 {
+		return nil
+	}
+
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func(tx *sql.Tx) {
+		_ = tx.Rollback() // TODO: errcheck
+	}(tx)
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO beyla_traces (
+			trace_id, span_id, parent_span_id, agent_id, service_name,
+			span_name, span_kind, start_time, duration_us, status_code, attributes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT DO NOTHING
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer func(stmt *sql.Stmt) {
+		_ = stmt.Close() // TODO: errcheck
+	}(stmt)
+
+	for _, span := range spans {
+		startTime := time.UnixMilli(span.StartTime)
+
+		// Convert attributes to JSON.
+		attributesJSON, err := json.Marshal(span.Attributes)
+		if err != nil {
+			return fmt.Errorf("failed to marshal attributes: %w", err)
+		}
+
+		_, err = stmt.ExecContext(ctx,
+			span.TraceId,
+			span.SpanId,
+			span.ParentSpanId,
+			agentID,
+			span.ServiceName,
+			span.SpanName,
+			span.SpanKind,
+			startTime,
+			span.DurationUs,
+			span.StatusCode,
+			string(attributesJSON),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert trace span: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	d.logger.Debug().
+		Int("span_count", len(spans)).
+		Str("agent_id", agentID).
+		Msg("Inserted Beyla trace spans")
 
 	return nil
 }
@@ -277,7 +345,7 @@ func (d *Database) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string
 	if err != nil {
 		return nil, fmt.Errorf("failed to query HTTP metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []*BeylaHTTPMetricResult
 	for rows.Next() {
@@ -346,7 +414,7 @@ func (d *Database) QueryBeylaGRPCMetrics(ctx context.Context, serviceName string
 	if err != nil {
 		return nil, fmt.Errorf("failed to query gRPC metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []*BeylaGRPCMetricResult
 	for rows.Next() {
@@ -409,7 +477,7 @@ func (d *Database) QueryBeylaSQLMetrics(ctx context.Context, serviceName string,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SQL metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []*BeylaSQLMetricResult
 	for rows.Next() {
@@ -476,7 +544,7 @@ func (d *Database) QueryBeylaTraces(ctx context.Context, serviceName string, sta
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traces: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // TODO: errcheck
 
 	var results []*BeylaTraceResult
 	for rows.Next() {
@@ -610,4 +678,26 @@ func (d *Database) CleanupOldBeylaMetrics(ctx context.Context, httpRetentionDays
 	}
 
 	return totalDeleted, nil
+}
+
+// CleanupOldBeylaTraces removes Beyla traces older than the specified retention period (RFD 036).
+func (d *Database) CleanupOldBeylaTraces(ctx context.Context, traceRetentionDays int) (int64, error) {
+	traceCutoff := time.Now().Add(-time.Duration(traceRetentionDays) * 24 * time.Hour)
+	traceResult, err := d.db.ExecContext(ctx, `
+		DELETE FROM beyla_traces
+		WHERE start_time < ?
+	`, traceCutoff)
+	if err != nil {
+		return 0, fmt.Errorf("failed to cleanup traces: %w", err)
+	}
+
+	deleted, _ := traceResult.RowsAffected()
+	if deleted > 0 {
+		d.logger.Debug().
+			Int64("rows_deleted", deleted).
+			Time("trace_cutoff", traceCutoff).
+			Msg("Cleaned up old Beyla traces")
+	}
+
+	return deleted, nil
 }

@@ -1,3 +1,4 @@
+// Package cli provides the command-line interface for coral.
 package cli
 
 import (
@@ -6,22 +7,31 @@ import (
 	"github.com/coral-io/coral/internal/cli/agent"
 	"github.com/coral-io/coral/internal/cli/ask"
 	"github.com/coral-io/coral/internal/cli/colony"
+	"github.com/coral-io/coral/internal/cli/config"
+	"github.com/coral-io/coral/internal/cli/duckdb"
 	initcmd "github.com/coral-io/coral/internal/cli/init"
 	"github.com/coral-io/coral/internal/cli/proxy"
-	"github.com/coral-io/coral/internal/cli/tun_helper"
+	"github.com/coral-io/coral/internal/cli/tunhelper"
 	"github.com/coral-io/coral/pkg/version"
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "coral",
-	Short: "Coral - Agentic AI for Distributed Systems",
-	Long: `Coral is an AI assistant that observes, analyzes, and recommends actions
-for distributed systems operations.
+	Short: "Coral - LLM-orchestrated debugging for distributed apps",
+	Long: `Turn fragmented infrastructure into one intelligent system.
+Debug across laptop, VMs, K8s, and clouds with natural language queries.
 
-Coral provides application-scoped intelligence through:
-- Colony: Central brain for AI analysis and historical patterns
-- Agents: Local observers for processes and health monitoring
-- Ask: Interactive AI queries about your system`,
+Three-tier architecture:
+- Colony: Central coordinator with MCP server for universal AI integration
+- Agents: Local observers with zero-config eBPF instrumentation
+- CLI: Developer interface (coral ask, coral connect, etc.)
+
+Key capabilities:
+- Natural language debugging: Ask questions, get root cause analysis
+- Universal AI: Works with Claude Desktop, IDEs, any MCP client
+- Zero-config observability: eBPF metrics without code changes
+- Live debugging: On-demand instrumentation across your mesh
+- Your LLM: Use OpenAI/Anthropic/Ollama - you control the AI`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -31,15 +41,18 @@ func init() {
 	rootCmd.AddCommand(initcmd.NewInitCmd())
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(colony.NewColonyCmd())
+	rootCmd.AddCommand(config.NewConfigCmd()) // RFD 050 - Config management commands.
 	rootCmd.AddCommand(agent.NewAgentCmd())
 	rootCmd.AddCommand(agent.NewConnectCmd())
 	rootCmd.AddCommand(ask.NewAskCmd())
 	rootCmd.AddCommand(proxy.Command())
 	rootCmd.AddCommand(agent.NewShellCmd())
+	rootCmd.AddCommand(agent.NewExecCmd()) // RFD 056 - Container exec.
+	rootCmd.AddCommand(duckdb.NewDuckDBCmd())
 	rootCmd.AddCommand(newVersionCmd())
 
 	// Add internal commands (hidden from help)
-	rootCmd.AddCommand(tun_helper.New())
+	rootCmd.AddCommand(tunhelper.New())
 }
 
 func newVersionCmd() *cobra.Command {

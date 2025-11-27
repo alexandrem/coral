@@ -1,3 +1,4 @@
+// Package agent implements the coral agent that runs on each node.
 package agent
 
 import (
@@ -78,7 +79,7 @@ func New(config Config) (*Agent, error) {
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
 		monitor := NewServiceMonitor(service, config.Logger)
-		agent.monitors[service.ComponentName] = monitor
+		agent.monitors[service.Name] = monitor
 	}
 
 	return agent, nil
@@ -220,20 +221,31 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 	defer a.mu.Unlock()
 
 	// Check if service already exists.
-	if _, exists := a.monitors[service.ComponentName]; exists {
-		return fmt.Errorf("service %s already connected", service.ComponentName)
+	if _, exists := a.monitors[service.Name]; exists {
+		return fmt.Errorf("service %s already connected", service.Name)
 	}
 
 	// Create and start new monitor.
 	monitor := NewServiceMonitor(service, a.logger)
 	monitor.Start()
 
-	a.monitors[service.ComponentName] = monitor
+	a.monitors[service.Name] = monitor
 
 	a.logger.Info().
-		Str("service", service.ComponentName).
+		Str("service", service.Name).
 		Int32("port", service.Port).
 		Msg("Service connected")
+
+	// Update Beyla discovery with new port (RFD 053).
+	if a.beylaManager != nil {
+		ports := a.collectPortsLocked()
+		if err := a.beylaManager.UpdateDiscovery(ports); err != nil {
+			a.logger.Error().
+				Err(err).
+				Msg("Failed to update Beyla discovery after service connect")
+			// Don't fail the connect operation if Beyla update fails
+		}
+	}
 
 	return nil
 }
@@ -256,6 +268,17 @@ func (a *Agent) DisconnectService(serviceName string) error {
 		Str("service", serviceName).
 		Msg("Service disconnected")
 
+	// Update Beyla discovery with remaining ports (RFD 053).
+	if a.beylaManager != nil {
+		ports := a.collectPortsLocked()
+		if err := a.beylaManager.UpdateDiscovery(ports); err != nil {
+			a.logger.Error().
+				Err(err).
+				Msg("Failed to update Beyla discovery after service disconnect")
+			// Don't fail the disconnect operation if Beyla update fails
+		}
+	}
+
 	return nil
 }
 
@@ -267,4 +290,14 @@ func (a *Agent) GetEbpfManager() *ebpf.Manager {
 // GetBeylaManager returns the Beyla manager for this agent (RFD 032).
 func (a *Agent) GetBeylaManager() *beyla.Manager {
 	return a.beylaManager
+}
+
+// collectPortsLocked collects all service ports from monitors (RFD 053).
+// Caller must hold a.mu lock.
+func (a *Agent) collectPortsLocked() []int {
+	ports := make([]int, 0, len(a.monitors))
+	for _, monitor := range a.monitors {
+		ports = append(ports, int(monitor.service.Port))
+	}
+	return ports
 }

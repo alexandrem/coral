@@ -21,7 +21,7 @@ func Example() {
 	manager := ebpf.NewManager(ebpf.Config{
 		Logger: logger,
 	})
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }() // TODO: errcheck
 
 	// Check capabilities.
 	caps := manager.GetCapabilities()
