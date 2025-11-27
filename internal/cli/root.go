@@ -47,6 +47,7 @@ func init() {
 	rootCmd.AddCommand(ask.NewAskCmd())
 	rootCmd.AddCommand(proxy.Command())
 	rootCmd.AddCommand(agent.NewShellCmd())
+	rootCmd.AddCommand(agent.NewExecCmd()) // RFD 056 - Container exec.
 	rootCmd.AddCommand(duckdb.NewDuckDBCmd())
 	rootCmd.AddCommand(newVersionCmd())
 

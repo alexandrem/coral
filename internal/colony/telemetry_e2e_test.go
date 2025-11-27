@@ -136,8 +136,8 @@ func TestTelemetryE2E(t *testing.T) {
 		t.Fatalf("Failed to create runtime service: %v", err)
 	}
 
-	// Create service handler - we'll pass nil for telemetry and shell since we're testing directly
-	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, nil)
+	// Create service handler - we'll pass nil for telemetry, shell, and container since we're testing directly
+	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, nil, nil)
 
 	// Create test handler that uses our storage directly
 	testHandler := &testAgentHandler{
@@ -347,6 +347,10 @@ func (h *testAgentHandler) Shell(ctx context.Context, stream *connect.BidiStream
 }
 
 func (h *testAgentHandler) ShellExec(ctx context.Context, req *connect.Request[agentv1.ShellExecRequest]) (*connect.Response[agentv1.ShellExecResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) ContainerExec(ctx context.Context, req *connect.Request[agentv1.ContainerExecRequest]) (*connect.Response[agentv1.ContainerExecResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 

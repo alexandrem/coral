@@ -32,6 +32,9 @@ service AgentService {
   // ShellExec: One-off command execution in agent environment (RFD 045).
   rpc ShellExec(ShellExecRequest) returns (ShellExecResponse);
 
+  // ContainerExec: Execute command in container namespace (RFD 056).
+  rpc ContainerExec(ContainerExecRequest) returns (ContainerExecResponse);
+
   // Resize shell terminal (RFD 026).
   rpc ResizeShellTerminal(ResizeShellTerminalRequest) returns (ResizeShellTerminalResponse);
 
@@ -616,5 +619,58 @@ message ShellExecResponse {
 
   // Error message if execution failed (timeout, command not found, etc.).
   string error = 6;
+}
+
+// ContainerExec RPC messages (RFD 056 - container namespace execution).
+
+message ContainerExecRequest {
+  // Container name (optional in sidecar mode - defaults to main container).
+  string container_name = 1;
+
+  // Command as array (no shell interpretation).
+  // Example: ["cat", "/app/config.yaml"] or ["ls", "-la", "/etc/nginx"]
+  repeated string command = 2;
+
+  // User making request (for audit).
+  string user_id = 3;
+
+  // Timeout in seconds (default: 30, max: 300).
+  uint32 timeout_seconds = 4;
+
+  // Working directory (optional, uses container's default).
+  string working_dir = 5;
+
+  // Additional environment variables.
+  map<string, string> env = 6;
+
+  // Namespaces to enter (default: ["mnt"] for sidecar mode).
+  // Options: "mnt", "pid", "net", "ipc", "uts", "cgroup"
+  repeated string namespaces = 7;
+}
+
+message ContainerExecResponse {
+  // Standard output from command.
+  bytes stdout = 1;
+
+  // Standard error from command.
+  bytes stderr = 2;
+
+  // Exit code from command.
+  int32 exit_code = 3;
+
+  // Session ID for audit reference.
+  string session_id = 4;
+
+  // Execution duration in milliseconds.
+  uint32 duration_ms = 5;
+
+  // Error message if execution failed.
+  string error = 6;
+
+  // Container PID used for nsenter (for debugging).
+  int32 container_pid = 7;
+
+  // Namespaces that were entered.
+  repeated string namespaces_entered = 8;
 }
 

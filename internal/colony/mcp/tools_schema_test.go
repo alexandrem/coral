@@ -212,8 +212,8 @@ func TestGetToolSchemas(t *testing.T) {
 		"coral_start_ebpf_collector",
 		"coral_stop_ebpf_collector",
 		"coral_list_ebpf_collectors",
-		"coral_exec_command",
 		"coral_shell_exec",
+		"coral_container_exec",
 		"coral_list_services",
 	}
 
