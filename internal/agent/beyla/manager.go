@@ -42,10 +42,16 @@ type Manager struct {
 	beylaCmd        *exec.Cmd
 	beylaBinaryPath string // Path to extracted binary (cleanup on stop)
 	beylaConfigPath string // Path to generated config file (cleanup on stop)
+	restarting      bool   // Flag to indicate restart in progress (RFD 053)
 
 	// Channels for processed Beyla data.
 	tracesCh  chan *BeylaTrace       // Beyla traces ready for Colony
 	metricsCh chan *ebpfpb.EbpfEvent // Beyla metrics ready for Colony
+
+	// Dynamic discovery configuration (RFD 053).
+	configuredPorts  []int       // Currently configured discovery ports
+	debounceTimer    *time.Timer // Timer for debounced restarts
+	debounceInterval time.Duration
 }
 
 // BeylaTrace represents a processed Beyla trace ready for Colony.
@@ -92,6 +98,10 @@ type Config struct {
 	// This controls how long metrics are kept in agent's local DuckDB before cleanup.
 	// Colony queries metrics within this window, so this should be >= colony poll interval.
 	StorageRetentionHours int
+
+	// MonitorAll enables catch-all discovery (all listening ports 1-65535).
+	// If false and no specific ports are configured, Beyla will not start (RFD 053).
+	MonitorAll bool
 }
 
 // DiscoveryConfig specifies which processes to instrument.
@@ -133,13 +143,15 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 	ctx, cancel := context.WithCancel(ctx)
 
 	m := &Manager{
-		ctx:         ctx,
-		cancel:      cancel,
-		config:      config,
-		logger:      logger.With().Str("component", "beyla_manager").Logger(),
-		transformer: NewTransformer(logger),
-		tracesCh:    make(chan *BeylaTrace, 100),
-		metricsCh:   make(chan *ebpfpb.EbpfEvent, 100),
+		ctx:              ctx,
+		cancel:           cancel,
+		config:           config,
+		logger:           logger.With().Str("component", "beyla_manager").Logger(),
+		transformer:      NewTransformer(logger),
+		tracesCh:         make(chan *BeylaTrace, 100),
+		metricsCh:        make(chan *ebpfpb.EbpfEvent, 100),
+		configuredPorts:  append([]int{}, config.Discovery.OpenPorts...), // Copy initial ports (RFD 053)
+		debounceInterval: 5 * time.Second,                                // Default debounce window (RFD 053)
 	}
 
 	// Initialize OTLP receiver storage (RFD 025).
@@ -554,6 +566,12 @@ func (m *Manager) consumeMetrics() {
 
 // startBeyla configures and starts Beyla instrumentation as a process.
 func (m *Manager) startBeyla() error {
+	// Skip starting Beyla if there's nothing to monitor (RFD 053).
+	if len(m.config.Discovery.OpenPorts) == 0 && len(m.config.Discovery.ProcessNames) == 0 && !m.config.MonitorAll {
+		m.logger.Info().Msg("No services to monitor and --monitor-all not set - Beyla will not start")
+		return nil
+	}
+
 	// Get Beyla binary path (embedded, system, or env var).
 	binaryPath, err := getBeylaBinaryPath()
 	if err != nil {
@@ -657,12 +675,14 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 		}{ExeName: name})
 	}
 
-	// Default discovery: if no ports or process names specified, discover all listening processes.
-	if len(cfg.Discovery.Instrument) == 0 {
+	// Default discovery: only use catch-all if MonitorAll is explicitly enabled (RFD 053).
+	// If no ports/processes are specified and MonitorAll is false, Beyla won't instrument anything.
+	if len(cfg.Discovery.Instrument) == 0 && m.config.MonitorAll {
 		cfg.Discovery.Instrument = append(cfg.Discovery.Instrument, struct {
 			OpenPorts string `yaml:"open_ports,omitempty"`
 			ExeName   string `yaml:"exe_name,omitempty"`
 		}{OpenPorts: "1-65535"})
+		m.logger.Info().Msg("MonitorAll enabled - using catch-all discovery (ports 1-65535)")
 	}
 
 	// OTLP export endpoint (gRPC).
@@ -714,13 +734,28 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 // monitorBeylaProcess monitors the Beyla process and logs when it exits.
 func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	err := cmd.Wait()
-	if err != nil && m.ctx.Err() == nil {
-		// Process exited unexpectedly (not due to context cancellation).
+
+	// Check if this was an expected exit (restart or shutdown).
+	m.mu.RLock()
+	isRestarting := m.restarting
+	m.mu.RUnlock()
+
+	if err != nil && m.ctx.Err() == nil && !isRestarting {
+		// Process exited unexpectedly (not due to restart or context cancellation).
 		m.logger.Error().
 			Err(err).
+			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process exited unexpectedly")
+	} else if isRestarting {
+		// Expected exit during restart.
+		m.logger.Debug().
+			Int("pid", cmd.Process.Pid).
+			Msg("Beyla process stopped for restart")
 	} else {
-		m.logger.Info().Msg("Beyla process exited")
+		// Normal shutdown.
+		m.logger.Info().
+			Int("pid", cmd.Process.Pid).
+			Msg("Beyla process exited")
 	}
 }
 
@@ -749,4 +784,126 @@ func (w *beylaLogWriter) Write(p []byte) (n int, err error) {
 	}
 
 	return len(p), nil
+}
+
+// UpdateDiscovery updates the port discovery configuration (RFD 053).
+// If ports differ from current config, triggers debounced Beyla restart.
+// Thread-safe: can be called concurrently from multiple goroutines.
+func (m *Manager) UpdateDiscovery(ports []int) error {
+	if !m.config.Enabled {
+		m.logger.Debug().Msg("Beyla is disabled, ignoring discovery update")
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if ports have changed.
+	if portsEqual(m.configuredPorts, ports) {
+		m.logger.Debug().
+			Ints("ports", ports).
+			Msg("Discovery ports unchanged, skipping restart")
+		return nil
+	}
+
+	m.logger.Info().
+		Ints("old_ports", m.configuredPorts).
+		Ints("new_ports", ports).
+		Msg("Discovery ports changed, scheduling Beyla restart")
+
+	// Update configured ports.
+	m.configuredPorts = append([]int{}, ports...)
+	m.config.Discovery.OpenPorts = append([]int{}, ports...)
+
+	// Cancel existing debounce timer if any.
+	if m.debounceTimer != nil {
+		m.debounceTimer.Stop()
+	}
+
+	// Schedule debounced restart.
+	m.debounceTimer = time.AfterFunc(m.debounceInterval, func() {
+		m.logger.Info().
+			Ints("ports", ports).
+			Dur("debounce_interval", m.debounceInterval).
+			Msg("Debounce window expired, restarting Beyla")
+
+		if err := m.restartBeyla(); err != nil {
+			m.logger.Error().
+				Err(err).
+				Msg("Failed to restart Beyla with updated discovery config")
+		} else {
+			m.logger.Info().
+				Ints("ports", ports).
+				Msg("Beyla restarted successfully with updated discovery")
+		}
+	})
+
+	return nil
+}
+
+// GetDiscoveryPorts returns the currently configured discovery ports (RFD 053).
+func (m *Manager) GetDiscoveryPorts() []int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]int{}, m.configuredPorts...)
+}
+
+// restartBeyla stops and restarts Beyla with the current configuration (RFD 053).
+// This method acquires m.mu lock internally.
+func (m *Manager) restartBeyla() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Stop existing Beyla process gracefully.
+	if m.beylaCmd != nil && m.beylaCmd.Process != nil {
+		m.logger.Info().
+			Int("pid", m.beylaCmd.Process.Pid).
+			Msg("Stopping existing Beyla process for restart")
+
+		// Set restarting flag so monitor goroutine knows this is expected.
+		m.restarting = true
+
+		if err := m.beylaCmd.Process.Kill(); err != nil {
+			m.logger.Error().Err(err).Msg("Failed to kill Beyla process during restart")
+		}
+		// Don't call Wait() here - the monitorBeylaProcess goroutine will handle it.
+		// Calling Wait() from multiple goroutines causes "no child processes" error.
+
+		// Give the process a moment to fully terminate and the monitor goroutine to exit.
+		time.Sleep(200 * time.Millisecond)
+
+		// Clear restarting flag.
+		m.restarting = false
+	}
+
+	// Cleanup old config file.
+	if m.beylaConfigPath != "" {
+		if err := os.Remove(m.beylaConfigPath); err != nil && !os.IsNotExist(err) {
+			m.logger.Error().Err(err).Str("path", m.beylaConfigPath).Msg("Failed to cleanup old Beyla config file")
+		}
+	}
+
+	// Start Beyla with new configuration.
+	return m.startBeyla()
+}
+
+// portsEqual checks if two port slices contain the same ports (order-independent).
+func portsEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	// Create maps for O(n) comparison.
+	portMapA := make(map[int]bool, len(a))
+	for _, port := range a {
+		portMapA[port] = true
+	}
+
+	for _, port := range b {
+		if !portMapA[port] {
+			return false
+		}
+	}
+
+	return true
 }
