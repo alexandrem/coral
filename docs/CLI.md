@@ -45,8 +45,22 @@ coral version
    and WireGuard keypair
 2. **Start Colony** - `coral colony start` launches the central coordinator
 3. **Start Agents** - `coral agent start` on each monitored machine
-4. **Connect Services** - `coral connect frontend:3000 api:8080`
+4. **Connect Services** - `coral connect frontend:3000 api:8080` or use
+   `--connect` at startup
 5. **Query** - `coral ask "what services are running?"`
+
+**Agent Startup Modes:**
+
+```bash
+# Passive mode (no monitoring, use 'coral connect' later)
+coral agent start
+
+# Connect services at startup
+coral agent start --connect frontend:3000 --connect api:8080:/health
+
+# Monitor ALL processes (eBPF auto-discovery)
+coral agent start --monitor-all
+```
 
 See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for command syntax.
 

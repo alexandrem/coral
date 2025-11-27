@@ -33,9 +33,14 @@ coral colony status [--json]
 coral colony stop
 
 # Agent (local observer)
-coral agent start [--config <file>] [--colony-id <id>] [--colony-url <url>]
+coral agent start [--config <file>] [--colony-id <id>] [--connect <service>...] [--monitor-all]
 coral agent status
 coral agent stop
+
+# Agent startup modes:
+#   Passive:      coral agent start
+#   With services: coral agent start --connect frontend:3000 --connect api:8080
+#   Monitor all:  coral agent start --monitor-all
 ```
 
 ---
@@ -43,14 +48,22 @@ coral agent stop
 ## Service Connections
 
 ```bash
-# Connect agent to services
+# Connect agent to services (at startup or dynamically)
 coral connect <service-spec>...
 
-# Format: name:port[:health][:type]
-# Examples:
+# At agent startup (automatic eBPF instrumentation)
+coral agent start --connect frontend:3000 --connect api:8080:/health
+
+# Dynamically after agent started (triggers eBPF restart)
 coral connect frontend:3000
 coral connect api:8080:/health:http
 coral connect frontend:3000 api:8080:/health redis:6379
+
+# Format: name:port[:health][:type]
+# Examples:
+coral connect frontend:3000                    # HTTP service on port 3000
+coral connect api:8080:/health:http           # With health check endpoint
+coral connect frontend:3000 api:8080:/health  # Multiple services
 
 # Legacy syntax (single service)
 coral connect <name> --port <port> [--health <path>]
