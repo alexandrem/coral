@@ -1668,6 +1668,6 @@ This Meta RFD is implemented through the following component RFDs:
 - **`coral run`**: ❌ Not implemented (deferred).
 - **Agent ID Resolution**: ✅ Implemented via [RFD 044](044-agent-id-standardization-and-routing.md).
 - **RBAC & Approvals**: ❌ Not implemented (defined in [RFD 058](058-rbac-enforcement-system.md)).
-- **Direct Connectivity**: ✅ Implemented via [RFD 038](038-cli-agent-direct-connectivity.md).
+- **Direct Connectivity**: ❌ Not implemented (defined in [RFD 038](038-cli-agent-direct-connectivity.md)).
 - **Runtime Context Detection**: ✅ Implemented.
 - **Colony Connectivity**: ✅ Implemented.
