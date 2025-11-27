@@ -116,13 +116,13 @@ Claude Desktop
 
 **Deployment Modes:**
 
-| Mode                          | PID Access              | Configuration                                               |
-| ----------------------------- | ----------------------- | ----------------------------------------------------------- |
-| Docker-compose sidecar        | `pid: "service:app"`    | Sidecar shares PID namespace with app                       |
-| Kubernetes sidecar (native)   | `shareProcessNamespace` | initContainer with `restartPolicy: Always` (K8s 1.28+)      |
-| Kubernetes sidecar (regular)  | `shareProcessNamespace` | Regular container in same Pod (all K8s versions)            |
-| Kubernetes node agent         | `hostPID: true`         | DaemonSet sees all containers on the node                   |
-| Kubernetes multi-tenant       | `hostPID: true` + RBAC  | DaemonSet with namespace/pod filtering                      |
+| Mode                         | PID Access              | Configuration                                          |
+|------------------------------|-------------------------|--------------------------------------------------------|
+| Docker-compose sidecar       | `pid: "service:app"`    | Sidecar shares PID namespace with app                  |
+| Kubernetes sidecar (native)  | `shareProcessNamespace` | initContainer with `restartPolicy: Always` (K8s 1.28+) |
+| Kubernetes sidecar (regular) | `shareProcessNamespace` | Regular container in same Pod (all K8s versions)       |
+| Kubernetes node agent        | `hostPID: true`         | DaemonSet sees all containers on the node              |
+| Kubernetes multi-tenant      | `hostPID: true` + RBAC  | DaemonSet with namespace/pod filtering                 |
 
 ### Component Changes
 
@@ -436,43 +436,47 @@ cd examples/docker-compose
 docker-compose up -d
 
 # Test 1: Read nginx config (container filesystem)
-curl -X POST colony:8080/mcp -d '{
-  "method": "tools/call",
-  "params": {
-    "name": "coral_container_exec",
-    "arguments": {
-      "service": "demo-app",
-      "command": ["cat", "/etc/nginx/nginx.conf"]
-    }
-  }
-}'
+colony mcp test-tool coral_container_exec \
+  --service demo-app \
+  --command '["cat", "/etc/nginx/nginx.conf"]'
 
-# Test 2: Verify isolation - agent cannot see container filesystem
-curl -X POST colony:8080/mcp -d '{
-  "method": "tools/call",
-  "params": {
-    "name": "coral_shell_exec",
-    "arguments": {
-      "service": "demo-app",
-      "command": ["cat", "/etc/nginx/nginx.conf"]
-    }
-  }
-}'
-# Expected: "No such file or directory" (proves isolation)
+# Verify output shows nginx.conf contents from container's filesystem
 
-# Test 3: Timeout enforcement
-curl -X POST colony:8080/mcp -d '{
-  "method": "tools/call",
-  "params": {
-    "name": "coral_container_exec",
-    "arguments": {
-      "service": "demo-app",
-      "command": ["sleep", "100"],
-      "timeout_seconds": 5
-    }
-  }
-}'
+# Test 2: List mounted files
+colony mcp test-tool coral_container_exec \
+  --service demo-app \
+  --command '["ls", "-la", "/usr/share/nginx/html"]'
+
+# Test 3: Verify isolation - agent's host filesystem is different
+colony mcp test-tool coral_shell_exec \
+  --service demo-app \
+  --command '["cat", "/etc/nginx/nginx.conf"]'
+
+# Expected: "No such file or directory" (proves namespace isolation)
+
+# Test 4: Timeout enforcement
+colony mcp test-tool coral_container_exec \
+  --service demo-app \
+  --command '["sleep", "100"]' \
+  --timeout_seconds 5
+
 # Expected: Timeout error after 5 seconds
+
+# Test 5: Working directory parameter
+colony mcp test-tool coral_container_exec \
+  --service demo-app \
+  --command '["pwd"]' \
+  --working_dir /usr/share/nginx
+
+# Expected: /usr/share/nginx
+
+# Test 6: Environment variables
+colony mcp test-tool coral_container_exec \
+  --service demo-app \
+  --command '["env"]' \
+  --env '{"DEBUG": "true"}'
+
+# Verify DEBUG=true appears in output
 ```
 
 ### Edge Cases
