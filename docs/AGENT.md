@@ -29,11 +29,11 @@ The agent operates on a **pull-based architecture**:
 
 The Coral Agent exposes the following ports:
 
-| Port | Protocol | Purpose | Bind Address | Access |
-|------|----------|---------|--------------|--------|
-| **4317** | OTLP/gRPC | OpenTelemetry trace ingestion | Configurable (default: `0.0.0.0:4317`) | Applications, Beyla |
-| **4318** | OTLP/HTTP | OpenTelemetry trace ingestion | Configurable (default: `0.0.0.0:4318`) | Applications, Beyla |
-| **9001** | HTTP/2 (Connect RPC) | Agent API for colony communication | Mesh IP + localhost | Colony, local CLI |
+| Port     | Protocol             | Purpose                            | Bind Address                           | Access              |
+|----------|----------------------|------------------------------------|----------------------------------------|---------------------|
+| **4317** | OTLP/gRPC            | OpenTelemetry trace ingestion      | Configurable (default: `0.0.0.0:4317`) | Applications, Beyla |
+| **4318** | OTLP/HTTP            | OpenTelemetry trace ingestion      | Configurable (default: `0.0.0.0:4318`) | Applications, Beyla |
+| **9001** | HTTP/2 (Connect RPC) | Agent API for colony communication | Mesh IP + localhost                    | Colony, local CLI   |
 
 **Network Topology:**
 
@@ -62,8 +62,11 @@ The Coral Agent exposes the following ports:
 ```
 
 **Security Notes:**
-- **Ports 4317/4318**: Bind to `0.0.0.0` by default for application access. Consider binding to `127.0.0.1` if applications run on the same host.
-- **Port 9001**: Automatically binds to WireGuard mesh IP and localhost. Only accessible from colony (via mesh) and local debugging.
+
+- **Ports 4317/4318**: Bind to `0.0.0.0` by default for application access.
+  Consider binding to `127.0.0.1` if applications run on the same host.
+- **Port 9001**: Automatically binds to WireGuard mesh IP and localhost. Only
+  accessible from colony (via mesh) and local debugging.
 
 ---
 
@@ -73,12 +76,16 @@ The Coral Agent exposes the following ports:
 
 The agent implements the **OpenTelemetry Protocol (OTLP)** for receiving traces:
 
-- **OTLP/gRPC**: Port `4317` (default, configurable via `telemetry.grpc_endpoint`)
-- **OTLP/HTTP**: Port `4318` (default, configurable via `telemetry.http_endpoint`)
+- **OTLP/gRPC**: Port `4317` (default, configurable via
+  `telemetry.grpc_endpoint`)
+- **OTLP/HTTP**: Port `4318` (default, configurable via
+  `telemetry.http_endpoint`)
 
 **Bind Address Configuration:**
+
 - Default: `0.0.0.0:4317` and `0.0.0.0:4318` (listens on all interfaces)
-- Recommended for co-located apps: `127.0.0.1:4317` and `127.0.0.1:4318` (localhost only)
+- Recommended for co-located apps: `127.0.0.1:4317` and `127.0.0.1:4318` (
+  localhost only)
 - Sidecar/container: `0.0.0.0:4317` and `0.0.0.0:4318` (within pod network)
 
 Both protocols support:
@@ -156,9 +163,12 @@ trace.get_tracer_provider().add_span_processor(
 
 ### Overview
 
-The agent can optionally run **Beyla**, an eBPF-based auto-instrumentation tool that collects RED (Rate, Errors, Duration) metrics for HTTP, gRPC, and database protocols **without requiring code changes** to your applications.
+The agent can optionally run **Beyla**, an eBPF-based auto-instrumentation tool
+that collects RED (Rate, Errors, Duration) metrics for HTTP, gRPC, and database
+protocols **without requiring code changes** to your applications.
 
 **Key Features:**
+
 - Zero-code instrumentation using eBPF kernel probes
 - Automatic discovery of services by port, process name, or Kubernetes labels
 - Collects HTTP, gRPC, and SQL query performance metrics
@@ -166,12 +176,15 @@ The agent can optionally run **Beyla**, an eBPF-based auto-instrumentation tool 
 - Pull-based: Colony queries agent on-demand for metrics
 
 **Beyla Output:**
+
 - Beyla exports metrics and traces via OTLP to the agent's local receiver
 - Default: `localhost:4317` (gRPC) or `localhost:4318` (HTTP)
-- Agent ingests Beyla's output through the same OTLP receivers that handle application traces
+- Agent ingests Beyla's output through the same OTLP receivers that handle
+  application traces
 - No additional ports required - reuses existing OTLP infrastructure
 
-**See:** `RFDs/032-beyla-red-metrics-integration.md` for complete architecture and design details.
+**See:** `RFDs/032-beyla-red-metrics-integration.md` for complete architecture
+and design details.
 
 ### Beyla Configuration Structure
 
@@ -216,69 +229,83 @@ beyla:
 
 - **Type**: `boolean`
 - **Default**: `false`
-- **Description**: Enable Beyla eBPF metrics collection. Requires kernel 4.18+ and eBPF capabilities.
+- **Description**: Enable Beyla eBPF metrics collection. Requires kernel 4.18+
+  and eBPF capabilities.
 
 #### `beyla.storage_retention_hours`
 
 - **Type**: `integer`
 - **Default**: `1`
-- **Description**: How long to keep Beyla metrics in agent's local DuckDB (in hours). Older metrics are automatically deleted.
-- **Rationale**: Pull-based architecture - colony polls agents for recent metrics. This value should be equal to or greater than the colony's polling interval.
+- **Description**: How long to keep Beyla metrics in agent's local DuckDB (in
+  hours). Older metrics are automatically deleted.
+- **Rationale**: Pull-based architecture - colony polls agents for recent
+  metrics. This value should be equal to or greater than the colony's polling
+  interval.
 - **Examples:**
-  - `1` - Default, suitable for standard colony poll intervals (30-60 seconds)
-  - `2` - Extended retention for less frequent polling or troubleshooting
-  - `4` - Development/debugging scenarios
+    - `1` - Default, suitable for standard colony poll intervals (30-60 seconds)
+    - `2` - Extended retention for less frequent polling or troubleshooting
+    - `4` - Development/debugging scenarios
 
 #### `beyla.discovery`
 
 - **Type**: `object`
-- **Description**: Configure which services Beyla should instrument. Supports port-based discovery, Kubernetes labels, and process names.
+- **Description**: Configure which services Beyla should instrument. Supports
+  port-based discovery, Kubernetes labels, and process names.
 
 #### `beyla.protocols`
 
 - **Type**: `object`
-- **Description**: Enable/disable specific protocol instrumentation (HTTP, gRPC, SQL, Kafka, Redis).
+- **Description**: Enable/disable specific protocol instrumentation (HTTP, gRPC,
+  SQL, Kafka, Redis).
 
 #### `beyla.attributes`
 
 - **Type**: `map[string]string`
-- **Description**: Resource attributes to add to all Beyla metrics for enrichment (environment, cluster, region, etc.).
+- **Description**: Resource attributes to add to all Beyla metrics for
+  enrichment (environment, cluster, region, etc.).
 
 ### Beyla vs OpenTelemetry Traces
 
-| Aspect | Beyla (eBPF) | OpenTelemetry SDK |
-|--------|--------------|-------------------|
-| **Instrumentation** | Automatic via eBPF | Requires code changes |
-| **Protocols** | HTTP, gRPC, SQL | Any (custom spans) |
-| **Data Type** | RED metrics | Distributed traces |
-| **Overhead** | ~1-2% CPU | ~2-5% CPU |
-| **Kernel Requirement** | 4.18+ with eBPF | Any |
-| **Use Case** | Infrastructure monitoring | Application debugging |
+| Aspect                 | Beyla (eBPF)              | OpenTelemetry SDK     |
+|------------------------|---------------------------|-----------------------|
+| **Instrumentation**    | Automatic via eBPF        | Requires code changes |
+| **Protocols**          | HTTP, gRPC, SQL           | Any (custom spans)    |
+| **Data Type**          | RED metrics               | Distributed traces    |
+| **Overhead**           | ~1-2% CPU                 | ~2-5% CPU             |
+| **Kernel Requirement** | 4.18+ with eBPF           | Any                   |
+| **Use Case**           | Infrastructure monitoring | Application debugging |
 
-**Recommendation:** Use both - Beyla for automatic RED metrics and OpenTelemetry SDK for detailed application traces.
+**Recommendation:** Use both - Beyla for automatic RED metrics and OpenTelemetry
+SDK for detailed application traces.
 
 ---
 
 ## Agent API Port
 
-The agent exposes a **Connect RPC** service on **port 9001** for communication with the colony and local CLI tools.
+The agent exposes a **Connect RPC** service on **port 9001** for communication
+with the colony and local CLI tools.
 
 ### Port 9001 - Agent API
 
-**Purpose**: Colony queries, service management, telemetry requests, remote shell execution (RFD 026)
+**Purpose**: Colony queries, service management, telemetry requests, remote
+shell execution (RFD 026)
 
 **Binding:**
+
 - **Mesh IP** (`<mesh-ip>:9001`): Accessible from colony via WireGuard mesh
-- **Localhost** (`127.0.0.1:9001`): Accessible from local CLI commands (`coral connect`, `coral agent status`)
+- **Localhost** (`127.0.0.1:9001`): Accessible from local CLI commands (
+  `coral connect`, `coral agent status`)
 
 **Protocol**: HTTP/2 (Connect RPC) with bidirectional streaming support
 
 **Endpoints:**
+
 - `/coral.agent.v1.AgentService/*` - Main agent API
 - `/status` - Runtime and mesh network debugging info (JSON)
 - `/duckdb/<database-name>` - Remote DuckDB query endpoint (RFD 039)
 
 **Security:**
+
 - Not exposed outside the WireGuard mesh
 - No authentication required (protected by mesh network isolation)
 - Uses WireGuard's encrypted tunnel for all colony-to-agent communication
@@ -570,9 +597,10 @@ telemetry:
 
 1. Verify `telemetry.disabled: false` in agent config
 2. Check agent logs for "OTLP receiver listening" messages on both ports:
-   - `OTLP gRPC receiver listening on 0.0.0.0:4317`
-   - `OTLP HTTP receiver listening on 0.0.0.0:4318`
-3. Verify application is exporting to correct endpoint (`localhost:4317` or `localhost:4318`)
+    - `OTLP gRPC receiver listening on 0.0.0.0:4317`
+    - `OTLP HTTP receiver listening on 0.0.0.0:4318`
+3. Verify application is exporting to correct endpoint (`localhost:4317` or
+   `localhost:4318`)
 4. Check firewall rules (ports 4317, 4318)
 5. Test connectivity:
    ```bash
@@ -784,12 +812,14 @@ return !strings.HasPrefix(r.URL.Path, "/health")
 
 - **RFD 025**: Basic OpenTelemetry Ingestion (
   `RFDs/025-basic-otel-ingestion.md`)
-- **RFD 026**: Shell Execution Protocol - Agent API port 9001 (`RFDs/026-shell-execution-protocol.md`)
+- **RFD 026**: Shell Execution Protocol - Agent API port 9001 (
+  `RFDs/026-shell-execution-protocol.md`)
 - **RFD 032**: Beyla Integration for RED Metrics Collection (
   `RFDs/032-beyla-red-metrics-integration.md`)
 - **RFD 034**: Serverless OTLP Forwarding (
   `RFDs/034-serverless-otlp-forwarding.md`)
-- **RFD 039**: Remote DuckDB Query Protocol - Agent data access via port 9001 (`RFDs/039-remote-duckdb-query-protocol.md`)
+- **RFD 039**: Remote DuckDB Query Protocol - Agent data access via port 9001 (
+  `RFDs/039-remote-duckdb-query-protocol.md`)
 - **Concept**: Coral Architecture (`docs/CONCEPT.md`)
 
 ---
