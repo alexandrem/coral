@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/coral-io/coral/internal/privilege"
+	"github.com/coral-mesh/coral/internal/privilege"
 )
 
 // HelperTimeout is the maximum time to wait for the helper subprocess to

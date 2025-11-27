@@ -13,14 +13,14 @@ import (
 
 	"connectrpc.com/connect"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
-	"github.com/coral-io/coral/internal/agent"
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/logging"
-	wg "github.com/coral-io/coral/internal/wireguard"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/logging"
+	wg "github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // ConnectionState represents the current state of the agent's connection to the colony.

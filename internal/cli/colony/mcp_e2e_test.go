@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 )
 
 // TestMCPProxyE2E tests the full MCP proxy with a real subprocess and mock colony server.

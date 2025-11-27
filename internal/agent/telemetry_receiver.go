@@ -9,7 +9,7 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 
-	"github.com/coral-io/coral/internal/agent/telemetry"
+	"github.com/coral-mesh/coral/internal/agent/telemetry"
 )
 
 // TelemetryReceiver wraps the OTLP receiver for external use.

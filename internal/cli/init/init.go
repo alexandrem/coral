@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/coral-io/coral/internal/auth"
-	"github.com/coral-io/coral/internal/colony/ca"
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/auth"
+	"github.com/coral-mesh/coral/internal/colony/ca"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // NewInitCmd creates the init command

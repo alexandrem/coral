@@ -13,10 +13,10 @@ import (
 
 	"connectrpc.com/connect"
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/logging"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // newMCPCmd creates the 'coral colony mcp' command.

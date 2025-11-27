@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/durationpb"
 )

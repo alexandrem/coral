@@ -10,8 +10,8 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/internal/agent/telemetry"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/agent/telemetry"
 )
 
 // TestQueryTelemetry_Success tests the QueryTelemetry RPC handler.

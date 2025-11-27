@@ -8,9 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/coral-io/coral/internal/constants"
-	"github.com/coral-io/coral/internal/logging"
-	"github.com/coral-io/coral/internal/proxy"
+	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/proxy"
 	"github.com/spf13/cobra"
 )
 

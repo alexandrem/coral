@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"strings"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 )
 
 // detectCapabilities detects available eBPF capabilities on this system.

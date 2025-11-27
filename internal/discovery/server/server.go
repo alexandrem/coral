@@ -12,10 +12,10 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
-	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
-	"github.com/coral-io/coral/internal/discovery"
-	"github.com/coral-io/coral/internal/discovery/registry"
+	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
+	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
+	"github.com/coral-mesh/coral/internal/discovery"
+	"github.com/coral-mesh/coral/internal/discovery/registry"
 )
 
 // Server implements the DiscoveryService.

@@ -11,8 +11,8 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
-	v11 "github.com/coral-io/coral/coral/agent/v1"
-	v1 "github.com/coral-io/coral/coral/mesh/v1"
+	v11 "github.com/coral-mesh/coral/coral/agent/v1"
+	v1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1184,8 +1184,8 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"StreamTool\x12\".coral.colony.v1.StreamToolRequest\x1a#.coral.colony.v1.StreamToolResponse(\x010\x01\x12R\n" +
 	"\tListTools\x12!.coral.colony.v1.ListToolsRequest\x1a\".coral.colony.v1.ListToolsResponse\x12m\n" +
 	"\x12RequestCertificate\x12*.coral.colony.v1.RequestCertificateRequest\x1a+.coral.colony.v1.RequestCertificateResponse\x12j\n" +
-	"\x11RevokeCertificate\x12).coral.colony.v1.RevokeCertificateRequest\x1a*.coral.colony.v1.RevokeCertificateResponseB\xb4\x01\n" +
-	"\x13com.coral.colony.v1B\vColonyProtoP\x01Z2github.com/coral-io/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
+	"\x11RevokeCertificate\x12).coral.colony.v1.RevokeCertificateRequest\x1a*.coral.colony.v1.RevokeCertificateResponseB\xb6\x01\n" +
+	"\x13com.coral.colony.v1B\vColonyProtoP\x01Z4github.com/coral-mesh/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
 
 var (
 	file_coral_colony_v1_colony_proto_rawDescOnce sync.Once

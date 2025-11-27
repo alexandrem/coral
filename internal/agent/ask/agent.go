@@ -12,8 +12,8 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/coral-io/coral/internal/agent/llm"
-	"github.com/coral-io/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/agent/llm"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // Agent represents an LLM agent that connects to Colony MCP server.

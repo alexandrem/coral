@@ -15,8 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/kr/pty"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/internal/logging"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // ShellHandler implements the shell RPC methods for the agent (RFD 026).

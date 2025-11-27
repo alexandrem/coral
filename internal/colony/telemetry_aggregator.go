@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/internal/colony/database"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
 // TelemetryAggregator aggregates spans queried from agents into 1-minute buckets.

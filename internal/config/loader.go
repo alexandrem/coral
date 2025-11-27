@@ -9,8 +9,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/coral-io/coral/internal/constants"
-	"github.com/coral-io/coral/internal/privilege"
+	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/privilege"
 )
 
 // Loader handles loading and saving configuration files.

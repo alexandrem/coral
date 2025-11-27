@@ -21,17 +21,17 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"gopkg.in/yaml.v3"
 
-	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
-	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/internal/agent"
-	"github.com/coral-io/coral/internal/agent/beyla"
-	"github.com/coral-io/coral/internal/agent/telemetry"
-	"github.com/coral-io/coral/internal/auth"
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/constants"
-	"github.com/coral-io/coral/internal/logging"
-	"github.com/coral-io/coral/internal/wireguard"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/agent/beyla"
+	"github.com/coral-mesh/coral/internal/agent/telemetry"
+	"github.com/coral-mesh/coral/internal/auth"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // AgentConfig represents the agent configuration file.

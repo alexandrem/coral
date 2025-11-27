@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/coral-io/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/rs/zerolog"
 )
 

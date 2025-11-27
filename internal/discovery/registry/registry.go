@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
+	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
 )
 
 // Entry represents a registered colony in the discovery service.

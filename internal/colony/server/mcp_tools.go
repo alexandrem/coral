@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/coral-io/coral/internal/colony/mcp"
+	"github.com/coral-mesh/coral/internal/colony/mcp"
 )
 
 // SetMCPServer sets the MCP server instance for tool execution.

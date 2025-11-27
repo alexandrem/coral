@@ -11,15 +11,15 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/internal/colony/ca"
-	"github.com/coral-io/coral/internal/colony/database"
-	"github.com/coral-io/coral/internal/colony/registry"
-	"github.com/coral-io/coral/internal/colony/storage"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/colony/ca"
+	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/colony/storage"
 )
 
 // Config contains configuration for the colony server.

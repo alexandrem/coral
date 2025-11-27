@@ -16,8 +16,8 @@ import (
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 
-	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/internal/agent/telemetry"
+	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/telemetry"
 )
 
 // Manager handles Beyla lifecycle within Coral agent (RFD 032).

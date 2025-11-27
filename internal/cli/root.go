@@ -4,15 +4,15 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/coral-io/coral/internal/cli/agent"
-	"github.com/coral-io/coral/internal/cli/ask"
-	"github.com/coral-io/coral/internal/cli/colony"
-	"github.com/coral-io/coral/internal/cli/config"
-	"github.com/coral-io/coral/internal/cli/duckdb"
-	initcmd "github.com/coral-io/coral/internal/cli/init"
-	"github.com/coral-io/coral/internal/cli/proxy"
-	"github.com/coral-io/coral/internal/cli/tunhelper"
-	"github.com/coral-io/coral/pkg/version"
+	"github.com/coral-mesh/coral/internal/cli/agent"
+	"github.com/coral-mesh/coral/internal/cli/ask"
+	"github.com/coral-mesh/coral/internal/cli/colony"
+	"github.com/coral-mesh/coral/internal/cli/config"
+	"github.com/coral-mesh/coral/internal/cli/duckdb"
+	initcmd "github.com/coral-mesh/coral/internal/cli/init"
+	"github.com/coral-mesh/coral/internal/cli/proxy"
+	"github.com/coral-mesh/coral/internal/cli/tunhelper"
+	"github.com/coral-mesh/coral/pkg/version"
 )
 
 var rootCmd = &cobra.Command{

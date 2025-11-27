@@ -17,9 +17,9 @@ import (
 
 	"connectrpc.com/connect"
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-io/coral/internal/config"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // NewConfigCmd creates the config command and its subcommands.

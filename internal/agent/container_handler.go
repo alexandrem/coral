@@ -14,8 +14,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/internal/logging"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // ContainerHandler implements the container exec RPC methods for the agent (RFD 056).

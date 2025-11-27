@@ -9,9 +9,9 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/internal/agent/telemetry"
-	"github.com/coral-io/coral/internal/colony/database"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/agent/telemetry"
+	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
 // TestPullBasedTelemetry_EndToEnd tests the full pull-based telemetry flow:

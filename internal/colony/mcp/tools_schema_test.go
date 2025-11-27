@@ -8,7 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/coral-io/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // TestToolSchemaPreservation tests that tool schemas are preserved through

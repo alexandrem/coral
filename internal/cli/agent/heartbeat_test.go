@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

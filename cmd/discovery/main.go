@@ -20,13 +20,13 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
-	"github.com/coral-io/coral/internal/constants"
-	"github.com/coral-io/coral/internal/discovery"
-	"github.com/coral-io/coral/internal/discovery/registry"
-	"github.com/coral-io/coral/internal/discovery/server"
-	"github.com/coral-io/coral/internal/logging"
-	"github.com/coral-io/coral/pkg/version"
+	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
+	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/discovery"
+	"github.com/coral-mesh/coral/internal/discovery/registry"
+	"github.com/coral-mesh/coral/internal/discovery/server"
+	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/pkg/version"
 )
 
 func main() {

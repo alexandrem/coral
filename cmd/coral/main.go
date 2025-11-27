@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/coral-io/coral/internal/cli"
+	"github.com/coral-mesh/coral/internal/cli"
 )
 
 func main() {

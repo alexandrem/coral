@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
-	"github.com/coral-io/coral/internal/constants"
-	"github.com/coral-io/coral/internal/discovery"
-	"github.com/coral-io/coral/internal/discovery/registry"
+	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
+	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/discovery"
+	"github.com/coral-mesh/coral/internal/discovery/registry"
 )
 
 // testLogger returns a noop logger for tests.
