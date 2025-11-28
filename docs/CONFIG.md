@@ -82,13 +82,13 @@ observability data.
 
 #### Supported Providers for `coral ask`
 
-| Provider      | Model Examples                                                | API Key Required | Local/Cloud | MCP Tool Support | Status       |
-|---------------|---------------------------------------------------------------|------------------|-------------|------------------|--------------|
-| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported  |
-| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                        | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
-| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                          | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
-| **Ollama**    | `llama3.2`, `mistral`, `codellama`                            | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
-| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`              | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status      |
+|---------------|--------------------------------------------------------------|------------------|-------------|------------------|-------------|
+| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported |
+| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
+| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
+| **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned  |
+| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
 
 > **Important:** `coral ask` requires MCP tool calling to access observability
 > data from your colony.
@@ -201,7 +201,10 @@ ask:
 
 ## Colony Configuration
 
-Location: `~/.coral/colonies/<colony-id>.yaml`
+Locations (in priority order):
+1. `~/.coral/colonies/<colony-id>/config.yaml` (User-specific)
+2. `/etc/coral/colonies/<colony-id>.yaml` (System-wide, multi-colony)
+3. `/etc/coral/colony.yaml` (System-wide, single-colony - only if `colony_id` matches)
 
 ```yaml
 version: "1"
@@ -379,7 +382,9 @@ storage:
 
 ## Agent Configuration
 
-Location: `~/.coral/agents/<agent-id>.yaml` (Future)
+Locations (in priority order):
+1. `agent.yaml` (Local)
+2. `/etc/coral/agent.yaml` (System-wide)
 
 ```yaml
 version: "1"
@@ -396,15 +401,104 @@ telemetry:
 
 ### Agent Configuration Fields
 
-| Field                                     | Type   | Default          | Description                     |
-|-------------------------------------------|--------|------------------|---------------------------------|
-| `version`                                 | string | `"1"`            | Configuration schema version    |
-| `agent_id`                                | string | Required         | Unique agent identifier         |
-| `telemetry.enabled`                       | bool   | `false`          | Enable OpenTelemetry collection |
-| `telemetry.endpoint`                      | string | `127.0.0.1:4317` | OTLP endpoint                   |
-| `telemetry.filters.always_capture_errors` | bool   | `true`           | Always capture error traces     |
-| `telemetry.filters.latency_threshold_ms`  | float  | `500.0`          | Latency threshold for capture   |
-| `telemetry.filters.sample_rate`           | float  | `0.10`           | Sample rate (0.0-1.0)           |
+| Field                                     | Type              | Default          | Description                            |
+|-------------------------------------------|-------------------|------------------|----------------------------------------|
+| `version`                                 | string            | `"1"`            | Configuration schema version           |
+| `agent_id`                                | string            | Required         | Unique agent identifier                |
+| `telemetry.enabled`                       | bool              | `false`          | Enable OpenTelemetry collection        |
+| `telemetry.endpoint`                      | string            | `127.0.0.1:4317` | OTLP endpoint                          |
+| `telemetry.filters.always_capture_errors` | bool              | `true`           | Always capture error traces            |
+| `telemetry.filters.latency_threshold_ms`  | float             | `500.0`          | Latency threshold for capture          |
+| `telemetry.filters.sample_rate`           | float             | `0.10`           | Sample rate (0.0-1.0)                  |
+| `beyla.disabled`                          | bool              | `false`          | Disable Beyla eBPF instrumentation     |
+| `beyla.discovery.services`                | []Service         | `[]`             | List of services to instrument         |
+| `beyla.protocols.http.enabled`            | bool              | `true`           | Enable HTTP instrumentation            |
+| `beyla.protocols.http.route_patterns`     | []string          | `[]`             | URL patterns for cardinality reduction |
+| `beyla.protocols.grpc.enabled`            | bool              | `true`           | Enable gRPC instrumentation            |
+| `beyla.protocols.sql.enabled`             | bool              | `true`           | Enable SQL instrumentation             |
+| `beyla.protocols.sql.obfuscate_queries`   | bool              | `true`           | Obfuscate SQL query literals           |
+| `beyla.attributes`                        | map[string]string | `{}`             | Custom attributes for metrics/traces   |
+| `beyla.sampling.rate`                     | float             | `1.0`            | Trace sampling rate (0.0-1.0)          |
+| `beyla.limits.max_traced_connections`     | int               | `1000`           | Max concurrent tracked connections     |
+| `beyla.otlp_endpoint`                     | string            | `localhost:4318` | OTLP export endpoint                   |
+
+### Beyla Integration Configuration
+
+The `beyla` section configures the eBPF-based auto-instrumentation for the agent. This allows for zero-code observability of HTTP, gRPC, SQL, and other protocols.
+
+```yaml
+beyla:
+    disabled: false  # Enabled by default
+
+
+    # Discovery: which processes to instrument
+    discovery:
+        services:
+            # Instrument service listening on port 8080
+            -   name: "checkout-api"
+                open_port: 8080
+
+            # Instrument service by Kubernetes pod name pattern
+            -   name: "payments-api"
+                k8s_pod_name: "payments-*"
+                k8s_namespace: "prod"
+
+            # Instrument service by Kubernetes labels
+            -   name: "inventory-svc"
+                k8s_namespace: "prod"
+                k8s_pod_label:
+                    app: "inventory"
+                    version: "v2"
+
+    # Protocol-specific configuration
+    protocols:
+        http:
+            enabled: true
+            capture_headers: false  # Privacy: don't store header values
+            route_patterns: # Cardinality reduction
+                - "/api/v1/users/:id"
+                - "/api/v1/orders/:id"
+                - "/api/v1/products/:id"
+
+        grpc:
+            enabled: true
+
+        sql:
+            enabled: true
+            obfuscate_queries: true  # Replace literals with "?"
+
+        kafka:
+            enabled: false
+
+        redis:
+            enabled: false
+
+    # Attributes to add to all metrics/traces
+    attributes:
+        environment: "production"
+        cluster: "us-west-2"
+        colony_id: "colony-abc123"
+        region: "us-west-2"
+
+    # Performance tuning
+    sampling:
+        rate: 1.0  # 100% sampling (adjust if overhead too high)
+
+    # Resource limits
+    limits:
+        max_traced_connections: 1000  # Prevent memory exhaustion
+        ring_buffer_size: 65536
+
+    # OTLP endpoint (local receiver from RFD 025)
+    otlp_endpoint: "localhost:4318"
+```
+
+#### Beyla Configuration Fields
+
+| Field                                   | Type              | Default          | Description                            |
+|-----------------------------------------|-------------------|------------------|----------------------------------------|
+
+
 
 ## Environment Variables
 

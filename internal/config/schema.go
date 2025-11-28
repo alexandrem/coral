@@ -200,7 +200,7 @@ type ProjectStorage struct {
 
 // BeylaConfig contains Beyla integration configuration (RFD 032).
 type BeylaConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Disabled bool `yaml:"disabled"`
 
 	// Discovery configuration.
 	Discovery BeylaDiscoveryConfig `yaml:"discovery"`
@@ -374,40 +374,65 @@ func DefaultProjectConfig(colonyID string) *ProjectConfig {
 
 // AgentConfig represents agent-specific configuration (RFD 025).
 type AgentConfig struct {
-	Version   string          `yaml:"version"`
-	AgentID   string          `yaml:"agent_id"`
-	Telemetry TelemetryConfig `yaml:"telemetry"`
-}
-
-// TelemetryConfig contains OpenTelemetry ingestion settings (RFD 025).
-type TelemetryConfig struct {
-	Enabled  bool          `yaml:"enabled"`
-	Endpoint string        `yaml:"endpoint"`
-	Filters  FiltersConfig `yaml:"filters"`
-}
-
-// FiltersConfig contains static filtering rules for telemetry (RFD 025).
-type FiltersConfig struct {
-	AlwaysCaptureErrors bool    `yaml:"always_capture_errors"`
-	LatencyThresholdMs  float64 `yaml:"latency_threshold_ms"`
-	SampleRate          float64 `yaml:"sample_rate"`
+	Agent struct {
+		Runtime string `yaml:"runtime"` // auto, native, docker, kubernetes
+		Colony  struct {
+			ID           string `yaml:"id"`
+			AutoDiscover bool   `yaml:"auto_discover"`
+		} `yaml:"colony"`
+		NAT struct {
+			STUNServers []string `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
+			EnableRelay bool     `yaml:"enable_relay,omitempty"` // Enable relay fallback
+		} `yaml:"nat,omitempty"`
+	} `yaml:"agent"`
+	Telemetry struct {
+		Disabled              bool   `yaml:"disabled"`
+		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
+		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
+		DatabasePath          string `yaml:"database_path,omitempty"`
+		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
+		Filters               struct {
+			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty"`
+			HighLatencyThresholdMs float64 `yaml:"high_latency_threshold_ms,omitempty"`
+			SampleRate             float64 `yaml:"sample_rate,omitempty"`
+		} `yaml:"filters,omitempty"`
+	} `yaml:"telemetry,omitempty"`
+	Services []struct {
+		Name           string `yaml:"name"`
+		Port           int    `yaml:"port"`
+		HealthEndpoint string `yaml:"health_endpoint,omitempty"`
+		Type           string `yaml:"type,omitempty"`
+	} `yaml:"services"`
+	Beyla BeylaConfig `yaml:"beyla,omitempty"`
 }
 
 // DefaultAgentConfig returns an agent config with sensible defaults.
-func DefaultAgentConfig(agentID string) *AgentConfig {
-	return &AgentConfig{
-		Version: SchemaVersion,
-		AgentID: agentID,
-		Telemetry: TelemetryConfig{
-			Enabled:  false,
-			Endpoint: "127.0.0.1:4317",
-			Filters: FiltersConfig{
-				AlwaysCaptureErrors: true,
-				LatencyThresholdMs:  500.0,
-				SampleRate:          0.10,
-			},
-		},
-	}
+func DefaultAgentConfig() *AgentConfig {
+	cfg := &AgentConfig{}
+
+	// Agent defaults
+	cfg.Agent.Runtime = "auto"
+	cfg.Agent.Colony.AutoDiscover = true
+	cfg.Agent.NAT.STUNServers = []string{constants.DefaultSTUNServer}
+
+	// Telemetry defaults
+	cfg.Telemetry.Disabled = false
+	cfg.Telemetry.GRPCEndpoint = "0.0.0.0:4317"
+	cfg.Telemetry.HTTPEndpoint = "0.0.0.0:4318"
+	cfg.Telemetry.StorageRetentionHours = 1
+	cfg.Telemetry.Filters.AlwaysCaptureErrors = true
+	cfg.Telemetry.Filters.HighLatencyThresholdMs = 500.0
+	cfg.Telemetry.Filters.SampleRate = 0.10
+
+	// Beyla defaults
+	cfg.Beyla.Disabled = false
+	cfg.Beyla.OTLPEndpoint = "127.0.0.1:4317"
+	cfg.Beyla.Protocols.HTTP.Enabled = true
+	cfg.Beyla.Protocols.GRPC.Enabled = true
+	cfg.Beyla.Protocols.SQL.Enabled = true
+	cfg.Beyla.Sampling.Rate = 1.0
+
+	return cfg
 }
 
 // ResolveMeshSubnet resolves the mesh subnet to use, with the following precedence:

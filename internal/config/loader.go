@@ -130,19 +130,42 @@ func (l *Loader) SaveGlobalConfig(config *GlobalConfig) error {
 
 // LoadColonyConfig loads a colony configuration by ID.
 func (l *Loader) LoadColonyConfig(colonyID string) (*ColonyConfig, error) {
-	path := l.ColonyConfigPath(colonyID)
+	// 1. Check user-specific config: ~/.coral/colonies/<colony-id>/config.yaml
+	userPath := l.ColonyConfigPath(colonyID)
+	if _, err := os.Stat(userPath); err == nil {
+		return loadColonyConfigFromFile(userPath)
+	}
 
+	// 2. Check system-wide multi-colony config: /etc/coral/colonies/<colony-id>.yaml
+	systemMultiPath := filepath.Join("/etc/coral/colonies", fmt.Sprintf("%s.yaml", colonyID))
+	if _, err := os.Stat(systemMultiPath); err == nil {
+		return loadColonyConfigFromFile(systemMultiPath)
+	}
+
+	// 3. Check system-wide single-colony config: /etc/coral/colony.yaml
+	// Only if it matches the requested colonyID
+	systemSinglePath := "/etc/coral/colony.yaml"
+	if _, err := os.Stat(systemSinglePath); err == nil {
+		cfg, err := loadColonyConfigFromFile(systemSinglePath)
+		if err == nil && cfg.ColonyID == colonyID {
+			return cfg, nil
+		}
+		// If it exists but fails to load or ID doesn't match, we ignore it here
+		// and fall through to "not found" error.
+	}
+
+	return nil, fmt.Errorf("colony %q not found", colonyID)
+}
+
+func loadColonyConfigFromFile(path string) (*ColonyConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("colony %q not found", colonyID)
-		}
-		return nil, fmt.Errorf("failed to read colony config: %w", err)
+		return nil, fmt.Errorf("failed to read colony config from %s: %w", path, err)
 	}
 
 	var config ColonyConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse colony config: %w", err)
+		return nil, fmt.Errorf("failed to parse colony config from %s: %w", path, err)
 	}
 
 	return &config, nil
