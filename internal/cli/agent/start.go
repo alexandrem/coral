@@ -34,40 +34,6 @@ import (
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
-// AgentConfig represents the agent configuration file.
-type AgentConfig struct {
-	Agent struct {
-		Runtime string `yaml:"runtime"` // auto, native, docker, kubernetes
-		Colony  struct {
-			ID           string `yaml:"id"`
-			AutoDiscover bool   `yaml:"auto_discover"`
-		} `yaml:"colony"`
-		NAT struct {
-			STUNServers []string `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
-			EnableRelay bool     `yaml:"enable_relay,omitempty"` // Enable relay fallback
-		} `yaml:"nat,omitempty"`
-	} `yaml:"agent"`
-	Telemetry struct {
-		Disabled              bool   `yaml:"disabled"`
-		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
-		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
-		DatabasePath          string `yaml:"database_path,omitempty"`
-		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
-		Filters               struct {
-			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty"`
-			HighLatencyThresholdMs float64 `yaml:"high_latency_threshold_ms,omitempty"`
-			SampleRate             float64 `yaml:"sample_rate,omitempty"`
-		} `yaml:"filters,omitempty"`
-	} `yaml:"telemetry,omitempty"`
-	Services []struct {
-		Name           string `yaml:"name"`
-		Port           int    `yaml:"port"`
-		HealthEndpoint string `yaml:"health_endpoint,omitempty"`
-		Type           string `yaml:"type,omitempty"`
-	} `yaml:"services"`
-	Beyla config.BeylaConfig `yaml:"beyla,omitempty"`
-}
-
 // NewStartCmd creates the start command for agents.
 func NewStartCmd() *cobra.Command {
 	var (
@@ -451,13 +417,16 @@ Examples:
 
 			// Initialize Beyla configuration (RFD 032 + RFD 053).
 			var beylaConfig *beyla.Config
-			if sharedDB != nil {
-				// Start with configuration from file if enabled
-				if agentCfg.Beyla.Enabled {
-					logger.Info().Msg("Loading Beyla configuration from config file")
+			if sharedDB != nil && !agentCfg.Beyla.Disabled {
+				// Check if we have any services to monitor (configured, dynamic, or monitor-all)
+				hasConfiguredServices := len(agentCfg.Beyla.Discovery.Services) > 0
+				hasDynamicServices := len(serviceSpecs) > 0
+
+				if monitorAll || hasConfiguredServices || hasDynamicServices {
+					logger.Info().Msg("Initializing Beyla configuration")
 
 					// Convert config.BeylaConfig to beyla.Config
-					// We need to map the types manually since they are different structs
+					// We use values from agentCfg.Beyla which are populated with defaults + user overrides
 					beylaConfig = &beyla.Config{
 						Enabled:      true,
 						OTLPEndpoint: agentCfg.Beyla.OTLPEndpoint,
@@ -476,60 +445,27 @@ Examples:
 						MonitorAll:            monitorAll,
 					}
 
-					// Set defaults if not specified
-					if beylaConfig.OTLPEndpoint == "" {
-						beylaConfig.OTLPEndpoint = "127.0.0.1:4317"
-					}
-					if beylaConfig.SamplingRate == 0 {
-						beylaConfig.SamplingRate = 1.0
-					}
-
-					// Add configured services to discovery
+					// Add configured services from config file to discovery
 					for _, svc := range agentCfg.Beyla.Discovery.Services {
-						// Note: beyla.Config.Discovery is a DiscoveryConfig struct, not a slice of services
-						// We need to map the service ports/names to the DiscoveryConfig fields
 						if svc.OpenPort > 0 {
 							beylaConfig.Discovery.OpenPorts = append(beylaConfig.Discovery.OpenPorts, svc.OpenPort)
 						}
 						// TODO: Support K8s discovery mapping when available in beyla.DiscoveryConfig
 					}
-				} else {
-					// Default configuration if not in file but we have services or monitor-all
-					if monitorAll || len(serviceSpecs) > 0 {
-						beylaConfig = &beyla.Config{
-							Enabled:      true,
-							OTLPEndpoint: "127.0.0.1:4317", // Local OTLP gRPC receiver
-							Protocols: beyla.ProtocolsConfig{
-								HTTPEnabled: true,
-								GRPCEnabled: true,
-								SQLEnabled:  true,
-							},
-							DB:                    sharedDB,
-							DBPath:                sharedDBPath,
-							StorageRetentionHours: 1, // Default: 1 hour
-							MonitorAll:            monitorAll,
-						}
-					}
-				}
 
-				// If we have a config (either from file or default), add dynamic ports
-				if beylaConfig != nil {
-					// Extract ports from services for Beyla discovery (RFD 053).
-					discoveryPorts := make([]int, 0, len(serviceSpecs))
+					// Add dynamic ports from services (RFD 053)
 					for _, spec := range serviceSpecs {
-						discoveryPorts = append(discoveryPorts, int(spec.Port))
+						beylaConfig.Discovery.OpenPorts = append(beylaConfig.Discovery.OpenPorts, int(spec.Port))
 					}
-
-					beylaConfig.Discovery.OpenPorts = discoveryPorts
 
 					if monitorAll {
 						logger.Info().Msg("Monitor-all mode enabled - Beyla will instrument all listening processes")
-					} else if len(serviceSpecs) == 0 && len(beylaConfig.Discovery.OpenPorts) == 0 {
-						logger.Info().Msg("No services configured - Beyla will not start (use --monitor-all or --connect to enable)")
-						// If explicitly enabled in config but no services, we still keep it non-nil
-						// so the manager starts and waits for dynamic services
 					}
+				} else {
+					logger.Info().Msg("No services configured - Beyla will not start (use --monitor-all or --connect to enable)")
 				}
+			} else if agentCfg.Beyla.Disabled {
+				logger.Info().Msg("Beyla explicitly disabled in configuration")
 			}
 
 			// Close shared database LAST (defer added first = executes last in LIFO order).
@@ -836,16 +772,18 @@ Examples:
 }
 
 // loadAgentConfig loads agent configuration from file and environment variables.
-func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfig, []*ServiceSpec, *AgentConfig, error) {
-	agentCfg := &AgentConfig{}
+func loadAgentConfig(
+	configFile, colonyIDOverride string,
+) (*config.ResolvedConfig, []*ServiceSpec, *config.AgentConfig, error) {
+	agentCfg := config.DefaultAgentConfig()
 	var serviceSpecs []*ServiceSpec
 
 	// Try to load config file.
 	if configFile == "" {
 		// Check default locations.
 		defaultPaths := []string{
-			"/etc/coral/agent.yaml",
 			"./agent.yaml",
+			"/etc/coral/agent.yaml",
 		}
 		for _, path := range defaultPaths {
 			if _, err := os.Stat(path); err == nil {
@@ -927,7 +865,7 @@ func loadAgentConfig(configFile, colonyIDOverride string) (*config.ResolvedConfi
 
 // getSTUNServers determines which STUN servers to use for NAT traversal.
 // Priority: env variable > agent config > discovery response > default.
-func getSTUNServers(agentCfg *AgentConfig, colonyInfo *discoverypb.LookupColonyResponse) []string {
+func getSTUNServers(agentCfg *config.AgentConfig, _ *discoverypb.LookupColonyResponse) []string {
 	// Check environment variable first
 	envSTUN := os.Getenv("CORAL_STUN_SERVERS")
 	if envSTUN != "" {

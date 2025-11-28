@@ -82,13 +82,13 @@ observability data.
 
 #### Supported Providers for `coral ask`
 
-| Provider      | Model Examples                                                | API Key Required | Local/Cloud | MCP Tool Support | Status       |
-|---------------|---------------------------------------------------------------|------------------|-------------|------------------|--------------|
-| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported  |
-| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                        | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
-| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                          | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
-| **Ollama**    | `llama3.2`, `mistral`, `codellama`                            | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
-| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`              | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status      |
+|---------------|--------------------------------------------------------------|------------------|-------------|------------------|-------------|
+| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported |
+| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
+| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
+| **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned  |
+| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
 
 > **Important:** `coral ask` requires MCP tool calling to access observability
 > data from your colony.
@@ -201,7 +201,10 @@ ask:
 
 ## Colony Configuration
 
-Location: `~/.coral/colonies/<colony-id>.yaml`
+Locations (in priority order):
+1. `~/.coral/colonies/<colony-id>/config.yaml` (User-specific)
+2. `/etc/coral/colonies/<colony-id>.yaml` (System-wide, multi-colony)
+3. `/etc/coral/colony.yaml` (System-wide, single-colony - only if `colony_id` matches)
 
 ```yaml
 version: "1"
@@ -379,7 +382,9 @@ storage:
 
 ## Agent Configuration
 
-Location: `~/.coral/agents/<agent-id>.yaml` (Future)
+Locations (in priority order):
+1. `agent.yaml` (Local)
+2. `/etc/coral/agent.yaml` (System-wide)
 
 ```yaml
 version: "1"
@@ -396,15 +401,26 @@ telemetry:
 
 ### Agent Configuration Fields
 
-| Field                                     | Type   | Default          | Description                     |
-|-------------------------------------------|--------|------------------|---------------------------------|
-| `version`                                 | string | `"1"`            | Configuration schema version    |
-| `agent_id`                                | string | Required         | Unique agent identifier         |
-| `telemetry.enabled`                       | bool   | `false`          | Enable OpenTelemetry collection |
-| `telemetry.endpoint`                      | string | `127.0.0.1:4317` | OTLP endpoint                   |
-| `telemetry.filters.always_capture_errors` | bool   | `true`           | Always capture error traces     |
-| `telemetry.filters.latency_threshold_ms`  | float  | `500.0`          | Latency threshold for capture   |
-| `telemetry.filters.sample_rate`           | float  | `0.10`           | Sample rate (0.0-1.0)           |
+| Field                                     | Type              | Default          | Description                            |
+|-------------------------------------------|-------------------|------------------|----------------------------------------|
+| `version`                                 | string            | `"1"`            | Configuration schema version           |
+| `agent_id`                                | string            | Required         | Unique agent identifier                |
+| `telemetry.enabled`                       | bool              | `false`          | Enable OpenTelemetry collection        |
+| `telemetry.endpoint`                      | string            | `127.0.0.1:4317` | OTLP endpoint                          |
+| `telemetry.filters.always_capture_errors` | bool              | `true`           | Always capture error traces            |
+| `telemetry.filters.latency_threshold_ms`  | float             | `500.0`          | Latency threshold for capture          |
+| `telemetry.filters.sample_rate`           | float             | `0.10`           | Sample rate (0.0-1.0)                  |
+| `beyla.disabled`                          | bool              | `false`          | Disable Beyla eBPF instrumentation     |
+| `beyla.discovery.services`                | []Service         | `[]`             | List of services to instrument         |
+| `beyla.protocols.http.enabled`            | bool              | `true`           | Enable HTTP instrumentation            |
+| `beyla.protocols.http.route_patterns`     | []string          | `[]`             | URL patterns for cardinality reduction |
+| `beyla.protocols.grpc.enabled`            | bool              | `true`           | Enable gRPC instrumentation            |
+| `beyla.protocols.sql.enabled`             | bool              | `true`           | Enable SQL instrumentation             |
+| `beyla.protocols.sql.obfuscate_queries`   | bool              | `true`           | Obfuscate SQL query literals           |
+| `beyla.attributes`                        | map[string]string | `{}`             | Custom attributes for metrics/traces   |
+| `beyla.sampling.rate`                     | float             | `1.0`            | Trace sampling rate (0.0-1.0)          |
+| `beyla.limits.max_traced_connections`     | int               | `1000`           | Max concurrent tracked connections     |
+| `beyla.otlp_endpoint`                     | string            | `localhost:4318` | OTLP export endpoint                   |
 
 ### Beyla Integration Configuration
 
@@ -412,7 +428,8 @@ The `beyla` section configures the eBPF-based auto-instrumentation for the agent
 
 ```yaml
 beyla:
-    enabled: true
+    disabled: false  # Enabled by default
+
 
     # Discovery: which processes to instrument
     discovery:
@@ -478,19 +495,9 @@ beyla:
 
 #### Beyla Configuration Fields
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `beyla.enabled` | bool | `false` | Enable Beyla eBPF instrumentation |
-| `beyla.discovery.services` | []Service | `[]` | List of services to instrument |
-| `beyla.protocols.http.enabled` | bool | `true` | Enable HTTP instrumentation |
-| `beyla.protocols.http.route_patterns` | []string | `[]` | URL patterns for cardinality reduction |
-| `beyla.protocols.grpc.enabled` | bool | `true` | Enable gRPC instrumentation |
-| `beyla.protocols.sql.enabled` | bool | `true` | Enable SQL instrumentation |
-| `beyla.protocols.sql.obfuscate_queries` | bool | `true` | Obfuscate SQL query literals |
-| `beyla.attributes` | map[string]string | `{}` | Custom attributes for metrics/traces |
-| `beyla.sampling.rate` | float | `1.0` | Trace sampling rate (0.0-1.0) |
-| `beyla.limits.max_traced_connections` | int | `1000` | Max concurrent tracked connections |
-| `beyla.otlp_endpoint` | string | `localhost:4318` | OTLP export endpoint |
+| Field                                   | Type              | Default          | Description                            |
+|-----------------------------------------|-------------------|------------------|----------------------------------------|
+
 
 
 ## Environment Variables
