@@ -1,6 +1,6 @@
-# Coral - Unified Operations for Distributed Apps
+# Coral - LLM-orchestrated debugging for Distributed Apps
 
-**Status**: Design phase • **Docs**: `docs/IMPLEMENTATION.md` (tech), `docs/CONCEPT.md` (vision)
+**Status**: Design phase
 
 ## Architecture
 
@@ -11,14 +11,17 @@
 
 ## Tech Stack
 
-- **Language**: Go • **Storage**: DuckDB + embedded • **AI**: Direct API (user keys)
-- **Network**: WireGuard mesh, gRPC • **Discovery**: Lightweight NAT traversal service
+- **Language**: Go
+- **Storage**: DuckDB + embedded
+- **AI**: Direct API (user keys)
+- **Network**: WireGuard mesh, gRPC
+- **Discovery**: Lightweight NAT traversal service
 
 ## Critical Rules
 
 **Testing**: All tests must pass (`make test`) before commits.
 
-**RFD*: Follow guideline in RFDs/000-RFD-TEMPLATE.md
+**RFD**: Follow guideline in RFDs/000-RFD-TEMPLATE.md
 
 **Code**: Follow Effective Go conventions, Go Doc Comments style, end comments with a dot.
 
