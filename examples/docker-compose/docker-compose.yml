@@ -17,8 +17,8 @@ services:
     command:
       - agent
       - start
-      #- --connect
-      #- demo-app:8080
+      - --connect
+      - nginx:80
     environment:
       # Config-less mode: only CORAL_COLONY_ID and CORAL_COLONY_SECRET are required.
       CORAL_COLONY_ID: ${CORAL_COLONY_ID}
