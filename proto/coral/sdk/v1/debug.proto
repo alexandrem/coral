@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package coral.sdk.v1;
+
+option go_package = "github.com/coral-mesh/coral/proto/sdk/v1;sdkv1";
+
+// SDKDebugService provides function metadata for uprobe attachment (RFD 059).
+// SDK runs an embedded gRPC server that agent queries for function offsets.
+service SDKDebugService {
+  // Get function metadata for uprobe attachment.
+  rpc GetFunctionMetadata(GetFunctionMetadataRequest) returns (GetFunctionMetadataResponse);
+
+  // List all instrumentable functions.
+  rpc ListFunctions(ListFunctionsRequest) returns (ListFunctionsResponse);
+}
+
+// GetFunctionMetadataRequest requests metadata for a specific function.
+message GetFunctionMetadataRequest {
+  string function_name = 1;  // Fully qualified: "github.com/myapp/pkg.ValidateCard"
+}
+
+// GetFunctionMetadataResponse returns function metadata or error.
+message GetFunctionMetadataResponse {
+  bool found = 1;
+  FunctionMetadata metadata = 2;
+  string error = 3;
+}
+
+// FunctionMetadata contains all information needed for uprobe attachment.
+message FunctionMetadata {
+  string name = 1;                  // Fully qualified name
+  string binary_path = 2;           // Path to executable
+  uint64 offset = 3;                // Function offset in binary
+  uint32 pid = 4;                   // Process ID
+
+  // Argument metadata (from DWARF debug info).
+  repeated ArgumentMetadata arguments = 5;
+  repeated ReturnValueMetadata return_values = 6;
+}
+
+// ArgumentMetadata describes a function argument.
+message ArgumentMetadata {
+  string name = 1;
+  string type = 2;                  // Go type string
+  uint64 offset = 3;                // Stack/register offset
+}
+
+// ReturnValueMetadata describes a return value.
+message ReturnValueMetadata {
+  string type = 1;
+  uint64 offset = 2;
+}
+
+// ListFunctionsRequest requests all instrumentable functions.
+message ListFunctionsRequest {
+  string package_pattern = 1;       // e.g., "github.com/myapp/*"
+}
+
+// ListFunctionsResponse returns available functions.
+message ListFunctionsResponse {
+  repeated string functions = 1;    // List of fully qualified function names
+}

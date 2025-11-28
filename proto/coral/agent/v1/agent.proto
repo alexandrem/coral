@@ -315,6 +315,7 @@ enum EbpfCollectorKind {
   EBPF_COLLECTOR_KIND_HTTP_LATENCY = 2;
   EBPF_COLLECTOR_KIND_CPU_PROFILE = 3;
   EBPF_COLLECTOR_KIND_TCP_METRICS = 4;
+  EBPF_COLLECTOR_KIND_UPROBE = 5;  // RFD 059 - Application-level function debugging
 }
 
 // EbpfCapabilities describes what eBPF features are supported on an agent (RFD 013).

@@ -1,7 +1,7 @@
 ---
 rfd: "059"
 title: "Live Debugging Architecture"
-state: "draft"
+state: "in-progress"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "architecture", "debugging", "observability" ]
 
 # RFD 059 - Live Debugging Architecture
 
-**Status:** 🚧 Draft
+**Status:** 🔄 In Progress
 
 ## Summary
 
@@ -219,6 +219,53 @@ CREATE TABLE uprobe_events
    requester's identity.
 4. **Resource Limits**: The Agent enforces limits on the number of concurrent
    probes and event rates (see RFD 060).
+
+---
+
+## Implementation Status
+
+**Core Capability:** 🔄 In Progress
+
+Implementation is proceeding in phases as outlined in [059-implementation-plan.md](059-implementation-plan.md). The protocol definitions and API contracts are complete, establishing the foundation for uprobe-based debugging.
+
+**Completed Components:**
+
+- ✅ **Protocol Definitions** (Phase 1.1):
+  - Protobuf messages for uprobe collectors (`coral/mesh/v1/ebpf.proto`)
+  - Colony Debug Service API (`coral/colony/v1/debug.proto`)
+  - SDK Debug Service API (`coral/sdk/v1/debug.proto`)
+  - Generated Go code with Connect-RPC bindings
+  - All tests passing
+
+**Operational Components:**
+
+Currently none - core protocol foundation is complete, but implementation of collectors, SDK, and orchestration is pending.
+
+**What Works Now:**
+
+- API contracts are defined and code-generated
+- Type-safe protobuf messages for uprobe events, function metadata, and debug sessions
+- gRPC service definitions for Colony ↔ Agent and Agent ↔ SDK communication
+
+**Integration Status:**
+
+The following components are in progress:
+
+- ⏳ SDK Function Metadata Provider (Phase 1.2) - DWARF parsing and offset resolution
+- ⏳ Uprobe Collector Implementation (Phase 2) - eBPF program and event collection
+- ⏳ Colony Debug Orchestrator (Phase 3) - Session management and routing
+- ⏳ CLI Debug Commands (Phase 4) - User-facing debug interface
+
+**Next Steps:**
+
+1. Implement SDK metadata provider with DWARF parsing for function offset discovery
+2. Build uprobe collector using `cilium/ebpf` library
+3. Implement Colony orchestrator for session management
+4. Add CLI commands for debug operations
+
+See [059-implementation-plan.md](059-implementation-plan.md) for detailed implementation roadmap.
+
+---
 
 ## Future Work
 

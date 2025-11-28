@@ -201,6 +201,7 @@ const (
 	EbpfCollectorKind_EBPF_COLLECTOR_KIND_HTTP_LATENCY  EbpfCollectorKind = 2
 	EbpfCollectorKind_EBPF_COLLECTOR_KIND_CPU_PROFILE   EbpfCollectorKind = 3
 	EbpfCollectorKind_EBPF_COLLECTOR_KIND_TCP_METRICS   EbpfCollectorKind = 4
+	EbpfCollectorKind_EBPF_COLLECTOR_KIND_UPROBE        EbpfCollectorKind = 5 // RFD 059 - Application-level function debugging
 )
 
 // Enum value maps for EbpfCollectorKind.
@@ -211,6 +212,7 @@ var (
 		2: "EBPF_COLLECTOR_KIND_HTTP_LATENCY",
 		3: "EBPF_COLLECTOR_KIND_CPU_PROFILE",
 		4: "EBPF_COLLECTOR_KIND_TCP_METRICS",
+		5: "EBPF_COLLECTOR_KIND_UPROBE",
 	}
 	EbpfCollectorKind_value = map[string]int32{
 		"EBPF_COLLECTOR_KIND_UNSPECIFIED":   0,
@@ -218,6 +220,7 @@ var (
 		"EBPF_COLLECTOR_KIND_HTTP_LATENCY":  2,
 		"EBPF_COLLECTOR_KIND_CPU_PROFILE":   3,
 		"EBPF_COLLECTOR_KIND_TCP_METRICS":   4,
+		"EBPF_COLLECTOR_KIND_UPROBE":        5,
 	}
 )
 
@@ -4000,13 +4003,14 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x14SIDECAR_MODE_UNKNOWN\x10\x00\x12\x14\n" +
 	"\x10SIDECAR_MODE_CRI\x10\x01\x12\x1a\n" +
 	"\x16SIDECAR_MODE_SHARED_NS\x10\x02\x12\x18\n" +
-	"\x14SIDECAR_MODE_PASSIVE\x10\x03*\xcf\x01\n" +
+	"\x14SIDECAR_MODE_PASSIVE\x10\x03*\xef\x01\n" +
 	"\x11EbpfCollectorKind\x12#\n" +
 	"\x1fEBPF_COLLECTOR_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!EBPF_COLLECTOR_KIND_SYSCALL_STATS\x10\x01\x12$\n" +
 	" EBPF_COLLECTOR_KIND_HTTP_LATENCY\x10\x02\x12#\n" +
 	"\x1fEBPF_COLLECTOR_KIND_CPU_PROFILE\x10\x03\x12#\n" +
-	"\x1fEBPF_COLLECTOR_KIND_TCP_METRICS\x10\x04*\x87\x01\n" +
+	"\x1fEBPF_COLLECTOR_KIND_TCP_METRICS\x10\x04\x12\x1e\n" +
+	"\x1aEBPF_COLLECTOR_KIND_UPROBE\x10\x05*\x87\x01\n" +
 	"\x0fBeylaMetricType\x12!\n" +
 	"\x1dBEYLA_METRIC_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16BEYLA_METRIC_TYPE_HTTP\x10\x01\x12\x1a\n" +

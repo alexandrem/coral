@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package coral.colony.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "coral/mesh/v1/ebpf.proto";
+
+option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
+
+// DebugService handles live debugging operations (RFD 059).
+service DebugService {
+  // Start uprobe debug session.
+  rpc AttachUprobe(AttachUprobeRequest) returns (AttachUprobeResponse);
+
+  // Stop uprobe session.
+  rpc DetachUprobe(DetachUprobeRequest) returns (DetachUprobeResponse);
+
+  // Query uprobe events (pull-based, like Beyla).
+  rpc QueryUprobeEvents(QueryUprobeEventsRequest) returns (QueryUprobeEventsResponse);
+
+  // List active debug sessions.
+  rpc ListDebugSessions(ListDebugSessionsRequest) returns (ListDebugSessionsResponse);
+}
+
+// AttachUprobeRequest initiates a debug session on a specific function.
+message AttachUprobeRequest {
+  string service_name = 1;
+  string function_name = 2;
+  google.protobuf.Duration duration = 3;  // Default: 60s, Max: 600s
+  coral.mesh.v1.UprobeConfig config = 4;
+}
+
+// AttachUprobeResponse confirms debug session creation.
+message AttachUprobeResponse {
+  string session_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  bool success = 3;
+  string error = 4;
+}
+
+// DetachUprobeRequest stops a debug session early.
+message DetachUprobeRequest {
+  string session_id = 1;
+}
+
+// DetachUprobeResponse confirms session termination.
+message DetachUprobeResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// QueryUprobeEventsRequest retrieves events from a debug session.
+message QueryUprobeEventsRequest {
+  string session_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  int32 max_events = 4;             // Pagination
+}
+
+// QueryUprobeEventsResponse returns captured events.
+message QueryUprobeEventsResponse {
+  repeated coral.mesh.v1.UprobeEvent events = 1;
+  bool has_more = 2;                // Pagination indicator
+}
+
+// ListDebugSessionsRequest retrieves active debug sessions.
+message ListDebugSessionsRequest {
+  // Optional filter by service name.
+  string service_name = 1;
+}
+
+// ListDebugSessionsResponse returns active sessions.
+message ListDebugSessionsResponse {
+  repeated DebugSession sessions = 1;
+}
+
+// DebugSession represents an active or completed debug session.
+message DebugSession {
+  string session_id = 1;
+  string service_name = 2;
+  string function_name = 3;
+  string agent_id = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  string status = 7;                // "active", "expired", "stopped"
+  string requested_by = 8;          // User who initiated session
+  int32 event_count = 9;            // Number of events collected
+}
