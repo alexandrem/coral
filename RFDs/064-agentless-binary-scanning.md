@@ -57,19 +57,71 @@ SDK.
 **This is a fallback mechanism** - SDK integration (RFD 060) is still preferred
 when possible.
 
+### Alternative: pprof-Based Discovery
+
+Many Go applications already expose `net/http/pprof` for profiling. We can leverage this for zero-config function discovery:
+
+```go
+import _ "net/http/pprof"  // Many apps already have this!
+
+http.ListenAndServe(":6060", nil)
+```
+
+**Agent can extract function information from pprof endpoints:**
+
+1. **Discovery**: Agent finds pprof HTTP endpoint (port 6060, or via service annotation)
+2. **Profile fetch**: GET `/debug/pprof/allocs` or `/debug/pprof/profile?seconds=1`
+3. **Parse profile**: Extract function names + PC addresses from protobuf
+4. **Attach uprobes**: Use extracted addresses
+
+**Benefits over binary scanning:**
+- ✅ **Works with stripped binaries** (uses runtime reflection, no DWARF needed)
+- ✅ **No filesystem access** (HTTP-based)
+- ✅ **No namespace complications** (network call, not filesystem)
+- ✅ **Already enabled** in many apps (especially in dev/staging)
+
+**Limitations:**
+- ⚠️ **Incomplete coverage**: Only functions that have been called (CPU profile) or allocated (heap profile)
+- ⚠️ **Security**: pprof exposes sensitive data (heap dumps, goroutine stacks)
+- ⚠️ **Not always accessible**: Production apps often disable pprof or firewall it
+
+**Use case:** Quick function discovery for apps that already expose pprof, without needing DWARF symbols or SDK integration.
+
+### Discovery Strategy Priority
+
+```
+Priority 1: SDK (RFD 060)
+  ├─ Best: Complete coverage, auto-updates, works everywhere
+  └─ Requires: Code changes (import SDK)
+       ↓ fallback
+Priority 2: pprof endpoints (THIS RFD)
+  ├─ Good: No code changes (if already enabled), works with stripped binaries
+  ├─ Limitation: Incomplete coverage (only called functions)
+  └─ Requires: pprof exposed, network access
+       ↓ fallback
+Priority 3: Binary DWARF scanning (THIS RFD)
+  ├─ Good: Complete coverage, no network dependency
+  ├─ Limitation: Requires DWARF symbols
+  └─ Requires: Filesystem access, CAP_SYS_ADMIN
+       ↓ fallback
+Priority 4: Fail + suggest SDK integration
+```
+
 ### Comparison Table
 
-| Aspect                    | SDK Integration (RFD 060)          | External Scanning (RFD 064)     |
-|:--------------------------|:-----------------------------------|:--------------------------------|
-| **Code changes**          | Required (import SDK)              | None                            |
-| **Binary size**           | +2-5MB (SDK)                       | No change                       |
-| **Runtime overhead**      | ~10MB RAM, 1 goroutine             | None                            |
-| **Language support**      | Per-language SDK needed            | Works for any compiled language |
-| **DWARF requirement**     | Optional (has reflection fallback) | **Required** (no fallback)      |
-| **Container access**      | Works in all scenarios             | ⚠️ Challenges in K8s            |
-| **Binary updates**        | Auto-detects                       | Needs re-scan logic             |
-| **Interpreted languages** | Possible (language-specific)       | ❌ Not possible                  |
-| **Security**              | Narrow boundary (metadata only)    | Requires binary read access     |
+| Aspect | SDK (RFD 060) | pprof Discovery | Binary Scan (DWARF) |
+|:-------|:--------------|:----------------|:--------------------|
+| **Code changes** | Required | None (if already enabled) | None |
+| **Binary size** | +2-5MB | No change | No change |
+| **Runtime overhead** | ~10MB RAM | Profile fetch (~1s) | None |
+| **Stripped binaries** | ✅ Works (reflection) | ✅ Works (runtime) | ❌ Fails (needs DWARF) |
+| **Function coverage** | ✅ All functions | ⚠️ Only called functions | ✅ All functions (DWARF) |
+| **Container access** | ✅ Always works | ✅ HTTP (network) | ⚠️ nsenter (filesystem) |
+| **Binary updates** | ✅ Auto-detects | ⚠️ Needs re-profile | ⚠️ Needs re-scan |
+| **Network access** | gRPC (agent→app) | HTTP (agent→app) | None needed |
+| **Permissions** | None | None | CAP_SYS_ADMIN |
+| **Security** | ✅ Narrow (metadata) | ⚠️ Sensitive (heap/stack) | ⚠️ Broad (binary access) |
+| **Availability** | Rare (new apps) | Common (many apps) | Always (filesystem) |
 
 ## Architecture
 
@@ -380,180 +432,3 @@ This provides maximum flexibility while maintaining a great default UX.
 - nsenter: https://man7.org/linux/man-pages/man1/nsenter.1.html
 - DWARF debugging format: http://dwarfstd.org/
 - ELF format: https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
-
-## Appendix: Prototype Implementation
-
-### 1. Binary Discovery
-
-**Challenge: Find binary for a given PID**
-
-```go
-// internal/agent/discovery/binary.go
-package discovery
-
-import (
-    "fmt"
-    "os"
-    "path/filepath"
-)
-
-// GetBinaryPath returns the path to the executable for a given PID.
-func GetBinaryPath(pid int) (string, error) {
-    // Method 1: Read /proc/<pid>/exe symlink
-    exeLink := fmt.Sprintf("/proc/%d/exe", pid)
-    binaryPath, err := os.Readlink(exeLink)
-    if err != nil {
-        return "", fmt.Errorf("failed to read exe symlink: %w", err)
-    }
-
-    // Handle "(deleted)" suffix (binary was deleted after process started)
-    // Common in containers where binary is on ephemeral layer
-    binaryPath = strings.TrimSuffix(binaryPath, " (deleted)")
-
-    return binaryPath, nil
-}
-```
-
-### 2. Container Namespace Handling
-
-**Challenge: Binary path is in container's mount namespace, not host**
-
-```go
-// CopyBinaryFromContainer copies binary from container to host for parsing.
-func CopyBinaryFromContainer(pid int) (string, error) {
-    // 1. Get binary path (in container namespace)
-    containerPath, err := GetBinaryPath(pid)
-    if err != nil {
-        return "", err
-    }
-
-    // 2. Use nsenter to access container's mount namespace
-    tmpFile := filepath.Join("/tmp", fmt.Sprintf("binary-%d", pid))
-    cmd := exec.Command(
-        "nsenter",
-        "-t", fmt.Sprintf("%d", pid),
-        "-m",  // Enter mount namespace
-        "cat", containerPath,
-    )
-
-    output, err := cmd.Output()
-    if err != nil {
-        return "", fmt.Errorf("failed to copy binary: %w", err)
-    }
-
-    // 3. Write to temporary file on host
-    if err := os.WriteFile(tmpFile, output, 0644); err != nil {
-        return "", err
-    }
-
-    return tmpFile, nil
-}
-```
-
-**Security Note:** This requires `CAP_SYS_ADMIN` for the agent.
-
-### 3. DWARF Parsing
-
-**Same as SDK approach, but agent does it:**
-
-```go
-// internal/agent/discovery/dwarf.go
-package discovery
-
-import (
-    "debug/dwarf"
-    "debug/elf"
-    "fmt"
-)
-
-type FunctionInfo struct {
-    Name   string
-    Offset uint64
-    File   string
-    Line   uint32
-}
-
-// ParseDWARF extracts function offsets from binary.
-func ParseDWARF(binaryPath string) ([]FunctionInfo, error) {
-    // 1. Open ELF file
-    elfFile, err := elf.Open(binaryPath)
-    if err != nil {
-        return nil, fmt.Errorf("failed to open ELF: %w", err)
-    }
-    defer elfFile.Close()
-
-    // 2. Parse DWARF
-    dwarfData, err := elfFile.DWARF()
-    if err != nil {
-        return nil, fmt.Errorf("no DWARF debug info: %w", err)
-    }
-
-    // 3. Extract functions
-    var functions []FunctionInfo
-    reader := dwarfData.Reader()
-    for {
-        entry, err := reader.Next()
-        if entry == nil || err != nil {
-            break
-        }
-
-        if entry.Tag == dwarf.TagSubprogram {
-            nameAttr := entry.Val(dwarf.AttrName)
-            lowPCAttr := entry.Val(dwarf.AttrLowpc)
-
-            if nameAttr != nil && lowPCAttr != nil {
-                functions = append(functions, FunctionInfo{
-                    Name:   nameAttr.(string),
-                    Offset: lowPCAttr.(uint64),
-                    // TODO: Extract file, line from DWARF
-                })
-            }
-        }
-    }
-
-    return functions, nil
-}
-```
-
-### 5. Integration with Uprobe Attachment
-
-```go
-// internal/agent/debug/uprobe.go (modified)
-package debug
-
-// AttachUprobeWithoutSDK attaches uprobe by scanning binary directly.
-func (m *DebugSessionManager) AttachUprobeWithoutSDK(
-    pid int,
-    functionName string,
-    duration time.Duration,
-) error {
-    // 1. Copy binary from container
-    binaryPath, err := discovery.CopyBinaryFromContainer(pid)
-    if err != nil {
-        return fmt.Errorf("failed to copy binary: %w", err)
-    }
-    defer os.Remove(binaryPath)
-
-    // 2. Get functions from cache or parse DWARF
-    functions, err := m.binaryCache.GetFunctions(binaryPath)
-    if err != nil {
-        return fmt.Errorf("failed to parse binary: %w", err)
-    }
-
-    // 3. Find target function
-    var offset uint64
-    for _, fn := range functions {
-        if fn.Name == functionName {
-            offset = fn.Offset
-            break
-        }
-    }
-
-    if offset == 0 {
-        return fmt.Errorf("function %s not found", functionName)
-    }
-
-    // 4. Attach uprobe (same as SDK approach)
-    return m.AttachUprobe(pid, binaryPath, offset, sessionID)
-}
-```
