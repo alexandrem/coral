@@ -1,5 +1,5 @@
 ---
-rfd: "058"
+rfd: "059"
 title: "Live Debugging Architecture"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "architecture", "debugging", "observability" ]
 ---
 
-# RFD 058 - Live Debugging Architecture
+# RFD 059 - Live Debugging Architecture
 
 **Status:** 🚧 Draft
 
@@ -24,11 +24,11 @@ sessions between the Colony, Agents, and Applications.
 
 Detailed implementation specifications are split into:
 
-- **RFD 059**: [SDK Runtime Monitoring](059-sdk-runtime-monitoring.md) (
+- **RFD 060**: [SDK Runtime Monitoring](060-sdk-runtime-monitoring.md) (
   Application side)
-- **RFD 060**: [eBPF Uprobe Mechanism](060-ebpf-uprobe-mechanism.md) (Agent
+- **RFD 061**: [eBPF Uprobe Mechanism](061-ebpf-uprobe-mechanism.md) (Agent
   side)
-- **RFD 061**: [Live Debugging UX & AI](061-live-debugging-ux.md) (User side)
+- **RFD 062**: [Live Debugging UX & AI](062-live-debugging-ux.md) (User side)
 
 ## Problem
 
@@ -84,13 +84,13 @@ graph TD
 ### Key Components
 
 1. **Application (SDK)**: Exposes function names and memory offsets. (
-   See [RFD 059](059-sdk-runtime-monitoring.md))
+   See [RFD 060](060-sdk-runtime-monitoring.md))
 2. **Agent**: Manages the eBPF lifecycle, attaching probes to target PIDs and
-   streaming events. (See [RFD 060](060-ebpf-uprobe-mechanism.md))
+   streaming events. (See [RFD 061](061-ebpf-uprobe-mechanism.md))
 3. **Colony**: Central registry for active sessions, routing requests to the
    correct agents, and storing historical data.
 4. **CLI/AI**: The interface for users to request debug sessions. (
-   See [RFD 061](061-live-debugging-ux.md))
+   See [RFD 062](062-live-debugging-ux.md))
 
 ## Service Discovery & Capabilities
 
