@@ -1,31 +1,196 @@
 ---
 rfd: "013"
 title: "eBPF-Based Application Introspection"
-state: "draft"
+state: "partially-deprecated"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
 dependencies: ["007", "011", "012"]
+superseded_by: ["032"]
 database_migrations: []
 areas: ["observability", "profiling", "networking", "security"]
 ---
 
 # RFD 013 - eBPF-Based Application Introspection
 
-**Status:** 🚧 Partial Implementation (Minimal MVP Complete - 2025-11-08)
+**Status**: ⚠️ Partially Deprecated (Superseded by RFD 032)
 
-**Implementation Progress:**
-- ✅ Protobuf definitions and capability detection
-- ✅ Agent integration with eBPF manager
-- ✅ Status reporting in registration and runtime context
-- ❌ Real eBPF programs (stub implementation only)
-- ❌ Colony integration and storage
-- ❌ CLI/MCP integration
+**Date**: 2025-11-28
 
-See [Implementation Status](#implementation-status) section for details.
+## Deprecation Notice
 
-## Summary
+This RFD's original goals for **general application observability** (HTTP
+latency, TCP metrics, syscall stats, SQL monitoring) have been **superseded by
+RFD 032 (Beyla Integration)**. Beyla provides production-ready, CNCF-maintained
+eBPF instrumentation for commodity protocols with broader language support and
+lower maintenance burden.
+
+**What remains relevant:**
+
+- ✅ **Infrastructure**: eBPF Manager (`internal/agent/ebpf/manager.go`),
+  Collector interface, capability detection
+- ✅ **Foundation for RFD 059**: SDK-integrated uprobes for application-level
+  debugging
+- ✅ **Future custom collectors**: CPU profiling (perf events), WireGuard mesh
+  metrics, security monitoring
+
+**What is deprecated:**
+
+- ❌ HTTP/gRPC latency collectors → **Use Beyla (RFD 032)**
+- ❌ TCP metrics collectors → **Use Beyla (RFD 032)**
+- ❌ SQL monitoring → **Use Beyla (RFD 032)**
+- ❌ Syscall stats collectors → Low value, removed from implementation
+- ❌ Generic kprobe/tracepoint programs → Use Beyla for protocol-level
+  observability
+
+**Current implementation status:**
+
+- ✅ Manager infrastructure (reusable for RFD 059)
+- ✅ Capability detection (kernel version, BTF, CAP_BPF)
+- ❌ Syscall stats collector (stub only, to be removed)
+- ❌ No real eBPF programs (Beyla handles this)
+
+**Future direction:**
+
+1. **RFD 059**: Leverage infrastructure for SDK-integrated uprobes
+2. **Future RFDs**: Custom eBPF collectors where Beyla doesn't provide coverage
+
+See [Implementation Status](#implementation-status)
+and [Deprecation Rationale](#deprecation-rationale) sections for details.
+
+---
+
+## Deprecation Rationale
+
+### Why Beyla Supersedes This RFD
+
+**RFD 032 (Beyla Integration)** provides superior implementation of this RFD's
+original observability goals:
+
+| Capability               | RFD 013 (Original Plan)         | RFD 032 (Beyla)                                            | Winner  |
+|--------------------------|---------------------------------|------------------------------------------------------------|---------|
+| **HTTP/gRPC metrics**    | Custom kprobes/uprobes          | Production-ready protocol parsers                          | ✅ Beyla |
+| **TCP metrics**          | Custom kprobes                  | Built-in TCP instrumentation                               | ✅ Beyla |
+| **SQL monitoring**       | Would require custom parsers    | PostgreSQL/MySQL support                                   | ✅ Beyla |
+| **Language support**     | Go only (initially)             | 7+ languages (Go, Java, Python, Node.js, .NET, Ruby, Rust) | ✅ Beyla |
+| **Kernel compatibility** | Would require extensive testing | Tested on 100+ kernel versions                             | ✅ Beyla |
+| **Maintenance**          | Coral team maintains all code   | CNCF/OpenTelemetry community                               | ✅ Beyla |
+| **Production readiness** | Months of stabilization needed  | Battle-tested in production                                | ✅ Beyla |
+| **Distributed tracing**  | Not planned                     | Native OpenTelemetry traces                                | ✅ Beyla |
+
+**Cost-benefit analysis:**
+
+- Implementing RFD 013 as originally specified would require substantial
+  engineering effort
+- Beyla integration (RFD 032) was completed in **weeks** with better results
+- Engineering resources better spent on **Coral-specific innovations** (RFD 059
+  uprobes, multi-colony federation, AI orchestration)
+
+### What RFD 013 Infrastructure Still Provides
+
+The foundational work completed for RFD 013 is **critical for RFD 059** and
+future custom collectors:
+
+**Reusable components:**
+
+1. **eBPF Manager** (`internal/agent/ebpf/manager.go`):
+    - Collector lifecycle management (start/stop/auto-expiration)
+    - Thread-safe concurrent collector tracking
+    - Resource cleanup and safety guarantees
+
+2. **Collector Interface** (`internal/agent/ebpf/collector.go`):
+    - Clean abstraction for different eBPF probe types
+    - Start/Stop/GetEvents pattern
+    - Extensible for uprobes, perf events, custom programs
+
+3. **Capability Detection** (`internal/agent/ebpf/capabilities.go`):
+    - Kernel version detection
+    - BTF availability checks
+    - CAP_BPF vs CAP_SYS_ADMIN detection
+    - Platform validation (Linux-only)
+
+4. **Protobuf Definitions** (`proto/coral/mesh/v1/ebpf.proto`):
+    - Base event streaming messages
+    - Capability reporting structures
+    - Extensible for uprobe-specific messages (RFD 059)
+
+### Future Custom Collectors (Where Beyla Doesn't Provide Coverage)
+
+**CPU Profiling** (Future RFD):
+
+- Use perf events to capture CPU samples
+- Generate flamegraphs for performance analysis
+- On-demand collection triggered by AI queries
+
+**WireGuard Mesh Metrics** (Future RFD):
+
+- Monitor Coral's WireGuard mesh network
+- Track tunnel latency, packet loss, throughput
+- Coral-specific networking layer visibility
+
+**Security Monitoring** (Future RFD):
+
+- Anomalous syscall detection
+- Privilege escalation attempts
+- Container escape monitoring
+
+**Container Runtime Insights** (Future RFD):
+
+- cgroup throttling events
+- OOM kill monitoring
+- CPU/memory pressure indicators
+
+### Integration with Beyla
+
+**Combined architecture:**
+
+```
+┌─────────────────────────────────────────────────┐
+│ Coral Agent eBPF Stack                          │
+│                                                 │
+│  ┌──────────────────────────────────────────┐   │
+│  │ Beyla (RFD 032)                          │   │
+│  │ • HTTP/gRPC RED metrics                  │   │
+│  │ • TCP/SQL monitoring                     │   │
+│  │ • Distributed tracing                    │   │
+│  │ • 7+ language runtimes                   │   │
+│  └──────────────────────────────────────────┘   │
+│                                                 │
+│  ┌──────────────────────────────────────────┐   │
+│  │ Custom eBPF (RFD 013 Infrastructure)     │   │
+│  │                                          │   │
+│  │  ┌────────────────────────────────────┐  │   │
+│  │  │ SDK Uprobes (RFD 059)              │  │   │
+│  │  │ • Application function debugging   │  │   │
+│  │  │ • Argument/return value capture    │  │   │
+│  │  │ • On-demand time-limited sessions  │  │   │
+│  │  └────────────────────────────────────┘  │   │
+│  │                                          │   │
+│  │  ┌────────────────────────────────────┐  │   │
+│  │  │ CPU Profiling (Future)             │  │   │
+│  │  │ • Perf event sampling              │  │   │
+│  │  │ • Flamegraph generation            │  │   │
+│  │  └────────────────────────────────────┘  │   │
+│  │                                          │   │
+│  │  ┌────────────────────────────────────┐  │   │
+│  │  │ WireGuard Metrics (Future)         │  │   │
+│  │  │ • Mesh tunnel monitoring           │  │   │
+│  │  └────────────────────────────────────┘  │   │
+│  └──────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────┘
+```
+
+**Data flow:**
+
+- **Beyla** → OTLP receiver → Local DuckDB → Colony queries (pull-based)
+- **Custom eBPF** → Manager → Event streaming → Colony (push-based or
+  pull-based)
+- Both coexist without conflicts, complementary coverage
+
+---
+
+## Summary (Original)
 
 Add an eBPF instrumentation subsystem that lets Coral observe, trace, and profile
 application behavior directly from the host without modifying workloads. The
