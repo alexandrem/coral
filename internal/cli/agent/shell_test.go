@@ -10,8 +10,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 // TestResolveAgentID tests agent ID to mesh IP resolution via colony registry (RFD 044).

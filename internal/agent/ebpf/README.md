@@ -69,8 +69,8 @@ import (
 "context"
 "time"
 
-"github.com/coral-io/coral/internal/agent/ebpf"
-meshv1 "github.com/coral-io/coral/coral/mesh/v1"
+"github.com/coral-mesh/coral/internal/agent/ebpf"
+meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 "google.golang.org/protobuf/types/known/durationpb"
 )
 

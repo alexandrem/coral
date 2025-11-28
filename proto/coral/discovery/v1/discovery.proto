@@ -4,7 +4,7 @@ package coral.discovery.v1;
 import "google/protobuf/timestamp.proto";
 
 // Note: While this is a separate binary, the proto package is still in the coral monorepo
-option go_package = "github.com/coral-io/coral/proto/discovery/v1;discoverypb";
+option go_package = "github.com/coral-mesh/coral/proto/discovery/v1;discoverypb";
 
 // Discovery service for colony and agent coordination
 service DiscoveryService {

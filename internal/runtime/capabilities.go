@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 )
 
 // Linux capability bit positions (from include/uapi/linux/capability.h).

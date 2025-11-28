@@ -1765,7 +1765,7 @@ Recommendation:
 package main
 
 import (
-    "github.com/coral-io/coral/pkg/mcp/client"
+    "github.com/coral-mesh/coral/pkg/mcp/client"
 )
 
 func main() {

@@ -7,8 +7,8 @@ import (
 
 	"github.com/pion/stun"
 
-	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
-	"github.com/coral-io/coral/internal/logging"
+	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // DiscoverPublicEndpoint uses STUN to discover the public IP and port.

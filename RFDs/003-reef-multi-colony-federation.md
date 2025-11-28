@@ -410,7 +410,7 @@ package coral.reef.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/coral-io/coral/proto/reef/v1;reefpb";
+option go_package = "github.com/coral-mesh/coral/proto/reef/v1;reefpb";
 
 // Reef LLM Service - Server-side AI analysis
 service ReefLLM {
@@ -542,7 +542,7 @@ package coral.reef.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/coral-io/coral/proto/reef/v1;reefpb";
+option go_package = "github.com/coral-mesh/coral/proto/reef/v1;reefpb";
 
 // Colony-side service for Reef to query
 service ColonyFederation {

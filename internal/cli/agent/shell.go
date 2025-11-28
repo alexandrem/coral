@@ -18,11 +18,11 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/term"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-io/coral/internal/config"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // NewShellCmd creates the shell command for interactive debugging (RFD 026, RFD 044).

@@ -4,7 +4,7 @@ package coral.agent.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/coral-io/coral/coral/agent/v1;agentv1";
+option go_package = "github.com/coral-mesh/coral/coral/agent/v1;agentv1";
 
 // Agent service for runtime context and operations.
 service AgentService {

@@ -4,7 +4,7 @@ package ebpf
 import (
 	"context"
 
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 // Collector defines the interface for all eBPF collectors.

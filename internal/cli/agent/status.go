@@ -10,8 +10,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 )
 
 // NewStatusCmd creates the agent status command.

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 )
 
 func TestDetector_Detect(t *testing.T) {

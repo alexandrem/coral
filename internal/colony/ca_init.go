@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/coral-io/coral/internal/colony/ca"
+	"github.com/coral-mesh/coral/internal/colony/ca"
 )
 
 // InitializeCA initializes the CA manager for the colony.

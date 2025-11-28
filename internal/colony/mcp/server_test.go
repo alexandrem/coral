@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coral-io/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -287,7 +287,7 @@ package coral.mesh.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/coral-io/coral/proto/mesh/v1;meshpb";
+option go_package = "github.com/coral-mesh/coral/proto/mesh/v1;meshpb";
 
 // Agent authentication during registration
 message RegisterRequest {

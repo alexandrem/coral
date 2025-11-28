@@ -11,7 +11,7 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
-	v1 "github.com/coral-io/coral/coral/agent/v1"
+	v1 "github.com/coral-mesh/coral/coral/agent/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -564,8 +564,8 @@ const file_coral_mesh_v1_auth_proto_rawDesc = "" +
 	"\bcommands\x18\x02 \x03(\tR\bcommands2\xaa\x01\n" +
 	"\vMeshService\x12K\n" +
 	"\bRegister\x12\x1e.coral.mesh.v1.RegisterRequest\x1a\x1f.coral.mesh.v1.RegisterResponse\x12N\n" +
-	"\tHeartbeat\x12\x1f.coral.mesh.v1.HeartbeatRequest\x1a .coral.mesh.v1.HeartbeatResponseB\xa4\x01\n" +
-	"\x11com.coral.mesh.v1B\tAuthProtoP\x01Z.github.com/coral-io/coral/coral/mesh/v1;meshv1\xa2\x02\x03CMX\xaa\x02\rCoral.Mesh.V1\xca\x02\rCoral\\Mesh\\V1\xe2\x02\x19Coral\\Mesh\\V1\\GPBMetadata\xea\x02\x0fCoral::Mesh::V1b\x06proto3"
+	"\tHeartbeat\x12\x1f.coral.mesh.v1.HeartbeatRequest\x1a .coral.mesh.v1.HeartbeatResponseB\xa6\x01\n" +
+	"\x11com.coral.mesh.v1B\tAuthProtoP\x01Z0github.com/coral-mesh/coral/coral/mesh/v1;meshv1\xa2\x02\x03CMX\xaa\x02\rCoral.Mesh.V1\xca\x02\rCoral\\Mesh\\V1\xe2\x02\x19Coral\\Mesh\\V1\\GPBMetadata\xea\x02\x0fCoral::Mesh::V1b\x06proto3"
 
 var (
 	file_coral_mesh_v1_auth_proto_rawDescOnce sync.Once

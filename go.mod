@@ -1,4 +1,4 @@
-module github.com/coral-io/coral
+module github.com/coral-mesh/coral
 
 go 1.25.1
 

@@ -28,7 +28,7 @@ Examples:
   # Query with CSV output
   coral duckdb query agent-prod-1 "SELECT service_name, COUNT(*) FROM beyla_http_metrics_local GROUP BY service_name" --format csv
 
-For more information, see: https://github.com/coral-io/coral/blob/main/RFDs/039-duckdb-remote-query-cli.md`,
+For more information, see: https://github.com/coral-mesh/coral/blob/main/RFDs/039-duckdb-remote-query-cli.md`,
 	}
 
 	// Add subcommands.

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/coral-io/coral/internal/wireguard"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // GetAllIPAllocationsForWireguard retrieves all IP allocations in the format

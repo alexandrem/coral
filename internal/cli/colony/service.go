@@ -15,10 +15,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/constants"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func newServiceCmd() *cobra.Command {

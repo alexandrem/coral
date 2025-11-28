@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/coral-io/coral/internal/colony/database"
-	"github.com/coral-io/coral/internal/colony/registry"
-	"github.com/coral-io/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // TestServiceHealthTool tests the coral_get_service_health tool integration.

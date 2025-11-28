@@ -21,8 +21,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	askagent "github.com/coral-io/coral/internal/agent/ask"
-	"github.com/coral-io/coral/internal/config"
+	askagent "github.com/coral-mesh/coral/internal/agent/ask"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // NewAskCmd creates the ask command (RFD 030).

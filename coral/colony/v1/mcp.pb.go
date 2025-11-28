@@ -443,8 +443,8 @@ const file_coral_colony_v1_mcp_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x18\n" +
 	"\aenabled\x18\x03 \x01(\bR\aenabled\x12*\n" +
-	"\x11input_schema_json\x18\x04 \x01(\tR\x0finputSchemaJsonB\xb1\x01\n" +
-	"\x13com.coral.colony.v1B\bMcpProtoP\x01Z2github.com/coral-io/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
+	"\x11input_schema_json\x18\x04 \x01(\tR\x0finputSchemaJsonB\xb3\x01\n" +
+	"\x13com.coral.colony.v1B\bMcpProtoP\x01Z4github.com/coral-mesh/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
 
 var (
 	file_coral_colony_v1_mcp_proto_rawDescOnce sync.Once

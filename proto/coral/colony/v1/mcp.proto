@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package coral.colony.v1;
 
-option go_package = "github.com/coral-io/coral/proto/colony/v1;colonypb";
+option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
 
 // CallToolRequest is sent from CLI/proxy to colony to execute an MCP tool.
 message CallToolRequest {

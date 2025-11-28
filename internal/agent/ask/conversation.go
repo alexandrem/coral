@@ -3,7 +3,7 @@ package ask
 import (
 	"sync"
 
-	"github.com/coral-io/coral/internal/agent/llm"
+	"github.com/coral-mesh/coral/internal/agent/llm"
 )
 
 // Message represents a conversation message.

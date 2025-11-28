@@ -9,7 +9,7 @@ import (
 	"github.com/invopop/jsonschema"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/coral-io/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
 // generateInputSchema generates a JSON schema from a Go type.

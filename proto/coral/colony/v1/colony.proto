@@ -7,7 +7,7 @@ import "coral/mesh/v1/auth.proto";
 import "coral/agent/v1/agent.proto";
 import "coral/colony/v1/mcp.proto";
 
-option go_package = "github.com/coral-io/coral/proto/colony/v1;colonypb";
+option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
 
 // Colony management service exposed on mesh network.
 service ColonyService {

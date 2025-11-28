@@ -11,8 +11,8 @@ import (
 
 	_ "github.com/marcboeker/go-duckdb"
 
-	"github.com/coral-io/coral/internal/colony/ca"
-	"github.com/coral-io/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/colony/ca"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // NewCACmd creates the CA management command (RFD 047).

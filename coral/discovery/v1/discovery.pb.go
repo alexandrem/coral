@@ -1528,8 +1528,8 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\fRequestRelay\x12'.coral.discovery.v1.RequestRelayRequest\x1a(.coral.discovery.v1.RequestRelayResponse\x12a\n" +
 	"\fReleaseRelay\x12'.coral.discovery.v1.ReleaseRelayRequest\x1a(.coral.discovery.v1.ReleaseRelayResponse\x12O\n" +
 	"\x06Health\x12!.coral.discovery.v1.HealthRequest\x1a\".coral.discovery.v1.HealthResponse\x12y\n" +
-	"\x14CreateBootstrapToken\x12/.coral.discovery.v1.CreateBootstrapTokenRequest\x1a0.coral.discovery.v1.CreateBootstrapTokenResponseB\xcc\x01\n" +
-	"\x16com.coral.discovery.v1B\x0eDiscoveryProtoP\x01Z8github.com/coral-io/coral/coral/discovery/v1;discoveryv1\xa2\x02\x03CDX\xaa\x02\x12Coral.Discovery.V1\xca\x02\x12Coral\\Discovery\\V1\xe2\x02\x1eCoral\\Discovery\\V1\\GPBMetadata\xea\x02\x14Coral::Discovery::V1b\x06proto3"
+	"\x14CreateBootstrapToken\x12/.coral.discovery.v1.CreateBootstrapTokenRequest\x1a0.coral.discovery.v1.CreateBootstrapTokenResponseB\xce\x01\n" +
+	"\x16com.coral.discovery.v1B\x0eDiscoveryProtoP\x01Z:github.com/coral-mesh/coral/coral/discovery/v1;discoveryv1\xa2\x02\x03CDX\xaa\x02\x12Coral.Discovery.V1\xca\x02\x12Coral\\Discovery\\V1\xe2\x02\x1eCoral\\Discovery\\V1\\GPBMetadata\xea\x02\x14Coral::Discovery::V1b\x06proto3"
 
 var (
 	file_coral_discovery_v1_discovery_proto_rawDescOnce sync.Once

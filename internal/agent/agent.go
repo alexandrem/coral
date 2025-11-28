@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/internal/agent/beyla"
-	"github.com/coral-io/coral/internal/agent/ebpf"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/beyla"
+	"github.com/coral-mesh/coral/internal/agent/ebpf"
 	"github.com/rs/zerolog"
 )
 

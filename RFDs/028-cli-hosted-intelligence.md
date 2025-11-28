@@ -933,7 +933,7 @@ We're improving Coral's AI architecture to give you more flexibility!
 - [Date]: Old architecture deprecated
 - [Date + 90d]: Old architecture removed
 
-**Questions?** See docs: https://coral-io.dev/docs/cli-ai-migration
+**Questions?** See docs: https://coralmesh.dev/docs/cli-ai-migration
 ```
 
 ## Future Enhancements

@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/internal/colony/ca"
-	"github.com/coral-io/coral/internal/colony/database"
-	"github.com/coral-io/coral/internal/colony/registry"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/internal/colony/ca"
+	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
 func newTestServer(t *testing.T, config Config) *Server {

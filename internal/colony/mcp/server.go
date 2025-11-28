@@ -10,9 +10,9 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/coral-io/coral/internal/colony/database"
-	"github.com/coral-io/coral/internal/colony/registry"
-	"github.com/coral-io/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // Server wraps the MCP server and provides Colony-specific tools.

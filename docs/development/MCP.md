@@ -75,7 +75,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/service-health-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/service-health-input",
                     "$ref": "#/$defs/ServiceHealthInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -106,7 +106,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/service-topology-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/service-topology-input",
                     "$ref": "#/$defs/ServiceTopologyInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -145,7 +145,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/query-events-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/query-events-input",
                     "$ref": "#/$defs/QueryEventsInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -188,7 +188,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/beyla-sql-metrics-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/beyla-sql-metrics-input",
                     "$ref": "#/$defs/BeylaSQLMetricsInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -227,7 +227,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/beyla-traces-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/beyla-traces-input",
                     "$ref": "#/$defs/BeylaTracesInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -261,7 +261,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/trace-by-id-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/trace-by-id-input",
                     "$ref": "#/$defs/TraceByIDInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -294,7 +294,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/telemetry-spans-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/telemetry-spans-input",
                     "$ref": "#/$defs/TelemetrySpansInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -324,7 +324,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/telemetry-metrics-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/telemetry-metrics-input",
                     "$ref": "#/$defs/TelemetryMetricsInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -378,7 +378,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/beyla-http-metrics-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/beyla-http-metrics-input",
                     "$ref": "#/$defs/BeylaHTTPMetricsInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -415,7 +415,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/beyla-grpc-metrics-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/beyla-grpc-metrics-input",
                     "$ref": "#/$defs/BeylaGRPCMetricsInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },
@@ -456,7 +456,7 @@ Then copy/paste the following snippets in the terminal.
                             "type": "object"
                         }
                     },
-                    "$id": "https://github.com/coral-io/coral/internal/colony/mcp/telemetry-logs-input",
+                    "$id": "https://github.com/coral-mesh/coral/internal/colony/mcp/telemetry-logs-input",
                     "$ref": "#/$defs/TelemetryLogsInput",
                     "$schema": "https://json-schema.org/draft/2020-12/schema"
                 },

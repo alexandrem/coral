@@ -10,9 +10,9 @@ GO_VERSION=$(shell go version | awk '{print $$3}')
 
 # Linker flags to set version info
 LDFLAGS=-ldflags "\
-	-X github.com/coral-io/coral/pkg/version.Version=$(VERSION) \
-	-X github.com/coral-io/coral/pkg/version.GitCommit=$(GIT_COMMIT) \
-	-X github.com/coral-io/coral/pkg/version.BuildDate=$(BUILD_DATE)"
+	-X github.com/coral-mesh/coral/pkg/version.Version=$(VERSION) \
+	-X github.com/coral-mesh/coral/pkg/version.GitCommit=$(GIT_COMMIT) \
+	-X github.com/coral-mesh/coral/pkg/version.BuildDate=$(BUILD_DATE)"
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'

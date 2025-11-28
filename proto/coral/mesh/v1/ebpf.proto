@@ -5,7 +5,7 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "coral/agent/v1/agent.proto";
 
-option go_package = "github.com/coral-io/coral/coral/mesh/v1;meshv1";
+option go_package = "github.com/coral-mesh/coral/proto/discovery/v1;discoverypb";
 
 // StartEbpfCollectorRequest initiates an eBPF collector on an agent.
 message StartEbpfCollectorRequest {

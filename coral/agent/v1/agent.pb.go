@@ -4024,9 +4024,9 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rContainerExec\x12$.coral.agent.v1.ContainerExecRequest\x1a%.coral.agent.v1.ContainerExecResponse\x12n\n" +
 	"\x13ResizeShellTerminal\x12*.coral.agent.v1.ResizeShellTerminalRequest\x1a+.coral.agent.v1.ResizeShellTerminalResponse\x12b\n" +
 	"\x0fSendShellSignal\x12&.coral.agent.v1.SendShellSignalRequest\x1a'.coral.agent.v1.SendShellSignalResponse\x12e\n" +
-	"\x10KillShellSession\x12'.coral.agent.v1.KillShellSessionRequest\x1a(.coral.agent.v1.KillShellSessionResponseB\xac\x01\n" +
+	"\x10KillShellSession\x12'.coral.agent.v1.KillShellSessionRequest\x1a(.coral.agent.v1.KillShellSessionResponseB\xae\x01\n" +
 	"\x12com.coral.agent.v1B\n" +
-	"AgentProtoP\x01Z0github.com/coral-io/coral/coral/agent/v1;agentv1\xa2\x02\x03CAX\xaa\x02\x0eCoral.Agent.V1\xca\x02\x0eCoral\\Agent\\V1\xe2\x02\x1aCoral\\Agent\\V1\\GPBMetadata\xea\x02\x10Coral::Agent::V1b\x06proto3"
+	"AgentProtoP\x01Z2github.com/coral-mesh/coral/coral/agent/v1;agentv1\xa2\x02\x03CAX\xaa\x02\x0eCoral.Agent.V1\xca\x02\x0eCoral\\Agent\\V1\xe2\x02\x1aCoral\\Agent\\V1\\GPBMetadata\xea\x02\x10Coral::Agent::V1b\x06proto3"
 
 var (
 	file_coral_agent_v1_agent_proto_rawDescOnce sync.Once
