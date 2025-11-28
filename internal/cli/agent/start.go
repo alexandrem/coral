@@ -65,6 +65,7 @@ type AgentConfig struct {
 		HealthEndpoint string `yaml:"health_endpoint,omitempty"`
 		Type           string `yaml:"type,omitempty"`
 	} `yaml:"services"`
+	Beyla config.BeylaConfig `yaml:"beyla,omitempty"`
 }
 
 // NewStartCmd creates the start command for agents.
@@ -451,33 +452,83 @@ Examples:
 			// Initialize Beyla configuration (RFD 032 + RFD 053).
 			var beylaConfig *beyla.Config
 			if sharedDB != nil {
-				// Extract ports from services for Beyla discovery (RFD 053).
-				discoveryPorts := make([]int, 0, len(serviceSpecs))
-				for _, spec := range serviceSpecs {
-					discoveryPorts = append(discoveryPorts, int(spec.Port))
+				// Start with configuration from file if enabled
+				if agentCfg.Beyla.Enabled {
+					logger.Info().Msg("Loading Beyla configuration from config file")
+
+					// Convert config.BeylaConfig to beyla.Config
+					// We need to map the types manually since they are different structs
+					beylaConfig = &beyla.Config{
+						Enabled:      true,
+						OTLPEndpoint: agentCfg.Beyla.OTLPEndpoint,
+						Protocols: beyla.ProtocolsConfig{
+							HTTPEnabled:  agentCfg.Beyla.Protocols.HTTP.Enabled,
+							GRPCEnabled:  agentCfg.Beyla.Protocols.GRPC.Enabled,
+							SQLEnabled:   agentCfg.Beyla.Protocols.SQL.Enabled,
+							KafkaEnabled: agentCfg.Beyla.Protocols.Kafka.Enabled,
+							RedisEnabled: agentCfg.Beyla.Protocols.Redis.Enabled,
+						},
+						Attributes:            agentCfg.Beyla.Attributes,
+						SamplingRate:          agentCfg.Beyla.Sampling.Rate,
+						DB:                    sharedDB,
+						DBPath:                sharedDBPath,
+						StorageRetentionHours: 1, // Default: 1 hour (TODO: make configurable)
+						MonitorAll:            monitorAll,
+					}
+
+					// Set defaults if not specified
+					if beylaConfig.OTLPEndpoint == "" {
+						beylaConfig.OTLPEndpoint = "127.0.0.1:4317"
+					}
+					if beylaConfig.SamplingRate == 0 {
+						beylaConfig.SamplingRate = 1.0
+					}
+
+					// Add configured services to discovery
+					for _, svc := range agentCfg.Beyla.Discovery.Services {
+						// Note: beyla.Config.Discovery is a DiscoveryConfig struct, not a slice of services
+						// We need to map the service ports/names to the DiscoveryConfig fields
+						if svc.OpenPort > 0 {
+							beylaConfig.Discovery.OpenPorts = append(beylaConfig.Discovery.OpenPorts, svc.OpenPort)
+						}
+						// TODO: Support K8s discovery mapping when available in beyla.DiscoveryConfig
+					}
+				} else {
+					// Default configuration if not in file but we have services or monitor-all
+					if monitorAll || len(serviceSpecs) > 0 {
+						beylaConfig = &beyla.Config{
+							Enabled:      true,
+							OTLPEndpoint: "127.0.0.1:4317", // Local OTLP gRPC receiver
+							Protocols: beyla.ProtocolsConfig{
+								HTTPEnabled: true,
+								GRPCEnabled: true,
+								SQLEnabled:  true,
+							},
+							DB:                    sharedDB,
+							DBPath:                sharedDBPath,
+							StorageRetentionHours: 1, // Default: 1 hour
+							MonitorAll:            monitorAll,
+						}
+					}
 				}
 
-				beylaConfig = &beyla.Config{
-					Enabled:      true,
-					OTLPEndpoint: "127.0.0.1:4317", // Local OTLP gRPC receiver
-					Discovery: beyla.DiscoveryConfig{
-						OpenPorts: discoveryPorts,
-					},
-					Protocols: beyla.ProtocolsConfig{
-						HTTPEnabled: true,
-						GRPCEnabled: true,
-						SQLEnabled:  true,
-					},
-					DB:                    sharedDB,
-					DBPath:                sharedDBPath,
-					StorageRetentionHours: 1, // Default: 1 hour
-					MonitorAll:            monitorAll,
-				}
+				// If we have a config (either from file or default), add dynamic ports
+				if beylaConfig != nil {
+					// Extract ports from services for Beyla discovery (RFD 053).
+					discoveryPorts := make([]int, 0, len(serviceSpecs))
+					for _, spec := range serviceSpecs {
+						discoveryPorts = append(discoveryPorts, int(spec.Port))
+					}
 
-				if monitorAll {
-					logger.Info().Msg("Monitor-all mode enabled - Beyla will instrument all listening processes")
-				} else if len(serviceSpecs) == 0 {
-					logger.Info().Msg("No services configured - Beyla will not start (use --monitor-all or --connect to enable)")
+					beylaConfig.Discovery.OpenPorts = discoveryPorts
+
+					if monitorAll {
+						logger.Info().Msg("Monitor-all mode enabled - Beyla will instrument all listening processes")
+					} else if len(serviceSpecs) == 0 && len(beylaConfig.Discovery.OpenPorts) == 0 {
+						logger.Info().Msg("No services configured - Beyla will not start (use --monitor-all or --connect to enable)")
+						// If explicitly enabled in config but no services, we still keep it non-nil
+						// so the manager starts and waits for dynamic services
+					}
 				}
 			}
 

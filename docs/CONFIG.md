@@ -406,6 +406,93 @@ telemetry:
 | `telemetry.filters.latency_threshold_ms`  | float  | `500.0`          | Latency threshold for capture   |
 | `telemetry.filters.sample_rate`           | float  | `0.10`           | Sample rate (0.0-1.0)           |
 
+### Beyla Integration Configuration
+
+The `beyla` section configures the eBPF-based auto-instrumentation for the agent. This allows for zero-code observability of HTTP, gRPC, SQL, and other protocols.
+
+```yaml
+beyla:
+    enabled: true
+
+    # Discovery: which processes to instrument
+    discovery:
+        services:
+            # Instrument service listening on port 8080
+            -   name: "checkout-api"
+                open_port: 8080
+
+            # Instrument service by Kubernetes pod name pattern
+            -   name: "payments-api"
+                k8s_pod_name: "payments-*"
+                k8s_namespace: "prod"
+
+            # Instrument service by Kubernetes labels
+            -   name: "inventory-svc"
+                k8s_namespace: "prod"
+                k8s_pod_label:
+                    app: "inventory"
+                    version: "v2"
+
+    # Protocol-specific configuration
+    protocols:
+        http:
+            enabled: true
+            capture_headers: false  # Privacy: don't store header values
+            route_patterns: # Cardinality reduction
+                - "/api/v1/users/:id"
+                - "/api/v1/orders/:id"
+                - "/api/v1/products/:id"
+
+        grpc:
+            enabled: true
+
+        sql:
+            enabled: true
+            obfuscate_queries: true  # Replace literals with "?"
+
+        kafka:
+            enabled: false
+
+        redis:
+            enabled: false
+
+    # Attributes to add to all metrics/traces
+    attributes:
+        environment: "production"
+        cluster: "us-west-2"
+        colony_id: "colony-abc123"
+        region: "us-west-2"
+
+    # Performance tuning
+    sampling:
+        rate: 1.0  # 100% sampling (adjust if overhead too high)
+
+    # Resource limits
+    limits:
+        max_traced_connections: 1000  # Prevent memory exhaustion
+        ring_buffer_size: 65536
+
+    # OTLP endpoint (local receiver from RFD 025)
+    otlp_endpoint: "localhost:4318"
+```
+
+#### Beyla Configuration Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `beyla.enabled` | bool | `false` | Enable Beyla eBPF instrumentation |
+| `beyla.discovery.services` | []Service | `[]` | List of services to instrument |
+| `beyla.protocols.http.enabled` | bool | `true` | Enable HTTP instrumentation |
+| `beyla.protocols.http.route_patterns` | []string | `[]` | URL patterns for cardinality reduction |
+| `beyla.protocols.grpc.enabled` | bool | `true` | Enable gRPC instrumentation |
+| `beyla.protocols.sql.enabled` | bool | `true` | Enable SQL instrumentation |
+| `beyla.protocols.sql.obfuscate_queries` | bool | `true` | Obfuscate SQL query literals |
+| `beyla.attributes` | map[string]string | `{}` | Custom attributes for metrics/traces |
+| `beyla.sampling.rate` | float | `1.0` | Trace sampling rate (0.0-1.0) |
+| `beyla.limits.max_traced_connections` | int | `1000` | Max concurrent tracked connections |
+| `beyla.otlp_endpoint` | string | `localhost:4318` | OTLP export endpoint |
+
+
 ## Environment Variables
 
 Environment variables override configuration file values.
