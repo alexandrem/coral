@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coral-io/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 func TestNewManager(t *testing.T) {

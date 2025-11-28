@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
-	"github.com/coral-io/coral/internal/logging"
+	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // TestSelectBestAgentEndpoint tests the endpoint selection logic for multi-public endpoint scenarios.

@@ -259,7 +259,7 @@ spec:
         spec:
             containers:
                 -   name: collector
-                    image: coral-io/agent:latest
+                    image: ghcr.io/coral-mesh/agent:latest
                     args:
                         - agent
                         - serve

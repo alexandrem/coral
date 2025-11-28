@@ -12,17 +12,17 @@ import (
 
 	"connectrpc.com/connect"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	discoverypb "github.com/coral-io/coral/coral/discovery/v1"
-	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/coral/mesh/v1/meshv1connect"
-	"github.com/coral-io/coral/internal/agent/ebpf"
-	"github.com/coral-io/coral/internal/auth"
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/constants"
-	"github.com/coral-io/coral/internal/logging"
-	"github.com/coral-io/coral/internal/wireguard"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
+	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-mesh/coral/internal/agent/ebpf"
+	"github.com/coral-mesh/coral/internal/auth"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // queryDiscoveryForColony queries the discovery service for colony information.

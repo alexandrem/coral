@@ -17,8 +17,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // Device represents a WireGuard device instance.

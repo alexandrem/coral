@@ -12,11 +12,11 @@ import (
 
 	"connectrpc.com/connect"
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-io/coral/internal/config"
-	"github.com/coral-io/coral/internal/discovery/client"
-	"github.com/coral-io/coral/pkg/version"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/pkg/version"
 )
 
 // colonyStatusInfo holds status information for a single colony.

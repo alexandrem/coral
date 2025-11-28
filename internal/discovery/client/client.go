@@ -9,8 +9,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
-	"github.com/coral-io/coral/coral/discovery/v1/discoveryv1connect"
+	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
+	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 )
 
 // Client wraps the discovery service client.

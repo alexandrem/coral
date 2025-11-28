@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/coral-io/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // TestConfigCommandsE2E tests the coral config command family with real CLI execution.

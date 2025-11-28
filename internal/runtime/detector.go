@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/internal/agent/ebpf"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/agent/ebpf"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -230,11 +230,28 @@ func (d *Detector) determineCapabilities(
 		capabilities.CanShell = true
 	}
 
+	// RFD 057: Detect Linux capabilities.
+	linuxCaps, err := DetectLinuxCapabilities()
+	if err != nil {
+		d.logger.Warn().Err(err).Msg("Failed to detect Linux capabilities")
+		linuxCaps = &agentv1.LinuxCapabilities{} // Empty capabilities on error
+	}
+	capabilities.LinuxCapabilities = linuxCaps
+
+	// RFD 057: Detect exec mode (nsenter vs CRI).
+	hasCRI := criSocket != nil
+	hasSharedPIDNS := hasSharedProcessNamespace() || runtimeType == agentv1.RuntimeContext_RUNTIME_CONTEXT_K8S_DAEMONSET
+	execCaps := DetectExecCapabilities(linuxCaps, hasCRI, hasSharedPIDNS)
+	capabilities.ExecCapabilities = execCaps
+
 	d.logger.Debug().
 		Bool("can_run", capabilities.CanRun).
 		Bool("can_exec", capabilities.CanExec).
 		Bool("can_shell", capabilities.CanShell).
 		Bool("can_connect", capabilities.CanConnect).
+		Str("exec_mode", execCaps.Mode.String()).
+		Bool("cap_sys_admin", linuxCaps.CapSysAdmin).
+		Bool("cap_sys_ptrace", linuxCaps.CapSysPtrace).
 		Msg("Capabilities determined")
 
 	return capabilities

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	discoveryv1 "github.com/coral-io/coral/coral/discovery/v1"
+	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
 )
 
 func TestRegistry_Register(t *testing.T) {

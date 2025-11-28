@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
-	"github.com/coral-io/coral/internal/agent/beyla"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/beyla"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

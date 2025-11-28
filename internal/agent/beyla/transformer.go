@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
+	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 // Transformer converts OTLP metrics and traces to Coral's internal format (RFD 032).

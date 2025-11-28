@@ -6,8 +6,8 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
-	"github.com/coral-io/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
 // GetAgentClient creates a gRPC client for communicating with an agent over the mesh network.

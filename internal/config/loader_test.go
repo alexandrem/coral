@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/coral-io/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func TestLoader_SaveAndLoadGlobalConfig(t *testing.T) {

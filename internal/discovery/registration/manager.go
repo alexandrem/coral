@@ -10,7 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/coral-io/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery/client"
 )
 
 // Config contains configuration for the registration manager.

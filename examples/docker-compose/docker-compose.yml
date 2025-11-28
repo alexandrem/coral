@@ -17,8 +17,8 @@ services:
     command:
       - agent
       - start
-      #- --connect
-      #- demo-app:8080
+      - --connect
+      - nginx:80
     environment:
       # Config-less mode: only CORAL_COLONY_ID and CORAL_COLONY_SECRET are required.
       CORAL_COLONY_ID: ${CORAL_COLONY_ID}
@@ -33,6 +33,7 @@ services:
       - SYS_ADMIN      # Required for eBPF (Beyla)
       - SYS_PTRACE     # Required for eBPF process attachment
       - SYS_RESOURCE   # Required for memlock rlimit
+      - BPF
     devices:
       - /dev/net/tun:/dev/net/tun
     privileged: false  # Using capabilities instead of privileged mode

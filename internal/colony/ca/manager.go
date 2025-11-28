@@ -20,7 +20,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/coral-io/coral/internal/privilege"
+	"github.com/coral-mesh/coral/internal/privilege"
 )
 
 // Manager handles certificate authority operations for agent mTLS.

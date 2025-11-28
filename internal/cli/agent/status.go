@@ -10,8 +10,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/coral/agent/v1/agentv1connect"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 )
 
 // NewStatusCmd creates the agent status command.
@@ -175,11 +175,56 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*age
 
 	// Capabilities section
 	fmt.Println("Capabilities:")
-	fmt.Printf("  %s coral connect   %s\n", formatCapability(ctx.Capabilities.CanConnect), "Monitor and observe")
-	fmt.Printf("  %s coral exec      %s\n", formatCapability(ctx.Capabilities.CanExec), "Execute in containers")
-	fmt.Printf("  %s coral shell     %s\n", formatCapability(ctx.Capabilities.CanShell), "Interactive shell")
-	fmt.Printf("  %s coral run       %s\n", formatCapability(ctx.Capabilities.CanRun), "Launch new containers")
+	fmt.Printf("  %s coral connect       %s\n", formatCapability(ctx.Capabilities.CanConnect), "Monitor and observe")
+
+	// RFD 057: Enhanced exec capability display
+	if ctx.Capabilities.ExecCapabilities != nil {
+		execCaps := ctx.Capabilities.ExecCapabilities
+		execIcon := formatCapability(ctx.Capabilities.CanExec)
+		execDesc := "Execute in containers"
+
+		switch execCaps.Mode {
+		case agentv1.ExecMode_EXEC_MODE_NSENTER:
+			execDesc = "Execute in containers (nsenter mode - full access)"
+		case agentv1.ExecMode_EXEC_MODE_CRI:
+			execDesc = "Execute in containers (CRI mode - limited)"
+			execIcon = "⚠️"
+		case agentv1.ExecMode_EXEC_MODE_NONE:
+			execDesc = "Execute in containers (not available)"
+			execIcon = "❌"
+		}
+
+		fmt.Printf("  %s coral exec          %s\n", execIcon, execDesc)
+		if execCaps.Mode != agentv1.ExecMode_EXEC_MODE_UNKNOWN {
+			fmt.Printf("     Mode:               %s\n", formatExecMode(execCaps.Mode))
+			if execCaps.Mode == agentv1.ExecMode_EXEC_MODE_NSENTER || !execCaps.MountNamespaceAccess {
+				fmt.Printf("     Mount Namespace:    %s", formatCapability(execCaps.MountNamespaceAccess))
+				if !execCaps.MountNamespaceAccess {
+					fmt.Printf(" (requires CAP_SYS_ADMIN + CAP_SYS_PTRACE)")
+				}
+				fmt.Println()
+			}
+		}
+	} else {
+		fmt.Printf("  %s coral exec          %s\n", formatCapability(ctx.Capabilities.CanExec), "Execute in containers")
+	}
+
+	fmt.Printf("  %s coral shell         %s\n", formatCapability(ctx.Capabilities.CanShell), "Interactive shell")
+	fmt.Printf("  %s coral run           %s\n", formatCapability(ctx.Capabilities.CanRun), "Launch new containers")
 	fmt.Println()
+
+	// RFD 057: Linux Capabilities section
+	if ctx.Capabilities.LinuxCapabilities != nil {
+		linuxCaps := ctx.Capabilities.LinuxCapabilities
+		fmt.Println("Linux Capabilities:")
+		fmt.Printf("  %s CAP_NET_ADMIN       WireGuard mesh networking\n", formatCapability(linuxCaps.CapNetAdmin))
+		fmt.Printf("  %s CAP_SYS_ADMIN       Container namespace execution (coral exec)\n", formatCapability(linuxCaps.CapSysAdmin))
+		fmt.Printf("  %s CAP_SYS_PTRACE      Process inspection (/proc)\n", formatCapability(linuxCaps.CapSysPtrace))
+		fmt.Printf("  %s CAP_SYS_RESOURCE    eBPF memory locking\n", formatCapability(linuxCaps.CapSysResource))
+		fmt.Printf("  %s CAP_BPF             Modern eBPF (kernel 5.8+)\n", formatCapability(linuxCaps.CapBpf))
+		fmt.Printf("  %s CAP_PERFMON         Performance monitoring\n", formatCapability(linuxCaps.CapPerfmon))
+		fmt.Println()
+	}
 
 	// eBPF capabilities section
 	if ctx.EbpfCapabilities != nil {
@@ -320,6 +365,20 @@ func formatCapability(supported bool) string {
 		return "✅"
 	}
 	return "❌"
+}
+
+// formatExecMode formats exec mode for display (RFD 057).
+func formatExecMode(mode agentv1.ExecMode) string {
+	switch mode {
+	case agentv1.ExecMode_EXEC_MODE_NSENTER:
+		return "nsenter (full container filesystem access)"
+	case agentv1.ExecMode_EXEC_MODE_CRI:
+		return "CRI (limited - no mount namespace access)"
+	case agentv1.ExecMode_EXEC_MODE_NONE:
+		return "none (exec not available)"
+	default:
+		return "unknown"
+	}
 }
 
 // formatVisibilityScope formats visibility scope for display.

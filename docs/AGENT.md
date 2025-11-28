@@ -14,12 +14,60 @@ The agent operates on a **pull-based architecture**:
 
 ## Table of Contents
 
+- [Port Overview](#port-overview)
 - [OpenTelemetry Integration](#opentelemetry-integration)
 - [Beyla Integration (eBPF Metrics)](#beyla-integration-ebpf-metrics)
+- [Agent API Port](#agent-api-port)
 - [Configuration](#configuration)
 - [Static Filtering](#static-filtering)
 - [Examples](#examples)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Port Overview
+
+The Coral Agent exposes the following ports:
+
+| Port     | Protocol             | Purpose                            | Bind Address                           | Access              |
+|----------|----------------------|------------------------------------|----------------------------------------|---------------------|
+| **4317** | OTLP/gRPC            | OpenTelemetry trace ingestion      | Configurable (default: `0.0.0.0:4317`) | Applications, Beyla |
+| **4318** | OTLP/HTTP            | OpenTelemetry trace ingestion      | Configurable (default: `0.0.0.0:4318`) | Applications, Beyla |
+| **4319** | OTLP/gRPC            | Internal Beyla trace ingestion     | Localhost only (`127.0.0.1:4319`)      | Beyla (Internal)    |
+| **9001** | HTTP/2 (Connect RPC) | Agent API for colony communication | Mesh IP + localhost                    | Colony, local CLI   |
+
+**Network Topology:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Host / Container                                           │
+│                                                             │
+│  ┌──────────────┐         ┌───────────────────────────────┐ │
+│  │ Application  │ OTLP    │  Coral Agent                  │ │
+│  │ (OTel SDK)   ├────────►│  • OTLP Receivers             │ │
+│  └──────────────┘  :4317  │    - gRPC: 4317               │ │
+│                    :4318  │    - HTTP: 4318               │ │
+│  ┌──────────────┐         │  • Beyla Receiver             │ │
+│  │ Beyla        │ OTLP    │    - gRPC: 4319               │ │
+│  │ (eBPF)       ├────────►│  • Agent API: 9001            │ │
+│  └──────────────┘  :4319  │    (Connect RPC)              │ │
+│                           └───────────────▲───────────────┘ │
+└───────────────────────────────────────────│─────────────────┘
+                                            │ WireGuard mesh
+                                            │ :9001
+                                            │
+                                 ┌──────────────────┐
+                                 │ Colony           │ --- Colony pulls data
+                                 │ (gRPC client)    │
+                                 └──────────────────┘
+```
+
+**Security Notes:**
+
+- **Ports 4317/4318**: Bind to `0.0.0.0` by default for application access.
+  Consider binding to `127.0.0.1` if applications run on the same host.
+- **Port 9001**: Automatically binds to WireGuard mesh IP and localhost. Only
+  accessible from colony (via mesh) and local debugging.
 
 ---
 
@@ -29,8 +77,17 @@ The agent operates on a **pull-based architecture**:
 
 The agent implements the **OpenTelemetry Protocol (OTLP)** for receiving traces:
 
-- **OTLP/gRPC**: Port `4317` (default)
-- **OTLP/HTTP**: Port `4318` (default)
+- **OTLP/gRPC**: Port `4317` (default, configurable via
+  `telemetry.grpc_endpoint`)
+- **OTLP/HTTP**: Port `4318` (default, configurable via
+  `telemetry.http_endpoint`)
+
+**Bind Address Configuration:**
+
+- Default: `0.0.0.0:4317` and `0.0.0.0:4318` (listens on all interfaces)
+- Recommended for co-located apps: `127.0.0.1:4317` and `127.0.0.1:4318` (
+  localhost only)
+- Sidecar/container: `0.0.0.0:4317` and `0.0.0.0:4318` (within pod network)
 
 Both protocols support:
 
@@ -47,21 +104,21 @@ Use any OpenTelemetry SDK to send traces to the agent:
 
 ```go
 import (
-"go.opentelemetry.io/otel"
-"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-sdktrace "go.opentelemetry.io/otel/sdk/trace"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+    sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Configure OTLP exporter pointing to agent.
 exporter, _ := otlptracegrpc.New(
-context.Background(),
-otlptracegrpc.WithEndpoint("localhost:4317"),
-otlptracegrpc.WithInsecure(),
+    context.Background(),
+    otlptracegrpc.WithEndpoint("localhost:4317"),
+    otlptracegrpc.WithInsecure(),
 )
 
 // Create trace provider.
 tp := sdktrace.NewTracerProvider(
-sdktrace.WithBatcher(exporter),
+    sdktrace.WithBatcher(exporter),
 )
 otel.SetTracerProvider(tp)
 ```
@@ -107,16 +164,25 @@ trace.get_tracer_provider().add_span_processor(
 
 ### Overview
 
-The agent can optionally run **Beyla**, an eBPF-based auto-instrumentation tool that collects RED (Rate, Errors, Duration) metrics for HTTP, gRPC, and database protocols **without requiring code changes** to your applications.
+The agent can optionally run **Beyla**, an eBPF-based auto-instrumentation tool
+that collects RED (Rate, Errors, Duration) metrics for HTTP, gRPC, and database
+protocols **without requiring code changes** to your applications.
 
 **Key Features:**
+
 - Zero-code instrumentation using eBPF kernel probes
 - Automatic discovery of services by port, process name, or Kubernetes labels
 - Collects HTTP, gRPC, and SQL query performance metrics
 - Local DuckDB storage with configurable retention
 - Pull-based: Colony queries agent on-demand for metrics
 
-**See:** `RFDs/032-beyla-red-metrics-integration.md` for complete architecture and design details.
+**Beyla Output:**
+
+- Beyla exports metrics and traces via OTLP to the agent's dedicated local
+  receiver
+- Default: `localhost:4319` (gRPC)
+- Agent ingests Beyla's output through this dedicated OTLP receiver to avoid
+  conflicts with application traces
 
 ### Beyla Configuration Structure
 
@@ -161,46 +227,99 @@ beyla:
 
 - **Type**: `boolean`
 - **Default**: `false`
-- **Description**: Enable Beyla eBPF metrics collection. Requires kernel 4.18+ and eBPF capabilities.
+- **Description**: Enable Beyla eBPF metrics collection. Requires kernel 4.18+
+  and eBPF capabilities.
 
 #### `beyla.storage_retention_hours`
 
 - **Type**: `integer`
 - **Default**: `1`
-- **Description**: How long to keep Beyla metrics in agent's local DuckDB (in hours). Older metrics are automatically deleted.
-- **Rationale**: Pull-based architecture - colony polls agents for recent metrics. This value should be equal to or greater than the colony's polling interval.
+- **Description**: How long to keep Beyla metrics in agent's local DuckDB (in
+  hours). Older metrics are automatically deleted.
+- **Rationale**: Pull-based architecture - colony polls agents for recent
+  metrics. This value should be equal to or greater than the colony's polling
+  interval.
 - **Examples:**
-  - `1` - Default, suitable for standard colony poll intervals (30-60 seconds)
-  - `2` - Extended retention for less frequent polling or troubleshooting
-  - `4` - Development/debugging scenarios
+    - `1` - Default, suitable for standard colony poll intervals (30-60 seconds)
+    - `2` - Extended retention for less frequent polling or troubleshooting
+    - `4` - Development/debugging scenarios
 
 #### `beyla.discovery`
 
 - **Type**: `object`
-- **Description**: Configure which services Beyla should instrument. Supports port-based discovery, Kubernetes labels, and process names.
+- **Description**: Configure which services Beyla should instrument. Supports
+  port-based discovery, Kubernetes labels, and process names.
 
 #### `beyla.protocols`
 
 - **Type**: `object`
-- **Description**: Enable/disable specific protocol instrumentation (HTTP, gRPC, SQL, Kafka, Redis).
+- **Description**: Enable/disable specific protocol instrumentation (HTTP, gRPC,
+  SQL, Kafka, Redis).
 
 #### `beyla.attributes`
 
 - **Type**: `map[string]string`
-- **Description**: Resource attributes to add to all Beyla metrics for enrichment (environment, cluster, region, etc.).
+- **Description**: Resource attributes to add to all Beyla metrics for
+  enrichment (environment, cluster, region, etc.).
 
 ### Beyla vs OpenTelemetry Traces
 
-| Aspect | Beyla (eBPF) | OpenTelemetry SDK |
-|--------|--------------|-------------------|
-| **Instrumentation** | Automatic via eBPF | Requires code changes |
-| **Protocols** | HTTP, gRPC, SQL | Any (custom spans) |
-| **Data Type** | RED metrics | Distributed traces |
-| **Overhead** | ~1-2% CPU | ~2-5% CPU |
-| **Kernel Requirement** | 4.18+ with eBPF | Any |
-| **Use Case** | Infrastructure monitoring | Application debugging |
+| Aspect                 | Beyla (eBPF)              | OpenTelemetry SDK     |
+|------------------------|---------------------------|-----------------------|
+| **Instrumentation**    | Automatic via eBPF        | Requires code changes |
+| **Protocols**          | HTTP, gRPC, SQL           | Any (custom spans)    |
+| **Data Type**          | RED metrics               | Distributed traces    |
+| **Overhead**           | ~1-2% CPU                 | ~2-5% CPU             |
+| **Kernel Requirement** | 4.18+ with eBPF           | Any                   |
+| **Use Case**           | Infrastructure monitoring | Application debugging |
 
-**Recommendation:** Use both - Beyla for automatic RED metrics and OpenTelemetry SDK for detailed application traces.
+**Recommendation:** Use both - Beyla for automatic RED metrics and OpenTelemetry
+SDK for detailed application traces.
+
+---
+
+## Agent API Port
+
+The agent exposes a **Connect RPC** service on **port 9001** for communication
+with the colony and local CLI tools.
+
+### Port 9001 - Agent API
+
+**Purpose**: Colony queries, service management, telemetry requests, remote
+shell execution
+
+**Binding:**
+
+- **Mesh IP** (`<mesh-ip>:9001`): Accessible from colony via WireGuard mesh
+- **Localhost** (`127.0.0.1:9001`): Accessible from local CLI commands (
+  `coral connect`, `coral agent status`)
+
+**Protocol**: HTTP/2 (Connect RPC) with bidirectional streaming support
+
+**Endpoints:**
+
+- `/coral.agent.v1.AgentService/*` - Main agent API
+- `/status` - Runtime and mesh network debugging info (JSON)
+- `/duckdb/<database-name>` - Remote DuckDB query endpoint
+
+**Security:**
+
+- Not exposed outside the WireGuard mesh
+- No authentication required (protected by mesh network isolation)
+- Uses WireGuard's encrypted tunnel for all colony-to-agent communication
+
+**Example Usage:**
+
+```bash
+# Local CLI access
+curl http://localhost:9001/status
+
+# Colony access (from within mesh)
+curl http://100.64.0.5:9001/status
+
+# Remote DuckDB query
+curl http://100.64.0.5:9001/duckdb/metrics.duckdb
+```
 
 ---
 
@@ -364,9 +483,9 @@ telemetry:
 
 ```go
 exporter, _ := otlptracegrpc.New(
-context.Background(),
-otlptracegrpc.WithEndpoint("localhost:4317"),
-otlptracegrpc.WithInsecure(),
+    context.Background(),
+    otlptracegrpc.WithEndpoint("localhost:4317"),
+    otlptracegrpc.WithInsecure(),
 )
 ```
 
@@ -391,56 +510,15 @@ telemetry:
 **Rationale**: Low sample rate reduces storage/network while still capturing
 errors and slow requests.
 
-### Example 3: Kubernetes Sidecar
+### Example 3: Kubernetes
 
-**Use Case**: Agent running as a sidecar in Kubernetes.
+For detailed Kubernetes deployment instructions, configurations, and manifests (Sidecar, DaemonSet, etc.), please refer to the [Kubernetes Deployments Documentation](../deployments/k8s/README.md).
 
-**Deployment**:
 
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-    name: myapp
-spec:
-    containers:
-        # Application container
-        -   name: app
-            image: myapp:latest
-            env:
-                -   name: OTEL_EXPORTER_OTLP_ENDPOINT
-                    value: "http://localhost:4317"
-
-        # Coral agent sidecar
-        -   name: coral-agent
-            image: coral-agent:latest
-            ports:
-                -   containerPort: 4317
-                    name: otlp-grpc
-                -   containerPort: 4318
-                    name: otlp-http
-```
-
-**Agent Configuration**:
-
-```yaml
-telemetry:
-    disabled: false
-    grpc_endpoint: "0.0.0.0:4317"
-    http_endpoint: "0.0.0.0:4318"
-    storage_retention_hours: 1
-    filters:
-        always_capture_errors: true
-        high_latency_threshold_ms: 1000.0  # Higher threshold for K8s
-        sample_rate: 0.10
-```
 
 ### Example 4: Serverless (Lambda/Cloud Run)
 
 **Use Case**: Serverless workloads exporting to regional OTLP agent.
-
-**See**: `RFDs/034-serverless-otlp-forwarding.md` for detailed serverless
-integration.
 
 **Configuration** (Regional Agent):
 
@@ -466,20 +544,36 @@ telemetry:
 
 **Checklist**:
 
-1. Verify `telemetry.enabled: true` in agent config
-2. Check agent logs for "OTLP receiver listening" messages
-3. Verify application is exporting to correct endpoint (`localhost:4317`)
+1. Verify `telemetry.disabled: false` in agent config
+2. Check agent logs for "OTLP receiver listening" messages on both ports:
+    - `OTLP gRPC receiver listening on 0.0.0.0:4317`
+    - `OTLP HTTP receiver listening on 0.0.0.0:4318`
+3. Verify application is exporting to correct endpoint (`localhost:4317` or
+   `localhost:4318`)
 4. Check firewall rules (ports 4317, 4318)
-5. Test connectivity: `telnet localhost 4317`
+5. Test connectivity:
+   ```bash
+   # Test OTLP gRPC port
+   telnet localhost 4317
+
+   # Test OTLP HTTP port
+   curl http://localhost:4318/v1/traces
+
+   # Test agent API
+   curl http://localhost:9001/status
+   ```
 
 **Debug Commands**:
 
 ```bash
-# Check if agent is listening on OTLP ports
-netstat -tuln | grep -E '4317|4318'
+# Check if agent is listening on all ports
+netstat -tuln | grep -E '4317|4318|9001'
 
 # Test gRPC endpoint
 grpcurl -plaintext localhost:4317 list
+
+# Check agent API status
+curl http://localhost:9001/status | jq
 
 # Check agent logs
 journalctl -u coral-agent -f
@@ -654,31 +748,9 @@ grpc_endpoint: "0.0.0.0:4317"
 import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 handler := otelhttp.NewHandler(myHandler, "server",
-otelhttp.WithFilter(func (r *http.Request) bool {
-// Exclude certain paths from tracing
-return !strings.HasPrefix(r.URL.Path, "/health")
-}),
+    otelhttp.WithFilter(func (r *http.Request) bool {
+        // Exclude certain paths from tracing
+        return !strings.HasPrefix(r.URL.Path, "/health")
+    }),
 )
 ```
-
----
-
-## Related Documentation
-
-- **RFD 025**: Basic OpenTelemetry Ingestion (
-  `RFDs/025-basic-otel-ingestion.md`)
-- **RFD 032**: Beyla Integration for RED Metrics Collection (
-  `RFDs/032-beyla-red-metrics-integration.md`)
-- **RFD 034**: Serverless OTLP Forwarding (
-  `RFDs/034-serverless-otlp-forwarding.md`)
-- **Concept**: Coral Architecture (`docs/CONCEPT.md`)
-
----
-
-## Support
-
-For questions or issues:
-
-- Check agent logs: `journalctl -u coral-agent -f`
-- Review RFD 025 for architecture details
-- File issues at: https://github.com/coral-io/coral/issues

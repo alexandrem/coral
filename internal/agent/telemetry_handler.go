@@ -6,8 +6,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	agentv1 "github.com/coral-io/coral/coral/agent/v1"
-	"github.com/coral-io/coral/internal/agent/telemetry"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/agent/telemetry"
 )
 
 // TelemetryHandler implements the QueryTelemetry RPC for agents (RFD 025).

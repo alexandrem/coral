@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/internal/logging"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // mockColonyClient implements the colony RPC calls needed for testing.

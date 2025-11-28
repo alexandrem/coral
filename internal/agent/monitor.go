@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	meshv1 "github.com/coral-io/coral/coral/mesh/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/rs/zerolog"
 )
 

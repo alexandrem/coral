@@ -11,7 +11,7 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 
-	v1 "github.com/coral-io/coral/coral/agent/v1"
+	v1 "github.com/coral-mesh/coral/coral/agent/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
@@ -1370,8 +1370,8 @@ const file_coral_mesh_v1_ebpf_proto_rawDesc = "" +
 	"\vEbpfService\x12e\n" +
 	"\x0eStartCollector\x12(.coral.mesh.v1.StartEbpfCollectorRequest\x1a).coral.mesh.v1.StartEbpfCollectorResponse\x12b\n" +
 	"\rStopCollector\x12'.coral.mesh.v1.StopEbpfCollectorRequest\x1a(.coral.mesh.v1.StopEbpfCollectorResponse\x12Q\n" +
-	"\fStreamEvents\x12%.coral.mesh.v1.EbpfEventStreamRequest\x1a\x18.coral.mesh.v1.EbpfEvent0\x01B\xa4\x01\n" +
-	"\x11com.coral.mesh.v1B\tEbpfProtoP\x01Z.github.com/coral-io/coral/coral/mesh/v1;meshv1\xa2\x02\x03CMX\xaa\x02\rCoral.Mesh.V1\xca\x02\rCoral\\Mesh\\V1\xe2\x02\x19Coral\\Mesh\\V1\\GPBMetadata\xea\x02\x0fCoral::Mesh::V1b\x06proto3"
+	"\fStreamEvents\x12%.coral.mesh.v1.EbpfEventStreamRequest\x1a\x18.coral.mesh.v1.EbpfEvent0\x01B\xa6\x01\n" +
+	"\x11com.coral.mesh.v1B\tEbpfProtoP\x01Z0github.com/coral-mesh/coral/coral/mesh/v1;meshv1\xa2\x02\x03CMX\xaa\x02\rCoral.Mesh.V1\xca\x02\rCoral\\Mesh\\V1\xe2\x02\x19Coral\\Mesh\\V1\\GPBMetadata\xea\x02\x0fCoral::Mesh::V1b\x06proto3"
 
 var (
 	file_coral_mesh_v1_ebpf_proto_rawDescOnce sync.Once

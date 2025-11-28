@@ -14,8 +14,8 @@ import (
 	"connectrpc.com/connect"
 	_ "github.com/marcboeker/go-duckdb" // Import DuckDB driver.
 
-	colonyv1 "github.com/coral-io/coral/coral/colony/v1"
-	"github.com/coral-io/coral/coral/colony/v1/colonyv1connect"
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 // AgentInfo contains information about an agent with available databases.

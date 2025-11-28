@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	ebpfpb "github.com/coral-io/coral/coral/mesh/v1"
+	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 // BeylaStorage handles local storage of Beyla metrics in agent's DuckDB.

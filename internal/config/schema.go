@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/coral-io/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // SchemaVersion is the configuration schema version.

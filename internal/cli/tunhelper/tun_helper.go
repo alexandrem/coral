@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/coral-io/coral/internal/logging"
-	"github.com/coral-io/coral/internal/wireguard"
+	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // New creates the internal _tun-helper command.
