@@ -4,7 +4,7 @@
 
 **Parent RFD:** [059-live-debugging-architecture.md](059-live-debugging-architecture.md)
 
-**Progress:** Phase 1.1 Complete ✅ | Phase 1.2 In Progress 🔄
+**Progress:** Phase 1 Complete ✅ (Protobuf + SDK) | Phase 2 Next (Uprobe Collector)
 
 **Context:** This document provides a detailed implementation plan for RFD 059, updated to account for:
 - ✅ Beyla integration (RFD 032) handles protocol-level observability
@@ -344,15 +344,37 @@ func (p *FunctionMetadataProvider) GetFunctionOffset(funcName string) (uint64, e
 ```
 
 **Tasks:**
-- [ ] Define SDK debug protobuf service
-- [ ] Implement DWARF parsing in SDK
-- [ ] Implement function offset resolution
-- [ ] Add gRPC server to SDK (embedded, port auto-selected)
-- [ ] SDK reports its gRPC address to agent during registration
+- [x] Define SDK debug protobuf service
+- [x] Implement DWARF parsing in SDK (supports Linux ELF and macOS Mach-O)
+- [x] Implement function offset resolution
+- [x] Add gRPC server to SDK (embedded, port auto-selected)
+- [x] Create SDK initialization and registration API
+- [x] Add example application demonstrating SDK usage
+- [x] Add unit tests for SDK components
+
+**Status:** ✅ Complete (2025-11-28)
+
+**Implementation Notes:**
+- Created `pkg/sdk` package with SDK client API
+- Created `pkg/sdk/debug` package with:
+  - `FunctionMetadataProvider` - DWARF parsing for function offsets
+  - `Server` - Embedded Connect-RPC server implementing `SDKDebugService`
+  - Platform support: Linux (ELF) and macOS (Mach-O)
+- Implemented SDK metadata APIs:
+  - `GetFunctionMetadata` - Returns function offset, arguments, return values
+  - `ListFunctions` - Lists all instrumentable functions with pattern matching
+- Created `examples/sdk-demo` - Complete example showing SDK integration
+- Server auto-selects port on localhost (127.0.0.1:0)
+- All tests passing
+
+**Files Created:**
+- `pkg/sdk/sdk.go` - Main SDK client
+- `pkg/sdk/debug/metadata.go` - DWARF metadata provider
+- `pkg/sdk/debug/server.go` - gRPC debug server
+- `examples/sdk-demo/main.go` - Example application
+- `pkg/sdk/sdk_test.go`, `pkg/sdk/debug/metadata_test.go` - Unit tests
 
 **Estimated effort:** 4-5 days
-
-**Blocker:** This is a prerequisite for uprobe attachment. Without function offsets, we can't attach probes.
 
 ---
 

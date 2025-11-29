@@ -237,31 +237,42 @@ Implementation is proceeding in phases as outlined in [059-implementation-plan.m
   - Generated Go code with Connect-RPC bindings
   - All tests passing
 
+- ✅ **SDK Function Metadata API** (Phase 1.2):
+  - DWARF parsing for function offset resolution (`pkg/sdk/debug/metadata.go`)
+  - Embedded gRPC debug server (`pkg/sdk/debug/server.go`)
+  - SDK client API for application integration (`pkg/sdk/sdk.go`)
+  - Platform support: Linux (ELF) and macOS (Mach-O)
+  - Example application with instrumentation (`examples/sdk-demo`)
+  - Unit tests passing
+
 **Operational Components:**
 
-Currently none - core protocol foundation is complete, but implementation of collectors, SDK, and orchestration is pending.
+- ✅ **SDK Debug Server**: Applications can embed the SDK to expose function metadata via gRPC
+- ✅ **Function Discovery**: SDK can list all instrumentable functions from DWARF symbols
+- ✅ **Offset Resolution**: SDK can resolve function entry point offsets for uprobe attachment
 
 **What Works Now:**
 
-- API contracts are defined and code-generated
-- Type-safe protobuf messages for uprobe events, function metadata, and debug sessions
-- gRPC service definitions for Colony ↔ Agent and Agent ↔ SDK communication
+- Applications can integrate Coral SDK with `sdk.New(config)`
+- SDK starts embedded debug server on localhost (auto-selected port)
+- SDK extracts function metadata from DWARF debug symbols
+- SDK serves `GetFunctionMetadata` and `ListFunctions` RPCs
+- Example application demonstrates complete SDK integration
 
 **Integration Status:**
 
 The following components are in progress:
 
-- ⏳ SDK Function Metadata Provider (Phase 1.2) - DWARF parsing and offset resolution
 - ⏳ Uprobe Collector Implementation (Phase 2) - eBPF program and event collection
 - ⏳ Colony Debug Orchestrator (Phase 3) - Session management and routing
 - ⏳ CLI Debug Commands (Phase 4) - User-facing debug interface
 
 **Next Steps:**
 
-1. Implement SDK metadata provider with DWARF parsing for function offset discovery
-2. Build uprobe collector using `cilium/ebpf` library
-3. Implement Colony orchestrator for session management
-4. Add CLI commands for debug operations
+1. ~~Implement SDK metadata provider with DWARF parsing for function offset discovery~~ ✅ Complete
+2. Build uprobe collector using `cilium/ebpf` library (Phase 2)
+3. Implement Colony orchestrator for session management (Phase 3)
+4. Add CLI commands for debug operations (Phase 4)
 
 See [059-implementation-plan.md](059-implementation-plan.md) for detailed implementation roadmap.
 
