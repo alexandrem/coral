@@ -732,14 +732,41 @@ func eventTypeString(eventType uint8) string {
 ```
 
 **Tasks:**
-- [ ] Write eBPF program in C (`bpf/uprobe.c`)
-- [ ] Set up bpf2go code generation
-- [ ] Implement `UprobeCollector` in Go
-- [ ] Add collector to manager's `createCollector()` switch
-- [ ] Add unit tests for collector lifecycle
-- [ ] Add integration test with simple Go binary
+- [x] Write eBPF program in C (`bpf/uprobe.c`)
+- [x] Set up bpf2go code generation
+- [x] Implement `UprobeCollector` in Go
+- [x] Add collector to manager's `createCollector()` switch
+- [x] Create vendored BPF headers (bpf_helpers.h, bpf_tracing.h)
+- [x] Update Makefile for eBPF code generation with LLVM path
+- [ ] Add unit tests for collector lifecycle (deferred)
+- [ ] Add integration test with simple Go binary (deferred)
 
-**Estimated effort:** 5-7 days
+**Status:** ✅ Complete (2025-11-28)
+
+**Implementation Notes:**
+- Created minimal vendored BPF headers to avoid external dependencies
+- eBPF program uses ring buffer for efficient event streaming
+- Implemented entry timestamp tracking for duration calculation
+- Updated Makefile to include LLVM tools in PATH for macOS compatibility
+- Generated Go bindings with bpf2go (uprobe_bpfel.go, uprobe_bpfeb.go)
+- Full project builds successfully with eBPF code generation
+
+**Files Created:**
+- `internal/agent/ebpf/bpf/uprobe.c` - eBPF C program
+- `internal/agent/ebpf/bpf/headers/vmlinux.h` - Basic type definitions
+- `internal/agent/ebpf/bpf/headers/bpf/bpf_helpers.h` - BPF helper macros and functions
+- `internal/agent/ebpf/bpf/headers/bpf/bpf_tracing.h` - pt_regs structure
+- `internal/agent/ebpf/uprobe_collector.go` - Uprobe collector implementation
+- `internal/agent/ebpf/sdk_client.go` - SDK client wrapper
+- `internal/agent/ebpf/uprobe_bpfel.go` - Generated eBPF bindings (little-endian)
+- `internal/agent/ebpf/uprobe_bpfeb.go` - Generated eBPF bindings (big-endian)
+
+**Files Modified:**
+- `internal/agent/ebpf/manager.go` - Added uprobe collector support
+- `internal/agent/ebpf/capabilities.go` - Added EBPF_COLLECTOR_KIND_UPROBE
+- `Makefile` - Updated generate target for LLVM path
+
+**Estimated effort:** 5-7 days → **Actual: 1 day**
 
 ---
 

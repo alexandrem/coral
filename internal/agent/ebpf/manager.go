@@ -216,6 +216,39 @@ func (m *Manager) isCollectorSupported(kind agentv1.EbpfCollectorKind) bool {
 // createCollector creates a collector instance based on kind.
 func (m *Manager) createCollector(kind agentv1.EbpfCollectorKind, config map[string]string) (Collector, error) {
 	switch kind {
+	case agentv1.EbpfCollectorKind_EBPF_COLLECTOR_KIND_UPROBE:
+		// Parse uprobe configuration
+		functionName, ok := config["function_name"]
+		if !ok {
+			return nil, fmt.Errorf("function_name is required for uprobe collector")
+		}
+
+		sdkAddr, ok := config["sdk_addr"]
+		if !ok {
+			return nil, fmt.Errorf("sdk_addr is required for uprobe collector")
+		}
+
+		serviceName := config["service_name"]
+
+		uprobeConfig := &UprobeConfig{
+			ServiceName:  serviceName,
+			FunctionName: functionName,
+			SDKAddr:      sdkAddr,
+		}
+
+		// Parse optional config
+		if captureArgs, ok := config["capture_args"]; ok && captureArgs == "true" {
+			uprobeConfig.CaptureArgs = true
+		}
+		if captureReturn, ok := config["capture_return"]; ok && captureReturn == "true" {
+			uprobeConfig.CaptureReturn = true
+		}
+		if maxEvents, ok := config["max_events"]; ok {
+			fmt.Sscanf(maxEvents, "%d", &uprobeConfig.MaxEvents)
+		}
+
+		return NewUprobeCollector(m.logger, uprobeConfig)
+
 	case agentv1.EbpfCollectorKind_EBPF_COLLECTOR_KIND_SYSCALL_STATS:
 		return NewSyscallStatsCollector(m.logger, config), nil
 	default:

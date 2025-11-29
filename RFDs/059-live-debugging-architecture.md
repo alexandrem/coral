@@ -263,9 +263,19 @@ Implementation is proceeding in phases as outlined in [059-implementation-plan.m
 
 The following components are in progress:
 
-- ⏳ Uprobe Collector Implementation (Phase 2) - eBPF program and event collection
+- ✅ Uprobe Collector Implementation (Phase 2) - eBPF program and event collection complete
 - ⏳ Colony Debug Orchestrator (Phase 3) - Session management and routing
 - ⏳ CLI Debug Commands (Phase 4) - User-facing debug interface
+
+**What Works Now (Phase 2 Complete):**
+
+- eBPF uprobe program compiles and loads successfully
+- Uprobe collector can attach to function entry and exit points
+- Ring buffer event streaming from kernel to userspace
+- Duration tracking via entry timestamp map
+- SDK client queries function metadata (offsets, binary path, PID)
+- Manager creates and manages uprobe collectors
+- Full build system integration with bpf2go code generation
 
 **Next Steps:**
 

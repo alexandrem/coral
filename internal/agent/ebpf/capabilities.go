@@ -34,6 +34,7 @@ func detectCapabilities() *agentv1.EbpfCapabilities {
 	// For minimal implementation, only support syscall stats.
 	collectors := []agentv1.EbpfCollectorKind{
 		agentv1.EbpfCollectorKind_EBPF_COLLECTOR_KIND_SYSCALL_STATS,
+		agentv1.EbpfCollectorKind_EBPF_COLLECTOR_KIND_UPROBE,
 	}
 
 	return &agentv1.EbpfCapabilities{

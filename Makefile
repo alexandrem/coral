@@ -20,9 +20,13 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-generate: ## Download Beyla binaries for embedding (run before first build)
+generate: ## Generate protobuf, eBPF, and download Beyla binaries (run before first build)
 	@echo "Running go generate..."
-	go generate ./...
+	@if [ -d "/usr/local/homebrew/opt/llvm/bin" ]; then \
+		export PATH="/usr/local/homebrew/opt/llvm/bin:$$PATH" && go generate ./...; \
+	else \
+		go generate ./...; \
+	fi
 	@echo "✓ Generated files ready"
 
 build: generate ## Build the coral binary
