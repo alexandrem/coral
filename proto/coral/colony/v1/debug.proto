@@ -29,6 +29,8 @@ message AttachUprobeRequest {
   string function_name = 2;
   google.protobuf.Duration duration = 3;  // Default: 60s, Max: 600s
   coral.mesh.v1.UprobeConfig config = 4;
+  string agent_id = 5;              // Manual override (until service discovery integration)
+  string sdk_addr = 6;              // Manual override (until service discovery integration)
 }
 
 // AttachUprobeResponse confirms debug session creation.
@@ -68,6 +70,8 @@ message QueryUprobeEventsResponse {
 message ListDebugSessionsRequest {
   // Optional filter by service name.
   string service_name = 1;
+  // Optional filter by status.
+  string status = 2;
 }
 
 // ListDebugSessionsResponse returns active sessions.

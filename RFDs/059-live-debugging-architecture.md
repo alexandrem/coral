@@ -1,7 +1,7 @@
 ---
 rfd: "059"
 title: "Live Debugging Architecture"
-state: "in-progress"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "architecture", "debugging", "observability" ]
 
 # RFD 059 - Live Debugging Architecture
 
-**Status:** 🔄 In Progress
+**Status:** ✅ Implemented
 
 ## Summary
 
@@ -222,71 +222,49 @@ CREATE TABLE uprobe_events
 
 ---
 
-## Implementation Status
+## Implementation Plan
 
-**Core Capability:** 🔄 In Progress
+The implementation is divided into five phases to deliver a complete vertical slice before hardening for production.
 
-Implementation is proceeding in phases as outlined in [059-implementation-plan.md](059-implementation-plan.md). The protocol definitions and API contracts are complete, establishing the foundation for uprobe-based debugging.
+### Phase 1: Foundation (Completed)
+- [x] **Protobuf Definitions**: Define RPC messages for uprobe collection and debug orchestration.
+- [x] **SDK Implementation**: Implement DWARF parsing and embedded gRPC server for function metadata exposure.
 
-**Completed Components:**
+### Phase 2: Uprobe Collector (Completed)
+- [x] **eBPF Program**: Develop C program for `kprobe`/`kretprobe` attachment and event streaming.
+- [x] **Agent Collector**: Implement Go collector to manage eBPF lifecycle and stream events.
 
-- ✅ **Protocol Definitions** (Phase 1.1):
-  - Protobuf messages for uprobe collectors (`coral/mesh/v1/ebpf.proto`)
-  - Colony Debug Service API (`coral/colony/v1/debug.proto`)
-  - SDK Debug Service API (`coral/sdk/v1/debug.proto`)
-  - Generated Go code with Connect-RPC bindings
-  - All tests passing
+### Phase 3: Agent & Colony Integration (Completed)
+- [x] **Agent RPCs**: Implement `StartUprobeCollector` and `QueryUprobeEvents` handlers.
+- [x] **Colony Orchestrator**: Implement session management and routing logic (MVP).
 
-- ✅ **SDK Function Metadata API** (Phase 1.2):
-  - DWARF parsing for function offset resolution (`pkg/sdk/debug/metadata.go`)
-  - Embedded gRPC debug server (`pkg/sdk/debug/server.go`)
-  - SDK client API for application integration (`pkg/sdk/sdk.go`)
-  - Platform support: Linux (ELF) and macOS (Mach-O)
-  - Example application with instrumentation (`examples/sdk-demo`)
-  - Unit tests passing
-
-**Operational Components:**
-
-- ✅ **SDK Debug Server**: Applications can embed the SDK to expose function metadata via gRPC
-- ✅ **Function Discovery**: SDK can list all instrumentable functions from DWARF symbols
-- ✅ **Offset Resolution**: SDK can resolve function entry point offsets for uprobe attachment
-
-**What Works Now:**
-
-- Applications can integrate Coral SDK with `sdk.New(config)`
-- SDK starts embedded debug server on localhost (auto-selected port)
-- SDK extracts function metadata from DWARF debug symbols
-- SDK serves `GetFunctionMetadata` and `ListFunctions` RPCs
-- Example application demonstrates complete SDK integration
-
-**Integration Status:**
-
-The following components are in progress:
-
-- ✅ Uprobe Collector Implementation (Phase 2) - eBPF program and event collection complete
-- ⏳ Colony Debug Orchestrator (Phase 3) - Session management and routing
-- ⏳ CLI Debug Commands (Phase 4) - User-facing debug interface
-
-**What Works Now (Phase 2 Complete):**
-
-- eBPF uprobe program compiles and loads successfully
-- Uprobe collector can attach to function entry and exit points
-- Ring buffer event streaming from kernel to userspace
-- Duration tracking via entry timestamp map
-- SDK client queries function metadata (offsets, binary path, PID)
-- Manager creates and manages uprobe collectors
-- Full build system integration with bpf2go code generation
-
-**Next Steps:**
-
-1. ~~Implement SDK metadata provider with DWARF parsing for function offset discovery~~ ✅ Complete
-2. Build uprobe collector using `cilium/ebpf` library (Phase 2)
-3. Implement Colony orchestrator for session management (Phase 3)
-4. Add CLI commands for debug operations (Phase 4)
-
-See [059-implementation-plan.md](059-implementation-plan.md) for detailed implementation roadmap.
+### Phase 4: CLI Integration (Completed)
+- [x] **Debug Commands**: Implement `coral debug` commands (`attach`, `detach`, `sessions`, `events`).
+- [x] **User Experience**: Ensure real-time event streaming and intuitive session management.
 
 ---
+
+## Implementation Status
+
+**Status:** ✅ Implemented (MVP Complete)
+
+Phases 1 through 4 are complete, delivering a functional end-to-end live debugging experience.
+
+- **SDK**: Fully functional with DWARF parsing and gRPC server.
+- **Agent**: Successfully attaches uprobes and streams events using eBPF.
+- **Colony**: Orchestrates sessions and routes requests (in-memory MVP).
+- **CLI**: Provides full control over debug sessions.
+
+---
+
+## Deferred Features
+
+The following features are deferred from the initial MVP scope and will be addressed in future hardening phases:
+
+- **Persistence**: Store debug sessions and audit logs in DuckDB.
+- **Service Discovery**: Integrate with service registry for automatic agent/SDK resolution.
+- **Agent Pool**: Robust connection management between Colony and Agents.
+- **Security**: Implement audit logging and access control.
 
 ## Future Work
 

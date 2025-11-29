@@ -8,6 +8,7 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/ask"
 	"github.com/coral-mesh/coral/internal/cli/colony"
 	"github.com/coral-mesh/coral/internal/cli/config"
+	"github.com/coral-mesh/coral/internal/cli/debug"
 	"github.com/coral-mesh/coral/internal/cli/duckdb"
 	initcmd "github.com/coral-mesh/coral/internal/cli/init"
 	"github.com/coral-mesh/coral/internal/cli/proxy"
@@ -49,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(agent.NewShellCmd())
 	rootCmd.AddCommand(agent.NewExecCmd()) // RFD 056 - Container exec.
 	rootCmd.AddCommand(duckdb.NewDuckDBCmd())
+	rootCmd.AddCommand(debug.NewDebugCmd())
 	rootCmd.AddCommand(newVersionCmd())
 
 	// Add internal commands (hidden from help)

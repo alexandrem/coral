@@ -42,6 +42,7 @@ message StartUprobeCollectorRequest {
   string function_name = 3;         // e.g., "github.com/myapp/pkg.ValidateCard"
   google.protobuf.Duration duration = 4;  // Max 600s
   UprobeConfig config = 5;
+  string sdk_addr = 6;              // SDK debug service address (e.g., "localhost:50051")
 }
 
 // UprobeConfig specifies what data to capture from function calls.
@@ -59,6 +60,32 @@ message StartUprobeCollectorResponse {
   bool supported = 3;  // false if uprobes not available
   string error = 4;    // error message if supported=false
 }
+
+// StopUprobeCollectorRequest stops a running uprobe collector.
+message StopUprobeCollectorRequest {
+  string collector_id = 1;
+}
+
+// StopUprobeCollectorResponse confirms uprobe stop.
+message StopUprobeCollectorResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// QueryUprobeEventsRequest retrieves events from a uprobe collector.
+message QueryUprobeEventsRequest {
+  string collector_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  int32 max_events = 4;             // Pagination
+}
+
+// QueryUprobeEventsResponse returns collected events.
+message QueryUprobeEventsResponse {
+  repeated EbpfEvent events = 1;
+  bool has_more = 2;                // Pagination indicator
+}
+
 
 // EbpfEventStreamRequest requests streaming of eBPF events.
 message EbpfEventStreamRequest {

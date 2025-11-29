@@ -32,6 +32,8 @@ type AttachUprobeRequest struct {
 	FunctionName  string                 `protobuf:"bytes,2,opt,name=function_name,json=functionName,proto3" json:"function_name,omitempty"`
 	Duration      *durationpb.Duration   `protobuf:"bytes,3,opt,name=duration,proto3" json:"duration,omitempty"` // Default: 60s, Max: 600s
 	Config        *v1.UprobeConfig       `protobuf:"bytes,4,opt,name=config,proto3" json:"config,omitempty"`
+	AgentId       string                 `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"` // Manual override (until service discovery integration)
+	SdkAddr       string                 `protobuf:"bytes,6,opt,name=sdk_addr,json=sdkAddr,proto3" json:"sdk_addr,omitempty"` // Manual override (until service discovery integration)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -92,6 +94,20 @@ func (x *AttachUprobeRequest) GetConfig() *v1.UprobeConfig {
 		return x.Config
 	}
 	return nil
+}
+
+func (x *AttachUprobeRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *AttachUprobeRequest) GetSdkAddr() string {
+	if x != nil {
+		return x.SdkAddr
+	}
+	return ""
 }
 
 // AttachUprobeResponse confirms debug session creation.
@@ -387,7 +403,9 @@ func (x *QueryUprobeEventsResponse) GetHasMore() bool {
 type ListDebugSessionsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional filter by service name.
-	ServiceName   string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	ServiceName string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	// Optional filter by status.
+	Status        string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -425,6 +443,13 @@ func (*ListDebugSessionsRequest) Descriptor() ([]byte, []int) {
 func (x *ListDebugSessionsRequest) GetServiceName() string {
 	if x != nil {
 		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *ListDebugSessionsRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
 	}
 	return ""
 }
@@ -587,12 +612,14 @@ var File_coral_colony_v1_debug_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\n" +
-	"\x1bcoral/colony/v1/debug.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x18coral/mesh/v1/ebpf.proto\"\xc9\x01\n" +
+	"\x1bcoral/colony/v1/debug.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x18coral/mesh/v1/ebpf.proto\"\xff\x01\n" +
 	"\x13AttachUprobeRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12#\n" +
 	"\rfunction_name\x18\x02 \x01(\tR\ffunctionName\x125\n" +
 	"\bduration\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\bduration\x123\n" +
-	"\x06config\x18\x04 \x01(\v2\x1b.coral.mesh.v1.UprobeConfigR\x06config\"\xa0\x01\n" +
+	"\x06config\x18\x04 \x01(\v2\x1b.coral.mesh.v1.UprobeConfigR\x06config\x12\x19\n" +
+	"\bagent_id\x18\x05 \x01(\tR\aagentId\x12\x19\n" +
+	"\bsdk_addr\x18\x06 \x01(\tR\asdkAddr\"\xa0\x01\n" +
 	"\x14AttachUprobeResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x129\n" +
@@ -616,9 +643,10 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"max_events\x18\x04 \x01(\x05R\tmaxEvents\"j\n" +
 	"\x19QueryUprobeEventsResponse\x122\n" +
 	"\x06events\x18\x01 \x03(\v2\x1a.coral.mesh.v1.UprobeEventR\x06events\x12\x19\n" +
-	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"=\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"U\n" +
 	"\x18ListDebugSessionsRequest\x12!\n" +
-	"\fservice_name\x18\x01 \x01(\tR\vserviceName\"V\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"V\n" +
 	"\x19ListDebugSessionsResponse\x129\n" +
 	"\bsessions\x18\x01 \x03(\v2\x1d.coral.colony.v1.DebugSessionR\bsessions\"\xe2\x02\n" +
 	"\fDebugSession\x12\x1d\n" +

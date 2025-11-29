@@ -22,11 +22,21 @@ help: ## Show this help message
 
 generate: ## Generate protobuf, eBPF, and download Beyla binaries (run before first build)
 	@echo "Running go generate..."
-	@if [ -d "/usr/local/homebrew/opt/llvm/bin" ]; then \
-		export PATH="/usr/local/homebrew/opt/llvm/bin:$$PATH" && go generate ./...; \
-	else \
-		go generate ./...; \
-	fi
+	@# Check for llvm-strip (required for bpf2go)
+	@if ! which llvm-strip >/dev/null 2>&1; then \
+		if [ -d "/usr/local/homebrew/opt/llvm/bin" ]; then \
+			export PATH="/usr/local/homebrew/opt/llvm/bin:$$PATH"; \
+		elif [ -d "/opt/homebrew/opt/llvm/bin" ]; then \
+			export PATH="/opt/homebrew/opt/llvm/bin:$$PATH"; \
+		fi; \
+	fi; \
+	if ! which llvm-strip >/dev/null 2>&1; then \
+		echo "❌ Error: llvm-strip not found in PATH"; \
+		echo "  macOS: brew install llvm"; \
+		echo "  Linux: sudo apt-get install clang llvm"; \
+		exit 1; \
+	fi; \
+	go generate ./...
 	@echo "✓ Generated files ready"
 
 build: generate ## Build the coral binary
