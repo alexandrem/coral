@@ -8,17 +8,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"runtime"
 	"strings"
 	"sync"
-
-	"github.com/rs/zerolog"
 )
 
 // FunctionMetadataProvider extracts function metadata from DWARF debug info.
 type FunctionMetadataProvider struct {
-	logger     zerolog.Logger
+	logger     *slog.Logger
 	binaryPath string
 	pid        int
 	dwarf      *dwarf.Data
@@ -55,7 +54,7 @@ type ReturnValueMetadata struct {
 }
 
 // NewFunctionMetadataProvider creates a new metadata provider for the current process.
-func NewFunctionMetadataProvider(logger zerolog.Logger) (*FunctionMetadataProvider, error) {
+func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider, error) {
 	// Get current binary path.
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -105,8 +104,8 @@ func NewFunctionMetadataProvider(logger zerolog.Logger) (*FunctionMetadataProvid
 
 	// If DWARF extraction failed, log warning and use reflection fallback.
 	if dwarfErr != nil {
-		logger.Warn().Err(dwarfErr).Msg("No DWARF debug info found in binary, falling back to runtime reflection")
-		logger.Warn().Msg("For full uprobe support (arguments/return values), rebuild without -ldflags=\"-w\"")
+		logger.Warn("No DWARF debug info found in binary, falling back to runtime reflection", "error", dwarfErr)
+		logger.Warn("For full uprobe support (arguments/return values), rebuild without -ldflags=\"-w\"")
 
 		// Close file handle if it was opened
 		if fileCloser != nil {
@@ -116,15 +115,14 @@ func NewFunctionMetadataProvider(logger zerolog.Logger) (*FunctionMetadataProvid
 
 		dwarfData = nil
 	} else {
-		logger.Info().
-			Str("binary", binaryPath).
-			Int("pid", os.Getpid()).
-			Str("platform", runtime.GOOS).
-			Msg("Initialized function metadata provider with DWARF symbols")
+		logger.Info("Initialized function metadata provider with DWARF symbols",
+			"binary", binaryPath,
+			"pid", os.Getpid(),
+			"platform", runtime.GOOS)
 	}
 
 	return &FunctionMetadataProvider{
-		logger:        logger.With().Str("component", "metadata-provider").Logger(),
+		logger:        logger.With("component", "metadata-provider"),
 		binaryPath:    binaryPath,
 		pid:           os.Getpid(),
 		dwarf:         dwarfData,
@@ -182,13 +180,13 @@ func (p *FunctionMetadataProvider) GetFunctionMetadata(functionName string) (*Fu
 	p.mu.RLock()
 	if cached, ok := p.functionCache[functionName]; ok {
 		p.mu.RUnlock()
-		p.logger.Debug().Str("function", functionName).Msg("Cache hit for function metadata")
+		p.logger.Debug("Cache hit for function metadata", "function", functionName)
 		return cached, nil
 	}
 	p.mu.RUnlock()
 
 	// Search DWARF for function.
-	p.logger.Debug().Str("function", functionName).Msg("Searching for function")
+	p.logger.Debug("Searching for function", "function", functionName)
 
 	var (
 		offset  uint64
@@ -221,19 +219,18 @@ func (p *FunctionMetadataProvider) GetFunctionMetadata(functionName string) (*Fu
 	p.functionCache[functionName] = metadata
 	p.mu.Unlock()
 
-	p.logger.Info().
-		Str("function", functionName).
-		Uint64("offset", offset).
-		Int("args", len(args)).
-		Int("returns", len(retVals)).
-		Msg("Found function metadata")
+	p.logger.Info("Found function metadata",
+		"function", functionName,
+		"offset", offset,
+		"args", len(args),
+		"returns", len(retVals))
 
 	return metadata, nil
 }
 
 // ListFunctions returns all discoverable functions matching the pattern.
 func (p *FunctionMetadataProvider) ListFunctions(packagePattern string) ([]string, error) {
-	p.logger.Debug().Str("pattern", packagePattern).Msg("Listing functions")
+	p.logger.Debug("Listing functions", "pattern", packagePattern)
 
 	if p.dwarf == nil {
 		return p.listFunctionsFromSymbols(packagePattern)
@@ -259,10 +256,9 @@ func (p *FunctionMetadataProvider) ListFunctions(packagePattern string) ([]strin
 		}
 	}
 
-	p.logger.Info().
-		Str("pattern", packagePattern).
-		Int("count", len(functions)).
-		Msg("Listed functions")
+	p.logger.Info("Listed functions",
+		"pattern", packagePattern,
+		"count", len(functions))
 
 	return functions, nil
 }

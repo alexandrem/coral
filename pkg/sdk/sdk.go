@@ -3,13 +3,13 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
@@ -18,7 +18,7 @@ import (
 
 // SDK represents the Coral SDK instance embedded in an application.
 type SDK struct {
-	logger           zerolog.Logger
+	logger           *slog.Logger
 	serviceName      string
 	debugServer      *debug.Server
 	metadataProvider *debug.FunctionMetadataProvider
@@ -37,8 +37,8 @@ type Config struct {
 	// EnableDebug enables the debug server for uprobe attachment.
 	EnableDebug bool
 
-	// Logger is the logger instance (optional, defaults to zerolog.Nop()).
-	Logger zerolog.Logger
+	// Logger is the logger instance (optional, defaults to slog.Default()).
+	Logger *slog.Logger
 }
 
 // New creates a new Coral SDK instance.
@@ -48,11 +48,11 @@ func New(config Config) (*SDK, error) {
 	}
 
 	logger := config.Logger
-	if logger.GetLevel() == zerolog.Disabled {
-		logger = zerolog.Nop()
+	if logger == nil {
+		logger = slog.Default()
 	}
 
-	logger = logger.With().Str("component", "coral-sdk").Str("service", config.ServiceName).Logger()
+	logger = logger.With("component", "coral-sdk", "service", config.ServiceName)
 
 	sdk := &SDK{
 		logger:      logger,
@@ -66,27 +66,26 @@ func New(config Config) (*SDK, error) {
 		}
 	}
 
-	logger.Info().
-		Str("service", config.ServiceName).
-		Bool("debug_enabled", config.EnableDebug).
-		Msg("Coral SDK initialized")
+	logger.Info("Coral SDK initialized",
+		"service", config.ServiceName,
+		"debug_enabled", config.EnableDebug)
 
 	return sdk, nil
 }
 
 // Close shuts down the SDK and releases resources.
 func (s *SDK) Close() error {
-	s.logger.Info().Msg("Shutting down Coral SDK")
+	s.logger.Info("Shutting down Coral SDK")
 
 	if s.debugServer != nil {
 		if err := s.debugServer.Stop(); err != nil {
-			s.logger.Error().Err(err).Msg("Failed to stop debug server")
+			s.logger.Error("Failed to stop debug server", "error", err)
 		}
 	}
 
 	if s.metadataProvider != nil {
 		if err := s.metadataProvider.Close(); err != nil {
-			s.logger.Error().Err(err).Msg("Failed to close metadata provider")
+			s.logger.Error("Failed to close metadata provider", "error", err)
 		}
 	}
 
@@ -104,7 +103,7 @@ func (s *SDK) DebugAddr() string {
 
 // initializeDebugServer sets up the debug server and metadata provider.
 func (s *SDK) initializeDebugServer() error {
-	s.logger.Info().Msg("Initializing debug server")
+	s.logger.Info("Initializing debug server")
 
 	// Create metadata provider.
 	provider, err := debug.NewFunctionMetadataProvider(s.logger)
@@ -127,9 +126,7 @@ func (s *SDK) initializeDebugServer() error {
 		return fmt.Errorf("failed to start debug server: %w", err)
 	}
 
-	s.logger.Info().
-		Str("addr", server.Addr()).
-		Msg("Debug server started")
+	s.logger.Info("Debug server started", "addr", server.Addr())
 
 	return nil
 }
@@ -167,7 +164,7 @@ func RegisterService(name string, opts Options) error {
 	sdk, err := New(Config{
 		ServiceName: name,
 		EnableDebug: true, // Always enable debug for runtime monitoring
-		Logger:      zerolog.New(os.Stderr).With().Timestamp().Logger(),
+		Logger:      slog.Default(),
 	})
 	if err != nil {
 		return err
@@ -214,12 +211,12 @@ func (s *SDK) registerWithAgent() {
 
 	// Retry loop for registration
 	for {
-		s.logger.Info().Str("agent", s.agentAddr).Msg("Attempting to register with Agent...")
+		s.logger.Info("Attempting to register with Agent...", "agent", s.agentAddr)
 
 		// Calculate binary hash (best effort)
 		binHash, err := s.metadataProvider.GetBinaryHash()
 		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to calculate binary hash")
+			s.logger.Warn("Failed to calculate binary hash", "error", err)
 		}
 
 		// Gather capabilities
@@ -245,14 +242,14 @@ func (s *SDK) registerWithAgent() {
 
 		resp, err := client.ConnectService(context.Background(), req)
 		if err == nil && resp.Msg.Success {
-			s.logger.Info().Msg("Successfully registered with Agent")
+			s.logger.Info("Successfully registered with Agent")
 			return
 		}
 
 		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to register with Agent, retrying in 5s...")
+			s.logger.Warn("Failed to register with Agent, retrying in 5s...", "error", err)
 		} else {
-			s.logger.Warn().Str("error", resp.Msg.Error).Msg("Agent rejected registration, retrying in 5s...")
+			s.logger.Warn("Agent rejected registration, retrying in 5s...", "error", resp.Msg.Error)
 		}
 
 		time.Sleep(5 * time.Second)
