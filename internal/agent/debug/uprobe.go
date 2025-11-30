@@ -11,7 +11,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc clang -strip /usr/bin/strip uprobe_monitor ./bpf/uprobe_monitor.bpf.c -- -I../ebpf/bpf/headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc /usr/local/homebrew/opt/llvm/bin/clang -strip /usr/local/homebrew/opt/llvm/bin/llvm-strip uprobe_monitor ./bpf/uprobe_monitor.bpf.c -- -I../ebpf/bpf/headers
 
 // attachUprobeLocked attaches eBPF uprobe to target function.
 // Caller must hold m.mu.

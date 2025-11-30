@@ -12,6 +12,17 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+// loadUprobe_monitor returns the embedded CollectionSpec for uprobe_monitor.
+func loadUprobe_monitor() (*ebpf.CollectionSpec, error) {
+	reader := bytes.NewReader(_Uprobe_monitorBytes)
+	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
+	if err != nil {
+		return nil, fmt.Errorf("can't load uprobe_monitor: %w", err)
+	}
+
+	return spec, err
+}
+
 // loadUprobe_monitorObjects loads uprobe_monitor and converts it into a struct.
 //
 // The following types are suitable as obj argument:
@@ -112,13 +123,3 @@ func _Uprobe_monitorClose(closers ...io.Closer) error {
 //
 //go:embed uprobe_monitor_bpfel.o
 var _Uprobe_monitorBytes []byte
-
-func loadUprobe_monitor() (*ebpf.CollectionSpec, error) {
-	reader := bytes.NewReader(_Uprobe_monitorBytes)
-	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
-	if err != nil {
-		return nil, fmt.Errorf("can't load uprobe_monitor: %w", err)
-	}
-
-	return spec, err
-}
