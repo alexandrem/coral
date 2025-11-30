@@ -390,3 +390,44 @@ func (h *ServiceHandler) KillShellSession(
 ) (*connect.Response[agentv1.KillShellSessionResponse], error) {
 	return h.shellHandler.KillShellSession(ctx, req)
 }
+
+// StreamDebugEvents implements the StreamDebugEvents RPC (RFD 061).
+func (h *ServiceHandler) StreamDebugEvents(
+	ctx context.Context,
+	stream *connect.BidiStream[agentv1.DebugCommand, agentv1.DebugEvent],
+) error {
+	// Subscribe to debug events
+	eventCh := h.agent.debugManager.Subscribe()
+
+	// Goroutine to send events
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event := <-eventCh:
+				if err := stream.Send(event); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}
+	}()
+
+	// Loop to receive commands
+	for {
+		cmd, err := stream.Receive()
+		if err != nil {
+			return err
+		}
+
+		// Handle command
+		if cmd.Command == "detach" {
+			if err := h.agent.StopDebugSession(cmd.SessionId); err != nil {
+				// Log error but continue
+				// We might want to send an error event back?
+			}
+		}
+	}
+}
