@@ -262,3 +262,347 @@ func (s *Server) registerShellExecTool() {
 		return mcp.NewToolResultText(result), nil
 	})
 }
+
+// registerAttachUprobeTool registers the coral_attach_uprobe tool.
+func (s *Server) registerAttachUprobeTool() {
+	if !s.isToolEnabled("coral_attach_uprobe") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(AttachUprobeInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_attach_uprobe")
+		return
+	}
+
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_attach_uprobe")
+		return
+	}
+
+	tool := mcp.NewToolWithRawSchema(
+		"coral_attach_uprobe",
+		"Attach eBPF uprobe to application function for live debugging. Captures entry/exit events, measures duration. Time-limited and production-safe.",
+		schemaBytes,
+	)
+
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input AttachUprobeInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_attach_uprobe", input)
+
+		// TODO: Call DebugService.AttachUprobe
+		return mcp.NewToolResultText(fmt.Sprintf("Debug session started for %s/%s (Not implemented yet)", input.Service, input.Function)), nil
+	})
+}
+
+// registerTraceRequestPathTool registers the coral_trace_request_path tool.
+func (s *Server) registerTraceRequestPathTool() {
+	if !s.isToolEnabled("coral_trace_request_path") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(TraceRequestPathInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_trace_request_path")
+		return
+	}
+
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_trace_request_path")
+		return
+	}
+
+	tool := mcp.NewToolWithRawSchema(
+		"coral_trace_request_path",
+		"Trace all functions called during HTTP request execution. Auto-discovers call chain and builds execution tree.",
+		schemaBytes,
+	)
+
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input TraceRequestPathInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_trace_request_path", input)
+
+		// TODO: Call DebugService.TraceRequestPath
+		return mcp.NewToolResultText(fmt.Sprintf("Trace started for %s on %s (Not implemented yet)", input.Path, input.Service)), nil
+	})
+}
+
+// registerListDebugSessionsTool registers the coral_list_debug_sessions tool.
+func (s *Server) registerListDebugSessionsTool() {
+	if !s.isToolEnabled("coral_list_debug_sessions") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(ListDebugSessionsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_list_debug_sessions")
+		return
+	}
+
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_list_debug_sessions")
+		return
+	}
+
+	tool := mcp.NewToolWithRawSchema(
+		"coral_list_debug_sessions",
+		"List active and recent debug sessions across services.",
+		schemaBytes,
+	)
+
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input ListDebugSessionsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_list_debug_sessions", input)
+
+		// TODO: Call DebugService.ListDebugSessions
+		return mcp.NewToolResultText("No active debug sessions found (Not implemented yet)"), nil
+	})
+}
+
+// registerDetachUprobeTool registers the coral_detach_uprobe tool.
+func (s *Server) registerDetachUprobeTool() {
+	if !s.isToolEnabled("coral_detach_uprobe") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(DetachUprobeInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_detach_uprobe")
+		return
+	}
+
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_detach_uprobe")
+		return
+	}
+
+	tool := mcp.NewToolWithRawSchema(
+		"coral_detach_uprobe",
+		"Stop debug session early and detach eBPF probes. Returns collected data summary.",
+		schemaBytes,
+	)
+
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input DetachUprobeInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_detach_uprobe", input)
+
+		// TODO: Call DebugService.DetachUprobe
+		return mcp.NewToolResultText(fmt.Sprintf("Session %s detached (Not implemented yet)", input.SessionID)), nil
+	})
+}
+
+// registerGetDebugResultsTool registers the coral_get_debug_results tool.
+func (s *Server) registerGetDebugResultsTool() {
+	if !s.isToolEnabled("coral_get_debug_results") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(GetDebugResultsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_get_debug_results")
+		return
+	}
+
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_get_debug_results")
+		return
+	}
+
+	tool := mcp.NewToolWithRawSchema(
+		"coral_get_debug_results",
+		"Get aggregated results from debug session: call counts, duration percentiles, slow outliers.",
+		schemaBytes,
+	)
+
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input GetDebugResultsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_get_debug_results", input)
+
+		// TODO: Call DebugService.GetDebugResults
+		return mcp.NewToolResultText(fmt.Sprintf("Results for session %s (Not implemented yet)", input.SessionID)), nil
+	})
+}
+
+// registerSearchFunctionsTool registers the coral_search_functions tool.
+func (s *Server) registerSearchFunctionsTool() {
+	if !s.isToolEnabled("coral_search_functions") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(SearchFunctionsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_search_functions")
+		return
+	}
+
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_search_functions")
+		return
+	}
+
+	tool := mcp.NewToolWithRawSchema(
+		"coral_search_functions",
+		"Semantic search for functions by keywords. Searches function names, file paths, and comments. Returns ranked results. Prefer this over list_probeable_functions for discovery.",
+		schemaBytes,
+	)
+
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input SearchFunctionsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_search_functions", input)
+
+		// TODO: Implement semantic search
+		return mcp.NewToolResultText(fmt.Sprintf("Searching for '%s' in %s (Not implemented yet)", input.Query, input.Service)), nil
+	})
+}
+
+// registerGetFunctionContextTool registers the coral_get_function_context tool.
+func (s *Server) registerGetFunctionContextTool() {
+	if !s.isToolEnabled("coral_get_function_context") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(GetFunctionContextInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_get_function_context")
+		return
+	}
+
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_get_function_context")
+		return
+	}
+
+	tool := mcp.NewToolWithRawSchema(
+		"coral_get_function_context",
+		"Get context about a function: what calls it, what it calls, recent performance metrics. Use this to navigate the call graph after discovering an entry point.",
+		schemaBytes,
+	)
+
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input GetFunctionContextInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_get_function_context", input)
+
+		// TODO: Implement context retrieval
+		return mcp.NewToolResultText(fmt.Sprintf("Context for %s in %s (Not implemented yet)", input.Function, input.Service)), nil
+	})
+}
+
+// registerListProbeableFunctionsTool registers the coral_list_probeable_functions tool.
+func (s *Server) registerListProbeableFunctionsTool() {
+	if !s.isToolEnabled("coral_list_probeable_functions") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(ListProbeableFunctionsInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_list_probeable_functions")
+		return
+	}
+
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_list_probeable_functions")
+		return
+	}
+
+	tool := mcp.NewToolWithRawSchema(
+		"coral_list_probeable_functions",
+		"List functions available for uprobe attachment using regex pattern. Use coral_search_functions instead for semantic search. This is a fallback for regex-based filtering.",
+		schemaBytes,
+	)
+
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input ListProbeableFunctionsInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		s.auditToolCall("coral_list_probeable_functions", input)
+
+		// TODO: Implement regex listing
+		return mcp.NewToolResultText(fmt.Sprintf("Listing functions in %s matching '%s' (Not implemented yet)", input.Service, *input.Pattern)), nil
+	})
+}

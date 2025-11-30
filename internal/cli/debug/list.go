@@ -15,7 +15,7 @@ import (
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
-func NewSessionsCmd() *cobra.Command {
+func NewListCmd() *cobra.Command {
 	var (
 		colonyAddr  string
 		serviceName string
@@ -23,8 +23,9 @@ func NewSessionsCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "sessions",
-		Short: "List active debug sessions",
+		Use:     "list",
+		Aliases: []string{"sessions"},
+		Short:   "List active debug sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 

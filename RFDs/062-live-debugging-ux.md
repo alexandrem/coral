@@ -1,7 +1,8 @@
+```
 ---
 rfd: "062"
 title: "Live Debugging UX & AI"
-state: "draft"
+status: "Implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -743,11 +744,11 @@ Evidence: debug-sessions/dbg-04M.../
 
 ### Phase 1: CLI Commands
 
-- [ ] Implement `coral debug attach` command
-- [ ] Implement `coral debug trace` command (request path tracing)
-- [ ] Implement `coral debug list` command
-- [ ] Implement `coral debug detach` command
-- [ ] Implement `coral debug query` command (historical data)
+- [x] Implement `coral debug attach` command
+- [x] Implement `coral debug trace` command (request path tracing)
+- [x] Implement `coral debug list` command
+- [x] Implement `coral debug detach` command
+- [x] Implement `coral debug query` command (historical data)
 
 ### Phase 2: CLI Output Formatting
 
@@ -759,15 +760,15 @@ Evidence: debug-sessions/dbg-04M.../
 
 ### Phase 3: MCP Tool Integration
 
-- [ ] Register MCP tools with Colony server
-- [ ] Implement `coral_search_functions` tool (semantic search)
-- [ ] Implement `coral_get_function_context` tool (call graph navigation)
-- [ ] Implement `coral_attach_uprobe` tool
-- [ ] Implement `coral_trace_request_path` tool
-- [ ] Implement `coral_list_debug_sessions` tool
-- [ ] Implement `coral_detach_uprobe` tool
-- [ ] Implement `coral_get_debug_results` tool
-- [ ] Implement `coral_list_probeable_functions` tool (regex fallback)
+- [x] Register MCP tools with Colony server
+- [x] Implement `coral_search_functions` tool (semantic search)
+- [x] Implement `coral_get_function_context` tool (call graph navigation)
+- [x] Implement `coral_attach_uprobe` tool
+- [x] Implement `coral_trace_request_path` tool
+- [x] Implement `coral_list_debug_sessions` tool
+- [x] Implement `coral_detach_uprobe` tool
+- [x] Implement `coral_get_debug_results` tool
+- [x] Implement `coral_list_probeable_functions` tool (regex fallback)
 
 ### Phase 4: AI Workflow Patterns
 
@@ -793,7 +794,7 @@ Evidence: debug-sessions/dbg-04M.../
 - [ ] E2E tests for all CLI commands
 - [ ] MCP tool integration tests
 - [ ] AI workflow validation tests
-- [ ] User documentation
+- [x] User documentation
 - [ ] Video demos and tutorials
 
 ## Testing Strategy

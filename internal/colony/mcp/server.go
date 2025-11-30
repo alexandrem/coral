@@ -236,6 +236,14 @@ func (s *Server) getToolSchemas() map[string]string {
 		"coral_shell_exec":               ShellExecInput{},
 		"coral_container_exec":           ContainerExecInput{},
 		"coral_list_services":            ListServicesInput{},
+		"coral_attach_uprobe":            AttachUprobeInput{},
+		"coral_trace_request_path":       TraceRequestPathInput{},
+		"coral_list_debug_sessions":      ListDebugSessionsInput{},
+		"coral_detach_uprobe":            DetachUprobeInput{},
+		"coral_get_debug_results":        GetDebugResultsInput{},
+		"coral_search_functions":         SearchFunctionsInput{},
+		"coral_get_function_context":     GetFunctionContextInput{},
+		"coral_list_probeable_functions": ListProbeableFunctionsInput{},
 	}
 
 	for toolName, inputType := range toolInputTypes {
@@ -288,6 +296,14 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_shell_exec":               "Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
 		"coral_container_exec":           "Execute a command in a container's namespace using nsenter. Access container-mounted configs, logs, and volumes that are not visible from the agent's host filesystem. Works in sidecar and node agent deployments. Returns stdout, stderr, exit code, and container PID. Use for commands like 'cat /app/config.yaml', 'ls /data'.",
 		"coral_list_services":            "List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
+		"coral_attach_uprobe":            "Attach eBPF uprobe to application function for live debugging. Captures entry/exit events, measures duration. Time-limited and production-safe.",
+		"coral_trace_request_path":       "Trace all functions called during HTTP request execution. Auto-discovers call chain and builds execution tree.",
+		"coral_list_debug_sessions":      "List active and recent debug sessions across services.",
+		"coral_detach_uprobe":            "Stop debug session early and detach eBPF probes. Returns collected data summary.",
+		"coral_get_debug_results":        "Get aggregated results from debug session: call counts, duration percentiles, slow outliers.",
+		"coral_search_functions":         "Semantic search for functions by keywords. Searches function names, file paths, and comments. Returns ranked results. Prefer this over list_probeable_functions for discovery.",
+		"coral_get_function_context":     "Get context about a function: what calls it, what it calls, recent performance metrics. Use this to navigate the call graph after discovering an entry point.",
+		"coral_list_probeable_functions": "List functions available for uprobe attachment using regex pattern. Use coral_search_functions instead for semantic search. This is a fallback for regex-based filtering.",
 	}
 }
 
@@ -314,6 +330,16 @@ func (s *Server) registerTools() error {
 
 	// Register service discovery tools (RFD 054).
 	s.registerListServicesTool()
+
+	// Register live debugging tools (RFD 062).
+	s.registerAttachUprobeTool()
+	s.registerTraceRequestPathTool()
+	s.registerListDebugSessionsTool()
+	s.registerDetachUprobeTool()
+	s.registerGetDebugResultsTool()
+	s.registerSearchFunctionsTool()
+	s.registerGetFunctionContextTool()
+	s.registerListProbeableFunctionsTool()
 
 	// TODO: Register analysis tools (Phase 4).
 	// s.registerCorrelateEventsTool()
@@ -349,6 +375,14 @@ func (s *Server) listToolNames() []string {
 		"coral_shell_exec",
 		"coral_container_exec",
 		"coral_list_services",
+		"coral_attach_uprobe",
+		"coral_trace_request_path",
+		"coral_list_debug_sessions",
+		"coral_detach_uprobe",
+		"coral_get_debug_results",
+		"coral_search_functions",
+		"coral_get_function_context",
+		"coral_list_probeable_functions",
 	}
 }
 

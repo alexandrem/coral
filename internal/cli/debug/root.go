@@ -14,8 +14,10 @@ func NewDebugCmd() *cobra.Command {
 
 	cmd.AddCommand(NewAttachCmd())
 	cmd.AddCommand(NewDetachCmd())
-	cmd.AddCommand(NewSessionsCmd())
+	cmd.AddCommand(NewListCmd())
 	cmd.AddCommand(NewEventsCmd())
+	cmd.AddCommand(NewTraceCmd())
+	cmd.AddCommand(NewQueryCmd())
 
 	return cmd
 }
