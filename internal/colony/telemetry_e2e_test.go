@@ -365,3 +365,7 @@ func (h *testAgentHandler) SendShellSignal(ctx context.Context, req *connect.Req
 func (h *testAgentHandler) KillShellSession(ctx context.Context, req *connect.Request[agentv1.KillShellSessionRequest]) (*connect.Response[agentv1.KillShellSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
+
+func (h *testAgentHandler) StreamDebugEvents(ctx context.Context, stream *connect.BidiStream[agentv1.DebugCommand, agentv1.DebugEvent]) error {
+	return connect.NewError(connect.CodeUnimplemented, nil)
+}
