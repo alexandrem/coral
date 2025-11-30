@@ -68,6 +68,17 @@ func (h *ServiceHandler) ConnectService(
 		}), nil
 	}
 
+	// Update SDK capabilities if provided (RFD 060).
+	if req.Msg.SdkCapabilities != nil {
+		h.agent.mu.RLock()
+		monitor, exists := h.agent.monitors[req.Msg.Name]
+		h.agent.mu.RUnlock()
+
+		if exists {
+			monitor.SetSdkCapabilities(req.Msg.SdkCapabilities)
+		}
+	}
+
 	return connect.NewResponse(&agentv1.ConnectServiceResponse{
 		Success:     true,
 		ServiceName: req.Msg.Name,

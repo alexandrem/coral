@@ -245,6 +245,28 @@ message ConnectServiceRequest {
 
   // Additional metadata.
   map<string, string> labels = 5;
+
+  // SDK capabilities (RFD 060).
+  ServiceSdkCapabilities sdk_capabilities = 6;
+}
+
+// ServiceSdkCapabilities describes the SDK integration status (RFD 060).
+message ServiceSdkCapabilities {
+  string service_name = 1;           // Service identifier
+  string process_id = 2;             // PID of service process
+
+  // SDK integration status
+  bool sdk_enabled = 3;              // SDK detected and reachable
+  string sdk_version = 4;            // SDK version (e.g., "v1.0.0")
+  string sdk_addr = 5;               // SDK gRPC address (reachable by Agent)
+
+  // Debug symbol availability
+  bool has_dwarf_symbols = 6;        // DWARF debug info present
+  uint32 function_count = 7;         // Number of discoverable functions
+
+  // Binary information
+  string binary_path = 10;           // Path to executable
+  string binary_hash = 11;           // Hash for cache invalidation
 }
 
 message ConnectServiceResponse {

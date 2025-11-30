@@ -57,20 +57,21 @@ func main() {
 	// Setup logger.
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
-	// Initialize Coral SDK with debug enabled.
-	coralSDK, err := sdk.New(sdk.Config{
-		ServiceName: "payment-service",
-		EnableDebug: true,
-		Logger:      logger,
+	// Initialize Coral SDK with runtime monitoring enabled.
+	err := sdk.RegisterService("payment-service", sdk.Options{
+		Port:          8080, // Fake port for demo
+		AgentAddr:     "localhost:9091",
+		SdkListenAddr: ":9092",
 	})
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to initialize Coral SDK")
+		logger.Fatal().Err(err).Msg("Failed to register service")
 	}
-	defer coralSDK.Close()
 
-	logger.Info().
-		Str("debug_addr", coralSDK.DebugAddr()).
-		Msg("Application started with Coral SDK")
+	if err := sdk.EnableRuntimeMonitoring(); err != nil {
+		logger.Fatal().Err(err).Msg("Failed to enable runtime monitoring")
+	}
+
+	logger.Info().Msg("Application started with Coral SDK (Runtime Monitoring Enabled)")
 
 	// Simulate application workload.
 	go runWorkload(logger)

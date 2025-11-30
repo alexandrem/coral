@@ -1,10 +1,18 @@
 package sdk
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"sync"
+	"time"
 
+	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/pkg/sdk/debug"
 )
 
@@ -14,6 +22,11 @@ type SDK struct {
 	serviceName      string
 	debugServer      *debug.Server
 	metadataProvider *debug.FunctionMetadataProvider
+
+	// Registration info
+	agentAddr      string
+	appPort        int
+	healthEndpoint string
 }
 
 // Config contains SDK configuration options.
@@ -119,4 +132,129 @@ func (s *SDK) initializeDebugServer() error {
 		Msg("Debug server started")
 
 	return nil
+}
+
+// Global SDK instance
+var globalSDK *SDK
+var globalSDKMu sync.Mutex
+
+// Options contains configuration for RegisterService.
+type Options struct {
+	Port           int    // Application listen port
+	HealthEndpoint string // Health check endpoint
+	AgentAddr      string // Agent gRPC address (default: localhost:9091)
+	SdkListenAddr  string // Address for SDK gRPC server (default: :9092)
+}
+
+// RegisterService registers the application with Coral agent.
+func RegisterService(name string, opts Options) error {
+	globalSDKMu.Lock()
+	defer globalSDKMu.Unlock()
+
+	if globalSDK != nil {
+		return fmt.Errorf("SDK already initialized")
+	}
+
+	// Set defaults
+	if opts.AgentAddr == "" {
+		opts.AgentAddr = "localhost:9091"
+	}
+	if opts.SdkListenAddr == "" {
+		opts.SdkListenAddr = ":9092"
+	}
+
+	// Create SDK instance
+	sdk, err := New(Config{
+		ServiceName: name,
+		EnableDebug: true, // Always enable debug for runtime monitoring
+		Logger:      zerolog.New(os.Stderr).With().Timestamp().Logger(),
+	})
+	if err != nil {
+		return err
+	}
+
+	sdk.agentAddr = opts.AgentAddr
+	sdk.appPort = opts.Port
+	sdk.healthEndpoint = opts.HealthEndpoint
+
+	globalSDK = sdk
+	return nil
+}
+
+// EnableRuntimeMonitoring starts background goroutine that discovers function offsets
+// and serves gRPC API for agent queries.
+func EnableRuntimeMonitoring() error {
+	globalSDKMu.Lock()
+	sdk := globalSDK
+	globalSDKMu.Unlock()
+
+	if sdk == nil {
+		return fmt.Errorf("SDK not initialized; call RegisterService first")
+	}
+
+	// Start debug server if not already started (New() starts it if EnableDebug is true)
+	if sdk.debugServer == nil {
+		if err := sdk.initializeDebugServer(); err != nil {
+			return err
+		}
+	}
+
+	// Register with Agent in background
+	go sdk.registerWithAgent()
+
+	return nil
+}
+
+// registerWithAgent attempts to register the service with the local Agent.
+func (s *SDK) registerWithAgent() {
+	client := agentv1connect.NewAgentServiceClient(
+		http.DefaultClient,
+		"http://"+s.agentAddr,
+	)
+
+	// Retry loop for registration
+	for {
+		s.logger.Info().Str("agent", s.agentAddr).Msg("Attempting to register with Agent...")
+
+		// Calculate binary hash (best effort)
+		binHash, err := s.metadataProvider.GetBinaryHash()
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to calculate binary hash")
+		}
+
+		// Gather capabilities
+		caps := &agentv1.ServiceSdkCapabilities{
+			ServiceName:     s.serviceName,
+			ProcessId:       fmt.Sprintf("%d", os.Getpid()),
+			SdkEnabled:      true,
+			SdkVersion:      "v0.1.0", // TODO: Get from version package
+			SdkAddr:         s.DebugAddr(),
+			HasDwarfSymbols: s.metadataProvider.HasDWARF(),
+			BinaryPath:      s.metadataProvider.BinaryPath(),
+			FunctionCount:   uint32(s.metadataProvider.GetFunctionCount()),
+			BinaryHash:      binHash,
+		}
+
+		req := connect.NewRequest(&agentv1.ConnectServiceRequest{
+			Name:            s.serviceName,
+			Port:            int32(s.appPort),
+			HealthEndpoint:  s.healthEndpoint,
+			ServiceType:     "go",
+			SdkCapabilities: caps,
+		})
+
+		resp, err := client.ConnectService(context.Background(), req)
+		if err == nil && resp.Msg.Success {
+			s.logger.Info().Msg("Successfully registered with Agent")
+			return
+		}
+
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to register with Agent, retrying in 5s...")
+		} else {
+			s.logger.Warn().Str("error", resp.Msg.Error).Msg("Agent rejected registration, retrying in 5s...")
+		}
+
+		time.Sleep(5 * time.Second)
+	}
 }

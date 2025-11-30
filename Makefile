@@ -1,4 +1,4 @@
-.PHONY: build build-dev clean init install install-tools test run help generate
+.PHONY: build build-dev clean init install install-tools test run help generate proto
 
 # Build variables
 BINARY_NAME=coral
@@ -20,7 +20,7 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-generate: ## Generate protobuf, eBPF, and download Beyla binaries (run before first build)
+generate: proto ## Generate eBPF and download Beyla binaries (run before first build)
 	@echo "Running go generate..."
 	@# Check for llvm-strip (required for bpf2go)
 	@if ! which llvm-strip >/dev/null 2>&1; then \
@@ -38,6 +38,16 @@ generate: ## Generate protobuf, eBPF, and download Beyla binaries (run before fi
 	fi; \
 	go generate ./...
 	@echo "✓ Generated files ready"
+
+proto: ## Generate protobuf files using buf
+	@if which buf >/dev/null 2>&1; then \
+		echo "Running buf generate..."; \
+		buf generate; \
+		echo "✓ Protobuf files generated"; \
+	else \
+		echo "⚠️  buf not found, skipping protobuf generation"; \
+	fi
+	@$(MAKE) -s fmt
 
 build: generate ## Build the coral binary
 	@echo "Building $(BINARY_NAME)..."
