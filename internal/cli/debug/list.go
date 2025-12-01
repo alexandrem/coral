@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"text/tabwriter"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -20,6 +18,7 @@ func NewListCmd() *cobra.Command {
 		colonyAddr  string
 		serviceName string
 		status      string
+		format      string
 	)
 
 	cmd := &cobra.Command{
@@ -44,25 +43,16 @@ func NewListCmd() *cobra.Command {
 				return fmt.Errorf("failed to list sessions: %w", err)
 			}
 
-			if len(resp.Msg.Sessions) == 0 {
-				fmt.Println("No active debug sessions found.")
-				return nil
+			// Format and print output
+			formatter := NewFormatter(OutputFormat(format))
+			output, err := formatter.FormatSessions(resp.Msg.Sessions)
+			if err != nil {
+				return fmt.Errorf("failed to format output: %w", err)
 			}
 
-			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "SESSION ID\tSERVICE\tFUNCTION\tSTATUS\tEXPIRES")
-
-			for _, session := range resp.Msg.Sessions {
-				expiresIn := time.Until(session.ExpiresAt.AsTime()).Round(time.Second)
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					session.SessionId,
-					session.ServiceName,
-					session.FunctionName,
-					session.Status,
-					expiresIn,
-				)
+			if err := WriteOutput(os.Stdout, output); err != nil {
+				return fmt.Errorf("failed to write output: %w", err)
 			}
-			w.Flush()
 
 			return nil
 		},
@@ -71,6 +61,7 @@ func NewListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 	cmd.Flags().StringVarP(&serviceName, "service", "s", "", "Filter by service name")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 
 	return cmd
 }

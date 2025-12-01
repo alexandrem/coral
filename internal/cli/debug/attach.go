@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -24,6 +25,7 @@ func NewAttachCmd() *cobra.Command {
 		agentID       string
 		sdkAddr       string
 		colonyAddr    string
+		format        string
 	)
 
 	cmd := &cobra.Command{
@@ -40,7 +42,10 @@ func NewAttachCmd() *cobra.Command {
 				colonyAddr,
 			)
 
-			fmt.Printf("Attaching uprobe to %s/%s...\n", serviceName, functionName)
+			// Show progress indicator (simple version without spinner library for now)
+			if format == "text" {
+				fmt.Printf("🔍 Attaching uprobe to %s/%s...\n", serviceName, functionName)
+			}
 
 			req := &colonypb.AttachUprobeRequest{
 				ServiceName:  serviceName,
@@ -64,9 +69,16 @@ func NewAttachCmd() *cobra.Command {
 				return fmt.Errorf("failed to attach uprobe: %s", resp.Msg.Error)
 			}
 
-			fmt.Printf("✓ Debug session started\n")
-			fmt.Printf("  Session ID: %s\n", resp.Msg.SessionId)
-			fmt.Printf("  Expires at: %s\n", resp.Msg.ExpiresAt.AsTime().Format(time.RFC3339))
+			// Format and print output
+			formatter := NewFormatter(OutputFormat(format))
+			output, err := formatter.FormatAttachResponse(resp.Msg)
+			if err != nil {
+				return fmt.Errorf("failed to format output: %w", err)
+			}
+
+			if err := WriteOutput(os.Stdout, output); err != nil {
+				return fmt.Errorf("failed to write output: %w", err)
+			}
 
 			return nil
 		},
@@ -80,6 +92,7 @@ func NewAttachCmd() *cobra.Command {
 	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (manual override)")
 	cmd.Flags().StringVar(&sdkAddr, "sdk-addr", "", "SDK address (manual override)")
 	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 
 	cmd.MarkFlagRequired("function")
 
