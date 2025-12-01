@@ -24,17 +24,19 @@ import (
 
 // Orchestrator manages debug sessions across agents.
 type Orchestrator struct {
-	logger   zerolog.Logger
-	registry *registry.Registry
-	db       *database.Database
+	logger        zerolog.Logger
+	registry      *registry.Registry
+	db            *database.Database
+	clientFactory func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
 }
 
 // NewOrchestrator creates a new debug orchestrator.
 func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *database.Database) *Orchestrator {
 	return &Orchestrator{
-		logger:   logger.With().Str("component", "debug_orchestrator").Logger(),
-		registry: registry,
-		db:       db,
+		logger:        logger.With().Str("component", "debug_orchestrator").Logger(),
+		registry:      registry,
+		db:            db,
+		clientFactory: meshv1connect.NewDebugServiceClient,
 	}
 }
 
@@ -105,8 +107,9 @@ func (o *Orchestrator) AttachUprobe(
 	}
 
 	// Call agent to start uprobe collector
+	// Call agent to start uprobe collector
 	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
-	agentClient := meshv1connect.NewDebugServiceClient(
+	agentClient := o.clientFactory(
 		http.DefaultClient,
 		fmt.Sprintf("http://%s", agentAddr),
 	)
@@ -218,7 +221,7 @@ func (o *Orchestrator) DetachUprobe(
 
 	// Call agent to stop uprobe collector
 	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
-	agentClient := meshv1connect.NewDebugServiceClient(
+	agentClient := o.clientFactory(
 		http.DefaultClient,
 		fmt.Sprintf("http://%s", agentAddr),
 	)
@@ -294,9 +297,9 @@ func (o *Orchestrator) QueryUprobeEvents(
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("agent not found: %v", err))
 	}
 
-	// Call agent to query uprobe events
+	// Call agent to query events
 	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
-	agentClient := meshv1connect.NewDebugServiceClient(
+	agentClient := o.clientFactory(
 		http.DefaultClient,
 		fmt.Sprintf("http://%s", agentAddr),
 	)
