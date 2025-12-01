@@ -1,0 +1,39 @@
+services:
+  sdk-demo:
+    build:
+      context: ../..
+      dockerfile: examples/sdk-demo/Dockerfile
+    ports:
+      - "3001:3001"
+      - "9092:9092"
+    environment:
+      - CORAL_AGENT_ADDR=127.0.0.1:9001
+
+  coral-agent:
+    image: coral-agent:latest # Assuming local build or pull
+    build:
+      context: ../..
+      dockerfile: Dockerfile # Assuming root Dockerfile exists, need to verify
+    environment:
+      # Config-less mode: only CORAL_COLONY_ID and CORAL_COLONY_SECRET are required.
+      CORAL_COLONY_ID: ${CORAL_COLONY_ID}
+      CORAL_COLONY_SECRET: ${CORAL_COLONY_SECRET}
+      CORAL_DISCOVERY_ENDPOINT: ${CORAL_DISCOVERY_ENDPOINT:-http://host.docker.internal:8080}
+    command:
+      - agent
+      - start
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - SYS_RESOURCE
+      - BPF
+      - PERFMON
+      - NET_ADMIN
+    network_mode: "service:sdk-demo"
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    #security_opt:
+    #  - apparmor:unconfined
+    volumes:
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+      - /lib/modules:/lib/modules:ro
