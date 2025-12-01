@@ -1,6 +1,6 @@
 module github.com/coral-mesh/coral
 
-go 1.25.1
+go 1.25
 
 require (
 	connectrpc.com/connect v1.19.1
