@@ -258,4 +258,24 @@ var schemaDDL = []string{
 	)`,
 
 	`CREATE INDEX IF NOT EXISTS idx_certificate_revocations_serial ON certificate_revocations(serial_number)`,
+
+	// Debug sessions - active and past debug sessions.
+	`CREATE TABLE IF NOT EXISTS debug_sessions (
+		session_id VARCHAR,
+		collector_id VARCHAR NOT NULL,
+		service_name VARCHAR NOT NULL,
+		function_name VARCHAR NOT NULL,
+		agent_id VARCHAR NOT NULL,
+		sdk_addr VARCHAR NOT NULL,
+		started_at TIMESTAMP NOT NULL,
+		expires_at TIMESTAMP NOT NULL,
+		status VARCHAR NOT NULL,
+		requested_by VARCHAR,
+		event_count INTEGER DEFAULT 0
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_id ON debug_sessions(session_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_service ON debug_sessions(service_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_status ON debug_sessions(status)`,
+	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_agent ON debug_sessions(agent_id)`,
 }

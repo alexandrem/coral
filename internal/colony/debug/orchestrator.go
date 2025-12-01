@@ -15,39 +15,26 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-
-	"github.com/coral-mesh/coral/internal/colony/registry"
-
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+
+	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
 // Orchestrator manages debug sessions across agents.
 type Orchestrator struct {
 	logger   zerolog.Logger
 	registry *registry.Registry
-	sessions map[string]*DebugSession
-}
-
-// DebugSession represents an active debug session.
-type DebugSession struct {
-	SessionID    string
-	CollectorID  string
-	ServiceName  string
-	FunctionName string
-	AgentID      string
-	SDKAddr      string
-	StartedAt    time.Time
-	ExpiresAt    time.Time
-	Status       string
+	db       *database.Database
 }
 
 // NewOrchestrator creates a new debug orchestrator.
-func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry) *Orchestrator {
+func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *database.Database) *Orchestrator {
 	return &Orchestrator{
 		logger:   logger.With().Str("component", "debug_orchestrator").Logger(),
 		registry: registry,
-		sessions: make(map[string]*DebugSession),
+		db:       db,
 	}
 }
 
@@ -153,7 +140,7 @@ func (o *Orchestrator) AttachUprobe(
 	}
 
 	// Create session
-	session := &DebugSession{
+	session := &database.DebugSession{
 		SessionID:    sessionID,
 		CollectorID:  startResp.Msg.CollectorId,
 		ServiceName:  req.Msg.ServiceName,
@@ -165,7 +152,16 @@ func (o *Orchestrator) AttachUprobe(
 		Status:       "active",
 	}
 
-	o.sessions[sessionID] = session
+	// Insert session into database
+	if err := o.db.InsertDebugSession(session); err != nil {
+		o.logger.Error().Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to insert debug session into database")
+		return connect.NewResponse(&debugpb.AttachUprobeResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to store session: %v", err),
+		}), nil
+	}
 
 	o.logger.Info().
 		Str("session_id", sessionID).
@@ -189,8 +185,18 @@ func (o *Orchestrator) DetachUprobe(
 		Str("session_id", req.Msg.SessionId).
 		Msg("Detaching uprobe")
 
-	session, ok := o.sessions[req.Msg.SessionId]
-	if !ok {
+	// Query session from database
+	session, err := o.db.GetDebugSession(req.Msg.SessionId)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("session_id", req.Msg.SessionId).
+			Msg("Failed to query debug session from database")
+		return connect.NewResponse(&debugpb.DetachUprobeResponse{
+			Success: false,
+			Error:   fmt.Sprintf("database error: %v", err),
+		}), nil
+	}
+	if session == nil {
 		return connect.NewResponse(&debugpb.DetachUprobeResponse{
 			Success: false,
 			Error:   fmt.Sprintf("session not found: %s", req.Msg.SessionId),
@@ -240,8 +246,13 @@ func (o *Orchestrator) DetachUprobe(
 		}), nil
 	}
 
-	// Update session status
-	session.Status = "stopped"
+	// Update session status in database
+	if err := o.db.UpdateDebugSessionStatus(req.Msg.SessionId, "stopped"); err != nil {
+		o.logger.Error().Err(err).
+			Str("session_id", req.Msg.SessionId).
+			Msg("Failed to update session status in database")
+		// Don't fail the operation if database update fails
+	}
 
 	o.logger.Info().
 		Str("session_id", req.Msg.SessionId).
@@ -261,8 +272,15 @@ func (o *Orchestrator) QueryUprobeEvents(
 		Str("session_id", req.Msg.SessionId).
 		Msg("Querying uprobe events")
 
-	session, ok := o.sessions[req.Msg.SessionId]
-	if !ok {
+	// Query session from database
+	session, err := o.db.GetDebugSession(req.Msg.SessionId)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("session_id", req.Msg.SessionId).
+			Msg("Failed to query debug session from database")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
+	}
+	if session == nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
 	}
 
@@ -326,13 +344,20 @@ func (o *Orchestrator) ListDebugSessions(
 ) (*connect.Response[debugpb.ListDebugSessionsResponse], error) {
 	o.logger.Debug().Msg("Listing debug sessions")
 
-	var sessions []*debugpb.DebugSession
-	for _, session := range o.sessions {
-		// Filter by status if requested
-		if req.Msg.Status != "" && session.Status != req.Msg.Status {
-			continue
-		}
+	// List sessions from database
+	filters := database.DebugSessionFilters{
+		ServiceName: req.Msg.ServiceName,
+		Status:      req.Msg.Status,
+	}
 
+	dbSessions, err := o.db.ListDebugSessions(filters)
+	if err != nil {
+		o.logger.Error().Err(err).Msg("Failed to list debug sessions from database")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
+	}
+
+	var sessions []*debugpb.DebugSession
+	for _, session := range dbSessions {
 		sessions = append(sessions, &debugpb.DebugSession{
 			SessionId:    session.SessionID,
 			ServiceName:  session.ServiceName,

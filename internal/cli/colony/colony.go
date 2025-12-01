@@ -1429,7 +1429,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
 	// Initialize Debug Orchestrator (RFD 059 - Live Debugging).
-	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry)
+	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry, db)
 
 	// Initialize MCP server (RFD 004 - MCP server integration).
 	// Load colony config for MCP settings.
