@@ -284,6 +284,64 @@ Input:
 Returns: List of events with timestamps and details
 ```
 
+### Live Debugging
+
+#### `coral_attach_uprobe`
+
+Attach eBPF uprobe to application function for live debugging.
+
+```
+Input:
+  agent_id (optional): Specific agent ID (auto-resolved from service_name if omitted)
+  service_name (required): Service name to debug
+  function_name (required): Function to attach uprobe to
+  sdk_addr (optional): SDK address (auto-resolved from service labels if omitted)
+  duration (optional): Collection duration (default: 60s, max: 10m)
+  config (optional): Additional collector configuration
+
+Returns: Session ID, expiration time, success status
+```
+
+**Note:** Uprobes are production-safe and time-limited. They capture function
+entry/exit events and measure duration without modifying application behavior.
+
+#### `coral_detach_uprobe`
+
+Stop debug session early and detach eBPF probes.
+
+```
+Input:
+  session_id (required): Debug session ID from coral_attach_uprobe
+
+Returns: Success status, collected data summary
+```
+
+#### `coral_list_debug_sessions`
+
+List active and recent debug sessions across services.
+
+```
+Input:
+  service_name (optional): Filter by service
+  status (optional): Filter by status (active, stopped)
+
+Returns: List of debug sessions with metadata
+```
+
+#### `coral_get_debug_results`
+
+Get aggregated results from debug session.
+
+```
+Input:
+  session_id (required): Debug session ID
+
+Returns: Call counts, duration percentiles, slow outliers
+```
+
+**Note:** This tool is not yet fully implemented. Use `coral_detach_uprobe` to
+get basic session summary.
+
 ## CLI Commands
 
 All MCP-related commands are under `coral colony mcp`:
@@ -473,6 +531,39 @@ Services (6 total):
 No alerts or issues detected."
 ```
 
+### Live Debugging Investigation
+
+```
+You: "Debug the ProcessPayment function in the payment service"
+
+Claude: [Attaches uprobe and monitors]
+  → coral_attach_uprobe(service_name=payment-service, function_name=ProcessPayment, duration=60s)
+     Result: Session ID: abc-123, expires in 60s
+
+  [Waits for events to collect...]
+
+  → coral_detach_uprobe(session_id=abc-123)
+     Result: Collected 47 events, avg duration: 125ms, P95: 380ms
+
+"Debug Session Results:
+
+Function: ProcessPayment
+Duration: 60 seconds
+Events Captured: 47 calls
+
+Performance Analysis:
+- Average duration: 125ms
+- P95 latency: 380ms
+- Slowest call: 890ms
+
+The function is being called ~47 times per minute. Most calls complete
+quickly (125ms avg), but 5% of calls take over 380ms. The slowest call
+took 890ms, suggesting occasional performance spikes.
+
+Recommendation: Investigate the slow outliers - they may indicate
+database contention or external API timeouts."
+```
+
 ## Implementation Status
 
 **Currently Implemented (RFD 004):**
@@ -484,11 +575,13 @@ No alerts or issues detected."
 - ✅ OTLP telemetry summaries
 - ✅ Claude Desktop integration
 - ✅ CLI commands for testing and config generation
+- ✅ Live debugging tools (uprobe attach/detach, session management)
 
 **Not Yet Implemented:**
 
 - ⏳ `test-tool` command execution (structure exists, prints placeholder)
-- ⏳ Live debugging tools (eBPF, exec, shell) - requires RFD 013, 017, 026
+- ⏳ `coral_get_debug_results` aggregation (basic summary available via detach)
+- ⏳ Additional debugging tools (exec, shell) - requires RFD 026
 - ⏳ Analysis tools (event correlation, environment comparison) - requires event
   storage
 - ⏳ Raw telemetry queries - see RFD 041 for agent direct queries
