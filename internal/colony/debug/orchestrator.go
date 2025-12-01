@@ -4,20 +4,22 @@ package debug
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
-	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
+
 	"github.com/coral-mesh/coral/internal/colony/registry"
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/internal/colony"
+	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 )
 
 // Orchestrator manages debug sessions across agents.
@@ -58,11 +60,6 @@ func (o *Orchestrator) AttachUprobe(
 		Str("service", req.Msg.ServiceName).
 		Str("function", req.Msg.FunctionName).
 		Msg("Attaching uprobe")
-
-	// TODO Phase 3 Production:
-	// - Query service registry for agent ID and SDK address
-	// - Validate service has SDK enabled
-	// For MVP, we require these in the request
 
 	// Service Discovery (RFD 062)
 	if req.Msg.AgentId == "" {
@@ -108,8 +105,24 @@ func (o *Orchestrator) AttachUprobe(
 	}
 	expiresAt := time.Now().Add(duration.AsDuration())
 
+	// Get agent entry from registry
+	entry, err := o.registry.Get(req.Msg.AgentId)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("agent_id", req.Msg.AgentId).
+			Msg("Failed to get agent from registry")
+		return connect.NewResponse(&debugpb.AttachUprobeResponse{
+			Success: false,
+			Error:   fmt.Sprintf("agent not found: %v", err),
+		}), nil
+	}
+
 	// Call agent to start uprobe collector
-	agentClient := colony.GetAgentClient(entry)
+	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
+	agentClient := meshv1connect.NewDebugServiceClient(
+		http.DefaultClient,
+		fmt.Sprintf("http://%s", agentAddr),
+	)
 
 	startReq := connect.NewRequest(&meshv1.StartUprobeCollectorRequest{
 		AgentId:      req.Msg.AgentId,
@@ -132,7 +145,7 @@ func (o *Orchestrator) AttachUprobe(
 		}), nil
 	}
 
-	if !startResp.Msg.Success {
+	if !startResp.Msg.Supported || startResp.Msg.Error != "" {
 		return connect.NewResponse(&debugpb.AttachUprobeResponse{
 			Success: false,
 			Error:   fmt.Sprintf("agent failed to start collector: %s", startResp.Msg.Error),
@@ -198,7 +211,11 @@ func (o *Orchestrator) DetachUprobe(
 	}
 
 	// Call agent to stop uprobe collector
-	agentClient := colony.GetAgentClient(entry)
+	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
+	agentClient := meshv1connect.NewDebugServiceClient(
+		http.DefaultClient,
+		fmt.Sprintf("http://%s", agentAddr),
+	)
 
 	stopReq := connect.NewRequest(&meshv1.StopUprobeCollectorRequest{
 		CollectorId: session.CollectorID,
@@ -260,7 +277,11 @@ func (o *Orchestrator) QueryUprobeEvents(
 	}
 
 	// Call agent to query uprobe events
-	agentClient := colony.GetAgentClient(entry)
+	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
+	agentClient := meshv1connect.NewDebugServiceClient(
+		http.DefaultClient,
+		fmt.Sprintf("http://%s", agentAddr),
+	)
 
 	queryReq := connect.NewRequest(&meshv1.QueryUprobeEventsRequest{
 		CollectorId: session.CollectorID,
@@ -284,8 +305,16 @@ func (o *Orchestrator) QueryUprobeEvents(
 		Int("event_count", len(queryResp.Msg.Events)).
 		Msg("Retrieved uprobe events from agent")
 
+	// Extract UprobeEvent from EbpfEvent wrapper
+	var uprobeEvents []*meshv1.UprobeEvent
+	for _, ebpfEvent := range queryResp.Msg.Events {
+		if ebpfEvent.GetUprobeEvent() != nil {
+			uprobeEvents = append(uprobeEvents, ebpfEvent.GetUprobeEvent())
+		}
+	}
+
 	return connect.NewResponse(&debugpb.QueryUprobeEventsResponse{
-		Events:  queryResp.Msg.Events,
+		Events:  uprobeEvents,
 		HasMore: queryResp.Msg.HasMore,
 	}), nil
 }

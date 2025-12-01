@@ -256,3 +256,15 @@ service EbpfService {
   // Stream eBPF events from a collector.
   rpc StreamEvents(EbpfEventStreamRequest) returns (stream EbpfEvent);
 }
+
+// DebugService handles uprobe-based debugging operations (RFD 059).
+service DebugService {
+  // Start a uprobe collector on an agent.
+  rpc StartUprobeCollector(StartUprobeCollectorRequest) returns (StartUprobeCollectorResponse);
+
+  // Stop a running uprobe collector.
+  rpc StopUprobeCollector(StopUprobeCollectorRequest) returns (StopUprobeCollectorResponse);
+
+  // Query events from a uprobe collector.
+  rpc QueryUprobeEvents(QueryUprobeEventsRequest) returns (QueryUprobeEventsResponse);
+}
