@@ -10,6 +10,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/logging"
@@ -17,12 +18,13 @@ import (
 
 // Server wraps the MCP server and provides Colony-specific tools.
 type Server struct {
-	mcpServer *server.MCPServer
-	registry  *registry.Registry
-	db        *database.Database
-	config    Config
-	logger    logging.Logger
-	startedAt time.Time
+	mcpServer    *server.MCPServer
+	registry     *registry.Registry
+	db           *database.Database
+	config       Config
+	logger       logging.Logger
+	startedAt    time.Time
+	debugService colonyv1connect.DebugServiceHandler
 }
 
 // Config contains configuration for the MCP server.
@@ -49,7 +51,13 @@ type Config struct {
 }
 
 // New creates a new MCP server instance.
-func New(registry *registry.Registry, db *database.Database, config Config, logger logging.Logger) (*Server, error) {
+func New(
+	registry *registry.Registry,
+	db *database.Database,
+	debugService colonyv1connect.DebugServiceHandler,
+	config Config,
+	logger logging.Logger,
+) (*Server, error) {
 	if config.Disabled {
 		return nil, fmt.Errorf("MCP server is disabled in configuration")
 	}
@@ -68,12 +76,13 @@ func New(registry *registry.Registry, db *database.Database, config Config, logg
 
 	// Create Server instance.
 	s := &Server{
-		mcpServer: mcpServer,
-		registry:  registry,
-		db:        db,
-		config:    config,
-		logger:    logger,
-		startedAt: time.Now(),
+		mcpServer:    mcpServer,
+		registry:     registry,
+		db:           db,
+		debugService: debugService,
+		config:       config,
+		logger:       logger,
+		startedAt:    time.Now(),
 	}
 
 	// Register all tools with the MCP server.
@@ -456,7 +465,9 @@ func (s *Server) runInteractive() error {
 // StartStdioServer is a convenience function to start an MCP server on stdio.
 // This is used by the 'coral colony proxy mcp' command.
 func StartStdioServer(registry *registry.Registry, db *database.Database, config Config, logger logging.Logger) error {
-	server, err := New(registry, db, config, logger)
+	// For stdio server (proxy mode), we might not have a full debug service.
+	// Pass nil for now, tools checking for it should handle nil gracefully.
+	server, err := New(registry, db, nil, config, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}

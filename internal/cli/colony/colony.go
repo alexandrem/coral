@@ -28,6 +28,7 @@ import (
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/debug"
 	"github.com/coral-mesh/coral/internal/colony/mcp"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/colony/server"
@@ -1427,6 +1428,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}
 	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
+	// Initialize Debug Orchestrator (RFD 059 - Live Debugging).
+	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry)
+
 	// Initialize MCP server (RFD 004 - MCP server integration).
 	// Load colony config for MCP settings.
 	mcpLoader, mcpErr := config.NewLoader()
@@ -1450,7 +1454,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			AuditEnabled:          colonyConfig.MCP.Security.AuditEnabled,
 		}
 
-		mcpServer, err := mcp.New(agentRegistry, db, mcpConfig, logger.With().Str("component", "mcp-server").Logger())
+		mcpServer, err := mcp.New(agentRegistry, db, debugOrchestrator, mcpConfig, logger.With().Str("component", "mcp-server").Logger())
 		if err != nil {
 			logger.Warn().Err(err).Msg("Failed to initialize MCP server, continuing without MCP support")
 		} else {
@@ -1474,11 +1478,13 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	// Register the handlers
 	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(meshSvc)
 	colonyPath, colonyHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)
+	debugPath, debugHandler := colonyv1connect.NewDebugServiceHandler(debugOrchestrator)
 
 	// Create HTTP server
 	mux := http.NewServeMux()
 	mux.Handle(meshPath, meshHandler)
 	mux.Handle(colonyPath, colonyHandler)
+	mux.Handle(debugPath, debugHandler)
 
 	// Add simple HTTP /status endpoint (similar to agent).
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {

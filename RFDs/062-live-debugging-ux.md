@@ -73,7 +73,6 @@ AI (MCP) ────┘
 
 ### Phase 2: CLI Output Formatting
 
-- [ ] Live event streaming UI (deferred)
 - [x] Progress bars and status indicators
 - [x] Table formatting for session lists
 - [x] Call tree visualization (ASCII art)

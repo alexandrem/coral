@@ -131,6 +131,8 @@ type ContainerExecInput struct {
 type AttachUprobeInput struct {
 	Service    string  `json:"service" jsonschema:"description=Service name (required)"`
 	Function   string  `json:"function" jsonschema:"description=Function name to probe (e.g., 'handleCheckout', 'main.processPayment')"`
+	AgentID    *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (optional, for direct targeting)"`
+	SDKAddr    *string `json:"sdk_addr,omitempty" jsonschema:"description=SDK address (optional, for direct targeting)"`
 	Duration   *string `json:"duration,omitempty" jsonschema:"description=Collection duration (e.g., '30s', '5m'). Default: 60s, max: 600s"`
 	SampleRate *int    `json:"sample_rate,omitempty" jsonschema:"description=Sample every Nth call (1 = all calls). Default: 1"`
 }

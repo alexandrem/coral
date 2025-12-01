@@ -4,8 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
+	"connectrpc.com/connect"
 	"github.com/mark3labs/mcp-go/mcp"
+	"google.golang.org/protobuf/types/known/durationpb"
+
+	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 )
 
 // Phase 3: Live Debugging Tools
@@ -301,8 +307,45 @@ func (s *Server) registerAttachUprobeTool() {
 
 		s.auditToolCall("coral_attach_uprobe", input)
 
-		// TODO: Call DebugService.AttachUprobe
-		return mcp.NewToolResultText(fmt.Sprintf("Debug session started for %s/%s (Not implemented yet)", input.Service, input.Function)), nil
+		// Parse duration
+		duration := 60 * time.Second
+		if input.Duration != nil {
+			d, err := time.ParseDuration(*input.Duration)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("invalid duration format: %v", err)), nil
+			}
+			duration = d
+		}
+
+		// Handle optional fields
+		var agentID, sdkAddr string
+		if input.AgentID != nil {
+			agentID = *input.AgentID
+		}
+		if input.SDKAddr != nil {
+			sdkAddr = *input.SDKAddr
+		}
+
+		// Call DebugService.AttachUprobe
+		req := connect.NewRequest(&debugpb.AttachUprobeRequest{
+			ServiceName:  input.Service,
+			FunctionName: input.Function,
+			AgentId:      agentID,
+			SdkAddr:      sdkAddr,
+			Duration:     durationpb.New(duration),
+		})
+
+		resp, err := s.debugService.AttachUprobe(ctx, req)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to attach uprobe: %v", err)), nil
+		}
+
+		if !resp.Msg.Success {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to attach uprobe: %s", resp.Msg.Error)), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Debug session started for %s/%s\nSession ID: %s\nExpires At: %s",
+			input.Service, input.Function, resp.Msg.SessionId, resp.Msg.ExpiresAt.AsTime().Format(time.RFC3339))), nil
 	})
 }
 
@@ -345,7 +388,8 @@ func (s *Server) registerTraceRequestPathTool() {
 		s.auditToolCall("coral_trace_request_path", input)
 
 		// TODO: Call DebugService.TraceRequestPath
-		return mcp.NewToolResultText(fmt.Sprintf("Trace started for %s on %s (Not implemented yet)", input.Path, input.Service)), nil
+		// Note: TraceRequestPath is not yet implemented in the orchestrator
+		return mcp.NewToolResultError("coral_trace_request_path is not yet implemented"), nil
 	})
 }
 
@@ -387,8 +431,38 @@ func (s *Server) registerListDebugSessionsTool() {
 
 		s.auditToolCall("coral_list_debug_sessions", input)
 
-		// TODO: Call DebugService.ListDebugSessions
-		return mcp.NewToolResultText("No active debug sessions found (Not implemented yet)"), nil
+		status := ""
+		if input.Status != nil {
+			status = *input.Status
+		}
+
+		// Call DebugService.ListDebugSessions
+		req := connect.NewRequest(&debugpb.ListDebugSessionsRequest{
+			Status: status,
+		})
+
+		resp, err := s.debugService.ListDebugSessions(ctx, req)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to list debug sessions: %v", err)), nil
+		}
+
+		if len(resp.Msg.Sessions) == 0 {
+			return mcp.NewToolResultText("No active debug sessions found."), nil
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Found %d debug sessions:\n\n", len(resp.Msg.Sessions)))
+		for _, session := range resp.Msg.Sessions {
+			sb.WriteString(fmt.Sprintf("- Session ID: %s\n", session.SessionId))
+			sb.WriteString(fmt.Sprintf("  Service:    %s\n", session.ServiceName))
+			sb.WriteString(fmt.Sprintf("  Function:   %s\n", session.FunctionName))
+			sb.WriteString(fmt.Sprintf("  Agent ID:   %s\n", session.AgentId))
+			sb.WriteString(fmt.Sprintf("  Status:     %s\n", session.Status))
+			sb.WriteString(fmt.Sprintf("  Expires:    %s\n", session.ExpiresAt.AsTime().Format(time.RFC3339)))
+			sb.WriteString("\n")
+		}
+
+		return mcp.NewToolResultText(sb.String()), nil
 	})
 }
 
@@ -430,8 +504,21 @@ func (s *Server) registerDetachUprobeTool() {
 
 		s.auditToolCall("coral_detach_uprobe", input)
 
-		// TODO: Call DebugService.DetachUprobe
-		return mcp.NewToolResultText(fmt.Sprintf("Session %s detached (Not implemented yet)", input.SessionID)), nil
+		// Call DebugService.DetachUprobe
+		req := connect.NewRequest(&debugpb.DetachUprobeRequest{
+			SessionId: input.SessionID,
+		})
+
+		resp, err := s.debugService.DetachUprobe(ctx, req)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to detach uprobe: %v", err)), nil
+		}
+
+		if !resp.Msg.Success {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to detach uprobe: %s", resp.Msg.Error)), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Session %s detached successfully.", input.SessionID)), nil
 	})
 }
 
@@ -473,8 +560,37 @@ func (s *Server) registerGetDebugResultsTool() {
 
 		s.auditToolCall("coral_get_debug_results", input)
 
-		// TODO: Call DebugService.GetDebugResults
-		return mcp.NewToolResultText(fmt.Sprintf("Results for session %s (Not implemented yet)", input.SessionID)), nil
+		// Call DebugService.QueryUprobeEvents (used for getting results)
+		req := connect.NewRequest(&debugpb.QueryUprobeEventsRequest{
+			SessionId: input.SessionID,
+		})
+
+		resp, err := s.debugService.QueryUprobeEvents(ctx, req)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get debug results: %v", err)), nil
+		}
+
+		// Format results
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Debug Results for Session %s:\n\n", input.SessionID))
+		sb.WriteString(fmt.Sprintf("Total Events: %d\n", len(resp.Msg.Events)))
+
+		if len(resp.Msg.Events) > 0 {
+			sb.WriteString("\nRecent Events:\n")
+			for i, event := range resp.Msg.Events {
+				if i >= 10 {
+					sb.WriteString(fmt.Sprintf("... and %d more events\n", len(resp.Msg.Events)-10))
+					break
+				}
+
+				duration := time.Duration(event.DurationNs) * time.Nanosecond
+				sb.WriteString(fmt.Sprintf("- [%s] Duration: %s\n",
+					event.Timestamp.AsTime().Format(time.RFC3339),
+					duration.String()))
+			}
+		}
+
+		return mcp.NewToolResultText(sb.String()), nil
 	})
 }
 
@@ -516,8 +632,8 @@ func (s *Server) registerSearchFunctionsTool() {
 
 		s.auditToolCall("coral_search_functions", input)
 
-		// TODO: Implement semantic search
-		return mcp.NewToolResultText(fmt.Sprintf("Searching for '%s' in %s (Not implemented yet)", input.Query, input.Service)), nil
+		// TODO: Implement semantic search (RFD 063)
+		return mcp.NewToolResultError("coral_search_functions is not yet implemented (RFD 063 - Intelligent Function Discovery)"), nil
 	})
 }
 
@@ -559,8 +675,8 @@ func (s *Server) registerGetFunctionContextTool() {
 
 		s.auditToolCall("coral_get_function_context", input)
 
-		// TODO: Implement context retrieval
-		return mcp.NewToolResultText(fmt.Sprintf("Context for %s in %s (Not implemented yet)", input.Function, input.Service)), nil
+		// TODO: Implement function context (RFD 063)
+		return mcp.NewToolResultError("coral_get_function_context is not yet implemented (RFD 063 - Intelligent Function Discovery)"), nil
 	})
 }
 
@@ -602,7 +718,7 @@ func (s *Server) registerListProbeableFunctionsTool() {
 
 		s.auditToolCall("coral_list_probeable_functions", input)
 
-		// TODO: Implement regex listing
-		return mcp.NewToolResultText(fmt.Sprintf("Listing functions in %s matching '%s' (Not implemented yet)", input.Service, *input.Pattern)), nil
+		// TODO: Implement list probeable functions (RFD 063)
+		return mcp.NewToolResultError("coral_list_probeable_functions is not yet implemented (RFD 063 - Intelligent Function Discovery)"), nil
 	})
 }
