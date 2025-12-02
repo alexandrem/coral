@@ -43,6 +43,9 @@ service AgentService {
 
   // Kill shell session (RFD 026).
   rpc KillShellSession(KillShellSessionRequest) returns (KillShellSessionResponse);
+
+  // StreamDebugEvents streams debug events from agent to colony (RFD 061).
+  rpc StreamDebugEvents(stream DebugCommand) returns (stream DebugEvent);
 }
 
 message GetRuntimeContextRequest {
@@ -245,6 +248,28 @@ message ConnectServiceRequest {
 
   // Additional metadata.
   map<string, string> labels = 5;
+
+  // SDK capabilities (RFD 060).
+  ServiceSdkCapabilities sdk_capabilities = 6;
+}
+
+// ServiceSdkCapabilities describes the SDK integration status (RFD 060).
+message ServiceSdkCapabilities {
+  string service_name = 1;           // Service identifier
+  string process_id = 2;             // PID of service process
+
+  // SDK integration status
+  bool sdk_enabled = 3;              // SDK detected and reachable
+  string sdk_version = 4;            // SDK version (e.g., "v1.0.0")
+  string sdk_addr = 5;               // SDK gRPC address (reachable by Agent)
+
+  // Debug symbol availability
+  bool has_dwarf_symbols = 6;        // DWARF debug info present
+  uint32 function_count = 7;         // Number of discoverable functions
+
+  // Binary information
+  string binary_path = 10;           // Path to executable
+  string binary_hash = 11;           // Hash for cache invalidation
 }
 
 message ConnectServiceResponse {
@@ -736,3 +761,20 @@ message ContainerExecResponse {
   repeated string namespaces_entered = 8;
 }
 
+
+
+// Debug RPC messages (RFD 061).
+
+message DebugEvent {
+  string session_id = 1;
+  int64 timestamp = 2;
+  int32 pid = 3;
+  int32 tid = 4;
+  int64 duration_ns = 5;
+  // Additional context if needed
+}
+
+message DebugCommand {
+  string session_id = 1;
+  string command = 2; // "detach"
+}

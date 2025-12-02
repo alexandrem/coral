@@ -1,25 +1,28 @@
 package debug
 
 import (
+	"crypto/sha256"
 	"debug/dwarf"
 	"debug/elf"
 	"debug/macho"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"runtime"
 	"strings"
 	"sync"
-
-	"github.com/rs/zerolog"
 )
 
 // FunctionMetadataProvider extracts function metadata from DWARF debug info.
 type FunctionMetadataProvider struct {
-	logger     zerolog.Logger
+	logger     *slog.Logger
 	binaryPath string
 	pid        int
 	dwarf      *dwarf.Data
 	closer     interface{ Close() error } // Either *elf.File or *macho.File
+	baseAddr   uint64                     // Base address for offset calculation
 
 	// Cache for function lookups.
 	mu            sync.RWMutex
@@ -52,16 +55,19 @@ type ReturnValueMetadata struct {
 }
 
 // NewFunctionMetadataProvider creates a new metadata provider for the current process.
-func NewFunctionMetadataProvider(logger zerolog.Logger) (*FunctionMetadataProvider, error) {
+func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider, error) {
 	// Get current binary path.
 	binaryPath, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	// Extract DWARF debug info (platform-specific).
-	var dwarfData *dwarf.Data
-	var fileCloser interface{ Close() error }
+	var (
+		dwarfData  *dwarf.Data // Extract DWARF debug info (platform-specific).
+		fileCloser interface{ Close() error }
+		dwarfErr   error
+		baseAddr   uint64 // Base address for offset calculation
+	)
 
 	switch runtime.GOOS {
 	case "linux":
@@ -72,10 +78,23 @@ func NewFunctionMetadataProvider(logger zerolog.Logger) (*FunctionMetadataProvid
 		}
 		fileCloser = elfFile
 
-		dwarfData, err = elfFile.DWARF()
-		if err != nil {
-			elfFile.Close()
-			return nil, fmt.Errorf("failed to extract DWARF data (binary may not have debug symbols): %w", err)
+		dwarfData, dwarfErr = elfFile.DWARF()
+		if dwarfErr != nil {
+			// Don't return error yet, allow fallback
+			if err := elfFile.Close(); err != nil {
+				logger.Warn("Failed to close ELF file", "error", err)
+			}
+			fileCloser = nil
+		}
+
+		// Get base address from ELF for offset calculation
+		if elfFile != nil {
+			for _, prog := range elfFile.Progs {
+				if prog.Type == elf.PT_LOAD && prog.Flags&elf.PF_X != 0 {
+					baseAddr = prog.Vaddr
+					break
+				}
+			}
 		}
 
 	case "darwin":
@@ -86,28 +105,47 @@ func NewFunctionMetadataProvider(logger zerolog.Logger) (*FunctionMetadataProvid
 		}
 		fileCloser = machoFile
 
-		dwarfData, err = machoFile.DWARF()
-		if err != nil {
-			machoFile.Close()
-			return nil, fmt.Errorf("failed to extract DWARF data (binary may not have debug symbols): %w", err)
+		dwarfData, dwarfErr = machoFile.DWARF()
+		if dwarfErr != nil {
+			// Don't return error yet, allow fallback
+			if err := machoFile.Close(); err != nil {
+				logger.Warn("Failed to close macho file", "error", err)
+			}
+			fileCloser = nil
 		}
 
 	default:
 		return nil, fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
 
-	logger.Info().
-		Str("binary", binaryPath).
-		Int("pid", os.Getpid()).
-		Str("platform", runtime.GOOS).
-		Msg("Initialized function metadata provider with DWARF symbols")
+	// If DWARF extraction failed, log warning and use reflection fallback.
+	if dwarfErr != nil {
+		logger.Warn("No DWARF debug info found in binary, falling back to runtime reflection", "error", dwarfErr)
+		logger.Warn("For full uprobe support (arguments/return values), rebuild without -ldflags=\"-w\"")
+
+		// Close file handle if it was opened
+		if fileCloser != nil {
+			if err := fileCloser.Close(); err != nil {
+				logger.Warn("Failed to close file", "error", err)
+			}
+			fileCloser = nil
+		}
+
+		dwarfData = nil
+	} else {
+		logger.Info("Initialized function metadata provider with DWARF symbols",
+			"binary", binaryPath,
+			"pid", os.Getpid(),
+			"platform", runtime.GOOS)
+	}
 
 	return &FunctionMetadataProvider{
-		logger:        logger.With().Str("component", "metadata-provider").Logger(),
+		logger:        logger.With("component", "metadata-provider"),
 		binaryPath:    binaryPath,
 		pid:           os.Getpid(),
 		dwarf:         dwarfData,
 		closer:        fileCloser,
+		baseAddr:      baseAddr,
 		functionCache: make(map[string]*FunctionMetadata),
 	}, nil
 }
@@ -120,21 +158,68 @@ func (p *FunctionMetadataProvider) Close() error {
 	return nil
 }
 
+// HasDWARF returns true if DWARF debug info is available.
+func (p *FunctionMetadataProvider) HasDWARF() bool {
+	return p.dwarf != nil
+}
+
+// BinaryPath returns the path to the executable.
+func (p *FunctionMetadataProvider) BinaryPath() string {
+	return p.binaryPath
+}
+
+// GetFunctionCount returns the total number of discoverable functions.
+func (p *FunctionMetadataProvider) GetFunctionCount() int {
+	funcs, err := p.ListFunctions("")
+	if err != nil {
+		return 0
+	}
+	return len(funcs)
+}
+
+// GetBinaryHash returns the SHA256 hash of the binary.
+func (p *FunctionMetadataProvider) GetBinaryHash() (string, error) {
+	f, err := os.Open(p.binaryPath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close() // nolint:errcheck
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // GetFunctionMetadata retrieves metadata for a specific function.
 func (p *FunctionMetadataProvider) GetFunctionMetadata(functionName string) (*FunctionMetadata, error) {
 	// Check cache first.
 	p.mu.RLock()
 	if cached, ok := p.functionCache[functionName]; ok {
 		p.mu.RUnlock()
-		p.logger.Debug().Str("function", functionName).Msg("Cache hit for function metadata")
+		p.logger.Debug("Cache hit for function metadata", "function", functionName)
 		return cached, nil
 	}
 	p.mu.RUnlock()
 
 	// Search DWARF for function.
-	p.logger.Debug().Str("function", functionName).Msg("Searching DWARF for function")
+	p.logger.Debug("Searching for function", "function", functionName)
 
-	offset, args, retVals, err := p.searchDWARFForFunction(functionName)
+	var (
+		offset  uint64
+		args    []*ArgumentMetadata
+		retVals []*ReturnValueMetadata
+		err     error
+	)
+
+	if p.dwarf != nil {
+		offset, args, retVals, err = p.searchDWARFForFunction(functionName)
+	} else {
+		offset, err = p.searchReflectionForFunction(functionName)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("function %s not found: %w", functionName, err)
 	}
@@ -153,19 +238,22 @@ func (p *FunctionMetadataProvider) GetFunctionMetadata(functionName string) (*Fu
 	p.functionCache[functionName] = metadata
 	p.mu.Unlock()
 
-	p.logger.Info().
-		Str("function", functionName).
-		Uint64("offset", offset).
-		Int("args", len(args)).
-		Int("returns", len(retVals)).
-		Msg("Found function metadata")
+	p.logger.Info("Found function metadata",
+		"function", functionName,
+		"offset", offset,
+		"args", len(args),
+		"returns", len(retVals))
 
 	return metadata, nil
 }
 
 // ListFunctions returns all discoverable functions matching the pattern.
 func (p *FunctionMetadataProvider) ListFunctions(packagePattern string) ([]string, error) {
-	p.logger.Debug().Str("pattern", packagePattern).Msg("Listing functions")
+	p.logger.Debug("Listing functions", "pattern", packagePattern)
+
+	if p.dwarf == nil {
+		return p.listFunctionsFromSymbols(packagePattern)
+	}
 
 	var functions []string
 	reader := p.dwarf.Reader()
@@ -187,16 +275,17 @@ func (p *FunctionMetadataProvider) ListFunctions(packagePattern string) ([]strin
 		}
 	}
 
-	p.logger.Info().
-		Str("pattern", packagePattern).
-		Int("count", len(functions)).
-		Msg("Listed functions")
+	p.logger.Info("Listed functions",
+		"pattern", packagePattern,
+		"count", len(functions))
 
 	return functions, nil
 }
 
 // searchDWARFForFunction searches DWARF debug info for a function and extracts metadata.
-func (p *FunctionMetadataProvider) searchDWARFForFunction(funcName string) (uint64, []*ArgumentMetadata, []*ReturnValueMetadata, error) {
+func (p *FunctionMetadataProvider) searchDWARFForFunction(
+	funcName string,
+) (uint64, []*ArgumentMetadata, []*ReturnValueMetadata, error) {
 	reader := p.dwarf.Reader()
 
 	for {
@@ -220,7 +309,20 @@ func (p *FunctionMetadataProvider) searchDWARFForFunction(funcName string) (uint
 				// Parse function arguments and return values.
 				args, retVals := p.parseFunctionParameters(reader, entry)
 
-				return lowPC, args, retVals, nil
+				// Convert virtual address to file offset by subtracting base address
+				// This is needed when attaching uprobes with PID=0 (all processes)
+				// cilium/ebpf expects file offset in this case, not virtual address
+				fileOffset := lowPC
+				if p.baseAddr > 0 {
+					fileOffset = lowPC - p.baseAddr
+					p.logger.Debug("Converted virtual address to file offset",
+						"function", funcName,
+						"virtual_addr", lowPC,
+						"base_addr", p.baseAddr,
+						"file_offset", fileOffset)
+				}
+
+				return fileOffset, args, retVals, nil
 			}
 		}
 	}
@@ -229,7 +331,10 @@ func (p *FunctionMetadataProvider) searchDWARFForFunction(funcName string) (uint
 }
 
 // parseFunctionParameters extracts argument and return value metadata from a function entry.
-func (p *FunctionMetadataProvider) parseFunctionParameters(reader *dwarf.Reader, funcEntry *dwarf.Entry) ([]*ArgumentMetadata, []*ReturnValueMetadata) {
+func (p *FunctionMetadataProvider) parseFunctionParameters(
+	reader *dwarf.Reader,
+	funcEntry *dwarf.Entry,
+) ([]*ArgumentMetadata, []*ReturnValueMetadata) {
 	var args []*ArgumentMetadata
 	var retVals []*ReturnValueMetadata
 

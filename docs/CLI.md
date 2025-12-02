@@ -146,6 +146,55 @@ See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for `coral ask` syntax.
 
 ---
 
+## Live Debugging
+
+Coral provides real-time debugging capabilities using eBPF uprobes, allowing you
+to trace function calls and request paths without modifying your code.
+
+**Key Features:**
+
+- **Zero-code instrumentation** - Attach probes to running services
+- **Low overhead** - eBPF-based collection with minimal impact
+- **Production safe** - Time-limited sessions and safety checks
+- **AI-integrated** - Analyze traces and results with `coral ask`
+
+**Commands:**
+
+```bash
+# Attach a uprobe to a specific function
+coral debug attach payment-service --function processPayment --duration 5m
+
+# Trace an HTTP request path across services
+coral debug trace api-gateway --path /checkout --duration 2m
+
+# List active debug sessions
+coral debug list
+
+# Stop a debug session
+coral debug detach <session-id>
+
+# Query historical debug results
+coral debug query payment-service --function processPayment --since 1h
+```
+
+**Workflow Example:**
+
+1. **Identify a bottleneck:**
+   `coral ask "Why is checkout slow?"` -> Suggests tracing `/checkout`.
+
+2. **Start a trace:**
+   `coral debug trace api-gateway --path /checkout`
+
+3. **Analyze results:**
+   `coral debug query api-gateway --function handleCheckout`
+
+4. **Deep dive:**
+   `coral debug attach payment-service --function processPayment --capture-args`
+
+See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for full command syntax.
+
+---
+
 ## SQL Metrics Queries with DuckDB
 
 Coral provides direct SQL access to agent databases using DuckDB, enabling
@@ -1043,14 +1092,19 @@ coral shell --agent-addr 100.64.0.5:9001
 
 ## Container Execution
 
-Coral provides the ability to execute commands within service container namespaces using `nsenter`. This enables access to container-mounted files, configs, and volumes that are not visible from the agent's host filesystem.
+Coral provides the ability to execute commands within service container
+namespaces using `nsenter`. This enables access to container-mounted files,
+configs, and volumes that are not visible from the agent's host filesystem.
 
 **Key Features:**
 
-- **Container filesystem access** - Read configs, logs, and volumes as mounted in the container
-- **Namespace isolation** - Enter mount, PID, network, and other Linux namespaces
+- **Container filesystem access** - Read configs, logs, and volumes as mounted
+  in the container
+- **Namespace isolation** - Enter mount, PID, network, and other Linux
+  namespaces
 - **Service-based targeting** - Execute by service name, not container ID
-- **Multi-deployment support** - Works with docker-compose sidecars, Kubernetes sidecars, and DaemonSets
+- **Multi-deployment support** - Works with docker-compose sidecars, Kubernetes
+  sidecars, and DaemonSets
 - **Audit logging** - All executions are recorded with session IDs
 
 **Security Considerations:**
@@ -1091,10 +1145,10 @@ See docs/CLI_REFERENCE.md:180 for command syntax.
 
 Understanding when to use each command is critical:
 
-| Command | Target | Filesystem View | Use Case |
-|---------|--------|-----------------|----------|
-| `coral shell` | Agent host environment | Agent's filesystem | Host diagnostics, network debugging, agent management |
-| `coral exec` | Service container (nsenter) | Container's mounted volumes/configs | Container configs, app files, mounted volumes |
+| Command       | Target                      | Filesystem View                     | Use Case                                              |
+|---------------|-----------------------------|-------------------------------------|-------------------------------------------------------|
+| `coral shell` | Agent host environment      | Agent's filesystem                  | Host diagnostics, network debugging, agent management |
+| `coral exec`  | Service container (nsenter) | Container's mounted volumes/configs | Container configs, app files, mounted volumes         |
 
 **Examples:**
 
@@ -1111,12 +1165,14 @@ coral exec api cat /app/config.yaml
 ```
 
 **When to use coral shell:**
+
 - Network diagnostics: `tcpdump`, `netstat`, `ss -tulpn`
 - Process inspection: `ps aux`, `top`, `pgrep`
 - Host filesystem: agent logs, system files
 - System commands: `uptime`, `free -h`, `df -h`
 
 **When to use coral exec:**
+
 - App configs: `/app/config.yaml`, `/etc/nginx/nginx.conf`
 - Mounted volumes: `/data`, `/logs`, `/var/lib`
 - Container environment: `env`, `pwd`, `id`
@@ -1242,7 +1298,8 @@ coral exec web --container app cat /app/config.yaml
 
 #### Namespace Selection
 
-By default, `coral exec` enters only the mount namespace (`mnt`). You can specify additional namespaces:
+By default, `coral exec` enters only the mount namespace (`mnt`). You can
+specify additional namespaces:
 
 ```bash
 # Mount namespace only (default)
@@ -1256,6 +1313,7 @@ coral exec nginx --namespaces mnt,pid,net,ipc,uts ps aux
 ```
 
 **Available namespaces:**
+
 - `mnt` - Mount namespace (filesystem)
 - `pid` - PID namespace (processes)
 - `net` - Network namespace
@@ -1374,15 +1432,8 @@ coral shell --agent api-1
 
 ## Related Documentation
 
-- **RFD 026** - Shell Command Implementation (agent shell access)
-- **RFD 056** - Container Exec via nsenter (container namespace execution)
-- **RFD 039** - DuckDB Remote Query CLI (detailed specification)
-- **RFD 025** - OTLP Telemetry Receiver (spans in `metrics.duckdb`)
-- **RFD 032** - Beyla RED Metrics Integration (HTTP/gRPC/SQL metrics in
-  `metrics.duckdb`)
-- **RFD 038** - CLI-to-Agent Direct Mesh Connectivity
-- **RFD 045** - MCP Shell Exec Tool (one-off command execution via MCP)
-- **RFD 046** - Colony DuckDB Remote Query (historical data - future)
+- **[CLI_MCP_MAPPING.md](./CLI_MCP_MAPPING.md)** - Mapping of CLI commands to
+  MCP tools for AI-powered investigation
 - **DuckDB Documentation** - https://duckdb.org/docs/
 
 ---

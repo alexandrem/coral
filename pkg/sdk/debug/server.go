@@ -3,11 +3,11 @@ package debug
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 
 	"connectrpc.com/connect"
-	"github.com/rs/zerolog"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -17,7 +17,7 @@ import (
 
 // Server provides the SDK Debug Service gRPC server.
 type Server struct {
-	logger   zerolog.Logger
+	logger   *slog.Logger
 	provider *FunctionMetadataProvider
 	listener net.Listener
 	server   *http.Server
@@ -25,22 +25,21 @@ type Server struct {
 }
 
 // NewServer creates a new SDK debug server.
-func NewServer(logger zerolog.Logger, provider *FunctionMetadataProvider) (*Server, error) {
+func NewServer(logger *slog.Logger, provider *FunctionMetadataProvider) (*Server, error) {
 	return &Server{
-		logger:   logger.With().Str("component", "sdk-debug-server").Logger(),
+		logger:   logger.With("component", "sdk-debug-server"),
 		provider: provider,
 	}, nil
 }
 
-// Start starts the gRPC server on an auto-selected port.
-func (s *Server) Start() error {
-	// Listen on localhost with auto-selected port.
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+// Start starts the gRPC server on the specified address.
+func (s *Server) Start(listenAddr string) error {
+	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return fmt.Errorf("failed to create listener: %w", err)
 	}
 	s.listener = listener
-	s.addr = listener.Addr().String()
+	s.addr = s.listener.Addr().String()
 
 	// Create Connect-RPC handler.
 	mux := http.NewServeMux()
@@ -54,9 +53,9 @@ func (s *Server) Start() error {
 
 	// Start serving in background.
 	go func() {
-		s.logger.Info().Str("addr", s.addr).Msg("SDK debug server started")
-		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			s.logger.Error().Err(err).Msg("SDK debug server error")
+		s.logger.Info("SDK debug server started", "addr", s.listener.Addr().String())
+		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
+			s.logger.Error("Failed to start HTTP server", "error", err)
 		}
 	}()
 
@@ -65,7 +64,7 @@ func (s *Server) Start() error {
 
 // Stop stops the gRPC server.
 func (s *Server) Stop() error {
-	s.logger.Info().Msg("Stopping SDK debug server")
+	s.logger.Info("Stopping SDK debug server")
 	if s.server != nil {
 		return s.server.Close()
 	}
@@ -84,12 +83,12 @@ func (s *Server) GetFunctionMetadata(
 ) (*connect.Response[sdkv1.GetFunctionMetadataResponse], error) {
 	functionName := req.Msg.FunctionName
 
-	s.logger.Debug().Str("function", functionName).Msg("GetFunctionMetadata request")
+	s.logger.Debug("Received GetFunctionMetadata request", "function", req.Msg.FunctionName)
 
 	// Get metadata from provider.
 	metadata, err := s.provider.GetFunctionMetadata(functionName)
 	if err != nil {
-		s.logger.Warn().Err(err).Str("function", functionName).Msg("Function not found")
+		s.logger.Warn("Function not found", "error", err, "function", functionName)
 		return connect.NewResponse(&sdkv1.GetFunctionMetadataResponse{
 			Found: false,
 			Error: err.Error(),
@@ -109,10 +108,9 @@ func (s *Server) GetFunctionMetadata(
 		},
 	}
 
-	s.logger.Info().
-		Str("function", functionName).
-		Uint64("offset", metadata.Offset).
-		Msg("Returned function metadata")
+	s.logger.Info("Returned function metadata",
+		"function", functionName,
+		"offset", metadata.Offset)
 
 	return connect.NewResponse(resp), nil
 }
@@ -124,7 +122,7 @@ func (s *Server) ListFunctions(
 ) (*connect.Response[sdkv1.ListFunctionsResponse], error) {
 	pattern := req.Msg.PackagePattern
 
-	s.logger.Debug().Str("pattern", pattern).Msg("ListFunctions request")
+	s.logger.Debug("Received ListFunctions request", "pattern", req.Msg.PackagePattern)
 
 	// Get function list from provider.
 	functions, err := s.provider.ListFunctions(pattern)
@@ -132,10 +130,9 @@ func (s *Server) ListFunctions(
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	s.logger.Info().
-		Str("pattern", pattern).
-		Int("count", len(functions)).
-		Msg("Returned function list")
+	s.logger.Info("Listed functions",
+		"pattern", pattern,
+		"count", len(functions))
 
 	return connect.NewResponse(&sdkv1.ListFunctionsResponse{
 		Functions: functions,

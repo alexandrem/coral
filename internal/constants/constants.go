@@ -37,4 +37,7 @@ var (
 	DefaultWireGuardMTU = 1420
 
 	DefaultDashboardPort = 3000
+
+	// DefaultAgentPort is the default port for the agent's gRPC/Connect server.
+	DefaultAgentPort = 9001
 )

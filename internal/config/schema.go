@@ -404,6 +404,32 @@ type AgentConfig struct {
 		Type           string `yaml:"type,omitempty"`
 	} `yaml:"services"`
 	Beyla BeylaConfig `yaml:"beyla,omitempty"`
+	Debug DebugConfig `yaml:"debug,omitempty"`
+}
+
+// DebugConfig contains debug session configuration (RFD 061).
+type DebugConfig struct {
+	Enabled bool `yaml:"enabled"`
+
+	// SDK communication
+	SDKAPI struct {
+		Timeout       time.Duration `yaml:"timeout"`
+		RetryAttempts int           `yaml:"retry_attempts"`
+	} `yaml:"sdk_api"`
+
+	// Uprobe limits (safety)
+	Limits struct {
+		MaxConcurrentSessions int           `yaml:"max_concurrent_sessions"`
+		MaxSessionDuration    time.Duration `yaml:"max_session_duration"`
+		MaxEventsPerSecond    int           `yaml:"max_events_per_second"`
+		MaxMemoryMB           int           `yaml:"max_memory_mb"`
+	} `yaml:"limits"`
+
+	// BPF program settings
+	BPF struct {
+		MapSize         int `yaml:"map_size"`
+		PerfBufferPages int `yaml:"perf_buffer_pages"`
+	} `yaml:"bpf"`
 }
 
 // DefaultAgentConfig returns an agent config with sensible defaults.
@@ -431,6 +457,17 @@ func DefaultAgentConfig() *AgentConfig {
 	cfg.Beyla.Protocols.GRPC.Enabled = true
 	cfg.Beyla.Protocols.SQL.Enabled = true
 	cfg.Beyla.Sampling.Rate = 1.0
+
+	// Debug defaults
+	cfg.Debug.Enabled = true
+	cfg.Debug.SDKAPI.Timeout = 5 * time.Second
+	cfg.Debug.SDKAPI.RetryAttempts = 3
+	cfg.Debug.Limits.MaxConcurrentSessions = 5
+	cfg.Debug.Limits.MaxSessionDuration = 10 * time.Minute
+	cfg.Debug.Limits.MaxEventsPerSecond = 10000
+	cfg.Debug.Limits.MaxMemoryMB = 256
+	cfg.Debug.BPF.MapSize = 10240
+	cfg.Debug.BPF.PerfBufferPages = 64
 
 	return cfg
 }

@@ -348,7 +348,7 @@ func TestServerCreation(t *testing.T) {
 			AuditEnabled:    true,
 		}
 
-		server, err := New(reg, db, config, logger)
+		server, err := New(reg, db, nil, config, logger)
 		require.NoError(t, err)
 		assert.NotNil(t, server)
 		assert.NotNil(t, server.mcpServer)
@@ -366,7 +366,7 @@ func TestServerCreation(t *testing.T) {
 			Disabled: true,
 		}
 
-		server, err := New(reg, db, config, logger)
+		server, err := New(reg, db, nil, config, logger)
 		assert.Error(t, err)
 		assert.Nil(t, server)
 		assert.Contains(t, err.Error(), "disabled")

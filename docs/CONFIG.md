@@ -421,10 +421,17 @@ telemetry:
 | `beyla.sampling.rate`                     | float             | `1.0`            | Trace sampling rate (0.0-1.0)          |
 | `beyla.limits.max_traced_connections`     | int               | `1000`           | Max concurrent tracked connections     |
 | `beyla.otlp_endpoint`                     | string            | `localhost:4318` | OTLP export endpoint                   |
+| `debug.enabled`                           | bool              | `true`           | Enable debug session capability        |
+| `debug.sdk_api.timeout`                   | duration          | `5s`             | Timeout for SDK communication          |
+| `debug.limits.max_concurrent_sessions`    | int               | `5`              | Max concurrent debug sessions          |
+| `debug.limits.max_session_duration`       | duration          | `10m`            | Max duration for a debug session       |
+| `debug.limits.max_events_per_second`      | int               | `10000`          | Rate limit for debug events            |
 
 ### Beyla Integration Configuration
 
-The `beyla` section configures the eBPF-based auto-instrumentation for the agent. This allows for zero-code observability of HTTP, gRPC, SQL, and other protocols.
+The `beyla` section configures the eBPF-based auto-instrumentation for the
+agent. This allows for zero-code observability of HTTP, gRPC, SQL, and other
+protocols.
 
 ```yaml
 beyla:
@@ -493,12 +500,27 @@ beyla:
     otlp_endpoint: "localhost:4318"
 ```
 
-#### Beyla Configuration Fields
+### Debug Configuration (RFD 061)
 
-| Field                                   | Type              | Default          | Description                            |
-|-----------------------------------------|-------------------|------------------|----------------------------------------|
+The `debug` section configures the live debugging capability, which allows
+attaching eBPF uprobes to running services to trace function execution.
 
+```yaml
+debug:
+    enabled: true
 
+    # SDK communication settings
+    sdk_api:
+        timeout: 5s
+        retry_attempts: 3
+
+    # Safety limits
+    limits:
+        max_concurrent_sessions: 5      # Max active sessions per agent
+        max_session_duration: 10m       # Auto-detach after 10 minutes
+        max_events_per_second: 10000    # Rate limit to prevent overhead
+        max_memory_mb: 256              # Max memory for BPF maps
+```
 
 ## Environment Variables
 

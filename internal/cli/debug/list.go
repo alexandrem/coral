@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"text/tabwriter"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -15,18 +13,25 @@ import (
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
-func NewSessionsCmd() *cobra.Command {
+func NewListCmd() *cobra.Command {
 	var (
-		colonyAddr  string
 		serviceName string
 		status      string
+		format      string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "sessions",
-		Short: "List active debug sessions",
+		Use:     "list",
+		Aliases: []string{"sessions"},
+		Short:   "List active debug sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+
+			// Resolve colony URL from config
+			colonyAddr, err := getColonyURL()
+			if err != nil {
+				return fmt.Errorf("failed to resolve colony address: %w", err)
+			}
 
 			client := colonyv1connect.NewDebugServiceClient(
 				http.DefaultClient,
@@ -43,33 +48,24 @@ func NewSessionsCmd() *cobra.Command {
 				return fmt.Errorf("failed to list sessions: %w", err)
 			}
 
-			if len(resp.Msg.Sessions) == 0 {
-				fmt.Println("No active debug sessions found.")
-				return nil
+			// Format and print output
+			formatter := NewFormatter(OutputFormat(format))
+			output, err := formatter.FormatSessions(resp.Msg.Sessions)
+			if err != nil {
+				return fmt.Errorf("failed to format output: %w", err)
 			}
 
-			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "SESSION ID\tSERVICE\tFUNCTION\tSTATUS\tEXPIRES")
-
-			for _, session := range resp.Msg.Sessions {
-				expiresIn := time.Until(session.ExpiresAt.AsTime()).Round(time.Second)
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					session.SessionId,
-					session.ServiceName,
-					session.FunctionName,
-					session.Status,
-					expiresIn,
-				)
+			if err := WriteOutput(os.Stdout, output); err != nil {
+				return fmt.Errorf("failed to write output: %w", err)
 			}
-			w.Flush()
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 	cmd.Flags().StringVarP(&serviceName, "service", "s", "", "Filter by service name")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 
 	return cmd
 }

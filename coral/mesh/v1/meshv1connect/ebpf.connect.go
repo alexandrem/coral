@@ -24,6 +24,8 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// EbpfServiceName is the fully-qualified name of the EbpfService service.
 	EbpfServiceName = "coral.mesh.v1.EbpfService"
+	// DebugServiceName is the fully-qualified name of the DebugService service.
+	DebugServiceName = "coral.mesh.v1.DebugService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -43,6 +45,15 @@ const (
 	// EbpfServiceStreamEventsProcedure is the fully-qualified name of the EbpfService's StreamEvents
 	// RPC.
 	EbpfServiceStreamEventsProcedure = "/coral.mesh.v1.EbpfService/StreamEvents"
+	// DebugServiceStartUprobeCollectorProcedure is the fully-qualified name of the DebugService's
+	// StartUprobeCollector RPC.
+	DebugServiceStartUprobeCollectorProcedure = "/coral.mesh.v1.DebugService/StartUprobeCollector"
+	// DebugServiceStopUprobeCollectorProcedure is the fully-qualified name of the DebugService's
+	// StopUprobeCollector RPC.
+	DebugServiceStopUprobeCollectorProcedure = "/coral.mesh.v1.DebugService/StopUprobeCollector"
+	// DebugServiceQueryUprobeEventsProcedure is the fully-qualified name of the DebugService's
+	// QueryUprobeEvents RPC.
+	DebugServiceQueryUprobeEventsProcedure = "/coral.mesh.v1.DebugService/QueryUprobeEvents"
 )
 
 // EbpfServiceClient is a client for the coral.mesh.v1.EbpfService service.
@@ -171,4 +182,132 @@ func (UnimplementedEbpfServiceHandler) StopCollector(context.Context, *connect.R
 
 func (UnimplementedEbpfServiceHandler) StreamEvents(context.Context, *connect.Request[v1.EbpfEventStreamRequest], *connect.ServerStream[v1.EbpfEvent]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.EbpfService.StreamEvents is not implemented"))
+}
+
+// DebugServiceClient is a client for the coral.mesh.v1.DebugService service.
+type DebugServiceClient interface {
+	// Start a uprobe collector on an agent.
+	StartUprobeCollector(context.Context, *connect.Request[v1.StartUprobeCollectorRequest]) (*connect.Response[v1.StartUprobeCollectorResponse], error)
+	// Stop a running uprobe collector.
+	StopUprobeCollector(context.Context, *connect.Request[v1.StopUprobeCollectorRequest]) (*connect.Response[v1.StopUprobeCollectorResponse], error)
+	// Query events from a uprobe collector.
+	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
+}
+
+// NewDebugServiceClient constructs a client for the coral.mesh.v1.DebugService service. By default,
+// it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and
+// sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC()
+// or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewDebugServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) DebugServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	debugServiceMethods := v1.File_coral_mesh_v1_ebpf_proto.Services().ByName("DebugService").Methods()
+	return &debugServiceClient{
+		startUprobeCollector: connect.NewClient[v1.StartUprobeCollectorRequest, v1.StartUprobeCollectorResponse](
+			httpClient,
+			baseURL+DebugServiceStartUprobeCollectorProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("StartUprobeCollector")),
+			connect.WithClientOptions(opts...),
+		),
+		stopUprobeCollector: connect.NewClient[v1.StopUprobeCollectorRequest, v1.StopUprobeCollectorResponse](
+			httpClient,
+			baseURL+DebugServiceStopUprobeCollectorProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("StopUprobeCollector")),
+			connect.WithClientOptions(opts...),
+		),
+		queryUprobeEvents: connect.NewClient[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse](
+			httpClient,
+			baseURL+DebugServiceQueryUprobeEventsProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("QueryUprobeEvents")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// debugServiceClient implements DebugServiceClient.
+type debugServiceClient struct {
+	startUprobeCollector *connect.Client[v1.StartUprobeCollectorRequest, v1.StartUprobeCollectorResponse]
+	stopUprobeCollector  *connect.Client[v1.StopUprobeCollectorRequest, v1.StopUprobeCollectorResponse]
+	queryUprobeEvents    *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
+}
+
+// StartUprobeCollector calls coral.mesh.v1.DebugService.StartUprobeCollector.
+func (c *debugServiceClient) StartUprobeCollector(ctx context.Context, req *connect.Request[v1.StartUprobeCollectorRequest]) (*connect.Response[v1.StartUprobeCollectorResponse], error) {
+	return c.startUprobeCollector.CallUnary(ctx, req)
+}
+
+// StopUprobeCollector calls coral.mesh.v1.DebugService.StopUprobeCollector.
+func (c *debugServiceClient) StopUprobeCollector(ctx context.Context, req *connect.Request[v1.StopUprobeCollectorRequest]) (*connect.Response[v1.StopUprobeCollectorResponse], error) {
+	return c.stopUprobeCollector.CallUnary(ctx, req)
+}
+
+// QueryUprobeEvents calls coral.mesh.v1.DebugService.QueryUprobeEvents.
+func (c *debugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
+	return c.queryUprobeEvents.CallUnary(ctx, req)
+}
+
+// DebugServiceHandler is an implementation of the coral.mesh.v1.DebugService service.
+type DebugServiceHandler interface {
+	// Start a uprobe collector on an agent.
+	StartUprobeCollector(context.Context, *connect.Request[v1.StartUprobeCollectorRequest]) (*connect.Response[v1.StartUprobeCollectorResponse], error)
+	// Stop a running uprobe collector.
+	StopUprobeCollector(context.Context, *connect.Request[v1.StopUprobeCollectorRequest]) (*connect.Response[v1.StopUprobeCollectorResponse], error)
+	// Query events from a uprobe collector.
+	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
+}
+
+// NewDebugServiceHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	debugServiceMethods := v1.File_coral_mesh_v1_ebpf_proto.Services().ByName("DebugService").Methods()
+	debugServiceStartUprobeCollectorHandler := connect.NewUnaryHandler(
+		DebugServiceStartUprobeCollectorProcedure,
+		svc.StartUprobeCollector,
+		connect.WithSchema(debugServiceMethods.ByName("StartUprobeCollector")),
+		connect.WithHandlerOptions(opts...),
+	)
+	debugServiceStopUprobeCollectorHandler := connect.NewUnaryHandler(
+		DebugServiceStopUprobeCollectorProcedure,
+		svc.StopUprobeCollector,
+		connect.WithSchema(debugServiceMethods.ByName("StopUprobeCollector")),
+		connect.WithHandlerOptions(opts...),
+	)
+	debugServiceQueryUprobeEventsHandler := connect.NewUnaryHandler(
+		DebugServiceQueryUprobeEventsProcedure,
+		svc.QueryUprobeEvents,
+		connect.WithSchema(debugServiceMethods.ByName("QueryUprobeEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/coral.mesh.v1.DebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case DebugServiceStartUprobeCollectorProcedure:
+			debugServiceStartUprobeCollectorHandler.ServeHTTP(w, r)
+		case DebugServiceStopUprobeCollectorProcedure:
+			debugServiceStopUprobeCollectorHandler.ServeHTTP(w, r)
+		case DebugServiceQueryUprobeEventsProcedure:
+			debugServiceQueryUprobeEventsHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedDebugServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedDebugServiceHandler struct{}
+
+func (UnimplementedDebugServiceHandler) StartUprobeCollector(context.Context, *connect.Request[v1.StartUprobeCollectorRequest]) (*connect.Response[v1.StartUprobeCollectorResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.DebugService.StartUprobeCollector is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) StopUprobeCollector(context.Context, *connect.Request[v1.StopUprobeCollectorRequest]) (*connect.Response[v1.StopUprobeCollectorResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.DebugService.StopUprobeCollector is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.DebugService.QueryUprobeEvents is not implemented"))
 }

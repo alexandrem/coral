@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/rs/zerolog"
 )
@@ -24,16 +25,17 @@ const (
 
 // ServiceMonitor monitors a single service's health.
 type ServiceMonitor struct {
-	service       *meshv1.ServiceInfo
-	status        ServiceStatus
-	lastCheck     time.Time
-	lastError     error
-	checkInterval time.Duration
-	checkTimeout  time.Duration
-	logger        zerolog.Logger
-	mu            sync.RWMutex
-	ctx           context.Context
-	cancel        context.CancelFunc
+	service         *meshv1.ServiceInfo
+	sdkCapabilities *agentv1.ServiceSdkCapabilities // RFD 060
+	status          ServiceStatus
+	lastCheck       time.Time
+	lastError       error
+	checkInterval   time.Duration
+	checkTimeout    time.Duration
+	logger          zerolog.Logger
+	mu              sync.RWMutex
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 // NewServiceMonitor creates a new service monitor.
@@ -179,4 +181,22 @@ func (m *ServiceMonitor) checkTCPHealth(ctx context.Context) error {
 	defer func() { _ = conn.Close() }() // TODO: errcheck
 
 	return nil
+}
+
+// SetSdkCapabilities updates the SDK capabilities for the service.
+func (m *ServiceMonitor) SetSdkCapabilities(caps *agentv1.ServiceSdkCapabilities) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sdkCapabilities = caps
+	m.logger.Info().
+		Str("sdk_version", caps.SdkVersion).
+		Bool("has_dwarf", caps.HasDwarfSymbols).
+		Msg("Updated SDK capabilities")
+}
+
+// GetSdkCapabilities returns the SDK capabilities for the service.
+func (m *ServiceMonitor) GetSdkCapabilities() *agentv1.ServiceSdkCapabilities {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sdkCapabilities
 }

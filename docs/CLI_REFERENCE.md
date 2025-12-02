@@ -146,17 +146,19 @@ coral duckdb shell --agents <agent-1>,<agent-2>,... [-d <database>]
 
 ---
 
-## Live Debugging (SDK mode) - Coming Soon
+## Live Debugging (SDK mode)
 
 ```bash
 # Attach probes
-coral debug attach <service> --function <name> --duration <time>
-coral debug trace <service> --path <path> --duration <time>
+coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return]
+coral debug trace <service> --path <path> [--duration <time>]
 
 # Manage probes
-coral debug list <service>
-coral debug detach <service> [--all]
-coral debug logs <service>
+coral debug list [service]
+coral debug detach <session-id>
+
+# Query results
+coral debug query <service> --function <name> [--since <duration>]
 ```
 
 ---
