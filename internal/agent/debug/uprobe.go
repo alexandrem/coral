@@ -34,10 +34,21 @@ func (m *DebugSessionManager) attachUprobeLocked(
 	// We'll manage them manually or put them in the session
 
 	// 2. Open executable
-	exe, err := link.OpenExecutable(binaryPath)
+	// In sidecar mode with shared PID namespace, the binary path from SDK metadata
+	// is relative to the container's mount namespace. Use /proc/{pid}/root to access
+	// the container's filesystem from the agent's perspective.
+	resolvedPath := fmt.Sprintf("/proc/%d/root%s", pid, binaryPath)
+	m.logger.Debug().
+		Str("container_path", binaryPath).
+		Str("agent_path", resolvedPath).
+		Int("pid", pid).
+		Uint64("offset", offset).
+		Msg("Resolving binary path through container namespace")
+
+	exe, err := link.OpenExecutable(resolvedPath)
 	if err != nil {
 		objs.Close() // nolint:errcheck
-		return fmt.Errorf("open executable: %w", err)
+		return fmt.Errorf("open executable (path=%s): %w", resolvedPath, err)
 	}
 
 	// 3. Attach uprobe (entry)
