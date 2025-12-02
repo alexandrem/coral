@@ -25,7 +25,6 @@ func NewAttachCmd() *cobra.Command {
 		sampleRate    uint32
 		agentID       string
 		sdkAddr       string
-		colonyAddr    string
 		format        string
 	)
 
@@ -36,6 +35,12 @@ func NewAttachCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serviceName := args[0]
 			ctx := context.Background()
+
+			// Resolve colony URL from config
+			colonyAddr, err := getColonyURL()
+			if err != nil {
+				return fmt.Errorf("failed to resolve colony address: %w\n\nMake sure the colony is configured and running", err)
+			}
 
 			// Create Colony client
 			client := colonyv1connect.NewDebugServiceClient(
@@ -63,6 +68,12 @@ func NewAttachCmd() *cobra.Command {
 
 			resp, err := client.AttachUprobe(ctx, connect.NewRequest(req))
 			if err != nil {
+				// Check if this is a connection error (colony not running)
+				if connect.CodeOf(err) == connect.CodeUnavailable {
+					return fmt.Errorf("colony is not reachable at %s\n"+
+						"Please ensure the colony is running with: bin/coral colony start\n"+
+						"Original error: %w", colonyAddr, err)
+				}
 				return fmt.Errorf("failed to attach uprobe: %w", err)
 			}
 
@@ -92,7 +103,6 @@ func NewAttachCmd() *cobra.Command {
 	cmd.Flags().Uint32Var(&sampleRate, "sample-rate", 0, "Sample rate (0 = all calls)")
 	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (manual override)")
 	cmd.Flags().StringVar(&sdkAddr, "sdk-addr", "", "SDK address (manual override)")
-	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 
 	if err := cmd.MarkFlagRequired("function"); err != nil {

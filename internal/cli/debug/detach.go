@@ -13,8 +13,6 @@ import (
 )
 
 func NewDetachCmd() *cobra.Command {
-	var colonyAddr string
-
 	cmd := &cobra.Command{
 		Use:   "detach <session-id>",
 		Short: "Stop a debug session",
@@ -22,6 +20,12 @@ func NewDetachCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]
 			ctx := context.Background()
+
+			// Resolve colony URL from config
+			colonyAddr, err := getColonyURL()
+			if err != nil {
+				return fmt.Errorf("failed to resolve colony address: %w", err)
+			}
 
 			client := colonyv1connect.NewDebugServiceClient(
 				http.DefaultClient,
@@ -47,8 +51,6 @@ func NewDetachCmd() *cobra.Command {
 			return nil
 		},
 	}
-
-	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 
 	return cmd
 }

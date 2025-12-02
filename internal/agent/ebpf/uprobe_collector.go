@@ -121,7 +121,17 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 	c.logger.Debug().Msg("Loaded eBPF objects")
 
 	// Step 3: Open executable for uprobe attachment
-	exe, err := link.OpenExecutable(c.binaryPath)
+	// In sidecar mode with shared PID namespace, the binary path from SDK metadata
+	// is relative to the container's mount namespace. Use /proc/{pid}/root to access
+	// the container's filesystem from the agent's perspective.
+	binaryPath := fmt.Sprintf("/proc/%d/root%s", c.pid, c.binaryPath)
+
+	c.logger.Debug().
+		Str("container_path", c.binaryPath).
+		Str("agent_path", binaryPath).
+		Msg("Resolving binary path through container namespace")
+
+	exe, err := link.OpenExecutable(binaryPath)
 	if err != nil {
 		c.objs.Close() // nolint:errcheck
 		return fmt.Errorf("failed to open executable: %w", err)

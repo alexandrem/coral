@@ -17,10 +17,9 @@ import (
 
 func NewEventsCmd() *cobra.Command {
 	var (
-		colonyAddr string
-		maxEvents  int32
-		follow     bool
-		since      time.Duration
+		maxEvents int32
+		follow    bool
+		since     time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -30,6 +29,12 @@ func NewEventsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]
 			ctx := context.Background()
+
+			// Resolve colony URL from config
+			colonyAddr, err := getColonyURL()
+			if err != nil {
+				return fmt.Errorf("failed to resolve colony address: %w", err)
+			}
 
 			client := colonyv1connect.NewDebugServiceClient(
 				http.DefaultClient,
@@ -76,7 +81,6 @@ func NewEventsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 	cmd.Flags().Int32Var(&maxEvents, "max", 100, "Max events to retrieve")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow new events")
 	cmd.Flags().DurationVar(&since, "since", 0, "Show events since duration (e.g. 5m)")

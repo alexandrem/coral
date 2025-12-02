@@ -8,14 +8,13 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"connectrpc.com/connect"
 	_ "github.com/marcboeker/go-duckdb" // Import DuckDB driver.
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/cli/shared"
 )
 
 // AgentInfo contains information about an agent with available databases.
@@ -29,27 +28,8 @@ type AgentInfo struct {
 
 // getColonyClient returns a colony gRPC client using the colony URL from config.
 func getColonyClient() (colonyv1connect.ColonyServiceClient, error) {
-	// Try to read colony URL from config file.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user home directory: %w", err)
-	}
-
-	configPath := filepath.Join(home, ".coral", "config.yaml")
-	if _, err := os.Stat(configPath); err != nil {
-		return nil, fmt.Errorf("colony config not found at %s: run 'coral init' first", configPath)
-	}
-
-	// For now, use default colony URL (localhost:9000).
-	// TODO: Read from config file when colony URL configuration is implemented.
-	colonyURL := "http://localhost:9000"
-
-	client := colonyv1connect.NewColonyServiceClient(
-		http.DefaultClient,
-		colonyURL,
-	)
-
-	return client, nil
+	// Use shared CLI helper for colony client creation.
+	return shared.GetColonyClient("")
 }
 
 // listAgents queries the colony to get all registered agents.

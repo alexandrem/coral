@@ -1,5 +1,6 @@
 services:
   sdk-demo:
+    platform: linux/arm64
     build:
       context: ../..
       dockerfile: examples/sdk-demo/Dockerfile
@@ -10,6 +11,7 @@ services:
       - CORAL_AGENT_ADDR=127.0.0.1:9001
 
   coral-agent:
+    platform: linux/arm64
     image: coral-agent:latest # Assuming local build or pull
     build:
       context: ../..
@@ -29,11 +31,10 @@ services:
       - BPF
       - PERFMON
       - NET_ADMIN
+    pid: "service:sdk-demo"
     network_mode: "service:sdk-demo"
     devices:
       - /dev/net/tun:/dev/net/tun
-    #security_opt:
-    #  - apparmor:unconfined
-    volumes:
-      - /sys/kernel/debug:/sys/kernel/debug:rw
-      - /lib/modules:/lib/modules:ro
+
+volumes:
+  coral-sdk-demo-data:

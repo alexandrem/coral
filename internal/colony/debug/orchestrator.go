@@ -14,6 +14,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
@@ -54,18 +56,62 @@ func (o *Orchestrator) AttachUprobe(
 	// Service Discovery (RFD 062)
 	if req.Msg.AgentId == "" {
 		// Lookup agent by service name
-		entry, serviceInfo, err := o.registry.FindAgentForService(req.Msg.ServiceName)
-		if err != nil {
+		// Note: registry.FindAgentForService uses cached data which may not have services populated.
+		// We need to query agents in real-time to find the service.
+		entries := o.registry.ListAll()
+
+		var foundEntry *registry.Entry
+		var foundService *meshv1.ServiceInfo
+
+		for _, entry := range entries {
+			// Query agent in real-time for services
+			agentURL := fmt.Sprintf("http://%s:9001", entry.MeshIPv4)
+			client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			resp, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+			cancel()
+
+			if err != nil {
+				o.logger.Debug().
+					Err(err).
+					Str("agent_id", entry.AgentID).
+					Msg("Failed to query agent services")
+				continue
+			}
+
+			// Check if this agent has the service
+			for _, svcStatus := range resp.Msg.Services {
+				if svcStatus.Name == req.Msg.ServiceName {
+					foundEntry = entry
+					foundService = &meshv1.ServiceInfo{
+						Name:           svcStatus.Name,
+						Port:           svcStatus.Port,
+						HealthEndpoint: svcStatus.HealthEndpoint,
+						ServiceType:    svcStatus.ServiceType,
+						Labels:         svcStatus.Labels,
+					}
+					break
+				}
+			}
+
+			if foundEntry != nil {
+				break
+			}
+		}
+
+		if foundEntry == nil {
 			return connect.NewResponse(&debugpb.AttachUprobeResponse{
 				Success: false,
-				Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
+				Error:   fmt.Sprintf("failed to find agent for service %s: service not found", req.Msg.ServiceName),
 			}), nil
 		}
-		req.Msg.AgentId = entry.AgentID
+
+		req.Msg.AgentId = foundEntry.AgentID
 
 		// Attempt to resolve SDK address from labels if not provided
 		if req.Msg.SdkAddr == "" {
-			if addr, ok := serviceInfo.Labels["coral.sdk.addr"]; ok {
+			if addr, ok := foundService.Labels["coral.sdk.addr"]; ok {
 				req.Msg.SdkAddr = addr
 			}
 		}

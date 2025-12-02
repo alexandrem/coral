@@ -17,11 +17,10 @@ import (
 
 func NewTraceCmd() *cobra.Command {
 	var (
-		path       string
-		duration   time.Duration
-		colonyAddr string
-		format     string
-		wait       bool
+		path     string
+		duration time.Duration
+		format   string
+		wait     bool
 	)
 
 	cmd := &cobra.Command{
@@ -31,6 +30,12 @@ func NewTraceCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serviceName := args[0]
 			ctx := context.Background()
+
+			// Resolve colony URL from config
+			colonyAddr, err := getColonyURL()
+			if err != nil {
+				return fmt.Errorf("failed to resolve colony address: %w", err)
+			}
 
 			client := colonyv1connect.NewDebugServiceClient(
 				http.DefaultClient,
@@ -118,7 +123,6 @@ func NewTraceCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&path, "path", "p", "", "HTTP path to trace (required)")
 	cmd.Flags().DurationVarP(&duration, "duration", "d", 60*time.Second, "Duration of the trace session")
-	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for trace to complete and display results")
 

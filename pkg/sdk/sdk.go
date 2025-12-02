@@ -16,6 +16,10 @@ import (
 	"github.com/coral-mesh/coral/pkg/sdk/debug"
 )
 
+const (
+	sdkPort = 9092
+)
+
 // SDK represents the Coral SDK instance embedded in an application.
 type SDK struct {
 	logger           *slog.Logger
@@ -25,6 +29,7 @@ type SDK struct {
 
 	// Registration info
 	agentAddr      string
+	sdkListenAddr  string
 	appPort        int
 	healthEndpoint string
 }
@@ -59,12 +64,8 @@ func New(config Config) (*SDK, error) {
 		serviceName: config.ServiceName,
 	}
 
-	// Initialize debug server if enabled.
-	if config.EnableDebug {
-		if err := sdk.initializeDebugServer(); err != nil {
-			return nil, fmt.Errorf("failed to initialize debug server: %w", err)
-		}
-	}
+	// Note: Debug server initialization is deferred to EnableRuntimeMonitoring()
+	// to ensure all configuration fields (especially sdkListenAddr) are set first.
 
 	logger.Info("Coral SDK initialized",
 		"service", config.ServiceName,
@@ -122,8 +123,8 @@ func (s *SDK) initializeDebugServer() error {
 	}
 	s.debugServer = server
 
-	// Start the server.
-	if err := server.Start(); err != nil {
+	// Start the server with configured listen address.
+	if err := server.Start(s.sdkListenAddr); err != nil {
 		if err := provider.Close(); err != nil {
 			s.logger.Error("Failed to close debug server", "error", err)
 		}
@@ -161,7 +162,7 @@ func RegisterService(name string, opts Options) error {
 		opts.AgentAddr = "localhost:9091"
 	}
 	if opts.SdkListenAddr == "" {
-		opts.SdkListenAddr = ":9092"
+		opts.SdkListenAddr = fmt.Sprintf("localhost:%d", sdkPort)
 	}
 
 	// Create SDK instance
@@ -175,6 +176,7 @@ func RegisterService(name string, opts Options) error {
 	}
 
 	sdk.agentAddr = opts.AgentAddr
+	sdk.sdkListenAddr = opts.SdkListenAddr
 	sdk.appPort = opts.Port
 	sdk.healthEndpoint = opts.HealthEndpoint
 

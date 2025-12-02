@@ -18,7 +18,6 @@ func NewQueryCmd() *cobra.Command {
 	var (
 		functionName string
 		since        time.Duration
-		colonyAddr   string
 		format       string
 	)
 
@@ -29,6 +28,12 @@ func NewQueryCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serviceName := args[0]
 			ctx := context.Background()
+
+			// Resolve colony URL from config
+			colonyAddr, err := getColonyURL()
+			if err != nil {
+				return fmt.Errorf("failed to resolve colony address: %w", err)
+			}
 
 			client := colonyv1connect.NewDebugServiceClient(
 				http.DefaultClient,
@@ -117,7 +122,6 @@ func NewQueryCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&functionName, "function", "f", "", "Function name to query (required)")
 	cmd.Flags().DurationVar(&since, "since", 1*time.Hour, "Time range to query")
-	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 
 	if err := cmd.MarkFlagRequired("function"); err != nil {

@@ -15,7 +15,6 @@ import (
 
 func NewListCmd() *cobra.Command {
 	var (
-		colonyAddr  string
 		serviceName string
 		status      string
 		format      string
@@ -27,6 +26,12 @@ func NewListCmd() *cobra.Command {
 		Short:   "List active debug sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+
+			// Resolve colony URL from config
+			colonyAddr, err := getColonyURL()
+			if err != nil {
+				return fmt.Errorf("failed to resolve colony address: %w", err)
+			}
 
 			client := colonyv1connect.NewDebugServiceClient(
 				http.DefaultClient,
@@ -58,7 +63,6 @@ func NewListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 	cmd.Flags().StringVarP(&serviceName, "service", "s", "", "Filter by service name")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
