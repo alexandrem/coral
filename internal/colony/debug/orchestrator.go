@@ -155,8 +155,6 @@ func (o *Orchestrator) AttachUprobe(
 	}
 
 	// Call agent to start uprobe collector
-	// Call agent to start uprobe collector
-	// Call agent to start uprobe collector
 	agentAddr := buildAgentAddress(entry.MeshIPv4)
 	agentClient := o.clientFactory(
 		http.DefaultClient,
