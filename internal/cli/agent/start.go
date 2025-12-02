@@ -24,6 +24,7 @@ import (
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
@@ -601,8 +602,14 @@ Examples:
 			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler)
 			path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
+			// Create debug service handler (RFD 059).
+			debugService := agent.NewDebugService(agentInstance, logger)
+			debugAdapter := agent.NewDebugServiceAdapter(debugService)
+			debugPath, debugHandler := meshv1connect.NewDebugServiceHandler(debugAdapter)
+
 			mux := http.NewServeMux()
 			mux.Handle(path, handler)
+			mux.Handle(debugPath, debugHandler)
 
 			// Add /status endpoint that returns JSON with mesh network info for debugging.
 			mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {

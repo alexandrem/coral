@@ -201,6 +201,7 @@ const (
 	EbpfCollectorKind_EBPF_COLLECTOR_KIND_HTTP_LATENCY  EbpfCollectorKind = 2
 	EbpfCollectorKind_EBPF_COLLECTOR_KIND_CPU_PROFILE   EbpfCollectorKind = 3
 	EbpfCollectorKind_EBPF_COLLECTOR_KIND_TCP_METRICS   EbpfCollectorKind = 4
+	EbpfCollectorKind_EBPF_COLLECTOR_KIND_UPROBE        EbpfCollectorKind = 5 // RFD 059 - Application-level function debugging
 )
 
 // Enum value maps for EbpfCollectorKind.
@@ -211,6 +212,7 @@ var (
 		2: "EBPF_COLLECTOR_KIND_HTTP_LATENCY",
 		3: "EBPF_COLLECTOR_KIND_CPU_PROFILE",
 		4: "EBPF_COLLECTOR_KIND_TCP_METRICS",
+		5: "EBPF_COLLECTOR_KIND_UPROBE",
 	}
 	EbpfCollectorKind_value = map[string]int32{
 		"EBPF_COLLECTOR_KIND_UNSPECIFIED":   0,
@@ -218,6 +220,7 @@ var (
 		"EBPF_COLLECTOR_KIND_HTTP_LATENCY":  2,
 		"EBPF_COLLECTOR_KIND_CPU_PROFILE":   3,
 		"EBPF_COLLECTOR_KIND_TCP_METRICS":   4,
+		"EBPF_COLLECTOR_KIND_UPROBE":        5,
 	}
 )
 
@@ -996,9 +999,11 @@ type ConnectServiceRequest struct {
 	// Optional service type hint.
 	ServiceType string `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
 	// Additional metadata.
-	Labels        map[string]string `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Labels map[string]string `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// SDK capabilities (RFD 060).
+	SdkCapabilities *ServiceSdkCapabilities `protobuf:"bytes,6,opt,name=sdk_capabilities,json=sdkCapabilities,proto3" json:"sdk_capabilities,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ConnectServiceRequest) Reset() {
@@ -1066,6 +1071,125 @@ func (x *ConnectServiceRequest) GetLabels() map[string]string {
 	return nil
 }
 
+func (x *ConnectServiceRequest) GetSdkCapabilities() *ServiceSdkCapabilities {
+	if x != nil {
+		return x.SdkCapabilities
+	}
+	return nil
+}
+
+// ServiceSdkCapabilities describes the SDK integration status (RFD 060).
+type ServiceSdkCapabilities struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Service identifier
+	ProcessId   string                 `protobuf:"bytes,2,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`       // PID of service process
+	// SDK integration status
+	SdkEnabled bool   `protobuf:"varint,3,opt,name=sdk_enabled,json=sdkEnabled,proto3" json:"sdk_enabled,omitempty"` // SDK detected and reachable
+	SdkVersion string `protobuf:"bytes,4,opt,name=sdk_version,json=sdkVersion,proto3" json:"sdk_version,omitempty"`  // SDK version (e.g., "v1.0.0")
+	SdkAddr    string `protobuf:"bytes,5,opt,name=sdk_addr,json=sdkAddr,proto3" json:"sdk_addr,omitempty"`           // SDK gRPC address (reachable by Agent)
+	// Debug symbol availability
+	HasDwarfSymbols bool   `protobuf:"varint,6,opt,name=has_dwarf_symbols,json=hasDwarfSymbols,proto3" json:"has_dwarf_symbols,omitempty"` // DWARF debug info present
+	FunctionCount   uint32 `protobuf:"varint,7,opt,name=function_count,json=functionCount,proto3" json:"function_count,omitempty"`         // Number of discoverable functions
+	// Binary information
+	BinaryPath    string `protobuf:"bytes,10,opt,name=binary_path,json=binaryPath,proto3" json:"binary_path,omitempty"` // Path to executable
+	BinaryHash    string `protobuf:"bytes,11,opt,name=binary_hash,json=binaryHash,proto3" json:"binary_hash,omitempty"` // Hash for cache invalidation
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceSdkCapabilities) Reset() {
+	*x = ServiceSdkCapabilities{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceSdkCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceSdkCapabilities) ProtoMessage() {}
+
+func (x *ServiceSdkCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceSdkCapabilities.ProtoReflect.Descriptor instead.
+func (*ServiceSdkCapabilities) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ServiceSdkCapabilities) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *ServiceSdkCapabilities) GetProcessId() string {
+	if x != nil {
+		return x.ProcessId
+	}
+	return ""
+}
+
+func (x *ServiceSdkCapabilities) GetSdkEnabled() bool {
+	if x != nil {
+		return x.SdkEnabled
+	}
+	return false
+}
+
+func (x *ServiceSdkCapabilities) GetSdkVersion() string {
+	if x != nil {
+		return x.SdkVersion
+	}
+	return ""
+}
+
+func (x *ServiceSdkCapabilities) GetSdkAddr() string {
+	if x != nil {
+		return x.SdkAddr
+	}
+	return ""
+}
+
+func (x *ServiceSdkCapabilities) GetHasDwarfSymbols() bool {
+	if x != nil {
+		return x.HasDwarfSymbols
+	}
+	return false
+}
+
+func (x *ServiceSdkCapabilities) GetFunctionCount() uint32 {
+	if x != nil {
+		return x.FunctionCount
+	}
+	return 0
+}
+
+func (x *ServiceSdkCapabilities) GetBinaryPath() string {
+	if x != nil {
+		return x.BinaryPath
+	}
+	return ""
+}
+
+func (x *ServiceSdkCapabilities) GetBinaryHash() string {
+	if x != nil {
+		return x.BinaryHash
+	}
+	return ""
+}
+
 type ConnectServiceResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Success indicator.
@@ -1080,7 +1204,7 @@ type ConnectServiceResponse struct {
 
 func (x *ConnectServiceResponse) Reset() {
 	*x = ConnectServiceResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[9]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1092,7 +1216,7 @@ func (x *ConnectServiceResponse) String() string {
 func (*ConnectServiceResponse) ProtoMessage() {}
 
 func (x *ConnectServiceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[9]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1105,7 +1229,7 @@ func (x *ConnectServiceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectServiceResponse.ProtoReflect.Descriptor instead.
 func (*ConnectServiceResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ConnectServiceResponse) GetSuccess() bool {
@@ -1140,7 +1264,7 @@ type DisconnectServiceRequest struct {
 
 func (x *DisconnectServiceRequest) Reset() {
 	*x = DisconnectServiceRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[10]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1152,7 +1276,7 @@ func (x *DisconnectServiceRequest) String() string {
 func (*DisconnectServiceRequest) ProtoMessage() {}
 
 func (x *DisconnectServiceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[10]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1165,7 +1289,7 @@ func (x *DisconnectServiceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisconnectServiceRequest.ProtoReflect.Descriptor instead.
 func (*DisconnectServiceRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{10}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DisconnectServiceRequest) GetServiceName() string {
@@ -1187,7 +1311,7 @@ type DisconnectServiceResponse struct {
 
 func (x *DisconnectServiceResponse) Reset() {
 	*x = DisconnectServiceResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[11]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1199,7 +1323,7 @@ func (x *DisconnectServiceResponse) String() string {
 func (*DisconnectServiceResponse) ProtoMessage() {}
 
 func (x *DisconnectServiceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[11]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1212,7 +1336,7 @@ func (x *DisconnectServiceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisconnectServiceResponse.ProtoReflect.Descriptor instead.
 func (*DisconnectServiceResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DisconnectServiceResponse) GetSuccess() bool {
@@ -1238,7 +1362,7 @@ type ListServicesRequest struct {
 
 func (x *ListServicesRequest) Reset() {
 	*x = ListServicesRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[12]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1250,7 +1374,7 @@ func (x *ListServicesRequest) String() string {
 func (*ListServicesRequest) ProtoMessage() {}
 
 func (x *ListServicesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[12]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1263,7 +1387,7 @@ func (x *ListServicesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListServicesRequest.ProtoReflect.Descriptor instead.
 func (*ListServicesRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 type ListServicesResponse struct {
@@ -1276,7 +1400,7 @@ type ListServicesResponse struct {
 
 func (x *ListServicesResponse) Reset() {
 	*x = ListServicesResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[13]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1288,7 +1412,7 @@ func (x *ListServicesResponse) String() string {
 func (*ListServicesResponse) ProtoMessage() {}
 
 func (x *ListServicesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[13]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1301,7 +1425,7 @@ func (x *ListServicesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListServicesResponse.ProtoReflect.Descriptor instead.
 func (*ListServicesResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListServicesResponse) GetServices() []*ServiceStatus {
@@ -1335,7 +1459,7 @@ type ServiceStatus struct {
 
 func (x *ServiceStatus) Reset() {
 	*x = ServiceStatus{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1347,7 +1471,7 @@ func (x *ServiceStatus) String() string {
 func (*ServiceStatus) ProtoMessage() {}
 
 func (x *ServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1360,7 +1484,7 @@ func (x *ServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceStatus.ProtoReflect.Descriptor instead.
 func (*ServiceStatus) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ServiceStatus) GetName() string {
@@ -1434,7 +1558,7 @@ type EbpfCapabilities struct {
 
 func (x *EbpfCapabilities) Reset() {
 	*x = EbpfCapabilities{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1446,7 +1570,7 @@ func (x *EbpfCapabilities) String() string {
 func (*EbpfCapabilities) ProtoMessage() {}
 
 func (x *EbpfCapabilities) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1459,7 +1583,7 @@ func (x *EbpfCapabilities) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EbpfCapabilities.ProtoReflect.Descriptor instead.
 func (*EbpfCapabilities) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *EbpfCapabilities) GetSupported() bool {
@@ -1518,7 +1642,7 @@ type BeylaCapabilities struct {
 
 func (x *BeylaCapabilities) Reset() {
 	*x = BeylaCapabilities{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1530,7 +1654,7 @@ func (x *BeylaCapabilities) String() string {
 func (*BeylaCapabilities) ProtoMessage() {}
 
 func (x *BeylaCapabilities) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[16]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1543,7 +1667,7 @@ func (x *BeylaCapabilities) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaCapabilities.ProtoReflect.Descriptor instead.
 func (*BeylaCapabilities) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *BeylaCapabilities) GetEnabled() bool {
@@ -1612,7 +1736,7 @@ type TelemetrySpan struct {
 
 func (x *TelemetrySpan) Reset() {
 	*x = TelemetrySpan{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[17]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1624,7 +1748,7 @@ func (x *TelemetrySpan) String() string {
 func (*TelemetrySpan) ProtoMessage() {}
 
 func (x *TelemetrySpan) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[17]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1637,7 +1761,7 @@ func (x *TelemetrySpan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetrySpan.ProtoReflect.Descriptor instead.
 func (*TelemetrySpan) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{17}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *TelemetrySpan) GetTimestamp() int64 {
@@ -1732,7 +1856,7 @@ type QueryTelemetryRequest struct {
 
 func (x *QueryTelemetryRequest) Reset() {
 	*x = QueryTelemetryRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[18]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1744,7 +1868,7 @@ func (x *QueryTelemetryRequest) String() string {
 func (*QueryTelemetryRequest) ProtoMessage() {}
 
 func (x *QueryTelemetryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[18]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1757,7 +1881,7 @@ func (x *QueryTelemetryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTelemetryRequest.ProtoReflect.Descriptor instead.
 func (*QueryTelemetryRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{18}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *QueryTelemetryRequest) GetStartTime() int64 {
@@ -1794,7 +1918,7 @@ type QueryTelemetryResponse struct {
 
 func (x *QueryTelemetryResponse) Reset() {
 	*x = QueryTelemetryResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[19]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1806,7 +1930,7 @@ func (x *QueryTelemetryResponse) String() string {
 func (*QueryTelemetryResponse) ProtoMessage() {}
 
 func (x *QueryTelemetryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[19]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1819,7 +1943,7 @@ func (x *QueryTelemetryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTelemetryResponse.ProtoReflect.Descriptor instead.
 func (*QueryTelemetryResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{19}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *QueryTelemetryResponse) GetSpans() []*TelemetrySpan {
@@ -1859,7 +1983,7 @@ type QueryBeylaMetricsRequest struct {
 
 func (x *QueryBeylaMetricsRequest) Reset() {
 	*x = QueryBeylaMetricsRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[20]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1871,7 +1995,7 @@ func (x *QueryBeylaMetricsRequest) String() string {
 func (*QueryBeylaMetricsRequest) ProtoMessage() {}
 
 func (x *QueryBeylaMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[20]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1884,7 +2008,7 @@ func (x *QueryBeylaMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryBeylaMetricsRequest.ProtoReflect.Descriptor instead.
 func (*QueryBeylaMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{20}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *QueryBeylaMetricsRequest) GetStartTime() int64 {
@@ -1957,7 +2081,7 @@ type QueryBeylaMetricsResponse struct {
 
 func (x *QueryBeylaMetricsResponse) Reset() {
 	*x = QueryBeylaMetricsResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[21]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1969,7 +2093,7 @@ func (x *QueryBeylaMetricsResponse) String() string {
 func (*QueryBeylaMetricsResponse) ProtoMessage() {}
 
 func (x *QueryBeylaMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[21]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1982,7 +2106,7 @@ func (x *QueryBeylaMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryBeylaMetricsResponse.ProtoReflect.Descriptor instead.
 func (*QueryBeylaMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{21}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *QueryBeylaMetricsResponse) GetHttpMetrics() []*BeylaHttpMetric {
@@ -2054,7 +2178,7 @@ type BeylaHttpMetric struct {
 
 func (x *BeylaHttpMetric) Reset() {
 	*x = BeylaHttpMetric{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[22]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2066,7 +2190,7 @@ func (x *BeylaHttpMetric) String() string {
 func (*BeylaHttpMetric) ProtoMessage() {}
 
 func (x *BeylaHttpMetric) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[22]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2079,7 +2203,7 @@ func (x *BeylaHttpMetric) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaHttpMetric.ProtoReflect.Descriptor instead.
 func (*BeylaHttpMetric) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{22}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *BeylaHttpMetric) GetTimestamp() int64 {
@@ -2170,7 +2294,7 @@ type BeylaGrpcMetric struct {
 
 func (x *BeylaGrpcMetric) Reset() {
 	*x = BeylaGrpcMetric{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[23]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2182,7 +2306,7 @@ func (x *BeylaGrpcMetric) String() string {
 func (*BeylaGrpcMetric) ProtoMessage() {}
 
 func (x *BeylaGrpcMetric) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[23]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2195,7 +2319,7 @@ func (x *BeylaGrpcMetric) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaGrpcMetric.ProtoReflect.Descriptor instead.
 func (*BeylaGrpcMetric) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{23}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *BeylaGrpcMetric) GetTimestamp() int64 {
@@ -2279,7 +2403,7 @@ type BeylaSqlMetric struct {
 
 func (x *BeylaSqlMetric) Reset() {
 	*x = BeylaSqlMetric{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[24]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2291,7 +2415,7 @@ func (x *BeylaSqlMetric) String() string {
 func (*BeylaSqlMetric) ProtoMessage() {}
 
 func (x *BeylaSqlMetric) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[24]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2304,7 +2428,7 @@ func (x *BeylaSqlMetric) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaSqlMetric.ProtoReflect.Descriptor instead.
 func (*BeylaSqlMetric) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{24}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *BeylaSqlMetric) GetTimestamp() int64 {
@@ -2392,7 +2516,7 @@ type BeylaTraceSpan struct {
 
 func (x *BeylaTraceSpan) Reset() {
 	*x = BeylaTraceSpan{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[25]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2404,7 +2528,7 @@ func (x *BeylaTraceSpan) String() string {
 func (*BeylaTraceSpan) ProtoMessage() {}
 
 func (x *BeylaTraceSpan) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[25]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2417,7 +2541,7 @@ func (x *BeylaTraceSpan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaTraceSpan.ProtoReflect.Descriptor instead.
 func (*BeylaTraceSpan) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{25}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *BeylaTraceSpan) GetTraceId() string {
@@ -2505,7 +2629,7 @@ type ShellRequest struct {
 
 func (x *ShellRequest) Reset() {
 	*x = ShellRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[26]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2517,7 +2641,7 @@ func (x *ShellRequest) String() string {
 func (*ShellRequest) ProtoMessage() {}
 
 func (x *ShellRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[26]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2530,7 +2654,7 @@ func (x *ShellRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellRequest.ProtoReflect.Descriptor instead.
 func (*ShellRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{26}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ShellRequest) GetPayload() isShellRequest_Payload {
@@ -2617,7 +2741,7 @@ type ShellStart struct {
 
 func (x *ShellStart) Reset() {
 	*x = ShellStart{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[27]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2629,7 +2753,7 @@ func (x *ShellStart) String() string {
 func (*ShellStart) ProtoMessage() {}
 
 func (x *ShellStart) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[27]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2642,7 +2766,7 @@ func (x *ShellStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellStart.ProtoReflect.Descriptor instead.
 func (*ShellStart) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{27}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ShellStart) GetShell() string {
@@ -2693,7 +2817,7 @@ type ShellResponse struct {
 
 func (x *ShellResponse) Reset() {
 	*x = ShellResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[28]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2705,7 +2829,7 @@ func (x *ShellResponse) String() string {
 func (*ShellResponse) ProtoMessage() {}
 
 func (x *ShellResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[28]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2718,7 +2842,7 @@ func (x *ShellResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellResponse.ProtoReflect.Descriptor instead.
 func (*ShellResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{28}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ShellResponse) GetPayload() isShellResponse_Payload {
@@ -2772,7 +2896,7 @@ type ShellExit struct {
 
 func (x *ShellExit) Reset() {
 	*x = ShellExit{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[29]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2784,7 +2908,7 @@ func (x *ShellExit) String() string {
 func (*ShellExit) ProtoMessage() {}
 
 func (x *ShellExit) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[29]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2797,7 +2921,7 @@ func (x *ShellExit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellExit.ProtoReflect.Descriptor instead.
 func (*ShellExit) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{29}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ShellExit) GetExitCode() int32 {
@@ -2824,7 +2948,7 @@ type TerminalSize struct {
 
 func (x *TerminalSize) Reset() {
 	*x = TerminalSize{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[30]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2836,7 +2960,7 @@ func (x *TerminalSize) String() string {
 func (*TerminalSize) ProtoMessage() {}
 
 func (x *TerminalSize) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[30]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2849,7 +2973,7 @@ func (x *TerminalSize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalSize.ProtoReflect.Descriptor instead.
 func (*TerminalSize) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{30}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *TerminalSize) GetRows() uint32 {
@@ -2876,7 +3000,7 @@ type ShellResize struct {
 
 func (x *ShellResize) Reset() {
 	*x = ShellResize{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[31]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2888,7 +3012,7 @@ func (x *ShellResize) String() string {
 func (*ShellResize) ProtoMessage() {}
 
 func (x *ShellResize) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[31]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2901,7 +3025,7 @@ func (x *ShellResize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellResize.ProtoReflect.Descriptor instead.
 func (*ShellResize) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{31}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ShellResize) GetRows() uint32 {
@@ -2927,7 +3051,7 @@ type ShellSignal struct {
 
 func (x *ShellSignal) Reset() {
 	*x = ShellSignal{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2939,7 +3063,7 @@ func (x *ShellSignal) String() string {
 func (*ShellSignal) ProtoMessage() {}
 
 func (x *ShellSignal) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2952,7 +3076,7 @@ func (x *ShellSignal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellSignal.ProtoReflect.Descriptor instead.
 func (*ShellSignal) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{32}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ShellSignal) GetSignal() string {
@@ -2973,7 +3097,7 @@ type ResizeShellTerminalRequest struct {
 
 func (x *ResizeShellTerminalRequest) Reset() {
 	*x = ResizeShellTerminalRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2985,7 +3109,7 @@ func (x *ResizeShellTerminalRequest) String() string {
 func (*ResizeShellTerminalRequest) ProtoMessage() {}
 
 func (x *ResizeShellTerminalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2998,7 +3122,7 @@ func (x *ResizeShellTerminalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResizeShellTerminalRequest.ProtoReflect.Descriptor instead.
 func (*ResizeShellTerminalRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{33}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ResizeShellTerminalRequest) GetSessionId() string {
@@ -3032,7 +3156,7 @@ type ResizeShellTerminalResponse struct {
 
 func (x *ResizeShellTerminalResponse) Reset() {
 	*x = ResizeShellTerminalResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3044,7 +3168,7 @@ func (x *ResizeShellTerminalResponse) String() string {
 func (*ResizeShellTerminalResponse) ProtoMessage() {}
 
 func (x *ResizeShellTerminalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3057,7 +3181,7 @@ func (x *ResizeShellTerminalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResizeShellTerminalResponse.ProtoReflect.Descriptor instead.
 func (*ResizeShellTerminalResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{34}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ResizeShellTerminalResponse) GetSuccess() bool {
@@ -3084,7 +3208,7 @@ type SendShellSignalRequest struct {
 
 func (x *SendShellSignalRequest) Reset() {
 	*x = SendShellSignalRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3096,7 +3220,7 @@ func (x *SendShellSignalRequest) String() string {
 func (*SendShellSignalRequest) ProtoMessage() {}
 
 func (x *SendShellSignalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3109,7 +3233,7 @@ func (x *SendShellSignalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendShellSignalRequest.ProtoReflect.Descriptor instead.
 func (*SendShellSignalRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SendShellSignalRequest) GetSessionId() string {
@@ -3136,7 +3260,7 @@ type SendShellSignalResponse struct {
 
 func (x *SendShellSignalResponse) Reset() {
 	*x = SendShellSignalResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3148,7 +3272,7 @@ func (x *SendShellSignalResponse) String() string {
 func (*SendShellSignalResponse) ProtoMessage() {}
 
 func (x *SendShellSignalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3161,7 +3285,7 @@ func (x *SendShellSignalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendShellSignalResponse.ProtoReflect.Descriptor instead.
 func (*SendShellSignalResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SendShellSignalResponse) GetSuccess() bool {
@@ -3187,7 +3311,7 @@ type KillShellSessionRequest struct {
 
 func (x *KillShellSessionRequest) Reset() {
 	*x = KillShellSessionRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3199,7 +3323,7 @@ func (x *KillShellSessionRequest) String() string {
 func (*KillShellSessionRequest) ProtoMessage() {}
 
 func (x *KillShellSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3212,7 +3336,7 @@ func (x *KillShellSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KillShellSessionRequest.ProtoReflect.Descriptor instead.
 func (*KillShellSessionRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{37}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *KillShellSessionRequest) GetSessionId() string {
@@ -3232,7 +3356,7 @@ type KillShellSessionResponse struct {
 
 func (x *KillShellSessionResponse) Reset() {
 	*x = KillShellSessionResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3244,7 +3368,7 @@ func (x *KillShellSessionResponse) String() string {
 func (*KillShellSessionResponse) ProtoMessage() {}
 
 func (x *KillShellSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3257,7 +3381,7 @@ func (x *KillShellSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KillShellSessionResponse.ProtoReflect.Descriptor instead.
 func (*KillShellSessionResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{38}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *KillShellSessionResponse) GetSuccess() bool {
@@ -3293,7 +3417,7 @@ type ShellExecRequest struct {
 
 func (x *ShellExecRequest) Reset() {
 	*x = ShellExecRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[39]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3305,7 +3429,7 @@ func (x *ShellExecRequest) String() string {
 func (*ShellExecRequest) ProtoMessage() {}
 
 func (x *ShellExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[39]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3318,7 +3442,7 @@ func (x *ShellExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellExecRequest.ProtoReflect.Descriptor instead.
 func (*ShellExecRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{39}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ShellExecRequest) GetCommand() []string {
@@ -3376,7 +3500,7 @@ type ShellExecResponse struct {
 
 func (x *ShellExecResponse) Reset() {
 	*x = ShellExecResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[40]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3388,7 +3512,7 @@ func (x *ShellExecResponse) String() string {
 func (*ShellExecResponse) ProtoMessage() {}
 
 func (x *ShellExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[40]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3401,7 +3525,7 @@ func (x *ShellExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShellExecResponse.ProtoReflect.Descriptor instead.
 func (*ShellExecResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{40}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ShellExecResponse) GetStdout() []byte {
@@ -3470,7 +3594,7 @@ type ContainerExecRequest struct {
 
 func (x *ContainerExecRequest) Reset() {
 	*x = ContainerExecRequest{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[41]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3482,7 +3606,7 @@ func (x *ContainerExecRequest) String() string {
 func (*ContainerExecRequest) ProtoMessage() {}
 
 func (x *ContainerExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[41]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3495,7 +3619,7 @@ func (x *ContainerExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerExecRequest.ProtoReflect.Descriptor instead.
 func (*ContainerExecRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{41}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ContainerExecRequest) GetContainerName() string {
@@ -3571,7 +3695,7 @@ type ContainerExecResponse struct {
 
 func (x *ContainerExecResponse) Reset() {
 	*x = ContainerExecResponse{}
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[42]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3583,7 +3707,7 @@ func (x *ContainerExecResponse) String() string {
 func (*ContainerExecResponse) ProtoMessage() {}
 
 func (x *ContainerExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_agent_proto_msgTypes[42]
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3596,7 +3720,7 @@ func (x *ContainerExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerExecResponse.ProtoReflect.Descriptor instead.
 func (*ContainerExecResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{42}
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ContainerExecResponse) GetStdout() []byte {
@@ -3653,6 +3777,134 @@ func (x *ContainerExecResponse) GetNamespacesEntered() []string {
 		return x.NamespacesEntered
 	}
 	return nil
+}
+
+type DebugEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Pid           int32                  `protobuf:"varint,3,opt,name=pid,proto3" json:"pid,omitempty"`
+	Tid           int32                  `protobuf:"varint,4,opt,name=tid,proto3" json:"tid,omitempty"`
+	DurationNs    int64                  `protobuf:"varint,5,opt,name=duration_ns,json=durationNs,proto3" json:"duration_ns,omitempty"` // Additional context if needed
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DebugEvent) Reset() {
+	*x = DebugEvent{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DebugEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DebugEvent) ProtoMessage() {}
+
+func (x *DebugEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DebugEvent.ProtoReflect.Descriptor instead.
+func (*DebugEvent) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *DebugEvent) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *DebugEvent) GetPid() int32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *DebugEvent) GetTid() int32 {
+	if x != nil {
+		return x.Tid
+	}
+	return 0
+}
+
+func (x *DebugEvent) GetDurationNs() int64 {
+	if x != nil {
+		return x.DurationNs
+	}
+	return 0
+}
+
+type DebugCommand struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Command       string                 `protobuf:"bytes,2,opt,name=command,proto3" json:"command,omitempty"` // "detach"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DebugCommand) Reset() {
+	*x = DebugCommand{}
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DebugCommand) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DebugCommand) ProtoMessage() {}
+
+func (x *DebugCommand) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_agent_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DebugCommand.ProtoReflect.Descriptor instead.
+func (*DebugCommand) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *DebugCommand) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *DebugCommand) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
 }
 
 var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
@@ -3721,16 +3973,33 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rhas_sys_admin\x18\x04 \x01(\bR\vhasSysAdmin\x12$\n" +
 	"\x0ehas_sys_ptrace\x18\x05 \x01(\bR\fhasSysPtrace\x12)\n" +
 	"\x11has_shared_pid_ns\x18\x06 \x01(\bR\x0ehasSharedPidNs\x120\n" +
-	"\x14cri_socket_available\x18\a \x01(\bR\x12criSocketAvailable\"\x91\x02\n" +
+	"\x14cri_socket_available\x18\a \x01(\bR\x12criSocketAvailable\"\xe4\x02\n" +
 	"\x15ConnectServiceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
 	"\x0fhealth_endpoint\x18\x03 \x01(\tR\x0ehealthEndpoint\x12!\n" +
 	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12I\n" +
-	"\x06labels\x18\x05 \x03(\v21.coral.agent.v1.ConnectServiceRequest.LabelsEntryR\x06labels\x1a9\n" +
+	"\x06labels\x18\x05 \x03(\v21.coral.agent.v1.ConnectServiceRequest.LabelsEntryR\x06labels\x12Q\n" +
+	"\x10sdk_capabilities\x18\x06 \x01(\v2&.coral.agent.v1.ServiceSdkCapabilitiesR\x0fsdkCapabilities\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"k\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcc\x02\n" +
+	"\x16ServiceSdkCapabilities\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\x02 \x01(\tR\tprocessId\x12\x1f\n" +
+	"\vsdk_enabled\x18\x03 \x01(\bR\n" +
+	"sdkEnabled\x12\x1f\n" +
+	"\vsdk_version\x18\x04 \x01(\tR\n" +
+	"sdkVersion\x12\x19\n" +
+	"\bsdk_addr\x18\x05 \x01(\tR\asdkAddr\x12*\n" +
+	"\x11has_dwarf_symbols\x18\x06 \x01(\bR\x0fhasDwarfSymbols\x12%\n" +
+	"\x0efunction_count\x18\a \x01(\rR\rfunctionCount\x12\x1f\n" +
+	"\vbinary_path\x18\n" +
+	" \x01(\tR\n" +
+	"binaryPath\x12\x1f\n" +
+	"\vbinary_hash\x18\v \x01(\tR\n" +
+	"binaryHash\"k\n" +
 	"\x16ConnectServiceResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12!\n" +
@@ -3984,7 +4253,20 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"durationMs\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12#\n" +
 	"\rcontainer_pid\x18\a \x01(\x05R\fcontainerPid\x12-\n" +
-	"\x12namespaces_entered\x18\b \x03(\tR\x11namespacesEntered*_\n" +
+	"\x12namespaces_entered\x18\b \x03(\tR\x11namespacesEntered\"\x8e\x01\n" +
+	"\n" +
+	"DebugEvent\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1c\n" +
+	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12\x10\n" +
+	"\x03pid\x18\x03 \x01(\x05R\x03pid\x12\x10\n" +
+	"\x03tid\x18\x04 \x01(\x05R\x03tid\x12\x1f\n" +
+	"\vduration_ns\x18\x05 \x01(\x03R\n" +
+	"durationNs\"G\n" +
+	"\fDebugCommand\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x18\n" +
+	"\acommand\x18\x02 \x01(\tR\acommand*_\n" +
 	"\bExecMode\x12\x15\n" +
 	"\x11EXEC_MODE_UNKNOWN\x10\x00\x12\x12\n" +
 	"\x0eEXEC_MODE_NONE\x10\x01\x12\x11\n" +
@@ -4000,18 +4282,19 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x14SIDECAR_MODE_UNKNOWN\x10\x00\x12\x14\n" +
 	"\x10SIDECAR_MODE_CRI\x10\x01\x12\x1a\n" +
 	"\x16SIDECAR_MODE_SHARED_NS\x10\x02\x12\x18\n" +
-	"\x14SIDECAR_MODE_PASSIVE\x10\x03*\xcf\x01\n" +
+	"\x14SIDECAR_MODE_PASSIVE\x10\x03*\xef\x01\n" +
 	"\x11EbpfCollectorKind\x12#\n" +
 	"\x1fEBPF_COLLECTOR_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!EBPF_COLLECTOR_KIND_SYSCALL_STATS\x10\x01\x12$\n" +
 	" EBPF_COLLECTOR_KIND_HTTP_LATENCY\x10\x02\x12#\n" +
 	"\x1fEBPF_COLLECTOR_KIND_CPU_PROFILE\x10\x03\x12#\n" +
-	"\x1fEBPF_COLLECTOR_KIND_TCP_METRICS\x10\x04*\x87\x01\n" +
+	"\x1fEBPF_COLLECTOR_KIND_TCP_METRICS\x10\x04\x12\x1e\n" +
+	"\x1aEBPF_COLLECTOR_KIND_UPROBE\x10\x05*\x87\x01\n" +
 	"\x0fBeylaMetricType\x12!\n" +
 	"\x1dBEYLA_METRIC_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16BEYLA_METRIC_TYPE_HTTP\x10\x01\x12\x1a\n" +
 	"\x16BEYLA_METRIC_TYPE_GRPC\x10\x02\x12\x19\n" +
-	"\x15BEYLA_METRIC_TYPE_SQL\x10\x032\x9b\t\n" +
+	"\x15BEYLA_METRIC_TYPE_SQL\x10\x032\xee\t\n" +
 	"\fAgentService\x12e\n" +
 	"\x11GetRuntimeContext\x12(.coral.agent.v1.GetRuntimeContextRequest\x1a&.coral.agent.v1.RuntimeContextResponse\x12_\n" +
 	"\x0eConnectService\x12%.coral.agent.v1.ConnectServiceRequest\x1a&.coral.agent.v1.ConnectServiceResponse\x12h\n" +
@@ -4024,7 +4307,8 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rContainerExec\x12$.coral.agent.v1.ContainerExecRequest\x1a%.coral.agent.v1.ContainerExecResponse\x12n\n" +
 	"\x13ResizeShellTerminal\x12*.coral.agent.v1.ResizeShellTerminalRequest\x1a+.coral.agent.v1.ResizeShellTerminalResponse\x12b\n" +
 	"\x0fSendShellSignal\x12&.coral.agent.v1.SendShellSignalRequest\x1a'.coral.agent.v1.SendShellSignalResponse\x12e\n" +
-	"\x10KillShellSession\x12'.coral.agent.v1.KillShellSessionRequest\x1a(.coral.agent.v1.KillShellSessionResponseB\xae\x01\n" +
+	"\x10KillShellSession\x12'.coral.agent.v1.KillShellSessionRequest\x1a(.coral.agent.v1.KillShellSessionResponse\x12Q\n" +
+	"\x11StreamDebugEvents\x12\x1c.coral.agent.v1.DebugCommand\x1a\x1a.coral.agent.v1.DebugEvent(\x010\x01B\xae\x01\n" +
 	"\x12com.coral.agent.v1B\n" +
 	"AgentProtoP\x01Z2github.com/coral-mesh/coral/coral/agent/v1;agentv1\xa2\x02\x03CAX\xaa\x02\x0eCoral.Agent.V1\xca\x02\x0eCoral\\Agent\\V1\xe2\x02\x1aCoral\\Agent\\V1\\GPBMetadata\xea\x02\x10Coral::Agent::V1b\x06proto3"
 
@@ -4041,7 +4325,7 @@ func file_coral_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
+var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
 var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(ExecMode)(0),                       // 0: coral.agent.v1.ExecMode
 	(RuntimeContext)(0),                 // 1: coral.agent.v1.RuntimeContext
@@ -4057,51 +4341,54 @@ var file_coral_agent_v1_agent_proto_goTypes = []any{
 	(*LinuxCapabilities)(nil),           // 11: coral.agent.v1.LinuxCapabilities
 	(*ExecCapabilities)(nil),            // 12: coral.agent.v1.ExecCapabilities
 	(*ConnectServiceRequest)(nil),       // 13: coral.agent.v1.ConnectServiceRequest
-	(*ConnectServiceResponse)(nil),      // 14: coral.agent.v1.ConnectServiceResponse
-	(*DisconnectServiceRequest)(nil),    // 15: coral.agent.v1.DisconnectServiceRequest
-	(*DisconnectServiceResponse)(nil),   // 16: coral.agent.v1.DisconnectServiceResponse
-	(*ListServicesRequest)(nil),         // 17: coral.agent.v1.ListServicesRequest
-	(*ListServicesResponse)(nil),        // 18: coral.agent.v1.ListServicesResponse
-	(*ServiceStatus)(nil),               // 19: coral.agent.v1.ServiceStatus
-	(*EbpfCapabilities)(nil),            // 20: coral.agent.v1.EbpfCapabilities
-	(*BeylaCapabilities)(nil),           // 21: coral.agent.v1.BeylaCapabilities
-	(*TelemetrySpan)(nil),               // 22: coral.agent.v1.TelemetrySpan
-	(*QueryTelemetryRequest)(nil),       // 23: coral.agent.v1.QueryTelemetryRequest
-	(*QueryTelemetryResponse)(nil),      // 24: coral.agent.v1.QueryTelemetryResponse
-	(*QueryBeylaMetricsRequest)(nil),    // 25: coral.agent.v1.QueryBeylaMetricsRequest
-	(*QueryBeylaMetricsResponse)(nil),   // 26: coral.agent.v1.QueryBeylaMetricsResponse
-	(*BeylaHttpMetric)(nil),             // 27: coral.agent.v1.BeylaHttpMetric
-	(*BeylaGrpcMetric)(nil),             // 28: coral.agent.v1.BeylaGrpcMetric
-	(*BeylaSqlMetric)(nil),              // 29: coral.agent.v1.BeylaSqlMetric
-	(*BeylaTraceSpan)(nil),              // 30: coral.agent.v1.BeylaTraceSpan
-	(*ShellRequest)(nil),                // 31: coral.agent.v1.ShellRequest
-	(*ShellStart)(nil),                  // 32: coral.agent.v1.ShellStart
-	(*ShellResponse)(nil),               // 33: coral.agent.v1.ShellResponse
-	(*ShellExit)(nil),                   // 34: coral.agent.v1.ShellExit
-	(*TerminalSize)(nil),                // 35: coral.agent.v1.TerminalSize
-	(*ShellResize)(nil),                 // 36: coral.agent.v1.ShellResize
-	(*ShellSignal)(nil),                 // 37: coral.agent.v1.ShellSignal
-	(*ResizeShellTerminalRequest)(nil),  // 38: coral.agent.v1.ResizeShellTerminalRequest
-	(*ResizeShellTerminalResponse)(nil), // 39: coral.agent.v1.ResizeShellTerminalResponse
-	(*SendShellSignalRequest)(nil),      // 40: coral.agent.v1.SendShellSignalRequest
-	(*SendShellSignalResponse)(nil),     // 41: coral.agent.v1.SendShellSignalResponse
-	(*KillShellSessionRequest)(nil),     // 42: coral.agent.v1.KillShellSessionRequest
-	(*KillShellSessionResponse)(nil),    // 43: coral.agent.v1.KillShellSessionResponse
-	(*ShellExecRequest)(nil),            // 44: coral.agent.v1.ShellExecRequest
-	(*ShellExecResponse)(nil),           // 45: coral.agent.v1.ShellExecResponse
-	(*ContainerExecRequest)(nil),        // 46: coral.agent.v1.ContainerExecRequest
-	(*ContainerExecResponse)(nil),       // 47: coral.agent.v1.ContainerExecResponse
-	nil,                                 // 48: coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	nil,                                 // 49: coral.agent.v1.ServiceStatus.LabelsEntry
-	nil,                                 // 50: coral.agent.v1.TelemetrySpan.AttributesEntry
-	nil,                                 // 51: coral.agent.v1.BeylaHttpMetric.AttributesEntry
-	nil,                                 // 52: coral.agent.v1.BeylaGrpcMetric.AttributesEntry
-	nil,                                 // 53: coral.agent.v1.BeylaSqlMetric.AttributesEntry
-	nil,                                 // 54: coral.agent.v1.BeylaTraceSpan.AttributesEntry
-	nil,                                 // 55: coral.agent.v1.ShellStart.EnvEntry
-	nil,                                 // 56: coral.agent.v1.ShellExecRequest.EnvEntry
-	nil,                                 // 57: coral.agent.v1.ContainerExecRequest.EnvEntry
-	(*timestamppb.Timestamp)(nil),       // 58: google.protobuf.Timestamp
+	(*ServiceSdkCapabilities)(nil),      // 14: coral.agent.v1.ServiceSdkCapabilities
+	(*ConnectServiceResponse)(nil),      // 15: coral.agent.v1.ConnectServiceResponse
+	(*DisconnectServiceRequest)(nil),    // 16: coral.agent.v1.DisconnectServiceRequest
+	(*DisconnectServiceResponse)(nil),   // 17: coral.agent.v1.DisconnectServiceResponse
+	(*ListServicesRequest)(nil),         // 18: coral.agent.v1.ListServicesRequest
+	(*ListServicesResponse)(nil),        // 19: coral.agent.v1.ListServicesResponse
+	(*ServiceStatus)(nil),               // 20: coral.agent.v1.ServiceStatus
+	(*EbpfCapabilities)(nil),            // 21: coral.agent.v1.EbpfCapabilities
+	(*BeylaCapabilities)(nil),           // 22: coral.agent.v1.BeylaCapabilities
+	(*TelemetrySpan)(nil),               // 23: coral.agent.v1.TelemetrySpan
+	(*QueryTelemetryRequest)(nil),       // 24: coral.agent.v1.QueryTelemetryRequest
+	(*QueryTelemetryResponse)(nil),      // 25: coral.agent.v1.QueryTelemetryResponse
+	(*QueryBeylaMetricsRequest)(nil),    // 26: coral.agent.v1.QueryBeylaMetricsRequest
+	(*QueryBeylaMetricsResponse)(nil),   // 27: coral.agent.v1.QueryBeylaMetricsResponse
+	(*BeylaHttpMetric)(nil),             // 28: coral.agent.v1.BeylaHttpMetric
+	(*BeylaGrpcMetric)(nil),             // 29: coral.agent.v1.BeylaGrpcMetric
+	(*BeylaSqlMetric)(nil),              // 30: coral.agent.v1.BeylaSqlMetric
+	(*BeylaTraceSpan)(nil),              // 31: coral.agent.v1.BeylaTraceSpan
+	(*ShellRequest)(nil),                // 32: coral.agent.v1.ShellRequest
+	(*ShellStart)(nil),                  // 33: coral.agent.v1.ShellStart
+	(*ShellResponse)(nil),               // 34: coral.agent.v1.ShellResponse
+	(*ShellExit)(nil),                   // 35: coral.agent.v1.ShellExit
+	(*TerminalSize)(nil),                // 36: coral.agent.v1.TerminalSize
+	(*ShellResize)(nil),                 // 37: coral.agent.v1.ShellResize
+	(*ShellSignal)(nil),                 // 38: coral.agent.v1.ShellSignal
+	(*ResizeShellTerminalRequest)(nil),  // 39: coral.agent.v1.ResizeShellTerminalRequest
+	(*ResizeShellTerminalResponse)(nil), // 40: coral.agent.v1.ResizeShellTerminalResponse
+	(*SendShellSignalRequest)(nil),      // 41: coral.agent.v1.SendShellSignalRequest
+	(*SendShellSignalResponse)(nil),     // 42: coral.agent.v1.SendShellSignalResponse
+	(*KillShellSessionRequest)(nil),     // 43: coral.agent.v1.KillShellSessionRequest
+	(*KillShellSessionResponse)(nil),    // 44: coral.agent.v1.KillShellSessionResponse
+	(*ShellExecRequest)(nil),            // 45: coral.agent.v1.ShellExecRequest
+	(*ShellExecResponse)(nil),           // 46: coral.agent.v1.ShellExecResponse
+	(*ContainerExecRequest)(nil),        // 47: coral.agent.v1.ContainerExecRequest
+	(*ContainerExecResponse)(nil),       // 48: coral.agent.v1.ContainerExecResponse
+	(*DebugEvent)(nil),                  // 49: coral.agent.v1.DebugEvent
+	(*DebugCommand)(nil),                // 50: coral.agent.v1.DebugCommand
+	nil,                                 // 51: coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	nil,                                 // 52: coral.agent.v1.ServiceStatus.LabelsEntry
+	nil,                                 // 53: coral.agent.v1.TelemetrySpan.AttributesEntry
+	nil,                                 // 54: coral.agent.v1.BeylaHttpMetric.AttributesEntry
+	nil,                                 // 55: coral.agent.v1.BeylaGrpcMetric.AttributesEntry
+	nil,                                 // 56: coral.agent.v1.BeylaSqlMetric.AttributesEntry
+	nil,                                 // 57: coral.agent.v1.BeylaTraceSpan.AttributesEntry
+	nil,                                 // 58: coral.agent.v1.ShellStart.EnvEntry
+	nil,                                 // 59: coral.agent.v1.ShellExecRequest.EnvEntry
+	nil,                                 // 60: coral.agent.v1.ContainerExecRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),       // 61: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	7,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
@@ -4110,65 +4397,68 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	8,  // 3: coral.agent.v1.RuntimeContextResponse.cri_socket:type_name -> coral.agent.v1.CRISocketInfo
 	10, // 4: coral.agent.v1.RuntimeContextResponse.capabilities:type_name -> coral.agent.v1.Capabilities
 	9,  // 5: coral.agent.v1.RuntimeContextResponse.visibility:type_name -> coral.agent.v1.VisibilityScope
-	58, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
-	20, // 7: coral.agent.v1.RuntimeContextResponse.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
+	61, // 6: coral.agent.v1.RuntimeContextResponse.detected_at:type_name -> google.protobuf.Timestamp
+	21, // 7: coral.agent.v1.RuntimeContextResponse.ebpf_capabilities:type_name -> coral.agent.v1.EbpfCapabilities
 	12, // 8: coral.agent.v1.Capabilities.exec_capabilities:type_name -> coral.agent.v1.ExecCapabilities
 	11, // 9: coral.agent.v1.Capabilities.linux_capabilities:type_name -> coral.agent.v1.LinuxCapabilities
 	0,  // 10: coral.agent.v1.ExecCapabilities.mode:type_name -> coral.agent.v1.ExecMode
-	48, // 11: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	19, // 12: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
-	49, // 13: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
-	58, // 14: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
-	3,  // 15: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
-	21, // 16: coral.agent.v1.EbpfCapabilities.beyla:type_name -> coral.agent.v1.BeylaCapabilities
-	50, // 17: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
-	22, // 18: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
-	4,  // 19: coral.agent.v1.QueryBeylaMetricsRequest.metric_types:type_name -> coral.agent.v1.BeylaMetricType
-	27, // 20: coral.agent.v1.QueryBeylaMetricsResponse.http_metrics:type_name -> coral.agent.v1.BeylaHttpMetric
-	28, // 21: coral.agent.v1.QueryBeylaMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.BeylaGrpcMetric
-	29, // 22: coral.agent.v1.QueryBeylaMetricsResponse.sql_metrics:type_name -> coral.agent.v1.BeylaSqlMetric
-	30, // 23: coral.agent.v1.QueryBeylaMetricsResponse.trace_spans:type_name -> coral.agent.v1.BeylaTraceSpan
-	51, // 24: coral.agent.v1.BeylaHttpMetric.attributes:type_name -> coral.agent.v1.BeylaHttpMetric.AttributesEntry
-	52, // 25: coral.agent.v1.BeylaGrpcMetric.attributes:type_name -> coral.agent.v1.BeylaGrpcMetric.AttributesEntry
-	53, // 26: coral.agent.v1.BeylaSqlMetric.attributes:type_name -> coral.agent.v1.BeylaSqlMetric.AttributesEntry
-	54, // 27: coral.agent.v1.BeylaTraceSpan.attributes:type_name -> coral.agent.v1.BeylaTraceSpan.AttributesEntry
-	32, // 28: coral.agent.v1.ShellRequest.start:type_name -> coral.agent.v1.ShellStart
-	36, // 29: coral.agent.v1.ShellRequest.resize:type_name -> coral.agent.v1.ShellResize
-	37, // 30: coral.agent.v1.ShellRequest.signal:type_name -> coral.agent.v1.ShellSignal
-	55, // 31: coral.agent.v1.ShellStart.env:type_name -> coral.agent.v1.ShellStart.EnvEntry
-	35, // 32: coral.agent.v1.ShellStart.size:type_name -> coral.agent.v1.TerminalSize
-	34, // 33: coral.agent.v1.ShellResponse.exit:type_name -> coral.agent.v1.ShellExit
-	56, // 34: coral.agent.v1.ShellExecRequest.env:type_name -> coral.agent.v1.ShellExecRequest.EnvEntry
-	57, // 35: coral.agent.v1.ContainerExecRequest.env:type_name -> coral.agent.v1.ContainerExecRequest.EnvEntry
-	5,  // 36: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
-	13, // 37: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
-	15, // 38: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
-	17, // 39: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
-	23, // 40: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
-	25, // 41: coral.agent.v1.AgentService.QueryBeylaMetrics:input_type -> coral.agent.v1.QueryBeylaMetricsRequest
-	31, // 42: coral.agent.v1.AgentService.Shell:input_type -> coral.agent.v1.ShellRequest
-	44, // 43: coral.agent.v1.AgentService.ShellExec:input_type -> coral.agent.v1.ShellExecRequest
-	46, // 44: coral.agent.v1.AgentService.ContainerExec:input_type -> coral.agent.v1.ContainerExecRequest
-	38, // 45: coral.agent.v1.AgentService.ResizeShellTerminal:input_type -> coral.agent.v1.ResizeShellTerminalRequest
-	40, // 46: coral.agent.v1.AgentService.SendShellSignal:input_type -> coral.agent.v1.SendShellSignalRequest
-	42, // 47: coral.agent.v1.AgentService.KillShellSession:input_type -> coral.agent.v1.KillShellSessionRequest
-	6,  // 48: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
-	14, // 49: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
-	16, // 50: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
-	18, // 51: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
-	24, // 52: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
-	26, // 53: coral.agent.v1.AgentService.QueryBeylaMetrics:output_type -> coral.agent.v1.QueryBeylaMetricsResponse
-	33, // 54: coral.agent.v1.AgentService.Shell:output_type -> coral.agent.v1.ShellResponse
-	45, // 55: coral.agent.v1.AgentService.ShellExec:output_type -> coral.agent.v1.ShellExecResponse
-	47, // 56: coral.agent.v1.AgentService.ContainerExec:output_type -> coral.agent.v1.ContainerExecResponse
-	39, // 57: coral.agent.v1.AgentService.ResizeShellTerminal:output_type -> coral.agent.v1.ResizeShellTerminalResponse
-	41, // 58: coral.agent.v1.AgentService.SendShellSignal:output_type -> coral.agent.v1.SendShellSignalResponse
-	43, // 59: coral.agent.v1.AgentService.KillShellSession:output_type -> coral.agent.v1.KillShellSessionResponse
-	48, // [48:60] is the sub-list for method output_type
-	36, // [36:48] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	51, // 11: coral.agent.v1.ConnectServiceRequest.labels:type_name -> coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	14, // 12: coral.agent.v1.ConnectServiceRequest.sdk_capabilities:type_name -> coral.agent.v1.ServiceSdkCapabilities
+	20, // 13: coral.agent.v1.ListServicesResponse.services:type_name -> coral.agent.v1.ServiceStatus
+	52, // 14: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
+	61, // 15: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
+	3,  // 16: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
+	22, // 17: coral.agent.v1.EbpfCapabilities.beyla:type_name -> coral.agent.v1.BeylaCapabilities
+	53, // 18: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
+	23, // 19: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
+	4,  // 20: coral.agent.v1.QueryBeylaMetricsRequest.metric_types:type_name -> coral.agent.v1.BeylaMetricType
+	28, // 21: coral.agent.v1.QueryBeylaMetricsResponse.http_metrics:type_name -> coral.agent.v1.BeylaHttpMetric
+	29, // 22: coral.agent.v1.QueryBeylaMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.BeylaGrpcMetric
+	30, // 23: coral.agent.v1.QueryBeylaMetricsResponse.sql_metrics:type_name -> coral.agent.v1.BeylaSqlMetric
+	31, // 24: coral.agent.v1.QueryBeylaMetricsResponse.trace_spans:type_name -> coral.agent.v1.BeylaTraceSpan
+	54, // 25: coral.agent.v1.BeylaHttpMetric.attributes:type_name -> coral.agent.v1.BeylaHttpMetric.AttributesEntry
+	55, // 26: coral.agent.v1.BeylaGrpcMetric.attributes:type_name -> coral.agent.v1.BeylaGrpcMetric.AttributesEntry
+	56, // 27: coral.agent.v1.BeylaSqlMetric.attributes:type_name -> coral.agent.v1.BeylaSqlMetric.AttributesEntry
+	57, // 28: coral.agent.v1.BeylaTraceSpan.attributes:type_name -> coral.agent.v1.BeylaTraceSpan.AttributesEntry
+	33, // 29: coral.agent.v1.ShellRequest.start:type_name -> coral.agent.v1.ShellStart
+	37, // 30: coral.agent.v1.ShellRequest.resize:type_name -> coral.agent.v1.ShellResize
+	38, // 31: coral.agent.v1.ShellRequest.signal:type_name -> coral.agent.v1.ShellSignal
+	58, // 32: coral.agent.v1.ShellStart.env:type_name -> coral.agent.v1.ShellStart.EnvEntry
+	36, // 33: coral.agent.v1.ShellStart.size:type_name -> coral.agent.v1.TerminalSize
+	35, // 34: coral.agent.v1.ShellResponse.exit:type_name -> coral.agent.v1.ShellExit
+	59, // 35: coral.agent.v1.ShellExecRequest.env:type_name -> coral.agent.v1.ShellExecRequest.EnvEntry
+	60, // 36: coral.agent.v1.ContainerExecRequest.env:type_name -> coral.agent.v1.ContainerExecRequest.EnvEntry
+	5,  // 37: coral.agent.v1.AgentService.GetRuntimeContext:input_type -> coral.agent.v1.GetRuntimeContextRequest
+	13, // 38: coral.agent.v1.AgentService.ConnectService:input_type -> coral.agent.v1.ConnectServiceRequest
+	16, // 39: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
+	18, // 40: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
+	24, // 41: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
+	26, // 42: coral.agent.v1.AgentService.QueryBeylaMetrics:input_type -> coral.agent.v1.QueryBeylaMetricsRequest
+	32, // 43: coral.agent.v1.AgentService.Shell:input_type -> coral.agent.v1.ShellRequest
+	45, // 44: coral.agent.v1.AgentService.ShellExec:input_type -> coral.agent.v1.ShellExecRequest
+	47, // 45: coral.agent.v1.AgentService.ContainerExec:input_type -> coral.agent.v1.ContainerExecRequest
+	39, // 46: coral.agent.v1.AgentService.ResizeShellTerminal:input_type -> coral.agent.v1.ResizeShellTerminalRequest
+	41, // 47: coral.agent.v1.AgentService.SendShellSignal:input_type -> coral.agent.v1.SendShellSignalRequest
+	43, // 48: coral.agent.v1.AgentService.KillShellSession:input_type -> coral.agent.v1.KillShellSessionRequest
+	50, // 49: coral.agent.v1.AgentService.StreamDebugEvents:input_type -> coral.agent.v1.DebugCommand
+	6,  // 50: coral.agent.v1.AgentService.GetRuntimeContext:output_type -> coral.agent.v1.RuntimeContextResponse
+	15, // 51: coral.agent.v1.AgentService.ConnectService:output_type -> coral.agent.v1.ConnectServiceResponse
+	17, // 52: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
+	19, // 53: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
+	25, // 54: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
+	27, // 55: coral.agent.v1.AgentService.QueryBeylaMetrics:output_type -> coral.agent.v1.QueryBeylaMetricsResponse
+	34, // 56: coral.agent.v1.AgentService.Shell:output_type -> coral.agent.v1.ShellResponse
+	46, // 57: coral.agent.v1.AgentService.ShellExec:output_type -> coral.agent.v1.ShellExecResponse
+	48, // 58: coral.agent.v1.AgentService.ContainerExec:output_type -> coral.agent.v1.ContainerExecResponse
+	40, // 59: coral.agent.v1.AgentService.ResizeShellTerminal:output_type -> coral.agent.v1.ResizeShellTerminalResponse
+	42, // 60: coral.agent.v1.AgentService.SendShellSignal:output_type -> coral.agent.v1.SendShellSignalResponse
+	44, // 61: coral.agent.v1.AgentService.KillShellSession:output_type -> coral.agent.v1.KillShellSessionResponse
+	49, // 62: coral.agent.v1.AgentService.StreamDebugEvents:output_type -> coral.agent.v1.DebugEvent
+	50, // [50:63] is the sub-list for method output_type
+	37, // [37:50] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_agent_proto_init() }
@@ -4176,13 +4466,13 @@ func file_coral_agent_v1_agent_proto_init() {
 	if File_coral_agent_v1_agent_proto != nil {
 		return
 	}
-	file_coral_agent_v1_agent_proto_msgTypes[26].OneofWrappers = []any{
+	file_coral_agent_v1_agent_proto_msgTypes[27].OneofWrappers = []any{
 		(*ShellRequest_Start)(nil),
 		(*ShellRequest_Stdin)(nil),
 		(*ShellRequest_Resize)(nil),
 		(*ShellRequest_Signal)(nil),
 	}
-	file_coral_agent_v1_agent_proto_msgTypes[28].OneofWrappers = []any{
+	file_coral_agent_v1_agent_proto_msgTypes[29].OneofWrappers = []any{
 		(*ShellResponse_Output)(nil),
 		(*ShellResponse_Exit)(nil),
 	}
@@ -4192,7 +4482,7 @@ func file_coral_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_agent_proto_rawDesc), len(file_coral_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   53,
+			NumMessages:   56,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

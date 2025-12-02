@@ -1,7 +1,7 @@
 ---
 rfd: "062"
 title: "Live Debugging UX & AI"
-state: "draft"
+status: "Implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "cli", "ai", "ux" ]
 
 # RFD 062 - Live Debugging UX & AI
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -35,83 +35,73 @@ We provide two primary interfaces:
 2. **AI**: `coral ask` and MCP tools for high-level intent ("Why is checkout
    slow?").
 
+### Architecture Overview
+
+The live debugging system integrates the CLI and MCP server with the Colony
+backend and Agent eBPF probes.
+
+```
+User (CLI) ──┐
+             ▼
+           Colony ───► Agent (eBPF Probes)
+             ▲
+AI (MCP) ────┘
+```
+
+### Component Changes
+
+1. **CLI (`coral debug`)**:
+    - New command group for managing debug sessions.
+    - Supports attaching, detaching, listing, and querying sessions.
+
+2. **Colony (MCP Server)**:
+    - Exposes debugging tools to AI agents.
+    - Translates high-level intent into RPC calls to Agents.
+
+3. **Agent**:
+    - Manages eBPF uprobes and traces.
+    - Streams events back to Colony.
+
+## Implementation Plan
+
+### Phase 1: CLI Commands
+
+- [x] Implement `coral debug attach` command
+- [x] Implement `coral debug trace` command (request path tracing)
+- [x] Implement `coral debug list` command
+- [x] Implement `coral debug detach` command
+- [x] Implement `coral debug query` command (historical data)
+
+### Phase 2: CLI Output Formatting
+
+- [x] Progress bars and status indicators
+- [x] Table formatting for session lists
+- [x] Call tree visualization (ASCII art)
+- [x] Export to JSON/CSV formats
+
+### Phase 3: MCP Tool Integration
+
+- [x] Register MCP tools with Colony server
+- [x] Implement `coral_search_functions` tool (semantic search)
+- [x] Implement `coral_get_function_context` tool (call graph navigation)
+- [x] Implement `coral_attach_uprobe` tool
+- [x] Implement `coral_trace_request_path` tool
+- [x] Implement `coral_list_debug_sessions` tool
+- [x] Implement `coral_detach_uprobe` tool
+- [x] Implement `coral_get_debug_results` tool
+- [x] Implement `coral_list_probeable_functions` tool (regex fallback)
+
+### Phase 6: Testing & Documentation
+
+- [ ] E2E tests for all CLI commands
+- [ ] MCP tool integration tests
+- [x] User documentation
+
+## API Changes
+
 ### CLI Commands
 
-The `coral debug` command group manages sessions.
-
-```bash
-# Attach to a function
-coral debug attach <service> --function <name> --duration <duration>
-
-# Trace a request path (auto-discovery)
-coral debug trace <service> --path <http-path> --duration <duration>
-
-# List active sessions
-coral debug list [service]
-
-# Detach
-coral debug detach <service> [--session-id <id> | --all]
-
-# Query historical data
-coral debug query <service> --function <name> --since <duration>
-```
-
-#### Example Output
-
-```text
-$ coral debug attach api --function handleCheckout --duration 60s
-
-🔍 Debug session started (id: dbg-01H...)
-📊 Function: main.handleCheckout
-⏱️  Duration: 60 seconds
-🎯 Target: api-001, api-002 (2 agents)
-
-Collecting events...
-
-Function: handleCheckout
-  Calls:        342
-  P50 duration: 12.4ms
-  P95 duration: 45.2ms
-  Max duration: 234.5ms
-```
-
-### AI Integration (MCP)
-
-We expose tools to the AI agent (Claude, etc.) via the Model Context Protocol (
-RFD 004).
-
-#### Tools
-
-* `coral_attach_uprobe`: Start a session.
-* `coral_trace_request_path`: Trace a call chain.
-* `coral_list_debug_sessions`: Check status.
-* `coral_get_debug_results`: Get analysis data.
-* `coral_list_probeable_functions`: Discover available functions.
-
-#### AI Workflow Example
-
-**User**: "Why is checkout slow?"
-
-**AI**:
-
-1. Calls `coral_list_probeable_functions(service="api", pattern="checkout")`.
-2. Finds `handleCheckout`.
-3. Calls `coral_attach_uprobe(service="api", function="handleCheckout")`.
-4. Analyzes results: "P95 is 200ms".
-5. Iterates: "Let's check `processPayment` called by `handleCheckout`."
-6. Attaches new probe.
-7. Concludes: "The bottleneck is in `validateCard`."
-
-### Visualization
-
-The CLI should support outputting data in formats suitable for external tools:
-
-* `--format=json`: For scripts.
-* `--format=svg`: Generate a flamegraph or histogram.
-
-## Detailed CLI Examples
-
-### coral debug attach
+#### coral debug attach
 
 Attach uprobe to specific function for live debugging.
 
@@ -148,7 +138,7 @@ Top slow calls:
 * `--sample-rate <N>`: Sample every Nth call (default: 1 = all calls)
 * `--format <format>`: Output format (text, json, csv)
 
-### coral debug trace
+#### coral debug trace
 
 Trace entire request path (auto-discovery).
 
@@ -176,7 +166,7 @@ Analysis:
 ✓ Session completed. Call tree saved to: ./debug-traces/trace-01K.../
 ```
 
-### coral debug list
+#### coral debug list
 
 List active and recent debug sessions.
 
@@ -199,7 +189,7 @@ Recent Completed Sessions:
 └───────────┴──────────┴─────────────────┴───────────┴────────────┘
 ```
 
-### coral debug detach
+#### coral debug detach
 
 Stop debug session early.
 
@@ -216,7 +206,7 @@ $ coral debug detach api --all
 ✓ Detached 3 debug sessions for service: api
 ```
 
-### coral debug query
+#### coral debug query
 
 Query historical debug data.
 
@@ -240,41 +230,11 @@ Session: dbg-00A... (120s, 45m ago)
 Trend: Performance stable ✓
 ```
 
-## Function Discovery Strategy for AI
+### MCP Tools
 
-**See [RFD 063: Intelligent Function Discovery](063-intelligent-function-discovery.md) for complete details.**
+We expose tools to the AI agent (Claude, etc.) via the Model Context Protocol (RFD 004).
 
-### Overview
-
-Applications have **10,000-50,000+ functions**. We use a **multi-tier discovery strategy** to narrow down from 50,000 functions to the relevant 5-10:
-
-1. **Tier 1: Metrics-Driven Pre-Filtering** - Colony auto-injects performance anomalies
-2. **Tier 2: Semantic Search** - `coral_search_functions` finds relevant functions by keywords
-3. **Tier 3: Call Graph Navigation** - `coral_get_function_context` navigates from entry points to bottlenecks
-4. **Tier 4: Pattern Fallback** - Regex matching when semantic search fails
-
-**Example workflow:**
-
-```
-User: "Why is checkout slow?"
-
-→ Step 1: Colony auto-injects: "POST /api/checkout: P95 245ms (+206%)"
-→ Step 2: LLM calls coral_search_functions(query="checkout")
-          Returns: handleCheckout, processCheckout, ...
-→ Step 3: LLM calls coral_get_function_context(function="handleCheckout")
-          Returns: Calls processPayment (94% of time) ← bottleneck
-→ Step 4: LLM attaches uprobe to processPayment
-```
-
-**Result**: LLM discovers the bottleneck in 2-3 tool calls, using <5,000 tokens.
-
-For full implementation details, see [RFD 063](063-intelligent-function-discovery.md).
-
-## MCP Tools (AI Integration)
-
-Complete MCP tool definitions for AI-driven debugging.
-
-### Tool: coral_attach_uprobe
+#### Tool: coral_attach_uprobe
 
 ```json
 {
@@ -307,21 +267,7 @@ Complete MCP tool definitions for AI-driven debugging.
 }
 ```
 
-**Example response:**
-
-```json
-{
-    "session_id": "dbg-01H...",
-    "status": "active",
-    "function": "main.handleCheckout",
-    "offset": "0x4a20",
-    "target_agents": ["api-001", "api-002"],
-    "expires_at": "2025-11-17T15:32:00Z",
-    "streaming": true
-}
-```
-
-### Tool: coral_trace_request_path
+#### Tool: coral_trace_request_path
 
 ```json
 {
@@ -349,43 +295,7 @@ Complete MCP tool definitions for AI-driven debugging.
 }
 ```
 
-**Example response:**
-
-```json
-{
-    "session_id": "trace-02M...",
-    "path": "/api/checkout",
-    "call_tree": [
-        {
-            "function": "handleCheckout",
-            "duration_p95": "245ms",
-            "calls": 127,
-            "children": [
-                {
-                    "function": "validateCart",
-                    "duration_p95": "12ms",
-                    "calls": 127
-                },
-                {
-                    "function": "processPayment",
-                    "duration_p95": "230ms",
-                    "calls": 127,
-                    "children": [
-                        {
-                            "function": "validateCard",
-                            "duration_p95": "225ms",
-                            "calls": 127
-                        }
-                    ]
-                }
-            ]
-        }
-    ],
-    "bottleneck": "validateCard (98% of total time)"
-}
-```
-
-### Tool: coral_list_debug_sessions
+#### Tool: coral_list_debug_sessions
 
 ```json
 {
@@ -409,7 +319,7 @@ Complete MCP tool definitions for AI-driven debugging.
 }
 ```
 
-### Tool: coral_detach_uprobe
+#### Tool: coral_detach_uprobe
 
 ```json
 {
@@ -428,7 +338,7 @@ Complete MCP tool definitions for AI-driven debugging.
 }
 ```
 
-### Tool: coral_get_debug_results
+#### Tool: coral_get_debug_results
 
 ```json
 {
@@ -453,33 +363,7 @@ Complete MCP tool definitions for AI-driven debugging.
 }
 ```
 
-**Example response:**
-
-```json
-{
-    "session_id": "dbg-01H...",
-    "function": "handleCheckout",
-    "duration": "60s",
-    "statistics": {
-        "total_calls": 342,
-        "duration_p50": "12.4ms",
-        "duration_p95": "45.2ms",
-        "duration_p99": "89.1ms",
-        "duration_max": "234.5ms"
-    },
-    "slow_outliers": [
-        {
-            "duration": "234.5ms",
-            "timestamp": "2025-11-17T15:30:42Z",
-            "labels": {
-                "user_id": "u_12345"
-            }
-        }
-    ]
-}
-```
-
-### Tool: coral_search_functions (New - For Discovery)
+#### Tool: coral_search_functions (New - For Discovery)
 
 ```json
 {
@@ -507,34 +391,7 @@ Complete MCP tool definitions for AI-driven debugging.
 }
 ```
 
-**Example response:**
-
-```json
-{
-    "service": "api",
-    "query": "checkout payment",
-    "results": [
-        {
-            "name": "main.handleCheckout",
-            "file": "handlers/checkout.go",
-            "line": 42,
-            "offset": "0x4a20",
-            "score": 0.95,
-            "reason": "Exact match in function name"
-        },
-        {
-            "name": "main.processPayment",
-            "file": "handlers/payment.go",
-            "line": 78,
-            "offset": "0x4c80",
-            "score": 0.87,
-            "reason": "Match: 'payment'"
-        }
-    ]
-}
-```
-
-### Tool: coral_get_function_context (New - For Navigation)
+#### Tool: coral_get_function_context (New - For Navigation)
 
 ```json
 {
@@ -572,46 +429,7 @@ Complete MCP tool definitions for AI-driven debugging.
 }
 ```
 
-**Example response:**
-
-```json
-{
-    "function": "main.processPayment",
-    "file": "handlers/payment.go:78",
-    "offset": "0x4c80",
-    "performance": {
-        "p50_latency": "198ms",
-        "p95_latency": "230ms",
-        "p99_latency": "312ms",
-        "calls_per_minute": 340,
-        "error_rate": 0.002
-    },
-    "called_by": [
-        {
-            "function": "main.handleCheckout",
-            "file": "handlers/checkout.go:42",
-            "call_frequency": "always"
-        }
-    ],
-    "calls": [
-        {
-            "function": "main.validateCard",
-            "file": "payment/validator.go:156",
-            "estimated_contribution": "98%",
-            "avg_duration": "225ms"
-        },
-        {
-            "function": "main.recordTransaction",
-            "file": "payment/transaction.go:89",
-            "estimated_contribution": "2%",
-            "avg_duration": "5ms"
-        }
-    ],
-    "recommendation": "Focus on main.validateCard (98% of time)"
-}
-```
-
-### Tool: coral_list_probeable_functions (Fallback)
+#### Tool: coral_list_probeable_functions (Fallback)
 
 ```json
 {
@@ -634,167 +452,30 @@ Complete MCP tool definitions for AI-driven debugging.
 }
 ```
 
-**Example response:**
+### Configuration Changes
 
-```json
-{
-    "service": "api",
-    "functions": [
-        {
-            "name": "main.handleCheckout",
-            "file": "handlers/checkout.go",
-            "line": 42,
-            "offset": "0x4a20"
-        },
-        {
-            "name": "main.processPayment",
-            "file": "handlers/payment.go",
-            "line": 78,
-            "offset": "0x4c80"
-        },
-        {
-            "name": "main.validateCard",
-            "file": "payment/validator.go",
-            "line": 156,
-            "offset": "0x5100"
-        }
-    ],
-    "sdk_version": "v1.0.0",
-    "debug_symbols": true
-}
+```yaml
+# colony-config.yaml
+colony:
+    debug:
+        enabled: true
+
+        # Session management
+        sessions:
+            default_duration: 60s
+            max_duration: 600s
+            auto_cleanup_after: 24h  # Clean up expired sessions
+
+        # Storage retention
+        storage:
+            events_retention: 24h
+            sessions_retention: 7d
+
+        # AI integration
+        ai:
+            auto_attach_probes: true  # Let AI attach probes automatically
+            max_probes_per_query: 5   # Limit AI to 5 functions per query
 ```
-
-## AI Workflow Examples
-
-### Example 1: Performance Analysis
-
-**User**: "Why is checkout slow on api service?"
-
-**AI**:
-
-1. Calls `coral_list_probeable_functions(service="api", pattern="checkout")`.
-2. Finds `handleCheckout`.
-3. Calls `coral_attach_uprobe(service="api", function="handleCheckout", duration="30s")`.
-4. Waits 30s for data collection.
-5. Calls `coral_get_debug_results(session_id="dbg-01H...")`.
-6. Analyzes: P95 is 245ms (baseline: 80ms).
-7. Identifies bottleneck: `processPayment` (94% of time).
-8. Attaches new probe to `processPayment`.
-9. Finds root cause: `validateCard` calling slow external API.
-
-**AI Response:**
-
-```
-Analysis Complete:
-
-Root Cause: External card validation API responding slowly (220ms vs 50ms baseline).
-
-Evidence:
-- handleCheckout P95: 245ms (baseline: 80ms) ⚠️ +206%
-- processPayment P95: 230ms (94% of handleCheckout time)
-- validateCard P95: 225ms (98% of processPayment time)
-- External API call: 220ms (bottleneck)
-
-Recommendations:
-1. Check external API health (card validation service)
-2. Add timeout (current: none detected)
-3. Implement circuit breaker
-4. Cache repeat validations (30% potential cache hit rate)
-
-Debug sessions: dbg-01H..., dbg-02K...
-```
-
-### Example 2: Database Query Debugging
-
-**User**: "The payment API is slow"
-
-**AI**:
-
-1. Calls `coral_attach_uprobe(service="payment", function="ProcessPayment")`.
-2. Detects slow database query function.
-3. Calls `coral_attach_uprobe(service="payment", function="QueryTransactions")`.
-4. Analyzes query execution time: 2.0s avg.
-5. Detects sequential scan (missing index).
-
-**AI Response:**
-
-```
-Database Performance Issue Detected:
-
-Function: db.QueryTransactions()
-Average Duration: 2.0s (expected: ~5ms)
-Root Cause: Missing database index
-
-Query Pattern:
-  SELECT * FROM transactions WHERE user_id = ?
-
-Current: Sequential scan (234,891 rows)
-Needed: Index on transactions.user_id
-
-Immediate Fix:
-  CREATE INDEX idx_transactions_user_id ON transactions(user_id);
-
-Expected Improvement: 2.3s → 150ms (15x faster)
-
-Evidence: debug-sessions/dbg-04M.../
-```
-
-## Implementation Plan
-
-### Phase 1: CLI Commands
-
-- [ ] Implement `coral debug attach` command
-- [ ] Implement `coral debug trace` command (request path tracing)
-- [ ] Implement `coral debug list` command
-- [ ] Implement `coral debug detach` command
-- [ ] Implement `coral debug query` command (historical data)
-
-### Phase 2: CLI Output Formatting
-
-- [ ] Live event streaming UI
-- [ ] Progress bars and status indicators
-- [ ] Table formatting for session lists
-- [ ] Call tree visualization (ASCII art)
-- [ ] Export to JSON/CSV formats
-
-### Phase 3: MCP Tool Integration
-
-- [ ] Register MCP tools with Colony server
-- [ ] Implement `coral_search_functions` tool (semantic search)
-- [ ] Implement `coral_get_function_context` tool (call graph navigation)
-- [ ] Implement `coral_attach_uprobe` tool
-- [ ] Implement `coral_trace_request_path` tool
-- [ ] Implement `coral_list_debug_sessions` tool
-- [ ] Implement `coral_detach_uprobe` tool
-- [ ] Implement `coral_get_debug_results` tool
-- [ ] Implement `coral_list_probeable_functions` tool (regex fallback)
-
-### Phase 4: AI Workflow Patterns
-
-- [ ] Auto-context injection (metrics anomalies, service metadata)
-- [ ] Pattern matching for debug-related queries
-- [ ] Semantic function search implementation (keyword-based V1)
-- [ ] Call graph analysis and contribution estimation
-- [ ] Auto-attach probes based on bottleneck identification
-- [ ] Analysis of debug session results
-- [ ] Recommendation generation engine
-- [ ] Evidence packaging (traces, histograms, reports)
-
-### Phase 5: Visualization & Export
-
-- [ ] Generate flamegraphs from trace data
-- [ ] Generate duration histograms
-- [ ] Export call trees as SVG
-- [ ] Create Markdown reports
-- [ ] Integration with Grafana (optional)
-
-### Phase 6: Testing & Documentation
-
-- [ ] E2E tests for all CLI commands
-- [ ] MCP tool integration tests
-- [ ] AI workflow validation tests
-- [ ] User documentation
-- [ ] Video demos and tutorials
 
 ## Testing Strategy
 
@@ -827,29 +508,89 @@ Evidence: debug-sessions/dbg-04M.../
 * **Multi-Service Tracing**: Trace across multiple services.
 * **Error Recovery**: Test graceful handling of failures at each layer.
 
-## Configuration Changes
+## Implementation Status
 
-### Colony Configuration
+**Core Capability:** ✅ Complete
 
-```yaml
-# colony-config.yaml
-colony:
-    debug:
-        enabled: true
+The CLI commands (`attach`, `detach`, `list`, `query`, `trace`) are fully
+implemented and integrated with the Colony backend. The MCP tools are registered
+and available for AI agents.
 
-        # Session management
-        sessions:
-            default_duration: 60s
-            max_duration: 600s
-            auto_cleanup_after: 24h  # Clean up expired sessions
+**Operational Components:**
 
-        # Storage retention
-        storage:
-            events_retention: 24h
-            sessions_retention: 7d
+- ✅ `coral debug` CLI commands
+- ✅ MCP tools for debugging and discovery
+- ✅ Agent eBPF integration (uprobes)
+- ✅ Documentation updated
 
-        # AI integration
-        ai:
-            auto_attach_probes: true  # Let AI attach probes automatically
-            max_probes_per_query: 5   # Limit AI to 5 functions per query
-```
+**What Works Now:**
+- Users can attach probes to functions and see live events.
+- AI agents can discover functions and attach probes autonomously.
+- Historical data can be queried via CLI.
+
+## Deferred Features
+
+**Advanced AI Workflows** (Future - RFD 063 & Follow-up)
+- Auto-attach probes based on bottleneck identification
+- Analysis of debug session results
+- Recommendation generation engine
+- Evidence packaging (traces, histograms, reports)
+
+**Visualization & Export** (Future)
+- Generate flamegraphs from trace data
+- Generate duration histograms
+- Export call trees as SVG
+- Create Markdown reports
+- Integration with Grafana
+
+**Note:** Semantic search, call graph analysis, and auto-context injection are
+covered in [RFD 063](063-intelligent-function-discovery.md).
+
+## Appendix
+
+### Function Discovery Strategy for AI
+
+**See [RFD 063: Intelligent Function Discovery](063-intelligent-function-discovery.md)
+for complete details.**
+
+Applications have **10,000-50,000+ functions**. We use a **multi-tier discovery
+strategy** to narrow down from 50,000 functions to the relevant 5-10:
+
+1. **Tier 1: Metrics-Driven Pre-Filtering** - Colony auto-injects performance
+   anomalies
+2. **Tier 2: Semantic Search** - `coral_search_functions` finds relevant
+   functions by keywords
+3. **Tier 3: Call Graph Navigation** - `coral_get_function_context` navigates
+   from entry points to bottlenecks
+4. **Tier 4: Pattern Fallback** - Regex matching when semantic search fails
+
+### AI Workflow Examples
+
+#### Example 1: Performance Analysis
+
+**User**: "Why is checkout slow on api service?"
+
+**AI**:
+
+1. Calls `coral_list_probeable_functions(service="api", pattern="checkout")`.
+2. Finds `handleCheckout`.
+3. Calls
+   `coral_attach_uprobe(service="api", function="handleCheckout", duration="30s")`.
+4. Waits 30s for data collection.
+5. Calls `coral_get_debug_results(session_id="dbg-01H...")`.
+6. Analyzes: P95 is 245ms (baseline: 80ms).
+7. Identifies bottleneck: `processPayment` (94% of time).
+8. Attaches new probe to `processPayment`.
+9. Finds root cause: `validateCard` calling slow external API.
+
+#### Example 2: Database Query Debugging
+
+**User**: "The payment API is slow"
+
+**AI**:
+
+1. Calls `coral_attach_uprobe(service="payment", function="ProcessPayment")`.
+2. Detects slow database query function.
+3. Calls `coral_attach_uprobe(service="payment", function="QueryTransactions")`.
+4. Analyzes query execution time: 2.0s avg.
+5. Detects sequential scan (missing index).

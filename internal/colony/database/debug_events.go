@@ -1,0 +1,245 @@
+package database
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+)
+
+// DebugEvent represents a stored uprobe event.
+type DebugEvent struct {
+	ID           int64
+	SessionID    string
+	Timestamp    time.Time
+	CollectorID  string
+	AgentID      string
+	ServiceName  string
+	FunctionName string
+	EventType    string
+	DurationNs   *int64
+	PID          *int32
+	TID          *int32
+	Args         *string
+	ReturnValue  *string
+	Labels       *string
+}
+
+// InsertDebugEvents persists a batch of uprobe events to the database.
+func (d *Database) InsertDebugEvents(sessionID string, events []*meshv1.UprobeEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	tx, err := d.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO debug_events (
+			session_id, timestamp, collector_id, agent_id, service_name, function_name,
+			event_type, duration_ns, pid, tid, args, return_value, labels
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, event := range events {
+		// Serialize complex fields to JSON
+		var argsJSON, returnValueJSON, labelsJSON *string
+
+		if len(event.Args) > 0 {
+			argsBytes, err := json.Marshal(event.Args)
+			if err != nil {
+				return fmt.Errorf("failed to marshal args: %w", err)
+			}
+			argsStr := string(argsBytes)
+			argsJSON = &argsStr
+		}
+
+		if event.ReturnValue != nil {
+			returnBytes, err := json.Marshal(event.ReturnValue)
+			if err != nil {
+				return fmt.Errorf("failed to marshal return_value: %w", err)
+			}
+			returnStr := string(returnBytes)
+			returnValueJSON = &returnStr
+		}
+
+		if len(event.Labels) > 0 {
+			labelsBytes, err := json.Marshal(event.Labels)
+			if err != nil {
+				return fmt.Errorf("failed to marshal labels: %w", err)
+			}
+			labelsStr := string(labelsBytes)
+			labelsJSON = &labelsStr
+		}
+
+		// Handle nullable duration_ns (only for return events)
+		var durationNs *int64
+		if event.DurationNs > 0 {
+			durationNs = new(int64)
+			*durationNs = int64(event.DurationNs)
+		}
+
+		// Handle nullable pid/tid
+		var pid, tid *int32
+		if event.Pid != 0 {
+			pid = &event.Pid
+		}
+		if event.Tid != 0 {
+			tid = &event.Tid
+		}
+
+		_, err = stmt.Exec(
+			sessionID,
+			event.Timestamp.AsTime(),
+			event.CollectorId,
+			event.AgentId,
+			event.ServiceName,
+			event.FunctionName,
+			event.EventType,
+			durationNs,
+			pid,
+			tid,
+			argsJSON,
+			returnValueJSON,
+			labelsJSON,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert debug event: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// GetDebugEvents retrieves all stored events for a debug session.
+func (d *Database) GetDebugEvents(sessionID string) ([]*meshv1.UprobeEvent, error) {
+	query := `
+		SELECT timestamp, collector_id, agent_id, service_name, function_name,
+		       event_type, duration_ns, pid, tid, args, return_value, labels
+		FROM debug_events
+		WHERE session_id = ?
+		ORDER BY timestamp ASC
+	`
+
+	rows, err := d.db.Query(query, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query debug events: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var events []*meshv1.UprobeEvent
+	for rows.Next() {
+		var timestamp time.Time
+		var collectorID, agentID, serviceName, functionName, eventType string
+		var durationNs sql.NullInt64
+		var pid, tid sql.NullInt32
+		var argsJSON, returnValueJSON, labelsJSON sql.NullString
+
+		if err := rows.Scan(
+			&timestamp,
+			&collectorID,
+			&agentID,
+			&serviceName,
+			&functionName,
+			&eventType,
+			&durationNs,
+			&pid,
+			&tid,
+			&argsJSON,
+			&returnValueJSON,
+			&labelsJSON,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan debug event: %w", err)
+		}
+
+		event := &meshv1.UprobeEvent{
+			Timestamp:    timestamppb.New(timestamp),
+			CollectorId:  collectorID,
+			AgentId:      agentID,
+			ServiceName:  serviceName,
+			FunctionName: functionName,
+			EventType:    eventType,
+		}
+
+		if durationNs.Valid {
+			event.DurationNs = uint64(durationNs.Int64)
+		}
+
+		if pid.Valid {
+			event.Pid = pid.Int32
+		}
+
+		if tid.Valid {
+			event.Tid = tid.Int32
+		}
+
+		// Deserialize JSON fields
+		if argsJSON.Valid && argsJSON.String != "" {
+			var args []*meshv1.FunctionArgument
+			if err := json.Unmarshal([]byte(argsJSON.String), &args); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal args: %w", err)
+			}
+			event.Args = args
+		}
+
+		if returnValueJSON.Valid && returnValueJSON.String != "" {
+			var returnValue meshv1.FunctionReturnValue
+			if err := json.Unmarshal([]byte(returnValueJSON.String), &returnValue); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal return_value: %w", err)
+			}
+			event.ReturnValue = &returnValue
+		}
+
+		if labelsJSON.Valid && labelsJSON.String != "" {
+			var labels map[string]string
+			if err := json.Unmarshal([]byte(labelsJSON.String), &labels); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal labels: %w", err)
+			}
+			event.Labels = labels
+		}
+
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating debug events: %w", err)
+	}
+
+	return events, nil
+}
+
+// DeleteDebugEvents deletes all events for a specific session.
+func (d *Database) DeleteDebugEvents(sessionID string) error {
+	query := `DELETE FROM debug_events WHERE session_id = ?`
+	_, err := d.db.Exec(query, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to delete debug events: %w", err)
+	}
+	return nil
+}
+
+// DeleteOldDebugEvents deletes events older than the specified retention period.
+func (d *Database) DeleteOldDebugEvents(retentionPeriod time.Duration) error {
+	cutoffTime := time.Now().Add(-retentionPeriod)
+	query := `DELETE FROM debug_events WHERE timestamp < ?`
+	_, err := d.db.Exec(query, cutoffTime)
+	if err != nil {
+		return fmt.Errorf("failed to delete old debug events: %w", err)
+	}
+	return nil
+}

@@ -126,3 +126,59 @@ type ContainerExecInput struct {
 	Env            map[string]string `json:"env,omitempty" jsonschema:"description=Additional environment variables"`
 	Namespaces     []string          `json:"namespaces,omitempty" jsonschema:"description=Namespaces to enter (default: [\"mnt\"])"`
 }
+
+// AttachUprobeInput is the input for coral_attach_uprobe.
+type AttachUprobeInput struct {
+	Service    string  `json:"service" jsonschema:"description=Service name (required)"`
+	Function   string  `json:"function" jsonschema:"description=Function name to probe (e.g., 'handleCheckout', 'main.processPayment')"`
+	AgentID    *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (optional, for direct targeting)"`
+	SDKAddr    *string `json:"sdk_addr,omitempty" jsonschema:"description=SDK address (optional, for direct targeting)"`
+	Duration   *string `json:"duration,omitempty" jsonschema:"description=Collection duration (e.g., '30s', '5m'). Default: 60s, max: 600s"`
+	SampleRate *int    `json:"sample_rate,omitempty" jsonschema:"description=Sample every Nth call (1 = all calls). Default: 1"`
+}
+
+// TraceRequestPathInput is the input for coral_trace_request_path.
+type TraceRequestPathInput struct {
+	Service  string  `json:"service" jsonschema:"description=Service name"`
+	Path     string  `json:"path" jsonschema:"description=HTTP path to trace (e.g., '/api/checkout')"`
+	Duration *string `json:"duration,omitempty" jsonschema:"description=Trace duration. Default: 60s, max: 600s"`
+}
+
+// ListDebugSessionsInput is the input for coral_list_debug_sessions.
+type ListDebugSessionsInput struct {
+	Service *string `json:"service,omitempty" jsonschema:"description=Filter by service name (optional)"`
+	Status  *string `json:"status,omitempty" jsonschema:"description=Filter by status (active, expired, all). Default: active"`
+}
+
+// DetachUprobeInput is the input for coral_detach_uprobe.
+type DetachUprobeInput struct {
+	SessionID string `json:"session_id" jsonschema:"description=Debug session ID to detach"`
+}
+
+// GetDebugResultsInput is the input for coral_get_debug_results.
+type GetDebugResultsInput struct {
+	SessionID string  `json:"session_id" jsonschema:"description=Debug session ID"`
+	Format    *string `json:"format,omitempty" jsonschema:"description=Result format (summary, full, histogram). Default: summary"`
+}
+
+// SearchFunctionsInput is the input for coral_search_functions.
+type SearchFunctionsInput struct {
+	Service string `json:"service" jsonschema:"description=Service name"`
+	Query   string `json:"query" jsonschema:"description=Natural language query (e.g., 'checkout payment processing', 'database query', 'authentication')"`
+	Limit   *int   `json:"limit,omitempty" jsonschema:"description=Max results to return (default: 20, max: 50)"`
+}
+
+// GetFunctionContextInput is the input for coral_get_function_context.
+type GetFunctionContextInput struct {
+	Service        string `json:"service" jsonschema:"description=Service name"`
+	Function       string `json:"function" jsonschema:"description=Function name (e.g., 'main.handleCheckout')"`
+	IncludeCallers *bool  `json:"include_callers,omitempty" jsonschema:"description=Include functions that call this one. Default: true"`
+	IncludeCallees *bool  `json:"include_callees,omitempty" jsonschema:"description=Include functions this one calls. Default: true"`
+	IncludeMetrics *bool  `json:"include_metrics,omitempty" jsonschema:"description=Include performance metrics if available. Default: true"`
+}
+
+// ListProbeableFunctionsInput is the input for coral_list_probeable_functions.
+type ListProbeableFunctionsInput struct {
+	Service string  `json:"service" jsonschema:"description=Service name"`
+	Pattern *string `json:"pattern,omitempty" jsonschema:"description=Regex filter for function names (e.g., 'handle.*', 'process.*')"`
+}

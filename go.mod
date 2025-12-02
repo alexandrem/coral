@@ -1,10 +1,11 @@
 module github.com/coral-mesh/coral
 
-go 1.25.1
+go 1.25
 
 require (
 	connectrpc.com/connect v1.19.1
 	github.com/chzyer/readline v1.5.1
+	github.com/cilium/ebpf v0.16.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/uuid v1.6.0

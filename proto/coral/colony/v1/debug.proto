@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package coral.colony.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "coral/mesh/v1/ebpf.proto";
+
+option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
+
+// DebugService handles live debugging operations (RFD 059).
+service DebugService {
+  // Start uprobe debug session.
+  rpc AttachUprobe(AttachUprobeRequest) returns (AttachUprobeResponse);
+
+  // Stop uprobe session.
+  rpc DetachUprobe(DetachUprobeRequest) returns (DetachUprobeResponse);
+
+  // Query uprobe events (pull-based, like Beyla).
+  rpc QueryUprobeEvents(QueryUprobeEventsRequest) returns (QueryUprobeEventsResponse);
+
+  // List active debug sessions.
+  rpc ListDebugSessions(ListDebugSessionsRequest) returns (ListDebugSessionsResponse);
+
+  // Trace request path (RFD 062).
+  rpc TraceRequestPath(TraceRequestPathRequest) returns (TraceRequestPathResponse);
+
+  // Get aggregated debug results (RFD 062).
+  rpc GetDebugResults(GetDebugResultsRequest) returns (GetDebugResultsResponse);
+}
+
+// AttachUprobeRequest initiates a debug session on a specific function.
+message AttachUprobeRequest {
+  string service_name = 1;
+  string function_name = 2;
+  google.protobuf.Duration duration = 3;  // Default: 60s, Max: 600s
+  coral.mesh.v1.UprobeConfig config = 4;
+  string agent_id = 5;              // Manual override (until service discovery integration)
+  string sdk_addr = 6;              // Manual override (until service discovery integration)
+}
+
+// AttachUprobeResponse confirms debug session creation.
+message AttachUprobeResponse {
+  string session_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  bool success = 3;
+  string error = 4;
+}
+
+// DetachUprobeRequest stops a debug session early.
+message DetachUprobeRequest {
+  string session_id = 1;
+}
+
+// DetachUprobeResponse confirms session termination.
+message DetachUprobeResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// QueryUprobeEventsRequest retrieves events from a debug session.
+message QueryUprobeEventsRequest {
+  string session_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  int32 max_events = 4;             // Pagination
+}
+
+// QueryUprobeEventsResponse returns captured events.
+message QueryUprobeEventsResponse {
+  repeated coral.mesh.v1.UprobeEvent events = 1;
+  bool has_more = 2;                // Pagination indicator
+}
+
+// ListDebugSessionsRequest retrieves active debug sessions.
+message ListDebugSessionsRequest {
+  // Optional filter by service name.
+  string service_name = 1;
+  // Optional filter by status.
+  string status = 2;
+}
+
+// ListDebugSessionsResponse returns active sessions.
+message ListDebugSessionsResponse {
+  repeated DebugSession sessions = 1;
+}
+
+// DebugSession represents an active or completed debug session.
+message DebugSession {
+  string session_id = 1;
+  string service_name = 2;
+  string function_name = 3;
+  string agent_id = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  string status = 7;                // "active", "expired", "stopped"
+  string requested_by = 8;          // User who initiated session
+  int32 event_count = 9;            // Number of events collected
+}
+
+// TraceRequestPathRequest initiates a request path trace.
+message TraceRequestPathRequest {
+  string service_name = 1;
+  string path = 2;
+  google.protobuf.Duration duration = 3;
+  string sdk_addr = 4;              // SDK address for uprobe (optional, will try to discover)
+}
+
+// TraceRequestPathResponse returns the trace session details.
+message TraceRequestPathResponse {
+  string session_id = 1;
+  string path = 2;
+  // Call tree and bottleneck analysis would be returned here or queried later.
+  // For now, we just return the session ID as it's an async process.
+  bool success = 3;
+  string error = 4;
+}
+
+// GetDebugResultsRequest retrieves aggregated results for a session.
+message GetDebugResultsRequest {
+  string session_id = 1;
+  string format = 2; // "summary", "full", "histogram"
+  string service_name = 3; // Optional, for routing if needed
+}
+
+// GetDebugResultsResponse returns the aggregated results.
+message GetDebugResultsResponse {
+  string session_id = 1;
+  string function = 2;
+  google.protobuf.Duration duration = 3;
+  DebugStatistics statistics = 4;
+  repeated SlowOutlier slow_outliers = 5;
+  CallTree call_tree = 6;  // Hierarchical call tree from uprobe events
+}
+
+message DebugStatistics {
+  int64 total_calls = 1;
+  google.protobuf.Duration duration_p50 = 2;
+  google.protobuf.Duration duration_p95 = 3;
+  google.protobuf.Duration duration_p99 = 4;
+  google.protobuf.Duration duration_max = 5;
+}
+
+message SlowOutlier {
+  google.protobuf.Duration duration = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  map<string, string> labels = 3;
+}
+
+// CallTree represents the root of a hierarchical call tree.
+message CallTree {
+  CallTreeNode root = 1;
+  int64 total_invocations = 2;  // Number of complete call trees captured
+}
+
+// CallTreeNode represents a node in the call tree hierarchy.
+message CallTreeNode {
+  string function_name = 1;
+  google.protobuf.Duration total_duration = 2;  // Total time including children
+  google.protobuf.Duration self_duration = 3;   // Time in this function only
+  int64 call_count = 4;                         // Number of times this function was called
+  repeated CallTreeNode children = 5;           // Child function calls
+  bool is_slow = 6;                             // Exceeds P95 threshold
+}

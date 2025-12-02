@@ -35,6 +35,58 @@ message StopEbpfCollectorResponse {
   string error = 2;
 }
 
+// StartUprobeCollectorRequest initiates a uprobe-based function tracer (RFD 059).
+message StartUprobeCollectorRequest {
+  string agent_id = 1;
+  string service_name = 2;
+  string function_name = 3;         // e.g., "github.com/myapp/pkg.ValidateCard"
+  google.protobuf.Duration duration = 4;  // Max 600s
+  UprobeConfig config = 5;
+  string sdk_addr = 6;              // SDK debug service address (e.g., "localhost:50051")
+}
+
+// UprobeConfig specifies what data to capture from function calls.
+message UprobeConfig {
+  bool capture_args = 1;            // Capture function arguments
+  bool capture_return = 2;          // Capture return values
+  uint32 sample_rate = 3;           // Sample every Nth call (0 = all)
+  uint32 max_events = 4;            // Max events to collect (safety limit)
+}
+
+// StartUprobeCollectorResponse confirms uprobe attachment.
+message StartUprobeCollectorResponse {
+  string collector_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  bool supported = 3;  // false if uprobes not available
+  string error = 4;    // error message if supported=false
+}
+
+// StopUprobeCollectorRequest stops a running uprobe collector.
+message StopUprobeCollectorRequest {
+  string collector_id = 1;
+}
+
+// StopUprobeCollectorResponse confirms uprobe stop.
+message StopUprobeCollectorResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// QueryUprobeEventsRequest retrieves events from a uprobe collector.
+message QueryUprobeEventsRequest {
+  string collector_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  int32 max_events = 4;             // Pagination
+}
+
+// QueryUprobeEventsResponse returns collected events.
+message QueryUprobeEventsResponse {
+  repeated EbpfEvent events = 1;
+  bool has_more = 2;                // Pagination indicator
+}
+
+
 // EbpfEventStreamRequest requests streaming of eBPF events.
 message EbpfEventStreamRequest {
   string collector_id = 1;
@@ -134,6 +186,42 @@ message BeylaTraceSpan {
   map<string, string> attributes = 10;
 }
 
+// FunctionArgument represents a captured function argument (RFD 059).
+message FunctionArgument {
+  string name = 1;                  // Argument name from DWARF
+  string type = 2;                  // Go type
+  string value = 3;                 // String representation (limited depth)
+}
+
+// FunctionReturnValue represents a captured return value (RFD 059).
+message FunctionReturnValue {
+  string type = 1;
+  string value = 2;
+  bool is_error = 3;                // For Go error returns
+  string error_message = 4;
+}
+
+// UprobeEvent represents a single function entry/return event (RFD 059).
+message UprobeEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  string collector_id = 2;
+  string agent_id = 3;
+  string service_name = 4;
+  string function_name = 5;
+
+  string event_type = 6;            // "entry" or "return"
+  uint64 duration_ns = 7;           // Only for "return" events
+
+  int32 pid = 8;
+  int32 tid = 9;
+
+  // Argument/return value capture (optional, based on config).
+  repeated FunctionArgument args = 10;
+  FunctionReturnValue return_value = 11;
+
+  map<string, string> labels = 12;
+}
+
 // EbpfEvent represents a single eBPF event or aggregated summary.
 message EbpfEvent {
   google.protobuf.Timestamp timestamp = 1;
@@ -151,6 +239,9 @@ message EbpfEvent {
     BeylaGrpcMetrics beyla_grpc = 21;
     BeylaSqlMetrics beyla_sql = 22;
     BeylaTraceSpan beyla_trace = 23;
+
+    // Uprobe collectors (RFD 059)
+    UprobeEvent uprobe_event = 30;
   }
 }
 
@@ -164,4 +255,16 @@ service EbpfService {
 
   // Stream eBPF events from a collector.
   rpc StreamEvents(EbpfEventStreamRequest) returns (stream EbpfEvent);
+}
+
+// DebugService handles uprobe-based debugging operations (RFD 059).
+service DebugService {
+  // Start a uprobe collector on an agent.
+  rpc StartUprobeCollector(StartUprobeCollectorRequest) returns (StartUprobeCollectorResponse);
+
+  // Stop a running uprobe collector.
+  rpc StopUprobeCollector(StopUprobeCollectorRequest) returns (StopUprobeCollectorResponse);
+
+  // Query events from a uprobe collector.
+  rpc QueryUprobeEvents(QueryUprobeEventsRequest) returns (QueryUprobeEventsResponse);
 }

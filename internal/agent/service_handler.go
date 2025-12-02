@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
@@ -66,6 +67,17 @@ func (h *ServiceHandler) ConnectService(
 			Success: false,
 			Error:   err.Error(),
 		}), nil
+	}
+
+	// Update SDK capabilities if provided (RFD 060).
+	if req.Msg.SdkCapabilities != nil {
+		h.agent.mu.RLock()
+		monitor, exists := h.agent.monitors[req.Msg.Name]
+		h.agent.mu.RUnlock()
+
+		if exists {
+			monitor.SetSdkCapabilities(req.Msg.SdkCapabilities)
+		}
 	}
 
 	return connect.NewResponse(&agentv1.ConnectServiceResponse{
@@ -378,4 +390,44 @@ func (h *ServiceHandler) KillShellSession(
 	req *connect.Request[agentv1.KillShellSessionRequest],
 ) (*connect.Response[agentv1.KillShellSessionResponse], error) {
 	return h.shellHandler.KillShellSession(ctx, req)
+}
+
+// StreamDebugEvents implements the StreamDebugEvents RPC (RFD 061).
+func (h *ServiceHandler) StreamDebugEvents(
+	ctx context.Context,
+	stream *connect.BidiStream[agentv1.DebugCommand, agentv1.DebugEvent],
+) error {
+	// Subscribe to debug events
+	eventCh := h.agent.debugManager.Subscribe()
+
+	// Goroutine to send events
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event := <-eventCh:
+				if err := stream.Send(event); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}
+	}()
+
+	// Loop to receive commands
+	for {
+		cmd, err := stream.Receive()
+		if err != nil {
+			return err
+		}
+
+		// Handle command
+		if cmd.Command == "detach" {
+			if err := h.agent.StopDebugSession(cmd.SessionId); err != nil {
+				errCh <- fmt.Errorf("failed to stop debug session: %w", err)
+			}
+		}
+	}
 }

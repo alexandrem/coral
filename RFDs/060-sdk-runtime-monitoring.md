@@ -13,7 +13,8 @@ areas: [ "sdk", "go", "debugging" ]
 
 # RFD 060 - SDK Runtime Monitoring
 
-**Status:** 🚧 Draft
+**Status:** ✅ Implemented
+
 
 ## Summary
 
@@ -261,32 +262,58 @@ go tool nm myapp | grep -i 'main.handleCheckout'
 
 ### Phase 1: Core SDK Infrastructure
 
-- [ ] Create `coral-go` SDK repository
-- [ ] Implement `RegisterService` and `EnableRuntimeMonitoring` API
-- [ ] Set up gRPC server for agent communication
-- [ ] Implement service registration with local agent
+- [x] Create `coral-go` SDK repository
+- [x] Implement `RegisterService` and `EnableRuntimeMonitoring` API
+- [x] Set up gRPC server for agent communication
+- [x] Implement service registration with local agent
 
 ### Phase 2: Function Discovery
 
-- [ ] DWARF debug info parser (using `debug/dwarf`, `debug/elf`)
-- [ ] Runtime reflection fallback for stripped binaries
-- [ ] Symbol table builder and cache
-- [ ] Handle inlined functions and optimized builds
+- [x] DWARF debug info parser (using `debug/dwarf`, `debug/elf`)
+- [x] Runtime reflection fallback for stripped binaries
+- [x] Symbol table builder and cache
+- [x] Handle inlined functions and optimized builds
 
 ### Phase 3: Agent Integration
 
-- [ ] Implement `ListFunctions` RPC handler
-- [ ] Implement `GetFunctionOffset` RPC handler
-- [ ] Add connection management for agent queries
-- [ ] Implement binary hash calculation for cache invalidation
+- [x] Implement `ListFunctions` RPC handler
+- [x] Implement `GetFunctionOffset` RPC handler
+- [x] Add connection management for agent queries
+- [x] Implement binary hash calculation for cache invalidation
 
 ### Phase 4: Testing & Documentation
 
-- [ ] Unit tests for DWARF parsing
-- [ ] Unit tests for runtime reflection
-- [ ] Integration tests with sample application
-- [ ] SDK documentation and usage examples
-- [ ] Build guide for different optimization levels
+- [x] Unit tests for DWARF parsing
+- [x] Unit tests for runtime reflection
+- [x] Integration tests with sample application
+- [x] SDK documentation and usage examples
+- [x] Build guide for different optimization levels
+
+## Implementation Status
+
+**Core Capability:** ✅ Complete
+
+The SDK Runtime Monitoring system is fully implemented, enabling Go applications
+to self-register with the Coral Agent and expose function metadata for live
+debugging.
+
+**Operational Components:**
+
+- ✅ **SDK Core**: `RegisterService` and `EnableRuntimeMonitoring` APIs.
+- ✅ **Function Discovery**: DWARF parsing (primary) and Reflection fallback (
+  stripped binaries).
+- ✅ **Agent Integration**: `ServiceSdkCapabilities` exchange and
+  `ConnectService` RPC.
+- ✅ **Metadata Provider**: Efficient caching and lookup of function offsets.
+
+**What Works Now:**
+
+- Applications automatically register with the local Agent on startup.
+- Agent receives full metadata: SDK version, DWARF availability, binary path,
+  function count, and binary hash.
+- Reflection fallback allows debugging even on stripped binaries (entry points
+  only).
+- `sdk-demo` example demonstrates full end-to-end flow.
 
 ## Testing Strategy
 

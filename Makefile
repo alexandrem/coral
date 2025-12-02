@@ -1,4 +1,4 @@
-.PHONY: build build-dev clean init install install-tools test run help generate
+.PHONY: build build-dev clean init install install-tools test run help generate proto
 
 # Build variables
 BINARY_NAME=coral
@@ -20,10 +20,34 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-generate: ## Download Beyla binaries for embedding (run before first build)
+generate: proto ## Generate eBPF and download Beyla binaries (run before first build)
 	@echo "Running go generate..."
+	@# Check for llvm-strip (required for bpf2go)
+	@if ! which llvm-strip >/dev/null 2>&1; then \
+		if [ -d "/usr/local/homebrew/opt/llvm/bin" ]; then \
+			export PATH="/usr/local/homebrew/opt/llvm/bin:$$PATH"; \
+		elif [ -d "/opt/homebrew/opt/llvm/bin" ]; then \
+			export PATH="/opt/homebrew/opt/llvm/bin:$$PATH"; \
+		fi; \
+	fi; \
+	if ! which llvm-strip >/dev/null 2>&1; then \
+		echo "❌ Error: llvm-strip not found in PATH"; \
+		echo "  macOS: brew install llvm"; \
+		echo "  Linux: sudo apt-get install clang llvm"; \
+		exit 1; \
+	fi; \
 	go generate ./...
 	@echo "✓ Generated files ready"
+
+proto: ## Generate protobuf files using buf
+	@if which buf >/dev/null 2>&1; then \
+		echo "Running buf generate..."; \
+		buf generate; \
+		echo "✓ Protobuf files generated"; \
+	else \
+		echo "⚠️  buf not found, skipping protobuf generation"; \
+	fi
+	@$(MAKE) -s fmt
 
 build: generate ## Build the coral binary
 	@echo "Building $(BINARY_NAME)..."
@@ -90,6 +114,7 @@ install-tools: ## Install development tools
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
 	go install github.com/bufbuild/buf/cmd/buf@latest
+	go install golang.org/x/tools/cmd/goimports@latest
 
 lint: ## Run linter
 	@echo "Running linter..."
