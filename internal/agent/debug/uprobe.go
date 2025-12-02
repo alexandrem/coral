@@ -36,7 +36,7 @@ func (m *DebugSessionManager) attachUprobeLocked(
 	// 2. Open executable
 	exe, err := link.OpenExecutable(binaryPath)
 	if err != nil {
-		objs.Close()
+		objs.Close() // nolint:errcheck
 		return fmt.Errorf("open executable: %w", err)
 	}
 
@@ -50,7 +50,7 @@ func (m *DebugSessionManager) attachUprobeLocked(
 		},
 	)
 	if err != nil {
-		objs.Close()
+		objs.Close() // nolint:errcheck
 		return fmt.Errorf("attach uprobe entry: %w", err)
 	}
 
@@ -64,17 +64,17 @@ func (m *DebugSessionManager) attachUprobeLocked(
 		},
 	)
 	if err != nil {
-		entryLink.Close()
-		objs.Close()
+		entryLink.Close() // nolint:errcheck
+		objs.Close()      // nolint:errcheck
 		return fmt.Errorf("attach uretprobe exit: %w", err)
 	}
 
 	// 4. Open ring buffer reader
 	reader, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
-		exitLink.Close()
-		entryLink.Close()
-		objs.Close()
+		exitLink.Close()  // nolint:errcheck
+		entryLink.Close() // nolint:errcheck
+		objs.Close()      // nolint:errcheck
 		return fmt.Errorf("create ringbuf reader: %w", err)
 	}
 

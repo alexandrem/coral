@@ -809,6 +809,7 @@ type GetDebugResultsResponse struct {
 	Duration      *durationpb.Duration   `protobuf:"bytes,3,opt,name=duration,proto3" json:"duration,omitempty"`
 	Statistics    *DebugStatistics       `protobuf:"bytes,4,opt,name=statistics,proto3" json:"statistics,omitempty"`
 	SlowOutliers  []*SlowOutlier         `protobuf:"bytes,5,rep,name=slow_outliers,json=slowOutliers,proto3" json:"slow_outliers,omitempty"`
+	CallTree      *CallTree              `protobuf:"bytes,6,opt,name=call_tree,json=callTree,proto3" json:"call_tree,omitempty"` // Hierarchical call tree from uprobe events
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -874,6 +875,13 @@ func (x *GetDebugResultsResponse) GetStatistics() *DebugStatistics {
 func (x *GetDebugResultsResponse) GetSlowOutliers() []*SlowOutlier {
 	if x != nil {
 		return x.SlowOutliers
+	}
+	return nil
+}
+
+func (x *GetDebugResultsResponse) GetCallTree() *CallTree {
+	if x != nil {
+		return x.CallTree
 	}
 	return nil
 }
@@ -1014,6 +1022,144 @@ func (x *SlowOutlier) GetLabels() map[string]string {
 	return nil
 }
 
+// CallTree represents the root of a hierarchical call tree.
+type CallTree struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Root             *CallTreeNode          `protobuf:"bytes,1,opt,name=root,proto3" json:"root,omitempty"`
+	TotalInvocations int64                  `protobuf:"varint,2,opt,name=total_invocations,json=totalInvocations,proto3" json:"total_invocations,omitempty"` // Number of complete call trees captured
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *CallTree) Reset() {
+	*x = CallTree{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CallTree) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CallTree) ProtoMessage() {}
+
+func (x *CallTree) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CallTree.ProtoReflect.Descriptor instead.
+func (*CallTree) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *CallTree) GetRoot() *CallTreeNode {
+	if x != nil {
+		return x.Root
+	}
+	return nil
+}
+
+func (x *CallTree) GetTotalInvocations() int64 {
+	if x != nil {
+		return x.TotalInvocations
+	}
+	return 0
+}
+
+// CallTreeNode represents a node in the call tree hierarchy.
+type CallTreeNode struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FunctionName  string                 `protobuf:"bytes,1,opt,name=function_name,json=functionName,proto3" json:"function_name,omitempty"`
+	TotalDuration *durationpb.Duration   `protobuf:"bytes,2,opt,name=total_duration,json=totalDuration,proto3" json:"total_duration,omitempty"` // Total time including children
+	SelfDuration  *durationpb.Duration   `protobuf:"bytes,3,opt,name=self_duration,json=selfDuration,proto3" json:"self_duration,omitempty"`    // Time in this function only
+	CallCount     int64                  `protobuf:"varint,4,opt,name=call_count,json=callCount,proto3" json:"call_count,omitempty"`            // Number of times this function was called
+	Children      []*CallTreeNode        `protobuf:"bytes,5,rep,name=children,proto3" json:"children,omitempty"`                                // Child function calls
+	IsSlow        bool                   `protobuf:"varint,6,opt,name=is_slow,json=isSlow,proto3" json:"is_slow,omitempty"`                     // Exceeds P95 threshold
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CallTreeNode) Reset() {
+	*x = CallTreeNode{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CallTreeNode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CallTreeNode) ProtoMessage() {}
+
+func (x *CallTreeNode) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CallTreeNode.ProtoReflect.Descriptor instead.
+func (*CallTreeNode) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *CallTreeNode) GetFunctionName() string {
+	if x != nil {
+		return x.FunctionName
+	}
+	return ""
+}
+
+func (x *CallTreeNode) GetTotalDuration() *durationpb.Duration {
+	if x != nil {
+		return x.TotalDuration
+	}
+	return nil
+}
+
+func (x *CallTreeNode) GetSelfDuration() *durationpb.Duration {
+	if x != nil {
+		return x.SelfDuration
+	}
+	return nil
+}
+
+func (x *CallTreeNode) GetCallCount() int64 {
+	if x != nil {
+		return x.CallCount
+	}
+	return 0
+}
+
+func (x *CallTreeNode) GetChildren() []*CallTreeNode {
+	if x != nil {
+		return x.Children
+	}
+	return nil
+}
+
+func (x *CallTreeNode) GetIsSlow() bool {
+	if x != nil {
+		return x.IsSlow
+	}
+	return false
+}
+
 var File_coral_colony_v1_debug_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_debug_proto_rawDesc = "" +
@@ -1083,7 +1229,7 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12!\n" +
-	"\fservice_name\x18\x03 \x01(\tR\vserviceName\"\x90\x02\n" +
+	"\fservice_name\x18\x03 \x01(\tR\vserviceName\"\xc8\x02\n" +
 	"\x17GetDebugResultsResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1a\n" +
@@ -1092,7 +1238,8 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\n" +
 	"statistics\x18\x04 \x01(\v2 .coral.colony.v1.DebugStatisticsR\n" +
 	"statistics\x12A\n" +
-	"\rslow_outliers\x18\x05 \x03(\v2\x1c.coral.colony.v1.SlowOutlierR\fslowOutliers\"\xaa\x02\n" +
+	"\rslow_outliers\x18\x05 \x03(\v2\x1c.coral.colony.v1.SlowOutlierR\fslowOutliers\x126\n" +
+	"\tcall_tree\x18\x06 \x01(\v2\x19.coral.colony.v1.CallTreeR\bcallTree\"\xaa\x02\n" +
 	"\x0fDebugStatistics\x12\x1f\n" +
 	"\vtotal_calls\x18\x01 \x01(\x03R\n" +
 	"totalCalls\x12<\n" +
@@ -1106,7 +1253,18 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\x06labels\x18\x03 \x03(\v2(.coral.colony.v1.SlowOutlier.LabelsEntryR\x06labels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\xef\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"j\n" +
+	"\bCallTree\x121\n" +
+	"\x04root\x18\x01 \x01(\v2\x1d.coral.colony.v1.CallTreeNodeR\x04root\x12+\n" +
+	"\x11total_invocations\x18\x02 \x01(\x03R\x10totalInvocations\"\xa8\x02\n" +
+	"\fCallTreeNode\x12#\n" +
+	"\rfunction_name\x18\x01 \x01(\tR\ffunctionName\x12@\n" +
+	"\x0etotal_duration\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\rtotalDuration\x12>\n" +
+	"\rself_duration\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\fselfDuration\x12\x1d\n" +
+	"\n" +
+	"call_count\x18\x04 \x01(\x03R\tcallCount\x129\n" +
+	"\bchildren\x18\x05 \x03(\v2\x1d.coral.colony.v1.CallTreeNodeR\bchildren\x12\x17\n" +
+	"\ais_slow\x18\x06 \x01(\bR\x06isSlow2\xef\x04\n" +
 	"\fDebugService\x12[\n" +
 	"\fAttachUprobe\x12$.coral.colony.v1.AttachUprobeRequest\x1a%.coral.colony.v1.AttachUprobeResponse\x12[\n" +
 	"\fDetachUprobe\x12$.coral.colony.v1.DetachUprobeRequest\x1a%.coral.colony.v1.DetachUprobeResponse\x12j\n" +
@@ -1129,7 +1287,7 @@ func file_coral_colony_v1_debug_proto_rawDescGZIP() []byte {
 	return file_coral_colony_v1_debug_proto_rawDescData
 }
 
-var file_coral_colony_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_coral_colony_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_coral_colony_v1_debug_proto_goTypes = []any{
 	(*AttachUprobeRequest)(nil),       // 0: coral.colony.v1.AttachUprobeRequest
 	(*AttachUprobeResponse)(nil),      // 1: coral.colony.v1.AttachUprobeResponse
@@ -1146,50 +1304,57 @@ var file_coral_colony_v1_debug_proto_goTypes = []any{
 	(*GetDebugResultsResponse)(nil),   // 12: coral.colony.v1.GetDebugResultsResponse
 	(*DebugStatistics)(nil),           // 13: coral.colony.v1.DebugStatistics
 	(*SlowOutlier)(nil),               // 14: coral.colony.v1.SlowOutlier
-	nil,                               // 15: coral.colony.v1.SlowOutlier.LabelsEntry
-	(*durationpb.Duration)(nil),       // 16: google.protobuf.Duration
-	(*v1.UprobeConfig)(nil),           // 17: coral.mesh.v1.UprobeConfig
-	(*timestamppb.Timestamp)(nil),     // 18: google.protobuf.Timestamp
-	(*v1.UprobeEvent)(nil),            // 19: coral.mesh.v1.UprobeEvent
+	(*CallTree)(nil),                  // 15: coral.colony.v1.CallTree
+	(*CallTreeNode)(nil),              // 16: coral.colony.v1.CallTreeNode
+	nil,                               // 17: coral.colony.v1.SlowOutlier.LabelsEntry
+	(*durationpb.Duration)(nil),       // 18: google.protobuf.Duration
+	(*v1.UprobeConfig)(nil),           // 19: coral.mesh.v1.UprobeConfig
+	(*timestamppb.Timestamp)(nil),     // 20: google.protobuf.Timestamp
+	(*v1.UprobeEvent)(nil),            // 21: coral.mesh.v1.UprobeEvent
 }
 var file_coral_colony_v1_debug_proto_depIdxs = []int32{
-	16, // 0: coral.colony.v1.AttachUprobeRequest.duration:type_name -> google.protobuf.Duration
-	17, // 1: coral.colony.v1.AttachUprobeRequest.config:type_name -> coral.mesh.v1.UprobeConfig
-	18, // 2: coral.colony.v1.AttachUprobeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	18, // 3: coral.colony.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
-	18, // 4: coral.colony.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
-	19, // 5: coral.colony.v1.QueryUprobeEventsResponse.events:type_name -> coral.mesh.v1.UprobeEvent
+	18, // 0: coral.colony.v1.AttachUprobeRequest.duration:type_name -> google.protobuf.Duration
+	19, // 1: coral.colony.v1.AttachUprobeRequest.config:type_name -> coral.mesh.v1.UprobeConfig
+	20, // 2: coral.colony.v1.AttachUprobeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	20, // 3: coral.colony.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
+	20, // 4: coral.colony.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
+	21, // 5: coral.colony.v1.QueryUprobeEventsResponse.events:type_name -> coral.mesh.v1.UprobeEvent
 	8,  // 6: coral.colony.v1.ListDebugSessionsResponse.sessions:type_name -> coral.colony.v1.DebugSession
-	18, // 7: coral.colony.v1.DebugSession.started_at:type_name -> google.protobuf.Timestamp
-	18, // 8: coral.colony.v1.DebugSession.expires_at:type_name -> google.protobuf.Timestamp
-	16, // 9: coral.colony.v1.TraceRequestPathRequest.duration:type_name -> google.protobuf.Duration
-	16, // 10: coral.colony.v1.GetDebugResultsResponse.duration:type_name -> google.protobuf.Duration
+	20, // 7: coral.colony.v1.DebugSession.started_at:type_name -> google.protobuf.Timestamp
+	20, // 8: coral.colony.v1.DebugSession.expires_at:type_name -> google.protobuf.Timestamp
+	18, // 9: coral.colony.v1.TraceRequestPathRequest.duration:type_name -> google.protobuf.Duration
+	18, // 10: coral.colony.v1.GetDebugResultsResponse.duration:type_name -> google.protobuf.Duration
 	13, // 11: coral.colony.v1.GetDebugResultsResponse.statistics:type_name -> coral.colony.v1.DebugStatistics
 	14, // 12: coral.colony.v1.GetDebugResultsResponse.slow_outliers:type_name -> coral.colony.v1.SlowOutlier
-	16, // 13: coral.colony.v1.DebugStatistics.duration_p50:type_name -> google.protobuf.Duration
-	16, // 14: coral.colony.v1.DebugStatistics.duration_p95:type_name -> google.protobuf.Duration
-	16, // 15: coral.colony.v1.DebugStatistics.duration_p99:type_name -> google.protobuf.Duration
-	16, // 16: coral.colony.v1.DebugStatistics.duration_max:type_name -> google.protobuf.Duration
-	16, // 17: coral.colony.v1.SlowOutlier.duration:type_name -> google.protobuf.Duration
-	18, // 18: coral.colony.v1.SlowOutlier.timestamp:type_name -> google.protobuf.Timestamp
-	15, // 19: coral.colony.v1.SlowOutlier.labels:type_name -> coral.colony.v1.SlowOutlier.LabelsEntry
-	0,  // 20: coral.colony.v1.DebugService.AttachUprobe:input_type -> coral.colony.v1.AttachUprobeRequest
-	2,  // 21: coral.colony.v1.DebugService.DetachUprobe:input_type -> coral.colony.v1.DetachUprobeRequest
-	4,  // 22: coral.colony.v1.DebugService.QueryUprobeEvents:input_type -> coral.colony.v1.QueryUprobeEventsRequest
-	6,  // 23: coral.colony.v1.DebugService.ListDebugSessions:input_type -> coral.colony.v1.ListDebugSessionsRequest
-	9,  // 24: coral.colony.v1.DebugService.TraceRequestPath:input_type -> coral.colony.v1.TraceRequestPathRequest
-	11, // 25: coral.colony.v1.DebugService.GetDebugResults:input_type -> coral.colony.v1.GetDebugResultsRequest
-	1,  // 26: coral.colony.v1.DebugService.AttachUprobe:output_type -> coral.colony.v1.AttachUprobeResponse
-	3,  // 27: coral.colony.v1.DebugService.DetachUprobe:output_type -> coral.colony.v1.DetachUprobeResponse
-	5,  // 28: coral.colony.v1.DebugService.QueryUprobeEvents:output_type -> coral.colony.v1.QueryUprobeEventsResponse
-	7,  // 29: coral.colony.v1.DebugService.ListDebugSessions:output_type -> coral.colony.v1.ListDebugSessionsResponse
-	10, // 30: coral.colony.v1.DebugService.TraceRequestPath:output_type -> coral.colony.v1.TraceRequestPathResponse
-	12, // 31: coral.colony.v1.DebugService.GetDebugResults:output_type -> coral.colony.v1.GetDebugResultsResponse
-	26, // [26:32] is the sub-list for method output_type
-	20, // [20:26] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	15, // 13: coral.colony.v1.GetDebugResultsResponse.call_tree:type_name -> coral.colony.v1.CallTree
+	18, // 14: coral.colony.v1.DebugStatistics.duration_p50:type_name -> google.protobuf.Duration
+	18, // 15: coral.colony.v1.DebugStatistics.duration_p95:type_name -> google.protobuf.Duration
+	18, // 16: coral.colony.v1.DebugStatistics.duration_p99:type_name -> google.protobuf.Duration
+	18, // 17: coral.colony.v1.DebugStatistics.duration_max:type_name -> google.protobuf.Duration
+	18, // 18: coral.colony.v1.SlowOutlier.duration:type_name -> google.protobuf.Duration
+	20, // 19: coral.colony.v1.SlowOutlier.timestamp:type_name -> google.protobuf.Timestamp
+	17, // 20: coral.colony.v1.SlowOutlier.labels:type_name -> coral.colony.v1.SlowOutlier.LabelsEntry
+	16, // 21: coral.colony.v1.CallTree.root:type_name -> coral.colony.v1.CallTreeNode
+	18, // 22: coral.colony.v1.CallTreeNode.total_duration:type_name -> google.protobuf.Duration
+	18, // 23: coral.colony.v1.CallTreeNode.self_duration:type_name -> google.protobuf.Duration
+	16, // 24: coral.colony.v1.CallTreeNode.children:type_name -> coral.colony.v1.CallTreeNode
+	0,  // 25: coral.colony.v1.DebugService.AttachUprobe:input_type -> coral.colony.v1.AttachUprobeRequest
+	2,  // 26: coral.colony.v1.DebugService.DetachUprobe:input_type -> coral.colony.v1.DetachUprobeRequest
+	4,  // 27: coral.colony.v1.DebugService.QueryUprobeEvents:input_type -> coral.colony.v1.QueryUprobeEventsRequest
+	6,  // 28: coral.colony.v1.DebugService.ListDebugSessions:input_type -> coral.colony.v1.ListDebugSessionsRequest
+	9,  // 29: coral.colony.v1.DebugService.TraceRequestPath:input_type -> coral.colony.v1.TraceRequestPathRequest
+	11, // 30: coral.colony.v1.DebugService.GetDebugResults:input_type -> coral.colony.v1.GetDebugResultsRequest
+	1,  // 31: coral.colony.v1.DebugService.AttachUprobe:output_type -> coral.colony.v1.AttachUprobeResponse
+	3,  // 32: coral.colony.v1.DebugService.DetachUprobe:output_type -> coral.colony.v1.DetachUprobeResponse
+	5,  // 33: coral.colony.v1.DebugService.QueryUprobeEvents:output_type -> coral.colony.v1.QueryUprobeEventsResponse
+	7,  // 34: coral.colony.v1.DebugService.ListDebugSessions:output_type -> coral.colony.v1.ListDebugSessionsResponse
+	10, // 35: coral.colony.v1.DebugService.TraceRequestPath:output_type -> coral.colony.v1.TraceRequestPathResponse
+	12, // 36: coral.colony.v1.DebugService.GetDebugResults:output_type -> coral.colony.v1.GetDebugResultsResponse
+	31, // [31:37] is the sub-list for method output_type
+	25, // [25:31] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_coral_colony_v1_debug_proto_init() }
@@ -1203,7 +1368,7 @@ func file_coral_colony_v1_debug_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_colony_v1_debug_proto_rawDesc), len(file_coral_colony_v1_debug_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

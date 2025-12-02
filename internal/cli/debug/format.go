@@ -43,6 +43,8 @@ func NewFormatter(format OutputFormat) OutputFormatter {
 // TextFormatter formats output as human-readable text.
 type TextFormatter struct{}
 
+// FormatSessions formats the debug sessions.
+// nolint: errcheck
 func (f *TextFormatter) FormatSessions(sessions []*colonypb.DebugSession) (string, error) {
 	if len(sessions) == 0 {
 		return "No active debug sessions found.\n", nil

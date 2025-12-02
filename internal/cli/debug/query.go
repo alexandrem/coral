@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/spf13/cobra"
+
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	"github.com/spf13/cobra"
 )
 
 func NewQueryCmd() *cobra.Command {
@@ -119,7 +120,9 @@ func NewQueryCmd() *cobra.Command {
 	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 
-	cmd.MarkFlagRequired("function")
+	if err := cmd.MarkFlagRequired("function"); err != nil {
+		fmt.Printf("failed to mark flag as required: %v\n", err)
+	}
 
 	return cmd
 }

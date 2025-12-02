@@ -11,9 +11,10 @@ import (
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go uprobe ./bpf/uprobe.c -- -I./bpf/headers
@@ -122,7 +123,7 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 	// Step 3: Open executable for uprobe attachment
 	exe, err := link.OpenExecutable(c.binaryPath)
 	if err != nil {
-		c.objs.Close()
+		c.objs.Close() // nolint:errcheck
 		return fmt.Errorf("failed to open executable: %w", err)
 	}
 
@@ -132,7 +133,7 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 		PID:    int(c.pid),
 	})
 	if err != nil {
-		c.objs.Close()
+		c.objs.Close() // nolint:errcheck
 		return fmt.Errorf("failed to attach uprobe: %w", err)
 	}
 
@@ -144,8 +145,8 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 		PID:    int(c.pid),
 	})
 	if err != nil {
-		c.entryLink.Close()
-		c.objs.Close()
+		c.entryLink.Close() // nolint:errcheck
+		c.objs.Close()      // nolint:errcheck
 		return fmt.Errorf("failed to attach uretprobe: %w", err)
 	}
 
@@ -154,9 +155,9 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 	// Step 6: Start reading events from ring buffer
 	c.reader, err = ringbuf.NewReader(c.objs.Events)
 	if err != nil {
-		c.returnLink.Close()
-		c.entryLink.Close()
-		c.objs.Close()
+		c.returnLink.Close() // nolint:errcheck
+		c.entryLink.Close()  // nolint:errcheck
+		c.objs.Close()       // nolint:errcheck
 		return fmt.Errorf("failed to create ringbuf reader: %w", err)
 	}
 

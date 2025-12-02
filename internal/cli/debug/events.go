@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 func NewEventsCmd() *cobra.Command {

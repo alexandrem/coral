@@ -6,9 +6,10 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
+	"github.com/spf13/cobra"
+
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	"github.com/spf13/cobra"
 )
 
 func NewDetachCmd() *cobra.Command {

@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/durationpb"
+
+	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 func NewTraceCmd() *cobra.Command {
@@ -102,8 +103,12 @@ func NewTraceCmd() *cobra.Command {
 					fmt.Printf("  Use 'coral debug query %s --session-id %s' to view results.\n", serviceName, sessionID)
 				} else {
 					// For non-text formats, just output the session info
-					fmt.Fprintf(os.Stdout, "{\"session_id\": \"%s\", \"path\": \"%s\", \"duration\": \"%s\"}\n",
+					_, err = fmt.Fprintf(os.Stdout, "{\"session_id\": \"%s\", \"path\": \"%s\", "+
+						"\"duration\": \"%s\"}\n",
 						sessionID, path, duration)
+					if err != nil {
+						return fmt.Errorf("failed to write output: %w", err)
+					}
 				}
 			}
 
@@ -117,7 +122,9 @@ func NewTraceCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for trace to complete and display results")
 
-	cmd.MarkFlagRequired("path")
+	if err := cmd.MarkFlagRequired("path"); err != nil {
+		fmt.Printf("failed to mark flag as required: %v\n", err)
+	}
 
 	return cmd
 }

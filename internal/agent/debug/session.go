@@ -126,7 +126,9 @@ func (m *DebugSessionManager) StartSession(sessionID string, serviceName string,
 
 	// Schedule auto-detach
 	time.AfterFunc(m.cfg.Limits.MaxSessionDuration, func() {
-		m.CloseSession(sessionID)
+		if err := m.CloseSession(sessionID); err != nil {
+			m.logger.Warn().Err(fmt.Errorf("unable to close session %s: %w", sessionID, err))
+		}
 	})
 
 	return nil

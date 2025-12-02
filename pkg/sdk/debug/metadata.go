@@ -79,7 +79,9 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 		dwarfData, dwarfErr = elfFile.DWARF()
 		if dwarfErr != nil {
 			// Don't return error yet, allow fallback
-			elfFile.Close()
+			if err := elfFile.Close(); err != nil {
+				logger.Warn("Failed to close ELF file", "error", err)
+			}
 			fileCloser = nil
 		}
 
@@ -94,7 +96,9 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 		dwarfData, dwarfErr = machoFile.DWARF()
 		if dwarfErr != nil {
 			// Don't return error yet, allow fallback
-			machoFile.Close()
+			if err := machoFile.Close(); err != nil {
+				logger.Warn("Failed to close macho file", "error", err)
+			}
 			fileCloser = nil
 		}
 
@@ -109,7 +113,9 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 
 		// Close file handle if it was opened
 		if fileCloser != nil {
-			fileCloser.Close()
+			if err := fileCloser.Close(); err != nil {
+				logger.Warn("Failed to close file", "error", err)
+			}
 			fileCloser = nil
 		}
 
@@ -164,7 +170,7 @@ func (p *FunctionMetadataProvider) GetBinaryHash() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer f.Close() // nolint:errcheck
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {

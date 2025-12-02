@@ -28,18 +28,17 @@ func (p *FunctionMetadataProvider) searchReflectionForFunction(funcName string) 
 	// Re-open file to read symbol table
 	if p.closer == nil {
 		// Try to open file again
-		if runtime.GOOS == "linux" {
+		switch runtime.GOOS {
+		case "linux":
 			f, err := elf.Open(p.binaryPath)
 			if err != nil {
 				return 0, err
 			}
-			defer f.Close()
-
+			defer f.Close() // nolint:errcheck
 			symbols, err := f.Symbols()
 			if err != nil {
 				return 0, fmt.Errorf("failed to read ELF symbols: %w", err)
 			}
-
 			for _, sym := range symbols {
 				if sym.Name == funcName || strings.HasSuffix(sym.Name, "."+funcName) {
 					if elf.ST_TYPE(sym.Info) == elf.STT_FUNC {
@@ -47,17 +46,15 @@ func (p *FunctionMetadataProvider) searchReflectionForFunction(funcName string) 
 					}
 				}
 			}
-		} else if runtime.GOOS == "darwin" {
+		case "darwin":
 			f, err := macho.Open(p.binaryPath)
 			if err != nil {
 				return 0, err
 			}
-			defer f.Close()
-
+			defer f.Close() // nolint:errcheck
 			if f.Symtab == nil {
 				return 0, fmt.Errorf("no symbol table found")
 			}
-
 			for _, sym := range f.Symtab.Syms {
 				if sym.Name == funcName || strings.HasSuffix(sym.Name, "."+funcName) {
 					// Mach-O symbols often have a leading underscore
@@ -77,18 +74,17 @@ func (p *FunctionMetadataProvider) searchReflectionForFunction(funcName string) 
 func (p *FunctionMetadataProvider) listFunctionsFromSymbols(pattern string) ([]string, error) {
 	var functions []string
 
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux":
 		f, err := elf.Open(p.binaryPath)
 		if err != nil {
 			return nil, err
 		}
-		defer f.Close()
-
+		defer f.Close() // nolint:errcheck
 		symbols, err := f.Symbols()
 		if err != nil {
 			return nil, err
 		}
-
 		for _, sym := range symbols {
 			if elf.ST_TYPE(sym.Info) == elf.STT_FUNC && sym.Name != "" {
 				if matchesPattern(sym.Name, pattern) {
@@ -96,13 +92,12 @@ func (p *FunctionMetadataProvider) listFunctionsFromSymbols(pattern string) ([]s
 				}
 			}
 		}
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		f, err := macho.Open(p.binaryPath)
 		if err != nil {
 			return nil, err
 		}
-		defer f.Close()
-
+		defer f.Close() // nolint:errcheck
 		if f.Symtab != nil {
 			for _, sym := range f.Symtab.Syms {
 				name := strings.TrimPrefix(sym.Name, "_")

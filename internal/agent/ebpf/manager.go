@@ -6,11 +6,12 @@ import (
 	"sync"
 	"time"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 // Manager handles eBPF collector lifecycle.
@@ -244,7 +245,9 @@ func (m *Manager) createCollector(kind agentv1.EbpfCollectorKind, config map[str
 			uprobeConfig.CaptureReturn = true
 		}
 		if maxEvents, ok := config["max_events"]; ok {
-			fmt.Sscanf(maxEvents, "%d", &uprobeConfig.MaxEvents)
+			if _, err := fmt.Sscanf(maxEvents, "%d", &uprobeConfig.MaxEvents); err != nil {
+				return nil, fmt.Errorf("unable to scan max_events: %w", err)
+			}
 		}
 
 		return NewUprobeCollector(m.logger, uprobeConfig)

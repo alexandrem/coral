@@ -115,14 +115,18 @@ func (s *SDK) initializeDebugServer() error {
 	// Create debug server.
 	server, err := debug.NewServer(s.logger, provider)
 	if err != nil {
-		provider.Close()
+		if err := provider.Close(); err != nil {
+			s.logger.Error("Failed to close debug server", "error", err)
+		}
 		return fmt.Errorf("failed to create debug server: %w", err)
 	}
 	s.debugServer = server
 
 	// Start the server.
 	if err := server.Start(); err != nil {
-		provider.Close()
+		if err := provider.Close(); err != nil {
+			s.logger.Error("Failed to close debug server", "error", err)
+		}
 		return fmt.Errorf("failed to start debug server: %w", err)
 	}
 

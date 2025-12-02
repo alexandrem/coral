@@ -129,6 +129,7 @@ message GetDebugResultsResponse {
   google.protobuf.Duration duration = 3;
   DebugStatistics statistics = 4;
   repeated SlowOutlier slow_outliers = 5;
+  CallTree call_tree = 6;  // Hierarchical call tree from uprobe events
 }
 
 message DebugStatistics {
@@ -143,4 +144,20 @@ message SlowOutlier {
   google.protobuf.Duration duration = 1;
   google.protobuf.Timestamp timestamp = 2;
   map<string, string> labels = 3;
+}
+
+// CallTree represents the root of a hierarchical call tree.
+message CallTree {
+  CallTreeNode root = 1;
+  int64 total_invocations = 2;  // Number of complete call trees captured
+}
+
+// CallTreeNode represents a node in the call tree hierarchy.
+message CallTreeNode {
+  string function_name = 1;
+  google.protobuf.Duration total_duration = 2;  // Total time including children
+  google.protobuf.Duration self_duration = 3;   // Time in this function only
+  int64 call_count = 4;                         // Number of times this function was called
+  repeated CallTreeNode children = 5;           // Child function calls
+  bool is_slow = 6;                             // Exceeds P95 threshold
 }
