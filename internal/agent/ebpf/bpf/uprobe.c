@@ -4,6 +4,15 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
+#define bpf_printk(fmt, ...) \
+    ({ \
+        char ____fmt[] = fmt; \
+        bpf_trace_printk(____fmt, sizeof(____fmt), \
+                         ##__VA_ARGS__); \
+    })
+
+static long (*bpf_trace_printk)(const char *fmt, __u32 fmt_size, ...) = (void *) 6;
+
 
 // Event structure matching Go struct
 struct uprobe_event {
@@ -41,6 +50,8 @@ int uprobe_entry(struct pt_regs *ctx) {
     // Store entry timestamp for duration calculation
     bpf_map_update_elem(&entry_times, &pid_tid, &ts, BPF_ANY);
 
+    bpf_printk("uprobe_entry: pid=%d tid=%d\n", pid, tid);
+
     // Reserve space in ring buffer
     struct uprobe_event *event;
     event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
@@ -73,9 +84,10 @@ int uprobe_return(struct pt_regs *ctx) {
     __u64 *entry_ts = bpf_map_lookup_elem(&entry_times, &pid_tid);
     __u64 duration = 0;
     if (entry_ts) {
-        duration = ts - *entry_ts;
         bpf_map_delete_elem(&entry_times, &pid_tid);
     }
+
+    bpf_printk("uprobe_return: pid=%d tid=%d duration=%llu\n", pid, tid, duration);
 
     // Reserve space in ring buffer
     struct uprobe_event *event;

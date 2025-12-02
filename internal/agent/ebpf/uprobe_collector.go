@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -25,7 +26,7 @@ type uprobeEvent struct {
 	Pid         uint32
 	Tid         uint32
 	EventType   uint8
-	_           [3]byte // padding
+	_           [7]byte // padding
 	DurationNs  uint64
 }
 
@@ -155,7 +156,7 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 
 	c.entryLink, err = exe.Uprobe("", c.objs.UprobeEntry, &link.UprobeOptions{
 		Address: c.funcOffset,
-		PID:     int(c.pid),
+		PID:     0, // Trace all processes using this binary (inode). Avoids PID namespace issues.
 	})
 	if err != nil {
 		c.objs.Close() // nolint:errcheck
@@ -170,28 +171,36 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 
 	c.logger.Debug().Msg("Successfully attached uprobe to function entry")
 
-	// Step 5: Attach uretprobe (function return)
-	c.logger.Debug().
-		Str("function_name", c.functionName).
-		Uint64("address", c.funcOffset).
-		Msg("Attaching uretprobe to function return")
+	// NOTE: Uretprobes are disabled for Go programs due to runtime incompatibility.
+	// Go uses a custom calling convention and stack management that conflicts with
+	// uretprobe's return address manipulation, causing "unexpected return pc" crashes.
+	// We only attach to function entry and won't capture return/duration information.
+	// TODO: disassemble function and attach many uprobes for RET (Return-Instruction Uprobes).
 
-	c.returnLink, err = exe.Uretprobe("", c.objs.UprobeReturn, &link.UprobeOptions{
-		Address: c.funcOffset,
-		PID:     int(c.pid),
-	})
-	if err != nil {
-		c.entryLink.Close() // nolint:errcheck
-		c.objs.Close()      // nolint:errcheck
-		c.logger.Error().
-			Err(err).
-			Str("function", c.functionName).
-			Uint64("offset", c.funcOffset).
-			Msg("Failed to attach uretprobe")
-		return fmt.Errorf("failed to attach uretprobe: %w", err)
-	}
+	// Step 5: Attach uretprobe (function return) - DISABLED for Go
+	/*
+		c.logger.Debug().
+			Str("function_name", c.functionName).
+			Uint64("address", c.funcOffset).
+			Msg("Attaching uretprobe to function return")
 
-	c.logger.Debug().Msg("Attached uretprobe to function return")
+		c.returnLink, err = exe.Uretprobe("", c.objs.UprobeReturn, &link.UprobeOptions{
+			Address: c.funcOffset,
+			PID:     0,
+		})
+		if err != nil {
+			c.entryLink.Close() // nolint:errcheck
+			c.objs.Close()      // nolint:errcheck
+			c.logger.Error().
+				Err(err).
+				Str("function", c.functionName).
+				Uint64("offset", c.funcOffset).
+				Msg("Failed to attach uretprobe")
+			return fmt.Errorf("failed to attach uretprobe: %w", err)
+		}
+
+		c.logger.Debug().Msg("Attached uretprobe to function return")
+	*/
 
 	// Step 6: Start reading events from ring buffer
 	c.reader, err = ringbuf.NewReader(c.objs.Events)
@@ -201,6 +210,12 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 		c.objs.Close()       // nolint:errcheck
 		return fmt.Errorf("failed to create ringbuf reader: %w", err)
 	}
+
+	c.logger.Info().
+		Str("binary_path", binaryPath).
+		Uint64("offset", c.funcOffset).
+		Uint32("pid", c.pid).
+		Msg("Starting event reader goroutine")
 
 	go c.readEvents()
 
@@ -271,7 +286,10 @@ func (c *UprobeCollector) GetEvents() ([]*meshv1.EbpfEvent, error) {
 
 // readEvents reads events from the ring buffer in a goroutine.
 func (c *UprobeCollector) readEvents() {
-	c.logger.Info().Msg("Started event reader goroutine")
+	c.logger.Info().
+		Str("function", c.functionName).
+		Str("service", c.config.ServiceName).
+		Msg("Event reader goroutine started, waiting for events...")
 
 	for {
 		select {
@@ -281,14 +299,28 @@ func (c *UprobeCollector) readEvents() {
 		default:
 		}
 
+		// Set a read deadline to avoid blocking forever
+		// This allows us to periodically log that we're still waiting
+		c.reader.SetDeadline(time.Now().Add(5 * time.Second))
+
 		record, err := c.reader.Read()
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
+				c.logger.Info().Msg("Ring buffer closed, exiting event reader")
 				return
+			}
+			// Check if it's a timeout error (os.ErrDeadlineExceeded)
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				c.logger.Debug().Msg("No events in last 5s, still waiting...")
+				continue
 			}
 			c.logger.Error().Err(err).Msg("Failed to read event from ring buffer")
 			continue
 		}
+
+		c.logger.Debug().
+			Int("size", len(record.RawSample)).
+			Msg("✓ Read record from ring buffer")
 
 		// Parse event from raw bytes
 		var rawEvent uprobeEvent

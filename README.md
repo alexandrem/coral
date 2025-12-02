@@ -6,6 +6,8 @@ LLM-orchestrated debugging for **distributed apps**. Turn fragmented
 infrastructure into one intelligent system.
 
 [![CI](https://github.com/alexandrem/coral-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandrem/coral-mesh/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/alexandrem/coral-mesh)](https://goreportcard.com/report/github.com/alexandrem/coral-mesh)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > [!NOTE]
 > 🚧 **Early Development** - Implementation in progress
