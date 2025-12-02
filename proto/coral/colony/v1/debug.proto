@@ -103,6 +103,7 @@ message TraceRequestPathRequest {
   string service_name = 1;
   string path = 2;
   google.protobuf.Duration duration = 3;
+  string sdk_addr = 4;              // SDK address for uprobe (optional, will try to discover)
 }
 
 // TraceRequestPathResponse returns the trace session details.

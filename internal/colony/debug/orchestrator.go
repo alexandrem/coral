@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -517,12 +518,83 @@ func (o *Orchestrator) TraceRequestPath(
 	o.logger.Info().
 		Str("service", req.Msg.ServiceName).
 		Str("path", req.Msg.Path).
-		Msg("TraceRequestPath not yet implemented")
+		Msg("Starting trace for request path")
+
+	// For now, use simple heuristic to infer function name from path.
+	// TODO(RFD 063): Implement automatic function discovery from Beyla traces.
+	// /checkout -> main.ProcessCheckout, /api/payment -> main.ProcessPayment
+	functionName := inferFunctionNameFromPath(req.Msg.Path)
+
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Str("path", req.Msg.Path).
+		Str("function", functionName).
+		Msg("Discovered function for path")
+
+	// Start uprobe session on the discovered function.
+	attachReq := connect.NewRequest(&debugpb.AttachUprobeRequest{
+		ServiceName:  req.Msg.ServiceName,
+		FunctionName: functionName,
+		Duration:     req.Msg.Duration,
+		SdkAddr:      req.Msg.SdkAddr,
+		Config: &meshv1.UprobeConfig{
+			CaptureArgs:   false, // Don't capture args for traces (too much data)
+			CaptureReturn: true,  // Capture return for duration measurement
+		},
+	})
+
+	attachResp, err := o.AttachUprobe(ctx, attachReq)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("service", req.Msg.ServiceName).
+			Str("function", functionName).
+			Msg("Failed to attach uprobe for trace")
+		return connect.NewResponse(&debugpb.TraceRequestPathResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to attach uprobe: %v", err),
+		}), nil
+	}
+
+	if !attachResp.Msg.Success {
+		return connect.NewResponse(&debugpb.TraceRequestPathResponse{
+			Success: false,
+			Error:   attachResp.Msg.Error,
+		}), nil
+	}
 
 	return connect.NewResponse(&debugpb.TraceRequestPathResponse{
-		Success: false,
-		Error:   "TraceRequestPath not yet implemented",
+		SessionId: attachResp.Msg.SessionId,
+		Path:      req.Msg.Path,
+		Success:   true,
 	}), nil
+}
+
+// inferFunctionNameFromPath uses simple heuristics to guess a function name from HTTP path.
+func inferFunctionNameFromPath(path string) string {
+	// Remove leading slash and split by slash.
+	path = strings.TrimPrefix(path, "/")
+	parts := strings.Split(path, "/")
+
+	if len(parts) == 0 || parts[0] == "" {
+		return "main.ProcessRequest"
+	}
+
+	// Take the first meaningful path segment.
+	segment := parts[0]
+
+	// Remove common prefixes like "api", "v1", etc.
+	if segment == "api" && len(parts) > 1 {
+		segment = parts[1]
+	}
+
+	// Capitalize first letter and add Process prefix.
+	// /checkout -> main.ProcessCheckout, /payment -> main.ProcessPayment
+	if len(segment) > 0 {
+		segment = strings.Title(strings.ToLower(segment))
+		return "main.Process" + segment
+	}
+
+	return "main.ProcessRequest"
 }
 
 // GetDebugResults retrieves aggregated debug results.

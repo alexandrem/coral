@@ -21,6 +21,7 @@ func NewTraceCmd() *cobra.Command {
 		duration time.Duration
 		format   string
 		wait     bool
+		sdkAddr  string
 	)
 
 	cmd := &cobra.Command{
@@ -50,6 +51,7 @@ func NewTraceCmd() *cobra.Command {
 				ServiceName: serviceName,
 				Path:        path,
 				Duration:    durationpb.New(duration),
+				SdkAddr:     sdkAddr,
 			}
 
 			resp, err := client.TraceRequestPath(ctx, connect.NewRequest(req))
@@ -73,8 +75,23 @@ func NewTraceCmd() *cobra.Command {
 					fmt.Printf("⏳ Waiting for trace to complete (%s)...\n", duration)
 				}
 
-				// Wait for the trace duration
+				// Wait for the full trace duration.
+				// Collector stays alive with events even after expiration.
 				time.Sleep(duration)
+
+				// Explicitly detach to persist events and clean up collector.
+				detachReq := &colonypb.DetachUprobeRequest{
+					SessionId: sessionID,
+				}
+				_, err = client.DetachUprobe(ctx, connect.NewRequest(detachReq))
+				if err != nil {
+					if format == "text" {
+						fmt.Printf("⚠️  Warning: failed to detach session (continuing anyway): %v\n", err)
+					}
+				}
+
+				// Small delay to ensure persistence completes
+				time.Sleep(500 * time.Millisecond)
 
 				// Fetch results
 				resultsReq := &colonypb.GetDebugResultsRequest{
@@ -125,6 +142,7 @@ func NewTraceCmd() *cobra.Command {
 	cmd.Flags().DurationVarP(&duration, "duration", "d", 60*time.Second, "Duration of the trace session")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for trace to complete and display results")
+	cmd.Flags().StringVar(&sdkAddr, "sdk-addr", "", "SDK address (e.g., localhost:50051) - required for uprobe attachment")
 
 	if err := cmd.MarkFlagRequired("path"); err != nil {
 		fmt.Printf("failed to mark flag as required: %v\n", err)

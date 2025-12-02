@@ -614,6 +614,7 @@ type TraceRequestPathRequest struct {
 	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
 	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
 	Duration      *durationpb.Duration   `protobuf:"bytes,3,opt,name=duration,proto3" json:"duration,omitempty"`
+	SdkAddr       string                 `protobuf:"bytes,4,opt,name=sdk_addr,json=sdkAddr,proto3" json:"sdk_addr,omitempty"` // SDK address for uprobe (optional, will try to discover)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -667,6 +668,13 @@ func (x *TraceRequestPathRequest) GetDuration() *durationpb.Duration {
 		return x.Duration
 	}
 	return nil
+}
+
+func (x *TraceRequestPathRequest) GetSdkAddr() string {
+	if x != nil {
+		return x.SdkAddr
+	}
+	return ""
 }
 
 // TraceRequestPathResponse returns the trace session details.
@@ -1214,11 +1222,12 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\x06status\x18\a \x01(\tR\x06status\x12!\n" +
 	"\frequested_by\x18\b \x01(\tR\vrequestedBy\x12\x1f\n" +
 	"\vevent_count\x18\t \x01(\x05R\n" +
-	"eventCount\"\x87\x01\n" +
+	"eventCount\"\xa2\x01\n" +
 	"\x17TraceRequestPathRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x125\n" +
-	"\bduration\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\bduration\"}\n" +
+	"\bduration\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x19\n" +
+	"\bsdk_addr\x18\x04 \x01(\tR\asdkAddr\"}\n" +
 	"\x18TraceRequestPathResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +

@@ -31,6 +31,7 @@ type runningCollector struct {
 	cancel      context.CancelFunc
 	expiresAt   time.Time
 	serviceName string
+	expired     bool // Set to true when expired, but events still available
 }
 
 // Config contains manager configuration.
@@ -42,11 +43,17 @@ type Config struct {
 func NewManager(config Config) *Manager {
 	caps := detectCapabilities()
 
-	return &Manager{
+	m := &Manager{
 		logger:     config.Logger.With().Str("component", "ebpf_manager").Logger(),
 		collectors: make(map[string]*runningCollector),
 		caps:       caps,
 	}
+
+	// Start background janitor to clean up expired collectors.
+	// NOTE: this will be stopped when process ends only. We should improve this.
+	go m.janitor()
+
+	return m
 }
 
 // GetCapabilities returns the eBPF capabilities of this system.
@@ -211,7 +218,8 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
-// autoStop automatically stops a collector when it expires.
+// autoStop automatically marks a collector as expired when duration completes.
+// The collector stays in memory with events available until explicitly stopped.
 func (m *Manager) autoStop(running *runningCollector) {
 	<-running.ctx.Done()
 
@@ -219,12 +227,13 @@ func (m *Manager) autoStop(running *runningCollector) {
 	defer m.mu.Unlock()
 
 	// Check if still tracked (might have been manually stopped).
-	if _, ok := m.collectors[running.id]; ok {
-		if err := running.collector.Stop(); err != nil {
-			m.logger.Error().Err(err).Str("collector_id", running.id).Msg("Error auto-stopping collector")
-		}
-		delete(m.collectors, running.id)
-		m.logger.Info().Str("collector_id", running.id).Msg("Auto-stopped expired collector")
+	if collector, ok := m.collectors[running.id]; ok {
+		// Mark as expired but DON'T remove from tracking or stop collection.
+		// Events remain available for fetching during detach/cleanup.
+		collector.expired = true
+		m.logger.Info().
+			Str("collector_id", running.id).
+			Msg("Collector expired - events still available until cleanup")
 	}
 }
 
@@ -280,5 +289,43 @@ func (m *Manager) createCollector(kind agentv1.EbpfCollectorKind, config map[str
 		return NewSyscallStatsCollector(m.logger, config), nil
 	default:
 		return nil, fmt.Errorf("unsupported collector kind: %v", kind)
+	}
+}
+
+// janitor periodically cleans up expired collectors that haven't been explicitly stopped.
+// Gives a 1-hour grace period after expiration for event fetching before cleanup.
+func (m *Manager) janitor() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		m.cleanupExpiredCollectors()
+	}
+}
+
+// cleanupExpiredCollectors removes collectors that have been expired for > 1 hour.
+func (m *Manager) cleanupExpiredCollectors() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	gracePeriod := 1 * time.Hour
+	var cleaned []string
+
+	for id, collector := range m.collectors {
+		if collector.expired && now.After(collector.expiresAt.Add(gracePeriod)) {
+			// Expired over 1 hour ago - clean up
+			if err := collector.collector.Stop(); err != nil {
+				m.logger.Error().Err(err).Str("collector_id", id).Msg("Error stopping expired collector during cleanup")
+			}
+			delete(m.collectors, id)
+			cleaned = append(cleaned, id)
+		}
+	}
+
+	if len(cleaned) > 0 {
+		m.logger.Info().
+			Strs("collector_ids", cleaned).
+			Msg("Cleaned up expired collectors (grace period exceeded)")
 	}
 }
