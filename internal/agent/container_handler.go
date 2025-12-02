@@ -239,8 +239,9 @@ func (h *ContainerHandler) detectContainerPID(containerName string) (int, error)
 			continue // Not a numeric directory.
 		}
 
-		// Skip init (PID 1) and our own process.
-		if pid <= 1 || pid == os.Getpid() {
+		// Skip our own process.
+		// Note: PID 1 is valid in shared PID namespace (sidecar mode).
+		if pid <= 0 || pid == os.Getpid() {
 			continue
 		}
 

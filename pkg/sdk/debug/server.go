@@ -26,27 +26,20 @@ type Server struct {
 
 // NewServer creates a new SDK debug server.
 func NewServer(logger *slog.Logger, provider *FunctionMetadataProvider) (*Server, error) {
-	// Listen on a random available port on localhost.
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create listener: %w", err)
-	}
-
 	return &Server{
 		logger:   logger.With("component", "sdk-debug-server"),
 		provider: provider,
-		listener: listener,
 	}, nil
 }
 
-// Start starts the gRPC server on an auto-selected port.
-func (s *Server) Start() error {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+// Start starts the gRPC server on the specified address.
+func (s *Server) Start(listenAddr string) error {
+	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return fmt.Errorf("failed to create listener: %w", err)
 	}
 	s.listener = listener
-	s.addr = listener.Addr().String()
+	s.addr = s.listener.Addr().String()
 
 	// Create Connect-RPC handler.
 	mux := http.NewServeMux()
@@ -61,7 +54,7 @@ func (s *Server) Start() error {
 	// Start serving in background.
 	go func() {
 		s.logger.Info("SDK debug server started", "addr", s.listener.Addr().String())
-		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("Failed to start HTTP server", "error", err)
 		}
 	}()

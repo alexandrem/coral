@@ -11,7 +11,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc /usr/local/homebrew/opt/llvm/bin/clang -strip /usr/local/homebrew/opt/llvm/bin/llvm-strip uprobe_monitor ./bpf/uprobe_monitor.bpf.c -- -I../ebpf/bpf/headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go uprobe_monitor ./bpf/uprobe_monitor.bpf.c -- -I../ebpf/bpf/headers
 
 // attachUprobeLocked attaches eBPF uprobe to target function.
 // Caller must hold m.mu.
@@ -34,47 +34,64 @@ func (m *DebugSessionManager) attachUprobeLocked(
 	// We'll manage them manually or put them in the session
 
 	// 2. Open executable
-	exe, err := link.OpenExecutable(binaryPath)
+	// In sidecar mode with shared PID namespace, use /proc/{pid}/exe which is a
+	// symlink to the actual binary. This works for uprobe attachment even when
+	// the binary path is only visible in the container's mount namespace.
+	resolvedPath := fmt.Sprintf("/proc/%d/exe", pid)
+	m.logger.Debug().
+		Str("container_path", binaryPath).
+		Str("proc_exe_path", resolvedPath).
+		Int("pid", pid).
+		Uint64("offset", offset).
+		Msg("Using /proc/{pid}/exe for uprobe attachment")
+
+	exe, err := link.OpenExecutable(resolvedPath)
 	if err != nil {
-		objs.Close()
-		return fmt.Errorf("open executable: %w", err)
+		objs.Close() // nolint:errcheck
+		return fmt.Errorf("open executable (path=%s): %w", resolvedPath, err)
 	}
 
+	m.logger.Debug().
+		Str("exe_path", resolvedPath).
+		Msg("Successfully opened executable for uprobe attachment")
+
 	// 3. Attach uprobe (entry)
+	// Use Address field for absolute address from SDK (not Offset which is relative).
 	entryLink, err := exe.Uprobe(
-		"", // Symbol name empty because we use offset
+		"", // Symbol name empty because we use absolute addressing
 		objs.ProbeEntry,
 		&link.UprobeOptions{
-			Offset: offset,
-			PID:    pid,
+			Address: offset,
+			PID:     pid,
 		},
 	)
 	if err != nil {
-		objs.Close()
+		objs.Close() // nolint:errcheck
 		return fmt.Errorf("attach uprobe entry: %w", err)
 	}
 
 	// 4. Attach uretprobe (exit)
+	// Use Address field for absolute address from SDK (not Offset which is relative).
 	exitLink, err := exe.Uretprobe(
-		"", // Symbol name empty because we use offset
+		"", // Symbol name empty because we use absolute addressing
 		objs.ProbeExit,
 		&link.UprobeOptions{
-			Offset: offset,
-			PID:    pid,
+			Address: offset,
+			PID:     pid,
 		},
 	)
 	if err != nil {
-		entryLink.Close()
-		objs.Close()
+		entryLink.Close() // nolint:errcheck
+		objs.Close()      // nolint:errcheck
 		return fmt.Errorf("attach uretprobe exit: %w", err)
 	}
 
 	// 4. Open ring buffer reader
 	reader, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
-		exitLink.Close()
-		entryLink.Close()
-		objs.Close()
+		exitLink.Close()  // nolint:errcheck
+		entryLink.Close() // nolint:errcheck
+		objs.Close()      // nolint:errcheck
 		return fmt.Errorf("create ringbuf reader: %w", err)
 	}
 

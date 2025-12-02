@@ -114,6 +114,7 @@ install-tools: ## Install development tools
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
 	go install github.com/bufbuild/buf/cmd/buf@latest
+	go install golang.org/x/tools/cmd/goimports@latest
 
 lint: ## Run linter
 	@echo "Running linter..."

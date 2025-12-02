@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
@@ -425,8 +426,7 @@ func (h *ServiceHandler) StreamDebugEvents(
 		// Handle command
 		if cmd.Command == "detach" {
 			if err := h.agent.StopDebugSession(cmd.SessionId); err != nil {
-				// Log error but continue
-				// We might want to send an error event back?
+				errCh <- fmt.Errorf("failed to stop debug session: %w", err)
 			}
 		}
 	}
