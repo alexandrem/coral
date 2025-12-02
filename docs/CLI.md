@@ -1432,15 +1432,8 @@ coral shell --agent api-1
 
 ## Related Documentation
 
-- **RFD 026** - Shell Command Implementation (agent shell access)
-- **RFD 056** - Container Exec via nsenter (container namespace execution)
-- **RFD 039** - DuckDB Remote Query CLI (detailed specification)
-- **RFD 025** - OTLP Telemetry Receiver (spans in `metrics.duckdb`)
-- **RFD 032** - Beyla RED Metrics Integration (HTTP/gRPC/SQL metrics in
-  `metrics.duckdb`)
-- **RFD 038** - CLI-to-Agent Direct Mesh Connectivity
-- **RFD 045** - MCP Shell Exec Tool (one-off command execution via MCP)
-- **RFD 046** - Colony DuckDB Remote Query (historical data - future)
+- **[CLI_MCP_MAPPING.md](./CLI_MCP_MAPPING.md)** - Mapping of CLI commands to
+  MCP tools for AI-powered investigation
 - **DuckDB Documentation** - https://duckdb.org/docs/
 
 ---
