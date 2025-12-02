@@ -14,7 +14,7 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-mesh/coral/internal/cli/shared"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 // AgentInfo contains information about an agent with available databases.
@@ -29,7 +29,7 @@ type AgentInfo struct {
 // getColonyClient returns a colony gRPC client using the colony URL from config.
 func getColonyClient() (colonyv1connect.ColonyServiceClient, error) {
 	// Use shared CLI helper for colony client creation.
-	return shared.GetColonyClient("")
+	return helpers.GetColonyClient("")
 }
 
 // listAgents queries the colony to get all registered agents.
