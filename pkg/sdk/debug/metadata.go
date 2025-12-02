@@ -22,6 +22,7 @@ type FunctionMetadataProvider struct {
 	pid        int
 	dwarf      *dwarf.Data
 	closer     interface{ Close() error } // Either *elf.File or *macho.File
+	baseAddr   uint64                     // Base address for offset calculation
 
 	// Cache for function lookups.
 	mu            sync.RWMutex
@@ -65,6 +66,7 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 		dwarfData  *dwarf.Data // Extract DWARF debug info (platform-specific).
 		fileCloser interface{ Close() error }
 		dwarfErr   error
+		baseAddr   uint64 // Base address for offset calculation
 	)
 
 	switch runtime.GOOS {
@@ -79,8 +81,20 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 		dwarfData, dwarfErr = elfFile.DWARF()
 		if dwarfErr != nil {
 			// Don't return error yet, allow fallback
-			elfFile.Close()
+			if err := elfFile.Close(); err != nil {
+				logger.Warn("Failed to close ELF file", "error", err)
+			}
 			fileCloser = nil
+		}
+
+		// Get base address from ELF for offset calculation
+		if elfFile != nil {
+			for _, prog := range elfFile.Progs {
+				if prog.Type == elf.PT_LOAD && prog.Flags&elf.PF_X != 0 {
+					baseAddr = prog.Vaddr
+					break
+				}
+			}
 		}
 
 	case "darwin":
@@ -94,7 +108,9 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 		dwarfData, dwarfErr = machoFile.DWARF()
 		if dwarfErr != nil {
 			// Don't return error yet, allow fallback
-			machoFile.Close()
+			if err := machoFile.Close(); err != nil {
+				logger.Warn("Failed to close macho file", "error", err)
+			}
 			fileCloser = nil
 		}
 
@@ -109,7 +125,9 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 
 		// Close file handle if it was opened
 		if fileCloser != nil {
-			fileCloser.Close()
+			if err := fileCloser.Close(); err != nil {
+				logger.Warn("Failed to close file", "error", err)
+			}
 			fileCloser = nil
 		}
 
@@ -127,6 +145,7 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 		pid:           os.Getpid(),
 		dwarf:         dwarfData,
 		closer:        fileCloser,
+		baseAddr:      baseAddr,
 		functionCache: make(map[string]*FunctionMetadata),
 	}, nil
 }
@@ -164,7 +183,7 @@ func (p *FunctionMetadataProvider) GetBinaryHash() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer f.Close() // nolint:errcheck
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -264,7 +283,9 @@ func (p *FunctionMetadataProvider) ListFunctions(packagePattern string) ([]strin
 }
 
 // searchDWARFForFunction searches DWARF debug info for a function and extracts metadata.
-func (p *FunctionMetadataProvider) searchDWARFForFunction(funcName string) (uint64, []*ArgumentMetadata, []*ReturnValueMetadata, error) {
+func (p *FunctionMetadataProvider) searchDWARFForFunction(
+	funcName string,
+) (uint64, []*ArgumentMetadata, []*ReturnValueMetadata, error) {
 	reader := p.dwarf.Reader()
 
 	for {
@@ -288,7 +309,20 @@ func (p *FunctionMetadataProvider) searchDWARFForFunction(funcName string) (uint
 				// Parse function arguments and return values.
 				args, retVals := p.parseFunctionParameters(reader, entry)
 
-				return lowPC, args, retVals, nil
+				// Convert virtual address to file offset by subtracting base address
+				// This is needed when attaching uprobes with PID=0 (all processes)
+				// cilium/ebpf expects file offset in this case, not virtual address
+				fileOffset := lowPC
+				if p.baseAddr > 0 {
+					fileOffset = lowPC - p.baseAddr
+					p.logger.Debug("Converted virtual address to file offset",
+						"function", funcName,
+						"virtual_addr", lowPC,
+						"base_addr", p.baseAddr,
+						"file_offset", fileOffset)
+				}
+
+				return fileOffset, args, retVals, nil
 			}
 		}
 	}
@@ -297,7 +331,10 @@ func (p *FunctionMetadataProvider) searchDWARFForFunction(funcName string) (uint
 }
 
 // parseFunctionParameters extracts argument and return value metadata from a function entry.
-func (p *FunctionMetadataProvider) parseFunctionParameters(reader *dwarf.Reader, funcEntry *dwarf.Entry) ([]*ArgumentMetadata, []*ReturnValueMetadata) {
+func (p *FunctionMetadataProvider) parseFunctionParameters(
+	reader *dwarf.Reader,
+	funcEntry *dwarf.Entry,
+) ([]*ArgumentMetadata, []*ReturnValueMetadata) {
 	var args []*ArgumentMetadata
 	var retVals []*ReturnValueMetadata
 

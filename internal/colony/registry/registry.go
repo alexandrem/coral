@@ -181,3 +181,19 @@ func DetermineStatus(lastSeen, now time.Time) AgentStatus {
 	}
 	return StatusUnhealthy
 }
+
+// FindAgentForService returns the first agent running the specified service.
+func (r *Registry) FindAgentForService(serviceName string) (*Entry, *meshv1.ServiceInfo, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, entry := range r.entries {
+		for _, service := range entry.Services {
+			if service.Name == serviceName {
+				return entry, service, nil
+			}
+		}
+	}
+
+	return nil, nil, fmt.Errorf("service not found: %s", serviceName)
+}

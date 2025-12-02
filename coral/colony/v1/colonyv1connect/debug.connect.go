@@ -46,6 +46,12 @@ const (
 	// DebugServiceListDebugSessionsProcedure is the fully-qualified name of the DebugService's
 	// ListDebugSessions RPC.
 	DebugServiceListDebugSessionsProcedure = "/coral.colony.v1.DebugService/ListDebugSessions"
+	// DebugServiceTraceRequestPathProcedure is the fully-qualified name of the DebugService's
+	// TraceRequestPath RPC.
+	DebugServiceTraceRequestPathProcedure = "/coral.colony.v1.DebugService/TraceRequestPath"
+	// DebugServiceGetDebugResultsProcedure is the fully-qualified name of the DebugService's
+	// GetDebugResults RPC.
+	DebugServiceGetDebugResultsProcedure = "/coral.colony.v1.DebugService/GetDebugResults"
 )
 
 // DebugServiceClient is a client for the coral.colony.v1.DebugService service.
@@ -58,6 +64,10 @@ type DebugServiceClient interface {
 	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
 	// List active debug sessions.
 	ListDebugSessions(context.Context, *connect.Request[v1.ListDebugSessionsRequest]) (*connect.Response[v1.ListDebugSessionsResponse], error)
+	// Trace request path (RFD 062).
+	TraceRequestPath(context.Context, *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error)
+	// Get aggregated debug results (RFD 062).
+	GetDebugResults(context.Context, *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error)
 }
 
 // NewDebugServiceClient constructs a client for the coral.colony.v1.DebugService service. By
@@ -95,6 +105,18 @@ func NewDebugServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(debugServiceMethods.ByName("ListDebugSessions")),
 			connect.WithClientOptions(opts...),
 		),
+		traceRequestPath: connect.NewClient[v1.TraceRequestPathRequest, v1.TraceRequestPathResponse](
+			httpClient,
+			baseURL+DebugServiceTraceRequestPathProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("TraceRequestPath")),
+			connect.WithClientOptions(opts...),
+		),
+		getDebugResults: connect.NewClient[v1.GetDebugResultsRequest, v1.GetDebugResultsResponse](
+			httpClient,
+			baseURL+DebugServiceGetDebugResultsProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("GetDebugResults")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -104,6 +126,8 @@ type debugServiceClient struct {
 	detachUprobe      *connect.Client[v1.DetachUprobeRequest, v1.DetachUprobeResponse]
 	queryUprobeEvents *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
 	listDebugSessions *connect.Client[v1.ListDebugSessionsRequest, v1.ListDebugSessionsResponse]
+	traceRequestPath  *connect.Client[v1.TraceRequestPathRequest, v1.TraceRequestPathResponse]
+	getDebugResults   *connect.Client[v1.GetDebugResultsRequest, v1.GetDebugResultsResponse]
 }
 
 // AttachUprobe calls coral.colony.v1.DebugService.AttachUprobe.
@@ -126,6 +150,16 @@ func (c *debugServiceClient) ListDebugSessions(ctx context.Context, req *connect
 	return c.listDebugSessions.CallUnary(ctx, req)
 }
 
+// TraceRequestPath calls coral.colony.v1.DebugService.TraceRequestPath.
+func (c *debugServiceClient) TraceRequestPath(ctx context.Context, req *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error) {
+	return c.traceRequestPath.CallUnary(ctx, req)
+}
+
+// GetDebugResults calls coral.colony.v1.DebugService.GetDebugResults.
+func (c *debugServiceClient) GetDebugResults(ctx context.Context, req *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error) {
+	return c.getDebugResults.CallUnary(ctx, req)
+}
+
 // DebugServiceHandler is an implementation of the coral.colony.v1.DebugService service.
 type DebugServiceHandler interface {
 	// Start uprobe debug session.
@@ -136,6 +170,10 @@ type DebugServiceHandler interface {
 	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
 	// List active debug sessions.
 	ListDebugSessions(context.Context, *connect.Request[v1.ListDebugSessionsRequest]) (*connect.Response[v1.ListDebugSessionsResponse], error)
+	// Trace request path (RFD 062).
+	TraceRequestPath(context.Context, *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error)
+	// Get aggregated debug results (RFD 062).
+	GetDebugResults(context.Context, *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error)
 }
 
 // NewDebugServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -169,6 +207,18 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(debugServiceMethods.ByName("ListDebugSessions")),
 		connect.WithHandlerOptions(opts...),
 	)
+	debugServiceTraceRequestPathHandler := connect.NewUnaryHandler(
+		DebugServiceTraceRequestPathProcedure,
+		svc.TraceRequestPath,
+		connect.WithSchema(debugServiceMethods.ByName("TraceRequestPath")),
+		connect.WithHandlerOptions(opts...),
+	)
+	debugServiceGetDebugResultsHandler := connect.NewUnaryHandler(
+		DebugServiceGetDebugResultsProcedure,
+		svc.GetDebugResults,
+		connect.WithSchema(debugServiceMethods.ByName("GetDebugResults")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.DebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DebugServiceAttachUprobeProcedure:
@@ -179,6 +229,10 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 			debugServiceQueryUprobeEventsHandler.ServeHTTP(w, r)
 		case DebugServiceListDebugSessionsProcedure:
 			debugServiceListDebugSessionsHandler.ServeHTTP(w, r)
+		case DebugServiceTraceRequestPathProcedure:
+			debugServiceTraceRequestPathHandler.ServeHTTP(w, r)
+		case DebugServiceGetDebugResultsProcedure:
+			debugServiceGetDebugResultsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -202,4 +256,12 @@ func (UnimplementedDebugServiceHandler) QueryUprobeEvents(context.Context, *conn
 
 func (UnimplementedDebugServiceHandler) ListDebugSessions(context.Context, *connect.Request[v1.ListDebugSessionsRequest]) (*connect.Response[v1.ListDebugSessionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.ListDebugSessions is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) TraceRequestPath(context.Context, *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.TraceRequestPath is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) GetDebugResults(context.Context, *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.GetDebugResults is not implemented"))
 }

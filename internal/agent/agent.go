@@ -7,10 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
+	"github.com/coral-mesh/coral/internal/agent/debug"
 	"github.com/coral-mesh/coral/internal/agent/ebpf"
-	"github.com/rs/zerolog"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // AgentStatus represents the overall agent health status.
@@ -28,6 +31,7 @@ type Agent struct {
 	monitors     map[string]*ServiceMonitor
 	ebpfManager  *ebpf.Manager
 	beylaManager *beyla.Manager
+	debugManager *debug.DebugSessionManager
 	logger       zerolog.Logger
 	mu           sync.RWMutex
 	ctx          context.Context
@@ -39,6 +43,7 @@ type Config struct {
 	AgentID     string
 	Services    []*meshv1.ServiceInfo
 	BeylaConfig *beyla.Config
+	DebugConfig config.DebugConfig
 	Logger      zerolog.Logger
 }
 
@@ -75,6 +80,9 @@ func New(config Config) (*Agent, error) {
 		ctx:          ctx,
 		cancel:       cancel,
 	}
+
+	// Initialize DebugSessionManager (RFD 061).
+	agent.debugManager = debug.NewDebugSessionManager(config.DebugConfig, config.Logger, agent)
 
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
@@ -300,4 +308,35 @@ func (a *Agent) collectPortsLocked() []int {
 		ports = append(ports, int(monitor.service.Port))
 	}
 	return ports
+}
+
+// Resolve resolves service name to address (ServiceResolver interface).
+func (a *Agent) Resolve(serviceName string) (string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	monitor, ok := a.monitors[serviceName]
+	if !ok {
+		return "", fmt.Errorf("service not found: %s", serviceName)
+	}
+
+	// TODO: Support remote pods (Node Agent mode)
+	// For now, assume sidecar mode (localhost)
+	return fmt.Sprintf("localhost:%d", monitor.service.Port), nil
+}
+
+// StartDebugSession starts a debug session for a service.
+func (a *Agent) StartDebugSession(sessionID, serviceName, functionName string) error {
+	if a.debugManager == nil {
+		return fmt.Errorf("debug manager not initialized")
+	}
+	return a.debugManager.StartSession(sessionID, serviceName, functionName)
+}
+
+// StopDebugSession stops a debug session.
+func (a *Agent) StopDebugSession(sessionID string) error {
+	if a.debugManager == nil {
+		return fmt.Errorf("debug manager not initialized")
+	}
+	return a.debugManager.CloseSession(sessionID)
 }

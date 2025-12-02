@@ -1,9 +1,8 @@
 package sdk
 
 import (
+	"log/slog"
 	"testing"
-
-	"github.com/rs/zerolog"
 )
 
 func TestNew(t *testing.T) {
@@ -17,7 +16,7 @@ func TestNew(t *testing.T) {
 			config: Config{
 				ServiceName: "test-service",
 				EnableDebug: false,
-				Logger:      zerolog.Nop(),
+				Logger:      slog.Default(),
 			},
 			wantErr: false,
 		},
@@ -25,7 +24,7 @@ func TestNew(t *testing.T) {
 			name: "missing service name",
 			config: Config{
 				EnableDebug: false,
-				Logger:      zerolog.Nop(),
+				Logger:      slog.Default(),
 			},
 			wantErr: true,
 		},
@@ -50,7 +49,7 @@ func TestSDK_DebugAddr(t *testing.T) {
 		sdk, err := New(Config{
 			ServiceName: "test-service",
 			EnableDebug: false,
-			Logger:      zerolog.Nop(),
+			Logger:      slog.Default(),
 		})
 		if err != nil {
 			t.Fatalf("New() error = %v", err)
@@ -67,7 +66,7 @@ func TestSDK_Close(t *testing.T) {
 	sdk, err := New(Config{
 		ServiceName: "test-service",
 		EnableDebug: false,
-		Logger:      zerolog.Nop(),
+		Logger:      slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/rs/zerolog"
 
 	"github.com/coral-mesh/coral/pkg/sdk"
 )
@@ -54,24 +54,48 @@ func maskCard(card string) string {
 }
 
 func main() {
-	// Setup logger.
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+	// Setup logger with JSON handler to match previous behavior
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
 
 	// Initialize Coral SDK with runtime monitoring enabled.
+	agentAddr := os.Getenv("CORAL_AGENT_ADDR")
+	if agentAddr == "" {
+		agentAddr = "127.0.0.1:9001"
+	}
+	logger.Info("Configured Agent Address", "addr", agentAddr)
+
 	err := sdk.RegisterService("payment-service", sdk.Options{
-		Port:          8080, // Fake port for demo
-		AgentAddr:     "localhost:9091",
+		Port:          3001,
+		AgentAddr:     agentAddr,
 		SdkListenAddr: ":9092",
 	})
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to register service")
+		logger.Error("Failed to register service", "error", err)
+		os.Exit(1)
 	}
 
 	if err := sdk.EnableRuntimeMonitoring(); err != nil {
-		logger.Fatal().Err(err).Msg("Failed to enable runtime monitoring")
+		logger.Error("Failed to enable runtime monitoring", "error", err)
+		os.Exit(1)
 	}
 
-	logger.Info().Msg("Application started with Coral SDK (Runtime Monitoring Enabled)")
+	logger.Info("Application started with Coral SDK (Runtime Monitoring Enabled)")
+
+	// Start HTTP server for agent health checks
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	go func() {
+		logger.Info("Starting HTTP server", "port", 3001)
+		if err := http.ListenAndServe(":3001", nil); err != nil {
+			logger.Error("HTTP server failed", "error", err)
+		}
+	}()
 
 	// Simulate application workload.
 	go runWorkload(logger)
@@ -81,26 +105,26 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigChan
-	logger.Info().Msg("Received shutdown signal")
+	logger.Info("Received shutdown signal")
 }
 
-func runWorkload(logger zerolog.Logger) {
+func runWorkload(logger *slog.Logger) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		// Simulate various payment operations.
 		if err := ProcessPayment(99.99, "USD"); err != nil {
-			logger.Error().Err(err).Msg("Payment failed")
+			logger.Error("Payment failed", "error", err)
 		}
 
 		if valid, err := ValidateCard("4532123456789012"); err != nil {
-			logger.Error().Err(err).Msg("Card validation failed")
+			logger.Error("Card validation failed", "error", err)
 		} else {
-			logger.Info().Bool("valid", valid).Msg("Card validated")
+			logger.Info("Card validated", "valid", valid)
 		}
 
 		total := CalculateTotal(100.00, 0.08)
-		logger.Info().Float64("total", total).Msg("Calculated total")
+		logger.Info("Calculated total", "total", total)
 	}
 }

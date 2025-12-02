@@ -2158,7 +2158,11 @@ const file_coral_mesh_v1_ebpf_proto_rawDesc = "" +
 	"\vEbpfService\x12e\n" +
 	"\x0eStartCollector\x12(.coral.mesh.v1.StartEbpfCollectorRequest\x1a).coral.mesh.v1.StartEbpfCollectorResponse\x12b\n" +
 	"\rStopCollector\x12'.coral.mesh.v1.StopEbpfCollectorRequest\x1a(.coral.mesh.v1.StopEbpfCollectorResponse\x12Q\n" +
-	"\fStreamEvents\x12%.coral.mesh.v1.EbpfEventStreamRequest\x1a\x18.coral.mesh.v1.EbpfEvent0\x01B\xa6\x01\n" +
+	"\fStreamEvents\x12%.coral.mesh.v1.EbpfEventStreamRequest\x1a\x18.coral.mesh.v1.EbpfEvent0\x012\xd5\x02\n" +
+	"\fDebugService\x12o\n" +
+	"\x14StartUprobeCollector\x12*.coral.mesh.v1.StartUprobeCollectorRequest\x1a+.coral.mesh.v1.StartUprobeCollectorResponse\x12l\n" +
+	"\x13StopUprobeCollector\x12).coral.mesh.v1.StopUprobeCollectorRequest\x1a*.coral.mesh.v1.StopUprobeCollectorResponse\x12f\n" +
+	"\x11QueryUprobeEvents\x12'.coral.mesh.v1.QueryUprobeEventsRequest\x1a(.coral.mesh.v1.QueryUprobeEventsResponseB\xa6\x01\n" +
 	"\x11com.coral.mesh.v1B\tEbpfProtoP\x01Z0github.com/coral-mesh/coral/coral/mesh/v1;meshv1\xa2\x02\x03CMX\xaa\x02\rCoral.Mesh.V1\xca\x02\rCoral\\Mesh\\V1\xe2\x02\x19Coral\\Mesh\\V1\\GPBMetadata\xea\x02\x0fCoral::Mesh::V1b\x06proto3"
 
 var (
@@ -2251,11 +2255,17 @@ var file_coral_mesh_v1_ebpf_proto_depIdxs = []int32{
 	0,  // 35: coral.mesh.v1.EbpfService.StartCollector:input_type -> coral.mesh.v1.StartEbpfCollectorRequest
 	2,  // 36: coral.mesh.v1.EbpfService.StopCollector:input_type -> coral.mesh.v1.StopEbpfCollectorRequest
 	11, // 37: coral.mesh.v1.EbpfService.StreamEvents:input_type -> coral.mesh.v1.EbpfEventStreamRequest
-	1,  // 38: coral.mesh.v1.EbpfService.StartCollector:output_type -> coral.mesh.v1.StartEbpfCollectorResponse
-	3,  // 39: coral.mesh.v1.EbpfService.StopCollector:output_type -> coral.mesh.v1.StopEbpfCollectorResponse
-	23, // 40: coral.mesh.v1.EbpfService.StreamEvents:output_type -> coral.mesh.v1.EbpfEvent
-	38, // [38:41] is the sub-list for method output_type
-	35, // [35:38] is the sub-list for method input_type
+	4,  // 38: coral.mesh.v1.DebugService.StartUprobeCollector:input_type -> coral.mesh.v1.StartUprobeCollectorRequest
+	7,  // 39: coral.mesh.v1.DebugService.StopUprobeCollector:input_type -> coral.mesh.v1.StopUprobeCollectorRequest
+	9,  // 40: coral.mesh.v1.DebugService.QueryUprobeEvents:input_type -> coral.mesh.v1.QueryUprobeEventsRequest
+	1,  // 41: coral.mesh.v1.EbpfService.StartCollector:output_type -> coral.mesh.v1.StartEbpfCollectorResponse
+	3,  // 42: coral.mesh.v1.EbpfService.StopCollector:output_type -> coral.mesh.v1.StopEbpfCollectorResponse
+	23, // 43: coral.mesh.v1.EbpfService.StreamEvents:output_type -> coral.mesh.v1.EbpfEvent
+	6,  // 44: coral.mesh.v1.DebugService.StartUprobeCollector:output_type -> coral.mesh.v1.StartUprobeCollectorResponse
+	8,  // 45: coral.mesh.v1.DebugService.StopUprobeCollector:output_type -> coral.mesh.v1.StopUprobeCollectorResponse
+	10, // 46: coral.mesh.v1.DebugService.QueryUprobeEvents:output_type -> coral.mesh.v1.QueryUprobeEventsResponse
+	41, // [41:47] is the sub-list for method output_type
+	35, // [35:41] is the sub-list for method input_type
 	35, // [35:35] is the sub-list for extension type_name
 	35, // [35:35] is the sub-list for extension extendee
 	0,  // [0:35] is the sub-list for field type_name
@@ -2284,7 +2294,7 @@ func file_coral_mesh_v1_ebpf_proto_init() {
 			NumEnums:      0,
 			NumMessages:   33,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_coral_mesh_v1_ebpf_proto_goTypes,
 		DependencyIndexes: file_coral_mesh_v1_ebpf_proto_depIdxs,

@@ -1,10 +1,11 @@
 module github.com/coral-mesh/coral
 
-go 1.25.1
+go 1.25
 
 require (
 	connectrpc.com/connect v1.19.1
 	github.com/chzyer/readline v1.5.1
+	github.com/cilium/ebpf v0.16.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/uuid v1.6.0
@@ -39,7 +40,6 @@ require (
 	github.com/apache/arrow-go/v18 v18.1.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
-	github.com/cilium/ebpf v0.16.0 // indirect
 	github.com/creack/pty v1.1.7 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect

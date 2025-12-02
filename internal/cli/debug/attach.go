@@ -4,14 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func NewAttachCmd() *cobra.Command {
@@ -23,7 +25,7 @@ func NewAttachCmd() *cobra.Command {
 		sampleRate    uint32
 		agentID       string
 		sdkAddr       string
-		colonyAddr    string
+		format        string
 	)
 
 	cmd := &cobra.Command{
@@ -34,13 +36,22 @@ func NewAttachCmd() *cobra.Command {
 			serviceName := args[0]
 			ctx := context.Background()
 
+			// Resolve colony URL from config
+			colonyAddr, err := getColonyURL()
+			if err != nil {
+				return fmt.Errorf("failed to resolve colony address: %w\n\nMake sure the colony is configured and running", err)
+			}
+
 			// Create Colony client
 			client := colonyv1connect.NewDebugServiceClient(
 				http.DefaultClient,
 				colonyAddr,
 			)
 
-			fmt.Printf("Attaching uprobe to %s/%s...\n", serviceName, functionName)
+			// Show progress indicator (simple version without spinner library for now)
+			if format == "text" {
+				fmt.Printf("🔍 Attaching uprobe to %s/%s...\n", serviceName, functionName)
+			}
 
 			req := &colonypb.AttachUprobeRequest{
 				ServiceName:  serviceName,
@@ -57,6 +68,12 @@ func NewAttachCmd() *cobra.Command {
 
 			resp, err := client.AttachUprobe(ctx, connect.NewRequest(req))
 			if err != nil {
+				// Check if this is a connection error (colony not running)
+				if connect.CodeOf(err) == connect.CodeUnavailable {
+					return fmt.Errorf("colony is not reachable at %s\n"+
+						"Please ensure the colony is running with: bin/coral colony start\n"+
+						"Original error: %w", colonyAddr, err)
+				}
 				return fmt.Errorf("failed to attach uprobe: %w", err)
 			}
 
@@ -64,9 +81,16 @@ func NewAttachCmd() *cobra.Command {
 				return fmt.Errorf("failed to attach uprobe: %s", resp.Msg.Error)
 			}
 
-			fmt.Printf("✓ Debug session started\n")
-			fmt.Printf("  Session ID: %s\n", resp.Msg.SessionId)
-			fmt.Printf("  Expires at: %s\n", resp.Msg.ExpiresAt.AsTime().Format(time.RFC3339))
+			// Format and print output
+			formatter := NewFormatter(OutputFormat(format))
+			output, err := formatter.FormatAttachResponse(resp.Msg)
+			if err != nil {
+				return fmt.Errorf("failed to format output: %w", err)
+			}
+
+			if err := WriteOutput(os.Stdout, output); err != nil {
+				return fmt.Errorf("failed to write output: %w", err)
+			}
 
 			return nil
 		},
@@ -79,9 +103,11 @@ func NewAttachCmd() *cobra.Command {
 	cmd.Flags().Uint32Var(&sampleRate, "sample-rate", 0, "Sample rate (0 = all calls)")
 	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (manual override)")
 	cmd.Flags().StringVar(&sdkAddr, "sdk-addr", "", "SDK address (manual override)")
-	cmd.Flags().StringVar(&colonyAddr, "colony-addr", "http://localhost:8081", "Colony address")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 
-	cmd.MarkFlagRequired("function")
+	if err := cmd.MarkFlagRequired("function"); err != nil {
+		fmt.Printf("failed to mark flag as required: %v\n", err)
+	}
 
 	return cmd
 }

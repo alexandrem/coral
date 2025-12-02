@@ -5,11 +5,17 @@ WORKDIR /build
 
 # Install build dependencies including C compiler for CGO (required by go-duckdb).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    make \
-    gcc \
+    clang \
     g++ \
+    gcc \
+    git \
+    llvm \
+    make \
     && rm -rf /var/lib/apt/lists/*
+
+# Init project tooling.
+COPY Makefile .
+RUN make init
 
 # Copy go mod files.
 COPY go.mod go.sum ./

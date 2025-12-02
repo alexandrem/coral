@@ -1,15 +1,14 @@
 package debug
 
 import (
+	"log/slog"
 	"strings"
 	"testing"
-
-	"github.com/rs/zerolog"
 )
 
 // TestNewFunctionMetadataProvider tests creating a metadata provider.
 func TestNewFunctionMetadataProvider(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := slog.Default()
 
 	provider, err := NewFunctionMetadataProvider(logger)
 	if err != nil {
@@ -83,7 +82,7 @@ func TestMatchesPattern(t *testing.T) {
 
 // TestFunctionMetadataCache tests that function metadata is cached.
 func TestFunctionMetadataCache(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := slog.Default()
 
 	provider, err := NewFunctionMetadataProvider(logger)
 	if err != nil {

@@ -19,7 +19,7 @@ Initialize the SDK with `RegisterService` and `EnableRuntimeMonitoring`:
 // Register with local Agent
 err := sdk.RegisterService("payment-service", sdk.Options{
 Port:      8080,
-AgentAddr: "localhost:9091",
+AgentAddr: "localhost:9001",
 })
 
 // Enable runtime monitoring (background registration)
@@ -53,15 +53,30 @@ go build -ldflags="-w" -o sdk-demo main.go
 ## Running the Example
 
 ```bash
+```bash
 ./sdk-demo
 ```
+
+## Running with Docker (Recommended for macOS/Windows)
+
+To run the example in a Linux environment (required for eBPF tracing) on macOS or Windows, use Docker Compose:
+
+```bash
+docker-compose up --build
+```
+
+This will start:
+1. **sdk-demo**: The example application
+2. **coral-agent**: The Coral agent (privileged container for eBPF)
+
+Once running, you can attach to the debug session from your host machine using the CLI (if connected to the colony) or by executing into the agent container.
 
 **Expected output:**
 
 ```
-{"level":"info","...","message":"Application started with Coral SDK (Runtime Monitoring Enabled)"}
-{"level":"info","...","message":"Attempting to register with Agent..."}
-{"level":"info","...","message":"Successfully registered with Agent"}
+{"level":"INFO","time":"...","msg":"Application started with Coral SDK (Runtime Monitoring Enabled)","component":"coral-sdk","service":"payment-service"}
+{"level":"INFO","time":"...","msg":"Attempting to register with Agent...","component":"coral-sdk","service":"payment-service","agent":"localhost:9091"}
+{"level":"INFO","time":"...","msg":"Successfully registered with Agent","component":"coral-sdk","service":"payment-service"}
 ```
 
 ## Testing Function Metadata Queries
@@ -110,7 +125,7 @@ the Agent ID and SDK address.*
 SDK_ADDR="127.0.0.1:54321"
 
 # Attach uprobe
-./bin/coral debug attach sdk-demo \
+./bin/coral debug attach payment-service \
   --function main.ProcessPayment \
   --agent-id <AGENT_ID> \
   --sdk-addr $SDK_ADDR
