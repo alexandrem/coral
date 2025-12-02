@@ -115,14 +115,6 @@ the results.
 - Scalable: multiple proxies can connect to same colony
 - Type-safe with protocol buffers
 
-### Optional Future Enhancement
-
-**HTTP Streamable Transport:** For web-based clients or remote access, HTTP
-transport
-could be added alongside the current RPC implementation. See RFD 004 "Deferred
-Features"
-for details. Not required for current use cases (Claude Desktop, coral ask).
-
 **Key Point:** The LLM lives OUTSIDE the colony. Colony just provides data
 access tools.
 
@@ -566,7 +558,7 @@ database contention or external API timeouts."
 
 ## Implementation Status
 
-**Currently Implemented (RFD 004):**
+**Currently Implemented:**
 
 - ✅ MCP server with stdio transport
 - ✅ Service health and topology tools
@@ -581,7 +573,6 @@ database contention or external API timeouts."
 
 - ⏳ `test-tool` command execution (structure exists, prints placeholder)
 - ⏳ `coral_get_debug_results` aggregation (basic summary available via detach)
-- ⏳ Additional debugging tools (exec, shell) - requires RFD 026
 - ⏳ Analysis tools (event correlation, environment comparison) - requires event
   storage
 - ⏳ Raw telemetry queries - see RFD 041 for agent direct queries
@@ -640,12 +631,3 @@ Check that:
 - Colony is running with proper permissions
 - MCP security settings in `colony.yaml` are not too restrictive
 - Audit logging is working (check colony logs)
-
-## What's Next?
-
-See [RFD 004](../RFDs/004-mcp-server-integration.md) for full implementation
-details and [RFD 041](../RFDs/041-mcp-agent-direct-queries.md) for upcoming
-features like direct agent queries for detailed telemetry.
-
-For Coral as an MCP client (querying other MCP servers like Grafana, Sentry),
-see the roadmap in RFD 004's "Future Enhancements" section.
