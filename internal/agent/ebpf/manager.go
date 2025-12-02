@@ -94,7 +94,7 @@ func (m *Manager) StartCollector(ctx context.Context, req *meshv1.StartEbpfColle
 	}
 
 	// Create collector context.
-	collectorCtx, cancel := context.WithDeadline(ctx, expiresAt)
+	collectorCtx, cancel := context.WithDeadline(context.Background(), expiresAt)
 
 	// Start collector.
 	if err := collector.Start(collectorCtx); err != nil {
@@ -117,6 +117,11 @@ func (m *Manager) StartCollector(ctx context.Context, req *meshv1.StartEbpfColle
 	}
 	m.collectors[collectorID] = running
 
+	m.logger.Info().
+		Str("collector_id", collectorID).
+		Int("total_collectors", len(m.collectors)).
+		Msg("Added collector to tracking map")
+
 	// Auto-stop on expiration.
 	go m.autoStop(running)
 
@@ -125,6 +130,7 @@ func (m *Manager) StartCollector(ctx context.Context, req *meshv1.StartEbpfColle
 		Str("kind", req.Kind.String()).
 		Str("service", req.ServiceName).
 		Time("expires_at", expiresAt).
+		Int("active_collectors", len(m.collectors)).
 		Msg("Started eBPF collector")
 
 	return &meshv1.StartEbpfCollectorResponse{
@@ -162,9 +168,27 @@ func (m *Manager) StopCollector(collectorID string) error {
 func (m *Manager) GetEvents(collectorID string) ([]*meshv1.EbpfEvent, error) {
 	m.mu.RLock()
 	running, ok := m.collectors[collectorID]
+	totalCollectors := len(m.collectors)
+
+	// Log all collector IDs for debugging
+	var collectorIDs []string
+	for id := range m.collectors {
+		collectorIDs = append(collectorIDs, id)
+	}
 	m.mu.RUnlock()
 
+	m.logger.Debug().
+		Str("requested_collector_id", collectorID).
+		Int("total_collectors", totalCollectors).
+		Strs("active_collector_ids", collectorIDs).
+		Bool("found", ok).
+		Msg("Looking up collector for GetEvents")
+
 	if !ok {
+		m.logger.Error().
+			Str("collector_id", collectorID).
+			Strs("available_collectors", collectorIDs).
+			Msg("Collector not found in tracking map")
 		return nil, fmt.Errorf("collector not found: %s", collectorID)
 	}
 

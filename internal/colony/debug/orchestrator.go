@@ -336,6 +336,16 @@ func (o *Orchestrator) QueryUprobeEvents(
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
 	}
 
+	// Check if session has expired
+	if time.Now().After(session.ExpiresAt) {
+		o.logger.Warn().
+			Str("session_id", req.Msg.SessionId).
+			Time("expired_at", session.ExpiresAt).
+			Msg("Attempted to query events from expired session")
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("session expired at %s (events are no longer available)", session.ExpiresAt.Format(time.RFC3339)))
+	}
+
 	// Get agent entry from registry
 	entry, err := o.registry.Get(session.AgentID)
 	if err != nil {
