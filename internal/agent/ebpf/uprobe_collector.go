@@ -121,17 +121,17 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 	c.logger.Debug().Msg("Loaded eBPF objects")
 
 	// Step 3: Open executable for uprobe attachment
-	// In sidecar mode with shared PID namespace, the binary path from SDK metadata
-	// is relative to the container's mount namespace. Use /proc/{pid}/root to access
-	// the container's filesystem from the agent's perspective.
-	binaryPath := fmt.Sprintf("/proc/%d/root%s", c.pid, c.binaryPath)
+	// In sidecar mode with shared PID namespace, use /proc/{pid}/exe which is a
+	// symlink to the actual binary. This works for uprobe attachment even when
+	// the binary path is only visible in the container's mount namespace.
+	binaryPath := fmt.Sprintf("/proc/%d/exe", c.pid)
 
 	c.logger.Debug().
 		Str("container_path", c.binaryPath).
-		Str("agent_path", binaryPath).
+		Str("proc_exe_path", binaryPath).
 		Uint64("offset", c.funcOffset).
 		Uint32("pid", c.pid).
-		Msg("Resolving binary path through container namespace")
+		Msg("Using /proc/{pid}/exe for uprobe attachment")
 
 	exe, err := link.OpenExecutable(binaryPath)
 	if err != nil {
@@ -139,26 +139,55 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to open executable (path=%s): %w", binaryPath, err)
 	}
 
+	c.logger.Debug().
+		Str("exe_path", binaryPath).
+		Msg("Successfully opened executable for uprobe attachment")
+
 	// Step 4: Attach uprobe (function entry)
+	// The SDK provides an absolute address/offset from the binary start.
+	// Use Address field (not Offset) since Offset is relative to symbol.
+	// Pass empty symbol since we're using absolute addressing.
+	c.logger.Debug().
+		Str("function_name", c.functionName).
+		Uint64("address", c.funcOffset).
+		Int("pid", int(c.pid)).
+		Msg("Attaching uprobe to function entry")
+
 	c.entryLink, err = exe.Uprobe("", c.objs.UprobeEntry, &link.UprobeOptions{
-		Offset: c.funcOffset,
-		PID:    int(c.pid),
+		Address: c.funcOffset,
+		PID:     int(c.pid),
 	})
 	if err != nil {
 		c.objs.Close() // nolint:errcheck
+		c.logger.Error().
+			Err(err).
+			Str("function", c.functionName).
+			Uint64("offset", c.funcOffset).
+			Str("binary", binaryPath).
+			Msg("Failed to attach uprobe")
 		return fmt.Errorf("failed to attach uprobe: %w", err)
 	}
 
-	c.logger.Debug().Msg("Attached uprobe to function entry")
+	c.logger.Debug().Msg("Successfully attached uprobe to function entry")
 
 	// Step 5: Attach uretprobe (function return)
+	c.logger.Debug().
+		Str("function_name", c.functionName).
+		Uint64("address", c.funcOffset).
+		Msg("Attaching uretprobe to function return")
+
 	c.returnLink, err = exe.Uretprobe("", c.objs.UprobeReturn, &link.UprobeOptions{
-		Offset: c.funcOffset,
-		PID:    int(c.pid),
+		Address: c.funcOffset,
+		PID:     int(c.pid),
 	})
 	if err != nil {
 		c.entryLink.Close() // nolint:errcheck
 		c.objs.Close()      // nolint:errcheck
+		c.logger.Error().
+			Err(err).
+			Str("function", c.functionName).
+			Uint64("offset", c.funcOffset).
+			Msg("Failed to attach uretprobe")
 		return fmt.Errorf("failed to attach uretprobe: %w", err)
 	}
 

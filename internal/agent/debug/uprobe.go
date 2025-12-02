@@ -34,16 +34,16 @@ func (m *DebugSessionManager) attachUprobeLocked(
 	// We'll manage them manually or put them in the session
 
 	// 2. Open executable
-	// In sidecar mode with shared PID namespace, the binary path from SDK metadata
-	// is relative to the container's mount namespace. Use /proc/{pid}/root to access
-	// the container's filesystem from the agent's perspective.
-	resolvedPath := fmt.Sprintf("/proc/%d/root%s", pid, binaryPath)
+	// In sidecar mode with shared PID namespace, use /proc/{pid}/exe which is a
+	// symlink to the actual binary. This works for uprobe attachment even when
+	// the binary path is only visible in the container's mount namespace.
+	resolvedPath := fmt.Sprintf("/proc/%d/exe", pid)
 	m.logger.Debug().
 		Str("container_path", binaryPath).
-		Str("agent_path", resolvedPath).
+		Str("proc_exe_path", resolvedPath).
 		Int("pid", pid).
 		Uint64("offset", offset).
-		Msg("Resolving binary path through container namespace")
+		Msg("Using /proc/{pid}/exe for uprobe attachment")
 
 	exe, err := link.OpenExecutable(resolvedPath)
 	if err != nil {
@@ -51,13 +51,18 @@ func (m *DebugSessionManager) attachUprobeLocked(
 		return fmt.Errorf("open executable (path=%s): %w", resolvedPath, err)
 	}
 
+	m.logger.Debug().
+		Str("exe_path", resolvedPath).
+		Msg("Successfully opened executable for uprobe attachment")
+
 	// 3. Attach uprobe (entry)
+	// Use Address field for absolute address from SDK (not Offset which is relative).
 	entryLink, err := exe.Uprobe(
-		"", // Symbol name empty because we use offset
+		"", // Symbol name empty because we use absolute addressing
 		objs.ProbeEntry,
 		&link.UprobeOptions{
-			Offset: offset,
-			PID:    pid,
+			Address: offset,
+			PID:     pid,
 		},
 	)
 	if err != nil {
@@ -66,12 +71,13 @@ func (m *DebugSessionManager) attachUprobeLocked(
 	}
 
 	// 4. Attach uretprobe (exit)
+	// Use Address field for absolute address from SDK (not Offset which is relative).
 	exitLink, err := exe.Uretprobe(
-		"", // Symbol name empty because we use offset
+		"", // Symbol name empty because we use absolute addressing
 		objs.ProbeExit,
 		&link.UprobeOptions{
-			Offset: offset,
-			PID:    pid,
+			Address: offset,
+			PID:     pid,
 		},
 	)
 	if err != nil {
