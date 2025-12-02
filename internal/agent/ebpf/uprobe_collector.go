@@ -129,12 +129,14 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 	c.logger.Debug().
 		Str("container_path", c.binaryPath).
 		Str("agent_path", binaryPath).
+		Uint64("offset", c.funcOffset).
+		Uint32("pid", c.pid).
 		Msg("Resolving binary path through container namespace")
 
 	exe, err := link.OpenExecutable(binaryPath)
 	if err != nil {
 		c.objs.Close() // nolint:errcheck
-		return fmt.Errorf("failed to open executable: %w", err)
+		return fmt.Errorf("failed to open executable (path=%s): %w", binaryPath, err)
 	}
 
 	// Step 4: Attach uprobe (function entry)
