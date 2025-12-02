@@ -20,6 +20,7 @@ import (
 
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // Orchestrator manages debug sessions across agents.
@@ -108,7 +109,8 @@ func (o *Orchestrator) AttachUprobe(
 
 	// Call agent to start uprobe collector
 	// Call agent to start uprobe collector
-	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
+	// Call agent to start uprobe collector
+	agentAddr := buildAgentAddress(entry.MeshIPv4)
 	agentClient := o.clientFactory(
 		http.DefaultClient,
 		fmt.Sprintf("http://%s", agentAddr),
@@ -220,7 +222,8 @@ func (o *Orchestrator) DetachUprobe(
 	}
 
 	// Call agent to stop uprobe collector
-	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
+	// Call agent to stop uprobe collector
+	agentAddr := buildAgentAddress(entry.MeshIPv4)
 	agentClient := o.clientFactory(
 		http.DefaultClient,
 		fmt.Sprintf("http://%s", agentAddr),
@@ -298,7 +301,8 @@ func (o *Orchestrator) QueryUprobeEvents(
 	}
 
 	// Call agent to query events
-	agentAddr := net.JoinHostPort(entry.MeshIPv4, "9001")
+	// Call agent to query events
+	agentAddr := buildAgentAddress(entry.MeshIPv4)
 	agentClient := o.clientFactory(
 		http.DefaultClient,
 		fmt.Sprintf("http://%s", agentAddr),
@@ -401,10 +405,94 @@ func (o *Orchestrator) GetDebugResults(
 	o.logger.Info().
 		Str("session_id", req.Msg.SessionId).
 		Str("format", req.Msg.Format).
-		Msg("GetDebugResults not yet implemented")
+		Msg("Getting debug results")
+
+	// Query session from database
+	session, err := o.db.GetDebugSession(req.Msg.SessionId)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("session_id", req.Msg.SessionId).
+			Msg("Failed to query debug session from database")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
+	}
+	if session == nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
+	}
+
+	// Get agent entry from registry
+	entry, err := o.registry.Get(session.AgentID)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("session_id", req.Msg.SessionId).
+			Str("agent_id", session.AgentID).
+			Msg("Failed to get agent from registry")
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("agent not found: %v", err))
+	}
+
+	// Call agent to query uprobe events
+	// Call agent to query uprobe events
+	agentAddr := buildAgentAddress(entry.MeshIPv4)
+	agentClient := o.clientFactory(
+		http.DefaultClient,
+		fmt.Sprintf("http://%s", agentAddr),
+	)
+
+	queryReq := connect.NewRequest(&meshv1.QueryUprobeEventsRequest{
+		CollectorId: session.CollectorID,
+		StartTime:   timestamppb.New(session.StartedAt),
+		EndTime:     timestamppb.New(session.ExpiresAt),
+		MaxEvents:   10000, // Limit to prevent overwhelming response
+	})
+
+	queryResp, err := agentClient.QueryUprobeEvents(ctx, queryReq)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("session_id", req.Msg.SessionId).
+			Str("collector_id", session.CollectorID).
+			Msg("Failed to query uprobe events from agent")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query events: %v", err))
+	}
+
+	// Extract UprobeEvent from EbpfEvent wrapper
+	var uprobeEvents []*meshv1.UprobeEvent
+	for _, ebpfEvent := range queryResp.Msg.Events {
+		if ebpfEvent.GetUprobeEvent() != nil {
+			uprobeEvents = append(uprobeEvents, ebpfEvent.GetUprobeEvent())
+		}
+	}
+
+	o.logger.Info().
+		Str("session_id", req.Msg.SessionId).
+		Int("event_count", len(uprobeEvents)).
+		Msg("Retrieved uprobe events from agent")
+
+	// Aggregate statistics
+	statistics := AggregateStatistics(uprobeEvents)
+
+	// Find slow outliers
+	p95Duration := time.Duration(0)
+	if statistics.DurationP95 != nil {
+		p95Duration = statistics.DurationP95.AsDuration()
+	}
+	slowOutliers := FindSlowOutliers(uprobeEvents, p95Duration)
+
+	// Build call tree
+	callTree := BuildCallTreeFromEvents(uprobeEvents, p95Duration)
+
+	// Calculate session duration
+	sessionDuration := session.ExpiresAt.Sub(session.StartedAt)
 
 	return connect.NewResponse(&debugpb.GetDebugResultsResponse{
-		SessionId: req.Msg.SessionId,
-		// Statistics and outliers would be populated here
+		SessionId:    req.Msg.SessionId,
+		Function:     session.FunctionName,
+		Duration:     durationpb.New(sessionDuration),
+		Statistics:   statistics,
+		SlowOutliers: slowOutliers,
+		CallTree:     callTree,
 	}), nil
+}
+
+// buildAgentAddress constructs the agent address from the mesh IP.
+func buildAgentAddress(meshIP string) string {
+	return net.JoinHostPort(meshIP, fmt.Sprintf("%d", constants.DefaultAgentPort))
 }
