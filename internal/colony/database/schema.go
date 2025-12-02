@@ -278,4 +278,26 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_service ON debug_sessions(service_name)`,
 	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_status ON debug_sessions(status)`,
 	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_agent ON debug_sessions(agent_id)`,
+
+	// Debug events - stored uprobe events from debug sessions (RFD 062).
+	`CREATE TABLE IF NOT EXISTS debug_events (
+		id INTEGER PRIMARY KEY,
+		session_id VARCHAR NOT NULL,
+		timestamp TIMESTAMPTZ NOT NULL,
+		collector_id VARCHAR NOT NULL,
+		agent_id VARCHAR NOT NULL,
+		service_name VARCHAR NOT NULL,
+		function_name VARCHAR NOT NULL,
+		event_type VARCHAR(10) NOT NULL,
+		duration_ns BIGINT,
+		pid INTEGER,
+		tid INTEGER,
+		args TEXT,
+		return_value TEXT,
+		labels TEXT
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_debug_events_session ON debug_events(session_id, timestamp)`,
+	`CREATE INDEX IF NOT EXISTS idx_debug_events_timestamp ON debug_events(timestamp)`,
+	`CREATE INDEX IF NOT EXISTS idx_debug_events_collector ON debug_events(collector_id)`,
 }

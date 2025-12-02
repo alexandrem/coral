@@ -278,8 +278,8 @@ func (c *UprobeCollector) GetEvents() ([]*meshv1.EbpfEvent, error) {
 		}
 	}
 
-	// Clear buffer
-	c.events = make([]*meshv1.UprobeEvent, 0)
+	// Don't clear buffer - keep events for historical queries (RFD 062).
+	// Events are kept until collector stops or max buffer is reached.
 
 	return events, nil
 }
