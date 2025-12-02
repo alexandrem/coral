@@ -285,7 +285,9 @@ agent:
 
 **Core Capability:** ✅ Complete
 
-Agent-side eBPF uprobe mechanism fully implemented with session management, SDK integration, and event streaming to Colony. All 5 implementation phases completed and tested.
+Agent-side eBPF uprobe mechanism fully implemented with session management, SDK
+integration, and event streaming to Colony. All 5 implementation phases
+completed and tested.
 
 **Operational Components:**
 
@@ -330,13 +332,17 @@ Agent-side eBPF uprobe mechanism fully implemented with session management, SDK 
 
 **Known Limitations:**
 
-- **macOS Development**: BPF objects are mocked on macOS due to lack of BPF target in Apple clang. Real BPF compilation requires Linux environment.
-- **Node Agent Mode**: Service resolution currently supports sidecar mode only (localhost). Pod IP resolution for Node Agent mode not yet implemented.
-- **End-to-End Testing**: Unit tests cover session management. Integration tests with real SDK require additional setup.
+- **macOS Development**: BPF objects are mocked on macOS due to lack of BPF
+  target in Apple clang. Real BPF compilation requires Linux environment.
+- **Node Agent Mode**: Service resolution currently supports sidecar mode only (
+  localhost). Pod IP resolution for Node Agent mode not yet implemented.
+- **End-to-End Testing**: Unit tests cover session management. Integration tests
+  with real SDK require additional setup.
 
 ## Deferred Features
 
-The following features build on the core foundation but are not required for basic functionality:
+The following features build on the core foundation but are not required for
+basic functionality:
 
 **Node Agent Mode** (Future Enhancement)
 - Pod IP resolution for remote service debugging

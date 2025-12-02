@@ -224,23 +224,36 @@ CREATE TABLE uprobe_events
 
 ## Implementation Plan
 
-The implementation is divided into five phases to deliver a complete vertical slice before hardening for production.
+The implementation is divided into five phases to deliver a complete vertical
+slice before hardening for production.
 
 ### Phase 1: Foundation (Completed)
-- [x] **Protobuf Definitions**: Define RPC messages for uprobe collection and debug orchestration.
-- [x] **SDK Implementation**: Implement DWARF parsing and embedded gRPC server for function metadata exposure.
+
+- [x] **Protobuf Definitions**: Define RPC messages for uprobe collection and
+  debug orchestration.
+- [x] **SDK Implementation**: Implement DWARF parsing and embedded gRPC server
+  for function metadata exposure.
 
 ### Phase 2: Uprobe Collector (Completed)
-- [x] **eBPF Program**: Develop C program for `kprobe`/`kretprobe` attachment and event streaming.
-- [x] **Agent Collector**: Implement Go collector to manage eBPF lifecycle and stream events.
+
+- [x] **eBPF Program**: Develop C program for `kprobe`/`kretprobe` attachment
+  and event streaming.
+- [x] **Agent Collector**: Implement Go collector to manage eBPF lifecycle and
+  stream events.
 
 ### Phase 3: Agent & Colony Integration (Completed)
-- [x] **Agent RPCs**: Implement `StartUprobeCollector` and `QueryUprobeEvents` handlers.
-- [x] **Colony Orchestrator**: Implement session management and routing logic (MVP).
+
+- [x] **Agent RPCs**: Implement `StartUprobeCollector` and `QueryUprobeEvents`
+  handlers.
+- [x] **Colony Orchestrator**: Implement session management and routing logic (
+  MVP).
 
 ### Phase 4: CLI Integration (Completed)
-- [x] **Debug Commands**: Implement `coral debug` commands (`attach`, `detach`, `sessions`, `events`).
-- [x] **User Experience**: Ensure real-time event streaming and intuitive session management.
+
+- [x] **Debug Commands**: Implement `coral debug` commands (`attach`, `detach`,
+  `sessions`, `events`).
+- [x] **User Experience**: Ensure real-time event streaming and intuitive
+  session management.
 
 ---
 
@@ -248,7 +261,8 @@ The implementation is divided into five phases to deliver a complete vertical sl
 
 **Status:** ✅ Implemented (MVP Complete)
 
-Phases 1 through 4 are complete, delivering a functional end-to-end live debugging experience.
+Phases 1 through 4 are complete, delivering a functional end-to-end live
+debugging experience.
 
 - **SDK**: Fully functional with DWARF parsing and gRPC server.
 - **Agent**: Successfully attaches uprobes and streams events using eBPF.
@@ -259,10 +273,12 @@ Phases 1 through 4 are complete, delivering a functional end-to-end live debuggi
 
 ## Deferred Features
 
-The following features are deferred from the initial MVP scope and will be addressed in future hardening phases:
+The following features are deferred from the initial MVP scope and will be
+addressed in future hardening phases:
 
 - **Persistence**: Store debug sessions and audit logs in DuckDB.
-- **Service Discovery**: Integrate with service registry for automatic agent/SDK resolution.
+- **Service Discovery**: Integrate with service registry for automatic agent/SDK
+  resolution.
 - **Agent Pool**: Robust connection management between Colony and Agents.
 - **Security**: Implement audit logging and access control.
 

@@ -293,18 +293,26 @@ go tool nm myapp | grep -i 'main.handleCheckout'
 
 **Core Capability:** ✅ Complete
 
-The SDK Runtime Monitoring system is fully implemented, enabling Go applications to self-register with the Coral Agent and expose function metadata for live debugging.
+The SDK Runtime Monitoring system is fully implemented, enabling Go applications
+to self-register with the Coral Agent and expose function metadata for live
+debugging.
 
 **Operational Components:**
+
 - ✅ **SDK Core**: `RegisterService` and `EnableRuntimeMonitoring` APIs.
-- ✅ **Function Discovery**: DWARF parsing (primary) and Reflection fallback (stripped binaries).
-- ✅ **Agent Integration**: `ServiceSdkCapabilities` exchange and `ConnectService` RPC.
+- ✅ **Function Discovery**: DWARF parsing (primary) and Reflection fallback (
+  stripped binaries).
+- ✅ **Agent Integration**: `ServiceSdkCapabilities` exchange and
+  `ConnectService` RPC.
 - ✅ **Metadata Provider**: Efficient caching and lookup of function offsets.
 
 **What Works Now:**
+
 - Applications automatically register with the local Agent on startup.
-- Agent receives full metadata: SDK version, DWARF availability, binary path, function count, and binary hash.
-- Reflection fallback allows debugging even on stripped binaries (entry points only).
+- Agent receives full metadata: SDK version, DWARF availability, binary path,
+  function count, and binary hash.
+- Reflection fallback allows debugging even on stripped binaries (entry points
+  only).
 - `sdk-demo` example demonstrates full end-to-end flow.
 
 ## Testing Strategy

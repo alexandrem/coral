@@ -37,7 +37,8 @@ We provide two primary interfaces:
 
 ### Architecture Overview
 
-The live debugging system integrates the CLI and MCP server with the Colony backend and Agent eBPF probes.
+The live debugging system integrates the CLI and MCP server with the Colony
+backend and Agent eBPF probes.
 
 ```
 User (CLI) ──┐
@@ -511,9 +512,12 @@ colony:
 
 **Core Capability:** ✅ Complete
 
-The CLI commands (`attach`, `detach`, `list`, `query`, `trace`) are fully implemented and integrated with the Colony backend. The MCP tools are registered and available for AI agents.
+The CLI commands (`attach`, `detach`, `list`, `query`, `trace`) are fully
+implemented and integrated with the Colony backend. The MCP tools are registered
+and available for AI agents.
 
 **Operational Components:**
+
 - ✅ `coral debug` CLI commands
 - ✅ MCP tools for debugging and discovery
 - ✅ Agent eBPF integration (uprobes)
@@ -539,19 +543,25 @@ The CLI commands (`attach`, `detach`, `list`, `query`, `trace`) are fully implem
 - Create Markdown reports
 - Integration with Grafana
 
-**Note:** Semantic search, call graph analysis, and auto-context injection are covered in [RFD 063](063-intelligent-function-discovery.md).
+**Note:** Semantic search, call graph analysis, and auto-context injection are
+covered in [RFD 063](063-intelligent-function-discovery.md).
 
 ## Appendix
 
 ### Function Discovery Strategy for AI
 
-**See [RFD 063: Intelligent Function Discovery](063-intelligent-function-discovery.md) for complete details.**
+**See [RFD 063: Intelligent Function Discovery](063-intelligent-function-discovery.md)
+for complete details.**
 
-Applications have **10,000-50,000+ functions**. We use a **multi-tier discovery strategy** to narrow down from 50,000 functions to the relevant 5-10:
+Applications have **10,000-50,000+ functions**. We use a **multi-tier discovery
+strategy** to narrow down from 50,000 functions to the relevant 5-10:
 
-1. **Tier 1: Metrics-Driven Pre-Filtering** - Colony auto-injects performance anomalies
-2. **Tier 2: Semantic Search** - `coral_search_functions` finds relevant functions by keywords
-3. **Tier 3: Call Graph Navigation** - `coral_get_function_context` navigates from entry points to bottlenecks
+1. **Tier 1: Metrics-Driven Pre-Filtering** - Colony auto-injects performance
+   anomalies
+2. **Tier 2: Semantic Search** - `coral_search_functions` finds relevant
+   functions by keywords
+3. **Tier 3: Call Graph Navigation** - `coral_get_function_context` navigates
+   from entry points to bottlenecks
 4. **Tier 4: Pattern Fallback** - Regex matching when semantic search fails
 
 ### AI Workflow Examples
@@ -564,7 +574,8 @@ Applications have **10,000-50,000+ functions**. We use a **multi-tier discovery 
 
 1. Calls `coral_list_probeable_functions(service="api", pattern="checkout")`.
 2. Finds `handleCheckout`.
-3. Calls `coral_attach_uprobe(service="api", function="handleCheckout", duration="30s")`.
+3. Calls
+   `coral_attach_uprobe(service="api", function="handleCheckout", duration="30s")`.
 4. Waits 30s for data collection.
 5. Calls `coral_get_debug_results(session_id="dbg-01H...")`.
 6. Analyzes: P95 is 245ms (baseline: 80ms).
