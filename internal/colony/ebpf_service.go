@@ -9,9 +9,17 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
+// ebpfDatabase defines the interface for database operations needed by the service.
+type ebpfDatabase interface {
+	QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaHTTPMetricResult, error)
+	QueryBeylaGRPCMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaGRPCMetricResult, error)
+	QueryBeylaSQLMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaSQLMetricResult, error)
+	QueryBeylaTraces(ctx context.Context, traceID, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*database.BeylaTraceResult, error)
+}
+
 // EbpfQueryService provides eBPF metrics querying with validation.
 type EbpfQueryService struct {
-	db *database.Database
+	db ebpfDatabase
 }
 
 // NewEbpfQueryService creates a new eBPF query service.
