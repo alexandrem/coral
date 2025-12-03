@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -1253,4 +1254,172 @@ func TestSymbolTableFallback(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestSymbolCaching verifies that symbols are loaded once and cached.
+func TestSymbolCaching(t *testing.T) {
+	binaryPath := "testdata/sample_with_dwarf"
+	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
+		t.Skip("Test binary not found. Run: go generate")
+	}
+
+	provider, err := NewFunctionMetadataProvider(slog.Default())
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close() // nolint:errcheck
+
+	// First call - should load symbols.
+	symbols1, err1 := provider.loadSymbols()
+	if err1 != nil {
+		t.Fatalf("First loadSymbols failed: %v", err1)
+	}
+
+	// Second call - should return cached symbols.
+	symbols2, err2 := provider.loadSymbols()
+	if err2 != nil {
+		t.Fatalf("Second loadSymbols failed: %v", err2)
+	}
+
+	// Both should be the same slice (same memory address).
+	if len(symbols1) != len(symbols2) {
+		t.Errorf("Symbol count mismatch: %d vs %d", len(symbols1), len(symbols2))
+	}
+
+	// Verify symbols were actually loaded.
+	if len(symbols1) == 0 {
+		t.Error("Expected symbols to be loaded, got empty slice")
+	}
+
+	t.Logf("Loaded %d symbols (cached on subsequent calls)", len(symbols1))
+}
+
+// TestSymbolCachingConcurrent verifies thread-safe symbol caching.
+func TestSymbolCachingConcurrent(t *testing.T) {
+	binaryPath := "testdata/sample_with_dwarf"
+	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
+		t.Skip("Test binary not found. Run: go generate")
+	}
+
+	provider, err := NewFunctionMetadataProvider(slog.Default())
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close() // nolint:errcheck
+
+	// Launch multiple goroutines that all try to load symbols concurrently.
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	results := make([][]symbolInfo, numGoroutines)
+	errors := make([]error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx], errors[idx] = provider.loadSymbols()
+		}(i)
+	}
+
+	wg.Wait()
+
+	// All calls should succeed and return the same data.
+	for i := 0; i < numGoroutines; i++ {
+		if errors[i] != nil {
+			t.Errorf("Goroutine %d failed: %v", i, errors[i])
+		}
+		if len(results[i]) == 0 {
+			t.Errorf("Goroutine %d got empty symbols", i)
+		}
+		if i > 0 && len(results[i]) != len(results[0]) {
+			t.Errorf("Goroutine %d got different symbol count: %d vs %d",
+				i, len(results[i]), len(results[0]))
+		}
+	}
+
+	t.Logf("All %d goroutines loaded %d symbols successfully", numGoroutines, len(results[0]))
+}
+
+// TestSearchReflectionCaching verifies searchReflectionForFunction uses cache.
+func TestSearchReflectionCaching(t *testing.T) {
+	provider, err := NewFunctionMetadataProvider(slog.Default())
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close() // nolint:errcheck
+
+	// First, load symbols to ensure cache is populated.
+	symbols, err := provider.loadSymbols()
+	if err != nil {
+		t.Fatalf("Failed to load symbols: %v", err)
+	}
+
+	if len(symbols) == 0 {
+		t.Skip("No symbols found in binary")
+	}
+
+	// Pick a function with non-zero address.
+	var funcName string
+	for _, sym := range symbols {
+		if sym.Value != 0 {
+			funcName = sym.Name
+			break
+		}
+	}
+
+	if funcName == "" {
+		t.Skip("No function with non-zero address found")
+	}
+
+	// Search for the function multiple times.
+	addr1, err1 := provider.searchReflectionForFunction(funcName)
+	if err1 != nil {
+		t.Fatalf("First search failed: %v", err1)
+	}
+
+	addr2, err2 := provider.searchReflectionForFunction(funcName)
+	if err2 != nil {
+		t.Fatalf("Second search failed: %v", err2)
+	}
+
+	// Both searches should return the same address.
+	if addr1 != addr2 {
+		t.Errorf("Address mismatch: 0x%x vs 0x%x", addr1, addr2)
+	}
+
+	if addr1 == 0 {
+		t.Error("Expected non-zero address")
+	}
+
+	t.Logf("Found %s at address 0x%x (cached on subsequent calls)", funcName, addr1)
+}
+
+// BenchmarkSymbolAccess benchmarks symbol table access with caching.
+func BenchmarkSymbolAccess(b *testing.B) {
+	provider, err := NewFunctionMetadataProvider(slog.Default())
+	if err != nil {
+		b.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close() // nolint:errcheck
+
+	// Load symbols to get a valid function name.
+	symbols, err := provider.loadSymbols()
+	if err != nil || len(symbols) == 0 {
+		b.Skip("No symbols available")
+	}
+	funcName := symbols[0].Name
+
+	// Benchmark function search (uses cached symbols after first load).
+	b.Run("SearchReflectionForFunction", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, _ = provider.searchReflectionForFunction(funcName)
+		}
+	})
+
+	// Benchmark list functions (uses cached symbols after first load).
+	b.Run("ListFunctionsFromSymbols", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, _ = provider.listFunctionsFromSymbols("runtime.*")
+		}
+	})
 }

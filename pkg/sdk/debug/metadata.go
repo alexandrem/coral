@@ -16,6 +16,12 @@ import (
 	"sync"
 )
 
+// symbolInfo holds normalized symbol table information.
+type symbolInfo struct {
+	Name  string // Function name
+	Value uint64 // Address/offset
+}
+
 // FunctionMetadataProvider extracts function metadata from DWARF debug info.
 type FunctionMetadataProvider struct {
 	logger     *slog.Logger
@@ -37,6 +43,11 @@ type FunctionMetadataProvider struct {
 	binaryHash     string
 	binaryHashOnce sync.Once
 	binaryHashErr  error
+
+	// Cached symbol table (loaded once at first use).
+	cachedSymbols []symbolInfo
+	symbolsOnce   sync.Once
+	symbolsErr    error
 }
 
 // BasicInfo contains minimal function metadata for listing and discovery.
@@ -413,6 +424,70 @@ func (p *FunctionMetadataProvider) computeBinaryHash() (string, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// loadSymbols loads and caches the symbol table from the binary.
+// This method is called once via sync.Once to avoid repeated file I/O.
+func (p *FunctionMetadataProvider) loadSymbols() ([]symbolInfo, error) {
+	p.symbolsOnce.Do(func() {
+		var symbols []symbolInfo
+
+		switch runtime.GOOS {
+		case "linux":
+			f, err := elf.Open(p.binaryPath)
+			if err != nil {
+				p.symbolsErr = err
+				return
+			}
+			defer f.Close() // nolint:errcheck
+
+			elfSymbols, err := f.Symbols()
+			if err != nil {
+				p.symbolsErr = fmt.Errorf("failed to read ELF symbols: %w", err)
+				return
+			}
+
+			for _, sym := range elfSymbols {
+				if elf.ST_TYPE(sym.Info) == elf.STT_FUNC && sym.Name != "" {
+					symbols = append(symbols, symbolInfo{
+						Name:  sym.Name,
+						Value: sym.Value,
+					})
+				}
+			}
+
+		case "darwin":
+			f, err := macho.Open(p.binaryPath)
+			if err != nil {
+				p.symbolsErr = err
+				return
+			}
+			defer f.Close() // nolint:errcheck
+
+			if f.Symtab == nil {
+				p.symbolsErr = fmt.Errorf("no symbol table found")
+				return
+			}
+
+			for _, sym := range f.Symtab.Syms {
+				name := strings.TrimPrefix(sym.Name, "_")
+				if name != "" {
+					symbols = append(symbols, symbolInfo{
+						Name:  name,
+						Value: sym.Value,
+					})
+				}
+			}
+
+		default:
+			p.symbolsErr = fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+			return
+		}
+
+		p.cachedSymbols = symbols
+	})
+
+	return p.cachedSymbols, p.symbolsErr
 }
 
 // GetFunctionMetadata retrieves metadata for a specific function.
