@@ -1657,7 +1657,7 @@ func (x *EbpfCapabilities) GetEbpfObservability() *EbpfObservabilityCapabilities
 type EbpfObservabilityCapabilities struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Enabled            bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	Version            string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                                                 // eBPF observability library version
+	Version            string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                                                 // Beyla library version
 	SupportedProtocols []string               `protobuf:"bytes,3,rep,name=supported_protocols,json=supportedProtocols,proto3" json:"supported_protocols,omitempty"` // ["http", "grpc", "kafka", ...]
 	SupportedRuntimes  []string               `protobuf:"bytes,4,rep,name=supported_runtimes,json=supportedRuntimes,proto3" json:"supported_runtimes,omitempty"`    // ["go", "java", "python", ...]
 	TracingEnabled     bool                   `protobuf:"varint,5,opt,name=tracing_enabled,json=tracingEnabled,proto3" json:"tracing_enabled,omitempty"`
