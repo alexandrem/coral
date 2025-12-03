@@ -279,7 +279,7 @@ coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10"
 coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10" -d metrics.duckdb
 ```
 
-**Query recent HTTP requests (Beyla):**
+**Query recent HTTP requests (eBPF):**
 
 ```bash
 coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10" -d metrics.duckdb
@@ -311,7 +311,7 @@ coral duckdb query agent-prod-1 \
    ORDER BY avg_ms DESC"
 ```
 
-**P99 latency by endpoint (Beyla):**
+**P99 latency by endpoint (eBPF):**
 
 ```bash
 coral duckdb query agent-prod-1 \
@@ -335,7 +335,7 @@ coral duckdb query agent-prod-1 \
    ORDER BY timestamp DESC LIMIT 20"
 ```
 
-**5xx error rate (Beyla):**
+**5xx error rate (eBPF):**
 
 ```bash
 coral duckdb query agent-prod-1 \
@@ -494,7 +494,7 @@ ORDER BY timestamp;
 
 ---
 
-##### Beyla Metrics Tables
+##### eBPF Metrics Tables
 
 eBPF-collected HTTP, gRPC, and SQL metrics (stored in `metrics.duckdb`).
 
