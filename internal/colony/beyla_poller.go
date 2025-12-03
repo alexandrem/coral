@@ -268,12 +268,12 @@ func (p *BeylaPoller) pollOnce() {
 func (p *BeylaPoller) queryAgent(
 	agent *registry.Entry,
 	startTime, endTime time.Time,
-) ([]*agentv1.BeylaHttpMetric, []*agentv1.BeylaGrpcMetric, []*agentv1.BeylaSqlMetric, []*agentv1.BeylaTraceSpan, error) {
+) ([]*agentv1.EbpfHttpMetric, []*agentv1.EbpfGrpcMetric, []*agentv1.EbpfSqlMetric, []*agentv1.EbpfTraceSpan, error) {
 	// Create gRPC client for this agent.
 	client := GetAgentClient(agent)
 
 	// Create query request (RFD 036: include traces).
-	req := connect.NewRequest(&agentv1.QueryBeylaMetricsRequest{
+	req := connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
 		StartTime:     startTime.Unix(),
 		EndTime:       endTime.Unix(),
 		ServiceNames:  nil,  // Query all services.
@@ -288,7 +288,7 @@ func (p *BeylaPoller) queryAgent(
 	defer cancel()
 
 	// Call agent's QueryBeylaMetrics RPC.
-	resp, err := client.QueryBeylaMetrics(ctx, req)
+	resp, err := client.QueryEbpfMetrics(ctx, req)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

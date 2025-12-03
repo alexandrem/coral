@@ -338,7 +338,7 @@ func (h *testAgentHandler) ListServices(ctx context.Context, req *connect.Reques
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 
-func (h *testAgentHandler) QueryBeylaMetrics(ctx context.Context, req *connect.Request[agentv1.QueryBeylaMetricsRequest]) (*connect.Response[agentv1.QueryBeylaMetricsResponse], error) {
+func (h *testAgentHandler) QueryEbpfMetrics(ctx context.Context, req *connect.Request[agentv1.QueryEbpfMetricsRequest]) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 

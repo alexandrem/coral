@@ -195,18 +195,18 @@ func (h *ServiceHandler) QueryTelemetry(
 	}), nil
 }
 
-// QueryBeylaMetrics retrieves Beyla metrics from the agent's local storage (RFD 032).
-// Colony calls this to query filtered Beyla metrics from agent's local DuckDB.
-func (h *ServiceHandler) QueryBeylaMetrics(
+// QueryEbpfMetrics retrieves eBPF metrics from the agent's local storage (RFD 032).
+// Colony calls this to query filtered eBPF metrics from agent's local DuckDB.
+func (h *ServiceHandler) QueryEbpfMetrics(
 	ctx context.Context,
-	req *connect.Request[agentv1.QueryBeylaMetricsRequest],
-) (*connect.Response[agentv1.QueryBeylaMetricsResponse], error) {
+	req *connect.Request[agentv1.QueryEbpfMetricsRequest],
+) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
 	// If Beyla is disabled, return empty response.
 	if h.agent.beylaManager == nil {
-		return connect.NewResponse(&agentv1.QueryBeylaMetricsResponse{
-			HttpMetrics:  []*agentv1.BeylaHttpMetric{},
-			GrpcMetrics:  []*agentv1.BeylaGrpcMetric{},
-			SqlMetrics:   []*agentv1.BeylaSqlMetric{},
+		return connect.NewResponse(&agentv1.QueryEbpfMetricsResponse{
+			HttpMetrics:  []*agentv1.EbpfHttpMetric{},
+			GrpcMetrics:  []*agentv1.EbpfGrpcMetric{},
+			SqlMetrics:   []*agentv1.EbpfSqlMetric{},
 			TotalMetrics: 0,
 		}), nil
 	}
@@ -215,10 +215,10 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 	startTime := time.Unix(req.Msg.StartTime, 0)
 	endTime := time.Unix(req.Msg.EndTime, 0)
 
-	response := &agentv1.QueryBeylaMetricsResponse{
-		HttpMetrics: []*agentv1.BeylaHttpMetric{},
-		GrpcMetrics: []*agentv1.BeylaGrpcMetric{},
-		SqlMetrics:  []*agentv1.BeylaSqlMetric{},
+	response := &agentv1.QueryEbpfMetricsResponse{
+		HttpMetrics: []*agentv1.EbpfHttpMetric{},
+		GrpcMetrics: []*agentv1.EbpfGrpcMetric{},
+		SqlMetrics:  []*agentv1.EbpfSqlMetric{},
 	}
 
 	// Determine which metric types to query.
@@ -230,11 +230,11 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 	if !queryAll {
 		for _, metricType := range req.Msg.MetricTypes {
 			switch metricType {
-			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_HTTP:
+			case agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP:
 				queryHTTP = true
-			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_GRPC:
+			case agentv1.EbpfMetricType_EBPF_METRIC_TYPE_GRPC:
 				queryGRPC = true
-			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_SQL:
+			case agentv1.EbpfMetricType_EBPF_METRIC_TYPE_SQL:
 				querySQL = true
 			}
 		}
@@ -249,7 +249,7 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 
 		// Convert internal protobuf format to API format.
 		for _, metric := range httpMetrics {
-			response.HttpMetrics = append(response.HttpMetrics, &agentv1.BeylaHttpMetric{
+			response.HttpMetrics = append(response.HttpMetrics, &agentv1.EbpfHttpMetric{
 				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
 				ServiceName:    metric.ServiceName,
 				HttpMethod:     metric.HttpMethod,
@@ -272,7 +272,7 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 
 		// Convert internal protobuf format to API format.
 		for _, metric := range grpcMetrics {
-			response.GrpcMetrics = append(response.GrpcMetrics, &agentv1.BeylaGrpcMetric{
+			response.GrpcMetrics = append(response.GrpcMetrics, &agentv1.EbpfGrpcMetric{
 				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
 				ServiceName:    metric.ServiceName,
 				GrpcMethod:     metric.GrpcMethod,
@@ -294,7 +294,7 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 
 		// Convert internal protobuf format to API format.
 		for _, metric := range sqlMetrics {
-			response.SqlMetrics = append(response.SqlMetrics, &agentv1.BeylaSqlMetric{
+			response.SqlMetrics = append(response.SqlMetrics, &agentv1.EbpfSqlMetric{
 				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
 				ServiceName:    metric.ServiceName,
 				SqlOperation:   metric.SqlOperation,
@@ -327,7 +327,7 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 
 		// Convert internal protobuf format (mesh.v1) to API format (agent.v1).
 		for _, span := range traceSpans {
-			response.TraceSpans = append(response.TraceSpans, &agentv1.BeylaTraceSpan{
+			response.TraceSpans = append(response.TraceSpans, &agentv1.EbpfTraceSpan{
 				TraceId:      span.TraceId,
 				SpanId:       span.SpanId,
 				ParentSpanId: span.ParentSpanId,

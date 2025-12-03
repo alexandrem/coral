@@ -19,7 +19,7 @@ func NewListAgentsCmd() *cobra.Command {
 		Aliases: []string{"list"},
 		Short:   "List agents with available databases",
 		Long: `Lists all agents registered with the colony and shows available databases
-for querying. This includes telemetry databases, Beyla metrics, and any other
+for querying. This includes telemetry databases, eBPF metrics, and any other
 DuckDB databases registered by agents.
 
 Examples:

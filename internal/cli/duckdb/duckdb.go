@@ -12,11 +12,11 @@ func NewDuckDBCmd() *cobra.Command {
 		Long: `Query agent DuckDB databases using SQL via HTTP remote attach.
 
 This command provides direct SQL access to agent-local DuckDB databases
-containing Beyla metrics (HTTP, gRPC, SQL). Uses DuckDB's native HTTP attach
+containing eBPF metrics (HTTP, gRPC, SQL). Uses DuckDB's native HTTP attach
 feature for read-only, zero-serialization queries.
 
 Examples:
-  # List agents with Beyla metrics
+  # List agents with eBPF metrics
   coral duckdb list-agents
 
   # Interactive shell (single agent)
