@@ -175,7 +175,7 @@ Examples:
   coral colony mcp test-tool coral_get_service_health
 
   # Test with arguments
-  coral colony mcp test-tool coral_query_beyla_http_metrics \
+  coral colony mcp test-tool coral_query_ebpf_http_metrics \
     --args '{"service":"api","time_range":"1h"}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

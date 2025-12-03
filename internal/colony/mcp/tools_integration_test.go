@@ -392,7 +392,7 @@ func TestToolFiltering(t *testing.T) {
 		assert.True(t, server.isToolEnabled("coral_get_service_health"))
 		assert.True(t, server.isToolEnabled("coral_get_service_topology"))
 		assert.False(t, server.isToolEnabled("coral_query_events"))
-		assert.False(t, server.isToolEnabled("coral_query_beyla_http_metrics"))
+		assert.False(t, server.isToolEnabled("coral_query_ebpf_http_metrics"))
 	})
 
 	t.Run("empty list enables all tools", func(t *testing.T) {

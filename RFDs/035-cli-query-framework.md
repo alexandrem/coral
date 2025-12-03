@@ -85,7 +85,7 @@ following patterns from `kubectl`, `aws`, and other cloud CLIs.
 **Architecture Overview:**
 
 ```
-coral query beyla http <service>
+coral query ebpf http <service>
           ↓
     CLI Parser (cobra)
           ↓
@@ -106,11 +106,11 @@ coral query beyla http <service>
     - Build output formatters (table, JSON, CSV)
     - Add service name resolution and filtering
 
-2. **Beyla Query Commands** (`internal/cli/query/beyla/`):
-    - `coral query beyla http <service>` - HTTP RED metrics
-    - `coral query beyla grpc <service>` - gRPC RED metrics
-    - `coral query beyla sql <service>` - SQL query metrics
-    - `coral query beyla traces --trace-id <id>` - Trace lookup
+2. **eBPF Query Commands** (`internal/cli/query/ebpf/`):
+    - `coral query ebpf http <service>` - HTTP RED metrics
+    - `coral query ebpf grpc <service>` - gRPC RED metrics
+    - `coral query ebpf sql <service>` - SQL query metrics
+    - `coral query ebpf traces --trace-id <id>` - Trace lookup
     - Percentile calculations from histogram buckets
     - Error rate calculations and filtering
 
@@ -129,20 +129,20 @@ coral query beyla http <service>
 
 ```bash
 # Query HTTP metrics for a service
-coral query beyla http payments-api --since 1h
+coral query ebpf http payments-api --since 1h
 
 # Query with advanced filters
-coral query beyla http payments-api \
+coral query ebpf http payments-api \
   --since 1h \
   --route "/api/v1/payments" \
   --status 5xx \
   --output json
 
 # Query traces
-coral query beyla traces --trace-id abc123def456 --format tree
+coral query ebpf traces --trace-id abc123def456 --format tree
 
 # Query multiple colonies
-coral query beyla http payments-api --colony prod-us,prod-eu --since 30m
+coral query ebpf http payments-api --colony prod-us,prod-eu --since 30m
 ```
 
 ## Implementation Plan
@@ -159,7 +159,7 @@ coral query beyla http payments-api --colony prod-us,prod-eu --since 30m
 
 ### Phase 2: Beyla HTTP Metrics
 
-- [ ] Implement `coral query beyla http <service>` command
+- [ ] Implement `coral query ebpf http <service>` command
 - [ ] Parse histogram buckets into percentiles (P50, P95, P99)
 - [ ] Calculate error rates from status code distributions
 - [ ] Add route filtering (`--route <pattern>`)
@@ -169,14 +169,14 @@ coral query beyla http payments-api --colony prod-us,prod-eu --since 30m
 
 ### Phase 3: Beyla gRPC & SQL Metrics
 
-- [ ] Implement `coral query beyla grpc <service>` command
-- [ ] Implement `coral query beyla sql <service>` command
+- [ ] Implement `coral query ebpf grpc <service>` command
+- [ ] Implement `coral query ebpf sql <service>` command
 - [ ] Add method/operation filtering
 - [ ] Reuse percentile and formatting logic from HTTP
 
 ### Phase 4: Trace Queries
 
-- [ ] Implement `coral query beyla traces --trace-id <id>` command
+- [ ] Implement `coral query ebpf traces --trace-id <id>` command
 - [ ] Fetch trace spans from Colony via gRPC
 - [ ] Build span tree from parent-child relationships
 - [ ] Implement tree visualization formatter
@@ -201,7 +201,7 @@ coral query beyla http payments-api --colony prod-us,prod-eu --since 30m
 
 **Integration Tests:**
 
-- End-to-end query: `coral query beyla http test-service --since 5m`
+- End-to-end query: `coral query ebpf http test-service --since 5m`
 - Verify output format matches expected schema
 - Test error handling (service not found, no data in time range)
 - Multi-colony query merging correctness
@@ -215,7 +215,7 @@ coral query beyla http payments-api --colony prod-us,prod-eu --since 30m
 ## Future Work
 
 - Integration with `coral ask` (RFD 030) for AI-driven queries
-- Live streaming queries (`coral query beyla http <service> --follow`)
+- Live streaming queries (`coral query ebpf http <service> --follow`)
 - Query result caching for faster re-queries
 - Export to external systems (Prometheus, Grafana Cloud)
 - Query templates and saved queries

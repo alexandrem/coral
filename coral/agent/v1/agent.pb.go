@@ -251,56 +251,56 @@ func (EbpfCollectorKind) EnumDescriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{3}
 }
 
-// BeylaMetricType specifies which Beyla metrics to query.
-type BeylaMetricType int32
+// EbpfMetricType specifies which eBPF metrics to query.
+type EbpfMetricType int32
 
 const (
-	BeylaMetricType_BEYLA_METRIC_TYPE_UNSPECIFIED BeylaMetricType = 0
-	BeylaMetricType_BEYLA_METRIC_TYPE_HTTP        BeylaMetricType = 1
-	BeylaMetricType_BEYLA_METRIC_TYPE_GRPC        BeylaMetricType = 2
-	BeylaMetricType_BEYLA_METRIC_TYPE_SQL         BeylaMetricType = 3
+	EbpfMetricType_EBPF_METRIC_TYPE_UNSPECIFIED EbpfMetricType = 0
+	EbpfMetricType_EBPF_METRIC_TYPE_HTTP        EbpfMetricType = 1
+	EbpfMetricType_EBPF_METRIC_TYPE_GRPC        EbpfMetricType = 2
+	EbpfMetricType_EBPF_METRIC_TYPE_SQL         EbpfMetricType = 3
 )
 
-// Enum value maps for BeylaMetricType.
+// Enum value maps for EbpfMetricType.
 var (
-	BeylaMetricType_name = map[int32]string{
-		0: "BEYLA_METRIC_TYPE_UNSPECIFIED",
-		1: "BEYLA_METRIC_TYPE_HTTP",
-		2: "BEYLA_METRIC_TYPE_GRPC",
-		3: "BEYLA_METRIC_TYPE_SQL",
+	EbpfMetricType_name = map[int32]string{
+		0: "EBPF_METRIC_TYPE_UNSPECIFIED",
+		1: "EBPF_METRIC_TYPE_HTTP",
+		2: "EBPF_METRIC_TYPE_GRPC",
+		3: "EBPF_METRIC_TYPE_SQL",
 	}
-	BeylaMetricType_value = map[string]int32{
-		"BEYLA_METRIC_TYPE_UNSPECIFIED": 0,
-		"BEYLA_METRIC_TYPE_HTTP":        1,
-		"BEYLA_METRIC_TYPE_GRPC":        2,
-		"BEYLA_METRIC_TYPE_SQL":         3,
+	EbpfMetricType_value = map[string]int32{
+		"EBPF_METRIC_TYPE_UNSPECIFIED": 0,
+		"EBPF_METRIC_TYPE_HTTP":        1,
+		"EBPF_METRIC_TYPE_GRPC":        2,
+		"EBPF_METRIC_TYPE_SQL":         3,
 	}
 )
 
-func (x BeylaMetricType) Enum() *BeylaMetricType {
-	p := new(BeylaMetricType)
+func (x EbpfMetricType) Enum() *EbpfMetricType {
+	p := new(EbpfMetricType)
 	*p = x
 	return p
 }
 
-func (x BeylaMetricType) String() string {
+func (x EbpfMetricType) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (BeylaMetricType) Descriptor() protoreflect.EnumDescriptor {
+func (EbpfMetricType) Descriptor() protoreflect.EnumDescriptor {
 	return file_coral_agent_v1_agent_proto_enumTypes[4].Descriptor()
 }
 
-func (BeylaMetricType) Type() protoreflect.EnumType {
+func (EbpfMetricType) Type() protoreflect.EnumType {
 	return &file_coral_agent_v1_agent_proto_enumTypes[4]
 }
 
-func (x BeylaMetricType) Number() protoreflect.EnumNumber {
+func (x EbpfMetricType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use BeylaMetricType.Descriptor instead.
-func (BeylaMetricType) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use EbpfMetricType.Descriptor instead.
+func (EbpfMetricType) EnumDescriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{4}
 }
 
@@ -1570,13 +1570,13 @@ func (x *ServiceStatus) GetBinaryHash() string {
 
 // EbpfCapabilities describes what eBPF features are supported on an agent (RFD 013).
 type EbpfCapabilities struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Supported           bool                   `protobuf:"varint,1,opt,name=supported,proto3" json:"supported,omitempty"`                             // overall eBPF support
-	KernelVersion       string                 `protobuf:"bytes,2,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"` // e.g., "5.15.0"
-	BtfAvailable        bool                   `protobuf:"varint,3,opt,name=btf_available,json=btfAvailable,proto3" json:"btf_available,omitempty"`   // BTF/CO-RE support
-	CapBpf              bool                   `protobuf:"varint,4,opt,name=cap_bpf,json=capBpf,proto3" json:"cap_bpf,omitempty"`                     // CAP_BPF capability
-	AvailableCollectors []EbpfCollectorKind    `protobuf:"varint,5,rep,packed,name=available_collectors,json=availableCollectors,proto3,enum=coral.agent.v1.EbpfCollectorKind" json:"available_collectors,omitempty"`
-	Beyla               *BeylaCapabilities     `protobuf:"bytes,6,opt,name=beyla,proto3" json:"beyla,omitempty"` // Beyla integration capabilities (RFD 032)
+	state               protoimpl.MessageState         `protogen:"open.v1"`
+	Supported           bool                           `protobuf:"varint,1,opt,name=supported,proto3" json:"supported,omitempty"`                             // overall eBPF support
+	KernelVersion       string                         `protobuf:"bytes,2,opt,name=kernel_version,json=kernelVersion,proto3" json:"kernel_version,omitempty"` // e.g., "5.15.0"
+	BtfAvailable        bool                           `protobuf:"varint,3,opt,name=btf_available,json=btfAvailable,proto3" json:"btf_available,omitempty"`   // BTF/CO-RE support
+	CapBpf              bool                           `protobuf:"varint,4,opt,name=cap_bpf,json=capBpf,proto3" json:"cap_bpf,omitempty"`                     // CAP_BPF capability
+	AvailableCollectors []EbpfCollectorKind            `protobuf:"varint,5,rep,packed,name=available_collectors,json=availableCollectors,proto3,enum=coral.agent.v1.EbpfCollectorKind" json:"available_collectors,omitempty"`
+	EbpfObservability   *EbpfObservabilityCapabilities `protobuf:"bytes,6,opt,name=ebpf_observability,json=ebpfObservability,proto3" json:"ebpf_observability,omitempty"` // eBPF observability capabilities (RFD 032)
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1646,18 +1646,18 @@ func (x *EbpfCapabilities) GetAvailableCollectors() []EbpfCollectorKind {
 	return nil
 }
 
-func (x *EbpfCapabilities) GetBeyla() *BeylaCapabilities {
+func (x *EbpfCapabilities) GetEbpfObservability() *EbpfObservabilityCapabilities {
 	if x != nil {
-		return x.Beyla
+		return x.EbpfObservability
 	}
 	return nil
 }
 
-// BeylaCapabilities describes Beyla integration features (RFD 032).
-type BeylaCapabilities struct {
+// EbpfObservabilityCapabilities describes eBPF observability features (RFD 032).
+type EbpfObservabilityCapabilities struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Enabled            bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	Version            string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                                                 // Beyla library version
+	Version            string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                                                 // eBPF observability library version
 	SupportedProtocols []string               `protobuf:"bytes,3,rep,name=supported_protocols,json=supportedProtocols,proto3" json:"supported_protocols,omitempty"` // ["http", "grpc", "kafka", ...]
 	SupportedRuntimes  []string               `protobuf:"bytes,4,rep,name=supported_runtimes,json=supportedRuntimes,proto3" json:"supported_runtimes,omitempty"`    // ["go", "java", "python", ...]
 	TracingEnabled     bool                   `protobuf:"varint,5,opt,name=tracing_enabled,json=tracingEnabled,proto3" json:"tracing_enabled,omitempty"`
@@ -1665,20 +1665,20 @@ type BeylaCapabilities struct {
 	sizeCache          protoimpl.SizeCache
 }
 
-func (x *BeylaCapabilities) Reset() {
-	*x = BeylaCapabilities{}
+func (x *EbpfObservabilityCapabilities) Reset() {
+	*x = EbpfObservabilityCapabilities{}
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BeylaCapabilities) String() string {
+func (x *EbpfObservabilityCapabilities) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BeylaCapabilities) ProtoMessage() {}
+func (*EbpfObservabilityCapabilities) ProtoMessage() {}
 
-func (x *BeylaCapabilities) ProtoReflect() protoreflect.Message {
+func (x *EbpfObservabilityCapabilities) ProtoReflect() protoreflect.Message {
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1690,40 +1690,40 @@ func (x *BeylaCapabilities) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BeylaCapabilities.ProtoReflect.Descriptor instead.
-func (*BeylaCapabilities) Descriptor() ([]byte, []int) {
+// Deprecated: Use EbpfObservabilityCapabilities.ProtoReflect.Descriptor instead.
+func (*EbpfObservabilityCapabilities) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *BeylaCapabilities) GetEnabled() bool {
+func (x *EbpfObservabilityCapabilities) GetEnabled() bool {
 	if x != nil {
 		return x.Enabled
 	}
 	return false
 }
 
-func (x *BeylaCapabilities) GetVersion() string {
+func (x *EbpfObservabilityCapabilities) GetVersion() string {
 	if x != nil {
 		return x.Version
 	}
 	return ""
 }
 
-func (x *BeylaCapabilities) GetSupportedProtocols() []string {
+func (x *EbpfObservabilityCapabilities) GetSupportedProtocols() []string {
 	if x != nil {
 		return x.SupportedProtocols
 	}
 	return nil
 }
 
-func (x *BeylaCapabilities) GetSupportedRuntimes() []string {
+func (x *EbpfObservabilityCapabilities) GetSupportedRuntimes() []string {
 	if x != nil {
 		return x.SupportedRuntimes
 	}
 	return nil
 }
 
-func (x *BeylaCapabilities) GetTracingEnabled() bool {
+func (x *EbpfObservabilityCapabilities) GetTracingEnabled() bool {
 	if x != nil {
 		return x.TracingEnabled
 	}
@@ -1985,8 +1985,8 @@ func (x *QueryTelemetryResponse) GetTotalSpans() int32 {
 	return 0
 }
 
-// QueryBeylaMetricsRequest is sent from colony to agent to query Beyla metrics.
-type QueryBeylaMetricsRequest struct {
+// QueryEbpfMetricsRequest is sent from colony to agent to query eBPF metrics.
+type QueryEbpfMetricsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Start time for query range (Unix seconds).
 	StartTime int64 `protobuf:"varint,1,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
@@ -1995,7 +1995,7 @@ type QueryBeylaMetricsRequest struct {
 	// Filter by service names (empty = all services).
 	ServiceNames []string `protobuf:"bytes,3,rep,name=service_names,json=serviceNames,proto3" json:"service_names,omitempty"`
 	// Metric types to query (empty = all types).
-	MetricTypes []BeylaMetricType `protobuf:"varint,4,rep,packed,name=metric_types,json=metricTypes,proto3,enum=coral.agent.v1.BeylaMetricType" json:"metric_types,omitempty"`
+	MetricTypes []EbpfMetricType `protobuf:"varint,4,rep,packed,name=metric_types,json=metricTypes,proto3,enum=coral.agent.v1.EbpfMetricType" json:"metric_types,omitempty"`
 	// Filter by specific trace ID (RFD 036).
 	TraceId string `protobuf:"bytes,5,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
 	// Limit number of traces returned (default: 100, max: 1000) (RFD 036).
@@ -2006,20 +2006,20 @@ type QueryBeylaMetricsRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *QueryBeylaMetricsRequest) Reset() {
-	*x = QueryBeylaMetricsRequest{}
+func (x *QueryEbpfMetricsRequest) Reset() {
+	*x = QueryEbpfMetricsRequest{}
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *QueryBeylaMetricsRequest) String() string {
+func (x *QueryEbpfMetricsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*QueryBeylaMetricsRequest) ProtoMessage() {}
+func (*QueryEbpfMetricsRequest) ProtoMessage() {}
 
-func (x *QueryBeylaMetricsRequest) ProtoReflect() protoreflect.Message {
+func (x *QueryEbpfMetricsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2031,93 +2031,93 @@ func (x *QueryBeylaMetricsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use QueryBeylaMetricsRequest.ProtoReflect.Descriptor instead.
-func (*QueryBeylaMetricsRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use QueryEbpfMetricsRequest.ProtoReflect.Descriptor instead.
+func (*QueryEbpfMetricsRequest) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{21}
 }
 
-func (x *QueryBeylaMetricsRequest) GetStartTime() int64 {
+func (x *QueryEbpfMetricsRequest) GetStartTime() int64 {
 	if x != nil {
 		return x.StartTime
 	}
 	return 0
 }
 
-func (x *QueryBeylaMetricsRequest) GetEndTime() int64 {
+func (x *QueryEbpfMetricsRequest) GetEndTime() int64 {
 	if x != nil {
 		return x.EndTime
 	}
 	return 0
 }
 
-func (x *QueryBeylaMetricsRequest) GetServiceNames() []string {
+func (x *QueryEbpfMetricsRequest) GetServiceNames() []string {
 	if x != nil {
 		return x.ServiceNames
 	}
 	return nil
 }
 
-func (x *QueryBeylaMetricsRequest) GetMetricTypes() []BeylaMetricType {
+func (x *QueryEbpfMetricsRequest) GetMetricTypes() []EbpfMetricType {
 	if x != nil {
 		return x.MetricTypes
 	}
 	return nil
 }
 
-func (x *QueryBeylaMetricsRequest) GetTraceId() string {
+func (x *QueryEbpfMetricsRequest) GetTraceId() string {
 	if x != nil {
 		return x.TraceId
 	}
 	return ""
 }
 
-func (x *QueryBeylaMetricsRequest) GetMaxTraces() int32 {
+func (x *QueryEbpfMetricsRequest) GetMaxTraces() int32 {
 	if x != nil {
 		return x.MaxTraces
 	}
 	return 0
 }
 
-func (x *QueryBeylaMetricsRequest) GetIncludeTraces() bool {
+func (x *QueryEbpfMetricsRequest) GetIncludeTraces() bool {
 	if x != nil {
 		return x.IncludeTraces
 	}
 	return false
 }
 
-// QueryBeylaMetricsResponse contains Beyla metrics from agent's local storage.
-type QueryBeylaMetricsResponse struct {
+// QueryEbpfMetricsResponse contains eBPF metrics from agent's local storage.
+type QueryEbpfMetricsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// HTTP metrics.
-	HttpMetrics []*BeylaHttpMetric `protobuf:"bytes,1,rep,name=http_metrics,json=httpMetrics,proto3" json:"http_metrics,omitempty"`
+	HttpMetrics []*EbpfHttpMetric `protobuf:"bytes,1,rep,name=http_metrics,json=httpMetrics,proto3" json:"http_metrics,omitempty"`
 	// gRPC metrics.
-	GrpcMetrics []*BeylaGrpcMetric `protobuf:"bytes,2,rep,name=grpc_metrics,json=grpcMetrics,proto3" json:"grpc_metrics,omitempty"`
+	GrpcMetrics []*EbpfGrpcMetric `protobuf:"bytes,2,rep,name=grpc_metrics,json=grpcMetrics,proto3" json:"grpc_metrics,omitempty"`
 	// SQL metrics.
-	SqlMetrics []*BeylaSqlMetric `protobuf:"bytes,3,rep,name=sql_metrics,json=sqlMetrics,proto3" json:"sql_metrics,omitempty"`
+	SqlMetrics []*EbpfSqlMetric `protobuf:"bytes,3,rep,name=sql_metrics,json=sqlMetrics,proto3" json:"sql_metrics,omitempty"`
 	// Total metrics returned.
 	TotalMetrics int32 `protobuf:"varint,4,opt,name=total_metrics,json=totalMetrics,proto3" json:"total_metrics,omitempty"`
 	// Trace spans (RFD 036).
-	TraceSpans []*BeylaTraceSpan `protobuf:"bytes,5,rep,name=trace_spans,json=traceSpans,proto3" json:"trace_spans,omitempty"`
+	TraceSpans []*EbpfTraceSpan `protobuf:"bytes,5,rep,name=trace_spans,json=traceSpans,proto3" json:"trace_spans,omitempty"`
 	// Total traces returned (RFD 036).
 	TotalTraces   int32 `protobuf:"varint,6,opt,name=total_traces,json=totalTraces,proto3" json:"total_traces,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *QueryBeylaMetricsResponse) Reset() {
-	*x = QueryBeylaMetricsResponse{}
+func (x *QueryEbpfMetricsResponse) Reset() {
+	*x = QueryEbpfMetricsResponse{}
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *QueryBeylaMetricsResponse) String() string {
+func (x *QueryEbpfMetricsResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*QueryBeylaMetricsResponse) ProtoMessage() {}
+func (*QueryEbpfMetricsResponse) ProtoMessage() {}
 
-func (x *QueryBeylaMetricsResponse) ProtoReflect() protoreflect.Message {
+func (x *QueryEbpfMetricsResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2129,55 +2129,55 @@ func (x *QueryBeylaMetricsResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use QueryBeylaMetricsResponse.ProtoReflect.Descriptor instead.
-func (*QueryBeylaMetricsResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use QueryEbpfMetricsResponse.ProtoReflect.Descriptor instead.
+func (*QueryEbpfMetricsResponse) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
-func (x *QueryBeylaMetricsResponse) GetHttpMetrics() []*BeylaHttpMetric {
+func (x *QueryEbpfMetricsResponse) GetHttpMetrics() []*EbpfHttpMetric {
 	if x != nil {
 		return x.HttpMetrics
 	}
 	return nil
 }
 
-func (x *QueryBeylaMetricsResponse) GetGrpcMetrics() []*BeylaGrpcMetric {
+func (x *QueryEbpfMetricsResponse) GetGrpcMetrics() []*EbpfGrpcMetric {
 	if x != nil {
 		return x.GrpcMetrics
 	}
 	return nil
 }
 
-func (x *QueryBeylaMetricsResponse) GetSqlMetrics() []*BeylaSqlMetric {
+func (x *QueryEbpfMetricsResponse) GetSqlMetrics() []*EbpfSqlMetric {
 	if x != nil {
 		return x.SqlMetrics
 	}
 	return nil
 }
 
-func (x *QueryBeylaMetricsResponse) GetTotalMetrics() int32 {
+func (x *QueryEbpfMetricsResponse) GetTotalMetrics() int32 {
 	if x != nil {
 		return x.TotalMetrics
 	}
 	return 0
 }
 
-func (x *QueryBeylaMetricsResponse) GetTraceSpans() []*BeylaTraceSpan {
+func (x *QueryEbpfMetricsResponse) GetTraceSpans() []*EbpfTraceSpan {
 	if x != nil {
 		return x.TraceSpans
 	}
 	return nil
 }
 
-func (x *QueryBeylaMetricsResponse) GetTotalTraces() int32 {
+func (x *QueryEbpfMetricsResponse) GetTotalTraces() int32 {
 	if x != nil {
 		return x.TotalTraces
 	}
 	return 0
 }
 
-// BeylaHttpMetric represents aggregated HTTP RED metrics.
-type BeylaHttpMetric struct {
+// EbpfHttpMetric represents aggregated HTTP RED metrics.
+type EbpfHttpMetric struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Timestamp (Unix milliseconds).
 	Timestamp int64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
@@ -2201,20 +2201,20 @@ type BeylaHttpMetric struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BeylaHttpMetric) Reset() {
-	*x = BeylaHttpMetric{}
+func (x *EbpfHttpMetric) Reset() {
+	*x = EbpfHttpMetric{}
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BeylaHttpMetric) String() string {
+func (x *EbpfHttpMetric) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BeylaHttpMetric) ProtoMessage() {}
+func (*EbpfHttpMetric) ProtoMessage() {}
 
-func (x *BeylaHttpMetric) ProtoReflect() protoreflect.Message {
+func (x *EbpfHttpMetric) ProtoReflect() protoreflect.Message {
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2226,76 +2226,76 @@ func (x *BeylaHttpMetric) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BeylaHttpMetric.ProtoReflect.Descriptor instead.
-func (*BeylaHttpMetric) Descriptor() ([]byte, []int) {
+// Deprecated: Use EbpfHttpMetric.ProtoReflect.Descriptor instead.
+func (*EbpfHttpMetric) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *BeylaHttpMetric) GetTimestamp() int64 {
+func (x *EbpfHttpMetric) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-func (x *BeylaHttpMetric) GetServiceName() string {
+func (x *EbpfHttpMetric) GetServiceName() string {
 	if x != nil {
 		return x.ServiceName
 	}
 	return ""
 }
 
-func (x *BeylaHttpMetric) GetHttpMethod() string {
+func (x *EbpfHttpMetric) GetHttpMethod() string {
 	if x != nil {
 		return x.HttpMethod
 	}
 	return ""
 }
 
-func (x *BeylaHttpMetric) GetHttpRoute() string {
+func (x *EbpfHttpMetric) GetHttpRoute() string {
 	if x != nil {
 		return x.HttpRoute
 	}
 	return ""
 }
 
-func (x *BeylaHttpMetric) GetHttpStatusCode() uint32 {
+func (x *EbpfHttpMetric) GetHttpStatusCode() uint32 {
 	if x != nil {
 		return x.HttpStatusCode
 	}
 	return 0
 }
 
-func (x *BeylaHttpMetric) GetLatencyBuckets() []float64 {
+func (x *EbpfHttpMetric) GetLatencyBuckets() []float64 {
 	if x != nil {
 		return x.LatencyBuckets
 	}
 	return nil
 }
 
-func (x *BeylaHttpMetric) GetLatencyCounts() []uint64 {
+func (x *EbpfHttpMetric) GetLatencyCounts() []uint64 {
 	if x != nil {
 		return x.LatencyCounts
 	}
 	return nil
 }
 
-func (x *BeylaHttpMetric) GetRequestCount() uint64 {
+func (x *EbpfHttpMetric) GetRequestCount() uint64 {
 	if x != nil {
 		return x.RequestCount
 	}
 	return 0
 }
 
-func (x *BeylaHttpMetric) GetAttributes() map[string]string {
+func (x *EbpfHttpMetric) GetAttributes() map[string]string {
 	if x != nil {
 		return x.Attributes
 	}
 	return nil
 }
 
-// BeylaGrpcMetric represents aggregated gRPC RED metrics.
-type BeylaGrpcMetric struct {
+// EbpfGrpcMetric represents aggregated gRPC RED metrics.
+type EbpfGrpcMetric struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Timestamp (Unix milliseconds).
 	Timestamp int64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
@@ -2317,20 +2317,20 @@ type BeylaGrpcMetric struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BeylaGrpcMetric) Reset() {
-	*x = BeylaGrpcMetric{}
+func (x *EbpfGrpcMetric) Reset() {
+	*x = EbpfGrpcMetric{}
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BeylaGrpcMetric) String() string {
+func (x *EbpfGrpcMetric) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BeylaGrpcMetric) ProtoMessage() {}
+func (*EbpfGrpcMetric) ProtoMessage() {}
 
-func (x *BeylaGrpcMetric) ProtoReflect() protoreflect.Message {
+func (x *EbpfGrpcMetric) ProtoReflect() protoreflect.Message {
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2342,69 +2342,69 @@ func (x *BeylaGrpcMetric) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BeylaGrpcMetric.ProtoReflect.Descriptor instead.
-func (*BeylaGrpcMetric) Descriptor() ([]byte, []int) {
+// Deprecated: Use EbpfGrpcMetric.ProtoReflect.Descriptor instead.
+func (*EbpfGrpcMetric) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
-func (x *BeylaGrpcMetric) GetTimestamp() int64 {
+func (x *EbpfGrpcMetric) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-func (x *BeylaGrpcMetric) GetServiceName() string {
+func (x *EbpfGrpcMetric) GetServiceName() string {
 	if x != nil {
 		return x.ServiceName
 	}
 	return ""
 }
 
-func (x *BeylaGrpcMetric) GetGrpcMethod() string {
+func (x *EbpfGrpcMetric) GetGrpcMethod() string {
 	if x != nil {
 		return x.GrpcMethod
 	}
 	return ""
 }
 
-func (x *BeylaGrpcMetric) GetGrpcStatusCode() uint32 {
+func (x *EbpfGrpcMetric) GetGrpcStatusCode() uint32 {
 	if x != nil {
 		return x.GrpcStatusCode
 	}
 	return 0
 }
 
-func (x *BeylaGrpcMetric) GetLatencyBuckets() []float64 {
+func (x *EbpfGrpcMetric) GetLatencyBuckets() []float64 {
 	if x != nil {
 		return x.LatencyBuckets
 	}
 	return nil
 }
 
-func (x *BeylaGrpcMetric) GetLatencyCounts() []uint64 {
+func (x *EbpfGrpcMetric) GetLatencyCounts() []uint64 {
 	if x != nil {
 		return x.LatencyCounts
 	}
 	return nil
 }
 
-func (x *BeylaGrpcMetric) GetRequestCount() uint64 {
+func (x *EbpfGrpcMetric) GetRequestCount() uint64 {
 	if x != nil {
 		return x.RequestCount
 	}
 	return 0
 }
 
-func (x *BeylaGrpcMetric) GetAttributes() map[string]string {
+func (x *EbpfGrpcMetric) GetAttributes() map[string]string {
 	if x != nil {
 		return x.Attributes
 	}
 	return nil
 }
 
-// BeylaSqlMetric represents aggregated SQL query metrics.
-type BeylaSqlMetric struct {
+// EbpfSqlMetric represents aggregated SQL query metrics.
+type EbpfSqlMetric struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Timestamp (Unix milliseconds).
 	Timestamp int64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
@@ -2426,20 +2426,20 @@ type BeylaSqlMetric struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BeylaSqlMetric) Reset() {
-	*x = BeylaSqlMetric{}
+func (x *EbpfSqlMetric) Reset() {
+	*x = EbpfSqlMetric{}
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BeylaSqlMetric) String() string {
+func (x *EbpfSqlMetric) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BeylaSqlMetric) ProtoMessage() {}
+func (*EbpfSqlMetric) ProtoMessage() {}
 
-func (x *BeylaSqlMetric) ProtoReflect() protoreflect.Message {
+func (x *EbpfSqlMetric) ProtoReflect() protoreflect.Message {
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2451,69 +2451,69 @@ func (x *BeylaSqlMetric) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BeylaSqlMetric.ProtoReflect.Descriptor instead.
-func (*BeylaSqlMetric) Descriptor() ([]byte, []int) {
+// Deprecated: Use EbpfSqlMetric.ProtoReflect.Descriptor instead.
+func (*EbpfSqlMetric) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *BeylaSqlMetric) GetTimestamp() int64 {
+func (x *EbpfSqlMetric) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-func (x *BeylaSqlMetric) GetServiceName() string {
+func (x *EbpfSqlMetric) GetServiceName() string {
 	if x != nil {
 		return x.ServiceName
 	}
 	return ""
 }
 
-func (x *BeylaSqlMetric) GetSqlOperation() string {
+func (x *EbpfSqlMetric) GetSqlOperation() string {
 	if x != nil {
 		return x.SqlOperation
 	}
 	return ""
 }
 
-func (x *BeylaSqlMetric) GetTableName() string {
+func (x *EbpfSqlMetric) GetTableName() string {
 	if x != nil {
 		return x.TableName
 	}
 	return ""
 }
 
-func (x *BeylaSqlMetric) GetLatencyBuckets() []float64 {
+func (x *EbpfSqlMetric) GetLatencyBuckets() []float64 {
 	if x != nil {
 		return x.LatencyBuckets
 	}
 	return nil
 }
 
-func (x *BeylaSqlMetric) GetLatencyCounts() []uint64 {
+func (x *EbpfSqlMetric) GetLatencyCounts() []uint64 {
 	if x != nil {
 		return x.LatencyCounts
 	}
 	return nil
 }
 
-func (x *BeylaSqlMetric) GetQueryCount() uint64 {
+func (x *EbpfSqlMetric) GetQueryCount() uint64 {
 	if x != nil {
 		return x.QueryCount
 	}
 	return 0
 }
 
-func (x *BeylaSqlMetric) GetAttributes() map[string]string {
+func (x *EbpfSqlMetric) GetAttributes() map[string]string {
 	if x != nil {
 		return x.Attributes
 	}
 	return nil
 }
 
-// BeylaTraceSpan represents a distributed trace span (RFD 036).
-type BeylaTraceSpan struct {
+// EbpfTraceSpan represents a distributed trace span (RFD 036).
+type EbpfTraceSpan struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Trace ID (32-char hex string).
 	TraceId string `protobuf:"bytes,1,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
@@ -2539,20 +2539,20 @@ type BeylaTraceSpan struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BeylaTraceSpan) Reset() {
-	*x = BeylaTraceSpan{}
+func (x *EbpfTraceSpan) Reset() {
+	*x = EbpfTraceSpan{}
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BeylaTraceSpan) String() string {
+func (x *EbpfTraceSpan) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BeylaTraceSpan) ProtoMessage() {}
+func (*EbpfTraceSpan) ProtoMessage() {}
 
-func (x *BeylaTraceSpan) ProtoReflect() protoreflect.Message {
+func (x *EbpfTraceSpan) ProtoReflect() protoreflect.Message {
 	mi := &file_coral_agent_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2564,75 +2564,75 @@ func (x *BeylaTraceSpan) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BeylaTraceSpan.ProtoReflect.Descriptor instead.
-func (*BeylaTraceSpan) Descriptor() ([]byte, []int) {
+// Deprecated: Use EbpfTraceSpan.ProtoReflect.Descriptor instead.
+func (*EbpfTraceSpan) Descriptor() ([]byte, []int) {
 	return file_coral_agent_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
-func (x *BeylaTraceSpan) GetTraceId() string {
+func (x *EbpfTraceSpan) GetTraceId() string {
 	if x != nil {
 		return x.TraceId
 	}
 	return ""
 }
 
-func (x *BeylaTraceSpan) GetSpanId() string {
+func (x *EbpfTraceSpan) GetSpanId() string {
 	if x != nil {
 		return x.SpanId
 	}
 	return ""
 }
 
-func (x *BeylaTraceSpan) GetParentSpanId() string {
+func (x *EbpfTraceSpan) GetParentSpanId() string {
 	if x != nil {
 		return x.ParentSpanId
 	}
 	return ""
 }
 
-func (x *BeylaTraceSpan) GetServiceName() string {
+func (x *EbpfTraceSpan) GetServiceName() string {
 	if x != nil {
 		return x.ServiceName
 	}
 	return ""
 }
 
-func (x *BeylaTraceSpan) GetSpanName() string {
+func (x *EbpfTraceSpan) GetSpanName() string {
 	if x != nil {
 		return x.SpanName
 	}
 	return ""
 }
 
-func (x *BeylaTraceSpan) GetSpanKind() string {
+func (x *EbpfTraceSpan) GetSpanKind() string {
 	if x != nil {
 		return x.SpanKind
 	}
 	return ""
 }
 
-func (x *BeylaTraceSpan) GetStartTime() int64 {
+func (x *EbpfTraceSpan) GetStartTime() int64 {
 	if x != nil {
 		return x.StartTime
 	}
 	return 0
 }
 
-func (x *BeylaTraceSpan) GetDurationUs() int64 {
+func (x *EbpfTraceSpan) GetDurationUs() int64 {
 	if x != nil {
 		return x.DurationUs
 	}
 	return 0
 }
 
-func (x *BeylaTraceSpan) GetStatusCode() uint32 {
+func (x *EbpfTraceSpan) GetStatusCode() uint32 {
 	if x != nil {
 		return x.StatusCode
 	}
 	return 0
 }
 
-func (x *BeylaTraceSpan) GetAttributes() map[string]string {
+func (x *EbpfTraceSpan) GetAttributes() map[string]string {
 	if x != nil {
 		return x.Attributes
 	}
@@ -4056,15 +4056,15 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"binaryHash\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa4\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc9\x02\n" +
 	"\x10EbpfCapabilities\x12\x1c\n" +
 	"\tsupported\x18\x01 \x01(\bR\tsupported\x12%\n" +
 	"\x0ekernel_version\x18\x02 \x01(\tR\rkernelVersion\x12#\n" +
 	"\rbtf_available\x18\x03 \x01(\bR\fbtfAvailable\x12\x17\n" +
 	"\acap_bpf\x18\x04 \x01(\bR\x06capBpf\x12T\n" +
-	"\x14available_collectors\x18\x05 \x03(\x0e2!.coral.agent.v1.EbpfCollectorKindR\x13availableCollectors\x127\n" +
-	"\x05beyla\x18\x06 \x01(\v2!.coral.agent.v1.BeylaCapabilitiesR\x05beyla\"\xd0\x01\n" +
-	"\x11BeylaCapabilities\x12\x18\n" +
+	"\x14available_collectors\x18\x05 \x03(\x0e2!.coral.agent.v1.EbpfCollectorKindR\x13availableCollectors\x12\\\n" +
+	"\x12ebpf_observability\x18\x06 \x01(\v2-.coral.agent.v1.EbpfObservabilityCapabilitiesR\x11ebpfObservability\"\xdc\x01\n" +
+	"\x1dEbpfObservabilityCapabilities\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12/\n" +
 	"\x13supported_protocols\x18\x03 \x03(\tR\x12supportedProtocols\x12-\n" +
@@ -4100,27 +4100,27 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x16QueryTelemetryResponse\x123\n" +
 	"\x05spans\x18\x01 \x03(\v2\x1d.coral.agent.v1.TelemetrySpanR\x05spans\x12\x1f\n" +
 	"\vtotal_spans\x18\x02 \x01(\x05R\n" +
-	"totalSpans\"\x9e\x02\n" +
-	"\x18QueryBeylaMetricsRequest\x12\x1d\n" +
+	"totalSpans\"\x9c\x02\n" +
+	"\x17QueryEbpfMetricsRequest\x12\x1d\n" +
 	"\n" +
 	"start_time\x18\x01 \x01(\x03R\tstartTime\x12\x19\n" +
 	"\bend_time\x18\x02 \x01(\x03R\aendTime\x12#\n" +
-	"\rservice_names\x18\x03 \x03(\tR\fserviceNames\x12B\n" +
-	"\fmetric_types\x18\x04 \x03(\x0e2\x1f.coral.agent.v1.BeylaMetricTypeR\vmetricTypes\x12\x19\n" +
+	"\rservice_names\x18\x03 \x03(\tR\fserviceNames\x12A\n" +
+	"\fmetric_types\x18\x04 \x03(\x0e2\x1e.coral.agent.v1.EbpfMetricTypeR\vmetricTypes\x12\x19\n" +
 	"\btrace_id\x18\x05 \x01(\tR\atraceId\x12\x1d\n" +
 	"\n" +
 	"max_traces\x18\x06 \x01(\x05R\tmaxTraces\x12%\n" +
-	"\x0einclude_traces\x18\a \x01(\bR\rincludeTraces\"\xed\x02\n" +
-	"\x19QueryBeylaMetricsResponse\x12B\n" +
-	"\fhttp_metrics\x18\x01 \x03(\v2\x1f.coral.agent.v1.BeylaHttpMetricR\vhttpMetrics\x12B\n" +
-	"\fgrpc_metrics\x18\x02 \x03(\v2\x1f.coral.agent.v1.BeylaGrpcMetricR\vgrpcMetrics\x12?\n" +
-	"\vsql_metrics\x18\x03 \x03(\v2\x1e.coral.agent.v1.BeylaSqlMetricR\n" +
+	"\x0einclude_traces\x18\a \x01(\bR\rincludeTraces\"\xe8\x02\n" +
+	"\x18QueryEbpfMetricsResponse\x12A\n" +
+	"\fhttp_metrics\x18\x01 \x03(\v2\x1e.coral.agent.v1.EbpfHttpMetricR\vhttpMetrics\x12A\n" +
+	"\fgrpc_metrics\x18\x02 \x03(\v2\x1e.coral.agent.v1.EbpfGrpcMetricR\vgrpcMetrics\x12>\n" +
+	"\vsql_metrics\x18\x03 \x03(\v2\x1d.coral.agent.v1.EbpfSqlMetricR\n" +
 	"sqlMetrics\x12#\n" +
-	"\rtotal_metrics\x18\x04 \x01(\x05R\ftotalMetrics\x12?\n" +
-	"\vtrace_spans\x18\x05 \x03(\v2\x1e.coral.agent.v1.BeylaTraceSpanR\n" +
+	"\rtotal_metrics\x18\x04 \x01(\x05R\ftotalMetrics\x12>\n" +
+	"\vtrace_spans\x18\x05 \x03(\v2\x1d.coral.agent.v1.EbpfTraceSpanR\n" +
 	"traceSpans\x12!\n" +
-	"\ftotal_traces\x18\x06 \x01(\x05R\vtotalTraces\"\xc1\x03\n" +
-	"\x0fBeylaHttpMetric\x12\x1c\n" +
+	"\ftotal_traces\x18\x06 \x01(\x05R\vtotalTraces\"\xbf\x03\n" +
+	"\x0eEbpfHttpMetric\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12\x1f\n" +
 	"\vhttp_method\x18\x03 \x01(\tR\n" +
@@ -4130,14 +4130,14 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x10http_status_code\x18\x05 \x01(\rR\x0ehttpStatusCode\x12'\n" +
 	"\x0flatency_buckets\x18\x06 \x03(\x01R\x0elatencyBuckets\x12%\n" +
 	"\x0elatency_counts\x18\a \x03(\x04R\rlatencyCounts\x12#\n" +
-	"\rrequest_count\x18\b \x01(\x04R\frequestCount\x12O\n" +
+	"\rrequest_count\x18\b \x01(\x04R\frequestCount\x12N\n" +
 	"\n" +
-	"attributes\x18\t \x03(\v2/.coral.agent.v1.BeylaHttpMetric.AttributesEntryR\n" +
+	"attributes\x18\t \x03(\v2..coral.agent.v1.EbpfHttpMetric.AttributesEntryR\n" +
 	"attributes\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa2\x03\n" +
-	"\x0fBeylaGrpcMetric\x12\x1c\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x03\n" +
+	"\x0eEbpfGrpcMetric\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12\x1f\n" +
 	"\vgrpc_method\x18\x03 \x01(\tR\n" +
@@ -4145,14 +4145,14 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x10grpc_status_code\x18\x04 \x01(\rR\x0egrpcStatusCode\x12'\n" +
 	"\x0flatency_buckets\x18\x05 \x03(\x01R\x0elatencyBuckets\x12%\n" +
 	"\x0elatency_counts\x18\x06 \x03(\x04R\rlatencyCounts\x12#\n" +
-	"\rrequest_count\x18\a \x01(\x04R\frequestCount\x12O\n" +
+	"\rrequest_count\x18\a \x01(\x04R\frequestCount\x12N\n" +
 	"\n" +
-	"attributes\x18\b \x03(\v2/.coral.agent.v1.BeylaGrpcMetric.AttributesEntryR\n" +
+	"attributes\x18\b \x03(\v2..coral.agent.v1.EbpfGrpcMetric.AttributesEntryR\n" +
 	"attributes\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x95\x03\n" +
-	"\x0eBeylaSqlMetric\x12\x1c\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x93\x03\n" +
+	"\rEbpfSqlMetric\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12#\n" +
 	"\rsql_operation\x18\x03 \x01(\tR\fsqlOperation\x12\x1d\n" +
@@ -4161,14 +4161,14 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x0flatency_buckets\x18\x05 \x03(\x01R\x0elatencyBuckets\x12%\n" +
 	"\x0elatency_counts\x18\x06 \x03(\x04R\rlatencyCounts\x12\x1f\n" +
 	"\vquery_count\x18\a \x01(\x04R\n" +
-	"queryCount\x12N\n" +
+	"queryCount\x12M\n" +
 	"\n" +
-	"attributes\x18\b \x03(\v2..coral.agent.v1.BeylaSqlMetric.AttributesEntryR\n" +
+	"attributes\x18\b \x03(\v2-.coral.agent.v1.EbpfSqlMetric.AttributesEntryR\n" +
 	"attributes\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb7\x03\n" +
-	"\x0eBeylaTraceSpan\x12\x19\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb5\x03\n" +
+	"\rEbpfTraceSpan\x12\x19\n" +
 	"\btrace_id\x18\x01 \x01(\tR\atraceId\x12\x17\n" +
 	"\aspan_id\x18\x02 \x01(\tR\x06spanId\x12$\n" +
 	"\x0eparent_span_id\x18\x03 \x01(\tR\fparentSpanId\x12!\n" +
@@ -4180,10 +4180,10 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\vduration_us\x18\b \x01(\x03R\n" +
 	"durationUs\x12\x1f\n" +
 	"\vstatus_code\x18\t \x01(\rR\n" +
-	"statusCode\x12N\n" +
+	"statusCode\x12M\n" +
 	"\n" +
 	"attributes\x18\n" +
-	" \x03(\v2..coral.agent.v1.BeylaTraceSpan.AttributesEntryR\n" +
+	" \x03(\v2-.coral.agent.v1.EbpfTraceSpan.AttributesEntryR\n" +
 	"attributes\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -4321,19 +4321,19 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	" EBPF_COLLECTOR_KIND_HTTP_LATENCY\x10\x02\x12#\n" +
 	"\x1fEBPF_COLLECTOR_KIND_CPU_PROFILE\x10\x03\x12#\n" +
 	"\x1fEBPF_COLLECTOR_KIND_TCP_METRICS\x10\x04\x12\x1e\n" +
-	"\x1aEBPF_COLLECTOR_KIND_UPROBE\x10\x05*\x87\x01\n" +
-	"\x0fBeylaMetricType\x12!\n" +
-	"\x1dBEYLA_METRIC_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
-	"\x16BEYLA_METRIC_TYPE_HTTP\x10\x01\x12\x1a\n" +
-	"\x16BEYLA_METRIC_TYPE_GRPC\x10\x02\x12\x19\n" +
-	"\x15BEYLA_METRIC_TYPE_SQL\x10\x032\xee\t\n" +
+	"\x1aEBPF_COLLECTOR_KIND_UPROBE\x10\x05*\x82\x01\n" +
+	"\x0eEbpfMetricType\x12 \n" +
+	"\x1cEBPF_METRIC_TYPE_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15EBPF_METRIC_TYPE_HTTP\x10\x01\x12\x19\n" +
+	"\x15EBPF_METRIC_TYPE_GRPC\x10\x02\x12\x18\n" +
+	"\x14EBPF_METRIC_TYPE_SQL\x10\x032\xeb\t\n" +
 	"\fAgentService\x12e\n" +
 	"\x11GetRuntimeContext\x12(.coral.agent.v1.GetRuntimeContextRequest\x1a&.coral.agent.v1.RuntimeContextResponse\x12_\n" +
 	"\x0eConnectService\x12%.coral.agent.v1.ConnectServiceRequest\x1a&.coral.agent.v1.ConnectServiceResponse\x12h\n" +
 	"\x11DisconnectService\x12(.coral.agent.v1.DisconnectServiceRequest\x1a).coral.agent.v1.DisconnectServiceResponse\x12Y\n" +
 	"\fListServices\x12#.coral.agent.v1.ListServicesRequest\x1a$.coral.agent.v1.ListServicesResponse\x12_\n" +
-	"\x0eQueryTelemetry\x12%.coral.agent.v1.QueryTelemetryRequest\x1a&.coral.agent.v1.QueryTelemetryResponse\x12h\n" +
-	"\x11QueryBeylaMetrics\x12(.coral.agent.v1.QueryBeylaMetricsRequest\x1a).coral.agent.v1.QueryBeylaMetricsResponse\x12H\n" +
+	"\x0eQueryTelemetry\x12%.coral.agent.v1.QueryTelemetryRequest\x1a&.coral.agent.v1.QueryTelemetryResponse\x12e\n" +
+	"\x10QueryEbpfMetrics\x12'.coral.agent.v1.QueryEbpfMetricsRequest\x1a(.coral.agent.v1.QueryEbpfMetricsResponse\x12H\n" +
 	"\x05Shell\x12\x1c.coral.agent.v1.ShellRequest\x1a\x1d.coral.agent.v1.ShellResponse(\x010\x01\x12P\n" +
 	"\tShellExec\x12 .coral.agent.v1.ShellExecRequest\x1a!.coral.agent.v1.ShellExecResponse\x12\\\n" +
 	"\rContainerExec\x12$.coral.agent.v1.ContainerExecRequest\x1a%.coral.agent.v1.ContainerExecResponse\x12n\n" +
@@ -4359,68 +4359,68 @@ func file_coral_agent_v1_agent_proto_rawDescGZIP() []byte {
 var file_coral_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_coral_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
 var file_coral_agent_v1_agent_proto_goTypes = []any{
-	(ExecMode)(0),                       // 0: coral.agent.v1.ExecMode
-	(RuntimeContext)(0),                 // 1: coral.agent.v1.RuntimeContext
-	(SidecarMode)(0),                    // 2: coral.agent.v1.SidecarMode
-	(EbpfCollectorKind)(0),              // 3: coral.agent.v1.EbpfCollectorKind
-	(BeylaMetricType)(0),                // 4: coral.agent.v1.BeylaMetricType
-	(*GetRuntimeContextRequest)(nil),    // 5: coral.agent.v1.GetRuntimeContextRequest
-	(*RuntimeContextResponse)(nil),      // 6: coral.agent.v1.RuntimeContextResponse
-	(*PlatformInfo)(nil),                // 7: coral.agent.v1.PlatformInfo
-	(*CRISocketInfo)(nil),               // 8: coral.agent.v1.CRISocketInfo
-	(*VisibilityScope)(nil),             // 9: coral.agent.v1.VisibilityScope
-	(*Capabilities)(nil),                // 10: coral.agent.v1.Capabilities
-	(*LinuxCapabilities)(nil),           // 11: coral.agent.v1.LinuxCapabilities
-	(*ExecCapabilities)(nil),            // 12: coral.agent.v1.ExecCapabilities
-	(*ConnectServiceRequest)(nil),       // 13: coral.agent.v1.ConnectServiceRequest
-	(*ServiceSdkCapabilities)(nil),      // 14: coral.agent.v1.ServiceSdkCapabilities
-	(*ConnectServiceResponse)(nil),      // 15: coral.agent.v1.ConnectServiceResponse
-	(*DisconnectServiceRequest)(nil),    // 16: coral.agent.v1.DisconnectServiceRequest
-	(*DisconnectServiceResponse)(nil),   // 17: coral.agent.v1.DisconnectServiceResponse
-	(*ListServicesRequest)(nil),         // 18: coral.agent.v1.ListServicesRequest
-	(*ListServicesResponse)(nil),        // 19: coral.agent.v1.ListServicesResponse
-	(*ServiceStatus)(nil),               // 20: coral.agent.v1.ServiceStatus
-	(*EbpfCapabilities)(nil),            // 21: coral.agent.v1.EbpfCapabilities
-	(*BeylaCapabilities)(nil),           // 22: coral.agent.v1.BeylaCapabilities
-	(*TelemetrySpan)(nil),               // 23: coral.agent.v1.TelemetrySpan
-	(*QueryTelemetryRequest)(nil),       // 24: coral.agent.v1.QueryTelemetryRequest
-	(*QueryTelemetryResponse)(nil),      // 25: coral.agent.v1.QueryTelemetryResponse
-	(*QueryBeylaMetricsRequest)(nil),    // 26: coral.agent.v1.QueryBeylaMetricsRequest
-	(*QueryBeylaMetricsResponse)(nil),   // 27: coral.agent.v1.QueryBeylaMetricsResponse
-	(*BeylaHttpMetric)(nil),             // 28: coral.agent.v1.BeylaHttpMetric
-	(*BeylaGrpcMetric)(nil),             // 29: coral.agent.v1.BeylaGrpcMetric
-	(*BeylaSqlMetric)(nil),              // 30: coral.agent.v1.BeylaSqlMetric
-	(*BeylaTraceSpan)(nil),              // 31: coral.agent.v1.BeylaTraceSpan
-	(*ShellRequest)(nil),                // 32: coral.agent.v1.ShellRequest
-	(*ShellStart)(nil),                  // 33: coral.agent.v1.ShellStart
-	(*ShellResponse)(nil),               // 34: coral.agent.v1.ShellResponse
-	(*ShellExit)(nil),                   // 35: coral.agent.v1.ShellExit
-	(*TerminalSize)(nil),                // 36: coral.agent.v1.TerminalSize
-	(*ShellResize)(nil),                 // 37: coral.agent.v1.ShellResize
-	(*ShellSignal)(nil),                 // 38: coral.agent.v1.ShellSignal
-	(*ResizeShellTerminalRequest)(nil),  // 39: coral.agent.v1.ResizeShellTerminalRequest
-	(*ResizeShellTerminalResponse)(nil), // 40: coral.agent.v1.ResizeShellTerminalResponse
-	(*SendShellSignalRequest)(nil),      // 41: coral.agent.v1.SendShellSignalRequest
-	(*SendShellSignalResponse)(nil),     // 42: coral.agent.v1.SendShellSignalResponse
-	(*KillShellSessionRequest)(nil),     // 43: coral.agent.v1.KillShellSessionRequest
-	(*KillShellSessionResponse)(nil),    // 44: coral.agent.v1.KillShellSessionResponse
-	(*ShellExecRequest)(nil),            // 45: coral.agent.v1.ShellExecRequest
-	(*ShellExecResponse)(nil),           // 46: coral.agent.v1.ShellExecResponse
-	(*ContainerExecRequest)(nil),        // 47: coral.agent.v1.ContainerExecRequest
-	(*ContainerExecResponse)(nil),       // 48: coral.agent.v1.ContainerExecResponse
-	(*DebugEvent)(nil),                  // 49: coral.agent.v1.DebugEvent
-	(*DebugCommand)(nil),                // 50: coral.agent.v1.DebugCommand
-	nil,                                 // 51: coral.agent.v1.ConnectServiceRequest.LabelsEntry
-	nil,                                 // 52: coral.agent.v1.ServiceStatus.LabelsEntry
-	nil,                                 // 53: coral.agent.v1.TelemetrySpan.AttributesEntry
-	nil,                                 // 54: coral.agent.v1.BeylaHttpMetric.AttributesEntry
-	nil,                                 // 55: coral.agent.v1.BeylaGrpcMetric.AttributesEntry
-	nil,                                 // 56: coral.agent.v1.BeylaSqlMetric.AttributesEntry
-	nil,                                 // 57: coral.agent.v1.BeylaTraceSpan.AttributesEntry
-	nil,                                 // 58: coral.agent.v1.ShellStart.EnvEntry
-	nil,                                 // 59: coral.agent.v1.ShellExecRequest.EnvEntry
-	nil,                                 // 60: coral.agent.v1.ContainerExecRequest.EnvEntry
-	(*timestamppb.Timestamp)(nil),       // 61: google.protobuf.Timestamp
+	(ExecMode)(0),                         // 0: coral.agent.v1.ExecMode
+	(RuntimeContext)(0),                   // 1: coral.agent.v1.RuntimeContext
+	(SidecarMode)(0),                      // 2: coral.agent.v1.SidecarMode
+	(EbpfCollectorKind)(0),                // 3: coral.agent.v1.EbpfCollectorKind
+	(EbpfMetricType)(0),                   // 4: coral.agent.v1.EbpfMetricType
+	(*GetRuntimeContextRequest)(nil),      // 5: coral.agent.v1.GetRuntimeContextRequest
+	(*RuntimeContextResponse)(nil),        // 6: coral.agent.v1.RuntimeContextResponse
+	(*PlatformInfo)(nil),                  // 7: coral.agent.v1.PlatformInfo
+	(*CRISocketInfo)(nil),                 // 8: coral.agent.v1.CRISocketInfo
+	(*VisibilityScope)(nil),               // 9: coral.agent.v1.VisibilityScope
+	(*Capabilities)(nil),                  // 10: coral.agent.v1.Capabilities
+	(*LinuxCapabilities)(nil),             // 11: coral.agent.v1.LinuxCapabilities
+	(*ExecCapabilities)(nil),              // 12: coral.agent.v1.ExecCapabilities
+	(*ConnectServiceRequest)(nil),         // 13: coral.agent.v1.ConnectServiceRequest
+	(*ServiceSdkCapabilities)(nil),        // 14: coral.agent.v1.ServiceSdkCapabilities
+	(*ConnectServiceResponse)(nil),        // 15: coral.agent.v1.ConnectServiceResponse
+	(*DisconnectServiceRequest)(nil),      // 16: coral.agent.v1.DisconnectServiceRequest
+	(*DisconnectServiceResponse)(nil),     // 17: coral.agent.v1.DisconnectServiceResponse
+	(*ListServicesRequest)(nil),           // 18: coral.agent.v1.ListServicesRequest
+	(*ListServicesResponse)(nil),          // 19: coral.agent.v1.ListServicesResponse
+	(*ServiceStatus)(nil),                 // 20: coral.agent.v1.ServiceStatus
+	(*EbpfCapabilities)(nil),              // 21: coral.agent.v1.EbpfCapabilities
+	(*EbpfObservabilityCapabilities)(nil), // 22: coral.agent.v1.EbpfObservabilityCapabilities
+	(*TelemetrySpan)(nil),                 // 23: coral.agent.v1.TelemetrySpan
+	(*QueryTelemetryRequest)(nil),         // 24: coral.agent.v1.QueryTelemetryRequest
+	(*QueryTelemetryResponse)(nil),        // 25: coral.agent.v1.QueryTelemetryResponse
+	(*QueryEbpfMetricsRequest)(nil),       // 26: coral.agent.v1.QueryEbpfMetricsRequest
+	(*QueryEbpfMetricsResponse)(nil),      // 27: coral.agent.v1.QueryEbpfMetricsResponse
+	(*EbpfHttpMetric)(nil),                // 28: coral.agent.v1.EbpfHttpMetric
+	(*EbpfGrpcMetric)(nil),                // 29: coral.agent.v1.EbpfGrpcMetric
+	(*EbpfSqlMetric)(nil),                 // 30: coral.agent.v1.EbpfSqlMetric
+	(*EbpfTraceSpan)(nil),                 // 31: coral.agent.v1.EbpfTraceSpan
+	(*ShellRequest)(nil),                  // 32: coral.agent.v1.ShellRequest
+	(*ShellStart)(nil),                    // 33: coral.agent.v1.ShellStart
+	(*ShellResponse)(nil),                 // 34: coral.agent.v1.ShellResponse
+	(*ShellExit)(nil),                     // 35: coral.agent.v1.ShellExit
+	(*TerminalSize)(nil),                  // 36: coral.agent.v1.TerminalSize
+	(*ShellResize)(nil),                   // 37: coral.agent.v1.ShellResize
+	(*ShellSignal)(nil),                   // 38: coral.agent.v1.ShellSignal
+	(*ResizeShellTerminalRequest)(nil),    // 39: coral.agent.v1.ResizeShellTerminalRequest
+	(*ResizeShellTerminalResponse)(nil),   // 40: coral.agent.v1.ResizeShellTerminalResponse
+	(*SendShellSignalRequest)(nil),        // 41: coral.agent.v1.SendShellSignalRequest
+	(*SendShellSignalResponse)(nil),       // 42: coral.agent.v1.SendShellSignalResponse
+	(*KillShellSessionRequest)(nil),       // 43: coral.agent.v1.KillShellSessionRequest
+	(*KillShellSessionResponse)(nil),      // 44: coral.agent.v1.KillShellSessionResponse
+	(*ShellExecRequest)(nil),              // 45: coral.agent.v1.ShellExecRequest
+	(*ShellExecResponse)(nil),             // 46: coral.agent.v1.ShellExecResponse
+	(*ContainerExecRequest)(nil),          // 47: coral.agent.v1.ContainerExecRequest
+	(*ContainerExecResponse)(nil),         // 48: coral.agent.v1.ContainerExecResponse
+	(*DebugEvent)(nil),                    // 49: coral.agent.v1.DebugEvent
+	(*DebugCommand)(nil),                  // 50: coral.agent.v1.DebugCommand
+	nil,                                   // 51: coral.agent.v1.ConnectServiceRequest.LabelsEntry
+	nil,                                   // 52: coral.agent.v1.ServiceStatus.LabelsEntry
+	nil,                                   // 53: coral.agent.v1.TelemetrySpan.AttributesEntry
+	nil,                                   // 54: coral.agent.v1.EbpfHttpMetric.AttributesEntry
+	nil,                                   // 55: coral.agent.v1.EbpfGrpcMetric.AttributesEntry
+	nil,                                   // 56: coral.agent.v1.EbpfSqlMetric.AttributesEntry
+	nil,                                   // 57: coral.agent.v1.EbpfTraceSpan.AttributesEntry
+	nil,                                   // 58: coral.agent.v1.ShellStart.EnvEntry
+	nil,                                   // 59: coral.agent.v1.ShellExecRequest.EnvEntry
+	nil,                                   // 60: coral.agent.v1.ContainerExecRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),         // 61: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	7,  // 0: coral.agent.v1.RuntimeContextResponse.platform:type_name -> coral.agent.v1.PlatformInfo
@@ -4440,18 +4440,18 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	52, // 14: coral.agent.v1.ServiceStatus.labels:type_name -> coral.agent.v1.ServiceStatus.LabelsEntry
 	61, // 15: coral.agent.v1.ServiceStatus.last_check:type_name -> google.protobuf.Timestamp
 	3,  // 16: coral.agent.v1.EbpfCapabilities.available_collectors:type_name -> coral.agent.v1.EbpfCollectorKind
-	22, // 17: coral.agent.v1.EbpfCapabilities.beyla:type_name -> coral.agent.v1.BeylaCapabilities
+	22, // 17: coral.agent.v1.EbpfCapabilities.ebpf_observability:type_name -> coral.agent.v1.EbpfObservabilityCapabilities
 	53, // 18: coral.agent.v1.TelemetrySpan.attributes:type_name -> coral.agent.v1.TelemetrySpan.AttributesEntry
 	23, // 19: coral.agent.v1.QueryTelemetryResponse.spans:type_name -> coral.agent.v1.TelemetrySpan
-	4,  // 20: coral.agent.v1.QueryBeylaMetricsRequest.metric_types:type_name -> coral.agent.v1.BeylaMetricType
-	28, // 21: coral.agent.v1.QueryBeylaMetricsResponse.http_metrics:type_name -> coral.agent.v1.BeylaHttpMetric
-	29, // 22: coral.agent.v1.QueryBeylaMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.BeylaGrpcMetric
-	30, // 23: coral.agent.v1.QueryBeylaMetricsResponse.sql_metrics:type_name -> coral.agent.v1.BeylaSqlMetric
-	31, // 24: coral.agent.v1.QueryBeylaMetricsResponse.trace_spans:type_name -> coral.agent.v1.BeylaTraceSpan
-	54, // 25: coral.agent.v1.BeylaHttpMetric.attributes:type_name -> coral.agent.v1.BeylaHttpMetric.AttributesEntry
-	55, // 26: coral.agent.v1.BeylaGrpcMetric.attributes:type_name -> coral.agent.v1.BeylaGrpcMetric.AttributesEntry
-	56, // 27: coral.agent.v1.BeylaSqlMetric.attributes:type_name -> coral.agent.v1.BeylaSqlMetric.AttributesEntry
-	57, // 28: coral.agent.v1.BeylaTraceSpan.attributes:type_name -> coral.agent.v1.BeylaTraceSpan.AttributesEntry
+	4,  // 20: coral.agent.v1.QueryEbpfMetricsRequest.metric_types:type_name -> coral.agent.v1.EbpfMetricType
+	28, // 21: coral.agent.v1.QueryEbpfMetricsResponse.http_metrics:type_name -> coral.agent.v1.EbpfHttpMetric
+	29, // 22: coral.agent.v1.QueryEbpfMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.EbpfGrpcMetric
+	30, // 23: coral.agent.v1.QueryEbpfMetricsResponse.sql_metrics:type_name -> coral.agent.v1.EbpfSqlMetric
+	31, // 24: coral.agent.v1.QueryEbpfMetricsResponse.trace_spans:type_name -> coral.agent.v1.EbpfTraceSpan
+	54, // 25: coral.agent.v1.EbpfHttpMetric.attributes:type_name -> coral.agent.v1.EbpfHttpMetric.AttributesEntry
+	55, // 26: coral.agent.v1.EbpfGrpcMetric.attributes:type_name -> coral.agent.v1.EbpfGrpcMetric.AttributesEntry
+	56, // 27: coral.agent.v1.EbpfSqlMetric.attributes:type_name -> coral.agent.v1.EbpfSqlMetric.AttributesEntry
+	57, // 28: coral.agent.v1.EbpfTraceSpan.attributes:type_name -> coral.agent.v1.EbpfTraceSpan.AttributesEntry
 	33, // 29: coral.agent.v1.ShellRequest.start:type_name -> coral.agent.v1.ShellStart
 	37, // 30: coral.agent.v1.ShellRequest.resize:type_name -> coral.agent.v1.ShellResize
 	38, // 31: coral.agent.v1.ShellRequest.signal:type_name -> coral.agent.v1.ShellSignal
@@ -4465,7 +4465,7 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	16, // 39: coral.agent.v1.AgentService.DisconnectService:input_type -> coral.agent.v1.DisconnectServiceRequest
 	18, // 40: coral.agent.v1.AgentService.ListServices:input_type -> coral.agent.v1.ListServicesRequest
 	24, // 41: coral.agent.v1.AgentService.QueryTelemetry:input_type -> coral.agent.v1.QueryTelemetryRequest
-	26, // 42: coral.agent.v1.AgentService.QueryBeylaMetrics:input_type -> coral.agent.v1.QueryBeylaMetricsRequest
+	26, // 42: coral.agent.v1.AgentService.QueryEbpfMetrics:input_type -> coral.agent.v1.QueryEbpfMetricsRequest
 	32, // 43: coral.agent.v1.AgentService.Shell:input_type -> coral.agent.v1.ShellRequest
 	45, // 44: coral.agent.v1.AgentService.ShellExec:input_type -> coral.agent.v1.ShellExecRequest
 	47, // 45: coral.agent.v1.AgentService.ContainerExec:input_type -> coral.agent.v1.ContainerExecRequest
@@ -4478,7 +4478,7 @@ var file_coral_agent_v1_agent_proto_depIdxs = []int32{
 	17, // 52: coral.agent.v1.AgentService.DisconnectService:output_type -> coral.agent.v1.DisconnectServiceResponse
 	19, // 53: coral.agent.v1.AgentService.ListServices:output_type -> coral.agent.v1.ListServicesResponse
 	25, // 54: coral.agent.v1.AgentService.QueryTelemetry:output_type -> coral.agent.v1.QueryTelemetryResponse
-	27, // 55: coral.agent.v1.AgentService.QueryBeylaMetrics:output_type -> coral.agent.v1.QueryBeylaMetricsResponse
+	27, // 55: coral.agent.v1.AgentService.QueryEbpfMetrics:output_type -> coral.agent.v1.QueryEbpfMetricsResponse
 	34, // 56: coral.agent.v1.AgentService.Shell:output_type -> coral.agent.v1.ShellResponse
 	46, // 57: coral.agent.v1.AgentService.ShellExec:output_type -> coral.agent.v1.ShellExecResponse
 	48, // 58: coral.agent.v1.AgentService.ContainerExec:output_type -> coral.agent.v1.ContainerExecResponse

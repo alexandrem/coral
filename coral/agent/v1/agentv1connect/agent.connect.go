@@ -49,9 +49,9 @@ const (
 	// AgentServiceQueryTelemetryProcedure is the fully-qualified name of the AgentService's
 	// QueryTelemetry RPC.
 	AgentServiceQueryTelemetryProcedure = "/coral.agent.v1.AgentService/QueryTelemetry"
-	// AgentServiceQueryBeylaMetricsProcedure is the fully-qualified name of the AgentService's
-	// QueryBeylaMetrics RPC.
-	AgentServiceQueryBeylaMetricsProcedure = "/coral.agent.v1.AgentService/QueryBeylaMetrics"
+	// AgentServiceQueryEbpfMetricsProcedure is the fully-qualified name of the AgentService's
+	// QueryEbpfMetrics RPC.
+	AgentServiceQueryEbpfMetricsProcedure = "/coral.agent.v1.AgentService/QueryEbpfMetrics"
 	// AgentServiceShellProcedure is the fully-qualified name of the AgentService's Shell RPC.
 	AgentServiceShellProcedure = "/coral.agent.v1.AgentService/Shell"
 	// AgentServiceShellExecProcedure is the fully-qualified name of the AgentService's ShellExec RPC.
@@ -85,8 +85,8 @@ type AgentServiceClient interface {
 	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
 	// Query telemetry data from agent local storage (RFD 025 - pull-based).
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
-	// Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
-	QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error)
+	// Query eBPF metrics from agent local storage (RFD 032 Phase 4 - pull-based).
+	QueryEbpfMetrics(context.Context, *connect.Request[v1.QueryEbpfMetricsRequest]) (*connect.Response[v1.QueryEbpfMetricsResponse], error)
 	// Shell: Interactive shell session in agent environment (RFD 026).
 	Shell(context.Context) *connect.BidiStreamForClient[v1.ShellRequest, v1.ShellResponse]
 	// ShellExec: One-off command execution in agent environment (RFD 045).
@@ -144,10 +144,10 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("QueryTelemetry")),
 			connect.WithClientOptions(opts...),
 		),
-		queryBeylaMetrics: connect.NewClient[v1.QueryBeylaMetricsRequest, v1.QueryBeylaMetricsResponse](
+		queryEbpfMetrics: connect.NewClient[v1.QueryEbpfMetricsRequest, v1.QueryEbpfMetricsResponse](
 			httpClient,
-			baseURL+AgentServiceQueryBeylaMetricsProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("QueryBeylaMetrics")),
+			baseURL+AgentServiceQueryEbpfMetricsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("QueryEbpfMetrics")),
 			connect.WithClientOptions(opts...),
 		),
 		shell: connect.NewClient[v1.ShellRequest, v1.ShellResponse](
@@ -202,7 +202,7 @@ type agentServiceClient struct {
 	disconnectService   *connect.Client[v1.DisconnectServiceRequest, v1.DisconnectServiceResponse]
 	listServices        *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
 	queryTelemetry      *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
-	queryBeylaMetrics   *connect.Client[v1.QueryBeylaMetricsRequest, v1.QueryBeylaMetricsResponse]
+	queryEbpfMetrics    *connect.Client[v1.QueryEbpfMetricsRequest, v1.QueryEbpfMetricsResponse]
 	shell               *connect.Client[v1.ShellRequest, v1.ShellResponse]
 	shellExec           *connect.Client[v1.ShellExecRequest, v1.ShellExecResponse]
 	containerExec       *connect.Client[v1.ContainerExecRequest, v1.ContainerExecResponse]
@@ -237,9 +237,9 @@ func (c *agentServiceClient) QueryTelemetry(ctx context.Context, req *connect.Re
 	return c.queryTelemetry.CallUnary(ctx, req)
 }
 
-// QueryBeylaMetrics calls coral.agent.v1.AgentService.QueryBeylaMetrics.
-func (c *agentServiceClient) QueryBeylaMetrics(ctx context.Context, req *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error) {
-	return c.queryBeylaMetrics.CallUnary(ctx, req)
+// QueryEbpfMetrics calls coral.agent.v1.AgentService.QueryEbpfMetrics.
+func (c *agentServiceClient) QueryEbpfMetrics(ctx context.Context, req *connect.Request[v1.QueryEbpfMetricsRequest]) (*connect.Response[v1.QueryEbpfMetricsResponse], error) {
+	return c.queryEbpfMetrics.CallUnary(ctx, req)
 }
 
 // Shell calls coral.agent.v1.AgentService.Shell.
@@ -289,8 +289,8 @@ type AgentServiceHandler interface {
 	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
 	// Query telemetry data from agent local storage (RFD 025 - pull-based).
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
-	// Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
-	QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error)
+	// Query eBPF metrics from agent local storage (RFD 032 Phase 4 - pull-based).
+	QueryEbpfMetrics(context.Context, *connect.Request[v1.QueryEbpfMetricsRequest]) (*connect.Response[v1.QueryEbpfMetricsResponse], error)
 	// Shell: Interactive shell session in agent environment (RFD 026).
 	Shell(context.Context, *connect.BidiStream[v1.ShellRequest, v1.ShellResponse]) error
 	// ShellExec: One-off command execution in agent environment (RFD 045).
@@ -344,10 +344,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("QueryTelemetry")),
 		connect.WithHandlerOptions(opts...),
 	)
-	agentServiceQueryBeylaMetricsHandler := connect.NewUnaryHandler(
-		AgentServiceQueryBeylaMetricsProcedure,
-		svc.QueryBeylaMetrics,
-		connect.WithSchema(agentServiceMethods.ByName("QueryBeylaMetrics")),
+	agentServiceQueryEbpfMetricsHandler := connect.NewUnaryHandler(
+		AgentServiceQueryEbpfMetricsProcedure,
+		svc.QueryEbpfMetrics,
+		connect.WithSchema(agentServiceMethods.ByName("QueryEbpfMetrics")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceShellHandler := connect.NewBidiStreamHandler(
@@ -404,8 +404,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceListServicesHandler.ServeHTTP(w, r)
 		case AgentServiceQueryTelemetryProcedure:
 			agentServiceQueryTelemetryHandler.ServeHTTP(w, r)
-		case AgentServiceQueryBeylaMetricsProcedure:
-			agentServiceQueryBeylaMetricsHandler.ServeHTTP(w, r)
+		case AgentServiceQueryEbpfMetricsProcedure:
+			agentServiceQueryEbpfMetricsHandler.ServeHTTP(w, r)
 		case AgentServiceShellProcedure:
 			agentServiceShellHandler.ServeHTTP(w, r)
 		case AgentServiceShellExecProcedure:
@@ -449,8 +449,8 @@ func (UnimplementedAgentServiceHandler) QueryTelemetry(context.Context, *connect
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QueryTelemetry is not implemented"))
 }
 
-func (UnimplementedAgentServiceHandler) QueryBeylaMetrics(context.Context, *connect.Request[v1.QueryBeylaMetricsRequest]) (*connect.Response[v1.QueryBeylaMetricsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QueryBeylaMetrics is not implemented"))
+func (UnimplementedAgentServiceHandler) QueryEbpfMetrics(context.Context, *connect.Request[v1.QueryEbpfMetricsRequest]) (*connect.Response[v1.QueryEbpfMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QueryEbpfMetrics is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) Shell(context.Context, *connect.BidiStream[v1.ShellRequest, v1.ShellResponse]) error {

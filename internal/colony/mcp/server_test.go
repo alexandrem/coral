@@ -93,7 +93,7 @@ func TestListToolNames(t *testing.T) {
 	tools := s.listToolNames()
 	assert.NotEmpty(t, tools)
 	assert.Contains(t, tools, "coral_get_service_health")
-	assert.Contains(t, tools, "coral_query_beyla_http_metrics")
+	assert.Contains(t, tools, "coral_query_ebpf_http_metrics")
 	assert.Contains(t, tools, "coral_get_service_topology")
 }
 

@@ -23,8 +23,8 @@ service AgentService {
   // Query telemetry data from agent local storage (RFD 025 - pull-based).
   rpc QueryTelemetry(QueryTelemetryRequest) returns (QueryTelemetryResponse);
 
-  // Query Beyla metrics from agent local storage (RFD 032 Phase 4 - pull-based).
-  rpc QueryBeylaMetrics(QueryBeylaMetricsRequest) returns (QueryBeylaMetricsResponse);
+  // Query eBPF metrics from agent local storage (RFD 032 Phase 4 - pull-based).
+  rpc QueryEbpfMetrics(QueryEbpfMetricsRequest) returns (QueryEbpfMetricsResponse);
 
   // Shell: Interactive shell session in agent environment (RFD 026).
   rpc Shell(stream ShellRequest) returns (stream ShellResponse);
@@ -355,11 +355,11 @@ message EbpfCapabilities {
   bool btf_available = 3;           // BTF/CO-RE support
   bool cap_bpf = 4;                 // CAP_BPF capability
   repeated EbpfCollectorKind available_collectors = 5;
-  BeylaCapabilities beyla = 6;      // Beyla integration capabilities (RFD 032)
+  EbpfObservabilityCapabilities ebpf_observability = 6;      // eBPF observability capabilities (RFD 032)
 }
 
-// BeylaCapabilities describes Beyla integration features (RFD 032).
-message BeylaCapabilities {
+// EbpfObservabilityCapabilities describes eBPF observability features (RFD 032).
+message EbpfObservabilityCapabilities {
   bool enabled = 1;
   string version = 2;  // Beyla library version
   repeated string supported_protocols = 3;  // ["http", "grpc", "kafka", ...]
@@ -426,10 +426,10 @@ message QueryTelemetryResponse {
   int32 total_spans = 2;
 }
 
-// QueryBeylaMetrics RPC messages (RFD 032 Phase 4 - pull-based).
+// QueryEbpfMetrics RPC messages (RFD 032 Phase 4 - pull-based).
 
-// QueryBeylaMetricsRequest is sent from colony to agent to query Beyla metrics.
-message QueryBeylaMetricsRequest {
+// QueryEbpfMetricsRequest is sent from colony to agent to query eBPF metrics.
+message QueryEbpfMetricsRequest {
   // Start time for query range (Unix seconds).
   int64 start_time = 1;
 
@@ -440,7 +440,7 @@ message QueryBeylaMetricsRequest {
   repeated string service_names = 3;
 
   // Metric types to query (empty = all types).
-  repeated BeylaMetricType metric_types = 4;
+  repeated EbpfMetricType metric_types = 4;
 
   // Filter by specific trace ID (RFD 036).
   string trace_id = 5;
@@ -452,37 +452,37 @@ message QueryBeylaMetricsRequest {
   bool include_traces = 7;
 }
 
-// BeylaMetricType specifies which Beyla metrics to query.
-enum BeylaMetricType {
-  BEYLA_METRIC_TYPE_UNSPECIFIED = 0;
-  BEYLA_METRIC_TYPE_HTTP = 1;
-  BEYLA_METRIC_TYPE_GRPC = 2;
-  BEYLA_METRIC_TYPE_SQL = 3;
+// EbpfMetricType specifies which eBPF metrics to query.
+enum EbpfMetricType {
+  EBPF_METRIC_TYPE_UNSPECIFIED = 0;
+  EBPF_METRIC_TYPE_HTTP = 1;
+  EBPF_METRIC_TYPE_GRPC = 2;
+  EBPF_METRIC_TYPE_SQL = 3;
 }
 
-// QueryBeylaMetricsResponse contains Beyla metrics from agent's local storage.
-message QueryBeylaMetricsResponse {
+// QueryEbpfMetricsResponse contains eBPF metrics from agent's local storage.
+message QueryEbpfMetricsResponse {
   // HTTP metrics.
-  repeated BeylaHttpMetric http_metrics = 1;
+  repeated EbpfHttpMetric http_metrics = 1;
 
   // gRPC metrics.
-  repeated BeylaGrpcMetric grpc_metrics = 2;
+  repeated EbpfGrpcMetric grpc_metrics = 2;
 
   // SQL metrics.
-  repeated BeylaSqlMetric sql_metrics = 3;
+  repeated EbpfSqlMetric sql_metrics = 3;
 
   // Total metrics returned.
   int32 total_metrics = 4;
 
   // Trace spans (RFD 036).
-  repeated BeylaTraceSpan trace_spans = 5;
+  repeated EbpfTraceSpan trace_spans = 5;
 
   // Total traces returned (RFD 036).
   int32 total_traces = 6;
 }
 
-// BeylaHttpMetric represents aggregated HTTP RED metrics.
-message BeylaHttpMetric {
+// EbpfHttpMetric represents aggregated HTTP RED metrics.
+message EbpfHttpMetric {
   // Timestamp (Unix milliseconds).
   int64 timestamp = 1;
 
@@ -511,8 +511,8 @@ message BeylaHttpMetric {
   map<string, string> attributes = 9;
 }
 
-// BeylaGrpcMetric represents aggregated gRPC RED metrics.
-message BeylaGrpcMetric {
+// EbpfGrpcMetric represents aggregated gRPC RED metrics.
+message EbpfGrpcMetric {
   // Timestamp (Unix milliseconds).
   int64 timestamp = 1;
 
@@ -538,8 +538,8 @@ message BeylaGrpcMetric {
   map<string, string> attributes = 8;
 }
 
-// BeylaSqlMetric represents aggregated SQL query metrics.
-message BeylaSqlMetric {
+// EbpfSqlMetric represents aggregated SQL query metrics.
+message EbpfSqlMetric {
   // Timestamp (Unix milliseconds).
   int64 timestamp = 1;
 
@@ -565,8 +565,8 @@ message BeylaSqlMetric {
   map<string, string> attributes = 8;
 }
 
-// BeylaTraceSpan represents a distributed trace span (RFD 036).
-message BeylaTraceSpan {
+// EbpfTraceSpan represents a distributed trace span (RFD 036).
+message EbpfTraceSpan {
   // Trace ID (32-char hex string).
   string trace_id = 1;
 

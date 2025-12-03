@@ -11,7 +11,7 @@ import (
 )
 
 // InsertBeylaHTTPMetrics inserts Beyla HTTP metrics into the database (RFD 032).
-func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, metrics []*agentv1.BeylaHttpMetric) error {
+func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, metrics []*agentv1.EbpfHttpMetric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -84,7 +84,7 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 }
 
 // InsertBeylaGRPCMetrics inserts Beyla gRPC metrics into the database (RFD 032).
-func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, metrics []*agentv1.BeylaGrpcMetric) error {
+func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, metrics []*agentv1.EbpfGrpcMetric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -156,7 +156,7 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 }
 
 // InsertBeylaSQLMetrics inserts Beyla SQL metrics into the database (RFD 032).
-func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, metrics []*agentv1.BeylaSqlMetric) error {
+func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, metrics []*agentv1.EbpfSqlMetric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -228,7 +228,7 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 }
 
 // InsertBeylaTraces inserts Beyla trace spans into the database (RFD 036).
-func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans []*agentv1.BeylaTraceSpan) error {
+func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans []*agentv1.EbpfTraceSpan) error {
 	if len(spans) == 0 {
 		return nil
 	}
