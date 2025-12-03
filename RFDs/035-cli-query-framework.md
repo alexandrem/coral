@@ -167,12 +167,12 @@ coral query ebpf http payments-api --colony prod-us,prod-eu --since 30m
 - [x] Format output as table with columns: Route, Requests, P50, P95, P99,
   Errors
 
-### Phase 3: eBPF gRPC & SQL Metrics
+### Phase 3: eBPF gRPC & SQL Metrics ✅
 
-- [ ] Implement `coral query ebpf grpc <service>` command
-- [ ] Implement `coral query ebpf sql <service>` command
-- [ ] Add method/operation filtering
-- [ ] Reuse percentile and formatting logic from HTTP
+- [x] Implement `coral query ebpf grpc <service>` command - `internal/cli/query/ebpf/grpc.go`
+- [x] Implement `coral query ebpf sql <service>` command - `internal/cli/query/ebpf/sql.go`
+- [x] Add method/operation filtering
+- [x] Reuse percentile and formatting logic from HTTP
 
 ### Phase 4: Trace Queries
 

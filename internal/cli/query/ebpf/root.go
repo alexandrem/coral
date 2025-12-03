@@ -24,8 +24,8 @@ Examples:
 	}
 
 	cmd.AddCommand(NewHTTPCmd())
-	// cmd.AddCommand(NewGRPCCmd()) // Phase 3
-	// cmd.AddCommand(NewSQLCmd())  // Phase 3
+	cmd.AddCommand(NewGRPCCmd())
+	cmd.AddCommand(NewSQLCmd())
 	// cmd.AddCommand(NewTracesCmd()) // Phase 4
 
 	return cmd
