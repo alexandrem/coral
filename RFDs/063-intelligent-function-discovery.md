@@ -88,12 +88,12 @@ Implement a **multi-tier discovery system** that progressively narrows down from
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│ User Query: "Why is checkout slow?"                           │
+│ User Query: "Why is checkout slow?"                            │
 └────────────────┬───────────────────────────────────────────────┘
                  │
                  ▼
 ┌────────────────────────────────────────────────────────────────┐
-│ Tier 1: Auto-Context Injection (Colony)                       │
+│ Tier 1: Auto-Context Injection (Colony)                        │
 │                                                                │
 │  1. Parse query intent: performance_investigation              │
 │  2. Extract keywords: ["checkout", "slow"]                     │
@@ -104,24 +104,24 @@ Implement a **multi-tier discovery system** that progressively narrows down from
                  │
                  ▼
 ┌────────────────────────────────────────────────────────────────┐
-│ Tier 2: Semantic Function Search (LLM → Colony)               │
+│ Tier 2: Semantic Function Search (LLM → Colony)                │
 │                                                                │
 │  LLM calls: coral_search_functions(service="api",              │
 │                                    query="checkout")           │
 │                                                                │
 │  Colony:                                                       │
-│  1. Tokenize query: ["checkout"]                              │
+│  1. Tokenize query: ["checkout"]                               │
 │  2. Search function registry (DuckDB):                         │
 │     - Match function names: handleCheckout (score: 1.0)        │
 │     - Match file paths: checkout.go (score: 0.5)               │
 │  3. Rank by score, return top 20                               │
 │                                                                │
-│  Returns: [handleCheckout, validateCheckout, ...]             │
+│  Returns: [handleCheckout, validateCheckout, ...]              │
 └────────────────┬───────────────────────────────────────────────┘
                  │
                  ▼
 ┌────────────────────────────────────────────────────────────────┐
-│ Tier 3: Call Graph Navigation (LLM → Colony)                  │
+│ Tier 3: Call Graph Navigation (LLM → Colony)                   │
 │                                                                │
 │  LLM calls: coral_get_function_context(                        │
 │               service="api",                                   │
