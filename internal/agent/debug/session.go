@@ -19,6 +19,7 @@ import (
 // ServiceResolver resolves service name to address.
 type ServiceResolver interface {
 	Resolve(serviceName string) (string, error)
+	ResolveSDK(serviceName string) (string, error)
 }
 
 // DebugSession represents an active debug session.
@@ -78,10 +79,10 @@ func (m *DebugSessionManager) StartSession(sessionID string, serviceName string,
 		return fmt.Errorf("session already exists: %s", sessionID)
 	}
 
-	// 1. Resolve service address
-	addr, err := m.resolver.Resolve(serviceName)
+	// 1. Resolve SDK address
+	addr, err := m.resolver.ResolveSDK(serviceName)
 	if err != nil {
-		return fmt.Errorf("resolve service %s: %w", serviceName, err)
+		return fmt.Errorf("resolve sdk %s: %w", serviceName, err)
 	}
 
 	// 2. Query SDK

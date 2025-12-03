@@ -61,28 +61,18 @@ func main() {
 	slog.SetDefault(logger)
 
 	// Initialize Coral SDK with runtime monitoring enabled.
-	agentAddr := os.Getenv("CORAL_AGENT_ADDR")
-	if agentAddr == "" {
-		agentAddr = "127.0.0.1:9001"
-	}
-	logger.Info("Configured Agent Address", "addr", agentAddr)
-
-	err := sdk.RegisterService("payment-service", sdk.Options{
-		Port:          3001,
-		AgentAddr:     agentAddr,
-		SdkListenAddr: ":9092",
+	// New API (RFD 066): Pull-based discovery
+	err := sdk.EnableRuntimeMonitoring(sdk.Options{
+		DebugAddr: ":9002", // Optional, defaults to :9002
 	})
 	if err != nil {
-		logger.Error("Failed to register service", "error", err)
-		os.Exit(1)
-	}
-
-	if err := sdk.EnableRuntimeMonitoring(); err != nil {
 		logger.Error("Failed to enable runtime monitoring", "error", err)
-		os.Exit(1)
+		// App continues normally - SDK is optional
+	} else {
+		logger.Info("Coral SDK initialized (Runtime Monitoring Enabled)")
 	}
 
-	logger.Info("Application started with Coral SDK (Runtime Monitoring Enabled)")
+	logger.Info("Application started")
 
 	// Start HTTP server for agent health checks
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

@@ -24,7 +24,6 @@ func NewAttachCmd() *cobra.Command {
 		captureReturn bool
 		sampleRate    uint32
 		agentID       string
-		sdkAddr       string
 		format        string
 	)
 
@@ -63,7 +62,6 @@ func NewAttachCmd() *cobra.Command {
 					SampleRate:    sampleRate,
 				},
 				AgentId: agentID,
-				SdkAddr: sdkAddr,
 			}
 
 			resp, err := client.AttachUprobe(ctx, connect.NewRequest(req))
@@ -102,7 +100,6 @@ func NewAttachCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&captureReturn, "capture-return", false, "Capture return values")
 	cmd.Flags().Uint32Var(&sampleRate, "sample-rate", 0, "Sample rate (0 = all calls)")
 	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (manual override)")
-	cmd.Flags().StringVar(&sdkAddr, "sdk-addr", "", "SDK address (manual override)")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
 
 	if err := cmd.MarkFlagRequired("function"); err != nil {

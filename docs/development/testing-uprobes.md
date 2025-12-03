@@ -238,7 +238,6 @@ cat > /tmp/start_uprobe.json <<EOF
   "agent_id": "test-agent",
   "service_name": "sdk-demo",
   "function_name": "main.ProcessPayment",
-  "sdk_addr": "127.0.0.1:50051",
   "duration": "30s",
   "config": {
     "capture_args": false,
@@ -310,14 +309,7 @@ cd examples/sdk-demo
 
 ### Step 3: Start Debug Session (CLI)
 
-Use the CLI to attach a uprobe. Note that you need to manually specify the agent ID and SDK address until service discovery is fully integrated.
-
-```bash
-# Terminal 4: CLI
-./bin/coral debug attach sdk-demo \
-  --function main.ProcessPayment \
-  --agent-id <AGENT_ID> \
-  --sdk-addr 127.0.0.1:50051
+  --agent-id <AGENT_ID>
 ```
 
 **Expected Output:**

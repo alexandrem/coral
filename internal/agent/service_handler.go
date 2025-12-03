@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
@@ -10,6 +12,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/pkg/sdk/debug"
 )
 
 // ServiceHandler implements the AgentService gRPC interface for managing service connections.
@@ -69,14 +72,34 @@ func (h *ServiceHandler) ConnectService(
 		}), nil
 	}
 
-	// Update SDK capabilities if provided (RFD 060).
+	// Update SDK capabilities
+	var caps *agentv1.ServiceSdkCapabilities
+
 	if req.Msg.SdkCapabilities != nil {
+		// Push model (legacy or explicit registration)
+		caps = req.Msg.SdkCapabilities
+	} else {
+		// Pull model (RFD 066): Attempt discovery
+		// Default to localhost:9002, but could be configurable or derived
+		discoveryAddr := "localhost:9002"
+		if discovered := h.discoverSDK(ctx, discoveryAddr); discovered != nil {
+			caps = discovered
+			caps.ServiceName = req.Msg.Name
+			h.agent.logger.Info().
+				Str("service", req.Msg.Name).
+				Str("sdk_version", caps.SdkVersion).
+				Int("functions", int(caps.FunctionCount)).
+				Msg("Discovered SDK via HTTP")
+		}
+	}
+
+	if caps != nil {
 		h.agent.mu.RLock()
 		monitor, exists := h.agent.monitors[req.Msg.Name]
 		h.agent.mu.RUnlock()
 
 		if exists {
-			monitor.SetSdkCapabilities(req.Msg.SdkCapabilities)
+			monitor.SetSdkCapabilities(caps)
 		}
 	}
 
@@ -84,6 +107,46 @@ func (h *ServiceHandler) ConnectService(
 		Success:     true,
 		ServiceName: req.Msg.Name,
 	}), nil
+}
+
+// discoverSDK attempts to discover SDK capabilities via HTTP.
+func (h *ServiceHandler) discoverSDK(ctx context.Context, addr string) *agentv1.ServiceSdkCapabilities {
+	// Simple HTTP GET request with short timeout
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+addr+"/debug/capabilities", nil)
+	if err != nil {
+		return nil
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		// SDK not present or not reachable (expected for non-SDK apps)
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var capsResp debug.CapabilitiesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&capsResp); err != nil {
+		h.agent.logger.Warn().Err(err).Msg("Invalid SDK capabilities response")
+		return nil
+	}
+
+	return &agentv1.ServiceSdkCapabilities{
+		ProcessId:       capsResp.ProcessID,
+		SdkEnabled:      true,
+		SdkVersion:      capsResp.SdkVersion,
+		SdkAddr:         addr,
+		HasDwarfSymbols: capsResp.HasDwarfSymbols,
+		BinaryPath:      capsResp.BinaryPath,
+		FunctionCount:   uint32(capsResp.FunctionCount),
+		BinaryHash:      capsResp.BinaryHash,
+	}
 }
 
 // DisconnectService implements the DisconnectService RPC.
