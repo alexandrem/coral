@@ -58,7 +58,7 @@ standard port, following the Prometheus `/metrics` pattern.
 
 1. **Zero Dependencies**: SDK uses only Go stdlib (`net/http`, `encoding/json`)
 2. **Pull-Based**: Agent discovers SDK, not vice versa
-3. **Standard Port**: Bind to `localhost:9092` (configurable)
+3. **Standard Port**: Bind to `localhost:9002` (configurable)
 4. **Convention Over Framework**: Could become industry-standard for uprobe
    debugging
 5. **Explicit Control**: Discovery happens when `coral connect` is called
@@ -72,7 +72,7 @@ standard port, following the Prometheus `/metrics` pattern.
 │  ┌───────────┐  │                    │              │
 │  │ Coral SDK │  │                    │              │
 │  │           │  │                    │              │
-│  │ HTTP :9092│◄─┼────GET /debug/*───┤  Discovery   │
+│  │ HTTP :9002│◄─┼────GET /debug/*───┤  Discovery    │
 │  └───────────┘  │                    │              │
 │                 │                    │              │
 │  App :8080 ◄────┼────Health Checks───┤  Monitor     │
@@ -81,15 +81,15 @@ standard port, following the Prometheus `/metrics` pattern.
 User: coral connect myapp:8080
       ↓
 Agent: 1. Monitor app on :8080
-       2. Probe localhost:9092 for SDK
+       2. Probe localhost:9002 for SDK
        3. Store capabilities if found
 ```
 
 **Flow:**
 
-1. Application imports SDK, starts HTTP server on `:9092`
+1. Application imports SDK, starts HTTP server on `:9002`
 2. User runs `coral connect myapp:8080`
-3. Agent probes `localhost:9092/debug/capabilities`
+3. Agent probes `localhost:9002/debug/capabilities`
 4. If found, agent queries function metadata and enables live debugging
 5. If not found, service runs normally (SDK optional)
 
@@ -107,7 +107,6 @@ Returns SDK version and DWARF availability.
 
 ```json
 {
-    "service_name": "payment-api",
     "process_id": "1234",
     "sdk_version": "v0.2.0",
     "has_dwarf_symbols": true,
@@ -116,6 +115,8 @@ Returns SDK version and DWARF availability.
     "binary_hash": "sha256:abc123..."
 }
 ```
+
+**Note:** Service name is not included because it's determined by the `coral connect` command on the agent side. The agent associates the SDK capabilities with the service name provided by the user in `coral connect`.
 
 **HTTP Status:**
 
@@ -168,10 +169,10 @@ Returns list of discoverable functions with filtering and pagination.
 
 ```bash
 # Get first 100 functions
-curl http://localhost:9092/debug/functions?limit=100&offset=0
+curl http://localhost:9002/debug/functions?limit=100&offset=0
 
 # Get next 100
-curl http://localhost:9092/debug/functions?limit=100&offset=100
+curl http://localhost:9002/debug/functions?limit=100&offset=100
 ```
 
 #### `GET /debug/functions/{name}`
@@ -235,8 +236,7 @@ for semantic search via embeddings. This enables AI-driven function discovery
 **Response Headers:**
 
 - `Content-Type: application/gzip`
--
-`Content-Disposition: attachment; filename="functions-{service}-{hash}.json.gz"`
+- `Content-Disposition: attachment; filename="functions-{hash}.json.gz"`
 - `X-Total-Functions` - Total functions in export
 
 **Response:** Gzip-compressed JSON or NDJSON stream
@@ -260,7 +260,7 @@ for semantic search via embeddings. This enables AI-driven function discovery
 
 ```bash
 # Download full function list (compressed)
-curl http://localhost:9092/debug/functions/export \
+curl http://localhost:9002/debug/functions/export \
   -o functions.json.gz
 
 # Extract and process
@@ -280,37 +280,28 @@ All errors return JSON with `error` field:
 
 ## SDK Changes
 
-### New API (Simplified)
+### Simplified API
 
-```go
-package coral
+**Core Functions** (`pkg/sdk/sdk.go`):
 
-// RegisterService initializes the SDK for the given service.
-// No agent address needed - SDK is passive.
-func RegisterService(name string, opts Options) error
+- `EnableRuntimeMonitoring(opts)` - Start HTTP debug server on configured port
 
-// EnableRuntimeMonitoring starts the HTTP debug server.
-// Blocks until server is ready or returns error.
-func EnableRuntimeMonitoring() error
+**Key Changes from RFD 060:**
 
-// Options configures SDK behavior.
-type Options struct {
-    // HTTP server bind address (default: "127.0.0.1:9092")
-    DebugAddr string
+- Remove `RegisterService()` - Service name comes from `coral connect`, not SDK
+- Remove `Options.AgentAddr` - No longer needed (pull-based discovery)
+- Remove `Options.Port` and `Options.HealthEndpoint` - Specified in `coral connect`
+- Remove background registration goroutine and retry logic
+- Remove all Connect-RPC and protobuf dependencies
+- Use only Go stdlib: `net/http`, `encoding/json`, `debug/dwarf`, `debug/elf`
 
-    // Logger for SDK internal logging (optional)
-    Logger *slog.Logger
-}
-```
+**Design Rationale:**
 
-**Removed from RFD 060:**
-
-- ❌ `Options.Port` - specified in `coral connect`
-- ❌ `Options.HealthEndpoint` - specified in `coral connect`
-- ❌ `Options.AgentAddr` - no longer needed (pull-based)
-- ❌ Background registration goroutine
-- ❌ `registerWithAgent()` function
-- ❌ All Connect-RPC/protobuf dependencies
+The service name is not part of the SDK API because:
+1. It's already specified by the user in `coral connect myapp:8080`
+2. The agent associates the SDK at `localhost:9002` with the service name from the CLI
+3. This eliminates potential conflicts between SDK-declared and CLI-declared names
+4. Makes the SDK even simpler - just enable monitoring, no identity management
 
 ### Example Usage
 
@@ -320,19 +311,14 @@ package main
 import (
     "log"
     "net/http"
-
     "github.com/coral-mesh/coral-go"
 )
 
 func main() {
-    // Initialize SDK (no agent address needed!)
-    coral.RegisterService("payment-api", coral.Options{
-        // Use default :9092, or customize:
-        // DebugAddr: ":9999",
-    })
-
-    // Start debug server
-    if err := coral.EnableRuntimeMonitoring(); err != nil {
+    // Start debug server (no service name or agent address needed!)
+    if err := coral.EnableRuntimeMonitoring(coral.Options{
+        DebugAddr: ":9002", // Optional, defaults to :9002
+    }); err != nil {
         log.Printf("Warning: SDK debug server failed: %v", err)
         // App continues normally - SDK is optional
     }
@@ -341,239 +327,69 @@ func main() {
     http.HandleFunc("/api/payment", ProcessPayment)
     http.ListenAndServe(":8080", nil)
 }
-
-func ProcessPayment(w http.ResponseWriter, r *http.Request) {
-    // Business logic - no instrumentation needed
-}
 ```
 
-### SDK Implementation
-
-**Dependencies:**
-
-```go
-import (
-"encoding/json"
-"net/http"
-"debug/dwarf"
-"debug/elf"
-// No Connect-RPC, no protobuf!
-)
+**Service connection:**
+```bash
+# User provides service name via CLI, not SDK
+coral connect payment-api:8080:/health
 ```
+
+### Implementation Approach
+
+**HTTP Server** (`pkg/sdk/debug/server.go`):
+
+- Implements standard `http.Handler` interface
+- Routes requests to `/debug/capabilities`, `/debug/functions`, `/debug/functions/{name}`, `/debug/functions/export`
+- Returns JSON responses with appropriate headers
+- Supports gzip compression for large payloads
 
 **Memory Management Strategy:**
 
-The SDK uses a **hybrid approach** to minimize memory footprint in the
-instrumented application:
-
 1. **Startup**: Parse DWARF to build minimal index (name → offset + location)
-    - Memory: ~80 bytes/function
-    - Time: ~100-200ms for 10k functions
+   - Memory: ~80 bytes/function
+   - Time: ~100-200ms for 10k functions
 
 2. **HTTP Requests**: Parse detailed metadata (args, returns) on-demand
-    - Cache last 100 functions in LRU cache
-    - Cache hit: O(1) lookup
-    - Cache miss: Parse DWARF (~1-2ms/function)
+   - LRU cache for last 100 functions
+   - Cache hit: O(1) lookup
+   - Cache miss: Parse DWARF (~1-2ms/function)
 
 3. **Export Endpoint**: Stream from index, parse on-the-fly
-    - No intermediate buffering
-    - Memory stays constant regardless of function count
-
-**Example Implementation:**
-
-```go
-type MetadataProvider struct {
-elfFile      *elf.File
-dwarfData    *dwarf.Data
-
-// Minimal index built at startup (~80 bytes/function)
-basicIndex   map[string]*BasicInfo
-
-// LRU cache for detailed metadata (100 entries)
-detailCache  *lru.Cache
-}
-
-type BasicInfo struct {
-Name   string // Fully qualified function name
-Offset uint64 // Memory offset in binary
-File   string // Source file path
-Line   uint32 // Line number
-}
-
-func (p *MetadataProvider) GetFunction(name string) (*FunctionMetadata, error) {
-// Check cache first
-if cached, ok := p.detailCache.Get(name); ok {
-return cached.(*FunctionMetadata), nil
-}
-
-// Get basic info from index
-basic, ok := p.basicIndex[name]
-if !ok {
-return nil, ErrNotFound
-}
-
-// Parse detailed metadata from DWARF
-detailed := p.parseDWARFDetails(name)
-p.detailCache.Add(name, detailed)
-
-return detailed, nil
-}
-```
-
-**HTTP Handler:**
-
-```go
-// HTTP server in pkg/sdk/debug/server.go
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-switch {
-case r.URL.Path == "/debug/capabilities":
-s.handleCapabilities(w, r)
-case r.URL.Path == "/debug/functions":
-s.handleListFunctions(w, r)
-case r.URL.Path == "/debug/functions/export":
-s.handleExportFunctions(w, r)
-case strings.HasPrefix(r.URL.Path, "/debug/functions/"):
-s.handleGetFunction(w, r)
-default:
-http.NotFound(w, r)
-}
-}
-
-func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
-caps := CapabilitiesResponse{
-ServiceName:     s.serviceName,
-ProcessID:       fmt.Sprintf("%d", os.Getpid()),
-SdkVersion:      "v0.2.0",
-HasDwarfSymbols: s.provider.HasDWARF(),
-FunctionCount:   s.provider.GetFunctionCount(),
-BinaryPath:      s.provider.BinaryPath(),
-BinaryHash:      s.provider.GetBinaryHash(),
-}
-
-w.Header().Set("Content-Type", "application/json")
-json.NewEncoder(w).Encode(caps)
-}
-
-func (s *Server) handleListFunctions(w http.ResponseWriter, r *http.Request) {
-// Parse pagination params
-limit := parseInt(r.URL.Query().Get("limit"), 100, 1000)
-offset := parseInt(r.URL.Query().Get("offset"), 0, math.MaxInt)
-pattern := r.URL.Query().Get("pattern")
-
-// Get filtered functions
-functions := s.provider.ListFunctions(pattern, limit, offset)
-total := s.provider.CountFunctions(pattern)
-
-// Enable gzip compression for large responses
-w.Header().Set("Content-Type", "application/json")
-w.Header().Set("X-Total-Count", strconv.Itoa(total))
-
-resp := ListFunctionsResponse{
-Functions: functions,
-Total:     total,
-Returned:  len(functions),
-Offset:    offset,
-HasMore:   offset+len(functions) < total,
-}
-
-json.NewEncoder(w).Encode(resp)
-}
-
-func (s *Server) handleExportFunctions(w http.ResponseWriter, r *http.Request) {
-format := r.URL.Query().Get("format")
-if format == "" {
-format = "json"
-}
-
-// Set headers for compressed download
-w.Header().Set("Content-Type", "application/gzip")
-w.Header().Set("Content-Disposition",
-fmt.Sprintf(`attachment; filename="functions-%s-%s.%s.gz"`,
-s.serviceName, s.provider.GetBinaryHash()[:8], format))
-w.Header().Set("X-Total-Functions",
-strconv.Itoa(s.provider.GetFunctionCount()))
-
-// Create gzip writer
-gzWriter := gzip.NewWriter(w)
-defer gzWriter.Close()
-
-if format == "ndjson" {
-// Stream newline-delimited JSON (efficient for large datasets)
-for _, fn := range s.provider.ListAllFunctions() {
-json.NewEncoder(gzWriter).Encode(fn)
-}
-} else {
-// Standard JSON array
-json.NewEncoder(gzWriter).Encode(s.provider.ListAllFunctions())
-}
-}
-```
+   - No intermediate buffering
+   - Memory stays constant regardless of function count
 
 ## Agent Changes
 
 ### Discovery Flow
 
+**Service Connection** (`internal/agent/service_handler.go`):
+
 When `coral connect <service>` is called:
 
-```go
-// internal/agent/service_handler.go
-func (h *ServiceHandler) ConnectService(
-ctx context.Context,
-req *connect.Request[agentv1.ConnectServiceRequest],
-) (*connect.Response[agentv1.ConnectServiceResponse], error) {
-// 1. Connect to service (health checks, etc.)
-h.agent.ConnectService(serviceInfo)
+1. Connect to service (health checks, monitoring)
+2. Probe `localhost:9002/debug/capabilities` via HTTP GET
+3. If SDK responds with 200 OK, parse capabilities JSON
+4. Store SDK metadata (version, function count, binary hash)
+5. If SDK not found (404 or connection refused), continue without SDK
 
-// 2. Attempt SDK discovery
-if caps := h.discoverSDK(ctx, "localhost:9092"); caps != nil {
-monitor.SetSdkCapabilities(caps)
-h.logger.Info("SDK discovered",
-"service", serviceInfo.Name,
-"version", caps.SdkVersion,
-"functions", caps.FunctionCount)
-}
+**Key Implementation Points:**
 
-return &agentv1.ConnectServiceResponse{Success: true}, nil
-}
-
-func (h *ServiceHandler) discoverSDK(ctx context.Context, addr string) *Capabilities {
-// Simple HTTP GET request
-resp, err := http.Get("http://" + addr + "/debug/capabilities")
-if err != nil {
-return nil // SDK not present (not an error)
-}
-defer resp.Body.Close()
-
-if resp.StatusCode != 200 {
-return nil
-}
-
-var caps CapabilitiesResponse
-if err := json.NewDecoder(resp.Body).Decode(&caps); err != nil {
-h.logger.Warn("Invalid SDK response", "error", err)
-return nil
-}
-
-return &caps
-}
-```
+- Use standard `net/http` client for discovery
+- SDK discovery is non-blocking and optional
+- Failed discovery is logged but not treated as error
+- Capabilities include binary hash for cache invalidation
 
 ### Function Metadata Queries
 
-When attaching uprobes:
+**Uprobe Attachment:**
 
-```go
-// Query function offset via HTTP
-resp, err := http.Get(fmt.Sprintf(
-"http://localhost:9092/debug/functions/%s",
-url.PathEscape(functionName),
-))
+When attaching uprobes to specific functions:
 
-var funcMeta FunctionMetadata
-json.NewDecoder(resp.Body).Decode(&funcMeta)
-
-// Attach uprobe at funcMeta.Offset
-```
+1. Query `GET /debug/functions/{name}` with URL-encoded function name
+2. Parse JSON response to extract function offset
+3. Use offset for eBPF uprobe attachment
+4. Cache function metadata to avoid repeated HTTP calls
 
 ## CLI Changes
 
@@ -605,7 +421,7 @@ Use 'coral agent status' to view service health
 ✓ Connected: payment-api
 
 SDK Auto-Discovery:
-  • No SDK detected on :9092 (optional)
+  • No SDK detected on :9002 (optional)
 
 Service monitoring active (health checks only).
 To enable live debugging, integrate Coral SDK:
@@ -619,12 +435,18 @@ To enable live debugging, integrate Coral SDK:
 **SDK API Changes:**
 
 ```diff
- coral.RegisterService("api", coral.Options{
+-// OLD: Service declares its own name
+-coral.RegisterService("payment-api", coral.Options{
 -    Port:           8080,        // ← REMOVED
 -    HealthEndpoint: "/health",   // ← REMOVED
 -    AgentAddr:      "localhost:9091",  // ← REMOVED
-+    DebugAddr:      ":9092",     // ← NEW (optional)
- })
+-})
+-coral.EnableRuntimeMonitoring()
+
++// NEW: Just enable monitoring, service name comes from CLI
++coral.EnableRuntimeMonitoring(coral.Options{
++    DebugAddr: ":9002",     // ← NEW (optional, defaults to :9002)
++})
 ```
 
 **Service Connection:**
@@ -634,7 +456,7 @@ To enable live debugging, integrate Coral SDK:
 -./payment-api  # SDK connects to agent automatically
 
 +# NEW: Explicit service connection
-+./payment-api  # SDK starts HTTP server on :9092
++./payment-api  # SDK starts HTTP server on :9002
 +coral connect payment-api:8080:/health  # Agent discovers SDK
 ```
 
@@ -741,8 +563,8 @@ ORDER BY similarity ASC
 
 ```go
 embedding := openai.CreateEmbedding(openai.EmbeddingRequest{
-Model: "text-embedding-3-small",
-Input: fmt.Sprintf("%s %s", functionName, filepath),
+    Model: "text-embedding-3-small",
+    Input: fmt.Sprintf("%s %s", functionName, filepath),
 })
 // Dimensions: 1536, Cost: $0.02 per 1M tokens
 ```
@@ -824,48 +646,6 @@ exposition format) that other tools can adopt.
 
 ## Testing Strategy
 
-### Unit Tests
-
-**SDK Tests:**
-
-```go
-func TestSDK_HTTPServer(t *testing.T) {
-sdk := New(Config{ServiceName: "test"})
-sdk.EnableRuntimeMonitoring()
-
-// Test /debug/capabilities
-resp := httpGet("http://localhost:9092/debug/capabilities")
-assert.Equal(t, 200, resp.StatusCode)
-
-var caps CapabilitiesResponse
-json.NewDecoder(resp.Body).Decode(&caps)
-assert.Equal(t, "test", caps.ServiceName)
-}
-
-func TestSDK_ListFunctions(t *testing.T) {
-// Test /debug/functions returns JSON array
-}
-
-func TestSDK_GetFunction(t *testing.T) {
-// Test /debug/functions/{name} returns metadata
-}
-```
-
-**Agent Tests:**
-
-```go
-func TestAgent_DiscoverSDK(t *testing.T) {
-// Start mock SDK HTTP server
-// Call discoverSDK()
-// Verify capabilities parsed correctly
-}
-
-func TestAgent_DiscoverSDK_NotFound(t *testing.T) {
-// No SDK running
-// Verify discovery returns nil (not error)
-}
-```
-
 ### Integration Tests
 
 **Full Discovery Flow:**
@@ -890,7 +670,7 @@ coral agent start
 cd examples/sdk-demo
 go build -o demo .
 ./demo
-# Output: "SDK HTTP server listening on 127.0.0.1:9092"
+# Output: "SDK HTTP server listening on 127.0.0.1:9002"
 
 # Connect service
 coral connect payment-service:3001:/health
@@ -908,8 +688,8 @@ coral debug attach payment-service --function ProcessPayment
 **Localhost-only by default:**
 
 ```go
-// SDK binds to 127.0.0.1:9092 (not 0.0.0.0)
-listener, err := net.Listen("tcp", "127.0.0.1:9092")
+// SDK binds to 127.0.0.1:9002 (not 0.0.0.0)
+listener, err := net.Listen("tcp", "127.0.0.1:9002")
 ```
 
 **Rationale:**
@@ -917,6 +697,80 @@ listener, err := net.Listen("tcp", "127.0.0.1:9092")
 - Agent and SDK always co-located on same host
 - No need for remote access
 - Prevents accidental internet exposure
+
+### Deployment Patterns
+
+**Pattern 1: Sidecar Deployment** (same network namespace)
+
+```yaml
+# Agent and app share network namespace
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    # SDK binds to 127.0.0.1:9002
+  - name: coral-agent
+    image: coral-agent:latest
+    # Agent connects to 127.0.0.1:9002 directly
+```
+
+In this pattern, the agent directly accesses `http://127.0.0.1:9002` since both
+containers share the same network namespace.
+
+**Pattern 2: Host Agent (DaemonSet)** (requires nsenter)
+
+```yaml
+# Agent runs on host, app runs in containers
+apiVersion: apps/v1
+kind: DaemonSet
+spec:
+  template:
+    spec:
+      hostPID: true  # Required for nsenter
+      containers:
+      - name: coral-agent
+        image: coral-agent:latest
+        securityContext:
+          privileged: true  # Required for nsenter
+```
+
+In this pattern, the agent must enter the target container's network namespace to reach `127.0.0.1:9002`.
+
+**Implementation Options:**
+
+**Option A: Use `setns()` syscall directly** (preferred for HTTP client)
+
+**Option B: Shell out to `nsenter`** (simpler, for commands)
+
+```go
+// For running arbitrary commands (e.g., coral exec)
+func (a *Agent) execInNamespace(pid int, command []string) error {
+    args := []string{
+        "-t", fmt.Sprintf("%d", pid),
+        "-n", // network namespace
+        "-p", // pid namespace
+        "-m", // mount namespace
+        "--", // end of nsenter args
+    }
+    args = append(args, command...)
+
+    cmd := exec.Command("nsenter", args...)
+    return cmd.Run()
+}
+```
+
+**Recommendation:**
+
+- Use **Option A (setns)** for SDK HTTP discovery (cleaner, no external deps)
+- Use **Option B (nsenter)** for `coral exec` (supports all namespaces easily)
+- Assume `nsenter` is available on host (part of util-linux, standard on most
+  Linux distributions)
+- If `nsenter` is missing, fallback to setns or fail with clear error message
+
+**Recommended:** Start with sidecar for simplicity, migrate to DaemonSet for
+production efficiency.
 
 ### Data Exposure
 
@@ -950,36 +804,31 @@ listener, err := net.Listen("tcp", "127.0.0.1:9092")
 
 ## Implementation Plan
 
-### Phase 1: SDK Core (Days 1-3)
+### Phase 1: SDK Core
 
 - [ ] Remove Connect-RPC and protobuf dependencies
-- [ ] Implement HTTP server in `pkg/sdk/debug/server.go`
-- [ ] Add HTTP handlers for `/debug/*` endpoints
-- [ ] Update `RegisterService` and `EnableRuntimeMonitoring` APIs
+- [ ] Implement HTTP server with `/debug/*` endpoints
+- [ ] Remove `RegisterService()` - service name comes from CLI
+- [ ] Update `EnableRuntimeMonitoring()` API to accept options directly
+- [ ] Add HTTP handlers for capabilities, functions, and export
 - [ ] Unit tests for HTTP endpoints
 
-**Deliverable:** SDK exposes HTTP/JSON API on `:9092`
+### Phase 2: Agent Discovery
 
-### Phase 2: Agent Discovery (Days 4-6)
-
-- [ ] Implement `discoverSDK()` with HTTP client
-- [ ] Update `ConnectService` handler to probe `:9092`
+- [ ] Implement SDK discovery via HTTP client
+- [ ] Update `ConnectService` handler to probe `:9002`
 - [ ] Update function metadata queries to use HTTP
 - [ ] Add agent unit tests for discovery
 
-**Deliverable:** Agent discovers SDK via HTTP during `coral connect`
-
-### Phase 3: Examples & Docs (Days 7-9)
+### Phase 3: Examples & Documentation
 
 - [ ] Update `examples/sdk-demo/main.go` with new API
-- [ ] Update RFD 060 status to "Superseded by RFD 065"
+- [ ] Update RFD 060 status to "Superseded by RFD 066"
 - [ ] Write migration guide
 - [ ] Update all documentation
 - [ ] Update CLI help text and output messages
 
-**Deliverable:** All docs and examples reflect new architecture
-
-### Phase 4: Testing & Polish (Days 10-12)
+### Phase 4: Testing & Polish
 
 - [ ] Comprehensive test coverage
 - [ ] E2E testing with sdk-demo
@@ -987,31 +836,29 @@ listener, err := net.Listen("tcp", "127.0.0.1:9092")
 - [ ] Error handling and edge cases
 - [ ] Security review
 
-**Deliverable:** Production-ready implementation
-
 ## Configuration Examples
 
 ### SDK Integration
 
-**Minimal (defaults to :9092):**
+**Minimal (defaults to :9002):**
 
 ```go
 import "github.com/coral-mesh/coral-go"
 
 func main() {
-coral.RegisterService("my-service", coral.Options{})
-coral.EnableRuntimeMonitoring()
+    // Enable monitoring with default port :9002
+    coral.EnableRuntimeMonitoring(coral.Options{})
 
-// Start app server
-http.ListenAndServe(":8080", nil)
+    // Start app server
+    http.ListenAndServe(":8080", nil)
 }
 ```
 
 **Custom port:**
 
 ```go
-coral.RegisterService("my-service", coral.Options{
-DebugAddr: ":9999", // Custom port
+coral.EnableRuntimeMonitoring(coral.Options{
+    DebugAddr: ":9999", // Custom port
 })
 ```
 
@@ -1028,7 +875,7 @@ RUN go build -ldflags="-s" -o app .
 FROM scratch
 COPY --from=builder /app/app /app
 
-# SDK will listen on :9092 (localhost-only)
+# SDK will listen on :9002 (localhost-only)
 ENTRYPOINT ["/app"]
 ```
 
@@ -1037,7 +884,7 @@ ENTRYPOINT ["/app"]
 No configuration needed - automatic:
 
 ```bash
-# Agent probes localhost:9092 when service connects
+# Agent probes localhost:9002 when service connects
 coral connect my-service:8080:/health
 ```
 
@@ -1045,115 +892,50 @@ coral connect my-service:8080:/health
 
 ### Handling Large Function Lists
 
-**Problem:** Applications with tens of thousands of functions (e.g., large
-monoliths, heavily templated C++ code compiled to Go).
+**Problem:** Applications with tens of thousands of functions (e.g., large monoliths, heavily templated code).
 
-**Solutions Implemented:**
+**Solutions:**
 
 1. **HTTP Compression (Gzip)**
-    - Automatic with `gzip.Writer`
-    - 80-90% size reduction
-    - 10,000 functions: 1.5 MB → 200 KB
-    - Standard HTTP feature, supported by all clients
+   - Automatic compression with standard gzip
+   - 80-90% size reduction
+   - 10,000 functions: 1.5 MB → 200 KB
 
 2. **Pagination**
-    - Default: 100 functions per request
-    - Agent can paginate through large lists
-    - Prevents overwhelming network/memory
+   - Default: 100 functions per request
+   - Agent can paginate through large lists
+   - Prevents overwhelming network/memory
 
 3. **Filtering**
-    - `?pattern=Process*` - Only matching functions
-    - `?package=github.com/myapp/payments` - Package-scoped
-    - Reduces payload before transfer
+   - `?pattern=Process*` - Only matching functions
+   - `?package=github.com/myapp/payments` - Package-scoped
+   - Reduces payload before transfer
 
 4. **Bulk Export Endpoint**
-    - `/debug/functions/export` - One-time download
-    - Agent caches locally
-    - Invalidated on binary hash change
+   - `/debug/functions/export` - One-time download
+   - Agent caches locally
+   - Invalidated on binary hash change
 
 5. **NDJSON Streaming**
-    - Newline-delimited JSON for large exports
-    - Can be processed line-by-line (streaming)
-    - Lower memory footprint
+   - Newline-delimited JSON for large exports
+   - Can be processed line-by-line (streaming)
+   - Lower memory footprint
 
-**Agent Workflow (DuckDB + VSS for Semantic Search):**
+### Agent Workflow for Semantic Search
 
-The agent stores function metadata in DuckDB with the VSS extension for
-Approximate Nearest Neighbor (ANN) semantic search.
+The agent stores function metadata in DuckDB with the VSS extension for semantic search:
 
-```go
-// Agent discovers SDK and imports ALL functions into DuckDB
-func (a *Agent) discoverSDK(ctx context.Context, serviceName string) error {
-// 1. Get capabilities (includes binary hash for cache invalidation)
-caps, _ := http.Get("http://localhost:9092/debug/capabilities")
-
-// 2. Check if functions already loaded for this binary version
-exists := a.db.Query(`
-        SELECT COUNT(*) FROM sdk_functions
-        WHERE service = ? AND binary_hash = ?`,
-serviceName, caps.BinaryHash)
-
-if exists > 0 {
-return nil // Already loaded
-}
-
-// 3. Download ALL functions as compressed NDJSON stream
-resp, _ := http.Get("http://localhost:9092/debug/functions/export?format=ndjson")
-defer resp.Body.Close()
-
-// 4. Stream directly into DuckDB (no intermediate storage)
-gzReader := gzip.NewReader(resp.Body)
-scanner := bufio.NewScanner(gzReader)
-
-tx := a.db.Begin()
-for scanner.Scan() {
-var fn FunctionMetadata
-json.Unmarshal(scanner.Bytes(), &fn)
-
-// Insert into DuckDB with embedding for semantic search
-embedding := generateEmbedding(fn.Name, fn.File) // OpenAI/local model
-
-tx.Exec(`
-            INSERT INTO sdk_functions
-            (service, binary_hash, name, offset, file, line, embedding)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-serviceName, caps.BinaryHash, fn.Name, fn.Offset,
-fn.File, fn.Line, embedding)
-}
-tx.Commit()
-
-return nil
-}
-
-// User asks: "Find functions that handle credit card payments"
-func (a *Agent) findRelevantFunctions(query string) []FunctionMetadata {
-queryEmbedding := generateEmbedding(query)
-
-// VSS semantic search using DuckDB VSS extension
-results := a.db.Query(`
-        SELECT name, offset, file, line,
-               array_distance(embedding, ?::FLOAT[1536]) as distance
-        FROM sdk_functions
-        WHERE service = ?
-        ORDER BY distance ASC
-        LIMIT 10`,
-queryEmbedding, serviceName)
-
-return results
-}
-
-// Attach uprobe to discovered function
-func (a *Agent) attachUprobe(functionName string, offset uint64) {
-// Use offset from DuckDB, no need to query SDK again
-attacheBPFUprobe(offset)
-}
-```
+1. **Discovery**: Get capabilities (includes binary hash for cache invalidation)
+2. **Cache Check**: Query DuckDB to see if functions already loaded for this binary version
+3. **Bulk Import**: If not cached, download all functions as compressed NDJSON stream
+4. **Streaming Insert**: Stream directly into DuckDB without intermediate storage
+5. **Embedding Generation**: Generate embeddings for each function (OpenAI or local model)
+6. **Semantic Search**: Use DuckDB VSS extension for ANN queries
 
 **DuckDB Schema:**
 
 ```sql
-CREATE TABLE sdk_functions
-(
+CREATE TABLE sdk_functions (
     service       VARCHAR NOT NULL,
     binary_hash   VARCHAR NOT NULL,
     name          VARCHAR NOT NULL,
@@ -1166,83 +948,308 @@ CREATE TABLE sdk_functions
 );
 
 -- VSS index for fast ANN search
-CREATE INDEX idx_function_embeddings
-    ON sdk_functions USING HNSW (embedding);
+CREATE INDEX idx_function_embeddings ON sdk_functions USING HNSW (embedding);
 ```
 
-**Why NDJSON is Perfect for This:**
+**Why NDJSON is Optimal:**
 
 - **Streaming**: Parse and insert line-by-line, no full array in memory
 - **Incremental**: Can start inserting before full download completes
 - **Error recovery**: If connection drops, can resume from last line
 - **Memory efficient**: O(1) memory usage regardless of function count
 
-**Benchmark Data:**
+### Performance Benchmarks
 
 | Function Count | Uncompressed | Gzip Compressed | Transfer Time (100 Mbps) |
-|----------------|--------------|-----------------|--------------------------|
-| 1,000          | 150 KB       | 20 KB           | < 10 ms                  |
-| 10,000         | 1.5 MB       | 200 KB          | ~20 ms                   |
-| 100,000        | 15 MB        | 2 MB            | ~200 ms                  |
+|----------------|--------------|-----------------|-------------------------|
+| 1,000          | 150 KB       | 20 KB           | < 10 ms                 |
+| 10,000         | 1.5 MB       | 200 KB          | ~20 ms                  |
+| 100,000        | 15 MB        | 2 MB            | ~200 ms                 |
 
-**Memory Usage:**
+### Memory Usage
 
 **SDK (in instrumented application):**
 
 - **Lazy parsing**: ~50 bytes/function (name + offset index only)
-    - 10,000 functions: ~500 KB
-    - 100,000 functions: ~5 MB
-    - Parse DWARF on-demand when queried
 - **Eager parsing**: ~150 bytes/function (full metadata cached)
-    - 10,000 functions: ~1.5 MB
-    - 100,000 functions: ~15 MB
-    - Instant HTTP responses
 - **Hybrid (recommended)**: ~80 bytes/function + LRU cache
-    - 10,000 functions: ~1 MB
-    - 100,000 functions: ~8.5 MB
-    - Best balance of memory and performance
+  - 10,000 functions: ~1 MB
+  - 100,000 functions: ~8.5 MB
 
 **Agent (on host with Coral):**
 
 - **During import**: O(1) - streams NDJSON line-by-line, no buffering
 - **Persistent storage**: O(n) - DuckDB with embeddings
-    - 10,000 functions: ~60 MB (1.5 MB metadata + 60 MB embeddings)
-    - 100,000 functions: ~600 MB (acceptable for local database)
-
-**Key Optimization: The agent ALWAYS uses bulk export** because it needs full
-function lists for semantic search. The pagination endpoints are primarily for:
-
-- CLI tools (`coral debug functions <service>` for human browsing)
-- External integrations that don't need full datasets
-- Debugging and testing
+  - 10,000 functions: ~60 MB (1.5 MB metadata + 60 MB embeddings)
+  - 100,000 functions: ~600 MB (acceptable for local database)
 
 ## Appendix
 
-### HTTP vs gRPC Comparison
+### Implementation Details
 
-| Aspect              | gRPC/Connect (RFD 060)                 | HTTP/JSON (RFD 065)   |
-|---------------------|----------------------------------------|-----------------------|
-| **Dependencies**    | Connect-RPC, protobuf, code generation | Zero (stdlib only)    |
-| **SDK Binary Size** | +2-3 MB                                | +0 KB                 |
-| **Learning Curve**  | gRPC/proto knowledge                   | HTTP/JSON (universal) |
-| **Tools**           | grpcurl, buf                           | curl, jq, browser     |
-| **Convention**      | Coral-specific                         | Industry standard     |
-| **Adoption**        | Requires framework                     | Minimal integration   |
+This section contains detailed implementation examples for reference during development.
+
+#### SDK HTTP Server Implementation
+
+```go
+// HTTP server in pkg/sdk/debug/server.go
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    switch {
+    case r.URL.Path == "/debug/capabilities":
+        s.handleCapabilities(w, r)
+    case r.URL.Path == "/debug/functions":
+        s.handleListFunctions(w, r)
+    case r.URL.Path == "/debug/functions/export":
+        s.handleExportFunctions(w, r)
+    case strings.HasPrefix(r.URL.Path, "/debug/functions/"):
+        s.handleGetFunction(w, r)
+    default:
+        http.NotFound(w, r)
+    }
+}
+
+func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
+    caps := CapabilitiesResponse{
+        ProcessID:       fmt.Sprintf("%d", os.Getpid()),
+        SdkVersion:      "v0.2.0",
+        HasDwarfSymbols: s.provider.HasDWARF(),
+        FunctionCount:   s.provider.GetFunctionCount(),
+        BinaryPath:      s.provider.BinaryPath(),
+        BinaryHash:      s.provider.GetBinaryHash(),
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(caps)
+}
+
+func (s *Server) handleListFunctions(w http.ResponseWriter, r *http.Request) {
+    // Parse pagination params
+    limit := parseInt(r.URL.Query().Get("limit"), 100, 1000)
+    offset := parseInt(r.URL.Query().Get("offset"), 0, math.MaxInt)
+    pattern := r.URL.Query().Get("pattern")
+
+    // Get filtered functions
+    functions := s.provider.ListFunctions(pattern, limit, offset)
+    total := s.provider.CountFunctions(pattern)
+
+    // Enable gzip compression for large responses
+    w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("X-Total-Count", strconv.Itoa(total))
+
+    resp := ListFunctionsResponse{
+        Functions: functions,
+        Total:     total,
+        Returned:  len(functions),
+        Offset:    offset,
+        HasMore:   offset+len(functions) < total,
+    }
+
+    json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleExportFunctions(w http.ResponseWriter, r *http.Request) {
+    format := r.URL.Query().Get("format")
+    if format == "" {
+        format = "json"
+    }
+
+    // Set headers for compressed download
+    w.Header().Set("Content-Type", "application/gzip")
+    w.Header().Set("Content-Disposition",
+        fmt.Sprintf(`attachment; filename="functions-%s.%s.gz"`,
+            s.provider.GetBinaryHash()[:8], format))
+    w.Header().Set("X-Total-Functions",
+        strconv.Itoa(s.provider.GetFunctionCount()))
+
+    // Create gzip writer
+    gzWriter := gzip.NewWriter(w)
+    defer gzWriter.Close()
+
+    if format == "ndjson" {
+        // Stream newline-delimited JSON (efficient for large datasets)
+        for _, fn := range s.provider.ListAllFunctions() {
+            json.NewEncoder(gzWriter).Encode(fn)
+        }
+    } else {
+        // Standard JSON array
+        json.NewEncoder(gzWriter).Encode(s.provider.ListAllFunctions())
+    }
+}
+```
+
+#### SDK Metadata Provider Implementation
+
+```go
+type MetadataProvider struct {
+    elfFile      *elf.File
+    dwarfData    *dwarf.Data
+
+    // Minimal index built at startup (~80 bytes/function)
+    basicIndex   map[string]*BasicInfo
+
+    // LRU cache for detailed metadata (100 entries)
+    detailCache  *lru.Cache
+}
+
+type BasicInfo struct {
+    Name   string // Fully qualified function name
+    Offset uint64 // Memory offset in binary
+    File   string // Source file path
+    Line   uint32 // Line number
+}
+
+func (p *MetadataProvider) GetFunction(name string) (*FunctionMetadata, error) {
+    // Check cache first
+    if cached, ok := p.detailCache.Get(name); ok {
+        return cached.(*FunctionMetadata), nil
+    }
+
+    // Get basic info from index
+    basic, ok := p.basicIndex[name]
+    if !ok {
+        return nil, ErrNotFound
+    }
+
+    // Parse detailed metadata from DWARF
+    detailed := p.parseDWARFDetails(name)
+    p.detailCache.Add(name, detailed)
+
+    return detailed, nil
+}
+```
+
+#### Agent SDK Discovery Implementation
+
+```go
+// internal/agent/service_handler.go
+func (h *ServiceHandler) ConnectService(
+    ctx context.Context,
+    req *connect.Request[agentv1.ConnectServiceRequest],
+) (*connect.Response[agentv1.ConnectServiceResponse], error) {
+    // 1. Connect to service (health checks, etc.)
+    h.agent.ConnectService(serviceInfo)
+
+    // 2. Attempt SDK discovery
+    if caps := h.discoverSDK(ctx, "localhost:9002"); caps != nil {
+        monitor.SetSdkCapabilities(caps)
+        h.logger.Info("SDK discovered",
+            "service", serviceInfo.Name,
+            "version", caps.SdkVersion,
+            "functions", caps.FunctionCount)
+    }
+
+    return &agentv1.ConnectServiceResponse{Success: true}, nil
+}
+
+func (h *ServiceHandler) discoverSDK(ctx context.Context, addr string) *Capabilities {
+    // Simple HTTP GET request
+    resp, err := http.Get("http://" + addr + "/debug/capabilities")
+    if err != nil {
+        return nil // SDK not present (not an error)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != 200 {
+        return nil
+    }
+
+    var caps CapabilitiesResponse
+    if err := json.NewDecoder(resp.Body).Decode(&caps); err != nil {
+        h.logger.Warn("Invalid SDK response", "error", err)
+        return nil
+    }
+
+    return &caps
+}
+```
+
+#### Agent DuckDB Integration for Semantic Search
+
+```go
+// Agent discovers SDK and imports ALL functions into DuckDB
+func (a *Agent) discoverSDK(ctx context.Context, serviceName string) error {
+    // 1. Get capabilities (includes binary hash for cache invalidation)
+    caps, _ := http.Get("http://localhost:9002/debug/capabilities")
+
+    // 2. Check if functions already loaded for this binary version
+    exists := a.db.Query(`
+        SELECT COUNT(*) FROM sdk_functions
+        WHERE service = ? AND binary_hash = ?`,
+        serviceName, caps.BinaryHash)
+
+    if exists > 0 {
+        return nil // Already loaded
+    }
+
+    // 3. Download ALL functions as compressed NDJSON stream
+    resp, _ := http.Get("http://localhost:9002/debug/functions/export?format=ndjson")
+    defer resp.Body.Close()
+
+    // 4. Stream directly into DuckDB (no intermediate storage)
+    gzReader := gzip.NewReader(resp.Body)
+    scanner := bufio.NewScanner(gzReader)
+
+    tx := a.db.Begin()
+    for scanner.Scan() {
+        var fn FunctionMetadata
+        json.Unmarshal(scanner.Bytes(), &fn)
+
+        // Insert into DuckDB with embedding for semantic search
+        embedding := generateEmbedding(fn.Name, fn.File) // OpenAI/local model
+
+        tx.Exec(`
+            INSERT INTO sdk_functions
+            (service, binary_hash, name, offset, file, line, embedding)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            serviceName, caps.BinaryHash, fn.Name, fn.Offset,
+            fn.File, fn.Line, embedding)
+    }
+    tx.Commit()
+
+    return nil
+}
+
+// User asks: "Find functions that handle credit card payments"
+func (a *Agent) findRelevantFunctions(query string) []FunctionMetadata {
+    queryEmbedding := generateEmbedding(query)
+
+    // VSS semantic search using DuckDB VSS extension
+    results := a.db.Query(`
+        SELECT name, offset, file, line,
+               array_distance(embedding, ?::FLOAT[1536]) as distance
+        FROM sdk_functions
+        WHERE service = ?
+        ORDER BY distance ASC
+        LIMIT 10`,
+        queryEmbedding, serviceName)
+
+    return results
+}
+
+// Attach uprobe to discovered function
+func (a *Agent) attachUprobe(functionName string, offset uint64) {
+    // Use offset from DuckDB, no need to query SDK again
+    attacheBPFUprobe(offset)
+}
+```
 
 ### Sample HTTP Requests
 
+
 ```bash
 # Check if SDK is present
-curl http://localhost:9092/debug/capabilities
+curl http://localhost:9002/debug/capabilities
 # {
-#   "service_name": "payment-api",
+#   "process_id": "1234",
 #   "sdk_version": "v0.2.0",
 #   "has_dwarf_symbols": true,
-#   "function_count": 127
+#   "function_count": 127,
+#   "binary_path": "/usr/local/bin/payment-api",
+#   "binary_hash": "sha256:abc123..."
 # }
 
 # List all functions
-curl http://localhost:9092/debug/functions
+curl http://localhost:9002/debug/functions
 # {
 #   "functions": [
 #     {"name": "main.ProcessPayment", "offset": 12345, ...},
@@ -1251,7 +1258,7 @@ curl http://localhost:9092/debug/functions
 # }
 
 # Get specific function
-curl http://localhost:9092/debug/functions/main.ProcessPayment
+curl http://localhost:9002/debug/functions/main.ProcessPayment
 # {
 #   "name": "main.ProcessPayment",
 #   "offset": 12345,
@@ -1260,14 +1267,14 @@ curl http://localhost:9092/debug/functions/main.ProcessPayment
 # }
 
 # Filter by pattern
-curl 'http://localhost:9092/debug/functions?pattern=Process*'
+curl 'http://localhost:9002/debug/functions?pattern=Process*'
 
 # Paginate large function lists
-curl 'http://localhost:9092/debug/functions?limit=100&offset=0'
-curl 'http://localhost:9092/debug/functions?limit=100&offset=100'
+curl 'http://localhost:9002/debug/functions?limit=100&offset=0'
+curl 'http://localhost:9002/debug/functions?limit=100&offset=100'
 
 # Export all functions (compressed)
-curl http://localhost:9092/debug/functions/export -o functions.json.gz
+curl http://localhost:9002/debug/functions/export -o functions.json.gz
 gunzip functions.json.gz
 ```
 
@@ -1280,14 +1287,10 @@ gunzip functions.json.gz
         "CapabilitiesResponse": {
             "type": "object",
             "required": [
-                "service_name",
                 "sdk_version",
                 "has_dwarf_symbols"
             ],
             "properties": {
-                "service_name": {
-                    "type": "string"
-                },
                 "process_id": {
                     "type": "string"
                 },
@@ -1363,13 +1366,9 @@ gunzip functions.json.gz
 
 3. **`internal/agent/service_handler.go`**
     - Implement `discoverSDK()` with HTTP client
-    - Update `ConnectService` to probe `:9092`
+    - Update `ConnectService` to probe `:9002`
     - Replace gRPC client with HTTP client
 
 4. **`examples/sdk-demo/main.go`**
     - Update to new SDK API
     - Reference implementation
-
-5. **`RFDs/060-sdk-runtime-monitoring.md`**
-    - Mark as "Superseded by RFD 065"
-    - Add migration notice
