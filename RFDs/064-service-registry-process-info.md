@@ -235,30 +235,6 @@ Debug Sessions:
 - [x] Add tests for PID change detection (service restart scenarios)
 - [x] Update documentation
 
-## Migration Strategy
-
-**Backward Compatibility:**
-
-- New fields are **optional** - existing services without process info will
-  continue to work
-- Field values default to 0 (PID) and empty string (binary_path) for unknown
-  services
-- CLI gracefully handles missing values (shows "N/A" or omits field)
-- No database migration required (fields are in proto messages only)
-
-**Deployment Steps:**
-
-1. Deploy updated protobuf definitions (backward compatible)
-2. Deploy updated agents (starts populating new fields)
-3. Deploy updated colony (starts storing and using new fields)
-4. Deploy updated CLI (starts displaying new fields)
-
-**Rollback Plan:**
-
-- Remove fields from proto messages
-- Regenerate code
-- Existing functionality unaffected (process info was optional)
-
 ## Security Considerations
 
 **Process Information Exposure:**
