@@ -1,19 +1,24 @@
 ---
-rfd: "064"
+rfd: "065"
 title: "Agentless Binary Scanning for Uprobe Discovery"
 state: "draft"
 breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: false
-dependencies: [ "059", "061" ]
+dependencies: [ "059", "061", "064" ]
 database_migrations: [ ]
 areas: [ "agent", "ebpf", "discovery" ]
 ---
 
-# RFD 064 - Agentless Binary Scanning for Uprobe Discovery
+# RFD 065 - Agentless Binary Scanning for Uprobe Discovery
 
 **Status:** 🚧 Draft
+
+**Note:** This RFD depends on **RFD 064** (Service Registry Process
+Information), which provides PID and binary path tracking. This simplifies
+binary discovery by allowing the agent to look up process information from the
+service registry instead of discovering it via container runtime APIs.
 
 ## Summary
 
@@ -59,33 +64,41 @@ when possible.
 
 ### Alternative: pprof-Based Discovery
 
-Many Go applications already expose `net/http/pprof` for profiling. We can leverage this for zero-config function discovery:
+Many Go applications already expose `net/http/pprof` for profiling. We can
+leverage this for zero-config function discovery:
 
 ```go
-import _ "net/http/pprof"  // Many apps already have this!
+import _ "net/http/pprof" // Many apps already have this!
 
 http.ListenAndServe(":6060", nil)
 ```
 
 **Agent can extract function information from pprof endpoints:**
 
-1. **Discovery**: Agent finds pprof HTTP endpoint (port 6060, or via service annotation)
-2. **Profile fetch**: GET `/debug/pprof/allocs` or `/debug/pprof/profile?seconds=1`
+1. **Discovery**: Agent finds pprof HTTP endpoint (port 6060, or via service
+   annotation)
+2. **Profile fetch**: GET `/debug/pprof/allocs` or
+   `/debug/pprof/profile?seconds=1`
 3. **Parse profile**: Extract function names + PC addresses from protobuf
 4. **Attach uprobes**: Use extracted addresses
 
 **Benefits over binary scanning:**
+
 - ✅ **Works with stripped binaries** (uses runtime reflection, no DWARF needed)
 - ✅ **No filesystem access** (HTTP-based)
 - ✅ **No namespace complications** (network call, not filesystem)
 - ✅ **Already enabled** in many apps (especially in dev/staging)
 
 **Limitations:**
-- ⚠️ **Incomplete coverage**: Only functions that have been called (CPU profile) or allocated (heap profile)
-- ⚠️ **Security**: pprof exposes sensitive data (heap dumps, goroutine stacks)
-- ⚠️ **Not always accessible**: Production apps often disable pprof or firewall it
 
-**Use case:** Quick function discovery for apps that already expose pprof, without needing DWARF symbols or SDK integration.
+- ⚠️ **Incomplete coverage**: Only functions that have been called (CPU profile)
+  or allocated (heap profile)
+- ⚠️ **Security**: pprof exposes sensitive data (heap dumps, goroutine stacks)
+- ⚠️ **Not always accessible**: Production apps often disable pprof or firewall
+  it
+
+**Use case:** Quick function discovery for apps that already expose pprof,
+without needing DWARF symbols or SDK integration.
 
 ### Discovery Strategy Priority
 
@@ -109,19 +122,19 @@ Priority 4: Fail + suggest SDK integration
 
 ### Comparison Table
 
-| Aspect | SDK (RFD 060) | pprof Discovery | Binary Scan (DWARF) |
-|:-------|:--------------|:----------------|:--------------------|
-| **Code changes** | Required | None (if already enabled) | None |
-| **Binary size** | +2-5MB | No change | No change |
-| **Runtime overhead** | ~10MB RAM | Profile fetch (~1s) | None |
-| **Stripped binaries** | ✅ Works (reflection) | ✅ Works (runtime) | ❌ Fails (needs DWARF) |
-| **Function coverage** | ✅ All functions | ⚠️ Only called functions | ✅ All functions (DWARF) |
-| **Container access** | ✅ Always works | ✅ HTTP (network) | ⚠️ nsenter (filesystem) |
-| **Binary updates** | ✅ Auto-detects | ⚠️ Needs re-profile | ⚠️ Needs re-scan |
-| **Network access** | gRPC (agent→app) | HTTP (agent→app) | None needed |
-| **Permissions** | None | None | CAP_SYS_ADMIN |
-| **Security** | ✅ Narrow (metadata) | ⚠️ Sensitive (heap/stack) | ⚠️ Broad (binary access) |
-| **Availability** | Rare (new apps) | Common (many apps) | Always (filesystem) |
+| Aspect                | SDK (RFD 060)        | pprof Discovery           | Binary Scan (DWARF)      |
+|:----------------------|:---------------------|:--------------------------|:-------------------------|
+| **Code changes**      | Required             | None (if already enabled) | None                     |
+| **Binary size**       | +2-5MB               | No change                 | No change                |
+| **Runtime overhead**  | ~10MB RAM            | Profile fetch (~1s)       | None                     |
+| **Stripped binaries** | ✅ Works (reflection) | ✅ Works (runtime)         | ❌ Fails (needs DWARF)    |
+| **Function coverage** | ✅ All functions      | ⚠️ Only called functions  | ✅ All functions (DWARF)  |
+| **Container access**  | ✅ Always works       | ✅ HTTP (network)          | ⚠️ nsenter (filesystem)  |
+| **Binary updates**    | ✅ Auto-detects       | ⚠️ Needs re-profile       | ⚠️ Needs re-scan         |
+| **Network access**    | gRPC (agent→app)     | HTTP (agent→app)          | None needed              |
+| **Permissions**       | None                 | None                      | CAP_SYS_ADMIN            |
+| **Security**          | ✅ Narrow (metadata)  | ⚠️ Sensitive (heap/stack) | ⚠️ Broad (binary access) |
+| **Availability**      | Rare (new apps)      | Common (many apps)        | Always (filesystem)      |
 
 ## Architecture
 
@@ -250,7 +263,7 @@ volumes:
 ```go
 functions, err := ParseDWARF(binaryPath)
 if err != nil {
-    return fmt.Errorf(`
+return fmt.Errorf(`
     Binary has no DWARF debug symbols.
 
     To enable uprobe debugging:
@@ -364,24 +377,24 @@ agent:
 
 ```go
 func TestDWARFParsing(t *testing.T) {
-    // Test with various Go binaries
-    testCases := []string{
-        "testdata/simple.bin",     // Basic Go binary
-        "testdata/stripped-s.bin", // Built with -ldflags="-s"
-        "testdata/stripped-w.bin", // Built with -ldflags="-w" (should fail)
-        "testdata/optimized.bin", // Built with -gcflags="-N -l"
-    }
+// Test with various Go binaries
+testCases := []string{
+"testdata/simple.bin",     // Basic Go binary
+"testdata/stripped-s.bin", // Built with -ldflags="-s"
+"testdata/stripped-w.bin", // Built with -ldflags="-w" (should fail)
+"testdata/optimized.bin", // Built with -gcflags="-N -l"
+}
 
-    for _, binary := range testCases {
-        functions, err := ParseDWARF(binary)
+for _, binary := range testCases {
+functions, err := ParseDWARF(binary)
 
-        if strings.Contains(binary, "stripped-w") {
-            assert.Error(t, err, "Should fail on stripped DWARF")
-        } else {
-            assert.NoError(t, err)
-            assert.Greater(t, len(functions), 0)
-        }
-    }
+if strings.Contains(binary, "stripped-w") {
+assert.Error(t, err, "Should fail on stripped DWARF")
+} else {
+assert.NoError(t, err)
+assert.Greater(t, len(functions), 0)
+}
+}
 }
 ```
 

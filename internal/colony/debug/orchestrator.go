@@ -91,6 +91,9 @@ func (o *Orchestrator) AttachUprobe(
 						HealthEndpoint: svcStatus.HealthEndpoint,
 						ServiceType:    svcStatus.ServiceType,
 						Labels:         svcStatus.Labels,
+						ProcessId:      svcStatus.ProcessId,
+						BinaryPath:     svcStatus.BinaryPath,
+						BinaryHash:     svcStatus.BinaryHash,
 					}
 					break
 				}
@@ -619,6 +622,20 @@ func (o *Orchestrator) GetDebugResults(
 
 	// Determine if we should query from agent or database
 	var uprobeEvents []*meshv1.UprobeEvent
+	var processID int32
+	var binaryPath string
+
+	// Try to resolve process info from registry if agent is available
+	if entry, err := o.registry.Get(session.AgentID); err == nil {
+		for _, svc := range entry.Services {
+			if svc.Name == session.ServiceName {
+				processID = svc.ProcessId
+				binaryPath = svc.BinaryPath
+				break
+			}
+		}
+	}
+
 	sessionExpired := time.Now().After(session.ExpiresAt) || session.Status == "stopped"
 
 	if sessionExpired {
@@ -716,6 +733,8 @@ func (o *Orchestrator) GetDebugResults(
 		Statistics:   statistics,
 		SlowOutliers: slowOutliers,
 		CallTree:     callTree,
+		ProcessId:    processID,
+		BinaryPath:   binaryPath,
 	}), nil
 }
 

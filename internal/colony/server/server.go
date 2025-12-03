@@ -188,6 +188,9 @@ func (s *Server) ListAgents(
 							HealthEndpoint: svcStatus.HealthEndpoint,
 							ServiceType:    svcStatus.ServiceType,
 							Labels:         svcStatus.Labels,
+							ProcessId:      svcStatus.ProcessId,
+							BinaryPath:     svcStatus.BinaryPath,
+							BinaryHash:     svcStatus.BinaryHash,
 						})
 					}
 					agent.Services = realTimeServices

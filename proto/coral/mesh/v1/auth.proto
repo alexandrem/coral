@@ -13,6 +13,11 @@ message ServiceInfo {
   string health_endpoint = 3;    // Optional: "/health", "/metrics", ""
   string service_type = 4;       // Optional: "http", "redis", "postgres", "prometheus"
   map<string, string> labels = 5; // Additional metadata
+
+  // Process information (RFD 064).
+  int32 process_id = 6;        // Process ID running the service (0 if unknown)
+  string binary_path = 7;      // Path to service executable (empty if unknown)
+  string binary_hash = 8;      // Hash of binary for cache invalidation (optional)
 }
 
 // Agent authentication during registration
