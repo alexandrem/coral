@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/rs/zerolog"
 
@@ -155,8 +154,8 @@ func (a *Agent) GetStatus() AgentStatus {
 	unknownCount := 0
 
 	for _, monitor := range a.monitors {
-		status, _, _ := monitor.GetStatus()
-		switch status {
+		statusInfo := monitor.GetStatus()
+		switch statusInfo.Status {
 		case ServiceStatusHealthy:
 			healthyCount++
 		case ServiceStatusUnhealthy:
@@ -192,28 +191,10 @@ func (a *Agent) GetServiceStatuses() map[string]ServiceStatusInfo {
 	statuses := make(map[string]ServiceStatusInfo)
 
 	for name, monitor := range a.monitors {
-		status, lastCheck, lastError := monitor.GetStatus()
-
-		var errorMsg string
-		if lastError != nil {
-			errorMsg = lastError.Error()
-		}
-
-		statuses[name] = ServiceStatusInfo{
-			Status:    status,
-			LastCheck: lastCheck,
-			Error:     errorMsg,
-		}
+		statuses[name] = monitor.GetStatus()
 	}
 
 	return statuses
-}
-
-// ServiceStatusInfo contains status information for a service.
-type ServiceStatusInfo struct {
-	Status    ServiceStatus
-	LastCheck time.Time
-	Error     string
 }
 
 // GetServiceCount returns the number of services being monitored.

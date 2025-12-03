@@ -818,6 +818,8 @@ type GetDebugResultsResponse struct {
 	Statistics    *DebugStatistics       `protobuf:"bytes,4,opt,name=statistics,proto3" json:"statistics,omitempty"`
 	SlowOutliers  []*SlowOutlier         `protobuf:"bytes,5,rep,name=slow_outliers,json=slowOutliers,proto3" json:"slow_outliers,omitempty"`
 	CallTree      *CallTree              `protobuf:"bytes,6,opt,name=call_tree,json=callTree,proto3" json:"call_tree,omitempty"` // Hierarchical call tree from uprobe events
+	ProcessId     int32                  `protobuf:"varint,7,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
+	BinaryPath    string                 `protobuf:"bytes,8,opt,name=binary_path,json=binaryPath,proto3" json:"binary_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -892,6 +894,20 @@ func (x *GetDebugResultsResponse) GetCallTree() *CallTree {
 		return x.CallTree
 	}
 	return nil
+}
+
+func (x *GetDebugResultsResponse) GetProcessId() int32 {
+	if x != nil {
+		return x.ProcessId
+	}
+	return 0
+}
+
+func (x *GetDebugResultsResponse) GetBinaryPath() string {
+	if x != nil {
+		return x.BinaryPath
+	}
+	return ""
 }
 
 type DebugStatistics struct {
@@ -1238,7 +1254,7 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12!\n" +
-	"\fservice_name\x18\x03 \x01(\tR\vserviceName\"\xc8\x02\n" +
+	"\fservice_name\x18\x03 \x01(\tR\vserviceName\"\x88\x03\n" +
 	"\x17GetDebugResultsResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1a\n" +
@@ -1248,7 +1264,11 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"statistics\x18\x04 \x01(\v2 .coral.colony.v1.DebugStatisticsR\n" +
 	"statistics\x12A\n" +
 	"\rslow_outliers\x18\x05 \x03(\v2\x1c.coral.colony.v1.SlowOutlierR\fslowOutliers\x126\n" +
-	"\tcall_tree\x18\x06 \x01(\v2\x19.coral.colony.v1.CallTreeR\bcallTree\"\xaa\x02\n" +
+	"\tcall_tree\x18\x06 \x01(\v2\x19.coral.colony.v1.CallTreeR\bcallTree\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\a \x01(\x05R\tprocessId\x12\x1f\n" +
+	"\vbinary_path\x18\b \x01(\tR\n" +
+	"binaryPath\"\xaa\x02\n" +
 	"\x0fDebugStatistics\x12\x1f\n" +
 	"\vtotal_calls\x18\x01 \x01(\x03R\n" +
 	"totalCalls\x12<\n" +

@@ -331,6 +331,11 @@ message ServiceStatus {
 
   // Error message if unhealthy.
   string error = 8;
+
+  // Process information (RFD 064).
+  int32 process_id = 9;        // Process ID running the service (0 if unknown)
+  string binary_path = 10;     // Path to service executable (empty if unknown)
+  string binary_hash = 11;     // Hash of binary for cache invalidation (optional)
 }
 
 // EbpfCollectorKind defines the type of eBPF collector (RFD 013).

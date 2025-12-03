@@ -131,6 +131,8 @@ message GetDebugResultsResponse {
   DebugStatistics statistics = 4;
   repeated SlowOutlier slow_outliers = 5;
   CallTree call_tree = 6;  // Hierarchical call tree from uprobe events
+  int32 process_id = 7;
+  string binary_path = 8;
 }
 
 message DebugStatistics {

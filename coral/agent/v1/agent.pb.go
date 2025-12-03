@@ -1452,7 +1452,11 @@ type ServiceStatus struct {
 	// Last check timestamp.
 	LastCheck *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_check,json=lastCheck,proto3" json:"last_check,omitempty"`
 	// Error message if unhealthy.
-	Error         string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
+	Error string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
+	// Process information (RFD 064).
+	ProcessId     int32  `protobuf:"varint,9,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`    // Process ID running the service (0 if unknown)
+	BinaryPath    string `protobuf:"bytes,10,opt,name=binary_path,json=binaryPath,proto3" json:"binary_path,omitempty"` // Path to service executable (empty if unknown)
+	BinaryHash    string `protobuf:"bytes,11,opt,name=binary_hash,json=binaryHash,proto3" json:"binary_hash,omitempty"` // Hash of binary for cache invalidation (optional)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1539,6 +1543,27 @@ func (x *ServiceStatus) GetLastCheck() *timestamppb.Timestamp {
 func (x *ServiceStatus) GetError() string {
 	if x != nil {
 		return x.Error
+	}
+	return ""
+}
+
+func (x *ServiceStatus) GetProcessId() int32 {
+	if x != nil {
+		return x.ProcessId
+	}
+	return 0
+}
+
+func (x *ServiceStatus) GetBinaryPath() string {
+	if x != nil {
+		return x.BinaryPath
+	}
+	return ""
+}
+
+func (x *ServiceStatus) GetBinaryHash() string {
+	if x != nil {
+		return x.BinaryHash
 	}
 	return ""
 }
@@ -4011,7 +4036,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"\x15\n" +
 	"\x13ListServicesRequest\"Q\n" +
 	"\x14ListServicesResponse\x129\n" +
-	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xea\x02\n" +
+	"\bservices\x18\x01 \x03(\v2\x1d.coral.agent.v1.ServiceStatusR\bservices\"\xcb\x03\n" +
 	"\rServiceStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12'\n" +
@@ -4021,7 +4046,14 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x129\n" +
 	"\n" +
 	"last_check\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tlastCheck\x12\x14\n" +
-	"\x05error\x18\b \x01(\tR\x05error\x1a9\n" +
+	"\x05error\x18\b \x01(\tR\x05error\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\t \x01(\x05R\tprocessId\x12\x1f\n" +
+	"\vbinary_path\x18\n" +
+	" \x01(\tR\n" +
+	"binaryPath\x12\x1f\n" +
+	"\vbinary_hash\x18\v \x01(\tR\n" +
+	"binaryHash\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa4\x02\n" +

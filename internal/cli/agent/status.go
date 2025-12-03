@@ -297,18 +297,26 @@ func printServices(services []*agentv1.ServiceStatus) {
 				statusIcon = "?"
 			}
 
-			fmt.Printf("  %s %-20s port %d", statusIcon, svc.Name, svc.Port)
-			if svc.HealthEndpoint != "" {
-				fmt.Printf(" (health: %s)", svc.HealthEndpoint)
-			}
+			fmt.Printf("  %s %-20s\n", statusIcon, svc.Name)
+			fmt.Printf("      Port:       %d\n", svc.Port)
 			if svc.ServiceType != "" {
-				fmt.Printf(" [%s]", svc.ServiceType)
+				fmt.Printf("      Type:       %s\n", svc.ServiceType)
 			}
-			fmt.Println()
+			if svc.HealthEndpoint != "" {
+				fmt.Printf("      Health:     %s\n", svc.HealthEndpoint)
+			}
+
+			// Show process info (RFD 064)
+			if svc.ProcessId != 0 {
+				fmt.Printf("      PID:        %d\n", svc.ProcessId)
+			}
+			if svc.BinaryPath != "" {
+				fmt.Printf("      Binary:     %s\n", svc.BinaryPath)
+			}
 
 			// Show error if unhealthy.
 			if svc.Status == "unhealthy" && svc.Error != "" {
-				fmt.Printf("    Error: %s\n", svc.Error)
+				fmt.Printf("      Error:      %s\n", svc.Error)
 			}
 
 			// Show last check time.
@@ -322,7 +330,7 @@ func printServices(services []*agentv1.ServiceStatus) {
 				} else {
 					timingStr = fmt.Sprintf("%dh ago", int(elapsed.Hours()))
 				}
-				fmt.Printf("    Last check: %s\n", timingStr)
+				fmt.Printf("      Last check: %s\n", timingStr)
 			}
 		}
 		fmt.Println()

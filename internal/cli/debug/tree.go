@@ -18,6 +18,17 @@ func RenderCallTree(results *colonypb.GetDebugResultsResponse) string {
 	buf.WriteString(fmt.Sprintf("\n📊 Call Tree for %s\n", results.Function))
 	buf.WriteString(strings.Repeat("=", 60) + "\n\n")
 
+	// Process Info (RFD 064)
+	if results.ProcessId != 0 {
+		buf.WriteString(fmt.Sprintf("Process ID:   %d\n", results.ProcessId))
+	}
+	if results.BinaryPath != "" {
+		buf.WriteString(fmt.Sprintf("Binary Path:  %s\n", results.BinaryPath))
+	}
+	if results.ProcessId != 0 || results.BinaryPath != "" {
+		buf.WriteString("\n")
+	}
+
 	// Summary statistics
 	if results.Statistics != nil {
 		buf.WriteString(fmt.Sprintf("Total invocations: %d\n",

@@ -134,6 +134,9 @@ func (h *ServiceHandler) ListServices(
 			Status:         string(status.Status),
 			LastCheck:      timestamppb.New(status.LastCheck),
 			Error:          status.Error,
+			ProcessId:      status.ProcessID,
+			BinaryPath:     status.BinaryPath,
+			BinaryHash:     status.BinaryHash,
 		})
 	}
 
