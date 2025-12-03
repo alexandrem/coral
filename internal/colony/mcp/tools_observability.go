@@ -710,7 +710,7 @@ func (s *Server) registerBeylaTracesTool() {
 
 		// Query database.
 		dbCtx := context.Background()
-		results, err := s.db.QueryBeylaTraces(dbCtx, serviceName, startTime, endTime, minDurationUs, maxTraces)
+		results, err := s.db.QueryBeylaTraces(dbCtx, "", serviceName, startTime, endTime, minDurationUs, maxTraces)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to query traces: %v", err)), nil
 		}

@@ -11,6 +11,7 @@ import (
 	strings "strings"
 
 	connect "connectrpc.com/connect"
+	v11 "github.com/coral-mesh/coral/coral/agent/v1"
 	v1 "github.com/coral-mesh/coral/coral/colony/v1"
 )
 
@@ -45,6 +46,9 @@ const (
 	// ColonyServiceQueryTelemetryProcedure is the fully-qualified name of the ColonyService's
 	// QueryTelemetry RPC.
 	ColonyServiceQueryTelemetryProcedure = "/coral.colony.v1.ColonyService/QueryTelemetry"
+	// ColonyServiceQueryEbpfMetricsProcedure is the fully-qualified name of the ColonyService's
+	// QueryEbpfMetrics RPC.
+	ColonyServiceQueryEbpfMetricsProcedure = "/coral.colony.v1.ColonyService/QueryEbpfMetrics"
 	// ColonyServiceCallToolProcedure is the fully-qualified name of the ColonyService's CallTool RPC.
 	ColonyServiceCallToolProcedure = "/coral.colony.v1.ColonyService/CallTool"
 	// ColonyServiceStreamToolProcedure is the fully-qualified name of the ColonyService's StreamTool
@@ -70,6 +74,8 @@ type ColonyServiceClient interface {
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
 	// Query telemetry data from agent (RFD 025 - pull-based).
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
+	// Query aggregated eBPF metrics from colony storage (RFD 035).
+	QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -117,6 +123,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("QueryTelemetry")),
 			connect.WithClientOptions(opts...),
 		),
+		queryEbpfMetrics: connect.NewClient[v11.QueryEbpfMetricsRequest, v11.QueryEbpfMetricsResponse](
+			httpClient,
+			baseURL+ColonyServiceQueryEbpfMetricsProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("QueryEbpfMetrics")),
+			connect.WithClientOptions(opts...),
+		),
 		callTool: connect.NewClient[v1.CallToolRequest, v1.CallToolResponse](
 			httpClient,
 			baseURL+ColonyServiceCallToolProcedure,
@@ -156,6 +168,7 @@ type colonyServiceClient struct {
 	listAgents         *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
 	getTopology        *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
 	queryTelemetry     *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
+	queryEbpfMetrics   *connect.Client[v11.QueryEbpfMetricsRequest, v11.QueryEbpfMetricsResponse]
 	callTool           *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
 	streamTool         *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
 	listTools          *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
@@ -181,6 +194,11 @@ func (c *colonyServiceClient) GetTopology(ctx context.Context, req *connect.Requ
 // QueryTelemetry calls coral.colony.v1.ColonyService.QueryTelemetry.
 func (c *colonyServiceClient) QueryTelemetry(ctx context.Context, req *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
 	return c.queryTelemetry.CallUnary(ctx, req)
+}
+
+// QueryEbpfMetrics calls coral.colony.v1.ColonyService.QueryEbpfMetrics.
+func (c *colonyServiceClient) QueryEbpfMetrics(ctx context.Context, req *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error) {
+	return c.queryEbpfMetrics.CallUnary(ctx, req)
 }
 
 // CallTool calls coral.colony.v1.ColonyService.CallTool.
@@ -218,6 +236,8 @@ type ColonyServiceHandler interface {
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
 	// Query telemetry data from agent (RFD 025 - pull-based).
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
+	// Query aggregated eBPF metrics from colony storage (RFD 035).
+	QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -261,6 +281,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("QueryTelemetry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceQueryEbpfMetricsHandler := connect.NewUnaryHandler(
+		ColonyServiceQueryEbpfMetricsProcedure,
+		svc.QueryEbpfMetrics,
+		connect.WithSchema(colonyServiceMethods.ByName("QueryEbpfMetrics")),
+		connect.WithHandlerOptions(opts...),
+	)
 	colonyServiceCallToolHandler := connect.NewUnaryHandler(
 		ColonyServiceCallToolProcedure,
 		svc.CallTool,
@@ -301,6 +327,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceGetTopologyHandler.ServeHTTP(w, r)
 		case ColonyServiceQueryTelemetryProcedure:
 			colonyServiceQueryTelemetryHandler.ServeHTTP(w, r)
+		case ColonyServiceQueryEbpfMetricsProcedure:
+			colonyServiceQueryEbpfMetricsHandler.ServeHTTP(w, r)
 		case ColonyServiceCallToolProcedure:
 			colonyServiceCallToolHandler.ServeHTTP(w, r)
 		case ColonyServiceStreamToolProcedure:
@@ -334,6 +362,10 @@ func (UnimplementedColonyServiceHandler) GetTopology(context.Context, *connect.R
 
 func (UnimplementedColonyServiceHandler) QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryTelemetry is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryEbpfMetrics is not implemented"))
 }
 
 func (UnimplementedColonyServiceHandler) CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {
