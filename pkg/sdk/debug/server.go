@@ -1,21 +1,18 @@
 package debug
 
 import (
-	"context"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
-
-	"connectrpc.com/connect"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-
-	sdkv1 "github.com/coral-mesh/coral/coral/sdk/v1"
-	"github.com/coral-mesh/coral/coral/sdk/v1/sdkv1connect"
+	"strconv"
+	"strings"
 )
 
-// Server provides the SDK Debug Service gRPC server.
+// Server provides the SDK Debug Service HTTP server.
 type Server struct {
 	logger   *slog.Logger
 	provider *FunctionMetadataProvider
@@ -32,7 +29,7 @@ func NewServer(logger *slog.Logger, provider *FunctionMetadataProvider) (*Server
 	}, nil
 }
 
-// Start starts the gRPC server on the specified address.
+// Start starts the HTTP server on the specified address.
 func (s *Server) Start(listenAddr string) error {
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
@@ -41,14 +38,9 @@ func (s *Server) Start(listenAddr string) error {
 	s.listener = listener
 	s.addr = s.listener.Addr().String()
 
-	// Create Connect-RPC handler.
-	mux := http.NewServeMux()
-	path, handler := sdkv1connect.NewSDKDebugServiceHandler(s)
-	mux.Handle(path, handler)
-
-	// Create HTTP/2 server.
+	// Create HTTP server.
 	s.server = &http.Server{
-		Handler: h2c.NewHandler(mux, &http2.Server{}),
+		Handler: s,
 	}
 
 	// Start serving in background.
@@ -62,7 +54,7 @@ func (s *Server) Start(listenAddr string) error {
 	return nil
 }
 
-// Stop stops the gRPC server.
+// Stop stops the HTTP server.
 func (s *Server) Stop() error {
 	s.logger.Info("Stopping SDK debug server")
 	if s.server != nil {
@@ -76,90 +68,167 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
-// GetFunctionMetadata implements the SDKDebugService RPC.
-func (s *Server) GetFunctionMetadata(
-	ctx context.Context,
-	req *connect.Request[sdkv1.GetFunctionMetadataRequest],
-) (*connect.Response[sdkv1.GetFunctionMetadataResponse], error) {
-	functionName := req.Msg.FunctionName
+// ServeHTTP implements the http.Handler interface.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers for local development tools
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-	s.logger.Debug("Received GetFunctionMetadata request", "function", req.Msg.FunctionName)
-
-	// Get metadata from provider.
-	metadata, err := s.provider.GetFunctionMetadata(functionName)
-	if err != nil {
-		s.logger.Warn("Function not found", "error", err, "function", functionName)
-		return connect.NewResponse(&sdkv1.GetFunctionMetadataResponse{
-			Found: false,
-			Error: err.Error(),
-		}), nil
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 
-	// Convert to protobuf.
-	resp := &sdkv1.GetFunctionMetadataResponse{
-		Found: true,
-		Metadata: &sdkv1.FunctionMetadata{
-			Name:         metadata.Name,
-			BinaryPath:   metadata.BinaryPath,
-			Offset:       metadata.Offset,
-			Pid:          metadata.PID,
-			Arguments:    convertArguments(metadata.Arguments),
-			ReturnValues: convertReturnValues(metadata.ReturnValues),
-		},
+	switch {
+	case r.URL.Path == "/debug/capabilities":
+		s.handleCapabilities(w, r)
+	case r.URL.Path == "/debug/functions":
+		s.handleListFunctions(w, r)
+	case r.URL.Path == "/debug/functions/export":
+		s.handleExportFunctions(w, r)
+	case strings.HasPrefix(r.URL.Path, "/debug/functions/"):
+		s.handleGetFunction(w, r)
+	default:
+		http.NotFound(w, r)
 	}
-
-	s.logger.Info("Returned function metadata",
-		"function", functionName,
-		"offset", metadata.Offset)
-
-	return connect.NewResponse(resp), nil
 }
 
-// ListFunctions implements the SDKDebugService RPC.
-func (s *Server) ListFunctions(
-	ctx context.Context,
-	req *connect.Request[sdkv1.ListFunctionsRequest],
-) (*connect.Response[sdkv1.ListFunctionsResponse], error) {
-	pattern := req.Msg.PackagePattern
+// CapabilitiesResponse defines the response for /debug/capabilities.
+type CapabilitiesResponse struct {
+	ProcessID       string `json:"process_id"`
+	SdkVersion      string `json:"sdk_version"`
+	HasDwarfSymbols bool   `json:"has_dwarf_symbols"`
+	FunctionCount   int    `json:"function_count"`
+	BinaryPath      string `json:"binary_path"`
+	BinaryHash      string `json:"binary_hash"`
+}
 
-	s.logger.Debug("Received ListFunctions request", "pattern", req.Msg.PackagePattern)
-
-	// Get function list from provider.
-	functions, err := s.provider.ListFunctions(pattern)
+func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
+	binHash, err := s.provider.GetBinaryHash()
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		s.logger.Warn("Failed to calculate binary hash", "error", err)
+		binHash = "unknown"
 	}
 
-	s.logger.Info("Listed functions",
-		"pattern", pattern,
-		"count", len(functions))
+	caps := CapabilitiesResponse{
+		ProcessID:       strconv.Itoa(s.provider.pid),
+		SdkVersion:      "v0.2.0", // TODO: Get from version package
+		HasDwarfSymbols: s.provider.HasDWARF(),
+		FunctionCount:   s.provider.GetFunctionCount(),
+		BinaryPath:      s.provider.BinaryPath(),
+		BinaryHash:      binHash,
+	}
 
-	return connect.NewResponse(&sdkv1.ListFunctionsResponse{
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(caps)
+}
+
+// ListFunctionsResponse defines the response for /debug/functions.
+type ListFunctionsResponse struct {
+	Functions []*BasicInfo `json:"functions"`
+	Total     int          `json:"total"`
+	Returned  int          `json:"returned"`
+	Offset    int          `json:"offset"`
+	HasMore   bool         `json:"has_more"`
+}
+
+func (s *Server) handleListFunctions(w http.ResponseWriter, r *http.Request) {
+	// Parse pagination params
+	limit := parseInt(r.URL.Query().Get("limit"), 100, 1000)
+	offset := parseInt(r.URL.Query().Get("offset"), 0, math.MaxInt)
+	pattern := r.URL.Query().Get("pattern")
+
+	// Get filtered functions
+	functions, total := s.provider.ListFunctions(pattern, limit, offset)
+
+	// Enable gzip compression for large responses if client supports it
+	// Note: net/http automatically handles this if we don't set Content-Encoding manually,
+	// but explicit handling is often better for API control.
+	// For simplicity, we'll rely on standard library behavior or middleware if added later.
+	// But here we just return JSON.
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
+
+	resp := ListFunctionsResponse{
 		Functions: functions,
-	}), nil
+		Total:     total,
+		Returned:  len(functions),
+		Offset:    offset,
+		HasMore:   offset+len(functions) < total,
+	}
+
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// convertArguments converts internal argument metadata to protobuf.
-func convertArguments(args []*ArgumentMetadata) []*sdkv1.ArgumentMetadata {
-	result := make([]*sdkv1.ArgumentMetadata, len(args))
-	for i, arg := range args {
-		result[i] = &sdkv1.ArgumentMetadata{
-			Name:   arg.Name,
-			Type:   arg.Type,
-			Offset: arg.Offset,
-		}
+func (s *Server) handleGetFunction(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/debug/functions/")
+	if name == "" {
+		http.Error(w, "function name required", http.StatusBadRequest)
+		return
 	}
-	return result
+
+	metadata, err := s.provider.GetFunctionMetadata(name)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("function not found: %s", err), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(metadata)
 }
 
-// convertReturnValues converts internal return value metadata to protobuf.
-func convertReturnValues(retVals []*ReturnValueMetadata) []*sdkv1.ReturnValueMetadata {
-	result := make([]*sdkv1.ReturnValueMetadata, len(retVals))
-	for i, rv := range retVals {
-		result[i] = &sdkv1.ReturnValueMetadata{
-			Type:   rv.Type,
-			Offset: rv.Offset,
-		}
+func (s *Server) handleExportFunctions(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
 	}
-	return result
+
+	binHash, _ := s.provider.GetBinaryHash()
+	if binHash == "" {
+		binHash = "unknown"
+	}
+
+	// Set headers for compressed download
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf(`attachment; filename="functions-%s.%s.gz"`,
+			binHash[:8], format))
+	w.Header().Set("X-Total-Functions",
+		strconv.Itoa(s.provider.GetFunctionCount()))
+
+	// Create gzip writer
+	gzWriter := gzip.NewWriter(w)
+	defer func() { _ = gzWriter.Close() }()
+
+	functions := s.provider.ListAllFunctions()
+
+	if format == "ndjson" {
+		// Stream newline-delimited JSON (efficient for large datasets)
+		encoder := json.NewEncoder(gzWriter)
+		for _, fn := range functions {
+			_ = encoder.Encode(fn)
+		}
+	} else {
+		// Standard JSON array
+		_ = json.NewEncoder(gzWriter).Encode(functions)
+	}
+}
+
+func parseInt(value string, defaultVal, maxVal int) int {
+	if value == "" {
+		return defaultVal
+	}
+	i, err := strconv.Atoi(value)
+	if err != nil {
+		return defaultVal
+	}
+	if i < 0 {
+		return 0
+	}
+	if i > maxVal {
+		return maxVal
+	}
+	return i
 }

@@ -306,6 +306,24 @@ func (a *Agent) Resolve(serviceName string) (string, error) {
 	return fmt.Sprintf("localhost:%d", monitor.service.Port), nil
 }
 
+// ResolveSDK resolves service name to SDK debug address (ServiceResolver interface).
+func (a *Agent) ResolveSDK(serviceName string) (string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	monitor, ok := a.monitors[serviceName]
+	if !ok {
+		return "", fmt.Errorf("service not found: %s", serviceName)
+	}
+
+	caps := monitor.GetSdkCapabilities()
+	if caps == nil || caps.SdkAddr == "" {
+		return "", fmt.Errorf("SDK capabilities not available for service %s", serviceName)
+	}
+
+	return caps.SdkAddr, nil
+}
+
 // StartDebugSession starts a debug session for a service.
 func (a *Agent) StartDebugSession(sessionID, serviceName, functionName string) error {
 	if a.debugManager == nil {

@@ -62,7 +62,6 @@ func (o *Orchestrator) AttachUprobe(
 		entries := o.registry.ListAll()
 
 		var foundEntry *registry.Entry
-		var foundService *meshv1.ServiceInfo
 
 		for _, entry := range entries {
 			// Query agent in real-time for services
@@ -85,16 +84,6 @@ func (o *Orchestrator) AttachUprobe(
 			for _, svcStatus := range resp.Msg.Services {
 				if svcStatus.Name == req.Msg.ServiceName {
 					foundEntry = entry
-					foundService = &meshv1.ServiceInfo{
-						Name:           svcStatus.Name,
-						Port:           svcStatus.Port,
-						HealthEndpoint: svcStatus.HealthEndpoint,
-						ServiceType:    svcStatus.ServiceType,
-						Labels:         svcStatus.Labels,
-						ProcessId:      svcStatus.ProcessId,
-						BinaryPath:     svcStatus.BinaryPath,
-						BinaryHash:     svcStatus.BinaryHash,
-					}
 					break
 				}
 			}
@@ -113,25 +102,14 @@ func (o *Orchestrator) AttachUprobe(
 
 		req.Msg.AgentId = foundEntry.AgentID
 
-		// Attempt to resolve SDK address from labels if not provided
-		if req.Msg.SdkAddr == "" {
-			if addr, ok := foundService.Labels["coral.sdk.addr"]; ok {
-				req.Msg.SdkAddr = addr
-			}
-		}
+		req.Msg.AgentId = foundEntry.AgentID
+
 	}
 
 	if req.Msg.AgentId == "" {
 		return connect.NewResponse(&debugpb.AttachUprobeResponse{
 			Success: false,
 			Error:   "agent_id is required (could not resolve from service)",
-		}), nil
-	}
-
-	if req.Msg.SdkAddr == "" {
-		return connect.NewResponse(&debugpb.AttachUprobeResponse{
-			Success: false,
-			Error:   "sdk_addr is required (could not resolve from service labels)",
 		}), nil
 	}
 
