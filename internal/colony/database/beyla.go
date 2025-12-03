@@ -505,7 +505,7 @@ func (d *Database) QueryBeylaSQLMetrics(ctx context.Context, serviceName string,
 }
 
 // QueryBeylaTraces queries distributed traces from colony database (RFD 036).
-func (d *Database) QueryBeylaTraces(ctx context.Context, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*BeylaTraceResult, error) {
+func (d *Database) QueryBeylaTraces(ctx context.Context, traceID, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*BeylaTraceResult, error) {
 	query := `
 		SELECT
 			trace_id,
@@ -522,6 +522,11 @@ func (d *Database) QueryBeylaTraces(ctx context.Context, serviceName string, sta
 	`
 
 	args := []interface{}{startTime, endTime}
+
+	if traceID != "" {
+		query += " AND trace_id = ?"
+		args = append(args, traceID)
+	}
 
 	if serviceName != "" {
 		query += " AND service_name = ?"

@@ -265,6 +265,36 @@ func (s *EbpfQueryService) querySQLMetrics(ctx context.Context, req *agentv1.Que
 func (s *EbpfQueryService) queryTraceSpans(ctx context.Context, req *agentv1.QueryEbpfMetricsRequest, startTime, endTime time.Time) ([]*agentv1.EbpfTraceSpan, error) {
 	var allSpans []*agentv1.EbpfTraceSpan
 
+	// If trace ID is specified, query by trace ID only (ignore service filter for efficiency).
+	if req.TraceId != "" {
+		maxTraces := int(req.MaxTraces)
+		if maxTraces == 0 {
+			maxTraces = 100
+		}
+
+		results, err := s.db.QueryBeylaTraces(ctx, req.TraceId, "", startTime, endTime, 0, maxTraces)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, r := range results {
+			allSpans = append(allSpans, &agentv1.EbpfTraceSpan{
+				TraceId:      r.TraceID,
+				SpanId:       r.SpanID,
+				ParentSpanId: r.ParentSpanID,
+				ServiceName:  r.ServiceName,
+				SpanName:     r.SpanName,
+				SpanKind:     r.SpanKind,
+				StartTime:    r.StartTime.UnixMilli(),
+				DurationUs:   r.DurationUs,
+				StatusCode:   uint32(r.StatusCode),
+			})
+		}
+
+		return allSpans, nil
+	}
+
+	// Otherwise, query by service names.
 	serviceNames := req.ServiceNames
 	if len(serviceNames) == 0 {
 		serviceNames = []string{""}
@@ -277,7 +307,7 @@ func (s *EbpfQueryService) queryTraceSpans(ctx context.Context, req *agentv1.Que
 			maxTraces = 100
 		}
 
-		results, err := s.db.QueryBeylaTraces(ctx, serviceName, startTime, endTime, 0, maxTraces)
+		results, err := s.db.QueryBeylaTraces(ctx, "", serviceName, startTime, endTime, 0, maxTraces)
 		if err != nil {
 			return nil, err
 		}
