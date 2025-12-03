@@ -96,6 +96,54 @@ coral ask "Check errors" --dry-run
 
 ---
 
+## eBPF Metrics & Traces Query
+
+```bash
+# Query HTTP RED metrics (Rate, Errors, Duration)
+coral query ebpf http <service> [--since <duration>] [--route <pattern>] [--output table|json|csv]
+
+# Query gRPC metrics
+coral query ebpf grpc <service> [--since <duration>] [--method <pattern>] [--output table|json|csv]
+
+# Query SQL query metrics
+coral query ebpf sql <service> [--since <duration>] [--operation <SELECT|INSERT|UPDATE|DELETE>] [--table <name>] [--output table|json|csv]
+
+# Query distributed traces
+coral query ebpf traces [--trace-id <id>] [--service <name>] [--since <duration>] [--format table|tree|json|csv]
+
+# Time range options (all commands):
+#   --since <duration>     # Relative (1h, 30m, 24h, 1d, 1w)
+#   --from <timestamp>     # Absolute start (ISO 8601)
+#   --to <timestamp>       # Absolute end (ISO 8601)
+
+# Examples - HTTP metrics:
+coral query ebpf http payments-api --since 1h
+coral query ebpf http api-server --route "/api/v1/checkout" --since 30m --output json
+coral query ebpf http frontend --since 6h --output csv
+
+# Examples - gRPC metrics:
+coral query ebpf grpc payment-service --since 1h
+coral query ebpf grpc api-gateway --method "/api.Payment/Process" --since 30m
+
+# Examples - SQL metrics:
+coral query ebpf sql api-server --since 1h
+coral query ebpf sql backend --operation SELECT --table users --since 2h
+
+# Examples - Traces:
+coral query ebpf traces --trace-id abc123def456789
+coral query ebpf traces --trace-id abc123def456789 --format tree
+coral query ebpf traces --service payments-api --since 1h
+coral query ebpf traces --service api-gateway --since 30m --output json
+```
+
+**What you get:**
+- **HTTP/gRPC/SQL**: Aggregated RED metrics with P50/P95/P99 latency percentiles
+- **Traces**: Distributed trace spans with parent-child relationships
+- **No SQL needed**: High-level commands for common observability patterns
+- **Multiple formats**: Table (default), JSON, CSV, or tree (traces only)
+
+---
+
 ## DuckDB Queries
 
 ```bash

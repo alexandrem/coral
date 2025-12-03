@@ -1172,13 +1172,14 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"5\n" +
 	"\x19RevokeCertificateResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\xd2\x06\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\xb9\a\n" +
 	"\rColonyService\x12R\n" +
 	"\tGetStatus\x12!.coral.colony.v1.GetStatusRequest\x1a\".coral.colony.v1.GetStatusResponse\x12U\n" +
 	"\n" +
 	"ListAgents\x12\".coral.colony.v1.ListAgentsRequest\x1a#.coral.colony.v1.ListAgentsResponse\x12X\n" +
 	"\vGetTopology\x12#.coral.colony.v1.GetTopologyRequest\x1a$.coral.colony.v1.GetTopologyResponse\x12a\n" +
-	"\x0eQueryTelemetry\x12&.coral.colony.v1.QueryTelemetryRequest\x1a'.coral.colony.v1.QueryTelemetryResponse\x12O\n" +
+	"\x0eQueryTelemetry\x12&.coral.colony.v1.QueryTelemetryRequest\x1a'.coral.colony.v1.QueryTelemetryResponse\x12e\n" +
+	"\x10QueryEbpfMetrics\x12'.coral.agent.v1.QueryEbpfMetricsRequest\x1a(.coral.agent.v1.QueryEbpfMetricsResponse\x12O\n" +
 	"\bCallTool\x12 .coral.colony.v1.CallToolRequest\x1a!.coral.colony.v1.CallToolResponse\x12Y\n" +
 	"\n" +
 	"StreamTool\x12\".coral.colony.v1.StreamToolRequest\x1a#.coral.colony.v1.StreamToolResponse(\x010\x01\x12R\n" +
@@ -1201,31 +1202,33 @@ func file_coral_colony_v1_colony_proto_rawDescGZIP() []byte {
 
 var file_coral_colony_v1_colony_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_coral_colony_v1_colony_proto_goTypes = []any{
-	(*GetStatusRequest)(nil),           // 0: coral.colony.v1.GetStatusRequest
-	(*GetStatusResponse)(nil),          // 1: coral.colony.v1.GetStatusResponse
-	(*ListAgentsRequest)(nil),          // 2: coral.colony.v1.ListAgentsRequest
-	(*ListAgentsResponse)(nil),         // 3: coral.colony.v1.ListAgentsResponse
-	(*Agent)(nil),                      // 4: coral.colony.v1.Agent
-	(*GetTopologyRequest)(nil),         // 5: coral.colony.v1.GetTopologyRequest
-	(*GetTopologyResponse)(nil),        // 6: coral.colony.v1.GetTopologyResponse
-	(*Connection)(nil),                 // 7: coral.colony.v1.Connection
-	(*TelemetrySpan)(nil),              // 8: coral.colony.v1.TelemetrySpan
-	(*QueryTelemetryRequest)(nil),      // 9: coral.colony.v1.QueryTelemetryRequest
-	(*QueryTelemetryResponse)(nil),     // 10: coral.colony.v1.QueryTelemetryResponse
-	(*RequestCertificateRequest)(nil),  // 11: coral.colony.v1.RequestCertificateRequest
-	(*RequestCertificateResponse)(nil), // 12: coral.colony.v1.RequestCertificateResponse
-	(*RevokeCertificateRequest)(nil),   // 13: coral.colony.v1.RevokeCertificateRequest
-	(*RevokeCertificateResponse)(nil),  // 14: coral.colony.v1.RevokeCertificateResponse
-	nil,                                // 15: coral.colony.v1.TelemetrySpan.AttributesEntry
-	(*timestamppb.Timestamp)(nil),      // 16: google.protobuf.Timestamp
-	(*v1.ServiceInfo)(nil),             // 17: coral.mesh.v1.ServiceInfo
-	(*v11.RuntimeContextResponse)(nil), // 18: coral.agent.v1.RuntimeContextResponse
-	(*CallToolRequest)(nil),            // 19: coral.colony.v1.CallToolRequest
-	(*StreamToolRequest)(nil),          // 20: coral.colony.v1.StreamToolRequest
-	(*ListToolsRequest)(nil),           // 21: coral.colony.v1.ListToolsRequest
-	(*CallToolResponse)(nil),           // 22: coral.colony.v1.CallToolResponse
-	(*StreamToolResponse)(nil),         // 23: coral.colony.v1.StreamToolResponse
-	(*ListToolsResponse)(nil),          // 24: coral.colony.v1.ListToolsResponse
+	(*GetStatusRequest)(nil),             // 0: coral.colony.v1.GetStatusRequest
+	(*GetStatusResponse)(nil),            // 1: coral.colony.v1.GetStatusResponse
+	(*ListAgentsRequest)(nil),            // 2: coral.colony.v1.ListAgentsRequest
+	(*ListAgentsResponse)(nil),           // 3: coral.colony.v1.ListAgentsResponse
+	(*Agent)(nil),                        // 4: coral.colony.v1.Agent
+	(*GetTopologyRequest)(nil),           // 5: coral.colony.v1.GetTopologyRequest
+	(*GetTopologyResponse)(nil),          // 6: coral.colony.v1.GetTopologyResponse
+	(*Connection)(nil),                   // 7: coral.colony.v1.Connection
+	(*TelemetrySpan)(nil),                // 8: coral.colony.v1.TelemetrySpan
+	(*QueryTelemetryRequest)(nil),        // 9: coral.colony.v1.QueryTelemetryRequest
+	(*QueryTelemetryResponse)(nil),       // 10: coral.colony.v1.QueryTelemetryResponse
+	(*RequestCertificateRequest)(nil),    // 11: coral.colony.v1.RequestCertificateRequest
+	(*RequestCertificateResponse)(nil),   // 12: coral.colony.v1.RequestCertificateResponse
+	(*RevokeCertificateRequest)(nil),     // 13: coral.colony.v1.RevokeCertificateRequest
+	(*RevokeCertificateResponse)(nil),    // 14: coral.colony.v1.RevokeCertificateResponse
+	nil,                                  // 15: coral.colony.v1.TelemetrySpan.AttributesEntry
+	(*timestamppb.Timestamp)(nil),        // 16: google.protobuf.Timestamp
+	(*v1.ServiceInfo)(nil),               // 17: coral.mesh.v1.ServiceInfo
+	(*v11.RuntimeContextResponse)(nil),   // 18: coral.agent.v1.RuntimeContextResponse
+	(*v11.QueryEbpfMetricsRequest)(nil),  // 19: coral.agent.v1.QueryEbpfMetricsRequest
+	(*CallToolRequest)(nil),              // 20: coral.colony.v1.CallToolRequest
+	(*StreamToolRequest)(nil),            // 21: coral.colony.v1.StreamToolRequest
+	(*ListToolsRequest)(nil),             // 22: coral.colony.v1.ListToolsRequest
+	(*v11.QueryEbpfMetricsResponse)(nil), // 23: coral.agent.v1.QueryEbpfMetricsResponse
+	(*CallToolResponse)(nil),             // 24: coral.colony.v1.CallToolResponse
+	(*StreamToolResponse)(nil),           // 25: coral.colony.v1.StreamToolResponse
+	(*ListToolsResponse)(nil),            // 26: coral.colony.v1.ListToolsResponse
 }
 var file_coral_colony_v1_colony_proto_depIdxs = []int32{
 	16, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
@@ -1241,22 +1244,24 @@ var file_coral_colony_v1_colony_proto_depIdxs = []int32{
 	2,  // 10: coral.colony.v1.ColonyService.ListAgents:input_type -> coral.colony.v1.ListAgentsRequest
 	5,  // 11: coral.colony.v1.ColonyService.GetTopology:input_type -> coral.colony.v1.GetTopologyRequest
 	9,  // 12: coral.colony.v1.ColonyService.QueryTelemetry:input_type -> coral.colony.v1.QueryTelemetryRequest
-	19, // 13: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
-	20, // 14: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
-	21, // 15: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
-	11, // 16: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
-	13, // 17: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
-	1,  // 18: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
-	3,  // 19: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
-	6,  // 20: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
-	10, // 21: coral.colony.v1.ColonyService.QueryTelemetry:output_type -> coral.colony.v1.QueryTelemetryResponse
-	22, // 22: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
-	23, // 23: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
-	24, // 24: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
-	12, // 25: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
-	14, // 26: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
-	18, // [18:27] is the sub-list for method output_type
-	9,  // [9:18] is the sub-list for method input_type
+	19, // 13: coral.colony.v1.ColonyService.QueryEbpfMetrics:input_type -> coral.agent.v1.QueryEbpfMetricsRequest
+	20, // 14: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
+	21, // 15: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
+	22, // 16: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
+	11, // 17: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
+	13, // 18: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
+	1,  // 19: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
+	3,  // 20: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
+	6,  // 21: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
+	10, // 22: coral.colony.v1.ColonyService.QueryTelemetry:output_type -> coral.colony.v1.QueryTelemetryResponse
+	23, // 23: coral.colony.v1.ColonyService.QueryEbpfMetrics:output_type -> coral.agent.v1.QueryEbpfMetricsResponse
+	24, // 24: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
+	25, // 25: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
+	26, // 26: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
+	12, // 27: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
+	14, // 28: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
+	19, // [19:29] is the sub-list for method output_type
+	9,  // [9:19] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name

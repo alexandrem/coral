@@ -1475,6 +1475,11 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		logger.Info().Msg("MCP server is disabled in configuration")
 	}
 
+	// Initialize eBPF query service (RFD 035).
+	ebpfService := colony.NewEbpfQueryService(db)
+	colonySvc.SetEbpfService(ebpfService)
+	logger.Info().Msg("eBPF query service initialized and attached to colony")
+
 	// Register the handlers
 	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(meshSvc)
 	colonyPath, colonyHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)

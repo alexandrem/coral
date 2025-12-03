@@ -36,10 +36,8 @@ func NewHTTPCmd() *cobra.Command {
 				return err
 			}
 
-			// Get client
-			// TODO: Colony ID resolution? For now assume default/local.
-			// The helpers.GetColonyURL handles this.
-			client, err := helpers.GetAgentClient("")
+			// Get colony client.
+			client, err := helpers.GetColonyClient("")
 			if err != nil {
 				return err
 			}

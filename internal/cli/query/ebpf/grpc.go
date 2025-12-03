@@ -35,8 +35,8 @@ func NewGRPCCmd() *cobra.Command {
 				return err
 			}
 
-			// Get client
-			client, err := helpers.GetAgentClient("")
+			// Get colony client.
+			client, err := helpers.GetColonyClient("")
 			if err != nil {
 				return err
 			}
