@@ -1,7 +1,7 @@
 ---
 rfd: "035"
 title: "CLI Query Framework for Observability Data"
-state: "draft"
+state: "in-progress"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "cli", "observability", "query" ]
 
 # RFD 035 - CLI Query Framework for Observability Data
 
-**Status:** 🚧 Draft
+**Status:** 🚧 In Progress
 
 ## Summary
 
@@ -147,27 +147,27 @@ coral query ebpf http payments-api --colony prod-us,prod-eu --since 30m
 
 ## Implementation Plan
 
-### Phase 1: Core Query Framework
+### Phase 1: Core Query Framework ✅
 
-- [ ] Create `internal/cli/query/` package structure
-- [ ] Implement time range parser (`ParseTimeRange("1h")` → start/end
-  timestamps)
-- [ ] Create output formatter interface (`Formatter.Format(data) → string`)
-- [ ] Implement table formatter with column alignment
-- [ ] Add JSON and CSV formatters
-- [ ] Create colony client wrapper for gRPC queries
+- [x] Create `internal/cli/query/` package structure
+- [x] Implement time range parser (`ParseTimeRange("1h")` → start/end
+  timestamps) - `internal/cli/helpers/time.go`
+- [x] Create output formatter interface (`Formatter.Format(data) → string`)
+- [x] Implement table formatter with column alignment - `internal/cli/helpers/formatter.go`
+- [x] Add JSON and CSV formatters - `internal/cli/helpers/formatter.go`
+- [x] Create colony client wrapper for gRPC queries - `internal/cli/helpers/agent_client.go`
 
-### Phase 2: Beyla HTTP Metrics
+### Phase 2: eBPF HTTP Metrics ✅
 
-- [ ] Implement `coral query ebpf http <service>` command
-- [ ] Parse histogram buckets into percentiles (P50, P95, P99)
-- [ ] Calculate error rates from status code distributions
-- [ ] Add route filtering (`--route <pattern>`)
-- [ ] Add status code filtering (`--status 2xx|4xx|5xx`)
-- [ ] Format output as table with columns: Route, Requests, P50, P95, P99,
+- [x] Implement `coral query ebpf http <service>` command - `internal/cli/query/ebpf/http.go`
+- [x] Parse histogram buckets into percentiles (P50, P95, P99)
+- [x] Calculate error rates from status code distributions
+- [x] Add route filtering (`--route <pattern>`)
+- [x] Add status code filtering (`--status 2xx|4xx|5xx`) - placeholder flag
+- [x] Format output as table with columns: Route, Requests, P50, P95, P99,
   Errors
 
-### Phase 3: Beyla gRPC & SQL Metrics
+### Phase 3: eBPF gRPC & SQL Metrics
 
 - [ ] Implement `coral query ebpf grpc <service>` command
 - [ ] Implement `coral query ebpf sql <service>` command
