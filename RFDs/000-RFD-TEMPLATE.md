@@ -208,17 +208,6 @@ Feature Result:
     - Revert database changes (if needed)
     - No breaking changes to existing workflows
 
-## Future Enhancements
-
-**Optional section for follow-up work**
-
-- Potential improvements not in scope for initial implementation
-- Features that build on this foundation
-- Performance optimizations
-- Additional integrations
-
----
-
 ## Implementation Status
 
 **Core Capability:** ✅ Complete | 🔄 In Progress | ⏳ Not Started
@@ -251,12 +240,12 @@ operations.
 - List any remaining integration work (dependencies, config, deployment)
 - Keep this minimal - only critical items blocking production use
 
-## Deferred Features
+## Future Work
 
-**Optional section - only include if features are explicitly deferred**
+**Optional section - use for features that are out of scope**
 
-The following features are deferred as they build on the core foundation but are
-not required for basic functionality:
+The following features are out of scope for this RFD. They may be addressed in
+future RFDs or are intentionally deferred:
 
 Example:
 
@@ -330,7 +319,7 @@ Progress" RFDs by:
 - Narrow scope to a **complete, shippable capability**
 - Extract large or blocked features into **separate RFDs** (creates clear
   dependency chains)
-- Use **Deferred Features** section for out-of-scope work (with RFD references)
+- Use **Future Work** section for out-of-scope work (with RFD references)
 - Mark RFD "Implemented" when core capability works, even if enhancements are
   deferred
 
@@ -338,7 +327,7 @@ Progress" RFDs by:
 
 - Leave RFD "In Progress" indefinitely with partial implementation
 - Try to fit everything into one mega-RFD (split it!)
-- List missing features as "TODO" in main sections (move to Deferred Features)
+- List missing features as "TODO" in main sections (move to Future Work)
 
 **Example - Bad Scope (Too Broad):**
 
@@ -364,7 +353,7 @@ RFD 010: Metrics Collection & Storage
 Status: ✅ Complete
 
 Core: Agents collect metrics, store locally, colony aggregates.
-Deferred: AI analysis (RFD 015), Alerting (RFD 020), Capacity planning (RFD 025)
+Future Work: AI analysis (RFD 015), Alerting (RFD 020), Capacity planning (RFD 025)
 ```
 
 → Clear what's done, clear what's next, RFD is complete!
@@ -389,7 +378,7 @@ Deferred: AI analysis (RFD 015), Alerting (RFD 020), Capacity planning (RFD 025)
 - ✅ Put protocol details in Appendix
 - ✅ Reference files by path only (e.g., `manager/pkg/database/database.go`)
 - ✅ Add Implementation Status section when RFD is implemented
-- ✅ Use Deferred Features section to manage scope
+- ✅ Use Future Work section to manage scope
 
 **DO NOT:**
 
