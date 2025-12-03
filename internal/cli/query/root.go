@@ -1,3 +1,4 @@
+// Package query provides the CLI query framework for observability data.
 package query
 
 import (

@@ -1,7 +1,7 @@
 ---
 rfd: "035"
 title: "CLI Query Framework for Observability Data"
-state: "in-progress"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "cli", "observability", "query" ]
 
 # RFD 035 - CLI Query Framework for Observability Data
 
-**Status:** 🚧 In Progress
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -153,13 +153,16 @@ coral query ebpf http payments-api --colony prod-us,prod-eu --since 30m
 - [x] Implement time range parser (`ParseTimeRange("1h")` → start/end
   timestamps) - `internal/cli/helpers/time.go`
 - [x] Create output formatter interface (`Formatter.Format(data) → string`)
-- [x] Implement table formatter with column alignment - `internal/cli/helpers/formatter.go`
+- [x] Implement table formatter with column alignment -
+  `internal/cli/helpers/formatter.go`
 - [x] Add JSON and CSV formatters - `internal/cli/helpers/formatter.go`
-- [x] Create colony client wrapper for gRPC queries - `internal/cli/helpers/agent_client.go`
+- [x] Create colony client wrapper for gRPC queries -
+  `internal/cli/helpers/agent_client.go`
 
 ### Phase 2: eBPF HTTP Metrics ✅
 
-- [x] Implement `coral query ebpf http <service>` command - `internal/cli/query/ebpf/http.go`
+- [x] Implement `coral query ebpf http <service>` command -
+  `internal/cli/query/ebpf/http.go`
 - [x] Parse histogram buckets into percentiles (P50, P95, P99)
 - [x] Calculate error rates from status code distributions
 - [x] Add route filtering (`--route <pattern>`)
@@ -169,26 +172,36 @@ coral query ebpf http payments-api --colony prod-us,prod-eu --since 30m
 
 ### Phase 3: eBPF gRPC & SQL Metrics ✅
 
-- [x] Implement `coral query ebpf grpc <service>` command - `internal/cli/query/ebpf/grpc.go`
-- [x] Implement `coral query ebpf sql <service>` command - `internal/cli/query/ebpf/sql.go`
+- [x] Implement `coral query ebpf grpc <service>` command -
+  `internal/cli/query/ebpf/grpc.go`
+- [x] Implement `coral query ebpf sql <service>` command -
+  `internal/cli/query/ebpf/sql.go`
 - [x] Add method/operation filtering
 - [x] Reuse percentile and formatting logic from HTTP
 
-### Phase 4: Trace Queries
+### Phase 4: Trace Queries ✅
 
-- [ ] Implement `coral query ebpf traces --trace-id <id>` command
-- [ ] Fetch trace spans from Colony via gRPC
-- [ ] Build span tree from parent-child relationships
-- [ ] Implement tree visualization formatter
-- [ ] Add span filtering by service, operation, duration
+- [x] Implement `coral query ebpf traces --trace-id <id>` command -
+  `internal/cli/query/ebpf/traces.go`
+- [x] Fetch trace spans from Colony via gRPC
+- [x] Build span tree from parent-child relationships
+- [x] Implement tree visualization formatter - `internal/cli/helpers/tree.go`
+- [x] Add span filtering by service, operation, duration
 
-### Phase 5: Advanced Features
+## Implementation Status
 
-- [ ] Multi-colony query and result merging
-- [ ] Comparison mode (`--compare <time-range>`)
-- [ ] ASCII histogram visualization
-- [ ] Saved queries and aliases
-- [ ] Integration with `coral tap` for live queries
+**Core framework (Phases 1-4): ✅ Completed**
+
+All planned query commands are implemented and functional:
+- `coral query ebpf http` - HTTP RED metrics with percentiles
+- `coral query ebpf grpc` - gRPC RED metrics with percentiles
+- `coral query ebpf sql` - SQL query metrics with percentiles
+- `coral query ebpf traces` - Distributed trace visualization
+
+Shared infrastructure:
+- Time range parsing (`--since`, `--from`, `--to`)
+- Output formatters (table, JSON, CSV, tree)
+- Generic tree visualization helper
 
 ## Testing Strategy
 
@@ -214,11 +227,51 @@ coral query ebpf http payments-api --colony prod-us,prod-eu --since 30m
 
 ## Future Work
 
+The following features are deferred for future RFDs and should be implemented as
+separate, focused efforts:
+
+### Multi-Colony Query Support
+
+- Query multiple colonies and merge results transparently
+- Handle different schema versions across colonies
+- Aggregate metrics from distributed deployments
+- **Rationale**: Requires distributed query coordination and result merging
+  logic
+
+### Comparison Mode
+
+- Compare metrics across time ranges (`--compare <time-range>`)
+- Show deltas and percentage changes
+- Highlight regressions and improvements
+- **Rationale**: Requires baseline storage and diff calculation logic
+
+### Advanced Visualizations
+
+- ASCII histogram visualization for latency distributions
+- Sparklines for time-series trends
+- Heatmaps for service dependencies
+- **Rationale**: Requires additional rendering libraries and layout algorithms
+
+### Query Management
+
+- Saved queries and aliases
+- Query templates with parameter substitution
+- Query history and replay
+- **Rationale**: Requires persistent storage and query DSL
+
+### Live Query Integration
+
 - Integration with `coral ask` (RFD 030) for AI-driven queries
 - Live streaming queries (`coral query ebpf http <service> --follow`)
+- Real-time alerting based on query results
+- **Rationale**: Requires streaming infrastructure and event processing
+
+### Export Capabilities
+
 - Query result caching for faster re-queries
 - Export to external systems (Prometheus, Grafana Cloud)
-- Query templates and saved queries
+- Webhook notifications for query results
+- **Rationale**: Requires integration with external systems and caching layer
 
 ## Dependencies
 

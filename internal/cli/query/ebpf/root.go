@@ -1,3 +1,4 @@
+// Package ebpf provides CLI commands for querying eBPF-collected observability data.
 package ebpf
 
 import (
@@ -26,7 +27,7 @@ Examples:
 	cmd.AddCommand(NewHTTPCmd())
 	cmd.AddCommand(NewGRPCCmd())
 	cmd.AddCommand(NewSQLCmd())
-	// cmd.AddCommand(NewTracesCmd()) // Phase 4
+	cmd.AddCommand(NewTracesCmd())
 
 	return cmd
 }

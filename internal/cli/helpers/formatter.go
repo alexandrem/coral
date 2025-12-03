@@ -61,11 +61,15 @@ func (f *TableFormatter) Format(data interface{}, writer io.Writer) error {
 		headers := getHeaders(elemType)
 
 		w := tabwriter.NewWriter(writer, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, strings.Join(headers, "\t"))
+		if _, err := fmt.Fprintln(w, strings.Join(headers, "\t")); err != nil {
+			return err
+		}
 
 		for i := 0; i < val.Len(); i++ {
 			row := getRowValues(val.Index(i))
-			fmt.Fprintln(w, strings.Join(row, "\t"))
+			if _, err := fmt.Fprintln(w, strings.Join(row, "\t")); err != nil {
+				return err
+			}
 		}
 		return w.Flush()
 	}
