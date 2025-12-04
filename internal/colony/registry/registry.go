@@ -171,9 +171,10 @@ func (r *Registry) CountByStatus() (active, degraded int32) {
 	now := time.Now()
 	for _, entry := range r.entries {
 		status := DetermineStatus(entry.LastSeen, now)
-		if status == StatusHealthy {
+		switch status {
+		case StatusHealthy:
 			active++
-		} else if status == StatusDegraded {
+		case StatusDegraded:
 			degraded++
 		}
 	}
