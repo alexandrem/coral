@@ -182,3 +182,41 @@ type ListProbeableFunctionsInput struct {
 	Service string  `json:"service" jsonschema:"description=Service name"`
 	Pattern *string `json:"pattern,omitempty" jsonschema:"description=Regex filter for function names (e.g., 'handle.*', 'process.*')"`
 }
+
+// Unified Query Tool Inputs (RFD 067)
+
+// UnifiedSummaryInput is the input for coral_query_summary.
+type UnifiedSummaryInput struct {
+	Service   *string `json:"service,omitempty" jsonschema:"description=Optional: specific service or all services"`
+	TimeRange *string `json:"time_range,omitempty" jsonschema:"description=Time range (default: 5m)"`
+}
+
+// UnifiedTracesInput is the input for coral_query_traces.
+type UnifiedTracesInput struct {
+	Service       *string `json:"service,omitempty" jsonschema:"description=Filter by service"`
+	TimeRange     *string `json:"time_range,omitempty" jsonschema:"description=Time range (default: 1h)"`
+	Source        *string `json:"source,omitempty" jsonschema:"description=Optional: ebpf|telemetry|all (default: all)"`
+	TraceID       *string `json:"trace_id,omitempty" jsonschema:"description=Optional: specific trace"`
+	MinDurationMs *int    `json:"min_duration_ms,omitempty" jsonschema:"description=Optional: filter slow traces"`
+	MaxTraces     *int    `json:"max_traces,omitempty" jsonschema:"description=Max traces to return"`
+}
+
+// UnifiedMetricsInput is the input for coral_query_metrics.
+type UnifiedMetricsInput struct {
+	Service         *string `json:"service,omitempty" jsonschema:"description=Filter by service"`
+	TimeRange       *string `json:"time_range,omitempty" jsonschema:"description=Time range (default: 1h)"`
+	Source          *string `json:"source,omitempty" jsonschema:"description=Optional: ebpf|telemetry|all (default: all)"`
+	Protocol        *string `json:"protocol,omitempty" jsonschema:"description=Optional: http|grpc|sql|auto (default: auto)"`
+	HTTPRoute       *string `json:"http_route,omitempty" jsonschema:"description=Optional: HTTP route filter"`
+	HTTPMethod      *string `json:"http_method,omitempty" jsonschema:"description=Optional: HTTP method filter"`
+	StatusCodeRange *string `json:"status_code_range,omitempty" jsonschema:"description=Optional: HTTP status code range filter"`
+}
+
+// UnifiedLogsInput is the input for coral_query_logs.
+type UnifiedLogsInput struct {
+	Service   *string `json:"service,omitempty" jsonschema:"description=Filter by service"`
+	TimeRange *string `json:"time_range,omitempty" jsonschema:"description=Time range (default: 1h)"`
+	Level     *string `json:"level,omitempty" jsonschema:"description=Optional: debug|info|warn|error"`
+	Search    *string `json:"search,omitempty" jsonschema:"description=Optional: full-text search"`
+	MaxLogs   *int    `json:"max_logs,omitempty" jsonschema:"description=Max logs to return"`
+}

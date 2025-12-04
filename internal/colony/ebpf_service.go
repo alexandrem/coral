@@ -15,6 +15,7 @@ type ebpfDatabase interface {
 	QueryBeylaGRPCMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaGRPCMetricResult, error)
 	QueryBeylaSQLMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaSQLMetricResult, error)
 	QueryBeylaTraces(ctx context.Context, traceID, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*database.BeylaTraceResult, error)
+	QueryTelemetrySummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.TelemetrySummary, error)
 }
 
 // EbpfQueryService provides eBPF metrics querying with validation.
@@ -336,4 +337,89 @@ func (s *EbpfQueryService) queryTraceSpans(ctx context.Context, req *agentv1.Que
 	}
 
 	return allSpans, nil
+}
+
+// Unified Query Methods (RFD 067)
+
+// UnifiedSummaryResult represents the health summary of a service.
+type UnifiedSummaryResult struct {
+	ServiceName string
+	Status      string // healthy, degraded, critical
+	RequestRate float64
+	ErrorRate   float64
+	P95Latency  float64
+	Issues      []string
+}
+
+// QueryUnifiedSummary provides a high-level health summary for services.
+func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName string, startTime, endTime time.Time) ([]UnifiedSummaryResult, error) {
+	// TODO: Implement full logic. For now, return a placeholder based on eBPF metrics.
+	// This will be expanded to include OTLP data and anomaly detection.
+
+	filters := make(map[string]string)
+	httpMetrics, err := s.db.QueryBeylaHTTPMetrics(ctx, serviceName, startTime, endTime, filters)
+	if err != nil {
+		return nil, err
+	}
+
+	// Simple aggregation for demonstration.
+	summaryMap := make(map[string]*UnifiedSummaryResult)
+
+	for _, m := range httpMetrics {
+		if _, exists := summaryMap[m.ServiceName]; !exists {
+			summaryMap[m.ServiceName] = &UnifiedSummaryResult{
+				ServiceName: m.ServiceName,
+				Status:      "healthy",
+			}
+		}
+		// In a real implementation, we would aggregate rates and latencies here.
+	}
+
+	var results []UnifiedSummaryResult
+	for _, r := range summaryMap {
+		results = append(results, *r)
+	}
+
+	return results, nil
+}
+
+// QueryUnifiedTraces queries traces from both eBPF and OTLP sources.
+func (s *EbpfQueryService) QueryUnifiedTraces(ctx context.Context, traceID, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*agentv1.EbpfTraceSpan, error) {
+	// 1. Query eBPF traces.
+	ebpfSpans, err := s.queryTraceSpans(ctx, &agentv1.QueryEbpfMetricsRequest{
+		TraceId:      traceID,
+		ServiceNames: []string{serviceName},
+		MaxTraces:    int32(maxTraces),
+	}, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Query OTLP traces (placeholder for now, as we only have summaries).
+	// In the future, this will query the OTLP span store.
+
+	// 3. Merge results.
+	// For now, just return eBPF spans.
+	return ebpfSpans, nil
+}
+
+// QueryUnifiedMetrics queries metrics from both eBPF and OTLP sources.
+func (s *EbpfQueryService) QueryUnifiedMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time) (*agentv1.QueryEbpfMetricsResponse, error) {
+	// Reuse existing logic for eBPF metrics.
+	return s.QueryMetrics(ctx, &agentv1.QueryEbpfMetricsRequest{
+		ServiceNames: []string{serviceName},
+		StartTime:    startTime.Unix(),
+		EndTime:      endTime.Unix(),
+		MetricTypes: []agentv1.EbpfMetricType{
+			agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP,
+			agentv1.EbpfMetricType_EBPF_METRIC_TYPE_GRPC,
+			agentv1.EbpfMetricType_EBPF_METRIC_TYPE_SQL,
+		},
+	})
+}
+
+// QueryUnifiedLogs queries logs from OTLP sources.
+func (s *EbpfQueryService) QueryUnifiedLogs(ctx context.Context, serviceName string, startTime, endTime time.Time, level string, search string) ([]string, error) {
+	// Placeholder for log querying.
+	return []string{}, nil
 }

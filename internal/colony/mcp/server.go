@@ -125,28 +125,15 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 	// Each tool parses its own arguments and executes its logic.
 	switch toolName {
 	// Observability tools
-	case "coral_get_service_health":
-		return s.executeServiceHealthTool(ctx, argumentsJSON)
-	case "coral_get_service_topology":
-		return s.executeServiceTopologyTool(ctx, argumentsJSON)
-	case "coral_query_events":
-		return s.executeQueryEventsTool(ctx, argumentsJSON)
-	case "coral_query_ebpf_http_metrics":
-		return s.executeBeylaHTTPMetricsTool(ctx, argumentsJSON)
-	case "coral_query_ebpf_grpc_metrics":
-		return s.executeBeylaGRPCMetricsTool(ctx, argumentsJSON)
-	case "coral_query_ebpf_sql_metrics":
-		return s.executeBeylaSQLMetricsTool(ctx, argumentsJSON)
-	case "coral_query_ebpf_traces":
-		return s.executeBeylaTracesTool(ctx, argumentsJSON)
-	case "coral_get_trace_by_id":
-		return s.executeTraceByIDTool(ctx, argumentsJSON)
-	case "coral_query_telemetry_spans":
-		return s.executeTelemetrySpansTool(ctx, argumentsJSON)
-	case "coral_query_telemetry_metrics":
-		return s.executeTelemetryMetricsTool(ctx, argumentsJSON)
-	case "coral_query_telemetry_logs":
-		return s.executeTelemetryLogsTool(ctx, argumentsJSON)
+	// Unified Observability Tools (RFD 067)
+	case "coral_query_summary":
+		return s.executeUnifiedSummaryTool(ctx, argumentsJSON)
+	case "coral_query_traces":
+		return s.executeUnifiedTracesTool(ctx, argumentsJSON)
+	case "coral_query_metrics":
+		return s.executeUnifiedMetricsTool(ctx, argumentsJSON)
+	case "coral_query_logs":
+		return s.executeUnifiedLogsTool(ctx, argumentsJSON)
 
 	// Live debugging tools (RFD 062)
 	case "coral_start_ebpf_collector":
@@ -228,17 +215,10 @@ func (s *Server) getToolSchemas() map[string]string {
 	// Generate schema for each tool's input type.
 	// Use the same input types as tool registration.
 	toolInputTypes := map[string]interface{}{
-		"coral_get_service_health":       ServiceHealthInput{},
-		"coral_get_service_topology":     ServiceTopologyInput{},
-		"coral_query_events":             QueryEventsInput{},
-		"coral_query_ebpf_http_metrics":  BeylaHTTPMetricsInput{},
-		"coral_query_ebpf_grpc_metrics":  BeylaGRPCMetricsInput{},
-		"coral_query_ebpf_sql_metrics":   BeylaSQLMetricsInput{},
-		"coral_query_ebpf_traces":        BeylaTracesInput{},
-		"coral_get_trace_by_id":          TraceByIDInput{},
-		"coral_query_telemetry_spans":    TelemetrySpansInput{},
-		"coral_query_telemetry_metrics":  TelemetryMetricsInput{},
-		"coral_query_telemetry_logs":     TelemetryLogsInput{},
+		"coral_query_summary":            UnifiedSummaryInput{},
+		"coral_query_traces":             UnifiedTracesInput{},
+		"coral_query_metrics":            UnifiedMetricsInput{},
+		"coral_query_logs":               UnifiedLogsInput{},
 		"coral_start_ebpf_collector":     StartEBPFCollectorInput{},
 		"coral_stop_ebpf_collector":      StopEBPFCollectorInput{},
 		"coral_list_ebpf_collectors":     ListEBPFCollectorsInput{},
@@ -288,17 +268,10 @@ func (s *Server) getToolSchemas() map[string]string {
 // These descriptions are used when serving tools via both MCP and RPC APIs.
 func (s *Server) getToolDescriptions() map[string]string {
 	return map[string]string{
-		"coral_get_service_health":       "Get current health status of services. Returns health state, resource usage (CPU, memory), uptime, and recent issues.",
-		"coral_get_service_topology":     "Get service dependency graph discovered from distributed traces. Shows which services communicate and call frequency.",
-		"coral_query_events":             "Query operational events tracked by Coral (deployments, restarts, crashes, alerts, configuration changes).",
-		"coral_query_ebpf_http_metrics":  "Query HTTP RED metrics collected via eBPF (request rate, error rate, latency distributions). Returns percentiles, status code breakdown, and route-level metrics.",
-		"coral_query_ebpf_grpc_metrics":  "Query gRPC method-level RED metrics collected via eBPF. Returns RPC rate, latency distributions, and status code breakdown.",
-		"coral_query_ebpf_sql_metrics":   "Query SQL operation metrics collected via eBPF. Returns query latencies, operation types, and table-level statistics.",
-		"coral_query_ebpf_traces":        "Query distributed traces collected via eBPF. Can search by trace ID, service, time range, or duration threshold.",
-		"coral_get_trace_by_id":          "Get a specific distributed trace by ID with full span tree showing parent-child relationships and timing.",
-		"coral_query_telemetry_spans":    "Query generic OTLP spans (from instrumented applications using OpenTelemetry SDKs). Returns aggregated telemetry summaries. For detailed raw spans, see RFD 041.",
-		"coral_query_telemetry_metrics":  "Query generic OTLP metrics (from instrumented applications). Returns time-series data for custom application metrics.",
-		"coral_query_telemetry_logs":     "Query generic OTLP logs (from instrumented applications). Search application logs with full-text search and filters.",
+		"coral_query_summary":            "Get a high-level health summary for services, combining eBPF and OTLP data.",
+		"coral_query_traces":             "Query distributed traces from all sources (eBPF + OTLP).",
+		"coral_query_metrics":            "Query metrics from all sources (eBPF + OTLP).",
+		"coral_query_logs":               "Query logs from OTLP.",
 		"coral_start_ebpf_collector":     "Start an on-demand eBPF collector for live debugging (CPU profiling, syscall tracing, network analysis). Collector runs for specified duration.",
 		"coral_stop_ebpf_collector":      "Stop a running eBPF collector before its duration expires.",
 		"coral_list_ebpf_collectors":     "List currently active eBPF collectors with their status and remaining duration.",
@@ -318,18 +291,11 @@ func (s *Server) getToolDescriptions() map[string]string {
 
 // registerTools registers all MCP tools with the server.
 func (s *Server) registerTools() error {
-	// Register observability query tools.
-	s.registerServiceHealthTool()
-	s.registerServiceTopologyTool()
-	s.registerQueryEventsTool()
-	s.registerBeylaHTTPMetricsTool()
-	s.registerBeylaGRPCMetricsTool()
-	s.registerBeylaSQLMetricsTool()
-	s.registerBeylaTracesTool()
-	s.registerTraceByIDTool()
-	s.registerTelemetrySpansTool()
-	s.registerTelemetryMetricsTool()
-	s.registerTelemetryLogsTool()
+	// Register unified observability tools.
+	s.registerUnifiedSummaryTool()
+	s.registerUnifiedTracesTool()
+	s.registerUnifiedMetricsTool()
+	s.registerUnifiedLogsTool()
 
 	// Register live debugging tools (Phase 3).
 	s.registerStartEBPFCollectorTool()
@@ -367,17 +333,10 @@ func (s *Server) listToolNames() []string {
 	// This will be populated by Genkit's tool registry.
 	// For now, return a placeholder.
 	return []string{
-		"coral_get_service_health",
-		"coral_get_service_topology",
-		"coral_query_events",
-		"coral_query_ebpf_http_metrics",
-		"coral_query_ebpf_grpc_metrics",
-		"coral_query_ebpf_sql_metrics",
-		"coral_query_ebpf_traces",
-		"coral_get_trace_by_id",
-		"coral_query_telemetry_spans",
-		"coral_query_telemetry_metrics",
-		"coral_query_telemetry_logs",
+		"coral_query_summary",
+		"coral_query_traces",
+		"coral_query_metrics",
+		"coral_query_logs",
 		"coral_start_ebpf_collector",
 		"coral_stop_ebpf_collector",
 		"coral_list_ebpf_collectors",

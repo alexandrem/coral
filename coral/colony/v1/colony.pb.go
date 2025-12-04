@@ -1098,6 +1098,510 @@ func (x *RevokeCertificateResponse) GetSuccess() bool {
 	return false
 }
 
+type QueryUnifiedSummaryRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional: specific service or all services.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// Time range (e.g., "5m", "1h").
+	TimeRange     string `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryUnifiedSummaryRequest) Reset() {
+	*x = QueryUnifiedSummaryRequest{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryUnifiedSummaryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryUnifiedSummaryRequest) ProtoMessage() {}
+
+func (x *QueryUnifiedSummaryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryUnifiedSummaryRequest.ProtoReflect.Descriptor instead.
+func (*QueryUnifiedSummaryRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *QueryUnifiedSummaryRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *QueryUnifiedSummaryRequest) GetTimeRange() string {
+	if x != nil {
+		return x.TimeRange
+	}
+	return ""
+}
+
+type QueryUnifiedSummaryResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Summary results as formatted text.
+	Result        string `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryUnifiedSummaryResponse) Reset() {
+	*x = QueryUnifiedSummaryResponse{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryUnifiedSummaryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryUnifiedSummaryResponse) ProtoMessage() {}
+
+func (x *QueryUnifiedSummaryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryUnifiedSummaryResponse.ProtoReflect.Descriptor instead.
+func (*QueryUnifiedSummaryResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *QueryUnifiedSummaryResponse) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+type QueryUnifiedTracesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional: filter by service.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// Time range (default: "1h").
+	TimeRange string `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	// Optional: ebpf|telemetry|all (default: all).
+	Source string `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	// Optional: specific trace ID.
+	TraceId string `protobuf:"bytes,4,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	// Optional: filter slow traces (milliseconds).
+	MinDurationMs int32 `protobuf:"varint,5,opt,name=min_duration_ms,json=minDurationMs,proto3" json:"min_duration_ms,omitempty"`
+	// Maximum traces to return.
+	MaxTraces     int32 `protobuf:"varint,6,opt,name=max_traces,json=maxTraces,proto3" json:"max_traces,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryUnifiedTracesRequest) Reset() {
+	*x = QueryUnifiedTracesRequest{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryUnifiedTracesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryUnifiedTracesRequest) ProtoMessage() {}
+
+func (x *QueryUnifiedTracesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryUnifiedTracesRequest.ProtoReflect.Descriptor instead.
+func (*QueryUnifiedTracesRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *QueryUnifiedTracesRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *QueryUnifiedTracesRequest) GetTimeRange() string {
+	if x != nil {
+		return x.TimeRange
+	}
+	return ""
+}
+
+func (x *QueryUnifiedTracesRequest) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *QueryUnifiedTracesRequest) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+func (x *QueryUnifiedTracesRequest) GetMinDurationMs() int32 {
+	if x != nil {
+		return x.MinDurationMs
+	}
+	return 0
+}
+
+func (x *QueryUnifiedTracesRequest) GetMaxTraces() int32 {
+	if x != nil {
+		return x.MaxTraces
+	}
+	return 0
+}
+
+type QueryUnifiedTracesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Trace results as formatted text.
+	Result        string `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryUnifiedTracesResponse) Reset() {
+	*x = QueryUnifiedTracesResponse{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryUnifiedTracesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryUnifiedTracesResponse) ProtoMessage() {}
+
+func (x *QueryUnifiedTracesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryUnifiedTracesResponse.ProtoReflect.Descriptor instead.
+func (*QueryUnifiedTracesResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *QueryUnifiedTracesResponse) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+type QueryUnifiedMetricsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional: filter by service.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// Time range (default: "1h").
+	TimeRange string `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	// Optional: ebpf|telemetry|all (default: all).
+	Source string `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	// Optional: http|grpc|sql|auto (default: auto).
+	Protocol string `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// Optional: HTTP route filter.
+	HttpRoute string `protobuf:"bytes,5,opt,name=http_route,json=httpRoute,proto3" json:"http_route,omitempty"`
+	// Optional: HTTP method filter.
+	HttpMethod string `protobuf:"bytes,6,opt,name=http_method,json=httpMethod,proto3" json:"http_method,omitempty"`
+	// Optional: HTTP status code range filter.
+	StatusCodeRange string `protobuf:"bytes,7,opt,name=status_code_range,json=statusCodeRange,proto3" json:"status_code_range,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *QueryUnifiedMetricsRequest) Reset() {
+	*x = QueryUnifiedMetricsRequest{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryUnifiedMetricsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryUnifiedMetricsRequest) ProtoMessage() {}
+
+func (x *QueryUnifiedMetricsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryUnifiedMetricsRequest.ProtoReflect.Descriptor instead.
+func (*QueryUnifiedMetricsRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *QueryUnifiedMetricsRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *QueryUnifiedMetricsRequest) GetTimeRange() string {
+	if x != nil {
+		return x.TimeRange
+	}
+	return ""
+}
+
+func (x *QueryUnifiedMetricsRequest) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *QueryUnifiedMetricsRequest) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *QueryUnifiedMetricsRequest) GetHttpRoute() string {
+	if x != nil {
+		return x.HttpRoute
+	}
+	return ""
+}
+
+func (x *QueryUnifiedMetricsRequest) GetHttpMethod() string {
+	if x != nil {
+		return x.HttpMethod
+	}
+	return ""
+}
+
+func (x *QueryUnifiedMetricsRequest) GetStatusCodeRange() string {
+	if x != nil {
+		return x.StatusCodeRange
+	}
+	return ""
+}
+
+type QueryUnifiedMetricsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Metrics results as formatted text.
+	Result        string `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryUnifiedMetricsResponse) Reset() {
+	*x = QueryUnifiedMetricsResponse{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryUnifiedMetricsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryUnifiedMetricsResponse) ProtoMessage() {}
+
+func (x *QueryUnifiedMetricsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryUnifiedMetricsResponse.ProtoReflect.Descriptor instead.
+func (*QueryUnifiedMetricsResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *QueryUnifiedMetricsResponse) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+type QueryUnifiedLogsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional: filter by service.
+	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// Time range (default: "1h").
+	TimeRange string `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	// Optional: debug|info|warn|error.
+	Level string `protobuf:"bytes,3,opt,name=level,proto3" json:"level,omitempty"`
+	// Optional: full-text search.
+	Search string `protobuf:"bytes,4,opt,name=search,proto3" json:"search,omitempty"`
+	// Maximum logs to return.
+	MaxLogs       int32 `protobuf:"varint,5,opt,name=max_logs,json=maxLogs,proto3" json:"max_logs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryUnifiedLogsRequest) Reset() {
+	*x = QueryUnifiedLogsRequest{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryUnifiedLogsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryUnifiedLogsRequest) ProtoMessage() {}
+
+func (x *QueryUnifiedLogsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryUnifiedLogsRequest.ProtoReflect.Descriptor instead.
+func (*QueryUnifiedLogsRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *QueryUnifiedLogsRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *QueryUnifiedLogsRequest) GetTimeRange() string {
+	if x != nil {
+		return x.TimeRange
+	}
+	return ""
+}
+
+func (x *QueryUnifiedLogsRequest) GetLevel() string {
+	if x != nil {
+		return x.Level
+	}
+	return ""
+}
+
+func (x *QueryUnifiedLogsRequest) GetSearch() string {
+	if x != nil {
+		return x.Search
+	}
+	return ""
+}
+
+func (x *QueryUnifiedLogsRequest) GetMaxLogs() int32 {
+	if x != nil {
+		return x.MaxLogs
+	}
+	return 0
+}
+
+type QueryUnifiedLogsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Log results as formatted text.
+	Result        string `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryUnifiedLogsResponse) Reset() {
+	*x = QueryUnifiedLogsResponse{}
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryUnifiedLogsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryUnifiedLogsResponse) ProtoMessage() {}
+
+func (x *QueryUnifiedLogsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_colony_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryUnifiedLogsResponse.ProtoReflect.Descriptor instead.
+func (*QueryUnifiedLogsResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_colony_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *QueryUnifiedLogsResponse) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
 var File_coral_colony_v1_colony_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_colony_proto_rawDesc = "" +
@@ -1192,14 +1696,58 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"5\n" +
 	"\x19RevokeCertificateResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\xb9\a\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"U\n" +
+	"\x1aQueryUnifiedSummaryRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1d\n" +
+	"\n" +
+	"time_range\x18\x02 \x01(\tR\ttimeRange\"5\n" +
+	"\x1bQueryUnifiedSummaryResponse\x12\x16\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result\"\xce\x01\n" +
+	"\x19QueryUnifiedTracesRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1d\n" +
+	"\n" +
+	"time_range\x18\x02 \x01(\tR\ttimeRange\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12\x19\n" +
+	"\btrace_id\x18\x04 \x01(\tR\atraceId\x12&\n" +
+	"\x0fmin_duration_ms\x18\x05 \x01(\x05R\rminDurationMs\x12\x1d\n" +
+	"\n" +
+	"max_traces\x18\x06 \x01(\x05R\tmaxTraces\"4\n" +
+	"\x1aQueryUnifiedTracesResponse\x12\x16\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result\"\xf5\x01\n" +
+	"\x1aQueryUnifiedMetricsRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1d\n" +
+	"\n" +
+	"time_range\x18\x02 \x01(\tR\ttimeRange\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12\x1a\n" +
+	"\bprotocol\x18\x04 \x01(\tR\bprotocol\x12\x1d\n" +
+	"\n" +
+	"http_route\x18\x05 \x01(\tR\thttpRoute\x12\x1f\n" +
+	"\vhttp_method\x18\x06 \x01(\tR\n" +
+	"httpMethod\x12*\n" +
+	"\x11status_code_range\x18\a \x01(\tR\x0fstatusCodeRange\"5\n" +
+	"\x1bQueryUnifiedMetricsResponse\x12\x16\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result\"\x9b\x01\n" +
+	"\x17QueryUnifiedLogsRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1d\n" +
+	"\n" +
+	"time_range\x18\x02 \x01(\tR\ttimeRange\x12\x14\n" +
+	"\x05level\x18\x03 \x01(\tR\x05level\x12\x16\n" +
+	"\x06search\x18\x04 \x01(\tR\x06search\x12\x19\n" +
+	"\bmax_logs\x18\x05 \x01(\x05R\amaxLogs\"2\n" +
+	"\x18QueryUnifiedLogsResponse\x12\x16\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result2\xf5\n" +
+	"\n" +
 	"\rColonyService\x12R\n" +
 	"\tGetStatus\x12!.coral.colony.v1.GetStatusRequest\x1a\".coral.colony.v1.GetStatusResponse\x12U\n" +
 	"\n" +
 	"ListAgents\x12\".coral.colony.v1.ListAgentsRequest\x1a#.coral.colony.v1.ListAgentsResponse\x12X\n" +
 	"\vGetTopology\x12#.coral.colony.v1.GetTopologyRequest\x1a$.coral.colony.v1.GetTopologyResponse\x12a\n" +
 	"\x0eQueryTelemetry\x12&.coral.colony.v1.QueryTelemetryRequest\x1a'.coral.colony.v1.QueryTelemetryResponse\x12e\n" +
-	"\x10QueryEbpfMetrics\x12'.coral.agent.v1.QueryEbpfMetricsRequest\x1a(.coral.agent.v1.QueryEbpfMetricsResponse\x12O\n" +
+	"\x10QueryEbpfMetrics\x12'.coral.agent.v1.QueryEbpfMetricsRequest\x1a(.coral.agent.v1.QueryEbpfMetricsResponse\x12p\n" +
+	"\x13QueryUnifiedSummary\x12+.coral.colony.v1.QueryUnifiedSummaryRequest\x1a,.coral.colony.v1.QueryUnifiedSummaryResponse\x12m\n" +
+	"\x12QueryUnifiedTraces\x12*.coral.colony.v1.QueryUnifiedTracesRequest\x1a+.coral.colony.v1.QueryUnifiedTracesResponse\x12p\n" +
+	"\x13QueryUnifiedMetrics\x12+.coral.colony.v1.QueryUnifiedMetricsRequest\x1a,.coral.colony.v1.QueryUnifiedMetricsResponse\x12g\n" +
+	"\x10QueryUnifiedLogs\x12(.coral.colony.v1.QueryUnifiedLogsRequest\x1a).coral.colony.v1.QueryUnifiedLogsResponse\x12O\n" +
 	"\bCallTool\x12 .coral.colony.v1.CallToolRequest\x1a!.coral.colony.v1.CallToolResponse\x12Y\n" +
 	"\n" +
 	"StreamTool\x12\".coral.colony.v1.StreamToolRequest\x1a#.coral.colony.v1.StreamToolResponse(\x010\x01\x12R\n" +
@@ -1220,7 +1768,7 @@ func file_coral_colony_v1_colony_proto_rawDescGZIP() []byte {
 	return file_coral_colony_v1_colony_proto_rawDescData
 }
 
-var file_coral_colony_v1_colony_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_coral_colony_v1_colony_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_coral_colony_v1_colony_proto_goTypes = []any{
 	(*GetStatusRequest)(nil),             // 0: coral.colony.v1.GetStatusRequest
 	(*GetStatusResponse)(nil),            // 1: coral.colony.v1.GetStatusResponse
@@ -1237,51 +1785,67 @@ var file_coral_colony_v1_colony_proto_goTypes = []any{
 	(*RequestCertificateResponse)(nil),   // 12: coral.colony.v1.RequestCertificateResponse
 	(*RevokeCertificateRequest)(nil),     // 13: coral.colony.v1.RevokeCertificateRequest
 	(*RevokeCertificateResponse)(nil),    // 14: coral.colony.v1.RevokeCertificateResponse
-	nil,                                  // 15: coral.colony.v1.TelemetrySpan.AttributesEntry
-	(*timestamppb.Timestamp)(nil),        // 16: google.protobuf.Timestamp
-	(*v1.ServiceInfo)(nil),               // 17: coral.mesh.v1.ServiceInfo
-	(*v11.RuntimeContextResponse)(nil),   // 18: coral.agent.v1.RuntimeContextResponse
-	(*v11.QueryEbpfMetricsRequest)(nil),  // 19: coral.agent.v1.QueryEbpfMetricsRequest
-	(*CallToolRequest)(nil),              // 20: coral.colony.v1.CallToolRequest
-	(*StreamToolRequest)(nil),            // 21: coral.colony.v1.StreamToolRequest
-	(*ListToolsRequest)(nil),             // 22: coral.colony.v1.ListToolsRequest
-	(*v11.QueryEbpfMetricsResponse)(nil), // 23: coral.agent.v1.QueryEbpfMetricsResponse
-	(*CallToolResponse)(nil),             // 24: coral.colony.v1.CallToolResponse
-	(*StreamToolResponse)(nil),           // 25: coral.colony.v1.StreamToolResponse
-	(*ListToolsResponse)(nil),            // 26: coral.colony.v1.ListToolsResponse
+	(*QueryUnifiedSummaryRequest)(nil),   // 15: coral.colony.v1.QueryUnifiedSummaryRequest
+	(*QueryUnifiedSummaryResponse)(nil),  // 16: coral.colony.v1.QueryUnifiedSummaryResponse
+	(*QueryUnifiedTracesRequest)(nil),    // 17: coral.colony.v1.QueryUnifiedTracesRequest
+	(*QueryUnifiedTracesResponse)(nil),   // 18: coral.colony.v1.QueryUnifiedTracesResponse
+	(*QueryUnifiedMetricsRequest)(nil),   // 19: coral.colony.v1.QueryUnifiedMetricsRequest
+	(*QueryUnifiedMetricsResponse)(nil),  // 20: coral.colony.v1.QueryUnifiedMetricsResponse
+	(*QueryUnifiedLogsRequest)(nil),      // 21: coral.colony.v1.QueryUnifiedLogsRequest
+	(*QueryUnifiedLogsResponse)(nil),     // 22: coral.colony.v1.QueryUnifiedLogsResponse
+	nil,                                  // 23: coral.colony.v1.TelemetrySpan.AttributesEntry
+	(*timestamppb.Timestamp)(nil),        // 24: google.protobuf.Timestamp
+	(*v1.ServiceInfo)(nil),               // 25: coral.mesh.v1.ServiceInfo
+	(*v11.RuntimeContextResponse)(nil),   // 26: coral.agent.v1.RuntimeContextResponse
+	(*v11.QueryEbpfMetricsRequest)(nil),  // 27: coral.agent.v1.QueryEbpfMetricsRequest
+	(*CallToolRequest)(nil),              // 28: coral.colony.v1.CallToolRequest
+	(*StreamToolRequest)(nil),            // 29: coral.colony.v1.StreamToolRequest
+	(*ListToolsRequest)(nil),             // 30: coral.colony.v1.ListToolsRequest
+	(*v11.QueryEbpfMetricsResponse)(nil), // 31: coral.agent.v1.QueryEbpfMetricsResponse
+	(*CallToolResponse)(nil),             // 32: coral.colony.v1.CallToolResponse
+	(*StreamToolResponse)(nil),           // 33: coral.colony.v1.StreamToolResponse
+	(*ListToolsResponse)(nil),            // 34: coral.colony.v1.ListToolsResponse
 }
 var file_coral_colony_v1_colony_proto_depIdxs = []int32{
-	16, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
+	24, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
 	4,  // 1: coral.colony.v1.ListAgentsResponse.agents:type_name -> coral.colony.v1.Agent
-	16, // 2: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
-	17, // 3: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo
-	18, // 4: coral.colony.v1.Agent.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
+	24, // 2: coral.colony.v1.Agent.last_seen:type_name -> google.protobuf.Timestamp
+	25, // 3: coral.colony.v1.Agent.services:type_name -> coral.mesh.v1.ServiceInfo
+	26, // 4: coral.colony.v1.Agent.runtime_context:type_name -> coral.agent.v1.RuntimeContextResponse
 	4,  // 5: coral.colony.v1.GetTopologyResponse.agents:type_name -> coral.colony.v1.Agent
 	7,  // 6: coral.colony.v1.GetTopologyResponse.connections:type_name -> coral.colony.v1.Connection
-	15, // 7: coral.colony.v1.TelemetrySpan.attributes:type_name -> coral.colony.v1.TelemetrySpan.AttributesEntry
+	23, // 7: coral.colony.v1.TelemetrySpan.attributes:type_name -> coral.colony.v1.TelemetrySpan.AttributesEntry
 	8,  // 8: coral.colony.v1.QueryTelemetryResponse.spans:type_name -> coral.colony.v1.TelemetrySpan
 	0,  // 9: coral.colony.v1.ColonyService.GetStatus:input_type -> coral.colony.v1.GetStatusRequest
 	2,  // 10: coral.colony.v1.ColonyService.ListAgents:input_type -> coral.colony.v1.ListAgentsRequest
 	5,  // 11: coral.colony.v1.ColonyService.GetTopology:input_type -> coral.colony.v1.GetTopologyRequest
 	9,  // 12: coral.colony.v1.ColonyService.QueryTelemetry:input_type -> coral.colony.v1.QueryTelemetryRequest
-	19, // 13: coral.colony.v1.ColonyService.QueryEbpfMetrics:input_type -> coral.agent.v1.QueryEbpfMetricsRequest
-	20, // 14: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
-	21, // 15: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
-	22, // 16: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
-	11, // 17: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
-	13, // 18: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
-	1,  // 19: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
-	3,  // 20: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
-	6,  // 21: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
-	10, // 22: coral.colony.v1.ColonyService.QueryTelemetry:output_type -> coral.colony.v1.QueryTelemetryResponse
-	23, // 23: coral.colony.v1.ColonyService.QueryEbpfMetrics:output_type -> coral.agent.v1.QueryEbpfMetricsResponse
-	24, // 24: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
-	25, // 25: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
-	26, // 26: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
-	12, // 27: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
-	14, // 28: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
-	19, // [19:29] is the sub-list for method output_type
-	9,  // [9:19] is the sub-list for method input_type
+	27, // 13: coral.colony.v1.ColonyService.QueryEbpfMetrics:input_type -> coral.agent.v1.QueryEbpfMetricsRequest
+	15, // 14: coral.colony.v1.ColonyService.QueryUnifiedSummary:input_type -> coral.colony.v1.QueryUnifiedSummaryRequest
+	17, // 15: coral.colony.v1.ColonyService.QueryUnifiedTraces:input_type -> coral.colony.v1.QueryUnifiedTracesRequest
+	19, // 16: coral.colony.v1.ColonyService.QueryUnifiedMetrics:input_type -> coral.colony.v1.QueryUnifiedMetricsRequest
+	21, // 17: coral.colony.v1.ColonyService.QueryUnifiedLogs:input_type -> coral.colony.v1.QueryUnifiedLogsRequest
+	28, // 18: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
+	29, // 19: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
+	30, // 20: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
+	11, // 21: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
+	13, // 22: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
+	1,  // 23: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
+	3,  // 24: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
+	6,  // 25: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
+	10, // 26: coral.colony.v1.ColonyService.QueryTelemetry:output_type -> coral.colony.v1.QueryTelemetryResponse
+	31, // 27: coral.colony.v1.ColonyService.QueryEbpfMetrics:output_type -> coral.agent.v1.QueryEbpfMetricsResponse
+	16, // 28: coral.colony.v1.ColonyService.QueryUnifiedSummary:output_type -> coral.colony.v1.QueryUnifiedSummaryResponse
+	18, // 29: coral.colony.v1.ColonyService.QueryUnifiedTraces:output_type -> coral.colony.v1.QueryUnifiedTracesResponse
+	20, // 30: coral.colony.v1.ColonyService.QueryUnifiedMetrics:output_type -> coral.colony.v1.QueryUnifiedMetricsResponse
+	22, // 31: coral.colony.v1.ColonyService.QueryUnifiedLogs:output_type -> coral.colony.v1.QueryUnifiedLogsResponse
+	32, // 32: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
+	33, // 33: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
+	34, // 34: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
+	12, // 35: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
+	14, // 36: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
+	23, // [23:37] is the sub-list for method output_type
+	9,  // [9:23] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -1299,7 +1863,7 @@ func file_coral_colony_v1_colony_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_colony_v1_colony_proto_rawDesc), len(file_coral_colony_v1_colony_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

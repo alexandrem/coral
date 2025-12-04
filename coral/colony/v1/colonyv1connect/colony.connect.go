@@ -49,6 +49,18 @@ const (
 	// ColonyServiceQueryEbpfMetricsProcedure is the fully-qualified name of the ColonyService's
 	// QueryEbpfMetrics RPC.
 	ColonyServiceQueryEbpfMetricsProcedure = "/coral.colony.v1.ColonyService/QueryEbpfMetrics"
+	// ColonyServiceQueryUnifiedSummaryProcedure is the fully-qualified name of the ColonyService's
+	// QueryUnifiedSummary RPC.
+	ColonyServiceQueryUnifiedSummaryProcedure = "/coral.colony.v1.ColonyService/QueryUnifiedSummary"
+	// ColonyServiceQueryUnifiedTracesProcedure is the fully-qualified name of the ColonyService's
+	// QueryUnifiedTraces RPC.
+	ColonyServiceQueryUnifiedTracesProcedure = "/coral.colony.v1.ColonyService/QueryUnifiedTraces"
+	// ColonyServiceQueryUnifiedMetricsProcedure is the fully-qualified name of the ColonyService's
+	// QueryUnifiedMetrics RPC.
+	ColonyServiceQueryUnifiedMetricsProcedure = "/coral.colony.v1.ColonyService/QueryUnifiedMetrics"
+	// ColonyServiceQueryUnifiedLogsProcedure is the fully-qualified name of the ColonyService's
+	// QueryUnifiedLogs RPC.
+	ColonyServiceQueryUnifiedLogsProcedure = "/coral.colony.v1.ColonyService/QueryUnifiedLogs"
 	// ColonyServiceCallToolProcedure is the fully-qualified name of the ColonyService's CallTool RPC.
 	ColonyServiceCallToolProcedure = "/coral.colony.v1.ColonyService/CallTool"
 	// ColonyServiceStreamToolProcedure is the fully-qualified name of the ColonyService's StreamTool
@@ -76,6 +88,11 @@ type ColonyServiceClient interface {
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 	// Query aggregated eBPF metrics from colony storage (RFD 035).
 	QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error)
+	// Unified query interface (RFD 067).
+	QueryUnifiedSummary(context.Context, *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error)
+	QueryUnifiedTraces(context.Context, *connect.Request[v1.QueryUnifiedTracesRequest]) (*connect.Response[v1.QueryUnifiedTracesResponse], error)
+	QueryUnifiedMetrics(context.Context, *connect.Request[v1.QueryUnifiedMetricsRequest]) (*connect.Response[v1.QueryUnifiedMetricsResponse], error)
+	QueryUnifiedLogs(context.Context, *connect.Request[v1.QueryUnifiedLogsRequest]) (*connect.Response[v1.QueryUnifiedLogsResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -129,6 +146,30 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("QueryEbpfMetrics")),
 			connect.WithClientOptions(opts...),
 		),
+		queryUnifiedSummary: connect.NewClient[v1.QueryUnifiedSummaryRequest, v1.QueryUnifiedSummaryResponse](
+			httpClient,
+			baseURL+ColonyServiceQueryUnifiedSummaryProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedSummary")),
+			connect.WithClientOptions(opts...),
+		),
+		queryUnifiedTraces: connect.NewClient[v1.QueryUnifiedTracesRequest, v1.QueryUnifiedTracesResponse](
+			httpClient,
+			baseURL+ColonyServiceQueryUnifiedTracesProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedTraces")),
+			connect.WithClientOptions(opts...),
+		),
+		queryUnifiedMetrics: connect.NewClient[v1.QueryUnifiedMetricsRequest, v1.QueryUnifiedMetricsResponse](
+			httpClient,
+			baseURL+ColonyServiceQueryUnifiedMetricsProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedMetrics")),
+			connect.WithClientOptions(opts...),
+		),
+		queryUnifiedLogs: connect.NewClient[v1.QueryUnifiedLogsRequest, v1.QueryUnifiedLogsResponse](
+			httpClient,
+			baseURL+ColonyServiceQueryUnifiedLogsProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedLogs")),
+			connect.WithClientOptions(opts...),
+		),
 		callTool: connect.NewClient[v1.CallToolRequest, v1.CallToolResponse](
 			httpClient,
 			baseURL+ColonyServiceCallToolProcedure,
@@ -164,16 +205,20 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // colonyServiceClient implements ColonyServiceClient.
 type colonyServiceClient struct {
-	getStatus          *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
-	listAgents         *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	getTopology        *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
-	queryTelemetry     *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
-	queryEbpfMetrics   *connect.Client[v11.QueryEbpfMetricsRequest, v11.QueryEbpfMetricsResponse]
-	callTool           *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
-	streamTool         *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
-	listTools          *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
-	requestCertificate *connect.Client[v1.RequestCertificateRequest, v1.RequestCertificateResponse]
-	revokeCertificate  *connect.Client[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse]
+	getStatus           *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
+	listAgents          *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	getTopology         *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
+	queryTelemetry      *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
+	queryEbpfMetrics    *connect.Client[v11.QueryEbpfMetricsRequest, v11.QueryEbpfMetricsResponse]
+	queryUnifiedSummary *connect.Client[v1.QueryUnifiedSummaryRequest, v1.QueryUnifiedSummaryResponse]
+	queryUnifiedTraces  *connect.Client[v1.QueryUnifiedTracesRequest, v1.QueryUnifiedTracesResponse]
+	queryUnifiedMetrics *connect.Client[v1.QueryUnifiedMetricsRequest, v1.QueryUnifiedMetricsResponse]
+	queryUnifiedLogs    *connect.Client[v1.QueryUnifiedLogsRequest, v1.QueryUnifiedLogsResponse]
+	callTool            *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
+	streamTool          *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
+	listTools           *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
+	requestCertificate  *connect.Client[v1.RequestCertificateRequest, v1.RequestCertificateResponse]
+	revokeCertificate   *connect.Client[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -199,6 +244,26 @@ func (c *colonyServiceClient) QueryTelemetry(ctx context.Context, req *connect.R
 // QueryEbpfMetrics calls coral.colony.v1.ColonyService.QueryEbpfMetrics.
 func (c *colonyServiceClient) QueryEbpfMetrics(ctx context.Context, req *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error) {
 	return c.queryEbpfMetrics.CallUnary(ctx, req)
+}
+
+// QueryUnifiedSummary calls coral.colony.v1.ColonyService.QueryUnifiedSummary.
+func (c *colonyServiceClient) QueryUnifiedSummary(ctx context.Context, req *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error) {
+	return c.queryUnifiedSummary.CallUnary(ctx, req)
+}
+
+// QueryUnifiedTraces calls coral.colony.v1.ColonyService.QueryUnifiedTraces.
+func (c *colonyServiceClient) QueryUnifiedTraces(ctx context.Context, req *connect.Request[v1.QueryUnifiedTracesRequest]) (*connect.Response[v1.QueryUnifiedTracesResponse], error) {
+	return c.queryUnifiedTraces.CallUnary(ctx, req)
+}
+
+// QueryUnifiedMetrics calls coral.colony.v1.ColonyService.QueryUnifiedMetrics.
+func (c *colonyServiceClient) QueryUnifiedMetrics(ctx context.Context, req *connect.Request[v1.QueryUnifiedMetricsRequest]) (*connect.Response[v1.QueryUnifiedMetricsResponse], error) {
+	return c.queryUnifiedMetrics.CallUnary(ctx, req)
+}
+
+// QueryUnifiedLogs calls coral.colony.v1.ColonyService.QueryUnifiedLogs.
+func (c *colonyServiceClient) QueryUnifiedLogs(ctx context.Context, req *connect.Request[v1.QueryUnifiedLogsRequest]) (*connect.Response[v1.QueryUnifiedLogsResponse], error) {
+	return c.queryUnifiedLogs.CallUnary(ctx, req)
 }
 
 // CallTool calls coral.colony.v1.ColonyService.CallTool.
@@ -238,6 +303,11 @@ type ColonyServiceHandler interface {
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 	// Query aggregated eBPF metrics from colony storage (RFD 035).
 	QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error)
+	// Unified query interface (RFD 067).
+	QueryUnifiedSummary(context.Context, *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error)
+	QueryUnifiedTraces(context.Context, *connect.Request[v1.QueryUnifiedTracesRequest]) (*connect.Response[v1.QueryUnifiedTracesResponse], error)
+	QueryUnifiedMetrics(context.Context, *connect.Request[v1.QueryUnifiedMetricsRequest]) (*connect.Response[v1.QueryUnifiedMetricsResponse], error)
+	QueryUnifiedLogs(context.Context, *connect.Request[v1.QueryUnifiedLogsRequest]) (*connect.Response[v1.QueryUnifiedLogsResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -287,6 +357,30 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("QueryEbpfMetrics")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceQueryUnifiedSummaryHandler := connect.NewUnaryHandler(
+		ColonyServiceQueryUnifiedSummaryProcedure,
+		svc.QueryUnifiedSummary,
+		connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedSummary")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceQueryUnifiedTracesHandler := connect.NewUnaryHandler(
+		ColonyServiceQueryUnifiedTracesProcedure,
+		svc.QueryUnifiedTraces,
+		connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedTraces")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceQueryUnifiedMetricsHandler := connect.NewUnaryHandler(
+		ColonyServiceQueryUnifiedMetricsProcedure,
+		svc.QueryUnifiedMetrics,
+		connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedMetrics")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceQueryUnifiedLogsHandler := connect.NewUnaryHandler(
+		ColonyServiceQueryUnifiedLogsProcedure,
+		svc.QueryUnifiedLogs,
+		connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedLogs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	colonyServiceCallToolHandler := connect.NewUnaryHandler(
 		ColonyServiceCallToolProcedure,
 		svc.CallTool,
@@ -329,6 +423,14 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceQueryTelemetryHandler.ServeHTTP(w, r)
 		case ColonyServiceQueryEbpfMetricsProcedure:
 			colonyServiceQueryEbpfMetricsHandler.ServeHTTP(w, r)
+		case ColonyServiceQueryUnifiedSummaryProcedure:
+			colonyServiceQueryUnifiedSummaryHandler.ServeHTTP(w, r)
+		case ColonyServiceQueryUnifiedTracesProcedure:
+			colonyServiceQueryUnifiedTracesHandler.ServeHTTP(w, r)
+		case ColonyServiceQueryUnifiedMetricsProcedure:
+			colonyServiceQueryUnifiedMetricsHandler.ServeHTTP(w, r)
+		case ColonyServiceQueryUnifiedLogsProcedure:
+			colonyServiceQueryUnifiedLogsHandler.ServeHTTP(w, r)
 		case ColonyServiceCallToolProcedure:
 			colonyServiceCallToolHandler.ServeHTTP(w, r)
 		case ColonyServiceStreamToolProcedure:
@@ -366,6 +468,22 @@ func (UnimplementedColonyServiceHandler) QueryTelemetry(context.Context, *connec
 
 func (UnimplementedColonyServiceHandler) QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryEbpfMetrics is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) QueryUnifiedSummary(context.Context, *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryUnifiedSummary is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) QueryUnifiedTraces(context.Context, *connect.Request[v1.QueryUnifiedTracesRequest]) (*connect.Response[v1.QueryUnifiedTracesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryUnifiedTraces is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) QueryUnifiedMetrics(context.Context, *connect.Request[v1.QueryUnifiedMetricsRequest]) (*connect.Response[v1.QueryUnifiedMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryUnifiedMetrics is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) QueryUnifiedLogs(context.Context, *connect.Request[v1.QueryUnifiedLogsRequest]) (*connect.Response[v1.QueryUnifiedLogsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryUnifiedLogs is not implemented"))
 }
 
 func (UnimplementedColonyServiceHandler) CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {

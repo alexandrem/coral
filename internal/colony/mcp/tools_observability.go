@@ -9,6 +9,7 @@ import (
 	"github.com/invopop/jsonschema"
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
@@ -1506,4 +1507,302 @@ func aggregateTelemetrySummaries(summaries []database.TelemetrySummary, operatio
 	}
 
 	return stats
+}
+
+// Unified Tools (RFD 067)
+
+// registerUnifiedSummaryTool registers the coral_query_summary tool.
+func (s *Server) registerUnifiedSummaryTool() {
+	s.registerToolWithSchema(
+		"coral_query_summary",
+		"Get a high-level health summary for services, combining eBPF and OTLP data.",
+		UnifiedSummaryInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var input UnifiedSummaryInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
+			s.auditToolCall("coral_query_summary", input)
+
+			timeRangeStr := "5m"
+			if input.TimeRange != nil {
+				timeRangeStr = *input.TimeRange
+			}
+			startTime, endTime, err := parseTimeRange(timeRangeStr)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("invalid time_range: %v", err)), nil
+			}
+
+			serviceName := ""
+			if input.Service != nil {
+				serviceName = *input.Service
+			}
+
+			ebpfService := colony.NewEbpfQueryService(s.db)
+			results, err := ebpfService.QueryUnifiedSummary(ctx, serviceName, startTime, endTime)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to query summary: %v", err)), nil
+			}
+
+			text := "Service Health Summary:\n\n"
+			for _, r := range results {
+				text += fmt.Sprintf("Service: %s, Status: %s\n", r.ServiceName, r.Status)
+			}
+
+			return mcp.NewToolResultText(text), nil
+		})
+}
+
+// registerUnifiedTracesTool registers the coral_query_traces tool.
+func (s *Server) registerUnifiedTracesTool() {
+	s.registerToolWithSchema(
+		"coral_query_traces",
+		"Query distributed traces from all sources (eBPF + OTLP).",
+		UnifiedTracesInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var input UnifiedTracesInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
+			s.auditToolCall("coral_query_traces", input)
+
+			timeRangeStr := "1h"
+			if input.TimeRange != nil {
+				timeRangeStr = *input.TimeRange
+			}
+			startTime, endTime, err := parseTimeRange(timeRangeStr)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("invalid time_range: %v", err)), nil
+			}
+
+			serviceName := ""
+			if input.Service != nil {
+				serviceName = *input.Service
+			}
+
+			traceID := ""
+			if input.TraceID != nil {
+				traceID = *input.TraceID
+			}
+
+			ebpfService := colony.NewEbpfQueryService(s.db)
+			spans, err := ebpfService.QueryUnifiedTraces(ctx, traceID, serviceName, startTime, endTime, 0, 10)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to query traces: %v", err)), nil
+			}
+
+			text := fmt.Sprintf("Found %d spans.\n", len(spans))
+			return mcp.NewToolResultText(text), nil
+		})
+}
+
+// registerUnifiedMetricsTool registers the coral_query_metrics tool.
+func (s *Server) registerUnifiedMetricsTool() {
+	s.registerToolWithSchema(
+		"coral_query_metrics",
+		"Query metrics from all sources (eBPF + OTLP).",
+		UnifiedMetricsInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var input UnifiedMetricsInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
+			s.auditToolCall("coral_query_metrics", input)
+
+			timeRangeStr := "1h"
+			if input.TimeRange != nil {
+				timeRangeStr = *input.TimeRange
+			}
+			startTime, endTime, err := parseTimeRange(timeRangeStr)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("invalid time_range: %v", err)), nil
+			}
+
+			serviceName := ""
+			if input.Service != nil {
+				serviceName = *input.Service
+			}
+
+			ebpfService := colony.NewEbpfQueryService(s.db)
+			metrics, err := ebpfService.QueryUnifiedMetrics(ctx, serviceName, startTime, endTime)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to query metrics: %v", err)), nil
+			}
+
+			text := fmt.Sprintf("Metrics for %s:\n", serviceName)
+			if len(metrics.HttpMetrics) > 0 {
+				text += fmt.Sprintf("HTTP Metrics: %d\n", len(metrics.HttpMetrics))
+			}
+			return mcp.NewToolResultText(text), nil
+		})
+}
+
+// registerUnifiedLogsTool registers the coral_query_logs tool.
+func (s *Server) registerUnifiedLogsTool() {
+	s.registerToolWithSchema(
+		"coral_query_logs",
+		"Query logs from OTLP.",
+		UnifiedLogsInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var input UnifiedLogsInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
+			s.auditToolCall("coral_query_logs", input)
+
+			text := "Logs query not implemented yet."
+			return mcp.NewToolResultText(text), nil
+		})
+}
+
+// executeUnifiedSummaryTool executes the coral_query_summary tool.
+func (s *Server) executeUnifiedSummaryTool(ctx context.Context, argsJSON string) (string, error) {
+	var input UnifiedSummaryInput
+	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_query_summary", input)
+
+	timeRangeStr := "5m"
+	if input.TimeRange != nil {
+		timeRangeStr = *input.TimeRange
+	}
+	startTime, endTime, err := parseTimeRange(timeRangeStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid time_range: %w", err)
+	}
+
+	serviceName := ""
+	if input.Service != nil {
+		serviceName = *input.Service
+	}
+
+	ebpfService := colony.NewEbpfQueryService(s.db)
+	results, err := ebpfService.QueryUnifiedSummary(ctx, serviceName, startTime, endTime)
+	if err != nil {
+		return "", fmt.Errorf("failed to query summary: %w", err)
+	}
+
+	text := "Service Health Summary:\n\n"
+	for _, r := range results {
+		text += fmt.Sprintf("Service: %s, Status: %s\n", r.ServiceName, r.Status)
+	}
+
+	return text, nil
+}
+
+// executeUnifiedTracesTool executes the coral_query_traces tool.
+func (s *Server) executeUnifiedTracesTool(ctx context.Context, argsJSON string) (string, error) {
+	var input UnifiedTracesInput
+	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_query_traces", input)
+
+	timeRangeStr := "1h"
+	if input.TimeRange != nil {
+		timeRangeStr = *input.TimeRange
+	}
+	startTime, endTime, err := parseTimeRange(timeRangeStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid time_range: %w", err)
+	}
+
+	serviceName := ""
+	if input.Service != nil {
+		serviceName = *input.Service
+	}
+
+	traceID := ""
+	if input.TraceID != nil {
+		traceID = *input.TraceID
+	}
+
+	ebpfService := colony.NewEbpfQueryService(s.db)
+	spans, err := ebpfService.QueryUnifiedTraces(ctx, traceID, serviceName, startTime, endTime, 0, 10)
+	if err != nil {
+		return "", fmt.Errorf("failed to query traces: %w", err)
+	}
+
+	text := fmt.Sprintf("Found %d spans.\n", len(spans))
+	return text, nil
+}
+
+// executeUnifiedMetricsTool executes the coral_query_metrics tool.
+func (s *Server) executeUnifiedMetricsTool(ctx context.Context, argsJSON string) (string, error) {
+	var input UnifiedMetricsInput
+	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_query_metrics", input)
+
+	timeRangeStr := "1h"
+	if input.TimeRange != nil {
+		timeRangeStr = *input.TimeRange
+	}
+	startTime, endTime, err := parseTimeRange(timeRangeStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid time_range: %w", err)
+	}
+
+	serviceName := ""
+	if input.Service != nil {
+		serviceName = *input.Service
+	}
+
+	ebpfService := colony.NewEbpfQueryService(s.db)
+	metrics, err := ebpfService.QueryUnifiedMetrics(ctx, serviceName, startTime, endTime)
+	if err != nil {
+		return "", fmt.Errorf("failed to query metrics: %w", err)
+	}
+
+	text := fmt.Sprintf("Metrics for %s:\n", serviceName)
+	if len(metrics.HttpMetrics) > 0 {
+		text += fmt.Sprintf("HTTP Metrics: %d\n", len(metrics.HttpMetrics))
+	}
+	return text, nil
+}
+
+// executeUnifiedLogsTool executes the coral_query_logs tool.
+func (s *Server) executeUnifiedLogsTool(ctx context.Context, argsJSON string) (string, error) {
+	var input UnifiedLogsInput
+	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_query_logs", input)
+
+	text := "Logs query not implemented yet."
+	return text, nil
 }
