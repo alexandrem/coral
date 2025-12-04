@@ -83,28 +83,6 @@ type TelemetryLogsInput struct {
 	TimeRange *string `json:"time_range,omitempty" jsonschema:"description=Time range,default=1h"`
 }
 
-// Phase 3: Live Debugging Tool Inputs
-
-// StartEBPFCollectorInput is the input for coral_start_ebpf_collector.
-type StartEBPFCollectorInput struct {
-	CollectorType   string  `json:"collector_type" jsonschema:"description=Type of eBPF collector to start,enum=cpu_profile,enum=syscall_stats,enum=http_latency,enum=tcp_metrics"`
-	Service         string  `json:"service" jsonschema:"description=Target service name (use agent_id for disambiguation)"`
-	AgentID         *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (overrides service lookup, recommended for unambiguous targeting)"`
-	DurationSeconds *int    `json:"duration_seconds,omitempty" jsonschema:"description=How long to run collector (max 300s),default=30"`
-	ConfigJSON      *string `json:"config_json,omitempty" jsonschema:"description=Optional collector-specific configuration as JSON string"`
-}
-
-// StopEBPFCollectorInput is the input for coral_stop_ebpf_collector.
-type StopEBPFCollectorInput struct {
-	CollectorID string `json:"collector_id" jsonschema:"description=Collector ID returned from start_ebpf_collector"`
-}
-
-// ListEBPFCollectorsInput is the input for coral_list_ebpf_collectors.
-type ListEBPFCollectorsInput struct {
-	Service *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service (use agent_id for disambiguation)"`
-	AgentID *string `json:"agent_id,omitempty" jsonschema:"description=Optional: Filter by agent ID"`
-}
-
 // ShellExecInput is the input for coral_shell_exec (RFD 045).
 type ShellExecInput struct {
 	Service        string            `json:"service" jsonschema:"description=Service whose agent to execute command on (use agent_id for disambiguation)"`

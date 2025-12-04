@@ -203,10 +203,6 @@ func TestGetToolSchemas(t *testing.T) {
 		"coral_query_traces",
 		"coral_query_metrics",
 		"coral_query_logs",
-		// eBPF collectors
-		"coral_start_ebpf_collector",
-		"coral_stop_ebpf_collector",
-		"coral_list_ebpf_collectors",
 		// Execution
 		"coral_shell_exec",
 		"coral_container_exec",
