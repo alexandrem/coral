@@ -1,0 +1,44 @@
+services:
+  otel-demo-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # Point to coral-agent's OTLP endpoint
+      # Since the agent shares the network, it's localhost:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: "localhost:4317"
+      OTEL_SERVICE_NAME: "otel-demo-app"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  coral-agent:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command:
+      - agent
+      - start
+      # OTLP receiver is enabled by default
+    environment:
+      CORAL_COLONY_ID: ${CORAL_COLONY_ID:-otel-demo}
+      CORAL_DISCOVERY_ENDPOINT: ${CORAL_DISCOVERY_ENDPOINT:-http://host.docker.internal:8080}
+      CORAL_WIREGUARD_PORT: "41821" # Static port for WireGuard (required for Docker NAT traversal)
+    depends_on:
+      otel-demo-app:
+        condition: service_healthy
+    # Share network namespace with the app
+    # This allows the agent to receive OTLP data on localhost:4317
+    pid: "service:otel-demo-app"
+    network_mode: "service:otel-demo-app"
+    volumes:
+      - ${HOST_CORAL_DIR:-~/.coral}:/root/.coral:ro
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    privileged: false  # Using capabilities; wireguard-go runs in userspace
