@@ -681,11 +681,28 @@ func (p *FunctionMetadataProvider) parseFunctionParameters(
 				Type: getEntryType(entry, p.dwarf),
 			}
 
-			// Try to get location (offset).
-			if loc, ok := entry.Val(dwarf.AttrLocation).([]byte); ok && len(loc) > 0 {
-				// Simplified: just store first byte as offset hint.
-				// Full implementation would parse DWARF location expressions.
-				arg.Offset = uint64(loc[0])
+			// Parse DWARF location expression to get argument location.
+			if locExpr, ok := entry.Val(dwarf.AttrLocation).([]byte); ok && len(locExpr) > 0 {
+				if loc, err := parseLocationExpr(locExpr); err == nil {
+					// Convert location to offset for uprobe attachment.
+					// For registers, use register number as offset hint.
+					// For frame-relative, use the stack offset.
+					switch loc.Type {
+					case LocationRegister:
+						// Register-based: use register number + offset as hint
+						arg.Offset = uint64(loc.Register*8) + uint64(loc.Offset)
+					case LocationFrameBase:
+						// Stack-based: use absolute offset value
+						if loc.Offset >= 0 {
+							arg.Offset = uint64(loc.Offset)
+						} else {
+							// Negative offsets are typical for stack frames
+							arg.Offset = uint64(-loc.Offset)
+						}
+					case LocationMemory:
+						arg.Offset = loc.Address
+					}
+				}
 			}
 
 			args = append(args, arg)
