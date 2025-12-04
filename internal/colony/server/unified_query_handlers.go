@@ -41,9 +41,10 @@ func (s *Server) QueryUnifiedSummary(
 	text := "Service Health Summary:\n\n"
 	for _, r := range results {
 		statusIcon := "✅"
-		if r.Status == "degraded" {
+		switch r.Status {
+		case "degraded":
 			statusIcon = "⚠️"
-		} else if r.Status == "critical" {
+		case "critical":
 			statusIcon = "❌"
 		}
 

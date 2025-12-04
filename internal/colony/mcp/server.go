@@ -135,13 +135,6 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 	case "coral_query_logs":
 		return s.executeUnifiedLogsTool(ctx, argumentsJSON)
 
-	// Live debugging tools (RFD 062)
-	case "coral_start_ebpf_collector":
-		return s.executeStartEBPFCollectorTool(ctx, argumentsJSON)
-	case "coral_stop_ebpf_collector":
-		return s.executeStopEBPFCollectorTool(ctx, argumentsJSON)
-	case "coral_list_ebpf_collectors":
-		return s.executeListEBPFCollectorsTool(ctx, argumentsJSON)
 	case "coral_shell_exec":
 		return s.executeShellExecTool(ctx, argumentsJSON)
 	case "coral_container_exec":
@@ -297,10 +290,6 @@ func (s *Server) registerTools() error {
 	s.registerUnifiedMetricsTool()
 	s.registerUnifiedLogsTool()
 
-	// Register live debugging tools (Phase 3).
-	s.registerStartEBPFCollectorTool()
-	s.registerStopEBPFCollectorTool()
-	s.registerListEBPFCollectorsTool()
 	s.registerShellExecTool()
 
 	// Register service discovery tools (RFD 054).
@@ -316,7 +305,7 @@ func (s *Server) registerTools() error {
 	s.registerGetFunctionContextTool()
 	s.registerListProbeableFunctionsTool()
 
-	// TODO: Register analysis tools (Phase 4).
+	// TODO: Register analysis tools.
 	// s.registerCorrelateEventsTool()
 	// s.registerCompareEnvironmentsTool()
 	// s.registerDeploymentTimelineTool()
