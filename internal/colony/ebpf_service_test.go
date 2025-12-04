@@ -2,6 +2,7 @@ package colony
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,11 +15,12 @@ import (
 
 // mockDatabase implements a mock database for testing.
 type mockDatabase struct {
-	httpMetrics  []*database.BeylaHTTPMetricResult
-	grpcMetrics  []*database.BeylaGRPCMetricResult
-	sqlMetrics   []*database.BeylaSQLMetricResult
-	traceResults []*database.BeylaTraceResult
-	queryError   error
+	httpMetrics        []*database.BeylaHTTPMetricResult
+	grpcMetrics        []*database.BeylaGRPCMetricResult
+	sqlMetrics         []*database.BeylaSQLMetricResult
+	traceResults       []*database.BeylaTraceResult
+	telemetrySummaries []database.TelemetrySummary
+	queryError         error
 }
 
 func (m *mockDatabase) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaHTTPMetricResult, error) {
@@ -47,6 +49,17 @@ func (m *mockDatabase) QueryBeylaTraces(ctx context.Context, traceID, serviceNam
 		return nil, m.queryError
 	}
 	return m.traceResults, nil
+}
+
+func (m *mockDatabase) QueryTelemetrySummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.TelemetrySummary, error) {
+	if m.queryError != nil {
+		return nil, m.queryError
+	}
+	// Return empty by default, tests can override by setting telemetrySummaries field
+	if m.telemetrySummaries != nil {
+		return m.telemetrySummaries, nil
+	}
+	return []database.TelemetrySummary{}, nil
 }
 
 // TestQueryMetrics_TimeRangeValidation tests time range validation.
@@ -625,4 +638,833 @@ func TestQueryMetrics_MaxTracesDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Len(t, resp.TraceSpans, 1)
+}
+
+// TestQueryUnifiedSummary tests the unified summary query method.
+func TestQueryUnifiedSummary(t *testing.T) {
+	now := time.Now()
+	startTime := now.Add(-5 * time.Minute)
+	endTime := now
+
+	t.Run("successful summary query", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "api-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 23.5,
+				},
+				{
+					ServiceName:     "payment-service",
+					HTTPMethod:      "POST",
+					HTTPRoute:       "/api/payment",
+					HTTPStatusCode:  200,
+					Count:           500,
+					LatencyBucketMs: 50.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.NotEmpty(t, results)
+		assert.Len(t, results, 2) // Two services
+		assert.Equal(t, "api-service", results[0].ServiceName)
+		assert.Equal(t, "payment-service", results[1].ServiceName)
+	})
+
+	t.Run("filter by service name", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "api-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 23.5,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "api-service", startTime, endTime)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+		assert.Equal(t, "api-service", results[0].ServiceName)
+	})
+
+	t.Run("database error", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			queryError: fmt.Errorf("database connection failed"),
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "", startTime, endTime)
+		assert.Error(t, err)
+		assert.Nil(t, results)
+		assert.Contains(t, err.Error(), "database connection failed")
+	})
+
+	t.Run("empty results", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.Empty(t, results)
+	})
+}
+
+// TestQueryUnifiedTraces tests the unified traces query method.
+func TestQueryUnifiedTraces(t *testing.T) {
+	now := time.Now()
+	startTime := now.Add(-1 * time.Hour)
+	endTime := now
+
+	t.Run("successful traces query", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{
+					TraceID:     "trace-123",
+					SpanID:      "span-456",
+					ServiceName: "api-service",
+					SpanName:    "GET /api/users",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  5000,
+					StatusCode:  0,
+				},
+				{
+					TraceID:      "trace-123",
+					SpanID:       "span-789",
+					ParentSpanID: "span-456",
+					ServiceName:  "db-service",
+					SpanName:     "SELECT users",
+					SpanKind:     "client",
+					StartTime:    startTime.Add(100 * time.Microsecond),
+					DurationUs:   3000,
+					StatusCode:   0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		spans, err := service.QueryUnifiedTraces(ctx, "", "api-service", startTime, endTime, 0, 10)
+		require.NoError(t, err)
+		assert.Len(t, spans, 2)
+		assert.Equal(t, "trace-123", spans[0].TraceId)
+	})
+
+	t.Run("filter by trace ID", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{
+					TraceID:     "trace-123",
+					SpanID:      "span-456",
+					ServiceName: "api-service",
+					SpanName:    "GET /api/users",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  5000,
+					StatusCode:  0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		spans, err := service.QueryUnifiedTraces(ctx, "trace-123", "", startTime, endTime, 0, 10)
+		require.NoError(t, err)
+		assert.Len(t, spans, 1)
+		assert.Equal(t, "trace-123", spans[0].TraceId)
+	})
+
+	t.Run("filter by minimum duration", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{
+					TraceID:     "trace-slow",
+					SpanID:      "span-1",
+					ServiceName: "api-service",
+					SpanName:    "Slow operation",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  600000, // 600ms
+					StatusCode:  0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		// Query with 500ms minimum duration
+		spans, err := service.QueryUnifiedTraces(ctx, "", "", startTime, endTime, 500000, 10)
+		require.NoError(t, err)
+		assert.Len(t, spans, 1)
+		assert.Equal(t, int64(600000), spans[0].DurationUs)
+	})
+
+	t.Run("empty results", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		spans, err := service.QueryUnifiedTraces(ctx, "", "", startTime, endTime, 0, 10)
+		require.NoError(t, err)
+		assert.Empty(t, spans)
+	})
+
+	t.Run("database error", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			queryError: fmt.Errorf("database error"),
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		spans, err := service.QueryUnifiedTraces(ctx, "", "", startTime, endTime, 0, 10)
+		assert.Error(t, err)
+		assert.Nil(t, spans)
+	})
+}
+
+// TestQueryUnifiedMetrics tests the unified metrics query method.
+func TestQueryUnifiedMetrics(t *testing.T) {
+	now := time.Now()
+	startTime := now.Add(-1 * time.Hour)
+	endTime := now
+
+	t.Run("successful metrics query", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "api-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 23.5,
+				},
+			},
+			grpcMetrics: []*database.BeylaGRPCMetricResult{
+				{
+					ServiceName:     "grpc-service",
+					GRPCMethod:      "/users.UserService/GetUser",
+					GRPCStatusCode:  0,
+					Count:           500,
+					LatencyBucketMs: 15.0,
+				},
+			},
+			sqlMetrics: []*database.BeylaSQLMetricResult{
+				{
+					ServiceName:     "db-service",
+					SQLOperation:    "SELECT",
+					TableName:       "users",
+					Count:           200,
+					LatencyBucketMs: 5.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		resp, err := service.QueryUnifiedMetrics(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Len(t, resp.HttpMetrics, 1)
+		assert.Len(t, resp.GrpcMetrics, 1)
+		assert.Len(t, resp.SqlMetrics, 1)
+	})
+
+	t.Run("filter by service name", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "api-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 23.5,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		resp, err := service.QueryUnifiedMetrics(ctx, "api-service", startTime, endTime)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Len(t, resp.HttpMetrics, 1)
+		assert.Equal(t, "api-service", resp.HttpMetrics[0].ServiceName)
+	})
+
+	t.Run("empty results", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{},
+			grpcMetrics: []*database.BeylaGRPCMetricResult{},
+			sqlMetrics:  []*database.BeylaSQLMetricResult{},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		resp, err := service.QueryUnifiedMetrics(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Empty(t, resp.HttpMetrics)
+		assert.Empty(t, resp.GrpcMetrics)
+		assert.Empty(t, resp.SqlMetrics)
+	})
+}
+
+// TestQueryUnifiedLogs tests the unified logs query method.
+func TestQueryUnifiedLogs(t *testing.T) {
+	now := time.Now()
+	startTime := now.Add(-1 * time.Hour)
+	endTime := now
+
+	t.Run("returns empty logs (placeholder implementation)", func(t *testing.T) {
+		mockDB := &mockDatabase{}
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		logs, err := service.QueryUnifiedLogs(ctx, "api-service", startTime, endTime, "error", "timeout")
+		require.NoError(t, err)
+		assert.Empty(t, logs) // Current implementation returns empty array
+	})
+
+	t.Run("handles all parameters", func(t *testing.T) {
+		mockDB := &mockDatabase{}
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		logs, err := service.QueryUnifiedLogs(ctx, "", startTime, endTime, "", "")
+		require.NoError(t, err)
+		assert.Empty(t, logs)
+	})
+}
+
+// TestQueryUnifiedSummary_DataMerging tests OTLP + eBPF data merging.
+func TestQueryUnifiedSummary_DataMerging(t *testing.T) {
+	now := time.Now()
+	startTime := now.Add(-5 * time.Minute)
+	endTime := now
+
+	t.Run("merge eBPF and OTLP data for same service", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "api-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 50.0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{
+					ServiceName: "api-service",
+					SpanKind:    "server",
+					TotalSpans:  500,
+					ErrorCount:  10,
+					P50Ms:       45.0,
+					P95Ms:       120.0,
+					P99Ms:       200.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+
+		// Check merged data
+		result := results[0]
+		assert.Equal(t, "api-service", result.ServiceName)
+		assert.Equal(t, "eBPF+OTLP", result.Source)       // Both sources merged
+		assert.Equal(t, int64(1500), result.RequestCount) // 1000 + 500
+		// Error rate should be recalculated with both sources
+		assert.InDelta(t, 0.67, result.ErrorRate, 0.1) // 10 errors / 1500 requests
+	})
+
+	t.Run("eBPF only data", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "api-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 50.0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{}, // No OTLP data
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+		assert.Equal(t, "eBPF", results[0].Source)
+	})
+
+	t.Run("OTLP only data", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{}, // No eBPF data
+			telemetrySummaries: []database.TelemetrySummary{
+				{
+					ServiceName: "otlp-service",
+					SpanKind:    "server",
+					TotalSpans:  500,
+					ErrorCount:  5,
+					P50Ms:       45.0,
+					P95Ms:       120.0,
+					P99Ms:       200.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+
+		result := results[0]
+		assert.Equal(t, "otlp-service", result.ServiceName)
+		assert.Equal(t, "OTLP", result.Source)
+		assert.Equal(t, int64(500), result.RequestCount)
+	})
+
+	t.Run("multiple services with different sources", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "ebpf-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 50.0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{
+					ServiceName: "otlp-service",
+					SpanKind:    "server",
+					TotalSpans:  500,
+					ErrorCount:  5,
+					P95Ms:       120.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.Len(t, results, 2)
+
+		// Verify each service has correct source
+		sourceMap := make(map[string]string)
+		for _, r := range results {
+			sourceMap[r.ServiceName] = r.Source
+		}
+
+		assert.Equal(t, "eBPF", sourceMap["ebpf-service"])
+		assert.Equal(t, "OTLP", sourceMap["otlp-service"])
+	})
+
+	t.Run("status calculation with high error rate", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "failing-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  500, // Server error
+					Count:           100,
+					LatencyBucketMs: 50.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		results, err := service.QueryUnifiedSummary(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+
+		result := results[0]
+		assert.Equal(t, "critical", result.Status) // High error rate should mark as critical
+		assert.Equal(t, 100.0, result.ErrorRate)   // All requests are errors
+	})
+}
+
+// TestQueryUnifiedMetrics_DataMerging tests OTLP + eBPF metrics merging.
+func TestQueryUnifiedMetrics_DataMerging(t *testing.T) {
+	now := time.Now()
+	startTime := now.Add(-1 * time.Hour)
+	endTime := now
+
+	t.Run("includes both eBPF and OTLP metrics", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "api-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 50.0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{
+					ServiceName: "api-service",
+					SpanKind:    "server",
+					TotalSpans:  500,
+					ErrorCount:  5,
+					P50Ms:       45.0,
+					P95Ms:       120.0,
+					P99Ms:       200.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		resp, err := service.QueryUnifiedMetrics(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		// Should have both eBPF metric and OTLP metric (converted to HTTP metric format)
+		assert.GreaterOrEqual(t, len(resp.HttpMetrics), 2)
+
+		// Find OTLP metric (has [OTLP] suffix in service name)
+		foundOTLP := false
+		for _, m := range resp.HttpMetrics {
+			if m.ServiceName == "api-service [OTLP]" {
+				foundOTLP = true
+				assert.Equal(t, uint64(500), m.RequestCount)
+				// Check that latency buckets contain our P50, P95, P99 values
+				assert.Contains(t, m.LatencyBuckets, 45.0)
+				assert.Contains(t, m.LatencyBuckets, 120.0)
+				break
+			}
+		}
+		assert.True(t, foundOTLP, "Should include OTLP metrics with source annotation")
+	})
+
+	t.Run("continues without OTLP data if unavailable", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{
+					ServiceName:     "api-service",
+					HTTPMethod:      "GET",
+					HTTPRoute:       "/api/users",
+					HTTPStatusCode:  200,
+					Count:           1000,
+					LatencyBucketMs: 50.0,
+				},
+			},
+			queryError: nil, // No error for eBPF
+			// telemetrySummaries will return empty
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		resp, err := service.QueryUnifiedMetrics(ctx, "", startTime, endTime)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Len(t, resp.HttpMetrics, 1) // Only eBPF metrics
+	})
+}
+
+// TestQueryUnifiedTraces_SpanMerging tests OTLP + eBPF span merging.
+func TestQueryUnifiedTraces_SpanMerging(t *testing.T) {
+	now := time.Now()
+	startTime := now.Add(-1 * time.Hour)
+	endTime := now
+
+	t.Run("includes both eBPF and OTLP spans", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{
+					TraceID:     "trace-123",
+					SpanID:      "span-ebpf-1",
+					ServiceName: "api-service",
+					SpanName:    "GET /api/users",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  5000,
+					StatusCode:  0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{
+					ServiceName:  "api-service",
+					SpanKind:     "server",
+					TotalSpans:   100,
+					ErrorCount:   5,
+					P50Ms:        45.0,
+					P95Ms:        120.0,
+					P99Ms:        200.0,
+					BucketTime:   startTime,
+					SampleTraces: []string{"trace-456"},
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		spans, err := service.QueryUnifiedTraces(ctx, "", "", startTime, endTime, 0, 100)
+		require.NoError(t, err)
+
+		// Should have both eBPF span and synthetic OTLP span
+		assert.GreaterOrEqual(t, len(spans), 2)
+
+		// Find OTLP span (has [OTLP] suffix)
+		foundOTLP := false
+		for _, span := range spans {
+			if span.ServiceName == "api-service [OTLP]" {
+				foundOTLP = true
+				assert.Equal(t, "OTLP Summary (server)", span.SpanName)
+				assert.Equal(t, "OTLP", span.Attributes["source"])
+				assert.Equal(t, "100", span.Attributes["total_spans"])
+				assert.Equal(t, "5", span.Attributes["error_count"])
+				break
+			}
+		}
+		assert.True(t, foundOTLP, "Should include synthetic OTLP span")
+	})
+
+	t.Run("filters by service name", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{
+					TraceID:     "trace-1",
+					SpanID:      "span-1",
+					ServiceName: "api-service",
+					SpanName:    "GET /api/users",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  5000,
+					StatusCode:  0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{
+					ServiceName:  "other-service",
+					SpanKind:     "server",
+					TotalSpans:   50,
+					P95Ms:        100.0,
+					BucketTime:   startTime,
+					SampleTraces: []string{},
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		// Query only api-service
+		spans, err := service.QueryUnifiedTraces(ctx, "", "api-service", startTime, endTime, 0, 100)
+		require.NoError(t, err)
+
+		// Should only have api-service spans (eBPF), not other-service (OTLP)
+		for _, span := range spans {
+			assert.Contains(t, span.ServiceName, "api-service")
+		}
+	})
+
+	t.Run("filters by trace ID using sample traces", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{
+					TraceID:     "trace-123",
+					SpanID:      "span-1",
+					ServiceName: "api-service",
+					SpanName:    "GET /api/users",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  5000,
+					StatusCode:  0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{
+					ServiceName:  "api-service",
+					SpanKind:     "server",
+					TotalSpans:   100,
+					P95Ms:        120.0,
+					BucketTime:   startTime,
+					SampleTraces: []string{"trace-123", "trace-456"},
+				},
+				{
+					ServiceName:  "other-service",
+					SpanKind:     "server",
+					TotalSpans:   50,
+					P95Ms:        100.0,
+					BucketTime:   startTime,
+					SampleTraces: []string{"trace-999"},
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		// Query specific trace ID
+		spans, err := service.QueryUnifiedTraces(ctx, "trace-123", "", startTime, endTime, 0, 100)
+		require.NoError(t, err)
+
+		// Should include eBPF span with trace-123 and OTLP summary that has it in samples
+		assert.GreaterOrEqual(t, len(spans), 2)
+
+		// Verify OTLP span was included because trace-123 is in sample traces
+		foundOTLP := false
+		for _, span := range spans {
+			if span.ServiceName == "api-service [OTLP]" {
+				foundOTLP = true
+				assert.Equal(t, "trace-123", span.TraceId) // Should use first sample trace
+			}
+		}
+		assert.True(t, foundOTLP)
+	})
+
+	t.Run("filters by minimum duration", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{
+					TraceID:     "trace-fast",
+					SpanID:      "span-1",
+					ServiceName: "api-service",
+					SpanName:    "Fast operation",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  1000, // 1ms
+					StatusCode:  0,
+				},
+				{
+					TraceID:     "trace-slow",
+					SpanID:      "span-2",
+					ServiceName: "api-service",
+					SpanName:    "Slow operation",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  600000, // 600ms
+					StatusCode:  0,
+				},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{
+					ServiceName:  "api-service",
+					SpanKind:     "server",
+					TotalSpans:   100,
+					P95Ms:        500.0, // 500ms
+					BucketTime:   startTime,
+					SampleTraces: []string{},
+				},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		// Query with 100ms minimum duration (100000 microseconds)
+		spans, err := service.QueryUnifiedTraces(ctx, "", "", startTime, endTime, 100000, 100)
+		require.NoError(t, err)
+
+		// Should only include spans > 100ms (slow eBPF span and OTLP synthetic span)
+		assert.GreaterOrEqual(t, len(spans), 2)
+		for _, span := range spans {
+			assert.GreaterOrEqual(t, span.DurationUs, int64(100000))
+		}
+	})
+
+	t.Run("limits max traces", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{TraceID: "trace-1", SpanID: "span-1", ServiceName: "api", SpanName: "op1", SpanKind: "server", StartTime: startTime, DurationUs: 1000},
+				{TraceID: "trace-2", SpanID: "span-2", ServiceName: "api", SpanName: "op2", SpanKind: "server", StartTime: startTime, DurationUs: 2000},
+				{TraceID: "trace-3", SpanID: "span-3", ServiceName: "api", SpanName: "op3", SpanKind: "server", StartTime: startTime, DurationUs: 3000},
+			},
+			telemetrySummaries: []database.TelemetrySummary{
+				{ServiceName: "api", SpanKind: "server", TotalSpans: 100, P95Ms: 100.0, BucketTime: startTime},
+			},
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		// Limit to 2 spans
+		spans, err := service.QueryUnifiedTraces(ctx, "", "", startTime, endTime, 0, 2)
+		require.NoError(t, err)
+		assert.Len(t, spans, 2)
+	})
+
+	t.Run("continues without OTLP if unavailable", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			traceResults: []*database.BeylaTraceResult{
+				{
+					TraceID:     "trace-123",
+					SpanID:      "span-1",
+					ServiceName: "api-service",
+					SpanName:    "GET /api/users",
+					SpanKind:    "server",
+					StartTime:   startTime,
+					DurationUs:  5000,
+					StatusCode:  0,
+				},
+			},
+			// No telemetry summaries
+		}
+
+		service := &EbpfQueryService{db: mockDB}
+		ctx := context.Background()
+
+		spans, err := service.QueryUnifiedTraces(ctx, "", "", startTime, endTime, 0, 100)
+		require.NoError(t, err)
+		assert.Len(t, spans, 1)                              // Only eBPF span
+		assert.Equal(t, "api-service", spans[0].ServiceName) // No [OTLP] suffix
+	})
 }

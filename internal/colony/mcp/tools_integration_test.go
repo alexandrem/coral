@@ -354,10 +354,10 @@ func TestServerCreation(t *testing.T) {
 		assert.NotNil(t, server.mcpServer)
 		assert.Equal(t, "test-colony", server.config.ColonyID)
 
-		// Verify tools are registered.
+		// Verify tools are registered (RFD 067: unified query tools).
 		tools := server.listToolNames()
 		assert.NotEmpty(t, tools)
-		assert.Contains(t, tools, "coral_get_service_health")
+		assert.Contains(t, tools, "coral_query_summary")
 	})
 
 	t.Run("disabled server returns error", func(t *testing.T) {
@@ -384,15 +384,15 @@ func TestToolFiltering(t *testing.T) {
 		server := &Server{
 			config: Config{
 				ColonyID:     "test-colony",
-				EnabledTools: []string{"coral_get_service_health", "coral_get_service_topology"},
+				EnabledTools: []string{"coral_query_summary", "coral_query_traces"},
 			},
 			logger: logger,
 		}
 
-		assert.True(t, server.isToolEnabled("coral_get_service_health"))
-		assert.True(t, server.isToolEnabled("coral_get_service_topology"))
-		assert.False(t, server.isToolEnabled("coral_query_events"))
-		assert.False(t, server.isToolEnabled("coral_query_ebpf_http_metrics"))
+		assert.True(t, server.isToolEnabled("coral_query_summary"))
+		assert.True(t, server.isToolEnabled("coral_query_traces"))
+		assert.False(t, server.isToolEnabled("coral_query_metrics"))
+		assert.False(t, server.isToolEnabled("coral_shell_exec"))
 	})
 
 	t.Run("empty list enables all tools", func(t *testing.T) {
@@ -404,8 +404,8 @@ func TestToolFiltering(t *testing.T) {
 			logger: logger,
 		}
 
-		assert.True(t, server.isToolEnabled("coral_get_service_health"))
-		assert.True(t, server.isToolEnabled("coral_query_events"))
+		assert.True(t, server.isToolEnabled("coral_query_summary"))
+		assert.True(t, server.isToolEnabled("coral_query_traces"))
 		assert.True(t, server.isToolEnabled("any_tool"))
 	})
 }

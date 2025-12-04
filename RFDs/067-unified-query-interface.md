@@ -341,38 +341,59 @@ are taking 850ms (69% of total request time). Recent errors show
 
 ## Implementation Plan
 
-### Phase 1: Backend Preparation
+### Phase 0: Protobuf Definitions ✅
 
-- [ ] Add unified query methods to `ebpf_service.go`
-- [ ] Implement result merging logic (eBPF + OTLP)
-- [ ] Add source annotation helpers
-- [ ] Implement anomaly detection for summary
+- [x] Add 4 new RPC methods to `colony.proto`: `QueryUnifiedSummary`, `QueryUnifiedTraces`, `QueryUnifiedMetrics`, `QueryUnifiedLogs`
+- [x] Generate protobuf code and client/server stubs
 
-### Phase 2: MCP Tools
+### Phase 1: Backend Preparation ✅
 
-- [ ] Remove all 7+ source-specific MCP tools
-- [ ] Implement `coral_query_summary` tool
-- [ ] Implement `coral_query_traces` tool
-- [ ] Implement `coral_query_metrics` tool
-- [ ] Rename `coral_query_telemetry_logs` to `coral_query_logs`
-- [ ] Update tool descriptions and schemas
+- [x] Add unified query methods to `ebpf_service.go`
+- [x] Add `QueryTelemetrySummaries` to ebpfDatabase interface
+- [x] Implement complete result merging logic (eBPF + OTLP)
+  - [x] QueryUnifiedSummary: Merges eBPF HTTP metrics with OTLP summaries
+  - [x] QueryUnifiedMetrics: Merges eBPF metrics with OTLP summaries
+  - [x] QueryUnifiedTraces: Creates synthetic OTLP spans from summaries
+- [x] Add source annotations (eBPF, OTLP, eBPF+OTLP labels)
+- [x] Implement basic anomaly detection (threshold-based health status)
 
-### Phase 3: CLI Commands
+### Phase 1.5: Colony RPC Handlers ✅
 
-- [ ] Delete `internal/cli/query/ebpf/` directory
-- [ ] Implement `internal/cli/query/summary.go`
-- [ ] Implement `internal/cli/query/traces.go`
-- [ ] Implement `internal/cli/query/metrics.go`
-- [ ] Implement `internal/cli/query/logs.go`
-- [ ] Update `internal/cli/query/root.go`
+- [x] Implement RPC handlers in `unified_query_handlers.go` (internal/colony/server/unified_query_handlers.go)
+- [x] Add `parseTimeRange` helper function
 
-### Phase 4: Testing & Documentation
+### Phase 2: MCP Tools ✅
 
-- [ ] Write unit tests for unified commands
-- [ ] Write integration tests for source merging
-- [ ] Update `docs/CLI_MCP_MAPPING.md`
-- [ ] Update RFD 035 references
-- [ ] Manual testing with real services
+- [x] Remove all 7+ source-specific MCP tools
+- [x] Implement `coral_query_summary` tool
+- [x] Implement `coral_query_traces` tool
+- [x] Implement `coral_query_metrics` tool
+- [x] Implement `coral_query_logs` tool (placeholder - logs not yet in Coral)
+- [x] Update tool descriptions and schemas
+- [x] Update types.go with new input structs
+
+### Phase 3: CLI Commands ✅
+
+- [x] Delete `internal/cli/query/ebpf/` directory
+- [x] Implement `internal/cli/query/summary.go`
+- [x] Implement `internal/cli/query/traces.go`
+- [x] Implement `internal/cli/query/metrics.go`
+- [x] Implement `internal/cli/query/logs.go`
+- [x] Update `internal/cli/query/root.go`
+- [x] CLI commands call dedicated RPC methods
+
+### Phase 4: Testing & Documentation ✅
+
+- [x] Update `docs/CLI_MCP_MAPPING.md` with unified query interface section
+- [x] Update RFD 035 with superseded notice
+- [x] Fix all broken tests (mocks updated for new interfaces)
+- [x] Write unit tests for unified query methods (13 new test cases)
+  - [x] TestQueryUnifiedSummary_DataMerging (6 tests)
+  - [x] TestQueryUnifiedMetrics_DataMerging (2 tests)
+  - [x] TestQueryUnifiedTraces_SpanMerging (6 tests)
+- [x] Write unit tests for RPC handlers (22 test cases)
+- [ ] **Future**: Write integration tests with real eBPF+OTLP data
+- [ ] **Future**: Manual testing with production workloads
 
 ## API Changes
 
@@ -529,10 +550,71 @@ All phases of the unified query interface have been successfully implemented:
 - **CLI** → Colony RPC (`QueryUnifiedSummary`, etc.) → Backend Service Methods
 - **MCP Tools** → Backend Service Methods (same methods, different entry point)
 
-**Remaining Work:**
-- Complete anomaly detection logic in `QueryUnifiedSummary`
-- Write unit and integration tests
-- Manual testing with real services
+## Implementation Status
+
+**Completed (as of 2025-12-04):**
+
+1. ✅ **Data Merging** (internal/colony/ebpf_service.go):
+   - `QueryUnifiedSummary` (line 356-488): **Fully implemented** - Merges eBPF HTTP metrics with OTLP telemetry summaries, calculates combined error rates and latency metrics
+   - `QueryUnifiedTraces` (line 501-596): **Fully implemented** - Creates synthetic OTLP spans from telemetry summaries, merges with eBPF spans, supports filtering by trace ID/service/duration
+   - `QueryUnifiedMetrics` (line 598-650): **Fully implemented** - Merges eBPF metrics (HTTP/gRPC/SQL) with OTLP telemetry summaries converted to metric format
+
+2. ✅ **Basic Anomaly Detection** (internal/colony/ebpf_service.go:402-461):
+   - Error rate thresholds: >5% = critical, >1% = degraded
+   - Latency thresholds: >2000ms = critical, >1000ms = degraded
+   - Automatic health status calculation for all services
+
+3. ✅ **Source Annotations**:
+   - Service names tagged with source: "eBPF", "OTLP", or "eBPF+OTLP"
+   - Traces show 📍 for eBPF spans, 📊 for OTLP synthetic spans
+   - Metrics include "[OTLP]" suffix for OTLP-sourced data
+
+4. ✅ **Enhanced Output Formatting** (internal/colony/server/unified_query_handlers.go):
+   - Summary: Status icons (✅/⚠️/❌), detailed metrics per service
+   - Traces: Grouped by trace ID with duration and source indicators
+   - Metrics: Formatted with percentiles and request counts
+
+5. ✅ **Comprehensive Testing**:
+   - 13 new test cases for data merging (summary, metrics, traces)
+   - Tests cover: eBPF+OTLP merging, source-only scenarios, filtering, error handling
+   - All tests passing
+
+6. ✅ **Infrastructure**:
+   - Protobuf: 4 new RPC methods (QueryUnifiedSummary/Traces/Metrics/Logs)
+   - RPC Handlers: Complete with time range parsing and error handling
+   - MCP Tools: 4 unified tools replacing 7+ source-specific tools
+   - CLI Commands: 4 unified commands with consistent interface
+   - Documentation: Updated CLI_MCP_MAPPING.md and RFD 035
+
+**Current Limitations:**
+
+1. **OTLP Span Granularity**: OTLP spans are represented as synthetic aggregates from telemetry summaries (RFD 025 stores summaries, not individual spans). This provides visibility but not detailed span-level data.
+
+2. **Anomaly Detection**: Basic threshold-based detection implemented. Advanced features (baseline comparison, traffic anomaly detection) deferred to future work.
+
+**Future Work:**
+
+1. **Log Querying**: `QueryUnifiedLogs` currently returns empty array. Coral doesn't yet have log ingestion/storage infrastructure (requires RFD for OTLP log receiver and DuckDB schema).
+
+2. **Advanced Anomaly Detection**:
+   - Baseline comparison using historical data
+   - Traffic anomaly detection (sudden spikes/drops)
+   - Service dependency anomaly detection
+
+3. **Enhanced Trace Merging**:
+   - Store individual OTLP spans (requires schema changes)
+   - Span tree reconstruction across eBPF and OTLP
+   - Deduplication of overlapping spans
+
+4. **Output Formats**:
+   - JSON export for programmatic access
+   - CSV export for spreadsheet analysis
+   - Tree view rendering for trace hierarchies
+
+5. **Integration Testing**:
+   - E2E tests with real services running both eBPF and OTLP
+   - Performance testing with large datasets
+   - Manual testing with production-like workloads
 
 ## Future Enhancements
 

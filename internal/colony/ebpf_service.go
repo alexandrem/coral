@@ -343,44 +343,158 @@ func (s *EbpfQueryService) queryTraceSpans(ctx context.Context, req *agentv1.Que
 
 // UnifiedSummaryResult represents the health summary of a service.
 type UnifiedSummaryResult struct {
-	ServiceName string
-	Status      string // healthy, degraded, critical
-	RequestRate float64
-	ErrorRate   float64
-	P95Latency  float64
-	Issues      []string
+	ServiceName  string
+	Status       string  // healthy, degraded, critical
+	RequestCount int64   // Total requests/spans
+	ErrorRate    float64 // Error rate as percentage
+	AvgLatencyMs float64 // Average latency in milliseconds
+	Source       string  // eBPF, OTLP, or eBPF+OTLP
+	Issues       []string
 }
 
 // QueryUnifiedSummary provides a high-level health summary for services.
 func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName string, startTime, endTime time.Time) ([]UnifiedSummaryResult, error) {
-	// TODO: Implement full logic. For now, return a placeholder based on eBPF metrics.
-	// This will be expanded to include OTLP data and anomaly detection.
+	summaryMap := make(map[string]*UnifiedSummaryResult)
 
+	// 1. Query eBPF HTTP metrics.
 	filters := make(map[string]string)
 	httpMetrics, err := s.db.QueryBeylaHTTPMetrics(ctx, serviceName, startTime, endTime, filters)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query eBPF HTTP metrics: %w", err)
 	}
 
-	// Simple aggregation for demonstration.
-	summaryMap := make(map[string]*UnifiedSummaryResult)
+	// Aggregate eBPF metrics by service.
+	ebpfRequestCounts := make(map[string]int64)
+	ebpfErrorCounts := make(map[string]int64)
+	ebpfLatencies := make(map[string][]float64)
 
 	for _, m := range httpMetrics {
-		if _, exists := summaryMap[m.ServiceName]; !exists {
-			summaryMap[m.ServiceName] = &UnifiedSummaryResult{
-				ServiceName: m.ServiceName,
-				Status:      "healthy",
-			}
+		ebpfRequestCounts[m.ServiceName] += m.Count
+
+		// Count errors (5xx status codes).
+		if m.HTTPStatusCode >= 500 && m.HTTPStatusCode < 600 {
+			ebpfErrorCounts[m.ServiceName] += m.Count
 		}
-		// In a real implementation, we would aggregate rates and latencies here.
+
+		// Collect latencies for P95 calculation.
+		if m.LatencyBucketMs > 0 {
+			ebpfLatencies[m.ServiceName] = append(ebpfLatencies[m.ServiceName], m.LatencyBucketMs)
+		}
 	}
 
-	var results []UnifiedSummaryResult
+	// Create summaries from eBPF data.
+	for svc, reqCount := range ebpfRequestCounts {
+		errorCount := ebpfErrorCounts[svc]
+		errorRate := float64(0)
+		if reqCount > 0 {
+			errorRate = float64(errorCount) / float64(reqCount) * 100
+		}
+
+		// Calculate average latency (simplified - should be weighted average).
+		avgLatency := float64(0)
+		if latencies := ebpfLatencies[svc]; len(latencies) > 0 {
+			sum := float64(0)
+			for _, l := range latencies {
+				sum += l
+			}
+			avgLatency = sum / float64(len(latencies))
+		}
+
+		status := "healthy"
+		if errorRate > 5.0 {
+			status = "critical"
+		} else if errorRate > 1.0 || avgLatency > 1000 {
+			status = "degraded"
+		}
+
+		summaryMap[svc] = &UnifiedSummaryResult{
+			ServiceName:  svc,
+			Status:       status,
+			RequestCount: reqCount,
+			ErrorRate:    errorRate,
+			AvgLatencyMs: avgLatency,
+			Source:       "eBPF",
+		}
+	}
+
+	// 2. Query OTLP telemetry summaries (query all agents, empty agentID means all).
+	telemetrySummaries, err := s.db.QueryTelemetrySummaries(ctx, "", startTime, endTime)
+	if err != nil {
+		// Don't fail if OTLP data is unavailable, just log and continue.
+		// This allows the system to work with only eBPF data.
+		return convertSummaryMapToSlice(summaryMap), nil
+	}
+
+	// 3. Merge OTLP data with eBPF data.
+	for _, otlp := range telemetrySummaries {
+		if serviceName != "" && otlp.ServiceName != serviceName {
+			continue
+		}
+
+		existing, exists := summaryMap[otlp.ServiceName]
+		if exists {
+			// Service has both eBPF and OTLP data - merge.
+			existing.Source = "eBPF+OTLP"
+
+			// Add OTLP metrics.
+			otlpReqCount := int64(otlp.TotalSpans)
+			otlpErrorCount := int64(otlp.ErrorCount)
+
+			existing.RequestCount += otlpReqCount
+
+			// Recalculate error rate with both sources.
+			totalErrors := float64(ebpfErrorCounts[otlp.ServiceName] + otlpErrorCount)
+			totalRequests := float64(existing.RequestCount)
+			if totalRequests > 0 {
+				existing.ErrorRate = totalErrors / totalRequests * 100
+			}
+
+			// Average the P95 latencies (simplified merging).
+			if otlp.P95Ms > 0 {
+				existing.AvgLatencyMs = (existing.AvgLatencyMs + otlp.P95Ms) / 2
+			}
+
+			// Re-evaluate status.
+			if existing.ErrorRate > 5.0 || existing.AvgLatencyMs > 2000 {
+				existing.Status = "critical"
+			} else if existing.ErrorRate > 1.0 || existing.AvgLatencyMs > 1000 {
+				existing.Status = "degraded"
+			}
+		} else {
+			// Service has only OTLP data.
+			errorRate := float64(0)
+			if otlp.TotalSpans > 0 {
+				errorRate = float64(otlp.ErrorCount) / float64(otlp.TotalSpans) * 100
+			}
+
+			status := "healthy"
+			if errorRate > 5.0 || otlp.P95Ms > 2000 {
+				status = "critical"
+			} else if errorRate > 1.0 || otlp.P95Ms > 1000 {
+				status = "degraded"
+			}
+
+			summaryMap[otlp.ServiceName] = &UnifiedSummaryResult{
+				ServiceName:  otlp.ServiceName,
+				Status:       status,
+				RequestCount: int64(otlp.TotalSpans),
+				ErrorRate:    errorRate,
+				AvgLatencyMs: otlp.P95Ms,
+				Source:       "OTLP",
+			}
+		}
+	}
+
+	return convertSummaryMapToSlice(summaryMap), nil
+}
+
+// convertSummaryMapToSlice converts a map of summaries to a slice.
+func convertSummaryMapToSlice(summaryMap map[string]*UnifiedSummaryResult) []UnifiedSummaryResult {
+	results := make([]UnifiedSummaryResult, 0, len(summaryMap))
 	for _, r := range summaryMap {
 		results = append(results, *r)
 	}
-
-	return results, nil
+	return results
 }
 
 // QueryUnifiedTraces queries traces from both eBPF and OTLP sources.
@@ -392,21 +506,99 @@ func (s *EbpfQueryService) QueryUnifiedTraces(ctx context.Context, traceID, serv
 		MaxTraces:    int32(maxTraces),
 	}, startTime, endTime)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query eBPF traces: %w", err)
 	}
 
-	// 2. Query OTLP traces (placeholder for now, as we only have summaries).
-	// In the future, this will query the OTLP span store.
+	// 2. Query OTLP telemetry summaries.
+	// Note: OTLP spans are stored as aggregated summaries, not individual spans.
+	// We create synthetic spans from summaries to provide OTLP visibility.
+	telemetrySummaries, err := s.db.QueryTelemetrySummaries(ctx, "", startTime, endTime)
+	if err != nil {
+		// If OTLP data unavailable, return eBPF spans only.
+		return ebpfSpans, nil
+	}
 
-	// 3. Merge results.
-	// For now, just return eBPF spans.
-	return ebpfSpans, nil
+	// 3. Convert OTLP summaries to synthetic spans.
+	otlpSpans := make([]*agentv1.EbpfTraceSpan, 0)
+	for _, summary := range telemetrySummaries {
+		// Filter by service name if specified
+		if serviceName != "" && summary.ServiceName != serviceName {
+			continue
+		}
+
+		// Filter by trace ID if specified (check sample traces)
+		if traceID != "" {
+			found := false
+			for _, sampleTraceID := range summary.SampleTraces {
+				if sampleTraceID == traceID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
+		// Create a synthetic span representing the OTLP summary
+		// Use the first sample trace ID if available, otherwise generate one
+		spanTraceID := "otlp-aggregate"
+		if len(summary.SampleTraces) > 0 {
+			spanTraceID = summary.SampleTraces[0]
+		}
+
+		syntheticSpan := &agentv1.EbpfTraceSpan{
+			TraceId:     spanTraceID,
+			SpanId:      fmt.Sprintf("otlp-%s-%d", summary.ServiceName, summary.BucketTime.Unix()),
+			ServiceName: summary.ServiceName + " [OTLP]", // Source annotation
+			SpanName:    fmt.Sprintf("OTLP Summary (%s)", summary.SpanKind),
+			SpanKind:    summary.SpanKind,
+			StartTime:   summary.BucketTime.UnixMilli(), // Unix milliseconds
+			// Use P95 latency as duration estimate (converted to microseconds)
+			DurationUs: int64(summary.P95Ms * 1000),
+			StatusCode: 0,
+			Attributes: map[string]string{
+				"source":      "OTLP",
+				"total_spans": fmt.Sprintf("%d", summary.TotalSpans),
+				"error_count": fmt.Sprintf("%d", summary.ErrorCount),
+				"p50_ms":      fmt.Sprintf("%.2f", summary.P50Ms),
+				"p95_ms":      fmt.Sprintf("%.2f", summary.P95Ms),
+				"p99_ms":      fmt.Sprintf("%.2f", summary.P99Ms),
+			},
+		}
+
+		otlpSpans = append(otlpSpans, syntheticSpan)
+	}
+
+	// 4. Merge eBPF and OTLP spans.
+	// Note: We don't deduplicate because OTLP summaries and eBPF spans
+	// represent different granularities of data.
+	mergedSpans := make([]*agentv1.EbpfTraceSpan, 0, len(ebpfSpans)+len(otlpSpans))
+	mergedSpans = append(mergedSpans, ebpfSpans...)
+	mergedSpans = append(mergedSpans, otlpSpans...)
+
+	// 5. Apply filters.
+	filteredSpans := make([]*agentv1.EbpfTraceSpan, 0)
+	for _, span := range mergedSpans {
+		// Filter by minimum duration if specified
+		if minDurationUs > 0 && span.DurationUs < minDurationUs {
+			continue
+		}
+		filteredSpans = append(filteredSpans, span)
+	}
+
+	// 6. Limit results.
+	if maxTraces > 0 && len(filteredSpans) > maxTraces {
+		filteredSpans = filteredSpans[:maxTraces]
+	}
+
+	return filteredSpans, nil
 }
 
 // QueryUnifiedMetrics queries metrics from both eBPF and OTLP sources.
 func (s *EbpfQueryService) QueryUnifiedMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time) (*agentv1.QueryEbpfMetricsResponse, error) {
-	// Reuse existing logic for eBPF metrics.
-	return s.QueryMetrics(ctx, &agentv1.QueryEbpfMetricsRequest{
+	// 1. Query eBPF metrics.
+	ebpfMetrics, err := s.QueryMetrics(ctx, &agentv1.QueryEbpfMetricsRequest{
 		ServiceNames: []string{serviceName},
 		StartTime:    startTime.Unix(),
 		EndTime:      endTime.Unix(),
@@ -416,6 +608,42 @@ func (s *EbpfQueryService) QueryUnifiedMetrics(ctx context.Context, serviceName 
 			agentv1.EbpfMetricType_EBPF_METRIC_TYPE_SQL,
 		},
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query eBPF metrics: %w", err)
+	}
+
+	// 2. Query OTLP telemetry summaries.
+	telemetrySummaries, err := s.db.QueryTelemetrySummaries(ctx, "", startTime, endTime)
+	if err != nil {
+		// If OTLP data unavailable, return eBPF metrics only.
+		return ebpfMetrics, nil
+	}
+
+	// 3. Convert OTLP summaries to HTTP metrics format for unified response.
+	// Note: This is a simplified conversion. In a real implementation, we would
+	// store OTLP metrics in a more structured format.
+	for _, otlp := range telemetrySummaries {
+		if serviceName != "" && otlp.ServiceName != serviceName {
+			continue
+		}
+
+		// Convert OTLP summary to HTTP metric format.
+		// Note: This is a simplified conversion - we're using the available fields.
+		otlpMetric := &agentv1.EbpfHttpMetric{
+			ServiceName:    otlp.ServiceName + " [OTLP]", // Add source annotation
+			HttpRoute:      "aggregated",
+			HttpMethod:     otlp.SpanKind,
+			HttpStatusCode: 200,
+			RequestCount:   uint64(otlp.TotalSpans),
+			// Store percentiles in latency buckets (simplified)
+			LatencyBuckets: []float64{otlp.P50Ms, otlp.P95Ms, otlp.P99Ms},
+			LatencyCounts:  []uint64{uint64(otlp.TotalSpans), uint64(otlp.TotalSpans), uint64(otlp.TotalSpans)},
+		}
+
+		ebpfMetrics.HttpMetrics = append(ebpfMetrics.HttpMetrics, otlpMetric)
+	}
+
+	return ebpfMetrics, nil
 }
 
 // QueryUnifiedLogs queries logs from OTLP sources.

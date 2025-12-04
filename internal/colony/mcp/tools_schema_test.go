@@ -196,25 +196,31 @@ func TestGetToolSchemas(t *testing.T) {
 	// Get schemas via the RPC path
 	schemas := srv.getToolSchemas()
 
-	// Verify we got schemas for all tools
+	// Verify we got schemas for all tools (RFD 067: unified query interface)
 	expectedTools := []string{
-		"coral_get_service_health",
-		"coral_get_service_topology",
-		"coral_query_events",
-		"coral_query_ebpf_http_metrics",
-		"coral_query_ebpf_grpc_metrics",
-		"coral_query_ebpf_sql_metrics",
-		"coral_query_ebpf_traces",
-		"coral_get_trace_by_id",
-		"coral_query_telemetry_spans",
-		"coral_query_telemetry_metrics",
-		"coral_query_telemetry_logs",
+		// Unified query tools (RFD 067)
+		"coral_query_summary",
+		"coral_query_traces",
+		"coral_query_metrics",
+		"coral_query_logs",
+		// eBPF collectors
 		"coral_start_ebpf_collector",
 		"coral_stop_ebpf_collector",
 		"coral_list_ebpf_collectors",
+		// Execution
 		"coral_shell_exec",
 		"coral_container_exec",
+		// Services
 		"coral_list_services",
+		// Debug/uprobe tools
+		"coral_attach_uprobe",
+		"coral_detach_uprobe",
+		"coral_trace_request_path",
+		"coral_list_debug_sessions",
+		"coral_get_debug_results",
+		"coral_search_functions",
+		"coral_get_function_context",
+		"coral_list_probeable_functions",
 	}
 
 	for _, toolName := range expectedTools {

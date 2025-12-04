@@ -37,10 +37,21 @@ func (s *Server) QueryUnifiedSummary(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query summary: %w", err))
 	}
 
-	// Format results as text
+	// Format results as text with source annotations
 	text := "Service Health Summary:\n\n"
 	for _, r := range results {
-		text += fmt.Sprintf("Service: %s, Status: %s\n", r.ServiceName, r.Status)
+		statusIcon := "✅"
+		if r.Status == "degraded" {
+			statusIcon = "⚠️"
+		} else if r.Status == "critical" {
+			statusIcon = "❌"
+		}
+
+		text += fmt.Sprintf("%s %s (%s)\n", statusIcon, r.ServiceName, r.Source)
+		text += fmt.Sprintf("   Status: %s\n", r.Status)
+		text += fmt.Sprintf("   Requests: %d\n", r.RequestCount)
+		text += fmt.Sprintf("   Error Rate: %.2f%%\n", r.ErrorRate)
+		text += fmt.Sprintf("   Avg Latency: %.2fms\n\n", r.AvgLatencyMs)
 	}
 
 	return connect.NewResponse(&colonyv1.QueryUnifiedSummaryResponse{
@@ -76,8 +87,37 @@ func (s *Server) QueryUnifiedTraces(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query traces: %w", err))
 	}
 
-	// Format results as text
-	text := fmt.Sprintf("Found %d spans.\n", len(spans))
+	// Format results as text with source annotations
+	text := fmt.Sprintf("Found %d spans:\n\n", len(spans))
+
+	// Group spans by trace ID for better readability
+	traceGroups := make(map[string][]*agentv1.EbpfTraceSpan)
+	for _, span := range spans {
+		traceGroups[span.TraceId] = append(traceGroups[span.TraceId], span)
+	}
+
+	for traceID, traceSpans := range traceGroups {
+		text += fmt.Sprintf("Trace: %s (%d spans)\n", traceID, len(traceSpans))
+		for _, span := range traceSpans {
+			durationMs := float64(span.DurationUs) / 1000.0
+			sourceIcon := "📍" // Default eBPF
+			if span.ServiceName != "" && len(span.ServiceName) > 6 {
+				if span.ServiceName[len(span.ServiceName)-6:] == "[OTLP]" {
+					sourceIcon = "📊" // OTLP data
+				}
+			}
+
+			text += fmt.Sprintf("  %s %s: %s (%.2fms)\n",
+				sourceIcon, span.ServiceName, span.SpanName, durationMs)
+
+			// Show OTLP attributes if present
+			if source, ok := span.Attributes["source"]; ok && source == "OTLP" {
+				text += fmt.Sprintf("     Aggregated: %s spans, %s errors\n",
+					span.Attributes["total_spans"], span.Attributes["error_count"])
+			}
+		}
+		text += "\n"
+	}
 
 	return connect.NewResponse(&colonyv1.QueryUnifiedTracesResponse{
 		Result: text,
@@ -109,10 +149,32 @@ func (s *Server) QueryUnifiedMetrics(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query metrics: %w", err))
 	}
 
-	// Format results as text
-	text := fmt.Sprintf("Metrics for %s:\n", req.Msg.Service)
+	// Format results as text with source annotations
+	text := fmt.Sprintf("Metrics for %s:\n\n", req.Msg.Service)
+
 	if len(metrics.HttpMetrics) > 0 {
-		text += fmt.Sprintf("HTTP Metrics: %d\n", len(metrics.HttpMetrics))
+		text += "HTTP Metrics:\n"
+		for _, m := range metrics.HttpMetrics {
+			text += fmt.Sprintf("  %s %s %s\n", m.HttpMethod, m.HttpRoute, m.ServiceName)
+			// Calculate percentiles from buckets if available
+			p50, p95, p99 := "-", "-", "-"
+			if len(m.LatencyBuckets) >= 3 {
+				p50 = fmt.Sprintf("%.2fms", m.LatencyBuckets[0])
+				p95 = fmt.Sprintf("%.2fms", m.LatencyBuckets[1])
+				p99 = fmt.Sprintf("%.2fms", m.LatencyBuckets[2])
+			}
+			text += fmt.Sprintf("    Requests: %d | P50: %s | P95: %s | P99: %s\n",
+				m.RequestCount, p50, p95, p99)
+		}
+		text += "\n"
+	}
+
+	if len(metrics.GrpcMetrics) > 0 {
+		text += fmt.Sprintf("gRPC Metrics: %d\n", len(metrics.GrpcMetrics))
+	}
+
+	if len(metrics.SqlMetrics) > 0 {
+		text += fmt.Sprintf("SQL Metrics: %d\n", len(metrics.SqlMetrics))
 	}
 
 	return connect.NewResponse(&colonyv1.QueryUnifiedMetricsResponse{
