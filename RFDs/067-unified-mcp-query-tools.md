@@ -1,600 +1,533 @@
 ---
 rfd: "067"
-title: "Unified MCP Query Tools for LLM Efficiency"
+title: "Unified Query Interface for Observability"
 state: "draft"
-breaking_changes: false
+breaking_changes: true
 testing_required: true
 database_changes: false
 api_changes: true
 dependencies: [ "035", "032", "025", "004" ]
 database_migrations: [ ]
-areas: [ "mcp", "observability", "llm", "query" ]
+areas: [ "mcp", "cli", "observability", "llm", "query" ]
 ---
 
-# RFD 067 - Unified MCP Query Tools for LLM Efficiency
+# RFD 067 - Unified Query Interface for Observability
 
 **Status:** 🚧 Draft
 
 ## Summary
 
-Introduce unified MCP query tools that abstract data sources (eBPF vs OTLP) to
-optimize LLM efficiency during root cause analysis. Following a "plumbing vs
-porcelain" architecture (similar to git), protocol-specific tools remain
-available for advanced users while new unified tools (`coral_query_metrics`,
-`coral_query_traces`) provide simplified interfaces for AI-driven investigation.
-Additionally, standardize naming from "beyla" to "ebpf" to better represent
-capabilities rather than implementation details.
+Introduce a unified query interface for both MCP tools and CLI commands that
+combines data from multiple sources (eBPF and OTLP) by default. Replace 7+
+source-specific tools with 4 unified tools that use filters for precision.
+Prioritize simplicity and diagnostic efficiency over architectural separation,
+with a summary-first workflow for quick health assessment.
 
 ## Problem
 
-**Current behavior/limitations:**
+**Current Limitations:**
 
-- **Tool proliferation**: 6+ separate MCP query tools exist (HTTP/gRPC/SQL
-  metrics × eBPF/OTLP sources), plus trace-specific tools
-- **LLM cognitive overhead**: AI assistants must understand data source
-  differences (eBPF vs OTLP) and choose the appropriate tool for each query
-- **Suboptimal RCA workflow**: During root cause analysis, LLMs query eBPF
-  metrics separately from OTLP metrics, missing the unified view operators need
-- **Naming confusion**: Tools use "beyla" (the Grafana implementation) rather
-  than "ebpf" (the capability), leaking implementation details into the API
-- **Incomplete coverage**: Querying only eBPF misses instrumented service
-  details; querying only OTLP misses uninstrumented service data
+- **Tool proliferation**: 7+ separate MCP tools for different combinations of
+  data sources and protocols
+- **CLI fragmentation**: Separate `coral query ebpf` and planned
+  `coral query telemetry` commands
+- **LLM inefficiency**: AI assistants must choose between multiple tools and
+  manually correlate results
+- **Incomplete diagnostics**: Querying one source misses data from other sources
+- **Cognitive overhead**: Users must remember which command/tool queries which
+  data source
+- **No quick health check**: No way to get immediate overview of service health
 
-**Why this matters:**
+**Why This Matters:**
 
-- **Investigation efficiency**: LLMs spend extra tokens and time selecting tools
-  and correlating results from multiple sources
-- **User experience**: Users asking "show me HTTP metrics" shouldn't need to
-  specify data source
-- **Maintainability**: Adding new data sources (e.g., service mesh sidecars)
-  requires updating LLM prompts to select yet another tool
-- **Accuracy**: Unified views prevent incomplete analysis when data exists in
-  multiple sources
+- **Diagnostic speed**: Operators need complete picture immediately, not after
+  multiple queries
+- **LLM context size**: Fewer tools = smaller context = more efficient analysis
+- **User experience**: "Show me traces" shouldn't require specifying data source
+- **Accuracy**: Unified views prevent incomplete analysis from missing data
 
-**Use cases affected:**
+**Use Cases Affected:**
 
-- "Why is the API slow?" → LLM must query eBPF metrics, then OTLP metrics, then
-  correlate
-- "Find slow traces" → LLM must choose between eBPF traces and OTLP spans,
-  potentially missing data
-- "Compare HTTP latency before/after deploy" → Must query both sources
-  independently
-- "Debug uninstrumented service" → Must remember to use eBPF-specific tools
+- "Why is the API slow?" → Currently requires querying eBPF metrics, OTLP
+  metrics, eBPF traces, OTLP spans separately
+- "Is anything broken?" → No quick health check command
+- "Find slow traces" → Must query both eBPF and OTLP separately, potentially
+  missing data
+- "Debug uninstrumented service" → Must remember to use eBPF-specific commands
 
 ## Solution
 
-Create a two-tier MCP tool architecture inspired by git's plumbing vs porcelain
-design:
+### Core Principle: Simplicity for Diagnostics
 
-**Plumbing tools** (protocol-specific, source-specific):
+Coral is a diagnostic tool. The default should always show the complete picture
+with all available data. Filters allow narrowing down for specific scenarios,
+but complexity is opt-in, not opt-out.
 
-- Low-level, precise tools for advanced users
-- Examples: `coral_query_ebpf_http_metrics`, `coral_query_telemetry_spans`
-- Remain available but deprioritized for LLM consumption
+**Design Decisions:**
 
-**Porcelain tools** (unified, source-agnostic):
+1. **Unified tools only** - No "plumbing" vs "porcelain" separation
+2. **Default to all sources** - Always query eBPF + OTLP unless filtered
+3. **Fewer tools = better** - 4 tools instead of 7+ reduces cognitive load
+4. **Summary-first workflow** - Quick health check before diving into details
+5. **Source transparency** - Always annotate data origin in output
 
-- High-level, LLM-optimized tools for common workflows
-- Examples: `coral_query_metrics`, `coral_query_traces`
-- Automatically query both eBPF and OTLP, merge results, annotate sources
+### Unified Interface Design
 
-**Key Design Decisions:**
+#### MCP Tools
 
-1. **Unified tool design**: Single `coral_query_metrics` tool accepts union of
-   all protocol parameters (HTTP, gRPC, SQL), routes to appropriate backends
-2. **Automatic source merging**: Query both eBPF and OTLP in parallel without
-   exposing `source` parameter to LLMs
-3. **Source annotation**: Results clearly indicate data origin (`[eBPF]`,
-   `[OTLP]`) for transparency
-4. **Protocol auto-detection**: `protocol: "auto"` returns all available
-   metrics; specific protocol values filter accordingly
-5. **Naming standardization**: Rename "beyla" → "ebpf" to abstract
-   implementation details and improve clarity
-
-**Benefits:**
-
-- **Reduced LLM token usage**: Single tool call instead of multiple
-  source-specific calls
-- **Improved analysis accuracy**: Unified view prevents missing data from either
-  source
-- **Simpler mental model**: LLMs think about protocols (HTTP, gRPC) not data
-  sources (eBPF, OTLP)
-- **Future-proof**: Adding new data sources doesn't change LLM-facing API
-- **Better naming**: "ebpf" describes what it does, "beyla" describes how it's
-  implemented
-
-**Architecture Overview:**
+**Current (7+ tools):**
 
 ```
-LLM makes single query:
-  coral_query_metrics(service="api", protocol="http", time_range="1h")
-          ↓
-    Unified Handler
-          ↓
-    ┌─────────┴─────────┐
-    ↓                   ↓
-eBPF Backend      OTLP Backend
-(plumbing tool)   (plumbing tool)
-    ↓                   ↓
-QueryEBPFHTTP()   QueryTelemetryMetrics()
-    ↓                   ↓
-    └─────────┬─────────┘
-              ↓
-        Merge Results
-    (union by route, annotate)
-              ↓
-      Format & Return
-   "HTTP Metrics [eBPF]: ...
-    HTTP Metrics [OTLP]: ..."
+coral_query_beyla_http_metrics
+coral_query_beyla_grpc_metrics
+coral_query_beyla_sql_metrics
+coral_query_beyla_traces
+coral_query_telemetry_spans
+coral_query_telemetry_metrics
+coral_query_telemetry_logs
 ```
 
-### Component Changes
+**New (4 unified tools):**
+```
+coral_query_summary   → Health overview with anomaly detection
+coral_query_traces    → All traces (eBPF + OTLP), optional filters
+coral_query_metrics   → All metrics (eBPF + OTLP), optional filters
+coral_query_logs      → All logs (OTLP)
+```
 
-#### 1. Naming Standardization (Phase 1)
+#### CLI Commands
 
-**MCP Tools** (`internal/colony/mcp/tools_observability.go`):
-
-- Rename all "beyla" tool names to "ebpf" to reflect capability rather than implementation
-- Update tool descriptions to reference "eBPF-based metrics" instead of "Beyla metrics"
-- Mark renamed tools as "Advanced" and recommend unified tools for most use cases
-
-**Type Definitions** (`internal/colony/mcp/types.go`):
-
-- Rename input structs from `Beyla*Input` to `EBPF*Input` for consistency
-- Update struct documentation to use "eBPF" terminology
-
-**Tool Registration** (`internal/colony/mcp/server.go`):
-
-- Update tool registration to use new naming convention
-- Add tool categorization (plumbing vs porcelain) in descriptions
-
-#### 2. Unified Metrics Tool (Phase 2)
-
-**New Tool: `coral_query_metrics`**
-
-A unified metrics query tool that:
-
-- Accepts union of all protocol parameters (HTTP, gRPC, SQL)
-- Automatically queries both eBPF and OTLP sources in parallel
-- Merges results by route/method and annotates with data source
-- Supports protocol auto-detection or specific protocol filtering
-
-**Key capabilities:**
-
-- Protocol routing: Routes queries to appropriate backends based on protocol parameter
-- Source merging: Combines eBPF and OTLP results into unified view
-- Source annotation: Clearly marks data origin ([eBPF], [OTLP]) for transparency
-- Graceful degradation: Works with single source if other is unavailable
-
-#### 3. Unified Traces Tool (Phase 3)
-
-**New Tool: `coral_query_traces`**
-
-A unified trace query tool that:
-
-- Queries both eBPF traces and OTLP spans
-- Builds unified span tree by merging trace_id and span_id
-- Deduplicates spans (prefers OTLP for richer attributes)
-- Annotates each span with its data source
-
-**Key capabilities:**
-
-- Parallel querying: Fetches from both sources simultaneously
-- Span tree merging: Combines spans into coherent trace hierarchy
-- Smart deduplication: Keeps OTLP spans when available, falls back to eBPF
-- Source transparency: Annotates each span with [eBPF] or [OTLP] tag
-
-### Configuration Example
-
-MCP tool usage via `coral ask`:
-
+**Current:**
 ```bash
-# Unified metrics query (recommended for LLMs)
-coral ask "What's the HTTP error rate for the API service?"
-# → Uses coral_query_metrics internally
-# → Returns merged eBPF + OTLP results
-
-# Unified trace query (recommended for LLMs)
-coral ask "Show me slow traces for checkout"
-# → Uses coral_query_traces internally
-# → Returns merged eBPF + OTLP span tree
-
-# Advanced: Protocol-specific query (power users)
-# LLM can still use plumbing tools if explicitly needed
-coral ask "Show me only eBPF HTTP metrics for API"
-# → Uses coral_query_ebpf_http_metrics directly
+coral query ebpf http --service api
+coral query ebpf traces --service api
+coral query telemetry spans --service api  # Planned
 ```
 
-CLI command mapping (from RFD 035):
-
+**New:**
 ```bash
-# CLI remains protocol-specific
-coral query ebpf http api --since 1h
-coral query telemetry spans api --since 1h
+# Summary-first workflow
+coral query summary --service api
 
-# MCP tools provide unified layer
-# (CLI may adopt unified commands in future RFD)
+# Detailed queries with unified data
+coral query traces --service api
+coral query metrics --service api
+
+# Filters for precision
+coral query traces --source ebpf
+coral query metrics --protocol http --source telemetry
 ```
 
-## Implementation Plan
+### Tool Specifications
 
-### Phase 1: Rename Beyla → eBPF
+#### 1. coral_query_summary
 
-- [ ] Rename tool registration functions and tool names
-- [ ] Rename input structs in type definitions
-- [ ] Update tool descriptions to reference "eBPF" instead of "Beyla"
-- [ ] Update server registration calls
-- [ ] Run `make test` to verify no breakage
+**Purpose:** First-line diagnostic tool providing intelligent health overview.
 
-### Phase 2: Implement Unified Metrics Tool
-
-- [ ] Create unified metrics input struct with union schema
-- [ ] Implement unified metrics tool registration
-- [ ] Add protocol routing logic (auto, http, grpc, sql)
-- [ ] Implement parallel querying of eBPF and OTLP sources
-- [ ] Implement result merging logic (union by route/method)
-- [ ] Add source annotations to output format
-- [ ] Write unit tests for protocol routing and result merging
-- [ ] Add integration test for merged output
-
-### Phase 3: Implement Unified Traces Tool
-
-- [ ] Create unified traces input struct
-- [ ] Implement unified traces tool registration
-- [ ] Implement parallel querying of eBPF and OTLP sources
-- [ ] Implement span tree merging by trace_id
-- [ ] Implement span deduplication logic (prefer OTLP)
-- [ ] Add source annotations to span output
-- [ ] Write unit tests for span tree building and deduplication
-- [ ] Add integration test for merged span trees
-
-### Phase 4: Tool Prioritization & Documentation
-
-- [ ] Update unified tool descriptions: Mark as "Recommended"
-- [ ] Update plumbing tool descriptions: Mark as "Advanced"
-- [ ] Add usage examples to tool descriptions
-- [ ] Update RFD 035 to use "ebpf" terminology throughout
-- [ ] Update `docs/CLI_MCP_MAPPING.md` with ebpf tool names
-- [ ] Add unified tools section to CLI_MCP_MAPPING
-- [ ] Document migration path for old "beyla" names
-
-### Phase 5: Testing & Validation
-
-- [ ] Manual test: Query metrics with protocol="auto"
-- [ ] Manual test: Query metrics with protocol="http"
-- [ ] Manual test: Query traces from mixed sources
-- [ ] Verify source annotations appear correctly
-- [ ] Test with missing eBPF data (OTLP only)
-- [ ] Test with missing OTLP data (eBPF only)
-- [ ] Validate schema generation for union input
-- [ ] Run full integration test suite
-
-
-## API Changes
-
-### New MCP Tools
-
-#### `coral_query_metrics`
-
-**Description:** Recommended tool for querying service metrics from both eBPF
-and OTLP sources. Returns unified view with source annotations.
+**What it shows:**
+- Service health status (✅ Healthy, ⚠️ Degraded, ❌ Critical)
+- Error rate trends (elevated errors, increasing rates)
+- Latency issues (P95/P99 spikes)
+- Recent error logs (last 5 minutes)
+- Slowest traces with bottleneck identification
+- Traffic anomalies (sudden increases/decreases)
 
 **Input Parameters:**
-
 ```json
 {
-    "service": "api",
-    "time_range": "1h",
-    "protocol": "auto",
-    "http_route": "/api/payments",
-    "http_method": "GET",
-    "status_code_range": "5xx"
+  "service": "api",           // Optional: specific service or all services
+  "time_range": "5m"          // Default: 5 minutes
 }
 ```
 
 **Example Output:**
-
 ```
-Metrics for service 'api' (last 1h):
+Service Health Summary (last 5m)
 
-HTTP Metrics [eBPF]:
-Route: /api/payments (GET), Requests: 1,234, P50: 23ms, P95: 45ms, P99: 89ms, Errors: 2.1%
-Route: /api/checkout (POST), Requests: 567, P50: 34ms, P95: 67ms, P99: 120ms, Errors: 0.5%
+┌─────────────────┬────────┬──────────┬─────────┬──────────┐
+│ Service         │ Status │ Requests │ Errors  │ P95      │
+├─────────────────┼────────┼──────────┼─────────┼──────────┤
+│ api-gateway     │ ✅     │ 12.5k    │ 0.2%    │ 45ms     │
+│ payment-service │ ⚠️      │ 3.2k     │ 2.8% ⬆  │ 234ms ⬆  │
+│ auth-service    │ ✅     │ 8.1k     │ 0.1%    │ 12ms     │
+└─────────────────┴────────┴──────────┴─────────┴──────────┘
 
-HTTP Metrics [OTLP]:
-Route: /api/payments (GET), Requests: 1,200, P50: 24ms, P95: 46ms, P99: 90ms, Errors: 2.0%
-(Note: OTLP data may differ from eBPF due to sampling)
+⚠️ Issues Detected:
 
-Analysis: 2.1% error rate detected on /api/payments endpoint.
+[payment-service]
+• Error rate elevated: 2.8% (baseline: 0.5%)
+• P95 latency spike: 234ms (baseline: 89ms)
+• Recent errors (3):
+  - [OTLP] 21:14:32 ERROR: Database connection timeout
+  - [eBPF] 21:14:28 ERROR: HTTP 503 from /api/charge
+  - [OTLP] 21:14:15 ERROR: Payment gateway unavailable
+
+• Slowest trace: trace_abc123 (1,234ms)
+  └─ Bottleneck: database query took 850ms (69% of total)
 ```
 
-#### `coral_query_traces`
+**Data Sources:**
+- eBPF metrics + OTLP metrics for request/error rates
+- OTLP logs for recent errors
+- eBPF traces + OTLP spans for slow trace identification
 
-**Description:** Recommended tool for querying distributed traces from both eBPF
-and OTLP sources. Returns unified span tree.
+#### 2. coral_query_traces
+
+**Purpose:** Query distributed traces from all sources with optional filtering.
 
 **Input Parameters:**
-
 ```json
 {
-    "service": "api",
-    "time_range": "1h",
-    "min_duration_ms": 500,
-    "max_traces": 10
+  "service": "api",
+  "time_range": "1h",
+  "source": "all",           // Optional: ebpf|telemetry|all (default: all)
+  "trace_id": "abc123...",   // Optional: specific trace
+  "min_duration_ms": 500,    // Optional: filter slow traces
+  "max_traces": 10
 }
 ```
 
 **Example Output:**
-
 ```
-Slow Traces for service 'api' (>500ms):
+Traces for service 'api' (last 1h):
 
-Trace: abc123def456 (Duration: 1,234ms, Start: 2025-12-02T10:30:15Z)
+Trace: abc123def456 (Duration: 1,234ms)
 ├─ [OTLP] api-gateway: GET /api/payments (1,234ms)
 │  ├─ [eBPF] payment-service: ProcessPayment (800ms)
 │  │  ├─ [OTLP] fraud-service: CheckFraud (300ms)
 │  │  └─ [eBPF] database: SELECT payments (450ms) ← SLOW
 │  └─ [OTLP] notification-service: SendEmail (200ms)
 
-Trace: def789ghi012 (Duration: 890ms, Start: 2025-12-02T10:31:22Z)
+Trace: def789ghi012 (Duration: 890ms)
 ├─ [eBPF] api-gateway: POST /api/checkout (890ms)
    └─ [eBPF] payment-service: Charge (850ms) ← SLOW
-      └─ [eBPF] external-api: ChargeCard (820ms)
-
-Analysis: Database query and external API calls are primary bottlenecks.
 ```
 
-### Renamed MCP Tools
+**Features:**
+- Merges eBPF and OTLP spans into unified tree
+- Deduplicates spans (prefers OTLP for richer attributes)
+- Annotates each span with source ([eBPF] or [OTLP])
+- Identifies bottlenecks automatically
 
-| Old Name                         | New Name                        | Status             |
-|----------------------------------|---------------------------------|--------------------|
-| `coral_query_beyla_http_metrics` | `coral_query_ebpf_http_metrics` | Renamed (plumbing) |
-| `coral_query_beyla_grpc_metrics` | `coral_query_ebpf_grpc_metrics` | Renamed (plumbing) |
-| `coral_query_beyla_sql_metrics`  | `coral_query_ebpf_sql_metrics`  | Renamed (plumbing) |
-| `coral_query_beyla_traces`       | `coral_query_ebpf_traces`       | Renamed (plumbing) |
+#### 3. coral_query_metrics
 
-**Migration:** Old tool names deprecated but remain functional for 3 months,
-then removed.
+**Purpose:** Query service metrics from all sources with optional filtering.
+
+**Input Parameters:**
+```json
+{
+  "service": "api",
+  "time_range": "1h",
+  "source": "all",              // Optional: ebpf|telemetry|all (default: all)
+  "protocol": "auto",           // Optional: http|grpc|sql|auto (default: auto)
+  "http_route": "/api/v1/*",    // Optional: HTTP-specific filter
+  "http_method": "GET",         // Optional: HTTP-specific filter
+  "status_code_range": "5xx"    // Optional: HTTP-specific filter
+}
+```
+
+**Example Output:**
+```
+Metrics for service 'api' (last 1h):
+
+HTTP Metrics [eBPF]:
+Route: /api/payments (GET)
+  Requests: 1,234 | P50: 23ms | P95: 45ms | P99: 89ms | Errors: 2.1%
+
+HTTP Metrics [OTLP]:
+Route: /api/payments (GET)
+  Requests: 1,200 | P50: 24ms | P95: 46ms | P99: 90ms | Errors: 2.0%
+  (Note: OTLP data may differ due to sampling)
+
+Analysis: 2.1% error rate detected on /api/payments endpoint.
+```
+
+**Features:**
+- Queries both eBPF and OTLP metrics
+- Supports all protocols (HTTP, gRPC, SQL)
+- Protocol auto-detection or specific filtering
+- Source annotations for transparency
+
+#### 4. coral_query_logs
+
+**Purpose:** Query application logs from OTLP.
+
+**Input Parameters:**
+```json
+{
+  "service": "api",
+  "time_range": "1h",
+  "level": "error",            // Optional: debug|info|warn|error
+  "search": "timeout",         // Optional: full-text search
+  "max_logs": 100
+}
+```
+
+**Example Output:**
+```
+Logs for service 'api' (last 1h, level: error):
+
+[2025-12-03 21:14:32] ERROR: Database connection timeout
+  service: payment-service
+  trace_id: abc123def456
+
+[2025-12-03 21:14:15] ERROR: Payment gateway unavailable
+  service: payment-service
+  error_code: 503
+```
+
+### CLI Command Structure
+
+```
+coral query
+├── summary [service]          # Quick health overview
+│   ├── --since <duration>     (default: 5m)
+│   └── --format <table|json>
+│
+├── traces [service]           # Distributed traces
+│   ├── --source <ebpf|telemetry|all>  (default: all)
+│   ├── --trace-id <id>
+│   ├── --min-duration <ms>
+│   ├── --since <duration>
+│   └── --format <table|json|csv|tree>
+│
+├── metrics [service]          # Service metrics
+│   ├── --source <ebpf|telemetry|all>  (default: all)
+│   ├── --protocol <http|grpc|sql|auto>  (default: auto)
+│   ├── --route <pattern>
+│   ├── --method <GET|POST|...>
+│   ├── --since <duration>
+│   └── --format <table|json|csv>
+│
+└── logs [service]             # Application logs
+    ├── --level <debug|info|warn|error>
+    ├── --search <text>
+    ├── --since <duration>
+    └── --format <table|json|csv>
+```
+
+### Workflow Examples
+
+#### Diagnostic Workflow (Recommended)
+
+```bash
+# Step 1: Quick health check
+coral query summary
+
+# Step 2: If issues detected, dive into specifics
+coral query traces --service payment-service --min-duration 500ms
+coral query metrics --service payment-service --protocol http
+coral query logs --service payment-service --level error
+```
+
+#### LLM Workflow
+
+```
+User: "Why is the payment service slow?"
+
+LLM uses coral_query_summary:
+  → Detects elevated latency and error rate
+  → Shows recent errors and slow traces
+  → Identifies database bottleneck
+
+LLM uses coral_query_traces:
+  → Gets detailed trace tree
+  → Confirms database query is bottleneck (850ms)
+
+LLM response: "The payment service is slow because database queries
+are taking 850ms (69% of total request time). Recent errors show
+'Database connection timeout' suggesting connection pool exhaustion."
+```
+
+## Implementation Plan
+
+### Phase 1: Backend Preparation
+
+- [ ] Add unified query methods to `ebpf_service.go`
+- [ ] Implement result merging logic (eBPF + OTLP)
+- [ ] Add source annotation helpers
+- [ ] Implement anomaly detection for summary
+
+### Phase 2: MCP Tools
+
+- [ ] Remove all 7+ source-specific MCP tools
+- [ ] Implement `coral_query_summary` tool
+- [ ] Implement `coral_query_traces` tool
+- [ ] Implement `coral_query_metrics` tool
+- [ ] Rename `coral_query_telemetry_logs` to `coral_query_logs`
+- [ ] Update tool descriptions and schemas
+
+### Phase 3: CLI Commands
+
+- [ ] Delete `internal/cli/query/ebpf/` directory
+- [ ] Implement `internal/cli/query/summary.go`
+- [ ] Implement `internal/cli/query/traces.go`
+- [ ] Implement `internal/cli/query/metrics.go`
+- [ ] Implement `internal/cli/query/logs.go`
+- [ ] Update `internal/cli/query/root.go`
+
+### Phase 4: Testing & Documentation
+
+- [ ] Write unit tests for unified commands
+- [ ] Write integration tests for source merging
+- [ ] Update `docs/CLI_MCP_MAPPING.md`
+- [ ] Update RFD 035 references
+- [ ] Manual testing with real services
+
+## API Changes
+
+### Breaking Changes
+
+> [!WARNING]
+> **Breaking Changes**: This RFD removes all source-specific MCP tools and CLI
+> commands.
+>
+> Since Coral is experimental, no migration period is provided.
+
+**Removed MCP Tools:**
+- `coral_query_beyla_http_metrics`
+- `coral_query_beyla_grpc_metrics`
+- `coral_query_beyla_sql_metrics`
+- `coral_query_beyla_traces`
+- `coral_query_telemetry_spans`
+- `coral_query_telemetry_metrics`
+- `coral_query_telemetry_logs`
+
+**Removed CLI Commands:**
+- `coral query ebpf http`
+- `coral query ebpf grpc`
+- `coral query ebpf sql`
+- `coral query ebpf traces`
+
+**Added MCP Tools:**
+- `coral_query_summary`
+- `coral_query_traces`
+- `coral_query_metrics`
+- `coral_query_logs`
+
+**Added CLI Commands:**
+- `coral query summary`
+- `coral query traces`
+- `coral query metrics`
+- `coral query logs`
 
 ## Testing Strategy
 
 ### Unit Tests
 
-**Protocol routing tests** (`tools_unified_test.go`):
+**Summary command:**
+- Anomaly detection logic (error rate spikes, latency increases)
+- Health status calculation
+- Recent error aggregation
+- Slow trace identification
 
-- Parse `protocol: "auto"` → queries all protocols
-- Parse `protocol: "http"` → queries only HTTP
-- Parse `protocol: "grpc"` → queries only gRPC
-- Parse `protocol: "sql"` → queries only SQL
-- Invalid protocol value → returns error
+**Traces command:**
+- Source filter parsing
+- Span tree merging (eBPF + OTLP)
+- Span deduplication
+- Source annotation
 
-**Result merging tests**:
-
-- Merge eBPF + OTLP metrics with same routes → union both
-- Merge eBPF-only metrics → includes eBPF data only
-- Merge OTLP-only metrics → includes OTLP data only
-- Merge empty results → returns "No data found"
-
-**Span tree merging tests**:
-
-- Merge spans with same trace_id → unified tree
-- Deduplicate spans with same span_id → prefer OTLP
-- Merge disjoint span sets → all spans included
-- Annotate spans correctly → [eBPF] or [OTLP] labels
+**Metrics command:**
+- Protocol filter parsing
+- Source filter parsing
+- Result merging by route/method
+- Source annotation
 
 ### Integration Tests
 
-**End-to-end unified metrics query**:
+**End-to-end summary:**
+1. Insert mixed eBPF and OTLP data with anomalies
+2. Call `coral_query_summary`
+3. Verify anomalies detected
+4. Verify slow traces identified
+5. Verify recent errors shown
 
-1. Insert eBPF HTTP metrics into DuckDB
-2. Insert OTLP HTTP metrics into DuckDB
-3. Call `coral_query_metrics(service="test", protocol="http")`
-4. Verify output contains both eBPF and OTLP sections
-5. Verify source annotations correct
+**End-to-end traces:**
+1. Insert eBPF and OTLP spans for same trace
+2. Call `coral_query_traces`
+3. Verify unified span tree
+4. Verify source annotations
+5. Verify deduplication
 
-**End-to-end unified traces query**:
-
-1. Insert eBPF trace spans into DuckDB
-2. Insert OTLP trace spans into DuckDB (overlapping trace_id)
-3. Call `coral_query_traces(service="test")`
-4. Verify unified span tree built correctly
-5. Verify duplicates deduplicated (OTLP preferred)
-6. Verify source annotations correct
-
-**Missing source handling**:
-
-- Query with eBPF data but no OTLP → succeeds, shows only eBPF
-- Query with OTLP data but no eBPF → succeeds, shows only OTLP
-- Query with no data in either → returns "No metrics found"
+**End-to-end metrics:**
+1. Insert eBPF and OTLP metrics for same service
+2. Call `coral_query_metrics`
+3. Verify both sources shown
+4. Verify source annotations
+5. Verify protocol filtering
 
 ### Manual Testing
 
-- Query real production service with both eBPF and OTLP data
-- Verify merged view makes sense to human operator
-- Test with `coral ask` natural language queries
-- Verify LLM selects unified tools over plumbing tools
-- Test edge cases: services with only eBPF, only OTLP
+- Test summary with real multi-service deployment
+- Verify anomaly detection accuracy
+- Test trace merging with overlapping eBPF/OTLP data
+- Verify LLM workflow efficiency
+- Test all output formats (table, json, csv, tree)
 
 ## Migration Strategy
 
-Since the project is still experimental, we won't worry about breaking changes
-and migration strategy. Tools will be renamed.
+Since Coral is experimental, breaking changes are acceptable:
+
+1. **Remove old tools/commands** - Delete all source-specific implementations
+2. **Add unified tools/commands** - Implement 4 new unified tools
+3. **Update documentation** - Update all references to use new commands
+4. **No backward compatibility** - Clean break for simplicity
 
 ## Future Enhancements
 
-### Phase 6: Advanced Merging Strategies (Future)
+### Advanced Anomaly Detection
 
-- **Correlation by tags**: Match eBPF and OTLP data by service.name,
-  deployment.environment
-- **Sampling awareness**: Adjust eBPF data when OTLP uses sampling
-- **Anomaly detection**: Highlight discrepancies between eBPF and OTLP metrics
-- **Performance optimization**: Cache merged results for repeated queries
+- Machine learning-based baseline detection
+- Seasonal pattern recognition
+- Cross-service correlation
 
-### Phase 7: Unified CLI Commands (Future - separate RFD)
-
-Extend CLI to support unified queries:
+### Advanced Filtering
 
 ```bash
-coral query metrics api --protocol http --since 1h
-# → Queries both eBPF and OTLP, shows merged view
-
-coral query traces api --min-duration 500ms
-# → Queries both eBPF and OTLP, shows unified span tree
+coral query traces --error-only
+coral query metrics --p95-gt 100ms
+coral query summary --critical-only
 ```
 
-Currently CLI remains protocol-specific (`coral query ebpf`,
-`coral query telemetry`) - unified commands require separate RFD to design CLI
-UX.
+### Cross-Source Correlation
 
-### Phase 8: Additional Data Sources (Future)
+Automatically detect discrepancies between eBPF and OTLP:
+```bash
+coral query metrics --correlate
+# Shows: "eBPF reports 2.8% errors, OTLP reports 2.0% - possible sampling issue"
+```
 
-Support for additional observability backends:
+### Performance Optimization
 
-- Service mesh sidecars (Envoy, Istio)
-- APM agents (Datadog, New Relic exporters)
-- Custom exporters (Prometheus, StatsD)
-
-Unified tools abstract source complexity, making integration seamless.
+- Cache merged results for repeated queries
+- Parallel source querying
+- Result streaming for large datasets
 
 ## Appendix
 
-### Implementation Details
+### Benefits Summary
 
-This section contains detailed implementation examples for reference during development.
+| Aspect                  | Before                  | After                 |
+|-------------------------|-------------------------|-----------------------|
+| **MCP Tools**           | 7+ tools                | 4 tools               |
+| **LLM Context**         | Large                   | Small (57% reduction) |
+| **Decision Complexity** | High                    | Low                   |
+| **Data Completeness**   | Partial                 | Complete              |
+| **CLI Commands**        | Source-specific         | Data-type-specific    |
+| **Cognitive Load**      | High                    | Low                   |
+| **Diagnostic Speed**    | Slow (multiple queries) | Fast (one query)      |
+| **Health Check**        | None                    | Summary command       |
 
-#### Unified Metrics Input Struct
+### Design Rationale
 
-```go
-// UnifiedMetricsInput is the input for coral_query_metrics.
-// This tool queries both eBPF and OTLP sources automatically.
-type UnifiedMetricsInput struct {
-    Service         string  `json:"service" jsonschema:"description=Service name (required)"`
-    TimeRange       *string `json:"time_range,omitempty" jsonschema:"description=Time range (e.g. '1h' '30m' '24h'),default=1h"`
-    Protocol        *string `json:"protocol,omitempty" jsonschema:"description=Protocol to query (auto queries all),enum=auto,enum=http,enum=grpc,enum=sql,default=auto"`
+**Why default to all sources?**
+- Diagnostic efficiency: complete picture by default
+- Prevents incomplete analysis from missing data
+- Filters available when precision needed
+- Aligns with Coral's purpose as diagnostic tool
 
-    // HTTP-specific parameters
-    HTTPRoute       *string `json:"http_route,omitempty" jsonschema:"description=Optional: Filter by HTTP route pattern (e.g. '/api/v1/users/:id')"`
-    HTTPMethod      *string `json:"http_method,omitempty" jsonschema:"description=Optional: Filter by HTTP method,enum=GET,enum=POST,enum=PUT,enum=DELETE,enum=PATCH"`
-    StatusCodeRange *string `json:"status_code_range,omitempty" jsonschema:"description=Optional: Filter by status code range,enum=2xx,enum=3xx,enum=4xx,enum=5xx"`
-
-    // gRPC-specific parameters
-    GRPCMethod      *string `json:"grpc_method,omitempty" jsonschema:"description=Optional: Filter by gRPC method (e.g. '/payments.PaymentService/Charge')"`
-    GRPCStatusCode  *int    `json:"grpc_status_code,omitempty" jsonschema:"description=Optional: Filter by gRPC status code (0=OK 1=CANCELLED etc.)"`
-
-    // SQL-specific parameters
-    SQLOperation    *string `json:"sql_operation,omitempty" jsonschema:"description=Optional: Filter by SQL operation,enum=SELECT,enum=INSERT,enum=UPDATE,enum=DELETE"`
-    TableName       *string `json:"table_name,omitempty" jsonschema:"description=Optional: Filter by table name"`
-}
-```
-
-#### Unified Traces Input Struct
-
-```go
-// UnifiedTracesInput is the input for coral_query_traces.
-// This tool queries both eBPF and OTLP sources and builds a unified span tree.
-type UnifiedTracesInput struct {
-    TraceID       *string `json:"trace_id,omitempty" jsonschema:"description=Specific trace ID (32-char hex string)"`
-    Service       *string `json:"service,omitempty" jsonschema:"description=Filter traces involving this service"`
-    TimeRange     *string `json:"time_range,omitempty" jsonschema:"description=Time range (e.g. '1h' '30m' '24h'),default=1h"`
-    MinDurationMs *int    `json:"min_duration_ms,omitempty" jsonschema:"description=Optional: Only return traces longer than this duration (milliseconds)"`
-    MaxTraces     *int    `json:"max_traces,omitempty" jsonschema:"description=Maximum number of traces to return,default=10"`
-}
-```
-
-#### Unified Metrics Tool Registration
-
-```go
-func (s *Server) registerUnifiedMetricsTool() {
-    if !s.isToolEnabled("coral_query_metrics") {
-        return
-    }
-
-    tool := mcp.NewToolWithRawSchema(
-        "coral_query_metrics",
-        "Recommended: Query service metrics (HTTP/gRPC/SQL) from both eBPF and OTLP sources. Returns unified view with source annotations. Use this for efficient root cause analysis.",
-        schemaBytes,
-    )
-
-    s.mcpServer.AddTool(tool, func (ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-        // 1. Parse input
-        // 2. Determine protocol(s) to query
-        // 3. Query eBPF backend (call existing plumbing tools)
-        // 4. Query OTLP backend (call existing plumbing tools)
-        // 5. Merge results by protocol/route
-        // 6. Format with source annotations
-        // 7. Return unified result
-    })
-}
-```
-
-#### Unified Traces Tool Registration
-
-```go
-func (s *Server) registerUnifiedTracesTool() {
-    if !s.isToolEnabled("coral_query_traces") {
-        return
-    }
-
-    tool := mcp.NewToolWithRawSchema(
-        "coral_query_traces",
-        "Recommended: Query distributed traces from both eBPF and OTLP sources. Returns unified span tree with source annotations. Use this for distributed tracing analysis.",
-        schemaBytes,
-    )
-
-    s.mcpServer.AddTool(tool, func (ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-        // 1. Parse input
-        // 2. Query eBPF traces (call existing plumbing tool)
-        // 3. Query OTLP spans (call existing plumbing tool)
-        // 4. Merge span trees by trace_id/span_id
-        // 5. Deduplicate spans (prefer OTLP, keep eBPF if no OTLP)
-        // 6. Format with [eBPF] or [OTLP] annotations
-        // 7. Return unified span tree
-    })
-}
-```
-
-### Plumbing vs Porcelain Philosophy
-
-**Inspiration: Git's two-tier design**
-
-Git separates low-level plumbing commands (`git hash-object`, `git write-tree`)
-from high-level porcelain commands (`git commit`, `git push`). Power users can
-access plumbing for precise control, while most users benefit from porcelain's
-simplicity.
-
-**Application to Coral MCP tools:**
-
-- **Plumbing**: Protocol-specific, source-specific tools for precise queries
-    - Use case: "Give me exact eBPF HTTP metrics without OTLP correlation"
-    - Users: Advanced operators, debugging tool developers
-
-- **Porcelain**: Unified tools optimized for common workflows
-    - Use case: "Show me all HTTP metrics for this service"
-    - Users: LLMs, operators during incident response
-
-**Benefits:**
-
-- **Flexibility**: Experts aren't constrained by high-level abstractions
-- **Simplicity**: LLMs and casual users get straightforward interfaces
-- **Maintainability**: Porcelain layer can evolve without breaking plumbing
-- **Extensibility**: New data sources integrate at plumbing layer, porcelain
-  automatically benefits
-
-### eBPF vs Beyla Naming Rationale
-
-**Why rename?**
-
-1. **Implementation detail leak**: "Beyla" is the specific Grafana project used
-   internally
-2. **Capability description**: "eBPF" describes what the tool provides (
-   kernel-level observability)
-3. **Future-proofing**: If Coral replaces Beyla with custom eBPF, tool names
-   remain accurate
-4. **Industry standard**: "eBPF metrics" is widely understood; "Beyla metrics"
-   requires explanation
-
-**Precedent:**
-
-- Kubernetes: Exposes "container" API, not "Docker" or "containerd"
-- Prometheus: Exposes "metrics" API, not "OpenMetrics" or "Prometheus format"
-- OpenTelemetry: Exposes "traces", not "Jaeger format" or "Zipkin spans"
+**Why summary-first workflow?**
+- Immediate health assessment before deep dive
+- Reduces time to insight
+- Guides investigation toward actual problems
+- Perfect for LLM-driven analysis
