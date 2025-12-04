@@ -95,6 +95,12 @@ message GetStatusResponse {
 
   // Colony mesh IPv6 address.
   string mesh_ipv6 = 15;
+
+  // Number of active agents.
+  int32 active_agent_count = 16;
+
+  // Number of degraded agents.
+  int32 degraded_agent_count = 17;
 }
 
 message ListAgentsRequest {}

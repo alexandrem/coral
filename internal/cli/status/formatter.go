@@ -116,6 +116,9 @@ func (f *Formatter) OutputTable(colonies []ColonyStatusInfo, discoveryHealthy bo
 		agentsStr := "-"
 		if info.Running {
 			agentsStr = fmt.Sprintf("%d", info.AgentCount)
+			if info.ActiveAgentCount > 0 || info.DegradedAgentCount > 0 {
+				agentsStr = fmt.Sprintf("%d (✓%d ⚠%d)", info.AgentCount, info.ActiveAgentCount, info.DegradedAgentCount)
+			}
 		}
 
 		// Format network ports
