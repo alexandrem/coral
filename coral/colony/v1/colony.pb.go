@@ -77,10 +77,6 @@ type GetStatusResponse struct {
 	UptimeSeconds int64 `protobuf:"varint,6,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
 	// Number of connected agents.
 	AgentCount int32 `protobuf:"varint,7,opt,name=agent_count,json=agentCount,proto3" json:"agent_count,omitempty"`
-	// Number of active agents.
-	ActiveAgentCount int32 `protobuf:"varint,16,opt,name=active_agent_count,json=activeAgentCount,proto3" json:"active_agent_count,omitempty"`
-	// Number of degraded agents.
-	DegradedAgentCount int32 `protobuf:"varint,17,opt,name=degraded_agent_count,json=degradedAgentCount,proto3" json:"degraded_agent_count,omitempty"`
 	// Dashboard URL.
 	DashboardUrl string `protobuf:"bytes,8,opt,name=dashboard_url,json=dashboardUrl,proto3" json:"dashboard_url,omitempty"`
 	// Storage size in bytes.
@@ -97,9 +93,13 @@ type GetStatusResponse struct {
 	// Colony mesh IPv4 address.
 	MeshIpv4 string `protobuf:"bytes,14,opt,name=mesh_ipv4,json=meshIpv4,proto3" json:"mesh_ipv4,omitempty"`
 	// Colony mesh IPv6 address.
-	MeshIpv6      string `protobuf:"bytes,15,opt,name=mesh_ipv6,json=meshIpv6,proto3" json:"mesh_ipv6,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	MeshIpv6 string `protobuf:"bytes,15,opt,name=mesh_ipv6,json=meshIpv6,proto3" json:"mesh_ipv6,omitempty"`
+	// Number of active agents.
+	ActiveAgentCount int32 `protobuf:"varint,16,opt,name=active_agent_count,json=activeAgentCount,proto3" json:"active_agent_count,omitempty"`
+	// Number of degraded agents.
+	DegradedAgentCount int32 `protobuf:"varint,17,opt,name=degraded_agent_count,json=degradedAgentCount,proto3" json:"degraded_agent_count,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GetStatusResponse) Reset() {
@@ -181,20 +181,6 @@ func (x *GetStatusResponse) GetAgentCount() int32 {
 	return 0
 }
 
-func (x *GetStatusResponse) GetActiveAgentCount() int32 {
-	if x != nil {
-		return x.ActiveAgentCount
-	}
-	return 0
-}
-
-func (x *GetStatusResponse) GetDegradedAgentCount() int32 {
-	if x != nil {
-		return x.DegradedAgentCount
-	}
-	return 0
-}
-
 func (x *GetStatusResponse) GetDashboardUrl() string {
 	if x != nil {
 		return x.DashboardUrl
@@ -249,6 +235,20 @@ func (x *GetStatusResponse) GetMeshIpv6() string {
 		return x.MeshIpv6
 	}
 	return ""
+}
+
+func (x *GetStatusResponse) GetActiveAgentCount() int32 {
+	if x != nil {
+		return x.ActiveAgentCount
+	}
+	return 0
+}
+
+func (x *GetStatusResponse) GetDegradedAgentCount() int32 {
+	if x != nil {
+		return x.DegradedAgentCount
+	}
+	return 0
 }
 
 type ListAgentsRequest struct {
@@ -1113,9 +1113,7 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"started_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12%\n" +
 	"\x0euptime_seconds\x18\x06 \x01(\x03R\ruptimeSeconds\x12\x1f\n" +
 	"\vagent_count\x18\a \x01(\x05R\n" +
-	"agentCount\x12,\n" +
-	"\x12active_agent_count\x18\x10 \x01(\x05R\x10activeAgentCount\x120\n" +
-	"\x14degraded_agent_count\x18\x11 \x01(\x05R\x12degradedAgentCount\x12#\n" +
+	"agentCount\x12#\n" +
 	"\rdashboard_url\x18\b \x01(\tR\fdashboardUrl\x12#\n" +
 	"\rstorage_bytes\x18\t \x01(\x03R\fstorageBytes\x12%\n" +
 	"\x0ewireguard_port\x18\n" +
@@ -1124,7 +1122,9 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\x13wireguard_endpoints\x18\f \x03(\tR\x12wireguardEndpoints\x12!\n" +
 	"\fconnect_port\x18\r \x01(\x05R\vconnectPort\x12\x1b\n" +
 	"\tmesh_ipv4\x18\x0e \x01(\tR\bmeshIpv4\x12\x1b\n" +
-	"\tmesh_ipv6\x18\x0f \x01(\tR\bmeshIpv6\"\x13\n" +
+	"\tmesh_ipv6\x18\x0f \x01(\tR\bmeshIpv6\x12,\n" +
+	"\x12active_agent_count\x18\x10 \x01(\x05R\x10activeAgentCount\x120\n" +
+	"\x14degraded_agent_count\x18\x11 \x01(\x05R\x12degradedAgentCount\"\x13\n" +
 	"\x11ListAgentsRequest\"D\n" +
 	"\x12ListAgentsResponse\x12.\n" +
 	"\x06agents\x18\x01 \x03(\v2\x16.coral.colony.v1.AgentR\x06agents\"\xe1\x02\n" +
