@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 
-	sdkv1 "github.com/coral-mesh/coral/coral/sdk/v1"
 	"github.com/rs/zerolog"
 )
 
@@ -28,7 +27,7 @@ func NewSDKClient(logger zerolog.Logger, addr string) *SDKClient {
 }
 
 // GetFunctionMetadata queries the SDK for function metadata.
-func (c *SDKClient) GetFunctionMetadata(ctx context.Context, functionName string) (*sdkv1.FunctionMetadata, error) {
+func (c *SDKClient) GetFunctionMetadata(ctx context.Context, functionName string) (*FunctionMetadata, error) {
 	c.logger.Debug().Str("function", functionName).Msg("Querying SDK for function metadata")
 
 	url := fmt.Sprintf("http://%s/debug/functions/%s", c.addr, functionName)
@@ -51,25 +50,25 @@ func (c *SDKClient) GetFunctionMetadata(ctx context.Context, functionName string
 	}
 
 	// Define struct to match JSON response from SDK
-	type ArgumentMetadata struct {
+	type ArgumentMetadataJSON struct {
 		Name   string `json:"name"`
 		Type   string `json:"type"`
 		Offset int64  `json:"offset"`
 	}
-	type ReturnValueMetadata struct {
+	type ReturnValueMetadataJSON struct {
 		Type   string `json:"type"`
 		Offset int64  `json:"offset"`
 	}
-	type FunctionMetadata struct {
-		Name         string                 `json:"name"`
-		BinaryPath   string                 `json:"binary_path"`
-		Offset       uint64                 `json:"offset"`
-		PID          int                    `json:"pid"`
-		Arguments    []*ArgumentMetadata    `json:"arguments"`
-		ReturnValues []*ReturnValueMetadata `json:"return_values"`
+	type FunctionMetadataJSON struct {
+		Name         string                     `json:"name"`
+		BinaryPath   string                     `json:"binary_path"`
+		Offset       uint64                     `json:"offset"`
+		PID          int                        `json:"pid"`
+		Arguments    []*ArgumentMetadataJSON    `json:"arguments"`
+		ReturnValues []*ReturnValueMetadataJSON `json:"return_values"`
 	}
 
-	var meta FunctionMetadata
+	var meta FunctionMetadataJSON
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
@@ -80,8 +79,8 @@ func (c *SDKClient) GetFunctionMetadata(ctx context.Context, functionName string
 		Str("binary", meta.BinaryPath).
 		Msg("Got function metadata from SDK")
 
-	// Map to protobuf struct
-	pbMeta := &sdkv1.FunctionMetadata{
+	// Map to native struct
+	nativeMeta := &FunctionMetadata{
 		Name:       meta.Name,
 		BinaryPath: meta.BinaryPath,
 		Offset:     meta.Offset,
@@ -89,7 +88,7 @@ func (c *SDKClient) GetFunctionMetadata(ctx context.Context, functionName string
 	}
 
 	for _, arg := range meta.Arguments {
-		pbMeta.Arguments = append(pbMeta.Arguments, &sdkv1.ArgumentMetadata{
+		nativeMeta.Arguments = append(nativeMeta.Arguments, &ArgumentMetadata{
 			Name:   arg.Name,
 			Type:   arg.Type,
 			Offset: uint64(arg.Offset),
@@ -97,13 +96,13 @@ func (c *SDKClient) GetFunctionMetadata(ctx context.Context, functionName string
 	}
 
 	for _, ret := range meta.ReturnValues {
-		pbMeta.ReturnValues = append(pbMeta.ReturnValues, &sdkv1.ReturnValueMetadata{
+		nativeMeta.ReturnValues = append(nativeMeta.ReturnValues, &ReturnValueMetadata{
 			Type:   ret.Type,
 			Offset: uint64(ret.Offset),
 		})
 	}
 
-	return pbMeta, nil
+	return nativeMeta, nil
 }
 
 // ListFunctions queries the SDK for available functions.
