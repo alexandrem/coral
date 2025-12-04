@@ -39,13 +39,14 @@ type Config struct {
 
 // Server implements the ColonyService.
 type Server struct {
-	registry  *registry.Registry
-	database  *database.Database
-	caManager *ca.Manager // RFD 047 - certificate authority manager.
-	mcpServer interface{} // *mcp.Server - using interface to avoid import cycle
-	config    Config
-	startTime time.Time
-	logger    zerolog.Logger
+	registry    *registry.Registry
+	database    *database.Database
+	caManager   *ca.Manager // RFD 047 - certificate authority manager.
+	mcpServer   interface{} // *mcp.Server - using interface to avoid import cycle
+	ebpfService interface{} // EbpfQueryService - using interface to avoid import cycle
+	config      Config
+	startTime   time.Time
+	logger      zerolog.Logger
 }
 
 // New creates a new colony server.
@@ -58,6 +59,12 @@ func New(reg *registry.Registry, db *database.Database, caManager *ca.Manager, c
 		startTime: time.Now(),
 		logger:    logger,
 	}
+}
+
+// SetEbpfService sets the eBPF query service instance.
+func (s *Server) SetEbpfService(ebpfService interface{}) {
+	s.ebpfService = ebpfService
+	s.logger.Info().Msg("eBPF query service attached to colony server")
 }
 
 // Ensure Server implements the ColonyServiceHandler interface.
@@ -81,7 +88,7 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 
 	// Get agent count.
 	agentCount := int32(s.registry.Count())
-	activeCount := s.registry.CountActive()
+	activeCount, degradedCount := s.registry.CountByStatus()
 
 	// Determine colony status based on agent health.
 	status := s.determineColonyStatus()
@@ -102,7 +109,8 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 	s.logger.Debug().
 		Str("status", status).
 		Int32("agent_count", agentCount).
-		Int("active_count", activeCount).
+		Int32("active_count", activeCount).
+		Int32("degraded_count", degradedCount).
 		Int64("uptime_seconds", uptimeSeconds).
 		Msg("Colony status response prepared")
 
@@ -115,6 +123,8 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		StartedAt:          timestamppb.New(s.startTime),
 		UptimeSeconds:      uptimeSeconds,
 		AgentCount:         agentCount,
+		ActiveAgentCount:   activeCount,
+		DegradedAgentCount: degradedCount,
 		DashboardUrl:       dashboardURL,
 		StorageBytes:       storageBytes,
 		WireguardPort:      int32(s.config.WireGuardPort),
@@ -265,39 +275,10 @@ func (s *Server) GetTopology(
 }
 
 // determineColonyStatus calculates overall colony status based on agent health.
+// determineColonyStatus calculates overall colony status.
+// Since agents are now decoupled from colony status, this simply returns "running"
+// as long as the server itself is operational.
 func (s *Server) determineColonyStatus() string {
-	entries := s.registry.ListAll()
-
-	// If no agents, colony is running but idle (waiting for agents).
-	if len(entries) == 0 {
-		return "running"
-	}
-
-	now := time.Now()
-	hasUnhealthy := false
-	hasDegraded := false
-
-	for _, entry := range entries {
-		status := registry.DetermineStatus(entry.LastSeen, now)
-		switch status {
-		case registry.StatusUnhealthy:
-			hasUnhealthy = true
-		case registry.StatusDegraded:
-			hasDegraded = true
-		}
-	}
-
-	// Unhealthy if any agent is unhealthy.
-	if hasUnhealthy {
-		return "unhealthy"
-	}
-
-	// Degraded if any agent is degraded.
-	if hasDegraded {
-		return "degraded"
-	}
-
-	// All agents are healthy.
 	return "running"
 }
 
@@ -323,6 +304,51 @@ func (s *Server) QueryTelemetry(
 
 // Note: IngestTelemetry RPC was removed in favor of pull-based architecture (RFD 025).
 // Colony now queries agents on-demand using QueryTelemetry RPC and creates summaries locally.
+
+// QueryEbpfMetrics queries aggregated eBPF metrics from colony storage (RFD 035).
+func (s *Server) QueryEbpfMetrics(
+	ctx context.Context,
+	req *connect.Request[agentv1.QueryEbpfMetricsRequest],
+) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
+	s.logger.Debug().
+		Int64("start_time", req.Msg.StartTime).
+		Int64("end_time", req.Msg.EndTime).
+		Strs("service_names", req.Msg.ServiceNames).
+		Msg("Query eBPF metrics request received")
+
+	// Check if eBPF service is initialized.
+	if s.ebpfService == nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("eBPF query service not initialized"))
+	}
+
+	// Type assert to get the actual eBPF service.
+	type ebpfQueryService interface {
+		QueryMetrics(ctx context.Context, req *agentv1.QueryEbpfMetricsRequest) (*agentv1.QueryEbpfMetricsResponse, error)
+	}
+
+	service, ok := s.ebpfService.(ebpfQueryService)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid eBPF service type"))
+	}
+
+	// Query metrics using the service layer.
+	resp, err := service.QueryMetrics(ctx, req.Msg)
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Msg("Failed to query eBPF metrics")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query metrics: %w", err))
+	}
+
+	s.logger.Debug().
+		Int("http_metrics", len(resp.HttpMetrics)).
+		Int("grpc_metrics", len(resp.GrpcMetrics)).
+		Int("sql_metrics", len(resp.SqlMetrics)).
+		Int("trace_spans", len(resp.TraceSpans)).
+		Msg("Query eBPF metrics completed")
+
+	return connect.NewResponse(resp), nil
+}
 
 // CallTool executes an MCP tool and returns the result (RFD 004).
 func (s *Server) CallTool(

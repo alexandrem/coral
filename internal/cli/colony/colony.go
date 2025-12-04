@@ -544,6 +544,8 @@ This command is useful for troubleshooting connectivity issues.`,
 					output["status"] = runtimeStatus.Status
 					output["uptime_seconds"] = runtimeStatus.UptimeSeconds
 					output["agent_count"] = runtimeStatus.AgentCount
+					output["active_agent_count"] = runtimeStatus.ActiveAgentCount
+					output["degraded_agent_count"] = runtimeStatus.DegradedAgentCount
 					output["storage_bytes"] = runtimeStatus.StorageBytes
 					output["dashboard_url"] = runtimeStatus.DashboardUrl
 					output["started_at"] = runtimeStatus.StartedAt.AsTime().Format(time.RFC3339)
@@ -583,7 +585,13 @@ This command is useful for troubleshooting connectivity issues.`,
 				fmt.Println("Runtime Status:")
 				fmt.Printf("  Status:        %s\n", runtimeStatus.Status)
 				fmt.Printf("  Uptime:        %s\n", formatDuration(time.Duration(runtimeStatus.UptimeSeconds)*time.Second))
-				fmt.Printf("  Agents:        %d connected\n", runtimeStatus.AgentCount)
+
+				// Format agent count with health breakdown
+				agentCountStr := fmt.Sprintf("%d connected", runtimeStatus.AgentCount)
+				if runtimeStatus.ActiveAgentCount > 0 || runtimeStatus.DegradedAgentCount > 0 {
+					agentCountStr = fmt.Sprintf("%d connected (✓%d ⚠%d)", runtimeStatus.AgentCount, runtimeStatus.ActiveAgentCount, runtimeStatus.DegradedAgentCount)
+				}
+				fmt.Printf("  Agents:        %s\n", agentCountStr)
 
 				if runtimeStatus.StorageBytes > 0 {
 					fmt.Printf("  Storage Used:  %s\n", formatBytes(runtimeStatus.StorageBytes))
@@ -1474,6 +1482,11 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	} else {
 		logger.Info().Msg("MCP server is disabled in configuration")
 	}
+
+	// Initialize eBPF query service (RFD 035).
+	ebpfService := colony.NewEbpfQueryService(db)
+	colonySvc.SetEbpfService(ebpfService)
+	logger.Info().Msg("eBPF query service initialized and attached to colony")
 
 	// Register the handlers
 	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(meshSvc)

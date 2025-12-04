@@ -328,7 +328,7 @@ func (s *Server) executeBeylaTracesTool(ctx context.Context, argumentsJSON strin
 		maxTraces = *input.MaxTraces
 	}
 
-	traces, err := s.db.QueryBeylaTraces(ctx, serviceName, startTime, endTime, minDurationUs, maxTraces)
+	traces, err := s.db.QueryBeylaTraces(ctx, "", serviceName, startTime, endTime, minDurationUs, maxTraces)
 	if err != nil {
 		return "", fmt.Errorf("failed to query traces: %w", err)
 	}
@@ -350,23 +350,20 @@ func (s *Server) executeTraceByIDTool(ctx context.Context, argumentsJSON string)
 		format = *input.Format
 	}
 
-	// Query traces to find the one with matching trace ID.
-	// Note: This is a workaround since there's no direct GetTraceByID method yet.
+	// Query traces by trace ID.
 	startTime := time.Now().Add(-24 * time.Hour) // Look back 24 hours
 	endTime := time.Now()
-	traces, err := s.db.QueryBeylaTraces(ctx, "", startTime, endTime, 0, 100)
+	traces, err := s.db.QueryBeylaTraces(ctx, input.TraceID, "", startTime, endTime, 0, 1000)
 	if err != nil {
 		return "", fmt.Errorf("failed to query traces: %w", err)
 	}
 
-	// Find the trace with the matching ID.
-	for _, trace := range traces {
-		if trace.TraceID == input.TraceID {
-			return formatTraceByID(trace, format), nil
-		}
+	if len(traces) == 0 {
+		return "", fmt.Errorf("trace not found: %s", input.TraceID)
 	}
 
-	return "", fmt.Errorf("trace not found: %s", input.TraceID)
+	// Return first trace (all spans will have the same trace ID).
+	return formatTraceByID(traces[0], format), nil
 }
 
 // executeTelemetrySpansTool executes coral_query_telemetry_spans.

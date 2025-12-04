@@ -1,7 +1,7 @@
 ---
 rfd: "057"
 title: "Agent Status Capability Reporting"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "agent", "cli" ]
 
 # RFD 057 - Agent Status Capability Reporting
 
-**Status:** 🚧 Draft
+**Status:** ✅ Implemented
 
 ## Summary
 

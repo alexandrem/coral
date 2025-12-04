@@ -23,6 +23,10 @@ service ColonyService {
   // Query telemetry data from agent (RFD 025 - pull-based).
   rpc QueryTelemetry(QueryTelemetryRequest) returns (QueryTelemetryResponse);
 
+  // Query aggregated eBPF metrics from colony storage (RFD 035).
+  rpc QueryEbpfMetrics(coral.agent.v1.QueryEbpfMetricsRequest) returns (coral.agent.v1.QueryEbpfMetricsResponse);
+
+
   // MCP Tool Execution (RFD 004 - MCP server integration).
 
   // Execute an MCP tool and return the result.
@@ -91,6 +95,12 @@ message GetStatusResponse {
 
   // Colony mesh IPv6 address.
   string mesh_ipv6 = 15;
+
+  // Number of active agents.
+  int32 active_agent_count = 16;
+
+  // Number of degraded agents.
+  int32 degraded_agent_count = 17;
 }
 
 message ListAgentsRequest {}

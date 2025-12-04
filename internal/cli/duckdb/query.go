@@ -29,14 +29,14 @@ The query command attaches to the specified agent database and executes
 the provided SQL query, returning results in the specified format (table, CSV, or JSON).
 
 Examples:
-  # Query Beyla HTTP metrics (table format)
-  coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10" --database beyla.duckdb
+  # Query eBPF HTTP metrics (table format)
+  coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10" --database metrics.duckdb
 
   # Query telemetry spans
   coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10" --database telemetry.duckdb
 
   # Query with aggregation (CSV format)
-  coral duckdb query agent-prod-1 "SELECT service_name, COUNT(*) FROM beyla_http_metrics_local GROUP BY service_name" --format csv -d beyla.duckdb
+  coral duckdb query agent-prod-1 "SELECT service_name, COUNT(*) FROM beyla_http_metrics_local GROUP BY service_name" --format csv -d metrics.duckdb
 
   # Query with JSON output
   coral duckdb query agent-prod-1 "SELECT * FROM spans WHERE status = 'error'" --format json -d telemetry.duckdb
@@ -111,7 +111,7 @@ If --database is not specified, the first available database will be used.`,
 	}
 
 	cmd.Flags().StringVarP(&format, "format", "f", "table", "Output format (table, csv, json)")
-	cmd.Flags().StringVarP(&database, "database", "d", "", "Database name (e.g., beyla.duckdb, telemetry.duckdb)")
+	cmd.Flags().StringVarP(&database, "database", "d", "", "Database name (e.g., metrics.duckdb)")
 
 	return cmd
 }

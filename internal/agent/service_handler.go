@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
@@ -10,6 +12,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/pkg/sdk/debug"
 )
 
 // ServiceHandler implements the AgentService gRPC interface for managing service connections.
@@ -69,14 +72,34 @@ func (h *ServiceHandler) ConnectService(
 		}), nil
 	}
 
-	// Update SDK capabilities if provided (RFD 060).
+	// Update SDK capabilities
+	var caps *agentv1.ServiceSdkCapabilities
+
 	if req.Msg.SdkCapabilities != nil {
+		// Push model (legacy or explicit registration)
+		caps = req.Msg.SdkCapabilities
+	} else {
+		// Pull model (RFD 066): Attempt discovery
+		// Default to localhost:9002, but could be configurable or derived
+		discoveryAddr := "localhost:9002"
+		if discovered := h.discoverSDK(ctx, discoveryAddr); discovered != nil {
+			caps = discovered
+			caps.ServiceName = req.Msg.Name
+			h.agent.logger.Info().
+				Str("service", req.Msg.Name).
+				Str("sdk_version", caps.SdkVersion).
+				Int("functions", int(caps.FunctionCount)).
+				Msg("Discovered SDK via HTTP")
+		}
+	}
+
+	if caps != nil {
 		h.agent.mu.RLock()
 		monitor, exists := h.agent.monitors[req.Msg.Name]
 		h.agent.mu.RUnlock()
 
 		if exists {
-			monitor.SetSdkCapabilities(req.Msg.SdkCapabilities)
+			monitor.SetSdkCapabilities(caps)
 		}
 	}
 
@@ -84,6 +107,46 @@ func (h *ServiceHandler) ConnectService(
 		Success:     true,
 		ServiceName: req.Msg.Name,
 	}), nil
+}
+
+// discoverSDK attempts to discover SDK capabilities via HTTP.
+func (h *ServiceHandler) discoverSDK(ctx context.Context, addr string) *agentv1.ServiceSdkCapabilities {
+	// Simple HTTP GET request with short timeout
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+addr+"/debug/capabilities", nil)
+	if err != nil {
+		return nil
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		// SDK not present or not reachable (expected for non-SDK apps)
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var capsResp debug.CapabilitiesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&capsResp); err != nil {
+		h.agent.logger.Warn().Err(err).Msg("Invalid SDK capabilities response")
+		return nil
+	}
+
+	return &agentv1.ServiceSdkCapabilities{
+		ProcessId:       capsResp.ProcessID,
+		SdkEnabled:      true,
+		SdkVersion:      capsResp.SdkVersion,
+		SdkAddr:         addr,
+		HasDwarfSymbols: capsResp.HasDwarfSymbols,
+		BinaryPath:      capsResp.BinaryPath,
+		FunctionCount:   uint32(capsResp.FunctionCount),
+		BinaryHash:      capsResp.BinaryHash,
+	}
 }
 
 // DisconnectService implements the DisconnectService RPC.
@@ -195,18 +258,18 @@ func (h *ServiceHandler) QueryTelemetry(
 	}), nil
 }
 
-// QueryBeylaMetrics retrieves Beyla metrics from the agent's local storage (RFD 032).
-// Colony calls this to query filtered Beyla metrics from agent's local DuckDB.
-func (h *ServiceHandler) QueryBeylaMetrics(
+// QueryEbpfMetrics retrieves eBPF metrics from the agent's local storage (RFD 032).
+// Colony calls this to query filtered eBPF metrics from agent's local DuckDB.
+func (h *ServiceHandler) QueryEbpfMetrics(
 	ctx context.Context,
-	req *connect.Request[agentv1.QueryBeylaMetricsRequest],
-) (*connect.Response[agentv1.QueryBeylaMetricsResponse], error) {
+	req *connect.Request[agentv1.QueryEbpfMetricsRequest],
+) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
 	// If Beyla is disabled, return empty response.
 	if h.agent.beylaManager == nil {
-		return connect.NewResponse(&agentv1.QueryBeylaMetricsResponse{
-			HttpMetrics:  []*agentv1.BeylaHttpMetric{},
-			GrpcMetrics:  []*agentv1.BeylaGrpcMetric{},
-			SqlMetrics:   []*agentv1.BeylaSqlMetric{},
+		return connect.NewResponse(&agentv1.QueryEbpfMetricsResponse{
+			HttpMetrics:  []*agentv1.EbpfHttpMetric{},
+			GrpcMetrics:  []*agentv1.EbpfGrpcMetric{},
+			SqlMetrics:   []*agentv1.EbpfSqlMetric{},
 			TotalMetrics: 0,
 		}), nil
 	}
@@ -215,10 +278,10 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 	startTime := time.Unix(req.Msg.StartTime, 0)
 	endTime := time.Unix(req.Msg.EndTime, 0)
 
-	response := &agentv1.QueryBeylaMetricsResponse{
-		HttpMetrics: []*agentv1.BeylaHttpMetric{},
-		GrpcMetrics: []*agentv1.BeylaGrpcMetric{},
-		SqlMetrics:  []*agentv1.BeylaSqlMetric{},
+	response := &agentv1.QueryEbpfMetricsResponse{
+		HttpMetrics: []*agentv1.EbpfHttpMetric{},
+		GrpcMetrics: []*agentv1.EbpfGrpcMetric{},
+		SqlMetrics:  []*agentv1.EbpfSqlMetric{},
 	}
 
 	// Determine which metric types to query.
@@ -230,11 +293,11 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 	if !queryAll {
 		for _, metricType := range req.Msg.MetricTypes {
 			switch metricType {
-			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_HTTP:
+			case agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP:
 				queryHTTP = true
-			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_GRPC:
+			case agentv1.EbpfMetricType_EBPF_METRIC_TYPE_GRPC:
 				queryGRPC = true
-			case agentv1.BeylaMetricType_BEYLA_METRIC_TYPE_SQL:
+			case agentv1.EbpfMetricType_EBPF_METRIC_TYPE_SQL:
 				querySQL = true
 			}
 		}
@@ -249,7 +312,7 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 
 		// Convert internal protobuf format to API format.
 		for _, metric := range httpMetrics {
-			response.HttpMetrics = append(response.HttpMetrics, &agentv1.BeylaHttpMetric{
+			response.HttpMetrics = append(response.HttpMetrics, &agentv1.EbpfHttpMetric{
 				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
 				ServiceName:    metric.ServiceName,
 				HttpMethod:     metric.HttpMethod,
@@ -272,7 +335,7 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 
 		// Convert internal protobuf format to API format.
 		for _, metric := range grpcMetrics {
-			response.GrpcMetrics = append(response.GrpcMetrics, &agentv1.BeylaGrpcMetric{
+			response.GrpcMetrics = append(response.GrpcMetrics, &agentv1.EbpfGrpcMetric{
 				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
 				ServiceName:    metric.ServiceName,
 				GrpcMethod:     metric.GrpcMethod,
@@ -294,7 +357,7 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 
 		// Convert internal protobuf format to API format.
 		for _, metric := range sqlMetrics {
-			response.SqlMetrics = append(response.SqlMetrics, &agentv1.BeylaSqlMetric{
+			response.SqlMetrics = append(response.SqlMetrics, &agentv1.EbpfSqlMetric{
 				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
 				ServiceName:    metric.ServiceName,
 				SqlOperation:   metric.SqlOperation,
@@ -327,7 +390,7 @@ func (h *ServiceHandler) QueryBeylaMetrics(
 
 		// Convert internal protobuf format (mesh.v1) to API format (agent.v1).
 		for _, span := range traceSpans {
-			response.TraceSpans = append(response.TraceSpans, &agentv1.BeylaTraceSpan{
+			response.TraceSpans = append(response.TraceSpans, &agentv1.EbpfTraceSpan{
 				TraceId:      span.TraceId,
 				SpanId:       span.SpanId,
 				ParentSpanId: span.ParentSpanId,

@@ -25,6 +25,13 @@ func (m *mockResolver) Resolve(serviceName string) (string, error) {
 	return m.addr, nil
 }
 
+func (m *mockResolver) ResolveSDK(serviceName string) (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	return m.addr, nil
+}
+
 func TestNewDebugSessionManager(t *testing.T) {
 	cfg := config.DebugConfig{
 		Enabled: true,
@@ -347,7 +354,7 @@ func TestDebugSessionManager_StartSession_ResolverError(t *testing.T) {
 		t.Fatal("Expected error when service resolution fails")
 	}
 
-	if !contains(err.Error(), "resolve service") {
+	if !contains(err.Error(), "resolve sdk") {
 		t.Errorf("Expected resolve error, got: %v", err)
 	}
 }

@@ -12,21 +12,19 @@ func TestNew(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid config with debug disabled",
+			name: "valid config",
 			config: Config{
-				ServiceName: "test-service",
-				EnableDebug: false,
-				Logger:      slog.Default(),
+				DebugAddr: ":9002",
+				Logger:    slog.Default(),
 			},
 			wantErr: false,
 		},
 		{
-			name: "missing service name",
+			name: "default debug addr",
 			config: Config{
-				EnableDebug: false,
-				Logger:      slog.Default(),
+				Logger: slog.Default(),
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 
@@ -45,28 +43,25 @@ func TestNew(t *testing.T) {
 }
 
 func TestSDK_DebugAddr(t *testing.T) {
-	t.Run("debug disabled", func(t *testing.T) {
+	t.Run("returns configured address", func(t *testing.T) {
 		sdk, err := New(Config{
-			ServiceName: "test-service",
-			EnableDebug: false,
-			Logger:      slog.Default(),
+			DebugAddr: ":9090",
+			Logger:    slog.Default(),
 		})
 		if err != nil {
 			t.Fatalf("New() error = %v", err)
 		}
 		defer sdk.Close()
 
-		if addr := sdk.DebugAddr(); addr != "" {
-			t.Errorf("DebugAddr() = %v, want empty string when debug disabled", addr)
+		if addr := sdk.DebugAddr(); addr != ":9090" {
+			t.Errorf("DebugAddr() = %v, want :9090", addr)
 		}
 	})
 }
 
 func TestSDK_Close(t *testing.T) {
 	sdk, err := New(Config{
-		ServiceName: "test-service",
-		EnableDebug: false,
-		Logger:      slog.Default(),
+		Logger: slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

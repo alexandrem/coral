@@ -10,7 +10,7 @@ distributed system health, metrics, traces, and telemetry.
 to access:
 
 - Service health and topology
-- Beyla RED metrics (HTTP/gRPC/SQL)
+- eBPF RED metrics (HTTP/gRPC/SQL)
 - Distributed traces
 - OTLP telemetry (spans, metrics, logs)
 - Operational events
@@ -145,9 +145,9 @@ Input:
 Returns: Service relationships and call frequencies
 ```
 
-### Beyla RED Metrics
+### eBPF RED Metrics
 
-#### `coral_query_beyla_http_metrics`
+#### `coral_query_ebpf_http_metrics`
 
 Query HTTP request rate, error rate, and latency distributions.
 
@@ -162,7 +162,7 @@ Input:
 Returns: P50/P95/P99 latency, request rates, error counts by status code
 ```
 
-#### `coral_query_beyla_grpc_metrics`
+#### `coral_query_ebpf_grpc_metrics`
 
 Query gRPC method-level RED metrics.
 
@@ -176,7 +176,7 @@ Input:
 Returns: RPC rate, latency distributions, status breakdowns
 ```
 
-#### `coral_query_beyla_sql_metrics`
+#### `coral_query_ebpf_sql_metrics`
 
 Query SQL operation metrics.
 
@@ -192,7 +192,7 @@ Returns: Query latencies, operation types, table statistics
 
 ### Distributed Tracing
 
-#### `coral_query_beyla_traces`
+#### `coral_query_ebpf_traces`
 
 Query distributed traces.
 
@@ -344,7 +344,7 @@ coral colony mcp list-tools
 
 # Test a tool locally (without MCP client)
 coral colony mcp test-tool coral_get_service_health
-coral colony mcp test-tool coral_query_beyla_http_metrics \
+coral colony mcp test-tool coral_query_ebpf_http_metrics \
   --args '{"service":"api","time_range":"1h"}'
 
 # Generate Claude Desktop config
@@ -372,7 +372,7 @@ mcp:
     enabled_tools:
     # By default, all tools are enabled
     # Uncomment to restrict to specific tools:
-    # - coral_query_beyla_http_metrics
+    # - coral_query_ebpf_http_metrics
     # - coral_get_service_health
     # - coral_query_events
 
@@ -433,7 +433,7 @@ You: "Should I deploy PR #123 to production?"
 
 Claude: [Automatically queries MCP tools]
   → coral_get_service_health()
-  → coral_query_beyla_http_metrics(service=api, time_range=1h)
+  → coral_query_ebpf_http_metrics(service=api, time_range=1h)
   → coral_query_events(event_type=deploy, time_range=24h)
 
 "Based on production state:
@@ -453,16 +453,16 @@ Safe to deploy. Recommend deploying during low-traffic window
 You: "Why is checkout slow?"
 
 Claude: [Orchestrates multiple tool calls]
-  → coral_query_beyla_http_metrics(service=checkout, time_range=1h)
+  → coral_query_ebpf_http_metrics(service=checkout, time_range=1h)
      Result: P95 latency 850ms (baseline: 200ms)
 
-  → coral_query_beyla_traces(service=checkout, min_duration_ms=500, max_traces=5)
+  → coral_query_ebpf_traces(service=checkout, min_duration_ms=500, max_traces=5)
      Result: 80% of slow traces wait for payment-api
 
-  → coral_query_beyla_http_metrics(service=payment-api, time_range=1h)
+  → coral_query_ebpf_http_metrics(service=payment-api, time_range=1h)
      Result: payment-api P95 is 700ms (baseline: 150ms)
 
-  → coral_query_beyla_sql_metrics(service=payment-api, time_range=1h)
+  → coral_query_ebpf_sql_metrics(service=payment-api, time_range=1h)
      Result: SELECT on 'cards' table: P95 650ms (baseline: 50ms)
 
 "Checkout is slow because payment-api is slow. Analysis shows:
@@ -481,8 +481,8 @@ investigate if a recent data migration caused table bloat."
 You: "Why is prod slower than staging?"
 
 Claude: [Queries both colonies]
-  → coral-prod: coral_query_beyla_http_metrics(service=api)
-  → coral-staging: coral_query_beyla_http_metrics(service=api)
+  → coral-prod: coral_query_ebpf_http_metrics(service=api)
+  → coral-staging: coral_query_ebpf_http_metrics(service=api)
 
 "Production vs Staging Comparison:
 
@@ -562,7 +562,7 @@ database contention or external API timeouts."
 
 - ✅ MCP server with stdio transport
 - ✅ Service health and topology tools
-- ✅ Beyla HTTP/gRPC/SQL metrics
+- ✅ eBPF HTTP/gRPC/SQL metrics
 - ✅ Distributed tracing queries
 - ✅ OTLP telemetry summaries
 - ✅ Claude Desktop integration
@@ -596,7 +596,7 @@ database contention or external API timeouts."
 
 2. Check if colony has data:
     - Are agents connected?
-    - Is Beyla collecting metrics?
+    - Is eBPF observability collecting metrics?
     - Are services instrumented with OTLP?
 
 3. Verify time ranges:

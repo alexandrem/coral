@@ -38,10 +38,15 @@ func (s *DebugService) StartUprobeCollector(
 	// For now, we'll require it in the request config
 	sdkAddr := req.SdkAddr
 	if sdkAddr == "" {
-		return &meshv1.StartUprobeCollectorResponse{
-			Supported: false,
-			Error:     "sdk_addr is required in request",
-		}, nil
+		// Attempt to resolve using agent discovery
+		resolved, err := s.agent.ResolveSDK(req.ServiceName)
+		if err != nil {
+			return &meshv1.StartUprobeCollectorResponse{
+				Supported: false,
+				Error:     fmt.Sprintf("failed to resolve sdk_addr: %v", err),
+			}, nil
+		}
+		sdkAddr = resolved
 	}
 
 	// Build config map for eBPF manager

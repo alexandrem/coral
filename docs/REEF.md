@@ -1,8 +1,10 @@
 # Reef
 
-**Optional centralized layer for enterprises.**
+> Ideation process
 
-For enterprises managing multiple environments (dev, staging, prod) or multiple
+**Optional centralized layer**
+
+For users managing multiple environments (dev, staging, prod) or multiple
 applications, Coral offers **Reef** - a federation layer that aggregates data
 across colonies.
 
@@ -14,12 +16,12 @@ centralized LLM for their organization.
 ## Architecture
 
 ```
-Developer/External          Reef (Enterprise)           Colonies
+Developer/External               Reef                   Colonies
 ┌──────────────┐          ┌────────────────┐        ┌──────────────┐
 │ coral reef   │──HTTPS──▶│  Reef Server   │◄──────▶│ my-app-prod  │
 │ CLI          │          │                │ Mesh   │              │
 │              │          │ Server-side    │        └──────────────┘
-└──────────────┘          │ LLM (Genkit)   │        ┌──────────────┐
+└──────────────┘          │ LLM            │        ┌──────────────┐
                           │                │◄──────▶│ my-app-dev   │
 ┌──────────────┐          │ ClickHouse     │ Mesh   │              │
 │ Slack Bot    │──HTTPS──▶│                │        └──────────────┘

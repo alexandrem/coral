@@ -57,13 +57,13 @@ $ coral ask "Why is the payment API slow?"
 
 ## Why This Is Different
 
-| Traditional Tools | Coral |
-|-------------------|-------|
-| Pre-defined metrics only | On-demand code instrumentation |
-| Add logging → redeploy → wait | Attach probes → get data → detach |
-| Always-on overhead | Zero overhead when not debugging |
+| Traditional Tools                     | Coral                             |
+|---------------------------------------|-----------------------------------|
+| Pre-defined metrics only              | On-demand code instrumentation    |
+| Add logging → redeploy → wait         | Attach probes → get data → detach |
+| Always-on overhead                    | Zero overhead when not debugging  |
 | Single-process debuggers (delve, gdb) | Distributed debugging across mesh |
-| Manual investigation | LLM orchestrates where to probe |
+| Manual investigation                  | LLM orchestrates where to probe   |
 
 ## MCP Integration
 

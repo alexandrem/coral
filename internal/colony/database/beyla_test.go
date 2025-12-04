@@ -29,12 +29,12 @@ func TestInsertBeylaTraces(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		spans   []*agentv1.BeylaTraceSpan
+		spans   []*agentv1.EbpfTraceSpan
 		wantErr bool
 	}{
 		{
 			name: "insert single trace span",
-			spans: []*agentv1.BeylaTraceSpan{
+			spans: []*agentv1.EbpfTraceSpan{
 				{
 					TraceId:      "abc123def456789012345678901234ab",
 					SpanId:       "1234567890abcdef",
@@ -55,7 +55,7 @@ func TestInsertBeylaTraces(t *testing.T) {
 		},
 		{
 			name: "insert multiple trace spans",
-			spans: []*agentv1.BeylaTraceSpan{
+			spans: []*agentv1.EbpfTraceSpan{
 				{
 					TraceId:      "trace2abc000000000000000000000002",
 					SpanId:       "span00000000001",
@@ -85,7 +85,7 @@ func TestInsertBeylaTraces(t *testing.T) {
 		},
 		{
 			name:    "insert empty slice",
-			spans:   []*agentv1.BeylaTraceSpan{},
+			spans:   []*agentv1.EbpfTraceSpan{},
 			wantErr: false,
 		},
 		{
@@ -133,7 +133,7 @@ func TestInsertBeylaTraces_Deduplication(t *testing.T) {
 	now := time.Now()
 
 	// Insert same trace span twice.
-	span := &agentv1.BeylaTraceSpan{
+	span := &agentv1.EbpfTraceSpan{
 		TraceId:      "dedup000000000000000000000000001",
 		SpanId:       "span00000000001",
 		ParentSpanId: "",
@@ -147,12 +147,12 @@ func TestInsertBeylaTraces_Deduplication(t *testing.T) {
 	}
 
 	// First insert.
-	if err := db.InsertBeylaTraces(ctx, agentID, []*agentv1.BeylaTraceSpan{span}); err != nil {
+	if err := db.InsertBeylaTraces(ctx, agentID, []*agentv1.EbpfTraceSpan{span}); err != nil {
 		t.Fatalf("First insert failed: %v", err)
 	}
 
 	// Second insert (should be ignored due to ON CONFLICT DO NOTHING).
-	if err := db.InsertBeylaTraces(ctx, agentID, []*agentv1.BeylaTraceSpan{span}); err != nil {
+	if err := db.InsertBeylaTraces(ctx, agentID, []*agentv1.EbpfTraceSpan{span}); err != nil {
 		t.Fatalf("Second insert failed: %v", err)
 	}
 
@@ -186,7 +186,7 @@ func TestInsertBeylaTraces_AgentID(t *testing.T) {
 	now := time.Now()
 
 	// Insert spans from different agents.
-	span1 := &agentv1.BeylaTraceSpan{
+	span1 := &agentv1.EbpfTraceSpan{
 		TraceId:      "multi000000000000000000000000001",
 		SpanId:       "span00000000001",
 		ParentSpanId: "",
@@ -199,7 +199,7 @@ func TestInsertBeylaTraces_AgentID(t *testing.T) {
 		Attributes:   map[string]string{},
 	}
 
-	span2 := &agentv1.BeylaTraceSpan{
+	span2 := &agentv1.EbpfTraceSpan{
 		TraceId:      "multi000000000000000000000000001",
 		SpanId:       "span00000000002",
 		ParentSpanId: "span00000000001",
@@ -212,11 +212,11 @@ func TestInsertBeylaTraces_AgentID(t *testing.T) {
 		Attributes:   map[string]string{},
 	}
 
-	if err := db.InsertBeylaTraces(ctx, "agent-001", []*agentv1.BeylaTraceSpan{span1}); err != nil {
+	if err := db.InsertBeylaTraces(ctx, "agent-001", []*agentv1.EbpfTraceSpan{span1}); err != nil {
 		t.Fatalf("Failed to insert span from agent-001: %v", err)
 	}
 
-	if err := db.InsertBeylaTraces(ctx, "agent-002", []*agentv1.BeylaTraceSpan{span2}); err != nil {
+	if err := db.InsertBeylaTraces(ctx, "agent-002", []*agentv1.EbpfTraceSpan{span2}); err != nil {
 		t.Fatalf("Failed to insert span from agent-002: %v", err)
 	}
 
@@ -258,7 +258,7 @@ func TestCleanupOldBeylaTraces(t *testing.T) {
 	now := time.Now()
 
 	// Insert old trace (beyond retention).
-	oldSpan := &agentv1.BeylaTraceSpan{
+	oldSpan := &agentv1.EbpfTraceSpan{
 		TraceId:      "oldtrace0000000000000000000000001",
 		SpanId:       "span00000000001",
 		ParentSpanId: "",
@@ -272,7 +272,7 @@ func TestCleanupOldBeylaTraces(t *testing.T) {
 	}
 
 	// Insert recent trace (within retention).
-	recentSpan := &agentv1.BeylaTraceSpan{
+	recentSpan := &agentv1.EbpfTraceSpan{
 		TraceId:      "recent00000000000000000000000001",
 		SpanId:       "span00000000002",
 		ParentSpanId: "",
@@ -285,7 +285,7 @@ func TestCleanupOldBeylaTraces(t *testing.T) {
 		Attributes:   map[string]string{},
 	}
 
-	if err := db.InsertBeylaTraces(ctx, agentID, []*agentv1.BeylaTraceSpan{oldSpan, recentSpan}); err != nil {
+	if err := db.InsertBeylaTraces(ctx, agentID, []*agentv1.EbpfTraceSpan{oldSpan, recentSpan}); err != nil {
 		t.Fatalf("Failed to insert test traces: %v", err)
 	}
 

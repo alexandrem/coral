@@ -163,6 +163,23 @@ func (r *Registry) CountActive() int {
 	return count
 }
 
+// CountByStatus returns the number of active (healthy) and degraded agents.
+func (r *Registry) CountByStatus() (active, degraded int32) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	now := time.Now()
+	for _, entry := range r.entries {
+		status := DetermineStatus(entry.LastSeen, now)
+		if status == StatusHealthy {
+			active++
+		} else if status == StatusDegraded {
+			degraded++
+		}
+	}
+	return active, degraded
+}
+
 // Count returns the total number of registered agents.
 func (r *Registry) Count() int {
 	r.mu.RLock()

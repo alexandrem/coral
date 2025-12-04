@@ -1,7 +1,5 @@
 # Discovery Service Architecture
 
-**Implementation Status**: RFD 001 (Implemented)
-
 The Discovery Service enables dynamic agent-to-Colony connections and NAT
 traversal. This document explains how agents find Colonies and how split-brain
 scenarios are prevented.
@@ -37,9 +35,9 @@ multiple regions. Hardcoding endpoints doesn't scale.
 │  └────────────────────────────────────────────────────────┘ │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  NAT Traversal Helper                                  │ │
-│  │  - STUN-based endpoint detection (RFD 023)            │ │
+│  │  - STUN-based endpoint detection (RFD 023)             │ │
 │  └────────────────────────────────────────────────────────┘ │
-└──────────┬──────────────────────────────┬──────────────────┘
+└──────────┬──────────────────────────────┬───────────────────┘
            │                              │
   ┌────────▼─────────┐          ┌────────▼─────────┐
   │  Colony          │          │  Agent           │

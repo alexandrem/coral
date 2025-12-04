@@ -117,18 +117,9 @@ sudo ./bin/coral agent start
 
 Use the `coral debug` command to attach a uprobe to `ProcessPayment`.
 
-*Note: Until service discovery is fully integrated, you must manually specify
-the Agent ID and SDK address.*
-
-```bash
-# Get the SDK address from the app logs (e.g., 127.0.0.1:54321)
-SDK_ADDR="127.0.0.1:54321"
-
 # Attach uprobe
 ./bin/coral debug attach payment-service \
-  --function main.ProcessPayment \
-  --agent-id <AGENT_ID> \
-  --sdk-addr $SDK_ADDR
+  --function main.ProcessPayment
 ```
 
 ### 3. View Events

@@ -296,29 +296,29 @@ func (s *Server) registerQueryEventsTool() {
 	})
 }
 
-// registerBeylaHTTPMetricsTool registers the coral_query_beyla_http_metrics tool.
+// registerBeylaHTTPMetricsTool registers the coral_query_ebpf_http_metrics tool.
 func (s *Server) registerBeylaHTTPMetricsTool() {
-	if !s.isToolEnabled("coral_query_beyla_http_metrics") {
+	if !s.isToolEnabled("coral_query_ebpf_http_metrics") {
 		return
 	}
 
 	inputSchema, err := generateInputSchema(BeylaHTTPMetricsInput{})
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_beyla_http_metrics")
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_ebpf_http_metrics")
 		return
 	}
 
 	// Marshal schema to JSON bytes for MCP tool.
 	schemaBytes, err := json.Marshal(inputSchema)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_beyla_http_metrics")
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_ebpf_http_metrics")
 		return
 	}
 
 	// Create MCP tool with raw schema.
 	tool := mcp.NewToolWithRawSchema(
-		"coral_query_beyla_http_metrics",
-		"Query HTTP RED metrics collected by Beyla (request rate, error rate, latency distributions). Returns percentiles, status code breakdown, and route-level metrics.",
+		"coral_query_ebpf_http_metrics",
+		"Query HTTP RED metrics collected via eBPF (request rate, error rate, latency distributions). Returns percentiles, status code breakdown, and route-level metrics.",
 		schemaBytes,
 	)
 
@@ -336,7 +336,7 @@ func (s *Server) registerBeylaHTTPMetricsTool() {
 			}
 		}
 
-		s.auditToolCall("coral_query_beyla_http_metrics", input)
+		s.auditToolCall("coral_query_ebpf_http_metrics", input)
 
 		// Get time range (handle nil pointer).
 		timeRangeStr := "1h"
@@ -411,29 +411,29 @@ func (s *Server) registerBeylaHTTPMetricsTool() {
 	})
 }
 
-// registerBeylaGRPCMetricsTool registers the coral_query_beyla_grpc_metrics tool.
+// registerBeylaGRPCMetricsTool registers the coral_query_ebpf_grpc_metrics tool.
 func (s *Server) registerBeylaGRPCMetricsTool() {
-	if !s.isToolEnabled("coral_query_beyla_grpc_metrics") {
+	if !s.isToolEnabled("coral_query_ebpf_grpc_metrics") {
 		return
 	}
 
 	inputSchema, err := generateInputSchema(BeylaGRPCMetricsInput{})
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_beyla_grpc_metrics")
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_ebpf_grpc_metrics")
 		return
 	}
 
 	// Marshal schema to JSON bytes for MCP tool.
 	schemaBytes, err := json.Marshal(inputSchema)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_beyla_grpc_metrics")
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_ebpf_grpc_metrics")
 		return
 	}
 
 	// Create MCP tool with raw schema.
 	tool := mcp.NewToolWithRawSchema(
-		"coral_query_beyla_grpc_metrics",
-		"Query gRPC method-level RED metrics collected by Beyla. Returns RPC rate, latency distributions, and status code breakdown.",
+		"coral_query_ebpf_grpc_metrics",
+		"Query gRPC method-level RED metrics collected via eBPF. Returns RPC rate, latency distributions, and status code breakdown.",
 		schemaBytes,
 	)
 
@@ -451,7 +451,7 @@ func (s *Server) registerBeylaGRPCMetricsTool() {
 			}
 		}
 
-		s.auditToolCall("coral_query_beyla_grpc_metrics", input)
+		s.auditToolCall("coral_query_ebpf_grpc_metrics", input)
 
 		// Get time range (handle nil pointer).
 		timeRangeStr := "1h"
@@ -524,29 +524,29 @@ func (s *Server) registerBeylaGRPCMetricsTool() {
 	})
 }
 
-// registerBeylaSQLMetricsTool registers the coral_query_beyla_sql_metrics tool.
+// registerBeylaSQLMetricsTool registers the coral_query_ebpf_sql_metrics tool.
 func (s *Server) registerBeylaSQLMetricsTool() {
-	if !s.isToolEnabled("coral_query_beyla_sql_metrics") {
+	if !s.isToolEnabled("coral_query_ebpf_sql_metrics") {
 		return
 	}
 
 	inputSchema, err := generateInputSchema(BeylaSQLMetricsInput{})
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_beyla_sql_metrics")
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_ebpf_sql_metrics")
 		return
 	}
 
 	// Marshal schema to JSON bytes for MCP tool.
 	schemaBytes, err := json.Marshal(inputSchema)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_beyla_sql_metrics")
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_ebpf_sql_metrics")
 		return
 	}
 
 	// Create MCP tool with raw schema.
 	tool := mcp.NewToolWithRawSchema(
-		"coral_query_beyla_sql_metrics",
-		"Query SQL operation metrics collected by Beyla. Returns query latencies, operation types, and table-level statistics.",
+		"coral_query_ebpf_sql_metrics",
+		"Query SQL operation metrics collected via eBPF. Returns query latencies, operation types, and table-level statistics.",
 		schemaBytes,
 	)
 
@@ -564,7 +564,7 @@ func (s *Server) registerBeylaSQLMetricsTool() {
 			}
 		}
 
-		s.auditToolCall("coral_query_beyla_sql_metrics", input)
+		s.auditToolCall("coral_query_ebpf_sql_metrics", input)
 
 		// Get time range (handle nil pointer).
 		timeRangeStr := "1h"
@@ -636,29 +636,29 @@ func (s *Server) registerBeylaSQLMetricsTool() {
 	})
 }
 
-// registerBeylaTracesTool registers the coral_query_beyla_traces tool.
+// registerBeylaTracesTool registers the coral_query_ebpf_traces tool.
 func (s *Server) registerBeylaTracesTool() {
-	if !s.isToolEnabled("coral_query_beyla_traces") {
+	if !s.isToolEnabled("coral_query_ebpf_traces") {
 		return
 	}
 
 	inputSchema, err := generateInputSchema(BeylaTracesInput{})
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_beyla_traces")
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_query_ebpf_traces")
 		return
 	}
 
 	// Marshal schema to JSON bytes for MCP tool.
 	schemaBytes, err := json.Marshal(inputSchema)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_beyla_traces")
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_query_ebpf_traces")
 		return
 	}
 
 	// Create MCP tool with raw schema.
 	tool := mcp.NewToolWithRawSchema(
-		"coral_query_beyla_traces",
-		"Query distributed traces collected by Beyla. Can search by trace ID, service, time range, or duration threshold.",
+		"coral_query_ebpf_traces",
+		"Query distributed traces collected via eBPF. Can search by trace ID, service, time range, or duration threshold.",
 		schemaBytes,
 	)
 
@@ -676,7 +676,7 @@ func (s *Server) registerBeylaTracesTool() {
 			}
 		}
 
-		s.auditToolCall("coral_query_beyla_traces", input)
+		s.auditToolCall("coral_query_ebpf_traces", input)
 
 		// Get time range (handle nil pointer).
 		timeRangeStr := "1h"
@@ -710,7 +710,7 @@ func (s *Server) registerBeylaTracesTool() {
 
 		// Query database.
 		dbCtx := context.Background()
-		results, err := s.db.QueryBeylaTraces(dbCtx, serviceName, startTime, endTime, minDurationUs, maxTraces)
+		results, err := s.db.QueryBeylaTraces(dbCtx, "", serviceName, startTime, endTime, minDurationUs, maxTraces)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to query traces: %v", err)), nil
 		}

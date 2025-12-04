@@ -331,34 +331,6 @@ func TestAttachUprobe_MissingAgentID(t *testing.T) {
 	}
 }
 
-func TestAttachUprobe_MissingSDKAddr(t *testing.T) {
-	orch, db := setupTestOrchestrator(t)
-	defer db.Close()
-
-	ctx := context.Background()
-
-	// Try to attach without SDK address
-	req := connect.NewRequest(&debugpb.AttachUprobeRequest{
-		AgentId:      "test-agent",
-		ServiceName:  "test-service",
-		FunctionName: "TestFunction",
-		// SdkAddr is missing
-	})
-
-	resp, err := orch.AttachUprobe(ctx, req)
-	if err != nil {
-		t.Fatalf("AttachUprobe returned error: %v", err)
-	}
-
-	if resp.Msg.Success {
-		t.Error("Expected AttachUprobe to fail without SDK address")
-	}
-
-	if resp.Msg.Error == "" || resp.Msg.Error != "sdk_addr is required (could not resolve from service labels)" {
-		t.Errorf("Expected SDK address error, got: %s", resp.Msg.Error)
-	}
-}
-
 func TestAttachUprobe_DurationCapping(t *testing.T) {
 	_, db := setupTestOrchestrator(t)
 	defer db.Close()

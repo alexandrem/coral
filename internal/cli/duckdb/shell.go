@@ -26,7 +26,7 @@ func NewShellCmd() *cobra.Command {
 		Long: `Opens an interactive SQL shell attached to one or more agent databases.
 
 The shell provides a REPL (Read-Eval-Print Loop) for executing SQL queries
-against agent databases (telemetry, Beyla metrics, etc.). Supports command history,
+against agent databases (telemetry, eBPF metrics, etc.). Supports command history,
 multi-line queries, and meta-commands.
 
 Meta-commands:
@@ -41,13 +41,13 @@ Examples:
   coral duckdb shell agent-prod-1
 
   # Single agent shell with specific database
-  coral duckdb shell agent-prod-1 --database beyla.duckdb
+  coral duckdb shell agent-prod-1 --database metrics.duckdb
 
   # Query telemetry data
   coral duckdb shell agent-prod-1 -d telemetry.duckdb
 
   # Multi-agent shell (same database across all agents)
-  coral duckdb shell --agents agent-prod-1,agent-prod-2 -d beyla.duckdb
+  coral duckdb shell --agents agent-prod-1,agent-prod-2 -d metrics.duckdb
 
   # Example query in shell
   duckdb> SELECT service_name, COUNT(*) as count
@@ -91,7 +91,7 @@ If --database is not specified, the first available database will be used.`,
 	}
 
 	cmd.Flags().StringSliceVar(&agents, "agents", nil, "Comma-separated list of agent IDs for multi-agent queries")
-	cmd.Flags().StringVarP(&database, "database", "d", "", "Database name (e.g., beyla.duckdb, telemetry.duckdb)")
+	cmd.Flags().StringVarP(&database, "database", "d", "", "Database name (e.g., metrics.duckdb)")
 
 	return cmd
 }

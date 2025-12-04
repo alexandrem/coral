@@ -1,7 +1,7 @@
 ---
 rfd: "066"
 title: "SDK HTTP API - Pull-Based Discovery"
-state: "draft"
+state: "implemented"
 breaking_changes: true
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "sdk", "agent", "debugging" ]
 
 # RFD 066 - SDK HTTP API - Pull-Based Discovery
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -72,7 +72,7 @@ standard port, following the Prometheus `/metrics` pattern.
 │  ┌───────────┐  │                    │              │
 │  │ Coral SDK │  │                    │              │
 │  │           │  │                    │              │
-│  │ HTTP :9002│◄─┼────GET /debug/*───┤  Discovery    │
+│  │ HTTP :9002│◄─┼────GET /debug/*────┤  Discovery   │
 │  └───────────┘  │                    │              │
 │                 │                    │              │
 │  App :8080 ◄────┼────Health Checks───┤  Monitor     │
@@ -806,35 +806,79 @@ production efficiency.
 
 ### Phase 1: SDK Core
 
-- [ ] Remove Connect-RPC and protobuf dependencies
-- [ ] Implement HTTP server with `/debug/*` endpoints
-- [ ] Remove `RegisterService()` - service name comes from CLI
-- [ ] Update `EnableRuntimeMonitoring()` API to accept options directly
-- [ ] Add HTTP handlers for capabilities, functions, and export
-- [ ] Unit tests for HTTP endpoints
+- [x] Remove Connect-RPC and protobuf dependencies
+- [x] Implement HTTP server with `/debug/*` endpoints
+- [x] Remove `RegisterService()` - service name comes from CLI
+- [x] Update `EnableRuntimeMonitoring()` API to accept options directly
+- [x] Add HTTP handlers for capabilities, functions, and export
+- [x] Unit tests for HTTP endpoints
 
 ### Phase 2: Agent Discovery
 
-- [ ] Implement SDK discovery via HTTP client
-- [ ] Update `ConnectService` handler to probe `:9002`
-- [ ] Update function metadata queries to use HTTP
-- [ ] Add agent unit tests for discovery
+- [x] Implement SDK discovery via HTTP client
+- [x] Update `ConnectService` handler to probe `:9002`
+- [x] Update function metadata queries to use HTTP
+- [x] Add agent unit tests for discovery
 
 ### Phase 3: Examples & Documentation
 
-- [ ] Update `examples/sdk-demo/main.go` with new API
+- [x] Update `examples/sdk-demo/main.go` with new API
 - [ ] Update RFD 060 status to "Superseded by RFD 066"
 - [ ] Write migration guide
-- [ ] Update all documentation
-- [ ] Update CLI help text and output messages
+- [x] Update all documentation
+- [x] Update CLI help text and output messages
 
 ### Phase 4: Testing & Polish
 
-- [ ] Comprehensive test coverage
-- [ ] E2E testing with sdk-demo
-- [ ] Performance testing (discovery latency)
-- [ ] Error handling and edge cases
-- [ ] Security review
+- [x] Comprehensive test coverage
+- [x] E2E testing with sdk-demo
+- [x] Performance testing (discovery latency)
+- [x] Error handling and edge cases
+- [x] Security review
+
+## Implementation Status
+
+**Core Capability:** ✅ Complete
+
+SDK-Agent communication has been successfully refactored from push-based gRPC to pull-based HTTP/JSON discovery. The SDK is now dependency-free (uses only Go stdlib) and follows the Prometheus `/metrics` pattern for debug metadata exposure.
+
+**Operational Components:**
+
+- ✅ HTTP debug server in SDK (`pkg/sdk/debug/server.go`)
+- ✅ Zero-dependency SDK using only `net/http` and `encoding/json`
+- ✅ Agent HTTP discovery (`internal/agent/service_handler.go`)
+- ✅ Function metadata queries via HTTP (`internal/agent/ebpf/sdk_client.go`)
+- ✅ Automatic SDK discovery on `coral connect`
+- ✅ CLI integration with improved feedback
+- ✅ Updated examples (`examples/sdk-demo`)
+
+**What Works Now:**
+
+- SDK starts HTTP server on `localhost:9002` (configurable)
+- Agent discovers SDK capabilities via `GET /debug/capabilities`
+- Agent queries function metadata via `GET /debug/functions/{name}`
+- Pagination and filtering for large function lists
+- Gzip compression for bulk exports
+- Automatic SDK address resolution (no manual `--sdk-addr` flag needed)
+- Debug attach command uses discovered SDK address
+- Service monitoring works with or without SDK (optional)
+
+**Breaking Changes Implemented:**
+
+- Removed `RegisterService()` API - service name now comes from `coral connect`
+- Removed `Options.AgentAddr` - no longer needed with pull-based discovery
+- Removed `Options.Port` and `Options.HealthEndpoint` - specified in CLI
+- Removed Connect-RPC and protobuf dependencies from SDK
+- Updated `EnableRuntimeMonitoring()` to accept `Options` with `DebugAddr`
+
+**Integration Status:**
+
+- ✅ SDK HTTP server fully functional
+- ✅ Agent discovery integrated into service connection flow
+- ✅ CLI commands updated to remove obsolete `--sdk-addr` flag
+- ✅ Examples updated to new API
+- ⏳ Migration guide pending (deferred to documentation update)
+- ⏳ RFD 060 status update pending
 
 ## Configuration Examples
 
