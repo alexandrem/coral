@@ -123,7 +123,7 @@ func TestServer_GetStatus(t *testing.T) {
 		resp, err := server.GetStatus(context.Background(), req)
 
 		require.NoError(t, err)
-		assert.Equal(t, "degraded", resp.Msg.Status)
+		assert.Equal(t, "running", resp.Msg.Status) // Colony status is decoupled from agent health.
 		assert.Equal(t, int32(2), resp.Msg.AgentCount)
 	})
 
@@ -154,7 +154,7 @@ func TestServer_GetStatus(t *testing.T) {
 		resp, err := server.GetStatus(context.Background(), req)
 
 		require.NoError(t, err)
-		assert.Equal(t, "unhealthy", resp.Msg.Status)
+		assert.Equal(t, "running", resp.Msg.Status) // Colony status is decoupled from agent health.
 		assert.Equal(t, int32(2), resp.Msg.AgentCount)
 	})
 
@@ -380,7 +380,7 @@ func TestServer_determineColonyStatus(t *testing.T) {
 					}
 				}
 			},
-			expectedStatus: "degraded",
+			expectedStatus: "running", // Colony status is decoupled from agent health.
 		},
 		{
 			name: "one unhealthy agent",
@@ -397,7 +397,7 @@ func TestServer_determineColonyStatus(t *testing.T) {
 					}
 				}
 			},
-			expectedStatus: "unhealthy",
+			expectedStatus: "running", // Colony status is decoupled from agent health.
 		},
 	}
 
