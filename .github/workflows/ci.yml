@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
+      - name: Install tools
+        run: make install-tools
+
       - name: Run tests
         run: make test
 
