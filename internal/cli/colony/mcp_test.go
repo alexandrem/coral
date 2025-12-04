@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/logging"
 )
@@ -43,14 +42,6 @@ func (m *mockColonyClient) ListAgents(ctx context.Context, req *connect.Request[
 
 func (m *mockColonyClient) GetTopology(ctx context.Context, req *connect.Request[colonyv1.GetTopologyRequest]) (*connect.Response[colonyv1.GetTopologyResponse], error) {
 	return connect.NewResponse(&colonyv1.GetTopologyResponse{}), nil
-}
-
-func (m *mockColonyClient) QueryTelemetry(ctx context.Context, req *connect.Request[colonyv1.QueryTelemetryRequest]) (*connect.Response[colonyv1.QueryTelemetryResponse], error) {
-	return connect.NewResponse(&colonyv1.QueryTelemetryResponse{}), nil
-}
-
-func (m *mockColonyClient) QueryEbpfMetrics(ctx context.Context, req *connect.Request[agentv1.QueryEbpfMetricsRequest]) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
-	return connect.NewResponse(&agentv1.QueryEbpfMetricsResponse{}), nil
 }
 
 func (m *mockColonyClient) StreamTool(ctx context.Context) *connect.BidiStreamForClient[colonyv1.StreamToolRequest, colonyv1.StreamToolResponse] {

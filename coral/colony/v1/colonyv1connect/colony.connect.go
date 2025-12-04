@@ -11,7 +11,6 @@ import (
 	strings "strings"
 
 	connect "connectrpc.com/connect"
-	v11 "github.com/coral-mesh/coral/coral/agent/v1"
 	v1 "github.com/coral-mesh/coral/coral/colony/v1"
 )
 
@@ -43,12 +42,6 @@ const (
 	// ColonyServiceGetTopologyProcedure is the fully-qualified name of the ColonyService's GetTopology
 	// RPC.
 	ColonyServiceGetTopologyProcedure = "/coral.colony.v1.ColonyService/GetTopology"
-	// ColonyServiceQueryTelemetryProcedure is the fully-qualified name of the ColonyService's
-	// QueryTelemetry RPC.
-	ColonyServiceQueryTelemetryProcedure = "/coral.colony.v1.ColonyService/QueryTelemetry"
-	// ColonyServiceQueryEbpfMetricsProcedure is the fully-qualified name of the ColonyService's
-	// QueryEbpfMetrics RPC.
-	ColonyServiceQueryEbpfMetricsProcedure = "/coral.colony.v1.ColonyService/QueryEbpfMetrics"
 	// ColonyServiceQueryUnifiedSummaryProcedure is the fully-qualified name of the ColonyService's
 	// QueryUnifiedSummary RPC.
 	ColonyServiceQueryUnifiedSummaryProcedure = "/coral.colony.v1.ColonyService/QueryUnifiedSummary"
@@ -84,11 +77,7 @@ type ColonyServiceClient interface {
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	// Get network topology.
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
-	// Query telemetry data from agent (RFD 025 - pull-based).
-	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
-	// Query aggregated eBPF metrics from colony storage (RFD 035).
-	QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error)
-	// Unified query interface (RFD 067).
+	// Unified query interface (RFD 067) - replaces QueryTelemetry (RFD 025) and QueryEbpfMetrics (RFD 035).
 	QueryUnifiedSummary(context.Context, *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error)
 	QueryUnifiedTraces(context.Context, *connect.Request[v1.QueryUnifiedTracesRequest]) (*connect.Response[v1.QueryUnifiedTracesResponse], error)
 	QueryUnifiedMetrics(context.Context, *connect.Request[v1.QueryUnifiedMetricsRequest]) (*connect.Response[v1.QueryUnifiedMetricsResponse], error)
@@ -132,18 +121,6 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			httpClient,
 			baseURL+ColonyServiceGetTopologyProcedure,
 			connect.WithSchema(colonyServiceMethods.ByName("GetTopology")),
-			connect.WithClientOptions(opts...),
-		),
-		queryTelemetry: connect.NewClient[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse](
-			httpClient,
-			baseURL+ColonyServiceQueryTelemetryProcedure,
-			connect.WithSchema(colonyServiceMethods.ByName("QueryTelemetry")),
-			connect.WithClientOptions(opts...),
-		),
-		queryEbpfMetrics: connect.NewClient[v11.QueryEbpfMetricsRequest, v11.QueryEbpfMetricsResponse](
-			httpClient,
-			baseURL+ColonyServiceQueryEbpfMetricsProcedure,
-			connect.WithSchema(colonyServiceMethods.ByName("QueryEbpfMetrics")),
 			connect.WithClientOptions(opts...),
 		),
 		queryUnifiedSummary: connect.NewClient[v1.QueryUnifiedSummaryRequest, v1.QueryUnifiedSummaryResponse](
@@ -208,8 +185,6 @@ type colonyServiceClient struct {
 	getStatus           *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
 	listAgents          *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
 	getTopology         *connect.Client[v1.GetTopologyRequest, v1.GetTopologyResponse]
-	queryTelemetry      *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
-	queryEbpfMetrics    *connect.Client[v11.QueryEbpfMetricsRequest, v11.QueryEbpfMetricsResponse]
 	queryUnifiedSummary *connect.Client[v1.QueryUnifiedSummaryRequest, v1.QueryUnifiedSummaryResponse]
 	queryUnifiedTraces  *connect.Client[v1.QueryUnifiedTracesRequest, v1.QueryUnifiedTracesResponse]
 	queryUnifiedMetrics *connect.Client[v1.QueryUnifiedMetricsRequest, v1.QueryUnifiedMetricsResponse]
@@ -234,16 +209,6 @@ func (c *colonyServiceClient) ListAgents(ctx context.Context, req *connect.Reque
 // GetTopology calls coral.colony.v1.ColonyService.GetTopology.
 func (c *colonyServiceClient) GetTopology(ctx context.Context, req *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error) {
 	return c.getTopology.CallUnary(ctx, req)
-}
-
-// QueryTelemetry calls coral.colony.v1.ColonyService.QueryTelemetry.
-func (c *colonyServiceClient) QueryTelemetry(ctx context.Context, req *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
-	return c.queryTelemetry.CallUnary(ctx, req)
-}
-
-// QueryEbpfMetrics calls coral.colony.v1.ColonyService.QueryEbpfMetrics.
-func (c *colonyServiceClient) QueryEbpfMetrics(ctx context.Context, req *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error) {
-	return c.queryEbpfMetrics.CallUnary(ctx, req)
 }
 
 // QueryUnifiedSummary calls coral.colony.v1.ColonyService.QueryUnifiedSummary.
@@ -299,11 +264,7 @@ type ColonyServiceHandler interface {
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	// Get network topology.
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
-	// Query telemetry data from agent (RFD 025 - pull-based).
-	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
-	// Query aggregated eBPF metrics from colony storage (RFD 035).
-	QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error)
-	// Unified query interface (RFD 067).
+	// Unified query interface (RFD 067) - replaces QueryTelemetry (RFD 025) and QueryEbpfMetrics (RFD 035).
 	QueryUnifiedSummary(context.Context, *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error)
 	QueryUnifiedTraces(context.Context, *connect.Request[v1.QueryUnifiedTracesRequest]) (*connect.Response[v1.QueryUnifiedTracesResponse], error)
 	QueryUnifiedMetrics(context.Context, *connect.Request[v1.QueryUnifiedMetricsRequest]) (*connect.Response[v1.QueryUnifiedMetricsResponse], error)
@@ -343,18 +304,6 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		ColonyServiceGetTopologyProcedure,
 		svc.GetTopology,
 		connect.WithSchema(colonyServiceMethods.ByName("GetTopology")),
-		connect.WithHandlerOptions(opts...),
-	)
-	colonyServiceQueryTelemetryHandler := connect.NewUnaryHandler(
-		ColonyServiceQueryTelemetryProcedure,
-		svc.QueryTelemetry,
-		connect.WithSchema(colonyServiceMethods.ByName("QueryTelemetry")),
-		connect.WithHandlerOptions(opts...),
-	)
-	colonyServiceQueryEbpfMetricsHandler := connect.NewUnaryHandler(
-		ColonyServiceQueryEbpfMetricsProcedure,
-		svc.QueryEbpfMetrics,
-		connect.WithSchema(colonyServiceMethods.ByName("QueryEbpfMetrics")),
 		connect.WithHandlerOptions(opts...),
 	)
 	colonyServiceQueryUnifiedSummaryHandler := connect.NewUnaryHandler(
@@ -419,10 +368,6 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceListAgentsHandler.ServeHTTP(w, r)
 		case ColonyServiceGetTopologyProcedure:
 			colonyServiceGetTopologyHandler.ServeHTTP(w, r)
-		case ColonyServiceQueryTelemetryProcedure:
-			colonyServiceQueryTelemetryHandler.ServeHTTP(w, r)
-		case ColonyServiceQueryEbpfMetricsProcedure:
-			colonyServiceQueryEbpfMetricsHandler.ServeHTTP(w, r)
 		case ColonyServiceQueryUnifiedSummaryProcedure:
 			colonyServiceQueryUnifiedSummaryHandler.ServeHTTP(w, r)
 		case ColonyServiceQueryUnifiedTracesProcedure:
@@ -460,14 +405,6 @@ func (UnimplementedColonyServiceHandler) ListAgents(context.Context, *connect.Re
 
 func (UnimplementedColonyServiceHandler) GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.GetTopology is not implemented"))
-}
-
-func (UnimplementedColonyServiceHandler) QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryTelemetry is not implemented"))
-}
-
-func (UnimplementedColonyServiceHandler) QueryEbpfMetrics(context.Context, *connect.Request[v11.QueryEbpfMetricsRequest]) (*connect.Response[v11.QueryEbpfMetricsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryEbpfMetrics is not implemented"))
 }
 
 func (UnimplementedColonyServiceHandler) QueryUnifiedSummary(context.Context, *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error) {
