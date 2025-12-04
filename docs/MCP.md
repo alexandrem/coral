@@ -120,160 +120,135 @@ access tools.
 
 ## Available MCP Tools
 
-### Service Health & Topology
+### Unified Query Interface (RFD 067)
 
-#### `coral_get_service_health`
+The unified query tools combine data from eBPF and OTLP sources automatically, providing a complete observability picture.
 
-Get current health status of all services.
+#### `coral_query_summary`
 
-```
-Input:
-  service_filter (optional): Filter by service name pattern
-
-Returns: Health status, CPU/memory usage, uptime, issues
-```
-
-#### `coral_get_service_topology`
-
-Get service dependency graph discovered from traces.
+Get high-level health summary for services with anomaly detection.
 
 ```
 Input:
-  filter (optional): Filter by service, tag, or region
-  format: "graph" | "list" | "json"
+  service (optional): Service name (omit for all services)
+  time_range: "5m", "1h", "24h" (default: "5m")
 
-Returns: Service relationships and call frequencies
+Returns:
+  - Health status (✅ healthy, ⚠️ degraded, ❌ critical)
+  - Request count, error rate, average latency
+  - Data source annotation (eBPF, OTLP, or eBPF+OTLP)
+  - Issues detected (error rate spikes, latency spikes)
 ```
 
-### eBPF RED Metrics
+**Example:**
+```json
+{
+  "service": "payments-api",
+  "time_range": "5m"
+}
+```
 
-#### `coral_query_ebpf_http_metrics`
+#### `coral_query_traces`
 
-Query HTTP request rate, error rate, and latency distributions.
+Query distributed traces from all sources (eBPF + OTLP).
 
 ```
 Input:
-  service (required): Service name
+  service (optional): Filter by service name
   time_range: "1h", "30m", "24h" (default: "1h")
-  http_route (optional): Filter by route pattern
-  http_method (optional): GET, POST, PUT, DELETE, PATCH
-  status_code_range (optional): 2xx, 3xx, 4xx, 5xx
-
-Returns: P50/P95/P99 latency, request rates, error counts by status code
-```
-
-#### `coral_query_ebpf_grpc_metrics`
-
-Query gRPC method-level RED metrics.
-
-```
-Input:
-  service (required): Service name
-  time_range: "1h", "30m", "24h" (default: "1h")
-  grpc_method (optional): Filter by gRPC method
-  status_code (optional): gRPC status code (0=OK, 1=CANCELLED, etc.)
-
-Returns: RPC rate, latency distributions, status breakdowns
-```
-
-#### `coral_query_ebpf_sql_metrics`
-
-Query SQL operation metrics.
-
-```
-Input:
-  service (required): Service name
-  time_range: "1h", "30m", "24h" (default: "1h")
-  sql_operation (optional): SELECT, INSERT, UPDATE, DELETE
-  table_name (optional): Filter by table
-
-Returns: Query latencies, operation types, table statistics
-```
-
-### Distributed Tracing
-
-#### `coral_query_ebpf_traces`
-
-Query distributed traces.
-
-```
-Input:
+  source (optional): "ebpf", "telemetry", "all" (default: "all")
   trace_id (optional): Specific trace ID
-  service (optional): Filter by service
+  min_duration_ms (optional): Filter slow traces
+  max_traces: Maximum traces to return (default: 10)
+
+Returns:
+  - Trace ID, service name, span name, duration
+  - Parent-child relationships
+  - Source annotations (📍 eBPF, 📊 OTLP)
+  - For OTLP: aggregated metrics (total spans, error count)
+```
+
+**Example:**
+```json
+{
+  "service": "payments-api",
+  "time_range": "1h",
+  "source": "all",
+  "min_duration_ms": 500
+}
+```
+
+#### `coral_query_metrics`
+
+Query HTTP/gRPC/SQL metrics from all sources (eBPF + OTLP).
+
+```
+Input:
+  service (optional): Filter by service name
   time_range: "1h", "30m", "24h" (default: "1h")
-  min_duration_ms (optional): Only slow traces
-  max_traces: Default 10
+  source (optional): "ebpf", "telemetry", "all" (default: "all")
+  protocol (optional): "http", "grpc", "sql", "auto" (default: "auto")
+  http_route (optional): Filter by HTTP route
+  http_method (optional): Filter by HTTP method
+  status_code_range (optional): Filter by status code range
 
-Returns: List of traces with spans and timing
+Returns:
+  - HTTP/gRPC/SQL metrics from eBPF and OTLP
+  - Request counts, latency percentiles (P50/P95/P99)
+  - Source annotations for each metric
+  - Route/method/operation breakdown
 ```
 
-#### `coral_get_trace_by_id`
+**Example:**
+```json
+{
+  "service": "payments-api",
+  "time_range": "1h",
+  "source": "all",
+  "protocol": "http"
+}
+```
 
-Get a specific trace by ID with full span tree.
+#### `coral_query_logs`
+
+Query logs from OTLP sources.
 
 ```
 Input:
-  trace_id (required): 32-char hex trace ID
-  format: "tree" | "flat" | "json"
-
-Returns: Complete trace with parent-child relationships
-```
-
-### OTLP Telemetry
-
-#### `coral_query_telemetry_spans`
-
-Query generic OTLP spans from instrumented applications.
-
-```
-Input:
-  service (required): Service name
+  service (optional): Filter by service name
   time_range: "1h", "30m", "24h" (default: "1h")
-  operation (optional): Filter by operation name
+  level (optional): "debug", "info", "warn", "error"
+  search (optional): Full-text search query
+  max_logs: Maximum logs to return (default: 100)
 
-Returns: OTLP span summaries
+Returns:
+  - Log entries from OTLP
+  - Timestamp, level, message
+  - Filtered by search terms and level
 ```
 
-#### `coral_query_telemetry_metrics`
-
-Query generic OTLP metrics.
-
-```
-Input:
-  metric_name: Metric name (e.g., "http.server.duration")
-  service (optional): Filter by service
-  time_range: Default "1h"
-
-Returns: Time-series data for custom metrics
+**Example:**
+```json
+{
+  "service": "payments-api",
+  "time_range": "1h",
+  "level": "error",
+  "search": "timeout"
+}
 ```
 
-#### `coral_query_telemetry_logs`
+### Service Discovery
 
-Query generic OTLP logs.
+#### `coral_list_services`
 
-```
-Input:
-  query: Search query (full-text)
-  service (optional): Filter by service
-  level (optional): DEBUG, INFO, WARN, ERROR, FATAL
-  time_range: Default "1h"
-
-Returns: Log entries with timestamps and attributes
-```
-
-### Events
-
-#### `coral_query_events`
-
-Query operational events tracked by Coral.
+List all services known to the colony.
 
 ```
 Input:
-  event_type (optional): deploy, restart, crash, alert, config_change, connection, error_spike
-  time_range: Default "24h"
-  service (optional): Filter by service
+  agent_id (optional): Filter by agent ID
+  service_name (optional): Filter by service name
 
-Returns: List of events with timestamps and details
+Returns: Service names, ports, types, and health status
 ```
 
 ### Live Debugging
@@ -432,19 +407,16 @@ Now Claude can query both environments and compare them.
 You: "Should I deploy PR #123 to production?"
 
 Claude: [Automatically queries MCP tools]
-  → coral_get_service_health()
-  → coral_query_ebpf_http_metrics(service=api, time_range=1h)
-  → coral_query_events(event_type=deploy, time_range=24h)
+  → coral_query_summary()
+  → coral_query_metrics(service=api, time_range=1h)
 
 "Based on production state:
 - All services healthy ✓
-- API P95 latency: 145ms (normal range)
-- Error rate: 0.2% (baseline)
-- No deploys in last 2 hours ✓
-- No active incidents ✓
+- API: 12.5k requests, 0.2% errors, 145ms avg latency (normal)
+- No degraded services ✓
+- No critical issues detected ✓
 
-Safe to deploy. Recommend deploying during low-traffic window
-(current: 450 req/s, peak: 1200 req/s)."
+Safe to deploy. System is stable with normal traffic patterns."
 ```
 
 ### Incident Investigation
@@ -453,26 +425,24 @@ Safe to deploy. Recommend deploying during low-traffic window
 You: "Why is checkout slow?"
 
 Claude: [Orchestrates multiple tool calls]
-  → coral_query_ebpf_http_metrics(service=checkout, time_range=1h)
-     Result: P95 latency 850ms (baseline: 200ms)
+  → coral_query_summary(service=checkout, time_range=1h)
+     Result: ⚠️ degraded - 850ms avg latency (baseline: 200ms)
 
-  → coral_query_ebpf_traces(service=checkout, min_duration_ms=500, max_traces=5)
+  → coral_query_traces(service=checkout, min_duration_ms=500, max_traces=5)
      Result: 80% of slow traces wait for payment-api
 
-  → coral_query_ebpf_http_metrics(service=payment-api, time_range=1h)
-     Result: payment-api P95 is 700ms (baseline: 150ms)
+  → coral_query_metrics(service=payment-api, time_range=1h, protocol=sql)
+     Result: SQL queries: P95 650ms (baseline: 50ms)
 
-  → coral_query_ebpf_sql_metrics(service=payment-api, time_range=1h)
-     Result: SELECT on 'cards' table: P95 650ms (baseline: 50ms)
+"Checkout is slow because payment-api database queries are slow. Analysis:
 
-"Checkout is slow because payment-api is slow. Analysis shows:
+1. Checkout: 850ms avg latency (↑325% from baseline)
+2. Root cause: payment-api SQL queries
+3. Specific issue: Database SELECT queries taking 650ms
+4. Data sources: eBPF+OTLP (complete view)
 
-1. Checkout P95: 850ms (↑325% from baseline)
-2. Root cause: payment-api SQL queries are slow
-3. Specific issue: 'cards' table SELECT queries taking 650ms
-
-Recommendation: Check database indexes on the 'cards' table or
-investigate if a recent data migration caused table bloat."
+Recommendation: Check database indexes or investigate recent
+data migration that may have caused table bloat."
 ```
 
 ### Cross-Environment Comparison
@@ -481,23 +451,23 @@ investigate if a recent data migration caused table bloat."
 You: "Why is prod slower than staging?"
 
 Claude: [Queries both colonies]
-  → coral-prod: coral_query_ebpf_http_metrics(service=api)
-  → coral-staging: coral_query_ebpf_http_metrics(service=api)
+  → coral-prod: coral_query_summary(service=api)
+  → coral-staging: coral_query_summary(service=api)
 
 "Production vs Staging Comparison:
 
-Latency (P95):
-- Prod: 245ms
-- Staging: 180ms
+Latency:
+- Prod: 245ms avg (⚠️ degraded)
+- Staging: 180ms avg (✅ healthy)
 - Difference: +36%
 
 Contributing factors:
-1. Traffic: Prod has 3.2x more traffic (1200 vs 375 req/s)
-2. Database connections: Prod at 95% pool utilization, Staging at 60%
-3. Cache hit rate: Prod 78%, Staging 92%
+1. Traffic: Prod has 3.2x more traffic (12.5k vs 3.8k req/min)
+2. Error rate: Prod 0.8%, Staging 0.1%
+3. Data sources: Both showing eBPF+OTLP data
 
-Recommendation: Increase prod database pool from 100 → 150 connections.
-Expected improvement: 245ms → ~200ms based on staging correlation."
+Recommendation: Investigate prod error rate spike and traffic patterns.
+Consider scaling or optimizing database connections."
 ```
 
 ### Health Monitoring
@@ -506,21 +476,20 @@ Expected improvement: 245ms → ~200ms based on staging correlation."
 You: "Is everything healthy?"
 
 Claude: [Single tool call]
-  → coral_get_service_health()
+  → coral_query_summary()
 
 "System Health Report:
 
 Overall Status: ✓ Healthy
 
-Services (6 total):
-✓ api: Healthy (CPU: 45%, Memory: 2.1GB, Uptime: 2d 3h)
-✓ frontend: Healthy (CPU: 12%, Memory: 512MB, Uptime: 2d 3h)
-✓ checkout: Healthy (CPU: 23%, Memory: 1.8GB, Uptime: 2d 3h)
-✓ payment-api: Healthy (CPU: 18%, Memory: 980MB, Uptime: 2d 3h)
-✓ worker: Healthy (CPU: 31%, Memory: 756MB, Uptime: 2d 3h)
-✓ database: Healthy (CPU: 55%, Memory: 4.5GB, Uptime: 14d 2h)
+Services:
+✅ api (eBPF+OTLP): 12.5k requests, 0.2% errors, 145ms avg
+✅ frontend (eBPF): 8.1k requests, 0.1% errors, 12ms avg
+✅ checkout (eBPF+OTLP): 3.2k requests, 0.3% errors, 89ms avg
+✅ payment-api (eBPF+OTLP): 2.8k requests, 0.5% errors, 156ms avg
+✅ worker (OTLP): 1.2k tasks, 0.0% errors, 45ms avg
 
-No alerts or issues detected."
+No critical issues detected. All services operating within normal parameters."
 ```
 
 ### Live Debugging Investigation
@@ -561,21 +530,23 @@ database contention or external API timeouts."
 **Currently Implemented:**
 
 - ✅ MCP server with stdio transport
-- ✅ Service health and topology tools
-- ✅ eBPF HTTP/gRPC/SQL metrics
-- ✅ Distributed tracing queries
-- ✅ OTLP telemetry summaries
+- ✅ Unified query interface (RFD 067)
+  - ✅ `coral_query_summary` - Health overview with anomaly detection
+  - ✅ `coral_query_traces` - Unified traces (eBPF + OTLP)
+  - ✅ `coral_query_metrics` - Unified metrics (eBPF + OTLP)
+  - ✅ `coral_query_logs` - Logs from OTLP
+- ✅ Service discovery tools
 - ✅ Claude Desktop integration
 - ✅ CLI commands for testing and config generation
 - ✅ Live debugging tools (uprobe attach/detach, session management)
+- ✅ Shell and container execution tools
 
 **Not Yet Implemented:**
 
+- ⏳ Complete anomaly detection in `coral_query_summary`
 - ⏳ `test-tool` command execution (structure exists, prints placeholder)
 - ⏳ `coral_get_debug_results` aggregation (basic summary available via detach)
-- ⏳ Analysis tools (event correlation, environment comparison) - requires event
-  storage
-- ⏳ Raw telemetry queries - see RFD 041 for agent direct queries
+- ⏳ Analysis tools (event correlation, environment comparison)
 
 ## Troubleshooting
 
