@@ -77,6 +77,10 @@ type GetStatusResponse struct {
 	UptimeSeconds int64 `protobuf:"varint,6,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
 	// Number of connected agents.
 	AgentCount int32 `protobuf:"varint,7,opt,name=agent_count,json=agentCount,proto3" json:"agent_count,omitempty"`
+	// Number of active agents.
+	ActiveAgentCount int32 `protobuf:"varint,16,opt,name=active_agent_count,json=activeAgentCount,proto3" json:"active_agent_count,omitempty"`
+	// Number of degraded agents.
+	DegradedAgentCount int32 `protobuf:"varint,17,opt,name=degraded_agent_count,json=degradedAgentCount,proto3" json:"degraded_agent_count,omitempty"`
 	// Dashboard URL.
 	DashboardUrl string `protobuf:"bytes,8,opt,name=dashboard_url,json=dashboardUrl,proto3" json:"dashboard_url,omitempty"`
 	// Storage size in bytes.
@@ -173,6 +177,20 @@ func (x *GetStatusResponse) GetUptimeSeconds() int64 {
 func (x *GetStatusResponse) GetAgentCount() int32 {
 	if x != nil {
 		return x.AgentCount
+	}
+	return 0
+}
+
+func (x *GetStatusResponse) GetActiveAgentCount() int32 {
+	if x != nil {
+		return x.ActiveAgentCount
+	}
+	return 0
+}
+
+func (x *GetStatusResponse) GetDegradedAgentCount() int32 {
+	if x != nil {
+		return x.DegradedAgentCount
 	}
 	return 0
 }
@@ -1085,7 +1103,7 @@ var File_coral_colony_v1_colony_proto protoreflect.FileDescriptor
 const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\n" +
 	"\x1ccoral/colony/v1/colony.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18coral/mesh/v1/auth.proto\x1a\x1acoral/agent/v1/agent.proto\x1a\x19coral/colony/v1/mcp.proto\"\x12\n" +
-	"\x10GetStatusRequest\"\xb9\x04\n" +
+	"\x10GetStatusRequest\"\x99\x05\n" +
 	"\x11GetStatusResponse\x12\x1b\n" +
 	"\tcolony_id\x18\x01 \x01(\tR\bcolonyId\x12\x19\n" +
 	"\bapp_name\x18\x02 \x01(\tR\aappName\x12 \n" +
@@ -1095,7 +1113,9 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"started_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12%\n" +
 	"\x0euptime_seconds\x18\x06 \x01(\x03R\ruptimeSeconds\x12\x1f\n" +
 	"\vagent_count\x18\a \x01(\x05R\n" +
-	"agentCount\x12#\n" +
+	"agentCount\x12,\n" +
+	"\x12active_agent_count\x18\x10 \x01(\x05R\x10activeAgentCount\x120\n" +
+	"\x14degraded_agent_count\x18\x11 \x01(\x05R\x12degradedAgentCount\x12#\n" +
 	"\rdashboard_url\x18\b \x01(\tR\fdashboardUrl\x12#\n" +
 	"\rstorage_bytes\x18\t \x01(\x03R\fstorageBytes\x12%\n" +
 	"\x0ewireguard_port\x18\n" +

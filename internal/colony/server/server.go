@@ -88,7 +88,7 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 
 	// Get agent count.
 	agentCount := int32(s.registry.Count())
-	activeCount := s.registry.CountActive()
+	activeCount, degradedCount := s.registry.CountByStatus()
 
 	// Determine colony status based on agent health.
 	status := s.determineColonyStatus()
@@ -109,7 +109,8 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 	s.logger.Debug().
 		Str("status", status).
 		Int32("agent_count", agentCount).
-		Int("active_count", activeCount).
+		Int32("active_count", activeCount).
+		Int32("degraded_count", degradedCount).
 		Int64("uptime_seconds", uptimeSeconds).
 		Msg("Colony status response prepared")
 
@@ -122,6 +123,8 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		StartedAt:          timestamppb.New(s.startTime),
 		UptimeSeconds:      uptimeSeconds,
 		AgentCount:         agentCount,
+		ActiveAgentCount:   activeCount,
+		DegradedAgentCount: degradedCount,
 		DashboardUrl:       dashboardURL,
 		StorageBytes:       storageBytes,
 		WireguardPort:      int32(s.config.WireGuardPort),
@@ -272,39 +275,10 @@ func (s *Server) GetTopology(
 }
 
 // determineColonyStatus calculates overall colony status based on agent health.
+// determineColonyStatus calculates overall colony status.
+// Since agents are now decoupled from colony status, this simply returns "running"
+// as long as the server itself is operational.
 func (s *Server) determineColonyStatus() string {
-	entries := s.registry.ListAll()
-
-	// If no agents, colony is running but idle (waiting for agents).
-	if len(entries) == 0 {
-		return "running"
-	}
-
-	now := time.Now()
-	hasUnhealthy := false
-	hasDegraded := false
-
-	for _, entry := range entries {
-		status := registry.DetermineStatus(entry.LastSeen, now)
-		switch status {
-		case registry.StatusUnhealthy:
-			hasUnhealthy = true
-		case registry.StatusDegraded:
-			hasDegraded = true
-		}
-	}
-
-	// Unhealthy if any agent is unhealthy.
-	if hasUnhealthy {
-		return "unhealthy"
-	}
-
-	// Degraded if any agent is degraded.
-	if hasDegraded {
-		return "degraded"
-	}
-
-	// All agents are healthy.
 	return "running"
 }
 

@@ -16,20 +16,22 @@ import (
 
 // ColonyStatusInfo holds status information for a single colony.
 type ColonyStatusInfo struct {
-	ColonyID        string `json:"colony_id"`
-	Application     string `json:"application"`
-	Environment     string `json:"environment"`
-	IsDefault       bool   `json:"is_default"`
-	Running         bool   `json:"running"`
-	Status          string `json:"status"`
-	UptimeSeconds   int64  `json:"uptime_seconds,omitempty"`
-	AgentCount      int32  `json:"agent_count,omitempty"`
-	WireGuardPort   int    `json:"wireguard_port"`
-	ConnectPort     int    `json:"connect_port"`
-	LocalEndpoint   string `json:"local_endpoint,omitempty"`
-	MeshEndpoint    string `json:"mesh_endpoint,omitempty"`
-	MeshIPv4        string `json:"mesh_ipv4"`
-	WireGuardPubkey string `json:"wireguard_pubkey,omitempty"`
+	ColonyID           string `json:"colony_id"`
+	Application        string `json:"application"`
+	Environment        string `json:"environment"`
+	IsDefault          bool   `json:"is_default"`
+	Running            bool   `json:"running"`
+	Status             string `json:"status"`
+	UptimeSeconds      int64  `json:"uptime_seconds,omitempty"`
+	AgentCount         int32  `json:"agent_count,omitempty"`
+	ActiveAgentCount   int32  `json:"active_agent_count,omitempty"`
+	DegradedAgentCount int32  `json:"degraded_agent_count,omitempty"`
+	WireGuardPort      int    `json:"wireguard_port"`
+	ConnectPort        int    `json:"connect_port"`
+	LocalEndpoint      string `json:"local_endpoint,omitempty"`
+	MeshEndpoint       string `json:"mesh_endpoint,omitempty"`
+	MeshIPv4           string `json:"mesh_ipv4"`
+	WireGuardPubkey    string `json:"wireguard_pubkey,omitempty"`
 }
 
 // Provider handles querying colony status.
@@ -104,6 +106,8 @@ func (p *Provider) QueryColonyStatus(colonyID string, defaultColony string) Colo
 		info.Status = resp.Msg.Status
 		info.UptimeSeconds = resp.Msg.UptimeSeconds
 		info.AgentCount = resp.Msg.AgentCount
+		info.ActiveAgentCount = resp.Msg.ActiveAgentCount
+		info.DegradedAgentCount = resp.Msg.DegradedAgentCount
 		info.LocalEndpoint = fmt.Sprintf("http://localhost:%d", resp.Msg.ConnectPort)
 		info.MeshEndpoint = fmt.Sprintf("http://%s:%d", resp.Msg.MeshIpv4, resp.Msg.ConnectPort)
 	}
