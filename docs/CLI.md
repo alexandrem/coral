@@ -168,10 +168,10 @@ coral debug attach payment-service --function processPayment --duration 5m
 coral debug trace api-gateway --path /checkout --duration 2m
 
 # List active debug sessions
-coral debug list
+coral debug session list
 
 # Stop a debug session
-coral debug detach <session-id>
+coral debug session stop <session-id>
 
 # Query historical debug results
 coral debug query payment-service --function processPayment --since 1h

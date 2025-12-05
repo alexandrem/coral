@@ -12,10 +12,18 @@ func NewDebugCmd() *cobra.Command {
 		Long:  `Debug running services using eBPF uprobes and other tools.`,
 	}
 
+	// Instrumentation
 	cmd.AddCommand(NewAttachCmd())
-	cmd.AddCommand(NewDetachCmd())
-	cmd.AddCommand(NewListCmd())
-	cmd.AddCommand(NewEventsCmd())
+	cmd.AddCommand(NewProfileCmd())
+
+	// Session Management
+	cmd.AddCommand(NewSessionCmd())
+
+	// Discovery
+	cmd.AddCommand(NewSearchCmd())
+	cmd.AddCommand(NewInfoCmd())
+
+	// Other
 	cmd.AddCommand(NewTraceCmd())
 	cmd.AddCommand(NewQueryCmd())
 
