@@ -42,10 +42,10 @@ func TestNewDebugSessionManager(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	if manager == nil {
-		t.Fatal("NewDebugSessionManager returned nil")
+		t.Fatal("NewSessionManager returned nil")
 	}
 	if manager.cfg.Enabled != true {
 		t.Error("Expected debug to be enabled")
@@ -65,7 +65,7 @@ func TestDebugSessionManager_CreateSession_Disabled(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	err := manager.CreateSession("session1", 1234, "main.Handler")
 	if err == nil {
@@ -88,7 +88,7 @@ func TestDebugSessionManager_CreateSession_Deprecated(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	err := manager.CreateSession("session1", 1234, "main.Handler")
 	if err == nil {
@@ -109,7 +109,7 @@ func TestDebugSessionManager_GetSession(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Test non-existent session
 	_, ok := manager.GetSession("nonexistent")
@@ -147,7 +147,7 @@ func TestDebugSessionManager_CloseSession(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Test closing non-existent session
 	err := manager.CloseSession("nonexistent")
@@ -188,7 +188,7 @@ func TestDebugSessionManager_Subscribe(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Subscribe to events
 	eventCh := manager.Subscribe()
@@ -239,7 +239,7 @@ func TestDebugSessionManager_MaxConcurrentSessions(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Add 2 sessions manually (up to limit)
 	manager.mu.Lock()
@@ -278,7 +278,7 @@ func TestDebugSessionManager_StartSession_MaxLimitReached(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Add one session (at limit)
 	manager.mu.Lock()
@@ -311,7 +311,7 @@ func TestDebugSessionManager_StartSession_DuplicateSession(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Add a session
 	manager.mu.Lock()
@@ -346,7 +346,7 @@ func TestDebugSessionManager_StartSession_ResolverError(t *testing.T) {
 		err: fmt.Errorf("service not found"),
 	}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Try to start session - should fail at resolution
 	err := manager.StartSession("session1", "unknown-service", "Handler")
@@ -369,7 +369,7 @@ func TestDebugSessionManager_DetachUprobe_NonExistent(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Try to detach non-existent session - should not error
 	err := manager.DetachUprobe("non-existent")
@@ -388,7 +388,7 @@ func TestDebugSessionManager_ConcurrentEventPublish(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 	eventCh := manager.Subscribe()
 
 	// Send events concurrently
@@ -452,7 +452,7 @@ func TestDebugSessionManager_SessionLifecycle(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Add a session
 	sessionID := "test-session"
@@ -497,7 +497,7 @@ func TestDebugSessionManager_MultipleSubscribers(t *testing.T) {
 	logger := zerolog.Nop()
 	resolver := &mockResolver{addr: "localhost:8080"}
 
-	manager := NewDebugSessionManager(cfg, logger, resolver)
+	manager := NewSessionManager(cfg, logger, resolver)
 
 	// Subscribe multiple times
 	ch1 := manager.Subscribe()
