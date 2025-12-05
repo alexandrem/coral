@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/ebpf/uprobe"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go uprobe ./bpf/uprobe.c -- -I./bpf/headers
@@ -43,10 +43,9 @@ type UprobeCollector struct {
 	pid        uint32
 
 	// eBPF resources
-	objs       *uprobeObjects
-	entryLink  link.Link
-	returnLink link.Link
-	reader     *ringbuf.Reader
+	objs         *uprobeObjects
+	attachResult *uprobe.AttachResult
+	reader       *ringbuf.Reader
 
 	// Event collection
 	ctx    context.Context
@@ -121,101 +120,32 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 
 	c.logger.Debug().Msg("Loaded eBPF objects")
 
-	// Step 3: Open executable for uprobe attachment
-	// In sidecar mode with shared PID namespace, use /proc/{pid}/exe which is a
-	// symlink to the actual binary. This works for uprobe attachment even when
-	// the binary path is only visible in the container's mount namespace.
-	binaryPath := fmt.Sprintf("/proc/%d/exe", c.pid)
-
-	c.logger.Debug().
-		Str("container_path", c.binaryPath).
-		Str("proc_exe_path", binaryPath).
-		Uint64("offset", c.funcOffset).
-		Uint32("pid", c.pid).
-		Msg("Using /proc/{pid}/exe for uprobe attachment")
-
-	exe, err := link.OpenExecutable(binaryPath)
-	if err != nil {
-		c.objs.Close() // nolint:errcheck
-		return fmt.Errorf("failed to open executable (path=%s): %w", binaryPath, err)
-	}
-
-	c.logger.Debug().
-		Str("exe_path", binaryPath).
-		Msg("Successfully opened executable for uprobe attachment")
-
-	// Step 4: Attach uprobe (function entry)
-	// The SDK provides an absolute address/offset from the binary start.
-	// Use Address field (not Offset) since Offset is relative to symbol.
-	// Pass empty symbol since we're using absolute addressing.
-	c.logger.Debug().
-		Str("function_name", c.functionName).
-		Uint64("address", c.funcOffset).
-		Int("pid", int(c.pid)).
-		Msg("Attaching uprobe to function entry")
-
-	c.entryLink, err = exe.Uprobe("", c.objs.UprobeEntry, &link.UprobeOptions{
-		Address: c.funcOffset,
-		PID:     0, // Trace all processes using this binary (inode). Avoids PID namespace issues.
-	})
-	if err != nil {
-		c.objs.Close() // nolint:errcheck
-		c.logger.Error().
-			Err(err).
-			Str("function", c.functionName).
-			Uint64("offset", c.funcOffset).
-			Str("binary", binaryPath).
-			Msg("Failed to attach uprobe")
-		return fmt.Errorf("failed to attach uprobe: %w", err)
-	}
-
-	c.logger.Debug().Msg("Successfully attached uprobe to function entry")
-
+	// Step 3: Attach uprobe using shared attacher.
 	// NOTE: Uretprobes are disabled for Go programs due to runtime incompatibility.
 	// Go uses a custom calling convention and stack management that conflicts with
 	// uretprobe's return address manipulation, causing "unexpected return pc" crashes.
 	// We only attach to function entry and won't capture return/duration information.
 	// TODO: disassemble function and attach many uprobes for RET (Return-Instruction Uprobes).
-
-	// Step 5: Attach uretprobe (function return) - DISABLED for Go
-	/*
-		c.logger.Debug().
-			Str("function_name", c.functionName).
-			Uint64("address", c.funcOffset).
-			Msg("Attaching uretprobe to function return")
-
-		c.returnLink, err = exe.Uretprobe("", c.objs.UprobeReturn, &link.UprobeOptions{
-			Address: c.funcOffset,
-			PID:     0,
-		})
-		if err != nil {
-			c.entryLink.Close() // nolint:errcheck
-			c.objs.Close()      // nolint:errcheck
-			c.logger.Error().
-				Err(err).
-				Str("function", c.functionName).
-				Uint64("offset", c.funcOffset).
-				Msg("Failed to attach uretprobe")
-			return fmt.Errorf("failed to attach uretprobe: %w", err)
-		}
-
-		c.logger.Debug().Msg("Attached uretprobe to function return")
-	*/
-
-	// Step 6: Start reading events from ring buffer
-	c.reader, err = ringbuf.NewReader(c.objs.Events)
+	c.attachResult, err = uprobe.AttachUprobe(
+		uprobe.AttachConfig{
+			PID:          c.pid,
+			Offset:       c.funcOffset,
+			BinaryPath:   c.binaryPath,
+			AttachReturn: false, // Disabled for Go programs
+			PIDFilter:    0,     // Trace all processes using this binary (inode). Avoids PID namespace issues.
+			Logger:       c.logger,
+		},
+		c.objs.UprobeEntry,
+		nil, // No return probe
+		c.objs.Events,
+	)
 	if err != nil {
-		c.returnLink.Close() // nolint:errcheck
-		c.entryLink.Close()  // nolint:errcheck
-		c.objs.Close()       // nolint:errcheck
-		return fmt.Errorf("failed to create ringbuf reader: %w", err)
+		c.objs.Close() // nolint:errcheck
+		return fmt.Errorf("failed to attach uprobe: %w", err)
 	}
 
-	c.logger.Info().
-		Str("binary_path", binaryPath).
-		Uint64("offset", c.funcOffset).
-		Uint32("pid", c.pid).
-		Msg("Starting event reader goroutine")
+	// Store reader reference for easy access.
+	c.reader = c.attachResult.Reader
 
 	go c.readEvents()
 
@@ -231,24 +161,14 @@ func (c *UprobeCollector) Stop() error {
 		c.cancel()
 	}
 
-	if c.reader != nil {
-		if err := c.reader.Close(); err != nil {
-			c.logger.Error().Err(err).Msg("Error closing ring buffer reader")
+	// Clean up uprobe attachment resources (links and reader).
+	if c.attachResult != nil {
+		if err := c.attachResult.Close(); err != nil {
+			c.logger.Error().Err(err).Msg("Error closing uprobe attachment")
 		}
 	}
 
-	if c.returnLink != nil {
-		if err := c.returnLink.Close(); err != nil {
-			c.logger.Error().Err(err).Msg("Error closing uretprobe link")
-		}
-	}
-
-	if c.entryLink != nil {
-		if err := c.entryLink.Close(); err != nil {
-			c.logger.Error().Err(err).Msg("Error closing uprobe link")
-		}
-	}
-
+	// Clean up BPF objects (programs and maps).
 	if c.objs != nil {
 		if err := c.objs.Close(); err != nil {
 			c.logger.Error().Err(err).Msg("Error closing eBPF objects")

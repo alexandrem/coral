@@ -30,7 +30,7 @@ type Agent struct {
 	monitors     map[string]*ServiceMonitor
 	ebpfManager  *ebpf.Manager
 	beylaManager *beyla.Manager
-	debugManager *debug.DebugSessionManager
+	debugManager *debug.SessionManager
 	logger       zerolog.Logger
 	mu           sync.RWMutex
 	ctx          context.Context
@@ -80,8 +80,8 @@ func New(config Config) (*Agent, error) {
 		cancel:       cancel,
 	}
 
-	// Initialize DebugSessionManager (RFD 061).
-	agent.debugManager = debug.NewDebugSessionManager(config.DebugConfig, config.Logger, agent)
+	// Initialize SessionManager (RFD 061).
+	agent.debugManager = debug.NewSessionManager(config.DebugConfig, config.Logger, agent)
 
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
