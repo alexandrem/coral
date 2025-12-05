@@ -17,6 +17,7 @@ import (
 func NewQueryCmd() *cobra.Command {
 	var (
 		functionName string
+		sessionID    string
 		since        time.Duration
 		format       string
 	)
@@ -28,6 +29,10 @@ func NewQueryCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serviceName := args[0]
 			ctx := context.Background()
+
+			if functionName == "" && sessionID == "" {
+				return fmt.Errorf("either --function or --session-id must be provided")
+			}
 
 			// Resolve colony URL from config
 			colonyAddr, err := getColonyURL()
@@ -41,32 +46,60 @@ func NewQueryCmd() *cobra.Command {
 			)
 
 			if format == "text" {
-				fmt.Printf("🔍 Querying debug data for %s/%s (last %s)...\n", serviceName, functionName, since)
-			}
-
-			// List sessions to find relevant ones
-			listReq := &colonypb.ListDebugSessionsRequest{
-				ServiceName: serviceName,
-			}
-			listResp, err := client.ListDebugSessions(ctx, connect.NewRequest(listReq))
-			if err != nil {
-				return fmt.Errorf("failed to list sessions: %w", err)
-			}
-
-			if format == "text" {
-				fmt.Printf("\nDebug Sessions for %s (last %s):\n\n", functionName, since)
+				if sessionID != "" {
+					fmt.Printf("🔍 Querying debug session %s...\n", sessionID)
+				} else {
+					fmt.Printf("🔍 Querying debug data for %s/%s (last %s)...\n", serviceName, functionName, since)
+				}
 			}
 
 			var matchingSessions []*colonypb.DebugSession
-			for _, session := range listResp.Msg.Sessions {
-				if session.FunctionName != functionName {
-					continue
+
+			if sessionID != "" {
+				// If session ID is provided, we can try to get it directly via ListDebugSessions filtering
+				// (Since GetDebugSession RPC doesn't exist yet, we list and filter)
+				listReq := &colonypb.ListDebugSessionsRequest{
+					ServiceName: serviceName,
 				}
-				// Check time range (started_at > now - since)
-				if time.Since(session.StartedAt.AsTime()) > since {
-					continue
+				listResp, err := client.ListDebugSessions(ctx, connect.NewRequest(listReq))
+				if err != nil {
+					return fmt.Errorf("failed to list sessions: %w", err)
 				}
-				matchingSessions = append(matchingSessions, session)
+
+				for _, session := range listResp.Msg.Sessions {
+					if session.SessionId == sessionID {
+						matchingSessions = append(matchingSessions, session)
+						break
+					}
+				}
+
+				if len(matchingSessions) == 0 {
+					return fmt.Errorf("session not found: %s", sessionID)
+				}
+			} else {
+				// List sessions to find relevant ones by function
+				listReq := &colonypb.ListDebugSessionsRequest{
+					ServiceName: serviceName,
+				}
+				listResp, err := client.ListDebugSessions(ctx, connect.NewRequest(listReq))
+				if err != nil {
+					return fmt.Errorf("failed to list sessions: %w", err)
+				}
+
+				if format == "text" {
+					fmt.Printf("\nDebug Sessions for %s (last %s):\n\n", functionName, since)
+				}
+
+				for _, session := range listResp.Msg.Sessions {
+					if session.FunctionName != functionName {
+						continue
+					}
+					// Check time range (started_at > now - since)
+					if time.Since(session.StartedAt.AsTime()) > since {
+						continue
+					}
+					matchingSessions = append(matchingSessions, session)
+				}
 			}
 
 			if len(matchingSessions) == 0 {
@@ -120,13 +153,10 @@ func NewQueryCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&functionName, "function", "f", "", "Function name to query (required)")
+	cmd.Flags().StringVarP(&functionName, "function", "f", "", "Function name to query")
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID to query")
 	cmd.Flags().DurationVar(&since, "since", 1*time.Hour, "Time range to query")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
-
-	if err := cmd.MarkFlagRequired("function"); err != nil {
-		fmt.Printf("failed to mark flag as required: %v\n", err)
-	}
 
 	return cmd
 }
