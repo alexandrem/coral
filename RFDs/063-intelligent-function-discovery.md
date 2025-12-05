@@ -1,6 +1,6 @@
 ---
 rfd: "063"
-title: "Intelligent Function Discovery for AI Debugging"
+title: "Function Registry and Indexing Infrastructure"
 state: "draft"
 breaking_changes: false
 testing_required: true
@@ -8,615 +8,310 @@ database_changes: true
 api_changes: true
 dependencies: [ "059", "060" ]
 database_migrations: [ ]
-areas: [ "ai", "discovery", "search", "observability" ]
+areas: [ "infrastructure", "discovery", "search", "database" ]
 ---
 
-# RFD 063 - Intelligent Function Discovery for AI Debugging
+# RFD 063 - Function Registry and Indexing Infrastructure
 
 **Status:** 🚧 Draft
 
 ## Summary
 
-Enable AI agents to efficiently discover relevant functions from applications
-with 10,000+ functions by combining metrics-driven pre-filtering, semantic
-search, and call graph navigation. This solves the "needle in a haystack"
-problem where LLMs need to debug specific functions without overwhelming
-context.
+Implement a centralized function registry in Colony that stores metadata for all
+functions across monitored services. Agents discover functions via DWARF
+introspection and report them to Colony, which indexes them in DuckDB with
+support for semantic search and performance metrics correlation. This provides
+the foundational infrastructure for AI-assisted debugging tools (defined in RFD 068).
 
 ## Problem
 
 **Current behavior/limitations:**
 
-- Applications have 10,000-50,000+ functions (including dependencies)
-- Listing all functions exceeds LLM context limits (~200,000 tokens for 10k
-  functions)
-- Users don't know exact function names during debugging
-- Pattern matching (`.*checkout.*`) returns too many irrelevant results
-- No way to prioritize functions that are actually problematic
+- **No centralized function catalog**: Colony knows about services and endpoints
+  but has no visibility into individual functions within those services
+- **Cannot discover probe targets**: Users must know exact function names to
+  attach uprobes, making debugging impossible on unfamiliar codebases
+- **Cannot correlate metrics with code**: Have HTTP endpoint metrics but no way
+  to map slow endpoints to the specific functions causing slowness
+- **Scalability challenge**: Applications have 10,000-50,000+ functions;
+  need efficient indexing and search
+- **Multiple data sources**: Function metadata comes from DWARF info and runtime
+  observations (uprobes) - need unified storage
 
 **Why this matters:**
 
-- AI-driven debugging (via `coral ask`) requires knowing which functions to
-  probe
-- Manual function discovery is slow and error-prone
-- Without smart filtering, the LLM either:
-    - Fails to find relevant functions (too many false negatives)
-    - Gets overwhelmed with irrelevant results (context overflow)
+- **Enables AI debugging**: LLMs need to discover relevant functions from natural
+  language queries ("find checkout functions")
+- **Foundation for tooling**: Discovery tools, profiling orchestration, and
+  bottleneck analysis all require a function registry
+- **Performance correlation**: Connect endpoint-level metrics (RFD 025) with
+  function-level behavior
+- **Scalability**: Must handle 10,000+ functions per service efficiently
 
 **Use cases affected:**
+fastreverse
 
-- **Performance investigation**: "Why is checkout slow?" → Need to find
-  handleCheckout, processPayment, validateCard
-- **Error debugging**: "Why are users seeing 500 errors?" → Need to find
-  error-prone functions
-- **Unknown codebase**: Developer unfamiliar with service needs to debug issue
+- **Function discovery**: "Find all functions related to checkout"
+- **Performance attribution**: "Which function makes endpoint X slow?"
+- **Uprobe targeting**: "What functions can I attach probes to?"
+- **Metrics correlation**: "Show me functions with high latency"
 
 ## Solution
 
-Implement a **multi-tier discovery system** that progressively narrows down from
-50,000 functions to the relevant 5-10:
+Build a **centralized function registry** in Colony with two main components:
 
-1. **Tier 1: Metrics-Driven Pre-Filtering** - Automatically surface functions
-   related to current performance anomalies
-2. **Tier 2: Semantic Search** - Keyword-based search across function names,
-   files, and comments
-3. **Tier 3: Call Graph Navigation** - Navigate from entry points to bottlenecks
-4. **Tier 4: Auto-Context Injection** - Automatically add relevant context to
-   LLM based on query intent
+### 1. Function Registry (DuckDB Storage)
+
+Store function metadata in two tables:
+
+**`functions` table:**
+- Function identity (name, package, file, line, offset)
+- Searchability tokens (tokenized name, file path for keyword search)
+- DWARF availability (for uprobe targeting)
+- Discovery timestamp (when first seen)
+
+**`function_metrics` table:**
+- Time-series performance data (P50/P95/P99, calls/min, error rate)
+- Populated by uprobe sessions (RFD 059)
+- Enables correlation with endpoint metrics (RFD 025)
+- Supports baseline comparison for anomaly detection
+
+**Agent → Colony Sync:**
+- Agents introspect binaries using SDK metadata (RFD 060)
+- Extract function list from DWARF debug info
+- Report to Colony via `ReportFunctions` RPC on startup + periodically
+- Uprobe sessions collect timing data, Colony stores in `function_metrics`
+
+### 2. Query Infrastructure
+
+**Semantic search:**
+- Keyword-based search (V1, no ML required)
+- Tokenize queries: "checkout payment" → ["checkout", "payment"]
+- Score functions by matches in name (1.0), file path (0.5)
+- Support regex patterns for advanced users
+- Rank results by relevance + recent activity
+
+**Unified query API:**
+- Single SQL query with JOIN fetches:
+    - Function metadata (name, file, line, offset, DWARF availability)
+    - Metrics (if available from previous uprobe sessions)
+    - Active probe status
+- Optimized with indexes on function_name, service_name, token arrays
+- Sub-100ms latency for 50,000 function registry
 
 ### Key Design Decisions
 
-- **Metrics-first approach**: Start with problems (slow endpoints), not
-  functions
-- **Progressive refinement**: LLM narrows search space iteratively, not all at
-  once
-- **Call graph as navigation**: Functions are nodes in a graph, not a flat list
-- **Smart context budget**: Only show relevant functions (target: <50 per query)
-- **No embeddings in V1**: Use simple keyword matching (fast, no ML
-  dependencies)
+- **DuckDB for everything**: No separate vector database or search engine
+- **DWARF-based discovery**: Extract function metadata from binary debug info (realistic for production)
+- **Data availability tiers**: Function metadata always available, metrics conditional on instrumentation
+- **Tokenized search**: Simple keyword matching (fast, deterministic, no ML)
+- **Future-proof schema**: Designed to support vector embeddings (V2) via DuckDB VSS extension
+- **Single-query retrieval**: All data fetched in one optimized SQL query
 
 ### Benefits
 
-- **Efficient discovery**: Find relevant functions in 2-3 tool calls instead of
-  guessing
-- **Context budget management**: Stay under 5,000 tokens for discovery context
-- **Works on unknown codebases**: No prior knowledge of function names required
-- **Metrics-driven**: Focuses on functions that are actually problematic
-- **Scalable**: Works with 10,000+ function codebases
+- **Foundation for AI debugging**: Enables semantic function discovery for LLMs
+- **Scalable indexing**: Handles 10,000+ functions per service
+- **Fast queries**: Sub-100ms search with proper indexes
+- **Unified storage**: One source of truth for function metadata
+- **Flexible querying**: Supports semantic search and regex patterns
+- **Performance correlation**: Links endpoint metrics to specific functions
+- **Extensible**: Schema supports future enhancements (embeddings, more metrics)
 
 ## Architecture Overview
 
+### Data Flow: Function Registration
+
 ```
-┌────────────────────────────────────────────────────────────────┐
-│ User Query: "Why is checkout slow?"                            │
-└────────────────┬───────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ Agent Startup / Service Deployment                          │
+└────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
-┌────────────────────────────────────────────────────────────────┐
-│ Tier 1: Auto-Context Injection (Colony)                        │
-│                                                                │
-│  1. Parse query intent: performance_investigation              │
-│  2. Extract keywords: ["checkout", "slow"]                     │
-│  3. Query metrics DB for anomalies:                            │
-│     → POST /api/checkout: P95 245ms (baseline 80ms) +206%      │
-│  4. Inject context into LLM                                    │
-└────────────────┬───────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ Agent: Function Discovery                                   │
+│  1. Read binary DWARF debug info                            │
+│  2. Extract function list (name, file, line, offset)        │
+│  3. Check which functions have debug symbols                │
+│  4. Tokenize names and file paths for search                │
+└────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
-┌────────────────────────────────────────────────────────────────┐
-│ Tier 2: Semantic Function Search (LLM → Colony)                │
-│                                                                │
-│  LLM calls: coral_search_functions(service="api",              │
-│                                    query="checkout")           │
-│                                                                │
-│  Colony:                                                       │
-│  1. Tokenize query: ["checkout"]                               │
-│  2. Search function registry (DuckDB):                         │
-│     - Match function names: handleCheckout (score: 1.0)        │
-│     - Match file paths: checkout.go (score: 0.5)               │
-│  3. Rank by score, return top 20                               │
-│                                                                │
-│  Returns: [handleCheckout, validateCheckout, ...]              │
-└────────────────┬───────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ Agent → Colony: ReportFunctions RPC                         │
+│  Payload: [                                                 │
+│    {name: "main.handleCheckout", file: "handlers/checkout.go",│
+│     line: 45, offset: 0x4f8a20, has_dwarf: true},           │
+│    ...                                                      │
+│  ]                                                          │
+└────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
-┌────────────────────────────────────────────────────────────────┐
-│ Tier 3: Call Graph Navigation (LLM → Colony)                   │
-│                                                                │
-│  LLM calls: coral_get_function_context(                        │
-│               service="api",                                   │
-│               function="main.handleCheckout")                  │
-│                                                                │
-│  Colony:                                                       │
-│  1. Query call graph (from static analysis or runtime data)    │
-│  2. Get callers: [ServeHTTP, apiRouter]                        │
-│  3. Get callees: [validateCart (5%), processPayment (94%)]     │
-│  4. Estimate contribution from historical metrics              │
-│                                                                │
-│  Returns: processPayment is 94% of time → LLM focuses there    │
-└────────────────┬───────────────────────────────────────────────┘
-                 │
-                 ▼
-┌────────────────────────────────────────────────────────────────┐
-│ Result: LLM found relevant function in 2 tool calls            │
-│                                                                │
-│  handleCheckout (entry) → processPayment (bottleneck)          │
-│                                                                │
-│  LLM can now: coral_attach_uprobe(function="processPayment")   │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ Colony: Store in DuckDB functions table                     │
+│  INSERT INTO functions (function_name, file_path, ...)      │
+│  - Generate function_id (UUID)                              │
+│  - Tokenize for search: "handleCheckout" → ["handle", "checkout"]│
+│  - Index by service_name, function_name                     │
+└─────────────────────────────────────────────────────────────┘
+
+Registry now ready for queries!
 ```
 
-## Component Changes
+### Data Flow: Runtime Metrics Collection
 
-### 1. Colony - Function Registry (DuckDB)
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Uprobe Session Completes (RFD 059)                          │
+│  Function: processPayment, Duration: 60s                    │
+│  Captured: 245 calls, P95: 850ms, P99: 1200ms              │
+└────────────────┬────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Colony: Aggregate and Store Metrics                         │
+│  INSERT INTO function_metrics (                             │
+│    function_id, timestamp, p50_latency_ms, p95_latency_ms,  │
+│    calls_per_minute, error_rate                             │
+│  )                                                          │
+└─────────────────────────────────────────────────────────────┘
 
-**Extend service registry with function metadata:**
+Metrics now available for discovery queries!
+```
 
+### Query API Usage
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Consumer (RFD 068 tools): Search Functions                  │
+│  QueryFunctions(service="api", query="checkout", limit=20)  │
+└────────────────┬────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Colony: Execute Unified Query                               │
+│  SELECT f.*, fm.*                                           │
+│  FROM functions f                                           │
+│  LEFT JOIN function_metrics fm ON f.function_id = fm.function_id│
+│  WHERE service_name = 'api'                                 │
+│    AND (function_name ILIKE '%checkout%'                    │
+│         OR file_path ILIKE '%checkout%')                    │
+│  ORDER BY [relevance score], [recent activity]              │
+│  LIMIT 20                                                   │
+└────────────────┬────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Returns: Functions with Metadata and Metrics                │
+│  [                                                          │
+│    {                                                        │
+│      function: "main.handleCheckout",                       │
+│      file: "handlers/checkout.go:45",                       │
+│      offset: "0x4f8a20",                                    │
+│      has_dwarf: true,                                       │
+│      metrics: {p95_ms: 900, ...} // if available           │
+│    },                                                       │
+│    ...                                                      │
+│  ]                                                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Database Schema
+
+### DuckDB Tables
+
+**`functions` table** - Stores function metadata for all services:
+- Identity: `function_id` (PK), `service_name`, `function_name`, `package_name`
+- Source location: `file_path`, `line_number`, `offset` (for uprobe targeting)
+- Searchability: `name_tokens[]`, `file_tokens[]` (tokenized for keyword search)
+- Metadata: `is_exported`, `has_dwarf`, `discovered_at`, `last_seen`
+- Indexes: `service_name`, `function_name`, GIN index on token arrays
+
+**`call_graph` table** - Stores caller/callee relationships:
+- Edge: `caller_id`, `callee_id` (composite PK, references functions.function_id)
+- Type: `call_type` (static from AST, dynamic from runtime observation)
+- Contribution: `avg_contribution_pct`, `p95_contribution_pct` (% of caller's time)
+- Timestamps: `observed_at`, `last_updated`
+
+**`function_metrics` table** - Time-series performance data:
+- Composite PK: `function_id`, `timestamp`
+- Metrics: `p50_latency_ms`, `p95_latency_ms`, `p99_latency_ms`, `calls_per_minute`, `error_rate`
+- Populated by uprobe sessions (RFD 059)
+- Enables baseline comparison for anomaly detection
+
+### Data Flow
+
+**Function Registration:**
+1. Agent discovers functions via DWARF introspection
+2. Agent extracts call graph via AST parsing (Go: `go/packages`, `go/callgraph`)
+3. Agent reports to Colony via `ReportFunctions` and `ReportCallGraph` RPCs
+4. Colony tokenizes names/paths and stores in DuckDB
+
+**Metrics Collection:**
+1. Uprobe sessions (RFD 059) collect function timing data
+2. Colony aggregates and inserts into `function_metrics`
+3. Colony calculates contribution percentages and updates `call_graph`
+
+## Query Infrastructure
+
+### Semantic Search
+
+**Approach:** Keyword-based matching (V1, no ML)
+- Tokenize query: remove stop words, split on whitespace
+- Score functions by matches:
+  - Function name exact match: 1.0
+  - Function name token match: 0.8
+  - File path match: 0.5
+  - File token match: 0.3
+- Normalize by keyword count, sort by score
+- Support regex patterns for advanced users
+
+**Performance:** Sub-100ms for 50,000 functions with proper indexes
+
+**Future (V2):** Vector embeddings via DuckDB VSS extension (see Future Enhancements)
+
+### Unified Query API
+
+**Design:** Single SQL query fetches all data via JOINs:
 ```sql
--- New table: Function registry for all services
-CREATE TABLE functions
-(
-    function_id   VARCHAR PRIMARY KEY,
-    service_name  VARCHAR     NOT NULL,
-    function_name VARCHAR     NOT NULL,                           -- e.g., "main.handleCheckout"
-    package_name  VARCHAR,                                        -- e.g., "handlers"
-    file_path     VARCHAR,                                        -- e.g., "handlers/checkout.go"
-    line_number   INTEGER,
-    offset        BIGINT,                                         -- Memory offset for uprobe
-
-    -- Searchability
-    name_tokens   VARCHAR[],                                      -- ["handle", "checkout"] for search
-    file_tokens   VARCHAR[],                                      -- ["handlers", "checkout", "go"]
-
-    -- Metadata
-    is_exported   BOOLEAN DEFAULT false,
-    has_dwarf     BOOLEAN DEFAULT false,
-
-    -- Timestamps
-    discovered_at TIMESTAMPTZ NOT NULL,
-    last_seen     TIMESTAMPTZ NOT NULL,
-
-    INDEX         idx_functions_service (service_name),
-    INDEX         idx_functions_name (function_name),
-    INDEX         idx_functions_tokens (name_tokens, file_tokens) -- GIN index for array search
-);
-
--- Call graph edges (static or dynamic)
-CREATE TABLE call_graph
-(
-    caller_id            VARCHAR     NOT NULL, -- Function ID
-    callee_id            VARCHAR     NOT NULL, -- Function ID
-    call_type            VARCHAR     NOT NULL, -- 'static' (from AST) or 'dynamic' (observed)
-
-    -- Contribution estimates (from metrics)
-    avg_contribution_pct FLOAT,                -- % of caller's time spent in callee
-    p95_contribution_pct FLOAT,
-
-    -- Metadata
-    observed_at          TIMESTAMPTZ NOT NULL,
-    last_updated         TIMESTAMPTZ NOT NULL,
-
-    PRIMARY KEY (caller_id, callee_id)
-);
-
--- Function performance metrics (aggregated)
-CREATE TABLE function_metrics
-(
-    function_id      VARCHAR     NOT NULL,
-    timestamp        TIMESTAMPTZ NOT NULL,
-
-    -- Performance
-    p50_latency_ms   FLOAT,
-    p95_latency_ms   FLOAT,
-    p99_latency_ms   FLOAT,
-    calls_per_minute INTEGER,
-    error_rate       FLOAT,
-
-    PRIMARY KEY (function_id, timestamp)
-);
+SELECT f.*, cg.*, fm.*
+FROM functions f
+LEFT JOIN call_graph cg ON ...
+LEFT JOIN function_metrics fm ON ...
+WHERE service_name = ? AND (function_name ILIKE ? OR file_path ILIKE ?)
+ORDER BY [relevance_score], [recent_activity]
+LIMIT ?
 ```
 
-### 2. Colony - Semantic Search Implementation
-
-**V1: Keyword-based search (no ML required):**
-
-```go
-// internal/colony/discovery/search.go
-package discovery
-
-import (
-    "strings"
-    "sort"
-)
-
-type FunctionMatch struct {
-    FunctionID   string
-    FunctionName string
-    FilePath     string
-    Score        float64
-    Reason       string
-}
-
-// SearchFunctions performs keyword-based semantic search.
-func SearchFunctions(service, query string, limit int) ([]FunctionMatch, error) {
-    // 1. Tokenize query
-    keywords := tokenize(query)
-
-    // 2. Query DuckDB for candidate functions
-    rows := db.Query(`
-        SELECT
-            function_id,
-            function_name,
-            file_path,
-            name_tokens,
-            file_tokens
-        FROM functions
-        WHERE service_name = $1
-    `, service)
-
-    // 3. Score each function
-    var matches []FunctionMatch
-    for rows.Next() {
-        var fn Function
-        rows.Scan(&fn.ID, &fn.Name, &fn.FilePath, &fn.NameTokens, &fn.FileTokens)
-
-        score := calculateScore(keywords, fn)
-        if score > 0 {
-            matches = append(matches, FunctionMatch{
-                FunctionID:   fn.ID,
-                FunctionName: fn.Name,
-                FilePath:     fn.FilePath,
-                Score:        score,
-                Reason:       explainScore(keywords, fn),
-            })
-        }
-    }
-
-    // 4. Sort by score, return top N
-    sort.Slice(matches, func(i, j int) bool {
-        return matches[i].Score > matches[j].Score
-    })
-
-    if len(matches) > limit {
-        matches = matches[:limit]
-    }
-
-    return matches, nil
-}
-
-// calculateScore computes relevance score (0.0 - 1.0).
-func calculateScore(keywords []string, fn Function) float64 {
-    score := 0.0
-
-    for _, keyword := range keywords {
-        // Exact match in function name: +1.0
-        if strings.Contains(strings.ToLower(fn.Name), keyword) {
-            score += 1.0
-        }
-
-        // Match in name tokens (word boundary): +0.8
-        for _, token := range fn.NameTokens {
-            if strings.EqualFold(token, keyword) {
-                score += 0.8
-            }
-        }
-
-        // Match in file path: +0.5
-        if strings.Contains(strings.ToLower(fn.FilePath), keyword) {
-            score += 0.5
-        }
-
-        // Match in file tokens: +0.3
-        for _, token := range fn.FileTokens {
-            if strings.EqualFold(token, keyword) {
-                score += 0.3
-            }
-        }
-    }
-
-    // Normalize by number of keywords
-    if len(keywords) > 0 {
-        score /= float64(len(keywords))
-    }
-
-    return score
-}
-
-// tokenize splits query into searchable keywords.
-func tokenize(query string) []string {
-    query = strings.ToLower(query)
-    // Remove common words
-    stopWords := map[string]bool{
-        "the": true, "a": true, "an": true, "is": true, "are": true,
-        "why": true, "what": true, "how": true,
-    }
-
-    words := strings.Fields(query)
-    var tokens []string
-    for _, word := range words {
-        if !stopWords[word] {
-            tokens = append(tokens, word)
-        }
-    }
-    return tokens
-}
-
-// explainScore generates human-readable explanation.
-func explainScore(keywords []string, fn Function) string {
-    matches := []string{}
-    for _, keyword := range keywords {
-        if strings.Contains(strings.ToLower(fn.Name), keyword) {
-            matches = append(matches, fmt.Sprintf("'%s' in name", keyword))
-        } else if strings.Contains(strings.ToLower(fn.FilePath), keyword) {
-            matches = append(matches, fmt.Sprintf("'%s' in file", keyword))
-        }
-    }
-    return strings.Join(matches, ", ")
-}
-```
-
-### 3. Colony - Call Graph Analysis
-
-**Build call graph from static analysis + runtime observations:**
-
-```go
-// internal/colony/discovery/callgraph.go
-package discovery
-
-// GetFunctionContext retrieves call graph neighborhood.
-func GetFunctionContext(service, functionName string) (*FunctionContext, error) {
-    // 1. Get function metadata
-    fn := db.QueryRow(`
-        SELECT function_id, function_name, file_path, line_number
-        FROM functions
-        WHERE service_name = $1 AND function_name = $2
-    `, service, functionName)
-
-    // 2. Get callers (who calls this function)
-    callers := db.Query(`
-        SELECT
-            f.function_name,
-            f.file_path,
-            cg.avg_contribution_pct
-        FROM call_graph cg
-        JOIN functions f ON cg.caller_id = f.function_id
-        WHERE cg.callee_id = $1
-        ORDER BY cg.avg_contribution_pct DESC
-    `, fn.ID)
-
-    // 3. Get callees (what this function calls)
-    callees := db.Query(`
-        SELECT
-            f.function_name,
-            f.file_path,
-            cg.avg_contribution_pct,
-            fm.p95_latency_ms
-        FROM call_graph cg
-        JOIN functions f ON cg.callee_id = f.function_id
-        LEFT JOIN function_metrics fm ON f.function_id = fm.function_id
-        WHERE cg.caller_id = $1
-        ORDER BY cg.avg_contribution_pct DESC
-    `, fn.ID)
-
-    // 4. Get recent performance metrics
-    metrics := db.QueryRow(`
-        SELECT
-            p50_latency_ms,
-            p95_latency_ms,
-            p99_latency_ms,
-            calls_per_minute,
-            error_rate
-        FROM function_metrics
-        WHERE function_id = $1
-        ORDER BY timestamp DESC
-        LIMIT 1
-    `, fn.ID)
-
-    return &FunctionContext{
-        Function:    fn,
-        CalledBy:    callers,
-        Calls:       callees,
-        Performance: metrics,
-    }, nil
-}
-```
-
-### 4. Colony - Auto-Context Injection
-
-**Automatically add relevant context to LLM based on query:**
-
-```go
-// internal/colony/mcp/context.go
-package mcp
-
-// BuildContextForQuery injects context based on user query.
-func BuildContextForQuery(query string) map[string]interface{} {
-    ctx := make(map[string]interface{})
-
-    // 1. Detect intent
-    intent := detectIntent(query)
-    ctx["intent"] = intent
-
-    // 2. Extract service names
-    services := extractServiceNames(query)
-    ctx["services"] = services
-
-    // 3. If performance-related, add anomalies
-    if intent == "performance_investigation" {
-        anomalies := getRecentPerformanceAnomalies(services, last15Minutes)
-        ctx["performance_anomalies"] = anomalies
-    }
-
-    // 4. Extract keywords for suggested search
-    keywords := extractKeywords(query)
-    ctx["keywords"] = keywords
-
-    // 5. Suggest tools
-    ctx["suggested_tools"] = suggestTools(intent, services, keywords)
-
-    return ctx
-}
-
-// detectIntent classifies query type.
-func detectIntent(query string) string {
-    q := strings.ToLower(query)
-
-    if strings.Contains(q, "slow") || strings.Contains(q, "latency") || strings.Contains(q, "performance") {
-        return "performance_investigation"
-    }
-    if strings.Contains(q, "error") || strings.Contains(q, "failing") || strings.Contains(q, "500") {
-        return "error_investigation"
-    }
-    return "general"
-}
-
-// getRecentPerformanceAnomalies queries metrics for problems.
-func getRecentPerformanceAnomalies(services []string, since time.Duration) []Anomaly {
-    rows := db.Query(`
-        SELECT
-            service_name,
-            endpoint,
-            p95_latency_ms AS current,
-            baseline_p95_latency_ms AS baseline,
-            (p95_latency_ms - baseline_p95_latency_ms) / baseline_p95_latency_ms AS regression_pct
-        FROM endpoint_metrics
-        WHERE service_name = ANY($1)
-          AND timestamp > NOW() - $2
-          AND p95_latency_ms > baseline_p95_latency_ms * 1.2  -- 20% regression
-        ORDER BY regression_pct DESC
-        LIMIT 10
-    `, services, since)
-
-    var anomalies []Anomaly
-    for rows.Next() {
-        var a Anomaly
-        rows.Scan(&a.Service, &a.Endpoint, &a.Current, &a.Baseline, &a.RegressionPct)
-        anomalies = append(anomalies, a)
-    }
-    return anomalies
-}
-```
+**Features:**
+- Returns function metadata + call graph + metrics in one round-trip
+- Clearly indicates data availability (static vs dynamic call graph, metrics presence)
+- Optimized with indexes on `service_name`, `function_name`, token arrays
 
 ## API Changes
 
-### New MCP Tools
+### Agent → Colony RPCs
 
-**Tool: `coral_search_functions`**
+New RPCs for agents to register function metadata with Colony:
 
-```protobuf
-// proto/coral/colony/v1/discovery.proto
+**`ReportFunctions`** - Agent reports discovered functions
+- Request: `agent_id`, `service_name`, array of `FunctionInfo` (name, file, line, offset, has_dwarf)
+- Response: `registered_count`, `updated_count`
+- Called on agent startup and periodically
 
-service DiscoveryService {
-    // Semantic search for functions
-    rpc SearchFunctions(SearchFunctionsRequest) returns (SearchFunctionsResponse);
 
-    // Get call graph context for function
-    rpc GetFunctionContext(GetFunctionContextRequest) returns (GetFunctionContextResponse);
-}
+### Internal Query API
 
-message SearchFunctionsRequest {
-    string service_name = 1;
-    string query = 2;               // Natural language keywords
-    uint32 limit = 3;               // Max results (default: 20, max: 50)
-}
+Colony exposes internal API for querying the registry (consumed by RFD 071 tools):
 
-message SearchFunctionsResponse {
-    string service_name = 1;
-    string query = 2;
-    repeated FunctionMatch results = 3;
-}
+**`QueryFunctions`** - Search functions and retrieve metadata
+- Parameters: `service_name`, `query` (keyword or regex), `limit`, `include_metrics`
+- Returns: Array of functions with optional performance metrics
+- Implementation: Single SQL query with JOIN across functions and function_metrics tables
 
-message FunctionMatch {
-    string function_id = 1;
-    string function_name = 2;
-    string file_path = 3;
-    uint32 line_number = 4;
-    uint64 offset = 5;
-    double score = 6;               // Relevance score (0.0 - 1.0)
-    string reason = 7;              // Human-readable explanation
-}
-
-message GetFunctionContextRequest {
-    string service_name = 1;
-    string function_name = 2;
-    bool include_callers = 3;
-    bool include_callees = 4;
-    bool include_metrics = 5;
-}
-
-message GetFunctionContextResponse {
-    FunctionInfo function = 1;
-    repeated CallerInfo called_by = 2;
-    repeated CalleeInfo calls = 3;
-    FunctionMetrics performance = 4;
-    string recommendation = 5;      // AI-generated next step
-}
-
-message CallerInfo {
-    string function_name = 1;
-    string file_path = 2;
-    string call_frequency = 3;      // "always", "sometimes", "rarely"
-}
-
-message CalleeInfo {
-    string function_name = 1;
-    string file_path = 2;
-    double estimated_contribution = 3;  // % of parent's time
-    double avg_duration_ms = 4;
-}
-
-message FunctionMetrics {
-    double p50_latency_ms = 1;
-    double p95_latency_ms = 2;
-    double p99_latency_ms = 3;
-    uint32 calls_per_minute = 4;
-    double error_rate = 5;
-}
-```
-
-### Agent → Colony: Function Registration
-
-**Agents report discovered functions to Colony:**
-
-```protobuf
-// Extend agent.proto
-
-message ReportFunctionsRequest {
-    string agent_id = 1;
-    string service_name = 2;
-    repeated FunctionInfo functions = 3;
-}
-
-message FunctionInfo {
-    string function_name = 1;
-    string package_name = 2;
-    string file_path = 3;
-    uint32 line_number = 4;
-    uint64 offset = 5;
-    bool is_exported = 6;
-    bool has_dwarf = 7;
-}
-
-message ReportFunctionsResponse {
-    uint32 registered_count = 1;
-    uint32 updated_count = 2;
-}
-```
-
-**Agent behavior:**
-
-```go
-// On SDK discovery, agent reports to Colony
-func (a *Agent) onSDKDiscovered(service string, functions []FunctionInfo) {
-resp, err := a.colonyClient.ReportFunctions(ctx, &ReportFunctionsRequest{
-AgentId:     a.ID,
-ServiceName: service,
-Functions:   functions,
-})
-
-log.Printf("Registered %d functions for service %s", resp.RegisteredCount, service)
-}
-```
+**`UpdateFunctionMetrics`** - Store metrics from uprobe sessions
+- Parameters: `function_id`, `timestamp`, performance metrics (P50/P95/P99, calls/min, error rate)
+- Called by uprobe session completion handler (RFD 059)
 
 ## Configuration Changes
 
@@ -655,125 +350,61 @@ colony:
 
 ## Implementation Plan
 
-### Phase 1: Function Registry
+### Phase 1: Database Schema & Agent Sync
 
-- [ ] Create DuckDB schema (functions, call_graph, function_metrics tables)
-- [ ] Implement agent → colony function registration RPC
-- [ ] Build function ingestion pipeline
-- [ ] Add tokenization for searchability
-- [ ] Create indexes for fast lookup
+- Create DuckDB tables (functions, function_metrics)
+- Implement Agent → Colony RPC (ReportFunctions)
+- Build function metadata ingestion pipeline (DWARF introspection)
+- Add tokenization logic for searchability
+- Create indexes for performance
 
-### Phase 2: Semantic Search
+### Phase 2: Query Infrastructure
 
-- [ ] Implement keyword-based search algorithm
-- [ ] Add scoring and ranking logic
-- [ ] Implement `coral_search_functions` MCP tool
-- [ ] Add search result caching (5-minute TTL)
-- [ ] Unit tests for search accuracy
+- Implement keyword-based search algorithm (tokenization, scoring, ranking)
+- Build QueryFunctions API (unified query with JOIN)
+- Implement UpdateFunctionMetrics API (called by uprobe sessions)
+- Add query result caching for performance
 
-### Phase 3: Call Graph Analysis
+### Phase 3: Testing & Optimization
 
-- [ ] Implement static call graph extraction (Go AST parsing)
-- [ ] Implement dynamic call graph from uprobe data
-- [ ] Build contribution estimation (% of time in callees)
-- [ ] Implement `coral_get_function_context` MCP tool
-- [ ] Add call graph visualization (optional)
-
-### Phase 4: Auto-Context Injection
-
-- [ ] Implement intent detection (performance vs error vs general)
-- [ ] Implement service name extraction
-- [ ] Build anomaly detection query
-- [ ] Integrate context injection into MCP server
-- [ ] Add context to LLM system prompt
-
-### Phase 5: Testing & Optimization
-
-- [ ] Load test with 50,000 function registry
-- [ ] Validate search accuracy (precision/recall)
-- [ ] Performance test: search latency <100ms
-- [ ] Test call graph contribution estimates
-- [ ] E2E test: AI discovers function in <3 tool calls
+- Load test with 50,000 function registry
+- Validate search accuracy (precision/recall on known queries)
+- Performance test: query latency <100ms
+- Test metrics storage and retrieval
 
 ## Testing Strategy
 
-### Search Accuracy Tests
+### Unit Tests
 
-**Precision & Recall:**
+**Search algorithm:**
+- Tokenization correctness (stop word removal, case handling)
+- Scoring accuracy (matches in function name vs file path)
+- Ranking correctness (higher scores appear first)
+- Edge cases (empty query, special characters, very long queries)
 
-```go
-func TestSearchAccuracy(t *testing.T) {
-// Test data: Known queries and expected results
-testCases := []struct {
-query    string
-expected []string
-}{
-{
-query:    "checkout",
-expected: []string{"handleCheckout", "processCheckout", "validateCheckout"},
-},
-{
-query:    "payment processing",
-expected: []string{"processPayment", "handlePayment", "validatePayment"},
-},
-}
 
-for _, tc := range testCases {
-results := SearchFunctions("api", tc.query, 10)
+### Integration Tests
 
-// Check precision: Are top results relevant?
-precision := calculatePrecision(results, tc.expected)
-assert.Greater(t, precision, 0.8, "Precision should be >80%")
-
-// Check recall: Did we find all expected functions?
-recall := calculateRecall(results, tc.expected)
-assert.Greater(t, recall, 0.9, "Recall should be >90%")
-}
-}
-```
+**Registry operations:**
+- Function registration (agents → Colony sync)
+- Duplicate handling (same function reported multiple times)
+- Metrics storage and retrieval from uprobe sessions
 
 ### Performance Tests
 
-**Search latency:**
+**Search latency:** Target <100ms for 50,000 function registry
+- Measure query execution time across varying database sizes
+- Test with different query complexities (single keyword vs multiple)
 
-```go
-func BenchmarkSearch(b *testing.B) {
-// Load 50,000 functions
-loadFunctions(50000)
+**Indexing performance:** Verify indexes provide expected speedup
+- Compare query times with/without indexes
+- Measure impact of tokenization on insert performance
 
-b.ResetTimer()
-for i := 0; i < b.N; i++ {
-SearchFunctions("api", "checkout payment", 20)
-}
+### Accuracy Tests
 
-// Target: <100ms per search
-}
-```
-
-### E2E Discovery Tests
-
-**Simulate AI workflow:**
-
-```go
-func TestAIDiscoveryWorkflow(t *testing.T) {
-// Simulate: "Why is checkout slow?"
-
-// Step 1: Auto-context (Colony adds anomalies)
-ctx := BuildContextForQuery("Why is checkout slow?")
-assert.Contains(t, ctx["performance_anomalies"], "POST /api/checkout")
-
-// Step 2: Semantic search
-results := SearchFunctions("api", "checkout", 10)
-assert.Contains(t, results[0].FunctionName, "handleCheckout")
-
-// Step 3: Call graph
-callCtx := GetFunctionContext("api", "main.handleCheckout")
-assert.Greater(t, callCtx.Calls[0].EstimatedContribution, 0.8)
-
-// Validation: Found bottleneck in ≤3 tool calls
-assert.Equal(t, "main.processPayment", callCtx.Calls[0].FunctionName)
-}
-```
+**Search precision/recall:** Target >80% precision, >90% recall
+- Test with known queries and expected results
+- Example: query "checkout" should return handleCheckout, processCheckout, validateCheckout
 
 ## Security Considerations
 
@@ -1130,6 +761,21 @@ payment service.
 
 - **RFD 059**: Live Debugging Architecture (provides call graph data)
 - **RFD 060**: SDK Runtime Monitoring (provides function metadata)
+
+## Consumers
+
+This RFD provides infrastructure that is consumed by:
+
+- **RFD 068**: Function Discovery and Profiling Tools
+    - Uses query API for semantic function search
+    - Stores profiling results in function_metrics table
+    - Updates call_graph with dynamic contribution percentages
+    - Provides MCP tools and CLI commands for end users
+
+Future consumers may include:
+- Automated performance regression detection
+- IDE integration for function-level observability
+- Documentation generation with call graph visualization
 
 ## References
 
