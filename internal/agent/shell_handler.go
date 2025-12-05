@@ -9,50 +9,27 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
-	"github.com/kr/pty"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/sys/shell"
 )
 
 // ShellHandler implements the shell RPC methods for the agent (RFD 026).
 type ShellHandler struct {
 	logger   logging.Logger
-	sessions map[string]*ShellSession
+	sessions map[string]*shell.Session
 	mu       sync.RWMutex
 }
-
-// ShellSession represents an active shell session.
-type ShellSession struct {
-	ID         string
-	UserID     string
-	StartedAt  time.Time
-	LastActive time.Time
-	Status     SessionStatus
-	ExitCode   *int
-	cmd        *exec.Cmd
-	pty        *os.File
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-}
-
-// SessionStatus represents the status of a shell session.
-type SessionStatus int
-
-const (
-	SessionActive SessionStatus = iota
-	SessionExited
-)
 
 // NewShellHandler creates a new shell handler.
 func NewShellHandler(logger logging.Logger) *ShellHandler {
 	return &ShellHandler{
 		logger:   logger,
-		sessions: make(map[string]*ShellSession),
+		sessions: make(map[string]*shell.Session),
 	}
 }
 
@@ -270,86 +247,22 @@ func (h *ShellHandler) Shell(
 func (h *ShellHandler) startShellSession(
 	ctx context.Context,
 	start *agentv1.ShellStart,
-) (*ShellSession, error) {
-	// Determine shell to use.
-	shell := start.Shell
-	if shell == "" {
-		shell = "/bin/bash"
+) (*shell.Session, error) {
+	// Prepare config
+	cfg := shell.StartConfig{
+		Shell:  start.Shell,
+		UserID: start.UserId,
+		Env:    start.Env,
 	}
-
-	// Check if shell exists.
-	if _, err := os.Stat(shell); err != nil {
-		if os.IsNotExist(err) {
-			// Fallback to /bin/sh.
-			shell = "/bin/sh"
-			if _, err := os.Stat(shell); err != nil {
-				return nil, fmt.Errorf("no shell available: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to check shell: %w", err)
-		}
-	}
-
-	// Create session context with cancellation.
-	sessionCtx, cancel := context.WithCancel(ctx)
-
-	// Create command.
-	cmd := exec.CommandContext(sessionCtx, shell)
-
-	// Set environment variables.
-	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, fmt.Sprintf("CORAL_AGENT_ID=%s", "agent-local"))
-	cmd.Env = append(cmd.Env, "CORAL_DATA=/var/lib/coral")
-	cmd.Env = append(cmd.Env, "CORAL_CONFIG=/etc/coral/agent.yaml")
-	for key, value := range start.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
-	}
-
-	// Open PTY manually for better control in containerized environments.
-	ptmx, tty, err := pty.Open()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to open PTY: %w", err)
-	}
-
-	// Configure command to use the PTY.
-	cmd.Stdout = tty
-	cmd.Stdin = tty
-	cmd.Stderr = tty
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid:  true, // Create new session
-		Setctty: true, // Set controlling terminal
-		Ctty:    0,    // Use stdin as controlling terminal
-	}
-
-	// Start the command.
-	if err := cmd.Start(); err != nil {
-		_ = tty.Close()  // TODO: errcheck
-		_ = ptmx.Close() // TODO: errcheck
-		cancel()
-		return nil, fmt.Errorf("failed to start shell with PTY: %w", err)
-	}
-
-	// Close tty (slave side) in parent process - child process has its own copy.
-	_ = tty.Close() // TODO: errcheck
-
-	// Set initial terminal size.
 	if start.Size != nil {
-		if err := h.resizePTY(ptmx, uint16(start.Size.Rows), uint16(start.Size.Cols)); err != nil {
-			h.logger.Warn().Err(err).Msg("Failed to set initial terminal size")
-		}
+		cfg.Rows = uint16(start.Size.Rows)
+		cfg.Cols = uint16(start.Size.Cols)
 	}
 
-	// Create session.
-	session := &ShellSession{
-		ID:         uuid.New().String(),
-		UserID:     start.UserId,
-		StartedAt:  time.Now(),
-		LastActive: time.Now(),
-		Status:     SessionActive,
-		cmd:        cmd,
-		pty:        ptmx,
-		cancel:     cancel,
+	// Start session using shell package
+	session, err := shell.Start(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start shell session: %w", err)
 	}
 
 	// Store session.
@@ -357,23 +270,26 @@ func (h *ShellHandler) startShellSession(
 	h.sessions[session.ID] = session
 	h.mu.Unlock()
 
-	// Monitor process exit.
-	go h.monitorProcess(session)
-
 	return session, nil
 }
 
 // streamOutput streams PTY output to the client.
 func (h *ShellHandler) streamOutput(
 	stream *connect.BidiStream[agentv1.ShellRequest, agentv1.ShellResponse],
-	session *ShellSession,
+	session *shell.Session,
 ) error {
 	buf := make([]byte, 4096)
+	pty := session.PTY()
+
 	for {
-		n, err := session.pty.Read(buf)
+		// Check if PTY is available
+		if pty == nil {
+			return fmt.Errorf("PTY not available")
+		}
+
+		n, err := pty.Read(buf)
 		if err != nil {
 			// Check if this is a normal exit condition (EOF or EIO).
-			// PTYs can return EIO (input/output error) when the slave side is closed.
 			isExitError := err == io.EOF
 			if !isExitError {
 				// Check for syscall.EIO (input/output error from PTY).
@@ -384,19 +300,15 @@ func (h *ShellHandler) streamOutput(
 
 			if isExitError {
 				// Process exited, send exit response.
-				session.mu.Lock()
-				exitCode := session.ExitCode
-				session.mu.Unlock()
-
-				if exitCode == nil {
-					code := 0
-					exitCode = &code
+				exitCode := 0
+				if session.ExitCode != nil {
+					exitCode = *session.ExitCode
 				}
 
 				return stream.Send(&agentv1.ShellResponse{
 					Payload: &agentv1.ShellResponse_Exit{
 						Exit: &agentv1.ShellExit{
-							ExitCode:  int32(*exitCode),
+							ExitCode:  int32(exitCode),
 							SessionId: session.ID,
 						},
 					},
@@ -415,17 +327,17 @@ func (h *ShellHandler) streamOutput(
 		}
 
 		// Update last active time.
-		session.mu.Lock()
-		session.LastActive = time.Now()
-		session.mu.Unlock()
+		session.UpdateLastActive()
 	}
 }
 
 // processInput processes input from the client and writes to PTY.
 func (h *ShellHandler) processInput(
 	stream *connect.BidiStream[agentv1.ShellRequest, agentv1.ShellResponse],
-	session *ShellSession,
+	session *shell.Session,
 ) error {
+	pty := session.PTY()
+
 	for {
 		req, err := stream.Receive()
 		if err != nil {
@@ -438,135 +350,38 @@ func (h *ShellHandler) processInput(
 		switch payload := req.Payload.(type) {
 		case *agentv1.ShellRequest_Stdin:
 			// Write stdin to PTY.
-			if _, err := session.pty.Write(payload.Stdin); err != nil {
-				return fmt.Errorf("failed to write to PTY: %w", err)
+			if pty != nil {
+				if _, err := pty.Write(payload.Stdin); err != nil {
+					return fmt.Errorf("failed to write to PTY: %w", err)
+				}
+				session.UpdateLastActive()
 			}
-
-			// Update last active time.
-			session.mu.Lock()
-			session.LastActive = time.Now()
-			session.mu.Unlock()
 
 		case *agentv1.ShellRequest_Resize:
 			// Resize PTY.
-			if err := h.resizePTY(session.pty, uint16(payload.Resize.Rows), uint16(payload.Resize.Cols)); err != nil {
+			if err := session.Resize(uint16(payload.Resize.Rows), uint16(payload.Resize.Cols)); err != nil {
 				h.logger.Warn().Err(err).Msg("Failed to resize PTY")
 			}
 
 		case *agentv1.ShellRequest_Signal:
 			// Send signal to process.
-			if err := h.sendSignal(session, payload.Signal.Signal); err != nil {
+			if err := session.Signal(payload.Signal.Signal); err != nil {
 				h.logger.Warn().Str("signal", payload.Signal.Signal).Err(err).Msg("Failed to send signal")
 			}
 		}
 	}
 }
 
-// monitorProcess monitors the shell process and captures exit code.
-func (h *ShellHandler) monitorProcess(session *ShellSession) {
-	err := session.cmd.Wait()
-
-	session.mu.Lock()
-	defer session.mu.Unlock()
-
-	session.Status = SessionExited
-
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode := exitErr.ExitCode()
-			session.ExitCode = &exitCode
-		} else {
-			// Unknown error, use exit code 1.
-			exitCode := 1
-			session.ExitCode = &exitCode
-		}
-	} else {
-		// Successful exit.
-		exitCode := 0
-		session.ExitCode = &exitCode
-	}
-}
-
 // cleanupSession cleans up session resources.
-func (h *ShellHandler) cleanupSession(session *ShellSession) {
-	// Cancel context.
-	if session.cancel != nil {
-		session.cancel()
-	}
-
-	// Close PTY.
-	if session.pty != nil {
-		_ = session.pty.Close() // TODO: errcheck
-	}
-
-	// Kill process if still running.
-	if session.cmd != nil && session.cmd.Process != nil {
-		// Send SIGTERM.
-		_ = session.cmd.Process.Signal(syscall.SIGTERM) // TODO: errcheck
-
-		// Wait 5 seconds, then SIGKILL.
-		time.AfterFunc(5*time.Second, func() {
-			if session.cmd.ProcessState == nil {
-				_ = session.cmd.Process.Kill() // TODO: errcheck
-			}
-		})
+func (h *ShellHandler) cleanupSession(session *shell.Session) {
+	if err := session.Close(); err != nil {
+		h.logger.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to close session")
 	}
 
 	// Remove from sessions map.
 	h.mu.Lock()
 	delete(h.sessions, session.ID)
 	h.mu.Unlock()
-}
-
-// resizePTY resizes the PTY to the specified dimensions.
-func (h *ShellHandler) resizePTY(ptmx *os.File, rows, cols uint16) error {
-	ws := &struct {
-		Row uint16
-		Col uint16
-		X   uint16
-		Y   uint16
-	}{
-		Row: rows,
-		Col: cols,
-	}
-
-	_, _, errno := syscall.Syscall(
-		syscall.SYS_IOCTL,
-		ptmx.Fd(),
-		syscall.TIOCSWINSZ,
-		uintptr(unsafe.Pointer(ws)),
-	)
-
-	if errno != 0 {
-		return fmt.Errorf("ioctl TIOCSWINSZ failed: %v", errno)
-	}
-
-	return nil
-}
-
-// sendSignal sends a signal to the shell process.
-func (h *ShellHandler) sendSignal(session *ShellSession, signalName string) error {
-	if session.cmd == nil || session.cmd.Process == nil {
-		return fmt.Errorf("process not running")
-	}
-
-	var sig syscall.Signal
-	switch signalName {
-	case "SIGINT":
-		sig = syscall.SIGINT
-	case "SIGTERM":
-		sig = syscall.SIGTERM
-	case "SIGTSTP":
-		sig = syscall.SIGTSTP
-	case "SIGKILL":
-		sig = syscall.SIGKILL
-	case "SIGHUP":
-		sig = syscall.SIGHUP
-	default:
-		return fmt.Errorf("unsupported signal: %s", signalName)
-	}
-
-	return session.cmd.Process.Signal(sig)
 }
 
 // ResizeShellTerminal resizes a shell terminal (RFD 026).
@@ -585,7 +400,7 @@ func (h *ShellHandler) ResizeShellTerminal(
 		}), nil
 	}
 
-	if err := h.resizePTY(session.pty, uint16(req.Msg.Rows), uint16(req.Msg.Cols)); err != nil {
+	if err := session.Resize(uint16(req.Msg.Rows), uint16(req.Msg.Cols)); err != nil {
 		return connect.NewResponse(&agentv1.ResizeShellTerminalResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -613,7 +428,7 @@ func (h *ShellHandler) SendShellSignal(
 		}), nil
 	}
 
-	if err := h.sendSignal(session, req.Msg.Signal); err != nil {
+	if err := session.Signal(req.Msg.Signal); err != nil {
 		return connect.NewResponse(&agentv1.SendShellSignalResponse{
 			Success: false,
 			Error:   err.Error(),
