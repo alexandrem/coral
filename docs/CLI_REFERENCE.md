@@ -1,8 +1,10 @@
 # Coral CLI Quick Reference
 
 **See also:**
+
 - [CLI.md](./CLI.md) - Detailed examples, concepts, and troubleshooting
-- [CLI_MCP_MAPPING.md](./CLI_MCP_MAPPING.md) - CLI to MCP tool mapping for AI/LLM integration
+- [CLI_MCP_MAPPING.md](./CLI_MCP_MAPPING.md) - CLI to MCP tool mapping for
+  AI/LLM integration
 
 ---
 
@@ -147,14 +149,20 @@ coral query logs api --since 30m --max-logs 50       # Last 30 minutes, limit 50
 ```
 
 **What you get:**
-- **Summary**: Health status (healthy/degraded/critical), error rates, latency, request counts
-- **Metrics**: HTTP/gRPC/SQL RED metrics with P50/P95/P99 latency percentiles from eBPF + OTLP
-- **Traces**: Distributed trace spans with parent-child relationships, source annotations (eBPF/OTLP)
+
+- **Summary**: Health status (healthy/degraded/critical), error rates, latency,
+  request counts
+- **Metrics**: HTTP/gRPC/SQL RED metrics with P50/P95/P99 latency percentiles
+  from eBPF + OTLP
+- **Traces**: Distributed trace spans with parent-child relationships, source
+  annotations (eBPF/OTLP)
 - **Logs**: Application logs from OTLP with filtering and search
-- **Automatic merging**: eBPF and OTLP data combined by default with source annotations
+- **Automatic merging**: eBPF and OTLP data combined by default with source
+  annotations
 - **No SQL needed**: High-level commands for common observability patterns
 
-> **Note**: Old `coral query ebpf` commands are deprecated. Use the unified `coral query` commands above.
+> **Note**: Old `coral query ebpf` commands are deprecated. Use the unified
+`coral query` commands above.
 
 ---
 

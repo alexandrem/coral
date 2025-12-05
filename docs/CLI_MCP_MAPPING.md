@@ -661,43 +661,6 @@ Start broad, then narrow:
 
 ---
 
-## Migration Notes
-
-### Deprecated Tools (Removed in RFD 067)
-
-The following source-specific query tools were replaced by unified query tools:
-
-| Deprecated Tool                 | Replacement                                  |
-|---------------------------------|----------------------------------------------|
-| `coral_get_service_health`      | `coral_query_summary`                        |
-| `coral_query_ebpf_http_metrics` | `coral_query_metrics`                        |
-| `coral_query_ebpf_grpc_metrics` | `coral_query_metrics`                        |
-| `coral_query_ebpf_sql_metrics`  | `coral_query_metrics`                        |
-| `coral_query_ebpf_traces`       | `coral_query_traces`                         |
-| `coral_get_trace_by_id`         | `coral_query_traces` (with `trace_id` param) |
-| `coral_query_telemetry_spans`   | `coral_query_traces`                         |
-| `coral_query_telemetry_metrics` | `coral_query_metrics`                        |
-| `coral_query_telemetry_logs`    | `coral_query_logs`                           |
-
-### Deprecated Tools (Never Implemented)
-
-The following tools were proposed but never implemented, and are no longer needed:
-
-| Deprecated Tool              | Reason                                                   |
-|------------------------------|----------------------------------------------------------|
-| `coral_start_ebpf_collector` | eBPF collectors now managed by agent, not via MCP        |
-| `coral_stop_ebpf_collector`  | eBPF collectors now managed by agent, not via MCP        |
-| `coral_list_ebpf_collectors` | Use `coral_list_services` and live debugging tools instead |
-
-**Benefits of unified tools:**
-
-- Automatic eBPF + OTLP data merging
-- Source annotations for transparency
-- Health status and anomaly detection
-- Simpler API surface
-
----
-
 **For detailed documentation:**
 
 - CLI: [CLI_REFERENCE.md](./CLI_REFERENCE.md), [CLI.md](./CLI.md)

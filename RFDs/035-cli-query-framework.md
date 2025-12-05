@@ -16,9 +16,14 @@ areas: [ "cli", "observability", "query" ]
 **Status:** 🎉 Implemented
 
 > [!IMPORTANT]
-> **Superseded by RFD 067**: The source-specific query commands (`coral query ebpf *`, `coral query telemetry *`) have been replaced by unified query commands (`coral query summary`, `coral query traces`, `coral query metrics`, `coral query logs`) that combine data from all sources by default. See [RFD 067](./067-unified-query-interface.md) for details.
->  
-> The core framework and infrastructure from this RFD (time parsing, formatters, colony client) remain in use.
+> **Superseded by RFD 067**: The source-specific query commands (
+`coral query ebpf *`, `coral query telemetry *`) have been replaced by unified
+> query commands (`coral query summary`, `coral query traces`,
+`coral query metrics`, `coral query logs`) that combine data from all sources by
+> default. See [RFD 067](./067-unified-query-interface.md) for details.
+>
+> The core framework and infrastructure from this RFD (time parsing, formatters,
+> colony client) remain in use.
 
 ## Summary
 
@@ -198,12 +203,14 @@ coral query ebpf http payments-api --colony prod-us,prod-eu --since 30m
 **Core framework (Phases 1-4): ✅ Completed**
 
 All planned query commands were implemented and functional:
+
 - `coral query ebpf http` - HTTP RED metrics with percentiles
 - `coral query ebpf grpc` - gRPC RED metrics with percentiles
 - `coral query ebpf sql` - SQL query metrics with percentiles
 - `coral query ebpf traces` - Distributed trace visualization
 
 Shared infrastructure:
+
 - Time range parsing (`--since`, `--from`, `--to`)
 - Output formatters (table, JSON, CSV, tree)
 - Generic tree visualization helper
@@ -211,12 +218,14 @@ Shared infrastructure:
 **Evolution (RFD 067): ✅ Completed**
 
 The source-specific commands have been replaced by unified query commands:
+
 - `coral query summary [service]` - Health overview from all sources
 - `coral query traces [service]` - Unified traces (eBPF + OTLP)
 - `coral query metrics [service]` - Unified metrics (eBPF + OTLP)
 - `coral query logs [service]` - Logs from OTLP
 
-The core infrastructure (time parsing, formatters, colony client) continues to be used by the new unified commands.
+The core infrastructure (time parsing, formatters, colony client) continues to
+be used by the new unified commands.
 
 ## Testing Strategy
 

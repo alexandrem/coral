@@ -88,6 +88,7 @@ coral_query_telemetry_logs
 ```
 
 **New (4 unified tools):**
+
 ```
 coral_query_summary   → Health overview with anomaly detection
 coral_query_traces    → All traces (eBPF + OTLP), optional filters
@@ -98,6 +99,7 @@ coral_query_logs      → All logs (OTLP)
 #### CLI Commands
 
 **Current:**
+
 ```bash
 coral query ebpf http --service api
 coral query ebpf traces --service api
@@ -105,6 +107,7 @@ coral query telemetry spans --service api  # Planned
 ```
 
 **New:**
+
 ```bash
 # Summary-first workflow
 coral query summary --service api
@@ -125,6 +128,7 @@ coral query metrics --protocol http --source telemetry
 **Purpose:** First-line diagnostic tool providing intelligent health overview.
 
 **What it shows:**
+
 - Service health status (✅ Healthy, ⚠️ Degraded, ❌ Critical)
 - Error rate trends (elevated errors, increasing rates)
 - Latency issues (P95/P99 spikes)
@@ -133,14 +137,18 @@ coral query metrics --protocol http --source telemetry
 - Traffic anomalies (sudden increases/decreases)
 
 **Input Parameters:**
+
 ```json
 {
-  "service": "api",           // Optional: specific service or all services
-  "time_range": "5m"          // Default: 5 minutes
+    "service": "api",
+    // Optional: specific service or all services
+    "time_range": "5m"
+    // Default: 5 minutes
 }
 ```
 
 **Example Output:**
+
 ```
 Service Health Summary (last 5m)
 
@@ -167,6 +175,7 @@ Service Health Summary (last 5m)
 ```
 
 **Data Sources:**
+
 - eBPF metrics + OTLP metrics for request/error rates
 - OTLP logs for recent errors
 - eBPF traces + OTLP spans for slow trace identification
@@ -176,18 +185,23 @@ Service Health Summary (last 5m)
 **Purpose:** Query distributed traces from all sources with optional filtering.
 
 **Input Parameters:**
+
 ```json
 {
-  "service": "api",
-  "time_range": "1h",
-  "source": "all",           // Optional: ebpf|telemetry|all (default: all)
-  "trace_id": "abc123...",   // Optional: specific trace
-  "min_duration_ms": 500,    // Optional: filter slow traces
-  "max_traces": 10
+    "service": "api",
+    "time_range": "1h",
+    "source": "all",
+    // Optional: ebpf|telemetry|all (default: all)
+    "trace_id": "abc123...",
+    // Optional: specific trace
+    "min_duration_ms": 500,
+    // Optional: filter slow traces
+    "max_traces": 10
 }
 ```
 
 **Example Output:**
+
 ```
 Traces for service 'api' (last 1h):
 
@@ -204,6 +218,7 @@ Trace: def789ghi012 (Duration: 890ms)
 ```
 
 **Features:**
+
 - Merges eBPF and OTLP spans into unified tree
 - Deduplicates spans (prefers OTLP for richer attributes)
 - Annotates each span with source ([eBPF] or [OTLP])
@@ -214,19 +229,26 @@ Trace: def789ghi012 (Duration: 890ms)
 **Purpose:** Query service metrics from all sources with optional filtering.
 
 **Input Parameters:**
+
 ```json
 {
-  "service": "api",
-  "time_range": "1h",
-  "source": "all",              // Optional: ebpf|telemetry|all (default: all)
-  "protocol": "auto",           // Optional: http|grpc|sql|auto (default: auto)
-  "http_route": "/api/v1/*",    // Optional: HTTP-specific filter
-  "http_method": "GET",         // Optional: HTTP-specific filter
-  "status_code_range": "5xx"    // Optional: HTTP-specific filter
+    "service": "api",
+    "time_range": "1h",
+    "source": "all",
+    // Optional: ebpf|telemetry|all (default: all)
+    "protocol": "auto",
+    // Optional: http|grpc|sql|auto (default: auto)
+    "http_route": "/api/v1/*",
+    // Optional: HTTP-specific filter
+    "http_method": "GET",
+    // Optional: HTTP-specific filter
+    "status_code_range": "5xx"
+    // Optional: HTTP-specific filter
 }
 ```
 
 **Example Output:**
+
 ```
 Metrics for service 'api' (last 1h):
 
@@ -243,6 +265,7 @@ Analysis: 2.1% error rate detected on /api/payments endpoint.
 ```
 
 **Features:**
+
 - Queries both eBPF and OTLP metrics
 - Supports all protocols (HTTP, gRPC, SQL)
 - Protocol auto-detection or specific filtering
@@ -253,17 +276,21 @@ Analysis: 2.1% error rate detected on /api/payments endpoint.
 **Purpose:** Query application logs from OTLP.
 
 **Input Parameters:**
+
 ```json
 {
-  "service": "api",
-  "time_range": "1h",
-  "level": "error",            // Optional: debug|info|warn|error
-  "search": "timeout",         // Optional: full-text search
-  "max_logs": 100
+    "service": "api",
+    "time_range": "1h",
+    "level": "error",
+    // Optional: debug|info|warn|error
+    "search": "timeout",
+    // Optional: full-text search
+    "max_logs": 100
 }
 ```
 
 **Example Output:**
+
 ```
 Logs for service 'api' (last 1h, level: error):
 
@@ -343,7 +370,8 @@ are taking 850ms (69% of total request time). Recent errors show
 
 ### Phase 0: Protobuf Definitions ✅
 
-- [x] Add 4 new RPC methods to `colony.proto`: `QueryUnifiedSummary`, `QueryUnifiedTraces`, `QueryUnifiedMetrics`, `QueryUnifiedLogs`
+- [x] Add 4 new RPC methods to `colony.proto`: `QueryUnifiedSummary`,
+  `QueryUnifiedTraces`, `QueryUnifiedMetrics`, `QueryUnifiedLogs`
 - [x] Generate protobuf code and client/server stubs
 
 ### Phase 1: Backend Preparation ✅
@@ -351,15 +379,16 @@ are taking 850ms (69% of total request time). Recent errors show
 - [x] Add unified query methods to `ebpf_service.go`
 - [x] Add `QueryTelemetrySummaries` to ebpfDatabase interface
 - [x] Implement complete result merging logic (eBPF + OTLP)
-  - [x] QueryUnifiedSummary: Merges eBPF HTTP metrics with OTLP summaries
-  - [x] QueryUnifiedMetrics: Merges eBPF metrics with OTLP summaries
-  - [x] QueryUnifiedTraces: Creates synthetic OTLP spans from summaries
+    - [x] QueryUnifiedSummary: Merges eBPF HTTP metrics with OTLP summaries
+    - [x] QueryUnifiedMetrics: Merges eBPF metrics with OTLP summaries
+    - [x] QueryUnifiedTraces: Creates synthetic OTLP spans from summaries
 - [x] Add source annotations (eBPF, OTLP, eBPF+OTLP labels)
 - [x] Implement basic anomaly detection (threshold-based health status)
 
 ### Phase 1.5: Colony RPC Handlers ✅
 
-- [x] Implement RPC handlers in `unified_query_handlers.go` (internal/colony/server/unified_query_handlers.go)
+- [x] Implement RPC handlers in `unified_query_handlers.go` (
+  internal/colony/server/unified_query_handlers.go)
 - [x] Add `parseTimeRange` helper function
 
 ### Phase 2: MCP Tools ✅
@@ -388,9 +417,9 @@ are taking 850ms (69% of total request time). Recent errors show
 - [x] Update RFD 035 with superseded notice
 - [x] Fix all broken tests (mocks updated for new interfaces)
 - [x] Write unit tests for unified query methods (13 new test cases)
-  - [x] TestQueryUnifiedSummary_DataMerging (6 tests)
-  - [x] TestQueryUnifiedMetrics_DataMerging (2 tests)
-  - [x] TestQueryUnifiedTraces_SpanMerging (6 tests)
+    - [x] TestQueryUnifiedSummary_DataMerging (6 tests)
+    - [x] TestQueryUnifiedMetrics_DataMerging (2 tests)
+    - [x] TestQueryUnifiedTraces_SpanMerging (6 tests)
 - [x] Write unit tests for RPC handlers (22 test cases)
 - [ ] **Future**: Write integration tests with real eBPF+OTLP data
 - [ ] **Future**: Manual testing with production workloads
@@ -406,6 +435,7 @@ are taking 850ms (69% of total request time). Recent errors show
 > Since Coral is experimental, no migration period is provided.
 
 **Removed MCP Tools:**
+
 - `coral_query_beyla_http_metrics`
 - `coral_query_beyla_grpc_metrics`
 - `coral_query_beyla_sql_metrics`
@@ -415,18 +445,21 @@ are taking 850ms (69% of total request time). Recent errors show
 - `coral_query_telemetry_logs`
 
 **Removed CLI Commands:**
+
 - `coral query ebpf http`
 - `coral query ebpf grpc`
 - `coral query ebpf sql`
 - `coral query ebpf traces`
 
 **Added MCP Tools:**
+
 - `coral_query_summary`
 - `coral_query_traces`
 - `coral_query_metrics`
 - `coral_query_logs`
 
 **Added CLI Commands:**
+
 - `coral query summary`
 - `coral query traces`
 - `coral query metrics`
@@ -437,18 +470,21 @@ are taking 850ms (69% of total request time). Recent errors show
 ### Unit Tests
 
 **Summary command:**
+
 - Anomaly detection logic (error rate spikes, latency increases)
 - Health status calculation
 - Recent error aggregation
 - Slow trace identification
 
 **Traces command:**
+
 - Source filter parsing
 - Span tree merging (eBPF + OTLP)
 - Span deduplication
 - Source annotation
 
 **Metrics command:**
+
 - Protocol filter parsing
 - Source filter parsing
 - Result merging by route/method
@@ -457,6 +493,7 @@ are taking 850ms (69% of total request time). Recent errors show
 ### Integration Tests
 
 **End-to-end summary:**
+
 1. Insert mixed eBPF and OTLP data with anomalies
 2. Call `coral_query_summary`
 3. Verify anomalies detected
@@ -464,6 +501,7 @@ are taking 850ms (69% of total request time). Recent errors show
 5. Verify recent errors shown
 
 **End-to-end traces:**
+
 1. Insert eBPF and OTLP spans for same trace
 2. Call `coral_query_traces`
 3. Verify unified span tree
@@ -471,6 +509,7 @@ are taking 850ms (69% of total request time). Recent errors show
 5. Verify deduplication
 
 **End-to-end metrics:**
+
 1. Insert eBPF and OTLP metrics for same service
 2. Call `coral_query_metrics`
 3. Verify both sources shown
@@ -501,52 +540,60 @@ Since Coral is experimental, breaking changes are acceptable:
 All phases of the unified query interface have been successfully implemented:
 
 ### Phase 0: Protobuf Definitions ✅
+
 - Added 4 new RPC methods to `colony.proto`:
-  - `QueryUnifiedSummary`
-  - `QueryUnifiedTraces`
-  - `QueryUnifiedMetrics`
-  - `QueryUnifiedLogs`
+    - `QueryUnifiedSummary`
+    - `QueryUnifiedTraces`
+    - `QueryUnifiedMetrics`
+    - `QueryUnifiedLogs`
 - Generated protobuf code and client/server stubs
 
 ### Phase 1: Backend Preparation ✅
+
 - Updated `ebpfDatabase` interface with `QueryTelemetrySummaries`
 - Implemented unified query methods in `ebpf_service.go`:
-  - `QueryUnifiedSummary` - Health summary with anomaly detection (TODO: complete anomaly logic)
-  - `QueryUnifiedTraces` - Unified trace queries
-  - `QueryUnifiedMetrics` - Unified metric queries
-  - `QueryUnifiedLogs` - Log queries (placeholder)
+    - `QueryUnifiedSummary` - Health summary with anomaly detection (TODO:
+      complete anomaly logic)
+    - `QueryUnifiedTraces` - Unified trace queries
+    - `QueryUnifiedMetrics` - Unified metric queries
+    - `QueryUnifiedLogs` - Log queries (placeholder)
 
 ### Phase 1.5: Colony RPC Handlers ✅
+
 - Implemented RPC handlers in `unified_query_handlers.go`
 - Each handler calls corresponding backend service method
 - Added `parseTimeRange` helper function
 
 ### Phase 2: MCP Tools ✅
+
 - Removed 7+ source-specific MCP tools
 - Implemented 4 unified MCP tools in `tools_observability.go`:
-  - `coral_query_summary`
-  - `coral_query_traces`
-  - `coral_query_metrics`
-  - `coral_query_logs`
+    - `coral_query_summary`
+    - `coral_query_traces`
+    - `coral_query_metrics`
+    - `coral_query_logs`
 - Updated `types.go` with new input structs
 - Updated `server.go` for tool registration and execution
 
 ### Phase 3: CLI Commands ✅
+
 - Removed `internal/cli/query/ebpf/` directory
 - Implemented new unified CLI commands:
-  - `coral query summary [service]`
-  - `coral query traces [service]`
-  - `coral query metrics [service]`
-  - `coral query logs [service]`
+    - `coral query summary [service]`
+    - `coral query traces [service]`
+    - `coral query metrics [service]`
+    - `coral query logs [service]`
 - CLI commands call dedicated RPC methods (not MCP tools)
 - Updated `root.go` to register new commands
 
 ### Phase 4: Documentation ✅
+
 - Updated `docs/CLI_MCP_MAPPING.md` with new unified tools
 - Updated RFD 035 to reference RFD 067
 - Created implementation walkthrough
 
 **Architecture:**
+
 - **CLI** → Colony RPC (`QueryUnifiedSummary`, etc.) → Backend Service Methods
 - **MCP Tools** → Backend Service Methods (same methods, different entry point)
 
@@ -555,66 +602,80 @@ All phases of the unified query interface have been successfully implemented:
 **Completed (as of 2025-12-04):**
 
 1. ✅ **Data Merging** (internal/colony/ebpf_service.go):
-   - `QueryUnifiedSummary` (line 356-488): **Fully implemented** - Merges eBPF HTTP metrics with OTLP telemetry summaries, calculates combined error rates and latency metrics
-   - `QueryUnifiedTraces` (line 501-596): **Fully implemented** - Creates synthetic OTLP spans from telemetry summaries, merges with eBPF spans, supports filtering by trace ID/service/duration
-   - `QueryUnifiedMetrics` (line 598-650): **Fully implemented** - Merges eBPF metrics (HTTP/gRPC/SQL) with OTLP telemetry summaries converted to metric format
+    - `QueryUnifiedSummary` (line 356-488): **Fully implemented** - Merges eBPF
+      HTTP metrics with OTLP telemetry summaries, calculates combined error
+      rates and latency metrics
+    - `QueryUnifiedTraces` (line 501-596): **Fully implemented** - Creates
+      synthetic OTLP spans from telemetry summaries, merges with eBPF spans,
+      supports filtering by trace ID/service/duration
+    - `QueryUnifiedMetrics` (line 598-650): **Fully implemented** - Merges eBPF
+      metrics (HTTP/gRPC/SQL) with OTLP telemetry summaries converted to metric
+      format
 
 2. ✅ **Basic Anomaly Detection** (internal/colony/ebpf_service.go:402-461):
-   - Error rate thresholds: >5% = critical, >1% = degraded
-   - Latency thresholds: >2000ms = critical, >1000ms = degraded
-   - Automatic health status calculation for all services
+    - Error rate thresholds: >5% = critical, >1% = degraded
+    - Latency thresholds: >2000ms = critical, >1000ms = degraded
+    - Automatic health status calculation for all services
 
 3. ✅ **Source Annotations**:
-   - Service names tagged with source: "eBPF", "OTLP", or "eBPF+OTLP"
-   - Traces show 📍 for eBPF spans, 📊 for OTLP synthetic spans
-   - Metrics include "[OTLP]" suffix for OTLP-sourced data
+    - Service names tagged with source: "eBPF", "OTLP", or "eBPF+OTLP"
+    - Traces show 📍 for eBPF spans, 📊 for OTLP synthetic spans
+    - Metrics include "[OTLP]" suffix for OTLP-sourced data
 
-4. ✅ **Enhanced Output Formatting** (internal/colony/server/unified_query_handlers.go):
-   - Summary: Status icons (✅/⚠️/❌), detailed metrics per service
-   - Traces: Grouped by trace ID with duration and source indicators
-   - Metrics: Formatted with percentiles and request counts
+4. ✅ **Enhanced Output Formatting** (
+   internal/colony/server/unified_query_handlers.go):
+    - Summary: Status icons (✅/⚠️/❌), detailed metrics per service
+    - Traces: Grouped by trace ID with duration and source indicators
+    - Metrics: Formatted with percentiles and request counts
 
 5. ✅ **Comprehensive Testing**:
-   - 13 new test cases for data merging (summary, metrics, traces)
-   - Tests cover: eBPF+OTLP merging, source-only scenarios, filtering, error handling
-   - All tests passing
+    - 13 new test cases for data merging (summary, metrics, traces)
+    - Tests cover: eBPF+OTLP merging, source-only scenarios, filtering, error
+      handling
+    - All tests passing
 
 6. ✅ **Infrastructure**:
-   - Protobuf: 4 new RPC methods (QueryUnifiedSummary/Traces/Metrics/Logs)
-   - RPC Handlers: Complete with time range parsing and error handling
-   - MCP Tools: 4 unified tools replacing 7+ source-specific tools
-   - CLI Commands: 4 unified commands with consistent interface
-   - Documentation: Updated CLI_MCP_MAPPING.md and RFD 035
+    - Protobuf: 4 new RPC methods (QueryUnifiedSummary/Traces/Metrics/Logs)
+    - RPC Handlers: Complete with time range parsing and error handling
+    - MCP Tools: 4 unified tools replacing 7+ source-specific tools
+    - CLI Commands: 4 unified commands with consistent interface
+    - Documentation: Updated CLI_MCP_MAPPING.md and RFD 035
 
 **Current Limitations:**
 
-1. **OTLP Span Granularity**: OTLP spans are represented as synthetic aggregates from telemetry summaries (RFD 025 stores summaries, not individual spans). This provides visibility but not detailed span-level data.
+1. **OTLP Span Granularity**: OTLP spans are represented as synthetic aggregates
+   from telemetry summaries (RFD 025 stores summaries, not individual spans).
+   This provides visibility but not detailed span-level data.
 
-2. **Anomaly Detection**: Basic threshold-based detection implemented. Advanced features (baseline comparison, traffic anomaly detection) deferred to future work.
+2. **Anomaly Detection**: Basic threshold-based detection implemented. Advanced
+   features (baseline comparison, traffic anomaly detection) deferred to future
+   work.
 
 **Future Work:**
 
-1. **Log Querying**: `QueryUnifiedLogs` currently returns empty array. Coral doesn't yet have log ingestion/storage infrastructure (requires RFD for OTLP log receiver and DuckDB schema).
+1. **Log Querying**: `QueryUnifiedLogs` currently returns empty array. Coral
+   doesn't yet have log ingestion/storage infrastructure (requires RFD for OTLP
+   log receiver and DuckDB schema).
 
 2. **Advanced Anomaly Detection**:
-   - Baseline comparison using historical data
-   - Traffic anomaly detection (sudden spikes/drops)
-   - Service dependency anomaly detection
+    - Baseline comparison using historical data
+    - Traffic anomaly detection (sudden spikes/drops)
+    - Service dependency anomaly detection
 
 3. **Enhanced Trace Merging**:
-   - Store individual OTLP spans (requires schema changes)
-   - Span tree reconstruction across eBPF and OTLP
-   - Deduplication of overlapping spans
+    - Store individual OTLP spans (requires schema changes)
+    - Span tree reconstruction across eBPF and OTLP
+    - Deduplication of overlapping spans
 
 4. **Output Formats**:
-   - JSON export for programmatic access
-   - CSV export for spreadsheet analysis
-   - Tree view rendering for trace hierarchies
+    - JSON export for programmatic access
+    - CSV export for spreadsheet analysis
+    - Tree view rendering for trace hierarchies
 
 5. **Integration Testing**:
-   - E2E tests with real services running both eBPF and OTLP
-   - Performance testing with large datasets
-   - Manual testing with production-like workloads
+    - E2E tests with real services running both eBPF and OTLP
+    - Performance testing with large datasets
+    - Manual testing with production-like workloads
 
 ## Future Enhancements
 
@@ -635,6 +696,7 @@ coral query summary --critical-only
 ### Cross-Source Correlation
 
 Automatically detect discrepancies between eBPF and OTLP:
+
 ```bash
 coral query metrics --correlate
 # Shows: "eBPF reports 2.8% errors, OTLP reports 2.0% - possible sampling issue"
@@ -664,12 +726,14 @@ coral query metrics --correlate
 ### Design Rationale
 
 **Why default to all sources?**
+
 - Diagnostic efficiency: complete picture by default
 - Prevents incomplete analysis from missing data
 - Filters available when precision needed
 - Aligns with Coral's purpose as diagnostic tool
 
 **Why summary-first workflow?**
+
 - Immediate health assessment before deep dive
 - Reduces time to insight
 - Guides investigation toward actual problems
