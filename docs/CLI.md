@@ -2,8 +2,6 @@
 
 **For quick command syntax, see [CLI_REFERENCE.md](./CLI_REFERENCE.md)**
 
-**Last Updated**: 2025-11-20
-
 ---
 
 ## Overview
@@ -199,15 +197,20 @@ See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for full command syntax.
 
 ## Querying eBPF Metrics and Traces
 
-Coral provides high-level CLI commands for querying eBPF-collected observability data without writing SQL. These commands query aggregated data from the Colony's centralized storage.
+Coral provides high-level CLI commands for querying eBPF-collected observability
+data without writing SQL. These commands query aggregated data from the Colony's
+centralized storage.
 
 **Key Features:**
 
 - **No SQL required** - Simple, intuitive commands for common queries
-- **Automatic aggregation** - Histogram data automatically processed into percentiles
+- **Automatic aggregation** - Histogram data automatically processed into
+  percentiles
 - **Multiple formats** - Table (default), JSON, CSV, or tree visualization
-- **Time-based filtering** - Natural time expressions (`--since 1h`, `--from`, `--to`)
-- **Colony-centralized** - Queries aggregated historical data (vs. agent-local with `coral duckdb`)
+- **Time-based filtering** - Natural time expressions (`--since 1h`, `--from`,
+  `--to`)
+- **Colony-centralized** - Queries aggregated historical data (vs. agent-local
+  with `coral duckdb`)
 
 **Available Commands:**
 
@@ -229,7 +232,8 @@ coral query ebpf traces [--trace-id <id>] [--service <name>]
 
 ### HTTP Metrics
 
-Query HTTP request metrics including latency percentiles, request counts, and error rates:
+Query HTTP request metrics including latency percentiles, request counts, and
+error rates:
 
 ```bash
 # Basic usage - show HTTP metrics for a service
@@ -363,6 +367,7 @@ abc123def456789   span-004      inventory-svc    reserveItems     45ms      2025
 ```
 
 The tree format shows:
+
 - **Parent-child relationships** between spans
 - **Service names** and operations
 - **Duration** for each span
@@ -413,12 +418,14 @@ coral query ebpf traces --trace-id <id> --format tree
 ### When to Use `coral query ebpf` vs `coral duckdb`
 
 **Use `coral query ebpf` when:**
+
 - ✅ You want quick, high-level insights (RED metrics, percentiles)
 - ✅ You don't need to write SQL
 - ✅ You want formatted, human-readable output
 - ✅ You're querying common observability patterns
 
 **Use `coral duckdb` when:**
+
 - ✅ You need complex SQL queries (joins, aggregations, window functions)
 - ✅ You want to query raw data directly
 - ✅ You need to join multiple tables or data sources
@@ -800,9 +807,14 @@ Database query metrics.
 
 ### Common Query Patterns
 
-> **💡 Tip:** For common observability queries, use the high-level `coral query ebpf` commands instead of writing SQL. These commands automatically calculate percentiles, aggregate data, and format output. See the [Querying eBPF Metrics and Traces](#querying-ebpf-metrics-and-traces) section above.
+> **💡 Tip:** For common observability queries, use the high-level
+`coral query ebpf` commands instead of writing SQL. These commands automatically
+> calculate percentiles, aggregate data, and format output. See
+> the [Querying eBPF Metrics and Traces](#querying-ebpf-metrics-and-traces)
+> section above.
 >
-> The examples below show raw SQL queries for advanced use cases and custom analysis.
+> The examples below show raw SQL queries for advanced use cases and custom
+> analysis.
 
 #### Performance Analysis
 

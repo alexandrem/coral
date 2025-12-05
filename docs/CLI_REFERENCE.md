@@ -1,6 +1,10 @@
 # Coral CLI Quick Reference
 
-**See [CLI.md](./CLI.md) for detailed examples, concepts, and troubleshooting.**
+**See also:**
+
+- [CLI.md](./CLI.md) - Detailed examples, concepts, and troubleshooting
+- [CLI_MCP_MAPPING.md](./CLI_MCP_MAPPING.md) - CLI to MCP tool mapping for
+  AI/LLM integration
 
 ---
 
@@ -96,51 +100,69 @@ coral ask "Check errors" --dry-run
 
 ---
 
-## eBPF Metrics & Traces Query
+## Unified Query Commands (RFD 067)
+
+**Unified interface combining eBPF and OTLP data sources.**
 
 ```bash
-# Query HTTP RED metrics (Rate, Errors, Duration)
-coral query ebpf http <service> [--since <duration>] [--route <pattern>] [--output table|json|csv]
+# Service health summary
+coral query summary [service] [--since <duration>]
 
-# Query gRPC metrics
-coral query ebpf grpc <service> [--since <duration>] [--method <pattern>] [--output table|json|csv]
+# Distributed traces
+coral query traces [service] [--since <duration>] [--trace-id <id>] [--source ebpf|telemetry|all] [--min-duration-ms <ms>] [--max-traces <n>]
 
-# Query SQL query metrics
-coral query ebpf sql <service> [--since <duration>] [--operation <SELECT|INSERT|UPDATE|DELETE>] [--table <name>] [--output table|json|csv]
+# Service metrics (HTTP/gRPC/SQL)
+coral query metrics [service] [--since <duration>] [--source ebpf|telemetry|all] [--protocol http|grpc|sql|auto] [--http-route <pattern>] [--http-method <method>] [--status-code-range <range>]
 
-# Query distributed traces
-coral query ebpf traces [--trace-id <id>] [--service <name>] [--since <duration>] [--format table|tree|json|csv]
+# Application logs
+coral query logs [service] [--since <duration>] [--level debug|info|warn|error] [--search <text>] [--max-logs <n>]
 
 # Time range options (all commands):
-#   --since <duration>     # Relative (1h, 30m, 24h, 1d, 1w)
-#   --from <timestamp>     # Absolute start (ISO 8601)
-#   --to <timestamp>       # Absolute end (ISO 8601)
+#   --since <duration>     # Relative (5m, 1h, 30m, 24h, 1d, 1w)
 
-# Examples - HTTP metrics:
-coral query ebpf http payments-api --since 1h
-coral query ebpf http api-server --route "/api/v1/checkout" --since 30m --output json
-coral query ebpf http frontend --since 6h --output csv
+# Examples - Service health summary:
+coral query summary                          # All services
+coral query summary api                      # Specific service
+coral query summary api --since 10m          # Custom time range
 
-# Examples - gRPC metrics:
-coral query ebpf grpc payment-service --since 1h
-coral query ebpf grpc api-gateway --method "/api.Payment/Process" --since 30m
-
-# Examples - SQL metrics:
-coral query ebpf sql api-server --since 1h
-coral query ebpf sql backend --operation SELECT --table users --since 2h
+# Examples - Metrics:
+coral query metrics api                              # All metrics for api service
+coral query metrics api --protocol http              # Only HTTP metrics
+coral query metrics api --source ebpf                # Only eBPF data
+coral query metrics api --http-route /api/v1/*       # Filter by route
+coral query metrics api --status-code-range 5xx      # Only 5xx errors
+coral query metrics payments-api --since 1h          # Last hour
 
 # Examples - Traces:
-coral query ebpf traces --trace-id abc123def456789
-coral query ebpf traces --trace-id abc123def456789 --format tree
-coral query ebpf traces --service payments-api --since 1h
-coral query ebpf traces --service api-gateway --since 30m --output json
+coral query traces api                               # All traces for api service
+coral query traces --trace-id abc123def456789        # Specific trace by ID
+coral query traces api --source ebpf                 # Only eBPF traces
+coral query traces api --min-duration-ms 500         # Only slow traces (>500ms)
+coral query traces payments-api --since 30m          # Last 30 minutes
+coral query traces api --max-traces 5                # Limit results
+
+# Examples - Logs:
+coral query logs api                                 # All logs for api service
+coral query logs api --level error                   # Only error logs
+coral query logs --search "timeout"                  # Search for specific text
+coral query logs api --since 30m --max-logs 50       # Last 30 minutes, limit 50
 ```
 
 **What you get:**
-- **HTTP/gRPC/SQL**: Aggregated RED metrics with P50/P95/P99 latency percentiles
-- **Traces**: Distributed trace spans with parent-child relationships
+
+- **Summary**: Health status (healthy/degraded/critical), error rates, latency,
+  request counts
+- **Metrics**: HTTP/gRPC/SQL RED metrics with P50/P95/P99 latency percentiles
+  from eBPF + OTLP
+- **Traces**: Distributed trace spans with parent-child relationships, source
+  annotations (eBPF/OTLP)
+- **Logs**: Application logs from OTLP with filtering and search
+- **Automatic merging**: eBPF and OTLP data combined by default with source
+  annotations
 - **No SQL needed**: High-level commands for common observability patterns
-- **Multiple formats**: Table (default), JSON, CSV, or tree (traces only)
+
+> **Note**: Old `coral query ebpf` commands are deprecated. Use the unified
+`coral query` commands above.
 
 ---
 
@@ -274,39 +296,6 @@ coral exec web --container nginx cat /etc/nginx/nginx.conf
 # Key differences:
 #   coral shell    → Runs on AGENT HOST (agent's environment)
 #   coral exec     → Runs in SERVICE CONTAINER (via nsenter)
-```
-
----
-
-## Common Query Patterns
-
-```sql
--- Recent errors (telemetry)
-SELECT trace_id, name, service_name, duration_ms
-FROM spans
-WHERE status = 'error' AND timestamp > now() - INTERVAL '1 hour'
-ORDER BY timestamp DESC LIMIT 20;
-
--- HTTP error rate (Beyla)
-SELECT service_name, http_status_code, COUNT(*) as count
-FROM beyla_http_metrics_local
-WHERE http_status_code >= 500 AND timestamp > now() - INTERVAL '10 minutes'
-GROUP BY service_name, http_status_code;
-
--- P99 latency by endpoint (Beyla)
-SELECT http_route,
-       PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_bucket_ms) as p99_ms
-FROM beyla_http_metrics_local
-WHERE timestamp > now() - INTERVAL '10 minutes'
-GROUP BY http_route
-ORDER BY p99_ms DESC LIMIT 10;
-
--- Slow database queries (Beyla)
-SELECT table_name, sql_operation, AVG(latency_bucket_ms) as avg_ms
-FROM beyla_sql_metrics_local
-WHERE timestamp > now() - INTERVAL '10 minutes' AND latency_bucket_ms > 100
-GROUP BY table_name, sql_operation
-ORDER BY avg_ms DESC;
 ```
 
 ---

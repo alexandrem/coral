@@ -282,73 +282,12 @@ func (s *Server) determineColonyStatus() string {
 	return "running"
 }
 
-// QueryTelemetry retrieves telemetry summaries from the colony's database.
-// This is part of RFD 025 pull-based telemetry model.
-func (s *Server) QueryTelemetry(
-	ctx context.Context,
-	req *connect.Request[colonyv1.QueryTelemetryRequest],
-) (*connect.Response[colonyv1.QueryTelemetryResponse], error) {
-	// TODO: Implement telemetry querying from colony database (RFD 025).
-	// This will query the colony's telemetry summaries database for data matching:
-	// - Agent ID: req.Msg.AgentId
-	// - Time range: req.Msg.StartTime to req.Msg.EndTime
-	// - Service names: req.Msg.ServiceNames (filter by these if provided)
-	// Return the aggregated telemetry summaries stored in the colony database.
-
-	return connect.NewResponse(&colonyv1.QueryTelemetryResponse{
-		AgentId:    req.Msg.AgentId,
-		Spans:      []*colonyv1.TelemetrySpan{},
-		TotalSpans: 0,
-	}), nil
-}
-
-// Note: IngestTelemetry RPC was removed in favor of pull-based architecture (RFD 025).
-// Colony now queries agents on-demand using QueryTelemetry RPC and creates summaries locally.
-
-// QueryEbpfMetrics queries aggregated eBPF metrics from colony storage (RFD 035).
-func (s *Server) QueryEbpfMetrics(
-	ctx context.Context,
-	req *connect.Request[agentv1.QueryEbpfMetricsRequest],
-) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
-	s.logger.Debug().
-		Int64("start_time", req.Msg.StartTime).
-		Int64("end_time", req.Msg.EndTime).
-		Strs("service_names", req.Msg.ServiceNames).
-		Msg("Query eBPF metrics request received")
-
-	// Check if eBPF service is initialized.
-	if s.ebpfService == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("eBPF query service not initialized"))
-	}
-
-	// Type assert to get the actual eBPF service.
-	type ebpfQueryService interface {
-		QueryMetrics(ctx context.Context, req *agentv1.QueryEbpfMetricsRequest) (*agentv1.QueryEbpfMetricsResponse, error)
-	}
-
-	service, ok := s.ebpfService.(ebpfQueryService)
-	if !ok {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid eBPF service type"))
-	}
-
-	// Query metrics using the service layer.
-	resp, err := service.QueryMetrics(ctx, req.Msg)
-	if err != nil {
-		s.logger.Error().
-			Err(err).
-			Msg("Failed to query eBPF metrics")
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query metrics: %w", err))
-	}
-
-	s.logger.Debug().
-		Int("http_metrics", len(resp.HttpMetrics)).
-		Int("grpc_metrics", len(resp.GrpcMetrics)).
-		Int("sql_metrics", len(resp.SqlMetrics)).
-		Int("trace_spans", len(resp.TraceSpans)).
-		Msg("Query eBPF metrics completed")
-
-	return connect.NewResponse(resp), nil
-}
+// Note: QueryTelemetry (RFD 025) and QueryEbpfMetrics (RFD 035) were removed.
+// Use the unified query interface (RFD 067) instead:
+// - QueryUnifiedSummary for service health overview
+// - QueryUnifiedTraces for distributed traces
+// - QueryUnifiedMetrics for HTTP/gRPC/SQL metrics
+// - QueryUnifiedLogs for application logs
 
 // CallTool executes an MCP tool and returns the result (RFD 004).
 func (s *Server) CallTool(

@@ -92,9 +92,11 @@ func TestListToolNames(t *testing.T) {
 
 	tools := s.listToolNames()
 	assert.NotEmpty(t, tools)
-	assert.Contains(t, tools, "coral_get_service_health")
-	assert.Contains(t, tools, "coral_query_ebpf_http_metrics")
-	assert.Contains(t, tools, "coral_get_service_topology")
+	// Check for unified query tools (RFD 067)
+	assert.Contains(t, tools, "coral_query_summary")
+	assert.Contains(t, tools, "coral_query_traces")
+	assert.Contains(t, tools, "coral_query_metrics")
+	assert.Contains(t, tools, "coral_query_logs")
 }
 
 func TestMatchesPattern(t *testing.T) {

@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/logging"
 )
@@ -45,14 +44,6 @@ func (m *mockColonyClient) GetTopology(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&colonyv1.GetTopologyResponse{}), nil
 }
 
-func (m *mockColonyClient) QueryTelemetry(ctx context.Context, req *connect.Request[colonyv1.QueryTelemetryRequest]) (*connect.Response[colonyv1.QueryTelemetryResponse], error) {
-	return connect.NewResponse(&colonyv1.QueryTelemetryResponse{}), nil
-}
-
-func (m *mockColonyClient) QueryEbpfMetrics(ctx context.Context, req *connect.Request[agentv1.QueryEbpfMetricsRequest]) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
-	return connect.NewResponse(&agentv1.QueryEbpfMetricsResponse{}), nil
-}
-
 func (m *mockColonyClient) StreamTool(ctx context.Context) *connect.BidiStreamForClient[colonyv1.StreamToolRequest, colonyv1.StreamToolResponse] {
 	return nil
 }
@@ -63,6 +54,22 @@ func (m *mockColonyClient) RequestCertificate(ctx context.Context, req *connect.
 
 func (m *mockColonyClient) RevokeCertificate(ctx context.Context, req *connect.Request[colonyv1.RevokeCertificateRequest]) (*connect.Response[colonyv1.RevokeCertificateResponse], error) {
 	return connect.NewResponse(&colonyv1.RevokeCertificateResponse{}), nil
+}
+
+func (m *mockColonyClient) QueryUnifiedSummary(ctx context.Context, req *connect.Request[colonyv1.QueryUnifiedSummaryRequest]) (*connect.Response[colonyv1.QueryUnifiedSummaryResponse], error) {
+	return connect.NewResponse(&colonyv1.QueryUnifiedSummaryResponse{}), nil
+}
+
+func (m *mockColonyClient) QueryUnifiedTraces(ctx context.Context, req *connect.Request[colonyv1.QueryUnifiedTracesRequest]) (*connect.Response[colonyv1.QueryUnifiedTracesResponse], error) {
+	return connect.NewResponse(&colonyv1.QueryUnifiedTracesResponse{}), nil
+}
+
+func (m *mockColonyClient) QueryUnifiedMetrics(ctx context.Context, req *connect.Request[colonyv1.QueryUnifiedMetricsRequest]) (*connect.Response[colonyv1.QueryUnifiedMetricsResponse], error) {
+	return connect.NewResponse(&colonyv1.QueryUnifiedMetricsResponse{}), nil
+}
+
+func (m *mockColonyClient) QueryUnifiedLogs(ctx context.Context, req *connect.Request[colonyv1.QueryUnifiedLogsRequest]) (*connect.Response[colonyv1.QueryUnifiedLogsResponse], error) {
+	return connect.NewResponse(&colonyv1.QueryUnifiedLogsResponse{}), nil
 }
 
 // TestMCPProxyInitialize tests the initialize method.
