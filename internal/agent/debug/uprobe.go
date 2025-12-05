@@ -5,113 +5,61 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/agent/ebpf/uprobe"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go uprobe_monitor ./bpf/uprobe_monitor.bpf.c -- -I../ebpf/bpf/headers
 
 // attachUprobeLocked attaches eBPF uprobe to target function.
 // Caller must hold m.mu.
-func (m *DebugSessionManager) attachUprobeLocked(
+func (m *SessionManager) attachUprobeLocked(
 	session *DebugSession,
 	pid int,
 	binaryPath string,
 	offset uint64,
 ) error {
-	// 1. Load BPF program
-	// We use the generated LoadUprobeMonitorObjects function
-	objs := uprobe_monitorObjects{}
-	if err := loadUprobe_monitorObjects(&objs, nil); err != nil {
+	// 1. Load BPF program.
+	objs := &uprobe_monitorObjects{}
+	if err := loadUprobe_monitorObjects(objs, nil); err != nil {
 		return fmt.Errorf("load BPF objects: %w", err)
 	}
 
-	// Ensure cleanup on error
-	// We create a collection from the objects to manage them easily
-	// But here we have individual programs in objs
-	// We'll manage them manually or put them in the session
-
-	// 2. Open executable
-	// In sidecar mode with shared PID namespace, use /proc/{pid}/exe which is a
-	// symlink to the actual binary. This works for uprobe attachment even when
-	// the binary path is only visible in the container's mount namespace.
-	resolvedPath := fmt.Sprintf("/proc/%d/exe", pid)
-	m.logger.Debug().
-		Str("container_path", binaryPath).
-		Str("proc_exe_path", resolvedPath).
-		Int("pid", pid).
-		Uint64("offset", offset).
-		Msg("Using /proc/{pid}/exe for uprobe attachment")
-
-	exe, err := link.OpenExecutable(resolvedPath)
-	if err != nil {
-		objs.Close() // nolint:errcheck
-		return fmt.Errorf("open executable (path=%s): %w", resolvedPath, err)
-	}
-
-	m.logger.Debug().
-		Str("exe_path", resolvedPath).
-		Msg("Successfully opened executable for uprobe attachment")
-
-	// 3. Attach uprobe (entry)
-	// Use Address field for absolute address from SDK (not Offset which is relative).
-	entryLink, err := exe.Uprobe(
-		"", // Symbol name empty because we use absolute addressing
+	// 2. Attach uprobe using shared attacher.
+	attachResult, err := uprobe.AttachUprobe(
+		uprobe.AttachConfig{
+			PID:          uint32(pid),
+			Offset:       offset,
+			BinaryPath:   binaryPath,
+			AttachReturn: true, // Debug sessions attach both entry and return probes
+			PIDFilter:    pid,  // Trace specific PID for debug sessions
+			Logger:       m.logger,
+		},
 		objs.ProbeEntry,
-		&link.UprobeOptions{
-			Address: offset,
-			PID:     pid,
-		},
+		objs.ProbeExit,
+		objs.Events,
 	)
 	if err != nil {
 		objs.Close() // nolint:errcheck
-		return fmt.Errorf("attach uprobe entry: %w", err)
+		return fmt.Errorf("attach uprobe: %w", err)
 	}
 
-	// 4. Attach uretprobe (exit)
-	// Use Address field for absolute address from SDK (not Offset which is relative).
-	exitLink, err := exe.Uretprobe(
-		"", // Symbol name empty because we use absolute addressing
-		objs.ProbeExit,
-		&link.UprobeOptions{
-			Address: offset,
-			PID:     pid,
-		},
-	)
-	if err != nil {
-		entryLink.Close() // nolint:errcheck
-		objs.Close()      // nolint:errcheck
-		return fmt.Errorf("attach uretprobe exit: %w", err)
-	}
+	// 3. Store session resources.
+	session.BPFObjects = objs
+	session.AttachResult = attachResult
+	session.Reader = attachResult.Reader
 
-	// 4. Open ring buffer reader
-	reader, err := ringbuf.NewReader(objs.Events)
-	if err != nil {
-		exitLink.Close()  // nolint:errcheck
-		entryLink.Close() // nolint:errcheck
-		objs.Close()      // nolint:errcheck
-		return fmt.Errorf("create ringbuf reader: %w", err)
-	}
-
-	// 5. Store session resources
-	session.EntryLink = entryLink
-	session.ExitLink = exitLink
-	session.Reader = reader
-
-	// 6. Start event reader goroutine
-	go m.readEvents(session.ID, reader)
+	// 4. Start event reader goroutine.
+	go m.readEvents(session.ID, attachResult.Reader)
 
 	return nil
 }
 
 // DetachUprobe detaches eBPF probe and cleans up.
-func (m *DebugSessionManager) DetachUprobe(sessionID string) error {
+func (m *SessionManager) DetachUprobe(sessionID string) error {
 	// This is called from CloseSession which holds the lock.
-	// So we don't need to lock here if we assume it's internal.
-	// But CloseSession calls it.
-
 	session, ok := m.sessions[sessionID]
 	if !ok {
 		return nil // Already gone
@@ -119,27 +67,19 @@ func (m *DebugSessionManager) DetachUprobe(sessionID string) error {
 
 	var errs []error
 
-	if session.Reader != nil {
-		if err := session.Reader.Close(); err != nil {
-			errs = append(errs, err)
+	// Clean up uprobe attachment resources (links and reader).
+	if session.AttachResult != nil {
+		if err := session.AttachResult.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close attach result: %w", err))
 		}
 	}
 
-	if session.ExitLink != nil {
-		if err := session.ExitLink.Close(); err != nil {
-			errs = append(errs, err)
+	// Clean up BPF objects (programs and maps).
+	if session.BPFObjects != nil {
+		if err := session.BPFObjects.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close BPF objects: %w", err))
 		}
 	}
-
-	if session.EntryLink != nil {
-		if err := session.EntryLink.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	// We also need to close the objects (Maps/Programs)
-	// But we didn't store them in session.
-	// We should update DebugSession to store *uprobe_monitorObjects
 
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing session: %v", errs)
@@ -148,7 +88,7 @@ func (m *DebugSessionManager) DetachUprobe(sessionID string) error {
 	return nil
 }
 
-func (m *DebugSessionManager) readEvents(sessionID string, reader *ringbuf.Reader) {
+func (m *SessionManager) readEvents(sessionID string, reader *ringbuf.Reader) {
 	for {
 		record, err := reader.Read()
 		if err != nil {

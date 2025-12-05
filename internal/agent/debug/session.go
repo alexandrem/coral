@@ -6,13 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	coreebpf "github.com/coral-mesh/coral/internal/agent/ebpf"
+	"github.com/coral-mesh/coral/internal/agent/ebpf/uprobe"
 	"github.com/coral-mesh/coral/internal/config"
 )
 
@@ -30,14 +29,13 @@ type DebugSession struct {
 	StartTime time.Time
 
 	// eBPF resources
-	EntryLink  link.Link
-	ExitLink   link.Link
-	Collection *ebpf.Collection
-	Reader     *ringbuf.Reader
+	AttachResult *uprobe.AttachResult
+	BPFObjects   *uprobe_monitorObjects // BPF programs and maps
+	Reader       *ringbuf.Reader        // Cached from AttachResult for convenience
 }
 
-// DebugSessionManager manages active debug sessions.
-type DebugSessionManager struct {
+// SessionManager manages active debug sessions.
+type SessionManager struct {
 	cfg      config.DebugConfig
 	logger   zerolog.Logger
 	sessions map[string]*DebugSession
@@ -46,9 +44,9 @@ type DebugSessionManager struct {
 	mu       sync.RWMutex
 }
 
-// NewDebugSessionManager creates a new DebugSessionManager.
-func NewDebugSessionManager(cfg config.DebugConfig, logger zerolog.Logger, resolver ServiceResolver) *DebugSessionManager {
-	return &DebugSessionManager{
+// NewSessionManager creates a new SessionManager.
+func NewSessionManager(cfg config.DebugConfig, logger zerolog.Logger, resolver ServiceResolver) *SessionManager {
+	return &SessionManager{
 		cfg:      cfg,
 		logger:   logger,
 		sessions: make(map[string]*DebugSession),
@@ -58,12 +56,12 @@ func NewDebugSessionManager(cfg config.DebugConfig, logger zerolog.Logger, resol
 }
 
 // Subscribe returns a read-only channel of debug events.
-func (m *DebugSessionManager) Subscribe() <-chan *agentv1.DebugEvent {
+func (m *SessionManager) Subscribe() <-chan *agentv1.DebugEvent {
 	return m.eventCh
 }
 
 // StartSession starts a new debug session for a service function.
-func (m *DebugSessionManager) StartSession(sessionID string, serviceName string, functionName string) error {
+func (m *SessionManager) StartSession(sessionID string, serviceName string, functionName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -103,15 +101,6 @@ func (m *DebugSessionManager) StartSession(sessionID string, serviceName string,
 		StartTime: time.Now(),
 	}
 
-	// 4. Attach Uprobe
-	// We release lock temporarily? No, AttachUprobe is internal method now?
-	// Wait, AttachUprobe was defined on *DebugSessionManager.
-	// We should probably call it here.
-	// But AttachUprobe takes lock.
-	// We should refactor AttachUprobe to NOT take lock, or call it outside lock.
-	// Or make AttachUprobe a method of DebugSession?
-	// Or just inline it / make it private `attachUprobeLocked`.
-
 	// Let's call a private method attachUprobeLocked
 	if err := m.attachUprobeLocked(session, int(metadata.Pid), metadata.BinaryPath, metadata.Offset); err != nil {
 		return fmt.Errorf("attach uprobe: %w", err)
@@ -136,12 +125,12 @@ func (m *DebugSessionManager) StartSession(sessionID string, serviceName string,
 }
 
 // CreateSession is deprecated, use StartSession.
-func (m *DebugSessionManager) CreateSession(sessionID string, pid int, function string) error {
+func (m *SessionManager) CreateSession(sessionID string, pid int, function string) error {
 	return fmt.Errorf("use StartSession instead")
 }
 
 // GetSession retrieves a debug session by ID.
-func (m *DebugSessionManager) GetSession(sessionID string) (*DebugSession, bool) {
+func (m *SessionManager) GetSession(sessionID string) (*DebugSession, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	session, ok := m.sessions[sessionID]
@@ -149,7 +138,7 @@ func (m *DebugSessionManager) GetSession(sessionID string) (*DebugSession, bool)
 }
 
 // CloseSession closes a debug session.
-func (m *DebugSessionManager) CloseSession(sessionID string) error {
+func (m *SessionManager) CloseSession(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
