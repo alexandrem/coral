@@ -481,11 +481,19 @@ Examples:
 				}()
 			}
 
+			// Create function cache with agent's DuckDB (RFD 063).
+			// Must be created before agent since agent needs it for monitors.
+			functionCache, err := agent.NewFunctionCache(sharedDB, logger)
+			if err != nil {
+				return fmt.Errorf("failed to create function cache: %w", err)
+			}
+
 			agentInstance, err := agent.New(agent.Config{
-				AgentID:     agentID,
-				Services:    serviceInfos,
-				BeylaConfig: beylaConfig,
-				Logger:      logger,
+				AgentID:       agentID,
+				Services:      serviceInfos,
+				BeylaConfig:   beylaConfig,
+				FunctionCache: functionCache,
+				Logger:        logger,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to create agent: %w", err)
@@ -599,7 +607,7 @@ Examples:
 			containerHandler := agent.NewContainerHandler(logger)
 
 			// Create service handler and HTTP server for gRPC API.
-			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler)
+			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, functionCache)
 			path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 			// Create debug service handler (RFD 059).

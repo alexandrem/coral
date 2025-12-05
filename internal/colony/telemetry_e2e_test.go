@@ -136,8 +136,14 @@ func TestTelemetryE2E(t *testing.T) {
 		t.Fatalf("Failed to create runtime service: %v", err)
 	}
 
+	// Create function cache for testing (using in-memory DB).
+	functionCache, err := agent.NewFunctionCache(db.DB(), logger)
+	if err != nil {
+		t.Fatalf("Failed to create function cache: %v", err)
+	}
+
 	// Create service handler - we'll pass nil for telemetry, shell, and container since we're testing directly
-	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, nil, nil)
+	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, nil, nil, functionCache)
 
 	// Create test handler that uses our storage directly
 	testHandler := &testAgentHandler{
@@ -281,6 +287,18 @@ func TestTelemetryE2E(t *testing.T) {
 // testAgentHandler is a minimal agent handler for testing that uses the telemetry receiver directly.
 type testAgentHandler struct {
 	receiver *telemetry.Receiver
+}
+
+// GetFunctions implements the GetFunctions RPC (stub for testing).
+func (h *testAgentHandler) GetFunctions(
+	ctx context.Context,
+	req *connect.Request[agentv1.GetFunctionsRequest],
+) (*connect.Response[agentv1.GetFunctionsResponse], error) {
+	// Return empty response for tests.
+	return connect.NewResponse(&agentv1.GetFunctionsResponse{
+		Functions:      []*agentv1.FunctionInfo{},
+		TotalFunctions: 0,
+	}), nil
 }
 
 func (h *testAgentHandler) QueryTelemetry(

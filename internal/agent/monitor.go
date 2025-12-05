@@ -49,6 +49,7 @@ type ServiceMonitor struct {
 	binaryHash      string
 	checkInterval   time.Duration
 	checkTimeout    time.Duration
+	functionCache   *FunctionCache // RFD 063: Function discovery cache
 	logger          zerolog.Logger
 	mu              sync.RWMutex
 	ctx             context.Context
@@ -56,7 +57,7 @@ type ServiceMonitor struct {
 }
 
 // NewServiceMonitor creates a new service monitor.
-func NewServiceMonitor(service *meshv1.ServiceInfo, logger zerolog.Logger) *ServiceMonitor {
+func NewServiceMonitor(service *meshv1.ServiceInfo, functionCache *FunctionCache, logger zerolog.Logger) *ServiceMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ServiceMonitor{
@@ -64,6 +65,7 @@ func NewServiceMonitor(service *meshv1.ServiceInfo, logger zerolog.Logger) *Serv
 		status:        ServiceStatusUnknown,
 		checkInterval: 10 * time.Second,
 		checkTimeout:  2 * time.Second,
+		functionCache: functionCache,
 		logger:        logger.With().Str("service", service.Name).Logger(),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -176,7 +178,8 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 
 	// If PID changed or was unknown, update it
 	m.mu.Lock()
-	if m.processID != pid {
+	pidChanged := m.processID != pid
+	if pidChanged {
 		m.processID = pid
 		m.logger.Info().Int32("pid", pid).Msg("Discovered service process")
 
@@ -184,6 +187,32 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 		if path, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid)); err == nil {
 			m.binaryPath = path
 			m.logger.Info().Str("path", path).Msg("Discovered binary path")
+
+			// Trigger function discovery (RFD 063).
+			// This happens once when service is first discovered, or when process restarts.
+			if m.functionCache != nil {
+				serviceName := m.service.Name
+				binaryPath := path
+
+				m.logger.Info().
+					Str("service", serviceName).
+					Str("binary", binaryPath).
+					Msg("Triggering function discovery for newly discovered service")
+
+				// Trigger async discovery (don't block the monitor loop).
+				go func() {
+					if err := m.functionCache.DiscoverAndCache(context.Background(), serviceName, binaryPath); err != nil {
+						m.logger.Error().
+							Err(err).
+							Str("service", serviceName).
+							Msg("Failed to discover and cache functions")
+					} else {
+						m.logger.Info().
+							Str("service", serviceName).
+							Msg("Function discovery completed successfully")
+					}
+				}()
+			}
 		}
 	}
 	m.mu.Unlock()

@@ -31,6 +31,9 @@ func (d *Database) initSchema() error {
 
 // schemaDDL contains all DDL statements for colony database schema.
 var schemaDDL = []string{
+	// Install DuckDB VSS extension for vector similarity search (RFD 063).
+	`INSTALL vss`,
+	`LOAD vss`,
 	// Services table - registry of services in the mesh.
 	`CREATE TABLE IF NOT EXISTS services (
 		id TEXT PRIMARY KEY,
@@ -300,4 +303,47 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_debug_events_session ON debug_events(session_id, timestamp)`,
 	`CREATE INDEX IF NOT EXISTS idx_debug_events_timestamp ON debug_events(timestamp)`,
 	`CREATE INDEX IF NOT EXISTS idx_debug_events_collector ON debug_events(collector_id)`,
+
+	// Function registry - discovered functions from services (RFD 063).
+	`CREATE TABLE IF NOT EXISTS functions (
+		function_id VARCHAR PRIMARY KEY,
+		service_name VARCHAR NOT NULL,
+		agent_id VARCHAR NOT NULL,
+		function_name VARCHAR NOT NULL,
+		package_name VARCHAR,
+		file_path VARCHAR,
+		line_number INTEGER,
+		offset BIGINT,
+		has_dwarf BOOLEAN DEFAULT false,
+		embedding FLOAT[384],
+		is_exported BOOLEAN DEFAULT false,
+		discovered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_functions_service ON functions(service_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_functions_agent ON functions(agent_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(function_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_functions_last_seen ON functions(last_seen)`,
+
+	// Create HNSW index for vector similarity search (RFD 063).
+	// This enables fast approximate nearest neighbor search on function embeddings.
+	`CREATE INDEX IF NOT EXISTS idx_functions_embedding ON functions
+		USING HNSW (embedding)
+		WITH (metric = 'cosine')`,
+
+	// Function metrics - time-series performance data from uprobe sessions (RFD 063).
+	`CREATE TABLE IF NOT EXISTS function_metrics (
+		function_id VARCHAR NOT NULL,
+		timestamp TIMESTAMPTZ NOT NULL,
+		p50_latency_ms DOUBLE,
+		p95_latency_ms DOUBLE,
+		p99_latency_ms DOUBLE,
+		calls_per_minute INTEGER,
+		error_rate DOUBLE,
+		PRIMARY KEY (function_id, timestamp)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_function_metrics_function ON function_metrics(function_id, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_function_metrics_timestamp ON function_metrics(timestamp DESC)`,
 }

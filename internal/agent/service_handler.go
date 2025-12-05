@@ -22,16 +22,18 @@ type ServiceHandler struct {
 	telemetryReceiver *TelemetryReceiver
 	shellHandler      *ShellHandler
 	containerHandler  *ContainerHandler
+	functionCache     *FunctionCache
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler, containerHandler *ContainerHandler) *ServiceHandler {
+func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler, containerHandler *ContainerHandler, functionCache *FunctionCache) *ServiceHandler {
 	return &ServiceHandler{
 		agent:             agent,
 		runtimeService:    runtimeService,
 		telemetryReceiver: telemetryReceiver,
 		shellHandler:      shellHandler,
 		containerHandler:  containerHandler,
+		functionCache:     functionCache,
 	}
 }
 
@@ -495,5 +497,102 @@ func (h *ServiceHandler) StreamDebugEvents(
 				errCh <- fmt.Errorf("failed to stop debug session: %w", err)
 			}
 		}
+	}
+}
+
+// GetFunctions implements the GetFunctions RPC (RFD 063 - function discovery).
+// Colony calls this periodically - returns cached functions from local DuckDB.
+func (h *ServiceHandler) GetFunctions(
+	ctx context.Context,
+	req *connect.Request[agentv1.GetFunctionsRequest],
+) (*connect.Response[agentv1.GetFunctionsResponse], error) {
+	h.agent.logger.Debug().
+		Str("service_filter", req.Msg.ServiceName).
+		Msg("Received GetFunctions request")
+
+	var allFunctions []*agentv1.FunctionInfo
+
+	// Get all monitored services.
+	h.agent.mu.RLock()
+	monitors := make(map[string]*ServiceMonitor)
+	for name, monitor := range h.agent.monitors {
+		// Filter by service name if specified.
+		if req.Msg.ServiceName != "" && name != req.Msg.ServiceName {
+			continue
+		}
+		monitors[name] = monitor
+	}
+	h.agent.mu.RUnlock()
+
+	// Get cached functions for each service.
+	for serviceName := range monitors {
+		// Check if cache needs update (binary hash changed).
+		// This is a lightweight check that happens every time.
+		h.tryUpdateCacheIfNeeded(ctx, serviceName)
+
+		// Get cached functions.
+		functions, err := h.functionCache.GetCachedFunctions(ctx, serviceName)
+		if err != nil {
+			h.agent.logger.Warn().
+				Err(err).
+				Str("service", serviceName).
+				Msg("Failed to get cached functions")
+			continue
+		}
+
+		allFunctions = append(allFunctions, functions...)
+	}
+
+	h.agent.logger.Debug().
+		Int("function_count", len(allFunctions)).
+		Int("service_count", len(monitors)).
+		Msg("Returned cached functions")
+
+	return connect.NewResponse(&agentv1.GetFunctionsResponse{
+		Functions:      allFunctions,
+		TotalFunctions: int32(len(allFunctions)),
+	}), nil
+}
+
+// tryUpdateCacheIfNeeded checks if the cache needs updating and triggers discovery if so.
+// This is called during GetFunctions to ensure cache is up-to-date.
+func (h *ServiceHandler) tryUpdateCacheIfNeeded(ctx context.Context, serviceName string) {
+	h.agent.mu.RLock()
+	monitor, exists := h.agent.monitors[serviceName]
+	h.agent.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	status := monitor.GetStatus()
+	if status.BinaryPath == "" {
+		return
+	}
+
+	// Check if cache needs update (non-blocking check).
+	needsUpdate, err := h.functionCache.NeedsUpdate(ctx, serviceName, status.BinaryPath)
+	if err != nil {
+		h.agent.logger.Warn().
+			Err(err).
+			Str("service", serviceName).
+			Msg("Failed to check if cache needs update")
+		return
+	}
+
+	if needsUpdate {
+		h.agent.logger.Info().
+			Str("service", serviceName).
+			Msg("Binary hash changed, triggering function re-discovery")
+
+		// Trigger async discovery (don't block the RPC).
+		go func() {
+			if err := h.functionCache.DiscoverAndCache(context.Background(), serviceName, status.BinaryPath); err != nil {
+				h.agent.logger.Error().
+					Err(err).
+					Str("service", serviceName).
+					Msg("Failed to discover and cache functions")
+			}
+		}()
 	}
 }
