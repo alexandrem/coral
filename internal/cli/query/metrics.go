@@ -73,7 +73,48 @@ Examples:
 			}
 
 			// Print result
-			fmt.Println(resp.Msg.Result)
+			if resp.Msg.TotalMetrics == 0 {
+				fmt.Println("No metrics found for the specified criteria")
+				return nil
+			}
+
+			fmt.Printf("Metrics for %s:\n\n", service)
+
+			if len(resp.Msg.HttpMetrics) > 0 {
+				fmt.Println("HTTP Metrics:")
+				for _, m := range resp.Msg.HttpMetrics {
+					fmt.Printf("  %s %s %s\n", m.HttpMethod, m.HttpRoute, m.ServiceName)
+					// Calculate percentiles from buckets if available
+					p50, p95, p99 := "-", "-", "-"
+					if len(m.LatencyBuckets) >= 3 {
+						p50 = fmt.Sprintf("%.2fms", m.LatencyBuckets[0])
+						p95 = fmt.Sprintf("%.2fms", m.LatencyBuckets[1])
+						p99 = fmt.Sprintf("%.2fms", m.LatencyBuckets[2])
+					}
+					fmt.Printf("    Requests: %d | P50: %s | P95: %s | P99: %s\n",
+						m.RequestCount, p50, p95, p99)
+				}
+				fmt.Println()
+			}
+
+			if len(resp.Msg.GrpcMetrics) > 0 {
+				fmt.Printf("gRPC Metrics: %d\n", len(resp.Msg.GrpcMetrics))
+				for _, m := range resp.Msg.GrpcMetrics {
+					fmt.Printf("  %s\n", m.ServiceName)
+					fmt.Printf("    Requests: %d\n", m.RequestCount)
+				}
+				fmt.Println()
+			}
+
+			if len(resp.Msg.SqlMetrics) > 0 {
+				fmt.Printf("SQL Metrics: %d\n", len(resp.Msg.SqlMetrics))
+				for _, m := range resp.Msg.SqlMetrics {
+					fmt.Printf("  %s\n", m.ServiceName)
+					fmt.Printf("    Queries: %d\n", m.QueryCount)
+				}
+				fmt.Println()
+			}
+
 			return nil
 		},
 	}

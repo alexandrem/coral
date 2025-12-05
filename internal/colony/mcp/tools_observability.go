@@ -9,6 +9,7 @@ import (
 	"github.com/invopop/jsonschema"
 	"github.com/mark3labs/mcp-go/mcp"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony"
 )
 
@@ -183,9 +184,22 @@ func (s *Server) registerUnifiedSummaryTool() {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to query summary: %v", err)), nil
 			}
 
+			// Format results as text for LLM consumption
 			text := "Service Health Summary:\n\n"
 			for _, r := range results {
-				text += fmt.Sprintf("Service: %s, Status: %s\n", r.ServiceName, r.Status)
+				statusIcon := "✅"
+				switch r.Status {
+				case "degraded":
+					statusIcon = "⚠️"
+				case "critical":
+					statusIcon = "❌"
+				}
+
+				text += fmt.Sprintf("%s %s (%s)\n", statusIcon, r.ServiceName, r.Source)
+				text += fmt.Sprintf("   Status: %s\n", r.Status)
+				text += fmt.Sprintf("   Requests: %d\n", r.RequestCount)
+				text += fmt.Sprintf("   Error Rate: %.2f%%\n", r.ErrorRate)
+				text += fmt.Sprintf("   Avg Latency: %.2fms\n\n", r.AvgLatencyMs)
 			}
 
 			return mcp.NewToolResultText(text), nil
@@ -237,7 +251,38 @@ func (s *Server) registerUnifiedTracesTool() {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to query traces: %v", err)), nil
 			}
 
-			text := fmt.Sprintf("Found %d spans.\n", len(spans))
+			// Count unique traces
+			traceGroups := make(map[string][]*agentv1.EbpfTraceSpan)
+			for _, span := range spans {
+				traceGroups[span.TraceId] = append(traceGroups[span.TraceId], span)
+			}
+
+			// Format results as text for LLM consumption
+			text := fmt.Sprintf("Found %d spans across %d traces:\n\n", len(spans), len(traceGroups))
+
+			for traceID, traceSpans := range traceGroups {
+				text += fmt.Sprintf("Trace: %s (%d spans)\n", traceID, len(traceSpans))
+				for _, span := range traceSpans {
+					durationMs := float64(span.DurationUs) / 1000.0
+					sourceIcon := "📍" // Default eBPF
+					if span.ServiceName != "" && len(span.ServiceName) > 6 {
+						if span.ServiceName[len(span.ServiceName)-6:] == "[OTLP]" {
+							sourceIcon = "📊" // OTLP data
+						}
+					}
+
+					text += fmt.Sprintf("  %s %s: %s (%.2fms)\n",
+						sourceIcon, span.ServiceName, span.SpanName, durationMs)
+
+					// Show OTLP attributes if present
+					if source, ok := span.Attributes["source"]; ok && source == "OTLP" {
+						text += fmt.Sprintf("     Aggregated: %s spans, %s errors\n",
+							span.Attributes["total_spans"], span.Attributes["error_count"])
+					}
+				}
+				text += "\n"
+			}
+
 			return mcp.NewToolResultText(text), nil
 		})
 }
@@ -282,10 +327,34 @@ func (s *Server) registerUnifiedMetricsTool() {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to query metrics: %v", err)), nil
 			}
 
-			text := fmt.Sprintf("Metrics for %s:\n", serviceName)
+			// Format results as text for LLM consumption
+			text := fmt.Sprintf("Metrics for %s:\n\n", serviceName)
+
 			if len(metrics.HttpMetrics) > 0 {
-				text += fmt.Sprintf("HTTP Metrics: %d\n", len(metrics.HttpMetrics))
+				text += "HTTP Metrics:\n"
+				for _, m := range metrics.HttpMetrics {
+					text += fmt.Sprintf("  %s %s %s\n", m.HttpMethod, m.HttpRoute, m.ServiceName)
+					// Calculate percentiles from buckets if available
+					p50, p95, p99 := "-", "-", "-"
+					if len(m.LatencyBuckets) >= 3 {
+						p50 = fmt.Sprintf("%.2fms", m.LatencyBuckets[0])
+						p95 = fmt.Sprintf("%.2fms", m.LatencyBuckets[1])
+						p99 = fmt.Sprintf("%.2fms", m.LatencyBuckets[2])
+					}
+					text += fmt.Sprintf("    Requests: %d | P50: %s | P95: %s | P99: %s\n",
+						m.RequestCount, p50, p95, p99)
+				}
+				text += "\n"
 			}
+
+			if len(metrics.GrpcMetrics) > 0 {
+				text += fmt.Sprintf("gRPC Metrics: %d\n", len(metrics.GrpcMetrics))
+			}
+
+			if len(metrics.SqlMetrics) > 0 {
+				text += fmt.Sprintf("SQL Metrics: %d\n", len(metrics.SqlMetrics))
+			}
+
 			return mcp.NewToolResultText(text), nil
 		})
 }
@@ -310,7 +379,9 @@ func (s *Server) registerUnifiedLogsTool() {
 
 			s.auditToolCall("coral_query_logs", input)
 
-			text := "Logs query not implemented yet."
+			// Format not implemented message for LLM consumption
+			text := "Log querying not yet implemented. Coral doesn't have log ingestion infrastructure yet.\n"
+			text += "See RFD 067 for future work.\n"
 			return mcp.NewToolResultText(text), nil
 		})
 }

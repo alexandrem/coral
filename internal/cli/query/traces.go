@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
@@ -71,7 +72,42 @@ Examples:
 			}
 
 			// Print result
-			fmt.Println(resp.Msg.Result)
+			if len(resp.Msg.Spans) == 0 {
+				fmt.Println("No traces found for the specified criteria")
+				return nil
+			}
+
+			// Group spans by trace ID
+			traceGroups := make(map[string][]*agentv1.EbpfTraceSpan)
+			for _, span := range resp.Msg.Spans {
+				traceGroups[span.TraceId] = append(traceGroups[span.TraceId], span)
+			}
+
+			fmt.Printf("Found %d spans across %d traces:\n\n", len(resp.Msg.Spans), resp.Msg.TotalTraces)
+
+			for traceID, traceSpans := range traceGroups {
+				fmt.Printf("Trace: %s (%d spans)\n", traceID, len(traceSpans))
+				for _, span := range traceSpans {
+					durationMs := float64(span.DurationUs) / 1000.0
+					sourceIcon := "📍" // Default eBPF
+					if span.ServiceName != "" && len(span.ServiceName) > 6 {
+						if span.ServiceName[len(span.ServiceName)-6:] == "[OTLP]" {
+							sourceIcon = "📊" // OTLP data
+						}
+					}
+
+					fmt.Printf("  %s %s: %s (%.2fms)\n",
+						sourceIcon, span.ServiceName, span.SpanName, durationMs)
+
+					// Show OTLP attributes if present
+					if source, ok := span.Attributes["source"]; ok && source == "OTLP" {
+						fmt.Printf("     Aggregated: %s spans, %s errors\n",
+							span.Attributes["total_spans"], span.Attributes["error_count"])
+					}
+				}
+				fmt.Println()
+			}
+
 			return nil
 		},
 	}

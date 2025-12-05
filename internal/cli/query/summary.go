@@ -61,7 +61,34 @@ Examples:
 			}
 
 			// Print result
-			fmt.Println(resp.Msg.Result)
+			if len(resp.Msg.Summaries) == 0 {
+				fmt.Println("No data found for the specified service and time range")
+				return nil
+			}
+
+			fmt.Println("Service Health Summary:")
+			for _, summary := range resp.Msg.Summaries {
+				statusIcon := "✅"
+				switch summary.Status {
+				case "degraded":
+					statusIcon = "⚠️"
+				case "critical":
+					statusIcon = "❌"
+				}
+
+				fmt.Printf("%s %s (%s)\n", statusIcon, summary.ServiceName, summary.Source)
+				fmt.Printf("   Status: %s\n", summary.Status)
+				fmt.Printf("   Requests: %d\n", summary.RequestCount)
+				fmt.Printf("   Error Rate: %.2f%%\n", summary.ErrorRate)
+				fmt.Printf("   Avg Latency: %.2fms\n", summary.AvgLatencyMs)
+				if len(summary.Issues) > 0 {
+					fmt.Println("   Issues:")
+					for _, issue := range summary.Issues {
+						fmt.Printf("     - %s\n", issue)
+					}
+				}
+				fmt.Println()
+			}
 			return nil
 		},
 	}

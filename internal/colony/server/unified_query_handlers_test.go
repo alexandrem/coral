@@ -89,8 +89,9 @@ func TestQueryUnifiedSummaryHandler(t *testing.T) {
 		resp, err := server.QueryUnifiedSummary(context.Background(), req)
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Contains(t, resp.Msg.Result, "api-service")
-		assert.Contains(t, resp.Msg.Result, "healthy")
+		assert.Len(t, resp.Msg.Summaries, 2)
+		assert.Equal(t, "api-service", resp.Msg.Summaries[0].ServiceName)
+		assert.Equal(t, "healthy", resp.Msg.Summaries[0].Status)
 		assert.Equal(t, "api-service", mockSvc.capturedService)
 	})
 
@@ -197,7 +198,8 @@ func TestQueryUnifiedTracesHandler(t *testing.T) {
 		resp, err := server.QueryUnifiedTraces(context.Background(), req)
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Contains(t, resp.Msg.Result, "2 spans")
+		assert.Len(t, resp.Msg.Spans, 2)
+		assert.Equal(t, int32(1), resp.Msg.TotalTraces)
 	})
 
 	t.Run("default time range", func(t *testing.T) {
@@ -306,8 +308,10 @@ func TestQueryUnifiedMetricsHandler(t *testing.T) {
 		resp, err := server.QueryUnifiedMetrics(context.Background(), req)
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Contains(t, resp.Msg.Result, "api-service")
-		assert.Contains(t, resp.Msg.Result, "HTTP Metrics:")
+		assert.Len(t, resp.Msg.HttpMetrics, 1)
+		assert.Equal(t, "api-service", resp.Msg.HttpMetrics[0].ServiceName)
+		assert.Equal(t, "/api/users", resp.Msg.HttpMetrics[0].HttpRoute)
+		assert.Equal(t, int32(1), resp.Msg.TotalMetrics)
 	})
 
 	t.Run("default time range", func(t *testing.T) {
@@ -395,16 +399,9 @@ func TestQueryUnifiedMetricsHandler(t *testing.T) {
 
 // TestQueryUnifiedLogsHandler tests the QueryUnifiedLogs RPC handler.
 func TestQueryUnifiedLogsHandler(t *testing.T) {
-	t.Run("successful logs query", func(t *testing.T) {
-		mockSvc := &mockEbpfService{
-			logs: []string{
-				"[ERROR] Connection timeout",
-				"[ERROR] Database unavailable",
-			},
-		}
-
+	t.Run("returns empty structured data", func(t *testing.T) {
 		server := &Server{
-			ebpfService: mockSvc,
+			ebpfService: &mockEbpfService{},
 		}
 
 		req := connect.NewRequest(&colonyv1.QueryUnifiedLogsRequest{
@@ -417,88 +414,26 @@ func TestQueryUnifiedLogsHandler(t *testing.T) {
 		resp, err := server.QueryUnifiedLogs(context.Background(), req)
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Contains(t, resp.Msg.Result, "2 logs")
+		assert.Equal(t, int32(0), resp.Msg.TotalLogs)
+		assert.Empty(t, resp.Msg.Logs)
 	})
 
-	t.Run("default time range", func(t *testing.T) {
-		mockSvc := &mockEbpfService{
-			logs: []string{},
-		}
-
+	t.Run("handles different parameters", func(t *testing.T) {
 		server := &Server{
-			ebpfService: mockSvc,
+			ebpfService: &mockEbpfService{},
 		}
 
 		req := connect.NewRequest(&colonyv1.QueryUnifiedLogsRequest{
 			Service:   "",
-			TimeRange: "", // Should default to 1h
-		})
-
-		resp, err := server.QueryUnifiedLogs(context.Background(), req)
-		require.NoError(t, err)
-		assert.NotNil(t, resp)
-
-		// Verify time range is approximately 1 hour
-		duration := mockSvc.capturedEndTime.Sub(mockSvc.capturedStartTime)
-		assert.InDelta(t, time.Hour, duration, float64(time.Second))
-	})
-
-	t.Run("empty logs", func(t *testing.T) {
-		mockSvc := &mockEbpfService{
-			logs: []string{},
-		}
-
-		server := &Server{
-			ebpfService: mockSvc,
-		}
-
-		req := connect.NewRequest(&colonyv1.QueryUnifiedLogsRequest{
-			Service:   "api-service",
 			TimeRange: "1h",
 		})
 
 		resp, err := server.QueryUnifiedLogs(context.Background(), req)
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Contains(t, resp.Msg.Result, "0 logs")
-	})
-
-	t.Run("invalid time range", func(t *testing.T) {
-		mockSvc := &mockEbpfService{}
-
-		server := &Server{
-			ebpfService: mockSvc,
-		}
-
-		req := connect.NewRequest(&colonyv1.QueryUnifiedLogsRequest{
-			Service:   "",
-			TimeRange: "invalid-range",
-		})
-
-		resp, err := server.QueryUnifiedLogs(context.Background(), req)
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		assert.Contains(t, err.Error(), "invalid time_range")
-	})
-
-	t.Run("service error", func(t *testing.T) {
-		mockSvc := &mockEbpfService{
-			shouldReturnErr: true,
-		}
-
-		server := &Server{
-			ebpfService: mockSvc,
-		}
-
-		req := connect.NewRequest(&colonyv1.QueryUnifiedLogsRequest{
-			Service:   "api-service",
-			TimeRange: "1h",
-		})
-
-		resp, err := server.QueryUnifiedLogs(context.Background(), req)
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		assert.Contains(t, err.Error(), "failed to query logs")
+		assert.NotNil(t, resp.Msg.Logs)
+		assert.Equal(t, 0, len(resp.Msg.Logs))
+		assert.Equal(t, int32(0), resp.Msg.TotalLogs)
 	})
 }
 

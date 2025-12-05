@@ -69,7 +69,35 @@ Examples:
 			}
 
 			// Print result
-			fmt.Println(resp.Msg.Result)
+			if resp.Msg.TotalLogs == 0 {
+				fmt.Println("No logs found for the specified criteria")
+				return nil
+			}
+
+			fmt.Printf("Found %d logs:\n\n", resp.Msg.TotalLogs)
+			for _, log := range resp.Msg.Logs {
+				levelIcon := "ℹ️"
+				switch log.Level {
+				case "debug":
+					levelIcon = "🔍"
+				case "warn":
+					levelIcon = "⚠️"
+				case "error":
+					levelIcon = "❌"
+				}
+
+				fmt.Printf("%s [%s] %s: %s\n", levelIcon, log.Level, log.ServiceName, log.Message)
+				if log.TraceId != "" {
+					fmt.Printf("   Trace ID: %s\n", log.TraceId)
+				}
+				if len(log.Attributes) > 0 {
+					fmt.Println("   Attributes:")
+					for k, v := range log.Attributes {
+						fmt.Printf("     %s: %s\n", k, v)
+					}
+				}
+				fmt.Println()
+			}
 			return nil
 		},
 	}
