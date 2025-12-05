@@ -15,11 +15,6 @@ areas: [ "agent", "ebpf", "discovery" ]
 
 **Status:** 🚧 Draft
 
-**Note:** This RFD depends on **RFD 064** (Service Registry Process
-Information), which provides PID and binary path tracking. This simplifies
-binary discovery by allowing the agent to look up process information from the
-service registry instead of discovering it via container runtime APIs.
-
 ## Summary
 
 Enable uprobe debugging without SDK integration by having the agent directly
