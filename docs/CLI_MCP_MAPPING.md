@@ -346,16 +346,18 @@ coral debug trace <service> --path <path> [--duration <time>]
 ### Manage Probes
 
 ```bash
-coral debug list [service]
-coral debug detach <session-id>
+coral debug session list [service]
+coral debug session stop <session-id>
+coral debug session get <session-id>
 ```
 
 **MCP Equivalents:**
 
-| CLI Command                       | MCP Tool                    | Parameters                |
-|-----------------------------------|-----------------------------|---------------------------|
-| `coral debug list`                | `coral_list_debug_sessions` | `service_name` (optional) |
-| `coral debug detach <session-id>` | `coral_detach_uprobe`       | `session_id`              |
+| CLI Command                         | MCP Tool                    | Parameters                |
+|-------------------------------------|-----------------------------|---------------------------|
+| `coral debug session list`          | `coral_list_debug_sessions` | `service_name` (optional) |
+| `coral debug session stop <id>`     | `coral_detach_uprobe`       | `session_id`              |
+| `coral debug session get <id>`      | `coral_get_debug_results`   | `session_id`              |
 
 **Example - List sessions:**
 
@@ -368,7 +370,7 @@ coral debug detach <session-id>
 }
 ```
 
-**Example - Detach probe:**
+**Example - Stop session:**
 
 ```json
 {
