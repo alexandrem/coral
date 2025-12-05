@@ -224,8 +224,9 @@ coral debug attach <service> --function <name> [--duration <time>] [--capture-ar
 coral debug trace <service> --path <path> [--duration <time>]
 
 # Manage probes
-coral debug list [service]
-coral debug detach <session-id>
+coral debug session list [service]
+coral debug session stop <session-id>
+coral debug session get <session-id>
 
 # Query results
 coral debug query <service> --function <name> [--since <duration>]

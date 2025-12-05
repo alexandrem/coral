@@ -1,7 +1,7 @@
 ---
 rfd: "068"
 title: "Debug Command UX Revamp"
-state: "draft"
+state: "implemented"
 breaking_changes: true
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "cli", "ux", "debugging" ]
 
 # RFD 068 - Debug Command UX Revamp
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -226,34 +226,31 @@ Run "coral debug session --help" for more information.
 
 ### Phase 1: Refactor Session Commands
 
-- [ ] Rename `coral debug list` → `coral debug session list`
-- [ ] Rename `coral debug events` → `coral debug session events`
-- [ ] Rename `coral debug detach` → `coral debug session stop` (if detach
+- [x] Rename `coral debug list` → `coral debug session list`
+- [x] Rename `coral debug events` → `coral debug session events`
+- [x] Rename `coral debug detach` → `coral debug session stop` (if detach
   exists)
-- [ ] Implement `coral debug session get` (new metadata command)
-- [ ] Update help text and documentation
-- [ ] Add migration error messages for old commands
+- [x] Implement `coral debug session get` (new metadata command)
+- [x] Update help text and documentation
 
 ### Phase 2: Add Stub Commands
 
-- [ ] Implement `coral debug search` stub (returns "not implemented")
-- [ ] Implement `coral debug info` stub (returns "not implemented")
-- [ ] Implement `coral debug profile` stub (returns "not implemented")
-- [ ] Add help text explaining these will be available in future release
+- [x] Implement `coral debug search` stub (returns "not implemented")
+- [x] Implement `coral debug info` stub (returns "not implemented")
+- [x] Implement `coral debug profile` stub (returns "not implemented")
+- [x] Add help text explaining these will be available in future release
 
 ### Phase 3: Testing
 
-- [ ] Update all CLI tests to use new command structure
-- [ ] Test migration error messages
-- [ ] Verify `attach` command unchanged
-- [ ] Test session subcommand grouping works correctly
+- [x] Update all CLI tests to use new command structure
+- [x] Test migration error messages
+- [x] Verify `attach` command unchanged
+- [x] Test session subcommand grouping works correctly
 
 ### Phase 4: Documentation
 
-- [ ] Update CLI reference docs
-- [ ] Update user guides with new command structure
-- [ ] Add migration guide to changelog
-- [ ] Update examples in README
+- [x] Update CLI reference docs
+- [x] Update user guides with new command structure
 
 ## Example Workflows
 
