@@ -622,33 +622,6 @@ func (m *Manager) startBeyla() error {
 	return nil
 }
 
-// beylaConfig represents Beyla's YAML configuration structure.
-type beylaConfig struct {
-	LogLevel  string `yaml:"log_level,omitempty"`
-	Discovery struct {
-		Instrument []struct {
-			OpenPorts string `yaml:"open_ports,omitempty"`
-			ExeName   string `yaml:"exe_name,omitempty"`
-		} `yaml:"instrument,omitempty"`
-	} `yaml:"discovery,omitempty"`
-	Attributes struct {
-		Kubernetes struct {
-			Enable string `yaml:"enable,omitempty"`
-		} `yaml:"kubernetes,omitempty"`
-	} `yaml:"attributes,omitempty"`
-	OtelTracesExport *struct {
-		Endpoint string `yaml:"endpoint,omitempty"`
-		Protocol string `yaml:"protocol,omitempty"`
-	} `yaml:"otel_traces_export,omitempty"`
-	OtelMetricsExport *struct {
-		Endpoint string `yaml:"endpoint,omitempty"`
-		Protocol string `yaml:"protocol,omitempty"`
-	} `yaml:"otel_metrics_export,omitempty"`
-	Routes *struct {
-		Unmatch string `yaml:"unmatch,omitempty"`
-	} `yaml:"routes,omitempty"`
-}
-
 // generateBeylaConfig creates a Beyla YAML config file and returns the path.
 func (m *Manager) generateBeylaConfig() (string, error) {
 	cfg := beylaConfig{
