@@ -71,6 +71,9 @@ const (
 	// AgentServiceStreamDebugEventsProcedure is the fully-qualified name of the AgentService's
 	// StreamDebugEvents RPC.
 	AgentServiceStreamDebugEventsProcedure = "/coral.agent.v1.AgentService/StreamDebugEvents"
+	// AgentServiceGetFunctionsProcedure is the fully-qualified name of the AgentService's GetFunctions
+	// RPC.
+	AgentServiceGetFunctionsProcedure = "/coral.agent.v1.AgentService/GetFunctions"
 )
 
 // AgentServiceClient is a client for the coral.agent.v1.AgentService service.
@@ -101,6 +104,8 @@ type AgentServiceClient interface {
 	KillShellSession(context.Context, *connect.Request[v1.KillShellSessionRequest]) (*connect.Response[v1.KillShellSessionResponse], error)
 	// StreamDebugEvents streams debug events from agent to colony (RFD 061).
 	StreamDebugEvents(context.Context) *connect.BidiStreamForClient[v1.DebugCommand, v1.DebugEvent]
+	// Function Discovery (RFD 063) - pull-based model.
+	GetFunctions(context.Context, *connect.Request[v1.GetFunctionsRequest]) (*connect.Response[v1.GetFunctionsResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the coral.agent.v1.AgentService service. By
@@ -192,6 +197,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("StreamDebugEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		getFunctions: connect.NewClient[v1.GetFunctionsRequest, v1.GetFunctionsResponse](
+			httpClient,
+			baseURL+AgentServiceGetFunctionsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetFunctions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -210,6 +221,7 @@ type agentServiceClient struct {
 	sendShellSignal     *connect.Client[v1.SendShellSignalRequest, v1.SendShellSignalResponse]
 	killShellSession    *connect.Client[v1.KillShellSessionRequest, v1.KillShellSessionResponse]
 	streamDebugEvents   *connect.Client[v1.DebugCommand, v1.DebugEvent]
+	getFunctions        *connect.Client[v1.GetFunctionsRequest, v1.GetFunctionsResponse]
 }
 
 // GetRuntimeContext calls coral.agent.v1.AgentService.GetRuntimeContext.
@@ -277,6 +289,11 @@ func (c *agentServiceClient) StreamDebugEvents(ctx context.Context) *connect.Bid
 	return c.streamDebugEvents.CallBidiStream(ctx)
 }
 
+// GetFunctions calls coral.agent.v1.AgentService.GetFunctions.
+func (c *agentServiceClient) GetFunctions(ctx context.Context, req *connect.Request[v1.GetFunctionsRequest]) (*connect.Response[v1.GetFunctionsResponse], error) {
+	return c.getFunctions.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the coral.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// Get runtime context information.
@@ -305,6 +322,8 @@ type AgentServiceHandler interface {
 	KillShellSession(context.Context, *connect.Request[v1.KillShellSessionRequest]) (*connect.Response[v1.KillShellSessionResponse], error)
 	// StreamDebugEvents streams debug events from agent to colony (RFD 061).
 	StreamDebugEvents(context.Context, *connect.BidiStream[v1.DebugCommand, v1.DebugEvent]) error
+	// Function Discovery (RFD 063) - pull-based model.
+	GetFunctions(context.Context, *connect.Request[v1.GetFunctionsRequest]) (*connect.Response[v1.GetFunctionsResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -392,6 +411,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("StreamDebugEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetFunctionsHandler := connect.NewUnaryHandler(
+		AgentServiceGetFunctionsProcedure,
+		svc.GetFunctions,
+		connect.WithSchema(agentServiceMethods.ByName("GetFunctions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceGetRuntimeContextProcedure:
@@ -420,6 +445,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceKillShellSessionHandler.ServeHTTP(w, r)
 		case AgentServiceStreamDebugEventsProcedure:
 			agentServiceStreamDebugEventsHandler.ServeHTTP(w, r)
+		case AgentServiceGetFunctionsProcedure:
+			agentServiceGetFunctionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -479,4 +506,8 @@ func (UnimplementedAgentServiceHandler) KillShellSession(context.Context, *conne
 
 func (UnimplementedAgentServiceHandler) StreamDebugEvents(context.Context, *connect.BidiStream[v1.DebugCommand, v1.DebugEvent]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.StreamDebugEvents is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetFunctions(context.Context, *connect.Request[v1.GetFunctionsRequest]) (*connect.Response[v1.GetFunctionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.GetFunctions is not implemented"))
 }

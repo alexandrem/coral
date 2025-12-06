@@ -26,24 +26,26 @@ const (
 
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
-	id           string
-	monitors     map[string]*ServiceMonitor
-	ebpfManager  *ebpf.Manager
-	beylaManager *beyla.Manager
-	debugManager *debug.SessionManager
-	logger       zerolog.Logger
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
+	id            string
+	monitors      map[string]*ServiceMonitor
+	ebpfManager   *ebpf.Manager
+	beylaManager  *beyla.Manager
+	debugManager  *debug.SessionManager
+	functionCache *FunctionCache // RFD 063: Function discovery cache
+	logger        zerolog.Logger
+	mu            sync.RWMutex
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 // Config contains agent configuration.
 type Config struct {
-	AgentID     string
-	Services    []*meshv1.ServiceInfo
-	BeylaConfig *beyla.Config
-	DebugConfig config.DebugConfig
-	Logger      zerolog.Logger
+	AgentID       string
+	Services      []*meshv1.ServiceInfo
+	BeylaConfig   *beyla.Config
+	DebugConfig   config.DebugConfig
+	FunctionCache *FunctionCache // RFD 063: Optional function cache
+	Logger        zerolog.Logger
 }
 
 // New creates a new agent.
@@ -71,13 +73,14 @@ func New(config Config) (*Agent, error) {
 	}
 
 	agent := &Agent{
-		id:           config.AgentID,
-		monitors:     make(map[string]*ServiceMonitor),
-		ebpfManager:  ebpfManager,
-		beylaManager: beylaManager,
-		logger:       config.Logger.With().Str("agent_id", config.AgentID).Logger(),
-		ctx:          ctx,
-		cancel:       cancel,
+		id:            config.AgentID,
+		monitors:      make(map[string]*ServiceMonitor),
+		ebpfManager:   ebpfManager,
+		beylaManager:  beylaManager,
+		functionCache: config.FunctionCache,
+		logger:        config.Logger.With().Str("agent_id", config.AgentID).Logger(),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	// Initialize SessionManager (RFD 061).
@@ -85,7 +88,7 @@ func New(config Config) (*Agent, error) {
 
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
-		monitor := NewServiceMonitor(service, config.Logger)
+		monitor := NewServiceMonitor(service, config.FunctionCache, config.Logger)
 		agent.monitors[service.Name] = monitor
 	}
 
@@ -215,7 +218,7 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 	}
 
 	// Create and start new monitor.
-	monitor := NewServiceMonitor(service, a.logger)
+	monitor := NewServiceMonitor(service, a.functionCache, a.logger)
 	monitor.Start()
 
 	a.monitors[service.Name] = monitor

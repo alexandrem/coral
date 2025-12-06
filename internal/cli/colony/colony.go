@@ -1488,6 +1488,30 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	colonySvc.SetEbpfService(ebpfService)
 	logger.Info().Msg("eBPF query service initialized and attached to colony")
 
+	// Initialize function registry and poller (RFD 063).
+	if !colonyConfig.FunctionRegistry.Disabled {
+		functionRegistry := colony.NewFunctionRegistry(db, logger)
+
+		// Configure poll interval from config (default: 5 minutes).
+		pollInterval := 5 * time.Minute
+		if colonyConfig.FunctionRegistry.PollInterval > 0 {
+			pollInterval = time.Duration(colonyConfig.FunctionRegistry.PollInterval) * time.Second
+		}
+
+		functionPoller := colony.NewFunctionPoller(colony.FunctionPollerConfig{
+			Registry:         agentRegistry,
+			FunctionRegistry: functionRegistry,
+			PollInterval:     pollInterval,
+			Logger:           logger,
+		})
+		functionPoller.Start()
+		logger.Info().
+			Dur("poll_interval", pollInterval).
+			Msg("Function discovery poller started")
+	} else {
+		logger.Info().Msg("Function discovery is disabled in configuration")
+	}
+
 	// Register the handlers
 	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(meshSvc)
 	colonyPath, colonyHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)

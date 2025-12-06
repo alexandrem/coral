@@ -7,6 +7,16 @@ import (
 // initSchema creates all required tables and indexes for colony storage.
 // Uses CREATE TABLE IF NOT EXISTS for idempotency across restarts.
 func (d *Database) initSchema() error {
+	// Try to install and load VSS extension for vector similarity search.
+	// This may fail in test environments with read-only extension directories,
+	// so we attempt it separately and log errors without failing initialization.
+	vssAvailable := false
+	if err := d.ensureVSSExtension(); err != nil {
+		d.logger.Warn().Err(err).Msg("Failed to ensure VSS extension, vector search features may be unavailable")
+	} else {
+		vssAvailable = true
+	}
+
 	// Wrap all DDL statements in a transaction for atomicity.
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -26,10 +36,49 @@ func (d *Database) initSchema() error {
 		return fmt.Errorf("failed to commit schema transaction: %w", err)
 	}
 
+	// Create HNSW index if VSS extension is available.
+	// This is done outside the main transaction because it requires the VSS extension.
+	if vssAvailable {
+		if err := d.createHNSWIndex(); err != nil {
+			d.logger.Warn().Err(err).Msg("Failed to create HNSW index, vector search may be slower")
+		}
+	}
+
+	return nil
+}
+
+// ensureVSSExtension attempts to install and load the VSS extension.
+// Returns an error if installation fails, but this should not block database initialization.
+func (d *Database) ensureVSSExtension() error {
+	// Try to install the extension (will be skipped if already installed).
+	if _, err := d.db.Exec("INSTALL vss FROM core"); err != nil {
+		return fmt.Errorf("failed to install VSS extension: %w", err)
+	}
+
+	// Try to load the extension.
+	if _, err := d.db.Exec("LOAD vss"); err != nil {
+		return fmt.Errorf("failed to load VSS extension: %w", err)
+	}
+
+	return nil
+}
+
+// createHNSWIndex creates the HNSW index for vector similarity search.
+// This requires the VSS extension to be loaded.
+func (d *Database) createHNSWIndex() error {
+	query := `CREATE INDEX IF NOT EXISTS idx_functions_embedding ON functions
+		USING HNSW (embedding)
+		WITH (metric = 'cosine')`
+
+	if _, err := d.db.Exec(query); err != nil {
+		return fmt.Errorf("failed to create HNSW index: %w", err)
+	}
+
 	return nil
 }
 
 // schemaDDL contains all DDL statements for colony database schema.
+// Note: VSS extension installation is handled separately in ensureVSSExtension().
 var schemaDDL = []string{
 	// Services table - registry of services in the mesh.
 	`CREATE TABLE IF NOT EXISTS services (
@@ -300,4 +349,42 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_debug_events_session ON debug_events(session_id, timestamp)`,
 	`CREATE INDEX IF NOT EXISTS idx_debug_events_timestamp ON debug_events(timestamp)`,
 	`CREATE INDEX IF NOT EXISTS idx_debug_events_collector ON debug_events(collector_id)`,
+
+	// Function registry - discovered functions from services (RFD 063).
+	`CREATE TABLE IF NOT EXISTS functions (
+		service_name VARCHAR NOT NULL,
+		function_name VARCHAR NOT NULL,
+		binary_hash VARCHAR(64) NOT NULL,
+		agent_id VARCHAR NOT NULL,
+		package_name VARCHAR,
+		file_path VARCHAR,
+		line_number INTEGER,
+		func_offset BIGINT,
+		has_dwarf BOOLEAN DEFAULT false,
+		embedding FLOAT[384],
+		is_exported BOOLEAN DEFAULT false,
+		discovered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (service_name, function_name, binary_hash)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_functions_service ON functions(service_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_functions_agent ON functions(agent_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(function_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_functions_last_seen ON functions(last_seen)`,
+
+	// Function metrics - time-series performance data from uprobe sessions (RFD 063).
+	`CREATE TABLE IF NOT EXISTS function_metrics (
+		function_id VARCHAR NOT NULL,
+		timestamp TIMESTAMPTZ NOT NULL,
+		p50_latency_ms DOUBLE,
+		p95_latency_ms DOUBLE,
+		p99_latency_ms DOUBLE,
+		calls_per_minute INTEGER,
+		error_rate DOUBLE,
+		PRIMARY KEY (function_id, timestamp)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_function_metrics_function ON function_metrics(function_id, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_function_metrics_timestamp ON function_metrics(timestamp DESC)`,
 }

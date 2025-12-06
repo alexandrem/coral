@@ -68,21 +68,22 @@ type Preferences struct {
 // ColonyConfig represents ~/.coral/colonies/<colony-id>.yaml config file.
 // The config consists of per-colony identity and security credentials.
 type ColonyConfig struct {
-	Version         string            `yaml:"version"`
-	ColonyID        string            `yaml:"colony_id"`
-	ApplicationName string            `yaml:"application_name"`
-	Environment     string            `yaml:"environment"`
-	ColonySecret    string            `yaml:"colony_secret"`
-	WireGuard       WireGuardConfig   `yaml:"wireguard"`
-	Services        ServicesConfig    `yaml:"services"`
-	StoragePath     string            `yaml:"storage_path"`
-	Discovery       DiscoveryColony   `yaml:"discovery"`
-	MCP             MCPConfig         `yaml:"mcp,omitempty"`
-	Beyla           BeylaPollerConfig `yaml:"beyla,omitempty"`
-	Ask             *AskConfig        `yaml:"ask,omitempty"` // Per-colony ask overrides (RFD 030)
-	CreatedAt       time.Time         `yaml:"created_at"`
-	CreatedBy       string            `yaml:"created_by"`
-	LastUsed        time.Time         `yaml:"last_used,omitempty"`
+	Version          string                 `yaml:"version"`
+	ColonyID         string                 `yaml:"colony_id"`
+	ApplicationName  string                 `yaml:"application_name"`
+	Environment      string                 `yaml:"environment"`
+	ColonySecret     string                 `yaml:"colony_secret"`
+	WireGuard        WireGuardConfig        `yaml:"wireguard"`
+	Services         ServicesConfig         `yaml:"services"`
+	StoragePath      string                 `yaml:"storage_path"`
+	Discovery        DiscoveryColony        `yaml:"discovery"`
+	MCP              MCPConfig              `yaml:"mcp,omitempty"`
+	Beyla            BeylaPollerConfig      `yaml:"beyla,omitempty"`
+	FunctionRegistry FunctionRegistryConfig `yaml:"function_registry,omitempty"` // RFD 063
+	Ask              *AskConfig             `yaml:"ask,omitempty"`               // Per-colony ask overrides (RFD 030)
+	CreatedAt        time.Time              `yaml:"created_at"`
+	CreatedBy        string                 `yaml:"created_by"`
+	LastUsed         time.Time              `yaml:"last_used,omitempty"`
 }
 
 // ServicesConfig contains service port configuration.
@@ -161,6 +162,17 @@ type BeylaPollerConfig struct {
 
 	// Retention settings for different data types.
 	Retention BeylaRetentionConfig `yaml:"retention,omitempty"`
+}
+
+// FunctionRegistryConfig contains function discovery configuration (RFD 063).
+type FunctionRegistryConfig struct {
+	// PollInterval is how often to poll agents for function metadata (seconds).
+	// Default: 300 (5 minutes).
+	PollInterval int `yaml:"poll_interval,omitempty"`
+
+	// Disabled controls whether function discovery is enabled.
+	// Default: false (function discovery is enabled).
+	Disabled bool `yaml:"disabled,omitempty"`
 }
 
 // BeylaRetentionConfig contains retention periods for Beyla data.
