@@ -156,6 +156,19 @@ func (p *FunctionPoller) pollAllAgents() {
 
 // pollService polls a specific service for function metadata.
 func (p *FunctionPoller) pollService(agent *registry.Entry, serviceName string) error {
+	// Find the service in the agent's service list to get binary_hash.
+	var binaryHash string
+	for _, svc := range agent.Services {
+		if svc.Name == serviceName {
+			binaryHash = svc.BinaryHash
+			break
+		}
+	}
+
+	// If no binary hash is available, compute one from the function list as fallback.
+	// This ensures backward compatibility with agents that don't report binary_hash.
+	useFallbackHash := binaryHash == ""
+
 	// Create agent client with timeout.
 	agentAddr := fmt.Sprintf("http://%s:9001", agent.MeshIPv4)
 	httpClient := &http.Client{
@@ -185,7 +198,15 @@ func (p *FunctionPoller) pollService(agent *registry.Entry, serviceName string) 
 		return nil
 	}
 
-	// Compute hash of function list to detect changes.
+	// If using fallback, compute hash from function list.
+	if useFallbackHash {
+		binaryHash = computeFunctionListHash(functions)
+		p.logger.Debug().
+			Str("service", serviceName).
+			Msg("Using computed function list hash (binary_hash not available from agent)")
+	}
+
+	// Compute hash of function list to detect changes (for change detection only).
 	currentHash := computeFunctionListHash(functions)
 
 	// Check if functions have changed.
@@ -201,10 +222,8 @@ func (p *FunctionPoller) pollService(agent *registry.Entry, serviceName string) 
 		return nil
 	}
 
-	// Functions have changed - store them.
-	// Use the function list hash as the binary hash.
-	// TODO: use actual binary hash from service
-	if err := p.functionRegistry.StoreFunctions(ctx, agent.AgentID, serviceName, currentHash, functions); err != nil {
+	// Functions have changed - store them with the binary hash.
+	if err := p.functionRegistry.StoreFunctions(ctx, agent.AgentID, serviceName, binaryHash, functions); err != nil {
 		return fmt.Errorf("failed to store functions: %w", err)
 	}
 
@@ -216,8 +235,10 @@ func (p *FunctionPoller) pollService(agent *registry.Entry, serviceName string) 
 	p.logger.Info().
 		Str("agent_id", agent.AgentID).
 		Str("service", serviceName).
+		Str("binary_hash", binaryHash).
 		Int("function_count", len(functions)).
 		Bool("first_discovery", !exists).
+		Bool("using_fallback_hash", useFallbackHash).
 		Msg("Stored functions in registry")
 
 	return nil
