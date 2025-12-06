@@ -601,6 +601,10 @@ func (m *Manager) startBeyla() error {
 	cmd.Stdout = &beylaLogWriter{logger: m.logger, level: "info"}
 	cmd.Stderr = &beylaLogWriter{logger: m.logger, level: "error"}
 
+	// Force delta temporality to prevent duplicate cumulative metrics (RFD 032).
+	// Beyla defaults to cumulative, but our agent stores events, so we need deltas.
+	cmd.Env = append(os.Environ(), "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta")
+
 	// Start Beyla process.
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start Beyla process: %w", err)

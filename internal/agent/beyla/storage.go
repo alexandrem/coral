@@ -452,7 +452,7 @@ func (s *BeylaStorage) QueryHTTPMetrics(ctx context.Context, startTime, endTime 
 		SELECT timestamp, service_name, http_method, http_route, http_status_code,
 		       latency_bucket_ms, count, attributes::VARCHAR as attributes
 		FROM beyla_http_metrics_local
-		WHERE timestamp BETWEEN ? AND ?
+		WHERE timestamp >= ? AND timestamp < ?
 	`
 
 	args := []interface{}{startTime, endTime}
@@ -557,7 +557,7 @@ func (s *BeylaStorage) QueryGRPCMetrics(ctx context.Context, startTime, endTime 
 		SELECT timestamp, service_name, grpc_method, grpc_status_code,
 		       latency_bucket_ms, count, attributes::VARCHAR as attributes
 		FROM beyla_grpc_metrics_local
-		WHERE timestamp BETWEEN ? AND ?
+		WHERE timestamp >= ? AND timestamp < ?
 	`
 
 	args := []interface{}{startTime, endTime}
@@ -659,7 +659,7 @@ func (s *BeylaStorage) QuerySQLMetrics(ctx context.Context, startTime, endTime t
 		SELECT timestamp, service_name, sql_operation, table_name,
 		       latency_bucket_ms, count, attributes::VARCHAR as attributes
 		FROM beyla_sql_metrics_local
-		WHERE timestamp BETWEEN ? AND ?
+		WHERE timestamp >= ? AND timestamp < ?
 	`
 
 	args := []interface{}{startTime, endTime}
@@ -760,7 +760,7 @@ func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.
 		SELECT trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
 		       start_time, duration_us, status_code, attributes::VARCHAR as attributes
 		FROM beyla_traces_local
-		WHERE start_time BETWEEN ? AND ?
+		WHERE start_time >= ? AND start_time < ?
 	`
 
 	args := []interface{}{startTime, endTime}

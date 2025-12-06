@@ -29,6 +29,7 @@ type BeylaPoller struct {
 	wg                 sync.WaitGroup
 	running            bool
 	mu                 sync.Mutex
+	lastPollTime       map[string]time.Time // Track last successful poll time per agent
 }
 
 // NewBeylaPoller creates a new Beyla metrics poller.
@@ -69,6 +70,7 @@ func NewBeylaPoller(
 		logger:             logger.With().Str("component", "beyla_poller").Logger(),
 		ctx:                ctx,
 		cancel:             cancel,
+		lastPollTime:       make(map[string]time.Time),
 	}
 }
 
@@ -159,14 +161,15 @@ func (p *BeylaPoller) pollOnce() {
 	}
 
 	// Calculate time range for this poll cycle.
-	// Query from last poll interval to now.
+	// We use a safety delay to account for agent-side buffering (5s) and network latency.
+	// This ensures we don't query for data that hasn't been written to the agent's DB yet.
+	const safetyDelay = 15 * time.Second
 	now := time.Now()
-	startTime := now.Add(-p.pollInterval)
+	endTime := now.Add(-safetyDelay)
 
 	p.logger.Debug().
 		Int("agent_count", len(agents)).
-		Time("start_time", startTime).
-		Time("end_time", now).
+		Time("end_time", endTime).
 		Msg("Polling agents for Beyla metrics")
 
 	// Query each agent.
@@ -184,7 +187,14 @@ func (p *BeylaPoller) pollOnce() {
 			continue
 		}
 
-		httpMetrics, grpcMetrics, sqlMetrics, traceSpans, err := p.queryAgent(agent, startTime, now)
+		// Determine start time for this agent.
+		startTime, ok := p.lastPollTime[agent.AgentID]
+		if !ok {
+			// First time polling this agent, default to one interval ago.
+			startTime = endTime.Add(-p.pollInterval)
+		}
+
+		httpMetrics, grpcMetrics, sqlMetrics, traceSpans, err := p.queryAgent(agent, startTime, endTime)
 		if err != nil {
 			p.logger.Warn().
 				Err(err).
@@ -244,6 +254,9 @@ func (p *BeylaPoller) pollOnce() {
 				totalTraces += len(traceSpans)
 			}
 		}
+
+		// Update last poll time for this agent.
+		p.lastPollTime[agent.AgentID] = endTime
 
 		successCount++
 	}
