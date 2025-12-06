@@ -36,7 +36,7 @@ For full debugging support (including function arguments and return values),
 build with debug symbols:
 
 ```bash
-go build -gcflags="all=-N -l" -o sdk-demo main.go
+go build -gcflags="all=-N -l" -o sdk-go main.go
 ```
 
 ### Option 2: Stripped Binaries (Reflection Fallback)
@@ -47,14 +47,14 @@ values.
 
 ```bash
 # Build stripped binary (no DWARF)
-go build -ldflags="-w" -o sdk-demo main.go
+go build -ldflags="-w" -o sdk-go main.go
 ```
 
 ## Running the Example
 
 ```bash
 ```bash
-./sdk-demo
+./sdk-go
 ```
 
 ## Running with Docker (Recommended for macOS/Windows)
@@ -66,7 +66,7 @@ docker-compose up --build
 ```
 
 This will start:
-1. **sdk-demo**: The example application
+1. **sdk-go**: The example application
 2. **coral-agent**: The Coral agent (privileged container for eBPF)
 
 Once running, you can attach to the debug session from your host machine using the CLI (if connected to the colony) or by executing into the agent container.

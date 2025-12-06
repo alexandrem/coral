@@ -1,9 +1,9 @@
 services:
-  sdk-demo:
+  sdk-go:
     platform: linux/arm64
     build:
       context: ../..
-      dockerfile: examples/sdk-demo/Dockerfile
+      dockerfile: examples/sdk-go/Dockerfile
     ports:
       - "3001:3001"
       - "9092:9092"
@@ -31,10 +31,10 @@ services:
       - BPF
       - PERFMON
       - NET_ADMIN
-    pid: "service:sdk-demo"
-    network_mode: "service:sdk-demo"
+    pid: "service:sdk-go"
+    network_mode: "service:sdk-go"
     devices:
       - /dev/net/tun:/dev/net/tun
 
 volumes:
-  coral-sdk-demo-data:
+  coral-sdk-go-data:

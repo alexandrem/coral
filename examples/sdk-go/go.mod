@@ -1,4 +1,4 @@
-module github.com/coral-mesh/coral/examples/sdk-demo
+module github.com/coral-mesh/coral/examples/sdk-go
 
 go 1.25.1
 
