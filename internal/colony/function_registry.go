@@ -30,7 +30,8 @@ func NewFunctionRegistry(db *database.Database, logger zerolog.Logger) *Function
 
 // StoreFunctions stores or updates functions from an agent in the registry.
 // This is called periodically by the polling logic when it receives functions from agents.
-func (r *FunctionRegistry) StoreFunctions(ctx context.Context, agentID, serviceName string, functions []*agentv1.FunctionInfo) error {
+// The binary_hash parameter identifies the binary version these functions belong to.
+func (r *FunctionRegistry) StoreFunctions(ctx context.Context, agentID, serviceName, binaryHash string, functions []*agentv1.FunctionInfo) error {
 	if len(functions) == 0 {
 		r.logger.Debug().
 			Str("agent_id", agentID).
@@ -55,39 +56,38 @@ func (r *FunctionRegistry) StoreFunctions(ctx context.Context, agentID, serviceN
 	now := time.Now()
 
 	for _, fn := range functions {
-		// Generate function ID (deterministic based on service + function name).
-		// This ensures the same function is updated rather than duplicated.
-		functionID := generateFunctionID(serviceName, fn.Name)
-
-		// Generate embedding vector for semantic search.
+		// Convert embedding to DuckDB array format.
+		// DuckDB's go driver doesn't support []float64 directly, so we convert to string.
 		embedding := generateFunctionEmbedding(fn)
+		embeddingStr := floatSliceToArrayString(embedding)
 
-		// Insert or update function.
+		// Insert or update function using ON CONFLICT with composite primary key.
+		// Note: We exclude 'embedding' from UPDATE because DuckDB doesn't support array updates.
+		// We exclude 'last_seen' from UPDATE because it has an index.
+		// Embeddings are deterministic (same function → same embedding), so this is safe.
 		_, err := tx.Exec(`
 			INSERT INTO functions (
-				function_id, service_name, agent_id, function_name,
-				package_name, file_path, line_number, offset,
+				service_name, function_name, binary_hash, agent_id,
+				package_name, file_path, line_number, func_offset,
 				has_dwarf, embedding, discovered_at, last_seen
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (function_id) DO UPDATE SET
-				agent_id = EXCLUDED.agent_id,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::FLOAT[384], ?, ?)
+			ON CONFLICT (service_name, function_name, binary_hash) DO UPDATE SET
+				package_name = EXCLUDED.package_name,
 				file_path = EXCLUDED.file_path,
 				line_number = EXCLUDED.line_number,
-				offset = EXCLUDED.offset,
-				has_dwarf = EXCLUDED.has_dwarf,
-				embedding = EXCLUDED.embedding,
-				last_seen = EXCLUDED.last_seen
+				func_offset = EXCLUDED.func_offset,
+				has_dwarf = EXCLUDED.has_dwarf
 		`,
-			functionID,
 			serviceName,
-			agentID,
 			fn.Name,
+			binaryHash,
+			agentID,
 			fn.Package,
 			fn.FilePath,
 			fn.LineNumber,
 			fn.Offset,
 			fn.HasDwarf,
-			embedding,
+			embeddingStr,
 			now,
 			now,
 		)
@@ -133,18 +133,19 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 
 	// Generate query embedding for semantic search.
 	queryEmbedding := generateQueryEmbedding(query)
+	queryEmbeddingStr := floatSliceToArrayString(queryEmbedding)
 
 	// Build SQL query with vector similarity search.
 	sqlQuery := `
 		SELECT
-			function_id, service_name, agent_id, function_name,
-			package_name, file_path, line_number, offset,
+			service_name, function_name, agent_id,
+			package_name, file_path, line_number, func_offset,
 			has_dwarf, discovered_at, last_seen,
 			array_cosine_similarity(embedding, ?::FLOAT[384]) AS similarity
 		FROM functions
 		WHERE embedding IS NOT NULL
 	`
-	args := []interface{}{queryEmbedding}
+	args := []interface{}{queryEmbeddingStr}
 
 	// Filter by service name if specified.
 	if serviceName != "" {
@@ -154,6 +155,7 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 
 	// Order by similarity (highest first) and limit results.
 	sqlQuery += " ORDER BY similarity DESC LIMIT ?"
+
 	args = append(args, limit)
 
 	// Execute query.
@@ -171,10 +173,9 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 		var similarity float64
 
 		err := rows.Scan(
-			&fn.FunctionID,
 			&fn.ServiceName,
-			&fn.AgentID,
 			&fn.FunctionName,
+			&fn.AgentID,
 			&fn.PackageName,
 			&fn.FilePath,
 			&fn.LineNumber,
@@ -210,8 +211,8 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 func (r *FunctionRegistry) listFunctions(ctx context.Context, serviceName string, limit int) ([]*FunctionInfo, error) {
 	sqlQuery := `
 		SELECT
-			function_id, service_name, agent_id, function_name,
-			package_name, file_path, line_number, offset,
+			service_name, function_name, agent_id,
+			package_name, file_path, line_number, func_offset,
 			has_dwarf, discovered_at, last_seen
 		FROM functions
 		WHERE 1=1
@@ -238,10 +239,9 @@ func (r *FunctionRegistry) listFunctions(ctx context.Context, serviceName string
 		var discoveredAt, lastSeen time.Time
 
 		err := rows.Scan(
-			&fn.FunctionID,
 			&fn.ServiceName,
-			&fn.AgentID,
 			&fn.FunctionName,
+			&fn.AgentID,
 			&fn.PackageName,
 			&fn.FilePath,
 			&fn.LineNumber,
@@ -264,10 +264,9 @@ func (r *FunctionRegistry) listFunctions(ctx context.Context, serviceName string
 
 // FunctionInfo represents a discovered function with metadata.
 type FunctionInfo struct {
-	FunctionID   string
 	ServiceName  string
-	AgentID      string
 	FunctionName string
+	AgentID      string
 	PackageName  sql.NullString
 	FilePath     sql.NullString
 	LineNumber   sql.NullInt32
@@ -488,4 +487,23 @@ func normalize(vec []float64) {
 	for i := range vec {
 		vec[i] *= magnitude
 	}
+}
+
+// floatSliceToArrayString converts a float64 slice to DuckDB array string format.
+// Example: [1.0, 2.0, 3.0] -> "[1.0, 2.0, 3.0]"
+func floatSliceToArrayString(vec []float64) string {
+	if len(vec) == 0 {
+		return "[]"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range vec {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("%f", v))
+	}
+	sb.WriteString("]")
+	return sb.String()
 }

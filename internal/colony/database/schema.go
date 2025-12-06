@@ -352,10 +352,10 @@ var schemaDDL = []string{
 
 	// Function registry - discovered functions from services (RFD 063).
 	`CREATE TABLE IF NOT EXISTS functions (
-		function_id VARCHAR PRIMARY KEY,
 		service_name VARCHAR NOT NULL,
-		agent_id VARCHAR NOT NULL,
 		function_name VARCHAR NOT NULL,
+		binary_hash VARCHAR(64) NOT NULL,
+		agent_id VARCHAR NOT NULL,
 		package_name VARCHAR,
 		file_path VARCHAR,
 		line_number INTEGER,
@@ -364,7 +364,8 @@ var schemaDDL = []string{
 		embedding FLOAT[384],
 		is_exported BOOLEAN DEFAULT false,
 		discovered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (service_name, function_name, binary_hash)
 	)`,
 
 	`CREATE INDEX IF NOT EXISTS idx_functions_service ON functions(service_name)`,

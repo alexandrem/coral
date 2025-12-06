@@ -202,7 +202,9 @@ func (p *FunctionPoller) pollService(agent *registry.Entry, serviceName string) 
 	}
 
 	// Functions have changed - store them.
-	if err := p.functionRegistry.StoreFunctions(ctx, agent.AgentID, serviceName, functions); err != nil {
+	// Use the function list hash as the binary hash.
+	// TODO: use actual binary hash from service
+	if err := p.functionRegistry.StoreFunctions(ctx, agent.AgentID, serviceName, currentHash, functions); err != nil {
 		return fmt.Errorf("failed to store functions: %w", err)
 	}
 
