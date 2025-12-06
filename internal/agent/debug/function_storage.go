@@ -50,7 +50,7 @@ func (c *FunctionCache) initSchema() error {
 			package_name     VARCHAR,
 			file_path        VARCHAR,
 			line_number      INTEGER,
-			offset           BIGINT,
+			func_offset      BIGINT,
 			has_dwarf        BOOLEAN DEFAULT false,
 			discovered_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (service_name, function_name)
@@ -146,7 +146,7 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO functions_cache (
 			service_name, binary_path, binary_hash, function_name,
-			package_name, file_path, line_number, offset, has_dwarf
+			package_name, file_path, line_number, func_offset, has_dwarf
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
@@ -200,7 +200,7 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 // GetCachedFunctions retrieves cached functions for a service.
 func (c *FunctionCache) GetCachedFunctions(ctx context.Context, serviceName string) ([]*agentv1.FunctionInfo, error) {
 	rows, err := c.db.QueryContext(ctx, `
-		SELECT function_name, package_name, file_path, line_number, offset, has_dwarf
+		SELECT function_name, package_name, file_path, line_number, func_offset, has_dwarf
 		FROM functions_cache
 		WHERE service_name = ?
 		ORDER BY function_name

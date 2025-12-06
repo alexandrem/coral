@@ -137,7 +137,7 @@ func TestTelemetryE2E(t *testing.T) {
 	}
 
 	// Create function cache for testing (using in-memory DB).
-	functionCache, err := agent.NewFunctionCache(db.DB(), logger)
+	functionCache, err := agent.NewFunctionCache(agentDB, logger)
 	if err != nil {
 		t.Fatalf("Failed to create function cache: %v", err)
 	}
