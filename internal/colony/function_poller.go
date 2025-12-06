@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -15,7 +14,6 @@ import (
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
@@ -169,15 +167,8 @@ func (p *FunctionPoller) pollService(agent *registry.Entry, serviceName string) 
 	// This ensures backward compatibility with agents that don't report binary_hash.
 	useFallbackHash := binaryHash == ""
 
-	// Create agent client with timeout.
-	agentAddr := fmt.Sprintf("http://%s:9001", agent.MeshIPv4)
-	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-	client := agentv1connect.NewAgentServiceClient(
-		httpClient,
-		agentAddr,
-	)
+	// Create agent client using helper utility.
+	client := GetAgentClient(agent)
 
 	// Call GetFunctions RPC.
 	ctx, cancel := context.WithTimeout(p.ctx, 30*time.Second)
