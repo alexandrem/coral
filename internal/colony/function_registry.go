@@ -11,6 +11,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/pkg/embedding"
 )
 
 // FunctionRegistry manages the centralized function registry for all services.
@@ -57,8 +58,12 @@ func (r *FunctionRegistry) StoreFunctions(ctx context.Context, agentID, serviceN
 	for _, fn := range functions {
 		// Convert embedding to DuckDB array format.
 		// DuckDB's go driver doesn't support []float64 directly, so we convert to string.
-		embedding := generateFunctionEmbedding(fn)
-		embeddingStr := floatSliceToArrayString(embedding)
+		// We convert from []float32 (proto) to []float64 first.
+		emb64 := make([]float64, len(fn.Embedding))
+		for i, v := range fn.Embedding {
+			emb64[i] = float64(v)
+		}
+		embeddingStr := floatSliceToArrayString(emb64)
 
 		// Insert or update function using ON CONFLICT with composite primary key.
 		// Note: We exclude 'embedding' from UPDATE because DuckDB doesn't support array updates.
@@ -131,7 +136,7 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 	}
 
 	// Generate query embedding for semantic search.
-	queryEmbedding := generateQueryEmbedding(query)
+	queryEmbedding := embedding.GenerateQueryEmbedding(query)
 	queryEmbeddingStr := floatSliceToArrayString(queryEmbedding)
 
 	// Build SQL query with vector similarity search.
@@ -281,192 +286,6 @@ type FunctionInfo struct {
 	HasDwarf     bool
 	DiscoveredAt time.Time
 	LastSeen     time.Time
-}
-
-// tokenizeFunctionName tokenizes a function name for search.
-// Example: "main.handleCheckout" → ["main", "handle", "checkout"]
-func tokenizeFunctionName(name string) []string {
-	// Split by dots and underscores.
-	parts := strings.FieldsFunc(name, func(r rune) bool {
-		return r == '.' || r == '_' || r == '/'
-	})
-
-	tokens := []string{}
-	for _, part := range parts {
-		// Split camelCase: "handleCheckout" → ["handle", "Checkout"]
-		tokens = append(tokens, splitCamelCase(part)...)
-	}
-
-	// Convert to lowercase and deduplicate.
-	return deduplicateTokens(tokens)
-}
-
-// tokenizeFilePath tokenizes a file path for search.
-// Example: "handlers/checkout.go" → ["handlers", "checkout", "go"]
-func tokenizeFilePath(path string) []string {
-	if path == "" {
-		return []string{}
-	}
-
-	// Split by path separators and dots.
-	parts := strings.FieldsFunc(path, func(r rune) bool {
-		return r == '/' || r == '.' || r == '_'
-	})
-
-	// Convert to lowercase and deduplicate.
-	tokens := []string{}
-	for _, part := range parts {
-		tokens = append(tokens, strings.ToLower(part))
-	}
-
-	return deduplicateTokens(tokens)
-}
-
-// splitCamelCase splits a camelCase or PascalCase string into words.
-// Example: "handleCheckout" → ["handle", "Checkout"]
-func splitCamelCase(s string) []string {
-	if s == "" {
-		return []string{}
-	}
-
-	var words []string
-	lastIdx := 0
-
-	for i := 1; i < len(s); i++ {
-		// Check if current character is uppercase and previous is lowercase.
-		if s[i] >= 'A' && s[i] <= 'Z' && s[i-1] >= 'a' && s[i-1] <= 'z' {
-			words = append(words, strings.ToLower(s[lastIdx:i]))
-			lastIdx = i
-		}
-	}
-
-	// Add the last word.
-	if lastIdx < len(s) {
-		words = append(words, strings.ToLower(s[lastIdx:]))
-	}
-
-	return words
-}
-
-// deduplicateTokens removes duplicate tokens while preserving order.
-func deduplicateTokens(tokens []string) []string {
-	seen := make(map[string]bool)
-	result := []string{}
-
-	for _, token := range tokens {
-		if token == "" {
-			continue
-		}
-		if !seen[token] {
-			seen[token] = true
-			result = append(result, token)
-		}
-	}
-
-	return result
-}
-
-// generateFunctionEmbedding generates a 384-dimensional embedding vector for a function.
-// Uses a simple but effective TF-IDF-like approach based on function metadata.
-func generateFunctionEmbedding(fn *agentv1.FunctionInfo) []float64 {
-	// Combine all metadata into a text representation.
-	text := fmt.Sprintf("%s %s %s", fn.Name, fn.Package, fn.FilePath)
-
-	// Tokenize the text.
-	tokens := tokenizeForEmbedding(text)
-
-	// Create a 384-dimensional vector using hash-based distribution.
-	// This ensures similar tokens map to similar vector regions.
-	embedding := make([]float64, 384)
-
-	for _, token := range tokens {
-		// Hash the token to get indices in the embedding space.
-		hash := hashToken(token)
-
-		// Distribute the token's contribution across multiple dimensions.
-		for i := 0; i < 8; i++ {
-			idx := (hash + uint64(i)*37) % 384
-			embedding[idx] += 1.0
-		}
-	}
-
-	// Normalize the vector to unit length (for cosine similarity).
-	normalize(embedding)
-
-	return embedding
-}
-
-// generateQueryEmbedding generates an embedding vector for a search query.
-func generateQueryEmbedding(query string) []float64 {
-	// Use the same approach as function embeddings for consistency.
-	tokens := tokenizeForEmbedding(query)
-
-	embedding := make([]float64, 384)
-
-	for _, token := range tokens {
-		hash := hashToken(token)
-
-		for i := 0; i < 8; i++ {
-			idx := (hash + uint64(i)*37) % 384
-			embedding[idx] += 1.0
-		}
-	}
-
-	normalize(embedding)
-
-	return embedding
-}
-
-// tokenizeForEmbedding tokenizes text for embedding generation.
-func tokenizeForEmbedding(text string) []string {
-	// Convert to lowercase.
-	text = strings.ToLower(text)
-
-	// Split by various delimiters.
-	parts := strings.FieldsFunc(text, func(r rune) bool {
-		return r == '.' || r == '/' || r == '_' || r == ' ' || r == ',' || r == ';'
-	})
-
-	tokens := []string{}
-	for _, part := range parts {
-		// Split camelCase.
-		tokens = append(tokens, splitCamelCase(part)...)
-	}
-
-	return deduplicateTokens(tokens)
-}
-
-// hashToken computes a hash for a token (FNV-1a algorithm).
-func hashToken(token string) uint64 {
-	const (
-		offset64 = 14695981039346656037
-		prime64  = 1099511628211
-	)
-
-	hash := uint64(offset64)
-	for i := 0; i < len(token); i++ {
-		hash ^= uint64(token[i])
-		hash *= prime64
-	}
-
-	return hash
-}
-
-// normalize normalizes a vector to unit length.
-func normalize(vec []float64) {
-	var sum float64
-	for _, v := range vec {
-		sum += v * v
-	}
-
-	if sum == 0 {
-		return
-	}
-
-	magnitude := 1.0 / (sum * sum)
-	for i := range vec {
-		vec[i] *= magnitude
-	}
 }
 
 // floatSliceToArrayString converts a float64 slice to DuckDB array string format.

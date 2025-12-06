@@ -824,4 +824,7 @@ message FunctionInfo {
 
   // Service name this function belongs to.
   string service_name = 7;
+
+  // Pre-computed embedding vector (384 dimensions).
+  repeated float embedding = 8;
 }

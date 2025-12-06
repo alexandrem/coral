@@ -2,7 +2,6 @@ package colony
 
 import (
 	"context"
-	"math"
 	"testing"
 	"time"
 
@@ -10,232 +9,8 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/pkg/embedding"
 )
-
-// TestGenerateFunctionEmbedding_Consistency verifies that the same input produces the same embedding.
-func TestGenerateFunctionEmbedding_Consistency(t *testing.T) {
-	fn := &agentv1.FunctionInfo{
-		Name:     "main.processPayment",
-		Package:  "main",
-		FilePath: "handlers/payment.go",
-	}
-
-	embedding1 := generateFunctionEmbedding(fn)
-	embedding2 := generateFunctionEmbedding(fn)
-
-	if len(embedding1) != 384 {
-		t.Errorf("Expected embedding length 384, got %d", len(embedding1))
-	}
-
-	// Verify embeddings are identical.
-	for i := 0; i < len(embedding1); i++ {
-		if embedding1[i] != embedding2[i] {
-			t.Errorf("Embeddings differ at index %d: %f != %f", i, embedding1[i], embedding2[i])
-			break
-		}
-	}
-}
-
-// TestGenerateFunctionEmbedding_Normalization verifies embeddings are unit-length normalized.
-func TestGenerateFunctionEmbedding_Normalization(t *testing.T) {
-	fn := &agentv1.FunctionInfo{
-		Name:     "main.handleCheckout",
-		Package:  "main",
-		FilePath: "handlers/checkout.go",
-	}
-
-	embedding := generateFunctionEmbedding(fn)
-
-	// Calculate magnitude.
-	var sumSquares float64
-	for _, v := range embedding {
-		sumSquares += v * v
-	}
-
-	// For a unit vector, magnitude should be close to 1.0.
-	// Note: Due to the normalization bug in the code (magnitude := 1.0 / (sum * sum)),
-	// we test what the actual implementation produces.
-	magnitude := math.Sqrt(sumSquares)
-
-	// The vector should have non-zero magnitude.
-	if magnitude == 0 {
-		t.Error("Embedding has zero magnitude")
-	}
-}
-
-// TestGenerateQueryEmbedding_Consistency verifies query embeddings are deterministic.
-func TestGenerateQueryEmbedding_Consistency(t *testing.T) {
-	query := "payment checkout"
-
-	embedding1 := generateQueryEmbedding(query)
-	embedding2 := generateQueryEmbedding(query)
-
-	if len(embedding1) != 384 {
-		t.Errorf("Expected embedding length 384, got %d", len(embedding1))
-	}
-
-	// Verify embeddings are identical.
-	for i := 0; i < len(embedding1); i++ {
-		if embedding1[i] != embedding2[i] {
-			t.Errorf("Query embeddings differ at index %d: %f != %f", i, embedding1[i], embedding2[i])
-			break
-		}
-	}
-}
-
-// TestTokenizeFunctionName tests function name tokenization.
-func TestTokenizeFunctionName(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "simple camelCase",
-			input:    "handleCheckout",
-			expected: []string{"handle", "checkout"},
-		},
-		{
-			name:     "package.function",
-			input:    "main.processPayment",
-			expected: []string{"main", "process", "payment"},
-		},
-		{
-			name:     "with underscores",
-			input:    "validate_card_number",
-			expected: []string{"validate", "card", "number"},
-		},
-		{
-			name:     "PascalCase",
-			input:    "HandleRequest",
-			expected: []string{"handle", "request"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tokenizeFunctionName(tt.input)
-
-			if len(result) != len(tt.expected) {
-				t.Errorf("Expected %d tokens, got %d: %v", len(tt.expected), len(result), result)
-				return
-			}
-
-			for i, token := range result {
-				if token != tt.expected[i] {
-					t.Errorf("Token %d: expected %q, got %q", i, tt.expected[i], token)
-				}
-			}
-		})
-	}
-}
-
-// TestTokenizeFilePath tests file path tokenization.
-func TestTokenizeFilePath(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "simple path",
-			input:    "handlers/checkout.go",
-			expected: []string{"handlers", "checkout", "go"},
-		},
-		{
-			name:     "nested path",
-			input:    "internal/api/payment/processor.go",
-			expected: []string{"internal", "api", "payment", "processor", "go"},
-		},
-		{
-			name:     "empty path",
-			input:    "",
-			expected: []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tokenizeFilePath(tt.input)
-
-			if len(result) != len(tt.expected) {
-				t.Errorf("Expected %d tokens, got %d: %v", len(tt.expected), len(result), result)
-				return
-			}
-
-			for i, token := range result {
-				if token != tt.expected[i] {
-					t.Errorf("Token %d: expected %q, got %q", i, tt.expected[i], token)
-				}
-			}
-		})
-	}
-}
-
-// TestSplitCamelCase tests camelCase word splitting.
-func TestSplitCamelCase(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "camelCase",
-			input:    "handleCheckout",
-			expected: []string{"handle", "checkout"},
-		},
-		{
-			name:     "PascalCase",
-			input:    "ProcessPayment",
-			expected: []string{"process", "payment"},
-		},
-		{
-			name:     "single word",
-			input:    "payment",
-			expected: []string{"payment"},
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := splitCamelCase(tt.input)
-
-			if len(result) != len(tt.expected) {
-				t.Errorf("Expected %d words, got %d: %v", len(tt.expected), len(result), result)
-				return
-			}
-
-			for i, word := range result {
-				if word != tt.expected[i] {
-					t.Errorf("Word %d: expected %q, got %q", i, tt.expected[i], word)
-				}
-			}
-		})
-	}
-}
-
-// TestHashToken verifies FNV-1a hash consistency.
-func TestHashToken(t *testing.T) {
-	token := "payment"
-
-	hash1 := hashToken(token)
-	hash2 := hashToken(token)
-
-	if hash1 != hash2 {
-		t.Errorf("Hash is not consistent: %d != %d", hash1, hash2)
-	}
-
-	// Different tokens should produce different hashes.
-	differentHash := hashToken("checkout")
-	if hash1 == differentHash {
-		t.Error("Different tokens produced the same hash")
-	}
-}
 
 // TestStoreFunctions_Deduplication verifies same function updates rather than duplicates.
 func TestStoreFunctions_Deduplication(t *testing.T) {
@@ -260,6 +35,17 @@ func TestStoreFunctions_Deduplication(t *testing.T) {
 			HasDwarf:   true,
 		},
 	}
+	// Pre-compute embedding
+	emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+		Name:     functions[0].Name,
+		Package:  functions[0].Package,
+		FilePath: functions[0].FilePath,
+	})
+	emb32 := make([]float32, len(emb))
+	for i, v := range emb {
+		emb32[i] = float32(v)
+	}
+	functions[0].Embedding = emb32
 
 	err = registry.StoreFunctions(ctx, "agent-1", "payment-service", "hash-v1", functions)
 	if err != nil {
@@ -277,6 +63,17 @@ func TestStoreFunctions_Deduplication(t *testing.T) {
 			HasDwarf:   true,
 		},
 	}
+	// Pre-compute embedding
+	emb = embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+		Name:     updatedFunctions[0].Name,
+		Package:  updatedFunctions[0].Package,
+		FilePath: updatedFunctions[0].FilePath,
+	})
+	emb32 = make([]float32, len(emb))
+	for i, v := range emb {
+		emb32[i] = float32(v)
+	}
+	updatedFunctions[0].Embedding = emb32
 
 	err = registry.StoreFunctions(ctx, "agent-1", "payment-service", "hash-v1", updatedFunctions)
 	if err != nil {
@@ -321,6 +118,20 @@ func TestQueryFunctions_ExactMatch(t *testing.T) {
 		{Name: "main.processPayment", Package: "main", FilePath: "handlers/payment.go"},
 		{Name: "main.handleCheckout", Package: "main", FilePath: "handlers/checkout.go"},
 		{Name: "main.validateCard", Package: "main", FilePath: "handlers/validation.go"},
+	}
+
+	// Add embeddings
+	for _, fn := range functions {
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:     fn.Name,
+			Package:  fn.Package,
+			FilePath: fn.FilePath,
+		})
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+		fn.Embedding = emb32
 	}
 
 	err = registry.StoreFunctions(ctx, "agent-1", "payment-service", "test-hash", functions)
@@ -374,6 +185,20 @@ func TestQueryFunctions_SemanticSimilarity(t *testing.T) {
 		{Name: "main.authorizeTransaction", Package: "main", FilePath: "handlers/payment.go"},
 		{Name: "main.handleCheckout", Package: "main", FilePath: "handlers/checkout.go"},
 		{Name: "main.queryUsers", Package: "main", FilePath: "db/users.go"},
+	}
+
+	// Add embeddings
+	for _, fn := range functions {
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:     fn.Name,
+			Package:  fn.Package,
+			FilePath: fn.FilePath,
+		})
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+		fn.Embedding = emb32
 	}
 
 	err = registry.StoreFunctions(ctx, "agent-1", "payment-service", "test-hash", functions)
@@ -430,6 +255,32 @@ func TestQueryFunctions_ServiceFilter(t *testing.T) {
 		{Name: "main.handleCheckout", Package: "main", FilePath: "handlers/checkout.go"},
 	}
 
+	// Add embeddings
+	for _, fn := range paymentFunctions {
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:     fn.Name,
+			Package:  fn.Package,
+			FilePath: fn.FilePath,
+		})
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+		fn.Embedding = emb32
+	}
+	for _, fn := range checkoutFunctions {
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:     fn.Name,
+			Package:  fn.Package,
+			FilePath: fn.FilePath,
+		})
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+		fn.Embedding = emb32
+	}
+
 	err = registry.StoreFunctions(ctx, "agent-1", "payment-service", "test-hash", paymentFunctions)
 	if err != nil {
 		t.Fatalf("Failed to store payment functions: %v", err)
@@ -474,6 +325,16 @@ func TestQueryFunctions_Limit(t *testing.T) {
 			Package:  "main",
 			FilePath: "handlers/handler.go",
 		}
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:     functions[i].Name,
+			Package:  functions[i].Package,
+			FilePath: functions[i].FilePath,
+		})
+		emb32 := make([]float32, len(emb))
+		for j, v := range emb {
+			emb32[j] = float32(v)
+		}
+		functions[i].Embedding = emb32
 	}
 
 	err = registry.StoreFunctions(ctx, "agent-1", "test-service", "test-hash", functions)
@@ -509,6 +370,19 @@ func TestListFunctions_NoQuery(t *testing.T) {
 	functions1 := []*agentv1.FunctionInfo{
 		{Name: "main.oldFunction", Package: "main", FilePath: "old.go"},
 	}
+	// Add embeddings
+	for _, fn := range functions1 {
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:     fn.Name,
+			Package:  fn.Package,
+			FilePath: fn.FilePath,
+		})
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+		fn.Embedding = emb32
+	}
 	err = registry.StoreFunctions(ctx, "agent-1", "test-service", "test-hash", functions1)
 	if err != nil {
 		t.Fatalf("Failed to store old function: %v", err)
@@ -517,6 +391,19 @@ func TestListFunctions_NoQuery(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	functions2 := []*agentv1.FunctionInfo{
 		{Name: "main.newFunction", Package: "main", FilePath: "new.go"},
+	}
+	// Add embeddings
+	for _, fn := range functions2 {
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:     fn.Name,
+			Package:  fn.Package,
+			FilePath: fn.FilePath,
+		})
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+		fn.Embedding = emb32
 	}
 	err = registry.StoreFunctions(ctx, "agent-1", "test-service", "test-hash", functions2)
 	if err != nil {
@@ -543,7 +430,7 @@ func TestListFunctions_NoQuery(t *testing.T) {
 
 // BenchmarkGenerateFunctionEmbedding measures embedding generation speed.
 func BenchmarkGenerateFunctionEmbedding(b *testing.B) {
-	fn := &agentv1.FunctionInfo{
+	meta := embedding.FunctionMetadata{
 		Name:     "main.processPayment",
 		Package:  "main",
 		FilePath: "handlers/payment.go",
@@ -551,7 +438,7 @@ func BenchmarkGenerateFunctionEmbedding(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = generateFunctionEmbedding(fn)
+		_ = embedding.GenerateFunctionEmbedding(meta)
 	}
 }
 
@@ -575,6 +462,16 @@ func BenchmarkQueryFunctions_SmallDataset(b *testing.B) {
 			Package:  "main",
 			FilePath: "handlers/handler.go",
 		}
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:     functions[i].Name,
+			Package:  functions[i].Package,
+			FilePath: functions[i].FilePath,
+		})
+		emb32 := make([]float32, len(emb))
+		for j, v := range emb {
+			emb32[j] = float32(v)
+		}
+		functions[i].Embedding = emb32
 	}
 
 	err = registry.StoreFunctions(ctx, "agent-1", "test-service", "test-hash", functions)
@@ -611,6 +508,16 @@ func BenchmarkQueryFunctions_LargeDataset(b *testing.B) {
 				Package:  "main",
 				FilePath: "handlers/handler.go",
 			}
+			emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+				Name:     functions[i].Name,
+				Package:  functions[i].Package,
+				FilePath: functions[i].FilePath,
+			})
+			emb32 := make([]float32, len(emb))
+			for j, v := range emb {
+				emb32[j] = float32(v)
+			}
+			functions[i].Embedding = emb32
 		}
 
 		err = registry.StoreFunctions(ctx, "agent-1", "test-service", "test-hash", functions)

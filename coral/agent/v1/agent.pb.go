@@ -4047,7 +4047,9 @@ type FunctionInfo struct {
 	// Whether DWARF debug info is available.
 	HasDwarf bool `protobuf:"varint,6,opt,name=has_dwarf,json=hasDwarf,proto3" json:"has_dwarf,omitempty"`
 	// Service name this function belongs to.
-	ServiceName   string `protobuf:"bytes,7,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	ServiceName string `protobuf:"bytes,7,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	// Pre-computed embedding vector (384 dimensions).
+	Embedding     []float32 `protobuf:"fixed32,8,rep,packed,name=embedding,proto3" json:"embedding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4129,6 +4131,13 @@ func (x *FunctionInfo) GetServiceName() string {
 		return x.ServiceName
 	}
 	return ""
+}
+
+func (x *FunctionInfo) GetEmbedding() []float32 {
+	if x != nil {
+		return x.Embedding
+	}
+	return nil
 }
 
 var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
@@ -4502,7 +4511,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\"{\n" +
 	"\x14GetFunctionsResponse\x12:\n" +
 	"\tfunctions\x18\x01 \x03(\v2\x1c.coral.agent.v1.FunctionInfoR\tfunctions\x12'\n" +
-	"\x0ftotal_functions\x18\x02 \x01(\x05R\x0etotalFunctions\"\xd2\x01\n" +
+	"\x0ftotal_functions\x18\x02 \x01(\x05R\x0etotalFunctions\"\xf0\x01\n" +
 	"\fFunctionInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\apackage\x18\x02 \x01(\tR\apackage\x12\x1b\n" +
@@ -4511,7 +4520,8 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"lineNumber\x12\x16\n" +
 	"\x06offset\x18\x05 \x01(\x03R\x06offset\x12\x1b\n" +
 	"\thas_dwarf\x18\x06 \x01(\bR\bhasDwarf\x12!\n" +
-	"\fservice_name\x18\a \x01(\tR\vserviceName*_\n" +
+	"\fservice_name\x18\a \x01(\tR\vserviceName\x12\x1c\n" +
+	"\tembedding\x18\b \x03(\x02R\tembedding*_\n" +
 	"\bExecMode\x12\x15\n" +
 	"\x11EXEC_MODE_UNKNOWN\x10\x00\x12\x12\n" +
 	"\x0eEXEC_MODE_NONE\x10\x01\x12\x11\n" +

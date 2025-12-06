@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/pkg/embedding"
 	"github.com/coral-mesh/coral/pkg/sdk/debug"
 )
 
@@ -67,6 +68,22 @@ func (d *FunctionDiscoverer) DiscoverFunctions(binaryPath, serviceName string) (
 		// Convert to protobuf format.
 		functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
 		for _, fn := range basicFunctions {
+			// Generate embedding with enrichment.
+			// Note: SDK's Function struct doesn't have parameters yet, so we pass empty list for now.
+			// TODO: Update SDK to extract parameters.
+			emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+				Name:       fn.Name,
+				Package:    extractPackageName(fn.Name),
+				FilePath:   fn.File,
+				Parameters: nil, // TODO: Extract parameters
+			})
+
+			// Convert []float64 to []float32 for protobuf.
+			emb32 := make([]float32, len(emb))
+			for i, v := range emb {
+				emb32[i] = float32(v)
+			}
+
 			functions = append(functions, &agentv1.FunctionInfo{
 				Name:        fn.Name,
 				Package:     extractPackageName(fn.Name),
@@ -75,6 +92,7 @@ func (d *FunctionDiscoverer) DiscoverFunctions(binaryPath, serviceName string) (
 				Offset:      int64(fn.Offset),
 				HasDwarf:    provider.HasDWARF(),
 				ServiceName: serviceName,
+				Embedding:   emb32,
 			})
 		}
 
