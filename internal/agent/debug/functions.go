@@ -55,7 +55,11 @@ func (d *FunctionDiscoverer) DiscoverFunctions(binaryPath, serviceName string) (
 		if err != nil {
 			return nil, fmt.Errorf("failed to create function metadata provider: %w", err)
 		}
-		defer provider.Close()
+		defer func() {
+			if closeErr := provider.Close(); closeErr != nil {
+				d.logger.Warn().Err(closeErr).Msg("Failed to close function metadata provider")
+			}
+		}()
 
 		// Get all functions from the index.
 		basicFunctions := provider.ListAllFunctions()
@@ -130,38 +134,6 @@ func extractPackageName(functionName string) string {
 	}
 
 	return functionName[:lastDot]
-}
-
-// isExportedFunction checks if a Go function is exported (visible outside its package).
-// In Go, exported identifiers start with an uppercase letter.
-func isExportedFunction(functionName string) bool {
-	// Extract the function name after the last dot.
-	lastDot := strings.LastIndex(functionName, ".")
-	if lastDot == -1 {
-		// No package prefix, check the full name.
-		if len(functionName) == 0 {
-			return false
-		}
-		return isUpperCase(rune(functionName[0]))
-	}
-
-	// Check the first character after the package prefix.
-	shortName := functionName[lastDot+1:]
-	if len(shortName) == 0 {
-		return false
-	}
-
-	// Handle method names like "(*Type).Method".
-	if strings.HasPrefix(shortName, "(") {
-		return false
-	}
-
-	return isUpperCase(rune(shortName[0]))
-}
-
-// isUpperCase checks if a rune is an uppercase letter.
-func isUpperCase(r rune) bool {
-	return r >= 'A' && r <= 'Z'
 }
 
 // GetBinaryPathForService returns the binary path for a monitored service.

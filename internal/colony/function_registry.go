@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -163,7 +162,11 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 	if err != nil {
 		return nil, fmt.Errorf("failed to query functions: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			r.logger.Warn().Err(closeErr).Msg("Failed to close rows")
+		}
+	}()
 
 	// Parse results.
 	var functions []*FunctionInfo
@@ -231,7 +234,11 @@ func (r *FunctionRegistry) listFunctions(ctx context.Context, serviceName string
 	if err != nil {
 		return nil, fmt.Errorf("failed to list functions: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			r.logger.Warn().Err(closeErr).Msg("Failed to close rows")
+		}
+	}()
 
 	var functions []*FunctionInfo
 	for rows.Next() {
@@ -276,15 +283,6 @@ type FunctionInfo struct {
 	LastSeen     time.Time
 }
 
-// generateFunctionID generates a deterministic ID for a function.
-// Uses service name + function name to ensure the same function is updated.
-func generateFunctionID(serviceName, functionName string) string {
-	// Use deterministic UUID v5 (namespace-based) for consistency.
-	namespace := uuid.MustParse("6ba7b810-9dad-11d1-80b4-00c04fd430c8") // DNS namespace
-	key := fmt.Sprintf("%s/%s", serviceName, functionName)
-	return uuid.NewSHA1(namespace, []byte(key)).String()
-}
-
 // tokenizeFunctionName tokenizes a function name for search.
 // Example: "main.handleCheckout" → ["main", "handle", "checkout"]
 func tokenizeFunctionName(name string) []string {
@@ -322,24 +320,6 @@ func tokenizeFilePath(path string) []string {
 	}
 
 	return deduplicateTokens(tokens)
-}
-
-// tokenizeQuery tokenizes a search query.
-// Example: "checkout payment" → ["checkout", "payment"]
-func tokenizeQuery(query string) []string {
-	// Split by whitespace.
-	parts := strings.Fields(query)
-
-	tokens := []string{}
-	for _, part := range parts {
-		// Remove special characters and convert to lowercase.
-		cleaned := strings.ToLower(strings.Trim(part, ".,;:!?"))
-		if cleaned != "" {
-			tokens = append(tokens, cleaned)
-		}
-	}
-
-	return tokens
 }
 
 // splitCamelCase splits a camelCase or PascalCase string into words.

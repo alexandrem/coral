@@ -152,7 +152,11 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		if closeErr := stmt.Close(); closeErr != nil {
+			c.logger.Warn().Err(closeErr).Msg("Failed to close statement")
+		}
+	}()
 
 	for _, fn := range functions {
 		_, err := stmt.ExecContext(ctx,
@@ -208,7 +212,11 @@ func (c *FunctionCache) GetCachedFunctions(ctx context.Context, serviceName stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to query cached functions: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			c.logger.Warn().Err(closeErr).Msg("Failed to close rows")
+		}
+	}()
 
 	var functions []*agentv1.FunctionInfo
 	for rows.Next() {
@@ -287,7 +295,9 @@ func computeBinaryHash(binaryPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to open binary: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -326,7 +336,11 @@ func (c *FunctionCache) GetCacheStats(ctx context.Context) (map[string]interface
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			c.logger.Warn().Err(closeErr).Msg("Failed to close rows")
+		}
+	}()
 
 	services := []map[string]interface{}{}
 	for rows.Next() {
