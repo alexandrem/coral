@@ -85,6 +85,9 @@ jobs:
       - name: Install tools
         run: make install-tools
 
+      - name: Go generate
+        run: make generate
+
       - name: Run go vet
         run: make vet
 
