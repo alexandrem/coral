@@ -118,6 +118,6 @@ install-tools: ## Install development tools
 
 lint: ## Run linter
 	@echo "Running linter..."
-	golangci-lint run
+	golangci-lint run --config .golangci.yml ./...
 
 all: clean build test ## Clean, build, and test
