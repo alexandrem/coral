@@ -1,64 +1,65 @@
 # Installation & Permissions
 
-Coral creates a WireGuard mesh network for secure communication between colony
-and agents. This requires elevated privileges for TUN device creation.
+Coral requires elevated privileges for WireGuard mesh networking and eBPF observability.
 
-**Choose one installation method:**
+> **📖 Detailed explanation:** See [PRIVILEGE.md](PRIVILEGE.md) for architecture, security model, and graceful degradation.
 
-## Option 1: Linux Capabilities (Recommended)
+## Quick Setup
 
-Grant only the `CAP_NET_ADMIN` capability to the binary:
+### Option 1: Linux Capabilities (Recommended)
 
+**One-time setup:**
 ```bash
-sudo setcap cap_net_admin+ep ./bin/coral
+# Colony (needs only CAP_NET_ADMIN)
+sudo setcap 'cap_net_admin+ep' /path/to/coral
+
+# Agent (needs additional capabilities for eBPF)
+sudo setcap 'cap_net_admin,cap_sys_admin,cap_sys_ptrace,cap_sys_resource,cap_bpf+ep' /path/to/coral
 ```
 
-**Why this is preferred:**
-
-- Only grants the specific permission needed (network administration)
-- Process runs as your regular user (not root)
-- No password prompts after initial setup
-- Most secure option (Linux only)
-
-## Option 2: Run with sudo
-
-Run Coral with sudo when starting the colony:
-
+**Run without sudo:**
 ```bash
-sudo ./bin/coral colony start
+coral colony start  # Only needs CAP_NET_ADMIN
+coral agent start   # Needs all capabilities above
 ```
 
-**Trade-offs:**
+✅ Most secure • Least privilege • No password prompts • Linux only
 
-- ✅ Coral automatically preserves file ownership (configs stay user-owned)
-- ⚠️ Entire colony process initially runs as root
-- ⚠️ Requires password entry on each start
-- Works on all platforms (Linux, macOS)
+---
 
-> **Note:** While the whole process starts as root, Coral detects `SUDO_USER`
-> and ensures all config files in `~/.coral/` remain owned by your regular user
-> account.
+### Option 2: Run with sudo (All Platforms)
 
-## Option 3: Setuid Binary (Convenience vs. Security)
-
-**Security: ⭐ Use with caution** | **UX: ⭐⭐⭐⭐⭐ Seamless**
-
-Make the binary setuid root:
-
+**Every time:**
 ```bash
-sudo chown root:root ./bin/coral
-sudo chmod u+s ./bin/coral
+sudo coral colony start
+sudo coral agent start
 ```
 
-**Trade-offs:**
+⚠️ Password prompt each time • Works on macOS
 
-- ✅ No password prompts, seamless experience
-- ✅ Config files remain user-owned
-- ⚠️ Any vulnerability in the binary could be exploited for privilege escalation
-- ⚠️ All users on the system can run it with elevated privileges
-- ⚠️ Only recommended for single-user development machines
+---
 
-> **Future Enhancement:** A privileged helper subprocess approach is in
-> development (see [RFD 008](RFDs/008-privilege-separation.md)) which will
-> provide the UX of Option 3 with security closer to Option 1. The helper will
-> spawn only for TUN creation, minimizing the privilege window.
+### Option 3: Setuid (Not Recommended)
+
+**One-time setup:**
+```bash
+sudo chown root:root /path/to/coral
+sudo chmod u+s /path/to/coral
+```
+
+**Run directly:**
+```bash
+coral colony start
+```
+
+🚨 **Security risk** • Any user gets root • Development only
+
+---
+
+## No Privileges Needed
+
+```bash
+coral proxy start <colony-id>  # No sudo required
+```
+
+The proxy command is just HTTP forwarding and doesn't need elevated privileges.

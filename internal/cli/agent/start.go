@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	stdRuntime "runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,6 +33,8 @@ import (
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/privilege"
+	"github.com/coral-mesh/coral/internal/runtime"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
@@ -106,6 +109,15 @@ Examples:
   # Development mode (pretty logging)
   coral agent start --config ./agent.yaml --log-format=pretty`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Initialize logger early for preflight checks
+			logger := logging.NewWithComponent(logging.Config{
+				Level:  "debug",
+				Pretty: true,
+			}, "agent")
+
+			// Perform preflight checks - warns about missing capabilities but allows degraded operation
+			performAgentPreflightChecks(logger)
+
 			// Load configuration
 			cfg, serviceSpecs, agentCfg, err := loadAgentConfig(configFile, colonyID)
 			if err != nil {
@@ -136,12 +148,6 @@ Examples:
 			} else if len(serviceSpecs) > 0 {
 				agentMode = "active"
 			}
-
-			// Initialize logger with specified format.
-			logger := logging.NewWithComponent(logging.Config{
-				Level:  "debug",
-				Pretty: true,
-			}, "agent")
 
 			logger.Info().
 				Str("colony_id", cfg.ColonyID).
@@ -242,6 +248,11 @@ Examples:
 				return fmt.Errorf("failed to setup WireGuard: %w", err)
 			}
 			defer func() { _ = wgDevice.Stop() }() // TODO: errcheck
+
+			// Note: Agent continues running with elevated privileges for eBPF operations.
+			// Beyla requires CAP_NET_ADMIN, CAP_SYS_ADMIN, CAP_SYS_PTRACE, CAP_SYS_RESOURCE,
+			// and CAP_BPF throughout its lifetime for continuous telemetry collection.
+			logger.Debug().Msg("Agent running with elevated privileges for eBPF/Beyla operations")
 
 			// Generate agent ID early so we can use it for registration
 			agentID := generateAgentID(serviceSpecs)
@@ -1033,4 +1044,99 @@ func gatherMeshNetworkInfo(
 	}
 
 	return info
+}
+
+// performAgentPreflightChecks validates agent prerequisites with graceful degradation.
+// Missing capabilities result in warnings, not failures, allowing the agent to operate
+// with reduced functionality in restricted environments.
+func performAgentPreflightChecks(logger logging.Logger) {
+	logger.Info().Msg("Running agent preflight checks...")
+
+	var warnings []string
+	hasFullCapabilities := true
+
+	// Check if running as root or with sudo
+	isRoot := privilege.IsRoot()
+	if !isRoot {
+		warnings = append(warnings, "Not running as root - TUN device creation may fail")
+		hasFullCapabilities = false
+		logger.Warn().Msg("⚠️  Not running with elevated privileges")
+	} else {
+		logger.Debug().Msg("✓ Running with elevated privileges")
+
+		// Detect original user for privilege context
+		if privilege.IsRunningUnderSudo() {
+			userCtx, err := privilege.DetectOriginalUser()
+			if err != nil {
+				logger.Debug().Err(err).Msg("Could not detect original user from sudo")
+			} else {
+				logger.Debug().
+					Str("user", userCtx.Username).
+					Int("uid", userCtx.UID).
+					Msg("Detected original user from sudo")
+			}
+		}
+	}
+
+	// Detect Linux capabilities (Linux-specific)
+	if stdRuntime.GOOS == "linux" {
+		caps, err := runtime.DetectLinuxCapabilities()
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to detect Linux capabilities")
+			warnings = append(warnings, "Could not detect capabilities - assuming degraded mode")
+			hasFullCapabilities = false
+		} else {
+			logger.Info().Msg("Detected Linux capabilities:")
+
+			// Check required capabilities and report status
+			checkCap := func(name string, has bool, required bool, purpose string) {
+				status := "✓"
+				if !has {
+					status = "✗"
+					if required {
+						warnings = append(warnings, fmt.Sprintf("Missing %s - %s unavailable", name, purpose))
+						hasFullCapabilities = false
+					}
+				}
+				logger.Info().Msgf("  %s %s: %s", status, name, purpose)
+			}
+
+			checkCap("CAP_NET_ADMIN", caps.CapNetAdmin, true, "TUN device, network config")
+			checkCap("CAP_SYS_ADMIN", caps.CapSysAdmin, true, "eBPF program loading")
+			checkCap("CAP_SYS_PTRACE", caps.CapSysPtrace, true, "Process tracing")
+			checkCap("CAP_SYS_RESOURCE", caps.CapSysResource, true, "Memory locking for eBPF")
+			checkCap("CAP_BPF", caps.CapBpf, false, "eBPF operations (Linux 5.8+)")
+			checkCap("CAP_PERFMON", caps.CapPerfmon, false, "Performance monitoring")
+
+			// CAP_BPF and CAP_PERFMON are optional (fall back to CAP_SYS_ADMIN)
+			if !caps.CapBpf && !caps.CapSysAdmin {
+				warnings = append(warnings, "eBPF requires CAP_BPF or CAP_SYS_ADMIN")
+				hasFullCapabilities = false
+			}
+		}
+	} else if isRoot {
+		// Non-Linux: just check root
+		logger.Info().Msg("Running as root (non-Linux platform)")
+		logger.Info().Msg("  ✓ Full privileges available")
+	}
+
+	// Report overall status
+	if len(warnings) > 0 {
+		logger.Warn().Msg("Agent will start with reduced functionality:")
+		for _, w := range warnings {
+			logger.Warn().Msg("  ⚠️  " + w)
+		}
+		if stdRuntime.GOOS == "linux" {
+			logger.Info().Msg("To enable all capabilities:")
+			logger.Info().Msg("  sudo setcap 'cap_net_admin,cap_sys_admin,cap_sys_ptrace,cap_sys_resource,cap_bpf+ep' $(which coral)")
+		} else {
+			logger.Info().Msg("  Run with: sudo coral agent start")
+		}
+	}
+
+	if hasFullCapabilities {
+		logger.Info().Msg("✓ All required capabilities available")
+	} else {
+		logger.Info().Msg("⚠️  Starting in degraded mode with available capabilities")
+	}
 }

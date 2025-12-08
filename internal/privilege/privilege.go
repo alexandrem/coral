@@ -139,3 +139,26 @@ func FixFileOwnership(path string) error {
 
 	return nil
 }
+
+// DropToOriginalUser attempts to drop root privileges to the original user
+// who invoked sudo. If not running via sudo, it does nothing.
+// This should be called after all privileged operations are complete.
+func DropToOriginalUser() error {
+	if !IsRoot() {
+		// Not running as root, nothing to do.
+		return nil
+	}
+
+	userCtx, err := DetectOriginalUser()
+	if err != nil {
+		// If we can't determine the original user, continue as root with a warning.
+		// This handles the case where someone runs directly as root (not via sudo).
+		return nil
+	}
+
+	if err := DropPrivileges(userCtx.UID, userCtx.GID); err != nil {
+		return fmt.Errorf("failed to drop privileges to user %s (uid:%d, gid:%d): %w", userCtx.Username, userCtx.UID, userCtx.GID, err)
+	}
+
+	return nil
+}

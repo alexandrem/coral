@@ -43,6 +43,36 @@ func CreateTUN(name string, mtu int, logger zerolog.Logger) (*Interface, error) 
 	}, nil
 }
 
+// CreateTUNFromFD creates a new TUN device from an existing file descriptor.
+func CreateTUNFromFD(name string, fd int, mtu int, logger zerolog.Logger) (*Interface, error) {
+	if name == "" {
+		name = "wg0"
+	}
+
+	if mtu <= 0 {
+		mtu = 1420 // Default MTU for WireGuard (1500 - 80 overhead)
+	}
+
+	// Create TUN device from file descriptor.
+	tunDevice, err := tun.CreateTUNFromFD(name, fd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create TUN device from FD: %w", err)
+	}
+
+	realName, err := tunDevice.Name()
+	if err != nil {
+		_ = tunDevice.Close() // TODO: errcheck
+		return nil, fmt.Errorf("failed to get TUN device name: %w", err)
+	}
+
+	return &Interface{
+		device: tunDevice,
+		name:   realName,
+		mtu:    mtu,
+		logger: logger.With().Str("component", "wireguard.interface").Str("name", realName).Logger(),
+	}, nil
+}
+
 // AssignIPPlatform assigns an IP address to the interface on Linux using ip command.
 // If the interface already has an IP address, it will be replaced.
 func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {

@@ -103,12 +103,14 @@ func (d *Device) Start() error {
 		return fmt.Errorf("device already started")
 	}
 
-	// Create TUN interface.
-	iface, err := CreateTUN("wg0", d.cfg.MTU, d.logger)
+	// Create TUN interface. This requires root privileges.
+	iface, err := CreateTUN("", d.cfg.MTU, d.logger)
 	if err != nil {
-		// Check if this is a permission error.
+		// If we are here, it means we don't have privileges. The new architecture
+		// requires the process to be started as root, so we wrap this in a
+		// permission error.
 		if isPermissionError(err) {
-			return d.wrapPermissionError(err)
+			return wrapPermissionError(err)
 		}
 		return fmt.Errorf("failed to create TUN interface: %w", err)
 	}
@@ -510,7 +512,7 @@ func isPermissionError(err error) bool {
 }
 
 // wrapPermissionError wraps a permission error with a helpful message.
-func (d *Device) wrapPermissionError(err error) error {
+func wrapPermissionError(err error) error {
 	binaryPath, _ := os.Executable()
 	if binaryPath == "" {
 		binaryPath = constants.DefaultBinaryPath
