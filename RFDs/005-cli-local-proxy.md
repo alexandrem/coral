@@ -15,7 +15,7 @@ areas: [ "cli", "networking", "security" ]
 
 **Status:** 🎉 Implemented (Simplified)
 
-## Implementation Status (December 2024)
+## Implementation Status (December 2025)
 
 **Current implementation:** Simplified HTTP reverse proxy (no WireGuard peer).
 
