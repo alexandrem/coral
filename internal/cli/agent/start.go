@@ -10,7 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	stdRuntime "runtime"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -34,7 +34,7 @@ import (
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/privilege"
-	"github.com/coral-mesh/coral/internal/runtime"
+	pkgruntime "github.com/coral-mesh/coral/internal/runtime"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
@@ -1079,8 +1079,8 @@ func performAgentPreflightChecks(logger logging.Logger) {
 	}
 
 	// Detect Linux capabilities (Linux-specific)
-	if stdRuntime.GOOS == "linux" {
-		caps, err := runtime.DetectLinuxCapabilities()
+	if runtime.GOOS == "linux" {
+		caps, err := pkgruntime.DetectLinuxCapabilities()
 		if err != nil {
 			logger.Warn().Err(err).Msg("Failed to detect Linux capabilities")
 			warnings = append(warnings, "Could not detect capabilities - assuming degraded mode")
@@ -1126,7 +1126,7 @@ func performAgentPreflightChecks(logger logging.Logger) {
 		for _, w := range warnings {
 			logger.Warn().Msg("  ⚠️  " + w)
 		}
-		if stdRuntime.GOOS == "linux" {
+		if runtime.GOOS == "linux" {
 			logger.Info().Msg("To enable all capabilities:")
 			logger.Info().Msg("  sudo setcap 'cap_net_admin,cap_sys_admin,cap_sys_ptrace,cap_sys_resource,cap_bpf+ep' $(which coral)")
 		} else {
