@@ -1453,8 +1453,14 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}
 	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
-	// Initialize Debug Orchestrator (RFD 059 - Live Debugging).
-	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry, db)
+	// Initialize function registry early (needed by debug orchestrator).
+	var functionReg *colony.FunctionRegistry
+	if !colonyConfig.FunctionRegistry.Disabled {
+		functionReg = colony.NewFunctionRegistry(db, logger)
+	}
+
+	// Initialize Debug Orchestrator (RFD 059 - Live Debugging, RFD 069 - Function Discovery).
+	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry, db, functionReg)
 
 	// Initialize MCP server (RFD 004 - MCP server integration).
 	// Load colony config for MCP settings.
@@ -1505,10 +1511,8 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	colonySvc.SetEbpfService(ebpfService)
 	logger.Info().Msg("eBPF query service initialized and attached to colony")
 
-	// Initialize function registry and poller (RFD 063).
-	if !colonyConfig.FunctionRegistry.Disabled {
-		functionRegistry := colony.NewFunctionRegistry(db, logger)
-
+	// Start function registry poller if registry was created (RFD 063).
+	if functionReg != nil {
 		// Configure poll interval from config (default: 5 minutes).
 		pollInterval := 5 * time.Minute
 		if colonyConfig.FunctionRegistry.PollInterval > 0 {
@@ -1517,7 +1521,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 		functionPoller := colony.NewFunctionPoller(colony.FunctionPollerConfig{
 			Registry:         agentRegistry,
-			FunctionRegistry: functionRegistry,
+			FunctionRegistry: functionReg,
 			PollInterval:     pollInterval,
 			Logger:           logger,
 		})

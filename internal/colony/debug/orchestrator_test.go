@@ -48,7 +48,7 @@ func setupTestOrchestrator(t *testing.T) (*Orchestrator, *database.Database) {
 		t.Fatalf("Failed to register test agent: %v", err)
 	}
 
-	orch := NewOrchestrator(logger, reg, db)
+	orch := NewOrchestrator(logger, reg, db, nil)
 	return orch, db
 }
 
@@ -251,7 +251,7 @@ func TestSchemaInitialization(t *testing.T) {
 	reg := registry.New()
 
 	// Create orchestrator - should initialize schema
-	_ = NewOrchestrator(logger, reg, db)
+	_ = NewOrchestrator(logger, reg, db, nil)
 
 	// Verify table exists by querying it
 	// We can use the DB() method to get the underlying sql.DB

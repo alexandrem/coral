@@ -21,6 +21,7 @@ import (
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 
+	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -28,19 +29,21 @@ import (
 
 // Orchestrator manages debug sessions across agents.
 type Orchestrator struct {
-	logger        zerolog.Logger
-	registry      *registry.Registry
-	db            *database.Database
-	clientFactory func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
+	logger           zerolog.Logger
+	registry         *registry.Registry
+	db               *database.Database
+	functionRegistry *colony.FunctionRegistry
+	clientFactory    func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
 }
 
 // NewOrchestrator creates a new debug orchestrator.
-func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *database.Database) *Orchestrator {
+func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *database.Database, functionRegistry *colony.FunctionRegistry) *Orchestrator {
 	return &Orchestrator{
-		logger:        logger.With().Str("component", "debug_orchestrator").Logger(),
-		registry:      registry,
-		db:            db,
-		clientFactory: meshv1connect.NewDebugServiceClient,
+		logger:           logger.With().Str("component", "debug_orchestrator").Logger(),
+		registry:         registry,
+		db:               db,
+		functionRegistry: functionRegistry,
+		clientFactory:    meshv1connect.NewDebugServiceClient,
 	}
 }
 
@@ -719,4 +722,334 @@ func (o *Orchestrator) GetDebugResults(
 // buildAgentAddress constructs the agent address from the mesh IP.
 func buildAgentAddress(meshIP string) string {
 	return net.JoinHostPort(meshIP, fmt.Sprintf("%d", constants.DefaultAgentPort))
+}
+
+// QueryFunctions implements function discovery with semantic search (RFD 069).
+func (o *Orchestrator) QueryFunctions(
+	ctx context.Context,
+	req *connect.Request[debugpb.QueryFunctionsRequest],
+) (*connect.Response[debugpb.QueryFunctionsResponse], error) {
+	o.logger.Debug().
+		Str("service", req.Msg.ServiceName).
+		Str("query", req.Msg.Query).
+		Int32("max_results", req.Msg.MaxResults).
+		Msg("Querying functions")
+
+	// Set defaults
+	maxResults := int(req.Msg.MaxResults)
+	if maxResults <= 0 {
+		maxResults = 20 // Default
+	}
+	if maxResults > 50 {
+		maxResults = 50 // Max limit
+	}
+
+	// Check if function registry is available
+	if o.functionRegistry == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented,
+			fmt.Errorf("function registry not available"))
+	}
+
+	// Query the function registry
+	colonyFunctions, err := o.functionRegistry.QueryFunctions(ctx, req.Msg.ServiceName, req.Msg.Query, maxResults)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("service", req.Msg.ServiceName).
+			Str("query", req.Msg.Query).
+			Msg("Failed to query functions")
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("failed to query functions: %w", err))
+	}
+
+	// Convert function results to protobuf format
+	var results []*debugpb.FunctionResult
+	for _, fn := range colonyFunctions {
+		// Extract values from sql.Null types
+		packageName := ""
+		if fn.PackageName.Valid {
+			packageName = fn.PackageName.String
+		}
+		filePath := ""
+		if fn.FilePath.Valid {
+			filePath = fn.FilePath.String
+		}
+		lineNumber := int32(0)
+		if fn.LineNumber.Valid {
+			lineNumber = fn.LineNumber.Int32
+		}
+		offset := int64(0)
+		if fn.Offset.Valid {
+			offset = fn.Offset.Int64
+		}
+
+		result := &debugpb.FunctionResult{
+			Function: &debugpb.FunctionMetadata{
+				Id:      fmt.Sprintf("%s/%s", fn.ServiceName, fn.FunctionName),
+				Name:    fn.FunctionName,
+				Package: packageName,
+				File:    filePath,
+				Line:    lineNumber,
+				Offset:  fmt.Sprintf("0x%x", offset),
+			},
+			Search: &debugpb.SearchInfo{
+				Score:  1.0, // TODO: Get actual similarity score from registry
+				Reason: "Semantic match",
+			},
+			Instrumentation: &debugpb.InstrumentationInfo{
+				IsProbeable:     fn.HasDwarf,
+				HasDwarf:        fn.HasDwarf,
+				CurrentlyProbed: false, // TODO: Check active sessions
+			},
+		}
+
+		results = append(results, result)
+	}
+
+	// Calculate data coverage (how many results have metrics)
+	// TODO: Implement metrics storage and retrieval
+	dataCoveragePct := int32(0)
+
+	// Generate suggestion if data coverage is low
+	var suggestion string
+	if dataCoveragePct < 50 && len(results) > 0 {
+		suggestion = fmt.Sprintf("Low data coverage (%d%%). Consider running coral_profile_functions to collect metrics.", dataCoveragePct)
+	}
+
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Str("query", req.Msg.Query).
+		Int("result_count", len(results)).
+		Msg("Function query completed")
+
+	return connect.NewResponse(&debugpb.QueryFunctionsResponse{
+		ServiceName:     req.Msg.ServiceName,
+		Query:           req.Msg.Query,
+		DataCoveragePct: dataCoveragePct,
+		Results:         results,
+		Suggestion:      suggestion,
+	}), nil
+}
+
+// ProfileFunctions implements batch profiling with automatic analysis (RFD 069).
+func (o *Orchestrator) ProfileFunctions(
+	ctx context.Context,
+	req *connect.Request[debugpb.ProfileFunctionsRequest],
+) (*connect.Response[debugpb.ProfileFunctionsResponse], error) {
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Str("query", req.Msg.Query).
+		Str("strategy", req.Msg.Strategy).
+		Msg("Starting batch profiling")
+
+	// Set defaults
+	maxFunctions := int(req.Msg.MaxFunctions)
+	if maxFunctions <= 0 {
+		maxFunctions = 20 // Default
+	}
+	if maxFunctions > 50 {
+		maxFunctions = 50 // Max limit
+	}
+
+	duration := req.Msg.Duration
+	if duration == nil || duration.AsDuration() > 5*time.Minute {
+		duration = durationpb.New(60 * time.Second) // Default: 60s, Max: 5min
+	}
+
+	strategy := req.Msg.Strategy
+	if strategy == "" {
+		strategy = "critical_path" // Default strategy
+	}
+
+	// Check if function registry is available
+	if o.functionRegistry == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented,
+			fmt.Errorf("function registry not available"))
+	}
+
+	// Step 1: Discover functions matching the query
+	colonyFunctions, err := o.functionRegistry.QueryFunctions(ctx, req.Msg.ServiceName, req.Msg.Query, maxFunctions)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("service", req.Msg.ServiceName).
+			Str("query", req.Msg.Query).
+			Msg("Failed to discover functions for profiling")
+		return connect.NewResponse(&debugpb.ProfileFunctionsResponse{
+			Status: "failed",
+			Summary: &debugpb.ProfileSummary{
+				FunctionsSelected: 0,
+				FunctionsProbed:   0,
+				ProbesFailed:      0,
+			},
+			Recommendation: fmt.Sprintf("Failed to discover functions: %v", err),
+		}), nil
+	}
+
+	if len(colonyFunctions) == 0 {
+		return connect.NewResponse(&debugpb.ProfileFunctionsResponse{
+			Status: "failed",
+			Summary: &debugpb.ProfileSummary{
+				FunctionsSelected: 0,
+				FunctionsProbed:   0,
+				ProbesFailed:      0,
+			},
+			Recommendation: "No functions found matching query. Try a different search query.",
+		}), nil
+	}
+
+	// Step 2: Apply selection strategy
+	selectedFunctions := applySelectionStrategy(colonyFunctions, strategy)
+	if len(selectedFunctions) > maxFunctions {
+		selectedFunctions = selectedFunctions[:maxFunctions]
+	}
+
+	o.logger.Info().
+		Int("discovered", len(colonyFunctions)).
+		Int("selected", len(selectedFunctions)).
+		Str("strategy", strategy).
+		Msg("Function selection completed")
+
+	// Step 3: Attach probes to all selected functions
+	// For synchronous mode (async=false), we attach probes and wait
+	// For async mode, we return immediately with in_progress status
+	sessionID := uuid.New().String()
+	var profileResults []*debugpb.ProfileResult
+	successCount := 0
+	failCount := 0
+
+	for _, fn := range selectedFunctions {
+		// Attach uprobe to each function
+		attachReq := connect.NewRequest(&debugpb.AttachUprobeRequest{
+			ServiceName:  fn.ServiceName,
+			FunctionName: fn.FunctionName,
+			AgentId:      fn.AgentID,
+			Duration:     duration,
+			Config: &meshv1.UprobeConfig{
+				CaptureArgs:   false,
+				CaptureReturn: true,
+				SampleRate:    uint32(req.Msg.SampleRate * 100),
+			},
+		})
+
+		attachResp, err := o.AttachUprobe(ctx, attachReq)
+		if err != nil || !attachResp.Msg.Success {
+			o.logger.Warn().
+				Err(err).
+				Str("function", fn.FunctionName).
+				Msg("Failed to attach probe")
+
+			profileResults = append(profileResults, &debugpb.ProfileResult{
+				Function:        fn.FunctionName,
+				ProbeSuccessful: false,
+			})
+			failCount++
+			continue
+		}
+
+		o.logger.Debug().
+			Str("function", fn.FunctionName).
+			Str("session_id", attachResp.Msg.SessionId).
+			Msg("Probe attached successfully")
+
+		profileResults = append(profileResults, &debugpb.ProfileResult{
+			Function:        fn.FunctionName,
+			ProbeSuccessful: true,
+			// Metrics will be populated after collection
+		})
+		successCount++
+	}
+
+	// If async mode, return immediately with in_progress status
+	if req.Msg.Async {
+		return connect.NewResponse(&debugpb.ProfileFunctionsResponse{
+			SessionId:   sessionID,
+			Status:      "in_progress",
+			ServiceName: req.Msg.ServiceName,
+			Query:       req.Msg.Query,
+			Strategy:    strategy,
+			Summary: &debugpb.ProfileSummary{
+				FunctionsSelected: int32(len(selectedFunctions)),
+				FunctionsProbed:   int32(successCount),
+				ProbesFailed:      int32(failCount),
+				Duration:          duration,
+			},
+			Results:        profileResults,
+			Recommendation: "Profiling in progress. Use coral debug session list to check status.",
+		}), nil
+	}
+
+	// Synchronous mode: wait for duration and collect results
+	o.logger.Info().
+		Dur("duration", duration.AsDuration()).
+		Msg("Waiting for profiling data collection")
+
+	time.Sleep(duration.AsDuration())
+
+	// TODO: Collect and aggregate results from all sessions
+	// TODO: Perform bottleneck analysis
+	// For now, return basic response
+
+	status := "completed"
+	if failCount > 0 && successCount == 0 {
+		status = "failed"
+	} else if failCount > 0 {
+		status = "partial_success"
+	}
+
+	recommendation := fmt.Sprintf("Profiled %d functions successfully.", successCount)
+	if failCount > 0 {
+		recommendation += fmt.Sprintf(" %d probe(s) failed to attach.", failCount)
+	}
+
+	return connect.NewResponse(&debugpb.ProfileFunctionsResponse{
+		SessionId:   sessionID,
+		Status:      status,
+		ServiceName: req.Msg.ServiceName,
+		Query:       req.Msg.Query,
+		Strategy:    strategy,
+		Summary: &debugpb.ProfileSummary{
+			FunctionsSelected: int32(len(selectedFunctions)),
+			FunctionsProbed:   int32(successCount),
+			ProbesFailed:      int32(failCount),
+			Duration:          duration,
+		},
+		Results:        profileResults,
+		Bottlenecks:    []*debugpb.Bottleneck{}, // TODO: Implement bottleneck analysis
+		Recommendation: recommendation,
+		NextSteps: []string{
+			"Use 'coral debug session list' to view active sessions",
+			"Run 'coral debug session events <session-id>' to see detailed metrics",
+		},
+	}), nil
+}
+
+// applySelectionStrategy filters functions based on the selection strategy.
+func applySelectionStrategy(functions []*colony.FunctionInfo, strategy string) []*colony.FunctionInfo {
+	switch strategy {
+	case "all":
+		return functions
+	case "entry_points":
+		// Filter for entry points (HTTP handlers, RPC methods)
+		// TODO: Implement proper entry point detection
+		var filtered []*colony.FunctionInfo
+		for _, fn := range functions {
+			if strings.Contains(strings.ToLower(fn.FunctionName), "handle") ||
+				strings.Contains(strings.ToLower(fn.FunctionName), "serve") {
+				filtered = append(filtered, fn)
+			}
+		}
+		if len(filtered) > 0 {
+			return filtered
+		}
+		// Fallback to all if no entry points found
+		return functions
+	case "leaf_functions":
+		// TODO: Implement leaf function detection using call graph
+		return functions
+	case "critical_path":
+		fallthrough
+	default:
+		// For critical_path, return all discovered functions
+		// TODO: Implement call graph analysis to identify critical path
+		return functions
+	}
 }

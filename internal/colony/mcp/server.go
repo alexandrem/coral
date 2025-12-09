@@ -208,18 +208,22 @@ func (s *Server) getToolSchemas() map[string]string {
 	// Generate schema for each tool's input type.
 	// Use the same input types as tool registration.
 	toolInputTypes := map[string]interface{}{
-		"coral_query_summary":            UnifiedSummaryInput{},
-		"coral_query_traces":             UnifiedTracesInput{},
-		"coral_query_metrics":            UnifiedMetricsInput{},
-		"coral_query_logs":               UnifiedLogsInput{},
-		"coral_shell_exec":               ShellExecInput{},
-		"coral_container_exec":           ContainerExecInput{},
-		"coral_list_services":            ListServicesInput{},
-		"coral_attach_uprobe":            AttachUprobeInput{},
-		"coral_trace_request_path":       TraceRequestPathInput{},
-		"coral_list_debug_sessions":      ListDebugSessionsInput{},
-		"coral_detach_uprobe":            DetachUprobeInput{},
-		"coral_get_debug_results":        GetDebugResultsInput{},
+		"coral_query_summary":       UnifiedSummaryInput{},
+		"coral_query_traces":        UnifiedTracesInput{},
+		"coral_query_metrics":       UnifiedMetricsInput{},
+		"coral_query_logs":          UnifiedLogsInput{},
+		"coral_shell_exec":          ShellExecInput{},
+		"coral_container_exec":      ContainerExecInput{},
+		"coral_list_services":       ListServicesInput{},
+		"coral_attach_uprobe":       AttachUprobeInput{},
+		"coral_trace_request_path":  TraceRequestPathInput{},
+		"coral_list_debug_sessions": ListDebugSessionsInput{},
+		"coral_detach_uprobe":       DetachUprobeInput{},
+		"coral_get_debug_results":   GetDebugResultsInput{},
+		// RFD 069: New unified function discovery and profiling tools
+		"coral_discover_functions": DiscoverFunctionsInput{},
+		"coral_profile_functions":  ProfileFunctionsInput{},
+		// Legacy tools (deprecated by RFD 069)
 		"coral_search_functions":         SearchFunctionsInput{},
 		"coral_get_function_context":     GetFunctionContextInput{},
 		"coral_list_probeable_functions": ListProbeableFunctionsInput{},
@@ -258,21 +262,25 @@ func (s *Server) getToolSchemas() map[string]string {
 // These descriptions are used when serving tools via both MCP and RPC APIs.
 func (s *Server) getToolDescriptions() map[string]string {
 	return map[string]string{
-		"coral_query_summary":            "Get a high-level health summary for services, combining eBPF and OTLP data.",
-		"coral_query_traces":             "Query distributed traces from all sources (eBPF + OTLP).",
-		"coral_query_metrics":            "Query metrics from all sources (eBPF + OTLP).",
-		"coral_query_logs":               "Query logs from OTLP.",
-		"coral_shell_exec":               "Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
-		"coral_container_exec":           "Execute a command in a container's namespace using nsenter. Access container-mounted configs, logs, and volumes that are not visible from the agent's host filesystem. Works in sidecar and node agent deployments. Returns stdout, stderr, exit code, and container PID. Use for commands like 'cat /app/config.yaml', 'ls /data'.",
-		"coral_list_services":            "List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
-		"coral_attach_uprobe":            "Attach eBPF uprobe to application function for live debugging. Captures entry/exit events, measures duration. Time-limited and production-safe.",
-		"coral_trace_request_path":       "Trace all functions called during HTTP request execution. Auto-discovers call chain and builds execution tree.",
-		"coral_list_debug_sessions":      "List active and recent debug sessions across services.",
-		"coral_detach_uprobe":            "Stop debug session early and detach eBPF probes. Returns collected data summary.",
-		"coral_get_debug_results":        "Get aggregated results from debug session: call counts, duration percentiles, slow outliers.",
-		"coral_search_functions":         "Semantic search for functions by keywords. Searches function names, file paths, and comments. Returns ranked results. Prefer this over list_probeable_functions for discovery.",
-		"coral_get_function_context":     "Get context about a function: what calls it, what it calls, recent performance metrics. Use this to navigate the call graph after discovering an entry point.",
-		"coral_list_probeable_functions": "List functions available for uprobe attachment using regex pattern. Use coral_search_functions instead for semantic search. This is a fallback for regex-based filtering.",
+		"coral_query_summary":       "Get a high-level health summary for services, combining eBPF and OTLP data.",
+		"coral_query_traces":        "Query distributed traces from all sources (eBPF + OTLP).",
+		"coral_query_metrics":       "Query metrics from all sources (eBPF + OTLP).",
+		"coral_query_logs":          "Query logs from OTLP.",
+		"coral_shell_exec":          "Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
+		"coral_container_exec":      "Execute a command in a container's namespace using nsenter. Access container-mounted configs, logs, and volumes that are not visible from the agent's host filesystem. Works in sidecar and node agent deployments. Returns stdout, stderr, exit code, and container PID. Use for commands like 'cat /app/config.yaml', 'ls /data'.",
+		"coral_list_services":       "List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
+		"coral_attach_uprobe":       "Attach eBPF uprobe to application function for live debugging. Captures entry/exit events, measures duration. Time-limited and production-safe.",
+		"coral_trace_request_path":  "Trace all functions called during HTTP request execution. Auto-discovers call chain and builds execution tree.",
+		"coral_list_debug_sessions": "List active and recent debug sessions across services.",
+		"coral_detach_uprobe":       "Stop debug session early and detach eBPF probes. Returns collected data summary.",
+		"coral_get_debug_results":   "Get aggregated results from debug session: call counts, duration percentiles, slow outliers.",
+		// RFD 069: New unified function discovery and profiling tools
+		"coral_discover_functions": "🎯 RECOMMENDED: Unified function discovery with semantic search. Replaces coral_search_functions + coral_get_function_context + coral_list_probeable_functions. Returns functions with embedded metrics, instrumentation info, and actionable suggestions. Use this for all function discovery needs.",
+		"coral_profile_functions":  "🔥 RECOMMENDED: Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Reduces 7+ tool calls to 1. Use this for performance investigation.",
+		// Legacy tools (deprecated by RFD 069)
+		"coral_search_functions":         "⚠️ DEPRECATED: Use coral_discover_functions instead. Semantic search for functions by keywords.",
+		"coral_get_function_context":     "⚠️ DEPRECATED: Use coral_discover_functions instead. Get context about a function.",
+		"coral_list_probeable_functions": "⚠️ DEPRECATED: Use coral_discover_functions instead. List functions available for uprobe attachment.",
 	}
 }
 
@@ -295,6 +303,13 @@ func (s *Server) registerTools() error {
 	s.registerListDebugSessionsTool()
 	s.registerDetachUprobeTool()
 	s.registerGetDebugResultsTool()
+
+	// Register function discovery and profiling tools (RFD 069).
+	// These replace coral_search_functions, coral_get_function_context, and coral_list_probeable_functions.
+	s.registerDiscoverFunctionsTool()
+	s.registerProfileFunctionsTool()
+
+	// Legacy tools (deprecated by RFD 069, kept for backward compatibility).
 	s.registerSearchFunctionsTool()
 	s.registerGetFunctionContextTool()
 	s.registerListProbeableFunctionsTool()
@@ -328,6 +343,10 @@ func (s *Server) listToolNames() []string {
 		"coral_list_debug_sessions",
 		"coral_detach_uprobe",
 		"coral_get_debug_results",
+		// RFD 069: New unified function discovery and profiling tools
+		"coral_discover_functions",
+		"coral_profile_functions",
+		// Legacy tools (deprecated by RFD 069)
 		"coral_search_functions",
 		"coral_get_function_context",
 		"coral_list_probeable_functions",

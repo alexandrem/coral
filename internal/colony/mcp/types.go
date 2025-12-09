@@ -161,6 +161,28 @@ type ListProbeableFunctionsInput struct {
 	Pattern *string `json:"pattern,omitempty" jsonschema:"description=Regex filter for function names (e.g., 'handle.*', 'process.*')"`
 }
 
+// RFD 069 - Function Discovery and Profiling Tools
+
+// DiscoverFunctionsInput is the input for coral_discover_functions (RFD 069).
+type DiscoverFunctionsInput struct {
+	Service        *string `json:"service,omitempty" jsonschema:"description=Optional: Filter by service name"`
+	Query          string  `json:"query" jsonschema:"description=Semantic search query (e.g., 'checkout', 'payment processing', 'database')"`
+	MaxResults     *int32  `json:"max_results,omitempty" jsonschema:"description=Max results to return (default: 20, max: 50)"`
+	IncludeMetrics *bool   `json:"include_metrics,omitempty" jsonschema:"description=Include performance metrics if available (default: true)"`
+	PrioritizeSlow *bool   `json:"prioritize_slow,omitempty" jsonschema:"description=Rank by P95 latency (default: false)"`
+}
+
+// ProfileFunctionsInput is the input for coral_profile_functions (RFD 069).
+type ProfileFunctionsInput struct {
+	Service      string   `json:"service" jsonschema:"description=Service name (required)"`
+	Query        string   `json:"query" jsonschema:"description=Search query to find functions to profile"`
+	Strategy     *string  `json:"strategy,omitempty" jsonschema:"description=Selection strategy: critical-path, all, entry-points, leaf-functions (default: critical-path)"`
+	MaxFunctions *int32   `json:"max_functions,omitempty" jsonschema:"description=Max functions to probe (default: 20, max: 50)"`
+	Duration     *string  `json:"duration,omitempty" jsonschema:"description=Duration (e.g., '30s', '5m'). Default: 60s, max: 300s"`
+	Async        *bool    `json:"async,omitempty" jsonschema:"description=Return immediately vs wait for results (default: false)"`
+	SampleRate   *float64 `json:"sample_rate,omitempty" jsonschema:"description=Event sampling rate 0.1-1.0 (default: 1.0)"`
+}
+
 // Unified Query Tool Inputs (RFD 067)
 
 // UnifiedSummaryInput is the input for coral_query_summary.
