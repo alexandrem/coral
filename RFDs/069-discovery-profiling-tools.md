@@ -18,12 +18,12 @@ areas: [ "mcp", "cli", "ai", "debugging", "tools" ]
 ## Summary
 
 Define user-facing tools for function discovery and profiling, building on the
-function registry infrastructure (RFD 063) and debug CLI structure (RFD 072). For
+function registry infrastructure (RFD 063) and debug CLI structure (RFD 068). For
 LLMs, provide **two meta-tools** that replace 5+ low-level operations:
 `coral_discover_functions` (unified search with embedded context) and
 `coral_profile_functions` (batch instrumentation with automatic analysis). For
 CLI, implement `coral debug search`, `coral debug info`, and `coral debug profile`
-commands that integrate with the reorganized session management (RFD 072). This
+commands that integrate with the reorganized session management (RFD 068). This
 reduces typical LLM debugging workflows from 7+ tool calls to 2-3.
 
 ## Problem
