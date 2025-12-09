@@ -121,11 +121,6 @@ Examples:
   # Production with hostname
   CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Colony start requires root for TUN device creation and network configuration.
-			if !privilege.IsRoot() {
-				return fmt.Errorf("colony start must be run as root or with sudo.\n\nTUN device creation, IP assignment, and routing require elevated privileges.\nRun with: sudo coral colony start")
-			}
-
 			// Initialize logger early for preflight checks.
 			logger := logging.NewWithComponent(logging.Config{
 				Level:  "info",
