@@ -1064,7 +1064,7 @@ func performAgentPreflightChecks(logger logging.Logger) error {
 	// On macOS, we must run as root (no capability system, no graceful degradation)
 	if runtime.GOOS == "darwin" && !isRoot {
 		return fmt.Errorf("agent must be run with sudo on macOS:\n  sudo coral agent start\n\n" +
-			"macOS requires root privileges for TUN device creation and configuration.")
+			"macOS requires root privileges for TUN device creation and configuration")
 	}
 
 	if !isRoot {
