@@ -115,8 +115,11 @@ Examples:
 				Pretty: true,
 			}, "agent")
 
-			// Perform preflight checks - warns about missing capabilities but allows degraded operation
-			performAgentPreflightChecks(logger)
+			// Perform preflight checks - warns about missing capabilities on Linux (allows degraded operation)
+			// On macOS, fails hard if not running as root
+			if err := performAgentPreflightChecks(logger); err != nil {
+				return err
+			}
 
 			// Load configuration
 			cfg, serviceSpecs, agentCfg, err := loadAgentConfig(configFile, colonyID)
@@ -1047,9 +1050,9 @@ func gatherMeshNetworkInfo(
 }
 
 // performAgentPreflightChecks validates agent prerequisites with graceful degradation.
-// Missing capabilities result in warnings, not failures, allowing the agent to operate
-// with reduced functionality in restricted environments.
-func performAgentPreflightChecks(logger logging.Logger) {
+// On Linux, missing capabilities result in warnings allowing reduced functionality.
+// On macOS, root is required (returns error if missing).
+func performAgentPreflightChecks(logger logging.Logger) error {
 	logger.Info().Msg("Running agent preflight checks...")
 
 	var warnings []string
@@ -1057,6 +1060,13 @@ func performAgentPreflightChecks(logger logging.Logger) {
 
 	// Check if running as root or with sudo
 	isRoot := privilege.IsRoot()
+
+	// On macOS, we must run as root (no capability system, no graceful degradation)
+	if runtime.GOOS == "darwin" && !isRoot {
+		return fmt.Errorf("agent must be run with sudo on macOS:\n  sudo coral agent start\n\n" +
+			"macOS requires root privileges for TUN device creation and configuration.")
+	}
+
 	if !isRoot {
 		warnings = append(warnings, "Not running as root - TUN device creation may fail")
 		hasFullCapabilities = false
@@ -1139,4 +1149,6 @@ func performAgentPreflightChecks(logger logging.Logger) {
 	} else {
 		logger.Info().Msg("⚠️  Starting in degraded mode with available capabilities")
 	}
+
+	return nil
 }

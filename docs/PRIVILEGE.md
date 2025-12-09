@@ -104,34 +104,52 @@ sudo coral agent start
 - Full root privileges (no fine-grained control)
 - File ownership preserved via `$SUDO_USER` detection
 
+**Why helper subprocess doesn't work on macOS:**
+
+The helper subprocess approach (spawning privileged subprocess to create TUN and
+pass FD) doesn't work on macOS because:
+
+- TUN device creation requires root ✓
+- TUN device configuration (MTU, routes) also requires root ✗
+- Even with a passed file descriptor, the non-root parent process cannot
+  configure the device
+
+Therefore, both colony and agent **must** run as root on macOS throughout their
+lifetime. Running without sudo will fail immediately with a clear error message.
+
 ## Graceful Degradation
 
-### Agent Preflight Checks
+### Agent Preflight Checks (Linux Only)
 
-The agent performs capability detection and allows operation with reduced
-functionality:
+On Linux, the agent performs capability detection and allows operation with
+reduced functionality. **On macOS, root is required (no degradation).**
 
-**Full capabilities:**
+**Full capabilities (Linux):**
 
 ```
 ✓ All required capabilities available
 ```
 
-**Partial capabilities:**
+**Partial capabilities (Linux):**
 
 ```
 ⚠️  Missing CAP_SYS_PTRACE - Process tracing unavailable
 ⚠️  Starting in degraded mode with available capabilities
 ```
 
-**Restricted environments:**
+**Restricted environments (Linux):**
 
 - Container without eBPF → Can still do mesh networking
 - No CAP_SYS_PTRACE → Can't trace processes but can monitor network
 - No root at all → Warnings issued, some features unavailable
 
-This allows deployment in restricted environments (containers, restricted hosts)
-where full capabilities aren't available.
+This allows deployment in restricted Linux environments (containers, restricted
+hosts) where full capabilities aren't available.
+
+**macOS behavior:**
+
+On macOS, attempting to run colony or agent without `sudo` will fail immediately
+with a clear error message explaining that root is required.
 
 ## Helper Subprocess Architecture
 
