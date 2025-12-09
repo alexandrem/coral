@@ -91,6 +91,18 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 		return nil, fmt.Errorf("failed to get executable path: %w", err)
 	}
 
+	return NewFunctionMetadataProviderForBinary(logger, binaryPath, os.Getpid())
+}
+
+// NewFunctionMetadataProviderForBinary creates a metadata provider for any binary file.
+// This is useful for agents that need to discover functions from external service binaries.
+// The pid parameter is optional and can be 0 for binaries that aren't currently running.
+func NewFunctionMetadataProviderForBinary(logger *slog.Logger, binaryPath string, pid int) (*FunctionMetadataProvider, error) {
+	// Verify binary exists.
+	if _, err := os.Stat(binaryPath); err != nil {
+		return nil, fmt.Errorf("binary not found: %w", err)
+	}
+
 	var (
 		dwarfData  *dwarf.Data // Extract DWARF debug info (platform-specific).
 		fileCloser interface{ Close() error }
@@ -164,14 +176,14 @@ func NewFunctionMetadataProvider(logger *slog.Logger) (*FunctionMetadataProvider
 	} else {
 		logger.Info("Initialized function metadata provider with DWARF symbols",
 			"binary", binaryPath,
-			"pid", os.Getpid(),
+			"pid", pid,
 			"platform", runtime.GOOS)
 	}
 
 	p := &FunctionMetadataProvider{
 		logger:      logger.With("component", "metadata-provider"),
 		binaryPath:  binaryPath,
-		pid:         os.Getpid(),
+		pid:         pid,
 		dwarf:       dwarfData,
 		closer:      fileCloser,
 		baseAddr:    baseAddr,

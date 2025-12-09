@@ -1453,6 +1453,16 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}
 	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
+	// Load colony config early (needed by function registry, MCP, and other components).
+	mcpLoader, mcpErr := config.NewLoader()
+	if mcpErr != nil {
+		return nil, fmt.Errorf("failed to create config loader: %w", mcpErr)
+	}
+	colonyConfig, mcpErr = mcpLoader.LoadColonyConfig(cfg.ColonyID)
+	if mcpErr != nil {
+		return nil, fmt.Errorf("failed to load colony config: %w", mcpErr)
+	}
+
 	// Initialize function registry early (needed by debug orchestrator).
 	var functionReg *colony.FunctionRegistry
 	if !colonyConfig.FunctionRegistry.Disabled {
@@ -1461,17 +1471,6 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 	// Initialize Debug Orchestrator (RFD 059 - Live Debugging, RFD 069 - Function Discovery).
 	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry, db, functionReg)
-
-	// Initialize MCP server (RFD 004 - MCP server integration).
-	// Load colony config for MCP settings.
-	mcpLoader, mcpErr := config.NewLoader()
-	if mcpErr != nil {
-		return nil, fmt.Errorf("failed to create config loader for MCP: %w", mcpErr)
-	}
-	colonyConfig, mcpErr = mcpLoader.LoadColonyConfig(cfg.ColonyID)
-	if mcpErr != nil {
-		return nil, fmt.Errorf("failed to load colony config for MCP: %w", mcpErr)
-	}
 
 	// Create MCP server if not disabled.
 	if !colonyConfig.MCP.Disabled {
@@ -1514,10 +1513,10 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	// Start function registry poller if registry was created (RFD 063).
 	if functionReg != nil {
 		// Configure poll interval from config (default: 5 minutes).
-		pollInterval := 5 * time.Minute
-		if colonyConfig.FunctionRegistry.PollInterval > 0 {
-			pollInterval = time.Duration(colonyConfig.FunctionRegistry.PollInterval) * time.Second
-		}
+		pollInterval := 30 * time.Second
+		// if colonyConfig.FunctionRegistry.PollInterval > 0 {
+		//	pollInterval = time.Duration(colonyConfig.FunctionRegistry.PollInterval) * time.Second
+		// }
 
 		functionPoller := colony.NewFunctionPoller(colony.FunctionPollerConfig{
 			Registry:         agentRegistry,

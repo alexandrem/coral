@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/pkg/embedding"
 )
 
@@ -58,12 +58,13 @@ func (r *FunctionRegistry) StoreFunctions(ctx context.Context, agentID, serviceN
 	for _, fn := range functions {
 		// Convert embedding to DuckDB array format.
 		// DuckDB's go driver doesn't support []float64 directly, so we convert to string.
-		// We convert from []float32 (proto) to []float64 first.
-		emb64 := make([]float64, len(fn.Embedding))
-		for i, v := range fn.Embedding {
-			emb64[i] = float64(v)
+		// If embedding is empty or has wrong size, use NULL instead.
+		var embeddingStr interface{}
+		if len(fn.Embedding) == 384 {
+			embeddingStr = duckdb.Float64ArrayToString(duckdb.Float32ToFloat64(fn.Embedding))
+		} else {
+			embeddingStr = nil // NULL in SQL
 		}
-		embeddingStr := floatSliceToArrayString(emb64)
 
 		// Insert or update function using ON CONFLICT with composite primary key.
 		// Note: We exclude 'embedding' from UPDATE because DuckDB doesn't support array updates.
@@ -137,7 +138,7 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 
 	// Generate query embedding for semantic search.
 	queryEmbedding := embedding.GenerateQueryEmbedding(query)
-	queryEmbeddingStr := floatSliceToArrayString(queryEmbedding)
+	queryEmbeddingStr := duckdb.Float64ArrayToString(queryEmbedding)
 
 	// Build SQL query with vector similarity search.
 	sqlQuery := `
@@ -286,23 +287,4 @@ type FunctionInfo struct {
 	HasDwarf     bool
 	DiscoveredAt time.Time
 	LastSeen     time.Time
-}
-
-// floatSliceToArrayString converts a float64 slice to DuckDB array string format.
-// Example: [1.0, 2.0, 3.0] -> "[1.0, 2.0, 3.0]"
-func floatSliceToArrayString(vec []float64) string {
-	if len(vec) == 0 {
-		return "[]"
-	}
-
-	var sb strings.Builder
-	sb.WriteString("[")
-	for i, v := range vec {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(fmt.Sprintf("%f", v))
-	}
-	sb.WriteString("]")
-	return sb.String()
 }

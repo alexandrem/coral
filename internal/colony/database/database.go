@@ -74,6 +74,16 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 
 	// Initialize schema (only in read-write mode).
 	if !readOnly {
+		// Load VSS extension first, then enable HNSW persistence.
+		if err := database.ensureVSSExtension(); err != nil {
+			logger.Warn().Err(err).Msg("Failed to load VSS extension, vector search features may be unavailable")
+		} else {
+			// Enable HNSW experimental persistence for vector indexes.
+			if _, err := db.Exec("SET hnsw_enable_experimental_persistence = true"); err != nil {
+				logger.Warn().Err(err).Msg("Failed to enable HNSW persistence, vector indexes may not work")
+			}
+		}
+
 		if err := database.initSchema(); err != nil {
 			_ = db.Close() // TODO: errcheck
 			return nil, fmt.Errorf("failed to initialize schema: %w", err)

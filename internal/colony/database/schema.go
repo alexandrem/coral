@@ -6,17 +6,8 @@ import (
 
 // initSchema creates all required tables and indexes for colony storage.
 // Uses CREATE TABLE IF NOT EXISTS for idempotency across restarts.
+// Assumes VSS extension is already loaded if vector search is needed.
 func (d *Database) initSchema() error {
-	// Try to install and load VSS extension for vector similarity search.
-	// This may fail in test environments with read-only extension directories,
-	// so we attempt it separately and log errors without failing initialization.
-	vssAvailable := false
-	if err := d.ensureVSSExtension(); err != nil {
-		d.logger.Warn().Err(err).Msg("Failed to ensure VSS extension, vector search features may be unavailable")
-	} else {
-		vssAvailable = true
-	}
-
 	// Wrap all DDL statements in a transaction for atomicity.
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -36,13 +27,19 @@ func (d *Database) initSchema() error {
 		return fmt.Errorf("failed to commit schema transaction: %w", err)
 	}
 
-	// Create HNSW index if VSS extension is available.
-	// This is done outside the main transaction because it requires the VSS extension.
-	if vssAvailable {
+	// Create HNSW index (requires VSS extension to be loaded first).
+	// This is done outside the main transaction.
+	// Wrap in defer/recover to catch any segfaults from VSS extension.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				d.logger.Warn().Interface("panic", r).Msg("HNSW index creation panicked, continuing without index")
+			}
+		}()
 		if err := d.createHNSWIndex(); err != nil {
 			d.logger.Warn().Err(err).Msg("Failed to create HNSW index, vector search may be slower")
 		}
-	}
+	}()
 
 	return nil
 }
@@ -66,6 +63,21 @@ func (d *Database) ensureVSSExtension() error {
 // createHNSWIndex creates the HNSW index for vector similarity search.
 // This requires the VSS extension to be loaded.
 func (d *Database) createHNSWIndex() error {
+	// Check if we already have the index to avoid recreating it.
+	var indexExists bool
+	err := d.db.QueryRow(`
+		SELECT COUNT(*) > 0
+		FROM duckdb_indexes()
+		WHERE index_name = 'idx_functions_embedding'
+	`).Scan(&indexExists)
+
+	if err != nil {
+		d.logger.Debug().Err(err).Msg("Could not check if index exists, will attempt creation")
+	} else if indexExists {
+		d.logger.Debug().Msg("HNSW index already exists, skipping creation")
+		return nil
+	}
+
 	query := `CREATE INDEX IF NOT EXISTS idx_functions_embedding ON functions
 		USING HNSW (embedding)
 		WITH (metric = 'cosine')`
@@ -74,6 +86,7 @@ func (d *Database) createHNSWIndex() error {
 		return fmt.Errorf("failed to create HNSW index: %w", err)
 	}
 
+	d.logger.Info().Msg("Successfully created HNSW index for vector search")
 	return nil
 }
 

@@ -99,39 +99,59 @@ func GenerateFunctionEmbedding(meta FunctionMetadata) []float64 {
 }
 
 // GenerateQueryEmbedding generates an embedding vector for a search query.
+// Uses the same SimHash algorithm as GenerateFunctionEmbedding for compatibility.
 func GenerateQueryEmbedding(query string) []float64 {
-	// Use the same approach as function embeddings for consistency.
+	// Use exact same algorithm as GenerateFunctionEmbedding.
 	tokens := tokenizeForEmbedding(query)
 
-	embedding := make([]float64, EmbeddingDimensions)
+	const dims = 384
+	vec := make([]float64, dims)
 
 	for _, token := range tokens {
-		hash := hashToken(token)
+		h := xxh3.HashString(token) // 64-bit hash
 
-		for i := 0; i < TokenDistribution; i++ {
-			idx := (hash + uint64(i)*37) % EmbeddingDimensions
-			embedding[idx] += 1.0
+		// Unroll 6 × 64 bits → 384 dimensions (same as function embedding).
+		for bit := uint(0); bit < 64; bit++ {
+			if h&(1<<bit) != 0 {
+				vec[bit] += 1
+				vec[bit+64] += 1
+				vec[bit+128] += 1
+				vec[bit+192] += 1
+				vec[bit+256] += 1
+				vec[bit+320] += 1
+			} else {
+				vec[bit] -= 1
+				vec[bit+64] -= 1
+				vec[bit+128] -= 1
+				vec[bit+192] -= 1
+				vec[bit+256] -= 1
+				vec[bit+320] -= 1
+			}
 		}
 	}
 
-	normalize(embedding)
+	// Convert to -1.0 / +1.0 (same as function embedding).
+	for i := range vec {
+		if vec[i] > 0 {
+			vec[i] = 1.0
+		} else {
+			vec[i] = -1.0
+		}
+	}
 
-	return embedding
+	return vec
 }
 
 // tokenizeForEmbedding tokenizes text for embedding generation.
 func tokenizeForEmbedding(text string) []string {
-	// Convert to lowercase.
-	text = strings.ToLower(text)
-
-	// Split by various delimiters.
+	// Split by various delimiters BEFORE lowercasing (to preserve camelCase).
 	parts := strings.FieldsFunc(text, func(r rune) bool {
 		return r == '.' || r == '/' || r == '_' || r == ' ' || r == ',' || r == ';' || r == '(' || r == ')' || r == '*' || r == '[' || r == ']'
 	})
 
 	tokens := []string{}
 	for _, part := range parts {
-		// Split camelCase.
+		// Split camelCase (this internally lowercases).
 		tokens = append(tokens, splitCamelCase(part)...)
 	}
 
