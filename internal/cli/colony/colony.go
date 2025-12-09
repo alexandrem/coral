@@ -36,6 +36,7 @@ import (
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery/registration"
 	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/privilege"
 	runtimepkg "github.com/coral-mesh/coral/internal/runtime"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -120,6 +121,17 @@ Examples:
   # Production with hostname
   CORAL_PUBLIC_ENDPOINT=colony.example.com:41580 coral colony start`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Initialize logger early for preflight checks.
+			logger := logging.NewWithComponent(logging.Config{
+				Level:  "info",
+				Pretty: true,
+			}, "colony")
+
+			// Perform preflight checks early (validates sudo context).
+			if err := performPreflightChecks(logger); err != nil {
+				return fmt.Errorf("preflight checks failed: %w", err)
+			}
+
 			// Create resolver
 			resolver, err := config.NewResolver()
 			if err != nil {
@@ -145,8 +157,8 @@ Examples:
 				cfg.Dashboard.Port = port
 			}
 
-			// Initialize logger
-			logger := logging.NewWithComponent(logging.Config{
+			// Update logger to debug level now that config is loaded.
+			logger = logging.NewWithComponent(logging.Config{
 				Level:  "debug",
 				Pretty: true,
 			}, "colony")
@@ -198,6 +210,11 @@ Examples:
 			if err := startWireGuardDevice(wgDevice, cfg, logger); err != nil {
 				return fmt.Errorf("failed to start WireGuard device: %w", err)
 			}
+
+			// Note: Colony continues running with elevated privileges for network management.
+			// As agents connect, colony dynamically adds routes for their AllowedIPs, which
+			// requires root privileges (route command on macOS/Linux).
+			logger.Debug().Msg("Colony running with elevated privileges for dynamic network management")
 
 			// Create agent registry for tracking connected agents.
 			agentRegistry := registry.New()
@@ -2047,6 +2064,81 @@ func outputAgentsVerbose(agents []*colonyv1.Agent) error {
 	}
 
 	fmt.Println()
+	return nil
+}
+
+// performPreflightChecks verifies that the system is ready for colony startup.
+// This includes checking for required capabilities (CAP_NET_ADMIN on Linux) or root access (macOS).
+// Running this early ensures we ask for sudo password at the beginning if needed.
+func performPreflightChecks(logger logging.Logger) error {
+	logger.Info().Msg("Running preflight checks...")
+
+	// Platform-specific privilege checks.
+	if runtime.GOOS == "linux" {
+		// On Linux, check for CAP_NET_ADMIN capability (least privilege).
+		caps, err := runtimepkg.DetectLinuxCapabilities()
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to detect Linux capabilities, falling back to root check")
+			// Fall back to checking for root if capability detection fails.
+			if !privilege.IsRoot() {
+				return fmt.Errorf("colony requires CAP_NET_ADMIN capability or root access")
+			}
+		} else if !caps.CapNetAdmin {
+			// Missing CAP_NET_ADMIN - provide helpful error message.
+			binaryPath, err := os.Executable()
+			if err != nil {
+				binaryPath = "/path/to/coral"
+			}
+			return fmt.Errorf(
+				"colony requires CAP_NET_ADMIN capability for network management.\n\n"+
+					"To grant this capability (one-time setup):\n"+
+					"  sudo setcap 'cap_net_admin+ep' %s\n\n"+
+					"Then run without sudo:\n"+
+					"  coral colony start\n\n"+
+					"Or run with sudo:\n"+
+					"  sudo coral colony start",
+				binaryPath,
+			)
+		}
+		logger.Debug().Msg("CAP_NET_ADMIN capability detected")
+	} else {
+		// On macOS and other platforms, we need root (no capability system).
+		if !privilege.IsRoot() {
+			return fmt.Errorf("colony must be run with sudo on macOS:\n  sudo coral colony start")
+		}
+		logger.Debug().Msg("Running as root")
+	}
+
+	// If running via sudo, verify we can detect the original user.
+	if privilege.IsRunningUnderSudo() {
+		userCtx, err := privilege.DetectOriginalUser()
+		if err != nil {
+			logger.Warn().Err(err).Msg("Could not detect original user from sudo environment")
+		} else {
+			logger.Debug().
+				Str("user", userCtx.Username).
+				Int("uid", userCtx.UID).
+				Msg("Detected original user from sudo")
+		}
+	}
+
+	// Verify we can spawn the tun-helper subprocess.
+	// We don't actually create a TUN device here, just verify the helper exists.
+	binaryPath := os.Getenv("CORAL_TUN_HELPER_PATH")
+	if binaryPath == "" {
+		var err error
+		binaryPath, err = os.Executable()
+		if err != nil {
+			return fmt.Errorf("failed to get executable path: %w", err)
+		}
+	}
+
+	// Check if the binary exists and is executable.
+	if _, err := os.Stat(binaryPath); err != nil {
+		return fmt.Errorf("coral binary not found at %s: %w", binaryPath, err)
+	}
+
+	logger.Info().Msg("Preflight checks passed")
 	return nil
 }
 

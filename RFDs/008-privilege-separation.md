@@ -13,36 +13,41 @@ areas: [ "networking", "security", "cli", "configuration" ]
 
 # RFD 008 - Privilege Separation for TUN Device Creation
 
-**Status:** ⚠️ Partially Implemented
+**Status:** ✅ Implemented (Modified Approach)
 
-## Implementation Status
+## Implementation Status (December 2025)
 
-### ✅ Completed (Phase 1)
+### ✅ Completed
 
-- **Config file ownership preservation** - Automatically detects `SUDO_USER` and
-  ensures all files in `~/.coral/` remain owned by the original user, not root
-  (`internal/privilege/privilege.go`, `internal/config/loader.go`)
-- **Permission error handling** - Clear, platform-specific error messages with
-  installation instructions when TUN creation fails
-  (`internal/wireguard/device.go`)
-- **Helper infrastructure** - Complete implementation of subprocess spawning,
-  Unix socket IPC, and FD passing via `SCM_RIGHTS`
-  (`internal/wireguard/helper.go`, `internal/cli/tun_helper/tun_helper.go`)
-- **Documentation** - Installation guide in README.md with security tradeoffs
+- **Config file ownership preservation** - Detects `SUDO_USER` and preserves ownership
+- **Helper subprocess infrastructure** - Complete FD passing via SCM_RIGHTS
+- **Automatic helper fallback** - Integrated into `CreateTUN()` (darwin/linux)
+- **FD lifecycle management** - Explicit FD duplication for proper ownership transfer
+- **Capability detection** - Runtime detection of Linux capabilities with graceful degradation
 
-### 🚧 Not Yet Integrated
+### ⚠️ Architecture Decision: No Privilege Dropping
 
-- **Automatic helper fallback** - Direct TUN creation → helper subprocess
-  fallback is prepared but not integrated into the device startup flow
-- **FD-to-Interface conversion** - Clean conversion from received file
-  descriptor to `*wireguard.Interface` wrapper needs implementation
+**Original RFD proposal:** Drop privileges after TUN device creation.
 
-**Current behavior:** Users must choose one of three methods (capabilities,
-sudo, or setuid) documented in README.md. The subprocess helper is ready but
-requires manual invocation.
+**Implemented approach:** Maintain privileges throughout lifetime.
 
-**Future work:** Integrate automatic fallback when direct TUN creation fails due
-to permissions (see Implementation Plan below).
+**Rationale:**
+1. **Colony:** Requires `CAP_NET_ADMIN` continuously for dynamic route management
+   - Routes added as agents connect: `route add -host <agent-ip> -interface utun11`
+   - Cannot drop privileges without breaking mesh topology updates
+
+2. **Agent:** Requires multiple capabilities continuously for eBPF operations
+   - `CAP_SYS_ADMIN`, `CAP_SYS_PTRACE`, `CAP_BPF` needed throughout for Beyla telemetry
+   - eBPF programs run continuously, not just at startup
+
+**See:** `docs/PRIVILEGE.md` for detailed architecture explanation.
+
+### Helper Subprocess Usage
+
+**Current:**
+- Colony/agent use direct TUN creation (running as root/with caps)
+- Helper serves as fallback if direct creation fails
+- Infrastructure ready for future use cases (CLI tools, embedded apps)
 
 ## Summary
 

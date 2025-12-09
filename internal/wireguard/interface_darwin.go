@@ -5,7 +5,9 @@ package wireguard
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -23,10 +25,62 @@ func CreateTUN(name string, mtu int, logger zerolog.Logger) (*Interface, error) 
 		mtu = 1420 // Default MTU for WireGuard (1500 - 80 overhead)
 	}
 
-	// Create TUN device
+	// Try to create TUN device directly first (if we have privileges).
 	tunDevice, err := tun.CreateTUN(tunName, mtu)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create TUN device: %w", err)
+		// If we don't have privileges, try using the helper subprocess.
+		logger.Debug().Err(err).Msg("Direct TUN creation failed, trying helper subprocess")
+
+		fd, helperErr := createTUNWithHelper(tunName, mtu)
+		if helperErr != nil {
+			// Return the original error with context.
+			return nil, fmt.Errorf("failed to create TUN device (direct: %v, helper: %v)", err, helperErr)
+		}
+
+		// Successfully got FD from helper, create TUN device from it.
+		logger.Debug().Int("fd", fd).Msg("Received TUN device FD from helper, creating interface")
+		return CreateTUNFromFD(tunName, fd, mtu, logger)
+	}
+
+	// Direct creation succeeded.
+	realName, err := tunDevice.Name()
+	if err != nil {
+		if err := tunDevice.Close(); err != nil {
+			logger.Warn().Err(err).Msg("Failed to close TUN device")
+		}
+		return nil, fmt.Errorf("failed to get TUN device name: %w", err)
+	}
+
+	logger.Debug().Str("name", realName).Msg("Created TUN device directly")
+
+	return &Interface{
+		device: tunDevice,
+		name:   realName,
+		mtu:    mtu,
+		logger: logger.With().Str("component", "wireguard.interface").Str("name", realName).Logger(),
+	}, nil
+}
+
+// CreateTUNFromFD creates a new TUN device from an existing file descriptor.
+func CreateTUNFromFD(name string, fd int, mtu int, logger zerolog.Logger) (*Interface, error) {
+	// On macOS, the name is determined by the system (utunX), so we ignore the name parameter.
+	_ = name
+
+	if mtu <= 0 {
+		mtu = 1420 // Default MTU for WireGuard (1500 - 80 overhead)
+	}
+
+	// Create an os.File from the file descriptor.
+	file := os.NewFile(uintptr(fd), "")
+	if file == nil {
+		return nil, fmt.Errorf("failed to create os.File from file descriptor")
+	}
+
+	// Create TUN device from os.File.
+	// Do NOT close the file here. The TUN device takes ownership of the file descriptor.
+	tunDevice, err := tun.CreateTUNFromFile(file, mtu)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create TUN device from FD: %w", err)
 	}
 
 	realName, err := tunDevice.Name()
@@ -34,6 +88,10 @@ func CreateTUN(name string, mtu int, logger zerolog.Logger) (*Interface, error) 
 		_ = tunDevice.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to get TUN device name: %w", err)
 	}
+
+	// Keep the file object alive until the tunDevice is returned,
+	// preventing the garbage collector from finalizing it and closing the FD.
+	runtime.KeepAlive(file)
 
 	return &Interface{
 		device: tunDevice,

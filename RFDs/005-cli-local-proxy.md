@@ -13,7 +13,26 @@ areas: [ "cli", "networking", "security" ]
 
 # RFD 005 - CLI Access via Local Proxy
 
-**Status:** 🎉 Implemented
+**Status:** 🎉 Implemented (Simplified)
+
+## Implementation Status (December 2025)
+
+**Current implementation:** Simplified HTTP reverse proxy (no WireGuard peer).
+
+**Changes from original RFD:**
+
+1. **No WireGuard device in proxy** - Proxy doesn't create its own TUN device or peer into mesh
+2. **Assumes existing connectivity** - Either:
+   - Host already has mesh connectivity (via local agent), OR
+   - Will use colony's public HTTPS endpoint (see RFD 031)
+3. **No elevated privileges** - Runs as regular user (just HTTP forwarding)
+
+**Rationale:**
+- Simpler implementation for current use cases
+- RFD 031 (Colony Dual Interface) provides alternative with public HTTPS endpoint
+- Original design (proxy as mesh peer) available for future if needed
+
+---
 
 ## Summary
 

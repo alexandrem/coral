@@ -21,19 +21,9 @@ type Interface struct {
 // - interface_linux.go for Linux
 // This allows for platform-specific TUN device naming conventions.
 
-// CreateTUNFromFD creates a TUN interface from an existing file descriptor.
-// This is used when the TUN device is created by a privileged subprocess.
-func CreateTUNFromFD(name string, mtu, fd int, logger zerolog.Logger) (*Interface, error) {
-	// Note: The wireguard-go library expects the device to be created via
-	// CreateTUN. For FD-based creation, we use the platform-specific
-	// CreateTUN function which will handle FD appropriately.
-	//
-	// This function is a wrapper that may be needed in the future for more
-	// sophisticated FD handling, but for now we rely on CreateTUN to do the
-	// right thing when called from a process that has the necessary privileges.
-
-	return CreateTUN(name, mtu, logger)
-}
+// CreateTUNFromFD is implemented in platform-specific files, similar to CreateTUN.
+// This allows for platform-specific logic for creating a TUN device from a
+// file descriptor.
 
 // Name returns the interface name.
 func (i *Interface) Name() string {
