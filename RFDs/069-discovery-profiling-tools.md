@@ -576,11 +576,16 @@ When limits exceeded:
 
 **Core Capability:** ✅ Complete
 
-Function discovery and batch profiling fully implemented with unified MCP tools and CLI commands. LLMs can now discover and profile functions with 2-3 tool calls instead of 7+, dramatically improving debugging efficiency.
+Function discovery and batch profiling fully implemented with unified MCP tools
+and CLI commands. LLMs can now discover and profile functions with 2-3 tool
+calls instead of 7+, dramatically improving debugging efficiency.
 
 **Operational Components:**
-- ✅ **Protobuf APIs**: `QueryFunctions` and `ProfileFunctions` RPCs (`proto/coral/colony/v1/debug.proto`)
-- ✅ **Colony Backend**: Query and profiling handlers in debug orchestrator (`internal/colony/debug/orchestrator.go`)
+
+- ✅ **Protobuf APIs**: `QueryFunctions` and `ProfileFunctions` RPCs (
+  `proto/coral/colony/v1/debug.proto`)
+- ✅ **Colony Backend**: Query and profiling handlers in debug orchestrator (
+  `internal/colony/debug/orchestrator.go`)
 - ✅ **CLI Commands**:
   - `coral debug search` - Semantic function search
   - `coral debug info` - Detailed function information
@@ -609,7 +614,8 @@ Function discovery and batch profiling fully implemented with unified MCP tools 
   - `entry_points`: HTTP handlers and RPC methods
   - `leaf_functions`: Terminal functions (placeholder)
 - Attaches probes to multiple functions simultaneously (max 50)
-- Supports both synchronous (wait for results) and asynchronous (return immediately) modes
+- Supports both synchronous (wait for results) and asynchronous (return
+  immediately) modes
 - Collects performance data during profiling duration
 - Returns comprehensive summary (functions selected/probed/failed)
 - Provides session ID for later retrieval
@@ -629,6 +635,175 @@ Function discovery and batch profiling fully implemented with unified MCP tools 
 - **Automatic analysis**: Batch profiling handles orchestration and analysis
 - **Better LLM efficiency**: Fewer tools in system prompt = more context for debugging
 - **Clear migration path**: Legacy tools marked deprecated with recommendations
+
+## Docker Container Support
+
+**Status:** ✅ **Fully Implemented** (December 2025)
+
+Function discovery now works seamlessly in Docker container deployments where
+services and agents run in separate containers with isolated PID namespaces.
+
+### Problem
+
+Initial implementation assumed the agent could access service binaries via
+`/proc/<pid>/exe` for DWARF parsing and binary hash computation. This failed in
+Docker scenarios because:
+
+1. **Separate PID namespaces**: Agent in container A cannot see processes in
+   container B
+2. **Isolated filesystems**: Binary path `/app/service` exists in service
+   container but not in agent container
+3. **Missing discovery trigger**: SDK capabilities were discovered but function
+   discovery was never triggered
+4. **Individual function fetching**: Fetching 9,281 functions one-by-one via
+   HTTP took 30+ seconds
+
+### Solution
+
+**1. SDK Capabilities-Based Discovery** (`internal/agent/monitor.go:300-361`)
+
+When SDK capabilities are discovered, function discovery is immediately triggered using SDK-provided metadata:
+
+```go
+func (m *ServiceMonitor) SetSdkCapabilities(caps *agentv1.ServiceSdkCapabilities) {
+    // Extract binary path and hash from SDK
+    if caps.BinaryPath != "" {
+        m.binaryPath = caps.BinaryPath
+
+        // Trigger discovery using SDK-provided data
+        if m.functionCache != nil && caps.SdkEnabled {
+            go m.functionCache.DiscoverAndCacheWithHash(
+                ctx, serviceName,
+                caps.BinaryPath,  // From SDK
+                caps.SdkAddr,     // HTTP endpoint
+                caps.BinaryHash,  // Pre-computed by SDK
+            )
+        }
+    }
+}
+```
+
+**2. Binary Hash from SDK** (`internal/agent/debug/function_storage.go:93-122`)
+
+Binary hash is used from SDK capabilities instead of computing from inaccessible files:
+
+```go
+func (c *FunctionCache) DiscoverAndCacheWithHash(..., binaryHash string) error {
+    // If hash not provided, try to compute
+    if binaryHash == "" {
+        binaryHash, err = computeBinaryHash(binaryPath)
+        if err != nil && sdkAddr != "" {
+            // Cross-container scenario: use placeholder
+            c.logger.Warn().Msg("Cannot access binary (cross-container), using SDK-only mode")
+            binaryHash = fmt.Sprintf("sdk-%s", serviceName)
+        }
+    }
+    // Continue with discovery...
+}
+```
+
+**3. Bulk NDJSON Export** (`internal/agent/debug/function_storage.go:370-470`)
+
+Replaced individual function fetches with bulk streaming export:
+
+```go
+func (c *FunctionCache) fetchFunctionsFromSDK(...) ([]*agentv1.FunctionInfo, error) {
+    // Single HTTP request for all functions
+    exportURL := fmt.Sprintf("http://%s/debug/functions/export?format=ndjson", sdkAddr)
+    resp, _ := client.Do(req)
+
+    // Stream NDJSON line-by-line (low memory)
+    scanner := bufio.NewScanner(reader)
+    for scanner.Scan() {
+        var fn ExportedFunction
+        json.Unmarshal(scanner.Bytes(), &fn)
+        functions = append(functions, convertToProto(fn))
+    }
+
+    return functions, nil
+}
+```
+
+**Performance:** 9,281 functions in ~1-2 seconds (15-30x faster than individual fetches)
+
+### What Works Now
+
+**Docker Container Deployment:**
+- ✅ Agent in container A discovers SDK in container B via HTTP probing
+- ✅ SDK provides binary path, hash, and function count in capabilities response
+- ✅ Function discovery triggered immediately when SDK detected
+- ✅ Binary hash from SDK used directly (no file access required)
+- ✅ Bulk NDJSON export streams all 9,281 functions in single request
+- ✅ Functions cached in agent's DuckDB with embeddings
+- ✅ Colony polls agent and populates central function registry
+- ✅ `coral debug search` and `coral_discover_functions` work end-to-end
+
+**Example Docker Compose Setup:**
+
+```yaml
+services:
+  agent:
+    image: coral-agent:latest
+    volumes:
+      - ~/.coral:/root/.coral
+
+  demo-service:
+    image: demo-service:latest
+    ports:
+      - "3001:3001"      # Service port
+      - "9002:9002"      # SDK debug port
+    environment:
+      - CORAL_SDK_ENABLED=true
+```
+
+**Logs Flow:**
+```
+agent  | Discovered SDK via HTTP (functions=9281, sdk_version=v0.2.0)
+agent  | Updated SDK capabilities (has_dwarf=true)
+agent  | Triggering function discovery from SDK capabilities
+agent  | Fetching functions from SDK via bulk NDJSON export
+agent  | Successfully fetched functions from SDK bulk export (9281 functions)
+agent  | Stored 9281 functions in cache
+colony | Polling agent for functions (service=demo)
+colony | Received 9281 functions from agent
+colony | Stored functions in registry
+```
+
+**Verification:**
+```bash
+# Check agent cache
+duckdb ~/.coral/agent/metrics.duckdb "SELECT COUNT(*) FROM functions_cache;"
+# → 9281
+
+# Check colony registry
+duckdb ~/.coral/colonies/<colony>/colony.duckdb "SELECT COUNT(*) FROM functions;"
+# → 9281
+
+# Test search
+coral debug search -s demo payment
+# → Returns payment-related functions with metadata
+```
+
+### Architecture
+
+```
+┌─────────────────────┐         ┌─────────────────────┐
+│  Service Container  │         │  Agent Container    │
+│                     │         │                     │
+│  ┌──────────────┐   │  HTTP   │  ┌──────────────┐   │
+│  │ SDK :9002    │◄──┼─────────┼──│ Discovery    │   │
+│  │              │   │ Probe   │  │              │   │
+│  │ /capabilities│──►│─────────┼─►│ Get caps     │   │
+│  │ /export      │◄──┼─────────┼──│ Bulk fetch   │   │
+│  └──────────────┘   │ NDJSON  │  └──────┬───────┘   │
+│                     │ Stream  │         │           │
+│  /app/service       │         │         ▼           │
+│  (inaccessible)     │         │  ┌──────────────┐   │
+└─────────────────────┘         │  │ DuckDB Cache │   │
+                                │  │ 9281 funcs   │   │
+                                │  └──────────────┘   │
+                                └─────────────────────┘
+```
 
 ## Future Enhancements
 
