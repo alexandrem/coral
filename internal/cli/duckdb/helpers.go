@@ -190,3 +190,83 @@ func listAgentDatabases(ctx context.Context, meshIP string) ([]string, error) {
 
 	return result.Databases, nil
 }
+
+// resolveColonyAddress returns the colony HTTP address from config.
+// For CLI usage, we use localhost since the CLI typically runs on the same host as the colony.
+func resolveColonyAddress() (string, error) {
+	// Use the shared helper to get colony URL.
+	// This returns http://localhost:{port} based on config.
+	url, err := helpers.GetColonyURL("")
+	if err != nil {
+		return "", fmt.Errorf("failed to get colony URL: %w", err)
+	}
+
+	// Parse URL to extract host:port.
+	// URL format is http://localhost:9000, we need localhost:9000.
+	if len(url) > 7 && url[:7] == "http://" {
+		return url[7:], nil
+	}
+
+	return "", fmt.Errorf("unexpected colony URL format: %s", url)
+}
+
+// attachColonyDatabase attaches the colony database to the DuckDB connection.
+func attachColonyDatabase(ctx context.Context, db *sql.DB, dbName string) error {
+	// Get colony address.
+	colonyAddr, err := resolveColonyAddress()
+	if err != nil {
+		return fmt.Errorf("failed to resolve colony address: %w", err)
+	}
+
+	// Construct HTTP URL for colony DuckDB database.
+	dbURL := fmt.Sprintf("http://%s/duckdb/%s", colonyAddr, dbName)
+
+	// Attach database as read-only using DuckDB's HTTP attach.
+	attachSQL := fmt.Sprintf("ATTACH '%s' AS colony (READ_ONLY);", dbURL)
+
+	if _, err := db.ExecContext(ctx, attachSQL); err != nil {
+		return fmt.Errorf("failed to attach colony database from %s: %w", dbURL, err)
+	}
+
+	return nil
+}
+
+// listColonyDatabases queries the colony for available databases.
+func listColonyDatabases(ctx context.Context) ([]string, error) {
+	// Get colony address.
+	colonyAddr, err := resolveColonyAddress()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve colony address: %w", err)
+	}
+
+	// Construct HTTP URL for colony database list endpoint.
+	listURL := fmt.Sprintf("http://%s/duckdb", colonyAddr)
+
+	// Make HTTP request.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query colony: %w", err)
+	}
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close() // TODO: errcheck
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("colony returned status %d", resp.StatusCode)
+	}
+
+	// Parse JSON response.
+	var result struct {
+		Databases []string `json:"databases"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result.Databases, nil
+}

@@ -19,57 +19,52 @@ import (
 func NewQueryCmd() *cobra.Command {
 	var format string
 	var database string
+	var colony bool
 
 	cmd := &cobra.Command{
-		Use:   "query <agent-id> <sql>",
-		Short: "Execute a one-shot SQL query against an agent database",
-		Long: `Executes a SQL query against an agent's DuckDB database and prints the results.
+		Use:   "query [agent-id] <sql>",
+		Short: "Execute a one-shot SQL query against a database",
+		Long: `Executes a SQL query against an agent or colony DuckDB database and prints the results.
 
-The query command attaches to the specified agent database and executes
+The query command attaches to the specified database and executes
 the provided SQL query, returning results in the specified format (table, CSV, or JSON).
 
 Examples:
-  # Query eBPF HTTP metrics (table format)
+  # Query agent eBPF HTTP metrics (table format)
   coral duckdb query agent-prod-1 "SELECT * FROM beyla_http_metrics_local LIMIT 10" --database metrics.duckdb
 
-  # Query telemetry spans
-  coral duckdb query agent-prod-1 "SELECT * FROM spans LIMIT 10" --database telemetry.duckdb
+  # Query colony historical metrics
+  coral duckdb query --colony "SELECT * FROM beyla_http_metrics WHERE timestamp > now() - INTERVAL '7 days' LIMIT 10"
 
   # Query with aggregation (CSV format)
   coral duckdb query agent-prod-1 "SELECT service_name, COUNT(*) FROM beyla_http_metrics_local GROUP BY service_name" --format csv -d metrics.duckdb
 
-  # Query with JSON output
-  coral duckdb query agent-prod-1 "SELECT * FROM spans WHERE status = 'error'" --format json -d telemetry.duckdb
+  # Query colony with JSON output
+  coral duckdb query --colony "SELECT service_name, AVG(latency_ms) FROM beyla_http_metrics GROUP BY service_name" --format json
 
 If --database is not specified, the first available database will be used.`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agentID := args[0]
-			sqlQuery := args[1]
+			var agentID, sqlQuery string
+
+			// Parse arguments based on --colony flag.
+			if colony {
+				// Colony mode: only SQL query argument.
+				if len(args) != 1 {
+					return fmt.Errorf("--colony mode requires exactly one argument (SQL query)")
+				}
+				sqlQuery = args[0]
+			} else {
+				// Agent mode: agent ID + SQL query.
+				if len(args) != 2 {
+					return fmt.Errorf("agent mode requires two arguments (agent-id and SQL query)")
+				}
+				agentID = args[0]
+				sqlQuery = args[1]
+			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
-
-			// Resolve agent ID to mesh IP.
-			meshIP, err := resolveAgentAddress(ctx, agentID)
-			if err != nil {
-				return fmt.Errorf("failed to resolve agent address: %w", err)
-			}
-
-			// Determine which database to query.
-			dbName := database
-			if dbName == "" {
-				// Query available databases and use the first one.
-				databases, err := listAgentDatabases(ctx, meshIP)
-				if err != nil {
-					return fmt.Errorf("failed to query available databases: %w", err)
-				}
-				if len(databases) == 0 {
-					return fmt.Errorf("agent %s has no available databases", agentID)
-				}
-				dbName = databases[0]
-				fmt.Printf("Using database: %s\n", dbName)
-			}
 
 			// Create DuckDB connection.
 			db, err := createDuckDBConnection(ctx)
@@ -78,9 +73,51 @@ If --database is not specified, the first available database will be used.`,
 			}
 			defer db.Close()
 
-			// Attach agent database.
-			if err := attachAgentDatabase(ctx, db, agentID, meshIP, dbName); err != nil {
-				return err
+			// Attach database based on mode.
+			if colony {
+				// Colony mode: attach colony database.
+				dbName := database
+				if dbName == "" {
+					// Query available databases and use the first one.
+					databases, err := listColonyDatabases(ctx)
+					if err != nil {
+						return fmt.Errorf("failed to query available databases: %w", err)
+					}
+					if len(databases) == 0 {
+						return fmt.Errorf("colony has no available databases")
+					}
+					dbName = databases[0]
+					fmt.Printf("Using database: %s\n", dbName)
+				}
+
+				if err := attachColonyDatabase(ctx, db, dbName); err != nil {
+					return err
+				}
+			} else {
+				// Agent mode: resolve agent ID and attach agent database.
+				meshIP, err := resolveAgentAddress(ctx, agentID)
+				if err != nil {
+					return fmt.Errorf("failed to resolve agent address: %w", err)
+				}
+
+				// Determine which database to query.
+				dbName := database
+				if dbName == "" {
+					// Query available databases and use the first one.
+					databases, err := listAgentDatabases(ctx, meshIP)
+					if err != nil {
+						return fmt.Errorf("failed to query available databases: %w", err)
+					}
+					if len(databases) == 0 {
+						return fmt.Errorf("agent %s has no available databases", agentID)
+					}
+					dbName = databases[0]
+					fmt.Printf("Using database: %s\n", dbName)
+				}
+
+				if err := attachAgentDatabase(ctx, db, agentID, meshIP, dbName); err != nil {
+					return err
+				}
 			}
 
 			// Execute query.
@@ -112,6 +149,7 @@ If --database is not specified, the first available database will be used.`,
 
 	cmd.Flags().StringVarP(&format, "format", "f", "table", "Output format (table, csv, json)")
 	cmd.Flags().StringVarP(&database, "database", "d", "", "Database name (e.g., metrics.duckdb)")
+	cmd.Flags().BoolVar(&colony, "colony", false, "Query colony database instead of agent")
 
 	return cmd
 }

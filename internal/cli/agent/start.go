@@ -32,6 +32,7 @@ import (
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/privilege"
 	pkgruntime "github.com/coral-mesh/coral/internal/runtime"
@@ -659,7 +660,7 @@ Examples:
 
 			// Add /duckdb/ endpoint for serving DuckDB files (RFD 039).
 			// Register the shared metrics database containing all agent data.
-			duckdbHandler := agent.NewDuckDBHandler(logger)
+			duckdbHandler := duckdb.NewDuckDBHandler(logger)
 			registeredCount := 0
 
 			// Register shared metrics database (if using file-based storage).
