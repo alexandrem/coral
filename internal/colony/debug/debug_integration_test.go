@@ -363,8 +363,14 @@ func TestDebugFlow_DetachError(t *testing.T) {
 
 	resp, err := orch.DetachUprobe(ctx, req)
 	require.NoError(t, err)
-	assert.False(t, resp.Msg.Success)
-	assert.Contains(t, resp.Msg.Error, "collector already stopped")
+	// Even if agent reports failure, DetachUprobe should succeed
+	// (marking session as stopped is what matters)
+	assert.True(t, resp.Msg.Success)
+
+	// Verify session is marked as stopped in database
+	session, err := db.GetDebugSession(sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, "stopped", session.Status)
 }
 
 func TestDebugFlow_QueryWithFilters(t *testing.T) {

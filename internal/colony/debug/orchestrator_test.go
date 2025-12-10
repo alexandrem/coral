@@ -6,11 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"connectrpc.com/connect"
+	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
@@ -424,19 +429,140 @@ func TestQueryUprobeEvents_AgentNotInRegistry(t *testing.T) {
 		t.Fatalf("Failed to insert test session: %v", err)
 	}
 
+	// Insert test events into database
+	testEvents := []*meshv1.UprobeEvent{
+		{
+			Timestamp:    timestamppb.New(time.Now()),
+			CollectorId:  "collector-123",
+			AgentId:      "orphaned-agent",
+			ServiceName:  "test-service",
+			FunctionName: "TestFunction",
+			EventType:    "return",
+			DurationNs:   1000000,
+			Pid:          1234,
+			Tid:          1234,
+		},
+		{
+			Timestamp:    timestamppb.New(time.Now().Add(1 * time.Second)),
+			CollectorId:  "collector-123",
+			AgentId:      "orphaned-agent",
+			ServiceName:  "test-service",
+			FunctionName: "TestFunction",
+			EventType:    "return",
+			DurationNs:   2000000,
+			Pid:          1234,
+			Tid:          1234,
+		},
+	}
+
+	err = db.InsertDebugEvents(sessionID, testEvents)
+	if err != nil {
+		t.Fatalf("Failed to insert test events: %v", err)
+	}
+
 	req := connect.NewRequest(&debugpb.QueryUprobeEventsRequest{
 		SessionId: sessionID,
 	})
 
-	_, err = orch.QueryUprobeEvents(ctx, req)
-	if err == nil {
-		t.Fatal("Expected error when agent not found in registry")
+	// Should successfully fall back to database when agent not in registry
+	resp, err := orch.QueryUprobeEvents(ctx, req)
+	if err != nil {
+		t.Fatalf("Expected successful fallback to database, got error: %v", err)
 	}
 
-	// Should return NotFound error
-	if connect.CodeOf(err) != connect.CodeNotFound {
-		t.Errorf("Expected NotFound error code, got: %v", connect.CodeOf(err))
+	// Verify we got the events from database
+	if len(resp.Msg.Events) != 2 {
+		t.Errorf("Expected 2 events from database, got %d", len(resp.Msg.Events))
 	}
+
+	// Verify event details
+	if resp.Msg.Events[0].FunctionName != "TestFunction" {
+		t.Errorf("Expected function name TestFunction, got %s", resp.Msg.Events[0].FunctionName)
+	}
+}
+
+func TestQueryUprobeEvents_AgentRPCFailsFallbackToDatabase(t *testing.T) {
+	orch, db := setupTestOrchestrator(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Create a session with an agent that IS in the registry
+	sessionID := "test-session-rpc-fail"
+	err := db.InsertDebugSession(&database.DebugSession{
+		SessionID:    sessionID,
+		CollectorID:  "collector-456",
+		ServiceName:  "test-service",
+		FunctionName: "TestFunction",
+		AgentID:      "test-agent", // This agent exists in registry
+		SDKAddr:      "localhost:50051",
+		StartedAt:    time.Now(),
+		ExpiresAt:    time.Now().Add(60 * time.Second),
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("Failed to insert test session: %v", err)
+	}
+
+	// Insert test events into database
+	testEvents := []*meshv1.UprobeEvent{
+		{
+			Timestamp:    timestamppb.New(time.Now()),
+			CollectorId:  "collector-456",
+			AgentId:      "test-agent",
+			ServiceName:  "test-service",
+			FunctionName: "TestFunction",
+			EventType:    "return",
+			DurationNs:   500000,
+			Pid:          5678,
+			Tid:          5678,
+		},
+	}
+
+	err = db.InsertDebugEvents(sessionID, testEvents)
+	if err != nil {
+		t.Fatalf("Failed to insert test events: %v", err)
+	}
+
+	// Set up a client factory that simulates RPC failure
+	orch.clientFactory = func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+		return &mockFailingDebugServiceClient{}
+	}
+
+	req := connect.NewRequest(&debugpb.QueryUprobeEventsRequest{
+		SessionId: sessionID,
+	})
+
+	// Should successfully fall back to database when agent RPC fails
+	resp, err := orch.QueryUprobeEvents(ctx, req)
+	if err != nil {
+		t.Fatalf("Expected successful fallback to database, got error: %v", err)
+	}
+
+	// Verify we got the events from database
+	if len(resp.Msg.Events) != 1 {
+		t.Errorf("Expected 1 event from database, got %d", len(resp.Msg.Events))
+	}
+
+	// Verify event details
+	if resp.Msg.Events[0].FunctionName != "TestFunction" {
+		t.Errorf("Expected function name TestFunction, got %s", resp.Msg.Events[0].FunctionName)
+	}
+}
+
+// Mock debug service client that always fails RPC calls
+type mockFailingDebugServiceClient struct{}
+
+func (m *mockFailingDebugServiceClient) StartUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
+	return nil, fmt.Errorf("simulated RPC failure")
+}
+
+func (m *mockFailingDebugServiceClient) StopUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StopUprobeCollectorRequest]) (*connect.Response[meshv1.StopUprobeCollectorResponse], error) {
+	return nil, fmt.Errorf("simulated RPC failure")
+}
+
+func (m *mockFailingDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[meshv1.QueryUprobeEventsRequest]) (*connect.Response[meshv1.QueryUprobeEventsResponse], error) {
+	return nil, fmt.Errorf("simulated RPC failure")
 }
 
 func TestConcurrentSessionOperations(t *testing.T) {
@@ -541,4 +667,251 @@ func TestDetachUprobe_DatabaseUpdateFailureHandled(t *testing.T) {
 // Helper function to create duration pointer.
 func durationPtr(d time.Duration) *time.Duration {
 	return &d
+}
+
+// TestProfileFunctions_TracksRealSessionIDs validates the core bug fix:
+// ProfileFunctions must return REAL session IDs (created by AttachUprobe),
+// not fake UUIDs. This test verifies that the returned session ID actually
+// exists in the database and was created by the profiling operation.
+func TestProfileFunctions_TracksRealSessionIDs(t *testing.T) {
+	orch, db := setupTestOrchestrator(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Create a real function registry with test data
+	functionRegistry := colony.NewFunctionRegistry(db, zerolog.Nop())
+
+	// Insert test functions into the registry (using agentv1.FunctionInfo)
+	testFunctions := []*agentv1.FunctionInfo{
+		{
+			Name:     "slowFunction",
+			Package:  "main",
+			HasDwarf: true,
+		},
+		{
+			Name:     "fastFunction",
+			Package:  "main",
+			HasDwarf: true,
+		},
+	}
+
+	if err := functionRegistry.StoreFunctions(ctx, "test-agent", "test-service", "test-hash", testFunctions); err != nil {
+		t.Fatalf("Failed to store test functions: %v", err)
+	}
+
+	// Replace the orchestrator's function registry
+	orch.functionRegistry = functionRegistry
+
+	// Create a mock agent client that simulates successful probe attachment
+	mockClientFactory := &mockDebugServiceClientFactory{
+		sessions: make(map[string]*mockSession),
+		db:       db,
+	}
+
+	// Replace the orchestrator's client factory
+	orch.clientFactory = mockClientFactory.newClient
+
+	// Call ProfileFunctions with a very short duration for testing
+	// Use 1ms so the sleep is negligible, but set expiration far in future
+	// so session is still active when we query (not expired)
+	req := connect.NewRequest(&debugpb.ProfileFunctionsRequest{
+		ServiceName:  "test-service",
+		Query:        "function",
+		Strategy:     "all",
+		MaxFunctions: 10,
+		Duration:     durationpb.New(1 * time.Millisecond), // Very short sleep
+		Async:        false,
+		SampleRate:   1.0,
+	})
+
+	// Add some mock events to the sessions that will be created
+	mockClientFactory.eventGenerator = func(sessionID string) []*meshv1.UprobeEvent {
+		// Generate different latencies for different functions
+		if sessionID == "session-slowFunction" {
+			// High latency events for slow function
+			return generateMockEvents(10, 800*time.Millisecond)
+		}
+		// Low latency events for fast function
+		return generateMockEvents(5, 50*time.Millisecond)
+	}
+
+	resp, err := orch.ProfileFunctions(ctx, req)
+	if err != nil {
+		t.Fatalf("ProfileFunctions failed: %v", err)
+	}
+
+	// ====================================================================
+	// CRITICAL TEST: Verify the session ID is REAL, not a fake UUID
+	// ====================================================================
+	// This was the core bug: ProfileFunctions generated a fake UUID and
+	// returned it, but that UUID was never stored in the database.
+	// The real sessions created by AttachUprobe were lost.
+
+	if resp.Msg.SessionId == "" {
+		t.Fatal("Expected non-empty session ID")
+	}
+
+	// The returned session ID must exist in the database
+	session, err := db.GetDebugSession(resp.Msg.SessionId)
+	if err != nil {
+		t.Fatalf("Failed to query session from database: %v", err)
+	}
+	if session == nil {
+		t.Fatal("BUG NOT FIXED: Session ID doesn't exist in database! ProfileFunctions returned a fake UUID that was never created.")
+	}
+
+	t.Logf("✓ Session ID %s exists in database (bug fixed!)", resp.Msg.SessionId)
+
+	// Validate that ProfileFunctions actually attempted to profile functions
+	if resp.Msg.Summary == nil {
+		t.Fatal("Expected summary to be present")
+	}
+
+	if resp.Msg.Summary.FunctionsSelected < 1 {
+		t.Errorf("Expected at least 1 function selected, got %d", resp.Msg.Summary.FunctionsSelected)
+	}
+
+	if resp.Msg.Summary.FunctionsProbed < 1 {
+		t.Errorf("Expected at least 1 function probed, got %d", resp.Msg.Summary.FunctionsProbed)
+	}
+
+	// Verify we have results
+	if len(resp.Msg.Results) == 0 {
+		t.Error("Expected at least one result")
+	}
+
+	// Validate status
+	if resp.Msg.Status != "completed" && resp.Msg.Status != "partial_success" {
+		t.Errorf("Expected status 'completed' or 'partial_success', got '%s'", resp.Msg.Status)
+	}
+
+	// Validate we have a recommendation
+	if resp.Msg.Recommendation == "" {
+		t.Error("Expected non-empty recommendation")
+	}
+
+	t.Logf("Summary: %d functions selected, %d probed, status=%s",
+		resp.Msg.Summary.FunctionsSelected,
+		resp.Msg.Summary.FunctionsProbed,
+		resp.Msg.Status)
+}
+
+// Mock debug service client factory
+type mockDebugServiceClientFactory struct {
+	sessions       map[string]*mockSession
+	db             *database.Database
+	eventGenerator func(sessionID string) []*meshv1.UprobeEvent
+}
+
+type mockSession struct {
+	sessionID string
+	events    []*meshv1.UprobeEvent
+}
+
+func (f *mockDebugServiceClientFactory) newClient(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	return &mockDebugServiceClient{
+		factory: f,
+	}
+}
+
+type mockDebugServiceClient struct {
+	factory *mockDebugServiceClientFactory
+}
+
+func (m *mockDebugServiceClient) StartUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
+	// Generate a deterministic session ID based on function name
+	sessionID := "session-" + req.Msg.FunctionName
+	collectorID := "collector-" + req.Msg.FunctionName
+
+	// Store session in factory for later retrieval
+	events := []*meshv1.UprobeEvent{}
+	if m.factory.eventGenerator != nil {
+		events = m.factory.eventGenerator(sessionID)
+	}
+
+	m.factory.sessions[collectorID] = &mockSession{
+		sessionID: sessionID,
+		events:    events,
+	}
+
+	return connect.NewResponse(&meshv1.StartUprobeCollectorResponse{
+		CollectorId: collectorID,
+		Supported:   true,
+	}), nil
+}
+
+func (m *mockDebugServiceClient) StopUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StopUprobeCollectorRequest]) (*connect.Response[meshv1.StopUprobeCollectorResponse], error) {
+	return connect.NewResponse(&meshv1.StopUprobeCollectorResponse{
+		Success: true,
+	}), nil
+}
+
+func (m *mockDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[meshv1.QueryUprobeEventsRequest]) (*connect.Response[meshv1.QueryUprobeEventsResponse], error) {
+	session, ok := m.factory.sessions[req.Msg.CollectorId]
+	if !ok {
+		return connect.NewResponse(&meshv1.QueryUprobeEventsResponse{
+			Events: []*meshv1.EbpfEvent{},
+		}), nil
+	}
+
+	// Persist events to database so they're available even if session expires
+	// This simulates what DetachUprobe does
+	if len(session.events) > 0 {
+		// Find the session ID from the database
+		dbSession, _ := m.factory.db.GetDebugSession(session.sessionID)
+		if dbSession != nil {
+			_ = m.factory.db.InsertDebugEvents(session.sessionID, session.events)
+		}
+	}
+
+	// Wrap UprobeEvents in EbpfEvent
+	var events []*meshv1.EbpfEvent
+	for _, uprobeEvent := range session.events {
+		events = append(events, &meshv1.EbpfEvent{
+			Timestamp:   uprobeEvent.Timestamp,
+			CollectorId: uprobeEvent.CollectorId,
+			AgentId:     uprobeEvent.AgentId,
+			ServiceName: uprobeEvent.ServiceName,
+			Payload: &meshv1.EbpfEvent_UprobeEvent{
+				UprobeEvent: uprobeEvent,
+			},
+		})
+	}
+
+	return connect.NewResponse(&meshv1.QueryUprobeEventsResponse{
+		Events: events,
+	}), nil
+}
+
+// Generate mock events with specified latency
+func generateMockEvents(count int, latency time.Duration) []*meshv1.UprobeEvent {
+	events := make([]*meshv1.UprobeEvent, count)
+	baseTime := time.Now()
+
+	for i := 0; i < count; i++ {
+		events[i] = &meshv1.UprobeEvent{
+			Timestamp:  timestamppb.New(baseTime.Add(time.Duration(i) * time.Second)),
+			EventType:  "return",
+			DurationNs: uint64(latency.Nanoseconds()),
+			Pid:        1234,
+			Tid:        1234,
+		}
+	}
+
+	return events
+}
+
+// Helper to check if string contains substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

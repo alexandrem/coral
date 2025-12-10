@@ -342,8 +342,9 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_agent ON debug_sessions(agent_id)`,
 
 	// Debug events - stored uprobe events from debug sessions (RFD 062).
+	`CREATE SEQUENCE IF NOT EXISTS seq_debug_events_id START 1`,
 	`CREATE TABLE IF NOT EXISTS debug_events (
-		id INTEGER PRIMARY KEY,
+		id INTEGER PRIMARY KEY DEFAULT nextval('seq_debug_events_id'),
 		session_id VARCHAR NOT NULL,
 		timestamp TIMESTAMPTZ NOT NULL,
 		collector_id VARCHAR NOT NULL,
