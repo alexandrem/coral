@@ -472,42 +472,53 @@ coral debug session stop <session-id>
 ## Implementation Plan
 
 ### Phase 1: Protobuf API Definitions
+
 - [x] Define `QueryFunctionsRequest` and `QueryFunctionsResponse` messages
 - [x] Define `ProfileFunctionsRequest` and `ProfileFunctionsResponse` messages
-- [x] Add supporting message types (FunctionResult, FunctionMetadata, SearchInfo, FunctionMetrics, InstrumentationInfo, ProfileSummary, ProfileResult, Bottleneck)
+- [x] Add supporting message types (FunctionResult, FunctionMetadata,
+  SearchInfo, FunctionMetrics, InstrumentationInfo, ProfileSummary,
+  ProfileResult, Bottleneck)
 - [x] Add RPCs to DebugService: `QueryFunctions` and `ProfileFunctions`
 - [x] Generate Go code from protobuf definitions
 
 ### Phase 2: Colony Backend Implementation
+
 - [x] Implement `QueryFunctions` RPC handler in debug orchestrator
 - [x] Integrate with function registry (RFD 063) for semantic search
 - [x] Add function-to-protobuf conversion with sql.Null type handling
 - [x] Implement `ProfileFunctions` RPC handler with batch orchestration
-- [x] Add selection strategy logic (critical_path, all, entry_points, leaf_functions)
+- [x] Add selection strategy logic (critical_path, all, entry_points,
+  leaf_functions)
 - [x] Add synchronous and asynchronous profiling modes
 - [x] Wire function registry to debug orchestrator in colony startup
 - [x] Update orchestrator constructor signature and test files
 
 ### Phase 3: CLI Commands
+
 - [x] Implement `coral debug search <query>` command
 - [x] Add flags: --service, --max-results, --format (text/json)
 - [x] Implement `coral debug info` command
 - [x] Add flags: --service, --function, --format (text/json)
 - [x] Implement `coral debug profile` command
-- [x] Add flags: --service, --query, --strategy, --max-functions, --duration, --async, --sample-rate, --format
+- [x] Add flags: --service, --query, --strategy, --max-functions, --duration,
+  --async, --sample-rate, --format
 - [x] Add duration parsing helper function
-- [x] Format output with rich text display (metrics, bottlenecks, recommendations)
+- [x] Format output with rich text display (metrics, bottlenecks,
+  recommendations)
 
 ### Phase 4: MCP Tools
+
 - [x] Define `DiscoverFunctionsInput` type
 - [x] Define `ProfileFunctionsInput` type
 - [x] Implement `registerDiscoverFunctionsTool()` with semantic search
 - [x] Implement `registerProfileFunctionsTool()` with batch profiling
 - [x] Add tools to registration, schemas, and descriptions
-- [x] Mark legacy tools as deprecated (coral_search_functions, coral_get_function_context, coral_list_probeable_functions)
+- [x] Mark legacy tools as deprecated (coral_search_functions,
+  coral_get_function_context, coral_list_probeable_functions)
 - [x] Add visual indicators (🎯 RECOMMENDED, ⚠️ DEPRECATED)
 
 ### Phase 5: Testing & Validation
+
 - [x] Fix test files to use new orchestrator signature
 - [x] Run full test suite and verify all tests pass
 - [x] Build CLI and verify compilation
@@ -660,7 +671,7 @@ Docker scenarios because:
 
 ### Solution
 
-**1. SDK Capabilities-Based Discovery** (`internal/agent/monitor.go:300-361`)
+**1. SDK Capabilities-Based Discovery** (`internal/agent/monitor.go`)
 
 When SDK capabilities are discovered, function discovery is immediately triggered using SDK-provided metadata:
 
@@ -683,7 +694,7 @@ func (m *ServiceMonitor) SetSdkCapabilities(caps *agentv1.ServiceSdkCapabilities
 }
 ```
 
-**2. Binary Hash from SDK** (`internal/agent/debug/function_storage.go:93-122`)
+**2. Binary Hash from SDK** (`internal/agent/debug/function_storage.go`)
 
 Binary hash is used from SDK capabilities instead of computing from inaccessible files:
 
@@ -702,7 +713,7 @@ func (c *FunctionCache) DiscoverAndCacheWithHash(..., binaryHash string) error {
 }
 ```
 
-**3. Bulk NDJSON Export** (`internal/agent/debug/function_storage.go:370-470`)
+**3. Bulk NDJSON Export** (`internal/agent/debug/function_storage.go`)
 
 Replaced individual function fetches with bulk streaming export:
 
