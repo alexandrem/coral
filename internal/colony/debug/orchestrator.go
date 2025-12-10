@@ -913,6 +913,26 @@ func (o *Orchestrator) QueryFunctions(
 			fmt.Errorf("failed to query functions: %w", err))
 	}
 
+	// Query for active debug sessions to check if functions are currently probed
+	activeSessions := make(map[string]*database.DebugSession) // functionName -> session
+	if req.Msg.ServiceName != "" {
+		sessionFilters := database.DebugSessionFilters{
+			ServiceName: req.Msg.ServiceName,
+			Status:      "active",
+		}
+		dbSessions, err := o.db.ListDebugSessions(sessionFilters)
+		if err != nil {
+			o.logger.Warn().Err(err).Msg("Failed to query active sessions for function status")
+		} else {
+			for _, session := range dbSessions {
+				// Only track non-expired sessions
+				if time.Now().Before(session.ExpiresAt) {
+					activeSessions[session.FunctionName] = session
+				}
+			}
+		}
+	}
+
 	// Convert function results to protobuf format
 	var results []*debugpb.FunctionResult
 	for _, fn := range colonyFunctions {
@@ -934,6 +954,9 @@ func (o *Orchestrator) QueryFunctions(
 			offset = fn.Offset.Int64
 		}
 
+		// Check if this function is currently probed
+		activeSession, isProbed := activeSessions[fn.FunctionName]
+
 		result := &debugpb.FunctionResult{
 			Function: &debugpb.FunctionMetadata{
 				Id:      fmt.Sprintf("%s/%s", fn.ServiceName, fn.FunctionName),
@@ -950,8 +973,29 @@ func (o *Orchestrator) QueryFunctions(
 			Instrumentation: &debugpb.InstrumentationInfo{
 				IsProbeable:     fn.HasDwarf,
 				HasDwarf:        fn.HasDwarf,
-				CurrentlyProbed: false, // TODO: Check active sessions
+				CurrentlyProbed: isProbed,
 			},
+		}
+
+		// If function is currently probed and metrics are requested, fetch live probe data
+		if isProbed && req.Msg.IncludeMetrics {
+			resultsReq := connect.NewRequest(&debugpb.GetDebugResultsRequest{
+				SessionId: activeSession.SessionID,
+				Format:    "summary",
+			})
+			resultsResp, err := o.GetDebugResults(ctx, resultsReq)
+			if err == nil && resultsResp.Msg.Statistics != nil {
+				stats := resultsResp.Msg.Statistics
+				// Attach live probe metrics
+				result.Metrics = &debugpb.FunctionMetrics{
+					Source:      "live_probe",
+					P50:         stats.DurationP50,
+					P95:         stats.DurationP95,
+					P99:         stats.DurationP99,
+					CallsPerMin: float64(stats.TotalCalls) / resultsResp.Msg.Duration.AsDuration().Minutes(),
+					ErrorRate:   0.0, // TODO: Track error rate in probe data
+				}
+			}
 		}
 
 		results = append(results, result)

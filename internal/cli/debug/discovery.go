@@ -156,7 +156,6 @@ func NewInfoCmd() *cobra.Command {
 				fmt.Printf("\nInstrumentation:\n")
 				fmt.Printf("  Probeable:       %v\n", result.Instrumentation.IsProbeable)
 				fmt.Printf("  Has DWARF:       %v\n", result.Instrumentation.HasDwarf)
-				// TODO: this doesn't work right now
 				fmt.Printf("  Currently Probed: %v\n", result.Instrumentation.CurrentlyProbed)
 			}
 
