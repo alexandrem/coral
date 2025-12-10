@@ -80,14 +80,20 @@ If --database is not specified, the first available database will be used.`,
 				}
 			}
 
-			ctx := context.Background()
+			// Create context with timeout for initial setup (connection, listing, attaching).
+			setupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 
 			// Create DuckDB connection.
-			db, err := createDuckDBConnection(ctx)
+			db, err := createDuckDBConnection(setupCtx)
 			if err != nil {
 				return err
 			}
 			defer db.Close()
+
+			// Create long-lived context for the shell session.
+			// This is used for database attachments and queries, which should not timeout.
+			shellCtx := context.Background()
 
 			// Attach databases based on mode.
 			var attachedDBs []string
@@ -95,8 +101,8 @@ If --database is not specified, the first available database will be used.`,
 				// Colony mode: attach colony database.
 				dbName := database
 				if dbName == "" {
-					// Query available databases and use the first one.
-					databases, err := listColonyDatabases(ctx)
+					// Query available databases and use the first one (with timeout).
+					databases, err := listColonyDatabases(setupCtx)
 					if err != nil {
 						return fmt.Errorf("failed to query available databases: %w", err)
 					}
@@ -107,20 +113,21 @@ If --database is not specified, the first available database will be used.`,
 					fmt.Printf("Using database: %s\n", dbName)
 				}
 
-				if err := attachColonyDatabase(ctx, db, dbName); err != nil {
+				// Attach using long-lived context so HTTP remote attachment stays active.
+				if err := attachColonyDatabase(shellCtx, db, dbName); err != nil {
 					return fmt.Errorf("failed to attach colony database: %w", err)
 				}
 				attachedDBs = []string{"colony"}
 			} else {
-				// Agent mode: attach agent databases.
-				attachedDBs, err = attachDatabases(ctx, db, agentIDs, database)
+				// Agent mode: attach agent databases with long-lived context.
+				attachedDBs, err = attachDatabases(shellCtx, db, agentIDs, database)
 				if err != nil {
 					return err
 				}
 			}
 
 			// Start interactive shell.
-			return runInteractiveShell(ctx, db, agentIDs, database, attachedDBs)
+			return runInteractiveShell(shellCtx, db, agentIDs, database, attachedDBs)
 		},
 	}
 
@@ -301,11 +308,37 @@ func handleMetaCommand(ctx context.Context, db *sql.DB, command string, agentIDs
 			}
 		}
 
-		// Re-attach databases.
-		newAttachedDBs, err := attachDatabases(ctx, db, agentIDs, databaseName)
-		if err != nil {
-			return fmt.Errorf("failed to re-attach databases: %w", err)
+		// Re-attach databases based on mode.
+		var newAttachedDBs []string
+		var err error
+
+		if len(agentIDs) == 0 {
+			// Colony mode: re-attach colony database.
+			dbName := databaseName
+			if dbName == "" {
+				// Query available databases and use the first one.
+				databases, err := listColonyDatabases(ctx)
+				if err != nil {
+					return fmt.Errorf("failed to query available databases: %w", err)
+				}
+				if len(databases) == 0 {
+					return fmt.Errorf("colony has no available databases")
+				}
+				dbName = databases[0]
+			}
+
+			if err := attachColonyDatabase(ctx, db, dbName); err != nil {
+				return fmt.Errorf("failed to re-attach colony database: %w", err)
+			}
+			newAttachedDBs = []string{"colony"}
+		} else {
+			// Agent mode: re-attach agent databases.
+			newAttachedDBs, err = attachDatabases(ctx, db, agentIDs, databaseName)
+			if err != nil {
+				return fmt.Errorf("failed to re-attach databases: %w", err)
+			}
 		}
+
 		*attachedDBs = newAttachedDBs
 		fmt.Println("Successfully refreshed databases.")
 		printAttachedDBs(*attachedDBs)

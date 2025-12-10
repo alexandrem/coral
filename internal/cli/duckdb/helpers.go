@@ -192,31 +192,22 @@ func listAgentDatabases(ctx context.Context, meshIP string) ([]string, error) {
 }
 
 // resolveColonyAddress returns the colony HTTP address from config.
+// For CLI usage, we use localhost since the CLI typically runs on the same host as the colony.
 func resolveColonyAddress() (string, error) {
-	client, err := getColonyClient()
+	// Use the shared helper to get colony URL.
+	// This returns http://localhost:{port} based on config.
+	url, err := helpers.GetColonyURL("")
 	if err != nil {
-		return "", fmt.Errorf("failed to create colony client: %w", err)
+		return "", fmt.Errorf("failed to get colony URL: %w", err)
 	}
 
-	// Get colony status to retrieve the connect port.
-	ctx := context.Background()
-	req := connect.NewRequest(&colonyv1.GetStatusRequest{})
-	resp, err := client.GetStatus(ctx, req)
-	if err != nil {
-		return "", fmt.Errorf("failed to get colony status: %w", err)
+	// Parse URL to extract host:port.
+	// URL format is http://localhost:9000, we need localhost:9000.
+	if len(url) > 7 && url[:7] == "http://" {
+		return url[7:], nil
 	}
 
-	// Use mesh IPv4 and connect port to construct address.
-	if resp.Msg.MeshIpv4 == "" {
-		return "", fmt.Errorf("colony has no mesh IP address")
-	}
-
-	port := resp.Msg.ConnectPort
-	if port == 0 {
-		port = 9000 // Default colony port
-	}
-
-	return net.JoinHostPort(resp.Msg.MeshIpv4, fmt.Sprintf("%d", port)), nil
+	return "", fmt.Errorf("unexpected colony URL format: %s", url)
 }
 
 // attachColonyDatabase attaches the colony database to the DuckDB connection.
