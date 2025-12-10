@@ -1,7 +1,7 @@
 ---
 rfd: "046"
 title: "Colony DuckDB Remote Query for Historical Metrics"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: ["cli", "colony", "observability", "metrics", "duckdb"]
 
 # RFD 046 - Colony DuckDB Remote Query for Historical Metrics
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -177,32 +177,32 @@ coral duckdb list
 
 ### Phase 1: Shared DuckDB Handler
 
-- [ ] Move `internal/agent/duckdb_handler.go` to
+- [x] Move `internal/agent/duckdb_handler.go` to
   `internal/duckdb/http_handler.go` (shared package).
-- [ ] Update agent code to use shared handler.
-- [ ] Update agent tests.
+- [x] Update agent code to use shared handler.
+- [x] Update agent tests.
 
 ### Phase 2: Colony HTTP Endpoint
 
-- [ ] Add `/duckdb/` route to colony HTTP server.
-- [ ] Ensure colony database uses file path (not `:memory:`).
-- [ ] Register colony database with DuckDB handler.
-- [ ] Add integration test: start colony, attach via DuckDB, query metrics.
+- [x] Add `/duckdb/` route to colony HTTP server.
+- [x] Ensure colony database uses file path (not `:memory:`).
+- [x] Register colony database with DuckDB handler.
+- [x] Add integration test: start colony, attach via DuckDB, query metrics.
 
 ### Phase 3: CLI Command Extensions
 
-- [ ] Add `--colony` flag to `query` subcommand.
-- [ ] Add `--colony` flag to `shell` subcommand.
-- [ ] Add `list` subcommand (shows colony + agents).
-- [ ] Add colony address resolution from config.
-- [ ] Update CLI help text with colony examples.
+- [x] Add `--colony` flag to `query` subcommand.
+- [x] Add `--colony` flag to `shell` subcommand.
+- [x] Add `list` subcommand (shows colony + agents).
+- [x] Add colony address resolution from config.
+- [x] Update CLI help text with colony examples.
 
 ### Phase 4: Testing & Documentation
 
-- [ ] Add unit tests for colony DuckDB handler.
-- [ ] Add E2E test: query colony database via CLI.
-- [ ] Update RFD 039 documentation to reference colony support.
-- [ ] Add example queries for common historical analysis patterns.
+- [x] Add unit tests for colony DuckDB handler.
+- [x] Add E2E test: query colony database via CLI.
+- [x] Update RFD 039 documentation to reference colony support.
+- [x] Add example queries for common historical analysis patterns.
 
 ## API Changes
 
@@ -444,7 +444,51 @@ colony:
 - Colony database typically pre-aggregated (faster queries than raw data).
 - Future enhancement: Query timeout or resource limits if needed.
 
-## Future Enhancements
+## Implementation Status
+
+**Core Capability:** ✅ Complete
+
+Colony database remote query is fully implemented with HTTP remote attachment via
+DuckDB. Operators can query colony's aggregated historical metrics database using
+the same SQL interface as agent queries (RFD 039).
+
+**Operational Components:**
+
+- ✅ Colony HTTP endpoint (`/duckdb/`) serving database over HTTP
+- ✅ Shared DuckDB handler (`internal/duckdb/http_handler.go`) for colony and agents
+- ✅ CLI: `coral duckdb shell --colony` for interactive SQL shell
+- ✅ CLI: `coral duckdb query --colony "SELECT ..."` for one-shot queries
+- ✅ CLI: `coral duckdb list-agents` shows colony + agent databases
+- ✅ Colony database registration with proper file path (not `:memory:`)
+- ✅ Context management for long-lived shell sessions
+- ✅ `.refresh` meta-command for re-attaching databases
+
+**What Works Now:**
+
+- **Interactive shell**: `coral duckdb shell --colony` opens DuckDB shell attached to colony database
+- **Ad-hoc queries**: Execute arbitrary SQL against 30-day historical metrics
+- **Table discovery**: `.tables` shows all colony tables (18+ tables including beyla_*, functions, etc.)
+- **Fleet-wide analysis**: Query aggregated data across all agents
+- **Fast failure**: 30-second timeout on initial connection, graceful error messages
+- **Persistent sessions**: Shell sessions run indefinitely without context timeouts
+- **Database refresh**: `.refresh` command re-attaches databases for updated data
+
+Key fixes applied:
+- Context timeout management: 30s for initial setup, no timeout for shell session
+- HTTP remote attachment: Uses long-lived context to maintain persistent connections
+- Colony mode detection: `.refresh` command properly handles colony vs agent modes
+- Shared helpers: Reuses `internal/cli/helpers` for colony connection
+
+**Integration Status:**
+
+- ✅ Integrated with RFD 039 (agent DuckDB remote query)
+- ✅ Uses colony database from RFD 032 (Beyla metrics aggregation)
+- ✅ Colony HTTP server serves DuckDB database alongside gRPC endpoints
+- ✅ All tests passing (`make test`)
+
+## Future Work
+
+The following features are out of scope for this RFD and may be addressed in future RFDs or enhancements:
 
 **Query Result Caching:**
 
