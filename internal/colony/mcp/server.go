@@ -223,10 +223,6 @@ func (s *Server) getToolSchemas() map[string]string {
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions": DiscoverFunctionsInput{},
 		"coral_profile_functions":  ProfileFunctionsInput{},
-		// Legacy tools (deprecated by RFD 069)
-		"coral_search_functions":         SearchFunctionsInput{},
-		"coral_get_function_context":     GetFunctionContextInput{},
-		"coral_list_probeable_functions": ListProbeableFunctionsInput{},
 	}
 
 	for toolName, inputType := range toolInputTypes {
@@ -275,12 +271,8 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_detach_uprobe":       "Stop debug session early and detach eBPF probes. Returns collected data summary.",
 		"coral_get_debug_results":   "Get aggregated results from debug session: call counts, duration percentiles, slow outliers.",
 		// RFD 069: New unified function discovery and profiling tools
-		"coral_discover_functions": "🎯 RECOMMENDED: Unified function discovery with semantic search. Replaces coral_search_functions + coral_get_function_context + coral_list_probeable_functions. Returns functions with embedded metrics, instrumentation info, and actionable suggestions. Use this for all function discovery needs.",
-		"coral_profile_functions":  "🔥 RECOMMENDED: Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Reduces 7+ tool calls to 1. Use this for performance investigation.",
-		// Legacy tools (deprecated by RFD 069)
-		"coral_search_functions":         "⚠️ DEPRECATED: Use coral_discover_functions instead. Semantic search for functions by keywords.",
-		"coral_get_function_context":     "⚠️ DEPRECATED: Use coral_discover_functions instead. Get context about a function.",
-		"coral_list_probeable_functions": "⚠️ DEPRECATED: Use coral_discover_functions instead. List functions available for uprobe attachment.",
+		"coral_discover_functions": "🎯 RECOMMENDED: Unified function discovery with semantic search. Returns functions with embedded metrics, instrumentation info, and actionable suggestions. Use this for all function discovery needs.",
+		"coral_profile_functions":  "🔥 RECOMMENDED: Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Use this for performance investigation.",
 	}
 }
 
@@ -308,11 +300,6 @@ func (s *Server) registerTools() error {
 	// These replace coral_search_functions, coral_get_function_context, and coral_list_probeable_functions.
 	s.registerDiscoverFunctionsTool()
 	s.registerProfileFunctionsTool()
-
-	// Legacy tools (deprecated by RFD 069, kept for backward compatibility).
-	s.registerSearchFunctionsTool()
-	s.registerGetFunctionContextTool()
-	s.registerListProbeableFunctionsTool()
 
 	// TODO: Register analysis tools.
 	// s.registerCorrelateEventsTool()
@@ -346,10 +333,6 @@ func (s *Server) listToolNames() []string {
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions",
 		"coral_profile_functions",
-		// Legacy tools (deprecated by RFD 069)
-		"coral_search_functions",
-		"coral_get_function_context",
-		"coral_list_probeable_functions",
 	}
 }
 

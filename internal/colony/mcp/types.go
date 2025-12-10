@@ -139,28 +139,6 @@ type GetDebugResultsInput struct {
 	Format    *string `json:"format,omitempty" jsonschema:"description=Result format (summary, full, histogram). Default: summary"`
 }
 
-// SearchFunctionsInput is the input for coral_search_functions.
-type SearchFunctionsInput struct {
-	Service string `json:"service" jsonschema:"description=Service name"`
-	Query   string `json:"query" jsonschema:"description=Natural language query (e.g., 'checkout payment processing', 'database query', 'authentication')"`
-	Limit   *int   `json:"limit,omitempty" jsonschema:"description=Max results to return (default: 20, max: 50)"`
-}
-
-// GetFunctionContextInput is the input for coral_get_function_context.
-type GetFunctionContextInput struct {
-	Service        string `json:"service" jsonschema:"description=Service name"`
-	Function       string `json:"function" jsonschema:"description=Function name (e.g., 'main.handleCheckout')"`
-	IncludeCallers *bool  `json:"include_callers,omitempty" jsonschema:"description=Include functions that call this one. Default: true"`
-	IncludeCallees *bool  `json:"include_callees,omitempty" jsonschema:"description=Include functions this one calls. Default: true"`
-	IncludeMetrics *bool  `json:"include_metrics,omitempty" jsonschema:"description=Include performance metrics if available. Default: true"`
-}
-
-// ListProbeableFunctionsInput is the input for coral_list_probeable_functions.
-type ListProbeableFunctionsInput struct {
-	Service string  `json:"service" jsonschema:"description=Service name"`
-	Pattern *string `json:"pattern,omitempty" jsonschema:"description=Regex filter for function names (e.g., 'handle.*', 'process.*')"`
-}
-
 // RFD 069 - Function Discovery and Profiling Tools
 
 // DiscoverFunctionsInput is the input for coral_discover_functions (RFD 069).
