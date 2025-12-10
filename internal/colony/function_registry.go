@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -238,22 +239,47 @@ func (r *FunctionRegistry) textSearch(ctx context.Context, serviceName, query st
 		Str("service", serviceName).
 		Msg("Using text search fallback")
 
+	// Split query into tokens to handle multi-word queries like "validate card" → "ValidateCard".
+	tokens := strings.Fields(query)
+
 	sqlQuery := `
 		SELECT
 			service_name, function_name, agent_id,
 			package_name, file_path, line_number, func_offset,
 			has_dwarf, discovered_at, last_seen
 		FROM functions
-		WHERE function_name ILIKE ?
+		WHERE 1=1
 	`
-	args := []interface{}{"%" + query + "%"}
+	args := []interface{}{}
+
+	// Add conditions for each token (must match all tokens).
+	for _, token := range tokens {
+		sqlQuery += " AND function_name ILIKE ?"
+		args = append(args, "%"+token+"%")
+	}
 
 	if serviceName != "" {
 		sqlQuery += " AND service_name = ?"
 		args = append(args, serviceName)
 	}
 
-	sqlQuery += " ORDER BY function_name LIMIT ?"
+	// Order by relevance: prioritize main package, exact matches, and shorter names.
+	sqlQuery += `
+		ORDER BY
+			CASE
+				WHEN package_name = 'main' THEN 0
+				WHEN package_name ILIKE 'main.%' THEN 1
+				ELSE 2
+			END,
+			CASE
+				WHEN function_name ILIKE ? THEN 0
+				ELSE 1
+			END,
+			LENGTH(function_name),
+			function_name
+		LIMIT ?
+	`
+	args = append(args, query) // Exact match check
 	args = append(args, limit)
 
 	rows, err := r.db.DB().QueryContext(ctx, sqlQuery, args...)
