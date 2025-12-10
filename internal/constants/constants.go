@@ -1,6 +1,10 @@
 // Package constants defines shared configuration constants.
 package constants
 
+import (
+	"time"
+)
+
 var (
 	ConfigFile = "config.yaml"
 
@@ -40,4 +44,8 @@ var (
 
 	// DefaultAgentPort is the default port for the agent's gRPC/Connect server.
 	DefaultAgentPort = 9001
+
+	// DefaultColonyFunctionsPollInterval is the default polling time frequency to pull debug
+	// functions from agents into the function registry.
+	DefaultColonyFunctionsPollInterval = 30 * time.Second
 )

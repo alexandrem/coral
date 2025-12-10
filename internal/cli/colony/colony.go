@@ -1512,11 +1512,11 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 	// Start function registry poller if registry was created (RFD 063).
 	if functionReg != nil {
-		// Configure poll interval from config (default: 5 minutes).
-		pollInterval := 30 * time.Second
-		// if colonyConfig.FunctionRegistry.PollInterval > 0 {
-		//	pollInterval = time.Duration(colonyConfig.FunctionRegistry.PollInterval) * time.Second
-		// }
+		// Configure poll interval from config.
+		pollInterval := constants.DefaultColonyFunctionsPollInterval
+		if colonyConfig.FunctionRegistry.PollInterval > 0 {
+			pollInterval = time.Duration(colonyConfig.FunctionRegistry.PollInterval) * time.Second
+		}
 
 		functionPoller := colony.NewFunctionPoller(colony.FunctionPollerConfig{
 			Registry:         agentRegistry,
