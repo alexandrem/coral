@@ -1,17 +1,25 @@
 package debug
 
 import (
+	"bufio"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"time"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/rs/zerolog"
+
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/duckdb"
+	"github.com/coral-mesh/coral/pkg/embedding"
 )
 
 // FunctionCache stores discovered functions locally in agent's DuckDB.
@@ -52,6 +60,7 @@ func (c *FunctionCache) initSchema() error {
 			line_number      INTEGER,
 			func_offset      BIGINT,
 			has_dwarf        BOOLEAN DEFAULT false,
+			embedding        FLOAT[384],
 			discovered_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (service_name, function_name)
 		);
@@ -82,16 +91,42 @@ func (c *FunctionCache) initSchema() error {
 
 // DiscoverAndCache discovers functions for a service and caches them.
 // This should be called when a service connects or when the binary hash changes.
-func (c *FunctionCache) DiscoverAndCache(ctx context.Context, serviceName, binaryPath string) error {
+// If sdkAddr is provided, it will fetch functions from the SDK HTTP API.
+// Otherwise, it falls back to DWARF parsing.
+func (c *FunctionCache) DiscoverAndCache(ctx context.Context, serviceName, binaryPath, sdkAddr string) error {
+	return c.DiscoverAndCacheWithHash(ctx, serviceName, binaryPath, sdkAddr, "")
+}
+
+// DiscoverAndCacheWithHash discovers functions with an optional pre-computed binary hash.
+// If binaryHash is provided (e.g., from SDK capabilities), it's used directly.
+// Otherwise, the hash is computed from the binary file.
+func (c *FunctionCache) DiscoverAndCacheWithHash(ctx context.Context, serviceName, binaryPath, sdkAddr, binaryHash string) error {
 	c.logger.Info().
 		Str("service", serviceName).
 		Str("binary", binaryPath).
+		Str("sdk_addr", sdkAddr).
 		Msg("Discovering and caching functions")
 
-	// Compute binary hash.
-	binaryHash, err := computeBinaryHash(binaryPath)
-	if err != nil {
-		return fmt.Errorf("failed to compute binary hash: %w", err)
+	var err error
+
+	// Compute binary hash if not provided.
+	if binaryHash == "" {
+		binaryHash, err = computeBinaryHash(binaryPath)
+		if err != nil {
+			// If we can't compute the hash and SDK is available, we can still proceed.
+			// This handles Docker scenarios where the binary is in a different container.
+			if sdkAddr != "" {
+				c.logger.Warn().
+					Err(err).
+					Str("service", serviceName).
+					Msg("Cannot access binary file (cross-container), using SDK-only mode")
+				// Use a placeholder hash based on service name and SDK address.
+				// This is safe because we'll re-discover if the SDK changes.
+				binaryHash = fmt.Sprintf("sdk-%s", serviceName)
+			} else {
+				return fmt.Errorf("failed to compute binary hash: %w", err)
+			}
+		}
 	}
 
 	// Check if we already have cached functions for this binary hash.
@@ -109,10 +144,42 @@ func (c *FunctionCache) DiscoverAndCache(ctx context.Context, serviceName, binar
 		return nil
 	}
 
-	// Binary hash has changed or this is a new service - discover functions.
-	functions, err := c.discoverer.DiscoverFunctions(binaryPath, serviceName)
-	if err != nil {
-		return fmt.Errorf("failed to discover functions: %w", err)
+	var functions []*agentv1.FunctionInfo
+
+	// Try SDK HTTP API first if SDK address is provided.
+	if sdkAddr != "" {
+		c.logger.Info().
+			Str("service", serviceName).
+			Str("sdk_addr", sdkAddr).
+			Msg("Fetching functions from SDK HTTP API")
+
+		var sdkErr error
+		functions, sdkErr = c.fetchFunctionsFromSDK(ctx, serviceName, sdkAddr)
+		if sdkErr != nil {
+			c.logger.Warn().
+				Err(sdkErr).
+				Str("service", serviceName).
+				Msg("Failed to fetch functions from SDK, falling back to DWARF parsing")
+			// Fall through to DWARF parsing
+		} else {
+			c.logger.Info().
+				Str("service", serviceName).
+				Int("function_count", len(functions)).
+				Msg("Successfully fetched functions from SDK HTTP API")
+		}
+	}
+
+	// Fall back to DWARF parsing if SDK fetch failed or SDK not available.
+	if functions == nil {
+		c.logger.Info().
+			Str("service", serviceName).
+			Str("binary", binaryPath).
+			Msg("Discovering functions via DWARF parsing")
+
+		functions, err = c.discoverer.DiscoverFunctions(binaryPath, serviceName)
+		if err != nil {
+			return fmt.Errorf("failed to discover functions via DWARF: %w", err)
+		}
 	}
 
 	c.logger.Info().
@@ -146,8 +213,8 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO functions_cache (
 			service_name, binary_path, binary_hash, function_name,
-			package_name, file_path, line_number, func_offset, has_dwarf
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			package_name, file_path, line_number, func_offset, has_dwarf, embedding
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::FLOAT[384])
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -159,6 +226,14 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 	}()
 
 	for _, fn := range functions {
+		// Convert []float32 embedding to DuckDB array string format.
+		var embeddingStr interface{}
+		if len(fn.Embedding) == 384 {
+			embeddingStr = duckdb.Float64ArrayToString(duckdb.Float32ToFloat64(fn.Embedding))
+		} else {
+			embeddingStr = nil // NULL if wrong size
+		}
+
 		_, err := stmt.ExecContext(ctx,
 			serviceName,
 			binaryPath,
@@ -169,6 +244,7 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 			fn.LineNumber,
 			fn.Offset,
 			fn.HasDwarf,
+			embeddingStr,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert function %s: %w", fn.Name, err)
@@ -176,15 +252,26 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 	}
 
 	// Update binary hash tracking.
+	// Note: DuckDB doesn't support CURRENT_TIMESTAMP in ON CONFLICT UPDATE,
+	// so we update last_checked in a separate statement.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO binary_hashes (service_name, binary_path, binary_hash, function_count)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT (service_name) DO UPDATE SET
 			binary_path = EXCLUDED.binary_path,
 			binary_hash = EXCLUDED.binary_hash,
-			last_checked = CURRENT_TIMESTAMP,
 			function_count = EXCLUDED.function_count
 	`, serviceName, binaryPath, binaryHash, len(functions))
+	if err != nil {
+		return fmt.Errorf("failed to upsert binary hash: %w", err)
+	}
+
+	// Update last_checked timestamp.
+	_, err = tx.ExecContext(ctx, `
+		UPDATE binary_hashes
+		SET last_checked = CURRENT_TIMESTAMP
+		WHERE service_name = ?
+	`, serviceName)
 	if err != nil {
 		return fmt.Errorf("failed to update binary hash: %w", err)
 	}
@@ -204,7 +291,7 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 // GetCachedFunctions retrieves cached functions for a service.
 func (c *FunctionCache) GetCachedFunctions(ctx context.Context, serviceName string) ([]*agentv1.FunctionInfo, error) {
 	rows, err := c.db.QueryContext(ctx, `
-		SELECT function_name, package_name, file_path, line_number, func_offset, has_dwarf
+		SELECT function_name, package_name, file_path, line_number, func_offset, has_dwarf, embedding
 		FROM functions_cache
 		WHERE service_name = ?
 		ORDER BY function_name
@@ -224,6 +311,7 @@ func (c *FunctionCache) GetCachedFunctions(ctx context.Context, serviceName stri
 		var packageName, filePath sql.NullString
 		var lineNumber sql.NullInt32
 		var offset sql.NullInt64
+		var embeddingData interface{} // Can be string or bytes depending on DuckDB version
 
 		err := rows.Scan(
 			&fn.Name,
@@ -232,6 +320,7 @@ func (c *FunctionCache) GetCachedFunctions(ctx context.Context, serviceName stri
 			&lineNumber,
 			&offset,
 			&fn.HasDwarf,
+			&embeddingData,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan function row: %w", err)
@@ -249,6 +338,35 @@ func (c *FunctionCache) GetCachedFunctions(ctx context.Context, serviceName stri
 		}
 		if offset.Valid {
 			fn.Offset = offset.Int64
+		}
+
+		// Convert embedding data back to []float32 if present.
+		if embeddingData != nil {
+			switch v := embeddingData.(type) {
+			case []byte:
+				// DuckDB returns FLOAT arrays as raw bytes.
+				fn.Embedding = duckdb.BytesToFloat32Array(v)
+				c.logger.Debug().
+					Str("function", fn.Name).
+					Int("embedding_bytes", len(v)).
+					Int("embedding_floats", len(fn.Embedding)).
+					Msg("Loaded embedding from cache")
+			case string:
+				// Some DuckDB versions might return as string.
+				// Skip string parsing for now - shouldn't happen.
+				c.logger.Warn().
+					Str("function", fn.Name).
+					Msg("Embedding returned as string, skipping")
+			default:
+				c.logger.Warn().
+					Str("function", fn.Name).
+					Str("type", fmt.Sprintf("%T", v)).
+					Msg("Unexpected embedding data type")
+			}
+		} else {
+			c.logger.Err(errors.New("missing embedding data in functions cache")).
+				Str("function", fn.Name).
+				Msg("No embedding in cache for function")
 		}
 
 		functions = append(functions, &fn)
@@ -305,6 +423,128 @@ func computeBinaryHash(binaryPath string) (string, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// fetchFunctionsFromSDK fetches functions from the SDK HTTP API using bulk export.
+// This uses the /debug/functions/export endpoint with NDJSON format for efficient streaming.
+func (c *FunctionCache) fetchFunctionsFromSDK(ctx context.Context, serviceName, sdkAddr string) ([]*agentv1.FunctionInfo, error) {
+	// Use the bulk export endpoint for efficient retrieval (RFD 066).
+	// This streams NDJSON data which is much faster than fetching functions individually.
+	exportURL := fmt.Sprintf("http://%s/debug/functions/export?format=ndjson", sdkAddr)
+
+	c.logger.Info().
+		Str("service", serviceName).
+		Str("url", exportURL).
+		Msg("Fetching functions from SDK via bulk NDJSON export")
+
+	// Create HTTP request with context.
+	req, err := http.NewRequestWithContext(ctx, "GET", exportURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create export request: %w", err)
+	}
+
+	// Execute request.
+	client := &http.Client{Timeout: 60 * time.Second} // Longer timeout for large exports
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch export: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("export endpoint returned status %d", resp.StatusCode)
+	}
+
+	// Check if response is gzipped (RFD 066 specifies Content-Type: application/gzip).
+	// The export endpoint always returns gzipped data.
+	var reader io.Reader = resp.Body
+	contentType := resp.Header.Get("Content-Type")
+	contentEncoding := resp.Header.Get("Content-Encoding")
+
+	if contentType == "application/gzip" || contentEncoding == "gzip" {
+		gzReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer func() { _ = gzReader.Close() }()
+		reader = gzReader
+	}
+
+	// Parse NDJSON stream line by line.
+	scanner := bufio.NewScanner(reader)
+	functions := make([]*agentv1.FunctionInfo, 0, 1000) // Pre-allocate reasonable size
+	seenFunctions := make(map[string]bool)              // Deduplicate by name
+
+	type ExportedFunction struct {
+		Name   string `json:"name"`
+		Offset uint64 `json:"offset"`
+		File   string `json:"file"`
+		Line   int    `json:"line"`
+	}
+
+	lineCount := 0
+	duplicates := 0
+	for scanner.Scan() {
+		lineCount++
+		var fn ExportedFunction
+		if err := json.Unmarshal(scanner.Bytes(), &fn); err != nil {
+			c.logger.Warn().
+				Err(err).
+				Int("line", lineCount).
+				Msg("Failed to parse function from NDJSON, skipping")
+			continue
+		}
+
+		// Skip duplicates (Go binaries can have duplicate function names).
+		// Keep first occurrence only to satisfy PRIMARY KEY (service_name, function_name).
+		if seenFunctions[fn.Name] {
+			duplicates++
+			continue
+		}
+		seenFunctions[fn.Name] = true
+
+		// Generate embedding for semantic search.
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:       fn.Name,
+			Package:    extractPackageName(fn.Name),
+			FilePath:   fn.File,
+			Parameters: nil,
+		})
+
+		// Convert []float64 to []float32 for protobuf.
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+
+		functions = append(functions, &agentv1.FunctionInfo{
+			Name:        fn.Name,
+			Package:     extractPackageName(fn.Name),
+			FilePath:    fn.File,
+			LineNumber:  int32(fn.Line),
+			Offset:      int64(fn.Offset),
+			HasDwarf:    true,
+			ServiceName: serviceName,
+			Embedding:   emb32,
+		})
+	}
+
+	if duplicates > 0 {
+		c.logger.Debug().
+			Int("duplicates_skipped", duplicates).
+			Msg("Skipped duplicate function names")
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading NDJSON stream: %w", err)
+	}
+
+	c.logger.Info().
+		Str("service", serviceName).
+		Int("function_count", len(functions)).
+		Msg("Successfully fetched functions from SDK bulk export")
+
+	return functions, nil
 }
 
 // GetCacheStats returns statistics about the function cache.

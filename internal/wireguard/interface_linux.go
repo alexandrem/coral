@@ -5,7 +5,9 @@ package wireguard
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -53,8 +55,15 @@ func CreateTUNFromFD(name string, fd int, mtu int, logger zerolog.Logger) (*Inte
 		mtu = 1420 // Default MTU for WireGuard (1500 - 80 overhead)
 	}
 
-	// Create TUN device from file descriptor.
-	tunDevice, err := tun.CreateTUNFromFD(name, fd)
+	// Create an os.File from the file descriptor.
+	file := os.NewFile(uintptr(fd), "")
+	if file == nil {
+		return nil, fmt.Errorf("failed to create os.File from file descriptor")
+	}
+
+	// Create TUN device from os.File.
+	// Do NOT close the file here. The TUN device takes ownership of the file descriptor.
+	tunDevice, err := tun.CreateTUNFromFile(file, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TUN device from FD: %w", err)
 	}
@@ -64,6 +73,10 @@ func CreateTUNFromFD(name string, fd int, mtu int, logger zerolog.Logger) (*Inte
 		_ = tunDevice.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to get TUN device name: %w", err)
 	}
+
+	// Keep the file object alive until the tunDevice is returned,
+	// preventing the garbage collector from finalizing it and closing the FD.
+	runtime.KeepAlive(file)
 
 	return &Interface{
 		device: tunDevice,

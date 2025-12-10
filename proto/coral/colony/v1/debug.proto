@@ -27,6 +27,12 @@ service DebugService {
 
   // Get aggregated debug results (RFD 062).
   rpc GetDebugResults(GetDebugResultsRequest) returns (GetDebugResultsResponse);
+
+  // Query functions with semantic search (RFD 069).
+  rpc QueryFunctions(QueryFunctionsRequest) returns (QueryFunctionsResponse);
+
+  // Profile multiple functions with automatic analysis (RFD 069).
+  rpc ProfileFunctions(ProfileFunctionsRequest) returns (ProfileFunctionsResponse);
 }
 
 // AttachUprobeRequest initiates a debug session on a specific function.
@@ -163,4 +169,127 @@ message CallTreeNode {
   int64 call_count = 4;                         // Number of times this function was called
   repeated CallTreeNode children = 5;           // Child function calls
   bool is_slow = 6;                             // Exceeds P95 threshold
+}
+
+// QueryFunctionsRequest queries the function registry (RFD 069).
+message QueryFunctionsRequest {
+  string service_name = 1;          // Optional filter by service name
+  string query = 2;                 // Semantic search query (keywords or regex)
+  int32 max_results = 3;            // Max results (default: 20, max: 50)
+  bool include_metrics = 4;         // Include performance metrics if available
+  bool prioritize_slow = 5;         // Rank by P95 latency
+}
+
+// QueryFunctionsResponse returns discovered functions.
+message QueryFunctionsResponse {
+  string service_name = 1;
+  string query = 2;
+  int32 data_coverage_pct = 3;      // Percentage of results with metrics (0-100)
+  repeated FunctionResult results = 4;
+  string suggestion = 5;            // Recommendation for next action
+}
+
+// FunctionResult represents a discovered function with metadata.
+message FunctionResult {
+  FunctionMetadata function = 1;
+  SearchInfo search = 2;
+  FunctionMetrics metrics = 3;      // May be null if not instrumented
+  InstrumentationInfo instrumentation = 4;
+  string suggestion = 5;            // Present when action recommended
+}
+
+// FunctionMetadata contains static function information.
+message FunctionMetadata {
+  string id = 1;                    // Unique function ID
+  string name = 2;                  // Full function name (e.g., "main.handleCheckout")
+  string package = 3;               // Package name
+  string file = 4;                  // Source file path
+  int32 line = 5;                   // Line number
+  string offset = 6;                // Function offset in binary
+}
+
+// SearchInfo contains search ranking metadata.
+message SearchInfo {
+  double score = 1;                 // Search relevance score (0-1)
+  string reason = 2;                // Why this function matched
+}
+
+// FunctionMetrics contains performance data.
+message FunctionMetrics {
+  string source = 1;                // "probe_history" | "estimated" | null
+  google.protobuf.Timestamp last_measured = 2;
+  int64 sample_size = 3;
+  google.protobuf.Duration p50 = 4;
+  google.protobuf.Duration p95 = 5;
+  google.protobuf.Duration p99 = 6;
+  double calls_per_min = 7;
+  double error_rate = 8;
+}
+
+// InstrumentationInfo contains probe availability metadata.
+message InstrumentationInfo {
+  bool is_probeable = 1;
+  bool has_dwarf = 2;
+  bool currently_probed = 3;
+  google.protobuf.Timestamp last_probed = 4;
+}
+
+// ProfileFunctionsRequest initiates batch profiling (RFD 069).
+message ProfileFunctionsRequest {
+  string service_name = 1;
+  string query = 2;                 // Semantic search query
+  string strategy = 3;              // "critical_path" | "all" | "entry_points" | "leaf_functions"
+  int32 max_functions = 4;          // Max functions to probe (default: 20, max: 50)
+  google.protobuf.Duration duration = 5;  // Duration (default: 60s, max: 300s)
+  bool async = 6;                   // Return immediately vs wait
+  double sample_rate = 7;           // Event sampling: 0.1-1.0
+}
+
+// ProfileFunctionsResponse returns profiling results.
+message ProfileFunctionsResponse {
+  string session_id = 1;
+  string status = 2;                // "completed" | "in_progress" | "partial_success" | "failed"
+  string service_name = 3;
+  string query = 4;
+  string strategy = 5;
+  ProfileSummary summary = 6;
+  repeated ProfileResult results = 7;
+  repeated Bottleneck bottlenecks = 8;
+  string recommendation = 9;
+  repeated string next_steps = 10;
+}
+
+// ProfileSummary contains high-level profiling statistics.
+message ProfileSummary {
+  int32 functions_selected = 1;
+  int32 functions_probed = 2;
+  int32 probes_failed = 3;
+  int64 total_events_captured = 4;
+  google.protobuf.Duration duration = 5;
+}
+
+// ProfileResult contains results for a single profiled function.
+message ProfileResult {
+  string function = 1;
+  bool probe_successful = 2;
+  FunctionMetrics metrics = 3;
+  repeated CallContribution calls = 4;
+}
+
+// CallContribution represents a callee's contribution to execution time.
+message CallContribution {
+  string callee = 1;
+  int32 contribution_pct = 2;       // Percentage of parent's time
+  google.protobuf.Duration p95 = 3;
+  bool is_bottleneck = 4;
+}
+
+// Bottleneck represents an identified performance bottleneck.
+message Bottleneck {
+  string function = 1;
+  google.protobuf.Duration p95 = 2;
+  int32 contribution_pct = 3;
+  string severity = 4;              // "critical" | "major" | "minor"
+  string impact = 5;
+  string recommendation = 6;
 }
