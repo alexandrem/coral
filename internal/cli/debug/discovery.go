@@ -23,7 +23,7 @@ func NewSearchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search for functions",
-		Long:  "Search for functions to debug using semantic search (RFD 069).",
+		Long:  "Search for functions to debug using semantic search.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := args[0]
@@ -106,7 +106,7 @@ func NewInfoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "info",
 		Short: "Get function details",
-		Long:  "Get detailed information about a specific function including metrics (RFD 069).",
+		Long:  "Get detailed information about a specific function including metrics.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
@@ -214,7 +214,7 @@ func NewProfileCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "profile",
 		Short: "Auto-profile functions",
-		Long:  "Automatically profile multiple functions with batch instrumentation (RFD 069).",
+		Long:  "Automatically profile multiple functions with batch instrumentation.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
