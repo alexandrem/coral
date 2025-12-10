@@ -34,7 +34,6 @@
 package embedding
 
 import (
-	"math"
 	"strings"
 
 	"github.com/zeebo/xxh3"
@@ -156,28 +155,6 @@ func tokenizeForEmbedding(text string) []string {
 	}
 
 	return deduplicateTokens(tokens)
-}
-
-// hashToken computes a hash for a token using xx3_64.
-func hashToken(token string) uint64 {
-	return xxh3.HashString(token)
-}
-
-// normalize normalizes a vector to unit length.
-func normalize(vec []float64) {
-	var sum float64
-	for _, v := range vec {
-		sum += v * v
-	}
-
-	if sum == 0 {
-		return
-	}
-
-	magnitude := 1.0 / math.Sqrt(sum)
-	for i := range vec {
-		vec[i] *= magnitude
-	}
 }
 
 // splitCamelCase splits a camelCase or PascalCase string into words.

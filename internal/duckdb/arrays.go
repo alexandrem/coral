@@ -1,3 +1,4 @@
+// Package duckdb provides utilities for working with DuckDB data types and formats.
 package duckdb
 
 import (

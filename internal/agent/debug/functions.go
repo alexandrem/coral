@@ -108,6 +108,8 @@ func (d *FunctionDiscoverer) DiscoverFunctions(binaryPath, serviceName string) (
 
 // extractFunctionsFromExternalBinary extracts functions from an external binary.
 // This uses the SDK's FunctionMetadataProvider to extract DWARF debug info.
+//
+//nolint:unused
 func (d *FunctionDiscoverer) extractFunctionsFromExternalBinary(binaryPath, serviceName string) ([]*agentv1.FunctionInfo, error) {
 	// Create SDK logger from zerolog.
 	slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{

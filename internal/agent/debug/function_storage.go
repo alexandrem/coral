@@ -449,7 +449,7 @@ func (c *FunctionCache) fetchFunctionsFromSDK(ctx context.Context, serviceName, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch export: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("export endpoint returned status %d", resp.StatusCode)
@@ -466,7 +466,7 @@ func (c *FunctionCache) fetchFunctionsFromSDK(ctx context.Context, serviceName, 
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 		}
-		defer gzReader.Close()
+		defer func() { _ = gzReader.Close() }()
 		reader = gzReader
 	}
 
