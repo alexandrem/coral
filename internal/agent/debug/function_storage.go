@@ -8,16 +8,18 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/pkg/embedding"
-	"github.com/rs/zerolog"
 )
 
 // FunctionCache stores discovered functions locally in agent's DuckDB.
@@ -344,11 +346,27 @@ func (c *FunctionCache) GetCachedFunctions(ctx context.Context, serviceName stri
 			case []byte:
 				// DuckDB returns FLOAT arrays as raw bytes.
 				fn.Embedding = duckdb.BytesToFloat32Array(v)
+				c.logger.Debug().
+					Str("function", fn.Name).
+					Int("embedding_bytes", len(v)).
+					Int("embedding_floats", len(fn.Embedding)).
+					Msg("Loaded embedding from cache")
 			case string:
 				// Some DuckDB versions might return as string.
 				// Skip string parsing for now - shouldn't happen.
-				c.logger.Warn().Msg("Embedding returned as string, skipping")
+				c.logger.Warn().
+					Str("function", fn.Name).
+					Msg("Embedding returned as string, skipping")
+			default:
+				c.logger.Warn().
+					Str("function", fn.Name).
+					Str("type", fmt.Sprintf("%T", v)).
+					Msg("Unexpected embedding data type")
 			}
+		} else {
+			c.logger.Err(errors.New("missing embedding data in functions cache")).
+				Str("function", fn.Name).
+				Msg("No embedding in cache for function")
 		}
 
 		functions = append(functions, &fn)
