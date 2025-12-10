@@ -271,8 +271,8 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_detach_uprobe":       "Stop debug session early and detach eBPF probes. Returns collected data summary.",
 		"coral_get_debug_results":   "Get aggregated results from debug session: call counts, duration percentiles, slow outliers.",
 		// RFD 069: New unified function discovery and profiling tools
-		"coral_discover_functions": "🎯 RECOMMENDED: Unified function discovery with semantic search. Returns functions with embedded metrics, instrumentation info, and actionable suggestions. Use this for all function discovery needs.",
-		"coral_profile_functions":  "🔥 RECOMMENDED: Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Use this for performance investigation.",
+		"coral_discover_functions": "Unified function discovery with semantic search. Returns functions with embedded metrics, instrumentation info, and actionable suggestions. Use this for all function discovery needs.",
+		"coral_profile_functions":  "Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Use this for performance investigation.",
 	}
 }
 
