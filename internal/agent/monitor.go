@@ -194,14 +194,21 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 				serviceName := m.service.Name
 				binaryPath := path
 
+				// Get SDK address if available.
+				sdkAddr := ""
+				if m.sdkCapabilities != nil && m.sdkCapabilities.SdkEnabled {
+					sdkAddr = m.sdkCapabilities.SdkAddr
+				}
+
 				m.logger.Info().
 					Str("service", serviceName).
 					Str("binary", binaryPath).
+					Str("sdk_addr", sdkAddr).
 					Msg("Triggering function discovery for newly discovered service")
 
 				// Trigger async discovery (don't block the monitor loop).
 				go func() {
-					if err := m.functionCache.DiscoverAndCache(context.Background(), serviceName, binaryPath); err != nil {
+					if err := m.functionCache.DiscoverAndCache(context.Background(), serviceName, binaryPath, sdkAddr); err != nil {
 						m.logger.Error().
 							Err(err).
 							Str("service", serviceName).
@@ -293,7 +300,6 @@ func (m *ServiceMonitor) checkTCPHealth(ctx context.Context) error {
 // SetSdkCapabilities updates the SDK capabilities for the service.
 func (m *ServiceMonitor) SetSdkCapabilities(caps *agentv1.ServiceSdkCapabilities) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.sdkCapabilities = caps
 	m.logger.Info().
 		Str("sdk_version", caps.SdkVersion).
@@ -307,8 +313,47 @@ func (m *ServiceMonitor) SetSdkCapabilities(caps *agentv1.ServiceSdkCapabilities
 		fmt.Sscanf(caps.ProcessId, "%d", &pid) // nolint:errcheck
 		m.processID = pid
 	}
+
+	var shouldTriggerDiscovery bool
+	var binaryPath, sdkAddr, serviceName, binaryHash string
+
 	if caps.BinaryPath != "" {
 		m.binaryPath = caps.BinaryPath
+
+		// Trigger function discovery if we have all required info (RFD 063 + RFD 066).
+		// This handles the case where services run in Docker containers with separate PID namespaces.
+		// The SDK provides both binary path and can serve functions via HTTP API.
+		if m.functionCache != nil && caps.SdkEnabled && caps.SdkAddr != "" {
+			shouldTriggerDiscovery = true
+			binaryPath = caps.BinaryPath
+			sdkAddr = caps.SdkAddr
+			binaryHash = caps.BinaryHash // Use SDK-provided hash for cross-container scenarios
+			serviceName = m.service.Name
+		}
+	}
+	m.mu.Unlock()
+
+	// Trigger discovery outside the lock to avoid blocking.
+	if shouldTriggerDiscovery {
+		m.logger.Info().
+			Str("service", serviceName).
+			Str("binary", binaryPath).
+			Str("sdk_addr", sdkAddr).
+			Str("binary_hash", binaryHash).
+			Msg("Triggering function discovery from SDK capabilities")
+
+		go func() {
+			if err := m.functionCache.DiscoverAndCacheWithHash(context.Background(), serviceName, binaryPath, sdkAddr, binaryHash); err != nil {
+				m.logger.Error().
+					Err(err).
+					Str("service", serviceName).
+					Msg("Failed to discover and cache functions from SDK")
+			} else {
+				m.logger.Info().
+					Str("service", serviceName).
+					Msg("Function discovery from SDK completed successfully")
+			}
+		}()
 	}
 	if caps.BinaryHash != "" {
 		m.binaryHash = caps.BinaryHash

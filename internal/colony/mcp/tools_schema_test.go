@@ -214,9 +214,9 @@ func TestGetToolSchemas(t *testing.T) {
 		"coral_trace_request_path",
 		"coral_list_debug_sessions",
 		"coral_get_debug_results",
-		"coral_search_functions",
-		"coral_get_function_context",
-		"coral_list_probeable_functions",
+		// RFD 069: Function discovery and profiling tools
+		"coral_discover_functions",
+		"coral_profile_functions",
 	}
 
 	for _, toolName := range expectedTools {

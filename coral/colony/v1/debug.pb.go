@@ -1184,6 +1184,1055 @@ func (x *CallTreeNode) GetIsSlow() bool {
 	return false
 }
 
+// QueryFunctionsRequest queries the function registry (RFD 069).
+type QueryFunctionsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName    string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`           // Optional filter by service name
+	Query          string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`                                          // Semantic search query (keywords or regex)
+	MaxResults     int32                  `protobuf:"varint,3,opt,name=max_results,json=maxResults,proto3" json:"max_results,omitempty"`             // Max results (default: 20, max: 50)
+	IncludeMetrics bool                   `protobuf:"varint,4,opt,name=include_metrics,json=includeMetrics,proto3" json:"include_metrics,omitempty"` // Include performance metrics if available
+	PrioritizeSlow bool                   `protobuf:"varint,5,opt,name=prioritize_slow,json=prioritizeSlow,proto3" json:"prioritize_slow,omitempty"` // Rank by P95 latency
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QueryFunctionsRequest) Reset() {
+	*x = QueryFunctionsRequest{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryFunctionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryFunctionsRequest) ProtoMessage() {}
+
+func (x *QueryFunctionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryFunctionsRequest.ProtoReflect.Descriptor instead.
+func (*QueryFunctionsRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *QueryFunctionsRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *QueryFunctionsRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *QueryFunctionsRequest) GetMaxResults() int32 {
+	if x != nil {
+		return x.MaxResults
+	}
+	return 0
+}
+
+func (x *QueryFunctionsRequest) GetIncludeMetrics() bool {
+	if x != nil {
+		return x.IncludeMetrics
+	}
+	return false
+}
+
+func (x *QueryFunctionsRequest) GetPrioritizeSlow() bool {
+	if x != nil {
+		return x.PrioritizeSlow
+	}
+	return false
+}
+
+// QueryFunctionsResponse returns discovered functions.
+type QueryFunctionsResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName     string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	Query           string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	DataCoveragePct int32                  `protobuf:"varint,3,opt,name=data_coverage_pct,json=dataCoveragePct,proto3" json:"data_coverage_pct,omitempty"` // Percentage of results with metrics (0-100)
+	Results         []*FunctionResult      `protobuf:"bytes,4,rep,name=results,proto3" json:"results,omitempty"`
+	Suggestion      string                 `protobuf:"bytes,5,opt,name=suggestion,proto3" json:"suggestion,omitempty"` // Recommendation for next action
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *QueryFunctionsResponse) Reset() {
+	*x = QueryFunctionsResponse{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryFunctionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryFunctionsResponse) ProtoMessage() {}
+
+func (x *QueryFunctionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryFunctionsResponse.ProtoReflect.Descriptor instead.
+func (*QueryFunctionsResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *QueryFunctionsResponse) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *QueryFunctionsResponse) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *QueryFunctionsResponse) GetDataCoveragePct() int32 {
+	if x != nil {
+		return x.DataCoveragePct
+	}
+	return 0
+}
+
+func (x *QueryFunctionsResponse) GetResults() []*FunctionResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+func (x *QueryFunctionsResponse) GetSuggestion() string {
+	if x != nil {
+		return x.Suggestion
+	}
+	return ""
+}
+
+// FunctionResult represents a discovered function with metadata.
+type FunctionResult struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Function        *FunctionMetadata      `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
+	Search          *SearchInfo            `protobuf:"bytes,2,opt,name=search,proto3" json:"search,omitempty"`
+	Metrics         *FunctionMetrics       `protobuf:"bytes,3,opt,name=metrics,proto3" json:"metrics,omitempty"` // May be null if not instrumented
+	Instrumentation *InstrumentationInfo   `protobuf:"bytes,4,opt,name=instrumentation,proto3" json:"instrumentation,omitempty"`
+	Suggestion      string                 `protobuf:"bytes,5,opt,name=suggestion,proto3" json:"suggestion,omitempty"` // Present when action recommended
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *FunctionResult) Reset() {
+	*x = FunctionResult{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FunctionResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FunctionResult) ProtoMessage() {}
+
+func (x *FunctionResult) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FunctionResult.ProtoReflect.Descriptor instead.
+func (*FunctionResult) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *FunctionResult) GetFunction() *FunctionMetadata {
+	if x != nil {
+		return x.Function
+	}
+	return nil
+}
+
+func (x *FunctionResult) GetSearch() *SearchInfo {
+	if x != nil {
+		return x.Search
+	}
+	return nil
+}
+
+func (x *FunctionResult) GetMetrics() *FunctionMetrics {
+	if x != nil {
+		return x.Metrics
+	}
+	return nil
+}
+
+func (x *FunctionResult) GetInstrumentation() *InstrumentationInfo {
+	if x != nil {
+		return x.Instrumentation
+	}
+	return nil
+}
+
+func (x *FunctionResult) GetSuggestion() string {
+	if x != nil {
+		return x.Suggestion
+	}
+	return ""
+}
+
+// FunctionMetadata contains static function information.
+type FunctionMetadata struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`           // Unique function ID
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`       // Full function name (e.g., "main.handleCheckout")
+	Package       string                 `protobuf:"bytes,3,opt,name=package,proto3" json:"package,omitempty"` // Package name
+	File          string                 `protobuf:"bytes,4,opt,name=file,proto3" json:"file,omitempty"`       // Source file path
+	Line          int32                  `protobuf:"varint,5,opt,name=line,proto3" json:"line,omitempty"`      // Line number
+	Offset        string                 `protobuf:"bytes,6,opt,name=offset,proto3" json:"offset,omitempty"`   // Function offset in binary
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FunctionMetadata) Reset() {
+	*x = FunctionMetadata{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FunctionMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FunctionMetadata) ProtoMessage() {}
+
+func (x *FunctionMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FunctionMetadata.ProtoReflect.Descriptor instead.
+func (*FunctionMetadata) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *FunctionMetadata) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *FunctionMetadata) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FunctionMetadata) GetPackage() string {
+	if x != nil {
+		return x.Package
+	}
+	return ""
+}
+
+func (x *FunctionMetadata) GetFile() string {
+	if x != nil {
+		return x.File
+	}
+	return ""
+}
+
+func (x *FunctionMetadata) GetLine() int32 {
+	if x != nil {
+		return x.Line
+	}
+	return 0
+}
+
+func (x *FunctionMetadata) GetOffset() string {
+	if x != nil {
+		return x.Offset
+	}
+	return ""
+}
+
+// SearchInfo contains search ranking metadata.
+type SearchInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Score         float64                `protobuf:"fixed64,1,opt,name=score,proto3" json:"score,omitempty"` // Search relevance score (0-1)
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"` // Why this function matched
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchInfo) Reset() {
+	*x = SearchInfo{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchInfo) ProtoMessage() {}
+
+func (x *SearchInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchInfo.ProtoReflect.Descriptor instead.
+func (*SearchInfo) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *SearchInfo) GetScore() float64 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
+func (x *SearchInfo) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// FunctionMetrics contains performance data.
+type FunctionMetrics struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Source        string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"` // "probe_history" | "estimated" | null
+	LastMeasured  *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_measured,json=lastMeasured,proto3" json:"last_measured,omitempty"`
+	SampleSize    int64                  `protobuf:"varint,3,opt,name=sample_size,json=sampleSize,proto3" json:"sample_size,omitempty"`
+	P50           *durationpb.Duration   `protobuf:"bytes,4,opt,name=p50,proto3" json:"p50,omitempty"`
+	P95           *durationpb.Duration   `protobuf:"bytes,5,opt,name=p95,proto3" json:"p95,omitempty"`
+	P99           *durationpb.Duration   `protobuf:"bytes,6,opt,name=p99,proto3" json:"p99,omitempty"`
+	CallsPerMin   float64                `protobuf:"fixed64,7,opt,name=calls_per_min,json=callsPerMin,proto3" json:"calls_per_min,omitempty"`
+	ErrorRate     float64                `protobuf:"fixed64,8,opt,name=error_rate,json=errorRate,proto3" json:"error_rate,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FunctionMetrics) Reset() {
+	*x = FunctionMetrics{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FunctionMetrics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FunctionMetrics) ProtoMessage() {}
+
+func (x *FunctionMetrics) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FunctionMetrics.ProtoReflect.Descriptor instead.
+func (*FunctionMetrics) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *FunctionMetrics) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *FunctionMetrics) GetLastMeasured() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastMeasured
+	}
+	return nil
+}
+
+func (x *FunctionMetrics) GetSampleSize() int64 {
+	if x != nil {
+		return x.SampleSize
+	}
+	return 0
+}
+
+func (x *FunctionMetrics) GetP50() *durationpb.Duration {
+	if x != nil {
+		return x.P50
+	}
+	return nil
+}
+
+func (x *FunctionMetrics) GetP95() *durationpb.Duration {
+	if x != nil {
+		return x.P95
+	}
+	return nil
+}
+
+func (x *FunctionMetrics) GetP99() *durationpb.Duration {
+	if x != nil {
+		return x.P99
+	}
+	return nil
+}
+
+func (x *FunctionMetrics) GetCallsPerMin() float64 {
+	if x != nil {
+		return x.CallsPerMin
+	}
+	return 0
+}
+
+func (x *FunctionMetrics) GetErrorRate() float64 {
+	if x != nil {
+		return x.ErrorRate
+	}
+	return 0
+}
+
+// InstrumentationInfo contains probe availability metadata.
+type InstrumentationInfo struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	IsProbeable     bool                   `protobuf:"varint,1,opt,name=is_probeable,json=isProbeable,proto3" json:"is_probeable,omitempty"`
+	HasDwarf        bool                   `protobuf:"varint,2,opt,name=has_dwarf,json=hasDwarf,proto3" json:"has_dwarf,omitempty"`
+	CurrentlyProbed bool                   `protobuf:"varint,3,opt,name=currently_probed,json=currentlyProbed,proto3" json:"currently_probed,omitempty"`
+	LastProbed      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_probed,json=lastProbed,proto3" json:"last_probed,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *InstrumentationInfo) Reset() {
+	*x = InstrumentationInfo{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InstrumentationInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InstrumentationInfo) ProtoMessage() {}
+
+func (x *InstrumentationInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InstrumentationInfo.ProtoReflect.Descriptor instead.
+func (*InstrumentationInfo) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *InstrumentationInfo) GetIsProbeable() bool {
+	if x != nil {
+		return x.IsProbeable
+	}
+	return false
+}
+
+func (x *InstrumentationInfo) GetHasDwarf() bool {
+	if x != nil {
+		return x.HasDwarf
+	}
+	return false
+}
+
+func (x *InstrumentationInfo) GetCurrentlyProbed() bool {
+	if x != nil {
+		return x.CurrentlyProbed
+	}
+	return false
+}
+
+func (x *InstrumentationInfo) GetLastProbed() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastProbed
+	}
+	return nil
+}
+
+// ProfileFunctionsRequest initiates batch profiling (RFD 069).
+type ProfileFunctionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	Query         string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`                                    // Semantic search query
+	Strategy      string                 `protobuf:"bytes,3,opt,name=strategy,proto3" json:"strategy,omitempty"`                              // "critical_path" | "all" | "entry_points" | "leaf_functions"
+	MaxFunctions  int32                  `protobuf:"varint,4,opt,name=max_functions,json=maxFunctions,proto3" json:"max_functions,omitempty"` // Max functions to probe (default: 20, max: 50)
+	Duration      *durationpb.Duration   `protobuf:"bytes,5,opt,name=duration,proto3" json:"duration,omitempty"`                              // Duration (default: 60s, max: 300s)
+	Async         bool                   `protobuf:"varint,6,opt,name=async,proto3" json:"async,omitempty"`                                   // Return immediately vs wait
+	SampleRate    float64                `protobuf:"fixed64,7,opt,name=sample_rate,json=sampleRate,proto3" json:"sample_rate,omitempty"`      // Event sampling: 0.1-1.0
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProfileFunctionsRequest) Reset() {
+	*x = ProfileFunctionsRequest{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileFunctionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileFunctionsRequest) ProtoMessage() {}
+
+func (x *ProfileFunctionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileFunctionsRequest.ProtoReflect.Descriptor instead.
+func (*ProfileFunctionsRequest) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ProfileFunctionsRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsRequest) GetStrategy() string {
+	if x != nil {
+		return x.Strategy
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsRequest) GetMaxFunctions() int32 {
+	if x != nil {
+		return x.MaxFunctions
+	}
+	return 0
+}
+
+func (x *ProfileFunctionsRequest) GetDuration() *durationpb.Duration {
+	if x != nil {
+		return x.Duration
+	}
+	return nil
+}
+
+func (x *ProfileFunctionsRequest) GetAsync() bool {
+	if x != nil {
+		return x.Async
+	}
+	return false
+}
+
+func (x *ProfileFunctionsRequest) GetSampleRate() float64 {
+	if x != nil {
+		return x.SampleRate
+	}
+	return 0
+}
+
+// ProfileFunctionsResponse returns profiling results.
+type ProfileFunctionsResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	SessionId      string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Status         string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"` // "completed" | "in_progress" | "partial_success" | "failed"
+	ServiceName    string                 `protobuf:"bytes,3,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	Query          string                 `protobuf:"bytes,4,opt,name=query,proto3" json:"query,omitempty"`
+	Strategy       string                 `protobuf:"bytes,5,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	Summary        *ProfileSummary        `protobuf:"bytes,6,opt,name=summary,proto3" json:"summary,omitempty"`
+	Results        []*ProfileResult       `protobuf:"bytes,7,rep,name=results,proto3" json:"results,omitempty"`
+	Bottlenecks    []*Bottleneck          `protobuf:"bytes,8,rep,name=bottlenecks,proto3" json:"bottlenecks,omitempty"`
+	Recommendation string                 `protobuf:"bytes,9,opt,name=recommendation,proto3" json:"recommendation,omitempty"`
+	NextSteps      []string               `protobuf:"bytes,10,rep,name=next_steps,json=nextSteps,proto3" json:"next_steps,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ProfileFunctionsResponse) Reset() {
+	*x = ProfileFunctionsResponse{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileFunctionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileFunctionsResponse) ProtoMessage() {}
+
+func (x *ProfileFunctionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileFunctionsResponse.ProtoReflect.Descriptor instead.
+func (*ProfileFunctionsResponse) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ProfileFunctionsResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsResponse) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsResponse) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsResponse) GetStrategy() string {
+	if x != nil {
+		return x.Strategy
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsResponse) GetSummary() *ProfileSummary {
+	if x != nil {
+		return x.Summary
+	}
+	return nil
+}
+
+func (x *ProfileFunctionsResponse) GetResults() []*ProfileResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+func (x *ProfileFunctionsResponse) GetBottlenecks() []*Bottleneck {
+	if x != nil {
+		return x.Bottlenecks
+	}
+	return nil
+}
+
+func (x *ProfileFunctionsResponse) GetRecommendation() string {
+	if x != nil {
+		return x.Recommendation
+	}
+	return ""
+}
+
+func (x *ProfileFunctionsResponse) GetNextSteps() []string {
+	if x != nil {
+		return x.NextSteps
+	}
+	return nil
+}
+
+// ProfileSummary contains high-level profiling statistics.
+type ProfileSummary struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	FunctionsSelected   int32                  `protobuf:"varint,1,opt,name=functions_selected,json=functionsSelected,proto3" json:"functions_selected,omitempty"`
+	FunctionsProbed     int32                  `protobuf:"varint,2,opt,name=functions_probed,json=functionsProbed,proto3" json:"functions_probed,omitempty"`
+	ProbesFailed        int32                  `protobuf:"varint,3,opt,name=probes_failed,json=probesFailed,proto3" json:"probes_failed,omitempty"`
+	TotalEventsCaptured int64                  `protobuf:"varint,4,opt,name=total_events_captured,json=totalEventsCaptured,proto3" json:"total_events_captured,omitempty"`
+	Duration            *durationpb.Duration   `protobuf:"bytes,5,opt,name=duration,proto3" json:"duration,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ProfileSummary) Reset() {
+	*x = ProfileSummary{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileSummary) ProtoMessage() {}
+
+func (x *ProfileSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileSummary.ProtoReflect.Descriptor instead.
+func (*ProfileSummary) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ProfileSummary) GetFunctionsSelected() int32 {
+	if x != nil {
+		return x.FunctionsSelected
+	}
+	return 0
+}
+
+func (x *ProfileSummary) GetFunctionsProbed() int32 {
+	if x != nil {
+		return x.FunctionsProbed
+	}
+	return 0
+}
+
+func (x *ProfileSummary) GetProbesFailed() int32 {
+	if x != nil {
+		return x.ProbesFailed
+	}
+	return 0
+}
+
+func (x *ProfileSummary) GetTotalEventsCaptured() int64 {
+	if x != nil {
+		return x.TotalEventsCaptured
+	}
+	return 0
+}
+
+func (x *ProfileSummary) GetDuration() *durationpb.Duration {
+	if x != nil {
+		return x.Duration
+	}
+	return nil
+}
+
+// ProfileResult contains results for a single profiled function.
+type ProfileResult struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Function        string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
+	ProbeSuccessful bool                   `protobuf:"varint,2,opt,name=probe_successful,json=probeSuccessful,proto3" json:"probe_successful,omitempty"`
+	Metrics         *FunctionMetrics       `protobuf:"bytes,3,opt,name=metrics,proto3" json:"metrics,omitempty"`
+	Calls           []*CallContribution    `protobuf:"bytes,4,rep,name=calls,proto3" json:"calls,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ProfileResult) Reset() {
+	*x = ProfileResult{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileResult) ProtoMessage() {}
+
+func (x *ProfileResult) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileResult.ProtoReflect.Descriptor instead.
+func (*ProfileResult) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ProfileResult) GetFunction() string {
+	if x != nil {
+		return x.Function
+	}
+	return ""
+}
+
+func (x *ProfileResult) GetProbeSuccessful() bool {
+	if x != nil {
+		return x.ProbeSuccessful
+	}
+	return false
+}
+
+func (x *ProfileResult) GetMetrics() *FunctionMetrics {
+	if x != nil {
+		return x.Metrics
+	}
+	return nil
+}
+
+func (x *ProfileResult) GetCalls() []*CallContribution {
+	if x != nil {
+		return x.Calls
+	}
+	return nil
+}
+
+// CallContribution represents a callee's contribution to execution time.
+type CallContribution struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Callee          string                 `protobuf:"bytes,1,opt,name=callee,proto3" json:"callee,omitempty"`
+	ContributionPct int32                  `protobuf:"varint,2,opt,name=contribution_pct,json=contributionPct,proto3" json:"contribution_pct,omitempty"` // Percentage of parent's time
+	P95             *durationpb.Duration   `protobuf:"bytes,3,opt,name=p95,proto3" json:"p95,omitempty"`
+	IsBottleneck    bool                   `protobuf:"varint,4,opt,name=is_bottleneck,json=isBottleneck,proto3" json:"is_bottleneck,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CallContribution) Reset() {
+	*x = CallContribution{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CallContribution) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CallContribution) ProtoMessage() {}
+
+func (x *CallContribution) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CallContribution.ProtoReflect.Descriptor instead.
+func (*CallContribution) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *CallContribution) GetCallee() string {
+	if x != nil {
+		return x.Callee
+	}
+	return ""
+}
+
+func (x *CallContribution) GetContributionPct() int32 {
+	if x != nil {
+		return x.ContributionPct
+	}
+	return 0
+}
+
+func (x *CallContribution) GetP95() *durationpb.Duration {
+	if x != nil {
+		return x.P95
+	}
+	return nil
+}
+
+func (x *CallContribution) GetIsBottleneck() bool {
+	if x != nil {
+		return x.IsBottleneck
+	}
+	return false
+}
+
+// Bottleneck represents an identified performance bottleneck.
+type Bottleneck struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Function        string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
+	P95             *durationpb.Duration   `protobuf:"bytes,2,opt,name=p95,proto3" json:"p95,omitempty"`
+	ContributionPct int32                  `protobuf:"varint,3,opt,name=contribution_pct,json=contributionPct,proto3" json:"contribution_pct,omitempty"`
+	Severity        string                 `protobuf:"bytes,4,opt,name=severity,proto3" json:"severity,omitempty"` // "critical" | "major" | "minor"
+	Impact          string                 `protobuf:"bytes,5,opt,name=impact,proto3" json:"impact,omitempty"`
+	Recommendation  string                 `protobuf:"bytes,6,opt,name=recommendation,proto3" json:"recommendation,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *Bottleneck) Reset() {
+	*x = Bottleneck{}
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Bottleneck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Bottleneck) ProtoMessage() {}
+
+func (x *Bottleneck) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_debug_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Bottleneck.ProtoReflect.Descriptor instead.
+func (*Bottleneck) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_debug_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *Bottleneck) GetFunction() string {
+	if x != nil {
+		return x.Function
+	}
+	return ""
+}
+
+func (x *Bottleneck) GetP95() *durationpb.Duration {
+	if x != nil {
+		return x.P95
+	}
+	return nil
+}
+
+func (x *Bottleneck) GetContributionPct() int32 {
+	if x != nil {
+		return x.ContributionPct
+	}
+	return 0
+}
+
+func (x *Bottleneck) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *Bottleneck) GetImpact() string {
+	if x != nil {
+		return x.Impact
+	}
+	return ""
+}
+
+func (x *Bottleneck) GetRecommendation() string {
+	if x != nil {
+		return x.Recommendation
+	}
+	return ""
+}
+
 var File_coral_colony_v1_debug_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_debug_proto_rawDesc = "" +
@@ -1293,14 +2342,114 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\n" +
 	"call_count\x18\x04 \x01(\x03R\tcallCount\x129\n" +
 	"\bchildren\x18\x05 \x03(\v2\x1d.coral.colony.v1.CallTreeNodeR\bchildren\x12\x17\n" +
-	"\ais_slow\x18\x06 \x01(\bR\x06isSlow2\xef\x04\n" +
+	"\ais_slow\x18\x06 \x01(\bR\x06isSlow\"\xc3\x01\n" +
+	"\x15QueryFunctionsRequest\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x14\n" +
+	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1f\n" +
+	"\vmax_results\x18\x03 \x01(\x05R\n" +
+	"maxResults\x12'\n" +
+	"\x0finclude_metrics\x18\x04 \x01(\bR\x0eincludeMetrics\x12'\n" +
+	"\x0fprioritize_slow\x18\x05 \x01(\bR\x0eprioritizeSlow\"\xd8\x01\n" +
+	"\x16QueryFunctionsResponse\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x14\n" +
+	"\x05query\x18\x02 \x01(\tR\x05query\x12*\n" +
+	"\x11data_coverage_pct\x18\x03 \x01(\x05R\x0fdataCoveragePct\x129\n" +
+	"\aresults\x18\x04 \x03(\v2\x1f.coral.colony.v1.FunctionResultR\aresults\x12\x1e\n" +
+	"\n" +
+	"suggestion\x18\x05 \x01(\tR\n" +
+	"suggestion\"\xb0\x02\n" +
+	"\x0eFunctionResult\x12=\n" +
+	"\bfunction\x18\x01 \x01(\v2!.coral.colony.v1.FunctionMetadataR\bfunction\x123\n" +
+	"\x06search\x18\x02 \x01(\v2\x1b.coral.colony.v1.SearchInfoR\x06search\x12:\n" +
+	"\ametrics\x18\x03 \x01(\v2 .coral.colony.v1.FunctionMetricsR\ametrics\x12N\n" +
+	"\x0finstrumentation\x18\x04 \x01(\v2$.coral.colony.v1.InstrumentationInfoR\x0finstrumentation\x12\x1e\n" +
+	"\n" +
+	"suggestion\x18\x05 \x01(\tR\n" +
+	"suggestion\"\x90\x01\n" +
+	"\x10FunctionMetadata\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\apackage\x18\x03 \x01(\tR\apackage\x12\x12\n" +
+	"\x04file\x18\x04 \x01(\tR\x04file\x12\x12\n" +
+	"\x04line\x18\x05 \x01(\x05R\x04line\x12\x16\n" +
+	"\x06offset\x18\x06 \x01(\tR\x06offset\":\n" +
+	"\n" +
+	"SearchInfo\x12\x14\n" +
+	"\x05score\x18\x01 \x01(\x01R\x05score\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xd5\x02\n" +
+	"\x0fFunctionMetrics\x12\x16\n" +
+	"\x06source\x18\x01 \x01(\tR\x06source\x12?\n" +
+	"\rlast_measured\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\flastMeasured\x12\x1f\n" +
+	"\vsample_size\x18\x03 \x01(\x03R\n" +
+	"sampleSize\x12+\n" +
+	"\x03p50\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x03p50\x12+\n" +
+	"\x03p95\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x03p95\x12+\n" +
+	"\x03p99\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x03p99\x12\"\n" +
+	"\rcalls_per_min\x18\a \x01(\x01R\vcallsPerMin\x12\x1d\n" +
+	"\n" +
+	"error_rate\x18\b \x01(\x01R\terrorRate\"\xbd\x01\n" +
+	"\x13InstrumentationInfo\x12!\n" +
+	"\fis_probeable\x18\x01 \x01(\bR\visProbeable\x12\x1b\n" +
+	"\thas_dwarf\x18\x02 \x01(\bR\bhasDwarf\x12)\n" +
+	"\x10currently_probed\x18\x03 \x01(\bR\x0fcurrentlyProbed\x12;\n" +
+	"\vlast_probed\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"lastProbed\"\x81\x02\n" +
+	"\x17ProfileFunctionsRequest\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x14\n" +
+	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1a\n" +
+	"\bstrategy\x18\x03 \x01(\tR\bstrategy\x12#\n" +
+	"\rmax_functions\x18\x04 \x01(\x05R\fmaxFunctions\x125\n" +
+	"\bduration\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x14\n" +
+	"\x05async\x18\x06 \x01(\bR\x05async\x12\x1f\n" +
+	"\vsample_rate\x18\a \x01(\x01R\n" +
+	"sampleRate\"\xa1\x03\n" +
+	"\x18ProfileFunctionsResponse\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12!\n" +
+	"\fservice_name\x18\x03 \x01(\tR\vserviceName\x12\x14\n" +
+	"\x05query\x18\x04 \x01(\tR\x05query\x12\x1a\n" +
+	"\bstrategy\x18\x05 \x01(\tR\bstrategy\x129\n" +
+	"\asummary\x18\x06 \x01(\v2\x1f.coral.colony.v1.ProfileSummaryR\asummary\x128\n" +
+	"\aresults\x18\a \x03(\v2\x1e.coral.colony.v1.ProfileResultR\aresults\x12=\n" +
+	"\vbottlenecks\x18\b \x03(\v2\x1b.coral.colony.v1.BottleneckR\vbottlenecks\x12&\n" +
+	"\x0erecommendation\x18\t \x01(\tR\x0erecommendation\x12\x1d\n" +
+	"\n" +
+	"next_steps\x18\n" +
+	" \x03(\tR\tnextSteps\"\xfa\x01\n" +
+	"\x0eProfileSummary\x12-\n" +
+	"\x12functions_selected\x18\x01 \x01(\x05R\x11functionsSelected\x12)\n" +
+	"\x10functions_probed\x18\x02 \x01(\x05R\x0ffunctionsProbed\x12#\n" +
+	"\rprobes_failed\x18\x03 \x01(\x05R\fprobesFailed\x122\n" +
+	"\x15total_events_captured\x18\x04 \x01(\x03R\x13totalEventsCaptured\x125\n" +
+	"\bduration\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\bduration\"\xcb\x01\n" +
+	"\rProfileResult\x12\x1a\n" +
+	"\bfunction\x18\x01 \x01(\tR\bfunction\x12)\n" +
+	"\x10probe_successful\x18\x02 \x01(\bR\x0fprobeSuccessful\x12:\n" +
+	"\ametrics\x18\x03 \x01(\v2 .coral.colony.v1.FunctionMetricsR\ametrics\x127\n" +
+	"\x05calls\x18\x04 \x03(\v2!.coral.colony.v1.CallContributionR\x05calls\"\xa7\x01\n" +
+	"\x10CallContribution\x12\x16\n" +
+	"\x06callee\x18\x01 \x01(\tR\x06callee\x12)\n" +
+	"\x10contribution_pct\x18\x02 \x01(\x05R\x0fcontributionPct\x12+\n" +
+	"\x03p95\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x03p95\x12#\n" +
+	"\ris_bottleneck\x18\x04 \x01(\bR\fisBottleneck\"\xdc\x01\n" +
+	"\n" +
+	"Bottleneck\x12\x1a\n" +
+	"\bfunction\x18\x01 \x01(\tR\bfunction\x12+\n" +
+	"\x03p95\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03p95\x12)\n" +
+	"\x10contribution_pct\x18\x03 \x01(\x05R\x0fcontributionPct\x12\x1a\n" +
+	"\bseverity\x18\x04 \x01(\tR\bseverity\x12\x16\n" +
+	"\x06impact\x18\x05 \x01(\tR\x06impact\x12&\n" +
+	"\x0erecommendation\x18\x06 \x01(\tR\x0erecommendation2\xbb\x06\n" +
 	"\fDebugService\x12[\n" +
 	"\fAttachUprobe\x12$.coral.colony.v1.AttachUprobeRequest\x1a%.coral.colony.v1.AttachUprobeResponse\x12[\n" +
 	"\fDetachUprobe\x12$.coral.colony.v1.DetachUprobeRequest\x1a%.coral.colony.v1.DetachUprobeResponse\x12j\n" +
 	"\x11QueryUprobeEvents\x12).coral.colony.v1.QueryUprobeEventsRequest\x1a*.coral.colony.v1.QueryUprobeEventsResponse\x12j\n" +
 	"\x11ListDebugSessions\x12).coral.colony.v1.ListDebugSessionsRequest\x1a*.coral.colony.v1.ListDebugSessionsResponse\x12g\n" +
 	"\x10TraceRequestPath\x12(.coral.colony.v1.TraceRequestPathRequest\x1a).coral.colony.v1.TraceRequestPathResponse\x12d\n" +
-	"\x0fGetDebugResults\x12'.coral.colony.v1.GetDebugResultsRequest\x1a(.coral.colony.v1.GetDebugResultsResponseB\xb5\x01\n" +
+	"\x0fGetDebugResults\x12'.coral.colony.v1.GetDebugResultsRequest\x1a(.coral.colony.v1.GetDebugResultsResponse\x12a\n" +
+	"\x0eQueryFunctions\x12&.coral.colony.v1.QueryFunctionsRequest\x1a'.coral.colony.v1.QueryFunctionsResponse\x12g\n" +
+	"\x10ProfileFunctions\x12(.coral.colony.v1.ProfileFunctionsRequest\x1a).coral.colony.v1.ProfileFunctionsResponseB\xb5\x01\n" +
 	"\x13com.coral.colony.v1B\n" +
 	"DebugProtoP\x01Z4github.com/coral-mesh/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
 
@@ -1316,7 +2465,7 @@ func file_coral_colony_v1_debug_proto_rawDescGZIP() []byte {
 	return file_coral_colony_v1_debug_proto_rawDescData
 }
 
-var file_coral_colony_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_coral_colony_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_coral_colony_v1_debug_proto_goTypes = []any{
 	(*AttachUprobeRequest)(nil),       // 0: coral.colony.v1.AttachUprobeRequest
 	(*AttachUprobeResponse)(nil),      // 1: coral.colony.v1.AttachUprobeResponse
@@ -1335,55 +2484,91 @@ var file_coral_colony_v1_debug_proto_goTypes = []any{
 	(*SlowOutlier)(nil),               // 14: coral.colony.v1.SlowOutlier
 	(*CallTree)(nil),                  // 15: coral.colony.v1.CallTree
 	(*CallTreeNode)(nil),              // 16: coral.colony.v1.CallTreeNode
-	nil,                               // 17: coral.colony.v1.SlowOutlier.LabelsEntry
-	(*durationpb.Duration)(nil),       // 18: google.protobuf.Duration
-	(*v1.UprobeConfig)(nil),           // 19: coral.mesh.v1.UprobeConfig
-	(*timestamppb.Timestamp)(nil),     // 20: google.protobuf.Timestamp
-	(*v1.UprobeEvent)(nil),            // 21: coral.mesh.v1.UprobeEvent
+	(*QueryFunctionsRequest)(nil),     // 17: coral.colony.v1.QueryFunctionsRequest
+	(*QueryFunctionsResponse)(nil),    // 18: coral.colony.v1.QueryFunctionsResponse
+	(*FunctionResult)(nil),            // 19: coral.colony.v1.FunctionResult
+	(*FunctionMetadata)(nil),          // 20: coral.colony.v1.FunctionMetadata
+	(*SearchInfo)(nil),                // 21: coral.colony.v1.SearchInfo
+	(*FunctionMetrics)(nil),           // 22: coral.colony.v1.FunctionMetrics
+	(*InstrumentationInfo)(nil),       // 23: coral.colony.v1.InstrumentationInfo
+	(*ProfileFunctionsRequest)(nil),   // 24: coral.colony.v1.ProfileFunctionsRequest
+	(*ProfileFunctionsResponse)(nil),  // 25: coral.colony.v1.ProfileFunctionsResponse
+	(*ProfileSummary)(nil),            // 26: coral.colony.v1.ProfileSummary
+	(*ProfileResult)(nil),             // 27: coral.colony.v1.ProfileResult
+	(*CallContribution)(nil),          // 28: coral.colony.v1.CallContribution
+	(*Bottleneck)(nil),                // 29: coral.colony.v1.Bottleneck
+	nil,                               // 30: coral.colony.v1.SlowOutlier.LabelsEntry
+	(*durationpb.Duration)(nil),       // 31: google.protobuf.Duration
+	(*v1.UprobeConfig)(nil),           // 32: coral.mesh.v1.UprobeConfig
+	(*timestamppb.Timestamp)(nil),     // 33: google.protobuf.Timestamp
+	(*v1.UprobeEvent)(nil),            // 34: coral.mesh.v1.UprobeEvent
 }
 var file_coral_colony_v1_debug_proto_depIdxs = []int32{
-	18, // 0: coral.colony.v1.AttachUprobeRequest.duration:type_name -> google.protobuf.Duration
-	19, // 1: coral.colony.v1.AttachUprobeRequest.config:type_name -> coral.mesh.v1.UprobeConfig
-	20, // 2: coral.colony.v1.AttachUprobeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	20, // 3: coral.colony.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
-	20, // 4: coral.colony.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
-	21, // 5: coral.colony.v1.QueryUprobeEventsResponse.events:type_name -> coral.mesh.v1.UprobeEvent
+	31, // 0: coral.colony.v1.AttachUprobeRequest.duration:type_name -> google.protobuf.Duration
+	32, // 1: coral.colony.v1.AttachUprobeRequest.config:type_name -> coral.mesh.v1.UprobeConfig
+	33, // 2: coral.colony.v1.AttachUprobeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	33, // 3: coral.colony.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
+	33, // 4: coral.colony.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
+	34, // 5: coral.colony.v1.QueryUprobeEventsResponse.events:type_name -> coral.mesh.v1.UprobeEvent
 	8,  // 6: coral.colony.v1.ListDebugSessionsResponse.sessions:type_name -> coral.colony.v1.DebugSession
-	20, // 7: coral.colony.v1.DebugSession.started_at:type_name -> google.protobuf.Timestamp
-	20, // 8: coral.colony.v1.DebugSession.expires_at:type_name -> google.protobuf.Timestamp
-	18, // 9: coral.colony.v1.TraceRequestPathRequest.duration:type_name -> google.protobuf.Duration
-	18, // 10: coral.colony.v1.GetDebugResultsResponse.duration:type_name -> google.protobuf.Duration
+	33, // 7: coral.colony.v1.DebugSession.started_at:type_name -> google.protobuf.Timestamp
+	33, // 8: coral.colony.v1.DebugSession.expires_at:type_name -> google.protobuf.Timestamp
+	31, // 9: coral.colony.v1.TraceRequestPathRequest.duration:type_name -> google.protobuf.Duration
+	31, // 10: coral.colony.v1.GetDebugResultsResponse.duration:type_name -> google.protobuf.Duration
 	13, // 11: coral.colony.v1.GetDebugResultsResponse.statistics:type_name -> coral.colony.v1.DebugStatistics
 	14, // 12: coral.colony.v1.GetDebugResultsResponse.slow_outliers:type_name -> coral.colony.v1.SlowOutlier
 	15, // 13: coral.colony.v1.GetDebugResultsResponse.call_tree:type_name -> coral.colony.v1.CallTree
-	18, // 14: coral.colony.v1.DebugStatistics.duration_p50:type_name -> google.protobuf.Duration
-	18, // 15: coral.colony.v1.DebugStatistics.duration_p95:type_name -> google.protobuf.Duration
-	18, // 16: coral.colony.v1.DebugStatistics.duration_p99:type_name -> google.protobuf.Duration
-	18, // 17: coral.colony.v1.DebugStatistics.duration_max:type_name -> google.protobuf.Duration
-	18, // 18: coral.colony.v1.SlowOutlier.duration:type_name -> google.protobuf.Duration
-	20, // 19: coral.colony.v1.SlowOutlier.timestamp:type_name -> google.protobuf.Timestamp
-	17, // 20: coral.colony.v1.SlowOutlier.labels:type_name -> coral.colony.v1.SlowOutlier.LabelsEntry
+	31, // 14: coral.colony.v1.DebugStatistics.duration_p50:type_name -> google.protobuf.Duration
+	31, // 15: coral.colony.v1.DebugStatistics.duration_p95:type_name -> google.protobuf.Duration
+	31, // 16: coral.colony.v1.DebugStatistics.duration_p99:type_name -> google.protobuf.Duration
+	31, // 17: coral.colony.v1.DebugStatistics.duration_max:type_name -> google.protobuf.Duration
+	31, // 18: coral.colony.v1.SlowOutlier.duration:type_name -> google.protobuf.Duration
+	33, // 19: coral.colony.v1.SlowOutlier.timestamp:type_name -> google.protobuf.Timestamp
+	30, // 20: coral.colony.v1.SlowOutlier.labels:type_name -> coral.colony.v1.SlowOutlier.LabelsEntry
 	16, // 21: coral.colony.v1.CallTree.root:type_name -> coral.colony.v1.CallTreeNode
-	18, // 22: coral.colony.v1.CallTreeNode.total_duration:type_name -> google.protobuf.Duration
-	18, // 23: coral.colony.v1.CallTreeNode.self_duration:type_name -> google.protobuf.Duration
+	31, // 22: coral.colony.v1.CallTreeNode.total_duration:type_name -> google.protobuf.Duration
+	31, // 23: coral.colony.v1.CallTreeNode.self_duration:type_name -> google.protobuf.Duration
 	16, // 24: coral.colony.v1.CallTreeNode.children:type_name -> coral.colony.v1.CallTreeNode
-	0,  // 25: coral.colony.v1.DebugService.AttachUprobe:input_type -> coral.colony.v1.AttachUprobeRequest
-	2,  // 26: coral.colony.v1.DebugService.DetachUprobe:input_type -> coral.colony.v1.DetachUprobeRequest
-	4,  // 27: coral.colony.v1.DebugService.QueryUprobeEvents:input_type -> coral.colony.v1.QueryUprobeEventsRequest
-	6,  // 28: coral.colony.v1.DebugService.ListDebugSessions:input_type -> coral.colony.v1.ListDebugSessionsRequest
-	9,  // 29: coral.colony.v1.DebugService.TraceRequestPath:input_type -> coral.colony.v1.TraceRequestPathRequest
-	11, // 30: coral.colony.v1.DebugService.GetDebugResults:input_type -> coral.colony.v1.GetDebugResultsRequest
-	1,  // 31: coral.colony.v1.DebugService.AttachUprobe:output_type -> coral.colony.v1.AttachUprobeResponse
-	3,  // 32: coral.colony.v1.DebugService.DetachUprobe:output_type -> coral.colony.v1.DetachUprobeResponse
-	5,  // 33: coral.colony.v1.DebugService.QueryUprobeEvents:output_type -> coral.colony.v1.QueryUprobeEventsResponse
-	7,  // 34: coral.colony.v1.DebugService.ListDebugSessions:output_type -> coral.colony.v1.ListDebugSessionsResponse
-	10, // 35: coral.colony.v1.DebugService.TraceRequestPath:output_type -> coral.colony.v1.TraceRequestPathResponse
-	12, // 36: coral.colony.v1.DebugService.GetDebugResults:output_type -> coral.colony.v1.GetDebugResultsResponse
-	31, // [31:37] is the sub-list for method output_type
-	25, // [25:31] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	19, // 25: coral.colony.v1.QueryFunctionsResponse.results:type_name -> coral.colony.v1.FunctionResult
+	20, // 26: coral.colony.v1.FunctionResult.function:type_name -> coral.colony.v1.FunctionMetadata
+	21, // 27: coral.colony.v1.FunctionResult.search:type_name -> coral.colony.v1.SearchInfo
+	22, // 28: coral.colony.v1.FunctionResult.metrics:type_name -> coral.colony.v1.FunctionMetrics
+	23, // 29: coral.colony.v1.FunctionResult.instrumentation:type_name -> coral.colony.v1.InstrumentationInfo
+	33, // 30: coral.colony.v1.FunctionMetrics.last_measured:type_name -> google.protobuf.Timestamp
+	31, // 31: coral.colony.v1.FunctionMetrics.p50:type_name -> google.protobuf.Duration
+	31, // 32: coral.colony.v1.FunctionMetrics.p95:type_name -> google.protobuf.Duration
+	31, // 33: coral.colony.v1.FunctionMetrics.p99:type_name -> google.protobuf.Duration
+	33, // 34: coral.colony.v1.InstrumentationInfo.last_probed:type_name -> google.protobuf.Timestamp
+	31, // 35: coral.colony.v1.ProfileFunctionsRequest.duration:type_name -> google.protobuf.Duration
+	26, // 36: coral.colony.v1.ProfileFunctionsResponse.summary:type_name -> coral.colony.v1.ProfileSummary
+	27, // 37: coral.colony.v1.ProfileFunctionsResponse.results:type_name -> coral.colony.v1.ProfileResult
+	29, // 38: coral.colony.v1.ProfileFunctionsResponse.bottlenecks:type_name -> coral.colony.v1.Bottleneck
+	31, // 39: coral.colony.v1.ProfileSummary.duration:type_name -> google.protobuf.Duration
+	22, // 40: coral.colony.v1.ProfileResult.metrics:type_name -> coral.colony.v1.FunctionMetrics
+	28, // 41: coral.colony.v1.ProfileResult.calls:type_name -> coral.colony.v1.CallContribution
+	31, // 42: coral.colony.v1.CallContribution.p95:type_name -> google.protobuf.Duration
+	31, // 43: coral.colony.v1.Bottleneck.p95:type_name -> google.protobuf.Duration
+	0,  // 44: coral.colony.v1.DebugService.AttachUprobe:input_type -> coral.colony.v1.AttachUprobeRequest
+	2,  // 45: coral.colony.v1.DebugService.DetachUprobe:input_type -> coral.colony.v1.DetachUprobeRequest
+	4,  // 46: coral.colony.v1.DebugService.QueryUprobeEvents:input_type -> coral.colony.v1.QueryUprobeEventsRequest
+	6,  // 47: coral.colony.v1.DebugService.ListDebugSessions:input_type -> coral.colony.v1.ListDebugSessionsRequest
+	9,  // 48: coral.colony.v1.DebugService.TraceRequestPath:input_type -> coral.colony.v1.TraceRequestPathRequest
+	11, // 49: coral.colony.v1.DebugService.GetDebugResults:input_type -> coral.colony.v1.GetDebugResultsRequest
+	17, // 50: coral.colony.v1.DebugService.QueryFunctions:input_type -> coral.colony.v1.QueryFunctionsRequest
+	24, // 51: coral.colony.v1.DebugService.ProfileFunctions:input_type -> coral.colony.v1.ProfileFunctionsRequest
+	1,  // 52: coral.colony.v1.DebugService.AttachUprobe:output_type -> coral.colony.v1.AttachUprobeResponse
+	3,  // 53: coral.colony.v1.DebugService.DetachUprobe:output_type -> coral.colony.v1.DetachUprobeResponse
+	5,  // 54: coral.colony.v1.DebugService.QueryUprobeEvents:output_type -> coral.colony.v1.QueryUprobeEventsResponse
+	7,  // 55: coral.colony.v1.DebugService.ListDebugSessions:output_type -> coral.colony.v1.ListDebugSessionsResponse
+	10, // 56: coral.colony.v1.DebugService.TraceRequestPath:output_type -> coral.colony.v1.TraceRequestPathResponse
+	12, // 57: coral.colony.v1.DebugService.GetDebugResults:output_type -> coral.colony.v1.GetDebugResultsResponse
+	18, // 58: coral.colony.v1.DebugService.QueryFunctions:output_type -> coral.colony.v1.QueryFunctionsResponse
+	25, // 59: coral.colony.v1.DebugService.ProfileFunctions:output_type -> coral.colony.v1.ProfileFunctionsResponse
+	52, // [52:60] is the sub-list for method output_type
+	44, // [44:52] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_coral_colony_v1_debug_proto_init() }
@@ -1397,7 +2582,7 @@ func file_coral_colony_v1_debug_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_colony_v1_debug_proto_rawDesc), len(file_coral_colony_v1_debug_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

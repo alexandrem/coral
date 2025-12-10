@@ -11,6 +11,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/pkg/embedding"
 )
 
@@ -58,12 +59,13 @@ func (r *FunctionRegistry) StoreFunctions(ctx context.Context, agentID, serviceN
 	for _, fn := range functions {
 		// Convert embedding to DuckDB array format.
 		// DuckDB's go driver doesn't support []float64 directly, so we convert to string.
-		// We convert from []float32 (proto) to []float64 first.
-		emb64 := make([]float64, len(fn.Embedding))
-		for i, v := range fn.Embedding {
-			emb64[i] = float64(v)
+		// If embedding is empty or has wrong size, use NULL instead.
+		var embeddingStr interface{}
+		if len(fn.Embedding) == 384 {
+			embeddingStr = duckdb.Float64ArrayToString(duckdb.Float32ToFloat64(fn.Embedding))
+		} else {
+			embeddingStr = nil // NULL in SQL
 		}
-		embeddingStr := floatSliceToArrayString(emb64)
 
 		// Insert or update function using ON CONFLICT with composite primary key.
 		// Note: We exclude 'embedding' from UPDATE because DuckDB doesn't support array updates.
@@ -135,9 +137,25 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 		return r.listFunctions(ctx, serviceName, limit)
 	}
 
+	// Try vector similarity search first (if embeddings exist).
+	results, err := r.vectorSearch(ctx, serviceName, query, limit)
+	if err == nil && len(results) > 0 {
+		return results, nil
+	}
+
+	// Fallback to text search if no results or embeddings don't exist.
+	r.logger.Debug().
+		Str("query", query).
+		Msg("Falling back to text search (embeddings may not be available)")
+
+	return r.textSearch(ctx, serviceName, query, limit)
+}
+
+// vectorSearch performs semantic search using embeddings.
+func (r *FunctionRegistry) vectorSearch(ctx context.Context, serviceName, query string, limit int) ([]*FunctionInfo, error) {
 	// Generate query embedding for semantic search.
 	queryEmbedding := embedding.GenerateQueryEmbedding(query)
-	queryEmbeddingStr := floatSliceToArrayString(queryEmbedding)
+	queryEmbeddingStr := duckdb.Float64ArrayToString(queryEmbedding)
 
 	// Build SQL query with vector similarity search.
 	sqlQuery := `
@@ -159,7 +177,6 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 
 	// Order by similarity (highest first) and limit results.
 	sqlQuery += " ORDER BY similarity DESC LIMIT ?"
-
 	args = append(args, limit)
 
 	// Execute query.
@@ -211,6 +228,103 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 		Str("query", query).
 		Int("result_count", len(functions)).
 		Msg("Vector similarity search completed")
+
+	return functions, nil
+}
+
+// textSearch performs simple text-based search when embeddings aren't available.
+func (r *FunctionRegistry) textSearch(ctx context.Context, serviceName, query string, limit int) ([]*FunctionInfo, error) {
+	r.logger.Info().
+		Str("query", query).
+		Str("service", serviceName).
+		Msg("Using text search fallback")
+
+	// Split query into tokens to handle multi-word queries like "validate card" → "ValidateCard".
+	tokens := strings.Fields(query)
+
+	sqlQuery := `
+		SELECT
+			service_name, function_name, agent_id,
+			package_name, file_path, line_number, func_offset,
+			has_dwarf, discovered_at, last_seen
+		FROM functions
+		WHERE 1=1
+	`
+	args := []interface{}{}
+
+	// Add conditions for each token (must match all tokens).
+	for _, token := range tokens {
+		sqlQuery += " AND function_name ILIKE ?"
+		args = append(args, "%"+token+"%")
+	}
+
+	if serviceName != "" {
+		sqlQuery += " AND service_name = ?"
+		args = append(args, serviceName)
+	}
+
+	// Order by relevance: prioritize main package, exact matches, and shorter names.
+	sqlQuery += `
+		ORDER BY
+			CASE
+				WHEN package_name = 'main' THEN 0
+				WHEN package_name ILIKE 'main.%' THEN 1
+				ELSE 2
+			END,
+			CASE
+				WHEN function_name ILIKE ? THEN 0
+				ELSE 1
+			END,
+			LENGTH(function_name),
+			function_name
+		LIMIT ?
+	`
+	args = append(args, query) // Exact match check
+	args = append(args, limit)
+
+	rows, err := r.db.DB().QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to text search functions: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			r.logger.Warn().Err(closeErr).Msg("Failed to close rows")
+		}
+	}()
+
+	var functions []*FunctionInfo
+	for rows.Next() {
+		var fn FunctionInfo
+		var discoveredAt, lastSeen time.Time
+
+		err := rows.Scan(
+			&fn.ServiceName,
+			&fn.FunctionName,
+			&fn.AgentID,
+			&fn.PackageName,
+			&fn.FilePath,
+			&fn.LineNumber,
+			&fn.Offset,
+			&fn.HasDwarf,
+			&discoveredAt,
+			&lastSeen,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan function row: %w", err)
+		}
+
+		fn.DiscoveredAt = discoveredAt
+		fn.LastSeen = lastSeen
+		functions = append(functions, &fn)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating function rows: %w", err)
+	}
+
+	r.logger.Info().
+		Int("result_count", len(functions)).
+		Msg("Text search completed")
 
 	return functions, nil
 }
@@ -286,23 +400,4 @@ type FunctionInfo struct {
 	HasDwarf     bool
 	DiscoveredAt time.Time
 	LastSeen     time.Time
-}
-
-// floatSliceToArrayString converts a float64 slice to DuckDB array string format.
-// Example: [1.0, 2.0, 3.0] -> "[1.0, 2.0, 3.0]"
-func floatSliceToArrayString(vec []float64) string {
-	if len(vec) == 0 {
-		return "[]"
-	}
-
-	var sb strings.Builder
-	sb.WriteString("[")
-	for i, v := range vec {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(fmt.Sprintf("%f", v))
-	}
-	sb.WriteString("]")
-	return sb.String()
 }

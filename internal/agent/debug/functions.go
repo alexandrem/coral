@@ -37,101 +37,135 @@ func (d *FunctionDiscoverer) DiscoverFunctions(binaryPath, serviceName string) (
 		Str("service", serviceName).
 		Msg("Discovering functions from binary")
 
-	// Create a temporary provider to extract metadata.
-	// We need to create a custom slog.Logger from zerolog for SDK compatibility.
+	// Create slog.Logger from zerolog for SDK compatibility.
 	slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelWarn, // Reduce verbosity for discovery
 	}))
 
-	// Since the SDK provider expects the current process binary,
-	// we'll need to create a custom provider for an external binary.
-	// For now, if the binary is the current process, use the SDK directly.
-	// Otherwise, we'll use a simpler approach.
+	// Determine if this is the current process or an external binary.
+	currentBinary, _ := os.Executable()
+	isCurrentProcess := (binaryPath == currentBinary)
 
-	// Check if this is the current process.
-	currentBinary, err := os.Executable()
-	if err == nil && binaryPath == currentBinary {
-		// Use SDK provider for current process.
-		provider, err := debug.NewFunctionMetadataProvider(slogger)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create function metadata provider: %w", err)
-		}
-		defer func() {
-			if closeErr := provider.Close(); closeErr != nil {
-				d.logger.Warn().Err(closeErr).Msg("Failed to close function metadata provider")
-			}
-		}()
-
-		// Get all functions from the index.
-		basicFunctions := provider.ListAllFunctions()
-
-		// Convert to protobuf format.
-		functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
-		for _, fn := range basicFunctions {
-			// Generate embedding with enrichment.
-			// Note: SDK's Function struct doesn't have parameters yet, so we pass empty list for now.
-			// TODO: Update SDK to extract parameters.
-			emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
-				Name:       fn.Name,
-				Package:    extractPackageName(fn.Name),
-				FilePath:   fn.File,
-				Parameters: nil, // TODO: Extract parameters
-			})
-
-			// Convert []float64 to []float32 for protobuf.
-			emb32 := make([]float32, len(emb))
-			for i, v := range emb {
-				emb32[i] = float32(v)
-			}
-
-			functions = append(functions, &agentv1.FunctionInfo{
-				Name:        fn.Name,
-				Package:     extractPackageName(fn.Name),
-				FilePath:    fn.File,
-				LineNumber:  int32(fn.Line),
-				Offset:      int64(fn.Offset),
-				HasDwarf:    provider.HasDWARF(),
-				ServiceName: serviceName,
-				Embedding:   emb32,
-			})
-		}
-
-		d.logger.Info().
-			Int("function_count", len(functions)).
-			Str("binary", binaryPath).
-			Str("service", serviceName).
-			Msg("Function discovery completed using SDK provider")
-
-		return functions, nil
+	// Use appropriate PID (current process PID or 0 for external binaries).
+	pid := 0
+	if isCurrentProcess {
+		pid = os.Getpid()
 	}
 
-	// For external binaries, create a custom DWARF extractor.
-	// This is a simplified version that just extracts basic info.
-	functions, err := d.extractFunctionsFromExternalBinary(binaryPath, serviceName)
+	// Create provider for the binary.
+	provider, err := debug.NewFunctionMetadataProviderForBinary(slogger, binaryPath, pid)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract functions from external binary: %w", err)
+		return nil, fmt.Errorf("failed to create function metadata provider: %w", err)
+	}
+	defer func() {
+		if closeErr := provider.Close(); closeErr != nil {
+			d.logger.Warn().Err(closeErr).Msg("Failed to close function metadata provider")
+		}
+	}()
+
+	// Get all functions from the index.
+	basicFunctions := provider.ListAllFunctions()
+
+	// Convert to protobuf format.
+	functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
+	for _, fn := range basicFunctions {
+		// Generate embedding with enrichment.
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:       fn.Name,
+			Package:    extractPackageName(fn.Name),
+			FilePath:   fn.File,
+			Parameters: nil, // TODO: Extract parameters
+		})
+
+		// Convert []float64 to []float32 for protobuf.
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+
+		functions = append(functions, &agentv1.FunctionInfo{
+			Name:        fn.Name,
+			Package:     extractPackageName(fn.Name),
+			FilePath:    fn.File,
+			LineNumber:  int32(fn.Line),
+			Offset:      int64(fn.Offset),
+			HasDwarf:    provider.HasDWARF(),
+			ServiceName: serviceName,
+			Embedding:   emb32,
+		})
 	}
 
 	d.logger.Info().
 		Int("function_count", len(functions)).
 		Str("binary", binaryPath).
 		Str("service", serviceName).
-		Msg("Function discovery completed from external binary")
+		Bool("is_current_process", isCurrentProcess).
+		Bool("has_dwarf", provider.HasDWARF()).
+		Msg("Function discovery completed")
 
 	return functions, nil
 }
 
 // extractFunctionsFromExternalBinary extracts functions from an external binary.
-// This is a simplified extractor for binaries that are not the current process.
-// For production use, this should be enhanced with proper DWARF/symbol table parsing.
+// This uses the SDK's FunctionMetadataProvider to extract DWARF debug info.
+//
+//nolint:unused
 func (d *FunctionDiscoverer) extractFunctionsFromExternalBinary(binaryPath, serviceName string) ([]*agentv1.FunctionInfo, error) {
-	// For now, return empty list with a warning.
-	// TODO: Implement full external binary parsing using debug/elf and debug/dwarf.
-	d.logger.Warn().
-		Str("binary", binaryPath).
-		Msg("External binary function discovery not yet fully implemented")
+	// Create SDK logger from zerolog.
+	slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelWarn, // Reduce verbosity for discovery
+	}))
 
-	return []*agentv1.FunctionInfo{}, nil
+	// Create provider for external binary (pid=0 since it's not the current process).
+	provider, err := debug.NewFunctionMetadataProviderForBinary(slogger, binaryPath, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create function metadata provider for %s: %w", binaryPath, err)
+	}
+	defer func() {
+		if closeErr := provider.Close(); closeErr != nil {
+			d.logger.Warn().Err(closeErr).Msg("Failed to close function metadata provider")
+		}
+	}()
+
+	// Get all functions from the index.
+	basicFunctions := provider.ListAllFunctions()
+
+	d.logger.Debug().
+		Int("function_count", len(basicFunctions)).
+		Str("binary", binaryPath).
+		Bool("has_dwarf", provider.HasDWARF()).
+		Msg("Extracted functions from external binary")
+
+	// Convert to protobuf format.
+	functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
+	for _, fn := range basicFunctions {
+		// Generate embedding with enrichment.
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:       fn.Name,
+			Package:    extractPackageName(fn.Name),
+			FilePath:   fn.File,
+			Parameters: nil, // TODO: Extract parameters
+		})
+
+		// Convert []float64 to []float32 for protobuf.
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+
+		functions = append(functions, &agentv1.FunctionInfo{
+			Name:        fn.Name,
+			Package:     extractPackageName(fn.Name),
+			FilePath:    fn.File,
+			LineNumber:  int32(fn.Line),
+			Offset:      int64(fn.Offset),
+			HasDwarf:    provider.HasDWARF(),
+			ServiceName: serviceName,
+			Embedding:   emb32,
+		})
+	}
+
+	return functions, nil
 }
 
 // extractPackageName extracts the package name from a fully-qualified Go function name.

@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
@@ -112,11 +113,6 @@ func (p *FunctionPoller) pollAllAgents() {
 
 	// Poll each agent.
 	for _, agent := range agents {
-		// Skip agents without services.
-		if len(agent.Services) == 0 {
-			continue
-		}
-
 		// Skip unhealthy agents.
 		if time.Since(agent.LastSeen) > 5*time.Minute {
 			p.logger.Debug().
@@ -125,8 +121,17 @@ func (p *FunctionPoller) pollAllAgents() {
 			continue
 		}
 
+		// Query agent for real-time services (don't rely on stale registry data).
+		services := p.queryAgentServices(agent)
+		if len(services) == 0 {
+			p.logger.Debug().
+				Str("agent_id", agent.AgentID).
+				Msg("Skipping agent because no services found")
+			continue
+		}
+
 		// Poll each service on this agent.
-		for _, service := range agent.Services {
+		for _, service := range services {
 			totalPolled++
 
 			if err := p.pollService(agent, service.Name); err != nil {
@@ -150,6 +155,42 @@ func (p *FunctionPoller) pollAllAgents() {
 		Int("skipped", totalSkipped).
 		Int("errors", totalErrors).
 		Msg("Function discovery poll completed")
+}
+
+// queryAgentServices queries an agent for its current list of services.
+// This ensures we get fresh service data instead of relying on stale registry data.
+func (p *FunctionPoller) queryAgentServices(agent *registry.Entry) []*meshv1.ServiceInfo {
+	// Create agent client.
+	client := GetAgentClient(agent)
+
+	// Query for services with short timeout.
+	ctx, cancel := context.WithTimeout(p.ctx, 2*time.Second)
+	defer cancel()
+
+	resp, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+	if err != nil {
+		p.logger.Debug().
+			Err(err).
+			Str("agent_id", agent.AgentID).
+			Msg("Failed to query agent services, falling back to registry data")
+		// Fallback to registry data if query fails.
+		return agent.Services
+	}
+
+	// Convert ServiceStatus to ServiceInfo.
+	services := make([]*meshv1.ServiceInfo, 0, len(resp.Msg.Services))
+	for _, svc := range resp.Msg.Services {
+		services = append(services, &meshv1.ServiceInfo{
+			Name:           svc.Name,
+			Port:           svc.Port,
+			HealthEndpoint: svc.HealthEndpoint,
+			ServiceType:    svc.ServiceType,
+			Labels:         svc.Labels,
+			BinaryHash:     svc.BinaryHash,
+		})
+	}
+
+	return services
 }
 
 // pollService polls a specific service for function metadata.

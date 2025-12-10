@@ -60,7 +60,7 @@ func TestDebugFlowIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create orchestrator
-	orch := NewOrchestrator(logger, reg, db)
+	orch := NewOrchestrator(logger, reg, db, nil)
 
 	// Setup mock client
 	mockClient := &mockDebugClient{}
@@ -176,7 +176,7 @@ func TestDebugFlow_AgentReturnsError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create orchestrator
-	orch := NewOrchestrator(logger, reg, db)
+	orch := NewOrchestrator(logger, reg, db, nil)
 
 	// Setup mock client that returns errors
 	mockClient := &mockDebugClient{
@@ -225,7 +225,7 @@ func TestDebugFlow_AgentNetworkError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create orchestrator
-	orch := NewOrchestrator(logger, reg, db)
+	orch := NewOrchestrator(logger, reg, db, nil)
 
 	// Setup mock client that returns network error
 	mockClient := &mockDebugClient{
@@ -278,7 +278,7 @@ func TestDebugFlow_ServiceDiscovery(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create orchestrator
-	orch := NewOrchestrator(logger, reg, db)
+	orch := NewOrchestrator(logger, reg, db, nil)
 
 	// Setup mock client
 	mockClient := &mockDebugClient{
@@ -324,7 +324,7 @@ func TestDebugFlow_DetachError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create orchestrator
-	orch := NewOrchestrator(logger, reg, db)
+	orch := NewOrchestrator(logger, reg, db, nil)
 
 	// Create a session manually
 	sessionID := "test-session"
@@ -363,8 +363,14 @@ func TestDebugFlow_DetachError(t *testing.T) {
 
 	resp, err := orch.DetachUprobe(ctx, req)
 	require.NoError(t, err)
-	assert.False(t, resp.Msg.Success)
-	assert.Contains(t, resp.Msg.Error, "collector already stopped")
+	// Even if agent reports failure, DetachUprobe should succeed
+	// (marking session as stopped is what matters)
+	assert.True(t, resp.Msg.Success)
+
+	// Verify session is marked as stopped in database
+	session, err := db.GetDebugSession(sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, "stopped", session.Status)
 }
 
 func TestDebugFlow_QueryWithFilters(t *testing.T) {
@@ -380,7 +386,7 @@ func TestDebugFlow_QueryWithFilters(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create orchestrator
-	orch := NewOrchestrator(logger, reg, db)
+	orch := NewOrchestrator(logger, reg, db, nil)
 
 	// Create a session
 	sessionID := "test-session"

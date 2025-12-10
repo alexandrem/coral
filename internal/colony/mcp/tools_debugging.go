@@ -394,32 +394,32 @@ func (s *Server) registerGetDebugResultsTool() {
 	})
 }
 
-// registerSearchFunctionsTool registers the coral_search_functions tool.
-func (s *Server) registerSearchFunctionsTool() {
-	if !s.isToolEnabled("coral_search_functions") {
+// registerDiscoverFunctionsTool registers the coral_discover_functions tool (RFD 069).
+func (s *Server) registerDiscoverFunctionsTool() {
+	if !s.isToolEnabled("coral_discover_functions") {
 		return
 	}
 
-	inputSchema, err := generateInputSchema(SearchFunctionsInput{})
+	inputSchema, err := generateInputSchema(DiscoverFunctionsInput{})
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_search_functions")
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_discover_functions")
 		return
 	}
 
 	schemaBytes, err := json.Marshal(inputSchema)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_search_functions")
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_discover_functions")
 		return
 	}
 
 	tool := mcp.NewToolWithRawSchema(
-		"coral_search_functions",
-		"Semantic search for functions by keywords. Searches function names, file paths, and comments. Returns ranked results. Prefer this over list_probeable_functions for discovery.",
+		"coral_discover_functions",
+		"Unified function discovery with semantic search. Replaces coral_search_functions, coral_list_probeable_functions, and coral_get_function_context. Returns functions with embedded metrics, instrumentation info, and actionable suggestions. Use this for all function discovery needs (RFD 069).",
 		schemaBytes,
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var input SearchFunctionsInput
+		var input DiscoverFunctionsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
 			if err != nil {
@@ -430,39 +430,112 @@ func (s *Server) registerSearchFunctionsTool() {
 			}
 		}
 
-		s.auditToolCall("coral_search_functions", input)
+		s.auditToolCall("coral_discover_functions", input)
 
-		// TODO: Implement semantic search (RFD 063)
-		return mcp.NewToolResultError("coral_search_functions is not yet implemented (RFD 063 - Intelligent Function Discovery)"), nil
+		// Set defaults
+		maxResults := int32(20)
+		if input.MaxResults != nil {
+			maxResults = *input.MaxResults
+		}
+		includeMetrics := true
+		if input.IncludeMetrics != nil {
+			includeMetrics = *input.IncludeMetrics
+		}
+		prioritizeSlow := false
+		if input.PrioritizeSlow != nil {
+			prioritizeSlow = *input.PrioritizeSlow
+		}
+		serviceName := ""
+		if input.Service != nil {
+			serviceName = *input.Service
+		}
+
+		// Call DebugService.QueryFunctions
+		req := connect.NewRequest(&debugpb.QueryFunctionsRequest{
+			ServiceName:    serviceName,
+			Query:          input.Query,
+			MaxResults:     maxResults,
+			IncludeMetrics: includeMetrics,
+			PrioritizeSlow: prioritizeSlow,
+		})
+
+		resp, err := s.debugService.QueryFunctions(ctx, req)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to query functions: %v", err)), nil
+		}
+
+		// Format response
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Found %d function(s) matching '%s'", len(resp.Msg.Results), input.Query))
+		if serviceName != "" {
+			sb.WriteString(fmt.Sprintf(" in service '%s'", serviceName))
+		}
+		sb.WriteString(fmt.Sprintf("\nData coverage: %d%%\n\n", resp.Msg.DataCoveragePct))
+
+		for i, result := range resp.Msg.Results {
+			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, result.Function.Name))
+			if result.Function.Package != "" {
+				sb.WriteString(fmt.Sprintf("   Package: %s\n", result.Function.Package))
+			}
+			if result.Function.File != "" {
+				sb.WriteString(fmt.Sprintf("   Location: %s:%d\n", result.Function.File, result.Function.Line))
+			}
+			if result.Search != nil {
+				sb.WriteString(fmt.Sprintf("   Relevance: %.2f - %s\n", result.Search.Score, result.Search.Reason))
+			}
+			if result.Instrumentation != nil {
+				sb.WriteString(fmt.Sprintf("   Probeable: %v, Has DWARF: %v\n",
+					result.Instrumentation.IsProbeable, result.Instrumentation.HasDwarf))
+			}
+			if result.Metrics != nil {
+				sb.WriteString(fmt.Sprintf("   Metrics [%s]:\n", result.Metrics.Source))
+				if result.Metrics.P95 != nil {
+					sb.WriteString(fmt.Sprintf("     P95: %s\n", result.Metrics.P95.AsDuration().String()))
+				}
+				if result.Metrics.CallsPerMin > 0 {
+					sb.WriteString(fmt.Sprintf("     Calls/min: %.1f\n", result.Metrics.CallsPerMin))
+				}
+			}
+			if result.Suggestion != "" {
+				sb.WriteString(fmt.Sprintf("   → %s\n", result.Suggestion))
+			}
+			sb.WriteString("\n")
+		}
+
+		if resp.Msg.Suggestion != "" {
+			sb.WriteString(fmt.Sprintf("💡 %s\n", resp.Msg.Suggestion))
+		}
+
+		return mcp.NewToolResultText(sb.String()), nil
 	})
 }
 
-// registerGetFunctionContextTool registers the coral_get_function_context tool.
-func (s *Server) registerGetFunctionContextTool() {
-	if !s.isToolEnabled("coral_get_function_context") {
+// registerProfileFunctionsTool registers the coral_profile_functions tool (RFD 069).
+func (s *Server) registerProfileFunctionsTool() {
+	if !s.isToolEnabled("coral_profile_functions") {
 		return
 	}
 
-	inputSchema, err := generateInputSchema(GetFunctionContextInput{})
+	inputSchema, err := generateInputSchema(ProfileFunctionsInput{})
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_get_function_context")
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_profile_functions")
 		return
 	}
 
 	schemaBytes, err := json.Marshal(inputSchema)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_get_function_context")
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_profile_functions")
 		return
 	}
 
 	tool := mcp.NewToolWithRawSchema(
-		"coral_get_function_context",
-		"Get context about a function: what calls it, what it calls, recent performance metrics. Use this to navigate the call graph after discovering an entry point.",
+		"coral_profile_functions",
+		"Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Reduces 7+ tool calls to 1. Use this for performance investigation (RFD 069).",
 		schemaBytes,
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var input GetFunctionContextInput
+		var input ProfileFunctionsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
 			if err != nil {
@@ -473,52 +546,92 @@ func (s *Server) registerGetFunctionContextTool() {
 			}
 		}
 
-		s.auditToolCall("coral_get_function_context", input)
+		s.auditToolCall("coral_profile_functions", input)
 
-		// TODO: Implement function context (RFD 063)
-		return mcp.NewToolResultError("coral_get_function_context is not yet implemented (RFD 063 - Intelligent Function Discovery)"), nil
-	})
-}
+		// Set defaults
+		strategy := "critical_path"
+		if input.Strategy != nil {
+			strategy = *input.Strategy
+		}
+		maxFunctions := int32(20)
+		if input.MaxFunctions != nil {
+			maxFunctions = *input.MaxFunctions
+		}
+		async := false
+		if input.Async != nil {
+			async = *input.Async
+		}
+		sampleRate := 1.0
+		if input.SampleRate != nil {
+			sampleRate = *input.SampleRate
+		}
 
-// registerListProbeableFunctionsTool registers the coral_list_probeable_functions tool.
-func (s *Server) registerListProbeableFunctionsTool() {
-	if !s.isToolEnabled("coral_list_probeable_functions") {
-		return
-	}
-
-	inputSchema, err := generateInputSchema(ListProbeableFunctionsInput{})
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_list_probeable_functions")
-		return
-	}
-
-	schemaBytes, err := json.Marshal(inputSchema)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_list_probeable_functions")
-		return
-	}
-
-	tool := mcp.NewToolWithRawSchema(
-		"coral_list_probeable_functions",
-		"List functions available for uprobe attachment using regex pattern. Use coral_search_functions instead for semantic search. This is a fallback for regex-based filtering.",
-		schemaBytes,
-	)
-
-	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var input ListProbeableFunctionsInput
-		if request.Params.Arguments != nil {
-			argBytes, err := json.Marshal(request.Params.Arguments)
+		// Parse duration
+		duration := time.Duration(60 * time.Second)
+		if input.Duration != nil {
+			d, err := time.ParseDuration(*input.Duration)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				return mcp.NewToolResultError(fmt.Sprintf("invalid duration format: %v", err)), nil
 			}
-			if err := json.Unmarshal(argBytes, &input); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			duration = d
+		}
+
+		// Call DebugService.ProfileFunctions
+		req := connect.NewRequest(&debugpb.ProfileFunctionsRequest{
+			ServiceName:  input.Service,
+			Query:        input.Query,
+			Strategy:     strategy,
+			MaxFunctions: maxFunctions,
+			Duration:     durationpb.New(duration),
+			Async:        async,
+			SampleRate:   sampleRate,
+		})
+
+		resp, err := s.debugService.ProfileFunctions(ctx, req)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to profile functions: %v", err)), nil
+		}
+
+		// Format response
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Profiling Session: %s\n", resp.Msg.SessionId))
+		sb.WriteString(fmt.Sprintf("Status: %s\n\n", resp.Msg.Status))
+
+		if resp.Msg.Summary != nil {
+			sb.WriteString("Summary:\n")
+			sb.WriteString(fmt.Sprintf("  Functions Selected: %d\n", resp.Msg.Summary.FunctionsSelected))
+			sb.WriteString(fmt.Sprintf("  Functions Probed:   %d\n", resp.Msg.Summary.FunctionsProbed))
+			if resp.Msg.Summary.ProbesFailed > 0 {
+				sb.WriteString(fmt.Sprintf("  Probes Failed:      %d\n", resp.Msg.Summary.ProbesFailed))
+			}
+			if resp.Msg.Summary.Duration != nil {
+				sb.WriteString(fmt.Sprintf("  Duration:           %s\n", resp.Msg.Summary.Duration.AsDuration().String()))
+			}
+			sb.WriteString("\n")
+		}
+
+		if len(resp.Msg.Bottlenecks) > 0 {
+			sb.WriteString("🔥 Bottlenecks Identified:\n\n")
+			for i, b := range resp.Msg.Bottlenecks {
+				sb.WriteString(fmt.Sprintf("%d. %s [%s]\n", i+1, b.Function, b.Severity))
+				sb.WriteString(fmt.Sprintf("   P95: %s (%d%% contribution)\n",
+					b.P95.AsDuration().String(), b.ContributionPct))
+				sb.WriteString(fmt.Sprintf("   Impact: %s\n", b.Impact))
+				sb.WriteString(fmt.Sprintf("   → %s\n\n", b.Recommendation))
 			}
 		}
 
-		s.auditToolCall("coral_list_probeable_functions", input)
+		if resp.Msg.Recommendation != "" {
+			sb.WriteString(fmt.Sprintf("💡 Recommendation: %s\n\n", resp.Msg.Recommendation))
+		}
 
-		// TODO: Implement list probeable functions (RFD 063)
-		return mcp.NewToolResultError("coral_list_probeable_functions is not yet implemented (RFD 063 - Intelligent Function Discovery)"), nil
+		if len(resp.Msg.NextSteps) > 0 {
+			sb.WriteString("Next Steps:\n")
+			for _, step := range resp.Msg.NextSteps {
+				sb.WriteString(fmt.Sprintf("  • %s\n", step))
+			}
+		}
+
+		return mcp.NewToolResultText(sb.String()), nil
 	})
 }

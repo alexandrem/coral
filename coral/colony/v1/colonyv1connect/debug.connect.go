@@ -52,6 +52,12 @@ const (
 	// DebugServiceGetDebugResultsProcedure is the fully-qualified name of the DebugService's
 	// GetDebugResults RPC.
 	DebugServiceGetDebugResultsProcedure = "/coral.colony.v1.DebugService/GetDebugResults"
+	// DebugServiceQueryFunctionsProcedure is the fully-qualified name of the DebugService's
+	// QueryFunctions RPC.
+	DebugServiceQueryFunctionsProcedure = "/coral.colony.v1.DebugService/QueryFunctions"
+	// DebugServiceProfileFunctionsProcedure is the fully-qualified name of the DebugService's
+	// ProfileFunctions RPC.
+	DebugServiceProfileFunctionsProcedure = "/coral.colony.v1.DebugService/ProfileFunctions"
 )
 
 // DebugServiceClient is a client for the coral.colony.v1.DebugService service.
@@ -68,6 +74,10 @@ type DebugServiceClient interface {
 	TraceRequestPath(context.Context, *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error)
 	// Get aggregated debug results (RFD 062).
 	GetDebugResults(context.Context, *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error)
+	// Query functions with semantic search (RFD 069).
+	QueryFunctions(context.Context, *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error)
+	// Profile multiple functions with automatic analysis (RFD 069).
+	ProfileFunctions(context.Context, *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error)
 }
 
 // NewDebugServiceClient constructs a client for the coral.colony.v1.DebugService service. By
@@ -117,6 +127,18 @@ func NewDebugServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(debugServiceMethods.ByName("GetDebugResults")),
 			connect.WithClientOptions(opts...),
 		),
+		queryFunctions: connect.NewClient[v1.QueryFunctionsRequest, v1.QueryFunctionsResponse](
+			httpClient,
+			baseURL+DebugServiceQueryFunctionsProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("QueryFunctions")),
+			connect.WithClientOptions(opts...),
+		),
+		profileFunctions: connect.NewClient[v1.ProfileFunctionsRequest, v1.ProfileFunctionsResponse](
+			httpClient,
+			baseURL+DebugServiceProfileFunctionsProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("ProfileFunctions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -128,6 +150,8 @@ type debugServiceClient struct {
 	listDebugSessions *connect.Client[v1.ListDebugSessionsRequest, v1.ListDebugSessionsResponse]
 	traceRequestPath  *connect.Client[v1.TraceRequestPathRequest, v1.TraceRequestPathResponse]
 	getDebugResults   *connect.Client[v1.GetDebugResultsRequest, v1.GetDebugResultsResponse]
+	queryFunctions    *connect.Client[v1.QueryFunctionsRequest, v1.QueryFunctionsResponse]
+	profileFunctions  *connect.Client[v1.ProfileFunctionsRequest, v1.ProfileFunctionsResponse]
 }
 
 // AttachUprobe calls coral.colony.v1.DebugService.AttachUprobe.
@@ -160,6 +184,16 @@ func (c *debugServiceClient) GetDebugResults(ctx context.Context, req *connect.R
 	return c.getDebugResults.CallUnary(ctx, req)
 }
 
+// QueryFunctions calls coral.colony.v1.DebugService.QueryFunctions.
+func (c *debugServiceClient) QueryFunctions(ctx context.Context, req *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error) {
+	return c.queryFunctions.CallUnary(ctx, req)
+}
+
+// ProfileFunctions calls coral.colony.v1.DebugService.ProfileFunctions.
+func (c *debugServiceClient) ProfileFunctions(ctx context.Context, req *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error) {
+	return c.profileFunctions.CallUnary(ctx, req)
+}
+
 // DebugServiceHandler is an implementation of the coral.colony.v1.DebugService service.
 type DebugServiceHandler interface {
 	// Start uprobe debug session.
@@ -174,6 +208,10 @@ type DebugServiceHandler interface {
 	TraceRequestPath(context.Context, *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error)
 	// Get aggregated debug results (RFD 062).
 	GetDebugResults(context.Context, *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error)
+	// Query functions with semantic search (RFD 069).
+	QueryFunctions(context.Context, *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error)
+	// Profile multiple functions with automatic analysis (RFD 069).
+	ProfileFunctions(context.Context, *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error)
 }
 
 // NewDebugServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -219,6 +257,18 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(debugServiceMethods.ByName("GetDebugResults")),
 		connect.WithHandlerOptions(opts...),
 	)
+	debugServiceQueryFunctionsHandler := connect.NewUnaryHandler(
+		DebugServiceQueryFunctionsProcedure,
+		svc.QueryFunctions,
+		connect.WithSchema(debugServiceMethods.ByName("QueryFunctions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	debugServiceProfileFunctionsHandler := connect.NewUnaryHandler(
+		DebugServiceProfileFunctionsProcedure,
+		svc.ProfileFunctions,
+		connect.WithSchema(debugServiceMethods.ByName("ProfileFunctions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.DebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DebugServiceAttachUprobeProcedure:
@@ -233,6 +283,10 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 			debugServiceTraceRequestPathHandler.ServeHTTP(w, r)
 		case DebugServiceGetDebugResultsProcedure:
 			debugServiceGetDebugResultsHandler.ServeHTTP(w, r)
+		case DebugServiceQueryFunctionsProcedure:
+			debugServiceQueryFunctionsHandler.ServeHTTP(w, r)
+		case DebugServiceProfileFunctionsProcedure:
+			debugServiceProfileFunctionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -264,4 +318,12 @@ func (UnimplementedDebugServiceHandler) TraceRequestPath(context.Context, *conne
 
 func (UnimplementedDebugServiceHandler) GetDebugResults(context.Context, *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.GetDebugResults is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) QueryFunctions(context.Context, *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.QueryFunctions is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) ProfileFunctions(context.Context, *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.ProfileFunctions is not implemented"))
 }

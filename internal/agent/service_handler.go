@@ -585,9 +585,15 @@ func (h *ServiceHandler) tryUpdateCacheIfNeeded(ctx context.Context, serviceName
 			Str("service", serviceName).
 			Msg("Binary hash changed, triggering function re-discovery")
 
+		// Get SDK address if available.
+		sdkAddr := ""
+		if monitor.sdkCapabilities != nil && monitor.sdkCapabilities.SdkEnabled {
+			sdkAddr = monitor.sdkCapabilities.SdkAddr
+		}
+
 		// Trigger async discovery (don't block the RPC).
 		go func() {
-			if err := h.functionCache.DiscoverAndCache(context.Background(), serviceName, status.BinaryPath); err != nil {
+			if err := h.functionCache.DiscoverAndCache(context.Background(), serviceName, status.BinaryPath, sdkAddr); err != nil {
 				h.agent.logger.Error().
 					Err(err).
 					Str("service", serviceName).
