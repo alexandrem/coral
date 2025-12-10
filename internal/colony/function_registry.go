@@ -136,6 +136,22 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 		return r.listFunctions(ctx, serviceName, limit)
 	}
 
+	// Try vector similarity search first (if embeddings exist).
+	results, err := r.vectorSearch(ctx, serviceName, query, limit)
+	if err == nil && len(results) > 0 {
+		return results, nil
+	}
+
+	// Fallback to text search if no results or embeddings don't exist.
+	r.logger.Debug().
+		Str("query", query).
+		Msg("Falling back to text search (embeddings may not be available)")
+
+	return r.textSearch(ctx, serviceName, query, limit)
+}
+
+// vectorSearch performs semantic search using embeddings.
+func (r *FunctionRegistry) vectorSearch(ctx context.Context, serviceName, query string, limit int) ([]*FunctionInfo, error) {
 	// Generate query embedding for semantic search.
 	queryEmbedding := embedding.GenerateQueryEmbedding(query)
 	queryEmbeddingStr := duckdb.Float64ArrayToString(queryEmbedding)
@@ -160,7 +176,6 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 
 	// Order by similarity (highest first) and limit results.
 	sqlQuery += " ORDER BY similarity DESC LIMIT ?"
-
 	args = append(args, limit)
 
 	// Execute query.
@@ -212,6 +227,78 @@ func (r *FunctionRegistry) QueryFunctions(ctx context.Context, serviceName, quer
 		Str("query", query).
 		Int("result_count", len(functions)).
 		Msg("Vector similarity search completed")
+
+	return functions, nil
+}
+
+// textSearch performs simple text-based search when embeddings aren't available.
+func (r *FunctionRegistry) textSearch(ctx context.Context, serviceName, query string, limit int) ([]*FunctionInfo, error) {
+	r.logger.Info().
+		Str("query", query).
+		Str("service", serviceName).
+		Msg("Using text search fallback")
+
+	sqlQuery := `
+		SELECT
+			service_name, function_name, agent_id,
+			package_name, file_path, line_number, func_offset,
+			has_dwarf, discovered_at, last_seen
+		FROM functions
+		WHERE function_name ILIKE ?
+	`
+	args := []interface{}{"%" + query + "%"}
+
+	if serviceName != "" {
+		sqlQuery += " AND service_name = ?"
+		args = append(args, serviceName)
+	}
+
+	sqlQuery += " ORDER BY function_name LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.DB().QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to text search functions: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			r.logger.Warn().Err(closeErr).Msg("Failed to close rows")
+		}
+	}()
+
+	var functions []*FunctionInfo
+	for rows.Next() {
+		var fn FunctionInfo
+		var discoveredAt, lastSeen time.Time
+
+		err := rows.Scan(
+			&fn.ServiceName,
+			&fn.FunctionName,
+			&fn.AgentID,
+			&fn.PackageName,
+			&fn.FilePath,
+			&fn.LineNumber,
+			&fn.Offset,
+			&fn.HasDwarf,
+			&discoveredAt,
+			&lastSeen,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan function row: %w", err)
+		}
+
+		fn.DiscoveredAt = discoveredAt
+		fn.LastSeen = lastSeen
+		functions = append(functions, &fn)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating function rows: %w", err)
+	}
+
+	r.logger.Info().
+		Int("result_count", len(functions)).
+		Msg("Text search completed")
 
 	return functions, nil
 }
