@@ -35,6 +35,7 @@ import (
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery/registration"
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/privilege"
 	runtimepkg "github.com/coral-mesh/coral/internal/runtime"
@@ -1539,6 +1540,18 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	mux.Handle(meshPath, meshHandler)
 	mux.Handle(colonyPath, colonyHandler)
 	mux.Handle(debugPath, debugHandler)
+
+	// Add DuckDB HTTP handler for remote query (RFD 046).
+	duckdbHandler := duckdb.NewDuckDBHandler(logger.With().Str("component", "duckdb-handler").Logger())
+	if err := duckdbHandler.RegisterDatabase(filepath.Base(db.Path()), db.Path()); err != nil {
+		logger.Warn().Err(err).Msg("Failed to register colony database for HTTP serving")
+	} else {
+		mux.Handle("/duckdb/", duckdbHandler)
+		logger.Info().
+			Str("path", db.Path()).
+			Str("db_name", filepath.Base(db.Path())).
+			Msg("Colony database registered for remote query (RFD 046)")
+	}
 
 	// Add simple HTTP /status endpoint (similar to agent).
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {

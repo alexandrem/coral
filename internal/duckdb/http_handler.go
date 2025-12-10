@@ -1,4 +1,6 @@
-package agent
+// Package duckdb provides HTTP handlers for serving DuckDB databases remotely.
+// This package is shared between agent and colony for RFD 039 and RFD 046.
+package duckdb
 
 import (
 	"encoding/json"
@@ -11,8 +13,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// DuckDBHandler serves DuckDB files over HTTP for remote attach (RFD 039).
-// This enables CLI tools to attach to agent databases using DuckDB's HTTP remote feature.
+// DuckDBHandler serves DuckDB files over HTTP for remote attach (RFD 039, RFD 046).
+// This enables CLI tools to attach to agent and colony databases using DuckDB's HTTP remote feature.
 type DuckDBHandler struct {
 	// Map of allowlisted database names to file paths.
 	// Only files in this map can be served (prevents directory traversal).

@@ -190,3 +190,92 @@ func listAgentDatabases(ctx context.Context, meshIP string) ([]string, error) {
 
 	return result.Databases, nil
 }
+
+// resolveColonyAddress returns the colony HTTP address from config.
+func resolveColonyAddress() (string, error) {
+	client, err := getColonyClient()
+	if err != nil {
+		return "", fmt.Errorf("failed to create colony client: %w", err)
+	}
+
+	// Get colony status to retrieve the connect port.
+	ctx := context.Background()
+	req := connect.NewRequest(&colonyv1.GetStatusRequest{})
+	resp, err := client.GetStatus(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to get colony status: %w", err)
+	}
+
+	// Use mesh IPv4 and connect port to construct address.
+	if resp.Msg.MeshIpv4 == "" {
+		return "", fmt.Errorf("colony has no mesh IP address")
+	}
+
+	port := resp.Msg.ConnectPort
+	if port == 0 {
+		port = 9000 // Default colony port
+	}
+
+	return net.JoinHostPort(resp.Msg.MeshIpv4, fmt.Sprintf("%d", port)), nil
+}
+
+// attachColonyDatabase attaches the colony database to the DuckDB connection.
+func attachColonyDatabase(ctx context.Context, db *sql.DB, dbName string) error {
+	// Get colony address.
+	colonyAddr, err := resolveColonyAddress()
+	if err != nil {
+		return fmt.Errorf("failed to resolve colony address: %w", err)
+	}
+
+	// Construct HTTP URL for colony DuckDB database.
+	dbURL := fmt.Sprintf("http://%s/duckdb/%s", colonyAddr, dbName)
+
+	// Attach database as read-only using DuckDB's HTTP attach.
+	attachSQL := fmt.Sprintf("ATTACH '%s' AS colony (READ_ONLY);", dbURL)
+
+	if _, err := db.ExecContext(ctx, attachSQL); err != nil {
+		return fmt.Errorf("failed to attach colony database from %s: %w", dbURL, err)
+	}
+
+	return nil
+}
+
+// listColonyDatabases queries the colony for available databases.
+func listColonyDatabases(ctx context.Context) ([]string, error) {
+	// Get colony address.
+	colonyAddr, err := resolveColonyAddress()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve colony address: %w", err)
+	}
+
+	// Construct HTTP URL for colony database list endpoint.
+	listURL := fmt.Sprintf("http://%s/duckdb", colonyAddr)
+
+	// Make HTTP request.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query colony: %w", err)
+	}
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close() // TODO: errcheck
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("colony returned status %d", resp.StatusCode)
+	}
+
+	// Parse JSON response.
+	var result struct {
+		Databases []string `json:"databases"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result.Databases, nil
+}

@@ -1,4 +1,4 @@
-package agent
+package duckdb
 
 import (
 	"net/http"

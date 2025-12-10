@@ -19,6 +19,7 @@ import (
 func NewShellCmd() *cobra.Command {
 	var agents []string
 	var database string
+	var colony bool
 
 	cmd := &cobra.Command{
 		Use:   "shell <agent-id>",
@@ -60,14 +61,23 @@ If --database is not specified, the first available database will be used.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var agentIDs []string
 
-			if len(agents) > 0 {
-				// Multi-agent mode via --agents flag.
-				agentIDs = agents
-			} else if len(args) == 1 {
-				// Single agent mode via positional argument.
-				agentIDs = []string{args[0]}
+			// Parse arguments based on mode.
+			if colony {
+				// Colony mode: no agent IDs needed.
+				if len(args) > 0 || len(agents) > 0 {
+					return fmt.Errorf("--colony mode does not accept agent arguments")
+				}
 			} else {
-				return fmt.Errorf("must specify agent ID as argument or use --agents flag")
+				// Agent mode: require agent IDs.
+				if len(agents) > 0 {
+					// Multi-agent mode via --agents flag.
+					agentIDs = agents
+				} else if len(args) == 1 {
+					// Single agent mode via positional argument.
+					agentIDs = []string{args[0]}
+				} else {
+					return fmt.Errorf("must specify agent ID as argument or use --agents flag (or use --colony for colony database)")
+				}
 			}
 
 			ctx := context.Background()
@@ -79,10 +89,34 @@ If --database is not specified, the first available database will be used.`,
 			}
 			defer db.Close()
 
-			// Attach databases.
-			attachedDBs, err := attachDatabases(ctx, db, agentIDs, database)
-			if err != nil {
-				return err
+			// Attach databases based on mode.
+			var attachedDBs []string
+			if colony {
+				// Colony mode: attach colony database.
+				dbName := database
+				if dbName == "" {
+					// Query available databases and use the first one.
+					databases, err := listColonyDatabases(ctx)
+					if err != nil {
+						return fmt.Errorf("failed to query available databases: %w", err)
+					}
+					if len(databases) == 0 {
+						return fmt.Errorf("colony has no available databases")
+					}
+					dbName = databases[0]
+					fmt.Printf("Using database: %s\n", dbName)
+				}
+
+				if err := attachColonyDatabase(ctx, db, dbName); err != nil {
+					return fmt.Errorf("failed to attach colony database: %w", err)
+				}
+				attachedDBs = []string{"colony"}
+			} else {
+				// Agent mode: attach agent databases.
+				attachedDBs, err = attachDatabases(ctx, db, agentIDs, database)
+				if err != nil {
+					return err
+				}
 			}
 
 			// Start interactive shell.
@@ -92,6 +126,7 @@ If --database is not specified, the first available database will be used.`,
 
 	cmd.Flags().StringSliceVar(&agents, "agents", nil, "Comma-separated list of agent IDs for multi-agent queries")
 	cmd.Flags().StringVarP(&database, "database", "d", "", "Database name (e.g., metrics.duckdb)")
+	cmd.Flags().BoolVar(&colony, "colony", false, "Connect to colony database instead of agent")
 
 	return cmd
 }
