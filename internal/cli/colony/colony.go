@@ -1553,7 +1553,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		logger.Info().
 			Str("path", db.Path()).
 			Str("db_name", filepath.Base(db.Path())).
-			Msg("Colony database registered for remote query (RFD 046)")
+			Msg("Colony database registered for remote query")
 	}
 
 	// Add simple HTTP /status endpoint (similar to agent).
