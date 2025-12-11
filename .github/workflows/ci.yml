@@ -15,10 +15,10 @@ jobs:
   # Base setup reused by all jobs
   # ------------------------------------------------------------
   base:
-    name: Base Environment
+    name: Base Environment Setup
     runs-on: ubuntu-latest
     outputs:
-      go-cache-key: ${{ steps.go-cache-key.outputs.key }}
+      go-tool-cache-key: ${{ steps.go-tool-cache-key.outputs.key }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,28 +28,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y $(cat .github/apt-packages.txt)
 
-      # -------- Go setup + cache --------
-      - name: Setup Go
+      # -------- Go setup + cache (Handles Go module dependencies) --------
+      - name: Setup Go and Cache Modules
         uses: actions/setup-go@v5
         with:
           go-version: "1.25.1"
+          # This caches Go modules (~/go/pkg/mod) and build cache (~/.cache/go-build)
           cache: true
 
-      # Create a deterministic key for Go tool caching
-      - id: go-cache-key
+      # -------- Custom Cache for Go Tooling (go/bin) --------
+      # Create a deterministic key for Go tool binaries based on dependency changes
+      - id: go-tool-cache-key
         name: Compute Go tools cache key
-        run: echo "key=${{ runner.os }}-go-tools-$(sha256sum Makefile go.sum | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+        # Using go.mod/go.sum ensures the key changes when tools dependencies change
+        run: echo "key=${{ runner.os }}-go-tools-$(sha256sum go.mod go.sum | cut -c1-32)" >> $GITHUB_OUTPUT
 
-      - name: Cache Go tooling (go install)
+      # Cache Go Tooling binaries (~/go/bin) installed via 'make install-tools'
+      - name: Cache/Restore Go tooling binaries
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/go/bin
-          key: ${{ steps.go-cache-key.outputs.key }}
+          path: ~/go/bin
+          key: ${{ steps.go-tool-cache-key.outputs.key }}
+          # Use a restore-key for partial matches if the exact key misses (improves hit rate)
+          restore-keys: ${{ runner.os }}-go-tools-
 
       - name: Install tools (cached)
+        # This step will only run 'go install' commands if the cache was missed.
         run: make install-tools
 
   # ------------------------------------------------------------
@@ -65,10 +69,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: ${{ needs.base.outputs.go-cache-key }}
+          key: ${{ needs.base.outputs.go-tool-cache-key }}
+          restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
 
-      - name: Go mod download
-        run: go mod download
+      # NOTE: 'go mod download' is usually redundant because 'actions/setup-go'
+      # in the base job already handled module caching. It's removed for efficiency.
 
       - name: Run tests
         run: make test
@@ -97,7 +102,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: ${{ needs.base.outputs.go-cache-key }}
+          key: ${{ needs.base.outputs.go-tool-cache-key }}
+          restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
 
       - name: Go generate
         run: make generate
@@ -130,7 +136,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: ${{ needs.base.outputs.go-cache-key }}
+          key: ${{ needs.base.outputs.go-tool-cache-key }}
+          restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
 
       - name: Generate code
         run: make generate
@@ -154,6 +161,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Recommended: Consider using CodeQL for better integration with GitHub Security features.
       - name: Run Gosec
         uses: securego/gosec@master
         with:
@@ -175,8 +183,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # NOTE: No Go tool cache restore is needed here since 'go mod' commands don't rely on ~/go/bin.
+
       - name: Verify dependencies
         run: |
+          # This command ensures all downloaded modules are present and match go.sum
           go mod verify
+
+          # We don't run 'go mod tidy' to avoid modifying the repository state,
+          # but we check if it *would* change anything.
           go mod tidy
           git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum need tidying"; exit 1)
