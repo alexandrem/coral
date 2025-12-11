@@ -47,7 +47,7 @@ jobs:
       # Create a deterministic key for Go tool caching
       - id: go-cache-key
         name: Compute Go tools cache key
-        run: echo "key=${{ runner.os }}-go-tools-$(sha256sum Makefile tools.go go.sum | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
+        run: echo "key=${{ runner.os }}-go-tools-$(sha256sum Makefile go.sum | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
 
       - name: Cache Go tooling (go install)
         uses: actions/cache@v4
