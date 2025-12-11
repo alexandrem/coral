@@ -10,116 +10,150 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write    # for coverage comments, CodeQL
+  checks: write           # for test results
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.org
+  GO_VERSION: "1.25.1"
+
 jobs:
-  # ------------------------------------------------------------
-  # Base setup reused by all jobs
-  # ------------------------------------------------------------
-  base:
-    name: Base Environment Setup
+  # ──────────────────────────────────────────────────────────────
+  # Single source of truth: caches modules + build cache + tools
+  # ──────────────────────────────────────────────────────────────
+  go-env:
+    name: Cache Go modules & tools
     runs-on: ubuntu-latest
     outputs:
-      go-tool-cache-key: ${{ steps.go-tool-cache-key.outputs.key }}
+      mod-cache-key: ${{ steps.mod.outputs.key }}
+      tools-cache-key: ${{ steps.tools.outputs.key }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Important for correct go.sum on fork PRs
 
-      - name: Install APT prerequisites
+      - name: Install APT packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y $(cat .github/apt-packages.txt)
+          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
 
-      # -------- Go setup + cache (Handles Go module dependencies) --------
-      - name: Setup Go and Cache Modules
+      # ── Go modules + build cache (fastest possible) ──
+      - name: Go mod cache key
+        id: mod
+        run: |
+          echo "key=go-mod-v5-${{ runner.os }}-$(sha256sum go.sum | cut -c1-64)" >> $GITHUB_OUTPUT
+
+      - name: Cache Go modules & build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.mod.outputs.key }}
+          restore-keys: |
+            go-mod-v5-${{ runner.os }}-
+
+      # ── Go tools (staticcheck, golangci-lint, etc.) ──
+      - name: Go tools cache key
+        id: tools
+        run: |
+          echo "key=go-tools-v4-${{ runner.os }}-$(sha256sum go.mod go.sum | cut -c1-64)" >> $GITHUB_OUTPUT
+
+      - name: Cache Go tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: ${{ steps.tools.outputs.key }}
+          restore-keys: |
+            go-tools-v4-${{ runner.os }}-
+
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.1"
-          # This caches Go modules (~/go/pkg/mod) and build cache (~/.cache/go-build)
-          cache: true
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
 
-      - id: go-tool-cache-key
-        name: Compute Go tools cache key
-        run: |
-          # Use set -o pipefail for robust command execution.
-          set -o pipefail
-
-          # Calculate the hash and use tee to write the output directly.
-          sha256sum go.mod go.sum | cut -c1-32 | { read HASH; echo "key=Linux-go-tools-$HASH" | tee -a $GITHUB_OUTPUT; }
-
-      # Cache Go Tooling binaries (~/go/bin) installed via 'make install-tools'
-      - name: Cache/Restore Go tooling binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/go/bin
-          key: ${{ steps.go-tool-cache-key.outputs.key }}
-          # Use a restore-key for partial matches if the exact key misses (improves hit rate)
-          restore-keys: ${{ runner.os }}-go-tools-
-
-      - name: Install tools (cached)
-        # This step will only run 'go install' commands if the cache was missed.
+      - name: Install Go tools (only on cache miss)
         run: make install-tools
 
-  # ------------------------------------------------------------
-  # Tests
-  # ------------------------------------------------------------
+      - name: Warm Go module cache (only on miss)
+        run: go mod download
+
+  # ──────────────────────────────────────────────────────────────
+  # Tests + Coverage
+  # ──────────────────────────────────────────────────────────────
   test:
-    needs: base
+    needs: go-env
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install APT prerequisites
+      - name: Install APT packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y $(cat .github/apt-packages.txt)
+          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
 
-      - name: Restore Go tools cache
-        uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
-          path: ~/go/bin
-          key: ${{ needs.base.outputs.go-tool-cache-key }}
-          restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
+          key: ${{ needs.go-env.outputs.mod-cache-key }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
 
-      - name: Add Go tools to PATH
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.tools-cache-key }}
+          path: ~/go/bin
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      # NOTE: 'go mod download' is usually redundant because 'actions/setup-go'
-      # in the base job already handled module caching. It's removed for efficiency.
+      - name: Run tests with coverage
+        run: make test   # should run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Run tests
-        run: make test
-
-      - name: Upload coverage reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: |
-            coverage.out
-            test-results.xml
-          retention-days: 30
-        continue-on-error: true
-
-  # ------------------------------------------------------------
-  # Static analysis (Lint + Vet + Format)
-  # ------------------------------------------------------------
+  # ──────────────────────────────────────────────────────────────
+  # Static Analysis
+  # ──────────────────────────────────────────────────────────────
   static-analysis:
-    needs: base
+    needs: go-env
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore Go tools cache
-        uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
-          path: ~/go/bin
-          key: ${{ needs.base.outputs.go-tool-cache-key }}
-          restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
+          key: ${{ needs.go-env.outputs.mod-cache-key }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
 
-      - name: Add Go tools to PATH
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.tools-cache-key }}
+          path: ~/go/bin
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      - name: Go generate
-        run: make generate
+      - name: Check go generate
+        run: |
+          make generate
+          git diff --exit-code || (echo "go generate changed files — commit them!" && exit 1)
 
       - name: Lint
         run: make lint
@@ -129,49 +163,58 @@ jobs:
 
       - name: Format check
         run: |
-          goimports -l . > fmt-issues.txt
-          if [ -s fmt-issues.txt ]; then
-            echo "Formatting issues found:"
-            cat fmt-issues.txt
+          if [ -n "$(goimports -l .)" ]; then
+            echo "Files need formatting: run 'goimports -w .'"
             exit 1
           fi
 
-  # ------------------------------------------------------------
-  # Build job
-  # ------------------------------------------------------------
+  # ──────────────────────────────────────────────────────────────
+  # Build
+  # ──────────────────────────────────────────────────────────────
   build:
-    needs: base
+    needs: go-env
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install APT prerequisites
+      - name: Install APT packages (Linux only)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y $(cat .github/apt-packages.txt)
+          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
 
-      - name: Restore Go tools cache
-        uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
-          path: ~/go/bin
-          key: ${{ needs.base.outputs.go-tool-cache-key }}
-          restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
+          key: ${{ needs.go-env.outputs.mod-cache-key }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
 
-      - name: Add Go tools to PATH
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.tools-cache-key }}
+          path: ~/go/bin
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      - name: Generate code
-        run: make generate
-
-      - name: Build binaries
+      - name: Build
         run: make build
 
-      - name: Upload artifacts
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: binaries
+          name: binaries-${{ runner.os }}
           path: bin/
-          retention-days: 7
 
   # ------------------------------------------------------------
   # Security scanning
