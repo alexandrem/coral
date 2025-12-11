@@ -28,23 +28,25 @@ jobs:
     name: Cache Go modules & tools
     runs-on: ubuntu-latest
     outputs:
-      mod-cache-key: ${{ steps.mod.outputs.key }}
-      tools-cache-key: ${{ steps.tools.outputs.key }}
+      mod-cache-key: ${{ steps.mod.outputs.cache-key }}
+      tools-cache-key: ${{ steps.tools.outputs.cache-key }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # Important for correct go.sum on fork PRs
+          fetch-depth: 0
 
       - name: Install APT packages
         run: |
-          sudo apt-get update
+          sudo apt-get update -q
           sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
 
-      # ── Go modules + build cache (fastest possible) ──
+      # ── Module cache key ──
       - name: Go mod cache key
         id: mod
         run: |
-          echo "key=go-mod-v5-${{ runner.os }}-$(sha256sum go.sum | cut -c1-64)" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          HASH=$(sha256sum go.sum | awk '{print substr($1,1,64)}')
+          echo "cache-key=go-mod-v5-${{ runner.os }}-$HASH" >> $GITHUB_OUTPUT
 
       - name: Cache Go modules & build cache
         uses: actions/cache@v4
@@ -52,23 +54,23 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: ${{ steps.mod.outputs.key }}
-          restore-keys: |
-            go-mod-v5-${{ runner.os }}-
+          key: ${{ steps.mod.outputs.cache-key }}
+          restore-keys: go-mod-v5-${{ runner.os }}-
 
-      # ── Go tools (staticcheck, golangci-lint, etc.) ──
+      # ── Tools cache key ──
       - name: Go tools cache key
         id: tools
         run: |
-          echo "key=go-tools-v4-${{ runner.os }}-$(sha256sum go.mod go.sum | cut -c1-64)" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          HASH=$(sha256sum go.mod go.sum | awk '{print substr($1,1,64)}')
+          echo "cache-key=go-tools-v4-${{ runner.os }}-$HASH" >> $GITHUB_OUTPUT
 
       - name: Cache Go tools
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: ${{ steps.tools.outputs.key }}
-          restore-keys: |
-            go-tools-v4-${{ runner.os }}-
+          key: ${{ steps.tools.outputs.cache-key }}
+          restore-keys: go-tools-v4-${{ runner.os }}-
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -76,12 +78,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - name: Install Go tools (only on cache miss)
+      - name: Install Go tools
         run: make install-tools
 
-      - name: Warm Go module cache (only on miss)
+      - name: Download modules
         run: go mod download
-
   # ──────────────────────────────────────────────────────────────
   # Tests + Coverage
   # ──────────────────────────────────────────────────────────────
