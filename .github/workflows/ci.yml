@@ -36,12 +36,13 @@ jobs:
           # This caches Go modules (~/go/pkg/mod) and build cache (~/.cache/go-build)
           cache: true
 
-      # -------- Custom Cache for Go Tooling (go/bin) --------
-      # Create a deterministic key for Go tool binaries based on dependency changes
       - id: go-tool-cache-key
         name: Compute Go tools cache key
-        # Using go.mod/go.sum ensures the key changes when tools dependencies change
-        run: echo "key=${{ runner.os }}-go-tools-$(sha256sum go.mod go.sum | cut -c1-32)" >> $GITHUB_OUTPUT
+        run: |
+          # The key format must be 'name=value' written directly to the $GITHUB_OUTPUT file.
+          # We use a single command block to calculate and set the output correctly.
+          HASH=$(sha256sum go.mod go.sum | cut -c1-32)
+          echo "key=Linux-go-tools-$HASH" >> $GITHUB_OUTPUT
 
       # Cache Go Tooling binaries (~/go/bin) installed via 'make install-tools'
       - name: Cache/Restore Go tooling binaries
