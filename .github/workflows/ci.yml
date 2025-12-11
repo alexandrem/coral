@@ -220,7 +220,6 @@ jobs:
   # Security scanning
   # ------------------------------------------------------------
   security:
-    needs: base
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -242,7 +241,6 @@ jobs:
   # Dependency checks
   # ------------------------------------------------------------
   dependencies:
-    needs: base
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
