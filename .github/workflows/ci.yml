@@ -129,6 +129,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install APT packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
+
       - uses: actions/cache/restore@v4
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
@@ -177,11 +182,29 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact-os: linux
+            artifact-arch: amd64
+          - os: macos-latest
+            artifact-os: darwin
+            artifact-arch: amd64
+          - os: macos-latest
+            artifact-os: darwin
+            artifact-arch: arm64
+            goarch: arm64
+          - os: windows-latest
+            artifact-os: windows
+            artifact-arch: amd64
+
+    env:
+      GOOS: ${{ matrix.artifact-os }}
+      GOARCH: ${{ matrix.goarch || matrix.artifact-arch }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install APT packages (Linux only)
-        if: runner.os == 'Linux'
+      - name: Install APT packages
         run: |
           sudo apt-get update
           sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
@@ -210,11 +233,15 @@ jobs:
       - name: Build
         run: make build
 
+      # Unique, predictable artifact name
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ runner.os }}
+          name: ${{ matrix.artifact-os }}-${{ matrix.artifact-arch }}-binaries
           path: bin/
+          # Or more precise: bin/${{ matrix.artifact-os }}_${{ matrix.artifact-arch }}/**
+          retention-days: 30
+          if-no-files-found: error
 
   # ------------------------------------------------------------
   # Security scanning

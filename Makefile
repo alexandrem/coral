@@ -2,7 +2,7 @@
 
 # Build variables
 BINARY_NAME=coral
-BUILD_DIR=bin
+BUILD_DIR=bin/$(shell go env GOOS)_$(shell go env GOARCH)
 VERSION?=dev
 GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -50,7 +50,7 @@ proto: ## Generate protobuf files using buf
 	@$(MAKE) -s fmt
 
 build: generate ## Build the coral binary
-	@echo "Building $(BINARY_NAME)..."
+	@echo "Building for $(GOOS)/$(GOARCH) → $(BUILD_DIR)"
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral
 	@echo "✓ Built $(BUILD_DIR)/$(BINARY_NAME)"
