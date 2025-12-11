@@ -2,37 +2,82 @@ name: CI
 
 on:
   push:
-    branches:
-      - '**'  # Run on all branches
+    branches: ["**"]
   pull_request:
-    branches:
-      - main
+    branches: ["main"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test
+  # ------------------------------------------------------------
+  # Base setup reused by all jobs
+  # ------------------------------------------------------------
+  base:
+    name: Base Environment
     runs-on: ubuntu-latest
-
+    outputs:
+      go-cache-key: ${{ steps.go-cache-key.outputs.key }}
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install prerequisites
+      # -------- Cache APT packages --------
+      - name: Cache APT packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt/lists
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/apt-packages.txt') }}
+
+      - name: Install APT prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm
+          sudo apt-get install -y $(cat .github/apt-packages.txt)
 
-      - name: Set up Go
+      # -------- Go setup + cache --------
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.1'
+          go-version: "1.25.1"
           cache: true
 
-      - name: Install dependencies
-        run: go mod download
+      # Create a deterministic key for Go tool caching
+      - id: go-cache-key
+        name: Compute Go tools cache key
+        run: echo "key=${{ runner.os }}-go-tools-$(sha256sum Makefile tools.go go.sum | sha256sum | cut -c1-16)" >> $GITHUB_OUTPUT
 
-      - name: Install tools
+      - name: Cache Go tooling (go install)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/go/bin
+          key: ${{ steps.go-cache-key.outputs.key }}
+
+      - name: Install tools (cached)
         run: make install-tools
+
+  # ------------------------------------------------------------
+  # Tests
+  # ------------------------------------------------------------
+  test:
+    needs: base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Go tools cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: ${{ needs.base.outputs.go-cache-key }}
+
+      - name: Go mod download
+        run: go mod download
 
       - name: Run tests
         run: make test
@@ -48,157 +93,99 @@ jobs:
           retention-days: 30
         continue-on-error: true
 
-  lint:
-    name: Lint
+  # ------------------------------------------------------------
+  # Static analysis (Lint + Vet + Format)
+  # ------------------------------------------------------------
+  static-analysis:
+    needs: base
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Restore Go tools cache
+        uses: actions/cache@v4
         with:
-          go-version: '1.25.1'
-          cache: true
-
-      - name: Install tools
-        run: make install-tools
+          path: ~/go/bin
+          key: ${{ needs.base.outputs.go-cache-key }}
 
       - name: Go generate
         run: make generate
 
-      - name: Run linter
+      - name: Lint
         run: make lint
 
-  vet:
-    name: Vet
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.1'
-          cache: true
-
-      - name: Install tools
-        run: make install-tools
-
-      - name: Go generate
-        run: make generate
-
-      - name: Run go vet
+      - name: Vet
         run: make vet
 
-  format:
-    name: Format Check
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.1'
-          cache: true
-
-      - name: Install tools
-        run: make install-tools
-
-      - name: Check formatting
+      - name: Format check
         run: |
           goimports -l . > fmt-issues.txt
           if [ -s fmt-issues.txt ]; then
-            echo "The following files need formatting:"
+            echo "Formatting issues found:"
             cat fmt-issues.txt
             exit 1
           fi
 
+  # ------------------------------------------------------------
+  # Build job
+  # ------------------------------------------------------------
   build:
-    name: Build
+    needs: base
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Restore Go tools cache
+        uses: actions/cache@v4
         with:
-          go-version: '1.25.1'
-          cache: true
+          path: ~/go/bin
+          key: ${{ needs.base.outputs.go-cache-key }}
 
-      - name: Install tools
-        run: make install-tools
-
-      - name: Generate files
+      - name: Generate code
         run: make generate
 
       - name: Build binaries
         run: make build
 
-      - name: Upload build artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries
           path: bin/
           retention-days: 7
 
+  # ------------------------------------------------------------
   # Security scanning
+  # ------------------------------------------------------------
   security:
-    name: Security Scan
+    needs: base
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.1'
-          cache: true
-
-      - name: Run Gosec Security Scanner
+      - name: Run Gosec
         uses: securego/gosec@master
         with:
-          args: '-no-fail -fmt sarif -out results.sarif ./...'
+          args: "-no-fail -fmt sarif -out results.sarif ./..."
         continue-on-error: true
 
-      - name: Upload SARIF file
+      - name: Upload SARIF results
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
         continue-on-error: true
 
-  # Dependency check
+  # ------------------------------------------------------------
+  # Dependency checks
+  # ------------------------------------------------------------
   dependencies:
-    name: Check Dependencies
+    needs: base
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.1'
-          cache: true
+      - uses: actions/checkout@v4
 
       - name: Verify dependencies
         run: |
           go mod verify
           go mod tidy
-          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
+          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum need tidying"; exit 1)
