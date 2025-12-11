@@ -118,7 +118,7 @@ jobs:
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Run tests with coverage
-        run: make test   # should run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: make test-ci   # should run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
   # ──────────────────────────────────────────────────────────────
   # Static Analysis

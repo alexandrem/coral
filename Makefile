@@ -90,6 +90,10 @@ test: generate ## Run tests
 	@echo "Running tests..."
 	go test ./...
 
+test-ci: generate ## Run tests in CI
+	@echo "Running tests..."
+	go test -short -count=1 -parallel=8 ./... -timeout=10m
+
 run: build ## Build and run the CLI
 	@$(BUILD_DIR)/$(BINARY_NAME)
 
