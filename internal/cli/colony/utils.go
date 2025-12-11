@@ -3,7 +3,6 @@ package colony
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"runtime"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/privilege"
@@ -121,67 +119,6 @@ func gatherPlatformInfo() map[string]interface{} {
 		"os_version": runtimeCtx.Platform.OsVersion,
 		"kernel":     runtimeCtx.Platform.Kernel,
 	}
-}
-
-// selectBestAgentEndpoint selects the best WireGuard endpoint for an agent from a list of observed endpoints.
-// Strategy:
-//  1. Skip localhost/127.0.0.1 endpoints (would be self-referential from colony's perspective)
-//  2. Prefer an endpoint matching the peer's source IP (how they connected to us)
-//  3. Otherwise use the first non-localhost endpoint
-//
-// Returns the selected endpoint and a match type ("matching" or "first"), or (nil, "") if no valid endpoint found.
-func selectBestAgentEndpoint(
-	observedEndpoints []*discoverypb.Endpoint,
-	peerHost string,
-	logger logging.Logger,
-	agentID string,
-) (*discoverypb.Endpoint, string) {
-	var selectedEp *discoverypb.Endpoint
-	var matchingEp *discoverypb.Endpoint
-
-	for _, ep := range observedEndpoints {
-		if ep == nil || ep.Ip == "" {
-			continue
-		}
-
-		isLocalhost := ep.Ip == "127.0.0.1" || ep.Ip == "::1" || ep.Ip == "localhost"
-
-		// If this endpoint's IP matches how the agent connected to us, prefer it.
-		// This handles same-host deployments where agent connects from 127.0.0.1.
-		if peerHost != "" && ep.Ip == peerHost && matchingEp == nil {
-			matchingEp = ep
-			if isLocalhost {
-				logger.Debug().
-					Str("agent_id", agentID).
-					Str("endpoint", net.JoinHostPort(ep.Ip, fmt.Sprintf("%d", ep.Port))).
-					Msg("Using localhost endpoint (agent connected from same host)")
-			}
-		}
-
-		// Skip localhost endpoints UNLESS they matched the connection source.
-		// This allows same-host deployments while preventing container issues.
-		if isLocalhost && matchingEp == nil {
-			logger.Debug().
-				Str("agent_id", agentID).
-				Str("endpoint", net.JoinHostPort(ep.Ip, fmt.Sprintf("%d", ep.Port))).
-				Msg("Skipping localhost endpoint (agent connected from different host)")
-			continue
-		}
-
-		// Track the first valid endpoint as fallback.
-		if selectedEp == nil {
-			selectedEp = ep
-		}
-	}
-
-	// Prefer the matching endpoint, fallback to first non-localhost.
-	if matchingEp != nil {
-		return matchingEp, "matching"
-	} else if selectedEp != nil {
-		return selectedEp, "first"
-	}
-
-	return nil, ""
 }
 
 // formatDuration formats a duration in a human-readable format.

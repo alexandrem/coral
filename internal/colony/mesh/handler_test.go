@@ -1,4 +1,4 @@
-package colony
+package mesh
 
 import (
 	"fmt"

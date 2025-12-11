@@ -14,6 +14,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	colonywg "github.com/coral-mesh/coral/internal/colony/wireguard"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery/registration"
@@ -144,7 +145,7 @@ Examples:
 			// - Start HTTP server for dashboard on cfg.Dashboard.Port
 
 			// Initialize WireGuard device (but don't start it yet)
-			wgDevice, err := createWireGuardDevice(cfg, logger)
+			wgDevice, err := colonywg.CreateDevice(cfg, logger)
 			if err != nil {
 				return fmt.Errorf("failed to create WireGuard device: %w", err)
 			}
@@ -152,7 +153,7 @@ Examples:
 
 			// Set up the persistent allocator BEFORE starting the device (RFD 019).
 			// This enables IP allocation recovery after colony restarts.
-			if err := initializePersistentIPAllocator(wgDevice, db, logger); err != nil {
+			if err := colonywg.InitializePersistentIPAllocator(wgDevice, db, logger); err != nil {
 				logger.Warn().
 					Err(err).
 					Msg("Failed to initialize persistent IP allocator, using in-memory allocator")
@@ -161,7 +162,7 @@ Examples:
 			}
 
 			// Now start the WireGuard device with the persistent allocator configured
-			if err := startWireGuardDevice(wgDevice, cfg, logger); err != nil {
+			if err := colonywg.StartDevice(wgDevice, cfg, logger); err != nil {
 				return fmt.Errorf("failed to start WireGuard device: %w", err)
 			}
 
@@ -186,7 +187,7 @@ Examples:
 				colonyConfigForEndpoints = nil
 			}
 
-			endpoints := buildWireGuardEndpoints(cfg.WireGuard.Port, colonyConfigForEndpoints)
+			endpoints := colonywg.BuildEndpoints(cfg.WireGuard.Port, colonyConfigForEndpoints)
 			if len(endpoints) == 0 {
 				logger.Warn().Msg("No WireGuard endpoints could be constructed; discovery registration will fail")
 			} else {

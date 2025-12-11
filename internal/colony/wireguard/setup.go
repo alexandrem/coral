@@ -1,4 +1,8 @@
-package colony
+// Package wireguard provides colony-specific WireGuard device setup and orchestration.
+// This package handles WireGuard device creation, network configuration, persistent IP allocation,
+// and endpoint management for the colony mesh network. It builds on the low-level primitives
+// in internal/wireguard to provide colony-specific initialization and configuration logic.
+package wireguard
 
 import (
 	"fmt"
@@ -13,9 +17,9 @@ import (
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
-// createWireGuardDevice creates a WireGuard device but doesn't start it yet.
+// CreateDevice creates a WireGuard device but doesn't start it yet.
 // This allows the persistent IP allocator to be configured before the device starts.
-func createWireGuardDevice(cfg *config.ResolvedConfig, logger logging.Logger) (*wireguard.Device, error) {
+func CreateDevice(cfg *config.ResolvedConfig, logger logging.Logger) (*wireguard.Device, error) {
 	logger.Info().
 		Str("mesh_ipv4", cfg.WireGuard.MeshIPv4).
 		Int("port", cfg.WireGuard.Port).
@@ -29,8 +33,8 @@ func createWireGuardDevice(cfg *config.ResolvedConfig, logger logging.Logger) (*
 	return wgDevice, nil
 }
 
-// startWireGuardDevice starts the WireGuard device and assigns the mesh IP.
-func startWireGuardDevice(wgDevice *wireguard.Device, cfg *config.ResolvedConfig, logger logging.Logger) error {
+// StartDevice starts the WireGuard device and assigns the mesh IP.
+func StartDevice(wgDevice *wireguard.Device, cfg *config.ResolvedConfig, logger logging.Logger) error {
 	if err := wgDevice.Start(); err != nil {
 		return fmt.Errorf("failed to start WireGuard device: %w", err)
 	}
@@ -99,8 +103,8 @@ func startWireGuardDevice(wgDevice *wireguard.Device, cfg *config.ResolvedConfig
 	return nil
 }
 
-// initializePersistentIPAllocator creates and injects a persistent IP allocator (RFD 019).
-func initializePersistentIPAllocator(wgDevice *wireguard.Device, db *database.Database, logger logging.Logger) error {
+// InitializePersistentIPAllocator creates and injects a persistent IP allocator (RFD 019).
+func InitializePersistentIPAllocator(wgDevice *wireguard.Device, db *database.Database, logger logging.Logger) error {
 	// Get the mesh network subnet from WireGuard config.
 	cfg := wgDevice.Config()
 	if cfg.MeshNetworkIPv4 == "" {
@@ -133,56 +137,8 @@ func initializePersistentIPAllocator(wgDevice *wireguard.Device, db *database.Da
 	return nil
 }
 
-// gatherColonyMeshInfo gathers WireGuard mesh network information for the colony status endpoint.
-func gatherColonyMeshInfo(
-	wgDevice *wireguard.Device,
-	meshIP, meshSubnet string,
-	colonyID string,
-	logger logging.Logger,
-) map[string]interface{} {
-	info := make(map[string]interface{})
-
-	// Basic mesh info.
-	info["colony_id"] = colonyID
-	info["mesh_ip"] = meshIP
-	info["mesh_subnet"] = meshSubnet
-
-	// WireGuard interface info.
-	if wgDevice != nil {
-		wgInfo := make(map[string]interface{})
-		wgInfo["interface_name"] = wgDevice.InterfaceName()
-		wgInfo["listen_port"] = wgDevice.ListenPort()
-
-		// Get interface status.
-		iface := wgDevice.Interface()
-		if iface != nil {
-			wgInfo["interface_exists"] = true
-
-			// Get peer information.
-			peers := wgDevice.ListPeers()
-			peerInfos := make([]map[string]interface{}, 0, len(peers))
-			for _, peer := range peers {
-				peerInfo := make(map[string]interface{})
-				peerInfo["public_key"] = peer.PublicKey[:16] + "..."
-				peerInfo["endpoint"] = peer.Endpoint
-				peerInfo["allowed_ips"] = peer.AllowedIPs
-				peerInfo["persistent_keepalive"] = peer.PersistentKeepalive
-				peerInfos = append(peerInfos, peerInfo)
-			}
-			wgInfo["peers"] = peerInfos
-			wgInfo["peer_count"] = len(peers)
-		} else {
-			wgInfo["interface_exists"] = false
-		}
-
-		info["wireguard"] = wgInfo
-	}
-
-	return info
-}
-
-// buildWireGuardEndpoints builds the list of WireGuard endpoints to be advertised.
-func buildWireGuardEndpoints(port int, colonyConfig *config.ColonyConfig) []string {
+// BuildEndpoints builds the list of WireGuard endpoints to be advertised.
+func BuildEndpoints(port int, colonyConfig *config.ColonyConfig) []string {
 	var endpoints []string
 	var rawEndpoints []string
 

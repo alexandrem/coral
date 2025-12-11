@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/internal/runtime"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/runtime"
 )
 
 // RuntimeService implements the AgentService RPC interface.
