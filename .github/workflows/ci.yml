@@ -27,6 +27,7 @@ jobs:
   go-env:
     name: Cache Go modules & tools
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     outputs:
       mod-cache-key: ${{ steps.mod.outputs.cache-key }}
       tools-cache-key: ${{ steps.tools.outputs.cache-key }}
@@ -40,13 +41,11 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
 
-      # ── Module cache key ──
+      # ── Go modules cache key (100% reliable) ──
       - name: Go mod cache key
         id: mod
         run: |
-          set -euo pipefail
-          HASH=$(sha256sum go.sum | awk '{print substr($1,1,64)}')
-          echo "cache-key=go-mod-v5-${{ runner.os }}-$HASH" >> $GITHUB_OUTPUT
+          echo "cache-key=go-mod-v5-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}" >> $GITHUB_OUTPUT
 
       - name: Cache Go modules & build cache
         uses: actions/cache@v4
@@ -55,22 +54,22 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           key: ${{ steps.mod.outputs.cache-key }}
-          restore-keys: go-mod-v5-${{ runner.os }}-
+          restore-keys: |
+            go-mod-v5-${{ runner.os }}-
 
-      # ── Tools cache key ──
+      # ── Go tools cache key (100% reliable) ──
       - name: Go tools cache key
         id: tools
         run: |
-          set -euo pipefail
-          HASH=$(sha256sum go.mod go.sum | awk '{print substr($1,1,64)}')
-          echo "cache-key=go-tools-v4-${{ runner.os }}-$HASH" >> $GITHUB_OUTPUT
+          echo "cache-key=go-tools-v4-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}" >> $GITHUB_OUTPUT
 
       - name: Cache Go tools
         uses: actions/cache@v4
         with:
           path: ~/go/bin
           key: ${{ steps.tools.outputs.cache-key }}
-          restore-keys: go-tools-v4-${{ runner.os }}-
+          restore-keys: |
+            go-tools-v4-${{ runner.os }}-
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -79,10 +78,11 @@ jobs:
           cache: false
 
       - name: Install Go tools
-        run: make install-tools
+        run: make install-tools || make install-tools  # retry once if needed
 
       - name: Download modules
         run: go mod download
+
   # ──────────────────────────────────────────────────────────────
   # Tests + Coverage
   # ──────────────────────────────────────────────────────────────
