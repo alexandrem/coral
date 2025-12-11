@@ -409,6 +409,7 @@ func (c *FunctionCache) NeedsUpdate(ctx context.Context, serviceName, binaryPath
 
 // computeBinaryHash computes SHA256 hash of a binary file.
 func computeBinaryHash(binaryPath string) (string, error) {
+	//nolint:gosec // G304: binaryPath is from controlled internal sources
 	f, err := os.Open(binaryPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open binary: %w", err)

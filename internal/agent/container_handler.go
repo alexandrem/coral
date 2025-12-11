@@ -108,6 +108,7 @@ func (h *ContainerHandler) ContainerExec(
 	nsenterArgs := h.buildNsenterCommand(containerPID, namespaces, input.WorkingDir, input.Command)
 
 	// Create command.
+	//nolint:gosec // G204: nsenter with validated arguments from buildNsenterCommand.
 	cmd := exec.CommandContext(execCtx, "nsenter", nsenterArgs...)
 
 	// Set environment variables.

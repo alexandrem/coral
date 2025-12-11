@@ -129,6 +129,7 @@ func (t *Transformer) transformHTTPMetric(metric pmetric.Metric, serviceName str
 			// Extract HTTP attributes.
 			route := getStringAttribute(dp.Attributes(), "http.route", getStringAttribute(dp.Attributes(), "url.path", "/"))
 			method := getStringAttribute(dp.Attributes(), "http.request.method", getStringAttribute(dp.Attributes(), "http.method", "GET"))
+			//nolint:gosec // G115: HTTP status codes are always positive
 			statusCode := uint32(getIntAttribute(dp.Attributes(), "http.response.status_code", getIntAttribute(dp.Attributes(), "http.status_code", 200)))
 
 			// Extract histogram buckets and counts.
@@ -183,6 +184,7 @@ func (t *Transformer) transformGRPCMetric(metric pmetric.Metric, serviceName str
 
 			// Extract gRPC attributes.
 			method := getStringAttribute(dp.Attributes(), "rpc.method", "unknown")
+			//nolint:gosec // G115: gRPC status codes are always positive
 			statusCode := uint32(getIntAttribute(dp.Attributes(), "rpc.grpc.status_code", 0))
 
 			// Extract histogram buckets and counts.
@@ -328,6 +330,7 @@ func spanKindToString(kind ptrace.SpanKind) string {
 // extractStatusCode extracts HTTP/gRPC status code from span attributes.
 func extractStatusCode(attrs pcommon.Map) uint32 {
 	// Try HTTP status code first.
+	//nolint:gosec // G115: Status codes are always positive
 	if val, ok := attrs.Get("http.response.status_code"); ok {
 		return uint32(val.Int())
 	}

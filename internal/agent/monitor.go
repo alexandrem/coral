@@ -114,6 +114,7 @@ func (m *ServiceMonitor) monitorLoop() {
 	// Add random initial delay (up to 30% of check interval) to prevent thundering
 	// herd when multiple services start simultaneously.
 	maxJitter := int64(m.checkInterval) * 30 / 100
+	//nolint:gosec // G404: Weak random is acceptable for jitter to prevent thundering herd.
 	initialDelay := time.Duration(rand.Int64N(maxJitter))
 
 	m.logger.Debug().

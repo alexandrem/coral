@@ -253,6 +253,7 @@ func AggregateStatistics(events []*meshv1.UprobeEvent) *debugpb.DebugStatistics 
 	var durations []time.Duration
 	for _, event := range events {
 		if event.EventType == "return" && event.DurationNs > 0 {
+			//nolint:gosec // G115: Duration conversion is safe
 			durations = append(durations, time.Duration(event.DurationNs))
 		}
 	}
@@ -303,6 +304,7 @@ func FindSlowOutliers(events []*meshv1.UprobeEvent, p95Duration time.Duration) [
 
 	for _, event := range events {
 		if event.EventType == "return" && event.DurationNs > 0 {
+			//nolint:gosec // G115: Duration conversion is safe
 			duration := time.Duration(event.DurationNs)
 			if duration > p95Duration {
 				outlier := &debugpb.SlowOutlier{

@@ -120,8 +120,8 @@ func (m *SessionManager) readEvents(sessionID string, reader *ringbuf.Reader) {
 		event := &agentv1.DebugEvent{
 			SessionId:  sessionID,
 			Timestamp:  int64(timestamp),
-			Pid:        int32(pid),
-			Tid:        int32(tid),
+			Pid:        int32(pid), //nolint:gosec // G115: PID conversion is safe
+			Tid:        int32(tid), //nolint:gosec // G115: TID conversion is safe
 			DurationNs: int64(duration),
 		}
 

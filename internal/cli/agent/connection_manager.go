@@ -111,6 +111,7 @@ func (b *ExponentialBackoff) NextDelay() time.Duration {
 
 	// Add jitter: randomize between (1-jitter)*baseDelay and (1+jitter)*baseDelay
 	jitterAmount := baseDelay * b.Jitter
+	//nolint:gosec // G404: Weak random is acceptable for backoff jitter.
 	delay := baseDelay + (rand.Float64()*2-1)*jitterAmount
 
 	b.currentAttempt++

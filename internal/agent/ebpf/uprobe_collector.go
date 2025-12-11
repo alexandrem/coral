@@ -256,8 +256,8 @@ func (c *UprobeCollector) readEvents() {
 			ServiceName:  c.config.ServiceName,
 			EventType:    eventTypeString(rawEvent.EventType),
 			DurationNs:   rawEvent.DurationNs,
-			Pid:          int32(rawEvent.Pid),
-			Tid:          int32(rawEvent.Tid),
+			Pid:          int32(rawEvent.Pid), //nolint:gosec // G115: PID conversion is safe
+			Tid:          int32(rawEvent.Tid), //nolint:gosec // G115: TID conversion is safe
 		}
 
 		// Store event

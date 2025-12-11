@@ -182,6 +182,7 @@ func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	if len(fns) == 0 {
 		return nil, 0, errors.New("failed to bind to any address")
 	}
+	//nolint:gosec // G115: Port number is from validated socket address
 	return fns, uint16(port), nil
 }
 

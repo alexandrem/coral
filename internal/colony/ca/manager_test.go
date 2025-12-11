@@ -352,7 +352,7 @@ func TestInitialize_FilePermissions(t *testing.T) {
 		}
 	}
 
-	// Verify cert file permissions (0644).
+	// Verify cert file permissions (0600).
 	certFiles := []string{"root-ca.crt", "server-intermediate.crt", "agent-intermediate.crt", "policy-signing.crt"}
 	for _, f := range certFiles {
 		info, err := os.Stat(filepath.Join(caDir, f))
@@ -360,8 +360,8 @@ func TestInitialize_FilePermissions(t *testing.T) {
 			t.Errorf("failed to stat %s: %v", f, err)
 			continue
 		}
-		if info.Mode().Perm() != 0644 {
-			t.Errorf("%s permissions should be 0644, got %o", f, info.Mode().Perm())
+		if info.Mode().Perm() != 0600 {
+			t.Errorf("%s permissions should be 0600, got %o", f, info.Mode().Perm())
 		}
 	}
 }

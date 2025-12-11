@@ -102,9 +102,12 @@ func (c *SyscallStatsCollector) collectSample() {
 
 	for _, syscall := range syscalls {
 		stats := &meshv1.SyscallStats{
-			SyscallName:     syscall,
-			CallCount:       uint64(rand.Intn(1000) + 100),
-			ErrorCount:      uint64(rand.Intn(10)),
+			SyscallName: syscall,
+			//nolint:gosec // G115,G404: Test data generation with intentional weak random.
+			CallCount: uint64(rand.Intn(1000) + 100),
+			//nolint:gosec // G404: Test data generation with intentional weak random.
+			ErrorCount: uint64(rand.Intn(10)),
+			//nolint:gosec // G404: Test data generation with intentional weak random.
 			TotalDurationUs: uint64(rand.Intn(10000) + 1000),
 			Labels:          map[string]string{},
 		}

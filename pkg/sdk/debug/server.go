@@ -3,6 +3,7 @@ package debug
 import (
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Server provides the SDK Debug Service HTTP server.
@@ -40,13 +42,14 @@ func (s *Server) Start(listenAddr string) error {
 
 	// Create HTTP server.
 	s.server = &http.Server{
-		Handler: s,
+		Handler:           s,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// Start serving in background.
 	go func() {
 		s.logger.Info("SDK debug server started", "addr", s.listener.Addr().String())
-		if err := s.server.Serve(s.listener); err != nil && err != http.ErrServerClosed {
+		if err := s.server.Serve(s.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.logger.Error("Failed to start HTTP server", "error", err)
 		}
 	}()

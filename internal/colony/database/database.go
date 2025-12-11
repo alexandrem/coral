@@ -10,6 +10,8 @@ import (
 
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/privilege"
 )
 
 // Database wraps a DuckDB connection for colony storage.
@@ -36,7 +38,7 @@ func NewReadOnly(storagePath, colonyID string, logger zerolog.Logger) (*Database
 // open is the internal function that opens the database with optional read-only mode.
 func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*Database, error) {
 	// Ensure storage directory exists.
-	if err := os.MkdirAll(storagePath, 0755); err != nil {
+	if err := os.MkdirAll(storagePath, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
@@ -53,6 +55,26 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 	db, err := sql.Open("duckdb", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Fix ownership of storage directory and database file if running as root.
+	if !readOnly {
+		if err := privilege.FixFileOwnership(storagePath); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to fix storage directory ownership: %w", err)
+		}
+		if err := privilege.FixFileOwnership(dbPath); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to fix database file ownership: %w", err)
+		}
+		// Also fix .wal file if it exists (DuckDB write-ahead log).
+		walPath := dbPath + ".wal"
+		if _, err := os.Stat(walPath); err == nil {
+			if err := privilege.FixFileOwnership(walPath); err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("failed to fix WAL file ownership: %w", err)
+			}
+		}
 	}
 
 	// Configure connection pool.

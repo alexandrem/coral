@@ -160,9 +160,11 @@ func spawnHelperSubprocess(deviceName string, mtu int, socketPath string) error 
 	if needsSudo {
 		// Prepend sudo to command.
 		sudoArgs := append([]string{binaryPath}, args...)
+		//nolint:gosec // G204: Intentional subprocess execution with validated binary
 		cmd = exec.Command("sudo", sudoArgs...)
 	} else {
 		// Already running as root or with capabilities.
+		//nolint:gosec // G204: Intentional subprocess execution with validated binary
 		cmd = exec.Command(binaryPath, args...)
 	}
 

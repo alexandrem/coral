@@ -526,7 +526,7 @@ func (s *BeylaStorage) QueryHTTPMetrics(ctx context.Context, startTime, endTime 
 				ServiceName:    serviceName,
 				HttpMethod:     httpMethod,
 				HttpRoute:      httpRoute,
-				HttpStatusCode: uint32(httpStatusCode),
+				HttpStatusCode: uint32(httpStatusCode), //nolint:gosec // G115: Status codes are always positive
 				LatencyBuckets: []float64{},
 				LatencyCounts:  []uint64{},
 				Attributes:     attrs,
@@ -628,7 +628,7 @@ func (s *BeylaStorage) QueryGRPCMetrics(ctx context.Context, startTime, endTime 
 				Timestamp:      timestamppb.New(timestamp),
 				ServiceName:    serviceName,
 				GrpcMethod:     grpcMethod,
-				GrpcStatusCode: uint32(grpcStatusCode),
+				GrpcStatusCode: uint32(grpcStatusCode), //nolint:gosec // G115: Status codes are always positive
 				LatencyBuckets: []float64{},
 				LatencyCounts:  []uint64{},
 				Attributes:     attrs,
@@ -845,7 +845,7 @@ func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.
 			SpanKind:     spanKind,
 			StartTime:    timestamppb.New(startTime),
 			Duration:     durationpb.New(duration),
-			StatusCode:   uint32(statusCode),
+			StatusCode:   uint32(statusCode), //nolint:gosec // G115: Status codes are always positive
 			Attributes:   attrs,
 		}
 

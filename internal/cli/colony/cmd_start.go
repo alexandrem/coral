@@ -257,7 +257,7 @@ Examples:
 				Endpoints:         endpoints,
 				MeshIPv4:          meshIPv4,
 				MeshIPv6:          meshIPv6,
-				ConnectPort:       uint32(connectPort),
+				ConnectPort:       uint32(connectPort), //nolint:gosec // G115: Port numbers are small positive values
 				Metadata:          metadata,
 				DiscoveryEndpoint: globalConfig.Discovery.Endpoint,
 				DiscoveryTimeout:  globalConfig.Discovery.Timeout,

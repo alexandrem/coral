@@ -14,7 +14,8 @@ type Filter struct {
 func NewFilter(config FilterConfig) *Filter {
 	return &Filter{
 		config: config,
-		rng:    rand.New(rand.NewSource(rand.Int63())),
+		//nolint:gosec // G404: Weak random is acceptable for telemetry sampling.
+		rng: rand.New(rand.NewSource(rand.Int63())),
 	}
 }
 
