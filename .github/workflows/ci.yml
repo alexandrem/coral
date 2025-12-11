@@ -39,10 +39,11 @@ jobs:
       - id: go-tool-cache-key
         name: Compute Go tools cache key
         run: |
-          # The key format must be 'name=value' written directly to the $GITHUB_OUTPUT file.
-          # We use a single command block to calculate and set the output correctly.
-          HASH=$(sha256sum go.mod go.sum | cut -c1-32)
-          echo "key=Linux-go-tools-$HASH" >> $GITHUB_OUTPUT
+          # Use set -o pipefail for robust command execution.
+          set -o pipefail
+
+          # Calculate the hash and use tee to write the output directly.
+          sha256sum go.mod go.sum | cut -c1-32 | { read HASH; echo "key=Linux-go-tools-$HASH" | tee -a $GITHUB_OUTPUT; }
 
       # Cache Go Tooling binaries (~/go/bin) installed via 'make install-tools'
       - name: Cache/Restore Go tooling binaries
