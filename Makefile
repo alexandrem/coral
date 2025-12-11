@@ -110,7 +110,7 @@ init: ## Initialize development
 
 install-tools: ## Install development tools
 	@echo "Installing development dependencies..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
 	go install github.com/bufbuild/buf/cmd/buf@latest
