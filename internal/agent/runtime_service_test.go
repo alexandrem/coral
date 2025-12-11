@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 )
 
 func TestNewRuntimeService(t *testing.T) {
