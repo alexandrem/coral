@@ -27,7 +27,6 @@ jobs:
   go-env:
     name: Cache Go modules & tools
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     outputs:
       mod-cache-key: ${{ steps.mod.outputs.cache-key }}
       tools-cache-key: ${{ steps.tools.outputs.cache-key }}
