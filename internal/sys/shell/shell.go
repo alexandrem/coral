@@ -74,6 +74,7 @@ func Start(ctx context.Context, config StartConfig) (*Session, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	// Create command.
+	//nolint:gosec // G204: shell is from user configuration, intentional
 	cmd := exec.CommandContext(sessionCtx, shell)
 
 	// Set environment variables.
@@ -154,6 +155,7 @@ func (s *Session) Resize(rows, cols uint16) error {
 		Col: cols,
 	}
 
+	//nolint:gosec // G103: unsafe required for syscall
 	_, _, errno := syscall.Syscall(
 		syscall.SYS_IOCTL,
 		s.pty.Fd(),

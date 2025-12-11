@@ -226,6 +226,11 @@ func (m *Manager) generateCA(kmsKeyID string) error {
 	m.policySigningCert = policySignCert
 	m.policySigningKey = policySignKey
 
+	// Fix ownership if running as root (e.g., via sudo).
+	if err := fixCAOwnership(m.caDir); err != nil {
+		return fmt.Errorf("failed to fix CA ownership: %w", err)
+	}
+
 	return nil
 }
 
@@ -237,7 +242,7 @@ func (m *Manager) saveCertAndKey(name string, certDER []byte, key *ecdsa.Private
 		Bytes: certDER,
 	})
 	certPath := filepath.Join(m.caDir, name+".crt")
-	if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
+	if err := os.WriteFile(certPath, certPEM, 0600); err != nil {
 		return fmt.Errorf("failed to write certificate: %w", err)
 	}
 
@@ -304,6 +309,7 @@ func (m *Manager) loadCA() error {
 // loadCert loads a certificate from the CA directory.
 func (m *Manager) loadCert(name string) (*x509.Certificate, error) {
 	certPath := filepath.Join(m.caDir, name+".crt")
+	//nolint:gosec // G304: Path is constructed from trusted CA directory and validated name.
 	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read certificate file: %w", err)
@@ -325,6 +331,7 @@ func (m *Manager) loadCert(name string) (*x509.Certificate, error) {
 // loadKey loads a private key from the CA directory.
 func (m *Manager) loadKey(name string) (*ecdsa.PrivateKey, error) {
 	keyPath := filepath.Join(m.caDir, name+".key")
+	//nolint:gosec // G304: Path is constructed from trusted CA directory and validated name.
 	keyPEM, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read key file: %w", err)
@@ -929,6 +936,7 @@ func Initialize(caDir, colonyID string) (*InitResult, error) {
 // loadInitResult loads CA info from existing files.
 func loadInitResult(caDir, colonyID string) (*InitResult, error) {
 	rootCertPath := filepath.Join(caDir, "root-ca.crt")
+	//nolint:gosec // G304: Path is constructed from trusted CA directory with fixed filename.
 	certPEM, err := os.ReadFile(rootCertPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read root CA: %w", err)
@@ -960,7 +968,7 @@ func saveCertAndKeyStandalone(caDir, name string, certDER []byte, key *ecdsa.Pri
 		Bytes: certDER,
 	})
 	certPath := filepath.Join(caDir, name+".crt")
-	if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
+	if err := os.WriteFile(certPath, certPEM, 0600); err != nil {
 		return fmt.Errorf("failed to write certificate: %w", err)
 	}
 

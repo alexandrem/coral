@@ -111,6 +111,7 @@ func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
 	// First, try to delete any existing IPv4 address on the interface.
 	// This allows us to replace an existing IP (e.g., temporary IP with assigned IP).
 	// We ignore errors here because the interface might not have an IP yet.
+	//nolint:gosec // G204: Interface name is controlled by WireGuard device creation
 	deleteCmd := exec.Command("ifconfig", i.name, "inet", "delete")
 	_ = deleteCmd.Run() // Ignore error - interface might not have an IP
 
@@ -134,6 +135,7 @@ func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
 		"255.255.255.255", // /32 - only create host route for this IP
 	}
 
+	//nolint:gosec // G204: Interface configuration with controlled arguments
 	cmd := exec.Command("ifconfig", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -144,6 +146,7 @@ func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
 	// Delete the automatic route to the network address that ifconfig creates.
 	// This route (e.g., "100.64.0.0 -> 100.64.0.1 via utun11") causes routing conflicts
 	// when multiple WireGuard instances run on the same host.
+	//nolint:gosec // G204: Route deletion with controlled network address
 	deleteNetRoute := exec.Command("route", "-n", "delete", "-host", networkAddr)
 	_ = deleteNetRoute.Run() // Ignore errors - route might not exist
 
@@ -181,6 +184,7 @@ func (i *Interface) AddRoutesForPeerPlatform(allowedIPs []string) error {
 		// Add route for this specific IP/subnet through our interface
 		var routeCmd *exec.Cmd
 		ones, _ := ipNet.Mask.Size()
+		//nolint:gosec // G204: Interface name and IPs are controlled by WireGuard configuration
 		if ones == 32 || ones == 128 {
 			// Host route: route add -host <ip> -interface <iface>
 			routeCmd = exec.Command("route", "-n", "add", "-host", ipNet.IP.String(), "-interface", i.name)
@@ -218,6 +222,7 @@ func (i *Interface) DeleteRoutePlatform(ip net.IP) error {
 		Str("ip", ip.String()).
 		Msg("Deleting route")
 
+	//nolint:gosec // G204: Route deletion with controlled IP address
 	deleteCmd := exec.Command("route", "-n", "delete", "-host", ip.String())
 	output, err := deleteCmd.CombinedOutput()
 

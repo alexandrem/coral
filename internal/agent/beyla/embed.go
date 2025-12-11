@@ -27,6 +27,7 @@ func extractBeylaBinary() (string, error) {
 
 	// Write the embedded binary to the temp directory.
 	binaryPath := filepath.Join(tmpDir, "beyla")
+	//nolint:gosec // G306: Binary needs execute permissions
 	if err := os.WriteFile(binaryPath, beylaEmbeddedBinary, 0755); err != nil {
 		_ = os.RemoveAll(tmpDir) // TODO: errcheck
 		return "", fmt.Errorf("failed to write Beyla binary: %w", err)

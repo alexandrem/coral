@@ -78,6 +78,7 @@ func (l *Loader) LoadGlobalConfig() (*GlobalConfig, error) {
 		return DefaultGlobalConfig(), nil
 	}
 
+	//nolint:gosec // G304: Path is from trusted config directory.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read global config: %w", err)
@@ -97,6 +98,7 @@ func (l *Loader) SaveGlobalConfig(config *GlobalConfig) error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(path)
+	//nolint:gosec // G301: Directory needs standard permissions for traversal
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -114,6 +116,7 @@ func (l *Loader) SaveGlobalConfig(config *GlobalConfig) error {
 	}
 
 	// Global config is not as sensitive, use 0644
+	//nolint:gosec // G306: Global config file is not sensitive
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write global config: %w", err)
 	}
@@ -158,6 +161,7 @@ func (l *Loader) LoadColonyConfig(colonyID string) (*ColonyConfig, error) {
 }
 
 func loadColonyConfigFromFile(path string) (*ColonyConfig, error) {
+	//nolint:gosec // G304: Path is from trusted config directory.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read colony config from %s: %w", path, err)
@@ -339,6 +343,7 @@ func LoadProjectConfig(projectDir string) (*ProjectConfig, error) {
 		return nil, nil
 	}
 
+	//nolint:gosec // G304: Path is from trusted project directory.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read project config: %w", err)
@@ -358,6 +363,7 @@ func SaveProjectConfig(projectDir string, config *ProjectConfig) error {
 	path := filepath.Join(dir, constants.ConfigFile)
 
 	// Ensure directory exists
+	//nolint:gosec // G301: Directory needs standard permissions for traversal
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create .coral directory: %w", err)
 	}
@@ -367,6 +373,7 @@ func SaveProjectConfig(projectDir string, config *ProjectConfig) error {
 		return fmt.Errorf("failed to marshal project config: %w", err)
 	}
 
+	//nolint:gosec // G306: Project config file is not sensitive
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write project config: %w", err)
 	}

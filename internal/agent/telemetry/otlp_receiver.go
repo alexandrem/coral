@@ -151,7 +151,8 @@ func (r *OTLPReceiver) startHTTP() error {
 	mux.HandleFunc("/v1/metrics", r.handleHTTPMetrics)
 
 	r.httpServer = &http.Server{
-		Handler: mux,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// Start HTTP server in background.

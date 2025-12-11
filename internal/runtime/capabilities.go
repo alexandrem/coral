@@ -81,6 +81,7 @@ func DetectExecCapabilities(linuxCaps *agentv1.LinuxCapabilities, hasCRI bool, h
 
 // readCapabilityBitmask reads a capability bitmask from /proc/self/status.
 func readCapabilityBitmask(procStatusPath, capName string) (uint64, error) {
+	//nolint:gosec // G304: procStatusPath is a system path (/proc/self/status)
 	file, err := os.Open(procStatusPath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to open %s: %w", procStatusPath, err)
@@ -119,5 +120,6 @@ func readCapabilityBitmask(procStatusPath, capName string) (uint64, error) {
 
 // hasCapability checks if a specific capability bit is set in the bitmask.
 func hasCapability(bitmask uint64, capBit int) bool {
+	//nolint:gosec // G115: Capability bit shift is bounded by Linux capability range
 	return (bitmask & (1 << uint(capBit))) != 0
 }

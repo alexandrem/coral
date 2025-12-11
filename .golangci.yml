@@ -1,13 +1,25 @@
 version: "2"
 
 linters:
+  enable:
+    - gosec
   settings:
     staticcheck:
       checks:
         - "all"
         - "-SA1019" # Ignore deprecated usage warnings
+    gosec:
+      excludes:
+        - G104 # Audit errors not checked (covered by errcheck)
+        - G115 # Integer overflow conversion (many false positives in this codebase)
   exclusions:
     rules:
       - path: _test\.go
         linters:
           - errcheck
+          - gosec
+
+linters-settings:
+  gosec:
+    severity: medium
+    confidence: medium

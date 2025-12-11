@@ -112,8 +112,9 @@ func main() {
 
 	// Create HTTP server with h2c support (HTTP/2 without TLS)
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", *port),
-		Handler: h2c.NewHandler(mux, &http2.Server{}),
+		Addr:              fmt.Sprintf(":%d", *port),
+		Handler:           h2c.NewHandler(mux, &http2.Server{}),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	logger.Info().Msg("Ready to accept registrations")
@@ -204,6 +205,7 @@ func loadJWTSigningKey(flagValue string, logger zerolog.Logger) ([]byte, error) 
 
 	// 3. Check CORAL_JWT_SIGNING_KEY_FILE environment variable.
 	if keyFile := os.Getenv("CORAL_JWT_SIGNING_KEY_FILE"); keyFile != "" {
+		//nolint:gosec // G304: Path from environment variable for JWT key file.
 		data, err := os.ReadFile(keyFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read key file %s: %w", keyFile, err)

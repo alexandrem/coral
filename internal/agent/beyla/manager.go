@@ -595,6 +595,7 @@ func (m *Manager) startBeyla() error {
 	m.beylaConfigPath = configPath
 
 	// Create command with config file.
+	//nolint:gosec // G204: binaryPath is from validated/extracted Beyla binary
 	cmd := exec.CommandContext(m.ctx, binaryPath, "-config", configPath)
 
 	// Configure logging (Beyla logs to stderr).

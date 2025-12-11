@@ -70,7 +70,8 @@ func ParseServiceSpec(spec string) (*ServiceSpec, error) {
 	}
 
 	result := &ServiceSpec{
-		Name:   name,
+		Name: name,
+		//nolint:gosec // G109: Port is validated to be 1-65535, conversion to int32 is safe.
 		Port:   int32(port),
 		Labels: make(map[string]string),
 	}

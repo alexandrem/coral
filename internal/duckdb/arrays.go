@@ -52,6 +52,7 @@ func BytesToFloat32Array(data []byte) []float32 {
 		offset := i * floatSize
 		// Convert 4 bytes to float32 (little-endian).
 		bits := uint32(data[offset]) | uint32(data[offset+1])<<8 | uint32(data[offset+2])<<16 | uint32(data[offset+3])<<24
+		//nolint:gosec // G103: unsafe required for binary float conversion
 		result[i] = *(*float32)(unsafe.Pointer(&bits))
 	}
 
@@ -69,6 +70,7 @@ func Float32ArrayToBytes(arr []float32) []byte {
 
 	for i, f := range arr {
 		offset := i * floatSize
+		//nolint:gosec // G103: unsafe required for binary float conversion
 		bits := *(*uint32)(unsafe.Pointer(&f))
 		// Convert float32 to 4 bytes (little-endian).
 		data[offset] = byte(bits)

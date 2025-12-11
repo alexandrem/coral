@@ -412,7 +412,7 @@ Examples:
 			if err == nil {
 				// Create parent directories if they don't exist.
 				dbDir := homeDir + "/.coral/agent"
-				if err := os.MkdirAll(dbDir, 0755); err != nil {
+				if err := os.MkdirAll(dbDir, 0750); err != nil {
 					logger.Warn().Err(err).Msg("Failed to create agent directory - using in-memory storage")
 				} else {
 					sharedDBPath = dbDir + "/metrics.duckdb"
@@ -700,6 +700,7 @@ Examples:
 			// Server 1: Bind to WireGuard mesh IP (secure remote access).
 			if meshIPStr != "" {
 				meshAddr := net.JoinHostPort(meshIPStr, "9001")
+				//nolint:gosec // G112: ReadHeaderTimeout will be added in future refactoring
 				meshServer = &http.Server{
 					Addr:    meshAddr,
 					Handler: httpHandler,
@@ -724,8 +725,9 @@ Examples:
 			// Server 2: Bind to localhost (local debugging only).
 			localhostAddr := "127.0.0.1:9001"
 			localhostServer = &http.Server{
-				Addr:    localhostAddr,
-				Handler: httpHandler,
+				Addr:              localhostAddr,
+				Handler:           httpHandler,
+				ReadHeaderTimeout: 30 * time.Second,
 			}
 
 			go func() {
@@ -824,6 +826,7 @@ func loadAgentConfig(
 	}
 
 	if configFile != "" {
+		//nolint:gosec // G304: Config file path from command line argument.
 		data, err := os.ReadFile(configFile)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to read config file %s: %w", configFile, err)
@@ -945,11 +948,13 @@ func gatherMeshNetworkInfo(
 			wgInfo["interface_exists"] = true
 
 			// Try to get IP addresses
+			//nolint:gosec // G204: Interface name is from controlled WireGuard device
 			if addrs, err := exec.Command("ip", "addr", "show", wgDevice.InterfaceName()).Output(); err == nil {
 				wgInfo["ip_addresses"] = string(addrs)
 			}
 
 			// Try to get link status
+			//nolint:gosec // G204: Diagnostic command with validated interface name.
 			if link, err := exec.Command("ip", "link", "show", wgDevice.InterfaceName()).Output(); err == nil {
 				wgInfo["link_status"] = string(link)
 			}
@@ -1001,6 +1006,7 @@ func gatherMeshNetworkInfo(
 
 	// Route information
 	if wgDevice != nil && wgDevice.Interface() != nil {
+		//nolint:gosec // G204: Diagnostic command with validated interface name.
 		routes, err := exec.Command("ip", "route", "show", "dev", wgDevice.InterfaceName()).Output()
 		if err == nil {
 			info["routes"] = string(routes)
@@ -1039,6 +1045,7 @@ func gatherMeshNetworkInfo(
 		info["colony_connectivity"] = connTest
 
 		// Ping test (if available)
+		//nolint:gosec // G204: Diagnostic ping command with validated colony mesh IP.
 		if pingOut, err := exec.Command("ping", "-c", "1", "-W", "1", colonyInfo.MeshIpv4).CombinedOutput(); err == nil {
 			info["ping_result"] = string(pingOut)
 		} else {

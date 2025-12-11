@@ -198,6 +198,7 @@ type conversationMetadata struct {
 // loadLastConversationID loads the last conversation ID for a colony.
 func loadLastConversationID(colonyID string) (string, error) {
 	path := getConversationMetadataPath(colonyID)
+	//nolint:gosec // G304: Path is constructed from validated colony ID in config directory.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -219,6 +220,7 @@ func saveConversationID(colonyID, conversationID string) error {
 	path := getConversationMetadataPath(colonyID)
 
 	// Ensure directory exists.
+	//nolint:gosec // G301: Directory needs standard permissions for traversal
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("failed to create conversation directory: %w", err)
 	}
@@ -234,6 +236,7 @@ func saveConversationID(colonyID, conversationID string) error {
 		return fmt.Errorf("failed to marshal conversation metadata: %w", err)
 	}
 
+	//nolint:gosec // G306: Non-sensitive metadata file
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write conversation metadata: %w", err)
 	}

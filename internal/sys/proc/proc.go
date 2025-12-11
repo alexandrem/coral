@@ -33,6 +33,7 @@ func FindPidByPort(port int) (int32, error) {
 
 // findSocketInode parses /proc/net/tcp(6) to find the inode for a listening port.
 func findSocketInode(port int, procPath string) (string, error) {
+	//nolint:gosec // G304: Path is from /proc filesystem for system information.
 	f, err := os.Open(procPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -124,6 +125,7 @@ func findPidByInode(inode string) (int32, error) {
 			}
 
 			if linkPath == socketLink {
+				//nolint:gosec // G109: PID conversion is safe, validated by Atoi
 				return int32(pid), nil
 			}
 		}

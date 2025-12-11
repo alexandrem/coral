@@ -106,8 +106,9 @@ func (s *Server) Start(ctx context.Context) error {
 
 	h2s := &http2.Server{}
 	s.httpServer = &http.Server{
-		Addr:    s.config.ListenAddr,
-		Handler: h2c.NewHandler(mux, h2s),
+		Addr:              s.config.ListenAddr,
+		Handler:           h2c.NewHandler(mux, h2s),
+		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context {
 			return ctx
 		},

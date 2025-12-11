@@ -380,6 +380,7 @@ func hasSharedProcessNamespace() bool {
 		// Check if it's a numeric directory (PID).
 		if len(entry.Name()) > 0 && entry.Name()[0] >= '1' && entry.Name()[0] <= '9' {
 			cgroupPath := fmt.Sprintf("/proc/%s/cgroup", entry.Name())
+			//nolint:gosec // G304: cgroupPath is constructed from /proc filesystem
 			data, err := os.ReadFile(cgroupPath)
 			if err == nil {
 				cgroupPaths[string(data)] = true

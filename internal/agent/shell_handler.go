@@ -72,6 +72,7 @@ func (h *ShellHandler) ShellExec(
 	startTime := time.Now()
 
 	// Create command.
+	//nolint:gosec // G204: Command execution is intentional for shell handler
 	cmd := exec.CommandContext(execCtx, input.Command[0], input.Command[1:]...)
 
 	// Set working directory if specified.
@@ -255,8 +256,8 @@ func (h *ShellHandler) startShellSession(
 		Env:    start.Env,
 	}
 	if start.Size != nil {
-		cfg.Rows = uint16(start.Size.Rows)
-		cfg.Cols = uint16(start.Size.Cols)
+		cfg.Rows = uint16(start.Size.Rows) //nolint:gosec // G115: Terminal dimensions are small values
+		cfg.Cols = uint16(start.Size.Cols) //nolint:gosec // G115: Terminal dimensions are small values
 	}
 
 	// Start session using shell package
@@ -359,6 +360,7 @@ func (h *ShellHandler) processInput(
 
 		case *agentv1.ShellRequest_Resize:
 			// Resize PTY.
+			//nolint:gosec // G115: Terminal dimensions are small values
 			if err := session.Resize(uint16(payload.Resize.Rows), uint16(payload.Resize.Cols)); err != nil {
 				h.logger.Warn().Err(err).Msg("Failed to resize PTY")
 			}
