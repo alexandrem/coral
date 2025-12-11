@@ -74,6 +74,9 @@ jobs:
           key: ${{ needs.base.outputs.go-tool-cache-key }}
           restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
 
+      - name: Add Go tools to PATH
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
+
       # NOTE: 'go mod download' is usually redundant because 'actions/setup-go'
       # in the base job already handled module caching. It's removed for efficiency.
 
@@ -106,6 +109,9 @@ jobs:
           path: ~/go/bin
           key: ${{ needs.base.outputs.go-tool-cache-key }}
           restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
+
+      - name: Add Go tools to PATH
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Go generate
         run: make generate
@@ -140,6 +146,9 @@ jobs:
           path: ~/go/bin
           key: ${{ needs.base.outputs.go-tool-cache-key }}
           restore-keys: ${{ runner.os }}-go-tools- # Added restore-key
+
+      - name: Add Go tools to PATH
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Generate code
         run: make generate
