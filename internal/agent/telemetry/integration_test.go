@@ -142,7 +142,7 @@ func TestTelemetryPipeline(t *testing.T) {
 	}
 
 	// Verify bucket time is aligned to minute.
-	if checkoutBucket.BucketTime != pastTime {
+	if !checkoutBucket.BucketTime.Equal(pastTime) {
 		t.Errorf("Expected bucket_time=%v, got %v", pastTime, checkoutBucket.BucketTime)
 	}
 }
@@ -349,7 +349,7 @@ func TestTelemetryPipeline_BucketAlignment(t *testing.T) {
 			t.Errorf("Expected 3 spans in bucket, got %d", buckets[0].TotalSpans)
 		}
 		// Bucket time should be truncated to minute.
-		if buckets[0].BucketTime != baseTime {
+		if !buckets[0].BucketTime.Equal(baseTime) {
 			t.Errorf("Expected bucket_time=%v, got %v", baseTime, buckets[0].BucketTime)
 		}
 	}
