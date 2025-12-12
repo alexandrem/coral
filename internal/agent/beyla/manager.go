@@ -238,8 +238,10 @@ func (m *Manager) Stop() error {
 		if err := m.beylaCmd.Process.Kill(); err != nil {
 			m.logger.Error().Err(err).Msg("Failed to kill Beyla process")
 		}
-		// Wait for process to exit.
-		_ = m.beylaCmd.Wait()
+		// Don't call Wait() here - the monitorBeylaProcess goroutine will handle it.
+		// Calling Wait() from multiple goroutines causes "no child processes" error and deadlocks.
+		// Give the process a moment to terminate gracefully.
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	// Cleanup extracted binary if it was in a temp directory.
