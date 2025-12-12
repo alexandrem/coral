@@ -23,3 +23,20 @@ linters-settings:
   gosec:
     severity: medium
     confidence: medium
+
+  # Configure linter to understand platform-specific code
+  govet:
+    enable-all: true
+    settings:
+      printf:
+        funcs:
+          - (github.com/rs/zerolog.Event).Msgf
+          - (github.com/rs/zerolog.Logger).Printf
+
+  # Ignore unused code warnings for platform-specific switch cases
+  staticcheck:
+    checks: ["all", "-SA1019"]
+
+  unused:
+    # Check for unused code across all platforms
+    check-exported: false
