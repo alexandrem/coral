@@ -1,4 +1,4 @@
-.PHONY: build build-dev clean init install install-tools test run help generate proto
+.PHONY: build build-dev clean init install install-tools test run help generate proto docker-build docker-buildx
 
 # Build variables
 BINARY_NAME=coral
@@ -17,6 +17,10 @@ LDFLAGS=-ldflags "\
 	-X github.com/coral-mesh/coral/pkg/version.Version=$(VERSION) \
 	-X github.com/coral-mesh/coral/pkg/version.GitCommit=$(GIT_COMMIT) \
 	-X github.com/coral-mesh/coral/pkg/version.BuildDate=$(BUILD_DATE)"
+
+# Docker variables
+DOCKER_IMAGE?=coral
+DOCKER_TAG?=$(VERSION)
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -156,4 +160,19 @@ lint-linux: ## Run linter in Linux Docker (tests platform-specific code)
 		golangci/golangci-lint:latest \
 		golangci-lint run --config .golangci.yml ./...
 
+docker-build: ## Build Docker image for current platform
+	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "✓ Built $(DOCKER_IMAGE):$(DOCKER_TAG)"
+
+docker-buildx: ## Build multi-platform Docker image (requires buildx)
+	@echo "Building multi-platform Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
+		--load \
+		.
+	@echo "✓ Built $(DOCKER_IMAGE):$(DOCKER_TAG) for linux/amd64,linux/arm64"
+
 all: clean build test ## Clean, build, and test
+

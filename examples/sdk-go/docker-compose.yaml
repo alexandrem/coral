@@ -12,10 +12,10 @@ services:
 
   coral-agent:
     platform: linux/arm64
-    image: coral-agent:latest # Assuming local build or pull
+    image: coral:latest
     build:
       context: ../..
-      dockerfile: Dockerfile # Assuming root Dockerfile exists, need to verify
+      dockerfile: Dockerfile
     environment:
       # Config-less mode: only CORAL_COLONY_ID and CORAL_COLONY_SECRET are required.
       CORAL_COLONY_ID: ${CORAL_COLONY_ID}

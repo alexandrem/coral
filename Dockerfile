@@ -1,6 +1,9 @@
 # Coral Agent Docker Image
 FROM golang:1.25-bookworm AS builder
 
+ARG TARGETOS
+ARG TARGETARCH
+
 WORKDIR /build
 
 # Install build dependencies including C compiler for CGO (required by go-duckdb).
@@ -24,8 +27,9 @@ RUN go mod download
 # Copy source code.
 COPY . .
 
-# Build the binary.
-RUN make build
+# Build the binary for the target platform.
+# Override BUILD_DIR to use a consistent path instead of platform-specific subdirectories.
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} make build BUILD_DIR=/build/bin
 
 # Final stage - minimal runtime image.
 FROM debian:bookworm-slim
@@ -48,13 +52,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install DuckDB CLI for shell debugging (RFD 026).
-RUN wget -q https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-amd64.zip \
-    && unzip duckdb_cli-linux-amd64.zip \
-    && mv duckdb /usr/local/bin/duckdb \
-    && chmod +x /usr/local/bin/duckdb \
-    && rm duckdb_cli-linux-amd64.zip
-
 # Create coral user.
 RUN groupadd -g 1000 coral && \
     useradd -m -u 1000 -g coral coral
@@ -63,7 +60,7 @@ RUN groupadd -g 1000 coral && \
 RUN mkdir -p /var/lib/coral /var/log/coral && \
     chown -R coral:coral /var/lib/coral /var/log/coral
 
-# Copy binary from builder.
+# Copy binary from builder (built for target platform via TARGETOS/TARGETARCH).
 COPY --from=builder /build/bin/coral /usr/local/bin/coral
 
 # Run as root for TUN device creation (required for WireGuard mesh).

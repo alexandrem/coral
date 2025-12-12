@@ -12,6 +12,7 @@ services:
 
   coral-agent:
     platform: linux/arm64
+    image: coral:latest
     build:
       context: ../..
     command:
