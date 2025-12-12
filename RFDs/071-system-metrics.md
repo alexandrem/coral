@@ -163,7 +163,7 @@ Service Health Summary (last 5m)
 │ Service         │ Status │ Requests │ Errors  │ P95      │ Host Resources   │
 ├─────────────────┼────────┼──────────┼─────────┼──────────┼──────────────────┤
 │ api-gateway     │ ✅     │ 12.5k    │ 0.2%    │ 45ms     │ CPU: 25% Mem: 2GB│
-│ payment-service │ ⚠️      │ 3.2k     │ 2.8% ⬆  │ 234ms ⬆  │ CPU: 89% Mem: 7GB│
+│ payment-service │ ⚠️     │ 3.2k     │ 2.8% ⬆  │ 234ms ⬆  │ CPU: 89% Mem: 7GB│
 │ auth-service    │ ✅     │ 8.1k     │ 0.1%    │ 12ms     │ CPU: 15% Mem: 1GB│
 └─────────────────┴────────┴──────────┴─────────┴──────────┴──────────────────┘
 
@@ -210,6 +210,52 @@ Database timeouts likely caused by insufficient resources.
   Disk >90%)
 - Summary output must clearly distinguish host-level vs service-level issues
 
+### Live Query Feature
+
+For live debugging scenarios requiring 15s precision, add a direct agent query command that bypasses Colony aggregation.
+
+**Command:** `coral query metrics --live --agent <agent-id> --metric <name> --since <duration>`
+
+**Purpose:**
+- Debug transient spikes (e.g., 30-second CPU burst)
+- Analyze memory allocation patterns during load tests
+- Correlate disk I/O with application operations in real-time
+- Troubleshoot active incidents where sub-minute precision is critical
+
+**Behavior:**
+- Queries agent's local DuckDB directly via RPC (bypasses Colony)
+- Returns full 15s resolution data (up to 1-hour window)
+- Shows individual data points, not aggregates
+- Only available for agents within 1-hour retention window
+
+**Example Output:**
+```
+$ coral query metrics --live --agent agent-xyz --metric system.cpu.utilization --since 5m
+
+Timestamp            Value   Unit
+2025-12-12 14:23:45  23.5%   percent
+2025-12-12 14:24:00  45.2%   percent
+2025-12-12 14:24:15  89.1%   percent  ← Spike detected
+2025-12-12 14:24:30  91.3%   percent  ← Sustained high
+2025-12-12 14:24:45  87.4%   percent
+2025-12-12 14:25:00  34.2%   percent
+...
+
+Summary: Peak 91.3% at 14:24:30, Average 61.8% over 5m window
+```
+
+**Implementation:**
+- Add `QuerySystemMetrics` RPC to `proto/agent.proto`
+- Implement agent-side handler in `internal/agent/server/system_metrics_handlers.go`
+- Add CLI command in `internal/cli/query/metrics_live.go`
+- Support filtering by metric name, agent ID, and time range
+
+**Benefits:**
+- Complements Colony aggregates with on-demand high-precision data
+- No storage cost (uses existing 1-hour agent retention)
+- Enables rapid diagnosis during active incidents
+- Preserves 15s precision without bloating Colony storage
+
 ## Implementation Plan
 
 ### Phase 1: Core Collector
@@ -236,6 +282,14 @@ Database timeouts likely caused by insufficient resources.
 - [ ] Add "Host Resources" column to summary table output
 - [ ] Correlate system resource issues with service degradation in summary output
 - [ ] Add configurable system metric thresholds to Colony config
+
+### Phase 5: Live Query Command
+
+- [ ] Add `QuerySystemMetrics` RPC to `proto/agent.proto`
+- [ ] Implement agent-side RPC handler in `internal/agent/server/system_metrics_handlers.go`
+- [ ] Add CLI command `coral query metrics --live` in `internal/cli/query/metrics_live.go`
+- [ ] Support filtering by metric name, agent ID, and time range
+- [ ] Add time-series table formatter for live query output
 
 ### Testing Strategy
 
@@ -275,18 +329,35 @@ Database timeouts likely caused by insufficient resources.
 - **Colony**: Store aggregated summaries (1-minute rollups) for longer-term
   analysis.
 
-**⚠️ DOWNSAMPLING CONCERN:**
-High-frequency system metrics (15s intervals) may bloat agent storage and
-overwhelm the Colony when multiple agents report. We need to discuss:
+**Downsampling:**
 
-- Should agents pre-aggregate before sending to Colony (e.g., 1-minute
-  averages)?
-- Should Colony downsample on ingestion (similar to Prometheus recording rules)?
-- What's the query use case - do we need 15s granularity, or is 1-minute
-  sufficient?
+The storage strategy uses a tiered approach following Coral's existing OTLP/Beyla patterns:
 
-This needs further discussion before implementation to avoid storage/performance
-issues.
+**Agent-Side (High Precision):**
+- Store raw 15s samples in local DuckDB
+- Retention: 1 hour (matches existing telemetry retention)
+- Purpose: Live debugging and sub-minute precision analysis
+- Storage: ~2,880 rows/hour, ~10KB compressed per agent
+
+**Colony-Side (Aggregated):**
+- 1-minute bucket aggregation (aligns with OTLP summaries pattern)
+- Aggregates per bucket: min, max, avg, p95 (for gauges)
+- Delta calculations for counters (rate per minute)
+- Retention: 30 days (enables capacity planning and trend analysis)
+- Storage reduction: 75% (4 samples → 1 summary)
+- Storage: ~90MB/month for 10 agents
+
+**Rationale:**
+- Query summary uses 5m-1h time ranges - 1-minute granularity sufficient
+- Captures both transient spikes (max) and sustained baselines (avg)
+- P95 percentile enables outlier detection
+- 15s precision available via live query for active incidents
+- Follows proven OTLP aggregation pattern (RFD 025)
+
+**Storage Comparison:**
+- OTLP Summaries: ~3MB/day (24hr retention)
+- Beyla HTTP: ~500MB/month (30-day retention, high cardinality)
+- **System Metrics: ~90MB/month (30-day retention, 18% of Beyla)**
 
 ## Multi-Service Agent Considerations
 
@@ -361,10 +432,9 @@ host: CPU 89%") to clarify that resource issues affect all co-located services.
   hosts.
 - **Extended I/O**: Per-device disk stats and per-interface network stats for
   advanced diagnostics.
-- **Downsampling Strategy**: Implement agent-side or Colony-side aggregation to
-  reduce storage overhead (pending discussion - see Storage & Retention
-  section).
 - **GPU Metrics**: For ML/GPU workloads, extend collector to capture GPU
   utilization (requires additional dependencies like `nvml` bindings).
 - **Windows/macOS Support**: Validate `gopsutil` cross-platform behavior and
   adjust cgroup logic for Linux-only environments.
+- **Advanced Alerting**: Trend-based anomaly detection (e.g., CPU usage growing
+  10% daily) using historical 30-day data for capacity planning alerts.
