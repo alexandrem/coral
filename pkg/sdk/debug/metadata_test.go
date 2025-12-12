@@ -12,6 +12,42 @@ import (
 	"testing"
 )
 
+// checkBinaryFormat verifies the binary format matches the current platform.
+// Skips the test if format doesn't match (e.g., Mach-O on Linux or ELF on macOS).
+func checkBinaryFormat(t *testing.T, binaryPath string) {
+	t.Helper()
+
+	f, err := os.Open(binaryPath)
+	if err != nil {
+		t.Skipf("Cannot open binary: %v", err)
+	}
+	defer f.Close()
+
+	// Read first 4 bytes to check magic number.
+	var magic [4]byte
+	if _, err := f.Read(magic[:]); err != nil {
+		t.Skipf("Cannot read binary magic: %v", err)
+	}
+
+	// ELF magic: 0x7F, 'E', 'L', 'F'
+	isELF := magic[0] == 0x7F && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F'
+
+	// Mach-O magic (little-endian): 0xFEEDFACE (32-bit) or 0xFEEDFACF (64-bit)
+	// Mach-O magic (big-endian): 0xCEFAEDFE (32-bit) or 0xCFFAEDFE (64-bit)
+	isMachO := (magic[0] == 0xCF || magic[0] == 0xCE || magic[0] == 0xFE) &&
+		(magic[1] == 0xFA || magic[1] == 0xED) &&
+		(magic[2] == 0xED || magic[2] == 0xFA) &&
+		(magic[3] == 0xFE || magic[3] == 0xCF)
+
+	if runtime.GOOS == "linux" && !isELF {
+		t.Skipf("Binary is not ELF format (found magic %v), skipping on Linux. Run 'go generate' on Linux to create ELF test binaries.", magic)
+	}
+
+	if runtime.GOOS == "darwin" && !isMachO {
+		t.Skipf("Binary is not Mach-O format (found magic %v), skipping on macOS. Run 'go generate' on macOS to create Mach-O test binaries.", magic)
+	}
+}
+
 // TestNewFunctionMetadataProvider tests creating a metadata provider.
 func TestNewFunctionMetadataProvider(t *testing.T) {
 	logger := slog.Default()
@@ -1000,6 +1036,9 @@ func TestFileLineExtractionWithDWARF(t *testing.T) {
 		t.Skip("Sample binary with DWARF not found, run: cd testdata && go build -o sample_with_dwarf sample.go")
 	}
 
+	// Check if binary format matches the current platform.
+	checkBinaryFormat(t, sampleBinary)
+
 	logger := slog.Default()
 
 	// Create a provider that opens the sample binary.
@@ -1110,6 +1149,9 @@ func TestSymbolTableFallback(t *testing.T) {
 	if _, err := os.Stat(sampleBinary); os.IsNotExist(err) {
 		t.Skip("Stripped binary not found, run: go generate")
 	}
+
+	// Check if binary format matches the current platform.
+	checkBinaryFormat(t, sampleBinary)
 
 	logger := slog.Default()
 
