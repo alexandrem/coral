@@ -237,6 +237,88 @@ Returns:
 }
 ```
 
+### Function Discovery and Profiling
+
+These meta-tools reduce typical debugging workflows from 7+ tool calls to 2-3 by combining discovery, instrumentation, and analysis.
+
+#### `coral_discover_functions` 🎯 RECOMMENDED
+
+Unified function discovery with embedded context and metrics.
+
+```
+Input:
+  service (required): Service name
+  query (required): Semantic keywords or regex pattern
+  max_results (optional): Maximum results (default: 20, max: 50)
+  include_metrics (optional): Include performance data if available (default: true)
+  prioritize_slow (optional): Rank by P95 latency (default: false)
+
+Returns:
+  - Function metadata (name, package, file, line, offset)
+  - Search relevance scoring
+  - Performance metrics (P50/P95/P99, calls/min, error rate) when available
+  - Instrumentation info (probeable, DWARF, currently probed)
+  - Data coverage percentage
+  - Actionable suggestions when metrics missing
+```
+
+**Example:**
+```json
+{
+  "service": "api",
+  "query": "checkout",
+  "max_results": 20
+}
+```
+
+#### `coral_profile_functions` 🎯 RECOMMENDED
+
+Intelligent batch profiling that handles everything automatically.
+
+```
+Input:
+  service (required): Service name
+  query (required): Semantic search query
+  strategy (optional): Selection strategy (default: "critical_path")
+    - "critical_path": Entry points + immediate callees (recommended)
+    - "all": All matching functions up to max_functions
+    - "entry_points": Only top-level handlers (HTTP, RPC)
+    - "leaf_functions": Only functions with no callees
+  max_functions (optional): Max functions to probe (default: 20, max: 50)
+  duration_seconds (optional): Collection duration (default: 60, max: 300)
+  async (optional): Return immediately vs wait (default: false)
+  sample_rate (optional): Event sampling rate 0.1-1.0 (default: 1.0)
+
+Returns:
+  - Session ID and status
+  - Summary (functions selected/probed/failed, events captured)
+  - Per-function metrics (P50/P95/P99, calls, errors)
+  - Bottleneck analysis with severity ranking
+  - Contribution percentages (% of parent execution time)
+  - Actionable recommendations
+  - Next steps suggestions
+```
+
+**Example:**
+```json
+{
+  "service": "api",
+  "query": "checkout",
+  "strategy": "critical_path",
+  "duration_seconds": 60
+}
+```
+
+**Features:**
+- Discovers relevant functions via semantic search
+- Attaches probes to multiple functions simultaneously (max 50)
+- Waits and collects data (synchronous by default)
+- Analyzes bottlenecks automatically (contribution %, severity)
+- Persists results to function registry for future queries
+- Returns actionable recommendations
+
+**Solves:** Cold start problem, manual session management, multi-step orchestration
+
 ### Service Discovery
 
 #### `coral_list_services`
@@ -525,6 +607,77 @@ Recommendation: Investigate the slow outliers - they may indicate
 database contention or external API timeouts."
 ```
 
+### Function Discovery and Profiling
+
+```
+You: "Find and profile the checkout functions to identify bottlenecks"
+
+Claude: [Uses meta-tools for efficient workflow]
+  → coral_discover_functions(service="api", query="checkout")
+     Result: Found 8 functions, 0% data coverage
+     Suggestion: "No metrics available. Run coral_profile_functions."
+
+  → coral_profile_functions(
+      service="api",
+      query="checkout",
+      strategy="critical_path",
+      duration_seconds=60)
+
+     Internally:
+     - Searches for "checkout" functions
+     - Finds handleCheckout + its callees (8 functions)
+     - Attaches probes to all 8 simultaneously
+     - Waits 60s, collecting data
+     - Analyzes bottlenecks
+     - Persists to registry
+
+     Result: {
+       "functions_probed": 8,
+       "bottlenecks": [
+         {
+           "function": "processPayment",
+           "p95_ms": 850,
+           "contribution_pct": 94,
+           "severity": "critical",
+           "recommendation": "Primary bottleneck - 94% of handleCheckout's time"
+         },
+         {
+           "function": "validateCard",
+           "p95_ms": 510,
+           "contribution_pct": 60,
+           "severity": "major",
+           "recommendation": "Bottleneck within processPayment"
+         }
+       ],
+       "next_steps": [
+         "coral_query_logs(service='api', search='payment timeout')",
+         "coral_discover_functions(query='validateCard') for deeper analysis"
+       ]
+     }
+
+Total: 2 tool calls
+Time: ~60 seconds (1 wait cycle)
+Result: Bottleneck identified with recommendations
+
+"Function Profiling Results:
+
+Profiled 8 checkout-related functions over 60 seconds.
+
+Critical Bottleneck:
+🔴 processPayment: 850ms P95 latency (94% of handleCheckout's time)
+
+Major Bottleneck:
+🟡 validateCard: 510ms P95 latency (60% of processPayment's time)
+
+Recommendation: Focus optimization on processPayment, specifically the
+validateCard call within it. This is the primary performance bottleneck.
+
+Next steps:
+1. Check logs for payment timeout errors
+2. Investigate validateCard for deeper analysis
+3. Consider caching validation results or optimizing external API calls"
+```
+
 ## Implementation Status
 
 **Currently Implemented:**
@@ -535,6 +688,9 @@ database contention or external API timeouts."
   - ✅ `coral_query_traces` - Unified traces (eBPF + OTLP)
   - ✅ `coral_query_metrics` - Unified metrics (eBPF + OTLP)
   - ✅ `coral_query_logs` - Logs from OTLP
+- ✅ Function discovery and profiling
+  - ✅ `coral_discover_functions` - Unified function discovery with embedded metrics
+  - ✅ `coral_profile_functions` - Intelligent batch profiling with bottleneck analysis
 - ✅ Service discovery tools
 - ✅ Claude Desktop integration
 - ✅ CLI commands for testing and config generation
