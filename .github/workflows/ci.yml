@@ -185,7 +185,7 @@ jobs:
           - os: ubuntu-latest
             artifact-os: linux
             artifact-arch: amd64
-          - os: macos-13  # Intel Mac for amd64
+          - os: macos-15  # Intel Mac for amd64
             artifact-os: darwin
             artifact-arch: amd64
           - os: macos-latest  # Apple Silicon for arm64
