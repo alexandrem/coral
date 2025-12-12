@@ -3,6 +3,7 @@ package colony
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -489,11 +490,18 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 }
 
 // convertSummaryMapToSlice converts a map of summaries to a slice.
+// Results are sorted by service name for deterministic ordering.
 func convertSummaryMapToSlice(summaryMap map[string]*UnifiedSummaryResult) []UnifiedSummaryResult {
 	results := make([]UnifiedSummaryResult, 0, len(summaryMap))
 	for _, r := range summaryMap {
 		results = append(results, *r)
 	}
+
+	// Sort by service name for deterministic ordering.
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ServiceName < results[j].ServiceName
+	})
+
 	return results
 }
 
