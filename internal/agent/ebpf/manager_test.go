@@ -153,14 +153,15 @@ func TestManager_AutoStop(t *testing.T) {
 		t.Errorf("expected collector to be running: %v", err)
 	}
 
-	// Wait for auto-stop (1s duration + small buffer).
+	// Wait for expiration (1s duration + small buffer).
 	time.Sleep(1500 * time.Millisecond)
 
-	// Verify collector was auto-stopped.
+	// Verify collector events are still available after expiration (grace period).
+	// The collector is marked as expired but events remain available for 1 hour.
 	_, err = manager.GetEvents(collectorID)
-	if err == nil {
-		t.Error("expected error after auto-stop")
+	if err != nil {
+		t.Errorf("expected collector events to still be available after expiration: %v", err)
 	}
 
-	t.Logf("Collector auto-stopped as expected")
+	t.Logf("Collector expired but events still available as expected")
 }

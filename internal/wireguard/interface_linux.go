@@ -7,12 +7,25 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 
 	"github.com/rs/zerolog"
 	"golang.zx2c4.com/wireguard/tun"
 )
+
+// validInterfaceName validates that an interface name is safe for use in commands.
+// Linux interface names must be alphanumeric with optional hyphens/underscores, max 15 chars.
+var validInterfaceName = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,15}$`)
+
+// validateInterfaceName checks if an interface name is safe for use in shell commands.
+func validateInterfaceName(name string) error {
+	if !validInterfaceName.MatchString(name) {
+		return fmt.Errorf("invalid interface name %q: must be alphanumeric with optional hyphens/underscores, max 15 chars", name)
+	}
+	return nil
+}
 
 // CreateTUN creates a new TUN device with the given name.
 // On Linux, we can use custom names like "wg0", "wg1", etc.
@@ -93,7 +106,13 @@ func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
 		return fmt.Errorf("interface name is empty")
 	}
 
+	// Validate interface name before using in commands.
+	if err := validateInterfaceName(i.name); err != nil {
+		return err
+	}
+
 	// First, bring the interface up.
+	// #nosec G204 -- interface name is validated by validateInterfaceName
 	upCmd := exec.Command("ip", "link", "set", "dev", i.name, "up")
 	if output, err := upCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to bring up interface %s: %w (output: %s)",
@@ -103,6 +122,7 @@ func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
 	// Flush any existing IPv4 addresses on the interface.
 	// This allows us to replace an existing IP (e.g., temporary IP with assigned IP).
 	// We ignore errors here because the interface might not have an IP yet.
+	// #nosec G204 -- interface name is validated by validateInterfaceName
 	flushCmd := exec.Command("ip", "addr", "flush", "dev", i.name)
 	_ = flushCmd.Run() // Ignore error - interface might not have an IP.
 
@@ -118,6 +138,7 @@ func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
 	ipWithPrefix := fmt.Sprintf("%s/32", ip.String())
 	args := []string{"addr", "add", ipWithPrefix, "dev", i.name}
 
+	// #nosec G204 -- interface name is validated, IP is from net.IP type
 	cmd := exec.Command("ip", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -144,6 +165,11 @@ func (i *Interface) AssignIPPlatform(ip net.IP, subnet *net.IPNet) error {
 
 // AddRoutesForPeerPlatform adds routes for a peer's AllowedIPs on Linux.
 func (i *Interface) AddRoutesForPeerPlatform(allowedIPs []string) error {
+	// Validate interface name before using in commands.
+	if err := validateInterfaceName(i.name); err != nil {
+		return err
+	}
+
 	i.logger.Debug().
 		Strs("allowed_ips", allowedIPs).
 		Msg("Adding routes for peer")
@@ -167,6 +193,7 @@ func (i *Interface) AddRoutesForPeerPlatform(allowedIPs []string) error {
 
 		// Add route for this specific IP/subnet through our interface.
 		// On Linux: ip route add <cidr> dev <interface>
+		// #nosec G204 -- interface name is validated, ipNet is from net.ParseCIDR
 		routeCmd := exec.Command("ip", "route", "add", ipNet.String(), "dev", i.name)
 
 		i.logger.Debug().
@@ -199,6 +226,7 @@ func (i *Interface) DeleteRoutePlatform(ip net.IP) error {
 		Msg("Deleting route")
 
 	// On Linux: ip route del <ip>
+	// #nosec G204 -- IP is from net.IP type which is validated
 	deleteCmd := exec.Command("ip", "route", "del", ip.String())
 	output, err := deleteCmd.CombinedOutput()
 

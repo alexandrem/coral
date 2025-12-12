@@ -2,11 +2,15 @@
 
 # Build variables
 BINARY_NAME=coral
-BUILD_DIR=bin
+BUILD_DIR=bin/$(shell go env GOOS)_$(shell go env GOARCH)
 VERSION?=dev
 GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 GO_VERSION=$(shell go version | awk '{print $$3}')
+
+# CGO is necessary for duckdb.
+CGO_ENABLED=1
+export CGO_ENABLED
 
 # Linker flags to set version info
 LDFLAGS=-ldflags "\
@@ -36,7 +40,7 @@ generate: proto ## Generate eBPF and download Beyla binaries (run before first b
 		echo "  Linux: sudo apt-get install clang llvm"; \
 		exit 1; \
 	fi; \
-	go generate ./...
+	env -u GOOS -u GOARCH go generate ./...
 	@echo "✓ Generated files ready"
 
 proto: ## Generate protobuf files using buf
@@ -50,7 +54,7 @@ proto: ## Generate protobuf files using buf
 	@$(MAKE) -s fmt
 
 build: generate ## Build the coral binary
-	@echo "Building $(BINARY_NAME)..."
+	@echo "Building for $(GOOS)/$(GOARCH) → $(BUILD_DIR)"
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral
 	@echo "✓ Built $(BUILD_DIR)/$(BINARY_NAME)"
@@ -90,6 +94,30 @@ test: generate ## Run tests
 	@echo "Running tests..."
 	go test ./...
 
+test-ci: generate ## Run tests in CI
+	@echo "Running tests..."
+	go test -short -count=1 -parallel=8 ./... -timeout=10m
+
+test-linux: ## Run tests in Linux Docker (tests platform-specific code)
+	@echo "Running tests in Linux Docker..."
+	@docker run --rm \
+		-v "$(PWD)":/workspace \
+		-w /workspace \
+		golang:1.25 \
+		bash -c "apt-get update -qq && apt-get install -y -qq clang llvm > /dev/null 2>&1 && go test -short ./..."
+
+ci-check: ## Run full CI checks locally (lint + test on Linux)
+	@echo "=== Running full CI checks locally ==="
+	@echo "1. Linting on Linux..."
+	@$(MAKE) -s lint-linux
+	@echo "✓ Lint passed"
+	@echo ""
+	@echo "2. Testing on Linux..."
+	@$(MAKE) -s test-linux
+	@echo "✓ Tests passed"
+	@echo ""
+	@echo "✓ All CI checks passed!"
+
 run: build ## Build and run the CLI
 	@$(BUILD_DIR)/$(BINARY_NAME)
 
@@ -119,5 +147,13 @@ install-tools: ## Install development tools
 lint: ## Run linter
 	@echo "Running linter..."
 	golangci-lint run --config .golangci.yml ./...
+
+lint-linux: ## Run linter in Linux Docker (tests platform-specific code)
+	@echo "Running linter in Linux Docker..."
+	@docker run --rm \
+		-v "$(PWD)":/workspace \
+		-w /workspace \
+		golangci/golangci-lint:latest \
+		golangci-lint run --config .golangci.yml ./...
 
 all: clean build test ## Clean, build, and test

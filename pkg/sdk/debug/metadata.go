@@ -453,10 +453,16 @@ func (p *FunctionMetadataProvider) loadSymbols() ([]symbolInfo, error) {
 			}
 			defer f.Close() // nolint:errcheck
 
+			// Try static symbols first (.symtab), fall back to dynamic symbols (.dynsym).
+			// Go binaries may only have .dynsym depending on build flags.
 			elfSymbols, err := f.Symbols()
 			if err != nil {
-				p.symbolsErr = fmt.Errorf("failed to read ELF symbols: %w", err)
-				return
+				// No .symtab section, try .dynsym.
+				elfSymbols, err = f.DynamicSymbols()
+				if err != nil {
+					p.symbolsErr = fmt.Errorf("failed to read ELF symbols: %w", err)
+					return
+				}
 			}
 
 			for _, sym := range elfSymbols {
