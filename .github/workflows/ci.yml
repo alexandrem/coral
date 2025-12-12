@@ -26,7 +26,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   go-env:
     name: Cache Go modules & tools
-    runs-on: ubuntu-latest-8-core
+    runs-on: ubuntu-latest
     outputs:
       mod-cache-key: ${{ steps.mod.outputs.cache-key }}
       tools-cache-key: ${{ steps.tools.outputs.cache-key }}
@@ -87,7 +87,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   test:
     needs: go-env
-    runs-on: ubuntu-latest-8-core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -125,7 +125,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   static-analysis:
     needs: go-env
-    runs-on: ubuntu-latest-8-core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -182,7 +182,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest-8-core
+          - os: ubuntu-latest
             artifact-os: linux
             artifact-arch: amd64
           - os: macos-13  # Intel Mac for amd64
@@ -246,7 +246,7 @@ jobs:
   # Security scanning
   # ------------------------------------------------------------
   security:
-    runs-on: ubuntu-latest-8-core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -267,7 +267,7 @@ jobs:
   # Dependency checks
   # ------------------------------------------------------------
   dependencies:
-    runs-on: ubuntu-latest-8-core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
