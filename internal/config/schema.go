@@ -68,22 +68,23 @@ type Preferences struct {
 // ColonyConfig represents ~/.coral/colonies/<colony-id>.yaml config file.
 // The config consists of per-colony identity and security credentials.
 type ColonyConfig struct {
-	Version          string                 `yaml:"version"`
-	ColonyID         string                 `yaml:"colony_id"`
-	ApplicationName  string                 `yaml:"application_name"`
-	Environment      string                 `yaml:"environment"`
-	ColonySecret     string                 `yaml:"colony_secret"`
-	WireGuard        WireGuardConfig        `yaml:"wireguard"`
-	Services         ServicesConfig         `yaml:"services"`
-	StoragePath      string                 `yaml:"storage_path"`
-	Discovery        DiscoveryColony        `yaml:"discovery"`
-	MCP              MCPConfig              `yaml:"mcp,omitempty"`
-	Beyla            BeylaPollerConfig      `yaml:"beyla,omitempty"`
-	FunctionRegistry FunctionRegistryConfig `yaml:"function_registry,omitempty"` // RFD 063
-	Ask              *AskConfig             `yaml:"ask,omitempty"`               // Per-colony ask overrides (RFD 030)
-	CreatedAt        time.Time              `yaml:"created_at"`
-	CreatedBy        string                 `yaml:"created_by"`
-	LastUsed         time.Time              `yaml:"last_used,omitempty"`
+	Version          string                    `yaml:"version"`
+	ColonyID         string                    `yaml:"colony_id"`
+	ApplicationName  string                    `yaml:"application_name"`
+	Environment      string                    `yaml:"environment"`
+	ColonySecret     string                    `yaml:"colony_secret"`
+	WireGuard        WireGuardConfig           `yaml:"wireguard"`
+	Services         ServicesConfig            `yaml:"services"`
+	StoragePath      string                    `yaml:"storage_path"`
+	Discovery        DiscoveryColony           `yaml:"discovery"`
+	MCP              MCPConfig                 `yaml:"mcp,omitempty"`
+	Beyla            BeylaPollerConfig         `yaml:"beyla,omitempty"`
+	SystemMetrics    SystemMetricsPollerConfig `yaml:"system_metrics,omitempty"`    // RFD 071
+	FunctionRegistry FunctionRegistryConfig    `yaml:"function_registry,omitempty"` // RFD 063
+	Ask              *AskConfig                `yaml:"ask,omitempty"`               // Per-colony ask overrides (RFD 030)
+	CreatedAt        time.Time                 `yaml:"created_at"`
+	CreatedBy        string                    `yaml:"created_by"`
+	LastUsed         time.Time                 `yaml:"last_used,omitempty"`
 }
 
 // ServicesConfig contains service port configuration.
@@ -188,6 +189,18 @@ type BeylaRetentionConfig struct {
 
 	// TracesDays is retention period for distributed traces (days) (RFD 036).
 	TracesDays int `yaml:"traces_days,omitempty"`
+}
+
+// SystemMetricsPollerConfig contains system metrics poller configuration (RFD 071).
+// This is for colony-side aggregation, distinct from agent-side SystemMetricsConfig.
+type SystemMetricsPollerConfig struct {
+	// PollInterval is how often to poll agents for system metrics (seconds).
+	// Default: 60 (1 minute).
+	PollInterval int `yaml:"poll_interval,omitempty"`
+
+	// RetentionDays is how long to keep aggregated system metrics summaries (days).
+	// Default: 30 days.
+	RetentionDays int `yaml:"retention_days,omitempty"`
 }
 
 // ProjectConfig represents <project>/.coral/config.yaml config file.

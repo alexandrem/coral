@@ -342,6 +342,37 @@ Examples:
 					Msg("Beyla metrics poller started")
 			}
 
+			// Create and start System Metrics poller for RFD 071.
+			// Read system metrics configuration from colony config, with sensible defaults.
+			systemMetricsPollIntervalSecs := 60 // Default: poll every 60 seconds
+			systemMetricsRetentionDays := 30    // Default: 30 days retention
+
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.SystemMetrics.PollInterval > 0 {
+				systemMetricsPollIntervalSecs = colonyConfigForEndpoints.SystemMetrics.PollInterval
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.SystemMetrics.RetentionDays > 0 {
+				systemMetricsRetentionDays = colonyConfigForEndpoints.SystemMetrics.RetentionDays
+			}
+
+			systemMetricsPoller := colony.NewSystemMetricsPoller(
+				agentRegistry,
+				db,
+				time.Duration(systemMetricsPollIntervalSecs)*time.Second,
+				systemMetricsRetentionDays,
+				logger,
+			)
+
+			if err := systemMetricsPoller.Start(); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to start system metrics poller")
+			} else {
+				logger.Info().
+					Int("poll_interval_secs", systemMetricsPollIntervalSecs).
+					Int("retention_days", systemMetricsRetentionDays).
+					Msg("System metrics poller started")
+			}
+
 			logger.Info().
 				Str("dashboard_url", fmt.Sprintf("http://localhost:%d", cfg.Dashboard.Port)).
 				Str("colony_id", cfg.ColonyID).
@@ -369,6 +400,13 @@ Examples:
 					logger.Warn().
 						Err(err).
 						Msg("Error stopping Beyla metrics poller")
+				}
+
+				// Stop System Metrics poller
+				if err := systemMetricsPoller.Stop(); err != nil {
+					logger.Warn().
+						Err(err).
+						Msg("Error stopping system metrics poller")
 				}
 
 				// Stop registration manager
