@@ -185,7 +185,7 @@ jobs:
           - os: ubuntu-latest
             artifact-os: linux
             artifact-arch: amd64
-          - os: macos-13  # Intel Mac for amd64
+          - os: macos-latest  # Intel Mac for amd64
             artifact-os: darwin
             artifact-arch: amd64
           - os: macos-latest  # Apple Silicon for arm64
@@ -207,6 +207,7 @@ jobs:
           brew install llvm
 
       - uses: actions/cache/restore@v4
+        if: runner.os == 'Linux'
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
           path: |
@@ -214,6 +215,7 @@ jobs:
             ~/.cache/go-build
 
       - uses: actions/cache/restore@v4
+        if: runner.os == 'Linux'
         with:
           key: ${{ needs.go-env.outputs.tools-cache-key }}
           path: ~/go/bin
@@ -223,6 +225,14 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+
+      - name: Install Go tools
+        if: runner.os != 'Linux'
+        run: make install-tools || make install-tools  # retry once if needed
+
+      - name: Download modules
+        if: runner.os != 'Linux'
+        run: go mod download
 
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
