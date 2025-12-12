@@ -81,6 +81,23 @@ Examples:
 				fmt.Printf("   Requests: %d\n", summary.RequestCount)
 				fmt.Printf("   Error Rate: %.2f%%\n", summary.ErrorRate)
 				fmt.Printf("   Avg Latency: %.2fms\n", summary.AvgLatencyMs)
+
+				// Display host resources if available (RFD 071).
+				if summary.HostCpuUtilization > 0 || summary.HostMemoryUtilization > 0 {
+					fmt.Println("   Host Resources:")
+					if summary.HostCpuUtilization > 0 {
+						fmt.Printf("     CPU: %.0f%% (avg: %.0f%%)\n",
+							summary.HostCpuUtilization,
+							summary.HostCpuUtilizationAvg)
+					}
+					if summary.HostMemoryUtilization > 0 {
+						fmt.Printf("     Memory: %.1fGB/%.1fGB (%.0f%%)\n",
+							summary.HostMemoryUsageGb,
+							summary.HostMemoryLimitGb,
+							summary.HostMemoryUtilization)
+					}
+				}
+
 				if len(summary.Issues) > 0 {
 					fmt.Println("   Issues:")
 					for _, issue := range summary.Issues {

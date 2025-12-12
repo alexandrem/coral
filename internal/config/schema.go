@@ -295,6 +295,17 @@ type BeylaLimitsConfig struct {
 	RingBufferSize       int `yaml:"ring_buffer_size,omitempty"`
 }
 
+// SystemMetricsConfig configures host system metrics collection (RFD 071).
+type SystemMetricsConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	Interval       time.Duration `yaml:"interval,omitempty"`        // Collection interval (default: 15s)
+	Retention      time.Duration `yaml:"retention,omitempty"`       // Local retention (default: 1h)
+	CPUEnabled     bool          `yaml:"cpu_enabled,omitempty"`     // Collect CPU metrics
+	MemoryEnabled  bool          `yaml:"memory_enabled,omitempty"`  // Collect memory metrics
+	DiskEnabled    bool          `yaml:"disk_enabled,omitempty"`    // Collect disk metrics
+	NetworkEnabled bool          `yaml:"network_enabled,omitempty"` // Collect network metrics
+}
+
 // ResolvedConfig is the final merged configuration after resolution.
 type ResolvedConfig struct {
 	ColonyID        string
@@ -415,8 +426,9 @@ type AgentConfig struct {
 		HealthEndpoint string `yaml:"health_endpoint,omitempty"`
 		Type           string `yaml:"type,omitempty"`
 	} `yaml:"services"`
-	Beyla BeylaConfig `yaml:"beyla,omitempty"`
-	Debug DebugConfig `yaml:"debug,omitempty"`
+	Beyla         BeylaConfig         `yaml:"beyla,omitempty"`
+	SystemMetrics SystemMetricsConfig `yaml:"system_metrics,omitempty"`
+	Debug         DebugConfig         `yaml:"debug,omitempty"`
 }
 
 // DebugConfig contains debug session configuration (RFD 061).
@@ -480,6 +492,15 @@ func DefaultAgentConfig() *AgentConfig {
 	cfg.Debug.Limits.MaxMemoryMB = 256
 	cfg.Debug.BPF.MapSize = 10240
 	cfg.Debug.BPF.PerfBufferPages = 64
+
+	// System Metrics defaults (RFD 071)
+	cfg.SystemMetrics.Enabled = true
+	cfg.SystemMetrics.Interval = 15 * time.Second
+	cfg.SystemMetrics.Retention = 1 * time.Hour
+	cfg.SystemMetrics.CPUEnabled = true
+	cfg.SystemMetrics.MemoryEnabled = true
+	cfg.SystemMetrics.DiskEnabled = true
+	cfg.SystemMetrics.NetworkEnabled = true
 
 	return cfg
 }

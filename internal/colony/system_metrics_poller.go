@@ -1,0 +1,384 @@
+package colony
+
+import (
+	"context"
+	"math"
+	"sort"
+	"sync"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/rs/zerolog"
+
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/registry"
+)
+
+// SystemMetricsPoller periodically queries agents for system metrics data.
+// This implements the pull-based system metrics architecture from RFD 071.
+type SystemMetricsPoller struct {
+	registry      *registry.Registry
+	db            *database.Database
+	pollInterval  time.Duration
+	retentionDays int // How long to keep system metrics summaries (default: 30 days).
+	logger        zerolog.Logger
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	running       bool
+	mu            sync.Mutex
+}
+
+// NewSystemMetricsPoller creates a new system metrics poller.
+func NewSystemMetricsPoller(
+	registry *registry.Registry,
+	db *database.Database,
+	pollInterval time.Duration,
+	retentionDays int,
+	logger zerolog.Logger,
+) *SystemMetricsPoller {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Default to 30 days if not specified.
+	if retentionDays <= 0 {
+		retentionDays = 30
+	}
+
+	return &SystemMetricsPoller{
+		registry:      registry,
+		db:            db,
+		pollInterval:  pollInterval,
+		retentionDays: retentionDays,
+		logger:        logger.With().Str("component", "system_metrics_poller").Logger(),
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+}
+
+// Start begins the system metrics polling loop.
+func (p *SystemMetricsPoller) Start() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.running {
+		return nil
+	}
+
+	p.logger.Info().
+		Dur("poll_interval", p.pollInterval).
+		Int("retention_days", p.retentionDays).
+		Msg("Starting system metrics poller")
+
+	p.wg.Add(1)
+	go p.pollLoop()
+
+	p.running = true
+	return nil
+}
+
+// Stop stops the system metrics polling loop.
+func (p *SystemMetricsPoller) Stop() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.running {
+		return nil
+	}
+
+	p.logger.Info().Msg("Stopping system metrics poller")
+
+	p.cancel()
+	p.wg.Wait()
+
+	p.running = false
+	return nil
+}
+
+// pollLoop is the main polling loop.
+func (p *SystemMetricsPoller) pollLoop() {
+	defer p.wg.Done()
+
+	ticker := time.NewTicker(p.pollInterval)
+	defer ticker.Stop()
+
+	// Start cleanup loop in a separate goroutine.
+	// Cleanup runs every 1 hour and removes summaries older than configured retention period (RFD 071).
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		cleanupTicker := time.NewTicker(1 * time.Hour)
+		defer cleanupTicker.Stop()
+
+		for {
+			select {
+			case <-p.ctx.Done():
+				return
+			case <-cleanupTicker.C:
+				p.runCleanup()
+			}
+		}
+	}()
+
+	// Run an initial poll immediately.
+	p.pollOnce()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			p.pollOnce()
+		}
+	}
+}
+
+// pollOnce performs a single polling cycle.
+func (p *SystemMetricsPoller) pollOnce() {
+	// Get all registered agents.
+	agents := p.registry.ListAll()
+
+	if len(agents) == 0 {
+		p.logger.Debug().Msg("No agents registered, skipping poll")
+		return
+	}
+
+	// Calculate time range for this poll cycle.
+	// Query from last poll interval to now.
+	now := time.Now()
+	startTime := now.Add(-p.pollInterval)
+
+	p.logger.Debug().
+		Int("agent_count", len(agents)).
+		Time("start_time", startTime).
+		Time("end_time", now).
+		Msg("Polling agents for system metrics")
+
+	// Query each agent and aggregate results.
+	successCount := 0
+	errorCount := 0
+	totalMetrics := 0
+	allSummaries := make([]database.SystemMetricsSummary, 0)
+
+	for _, agent := range agents {
+		// Only query healthy or degraded agents.
+		status := registry.DetermineStatus(agent.LastSeen, now)
+		if status == registry.StatusUnhealthy {
+			continue
+		}
+
+		metrics, err := p.queryAgent(agent, startTime, now)
+		if err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("agent_id", agent.AgentID).
+				Str("mesh_ip", agent.MeshIPv4).
+				Msg("Failed to query agent for system metrics")
+			errorCount++
+			continue
+		}
+
+		// Aggregate metrics into 1-minute buckets.
+		summaries := p.aggregateMetrics(agent.AgentID, metrics, startTime, now)
+		allSummaries = append(allSummaries, summaries...)
+
+		successCount++
+		totalMetrics += len(metrics)
+	}
+
+	// Store summaries in database.
+	if len(allSummaries) > 0 {
+		if err := p.db.InsertSystemMetricsSummaries(p.ctx, allSummaries); err != nil {
+			p.logger.Error().
+				Err(err).
+				Int("summary_count", len(allSummaries)).
+				Msg("Failed to store system metrics summaries")
+		} else {
+			p.logger.Info().
+				Int("agents_queried", successCount).
+				Int("agents_failed", errorCount).
+				Int("total_metrics", totalMetrics).
+				Int("summaries", len(allSummaries)).
+				Msg("System metrics poll completed")
+		}
+	} else {
+		p.logger.Debug().
+			Int("agents_queried", successCount).
+			Msg("System metrics poll completed with no data")
+	}
+}
+
+// queryAgent queries a single agent for system metrics.
+func (p *SystemMetricsPoller) queryAgent(
+	agent *registry.Entry,
+	startTime, endTime time.Time,
+) ([]*agentv1.SystemMetric, error) {
+	// Create gRPC client for this agent.
+	client := GetAgentClient(agent)
+
+	// Create query request.
+	req := connect.NewRequest(&agentv1.QuerySystemMetricsRequest{
+		StartTime:   startTime.Unix(),
+		EndTime:     endTime.Unix(),
+		MetricNames: nil, // Query all metrics.
+	})
+
+	// Set timeout for the request.
+	ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+	defer cancel()
+
+	// Call agent's QuerySystemMetrics RPC.
+	resp, err := client.QuerySystemMetrics(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Msg.Metrics, nil
+}
+
+// aggregateMetrics aggregates metrics into 1-minute buckets with min/max/avg/p95 calculations.
+func (p *SystemMetricsPoller) aggregateMetrics(
+	agentID string,
+	metrics []*agentv1.SystemMetric,
+	startTime, endTime time.Time,
+) []database.SystemMetricsSummary {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	// Group metrics by metric name and attributes.
+	// Key format: "metric_name|attributes_json"
+	type metricKey struct {
+		name       string
+		attributes string
+	}
+
+	type metricGroup struct {
+		values     []float64
+		unit       string
+		metricType string
+	}
+
+	grouped := make(map[metricKey]*metricGroup)
+
+	for _, metric := range metrics {
+		key := metricKey{
+			name:       metric.Name,
+			attributes: metric.Attributes,
+		}
+
+		if _, exists := grouped[key]; !exists {
+			grouped[key] = &metricGroup{
+				values:     make([]float64, 0),
+				unit:       metric.Unit,
+				metricType: metric.MetricType,
+			}
+		}
+
+		grouped[key].values = append(grouped[key].values, metric.Value)
+	}
+
+	// Aggregate each group into a summary.
+	// Bucket time is truncated to the start of the minute for consistency.
+	bucketTime := startTime.Truncate(time.Minute)
+
+	summaries := make([]database.SystemMetricsSummary, 0, len(grouped))
+
+	for key, group := range grouped {
+		if len(group.values) == 0 {
+			continue
+		}
+
+		// Sort values for percentile calculation.
+		sortedValues := make([]float64, len(group.values))
+		copy(sortedValues, group.values)
+		sort.Float64s(sortedValues)
+
+		// Calculate min, max, avg.
+		minVal := sortedValues[0]
+		maxVal := sortedValues[len(sortedValues)-1]
+		sum := 0.0
+		for _, v := range sortedValues {
+			sum += v
+		}
+		avgVal := sum / float64(len(sortedValues))
+
+		// Calculate p95.
+		p95Val := calculatePercentile(sortedValues, 0.95)
+
+		// Calculate delta for counters.
+		// For counter metrics, delta is the difference between max and min (total change in window).
+		deltaVal := 0.0
+		if group.metricType == "counter" || group.metricType == "delta" {
+			deltaVal = maxVal - minVal
+		}
+
+		summary := database.SystemMetricsSummary{
+			BucketTime:  bucketTime,
+			AgentID:     agentID,
+			MetricName:  key.name,
+			MinValue:    minVal,
+			MaxValue:    maxVal,
+			AvgValue:    avgVal,
+			P95Value:    p95Val,
+			DeltaValue:  deltaVal,
+			SampleCount: int32(len(group.values)),
+			Unit:        group.unit,
+			MetricType:  group.metricType,
+			Attributes:  key.attributes,
+		}
+
+		summaries = append(summaries, summary)
+	}
+
+	return summaries
+}
+
+// calculatePercentile calculates the p-th percentile from a sorted slice of values.
+// p should be between 0.0 and 1.0 (e.g., 0.95 for 95th percentile).
+func calculatePercentile(sortedValues []float64, p float64) float64 {
+	if len(sortedValues) == 0 {
+		return 0
+	}
+
+	if len(sortedValues) == 1 {
+		return sortedValues[0]
+	}
+
+	// Calculate index using linear interpolation.
+	index := p * float64(len(sortedValues)-1)
+	lowerIndex := int(math.Floor(index))
+	upperIndex := int(math.Ceil(index))
+
+	if lowerIndex == upperIndex {
+		return sortedValues[lowerIndex]
+	}
+
+	// Linear interpolation between the two values.
+	lowerValue := sortedValues[lowerIndex]
+	upperValue := sortedValues[upperIndex]
+	fraction := index - float64(lowerIndex)
+
+	return lowerValue + (upperValue-lowerValue)*fraction
+}
+
+// runCleanup performs system metrics database cleanup.
+// Removes summaries older than configured retention period.
+func (p *SystemMetricsPoller) runCleanup() {
+	deleted, err := p.db.CleanupOldSystemMetrics(p.ctx, p.retentionDays)
+	if err != nil {
+		p.logger.Error().
+			Err(err).
+			Msg("Failed to cleanup old system metrics summaries")
+		return
+	}
+
+	if deleted > 0 {
+		p.logger.Info().
+			Int64("deleted_count", deleted).
+			Int("retention_days", p.retentionDays).
+			Msg("Cleaned up old system metrics summaries")
+	} else {
+		p.logger.Debug().Msg("No old system metrics summaries to clean up")
+	}
+}

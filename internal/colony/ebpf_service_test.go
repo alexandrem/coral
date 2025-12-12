@@ -15,12 +15,13 @@ import (
 
 // mockDatabase implements a mock database for testing.
 type mockDatabase struct {
-	httpMetrics        []*database.BeylaHTTPMetricResult
-	grpcMetrics        []*database.BeylaGRPCMetricResult
-	sqlMetrics         []*database.BeylaSQLMetricResult
-	traceResults       []*database.BeylaTraceResult
-	telemetrySummaries []database.TelemetrySummary
-	queryError         error
+	httpMetrics            []*database.BeylaHTTPMetricResult
+	grpcMetrics            []*database.BeylaGRPCMetricResult
+	sqlMetrics             []*database.BeylaSQLMetricResult
+	traceResults           []*database.BeylaTraceResult
+	telemetrySummaries     []database.TelemetrySummary
+	systemMetricsSummaries []database.SystemMetricsSummary
+	queryError             error
 }
 
 func (m *mockDatabase) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaHTTPMetricResult, error) {
@@ -60,6 +61,17 @@ func (m *mockDatabase) QueryTelemetrySummaries(ctx context.Context, agentID stri
 		return m.telemetrySummaries, nil
 	}
 	return []database.TelemetrySummary{}, nil
+}
+
+func (m *mockDatabase) QuerySystemMetricsSummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.SystemMetricsSummary, error) {
+	if m.queryError != nil {
+		return nil, m.queryError
+	}
+	// Return empty by default, tests can override by setting systemMetricsSummaries field (RFD 071).
+	if m.systemMetricsSummaries != nil {
+		return m.systemMetricsSummaries, nil
+	}
+	return []database.SystemMetricsSummary{}, nil
 }
 
 // TestQueryMetrics_TimeRangeValidation tests time range validation.

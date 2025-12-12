@@ -28,6 +28,7 @@ import (
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
+	"github.com/coral-mesh/coral/internal/agent/collector"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/config"
@@ -596,6 +597,73 @@ Examples:
 				logger.Warn().Msg("Telemetry disabled - shared database not available")
 			}
 
+			// Start system metrics collector if enabled (RFD 071).
+			var systemMetricsHandler *agent.SystemMetricsHandler
+			if agentCfg.SystemMetrics.Enabled && sharedDB != nil {
+				logger.Info().Msg("Initializing system metrics collector")
+
+				// Create collector config from agent config.
+				collectorConfig := collector.Config{
+					Enabled:        agentCfg.SystemMetrics.Enabled,
+					Interval:       agentCfg.SystemMetrics.Interval,
+					CPUEnabled:     agentCfg.SystemMetrics.CPUEnabled,
+					MemoryEnabled:  agentCfg.SystemMetrics.MemoryEnabled,
+					DiskEnabled:    agentCfg.SystemMetrics.DiskEnabled,
+					NetworkEnabled: agentCfg.SystemMetrics.NetworkEnabled,
+				}
+
+				// Create storage for system metrics.
+				metricsStorage, err := collector.NewStorage(sharedDB, logger)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to create system metrics storage - metrics disabled")
+				} else {
+					// Create and start collector.
+					systemCollector := collector.NewSystemCollector(metricsStorage, collectorConfig, logger)
+
+					// Start collector in background.
+					go func() {
+						if err := systemCollector.Start(ctx); err != nil && err != context.Canceled {
+							logger.Error().Err(err).Msg("System metrics collector stopped with error")
+						}
+					}()
+
+					// Start cleanup goroutine for old metrics (1 hour retention).
+					go func() {
+						cleanupTicker := time.NewTicker(10 * time.Minute)
+						defer cleanupTicker.Stop()
+
+						for {
+							select {
+							case <-ctx.Done():
+								return
+							case <-cleanupTicker.C:
+								if err := metricsStorage.CleanupOldMetrics(ctx, agentCfg.SystemMetrics.Retention); err != nil {
+									logger.Error().Err(err).Msg("Failed to cleanup old system metrics")
+								} else {
+									logger.Debug().Msg("Cleaned up old system metrics")
+								}
+							}
+						}
+					}()
+
+					// Create system metrics handler for RPC queries.
+					systemMetricsHandler = agent.NewSystemMetricsHandler(metricsStorage)
+
+					logger.Info().
+						Dur("interval", collectorConfig.Interval).
+						Dur("retention", agentCfg.SystemMetrics.Retention).
+						Bool("cpu", collectorConfig.CPUEnabled).
+						Bool("memory", collectorConfig.MemoryEnabled).
+						Bool("disk", collectorConfig.DiskEnabled).
+						Bool("network", collectorConfig.NetworkEnabled).
+						Msg("System metrics collector started successfully")
+				}
+			} else if !agentCfg.SystemMetrics.Enabled {
+				logger.Info().Msg("System metrics collection is disabled")
+			} else {
+				logger.Warn().Msg("System metrics disabled - shared database not available")
+			}
+
 			// Log initial status.
 			if len(serviceSpecs) > 0 {
 				logger.Info().
@@ -622,7 +690,7 @@ Examples:
 			containerHandler := agent.NewContainerHandler(logger)
 
 			// Create service handler and HTTP server for gRPC API.
-			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, functionCache)
+			serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, functionCache, systemMetricsHandler)
 			path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 			// Create debug service handler (RFD 059).
