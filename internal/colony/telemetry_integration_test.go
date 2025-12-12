@@ -37,7 +37,9 @@ func TestPullBasedTelemetry_EndToEnd(t *testing.T) {
 	}
 
 	// Store test spans in agent local storage.
-	now := time.Now()
+	// Use a fixed base time to ensure all spans fall within the same 1-minute bucket.
+	// This prevents flakiness when tests run near minute boundaries.
+	now := time.Now().Truncate(time.Minute).Add(30 * time.Second)
 	testSpans := []telemetry.Span{
 		// Checkout service spans (errors + high latency).
 		{
