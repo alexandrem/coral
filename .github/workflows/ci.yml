@@ -207,7 +207,6 @@ jobs:
           brew install llvm
 
       - uses: actions/cache/restore@v4
-        if: runner.os == 'Linux'
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
           path: |
@@ -215,7 +214,6 @@ jobs:
             ~/.cache/go-build
 
       - uses: actions/cache/restore@v4
-        if: runner.os == 'Linux'
         with:
           key: ${{ needs.go-env.outputs.tools-cache-key }}
           path: ~/go/bin
