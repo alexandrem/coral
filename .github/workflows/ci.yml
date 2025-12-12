@@ -178,38 +178,36 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   build:
     needs: go-env
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
         include:
           - os: ubuntu-latest
             artifact-os: linux
             artifact-arch: amd64
-          - os: macos-latest
+          - os: macos-13  # Intel Mac for amd64
             artifact-os: darwin
             artifact-arch: amd64
-          - os: macos-latest
+          - os: macos-latest  # Apple Silicon for arm64
             artifact-os: darwin
             artifact-arch: arm64
-            goarch: arm64
-          - os: windows-latest
-            artifact-os: windows
-            artifact-arch: amd64
-
-    env:
-      GOOS: ${{ matrix.artifact-os }}
-      GOARCH: ${{ matrix.goarch || matrix.artifact-arch }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install APT packages
+      - name: Install APT packages (Linux only)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
 
+      - name: Install Homebrew packages (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+
       - uses: actions/cache/restore@v4
+        if: runner.os == 'Linux'
         with:
           key: ${{ needs.go-env.outputs.mod-cache-key }}
           path: |
@@ -217,6 +215,7 @@ jobs:
             ~/.cache/go-build
 
       - uses: actions/cache/restore@v4
+        if: runner.os == 'Linux'
         with:
           key: ${{ needs.go-env.outputs.tools-cache-key }}
           path: ~/go/bin

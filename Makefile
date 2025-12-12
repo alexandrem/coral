@@ -8,6 +8,10 @@ GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 GO_VERSION=$(shell go version | awk '{print $$3}')
 
+# CGO is necessary for duckdb.
+CGO_ENABLED=1
+export CGO_ENABLED
+
 # Linker flags to set version info
 LDFLAGS=-ldflags "\
 	-X github.com/coral-mesh/coral/pkg/version.Version=$(VERSION) \
@@ -36,7 +40,7 @@ generate: proto ## Generate eBPF and download Beyla binaries (run before first b
 		echo "  Linux: sudo apt-get install clang llvm"; \
 		exit 1; \
 	fi; \
-	go generate ./...
+	env -u GOOS -u GOARCH go generate ./...
 	@echo "✓ Generated files ready"
 
 proto: ## Generate protobuf files using buf
