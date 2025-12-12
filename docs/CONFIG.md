@@ -354,6 +354,39 @@ beyla:
 - SQL retention: 14 days
 - Trace retention: 7 days
 
+#### System Metrics (RFD 071)
+
+System metrics are collected from agents and aggregated by the colony for
+infrastructure observability. The colony polls agents for host-level metrics
+(CPU, memory, disk, network) and stores aggregated summaries.
+
+| Field                              | Type | Default | Description                                      |
+|------------------------------------|------|---------|--------------------------------------------------|
+| `system_metrics.poll_interval`     | int  | `60`    | Interval (seconds) to poll agents for metrics   |
+| `system_metrics.retention_days`    | int  | `30`    | Retention period for aggregated summaries (days) |
+
+**Example Configuration:**
+
+```yaml
+system_metrics:
+    poll_interval: 60      # Poll agents every 60 seconds
+    retention_days: 30     # Keep summaries for 30 days
+```
+
+**How It Works:**
+
+- **Agent-side:** Agents collect system metrics every 15 seconds and store
+  locally for 1 hour
+- **Colony-side:** Colony polls agents every 60 seconds, aggregates into
+  1-minute summaries (min/max/avg/p95)
+- **Storage:** Summaries stored for 30 days (75% reduction vs raw data)
+- **Query:** Integrated into `coral query summary` for infrastructure context
+
+**Defaults:** If not specified in config:
+
+- Poll interval: 60 seconds
+- Retention: 30 days
+
 ## Project Configuration
 
 Location: `<project>/.coral/config.yaml`
@@ -426,6 +459,13 @@ telemetry:
 | `debug.limits.max_concurrent_sessions`    | int               | `5`              | Max concurrent debug sessions          |
 | `debug.limits.max_session_duration`       | duration          | `10m`            | Max duration for a debug session       |
 | `debug.limits.max_events_per_second`      | int               | `10000`          | Rate limit for debug events            |
+| `system_metrics.disabled`                 | bool              | `false`          | Disable system metrics collection      |
+| `system_metrics.interval`                 | duration          | `15s`            | Collection interval                    |
+| `system_metrics.retention`                | duration          | `1h`             | Local retention period                 |
+| `system_metrics.cpu_enabled`              | bool              | `true`           | Collect CPU metrics                    |
+| `system_metrics.memory_enabled`           | bool              | `true`           | Collect memory metrics                 |
+| `system_metrics.disk_enabled`             | bool              | `true`           | Collect disk I/O metrics               |
+| `system_metrics.network_enabled`          | bool              | `true`           | Collect network I/O metrics            |
 
 ### Beyla Integration Configuration
 
@@ -520,6 +560,86 @@ debug:
         max_session_duration: 10m       # Auto-detach after 10 minutes
         max_events_per_second: 10000    # Rate limit to prevent overhead
         max_memory_mb: 256              # Max memory for BPF maps
+```
+
+### System Metrics Configuration (RFD 071)
+
+The `system_metrics` section configures host-level metrics collection (CPU,
+memory, disk, network). Metrics are collected locally and polled by the colony
+for aggregation and long-term storage.
+
+```yaml
+system_metrics:
+    disabled: false         # Disable system metrics collection (enabled by default)
+    interval: 15s           # Collection interval
+    retention: 1h           # Local retention (agent-side)
+    cpu_enabled: true       # Collect CPU utilization and time
+    memory_enabled: true    # Collect memory usage and limits
+    disk_enabled: true      # Collect disk I/O and usage
+    network_enabled: true   # Collect network I/O and errors
+```
+
+**Configuration Fields:**
+
+| Field              | Type     | Default | Description                                |
+|--------------------|----------|---------|--------------------------------------------|
+| `disabled`         | bool     | `false` | Master switch for system metrics           |
+| `interval`         | duration | `15s`   | How often to sample system metrics         |
+| `retention`        | duration | `1h`    | How long to keep raw samples locally       |
+| `cpu_enabled`      | bool     | `true`  | Collect CPU utilization and time           |
+| `memory_enabled`   | bool     | `true`  | Collect memory usage, limit, utilization   |
+| `disk_enabled`     | bool     | `true`  | Collect disk I/O and usage                 |
+| `network_enabled`  | bool     | `true`  | Collect network I/O and errors             |
+
+**Collected Metrics:**
+
+- **CPU:**
+    - `system.cpu.utilization` - CPU usage percentage (0-100)
+    - `system.cpu.time` - Cumulative CPU time (seconds)
+
+- **Memory:**
+    - `system.memory.usage` - Memory used (bytes)
+    - `system.memory.limit` - Total memory available (bytes)
+    - `system.memory.utilization` - Memory usage percentage (0-100)
+
+- **Disk:**
+    - `system.disk.io` - Disk I/O operations (reads/writes)
+    - `system.disk.usage` - Disk space used (bytes)
+
+- **Network:**
+    - `system.network.io` - Network I/O (bytes sent/received)
+    - `system.network.errors` - Network errors (packet loss, errors)
+
+**Storage and Retention:**
+
+- **Agent-side:** Raw samples stored locally for 1 hour (configurable)
+- **Colony-side:** Aggregated into 1-minute summaries, stored for 30 days
+- **Cleanup:** Automatic cleanup runs every 10 minutes on agent
+
+**Performance Impact:**
+
+- **Overhead:** \<1% CPU, minimal memory (\~10KB per hour)
+- **Sampling:** 15-second intervals balance precision with overhead
+- **Cardinality:** \~10-15 unique metric names per agent
+
+**Disabling Collection:**
+
+To disable system metrics entirely:
+
+```yaml
+system_metrics:
+    disabled: true
+```
+
+To disable specific collectors:
+
+```yaml
+system_metrics:
+    disabled: false
+    cpu_enabled: true
+    memory_enabled: true
+    disk_enabled: false      # Disable disk metrics
+    network_enabled: false   # Disable network metrics
 ```
 
 ## Environment Variables

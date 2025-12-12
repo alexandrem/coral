@@ -599,12 +599,12 @@ Examples:
 
 			// Start system metrics collector if enabled (RFD 071).
 			var systemMetricsHandler *agent.SystemMetricsHandler
-			if agentCfg.SystemMetrics.Enabled && sharedDB != nil {
+			if !agentCfg.SystemMetrics.Disabled && sharedDB != nil {
 				logger.Info().Msg("Initializing system metrics collector")
 
 				// Create collector config from agent config.
 				collectorConfig := collector.Config{
-					Enabled:        agentCfg.SystemMetrics.Enabled,
+					Enabled:        !agentCfg.SystemMetrics.Disabled,
 					Interval:       agentCfg.SystemMetrics.Interval,
 					CPUEnabled:     agentCfg.SystemMetrics.CPUEnabled,
 					MemoryEnabled:  agentCfg.SystemMetrics.MemoryEnabled,
@@ -658,7 +658,7 @@ Examples:
 						Bool("network", collectorConfig.NetworkEnabled).
 						Msg("System metrics collector started successfully")
 				}
-			} else if !agentCfg.SystemMetrics.Enabled {
+			} else if agentCfg.SystemMetrics.Disabled {
 				logger.Info().Msg("System metrics collection is disabled")
 			} else {
 				logger.Warn().Msg("System metrics disabled - shared database not available")

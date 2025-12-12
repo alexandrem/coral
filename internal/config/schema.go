@@ -310,7 +310,7 @@ type BeylaLimitsConfig struct {
 
 // SystemMetricsConfig configures host system metrics collection (RFD 071).
 type SystemMetricsConfig struct {
-	Enabled        bool          `yaml:"enabled"`
+	Disabled       bool          `yaml:"disabled"`
 	Interval       time.Duration `yaml:"interval,omitempty"`        // Collection interval (default: 15s)
 	Retention      time.Duration `yaml:"retention,omitempty"`       // Local retention (default: 1h)
 	CPUEnabled     bool          `yaml:"cpu_enabled,omitempty"`     // Collect CPU metrics
@@ -506,8 +506,8 @@ func DefaultAgentConfig() *AgentConfig {
 	cfg.Debug.BPF.MapSize = 10240
 	cfg.Debug.BPF.PerfBufferPages = 64
 
-	// System Metrics defaults (RFD 071)
-	cfg.SystemMetrics.Enabled = true
+	// SystemMetrics defaults (RFD 071)
+	cfg.SystemMetrics.Disabled = false
 	cfg.SystemMetrics.Interval = 15 * time.Second
 	cfg.SystemMetrics.Retention = 1 * time.Hour
 	cfg.SystemMetrics.CPUEnabled = true

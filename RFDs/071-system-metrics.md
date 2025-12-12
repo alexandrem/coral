@@ -577,8 +577,6 @@ production-ready with the following minor items deferred to future work:
   CLI wrapper pending
 - Agent process-level metrics (`process.runtime.go.*`) - low priority, host
   metrics sufficient for diagnostics
-- Colony poller not yet started automatically - requires explicit startup in
-  Colony initialization
 
 ## Future Work
 
@@ -598,12 +596,6 @@ scope:
 - Process-level metrics for the Agent itself (`process.runtime.go.*`)
 - CPU/memory/goroutines/GC stats for Agent process
 - Rationale: Host-level metrics sufficient for current diagnostics needs
-
-**Colony Poller Auto-Start** (Integration Work)
-
-- Automatically start `SystemMetricsPoller` when Colony starts
-- Currently requires explicit initialization in Colony startup code
-- Low priority - manual startup sufficient for testing
 
 **Process Monitoring** (Future RFD)
 
