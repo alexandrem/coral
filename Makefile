@@ -98,6 +98,26 @@ test-ci: generate ## Run tests in CI
 	@echo "Running tests..."
 	go test -short -count=1 -parallel=8 ./... -timeout=10m
 
+test-linux: ## Run tests in Linux Docker (tests platform-specific code)
+	@echo "Running tests in Linux Docker..."
+	@docker run --rm \
+		-v "$(PWD)":/workspace \
+		-w /workspace \
+		golang:1.25 \
+		bash -c "apt-get update -qq && apt-get install -y -qq clang llvm > /dev/null 2>&1 && go test -short ./..."
+
+ci-check: ## Run full CI checks locally (lint + test on Linux)
+	@echo "=== Running full CI checks locally ==="
+	@echo "1. Linting on Linux..."
+	@$(MAKE) -s lint-linux
+	@echo "✓ Lint passed"
+	@echo ""
+	@echo "2. Testing on Linux..."
+	@$(MAKE) -s test-linux
+	@echo "✓ Tests passed"
+	@echo ""
+	@echo "✓ All CI checks passed!"
+
 run: build ## Build and run the CLI
 	@$(BUILD_DIR)/$(BINARY_NAME)
 
@@ -127,5 +147,13 @@ install-tools: ## Install development tools
 lint: ## Run linter
 	@echo "Running linter..."
 	golangci-lint run --config .golangci.yml ./...
+
+lint-linux: ## Run linter in Linux Docker (tests platform-specific code)
+	@echo "Running linter in Linux Docker..."
+	@docker run --rm \
+		-v "$(PWD)":/workspace \
+		-w /workspace \
+		golangci/golangci-lint:latest \
+		golangci-lint run --config .golangci.yml ./...
 
 all: clean build test ## Clean, build, and test
