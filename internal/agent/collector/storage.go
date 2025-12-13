@@ -185,23 +185,29 @@ func (s *Storage) QueryMetrics(ctx context.Context, startTime, endTime time.Time
 
 	if len(metricNames) > 0 {
 		// Query specific metrics using IN clause.
-		placeholders := make([]string, len(metricNames))
 		args := make([]interface{}, 0, len(metricNames)+2)
 
-		for i := range metricNames {
-			placeholders[i] = "?"
-			args = append(args, metricNames[i])
+		// Add metric names as parameters
+		for _, name := range metricNames {
+			args = append(args, name)
 		}
+
+		// Add time range parameters
 		args = append(args, startTime, endTime)
 
-		//nolint:gosec // Safe: placeholders are all "?" generated programmatically
-		query := `
+		// Build the correct number of "?" placeholders for the IN clause
+		inPlaceholders := strings.Repeat("?,", len(metricNames))
+		inPlaceholders = inPlaceholders[:len(inPlaceholders)-1] // Remove trailing comma
+
+		// nolint:gosec // G201: safe construct
+		query := fmt.Sprintf(`
 			SELECT timestamp, metric_name, value, unit, metric_type, CAST(attributes AS TEXT)
 			FROM system_metrics_local
-			WHERE metric_name IN (` + strings.Join(placeholders, ", ") + `)
-			  AND timestamp >= ? AND timestamp <= ?
+			WHERE metric_name IN (%s)
+			  AND timestamp >= ?
+			  AND timestamp <= ?
 			ORDER BY timestamp ASC, metric_name
-		`
+		`, inPlaceholders)
 		rows, err = s.db.QueryContext(ctx, query, args...)
 	} else {
 		// Query all metrics.
