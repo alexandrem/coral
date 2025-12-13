@@ -65,6 +65,6 @@ func (h *SystemMetricsHandler) QuerySystemMetrics(
 
 	return connect.NewResponse(&agentv1.QuerySystemMetricsResponse{
 		Metrics:      pbMetrics,
-		TotalMetrics: int32(len(pbMetrics)),
+		TotalMetrics: int32(len(pbMetrics)), // #nosec G115
 	}), nil
 }
