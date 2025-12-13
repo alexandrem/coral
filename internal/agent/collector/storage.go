@@ -194,7 +194,7 @@ func (s *Storage) QueryMetrics(ctx context.Context, startTime, endTime time.Time
 		args = append(args, startTime, endTime)
 
 		query := `
-			SELECT timestamp, metric_name, value, unit, metric_type, attributes
+			SELECT timestamp, metric_name, value, unit, metric_type, CAST(attributes AS TEXT)
 			FROM system_metrics_local
 			WHERE metric_name IN (` + strings.Join(placeholders, ", ") + `)
 			  AND timestamp >= ? AND timestamp <= ?
@@ -204,7 +204,7 @@ func (s *Storage) QueryMetrics(ctx context.Context, startTime, endTime time.Time
 	} else {
 		// Query all metrics.
 		query := `
-			SELECT timestamp, metric_name, value, unit, metric_type, attributes
+			SELECT timestamp, metric_name, value, unit, metric_type, CAST(attributes AS TEXT)
 			FROM system_metrics_local
 			WHERE timestamp >= ? AND timestamp <= ?
 			ORDER BY timestamp ASC, metric_name

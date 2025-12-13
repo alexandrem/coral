@@ -86,15 +86,21 @@ func (d *Database) InsertSystemMetricsSummaries(ctx context.Context, summaries [
 
 // QuerySystemMetricsSummaries retrieves system metrics summaries for a given time range and agent.
 func (d *Database) QuerySystemMetricsSummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]SystemMetricsSummary, error) {
-	query := `
-		SELECT bucket_time, agent_id, metric_name, min_value, max_value,
+	query := `SELECT bucket_time, agent_id, metric_name, min_value, max_value,
 		       avg_value, p95_value, delta_value, sample_count, unit, metric_type, attributes
-		FROM system_metrics_summaries
-		WHERE agent_id = ? AND bucket_time >= ? AND bucket_time <= ?
-		ORDER BY bucket_time DESC, metric_name
+			FROM system_metrics_summaries
+			WHERE bucket_time >= ? AND bucket_time <= ?
 	`
+	args := []interface{}{startTime, endTime}
 
-	rows, err := d.db.QueryContext(ctx, query, agentID, startTime, endTime)
+	if agentID != "" {
+		query += " AND agent_id = ?"
+		args = append(args, agentID)
+	}
+
+	query += " ORDER BY bucket_time DESC, metric_name"
+
+	rows, err := d.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query system metrics summaries: %w", err)
 	}

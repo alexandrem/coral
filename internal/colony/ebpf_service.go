@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -18,6 +19,8 @@ type ebpfDatabase interface {
 	QueryBeylaTraces(ctx context.Context, traceID, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*database.BeylaTraceResult, error)
 	QueryTelemetrySummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.TelemetrySummary, error)
 	QuerySystemMetricsSummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.SystemMetricsSummary, error)
+	GetServiceByName(ctx context.Context, serviceName string) (*database.Service, error)
+	QueryAllServiceNames(ctx context.Context) ([]string, error)
 }
 
 // EbpfQueryService provides eBPF metrics querying with validation.
@@ -510,13 +513,74 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		agentMetrics[metric.AgentID][metric.MetricName] = metric
 	}
 
-	// Associate services with agents (from OTLP data) and add host resource info.
+	// Associate services with agents (from OTLP data).
 	for _, otlp := range telemetrySummaries {
 		if summary, exists := summaryMap[otlp.ServiceName]; exists {
 			summary.AgentID = otlp.AgentID
+		}
+	}
 
-			// Get system metrics for this agent.
-			if metrics, hasMetrics := agentMetrics[otlp.AgentID]; hasMetrics {
+	// Ensure all relevant services are in the summary map.
+	// If specific service requested: check just that one.
+	// If all services requested: check all known service names (to include idle ones).
+	var targetServices []string
+	if serviceName != "" {
+		targetServices = []string{serviceName}
+	} else {
+		// Ignore error, best effort to find other services
+		if names, err := s.db.QueryAllServiceNames(ctx); err == nil {
+			targetServices = names
+		}
+	}
+
+	for _, name := range targetServices {
+		if _, exists := summaryMap[name]; !exists && name != "" {
+			svc, err := s.db.GetServiceByName(ctx, name)
+			if err != nil {
+				// Error querying service registry - continue.
+				continue
+			} else if svc == nil {
+				// Service not in registry - try to find it by agent_id pattern match.
+				// This is a workaround for when services aren't properly registered.
+				// TODO: Ensure services are registered when system metrics are collected.
+				if serviceName != "" {
+					// Look for an agent_id that contains the service name.
+					for agentID := range agentMetrics {
+						// Case-insensitive substring match.
+						if len(agentID) > 0 && contains(agentID, name) {
+							summaryMap[name] = &UnifiedSummaryResult{
+								ServiceName: name,
+								AgentID:     agentID,
+								Status:      "unknown",
+							}
+							break
+						}
+					}
+				}
+			} else {
+				summaryMap[name] = &UnifiedSummaryResult{
+					ServiceName: svc.Name,
+					AgentID:     svc.AgentID,
+					Status:      "unknown",
+				}
+			}
+		}
+	}
+
+	// For services that didn't get an AgentID from OTLP, try looking it up in the registry.
+	// Then populate system metrics for all services that have an AgentID.
+	for _, summary := range summaryMap {
+		if summary.AgentID == "" {
+			// Fallback: look up agent ID from service registry.
+			svc, err := s.db.GetServiceByName(ctx, summary.ServiceName)
+			if err == nil && svc != nil && svc.AgentID != "" {
+				summary.AgentID = svc.AgentID
+			}
+		}
+
+		// If we have an agent ID, attach system metrics.
+		if summary.AgentID != "" {
+			if metrics, hasMetrics := agentMetrics[summary.AgentID]; hasMetrics {
 				// CPU utilization.
 				if cpuUtil, found := metrics["system.cpu.utilization"]; found {
 					summary.HostCPUUtilization = cpuUtil.MaxValue
@@ -730,4 +794,9 @@ func (s *EbpfQueryService) QueryUnifiedMetrics(ctx context.Context, serviceName 
 func (s *EbpfQueryService) QueryUnifiedLogs(ctx context.Context, serviceName string, startTime, endTime time.Time, level string, search string) ([]string, error) {
 	// Placeholder for log querying.
 	return []string{}, nil
+}
+
+// contains performs case-insensitive substring match.
+func contains(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

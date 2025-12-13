@@ -114,7 +114,7 @@ Examples:
 
 			// Update logger to debug level now that config is loaded.
 			logger = logging.NewWithComponent(logging.Config{
-				Level:  "debug",
+				Level:  "trace",
 				Pretty: true,
 			}, "colony")
 

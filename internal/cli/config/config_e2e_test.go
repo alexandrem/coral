@@ -201,6 +201,9 @@ func TestConfigEnvVarPriority(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("CORAL_CONFIG", configDir)
 
+	// Ensure CORAL_COLONY_ID is not set.
+	t.Setenv("CORAL_COLONY_ID", "")
+
 	// Create colonies.
 	createTestColony(t, configDir, "colony-a", "app-a", "dev")
 	createTestColony(t, configDir, "colony-b", "app-b", "prod")
@@ -255,6 +258,10 @@ func runCoral(t *testing.T, binaryPath string, args ...string) string {
 	t.Helper()
 
 	cmd := exec.Command(binaryPath, args...)
+	// Inherit the test's environment, which includes any t.Setenv modifications
+	// (e.g., cleared CORAL_COLONY_ID). Without this, the child process would
+	// inherit the parent shell's environment directly.
+	cmd.Env = os.Environ()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Allow exit code 1 for some commands (e.g., validation failures).

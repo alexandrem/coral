@@ -156,7 +156,7 @@ func (p *BeylaPoller) pollOnce() {
 	agents := p.registry.ListAll()
 
 	if len(agents) == 0 {
-		p.logger.Debug().Msg("No agents registered, skipping Beyla poll")
+		p.logger.Debug().Msg("No agents registered, skipping poll")
 		return
 	}
 
