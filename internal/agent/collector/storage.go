@@ -199,7 +199,7 @@ func (s *Storage) QueryMetrics(ctx context.Context, startTime, endTime time.Time
 		inPlaceholders := strings.Repeat("?,", len(metricNames))
 		inPlaceholders = inPlaceholders[:len(inPlaceholders)-1] // Remove trailing comma
 
-		// nolint:gosec // G201: safe construct
+		// #nosec G201: safe construct
 		query := fmt.Sprintf(`
 			SELECT timestamp, metric_name, value, unit, metric_type, CAST(attributes AS TEXT)
 			FROM system_metrics_local
