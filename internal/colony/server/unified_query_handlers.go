@@ -41,13 +41,19 @@ func (s *Server) QueryUnifiedSummary(
 	summaries := make([]*colonyv1.UnifiedSummaryResult, 0, len(results))
 	for _, r := range results {
 		summaries = append(summaries, &colonyv1.UnifiedSummaryResult{
-			ServiceName:  r.ServiceName,
-			Status:       r.Status,
-			RequestCount: r.RequestCount,
-			ErrorRate:    r.ErrorRate,
-			AvgLatencyMs: r.AvgLatencyMs,
-			Source:       r.Source,
-			Issues:       r.Issues,
+			ServiceName:           r.ServiceName,
+			Status:                r.Status,
+			RequestCount:          r.RequestCount,
+			ErrorRate:             r.ErrorRate,
+			AvgLatencyMs:          r.AvgLatencyMs,
+			Source:                r.Source,
+			Issues:                r.Issues,
+			HostCpuUtilization:    r.HostCPUUtilization,
+			HostCpuUtilizationAvg: r.HostCPUUtilizationAvg,
+			HostMemoryUsageGb:     r.HostMemoryUsageGB,
+			HostMemoryLimitGb:     r.HostMemoryLimitGB,
+			HostMemoryUtilization: r.HostMemoryUtilization,
+			AgentId:               r.AgentID,
 		})
 	}
 

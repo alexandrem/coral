@@ -142,8 +142,8 @@ func TestTelemetryE2E(t *testing.T) {
 		t.Fatalf("Failed to create function cache: %v", err)
 	}
 
-	// Create service handler - we'll pass nil for telemetry, shell, and container since we're testing directly
-	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, nil, nil, functionCache)
+	// Create service handler - we'll pass nil for telemetry, shell, container, and system metrics since we're testing directly
+	serviceHandler := agent.NewServiceHandler(agentInstance, runtimeService, otlpReceiver, nil, nil, functionCache, nil)
 
 	// Create test handler that uses our storage directly
 	testHandler := &testAgentHandler{
@@ -358,6 +358,14 @@ func (h *testAgentHandler) ListServices(ctx context.Context, req *connect.Reques
 
 func (h *testAgentHandler) QueryEbpfMetrics(ctx context.Context, req *connect.Request[agentv1.QueryEbpfMetricsRequest]) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h *testAgentHandler) QuerySystemMetrics(ctx context.Context, req *connect.Request[agentv1.QuerySystemMetricsRequest]) (*connect.Response[agentv1.QuerySystemMetricsResponse], error) {
+	// Return empty response for tests (RFD 071).
+	return connect.NewResponse(&agentv1.QuerySystemMetricsResponse{
+		Metrics:      []*agentv1.SystemMetric{},
+		TotalMetrics: 0,
+	}), nil
 }
 
 func (h *testAgentHandler) Shell(ctx context.Context, stream *connect.BidiStream[agentv1.ShellRequest, agentv1.ShellResponse]) error {

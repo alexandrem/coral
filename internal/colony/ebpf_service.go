@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -17,6 +18,9 @@ type ebpfDatabase interface {
 	QueryBeylaSQLMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaSQLMetricResult, error)
 	QueryBeylaTraces(ctx context.Context, traceID, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*database.BeylaTraceResult, error)
 	QueryTelemetrySummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.TelemetrySummary, error)
+	QuerySystemMetricsSummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.SystemMetricsSummary, error)
+	GetServiceByName(ctx context.Context, serviceName string) (*database.Service, error)
+	QueryAllServiceNames(ctx context.Context) ([]string, error)
 }
 
 // EbpfQueryService provides eBPF metrics querying with validation.
@@ -351,6 +355,13 @@ type UnifiedSummaryResult struct {
 	AvgLatencyMs float64 // Average latency in milliseconds
 	Source       string  // eBPF, OTLP, or eBPF+OTLP
 	Issues       []string
+	// Host resources (RFD 071).
+	HostCPUUtilization    float64 // CPU utilization percentage (max in time window)
+	HostCPUUtilizationAvg float64 // CPU utilization percentage (average in time window)
+	HostMemoryUsageGB     float64 // Memory usage in GB (max in time window)
+	HostMemoryLimitGB     float64 // Memory limit in GB
+	HostMemoryUtilization float64 // Memory utilization percentage (max in time window)
+	AgentID               string  // Agent ID for correlation
 }
 
 // QueryUnifiedSummary provides a high-level health summary for services.
@@ -482,6 +493,131 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 				ErrorRate:    errorRate,
 				AvgLatencyMs: otlp.P95Ms,
 				Source:       "OTLP",
+			}
+		}
+	}
+
+	// 4. Query system metrics summaries (RFD 071).
+	systemMetricsSummaries, err := s.db.QuerySystemMetricsSummaries(ctx, "", startTime, endTime)
+	if err != nil {
+		// Don't fail if system metrics are unavailable, just continue without them.
+		return convertSummaryMapToSlice(summaryMap), nil
+	}
+
+	// Group system metrics by agent_id.
+	agentMetrics := make(map[string]map[string]database.SystemMetricsSummary)
+	for _, metric := range systemMetricsSummaries {
+		if _, exists := agentMetrics[metric.AgentID]; !exists {
+			agentMetrics[metric.AgentID] = make(map[string]database.SystemMetricsSummary)
+		}
+		agentMetrics[metric.AgentID][metric.MetricName] = metric
+	}
+
+	// Associate services with agents (from OTLP data).
+	for _, otlp := range telemetrySummaries {
+		if summary, exists := summaryMap[otlp.ServiceName]; exists {
+			summary.AgentID = otlp.AgentID
+		}
+	}
+
+	// Ensure all relevant services are in the summary map.
+	// If specific service requested: check just that one.
+	// If all services requested: check all known service names (to include idle ones).
+	var targetServices []string
+	if serviceName != "" {
+		targetServices = []string{serviceName}
+	} else {
+		// Ignore error, best effort to find other services
+		if names, err := s.db.QueryAllServiceNames(ctx); err == nil {
+			targetServices = names
+		}
+	}
+
+	for _, name := range targetServices {
+		if _, exists := summaryMap[name]; !exists && name != "" {
+			svc, err := s.db.GetServiceByName(ctx, name)
+			if err != nil {
+				// Error querying service registry - continue.
+				continue
+			} else if svc == nil {
+				// Service not in registry - try to find it by agent_id pattern match.
+				// This is a workaround for when services aren't properly registered.
+				// TODO: Ensure services are registered when system metrics are collected.
+				if serviceName != "" {
+					// Look for an agent_id that contains the service name.
+					for agentID := range agentMetrics {
+						// Case-insensitive substring match.
+						if len(agentID) > 0 && contains(agentID, name) {
+							summaryMap[name] = &UnifiedSummaryResult{
+								ServiceName: name,
+								AgentID:     agentID,
+								Status:      "unknown",
+							}
+							break
+						}
+					}
+				}
+			} else {
+				summaryMap[name] = &UnifiedSummaryResult{
+					ServiceName: svc.Name,
+					AgentID:     svc.AgentID,
+					Status:      "unknown",
+				}
+			}
+		}
+	}
+
+	// For services that didn't get an AgentID from OTLP, try looking it up in the registry.
+	// Then populate system metrics for all services that have an AgentID.
+	for _, summary := range summaryMap {
+		if summary.AgentID == "" {
+			// Fallback: look up agent ID from service registry.
+			svc, err := s.db.GetServiceByName(ctx, summary.ServiceName)
+			if err == nil && svc != nil && svc.AgentID != "" {
+				summary.AgentID = svc.AgentID
+			}
+		}
+
+		// If we have an agent ID, attach system metrics.
+		if summary.AgentID != "" {
+			if metrics, hasMetrics := agentMetrics[summary.AgentID]; hasMetrics {
+				// CPU utilization.
+				if cpuUtil, found := metrics["system.cpu.utilization"]; found {
+					summary.HostCPUUtilization = cpuUtil.MaxValue
+					summary.HostCPUUtilizationAvg = cpuUtil.AvgValue
+
+					// Add warning if CPU is high.
+					if cpuUtil.MaxValue > 80 {
+						summary.Issues = append(summary.Issues,
+							fmt.Sprintf("⚠️  High CPU: %.0f%% (threshold: 80%%)", cpuUtil.MaxValue))
+						if summary.Status == "healthy" {
+							summary.Status = "degraded"
+						}
+					}
+				}
+
+				// Memory usage and utilization.
+				if memUsage, found := metrics["system.memory.usage"]; found {
+					summary.HostMemoryUsageGB = memUsage.MaxValue / 1e9 // Convert bytes to GB.
+				}
+				if memLimit, found := metrics["system.memory.limit"]; found {
+					summary.HostMemoryLimitGB = memLimit.AvgValue / 1e9 // Convert bytes to GB.
+				}
+				if memUtil, found := metrics["system.memory.utilization"]; found {
+					summary.HostMemoryUtilization = memUtil.MaxValue
+
+					// Add warning if memory is high.
+					if memUtil.MaxValue > 85 {
+						summary.Issues = append(summary.Issues,
+							fmt.Sprintf("⚠️  High Memory: %.1fGB/%.1fGB (%.0f%%, threshold: 85%%)",
+								summary.HostMemoryUsageGB,
+								summary.HostMemoryLimitGB,
+								memUtil.MaxValue))
+						if summary.Status == "healthy" {
+							summary.Status = "degraded"
+						}
+					}
+				}
 			}
 		}
 	}
@@ -658,4 +794,9 @@ func (s *EbpfQueryService) QueryUnifiedMetrics(ctx context.Context, serviceName 
 func (s *EbpfQueryService) QueryUnifiedLogs(ctx context.Context, serviceName string, startTime, endTime time.Time, level string, search string) ([]string, error) {
 	// Placeholder for log querying.
 	return []string{}, nil
+}
+
+// contains performs case-insensitive substring match.
+func contains(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

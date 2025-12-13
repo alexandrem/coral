@@ -52,6 +52,9 @@ const (
 	// AgentServiceQueryEbpfMetricsProcedure is the fully-qualified name of the AgentService's
 	// QueryEbpfMetrics RPC.
 	AgentServiceQueryEbpfMetricsProcedure = "/coral.agent.v1.AgentService/QueryEbpfMetrics"
+	// AgentServiceQuerySystemMetricsProcedure is the fully-qualified name of the AgentService's
+	// QuerySystemMetrics RPC.
+	AgentServiceQuerySystemMetricsProcedure = "/coral.agent.v1.AgentService/QuerySystemMetrics"
 	// AgentServiceShellProcedure is the fully-qualified name of the AgentService's Shell RPC.
 	AgentServiceShellProcedure = "/coral.agent.v1.AgentService/Shell"
 	// AgentServiceShellExecProcedure is the fully-qualified name of the AgentService's ShellExec RPC.
@@ -90,6 +93,8 @@ type AgentServiceClient interface {
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 	// Query eBPF metrics from agent local storage (RFD 032 Phase 4 - pull-based).
 	QueryEbpfMetrics(context.Context, *connect.Request[v1.QueryEbpfMetricsRequest]) (*connect.Response[v1.QueryEbpfMetricsResponse], error)
+	// Query system metrics from agent local storage (RFD 071 - pull-based).
+	QuerySystemMetrics(context.Context, *connect.Request[v1.QuerySystemMetricsRequest]) (*connect.Response[v1.QuerySystemMetricsResponse], error)
 	// Shell: Interactive shell session in agent environment (RFD 026).
 	Shell(context.Context) *connect.BidiStreamForClient[v1.ShellRequest, v1.ShellResponse]
 	// ShellExec: One-off command execution in agent environment (RFD 045).
@@ -155,6 +160,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("QueryEbpfMetrics")),
 			connect.WithClientOptions(opts...),
 		),
+		querySystemMetrics: connect.NewClient[v1.QuerySystemMetricsRequest, v1.QuerySystemMetricsResponse](
+			httpClient,
+			baseURL+AgentServiceQuerySystemMetricsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("QuerySystemMetrics")),
+			connect.WithClientOptions(opts...),
+		),
 		shell: connect.NewClient[v1.ShellRequest, v1.ShellResponse](
 			httpClient,
 			baseURL+AgentServiceShellProcedure,
@@ -214,6 +225,7 @@ type agentServiceClient struct {
 	listServices        *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
 	queryTelemetry      *connect.Client[v1.QueryTelemetryRequest, v1.QueryTelemetryResponse]
 	queryEbpfMetrics    *connect.Client[v1.QueryEbpfMetricsRequest, v1.QueryEbpfMetricsResponse]
+	querySystemMetrics  *connect.Client[v1.QuerySystemMetricsRequest, v1.QuerySystemMetricsResponse]
 	shell               *connect.Client[v1.ShellRequest, v1.ShellResponse]
 	shellExec           *connect.Client[v1.ShellExecRequest, v1.ShellExecResponse]
 	containerExec       *connect.Client[v1.ContainerExecRequest, v1.ContainerExecResponse]
@@ -252,6 +264,11 @@ func (c *agentServiceClient) QueryTelemetry(ctx context.Context, req *connect.Re
 // QueryEbpfMetrics calls coral.agent.v1.AgentService.QueryEbpfMetrics.
 func (c *agentServiceClient) QueryEbpfMetrics(ctx context.Context, req *connect.Request[v1.QueryEbpfMetricsRequest]) (*connect.Response[v1.QueryEbpfMetricsResponse], error) {
 	return c.queryEbpfMetrics.CallUnary(ctx, req)
+}
+
+// QuerySystemMetrics calls coral.agent.v1.AgentService.QuerySystemMetrics.
+func (c *agentServiceClient) QuerySystemMetrics(ctx context.Context, req *connect.Request[v1.QuerySystemMetricsRequest]) (*connect.Response[v1.QuerySystemMetricsResponse], error) {
+	return c.querySystemMetrics.CallUnary(ctx, req)
 }
 
 // Shell calls coral.agent.v1.AgentService.Shell.
@@ -308,6 +325,8 @@ type AgentServiceHandler interface {
 	QueryTelemetry(context.Context, *connect.Request[v1.QueryTelemetryRequest]) (*connect.Response[v1.QueryTelemetryResponse], error)
 	// Query eBPF metrics from agent local storage (RFD 032 Phase 4 - pull-based).
 	QueryEbpfMetrics(context.Context, *connect.Request[v1.QueryEbpfMetricsRequest]) (*connect.Response[v1.QueryEbpfMetricsResponse], error)
+	// Query system metrics from agent local storage (RFD 071 - pull-based).
+	QuerySystemMetrics(context.Context, *connect.Request[v1.QuerySystemMetricsRequest]) (*connect.Response[v1.QuerySystemMetricsResponse], error)
 	// Shell: Interactive shell session in agent environment (RFD 026).
 	Shell(context.Context, *connect.BidiStream[v1.ShellRequest, v1.ShellResponse]) error
 	// ShellExec: One-off command execution in agent environment (RFD 045).
@@ -367,6 +386,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceQueryEbpfMetricsProcedure,
 		svc.QueryEbpfMetrics,
 		connect.WithSchema(agentServiceMethods.ByName("QueryEbpfMetrics")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceQuerySystemMetricsHandler := connect.NewUnaryHandler(
+		AgentServiceQuerySystemMetricsProcedure,
+		svc.QuerySystemMetrics,
+		connect.WithSchema(agentServiceMethods.ByName("QuerySystemMetrics")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceShellHandler := connect.NewBidiStreamHandler(
@@ -431,6 +456,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceQueryTelemetryHandler.ServeHTTP(w, r)
 		case AgentServiceQueryEbpfMetricsProcedure:
 			agentServiceQueryEbpfMetricsHandler.ServeHTTP(w, r)
+		case AgentServiceQuerySystemMetricsProcedure:
+			agentServiceQuerySystemMetricsHandler.ServeHTTP(w, r)
 		case AgentServiceShellProcedure:
 			agentServiceShellHandler.ServeHTTP(w, r)
 		case AgentServiceShellExecProcedure:
@@ -478,6 +505,10 @@ func (UnimplementedAgentServiceHandler) QueryTelemetry(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) QueryEbpfMetrics(context.Context, *connect.Request[v1.QueryEbpfMetricsRequest]) (*connect.Response[v1.QueryEbpfMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QueryEbpfMetrics is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) QuerySystemMetrics(context.Context, *connect.Request[v1.QuerySystemMetricsRequest]) (*connect.Response[v1.QuerySystemMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentService.QuerySystemMetrics is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) Shell(context.Context, *connect.BidiStream[v1.ShellRequest, v1.ShellResponse]) error {

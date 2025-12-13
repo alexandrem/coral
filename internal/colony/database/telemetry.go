@@ -93,11 +93,18 @@ func (d *Database) QueryTelemetrySummaries(ctx context.Context, agentID string, 
 		SELECT bucket_time, agent_id, service_name, span_kind,
 		       p50_ms, p95_ms, p99_ms, error_count, total_spans, sample_traces
 		FROM otel_summaries
-		WHERE agent_id = ? AND bucket_time >= ? AND bucket_time <= ?
-		ORDER BY bucket_time DESC
+		WHERE bucket_time >= ? AND bucket_time <= ?
 	`
+	args := []interface{}{startTime, endTime}
 
-	rows, err := d.db.QueryContext(ctx, query, agentID, startTime, endTime)
+	if agentID != "" {
+		query += " AND agent_id = ?"
+		args = append(args, agentID)
+	}
+
+	query += " ORDER BY bucket_time DESC"
+
+	rows, err := d.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query telemetry summaries: %w", err)
 	}

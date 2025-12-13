@@ -26,6 +26,9 @@ service AgentService {
   // Query eBPF metrics from agent local storage (RFD 032 Phase 4 - pull-based).
   rpc QueryEbpfMetrics(QueryEbpfMetricsRequest) returns (QueryEbpfMetricsResponse);
 
+  // Query system metrics from agent local storage (RFD 071 - pull-based).
+  rpc QuerySystemMetrics(QuerySystemMetricsRequest) returns (QuerySystemMetricsResponse);
+
   // Shell: Interactive shell session in agent environment (RFD 026).
   rpc Shell(stream ShellRequest) returns (stream ShellResponse);
 
@@ -827,4 +830,48 @@ message FunctionInfo {
 
   // Pre-computed embedding vector (384 dimensions).
   repeated float embedding = 8;
+}
+
+// QuerySystemMetrics RPC messages (RFD 071 - pull-based system metrics).
+
+// SystemMetric represents a single system metric data point stored locally on agents.
+message SystemMetric {
+  // Metric timestamp (Unix milliseconds).
+  int64 timestamp = 1;
+
+  // Metric name (e.g., "system.cpu.utilization", "system.memory.usage").
+  string name = 2;
+
+  // Metric value.
+  double value = 3;
+
+  // Unit of measurement (e.g., "percent", "bytes", "seconds").
+  string unit = 4;
+
+  // Metric type (e.g., "gauge", "counter", "delta").
+  string metric_type = 5;
+
+  // Additional attributes as JSON string.
+  string attributes = 6;
+}
+
+// QuerySystemMetricsRequest is sent from colony to agent to query recent system metrics.
+message QuerySystemMetricsRequest {
+  // Start time for query range (Unix seconds).
+  int64 start_time = 1;
+
+  // End time for query range (Unix seconds).
+  int64 end_time = 2;
+
+  // Filter by metric names (empty = all metrics).
+  repeated string metric_names = 3;
+}
+
+// QuerySystemMetricsResponse contains system metrics from agent's local storage.
+message QuerySystemMetricsResponse {
+  // System metrics matching the query.
+  repeated SystemMetric metrics = 1;
+
+  // Total number of metrics returned.
+  int32 total_metrics = 2;
 }

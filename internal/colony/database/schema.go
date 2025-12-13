@@ -401,4 +401,26 @@ var schemaDDL = []string{
 
 	`CREATE INDEX IF NOT EXISTS idx_function_metrics_function ON function_metrics(function_id, timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_function_metrics_timestamp ON function_metrics(timestamp DESC)`,
+
+	// System metrics summaries - aggregated host-level metrics (CPU, Memory, Disk, Network) from agents (RFD 071).
+	`CREATE TABLE IF NOT EXISTS system_metrics_summaries (
+		bucket_time TIMESTAMP NOT NULL,
+		agent_id TEXT NOT NULL,
+		metric_name VARCHAR(50) NOT NULL,
+		min_value DOUBLE PRECISION,
+		max_value DOUBLE PRECISION,
+		avg_value DOUBLE PRECISION,
+		p95_value DOUBLE PRECISION,
+		delta_value DOUBLE PRECISION,
+		sample_count INTEGER,
+		unit VARCHAR(20),
+		metric_type VARCHAR(10),
+		attributes TEXT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (bucket_time, agent_id, metric_name, attributes)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_system_summaries_lookup ON system_metrics_summaries(agent_id, bucket_time, metric_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_system_summaries_agent_time ON system_metrics_summaries(agent_id, bucket_time DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_system_summaries_bucket_time ON system_metrics_summaries(bucket_time DESC)`,
 }

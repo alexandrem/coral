@@ -229,6 +229,14 @@ message UnifiedSummaryResult {
 
   // Issues detected (human-readable descriptions).
   repeated string issues = 7;
+
+  // Host resources (RFD 071).
+  double host_cpu_utilization = 8;      // CPU utilization percentage (max in time window)
+  double host_cpu_utilization_avg = 9;  // CPU utilization percentage (average in time window)
+  double host_memory_usage_gb = 10;     // Memory usage in GB (max in time window)
+  double host_memory_limit_gb = 11;     // Memory limit in GB
+  double host_memory_utilization = 12;  // Memory utilization percentage (max in time window)
+  string agent_id = 13;                 // Agent ID for correlation
 }
 
 message QueryUnifiedSummaryResponse {
