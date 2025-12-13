@@ -1,3 +1,4 @@
+// Package collector implements system metrics collection.
 package collector
 
 import (

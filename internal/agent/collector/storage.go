@@ -1,3 +1,4 @@
+// Package collector implements system metrics collection and storage.
 package collector
 
 import (
@@ -136,7 +137,7 @@ func (s *Storage) StoreMetrics(ctx context.Context, metrics []Metric) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO system_metrics_local (
@@ -146,7 +147,7 @@ func (s *Storage) StoreMetrics(ctx context.Context, metrics []Metric) error {
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, metric := range metrics {
 		attributesJSON, err := json.Marshal(metric.Attributes)
@@ -193,6 +194,7 @@ func (s *Storage) QueryMetrics(ctx context.Context, startTime, endTime time.Time
 		}
 		args = append(args, startTime, endTime)
 
+		//nolint:gosec // Safe: placeholders are all "?" generated programmatically
 		query := `
 			SELECT timestamp, metric_name, value, unit, metric_type, CAST(attributes AS TEXT)
 			FROM system_metrics_local
@@ -215,7 +217,7 @@ func (s *Storage) QueryMetrics(ctx context.Context, startTime, endTime time.Time
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var metrics []Metric
 	for rows.Next() {
