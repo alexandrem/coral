@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/privilege"
 )
 
@@ -162,11 +165,66 @@ func (d *Database) ColonyID() string {
 	return d.colonyID
 }
 
+// ExecContext executes a query with logging and timing.
+func (d *Database) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	start := time.Now()
+	d.logger.Trace().
+		Str("query", formatQuery(query, args)).
+		Msg("Executing query")
+
+	result, err := d.db.ExecContext(ctx, query, args...)
+
+	d.logger.Trace().
+		Str("query", formatQuery(query, args)).
+		Dur("duration_ms", time.Since(start)).
+		Err(err).
+		Msg("Query executed")
+
+	return result, err
+}
+
+// QueryContext executes a query with logging and timing.
+func (d *Database) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	start := time.Now()
+	d.logger.Trace().
+		Str("query", formatQuery(query, args)).
+		Msg("Executing query")
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+
+	d.logger.Trace().
+		Str("query", formatQuery(query, args)).
+		Dur("duration_ms", time.Since(start)).
+		Err(err).
+		Msg("Query executed")
+
+	return rows, err
+}
+
+// QueryRowContext executes a query that returns at most one row with logging and timing.
+func (d *Database) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	start := time.Now()
+	d.logger.Trace().
+		Str("query", formatQuery(query, args)).
+		Msg("Executing query")
+
+	row := d.db.QueryRowContext(ctx, query, args...)
+
+	d.logger.Trace().
+		Str("query", formatQuery(query, args)).
+		Dur("duration_ms", time.Since(start)).
+		Msg("Query executed")
+
+	return row
+}
+
 // QueryAllServiceNames returns all unique service names from observability data.
 // This includes services from Beyla metrics, traces, and OTEL summaries.
 func (d *Database) QueryAllServiceNames(ctx context.Context) ([]string, error) {
 	query := `
 		SELECT DISTINCT service_name FROM (
+			SELECT DISTINCT name AS service_name FROM services
+			UNION
 			SELECT DISTINCT service_name FROM beyla_http_metrics
 			UNION
 			SELECT DISTINCT service_name FROM beyla_grpc_metrics
@@ -181,7 +239,7 @@ func (d *Database) QueryAllServiceNames(ctx context.Context) ([]string, error) {
 		ORDER BY service_name
 	`
 
-	rows, err := d.db.QueryContext(ctx, query)
+	rows, err := d.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query service names: %w", err)
 	}
@@ -203,4 +261,34 @@ func (d *Database) QueryAllServiceNames(ctx context.Context) ([]string, error) {
 	}
 
 	return services, nil
+}
+
+// formatQuery formats a query with interpolated arguments for logging.
+func formatQuery(query string, args []interface{}) string {
+	// Interpolate arguments into query.
+	interpolated := duckdb.InterpolateQuery(query, args)
+
+	// Clean up whitespace for prettier logging.
+	return cleanQueryWhitespace(interpolated)
+}
+
+// cleanQueryWhitespace condenses multiple whitespace characters into single spaces.
+func cleanQueryWhitespace(query string) string {
+	var result strings.Builder
+	result.Grow(len(query))
+
+	inWhitespace := false
+	for _, ch := range query {
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+			if !inWhitespace {
+				result.WriteRune(' ')
+				inWhitespace = true
+			}
+		} else {
+			result.WriteRune(ch)
+			inWhitespace = false
+		}
+	}
+
+	return strings.TrimSpace(result.String())
 }

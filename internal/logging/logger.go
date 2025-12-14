@@ -14,7 +14,7 @@ type Logger = zerolog.Logger
 
 // Config contains logger configuration.
 type Config struct {
-	// Level sets the logging level (debug, info, warn, error).
+	// Level sets the logging level (trace, debug, info, warn, error).
 	Level string
 	// Pretty enables human-readable console output with colors.
 	Pretty bool
@@ -39,6 +39,8 @@ func New(cfg Config) zerolog.Logger {
 	// Parse log level
 	level := zerolog.InfoLevel
 	switch cfg.Level {
+	case "trace":
+		level = zerolog.TraceLevel
 	case "debug":
 		level = zerolog.DebugLevel
 	case "info":

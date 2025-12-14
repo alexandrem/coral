@@ -15,12 +15,14 @@ import (
 
 // mockDatabase implements a mock database for testing.
 type mockDatabase struct {
-	httpMetrics        []*database.BeylaHTTPMetricResult
-	grpcMetrics        []*database.BeylaGRPCMetricResult
-	sqlMetrics         []*database.BeylaSQLMetricResult
-	traceResults       []*database.BeylaTraceResult
-	telemetrySummaries []database.TelemetrySummary
-	queryError         error
+	httpMetrics            []*database.BeylaHTTPMetricResult
+	grpcMetrics            []*database.BeylaGRPCMetricResult
+	sqlMetrics             []*database.BeylaSQLMetricResult
+	traceResults           []*database.BeylaTraceResult
+	telemetrySummaries     []database.TelemetrySummary
+	systemMetricsSummaries []database.SystemMetricsSummary
+	services               map[string]*database.Service
+	queryError             error
 }
 
 func (m *mockDatabase) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaHTTPMetricResult, error) {
@@ -60,6 +62,38 @@ func (m *mockDatabase) QueryTelemetrySummaries(ctx context.Context, agentID stri
 		return m.telemetrySummaries, nil
 	}
 	return []database.TelemetrySummary{}, nil
+}
+
+func (m *mockDatabase) QuerySystemMetricsSummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.SystemMetricsSummary, error) {
+	if m.queryError != nil {
+		return nil, m.queryError
+	}
+	// Return empty by default, tests can override by setting systemMetricsSummaries field (RFD 071).
+	if m.systemMetricsSummaries != nil {
+		return m.systemMetricsSummaries, nil
+	}
+	return []database.SystemMetricsSummary{}, nil
+}
+
+func (m *mockDatabase) GetServiceByName(ctx context.Context, serviceName string) (*database.Service, error) {
+	if m.queryError != nil {
+		return nil, m.queryError
+	}
+	if svc, ok := m.services[serviceName]; ok {
+		return svc, nil
+	}
+	return nil, nil // Return nil by default
+}
+
+func (m *mockDatabase) QueryAllServiceNames(ctx context.Context) ([]string, error) {
+	if m.queryError != nil {
+		return nil, m.queryError
+	}
+	names := make([]string, 0, len(m.services))
+	for name := range m.services {
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 // TestQueryMetrics_TimeRangeValidation tests time range validation.
@@ -1467,4 +1501,57 @@ func TestQueryUnifiedTraces_SpanMerging(t *testing.T) {
 		assert.Len(t, spans, 1)                              // Only eBPF span
 		assert.Equal(t, "api-service", spans[0].ServiceName) // No [OTLP] suffix
 	})
+}
+
+// TestQueryUnifiedSummary_IdleService verifies that services with only system metrics (no traffic)
+// are correctly returned when specifically requested.
+func TestQueryUnifiedSummary_IdleService(t *testing.T) {
+	// Simulate a scenario where the user queries for the last 15 minutes.
+	// But the database stores data in UTC.
+
+	// Use a fixed time for reproducibility.
+	// Let's say "Now" is 12:00 PM UTC.
+	now := time.Date(2023, 10, 27, 12, 0, 0, 0, time.UTC)
+
+	// The query window is [11:45 AM UTC, 12:00 PM UTC].
+	startTime := now.Add(-15 * time.Minute)
+	endTime := now
+
+	mockDB := &mockDatabase{
+		// Simulate system metrics stored in the DB.
+		// These would be returned by the DB query.
+		systemMetricsSummaries: []database.SystemMetricsSummary{
+			{
+				BucketTime: now.Add(-5 * time.Minute), // 11:55 AM UTC
+				AgentID:    "agent-1",
+				MetricName: "system.cpu.utilization", // metric_name
+				AvgValue:   50.0,
+			},
+		},
+		// Simulate OTLP summaries - EMPTY (Idle service simulation)
+		telemetrySummaries: []database.TelemetrySummary{},
+		// Setup service registry to link agent-1 to my-service
+		services: map[string]*database.Service{
+			"my-service": {Name: "my-service", AgentID: "agent-1"},
+		},
+	}
+
+	service := &EbpfQueryService{db: mockDB}
+	ctx := context.Background()
+
+	// Execute the query for "my-service".
+	// The system logic currently only builds summaries if eBPF or OTLP data exists.
+	// If this returns empty, it confirms that idle services with only system metrics are ignored.
+	results, err := service.QueryUnifiedSummary(ctx, "my-service", startTime, endTime)
+	require.NoError(t, err)
+
+	// Verify we got results.
+	assert.NotEmpty(t, results, "Expected results for idle service with system metrics, but got none.")
+
+	if len(results) > 0 {
+		assert.Equal(t, "my-service", results[0].ServiceName)
+		assert.Equal(t, "agent-1", results[0].AgentID)
+		// Check CPU utilization is populated
+		assert.Greater(t, results[0].HostCPUUtilizationAvg, 0.0)
+	}
 }

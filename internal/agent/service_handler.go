@@ -17,23 +17,25 @@ import (
 
 // ServiceHandler implements the AgentService gRPC interface for managing service connections.
 type ServiceHandler struct {
-	agent             *Agent
-	runtimeService    *RuntimeService
-	telemetryReceiver *TelemetryReceiver
-	shellHandler      *ShellHandler
-	containerHandler  *ContainerHandler
-	functionCache     *FunctionCache
+	agent                *Agent
+	runtimeService       *RuntimeService
+	telemetryReceiver    *TelemetryReceiver
+	shellHandler         *ShellHandler
+	containerHandler     *ContainerHandler
+	functionCache        *FunctionCache
+	systemMetricsHandler *SystemMetricsHandler
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler, containerHandler *ContainerHandler, functionCache *FunctionCache) *ServiceHandler {
+func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryReceiver *TelemetryReceiver, shellHandler *ShellHandler, containerHandler *ContainerHandler, functionCache *FunctionCache, systemMetricsHandler *SystemMetricsHandler) *ServiceHandler {
 	return &ServiceHandler{
-		agent:             agent,
-		runtimeService:    runtimeService,
-		telemetryReceiver: telemetryReceiver,
-		shellHandler:      shellHandler,
-		containerHandler:  containerHandler,
-		functionCache:     functionCache,
+		agent:                agent,
+		runtimeService:       runtimeService,
+		telemetryReceiver:    telemetryReceiver,
+		shellHandler:         shellHandler,
+		containerHandler:     containerHandler,
+		functionCache:        functionCache,
+		systemMetricsHandler: systemMetricsHandler,
 	}
 }
 
@@ -410,6 +412,24 @@ func (h *ServiceHandler) QueryEbpfMetrics(
 	}
 
 	return connect.NewResponse(response), nil
+}
+
+// QuerySystemMetrics retrieves system metrics from the agent's local storage (RFD 071).
+// Colony calls this to query system metrics from agent's local DuckDB.
+func (h *ServiceHandler) QuerySystemMetrics(
+	ctx context.Context,
+	req *connect.Request[agentv1.QuerySystemMetricsRequest],
+) (*connect.Response[agentv1.QuerySystemMetricsResponse], error) {
+	// If system metrics handler is not initialized, return empty response.
+	if h.systemMetricsHandler == nil {
+		return connect.NewResponse(&agentv1.QuerySystemMetricsResponse{
+			Metrics:      []*agentv1.SystemMetric{},
+			TotalMetrics: 0,
+		}), nil
+	}
+
+	// Delegate to system metrics handler.
+	return h.systemMetricsHandler.QuerySystemMetrics(ctx, req)
 }
 
 // Shell implements the Shell RPC (RFD 026).

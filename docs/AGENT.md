@@ -10,6 +10,7 @@ applications to collect telemetry data and respond to colony queries.
 - [Port Overview](#port-overview)
 - [OpenTelemetry Integration](#opentelemetry-integration)
 - [Beyla Integration (eBPF Metrics)](#beyla-integration-ebpf-metrics)
+- [System Metrics](#system-metrics)
 - [Agent API](#agent-api)
 - [Static Filtering](#static-filtering)
 - [Data Flow](#data-flow)
@@ -245,6 +246,63 @@ SDK for detailed application traces.
 
 > **Configuration**: For Beyla configuration options (discovery, protocols,
 > attributes), see [`docs/CONFIG.md`](CONFIG.md#beyla-integration-configuration).
+
+---
+
+## System Metrics
+
+### Overview
+
+The agent collects host-level system metrics to provide infrastructure visibility
+alongside application telemetry. This allows you to correlate application
+performance issues with underlying resource constraints (e.g., CPU throttling,
+OOM kills, disk saturation).
+
+**Collected Metrics:**
+
+- **CPU**: Utilization percentage, user/system/idle time breakdown
+- **Memory**: Used/available bytes, utilization percentage
+- **Disk**: IOPS, throughput (bytes/sec), disk usage percentage
+- **Network**: Bandwidth (bytes sent/recv), packet errors/drops
+
+### Architecture
+
+The system metrics subsystem follows the same **pull-based** and **local-first**
+philosophy as other agent components:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Coral Agent - System Metrics Collector                     │
+│  • Samples host metrics (via gopsutil)                      │
+│  • Interval: ~15s                                           │
+│  • Overhead: <1% CPU                                        │
+└─────────────────┬───────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Local Storage (DuckDB)                                     │
+│  • Table: system_metrics_local                              │
+│  • Retention: ~1 hour                                       │
+└─────────────────┬───────────────────────────────────────────┘
+                  │
+                  │ Colony Poll (every 60s)
+                  ▼
+          ┌──────────────────┐
+          │  Colony          │
+          │  • Aggregates    │
+          │  • Summarizes    │
+          └──────────────────┘
+```
+
+**Key Characteristics:**
+
+- **Lightweight**: Uses efficient native syscalls via `gopsutil`
+- **Privacy-safe**: Only collects aggregate counters, no PII or process commands
+- **Correlation**: Metrics are timestamped to align perfectly with traces and Beyla metrics
+
+> **Configuration**: For system metrics configuration options (poll interval,
+> enabling/disabling), see
+> [`docs/CONFIG.md`](CONFIG.md#system-metrics-configuration-rfd-071).
 
 ---
 

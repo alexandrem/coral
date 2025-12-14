@@ -894,9 +894,16 @@ type UnifiedSummaryResult struct {
 	// Data source: eBPF, OTLP, or eBPF+OTLP.
 	Source string `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
 	// Issues detected (human-readable descriptions).
-	Issues        []string `protobuf:"bytes,7,rep,name=issues,proto3" json:"issues,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Issues []string `protobuf:"bytes,7,rep,name=issues,proto3" json:"issues,omitempty"`
+	// Host resources (RFD 071).
+	HostCpuUtilization    float64 `protobuf:"fixed64,8,opt,name=host_cpu_utilization,json=hostCpuUtilization,proto3" json:"host_cpu_utilization,omitempty"`            // CPU utilization percentage (max in time window)
+	HostCpuUtilizationAvg float64 `protobuf:"fixed64,9,opt,name=host_cpu_utilization_avg,json=hostCpuUtilizationAvg,proto3" json:"host_cpu_utilization_avg,omitempty"` // CPU utilization percentage (average in time window)
+	HostMemoryUsageGb     float64 `protobuf:"fixed64,10,opt,name=host_memory_usage_gb,json=hostMemoryUsageGb,proto3" json:"host_memory_usage_gb,omitempty"`            // Memory usage in GB (max in time window)
+	HostMemoryLimitGb     float64 `protobuf:"fixed64,11,opt,name=host_memory_limit_gb,json=hostMemoryLimitGb,proto3" json:"host_memory_limit_gb,omitempty"`            // Memory limit in GB
+	HostMemoryUtilization float64 `protobuf:"fixed64,12,opt,name=host_memory_utilization,json=hostMemoryUtilization,proto3" json:"host_memory_utilization,omitempty"`  // Memory utilization percentage (max in time window)
+	AgentId               string  `protobuf:"bytes,13,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                                // Agent ID for correlation
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *UnifiedSummaryResult) Reset() {
@@ -976,6 +983,48 @@ func (x *UnifiedSummaryResult) GetIssues() []string {
 		return x.Issues
 	}
 	return nil
+}
+
+func (x *UnifiedSummaryResult) GetHostCpuUtilization() float64 {
+	if x != nil {
+		return x.HostCpuUtilization
+	}
+	return 0
+}
+
+func (x *UnifiedSummaryResult) GetHostCpuUtilizationAvg() float64 {
+	if x != nil {
+		return x.HostCpuUtilizationAvg
+	}
+	return 0
+}
+
+func (x *UnifiedSummaryResult) GetHostMemoryUsageGb() float64 {
+	if x != nil {
+		return x.HostMemoryUsageGb
+	}
+	return 0
+}
+
+func (x *UnifiedSummaryResult) GetHostMemoryLimitGb() float64 {
+	if x != nil {
+		return x.HostMemoryLimitGb
+	}
+	return 0
+}
+
+func (x *UnifiedSummaryResult) GetHostMemoryUtilization() float64 {
+	if x != nil {
+		return x.HostMemoryUtilization
+	}
+	return 0
+}
+
+func (x *UnifiedSummaryResult) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
 }
 
 type QueryUnifiedSummaryResponse struct {
@@ -1628,7 +1677,7 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\x1aQueryUnifiedSummaryRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1d\n" +
 	"\n" +
-	"time_range\x18\x02 \x01(\tR\ttimeRange\"\xeb\x01\n" +
+	"time_range\x18\x02 \x01(\tR\ttimeRange\"\x8b\x04\n" +
 	"\x14UnifiedSummaryResult\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12#\n" +
@@ -1637,7 +1686,14 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"error_rate\x18\x04 \x01(\x01R\terrorRate\x12$\n" +
 	"\x0eavg_latency_ms\x18\x05 \x01(\x01R\favgLatencyMs\x12\x16\n" +
 	"\x06source\x18\x06 \x01(\tR\x06source\x12\x16\n" +
-	"\x06issues\x18\a \x03(\tR\x06issues\"b\n" +
+	"\x06issues\x18\a \x03(\tR\x06issues\x120\n" +
+	"\x14host_cpu_utilization\x18\b \x01(\x01R\x12hostCpuUtilization\x127\n" +
+	"\x18host_cpu_utilization_avg\x18\t \x01(\x01R\x15hostCpuUtilizationAvg\x12/\n" +
+	"\x14host_memory_usage_gb\x18\n" +
+	" \x01(\x01R\x11hostMemoryUsageGb\x12/\n" +
+	"\x14host_memory_limit_gb\x18\v \x01(\x01R\x11hostMemoryLimitGb\x126\n" +
+	"\x17host_memory_utilization\x18\f \x01(\x01R\x15hostMemoryUtilization\x12\x19\n" +
+	"\bagent_id\x18\r \x01(\tR\aagentId\"b\n" +
 	"\x1bQueryUnifiedSummaryResponse\x12C\n" +
 	"\tsummaries\x18\x01 \x03(\v2%.coral.colony.v1.UnifiedSummaryResultR\tsummaries\"\xce\x01\n" +
 	"\x19QueryUnifiedTracesRequest\x12\x18\n" +
