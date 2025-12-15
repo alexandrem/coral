@@ -1165,8 +1165,8 @@ func TestQueryUnifiedSummary_DataMerging(t *testing.T) {
 		assert.Len(t, results, 1)
 
 		result := results[0]
-		assert.Equal(t, "critical", result.Status) // High error rate should mark as critical
-		assert.Equal(t, 100.0, result.ErrorRate)   // All requests are errors
+		assert.Equal(t, ServiceStatusCritical, result.Status) // High error rate should mark as critical
+		assert.Equal(t, 100.0, result.ErrorRate)              // All requests are errors
 	})
 }
 

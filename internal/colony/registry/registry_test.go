@@ -9,7 +9,7 @@ import (
 )
 
 func TestRegistry_Register(t *testing.T) {
-	reg := New()
+	reg := New(nil)
 
 	t.Run("successful registration", func(t *testing.T) {
 		entry, err := reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -40,7 +40,7 @@ func TestRegistry_Register(t *testing.T) {
 	})
 
 	t.Run("update existing registration", func(t *testing.T) {
-		reg := New()
+		reg := New(nil)
 
 		// Initial registration.
 		entry1, err := reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -64,7 +64,7 @@ func TestRegistry_Register(t *testing.T) {
 }
 
 func TestRegistry_UpdateHeartbeat(t *testing.T) {
-	reg := New()
+	reg := New(nil)
 
 	t.Run("update existing agent", func(t *testing.T) {
 		entry, err := reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -95,7 +95,7 @@ func TestRegistry_UpdateHeartbeat(t *testing.T) {
 }
 
 func TestRegistry_Get(t *testing.T) {
-	reg := New()
+	reg := New(nil)
 
 	t.Run("get existing agent", func(t *testing.T) {
 		_, err := reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -121,7 +121,7 @@ func TestRegistry_Get(t *testing.T) {
 }
 
 func TestRegistry_ListAll(t *testing.T) {
-	reg := New()
+	reg := New(nil)
 
 	t.Run("empty registry", func(t *testing.T) {
 		entries := reg.ListAll()
@@ -148,7 +148,7 @@ func TestRegistry_ListAll(t *testing.T) {
 }
 
 func TestRegistry_Count(t *testing.T) {
-	reg := New()
+	reg := New(nil)
 
 	assert.Equal(t, 0, reg.Count())
 
@@ -164,7 +164,7 @@ func TestRegistry_Count(t *testing.T) {
 }
 
 func TestRegistry_CountActive(t *testing.T) {
-	reg := New()
+	reg := New(nil)
 
 	t.Run("all healthy agents", func(t *testing.T) {
 		_, _ = reg.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -174,7 +174,7 @@ func TestRegistry_CountActive(t *testing.T) {
 	})
 
 	t.Run("mixed status agents", func(t *testing.T) {
-		reg := New()
+		reg := New(nil)
 
 		// Register agents.
 		_, _ = reg.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -201,7 +201,7 @@ func TestRegistry_CountActive(t *testing.T) {
 }
 
 func TestRegistry_ConcurrentAccess(t *testing.T) {
-	reg := New()
+	reg := New(nil)
 	done := make(chan bool)
 
 	// Concurrent writes.

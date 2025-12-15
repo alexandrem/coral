@@ -17,7 +17,7 @@ import (
 // TestServiceHealthTool tests the coral_get_service_health tool integration.
 func TestServiceHealthTool(t *testing.T) {
 	// Create test registry with mock agents.
-	reg := registry.New()
+	reg := registry.New(nil)
 
 	// Register healthy agent.
 	_, err := reg.Register(
@@ -112,7 +112,7 @@ func TestServiceHealthTool(t *testing.T) {
 
 	// Test 3: No services connected.
 	t.Run("no services", func(t *testing.T) {
-		emptyReg := registry.New()
+		emptyReg := registry.New(nil)
 		emptyServer := &Server{
 			registry: emptyReg,
 			config:   server.config,
@@ -214,7 +214,7 @@ func testServiceHealthCall(s *Server, input ServiceHealthInput) (string, error) 
 // TestServiceTopologyTool tests the coral_get_service_topology tool.
 func TestServiceTopologyTool(t *testing.T) {
 	// Create test registry with mock agents.
-	reg := registry.New()
+	reg := registry.New(nil)
 
 	_, err := reg.Register("agent-1", "api-service", "10.0.0.1", "fd00::1", nil, nil, "v1.0.0")
 	require.NoError(t, err)
@@ -331,7 +331,7 @@ func TestAuditLogging(t *testing.T) {
 
 // TestServerCreation tests MCP server creation and initialization.
 func TestServerCreation(t *testing.T) {
-	reg := registry.New()
+	reg := registry.New(nil)
 	db := &database.Database{} // Mock database.
 
 	logger := logging.NewWithComponent(logging.Config{

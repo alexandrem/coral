@@ -42,7 +42,7 @@ func (s *Server) QueryUnifiedSummary(
 	for _, r := range results {
 		summaries = append(summaries, &colonyv1.UnifiedSummaryResult{
 			ServiceName:           r.ServiceName,
-			Status:                r.Status,
+			Status:                r.Status.String(),
 			RequestCount:          r.RequestCount,
 			ErrorRate:             r.ErrorRate,
 			AvgLatencyMs:          r.AvgLatencyMs,

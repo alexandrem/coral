@@ -19,7 +19,7 @@ func TestResolveAgent(t *testing.T) {
 	}, "mcp-test")
 
 	t.Run("resolve by agent ID - success", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 		services := []*meshv1.ServiceInfo{
 			{Name: "api", Port: 8080},
 		}
@@ -39,7 +39,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("resolve by agent ID - not found", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 		server := &Server{
 			registry: reg,
 			logger:   logger,
@@ -53,7 +53,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("resolve by service - unique match", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 		services := []*meshv1.ServiceInfo{
 			{Name: "frontend", Port: 3000},
 		}
@@ -72,7 +72,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("resolve by service - multiple matches (disambiguation error)", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 
 		// Register 3 agents all serving "api" service.
 		services1 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
@@ -102,7 +102,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("resolve by service - no matches", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 		services := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
 		_, err := reg.Register("agent-api", "api", "10.42.0.15", "fd42::15", services, nil, "v1.0.0")
 		require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("agent ID takes precedence over service", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 
 		// Register multiple agents with same service.
 		services1 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
@@ -144,7 +144,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("multi-service agent - match by any service", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 
 		// Agent monitoring multiple services.
 		services := []*meshv1.ServiceInfo{
@@ -171,7 +171,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("pattern matching - wildcard", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 
 		services1 := []*meshv1.ServiceInfo{{Name: "api-v1", Port: 8080}}
 		services2 := []*meshv1.ServiceInfo{{Name: "api-v2", Port: 8081}}
@@ -207,7 +207,7 @@ func TestExecuteCommandToolWithAgentID(t *testing.T) {
 	}, "mcp-test")
 
 	t.Run("exec command with agent_id - unambiguous", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 
 		// Register multiple agents with same service.
 		services1 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
@@ -238,7 +238,7 @@ func TestExecuteCommandToolWithAgentID(t *testing.T) {
 	})
 
 	t.Run("exec command with service only - ambiguous error", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 
 		// Register multiple agents with same service.
 		services1 := []*meshv1.ServiceInfo{{Name: "api", Port: 8080}}
@@ -274,7 +274,7 @@ func TestServiceFiltering(t *testing.T) {
 	}, "mcp-test")
 
 	t.Run("filter by service from Services array, not ComponentName", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 
 		// Agent with ComponentName "multi" but Services array contains specific services.
 		services := []*meshv1.ServiceInfo{
@@ -303,7 +303,7 @@ func TestServiceFiltering(t *testing.T) {
 	})
 
 	t.Run("agent with no services - no match", func(t *testing.T) {
-		reg := registry.New()
+		reg := registry.New(nil)
 
 		// Agent with no services in Services array.
 		_, err := reg.Register("agent-empty", "empty", "10.42.0.18", "fd42::18", nil, nil, "v1.0.0")

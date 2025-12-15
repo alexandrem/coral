@@ -72,8 +72,8 @@ func TestQueryUnifiedSummaryHandler(t *testing.T) {
 	t.Run("successful summary query", func(t *testing.T) {
 		mockSvc := &mockEbpfService{
 			summaryResults: []colony.UnifiedSummaryResult{
-				{ServiceName: "api-service", Status: "healthy"},
-				{ServiceName: "payment-service", Status: "degraded"},
+				{ServiceName: "api-service", Status: colony.ServiceStatusHealthy},
+				{ServiceName: "payment-service", Status: colony.ServiceStatusDegraded},
 			},
 		}
 

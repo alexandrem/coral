@@ -19,7 +19,6 @@ import (
 )
 
 func newTestServer(t *testing.T, config Config) *Server {
-	reg := registry.New()
 	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 
 	// Create temporary database for testing.
@@ -28,6 +27,8 @@ func newTestServer(t *testing.T, config Config) *Server {
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
+
+	reg := registry.New(db)
 
 	// Create CA directory within temp directory.
 	caDir := filepath.Join(tmpDir, "ca")

@@ -218,25 +218,14 @@ func (d *Database) QueryRowContext(ctx context.Context, query string, args ...in
 	return row
 }
 
-// QueryAllServiceNames returns all unique service names from observability data.
-// This includes services from Beyla metrics, traces, and OTEL summaries.
+// QueryAllServiceNames returns all unique service names from the service registry.
+// This includes both active and recently-seen services persisted in the database.
 func (d *Database) QueryAllServiceNames(ctx context.Context) ([]string, error) {
 	query := `
-		SELECT DISTINCT service_name FROM (
-			SELECT DISTINCT name AS service_name FROM services
-			UNION
-			SELECT DISTINCT service_name FROM beyla_http_metrics
-			UNION
-			SELECT DISTINCT service_name FROM beyla_grpc_metrics
-			UNION
-			SELECT DISTINCT service_name FROM beyla_sql_metrics
-			UNION
-			SELECT DISTINCT service_name FROM beyla_traces
-			UNION
-			SELECT DISTINCT service_name FROM otel_summaries
-		)
-		WHERE service_name IS NOT NULL AND service_name != ''
-		ORDER BY service_name
+		SELECT DISTINCT name 
+		FROM services 
+		WHERE name IS NOT NULL AND name != ''
+		ORDER BY name
 	`
 
 	rows, err := d.QueryContext(ctx, query)

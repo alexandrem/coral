@@ -172,7 +172,14 @@ Examples:
 			logger.Debug().Msg("Colony running with elevated privileges for dynamic network management")
 
 			// Create agent registry for tracking connected agents.
-			agentRegistry := registry.New()
+			agentRegistry := registry.New(db)
+
+			// Load persisted services from database to restore registry state after restart.
+			if err := agentRegistry.LoadFromDatabase(context.Background()); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to load persisted services from database")
+			}
 
 			// Build endpoints advertised to discovery using public/reachable addresses.
 			// For local development, use empty host (":port") to let agents discover via local network.
