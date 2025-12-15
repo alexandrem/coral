@@ -345,14 +345,44 @@ func (s *EbpfQueryService) queryTraceSpans(ctx context.Context, req *agentv1.Que
 
 // Unified Query Methods (RFD 067)
 
+// ServiceStatus represents the health status of a service.
+type ServiceStatus int
+
+const (
+	// ServiceStatusHealthy indicates the service is operating normally.
+	ServiceStatusHealthy ServiceStatus = iota
+	// ServiceStatusDegraded indicates the service has issues but is still operational.
+	ServiceStatusDegraded
+	// ServiceStatusCritical indicates the service has severe issues.
+	ServiceStatusCritical
+	// ServiceStatusIdle indicates the service is registered but not receiving traffic.
+	ServiceStatusIdle
+)
+
+// String returns the string representation of ServiceStatus.
+func (s ServiceStatus) String() string {
+	switch s {
+	case ServiceStatusHealthy:
+		return "healthy"
+	case ServiceStatusDegraded:
+		return "degraded"
+	case ServiceStatusCritical:
+		return "critical"
+	case ServiceStatusIdle:
+		return "idle"
+	default:
+		return "unknown"
+	}
+}
+
 // UnifiedSummaryResult represents the health summary of a service.
 type UnifiedSummaryResult struct {
 	ServiceName  string
-	Status       string  // healthy, degraded, critical
-	RequestCount int64   // Total requests/spans
-	ErrorRate    float64 // Error rate as percentage
-	AvgLatencyMs float64 // Average latency in milliseconds
-	Source       string  // eBPF, OTLP, or eBPF+OTLP
+	Status       ServiceStatus // healthy, degraded, critical, idle
+	RequestCount int64         // Total requests/spans
+	ErrorRate    float64       // Error rate as percentage
+	AvgLatencyMs float64       // Average latency in milliseconds
+	Source       string        // eBPF, OTLP, or eBPF+OTLP
 	Issues       []string
 	// Host resources (RFD 071).
 	HostCPUUtilization    float64 // CPU utilization percentage (max in time window)
@@ -411,11 +441,11 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 			avgLatency = sum / float64(len(latencies))
 		}
 
-		status := "healthy"
+		status := ServiceStatusHealthy
 		if errorRate > 5.0 {
-			status = "critical"
+			status = ServiceStatusCritical
 		} else if errorRate > 1.0 || avgLatency > 1000 {
-			status = "degraded"
+			status = ServiceStatusDegraded
 		}
 
 		summaryMap[svc] = &UnifiedSummaryResult{
@@ -467,9 +497,9 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 
 			// Re-evaluate status.
 			if existing.ErrorRate > 5.0 || existing.AvgLatencyMs > 2000 {
-				existing.Status = "critical"
+				existing.Status = ServiceStatusCritical
 			} else if existing.ErrorRate > 1.0 || existing.AvgLatencyMs > 1000 {
-				existing.Status = "degraded"
+				existing.Status = ServiceStatusDegraded
 			}
 		} else {
 			// Service has only OTLP data.
@@ -478,11 +508,11 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 				errorRate = float64(otlp.ErrorCount) / float64(otlp.TotalSpans) * 100
 			}
 
-			status := "healthy"
+			status := ServiceStatusHealthy
 			if errorRate > 5.0 || otlp.P95Ms > 2000 {
-				status = "critical"
+				status = ServiceStatusCritical
 			} else if errorRate > 1.0 || otlp.P95Ms > 1000 {
-				status = "degraded"
+				status = ServiceStatusDegraded
 			}
 
 			summaryMap[otlp.ServiceName] = &UnifiedSummaryResult{
@@ -512,13 +542,6 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		agentMetrics[metric.AgentID][metric.MetricName] = metric
 	}
 
-	// Associate services with agents (from OTLP data).
-	for _, otlp := range telemetrySummaries {
-		if summary, exists := summaryMap[otlp.ServiceName]; exists {
-			summary.AgentID = otlp.AgentID
-		}
-	}
-
 	// Ensure all relevant services are in the summary map.
 	// If specific service requested: check just that one.
 	// If all services requested: check all known service names (to include idle ones).
@@ -546,23 +569,35 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 				// With proper service persistence, all registered services should be in the database.
 				continue
 			} else {
+				// Service is registered but has no recent metrics - mark as idle.
 				summaryMap[name] = &UnifiedSummaryResult{
 					ServiceName: svc.Name,
 					AgentID:     svc.AgentID,
-					Status:      "unknown",
+					Status:      ServiceStatusIdle,
 				}
 			}
 		}
 	}
 
-	// For services that didn't get an AgentID from OTLP, try looking it up in the registry.
-	// Then populate system metrics for all services that have an AgentID.
+	// Associate services with agents using database as primary source, OTLP as fallback.
+	// Build OTLP agent mapping for fallback.
+	otlpAgentMap := make(map[string]string)
+	for _, otlp := range telemetrySummaries {
+		if otlp.AgentID != "" {
+			otlpAgentMap[otlp.ServiceName] = otlp.AgentID
+		}
+	}
+
+	// Populate agent IDs and system metrics for all services.
 	for _, summary := range summaryMap {
 		if summary.AgentID == "" {
-			// Fallback: look up agent ID from service registry.
+			// Primary: look up agent ID from service registry (most reliable).
 			svc, err := s.db.GetServiceByName(ctx, summary.ServiceName)
 			if err == nil && svc != nil && svc.AgentID != "" {
 				summary.AgentID = svc.AgentID
+			} else if otlpAgentID, found := otlpAgentMap[summary.ServiceName]; found {
+				// Fallback: use OTLP agent ID if database doesn't have it.
+				summary.AgentID = otlpAgentID
 			}
 		}
 
@@ -578,8 +613,9 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 					if cpuUtil.MaxValue > 80 {
 						summary.Issues = append(summary.Issues,
 							fmt.Sprintf("⚠️  High CPU: %.0f%% (threshold: 80%%)", cpuUtil.MaxValue))
-						if summary.Status == "healthy" {
-							summary.Status = "degraded"
+						// Upgrade status to degraded if currently healthy or idle.
+						if summary.Status == ServiceStatusHealthy || summary.Status == ServiceStatusIdle {
+							summary.Status = ServiceStatusDegraded
 						}
 					}
 				}
@@ -601,8 +637,9 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 								summary.HostMemoryUsageGB,
 								summary.HostMemoryLimitGB,
 								memUtil.MaxValue))
-						if summary.Status == "healthy" {
-							summary.Status = "degraded"
+						// Upgrade status to degraded if currently healthy or idle.
+						if summary.Status == ServiceStatusHealthy || summary.Status == ServiceStatusIdle {
+							summary.Status = ServiceStatusDegraded
 						}
 					}
 				}

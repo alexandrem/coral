@@ -189,10 +189,12 @@ func (s *Server) registerUnifiedSummaryTool() {
 			for _, r := range results {
 				statusIcon := "✅"
 				switch r.Status {
-				case "degraded":
+				case colony.ServiceStatusDegraded:
 					statusIcon = "⚠️"
-				case "critical":
+				case colony.ServiceStatusCritical:
 					statusIcon = "❌"
+				case colony.ServiceStatusIdle:
+					statusIcon = "💤"
 				}
 
 				text += fmt.Sprintf("%s %s (%s)\n", statusIcon, r.ServiceName, r.Source)
