@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -527,10 +526,13 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 	if serviceName != "" {
 		targetServices = []string{serviceName}
 	} else {
-		// Ignore error, best effort to find other services
-		if names, err := s.db.QueryAllServiceNames(ctx); err == nil {
-			targetServices = names
+		names, err := s.db.QueryAllServiceNames(ctx)
+		if err != nil {
+			// Still return what we have so far rather than failing completely.
+			// This maintains backward compatibility while logging the error.
+			return convertSummaryMapToSlice(summaryMap), nil
 		}
+		targetServices = names
 	}
 
 	for _, name := range targetServices {
@@ -540,23 +542,9 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 				// Error querying service registry - continue.
 				continue
 			} else if svc == nil {
-				// Service not in registry - try to find it by agent_id pattern match.
-				// This is a workaround for when services aren't properly registered.
-				// TODO: Ensure services are registered when system metrics are collected.
-				if serviceName != "" {
-					// Look for an agent_id that contains the service name.
-					for agentID := range agentMetrics {
-						// Case-insensitive substring match.
-						if len(agentID) > 0 && contains(agentID, name) {
-							summaryMap[name] = &UnifiedSummaryResult{
-								ServiceName: name,
-								AgentID:     agentID,
-								Status:      "unknown",
-							}
-							break
-						}
-					}
-				}
+				// Service not found in registry - skip it.
+				// With proper service persistence, all registered services should be in the database.
+				continue
 			} else {
 				summaryMap[name] = &UnifiedSummaryResult{
 					ServiceName: svc.Name,
@@ -794,9 +782,4 @@ func (s *EbpfQueryService) QueryUnifiedMetrics(ctx context.Context, serviceName 
 func (s *EbpfQueryService) QueryUnifiedLogs(ctx context.Context, serviceName string, startTime, endTime time.Time, level string, search string) ([]string, error) {
 	// Placeholder for log querying.
 	return []string{}, nil
-}
-
-// contains performs case-insensitive substring match.
-func contains(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

@@ -218,8 +218,8 @@ func (d *Database) QueryRowContext(ctx context.Context, query string, args ...in
 	return row
 }
 
-// QueryAllServiceNames returns all unique service names from observability data.
-// This includes services from Beyla metrics, traces, and OTEL summaries.
+// QueryAllServiceNames returns all unique service names from the service registry.
+// This includes both active and recently-seen services persisted in the database.
 func (d *Database) QueryAllServiceNames(ctx context.Context) ([]string, error) {
 	query := `
 		SELECT DISTINCT name 
