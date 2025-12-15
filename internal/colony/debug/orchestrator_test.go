@@ -37,7 +37,7 @@ func setupTestDB(t *testing.T) *database.Database {
 func setupTestOrchestrator(t *testing.T) (*Orchestrator, *database.Database) {
 	db := setupTestDB(t)
 	logger := zerolog.Nop()
-	reg := registry.New()
+	reg := registry.New(db)
 
 	// Add a test agent to registry
 	_, err := reg.Register(
@@ -253,7 +253,7 @@ func TestSchemaInitialization(t *testing.T) {
 	defer db.Close()
 
 	logger := zerolog.Nop()
-	reg := registry.New()
+	reg := registry.New(db)
 
 	// Create orchestrator - should initialize schema
 	_ = NewOrchestrator(logger, reg, db, nil)

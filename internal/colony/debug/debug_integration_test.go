@@ -51,8 +51,8 @@ func (m *mockDebugClient) QueryUprobeEvents(ctx context.Context, req *connect.Re
 func TestDebugFlowIntegration(t *testing.T) {
 	// Setup dependencies
 	logger := zerolog.Nop()
-	reg := registry.New()
 	db := setupTestDB(t) // Reusing helper from orchestrator_test.go
+	reg := registry.New(db)
 
 	// Register mock agent
 	agentID := "agent-1"
@@ -166,8 +166,8 @@ func TestDebugFlowIntegration(t *testing.T) {
 func TestDebugFlow_AgentReturnsError(t *testing.T) {
 	// Setup dependencies
 	logger := zerolog.Nop()
-	reg := registry.New()
 	db := setupTestDB(t)
+	reg := registry.New(db)
 	defer db.Close()
 
 	// Register mock agent
@@ -215,8 +215,8 @@ func TestDebugFlow_AgentReturnsError(t *testing.T) {
 func TestDebugFlow_AgentNetworkError(t *testing.T) {
 	// Setup dependencies
 	logger := zerolog.Nop()
-	reg := registry.New()
 	db := setupTestDB(t)
+	reg := registry.New(db)
 	defer db.Close()
 
 	// Register mock agent
@@ -256,8 +256,8 @@ func TestDebugFlow_AgentNetworkError(t *testing.T) {
 func TestDebugFlow_ServiceDiscovery(t *testing.T) {
 	// Setup dependencies
 	logger := zerolog.Nop()
-	reg := registry.New()
 	db := setupTestDB(t)
+	reg := registry.New(db)
 	defer db.Close()
 
 	// Register agent with service info
@@ -314,8 +314,8 @@ func TestDebugFlow_ServiceDiscovery(t *testing.T) {
 func TestDebugFlow_DetachError(t *testing.T) {
 	// Setup dependencies
 	logger := zerolog.Nop()
-	reg := registry.New()
 	db := setupTestDB(t)
+	reg := registry.New(db)
 	defer db.Close()
 
 	// Register mock agent
@@ -376,8 +376,8 @@ func TestDebugFlow_DetachError(t *testing.T) {
 func TestDebugFlow_QueryWithFilters(t *testing.T) {
 	// Setup dependencies
 	logger := zerolog.Nop()
-	reg := registry.New()
 	db := setupTestDB(t)
+	reg := registry.New(db)
 	defer db.Close()
 
 	// Register mock agent

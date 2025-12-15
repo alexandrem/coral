@@ -2,12 +2,16 @@
 package registry
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -42,13 +46,98 @@ type Entry struct {
 type Registry struct {
 	mu      sync.RWMutex
 	entries map[string]*Entry
+	db      *database.Database
 }
 
 // New creates a new Registry.
-func New() *Registry {
+func New(db *database.Database) *Registry {
 	return &Registry{
 		entries: make(map[string]*Entry),
+		db:      db,
 	}
+}
+
+// LoadFromDatabase loads persisted services from the database into the registry.
+// This should be called on startup to restore the registry state after a restart.
+func (r *Registry) LoadFromDatabase(ctx context.Context) error {
+	if r.db == nil {
+		log.Debug().Msg("No database connection, skipping registry load")
+		return nil
+	}
+
+	services, err := r.db.ListAllServices(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list services from database: %w", err)
+	}
+
+	if len(services) == 0 {
+		log.Debug().Msg("No persisted services found in database")
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Group services by agent_id.
+	agentServices := make(map[string][]*meshv1.ServiceInfo)
+	agentLastSeen := make(map[string]time.Time)
+
+	for _, svc := range services {
+		// Parse labels from JSON string.
+		var labels map[string]string
+		if svc.Labels != "" && svc.Labels != "{}" {
+			if err := json.Unmarshal([]byte(svc.Labels), &labels); err != nil {
+				log.Warn().Err(err).Str("service_id", svc.ID).Msg("Failed to parse service labels")
+				labels = make(map[string]string)
+			}
+		} else {
+			labels = make(map[string]string)
+		}
+
+		serviceInfo := &meshv1.ServiceInfo{
+			Name:   svc.Name,
+			Labels: labels,
+		}
+
+		agentServices[svc.AgentID] = append(agentServices[svc.AgentID], serviceInfo)
+
+		// Track the most recent last_seen for each agent.
+		if lastSeen, ok := agentLastSeen[svc.AgentID]; !ok || svc.LastSeen.After(lastSeen) {
+			agentLastSeen[svc.AgentID] = svc.LastSeen
+		}
+	}
+
+	// Create registry entries for each agent.
+	loadedCount := 0
+	for agentID, services := range agentServices {
+		lastSeen := agentLastSeen[agentID]
+
+		// Don't overwrite existing entries (agents already connected).
+		if _, exists := r.entries[agentID]; exists {
+			log.Debug().Str("agent_id", agentID).Msg("Agent already in registry, skipping database load")
+			continue
+		}
+
+		entry := &Entry{
+			AgentID:      agentID,
+			Name:         "", // Legacy field, not restored
+			MeshIPv4:     "", // Will be updated when agent reconnects
+			MeshIPv6:     "", // Will be updated when agent reconnects
+			RegisteredAt: lastSeen,
+			LastSeen:     lastSeen,
+			Services:     services,
+		}
+
+		r.entries[agentID] = entry
+		loadedCount++
+	}
+
+	log.Info().
+		Int("agents_loaded", loadedCount).
+		Int("total_services", len(services)).
+		Msg("Loaded persisted services from database")
+
+	return nil
 }
 
 // Register adds or updates an agent registration.
@@ -71,6 +160,7 @@ func (r *Registry) Register(
 	now := time.Now()
 
 	// Check if agent already exists.
+	var entry *Entry
 	if existing, ok := r.entries[agentID]; ok {
 		// Update existing entry.
 		existing.Name = name
@@ -80,23 +170,91 @@ func (r *Registry) Register(
 		existing.Services = services
 		existing.RuntimeContext = runtimeContext
 		existing.ProtocolVersion = protocolVersion
-		return existing, nil
+		entry = existing
+	} else {
+		// Create new entry.
+		entry = &Entry{
+			AgentID:         agentID,
+			Name:            name,
+			MeshIPv4:        meshIPv4,
+			MeshIPv6:        meshIPv6,
+			RegisteredAt:    now,
+			LastSeen:        now,
+			Services:        services,
+			RuntimeContext:  runtimeContext,
+			ProtocolVersion: protocolVersion,
+		}
+		r.entries[agentID] = entry
 	}
 
-	// Create new entry.
-	entry := &Entry{
-		AgentID:         agentID,
-		Name:            name,
-		MeshIPv4:        meshIPv4,
-		MeshIPv6:        meshIPv6,
-		RegisteredAt:    now,
-		LastSeen:        now,
-		Services:        services,
-		RuntimeContext:  runtimeContext,
-		ProtocolVersion: protocolVersion,
+	// Persist to database asynchronously.
+	if r.db != nil {
+		log.Debug().Msg("DB is connected, attempting to persist services")
+		// Create a copy of the validated data to avoid race conditions.
+		servicesCopy := make([]*meshv1.ServiceInfo, len(services))
+		copy(servicesCopy, services)
+
+		go func(agentID, agentName string, services []*meshv1.ServiceInfo, lastSeen time.Time) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Handle legacy agents that only provide ComponentName (name)
+			if len(services) == 0 && agentName != "" {
+				log.Debug().Str("agent_id", agentID).Str("component_name", agentName).Msg("Persisting legacy component as service")
+				// Create a synthetic service for legacy component
+				dbService := &database.Service{
+					ID:       fmt.Sprintf("%s:%s", agentID, agentName),
+					Name:     agentName,
+					AgentID:  agentID,
+					Labels:   "{}", // Empty labels for legacy
+					LastSeen: lastSeen,
+					Status:   "active",
+					AppID:    agentName,
+					Version:  "unknown",
+				}
+				if err := r.db.UpsertService(ctx, dbService); err != nil {
+					log.Warn().Err(err).
+						Str("agent_id", agentID).
+						Str("service_name", agentName).
+						Msg("Failed to persist legacy service registration")
+				} else {
+					log.Debug().Str("service", agentName).Msg("Successfully upserted legacy service")
+				}
+				return
+			}
+
+			log.Debug().Int("service_count", len(services)).Str("agent_id", agentID).Msg("Persisting services for agent")
+
+			for _, s := range services {
+				// Serialize labels.
+				labelsBytes, _ := json.Marshal(s.Labels)
+
+				dbService := &database.Service{
+					ID:       fmt.Sprintf("%s:%s", agentID, s.Name),
+					Name:     s.Name,
+					AgentID:  agentID,
+					Labels:   string(labelsBytes),
+					LastSeen: lastSeen,
+					Status:   "active",
+					// AppID and Version are not currently populated in ServiceInfo
+					AppID:   s.Name,
+					Version: "unknown",
+				}
+
+				if err := r.db.UpsertService(ctx, dbService); err != nil {
+					log.Warn().Err(err).
+						Str("agent_id", agentID).
+						Str("service_name", s.Name).
+						Msg("Failed to persist service registration")
+				} else {
+					log.Debug().Str("service", s.Name).Msg("Successfully upserted service")
+				}
+			}
+		}(agentID, name, servicesCopy, now)
+	} else {
+		log.Warn().Msg("Registry has no DB connection, skipping persistence")
 	}
 
-	r.entries[agentID] = entry
 	return entry, nil
 }
 
@@ -115,6 +273,21 @@ func (r *Registry) UpdateHeartbeat(agentID string) error {
 	}
 
 	entry.LastSeen = time.Now()
+
+	// Update persistence.
+	if r.db != nil {
+		go func(agentID string, lastSeen time.Time) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := r.db.UpdateServiceLastSeen(ctx, agentID, lastSeen); err != nil {
+				log.Debug().Err(err). // Debug level as this happens frequently
+							Str("agent_id", agentID).
+							Msg("Failed to update service heartbeat persistence")
+			}
+		}(agentID, entry.LastSeen)
+	}
+
 	return nil
 }
 
