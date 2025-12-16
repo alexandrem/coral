@@ -463,6 +463,72 @@ func computeBinaryHash(binaryPath string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// BasicFunctionInfo represents minimal function metadata before enrichment.
+// JSON tags allow direct unmarshaling from SDK NDJSON export format.
+type BasicFunctionInfo struct {
+	Name   string `json:"name"`
+	Offset uint64 `json:"offset"`
+	File   string `json:"file"`
+	Line   int    `json:"line"`
+}
+
+// enrichAndDeduplicateFunctions converts basic function info to FunctionInfo with embeddings.
+// This common logic was previously duplicated across all 3 discovery methods (SDK, Scanner, DWARF).
+// Making it a package-level function allows reuse across FunctionCache and FunctionDiscoverer.
+func enrichAndDeduplicateFunctions(
+	basicFunctions []BasicFunctionInfo,
+	serviceName string,
+	hasDwarf bool,
+	logger zerolog.Logger,
+) []*agentv1.FunctionInfo {
+	functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
+	seenFunctions := make(map[string]bool)
+	duplicates := 0
+
+	for _, fn := range basicFunctions {
+		// Skip duplicates (Go binaries can have duplicate function names).
+		// Keep first occurrence only to satisfy PRIMARY KEY (service_name, function_name).
+		if seenFunctions[fn.Name] {
+			duplicates++
+			continue
+		}
+		seenFunctions[fn.Name] = true
+
+		// Generate embedding for semantic search.
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:       fn.Name,
+			Package:    extractPackageName(fn.Name),
+			FilePath:   fn.File,
+			Parameters: nil,
+		})
+
+		// Convert []float64 to []float32 for protobuf.
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+
+		functions = append(functions, &agentv1.FunctionInfo{
+			Name:        fn.Name,
+			Package:     extractPackageName(fn.Name),
+			FilePath:    fn.File,
+			LineNumber:  int32(fn.Line),
+			Offset:      int64(fn.Offset),
+			HasDwarf:    hasDwarf,
+			ServiceName: serviceName,
+			Embedding:   emb32,
+		})
+	}
+
+	if duplicates > 0 {
+		logger.Debug().
+			Int("duplicates_skipped", duplicates).
+			Msg("Skipped duplicate function names")
+	}
+
+	return functions
+}
+
 // fetchFunctionsFromSDK fetches functions from the SDK HTTP API using bulk export.
 // This uses the /debug/functions/export endpoint with NDJSON format for efficient streaming.
 func (c *FunctionCache) fetchFunctionsFromSDK(ctx context.Context, serviceName, sdkAddr string) ([]*agentv1.FunctionInfo, error) {
@@ -510,21 +576,12 @@ func (c *FunctionCache) fetchFunctionsFromSDK(ctx context.Context, serviceName, 
 
 	// Parse NDJSON stream line by line.
 	scanner := bufio.NewScanner(reader)
-	functions := make([]*agentv1.FunctionInfo, 0, 1000) // Pre-allocate reasonable size
-	seenFunctions := make(map[string]bool)              // Deduplicate by name
-
-	type ExportedFunction struct {
-		Name   string `json:"name"`
-		Offset uint64 `json:"offset"`
-		File   string `json:"file"`
-		Line   int    `json:"line"`
-	}
+	basicFunctions := make([]BasicFunctionInfo, 0, 1000) // Pre-allocate reasonable size
 
 	lineCount := 0
-	duplicates := 0
 	for scanner.Scan() {
 		lineCount++
-		var fn ExportedFunction
+		var fn BasicFunctionInfo
 		if err := json.Unmarshal(scanner.Bytes(), &fn); err != nil {
 			c.logger.Warn().
 				Err(err).
@@ -533,49 +590,20 @@ func (c *FunctionCache) fetchFunctionsFromSDK(ctx context.Context, serviceName, 
 			continue
 		}
 
-		// Skip duplicates (Go binaries can have duplicate function names).
-		// Keep first occurrence only to satisfy PRIMARY KEY (service_name, function_name).
-		if seenFunctions[fn.Name] {
-			duplicates++
-			continue
-		}
-		seenFunctions[fn.Name] = true
-
-		// Generate embedding for semantic search.
-		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
-			Name:       fn.Name,
-			Package:    extractPackageName(fn.Name),
-			FilePath:   fn.File,
-			Parameters: nil,
-		})
-
-		// Convert []float64 to []float32 for protobuf.
-		emb32 := make([]float32, len(emb))
-		for i, v := range emb {
-			emb32[i] = float32(v)
-		}
-
-		functions = append(functions, &agentv1.FunctionInfo{
-			Name:        fn.Name,
-			Package:     extractPackageName(fn.Name),
-			FilePath:    fn.File,
-			LineNumber:  int32(fn.Line),
-			Offset:      int64(fn.Offset),
-			HasDwarf:    true,
-			ServiceName: serviceName,
-			Embedding:   emb32,
-		})
-	}
-
-	if duplicates > 0 {
-		c.logger.Debug().
-			Int("duplicates_skipped", duplicates).
-			Msg("Skipped duplicate function names")
+		basicFunctions = append(basicFunctions, fn)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading NDJSON stream: %w", err)
 	}
+
+	c.logger.Info().
+		Str("service", serviceName).
+		Int("raw_function_count", len(basicFunctions)).
+		Msg("Fetched functions from SDK, now enriching with embeddings")
+
+	// Enrich with embeddings and deduplicate.
+	functions := enrichAndDeduplicateFunctions(basicFunctions, serviceName, true, c.logger)
 
 	c.logger.Info().
 		Str("service", serviceName).
@@ -611,61 +639,29 @@ func (c *FunctionCache) fetchFunctionsFromBinaryScanner(ctx context.Context, ser
 	}()
 
 	// Fetch all functions from the binary via scanner.
-	basicFunctions, err := scanner.ListAllFunctions(ctx, pid)
+	scannerFunctions, err := scanner.ListAllFunctions(ctx, pid)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list functions via binary scanner: %w", err)
 	}
 
 	c.logger.Info().
 		Str("service", serviceName).
-		Int("raw_function_count", len(basicFunctions)).
-		Msg("Retrieved functions from binary scanner")
+		Int("raw_function_count", len(scannerFunctions)).
+		Msg("Retrieved functions from binary scanner, now enriching with embeddings")
 
-	// Convert to FunctionInfo with embeddings and deduplication.
-	functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
-	seenFunctions := make(map[string]bool)
-	duplicates := 0
-
-	for _, fn := range basicFunctions {
-		// Skip duplicates (Go binaries can have duplicate function names).
-		// Keep first occurrence only to satisfy PRIMARY KEY (service_name, function_name).
-		if seenFunctions[fn.Name] {
-			duplicates++
-			continue
+	// Convert scanner output to BasicFunctionInfo.
+	basicFunctions := make([]BasicFunctionInfo, len(scannerFunctions))
+	for i, fn := range scannerFunctions {
+		basicFunctions[i] = BasicFunctionInfo{
+			Name:   fn.Name,
+			Offset: fn.Offset,
+			File:   fn.File,
+			Line:   fn.Line,
 		}
-		seenFunctions[fn.Name] = true
-
-		// Generate embedding for semantic search.
-		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
-			Name:       fn.Name,
-			Package:    extractPackageName(fn.Name),
-			FilePath:   fn.File,
-			Parameters: nil,
-		})
-
-		// Convert []float64 to []float32 for protobuf.
-		emb32 := make([]float32, len(emb))
-		for i, v := range emb {
-			emb32[i] = float32(v)
-		}
-
-		functions = append(functions, &agentv1.FunctionInfo{
-			Name:        fn.Name,
-			Package:     extractPackageName(fn.Name),
-			FilePath:    fn.File,
-			LineNumber:  int32(fn.Line),
-			Offset:      int64(fn.Offset),
-			HasDwarf:    true, // Binary scanner requires DWARF
-			ServiceName: serviceName,
-			Embedding:   emb32,
-		})
 	}
 
-	if duplicates > 0 {
-		c.logger.Debug().
-			Int("duplicates_skipped", duplicates).
-			Msg("Skipped duplicate function names from binary scanner")
-	}
+	// Enrich with embeddings and deduplicate.
+	functions := enrichAndDeduplicateFunctions(basicFunctions, serviceName, true, c.logger)
 
 	c.logger.Info().
 		Str("service", serviceName).
