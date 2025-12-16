@@ -103,9 +103,8 @@ func TestInitSchema_Indexes(t *testing.T) {
 	}
 
 	// Verify some expected indexes exist.
+	// Note: services table indexes removed due to DuckDB limitations.
 	expectedIndexes := []string{
-		"idx_services_agent_id",
-		"idx_services_status",
 		"idx_metric_summaries_service_id",
 		"idx_events_service_id",
 		"idx_insights_status",
@@ -136,8 +135,8 @@ func TestInitSchema_ColumnTypes(t *testing.T) {
 	// Test services table columns.
 	t.Run("services", func(t *testing.T) {
 		_, err := db.DB().Exec(`
-			INSERT INTO services (id, name, app_id, agent_id, last_seen, status)
-			VALUES ('svc-1', 'test-service', 'app-1', 'agent-1', CURRENT_TIMESTAMP, 'running')
+			INSERT INTO services (id, name, app_id, agent_id, status, registered_at)
+			VALUES ('svc-1', 'test-service', 'app-1', 'agent-1', 'running', CURRENT_TIMESTAMP)
 		`)
 		if err != nil {
 			t.Errorf("Failed to insert into services: %v", err)
@@ -146,6 +145,25 @@ func TestInitSchema_ColumnTypes(t *testing.T) {
 		var count int
 		if err := db.DB().QueryRow("SELECT COUNT(*) FROM services WHERE id = 'svc-1'").Scan(&count); err != nil {
 			t.Errorf("Failed to query services: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("Expected 1 row, got %d", count)
+		}
+	})
+
+	// Test service_heartbeats table columns.
+	t.Run("service_heartbeats", func(t *testing.T) {
+		_, err := db.DB().Exec(`
+			INSERT INTO service_heartbeats (service_id, last_seen)
+			VALUES ('svc-1', CURRENT_TIMESTAMP)
+		`)
+		if err != nil {
+			t.Errorf("Failed to insert into service_heartbeats: %v", err)
+		}
+
+		var count int
+		if err := db.DB().QueryRow("SELECT COUNT(*) FROM service_heartbeats WHERE service_id = 'svc-1'").Scan(&count); err != nil {
+			t.Errorf("Failed to query service_heartbeats: %v", err)
 		}
 		if count != 1 {
 			t.Errorf("Expected 1 row, got %d", count)
@@ -225,8 +243,8 @@ func TestInitSchema_PrimaryKeys(t *testing.T) {
 	// Test primary key constraint on services table.
 	t.Run("services_pk", func(t *testing.T) {
 		_, err := db.DB().Exec(`
-			INSERT INTO services (id, name, app_id, agent_id, last_seen, status)
-			VALUES ('svc-1', 'test-service', 'app-1', 'agent-1', CURRENT_TIMESTAMP, 'running')
+			INSERT INTO services (id, name, app_id, agent_id, status, registered_at)
+			VALUES ('svc-1', 'test-service', 'app-1', 'agent-1', 'running', CURRENT_TIMESTAMP)
 		`)
 		if err != nil {
 			t.Fatalf("Failed to insert first row: %v", err)
@@ -234,8 +252,8 @@ func TestInitSchema_PrimaryKeys(t *testing.T) {
 
 		// Attempt to insert duplicate primary key (should fail).
 		_, err = db.DB().Exec(`
-			INSERT INTO services (id, name, app_id, agent_id, last_seen, status)
-			VALUES ('svc-1', 'test-service-2', 'app-2', 'agent-2', CURRENT_TIMESTAMP, 'running')
+			INSERT INTO services (id, name, app_id, agent_id, status, registered_at)
+			VALUES ('svc-1', 'test-service-2', 'app-2', 'agent-2', 'running', CURRENT_TIMESTAMP)
 		`)
 		if err == nil {
 			t.Error("Expected primary key constraint violation, but insert succeeded")

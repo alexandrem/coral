@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -257,18 +258,67 @@ func TestListAllServices(t *testing.T) {
 	})
 }
 
-// TestUpdateServiceLastSeen is temporarily disabled due to a DuckDB issue with updating indexed columns.
-// TODO: Investigate and fix the underlying issue with UpdateServiceLastSeen.
-// For now, the heartbeat updates are tested indirectly through the persistence tests.
+// TestUpdateServiceLastSeen tests bulk updating last_seen for all services of an agent.
 func TestUpdateServiceLastSeen(t *testing.T) {
-	t.Skip("Skipping due to DuckDB issue with updating indexed columns - needs investigation")
+	tempDir := t.TempDir()
+	logger := logging.NewWithComponent(logging.Config{Level: "debug", Pretty: true}, "test")
+	db, err := New(tempDir, "test-colony", logger)
+	require.NoError(t, err)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Insert multiple services for the same agent.
+	services := []*Service{
+		{
+			ID:       "agent-update:service-1",
+			Name:     "service-1",
+			AppID:    "app-1",
+			Version:  "1.0.0",
+			AgentID:  "agent-update",
+			Labels:   "{}",
+			LastSeen: time.Now().Add(-1 * time.Hour),
+			Status:   "active",
+		},
+		{
+			ID:       "agent-update:service-2",
+			Name:     "service-2",
+			AppID:    "app-2",
+			Version:  "1.0.0",
+			AgentID:  "agent-update",
+			Labels:   "{}",
+			LastSeen: time.Now().Add(-1 * time.Hour),
+			Status:   "active",
+		},
+	}
+
+	for _, svc := range services {
+		err := db.UpsertService(ctx, svc)
+		require.NoError(t, err)
+	}
+
+	// Update last_seen for all services of this agent.
+	newLastSeen := time.Now()
+	err = db.UpdateServiceLastSeen(ctx, "agent-update", newLastSeen)
+	require.NoError(t, err)
+
+	// Verify both services were updated.
+	retrieved1, err := db.GetServiceByName(ctx, "service-1")
+	require.NoError(t, err)
+	require.NotNil(t, retrieved1)
+	assert.True(t, retrieved1.LastSeen.After(newLastSeen.Add(-2*time.Second)), "service-1 last_seen should be updated")
+
+	retrieved2, err := db.GetServiceByName(ctx, "service-2")
+	require.NoError(t, err)
+	require.NotNil(t, retrieved2)
+	assert.True(t, retrieved2.LastSeen.After(newLastSeen.Add(-2*time.Second)), "service-2 last_seen should be updated")
 }
 
 func TestServicePersistenceRegression(t *testing.T) {
-	// This is a regression test specifically for the bug where UpsertService
-	// failed due to DuckDB's limitation with ON CONFLICT DO UPDATE on indexed columns.
-	// If someone tries to "optimize" by switching back to ON CONFLICT DO UPDATE,
-	// this test should catch it.
+	// This is a regression test for the service persistence refactoring.
+	// Ensures that UpsertService correctly handles updates to all fields including
+	// previously problematic indexed columns (status, agent_id).
+	// With the new two-table design, this should work seamlessly.
 
 	tempDir := t.TempDir()
 	logger := logging.NewWithComponent(logging.Config{Level: "debug", Pretty: true}, "test")
@@ -309,4 +359,72 @@ func TestServicePersistenceRegression(t *testing.T) {
 		require.NotNil(t, retrieved)
 		assert.Equal(t, "degraded", retrieved.Status)
 	})
+}
+
+// TestConcurrentServiceUpserts tests that concurrent upserts to the same service don't cause errors.
+// This is a regression test for the duplicate key constraint errors that occurred with the
+// UPDATE-first pattern when multiple goroutines tried to upsert the same service simultaneously.
+func TestConcurrentServiceUpserts(t *testing.T) {
+	tempDir := t.TempDir()
+	logger := logging.NewWithComponent(logging.Config{Level: "warn", Pretty: true}, "test")
+	db, err := New(tempDir, "test-colony", logger)
+	require.NoError(t, err)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Use a WaitGroup to synchronize goroutines.
+	// Use realistic concurrency: 5 concurrent agents, each upserting 5 times.
+	// This simulates multiple agents sending heartbeats at similar times.
+	var wg sync.WaitGroup
+	const numGoroutines = 5
+	const numUpserts = 5
+
+	// Track errors from goroutines.
+	errChan := make(chan error, numGoroutines*numUpserts)
+
+	// Launch multiple goroutines that all try to upsert the same service.
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			for j := 0; j < numUpserts; j++ {
+				service := &Service{
+					ID:       "concurrent-agent:concurrent-service",
+					Name:     "concurrent-service",
+					AppID:    "concurrent-app",
+					Version:  "1.0.0",
+					AgentID:  "concurrent-agent",
+					Labels:   "{}",
+					LastSeen: time.Now(),
+					Status:   "active",
+				}
+
+				if err := db.UpsertService(ctx, service); err != nil {
+					errChan <- err
+				}
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines to complete.
+	wg.Wait()
+	close(errChan)
+
+	// Check if any errors occurred.
+	var errors []error
+	for err := range errChan {
+		errors = append(errors, err)
+	}
+
+	// All upserts should succeed without errors.
+	require.Empty(t, errors, "Concurrent upserts should not produce errors. Got: %v", errors)
+
+	// Verify the service exists and can be retrieved.
+	retrieved, err := db.GetServiceByName(ctx, "concurrent-service")
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	assert.Equal(t, "concurrent-service", retrieved.Name)
+	assert.Equal(t, "concurrent-agent", retrieved.AgentID)
 }
