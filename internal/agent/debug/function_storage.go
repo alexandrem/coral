@@ -21,6 +21,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/agent/ebpf/binaryscanner"
 	"github.com/coral-mesh/coral/internal/duckdb"
+	"github.com/coral-mesh/coral/internal/safe"
 	"github.com/coral-mesh/coral/pkg/embedding"
 )
 
@@ -508,12 +509,21 @@ func enrichAndDeduplicateFunctions(
 			emb32[i] = float32(v)
 		}
 
+		// Safe conversion of offset from uint64 to int64 for DuckDB storage.
+		offset, clamped := safe.Uint64ToInt64(fn.Offset)
+		if clamped {
+			logger.Warn().
+				Str("function", fn.Name).
+				Uint64("offset", fn.Offset).
+				Msg("Function offset exceeds int64 max, clamped to max value")
+		}
+
 		functions = append(functions, &agentv1.FunctionInfo{
 			Name:        fn.Name,
 			Package:     extractPackageName(fn.Name),
 			FilePath:    fn.File,
 			LineNumber:  int32(fn.Line),
-			Offset:      int64(fn.Offset),
+			Offset:      offset,
 			HasDwarf:    hasDwarf,
 			ServiceName: serviceName,
 			Embedding:   emb32,
