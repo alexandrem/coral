@@ -509,7 +509,7 @@ func enrichAndDeduplicateFunctions(
 			emb32[i] = float32(v)
 		}
 
-		// Safe conversion of offset from uint64 to int64 for DuckDB storage.
+		// Safe conversion of offset from uint64 to int64.
 		offset, clamped := safe.Uint64ToInt64(fn.Offset)
 		if clamped {
 			logger.Warn().
@@ -517,12 +517,19 @@ func enrichAndDeduplicateFunctions(
 				Uint64("offset", fn.Offset).
 				Msg("Function offset exceeds int64 max, clamped to max value")
 		}
+		line, clamped := safe.IntToInt32(fn.Line)
+		if clamped {
+			logger.Warn().
+				Str("function", fn.Name).
+				Int32("line", line).
+				Msg("Function line exceeds int32 max, clamped to max value")
+		}
 
 		functions = append(functions, &agentv1.FunctionInfo{
 			Name:        fn.Name,
 			Package:     extractPackageName(fn.Name),
 			FilePath:    fn.File,
-			LineNumber:  int32(fn.Line),
+			LineNumber:  line,
 			Offset:      offset,
 			HasDwarf:    hasDwarf,
 			ServiceName: serviceName,

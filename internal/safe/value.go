@@ -14,12 +14,16 @@ func Uint64ToInt64(val uint64) (int64, bool) {
 	return int64(val), false
 }
 
-// Uint32ToInt32 safely converts an uint32 value to int32, clamping to math.MaxInt32 if overflow
-// would occur.
+// IntToInt32 safely converts an int value to int32, clamping to math.MaxInt32 or math.MinInt32
+// if overflow would occur.
+// On 64-bit systems, int is 64 bits and can exceed int32 range.
 // Returns the converted value and a boolean indicating whether clamping occurred.
-func Uint32ToInt32(val uint32) (int32, bool) {
+func IntToInt32(val int) (int32, bool) {
 	if val > math.MaxInt32 {
 		return math.MaxInt32, true
+	}
+	if val < math.MinInt32 {
+		return math.MinInt32, true
 	}
 	return int32(val), false
 }
