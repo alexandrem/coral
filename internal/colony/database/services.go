@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/coral-mesh/coral/internal/retry"
 )
 
 // Service represents a service registered in the colony.
@@ -67,40 +69,15 @@ func (d *Database) GetServiceByName(ctx context.Context, serviceName string) (*S
 // This design allows efficient updates to last_seen without rewriting service metadata.
 // Uses INSERT OR REPLACE with retry logic to handle DuckDB's optimistic concurrency conflicts.
 func (d *Database) UpsertService(ctx context.Context, service *Service) error {
-	const maxRetries = 10
-	const baseBackoff = 2 * time.Millisecond
-
-	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Exponential backoff with jitter for retries (except first attempt).
-		if attempt > 0 {
-			backoff := baseBackoff * time.Duration(1<<uint(attempt-1))
-			// Add 0-50% jitter to spread out retries.
-			jitter := time.Duration(float64(backoff) * 0.5 * float64(attempt) / float64(maxRetries))
-			backoff += jitter
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(backoff):
-			}
-		}
-
-		err := d.upsertServiceOnce(ctx, service)
-		if err == nil {
-			return nil
-		}
-
-		// Check if error is a transaction conflict that can be retried.
-		if isTransactionConflict(err) {
-			lastErr = err
-			continue
-		}
-
-		// Non-retryable error.
-		return err
+	cfg := retry.Config{
+		MaxRetries:     10,
+		InitialBackoff: 2 * time.Millisecond,
+		Jitter:         0.5, // 50% jitter
 	}
 
-	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+	return retry.Do(ctx, cfg, func() error {
+		return d.upsertServiceOnce(ctx, service)
+	}, isTransactionConflict)
 }
 
 // upsertServiceOnce performs a single upsert attempt.
