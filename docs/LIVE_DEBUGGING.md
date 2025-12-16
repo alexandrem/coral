@@ -5,13 +5,18 @@
 Unlike traditional observability (metrics, logs, traces), Coral can **actively
 instrument** your code on-demand using eBPF uprobes.
 
-**New:** Coral now supports **agentless binary scanning** - you can debug
-applications **without SDK integration**!
+Coral also supports **agentless binary scanning** - you can debug
+applications **without SDK integration** (if the binary has debug symbols).
+
+> **Production Note:** Most production Go binaries use `-ldflags="-w -s"` to
+> fully strip debug symbols. For these binaries, **SDK integration is required
+**.
+> Agentless mode is best for development builds and legacy apps with symbols.
 
 ## How It Works
 
-Coral supports two modes: **with SDK** (recommended) and **agentless** (no code
-changes):
+Coral supports two modes: **with SDK** (required for production) and **agentless
+** (for dev/legacy):
 
 ### With SDK Integration
 
@@ -37,7 +42,7 @@ changes):
 For legacy apps or binaries where SDK integration isn't possible:
 
 1. **Binary Discovery**: Agent discovers services via process monitoring or
-   `coral connect --pid`
+   `coral connect`
 
 2. **DWARF Parsing**: Agent scans binary directly, extracting function
    metadata (~100-200ms)
@@ -103,7 +108,7 @@ Debug a legacy app **without any code changes**:
 
 ```bash
 # Connect to running process
-$ coral connect legacy-app --pid 12345
+$ coral connect legacy-app
 
 🔍 Discovering functions via binary scanner...
    ✓ Parsed DWARF symbols (142ms)
@@ -125,32 +130,34 @@ $ coral debug attach legacy-app --function executeSlowQuery
 
 **Requirements:**
 
-- Binary must have **symbols** (DWARF preferred, but `-w` stripped also works!)
+- Binary must have **symbols** (DWARF preferred, `-w` stripped works via symbol
+  table)
 - Agent must have access to binary (same host or namespace)
-- **Works with semi-stripped binaries** via symbol table fallback
+- **Does NOT work with fully stripped binaries** (`-w -s` - typical production
+  builds)
 
 **When agentless works best:**
 
-- **Legacy applications you can't modify** (killer feature!)
-- Production binaries with symbols (even `-w` stripped)
-- When you want faster discovery than HTTP (100-200ms vs 1-2s)
+- **Legacy applications you can't modify**
+- Development/debug builds with full symbols
+- Rare production binaries built with `-w` only (keeps symbols)
 
-**When SDK is better:**
+**When SDK is required:**
 
-- Easier integration (just one line of code)
-- Optimized bulk export endpoint
-- Both modes are equally robust
+- **Production deployments** (most use `-w -s` fully stripped binaries)
+- Binaries where you control the build and can integrate SDK
+- SDK provides metadata API that works even with `-w -s` stripped binaries
 
 ## Why This Is Different
 
-| Traditional Tools                     | Coral                                 |
-|---------------------------------------|---------------------------------------|
-| Pre-defined metrics only              | On-demand code instrumentation        |
-| Add logging → redeploy → wait         | Attach probes → get data → detach     |
-| Always-on overhead                    | Zero overhead when not debugging      |
-| Single-process debuggers (delve, gdb) | Distributed debugging across mesh     |
-| Manual investigation                  | LLM orchestrates where to probe       |
-| **Requires code changes**             | **Works with static binaries** (new!) |
+| Traditional Tools                     | Coral                                             |
+|---------------------------------------|---------------------------------------------------|
+| Pre-defined metrics only              | On-demand code instrumentation                    |
+| Add logging → redeploy → wait         | Attach probes → get data → detach                 |
+| Always-on overhead                    | Zero overhead when not debugging                  |
+| Single-process debuggers (delve, gdb) | Distributed debugging across mesh                 |
+| Manual investigation                  | LLM orchestrates where to probe                   |
+| **Requires code changes**             | **SDK mode or agentless (if binary has symbols)** |
 
 ## MCP Integration
 
@@ -159,10 +166,10 @@ Claude Desktop, Cursor, etc.) can trigger debugging sessions:
 
 ```json
 {
-    "tool": "coral_debug_attach",
+    "tool": "coral_profile_functions",
     "arguments": {
         "service": "payment",
-        "function": "ProcessPayment",
+        "query": "checkout",
         "duration": "60s"
     }
 }

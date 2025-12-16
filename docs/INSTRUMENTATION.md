@@ -23,9 +23,12 @@ The Coral SDK enables **live debugging** of your Go applications using eBPF
 uprobes. Unlike traditional observability, this allows you to attach probes to
 running code on-demand without redeploying.
 
-**New:** Coral now supports **agentless binary scanning** - you can debug
-applications **without SDK integration**! The agent can discover functions
-directly from any binary with DWARF symbols.
+Coral also supports **agentless binary scanning** - you can debug
+applications **without SDK integration** if the binary has debug symbols.
+
+> **Important:** Most production Go binaries use `-ldflags="-w -s"` to fully
+> strip debug symbols. For these binaries, **SDK integration is required**.
+> Agentless mode works best for development builds and legacy apps with symbols.
 
 ### Features
 
@@ -36,7 +39,8 @@ directly from any binary with DWARF symbols.
   and call stacks
 - **AI orchestration**: LLM decides which functions to probe based on metrics
   analysis
-- **Agentless mode**: Works with static binaries without SDK integration (new!)
+- **Agentless mode**: Works with binaries that have debug symbols (dev builds or
+  legacy apps)
 
 ### Quick Start
 
@@ -87,12 +91,14 @@ Coral supports two modes for live debugging:
    intelligent search
 4. **Uprobe Attachment**: Works identically to SDK mode once functions are
    discovered
-5. **Symbol Table Fallback**: If DWARF is stripped, falls back to ELF symbol table (same as SDK!)
+5. **Symbol Table Fallback**: If DWARF is stripped, falls back to ELF symbol
+   table (same as SDK!)
 
 **Discovery Priority Chain:**
 
 - Priority 1: SDK HTTP API (recommended - optimized bulk export)
-- Priority 2: Binary Scanner with symbol table fallback (works with `-w` stripped binaries!)
+- Priority 2: Binary Scanner with symbol table fallback (works with `-w`
+  stripped binaries!)
 - Priority 3: Direct DWARF parsing (legacy fallback)
 
 ### Building with Debug Symbols
@@ -100,23 +106,27 @@ Coral supports two modes for live debugging:
 Different build configurations affect what Coral can discover:
 
 ```bash
-# Best: Full debug symbols (DWARF + symbols)
+# Development: Full debug symbols (DWARF + symbols)
 # ✅ SDK works: Full metadata (args, return values, line numbers)
 # ✅ Agentless works: Full metadata via DWARF parsing
 go build -gcflags="all=-N -l" -o myapp main.go
 
-# Acceptable: DWARF stripped, symbols intact (-w only)
+# Uncommon: DWARF stripped, symbols intact (-w only)
 # ✅ SDK works: Function discovery via symbol table (no arg/return info)
 # ✅ Agentless works: Function discovery via symbol table (no file/line info)
+# Note: Rarely used in production (most strip both DWARF and symbols)
 go build -ldflags="-w" -o myapp main.go
 
-# Production: Fully stripped (not recommended for debugging)
-# ❌ SDK fails: No symbols or DWARF available
+# Production (typical): Fully stripped (-w -s)
+# ✅ SDK works: Uses SDK metadata API (bypasses binary symbols entirely)
 # ❌ Agentless fails: No symbols or DWARF available
+# Note: Most production builds use this for size and security
 go build -ldflags="-w -s" -o myapp main.go
 ```
 
-**Both modes use the same symbol table fallback!** Agentless is now just as robust as SDK.
+**IMPORTANT:** Most production Go binaries use `-ldflags="-w -s"` for size
+reduction and security. For these binaries, **you must integrate the SDK** -
+agentless mode will not work.
 
 ### Example: Live Debugging Session
 
@@ -207,19 +217,21 @@ coral debug attach legacy-app --function main.ProcessPayment
 
 **Requirements:**
 
-- Binary must have **symbols** (DWARF preferred for full metadata, but `-w` stripped also works!)
+- Binary must have **symbols** (DWARF preferred for full metadata, `-w` stripped
+  works via symbol table)
 - Agent must have access to the binary (same host or container namespace)
-- **Works with semi-stripped binaries** (symbol table fallback, just like SDK)
+- **Does NOT work with fully stripped binaries** (`-w -s` - typical production
+  builds)
 
 **When to Use SDK vs Agentless:**
 
-| Scenario                            | SDK                     | Agentless                | Winner                   |
-|-------------------------------------|-------------------------|--------------------------|--------------------------|
-| **Dev/debug builds** (full symbols) | ✅ Works                 | ✅ Works                  | SDK (easier integration) |
-| **Semi-stripped** (`-w` only)       | ✅ Works (symbol table)  | ✅ Works (symbol table)   | SDK (easier)             |
-| **Fully stripped** (`-w -s`)        | ❌ Fails                 | ❌ Fails                  | Neither                  |
-| **Legacy apps** (can't modify code) | ❌ Can't add             | ✅ Works (if has symbols) | **Agentless only**       |
-| **Production deployments**          | ✅ Symbol table fallback | ✅ Symbol table fallback  | SDK (easier)             |
+| Scenario                                     | SDK                    | Agentless                | Winner                   |
+|----------------------------------------------|------------------------|--------------------------|--------------------------|
+| **Dev/debug builds** (full symbols)          | ✅ Works                | ✅ Works                  | SDK (easier integration) |
+| **Semi-stripped** (`-w` only)                | ✅ Works (symbol table) | ✅ Works (symbol table)   | SDK (easier)             |
+| **Fully stripped** (`-w -s`)                 | ✅ **Works (SDK API)**  | ❌ Fails                  | **SDK required**         |
+| **Legacy apps** (can't modify code)          | ❌ Can't add            | ✅ Works (if has symbols) | **Agentless only**       |
+| **Production deployments** (typical `-w -s`) | ✅ **Works (SDK API)**  | ❌ Fails (no symbols)     | **SDK required**         |
 
 **Performance (when both work):**
 | Metric | With SDK | Without SDK (Binary Scanner) |
@@ -228,9 +240,13 @@ coral debug attach legacy-app --function main.ProcessPayment
 | Cached lookup | ~1ms | ~1ms |
 | Semantic search | Identical | Identical |
 | Function count | 50k+ | 50k+ |
-| **Works with `-w`** | ✅ Yes (symbol table) | ✅ **Yes (symbol table)** |
+| **Works with `-w`** | ✅ Yes (symbol table) | ✅ Yes (symbol table) |
+| **Works with `-w -s`** | ✅ **Yes (SDK API)** | ❌ **No (needs symbols)** |
 
-**Both modes are equally robust!** The main advantage of SDK is easier integration (one line of code), while agentless works with **any** binary that has symbols - perfect for legacy apps.
+**Key Insight:** SDK is required for typical production deployments (which use
+`-w -s`). The SDK provides its own metadata API that bypasses the need for debug
+symbols. Agentless mode is best for development builds and legacy applications
+where SDK integration isn't possible.
 
 ### Security Considerations
 
