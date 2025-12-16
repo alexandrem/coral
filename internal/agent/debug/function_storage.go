@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/agent/ebpf/binaryscanner"
 	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/pkg/embedding"
 )
@@ -100,11 +102,23 @@ func (c *FunctionCache) DiscoverAndCache(ctx context.Context, serviceName, binar
 // DiscoverAndCacheWithHash discovers functions with an optional pre-computed binary hash.
 // If binaryHash is provided (e.g., from SDK capabilities), it's used directly.
 // Otherwise, the hash is computed from the binary file.
+//
+// Discovery fallback chain (RFD 065):
+//  1. SDK HTTP API (if sdkAddr provided)
+//  2. Binary Scanner (if PID available, no SDK)
+//  3. Direct DWARF parsing (fallback)
 func (c *FunctionCache) DiscoverAndCacheWithHash(ctx context.Context, serviceName, binaryPath, sdkAddr, binaryHash string) error {
+	return c.DiscoverAndCacheWithPID(ctx, serviceName, binaryPath, sdkAddr, binaryHash, 0)
+}
+
+// DiscoverAndCacheWithPID discovers functions with optional PID for binary scanner fallback.
+// PID enables agentless binary scanning (RFD 065) when SDK is not available.
+func (c *FunctionCache) DiscoverAndCacheWithPID(ctx context.Context, serviceName, binaryPath, sdkAddr, binaryHash string, pid uint32) error {
 	c.logger.Info().
 		Str("service", serviceName).
 		Str("binary", binaryPath).
 		Str("sdk_addr", sdkAddr).
+		Uint32("pid", pid).
 		Msg("Discovering and caching functions")
 
 	var err error
@@ -115,14 +129,14 @@ func (c *FunctionCache) DiscoverAndCacheWithHash(ctx context.Context, serviceNam
 		if err != nil {
 			// If we can't compute the hash and SDK is available, we can still proceed.
 			// This handles Docker scenarios where the binary is in a different container.
-			if sdkAddr != "" {
+			if sdkAddr != "" || pid > 0 {
 				c.logger.Warn().
 					Err(err).
 					Str("service", serviceName).
-					Msg("Cannot access binary file (cross-container), using SDK-only mode")
-				// Use a placeholder hash based on service name and SDK address.
-				// This is safe because we'll re-discover if the SDK changes.
-				binaryHash = fmt.Sprintf("sdk-%s", serviceName)
+					Msg("Cannot access binary file (cross-container), using SDK/scanner-only mode")
+				// Use a placeholder hash based on service name.
+				// This is safe because we'll re-discover if the binary changes.
+				binaryHash = fmt.Sprintf("runtime-%s", serviceName)
 			} else {
 				return fmt.Errorf("failed to compute binary hash: %w", err)
 			}
@@ -146,7 +160,7 @@ func (c *FunctionCache) DiscoverAndCacheWithHash(ctx context.Context, serviceNam
 
 	var functions []*agentv1.FunctionInfo
 
-	// Try SDK HTTP API first if SDK address is provided.
+	// Priority 1: Try SDK HTTP API first if SDK address is provided.
 	if sdkAddr != "" {
 		c.logger.Info().
 			Str("service", serviceName).
@@ -159,8 +173,8 @@ func (c *FunctionCache) DiscoverAndCacheWithHash(ctx context.Context, serviceNam
 			c.logger.Warn().
 				Err(sdkErr).
 				Str("service", serviceName).
-				Msg("Failed to fetch functions from SDK, falling back to DWARF parsing")
-			// Fall through to DWARF parsing
+				Msg("Failed to fetch functions from SDK, falling back to binary scanner")
+			// Fall through to binary scanner
 		} else {
 			c.logger.Info().
 				Str("service", serviceName).
@@ -169,12 +183,35 @@ func (c *FunctionCache) DiscoverAndCacheWithHash(ctx context.Context, serviceNam
 		}
 	}
 
-	// Fall back to DWARF parsing if SDK fetch failed or SDK not available.
+	// Priority 2: Try Binary Scanner if PID provided and SDK failed/unavailable (RFD 065).
+	if functions == nil && pid > 0 {
+		c.logger.Info().
+			Str("service", serviceName).
+			Uint32("pid", pid).
+			Msg("Discovering functions via binary scanner (agentless)")
+
+		var scanErr error
+		functions, scanErr = c.fetchFunctionsFromBinaryScanner(ctx, serviceName, pid)
+		if scanErr != nil {
+			c.logger.Warn().
+				Err(scanErr).
+				Str("service", serviceName).
+				Msg("Failed to discover functions via binary scanner, falling back to DWARF parsing")
+			// Fall through to DWARF parsing
+		} else {
+			c.logger.Info().
+				Str("service", serviceName).
+				Int("function_count", len(functions)).
+				Msg("Successfully discovered functions via binary scanner")
+		}
+	}
+
+	// Priority 3: Fall back to direct DWARF parsing if all else failed.
 	if functions == nil {
 		c.logger.Info().
 			Str("service", serviceName).
 			Str("binary", binaryPath).
-			Msg("Discovering functions via DWARF parsing")
+			Msg("Discovering functions via direct DWARF parsing")
 
 		functions, err = c.discoverer.DiscoverFunctions(binaryPath, serviceName)
 		if err != nil {
@@ -544,6 +581,96 @@ func (c *FunctionCache) fetchFunctionsFromSDK(ctx context.Context, serviceName, 
 		Str("service", serviceName).
 		Int("function_count", len(functions)).
 		Msg("Successfully fetched functions from SDK bulk export")
+
+	return functions, nil
+}
+
+// fetchFunctionsFromBinaryScanner discovers functions via binary scanning (RFD 065).
+// This is used when SDK is not available but we have a PID for the target process.
+func (c *FunctionCache) fetchFunctionsFromBinaryScanner(ctx context.Context, serviceName string, pid uint32) ([]*agentv1.FunctionInfo, error) {
+	c.logger.Info().
+		Str("service", serviceName).
+		Uint32("pid", pid).
+		Msg("Discovering functions via binary scanner (agentless)")
+
+	// Create binary scanner with default configuration.
+	cfg := binaryscanner.DefaultConfig()
+	// Convert zerolog.Logger to slog.Logger for binary scanner.
+	cfg.Logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	scanner, err := binaryscanner.NewScanner(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create binary scanner: %w", err)
+	}
+	defer func() {
+		if closeErr := scanner.Close(); closeErr != nil {
+			c.logger.Warn().Err(closeErr).Msg("Failed to close binary scanner")
+		}
+	}()
+
+	// Fetch all functions from the binary via scanner.
+	basicFunctions, err := scanner.ListAllFunctions(ctx, pid)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list functions via binary scanner: %w", err)
+	}
+
+	c.logger.Info().
+		Str("service", serviceName).
+		Int("raw_function_count", len(basicFunctions)).
+		Msg("Retrieved functions from binary scanner")
+
+	// Convert to FunctionInfo with embeddings and deduplication.
+	functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
+	seenFunctions := make(map[string]bool)
+	duplicates := 0
+
+	for _, fn := range basicFunctions {
+		// Skip duplicates (Go binaries can have duplicate function names).
+		// Keep first occurrence only to satisfy PRIMARY KEY (service_name, function_name).
+		if seenFunctions[fn.Name] {
+			duplicates++
+			continue
+		}
+		seenFunctions[fn.Name] = true
+
+		// Generate embedding for semantic search.
+		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
+			Name:       fn.Name,
+			Package:    extractPackageName(fn.Name),
+			FilePath:   fn.File,
+			Parameters: nil,
+		})
+
+		// Convert []float64 to []float32 for protobuf.
+		emb32 := make([]float32, len(emb))
+		for i, v := range emb {
+			emb32[i] = float32(v)
+		}
+
+		functions = append(functions, &agentv1.FunctionInfo{
+			Name:        fn.Name,
+			Package:     extractPackageName(fn.Name),
+			FilePath:    fn.File,
+			LineNumber:  int32(fn.Line),
+			Offset:      int64(fn.Offset),
+			HasDwarf:    true, // Binary scanner requires DWARF
+			ServiceName: serviceName,
+			Embedding:   emb32,
+		})
+	}
+
+	if duplicates > 0 {
+		c.logger.Debug().
+			Int("duplicates_skipped", duplicates).
+			Msg("Skipped duplicate function names from binary scanner")
+	}
+
+	c.logger.Info().
+		Str("service", serviceName).
+		Int("function_count", len(functions)).
+		Msg("Successfully discovered functions via binary scanner with embeddings")
 
 	return functions, nil
 }

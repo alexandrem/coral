@@ -196,6 +196,83 @@ func (s *Scanner) ListFunctions(ctx context.Context, pid uint32, pattern string,
 	return result, total, nil
 }
 
+// ListAllFunctions returns all functions from a process binary (for bulk export).
+// This is optimized for exporting the complete function list.
+func (s *Scanner) ListAllFunctions(ctx context.Context, pid uint32) ([]*BasicInfo, error) {
+	// Discover and copy binary.
+	binaryPath, err := s.discoverBinary(pid)
+	if err != nil {
+		return nil, fmt.Errorf("discover binary: %w", err)
+	}
+
+	localPath, err := s.copyBinary(ctx, pid, binaryPath)
+	if err != nil {
+		return nil, fmt.Errorf("copy binary: %w", err)
+	}
+
+	if localPath != binaryPath {
+		defer func() {
+			if err := os.Remove(localPath); err != nil {
+				s.cfg.Logger.Warn("Failed to remove temporary binary", "path", localPath, "error", err)
+			}
+		}()
+	}
+
+	// Get provider.
+	provider, err := s.getOrCreateProvider(localPath, int(pid))
+	if err != nil {
+		return nil, fmt.Errorf("create metadata provider: %w", err)
+	}
+
+	// Get all functions (no pagination).
+	allFunctions := provider.ListAllFunctions()
+
+	// Convert to our BasicInfo type.
+	result := make([]*BasicInfo, len(allFunctions))
+	for i, fn := range allFunctions {
+		result[i] = &BasicInfo{
+			Name:   fn.Name,
+			Offset: fn.Offset,
+			File:   fn.File,
+			Line:   fn.Line,
+		}
+	}
+
+	s.cfg.Logger.Info("Exported all functions from binary",
+		"pid", pid,
+		"total_functions", len(result))
+
+	return result, nil
+}
+
+// GetFunctionCount returns the total number of discoverable functions.
+func (s *Scanner) GetFunctionCount(ctx context.Context, pid uint32) (int, error) {
+	binaryPath, err := s.discoverBinary(pid)
+	if err != nil {
+		return 0, fmt.Errorf("discover binary: %w", err)
+	}
+
+	localPath, err := s.copyBinary(ctx, pid, binaryPath)
+	if err != nil {
+		return 0, fmt.Errorf("copy binary: %w", err)
+	}
+
+	if localPath != binaryPath {
+		defer func() {
+			if err := os.Remove(localPath); err != nil {
+				s.cfg.Logger.Warn("Failed to remove temporary binary", "path", localPath, "error", err)
+			}
+		}()
+	}
+
+	provider, err := s.getOrCreateProvider(localPath, int(pid))
+	if err != nil {
+		return 0, fmt.Errorf("create metadata provider: %w", err)
+	}
+
+	return provider.GetFunctionCount(), nil
+}
+
 // discoverBinary finds the binary path for a given PID by reading /proc/<pid>/exe.
 func (s *Scanner) discoverBinary(pid uint32) (string, error) {
 	// Read /proc/<pid>/exe symlink to get binary path.
