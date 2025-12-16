@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -36,11 +37,11 @@ type UprobeCollector struct {
 	config       *UprobeConfig
 	functionName string
 
-	// SDK metadata
-	sdkClient  *SDKClient
-	funcOffset uint64
-	binaryPath string
-	pid        uint32
+	// Function discovery
+	discoveryService *DiscoveryService
+	funcOffset       uint64
+	binaryPath       string
+	pid              uint32
 
 	// eBPF resources
 	objs         *uprobeObjects
@@ -59,11 +60,15 @@ type UprobeConfig struct {
 	ServiceName   string
 	FunctionName  string
 	SDKAddr       string
+	PID           uint32 // Target process PID (required for agentless discovery)
 	CaptureArgs   bool
 	CaptureReturn bool
 	SampleRate    uint32
 	MaxEvents     uint32
 	Duration      time.Duration
+
+	// Discovery configuration (optional, uses defaults if nil).
+	DiscoveryConfig *DiscoveryConfig
 }
 
 // NewUprobeCollector creates a new uprobe collector.
@@ -76,41 +81,67 @@ func NewUprobeCollector(logger zerolog.Logger, config *UprobeConfig) (*UprobeCol
 		return nil, fmt.Errorf("function name is required")
 	}
 
-	if config.SDKAddr == "" {
-		return nil, fmt.Errorf("SDK address is required")
+	// PID is now required for agentless discovery (if SDK is not available).
+	// If SDK address is provided, PID might be discovered from SDK.
+	if config.PID == 0 && config.SDKAddr == "" {
+		return nil, fmt.Errorf("either PID or SDK address is required")
 	}
 
-	sdkClient := NewSDKClient(logger, config.SDKAddr)
+	// Create discovery service.
+	discoveryCfg := config.DiscoveryConfig
+	if discoveryCfg == nil {
+		// Use default config with slog logger converted from zerolog.
+		slogLogger := convertZerologToSlog(logger)
+		discoveryCfg = DefaultDiscoveryConfig(slogLogger)
+	}
+
+	discoveryService, err := NewDiscoveryService(discoveryCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create discovery service: %w", err)
+	}
 
 	return &UprobeCollector{
-		logger:       logger.With().Str("collector", "uprobe").Str("function", config.FunctionName).Logger(),
-		config:       config,
-		functionName: config.FunctionName,
-		sdkClient:    sdkClient,
-		events:       make([]*meshv1.UprobeEvent, 0),
+		logger:           logger.With().Str("collector", "uprobe").Str("function", config.FunctionName).Logger(),
+		config:           config,
+		functionName:     config.FunctionName,
+		discoveryService: discoveryService,
+		events:           make([]*meshv1.UprobeEvent, 0),
 	}, nil
+}
+
+// convertZerologToSlog is a temporary helper to convert zerolog to slog.
+// TODO: standardize on one logging library across the codebase.
+func convertZerologToSlog(zlog zerolog.Logger) *slog.Logger {
+	// For now, just create a default slog logger.
+	// In the future, we should create a proper adapter or standardize on one library.
+	return slog.Default()
 }
 
 // Start begins collecting uprobe events.
 func (c *UprobeCollector) Start(ctx context.Context) error {
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
-	// Step 1: Query SDK for function metadata
-	c.logger.Info().Msg("Querying SDK for function metadata")
-	metadata, err := c.sdkClient.GetFunctionMetadata(ctx, c.functionName)
+	// Step 1: Discover function metadata using fallback chain.
+	c.logger.Info().Msg("Discovering function metadata")
+
+	// Determine PID: use config PID if set, otherwise will be discovered from SDK.
+	pid := c.config.PID
+
+	result, err := c.discoveryService.DiscoverFunction(ctx, c.config.SDKAddr, pid, c.functionName)
 	if err != nil {
-		return fmt.Errorf("failed to get function metadata: %w", err)
+		return fmt.Errorf("failed to discover function metadata: %w", err)
 	}
 
-	c.funcOffset = metadata.Offset
-	c.binaryPath = metadata.BinaryPath
-	c.pid = metadata.Pid
+	c.funcOffset = result.Metadata.Offset
+	c.binaryPath = result.Metadata.BinaryPath
+	c.pid = result.Metadata.Pid
 
 	c.logger.Info().
 		Str("binary", c.binaryPath).
 		Uint64("offset", c.funcOffset).
 		Uint32("pid", c.pid).
-		Msg("Got function metadata from SDK")
+		Str("discovery_method", string(result.Method)).
+		Msg("Successfully discovered function metadata")
 
 	// Step 2: Load eBPF program
 	c.objs = &uprobeObjects{}
@@ -172,6 +203,13 @@ func (c *UprobeCollector) Stop() error {
 	if c.objs != nil {
 		if err := c.objs.Close(); err != nil {
 			c.logger.Error().Err(err).Msg("Error closing eBPF objects")
+		}
+	}
+
+	// Clean up discovery service.
+	if c.discoveryService != nil {
+		if err := c.discoveryService.Close(); err != nil {
+			c.logger.Error().Err(err).Msg("Error closing discovery service")
 		}
 	}
 

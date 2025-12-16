@@ -454,6 +454,37 @@ type DebugConfig struct {
 		RetryAttempts int           `yaml:"retry_attempts"`
 	} `yaml:"sdk_api"`
 
+	// Function discovery configuration (RFD 065)
+	Discovery struct {
+		// EnableSDK enables SDK-based discovery (Priority 1)
+		EnableSDK bool `yaml:"enable_sdk"`
+
+		// EnablePprof enables pprof-based discovery (Priority 2, not yet implemented)
+		EnablePprof bool `yaml:"enable_pprof"`
+
+		// EnableBinaryScanning enables binary DWARF scanning (Priority 3)
+		EnableBinaryScanning bool `yaml:"enable_binary_scanning"`
+
+		// BinaryScanning contains binary scanning configuration
+		BinaryScanning struct {
+			// AccessMethod specifies how to access container binaries
+			// Options: "direct", "nsenter", "cri"
+			AccessMethod string `yaml:"access_method"`
+
+			// CacheEnabled enables caching of parsed function metadata
+			CacheEnabled bool `yaml:"cache_enabled"`
+
+			// CacheTTL is the time-to-live for cached entries
+			CacheTTL time.Duration `yaml:"cache_ttl"`
+
+			// MaxCachedBinaries limits the number of cached binaries
+			MaxCachedBinaries int `yaml:"max_cached_binaries"`
+
+			// TempDir is the directory for storing temporary binary copies
+			TempDir string `yaml:"temp_dir"`
+		} `yaml:"binary_scanning"`
+	} `yaml:"discovery"`
+
 	// Uprobe limits (safety)
 	Limits struct {
 		MaxConcurrentSessions int           `yaml:"max_concurrent_sessions"`
@@ -499,6 +530,14 @@ func DefaultAgentConfig() *AgentConfig {
 	cfg.Debug.Enabled = true
 	cfg.Debug.SDKAPI.Timeout = 5 * time.Second
 	cfg.Debug.SDKAPI.RetryAttempts = 3
+	cfg.Debug.Discovery.EnableSDK = true
+	cfg.Debug.Discovery.EnablePprof = false // Not yet implemented
+	cfg.Debug.Discovery.EnableBinaryScanning = true
+	cfg.Debug.Discovery.BinaryScanning.AccessMethod = "direct"
+	cfg.Debug.Discovery.BinaryScanning.CacheEnabled = true
+	cfg.Debug.Discovery.BinaryScanning.CacheTTL = 1 * time.Hour
+	cfg.Debug.Discovery.BinaryScanning.MaxCachedBinaries = 100
+	cfg.Debug.Discovery.BinaryScanning.TempDir = "/tmp/coral-binaries"
 	cfg.Debug.Limits.MaxConcurrentSessions = 5
 	cfg.Debug.Limits.MaxSessionDuration = 10 * time.Minute
 	cfg.Debug.Limits.MaxEventsPerSecond = 10000
