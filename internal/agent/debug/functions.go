@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/pkg/embedding"
 	"github.com/coral-mesh/coral/pkg/sdk/debug"
 )
 
@@ -64,36 +63,26 @@ func (d *FunctionDiscoverer) DiscoverFunctions(binaryPath, serviceName string) (
 	}()
 
 	// Get all functions from the index.
-	basicFunctions := provider.ListAllFunctions()
+	providerFunctions := provider.ListAllFunctions()
 
-	// Convert to protobuf format.
-	functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
-	for _, fn := range basicFunctions {
-		// Generate embedding with enrichment.
-		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
-			Name:       fn.Name,
-			Package:    extractPackageName(fn.Name),
-			FilePath:   fn.File,
-			Parameters: nil, // TODO: Extract parameters
-		})
+	d.logger.Debug().
+		Int("raw_function_count", len(providerFunctions)).
+		Str("binary", binaryPath).
+		Msg("Retrieved functions from DWARF, now enriching with embeddings")
 
-		// Convert []float64 to []float32 for protobuf.
-		emb32 := make([]float32, len(emb))
-		for i, v := range emb {
-			emb32[i] = float32(v)
+	// Convert to BasicFunctionInfo for common processing.
+	basicFunctions := make([]BasicFunctionInfo, len(providerFunctions))
+	for i, fn := range providerFunctions {
+		basicFunctions[i] = BasicFunctionInfo{
+			Name:   fn.Name,
+			Offset: fn.Offset,
+			File:   fn.File,
+			Line:   fn.Line,
 		}
-
-		functions = append(functions, &agentv1.FunctionInfo{
-			Name:        fn.Name,
-			Package:     extractPackageName(fn.Name),
-			FilePath:    fn.File,
-			LineNumber:  int32(fn.Line),
-			Offset:      int64(fn.Offset),
-			HasDwarf:    provider.HasDWARF(),
-			ServiceName: serviceName,
-			Embedding:   emb32,
-		})
 	}
+
+	// Enrich with embeddings and deduplicate using shared package function.
+	functions := enrichAndDeduplicateFunctions(basicFunctions, serviceName, provider.HasDWARF(), d.logger)
 
 	d.logger.Info().
 		Int("function_count", len(functions)).
@@ -102,68 +91,6 @@ func (d *FunctionDiscoverer) DiscoverFunctions(binaryPath, serviceName string) (
 		Bool("is_current_process", isCurrentProcess).
 		Bool("has_dwarf", provider.HasDWARF()).
 		Msg("Function discovery completed")
-
-	return functions, nil
-}
-
-// extractFunctionsFromExternalBinary extracts functions from an external binary.
-// This uses the SDK's FunctionMetadataProvider to extract DWARF debug info.
-//
-//nolint:unused
-func (d *FunctionDiscoverer) extractFunctionsFromExternalBinary(binaryPath, serviceName string) ([]*agentv1.FunctionInfo, error) {
-	// Create SDK logger from zerolog.
-	slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelWarn, // Reduce verbosity for discovery
-	}))
-
-	// Create provider for external binary (pid=0 since it's not the current process).
-	provider, err := debug.NewFunctionMetadataProviderForBinary(slogger, binaryPath, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create function metadata provider for %s: %w", binaryPath, err)
-	}
-	defer func() {
-		if closeErr := provider.Close(); closeErr != nil {
-			d.logger.Warn().Err(closeErr).Msg("Failed to close function metadata provider")
-		}
-	}()
-
-	// Get all functions from the index.
-	basicFunctions := provider.ListAllFunctions()
-
-	d.logger.Debug().
-		Int("function_count", len(basicFunctions)).
-		Str("binary", binaryPath).
-		Bool("has_dwarf", provider.HasDWARF()).
-		Msg("Extracted functions from external binary")
-
-	// Convert to protobuf format.
-	functions := make([]*agentv1.FunctionInfo, 0, len(basicFunctions))
-	for _, fn := range basicFunctions {
-		// Generate embedding with enrichment.
-		emb := embedding.GenerateFunctionEmbedding(embedding.FunctionMetadata{
-			Name:       fn.Name,
-			Package:    extractPackageName(fn.Name),
-			FilePath:   fn.File,
-			Parameters: nil, // TODO: Extract parameters
-		})
-
-		// Convert []float64 to []float32 for protobuf.
-		emb32 := make([]float32, len(emb))
-		for i, v := range emb {
-			emb32[i] = float32(v)
-		}
-
-		functions = append(functions, &agentv1.FunctionInfo{
-			Name:        fn.Name,
-			Package:     extractPackageName(fn.Name),
-			FilePath:    fn.File,
-			LineNumber:  int32(fn.Line),
-			Offset:      int64(fn.Offset),
-			HasDwarf:    provider.HasDWARF(),
-			ServiceName: serviceName,
-			Embedding:   emb32,
-		})
-	}
 
 	return functions, nil
 }

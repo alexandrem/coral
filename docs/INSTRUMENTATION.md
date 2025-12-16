@@ -23,6 +23,13 @@ The Coral SDK enables **live debugging** of your Go applications using eBPF
 uprobes. Unlike traditional observability, this allows you to attach probes to
 running code on-demand without redeploying.
 
+Coral also supports **agentless binary scanning** - you can debug
+applications **without SDK integration** if the binary has debug symbols.
+
+> **Important:** Most production Go binaries use `-ldflags="-w -s"` to fully
+> strip debug symbols. For these binaries, **SDK integration is required**.
+> Agentless mode works best for development builds and legacy apps with symbols.
+
 ### Features
 
 - **Zero-code debugging**: Attach uprobes to any function in your binary
@@ -32,6 +39,8 @@ running code on-demand without redeploying.
   and call stacks
 - **AI orchestration**: LLM decides which functions to probe based on metrics
   analysis
+- **Agentless mode**: Works with binaries that have debug symbols (dev builds or
+  legacy apps)
 
 ### Quick Start
 
@@ -56,29 +65,68 @@ func main() {
 
 ### How It Works
 
-1. **SDK Integration**: `sdk.EnableRuntimeMonitoring()` starts a gRPC server
+Coral supports two modes for live debugging:
+
+#### With SDK Integration (Recommended)
+
+1. **SDK Integration**: `sdk.EnableRuntimeMonitoring()` starts a debug server
    that exposes function metadata
-2. **Discovery**: Agent discovers SDK-enabled services via service labels or
-   explicit service link (`coral connect`)
-3. **On-Demand Probes**: When debugging is needed, the agent attaches eBPF
+2. **Fast Discovery**: Agent fetches function list via HTTP API (~1-2s for 50k
+   functions)
+3. **Robust Fallback**: If DWARF is stripped, SDK falls back to symbol table (
+   `.symtab`/`.dynsym`)
+4. **On-Demand Probes**: When debugging is needed, the agent attaches eBPF
    uprobes to function entry points
-4. **Live Data Collection**: Capture function calls, arguments, execution time,
+5. **Live Data Collection**: Capture function calls, arguments, execution time,
    call stacks
-5. **Zero Standing Overhead**: Probes only exist during debugging sessions
+6. **Zero Standing Overhead**: Probes only exist during debugging sessions
+
+#### Without SDK (Agentless Mode)
+
+1. **Automatic Discovery**: Agent discovers services via process monitoring or
+   explicit `coral connect`
+2. **Binary Scanning**: Agent directly parses DWARF symbols from the binary (~
+   100-200ms)
+3. **Semantic Indexing**: Functions are indexed with AI embeddings for
+   intelligent search
+4. **Uprobe Attachment**: Works identically to SDK mode once functions are
+   discovered
+5. **Symbol Table Fallback**: If DWARF is stripped, falls back to ELF symbol
+   table (same as SDK!)
+
+**Discovery Priority Chain:**
+
+- Priority 1: SDK HTTP API (recommended - optimized bulk export)
+- Priority 2: Binary Scanner with symbol table fallback (works with `-w`
+  stripped binaries!)
+- Priority 3: Direct DWARF parsing (legacy fallback)
 
 ### Building with Debug Symbols
 
-For full debugging support (including function arguments and return values),
-build with debug symbols:
+Different build configurations affect what Coral can discover:
 
 ```bash
-# Recommended: Full debug symbols
+# Development: Full debug symbols (DWARF + symbols)
+# ✅ SDK works: Full metadata (args, return values, line numbers)
+# ✅ Agentless works: Full metadata via DWARF parsing
 go build -gcflags="all=-N -l" -o myapp main.go
 
-# Alternative: Stripped binaries (reflection fallback)
-# Function discovery works, but cannot capture arguments/return values
+# Uncommon: DWARF stripped, symbols intact (-w only)
+# ✅ SDK works: Function discovery via symbol table (no arg/return info)
+# ✅ Agentless works: Function discovery via symbol table (no file/line info)
+# Note: Rarely used in production (most strip both DWARF and symbols)
 go build -ldflags="-w" -o myapp main.go
+
+# Production (typical): Fully stripped (-w -s)
+# ✅ SDK works: Uses SDK metadata API (bypasses binary symbols entirely)
+# ❌ Agentless fails: No symbols or DWARF available
+# Note: Most production builds use this for size and security
+go build -ldflags="-w -s" -o myapp main.go
 ```
+
+**IMPORTANT:** Most production Go binaries use `-ldflags="-w -s"` for size
+reduction and security. For these binaries, **you must integrate the SDK** -
+agentless mode will not work.
 
 ### Example: Live Debugging Session
 
@@ -97,7 +145,10 @@ coral debug events <SESSION_ID> --follow
     "timestamp": "2025-12-03T22:15:30Z",
     "event_type": "entry",
     "function_name": "main.ProcessPayment",
-    "arguments": {"amount": 99.99, "currency": "USD"}
+    "arguments": {
+        "amount": 99.99,
+        "currency": "USD"
+    }
 }
 {
     "timestamp": "2025-12-03T22:15:30Z",
@@ -139,12 +190,79 @@ $ coral ask "Why is the payment API slow?"
    ✓ Cleanup complete (zero overhead restored)
 ```
 
+### Agentless Binary Scanning (No SDK Required)
+
+For applications where SDK integration isn't possible (legacy apps, binaries
+with DWARF symbols), Coral can **automatically discover functions** by scanning
+the binary:
+
+```bash
+# Link a binary without SDK integration
+coral connect legacy-app --pid 12345
+
+# Semantic search works identically!
+coral debug search --service legacy-app database
+# Found: executeQuery, saveToDatabase, dbConnection
+
+# Attach uprobes - no code changes needed
+coral debug attach legacy-app --function main.ProcessPayment
+```
+
+**How It Works:**
+
+1. Agent discovers binary via PID or explicit link
+2. Parses DWARF symbols directly from `/proc/<pid>/exe`
+3. Generates AI embeddings for semantic search
+4. Caches functions with same performance as SDK mode
+
+**Requirements:**
+
+- Binary must have **symbols** (DWARF preferred for full metadata, `-w` stripped
+  works via symbol table)
+- Agent must have access to the binary (same host or container namespace)
+- **Does NOT work with fully stripped binaries** (`-w -s` - typical production
+  builds)
+
+**When to Use SDK vs Agentless:**
+
+| Scenario                                     | SDK                    | Agentless                | Winner                   |
+|----------------------------------------------|------------------------|--------------------------|--------------------------|
+| **Dev/debug builds** (full symbols)          | ✅ Works                | ✅ Works                  | SDK (easier integration) |
+| **Semi-stripped** (`-w` only)                | ✅ Works (symbol table) | ✅ Works (symbol table)   | SDK (easier)             |
+| **Fully stripped** (`-w -s`)                 | ✅ **Works (SDK API)**  | ❌ Fails                  | **SDK required**         |
+| **Legacy apps** (can't modify code)          | ❌ Can't add            | ✅ Works (if has symbols) | **Agentless only**       |
+| **Production deployments** (typical `-w -s`) | ✅ **Works (SDK API)**  | ❌ Fails (no symbols)     | **SDK required**         |
+
+**Performance (when both work):**
+| Metric | With SDK | Without SDK (Binary Scanner) |
+|--------|----------|------------------------------|
+| First discovery | ~1-2s (HTTP) | ~100-200ms (DWARF parse) |
+| Cached lookup | ~1ms | ~1ms |
+| Semantic search | Identical | Identical |
+| Function count | 50k+ | 50k+ |
+| **Works with `-w`** | ✅ Yes (symbol table) | ✅ Yes (symbol table) |
+| **Works with `-w -s`** | ✅ **Yes (SDK API)** | ❌ **No (needs symbols)** |
+
+**Key Insight:** SDK is required for typical production deployments (which use
+`-w -s`). The SDK provides its own metadata API that bypasses the need for debug
+symbols. Agentless mode is best for development builds and legacy applications
+where SDK integration isn't possible.
+
 ### Security Considerations
+
+**With SDK:**
 
 - Debug server listens only on **localhost** (127.0.0.1)
 - Only accessible by local agents (not exposed to network)
 - Read-only access to function metadata
 - No ability to modify application state
+
+**Agentless Mode:**
+
+- No network exposure (reads directly from filesystem/proc)
+- Requires agent to run on same host or with container access
+- Read-only binary analysis via DWARF symbols
+- Uses nsenter for cross-namespace access in daemonset deployments
 
 ### See Also
 
