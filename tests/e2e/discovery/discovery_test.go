@@ -89,6 +89,70 @@ func TestE2E_Discovery_WithSDK(t *testing.T) {
 	t.Logf("✓ Successfully discovered function via SDK: %s at offset 0x%x", result.Metadata.Name, result.Metadata.Offset)
 }
 
+// TestE2E_Discovery_WithSDK_SymbolTableFallback tests SDK discovery with symbol table fallback.
+// This validates that SDK works with binaries built with -ldflags="-w" (DWARF stripped, symbols intact).
+func TestE2E_Discovery_WithSDK_SymbolTableFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	// Only run on Linux (eBPF requirement).
+	if _, err := os.Stat("/proc"); os.IsNotExist(err) {
+		t.Skip("Skipping E2E test: /proc not available (not on Linux)")
+	}
+
+	binPath := filepath.Join("testdata", "bin", "app_with_sdk_symtab_only")
+	if _, err := os.Stat(binPath); os.IsNotExist(err) {
+		t.Fatalf("Test binary not found: %s (run 'go generate' to build test apps)", binPath)
+	}
+
+	// Start the test application.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pidFile := filepath.Join(t.TempDir(), "app.pid")
+	app := startTestApp(t, ctx, binPath, pidFile, sdkDebugPort)
+	defer stopTestApp(t, app)
+
+	// Wait for app to be ready and write PID.
+	pid := waitForPID(t, pidFile, 5*time.Second)
+	t.Logf("Test app started with PID: %d", pid)
+
+	// Create discovery service.
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	discoveryCfg := &ebpf.DiscoveryConfig{
+		EnableSDK:            true,
+		EnablePprof:          false,
+		EnableBinaryScanning: true,
+		BinaryScannerConfig: &binaryscanner.Config{
+			AccessMethod:      binaryscanner.AccessMethodDirect,
+			CacheEnabled:      true,
+			CacheTTL:          1 * time.Minute,
+			MaxCachedBinaries: 10,
+			TempDir:           t.TempDir(),
+			Logger:            logger,
+		},
+		Logger: logger,
+	}
+
+	discoveryService, err := ebpf.NewDiscoveryService(discoveryCfg)
+	require.NoError(t, err)
+	defer discoveryService.Close()
+
+	// Discover function metadata.
+	sdkAddr := fmt.Sprintf("localhost:%s", sdkDebugPort)
+	result, err := discoveryService.DiscoverFunction(ctx, sdkAddr, uint32(pid), targetFunction)
+	require.NoError(t, err)
+
+	// Verify discovery succeeded via SDK (using symbol table fallback internally).
+	assert.Equal(t, ebpf.DiscoveryMethodSDK, result.Method)
+	assert.Equal(t, targetFunction, result.Metadata.Name)
+	assert.NotZero(t, result.Metadata.Offset)
+	assert.Equal(t, uint32(pid), result.Metadata.Pid)
+
+	t.Logf("✓ Successfully discovered function via SDK symbol table fallback: %s at offset 0x%x", result.Metadata.Name, result.Metadata.Offset)
+}
+
 // TestE2E_Discovery_BinaryScanning_WithDWARF tests discovery via binary scanning with DWARF symbols.
 func TestE2E_Discovery_BinaryScanning_WithDWARF(t *testing.T) {
 	if testing.Short() {
@@ -151,7 +215,70 @@ func TestE2E_Discovery_BinaryScanning_WithDWARF(t *testing.T) {
 	t.Logf("✓ Successfully discovered function via binary scanning: %s at offset 0x%x", result.Metadata.Name, result.Metadata.Offset)
 }
 
-// TestE2E_Discovery_BinaryScanning_Stripped tests discovery failure with stripped binary.
+// TestE2E_Discovery_BinaryScanning_SymbolTableFallback tests agentless discovery with symbol table fallback.
+// This validates that binary scanning works with binaries built with -ldflags="-w" (DWARF stripped, symbols intact).
+func TestE2E_Discovery_BinaryScanning_SymbolTableFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	// Only run on Linux (eBPF requirement).
+	if _, err := os.Stat("/proc"); os.IsNotExist(err) {
+		t.Skip("Skipping E2E test: /proc not available (not on Linux)")
+	}
+
+	binPath := filepath.Join("testdata", "bin", "app_no_sdk_symtab_only")
+	if _, err := os.Stat(binPath); os.IsNotExist(err) {
+		t.Fatalf("Test binary not found: %s (run 'go generate' to build test apps)", binPath)
+	}
+
+	// Start the test application (without SDK).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pidFile := filepath.Join(t.TempDir(), "app.pid")
+	app := startTestApp(t, ctx, binPath, pidFile, "")
+	defer stopTestApp(t, app)
+
+	// Wait for app to be ready.
+	pid := waitForPID(t, pidFile, 5*time.Second)
+	t.Logf("Test app started with PID: %d", pid)
+
+	// Create discovery service (SDK disabled to force binary scanning).
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	discoveryCfg := &ebpf.DiscoveryConfig{
+		EnableSDK:            false, // Force binary scanning
+		EnablePprof:          false,
+		EnableBinaryScanning: true,
+		BinaryScannerConfig: &binaryscanner.Config{
+			AccessMethod:      binaryscanner.AccessMethodDirect,
+			CacheEnabled:      true,
+			CacheTTL:          1 * time.Minute,
+			MaxCachedBinaries: 10,
+			TempDir:           t.TempDir(),
+			Logger:            logger,
+		},
+		Logger: logger,
+	}
+
+	discoveryService, err := ebpf.NewDiscoveryService(discoveryCfg)
+	require.NoError(t, err)
+	defer discoveryService.Close()
+
+	// Discover function metadata (no SDK address provided).
+	result, err := discoveryService.DiscoverFunction(ctx, "", uint32(pid), targetFunction)
+	require.NoError(t, err)
+
+	// Verify discovery succeeded via binary scanning (using symbol table fallback internally).
+	assert.Equal(t, ebpf.DiscoveryMethodBinary, result.Method)
+	assert.Equal(t, targetFunction, result.Metadata.Name)
+	assert.NotZero(t, result.Metadata.Offset)
+	assert.Equal(t, uint32(pid), result.Metadata.Pid)
+
+	t.Logf("✓ Successfully discovered function via binary scanning symbol table fallback: %s at offset 0x%x", result.Metadata.Name, result.Metadata.Offset)
+}
+
+// TestE2E_Discovery_BinaryScanning_Stripped tests discovery failure with fully stripped binary.
 func TestE2E_Discovery_BinaryScanning_Stripped(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping E2E test in short mode")

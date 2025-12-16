@@ -10,19 +10,27 @@ mkdir -p "$OUTPUT_DIR"
 echo "Building test applications..."
 
 # App with SDK + DWARF symbols
-echo "  [1/4] Building app_with_sdk (with DWARF symbols)..."
+echo "  [1/6] Building app_with_sdk (with DWARF symbols)..."
 go build -o "$OUTPUT_DIR/app_with_sdk_dwarf" "$SCRIPT_DIR/app_with_sdk.go"
 
-# App with SDK + NO DWARF symbols (stripped)
-echo "  [2/4] Building app_with_sdk (stripped)..."
+# App with SDK + symbol table only (DWARF stripped, symbols intact)
+echo "  [2/6] Building app_with_sdk (symbol table only, -w)..."
+go build -ldflags="-w" -o "$OUTPUT_DIR/app_with_sdk_symtab_only" "$SCRIPT_DIR/app_with_sdk.go"
+
+# App with SDK + fully stripped (no DWARF, no symbols)
+echo "  [3/6] Building app_with_sdk (fully stripped, -w -s)..."
 go build -ldflags="-w -s" -o "$OUTPUT_DIR/app_with_sdk_stripped" "$SCRIPT_DIR/app_with_sdk.go"
 
 # App WITHOUT SDK + DWARF symbols
-echo "  [3/4] Building app_no_sdk (with DWARF symbols)..."
+echo "  [4/6] Building app_no_sdk (with DWARF symbols)..."
 go build -o "$OUTPUT_DIR/app_no_sdk_dwarf" "$SCRIPT_DIR/app_no_sdk.go"
 
-# App WITHOUT SDK + NO DWARF symbols (stripped)
-echo "  [4/4] Building app_no_sdk (stripped)..."
+# App WITHOUT SDK + symbol table only (DWARF stripped, symbols intact)
+echo "  [5/6] Building app_no_sdk (symbol table only, -w)..."
+go build -ldflags="-w" -o "$OUTPUT_DIR/app_no_sdk_symtab_only" "$SCRIPT_DIR/app_no_sdk.go"
+
+# App WITHOUT SDK + fully stripped (no DWARF, no symbols)
+echo "  [6/6] Building app_no_sdk (fully stripped, -w -s)..."
 go build -ldflags="-w -s" -o "$OUTPUT_DIR/app_no_sdk_stripped" "$SCRIPT_DIR/app_no_sdk.go"
 
 echo "✓ All test binaries built successfully:"

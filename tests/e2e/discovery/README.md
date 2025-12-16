@@ -12,21 +12,36 @@ These tests validate the complete discovery fallback chain:
 ## Test Scenarios
 
 ### 1. Discovery with SDK (`TestE2E_Discovery_WithSDK`)
-- **Binary**: `app_with_sdk_dwarf` (SDK integrated + DWARF symbols)
+- **Binary**: `app_with_sdk_dwarf` (SDK integrated + Full DWARF)
+- **Build**: `go build -o app_with_sdk_dwarf`
 - **Expected**: Discovery succeeds via SDK method
-- **Validates**: SDK integration works correctly
+- **Validates**: SDK integration works correctly with full symbols
 
-### 2. Binary Scanning with DWARF (`TestE2E_Discovery_BinaryScanning_WithDWARF`)
-- **Binary**: `app_no_sdk_dwarf` (No SDK + DWARF symbols)
+### 2. SDK Symbol Table Fallback (`TestE2E_Discovery_WithSDK_SymbolTableFallback`)
+- **Binary**: `app_with_sdk_symtab_only` (SDK integrated + Symbol table only)
+- **Build**: `go build -ldflags="-w" -o app_with_sdk_symtab_only`
+- **Expected**: Discovery succeeds via SDK method (using symbol table fallback)
+- **Validates**: SDK works with `-w` stripped binaries (DWARF stripped, symbols intact)
+
+### 3. Binary Scanning with DWARF (`TestE2E_Discovery_BinaryScanning_WithDWARF`)
+- **Binary**: `app_no_sdk_dwarf` (No SDK + Full DWARF)
+- **Build**: `go build -o app_no_sdk_dwarf`
 - **Expected**: Discovery succeeds via binary scanning
-- **Validates**: DWARF parsing works without SDK
+- **Validates**: DWARF parsing works without SDK (agentless mode)
 
-### 3. Stripped Binary Failure (`TestE2E_Discovery_BinaryScanning_Stripped`)
-- **Binary**: `app_no_sdk_stripped` (No SDK + No DWARF)
+### 4. Agentless Symbol Table Fallback (`TestE2E_Discovery_BinaryScanning_SymbolTableFallback`)
+- **Binary**: `app_no_sdk_symtab_only` (No SDK + Symbol table only)
+- **Build**: `go build -ldflags="-w" -o app_no_sdk_symtab_only`
+- **Expected**: Discovery succeeds via binary scanning (using symbol table fallback)
+- **Validates**: Agentless mode works with `-w` stripped binaries (production use case)
+
+### 5. Fully Stripped Binary Failure (`TestE2E_Discovery_BinaryScanning_Stripped`)
+- **Binary**: `app_no_sdk_stripped` (No SDK + Fully stripped)
+- **Build**: `go build -ldflags="-w -s" -o app_no_sdk_stripped`
 - **Expected**: Discovery fails with helpful error message
-- **Validates**: Graceful failure with actionable recommendations
+- **Validates**: Graceful failure when both DWARF and symbol table are removed
 
-### 4. Fallback from SDK to Binary (`TestE2E_Discovery_Fallback`)
+### 6. Fallback from SDK to Binary (`TestE2E_Discovery_Fallback`)
 - **Binary**: `app_no_sdk_dwarf` (No SDK + DWARF symbols)
 - **Expected**: SDK fails, automatically falls back to binary scanning
 - **Validates**: Fallback chain works as designed
@@ -61,11 +76,13 @@ cd testdata
 ./build.sh
 ```
 
-This creates 4 test binaries:
-- `app_with_sdk_dwarf` - SDK + DWARF symbols
-- `app_with_sdk_stripped` - SDK + stripped
-- `app_no_sdk_dwarf` - No SDK + DWARF symbols
-- `app_no_sdk_stripped` - No SDK + stripped
+This creates 6 test binaries:
+- `app_with_sdk_dwarf` - SDK + Full DWARF
+- `app_with_sdk_symtab_only` - SDK + Symbol table only (`-w`)
+- `app_with_sdk_stripped` - SDK + Fully stripped (`-w -s`)
+- `app_no_sdk_dwarf` - No SDK + Full DWARF
+- `app_no_sdk_symtab_only` - No SDK + Symbol table only (`-w`)
+- `app_no_sdk_stripped` - No SDK + Fully stripped (`-w -s`)
 
 ## Test Architecture
 
