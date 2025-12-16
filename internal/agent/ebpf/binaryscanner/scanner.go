@@ -85,7 +85,7 @@ func NewScanner(cfg *Config) (*Scanner, error) {
 	}
 
 	// Ensure temp directory exists.
-	if err := os.MkdirAll(cfg.TempDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.TempDir, 0750); err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
 	}
 
@@ -258,17 +258,23 @@ func (s *Scanner) copyBinaryWithNsenter(ctx context.Context, pid uint32, binaryP
 
 	// Use nsenter to enter the container's mount namespace and cat the binary.
 	// nsenter -t <pid> -m cat /proc/self/exe > /tmp/binary
+	// #nosec G204 -- PID is validated as uint32, nsenter args are controlled
 	cmd := exec.CommandContext(ctx, "nsenter",
 		"-t", fmt.Sprintf("%d", pid),
 		"-m",
 		"cat", "/proc/self/exe")
 
 	// Create output file.
+	// #nosec G304 -- tempPath is constructed from controlled TempDir and hash
 	outFile, err := os.Create(tempPath)
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
-	defer outFile.Close()
+	defer func() {
+		if err := outFile.Close(); err != nil {
+			s.cfg.Logger.Warn("Failed to close temp file", "path", tempPath, "error", err)
+		}
+	}()
 
 	cmd.Stdout = outFile
 	cmd.Stderr = os.Stderr
@@ -384,11 +390,15 @@ func (s *Scanner) Close() error {
 
 // computeFileHash computes the SHA256 hash of a file.
 func computeFileHash(path string) (string, error) {
+	// #nosec G304 -- path is either from TempDir (controlled) or from discoverBinary (validated)
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		// Best effort close for hash computation.
+		_ = f.Close()
+	}()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
