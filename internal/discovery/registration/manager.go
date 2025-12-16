@@ -4,13 +4,13 @@ package registration
 import (
 	"context"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/retry"
 )
 
 // Config contains configuration for the registration manager.
@@ -162,49 +162,45 @@ func (m *Manager) Status() (registered bool, expiresAt time.Time, lastErr error)
 
 // registerWithRetry attempts registration with exponential backoff.
 func (m *Manager) registerWithRetry(ctx context.Context) error {
-	const (
-		maxRetries     = 5
-		initialBackoff = 1 * time.Second
-		maxBackoff     = 30 * time.Second
-	)
+	// Create a context that's canceled when stopCh is closed.
+	ctx, cancel := m.contextWithStopCh(ctx)
+	defer cancel()
 
-	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			backoff := time.Duration(math.Pow(2, float64(attempt-1))) * initialBackoff
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-
-			m.logger.Debug().
-				Int("attempt", attempt+1).
-				Dur("backoff", backoff).
-				Msg("Retrying registration after backoff")
-
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-m.stopCh:
-				return fmt.Errorf("manager stopped during retry")
-			}
-		}
-
-		if err := m.register(ctx); err != nil {
-			lastErr = err
-			m.logger.Warn().
-				Err(err).
-				Int("attempt", attempt+1).
-				Int("max_retries", maxRetries).
-				Msg("Registration attempt failed")
-			continue
-		}
-
-		// Success!
-		return nil
+	cfg := retry.Config{
+		MaxRetries:     5,
+		InitialBackoff: 1 * time.Second,
+		MaxBackoff:     30 * time.Second,
 	}
 
-	return fmt.Errorf("registration failed after %d attempts: %w", maxRetries, lastErr)
+	attempt := 0
+	err := retry.Do(ctx, cfg, func() error {
+		attempt++
+		if err := m.register(ctx); err != nil {
+			m.logger.Warn().
+				Err(err).
+				Int("attempt", attempt).
+				Int("max_retries", cfg.MaxRetries).
+				Msg("Registration attempt failed")
+			return err
+		}
+		return nil
+	}, nil) // Retry all errors.
+
+	return err
+}
+
+// contextWithStopCh creates a context that's canceled when either the parent
+// context is canceled or the manager's stopCh is closed.
+func (m *Manager) contextWithStopCh(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	go func() {
+		select {
+		case <-parent.Done():
+		case <-m.stopCh:
+			cancel()
+		}
+	}()
+	return ctx, cancel
 }
 
 // register performs a single registration attempt.

@@ -94,6 +94,8 @@ func (d *Database) createHNSWIndex() error {
 // Note: VSS extension installation is handled separately in ensureVSSExtension().
 var schemaDDL = []string{
 	// Services table - registry of services in the mesh.
+	// Note: last_seen moved to service_heartbeats table for better performance.
+	// Note: Indexes removed due to DuckDB bug with UPDATE statements on indexed columns in transactions.
 	`CREATE TABLE IF NOT EXISTS services (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -101,13 +103,16 @@ var schemaDDL = []string{
 		version TEXT,
 		agent_id TEXT NOT NULL,
 		labels TEXT,
-		last_seen TIMESTAMP NOT NULL,
-		status TEXT NOT NULL
+		status TEXT NOT NULL,
+		registered_at TIMESTAMP NOT NULL
 	)`,
 
-	`CREATE INDEX IF NOT EXISTS idx_services_agent_id ON services(agent_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_services_status ON services(status)`,
-	`CREATE INDEX IF NOT EXISTS idx_services_last_seen ON services(last_seen)`,
+	// Service heartbeats - frequent updates separated for performance.
+	// Note: No foreign key constraint or indexes to avoid DuckDB update conflicts.
+	`CREATE TABLE IF NOT EXISTS service_heartbeats (
+		service_id TEXT PRIMARY KEY,
+		last_seen TIMESTAMP NOT NULL
+	)`,
 
 	// Metric summaries - aggregated metrics (downsampled).
 	`CREATE TABLE IF NOT EXISTS metric_summaries (
