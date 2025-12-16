@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -16,6 +17,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/sys/proc"
+	"github.com/coral-mesh/coral/pkg/sdk/debug"
 )
 
 // ServiceStatus represents the health status of a service.
@@ -130,6 +132,10 @@ func (m *ServiceMonitor) monitorLoop() {
 
 	// Perform initial check after jitter delay.
 	m.performHealthCheck()
+
+	// Attempt SDK discovery after first health check (RFD 066).
+	// This ensures SDK capabilities are discovered when using --connect flag.
+	m.discoverSDKCapabilities()
 
 	ticker := time.NewTicker(m.checkInterval)
 	defer ticker.Stop()
@@ -361,9 +367,84 @@ func (m *ServiceMonitor) SetSdkCapabilities(caps *agentv1.ServiceSdkCapabilities
 	}
 }
 
+// discoverSDKCapabilities attempts to discover SDK capabilities via HTTP (RFD 066).
+// This is called during monitor initialization to support --connect flag.
+func (m *ServiceMonitor) discoverSDKCapabilities() {
+	// Skip if we already have SDK capabilities.
+	m.mu.RLock()
+	hasSDK := m.sdkCapabilities != nil
+	m.mu.RUnlock()
+
+	if hasSDK {
+		return
+	}
+
+	// Default to localhost:9002, but could be configurable or derived.
+	discoveryAddr := "localhost:9002"
+
+	caps := discoverSDKCapabilities(m.ctx, discoveryAddr, m.logger)
+	if caps == nil {
+		// SDK not discovered (expected for non-SDK apps).
+		return
+	}
+
+	// Set service name.
+	caps.ServiceName = m.service.Name
+
+	// Set SDK capabilities using the existing method, which handles process info
+	// and function discovery.
+	m.SetSdkCapabilities(caps)
+
+	m.logger.Info().
+		Str("sdk_version", caps.SdkVersion).
+		Int("functions", int(caps.FunctionCount)).
+		Msg("Discovered SDK via HTTP")
+}
+
 // GetSdkCapabilities returns the SDK capabilities for the service.
 func (m *ServiceMonitor) GetSdkCapabilities() *agentv1.ServiceSdkCapabilities {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.sdkCapabilities
+}
+
+// discoverSDKCapabilities attempts to discover SDK capabilities via HTTP (RFD 066).
+// This is a shared utility function used by both ServiceHandler and ServiceMonitor.
+func discoverSDKCapabilities(ctx context.Context, addr string, logger zerolog.Logger) *agentv1.ServiceSdkCapabilities {
+	// Simple HTTP GET request with short timeout.
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+addr+"/debug/capabilities", nil)
+	if err != nil {
+		return nil
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		// SDK not present or not reachable (expected for non-SDK apps).
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var capsResp debug.CapabilitiesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&capsResp); err != nil {
+		logger.Warn().Err(err).Msg("Invalid SDK capabilities response")
+		return nil
+	}
+
+	return &agentv1.ServiceSdkCapabilities{
+		ProcessId:       capsResp.ProcessID,
+		SdkEnabled:      true,
+		SdkVersion:      capsResp.SdkVersion,
+		SdkAddr:         addr,
+		HasDwarfSymbols: capsResp.HasDwarfSymbols,
+		BinaryPath:      capsResp.BinaryPath,
+		FunctionCount:   uint32(capsResp.FunctionCount),
+		BinaryHash:      capsResp.BinaryHash,
+	}
 }
