@@ -38,7 +38,7 @@ func NewKernelSymbolizer(logger zerolog.Logger) (*KernelSymbolizer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open /proc/kallsyms: %w (requires root or CAP_SYSLOG)", err)
 	}
-	defer file.Close()
+	defer file.Close() // nolint:errcheck
 
 	var symbols []KernelSymbol
 	scanner := bufio.NewScanner(file)

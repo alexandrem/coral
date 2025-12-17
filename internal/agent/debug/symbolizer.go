@@ -94,7 +94,7 @@ func NewSymbolizer(binaryPath string, pid int, logger zerolog.Logger) (*Symboliz
 	}
 
 	if s.dwarfData == nil && len(s.symtab) == 0 {
-		f.Close()
+		f.Close() // nolint:errcheck
 		return nil, fmt.Errorf("binary has no debug info or symbol table (stripped binary?)")
 	}
 
@@ -185,7 +185,7 @@ func (s *Symbolizer) resolveDWARF(addr uint64) (Symbol, error) {
 			high = v
 		case int64:
 			// Offset from lowPC
-			high = low + uint64(v)
+			high = low + uint64(v) // #nosec G115
 		default:
 			continue
 		}
@@ -259,7 +259,7 @@ func GetBinaryPath(pid int) (string, error) {
 func getRuntimeLoadAddress(pid int, binaryPath string) (uint64, error) {
 	// Read /proc/PID/maps
 	mapsPath := fmt.Sprintf("/proc/%d/maps", pid)
-	data, err := os.ReadFile(mapsPath)
+	data, err := os.ReadFile(mapsPath) // #nosec G304: pid is int so it's safe
 	if err != nil {
 		return 0, fmt.Errorf("failed to read maps: %w", err)
 	}
