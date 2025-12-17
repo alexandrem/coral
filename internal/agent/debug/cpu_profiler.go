@@ -26,16 +26,17 @@ const (
 
 // CPUProfileSession represents an active CPU profiling session.
 type CPUProfileSession struct {
-	PID         int
-	StartTime   time.Time
-	Duration    time.Duration
-	Frequency   int
-	Logger      zerolog.Logger
-	BPFObjects  *cpu_profileObjects
-	PerfEventFD int
-	StackTraces *ebpf.Map   // Reference to stack_traces map
-	StackCounts *ebpf.Map   // Reference to stack_counts map
-	Symbolizer  *Symbolizer // Symbol resolver for address -> function name
+	PID              int
+	StartTime        time.Time
+	Duration         time.Duration
+	Frequency        int
+	Logger           zerolog.Logger
+	BPFObjects       *cpu_profileObjects
+	PerfEventFD      int
+	StackTraces      *ebpf.Map         // Reference to stack_traces map
+	StackCounts      *ebpf.Map         // Reference to stack_counts map
+	Symbolizer       *Symbolizer       // Symbol resolver for address -> function name
+	KernelSymbolizer *KernelSymbolizer // Kernel symbol resolver (shared across sessions)
 }
 
 // CPUProfileResult contains the results of a CPU profiling session.
@@ -53,7 +54,7 @@ type stackKey struct {
 }
 
 // StartCPUProfile starts a CPU profiling session.
-func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, logger zerolog.Logger) (*CPUProfileSession, error) {
+func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, kernelSymbolizer *KernelSymbolizer, logger zerolog.Logger) (*CPUProfileSession, error) {
 	if frequencyHz <= 0 {
 		frequencyHz = defaultSampleFrequency
 	}
@@ -113,16 +114,17 @@ func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, logger zerol
 	}
 
 	session := &CPUProfileSession{
-		PID:         pid,
-		StartTime:   time.Now(),
-		Duration:    time.Duration(durationSeconds) * time.Second,
-		Frequency:   frequencyHz,
-		Logger:      logger,
-		BPFObjects:  objs,
-		PerfEventFD: perfEventFD,
-		StackTraces: objs.StackTraces,
-		StackCounts: objs.StackCounts,
-		Symbolizer:  symbolizer,
+		PID:              pid,
+		StartTime:        time.Now(),
+		Duration:         time.Duration(durationSeconds) * time.Second,
+		Frequency:        frequencyHz,
+		Logger:           logger,
+		BPFObjects:       objs,
+		PerfEventFD:      perfEventFD,
+		StackTraces:      objs.StackTraces,
+		StackCounts:      objs.StackCounts,
+		Symbolizer:       symbolizer,
+		KernelSymbolizer: kernelSymbolizer,
 	}
 
 	logger.Info().
@@ -240,7 +242,16 @@ func (s *CPUProfileSession) resolveStack(key stackKey) ([]string, error) {
 				if addr == 0 {
 					break
 				}
-				// Kernel symbolization not yet implemented - output raw addresses
+
+				// Try to symbolize kernel address
+				if s.KernelSymbolizer != nil {
+					if sym := s.KernelSymbolizer.Resolve(addr); sym != "" {
+						frames = append(frames, fmt.Sprintf("[kernel] %s", sym))
+						continue
+					}
+				}
+
+				// Fallback to raw address
 				frames = append(frames, fmt.Sprintf("[kernel] 0x%x", addr))
 			}
 		}

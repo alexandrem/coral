@@ -788,6 +788,8 @@ type LinuxCapabilities struct {
 	CapBpf bool `protobuf:"varint,5,opt,name=cap_bpf,json=capBpf,proto3" json:"cap_bpf,omitempty"`
 	// Performance monitoring eBPF (kernel 5.8+).
 	CapPerfmon bool `protobuf:"varint,6,opt,name=cap_perfmon,json=capPerfmon,proto3" json:"cap_perfmon,omitempty"`
+	// Kernel symbol resolution via /proc/kallsyms (CPU profiling).
+	CapSyslog bool `protobuf:"varint,10,opt,name=cap_syslog,json=capSyslog,proto3" json:"cap_syslog,omitempty"`
 	// Additional capabilities for future use.
 	CapDacOverride bool `protobuf:"varint,7,opt,name=cap_dac_override,json=capDacOverride,proto3" json:"cap_dac_override,omitempty"`
 	CapSetuid      bool `protobuf:"varint,8,opt,name=cap_setuid,json=capSetuid,proto3" json:"cap_setuid,omitempty"`
@@ -864,6 +866,13 @@ func (x *LinuxCapabilities) GetCapBpf() bool {
 func (x *LinuxCapabilities) GetCapPerfmon() bool {
 	if x != nil {
 		return x.CapPerfmon
+	}
+	return false
+}
+
+func (x *LinuxCapabilities) GetCapSyslog() bool {
+	if x != nil {
+		return x.CapSyslog
 	}
 	return false
 }
@@ -4395,7 +4404,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\vcan_connect\x18\x04 \x01(\bR\n" +
 	"canConnect\x12M\n" +
 	"\x11exec_capabilities\x18\x05 \x01(\v2 .coral.agent.v1.ExecCapabilitiesR\x10execCapabilities\x12P\n" +
-	"\x12linux_capabilities\x18\x06 \x01(\v2!.coral.agent.v1.LinuxCapabilitiesR\x11linuxCapabilities\"\xcd\x02\n" +
+	"\x12linux_capabilities\x18\x06 \x01(\v2!.coral.agent.v1.LinuxCapabilitiesR\x11linuxCapabilities\"\xec\x02\n" +
 	"\x11LinuxCapabilities\x12\"\n" +
 	"\rcap_net_admin\x18\x01 \x01(\bR\vcapNetAdmin\x12\"\n" +
 	"\rcap_sys_admin\x18\x02 \x01(\bR\vcapSysAdmin\x12$\n" +
@@ -4403,7 +4412,10 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x10cap_sys_resource\x18\x04 \x01(\bR\x0ecapSysResource\x12\x17\n" +
 	"\acap_bpf\x18\x05 \x01(\bR\x06capBpf\x12\x1f\n" +
 	"\vcap_perfmon\x18\x06 \x01(\bR\n" +
-	"capPerfmon\x12(\n" +
+	"capPerfmon\x12\x1d\n" +
+	"\n" +
+	"cap_syslog\x18\n" +
+	" \x01(\bR\tcapSyslog\x12(\n" +
 	"\x10cap_dac_override\x18\a \x01(\bR\x0ecapDacOverride\x12\x1d\n" +
 	"\n" +
 	"cap_setuid\x18\b \x01(\bR\tcapSetuid\x12\x1d\n" +

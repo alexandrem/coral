@@ -209,6 +209,29 @@ func outputAgentsVerbose(agents []*colonyv1.Agent) error {
 				formatCapabilitySymbol(rc.Capabilities.CanExec),
 				formatCapabilitySymbol(rc.Capabilities.CanShell),
 				formatCapabilitySymbol(rc.Capabilities.CanRun))
+
+			// Linux Capabilities (if available)
+			if rc.Capabilities != nil && rc.Capabilities.LinuxCapabilities != nil {
+				fmt.Println("│                                                                │")
+				fmt.Println("│ Linux Capabilities:                                            │")
+				linuxCaps := rc.Capabilities.LinuxCapabilities
+
+				// Show BPF/eBPF capabilities (most important for eBPF operations)
+				fmt.Printf("│   %s CAP_BPF        %s CAP_PERFMON      %s CAP_SYSLOG      │\n",
+					formatCapabilitySymbol(linuxCaps.CapBpf),
+					formatCapabilitySymbol(linuxCaps.CapPerfmon),
+					formatCapabilitySymbol(linuxCaps.CapSyslog))
+
+				// Show core required capabilities
+				fmt.Printf("│   %s CAP_NET_ADMIN  %s CAP_SYS_PTRACE  %s CAP_SYS_RESOURCE │\n",
+					formatCapabilitySymbol(linuxCaps.CapNetAdmin),
+					formatCapabilitySymbol(linuxCaps.CapSysPtrace),
+					formatCapabilitySymbol(linuxCaps.CapSysResource))
+
+				// Show CAP_SYS_ADMIN separately (optional - needed for nsenter)
+				fmt.Printf("│   %s CAP_SYS_ADMIN (nsenter exec + older kernel fallback)   │\n",
+					formatCapabilitySymbol(linuxCaps.CapSysAdmin))
+			}
 			fmt.Println("│                                                                │")
 
 			// Visibility

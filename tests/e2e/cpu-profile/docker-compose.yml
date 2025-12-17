@@ -25,11 +25,16 @@ services:
     pid: "service:cpu-app"
     network_mode: "service:cpu-app"
     cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-      - SYS_PTRACE
-      - SYS_RESOURCE
-      - BPF
+      - NET_ADMIN      # WireGuard mesh networking
+      - SYS_PTRACE     # Process inspection
+      - SYS_RESOURCE   # eBPF memory locking
+      - BPF            # eBPF program loading (instead of SYS_ADMIN)
+      - PERFMON        # CPU profiling (instead of SYS_ADMIN)
+      - SYSLOG         # Kernel symbol resolution
+      - SYS_ADMIN      # Required for most eBPF kprobes in restricted environments (perf_event_paranoid)
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     devices:
       - /dev/net/tun:/dev/net/tun
     privileged: false

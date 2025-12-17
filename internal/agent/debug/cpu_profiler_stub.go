@@ -22,7 +22,7 @@ type CPUProfileResult struct {
 }
 
 // StartCPUProfile returns an error on non-Linux systems.
-func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, logger zerolog.Logger) (*CPUProfileSession, error) {
+func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, kernelSymbolizer *KernelSymbolizer, logger zerolog.Logger) (*CPUProfileSession, error) {
 	return nil, fmt.Errorf("CPU profiling is only supported on Linux")
 }
 

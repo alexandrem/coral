@@ -173,6 +173,9 @@ message LinuxCapabilities {
   // Performance monitoring eBPF (kernel 5.8+).
   bool cap_perfmon = 6;
 
+  // Kernel symbol resolution via /proc/kallsyms (CPU profiling).
+  bool cap_syslog = 10;
+
   // Additional capabilities for future use.
   bool cap_dac_override = 7;
   bool cap_setuid = 8;

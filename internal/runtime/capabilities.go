@@ -20,6 +20,7 @@ const (
 	capDacOverride = 1  // CAP_DAC_OVERRIDE
 	capSetuid      = 7  // CAP_SETUID
 	capSetgid      = 8  // CAP_SETGID
+	capSyslog      = 34 // CAP_SYSLOG (kernel symbol access)
 	capPerfmon     = 38 // CAP_PERFMON (kernel 5.8+)
 	capBpf         = 39 // CAP_BPF (kernel 5.8+)
 )
@@ -46,6 +47,7 @@ func DetectLinuxCapabilities() (*agentv1.LinuxCapabilities, error) {
 		CapSysResource: hasCapability(capEff, capSysResource),
 		CapBpf:         hasCapability(capEff, capBpf),
 		CapPerfmon:     hasCapability(capEff, capPerfmon),
+		CapSyslog:      hasCapability(capEff, capSyslog),
 		CapDacOverride: hasCapability(capEff, capDacOverride),
 		CapSetuid:      hasCapability(capEff, capSetuid),
 		CapSetgid:      hasCapability(capEff, capSetgid),
