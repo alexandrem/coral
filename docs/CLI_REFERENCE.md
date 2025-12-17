@@ -100,7 +100,7 @@ coral ask "Check errors" --dry-run
 
 ---
 
-## Unified Query Commands (RFD 067)
+## Unified Query Commands
 
 **Unified interface combining eBPF and OTLP data sources.**
 
@@ -223,7 +223,7 @@ coral duckdb shell --agents <agent-1>,<agent-2>,... [-d <database>]
 coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return]
 coral debug trace <service> --path <path> [--duration <time>]
 
-# CPU profiling (RFD 070)
+# CPU profiling
 coral debug cpu-profile --service <name> [--duration <seconds>] [--frequency <hz>] [--format folded|json] [--pod <name>] [--agent-id <id>]
 
 # Manage probes

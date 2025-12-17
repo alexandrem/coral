@@ -167,7 +167,7 @@ coral debug attach payment-service --function processPayment --duration 5m
 # Trace an HTTP request path across services
 coral debug trace api-gateway --path /checkout --duration 2m
 
-# Collect CPU profile samples (RFD 070)
+# Collect CPU profile samples
 coral debug cpu-profile --service api-server --duration 30
 
 # List active debug sessions
@@ -219,7 +219,7 @@ tracing by showing exactly where CPU time is spent.
 coral debug cpu-profile --service api --duration 30
 
 # Generate flamegraph SVG (requires flamegraph.pl)
-coral debug cpu-profile --service api --duration 30 | flamegraph.pl > cpu.svg
+coral debug cpu-profile --service api --duration 30 | scripts/flamegraph.pl > cpu.svg
 
 # Profile with JSON output
 coral debug cpu-profile --service api --duration 10 --format json
@@ -291,7 +291,7 @@ open cpu.svg
    `coral debug cpu-profile --service api --duration 30 > profile.folded`
 
 3. **Generate flame graph:**
-   `cat profile.folded | flamegraph.pl > cpu.svg`
+   `cat profile.folded | scripts/flamegraph.pl > cpu.svg`
 
 4. **Analyze results:**
    Open `cpu.svg` in browser to identify hot code paths
@@ -1092,7 +1092,7 @@ WHERE timestamp > now() - INTERVAL '5 minutes'
 - Use agents for real-time debugging
 - Data automatically cleaned up
 
-**Colony retention (RFD 046 - future):**
+**Colony retention:**
 
 - Colony stores 30 days of HTTP/gRPC metrics
 - Colony stores 14 days of SQL metrics
