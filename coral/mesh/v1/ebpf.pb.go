@@ -712,6 +712,213 @@ func (x *QueryUprobeEventsResponse) GetHasMore() bool {
 	return false
 }
 
+// ProfileCPUAgentRequest initiates CPU profiling on an agent (RFD 070).
+type ProfileCPUAgentRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AgentId         string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                          // Target agent ID
+	ServiceName     string                 `protobuf:"bytes,2,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`              // Service name
+	Pid             int32                  `protobuf:"varint,3,opt,name=pid,proto3" json:"pid,omitempty"`                                                // Target process ID
+	DurationSeconds int32                  `protobuf:"varint,4,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"` // Profiling duration (default: 30s, max: 300s)
+	FrequencyHz     int32                  `protobuf:"varint,5,opt,name=frequency_hz,json=frequencyHz,proto3" json:"frequency_hz,omitempty"`             // Sampling frequency (default: 99Hz, max: 1000Hz)
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ProfileCPUAgentRequest) Reset() {
+	*x = ProfileCPUAgentRequest{}
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileCPUAgentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileCPUAgentRequest) ProtoMessage() {}
+
+func (x *ProfileCPUAgentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileCPUAgentRequest.ProtoReflect.Descriptor instead.
+func (*ProfileCPUAgentRequest) Descriptor() ([]byte, []int) {
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ProfileCPUAgentRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *ProfileCPUAgentRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *ProfileCPUAgentRequest) GetPid() int32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *ProfileCPUAgentRequest) GetDurationSeconds() int32 {
+	if x != nil {
+		return x.DurationSeconds
+	}
+	return 0
+}
+
+func (x *ProfileCPUAgentRequest) GetFrequencyHz() int32 {
+	if x != nil {
+		return x.FrequencyHz
+	}
+	return 0
+}
+
+// StackSample represents a unique stack trace with sample count.
+type StackSample struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FrameNames    []string               `protobuf:"bytes,1,rep,name=frame_names,json=frameNames,proto3" json:"frame_names,omitempty"` // Stack frames from innermost to outermost
+	Count         uint64                 `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`                            // Number of times sampled
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StackSample) Reset() {
+	*x = StackSample{}
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StackSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StackSample) ProtoMessage() {}
+
+func (x *StackSample) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StackSample.ProtoReflect.Descriptor instead.
+func (*StackSample) Descriptor() ([]byte, []int) {
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *StackSample) GetFrameNames() []string {
+	if x != nil {
+		return x.FrameNames
+	}
+	return nil
+}
+
+func (x *StackSample) GetCount() uint64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+// ProfileCPUAgentResponse returns CPU profile samples (RFD 070).
+type ProfileCPUAgentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Samples       []*StackSample         `protobuf:"bytes,1,rep,name=samples,proto3" json:"samples,omitempty"`                                // Collected stack samples
+	TotalSamples  uint64                 `protobuf:"varint,2,opt,name=total_samples,json=totalSamples,proto3" json:"total_samples,omitempty"` // Total samples collected
+	LostSamples   uint32                 `protobuf:"varint,3,opt,name=lost_samples,json=lostSamples,proto3" json:"lost_samples,omitempty"`    // Samples lost due to map overflow
+	Error         string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`                                    // Error message if collection failed
+	Success       bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`                               // Whether profiling succeeded
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProfileCPUAgentResponse) Reset() {
+	*x = ProfileCPUAgentResponse{}
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileCPUAgentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileCPUAgentResponse) ProtoMessage() {}
+
+func (x *ProfileCPUAgentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileCPUAgentResponse.ProtoReflect.Descriptor instead.
+func (*ProfileCPUAgentResponse) Descriptor() ([]byte, []int) {
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ProfileCPUAgentResponse) GetSamples() []*StackSample {
+	if x != nil {
+		return x.Samples
+	}
+	return nil
+}
+
+func (x *ProfileCPUAgentResponse) GetTotalSamples() uint64 {
+	if x != nil {
+		return x.TotalSamples
+	}
+	return 0
+}
+
+func (x *ProfileCPUAgentResponse) GetLostSamples() uint32 {
+	if x != nil {
+		return x.LostSamples
+	}
+	return 0
+}
+
+func (x *ProfileCPUAgentResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *ProfileCPUAgentResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 // EbpfEventStreamRequest requests streaming of eBPF events.
 type EbpfEventStreamRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -722,7 +929,7 @@ type EbpfEventStreamRequest struct {
 
 func (x *EbpfEventStreamRequest) Reset() {
 	*x = EbpfEventStreamRequest{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[11]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -734,7 +941,7 @@ func (x *EbpfEventStreamRequest) String() string {
 func (*EbpfEventStreamRequest) ProtoMessage() {}
 
 func (x *EbpfEventStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[11]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -747,7 +954,7 @@ func (x *EbpfEventStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EbpfEventStreamRequest.ProtoReflect.Descriptor instead.
 func (*EbpfEventStreamRequest) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{11}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *EbpfEventStreamRequest) GetCollectorId() string {
@@ -771,7 +978,7 @@ type SyscallStats struct {
 
 func (x *SyscallStats) Reset() {
 	*x = SyscallStats{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[12]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -783,7 +990,7 @@ func (x *SyscallStats) String() string {
 func (*SyscallStats) ProtoMessage() {}
 
 func (x *SyscallStats) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[12]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -796,7 +1003,7 @@ func (x *SyscallStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyscallStats.ProtoReflect.Descriptor instead.
 func (*SyscallStats) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{12}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SyscallStats) GetSyscallName() string {
@@ -847,7 +1054,7 @@ type HttpLatencyHistogram struct {
 
 func (x *HttpLatencyHistogram) Reset() {
 	*x = HttpLatencyHistogram{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[13]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -859,7 +1066,7 @@ func (x *HttpLatencyHistogram) String() string {
 func (*HttpLatencyHistogram) ProtoMessage() {}
 
 func (x *HttpLatencyHistogram) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[13]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -872,7 +1079,7 @@ func (x *HttpLatencyHistogram) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HttpLatencyHistogram.ProtoReflect.Descriptor instead.
 func (*HttpLatencyHistogram) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{13}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *HttpLatencyHistogram) GetBuckets() []float64 {
@@ -915,7 +1122,7 @@ type CpuProfileSample struct {
 
 func (x *CpuProfileSample) Reset() {
 	*x = CpuProfileSample{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[14]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -927,7 +1134,7 @@ func (x *CpuProfileSample) String() string {
 func (*CpuProfileSample) ProtoMessage() {}
 
 func (x *CpuProfileSample) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[14]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -940,7 +1147,7 @@ func (x *CpuProfileSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CpuProfileSample.ProtoReflect.Descriptor instead.
 func (*CpuProfileSample) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{14}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CpuProfileSample) GetStack() []string {
@@ -978,7 +1185,7 @@ type BeylaCapabilities struct {
 
 func (x *BeylaCapabilities) Reset() {
 	*x = BeylaCapabilities{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[15]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -990,7 +1197,7 @@ func (x *BeylaCapabilities) String() string {
 func (*BeylaCapabilities) ProtoMessage() {}
 
 func (x *BeylaCapabilities) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[15]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1003,7 +1210,7 @@ func (x *BeylaCapabilities) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaCapabilities.ProtoReflect.Descriptor instead.
 func (*BeylaCapabilities) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{15}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *BeylaCapabilities) GetEnabled() bool {
@@ -1060,7 +1267,7 @@ type BeylaHttpMetrics struct {
 
 func (x *BeylaHttpMetrics) Reset() {
 	*x = BeylaHttpMetrics{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[16]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1072,7 +1279,7 @@ func (x *BeylaHttpMetrics) String() string {
 func (*BeylaHttpMetrics) ProtoMessage() {}
 
 func (x *BeylaHttpMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[16]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1085,7 +1292,7 @@ func (x *BeylaHttpMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaHttpMetrics.ProtoReflect.Descriptor instead.
 func (*BeylaHttpMetrics) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{16}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *BeylaHttpMetrics) GetTimestamp() *timestamppb.Timestamp {
@@ -1168,7 +1375,7 @@ type BeylaGrpcMetrics struct {
 
 func (x *BeylaGrpcMetrics) Reset() {
 	*x = BeylaGrpcMetrics{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[17]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1180,7 +1387,7 @@ func (x *BeylaGrpcMetrics) String() string {
 func (*BeylaGrpcMetrics) ProtoMessage() {}
 
 func (x *BeylaGrpcMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[17]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1193,7 +1400,7 @@ func (x *BeylaGrpcMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaGrpcMetrics.ProtoReflect.Descriptor instead.
 func (*BeylaGrpcMetrics) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{17}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *BeylaGrpcMetrics) GetTimestamp() *timestamppb.Timestamp {
@@ -1269,7 +1476,7 @@ type BeylaSqlMetrics struct {
 
 func (x *BeylaSqlMetrics) Reset() {
 	*x = BeylaSqlMetrics{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[18]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1281,7 +1488,7 @@ func (x *BeylaSqlMetrics) String() string {
 func (*BeylaSqlMetrics) ProtoMessage() {}
 
 func (x *BeylaSqlMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[18]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1294,7 +1501,7 @@ func (x *BeylaSqlMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaSqlMetrics.ProtoReflect.Descriptor instead.
 func (*BeylaSqlMetrics) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{18}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *BeylaSqlMetrics) GetTimestamp() *timestamppb.Timestamp {
@@ -1372,7 +1579,7 @@ type BeylaTraceSpan struct {
 
 func (x *BeylaTraceSpan) Reset() {
 	*x = BeylaTraceSpan{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[19]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1384,7 +1591,7 @@ func (x *BeylaTraceSpan) String() string {
 func (*BeylaTraceSpan) ProtoMessage() {}
 
 func (x *BeylaTraceSpan) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[19]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1397,7 +1604,7 @@ func (x *BeylaTraceSpan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeylaTraceSpan.ProtoReflect.Descriptor instead.
 func (*BeylaTraceSpan) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{19}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BeylaTraceSpan) GetTraceId() string {
@@ -1482,7 +1689,7 @@ type FunctionArgument struct {
 
 func (x *FunctionArgument) Reset() {
 	*x = FunctionArgument{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[20]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1494,7 +1701,7 @@ func (x *FunctionArgument) String() string {
 func (*FunctionArgument) ProtoMessage() {}
 
 func (x *FunctionArgument) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[20]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1507,7 +1714,7 @@ func (x *FunctionArgument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FunctionArgument.ProtoReflect.Descriptor instead.
 func (*FunctionArgument) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{20}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *FunctionArgument) GetName() string {
@@ -1544,7 +1751,7 @@ type FunctionReturnValue struct {
 
 func (x *FunctionReturnValue) Reset() {
 	*x = FunctionReturnValue{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[21]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1556,7 +1763,7 @@ func (x *FunctionReturnValue) String() string {
 func (*FunctionReturnValue) ProtoMessage() {}
 
 func (x *FunctionReturnValue) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[21]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1569,7 +1776,7 @@ func (x *FunctionReturnValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FunctionReturnValue.ProtoReflect.Descriptor instead.
 func (*FunctionReturnValue) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{21}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *FunctionReturnValue) GetType() string {
@@ -1622,7 +1829,7 @@ type UprobeEvent struct {
 
 func (x *UprobeEvent) Reset() {
 	*x = UprobeEvent{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[22]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1634,7 +1841,7 @@ func (x *UprobeEvent) String() string {
 func (*UprobeEvent) ProtoMessage() {}
 
 func (x *UprobeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[22]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1647,7 +1854,7 @@ func (x *UprobeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UprobeEvent.ProtoReflect.Descriptor instead.
 func (*UprobeEvent) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{22}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *UprobeEvent) GetTimestamp() *timestamppb.Timestamp {
@@ -1758,7 +1965,7 @@ type EbpfEvent struct {
 
 func (x *EbpfEvent) Reset() {
 	*x = EbpfEvent{}
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[23]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1770,7 +1977,7 @@ func (x *EbpfEvent) String() string {
 func (*EbpfEvent) ProtoMessage() {}
 
 func (x *EbpfEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[23]
+	mi := &file_coral_mesh_v1_ebpf_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1783,7 +1990,7 @@ func (x *EbpfEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EbpfEvent.ProtoReflect.Descriptor instead.
 func (*EbpfEvent) Descriptor() ([]byte, []int) {
-	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{23}
+	return file_coral_mesh_v1_ebpf_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *EbpfEvent) GetTimestamp() *timestamppb.Timestamp {
@@ -2006,7 +2213,23 @@ const file_coral_mesh_v1_ebpf_proto_rawDesc = "" +
 	"max_events\x18\x04 \x01(\x05R\tmaxEvents\"h\n" +
 	"\x19QueryUprobeEventsResponse\x120\n" +
 	"\x06events\x18\x01 \x03(\v2\x18.coral.mesh.v1.EbpfEventR\x06events\x12\x19\n" +
-	"\bhas_more\x18\x02 \x01(\bR\ahasMore\";\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"\xb6\x01\n" +
+	"\x16ProfileCPUAgentRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12!\n" +
+	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12\x10\n" +
+	"\x03pid\x18\x03 \x01(\x05R\x03pid\x12)\n" +
+	"\x10duration_seconds\x18\x04 \x01(\x05R\x0fdurationSeconds\x12!\n" +
+	"\ffrequency_hz\x18\x05 \x01(\x05R\vfrequencyHz\"D\n" +
+	"\vStackSample\x12\x1f\n" +
+	"\vframe_names\x18\x01 \x03(\tR\n" +
+	"frameNames\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x04R\x05count\"\xc7\x01\n" +
+	"\x17ProfileCPUAgentResponse\x124\n" +
+	"\asamples\x18\x01 \x03(\v2\x1a.coral.mesh.v1.StackSampleR\asamples\x12#\n" +
+	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12!\n" +
+	"\flost_samples\x18\x03 \x01(\rR\vlostSamples\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\x12\x18\n" +
+	"\asuccess\x18\x05 \x01(\bR\asuccess\";\n" +
 	"\x16EbpfEventStreamRequest\x12!\n" +
 	"\fcollector_id\x18\x01 \x01(\tR\vcollectorId\"\x99\x02\n" +
 	"\fSyscallStats\x12!\n" +
@@ -2158,11 +2381,13 @@ const file_coral_mesh_v1_ebpf_proto_rawDesc = "" +
 	"\vEbpfService\x12e\n" +
 	"\x0eStartCollector\x12(.coral.mesh.v1.StartEbpfCollectorRequest\x1a).coral.mesh.v1.StartEbpfCollectorResponse\x12b\n" +
 	"\rStopCollector\x12'.coral.mesh.v1.StopEbpfCollectorRequest\x1a(.coral.mesh.v1.StopEbpfCollectorResponse\x12Q\n" +
-	"\fStreamEvents\x12%.coral.mesh.v1.EbpfEventStreamRequest\x1a\x18.coral.mesh.v1.EbpfEvent0\x012\xd5\x02\n" +
+	"\fStreamEvents\x12%.coral.mesh.v1.EbpfEventStreamRequest\x1a\x18.coral.mesh.v1.EbpfEvent0\x012\xb2\x03\n" +
 	"\fDebugService\x12o\n" +
 	"\x14StartUprobeCollector\x12*.coral.mesh.v1.StartUprobeCollectorRequest\x1a+.coral.mesh.v1.StartUprobeCollectorResponse\x12l\n" +
 	"\x13StopUprobeCollector\x12).coral.mesh.v1.StopUprobeCollectorRequest\x1a*.coral.mesh.v1.StopUprobeCollectorResponse\x12f\n" +
-	"\x11QueryUprobeEvents\x12'.coral.mesh.v1.QueryUprobeEventsRequest\x1a(.coral.mesh.v1.QueryUprobeEventsResponseB\xa6\x01\n" +
+	"\x11QueryUprobeEvents\x12'.coral.mesh.v1.QueryUprobeEventsRequest\x1a(.coral.mesh.v1.QueryUprobeEventsResponse\x12[\n" +
+	"\n" +
+	"ProfileCPU\x12%.coral.mesh.v1.ProfileCPUAgentRequest\x1a&.coral.mesh.v1.ProfileCPUAgentResponseB\xa6\x01\n" +
 	"\x11com.coral.mesh.v1B\tEbpfProtoP\x01Z0github.com/coral-mesh/coral/coral/mesh/v1;meshv1\xa2\x02\x03CMX\xaa\x02\rCoral.Mesh.V1\xca\x02\rCoral\\Mesh\\V1\xe2\x02\x19Coral\\Mesh\\V1\\GPBMetadata\xea\x02\x0fCoral::Mesh::V1b\x06proto3"
 
 var (
@@ -2177,7 +2402,7 @@ func file_coral_mesh_v1_ebpf_proto_rawDescGZIP() []byte {
 	return file_coral_mesh_v1_ebpf_proto_rawDescData
 }
 
-var file_coral_mesh_v1_ebpf_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_coral_mesh_v1_ebpf_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_coral_mesh_v1_ebpf_proto_goTypes = []any{
 	(*StartEbpfCollectorRequest)(nil),    // 0: coral.mesh.v1.StartEbpfCollectorRequest
 	(*StartEbpfCollectorResponse)(nil),   // 1: coral.mesh.v1.StartEbpfCollectorResponse
@@ -2190,85 +2415,91 @@ var file_coral_mesh_v1_ebpf_proto_goTypes = []any{
 	(*StopUprobeCollectorResponse)(nil),  // 8: coral.mesh.v1.StopUprobeCollectorResponse
 	(*QueryUprobeEventsRequest)(nil),     // 9: coral.mesh.v1.QueryUprobeEventsRequest
 	(*QueryUprobeEventsResponse)(nil),    // 10: coral.mesh.v1.QueryUprobeEventsResponse
-	(*EbpfEventStreamRequest)(nil),       // 11: coral.mesh.v1.EbpfEventStreamRequest
-	(*SyscallStats)(nil),                 // 12: coral.mesh.v1.SyscallStats
-	(*HttpLatencyHistogram)(nil),         // 13: coral.mesh.v1.HttpLatencyHistogram
-	(*CpuProfileSample)(nil),             // 14: coral.mesh.v1.CpuProfileSample
-	(*BeylaCapabilities)(nil),            // 15: coral.mesh.v1.BeylaCapabilities
-	(*BeylaHttpMetrics)(nil),             // 16: coral.mesh.v1.BeylaHttpMetrics
-	(*BeylaGrpcMetrics)(nil),             // 17: coral.mesh.v1.BeylaGrpcMetrics
-	(*BeylaSqlMetrics)(nil),              // 18: coral.mesh.v1.BeylaSqlMetrics
-	(*BeylaTraceSpan)(nil),               // 19: coral.mesh.v1.BeylaTraceSpan
-	(*FunctionArgument)(nil),             // 20: coral.mesh.v1.FunctionArgument
-	(*FunctionReturnValue)(nil),          // 21: coral.mesh.v1.FunctionReturnValue
-	(*UprobeEvent)(nil),                  // 22: coral.mesh.v1.UprobeEvent
-	(*EbpfEvent)(nil),                    // 23: coral.mesh.v1.EbpfEvent
-	nil,                                  // 24: coral.mesh.v1.StartEbpfCollectorRequest.ConfigEntry
-	nil,                                  // 25: coral.mesh.v1.SyscallStats.LabelsEntry
-	nil,                                  // 26: coral.mesh.v1.HttpLatencyHistogram.LabelsEntry
-	nil,                                  // 27: coral.mesh.v1.CpuProfileSample.LabelsEntry
-	nil,                                  // 28: coral.mesh.v1.BeylaHttpMetrics.AttributesEntry
-	nil,                                  // 29: coral.mesh.v1.BeylaGrpcMetrics.AttributesEntry
-	nil,                                  // 30: coral.mesh.v1.BeylaSqlMetrics.AttributesEntry
-	nil,                                  // 31: coral.mesh.v1.BeylaTraceSpan.AttributesEntry
-	nil,                                  // 32: coral.mesh.v1.UprobeEvent.LabelsEntry
-	(v1.EbpfCollectorKind)(0),            // 33: coral.agent.v1.EbpfCollectorKind
-	(*durationpb.Duration)(nil),          // 34: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),        // 35: google.protobuf.Timestamp
+	(*ProfileCPUAgentRequest)(nil),       // 11: coral.mesh.v1.ProfileCPUAgentRequest
+	(*StackSample)(nil),                  // 12: coral.mesh.v1.StackSample
+	(*ProfileCPUAgentResponse)(nil),      // 13: coral.mesh.v1.ProfileCPUAgentResponse
+	(*EbpfEventStreamRequest)(nil),       // 14: coral.mesh.v1.EbpfEventStreamRequest
+	(*SyscallStats)(nil),                 // 15: coral.mesh.v1.SyscallStats
+	(*HttpLatencyHistogram)(nil),         // 16: coral.mesh.v1.HttpLatencyHistogram
+	(*CpuProfileSample)(nil),             // 17: coral.mesh.v1.CpuProfileSample
+	(*BeylaCapabilities)(nil),            // 18: coral.mesh.v1.BeylaCapabilities
+	(*BeylaHttpMetrics)(nil),             // 19: coral.mesh.v1.BeylaHttpMetrics
+	(*BeylaGrpcMetrics)(nil),             // 20: coral.mesh.v1.BeylaGrpcMetrics
+	(*BeylaSqlMetrics)(nil),              // 21: coral.mesh.v1.BeylaSqlMetrics
+	(*BeylaTraceSpan)(nil),               // 22: coral.mesh.v1.BeylaTraceSpan
+	(*FunctionArgument)(nil),             // 23: coral.mesh.v1.FunctionArgument
+	(*FunctionReturnValue)(nil),          // 24: coral.mesh.v1.FunctionReturnValue
+	(*UprobeEvent)(nil),                  // 25: coral.mesh.v1.UprobeEvent
+	(*EbpfEvent)(nil),                    // 26: coral.mesh.v1.EbpfEvent
+	nil,                                  // 27: coral.mesh.v1.StartEbpfCollectorRequest.ConfigEntry
+	nil,                                  // 28: coral.mesh.v1.SyscallStats.LabelsEntry
+	nil,                                  // 29: coral.mesh.v1.HttpLatencyHistogram.LabelsEntry
+	nil,                                  // 30: coral.mesh.v1.CpuProfileSample.LabelsEntry
+	nil,                                  // 31: coral.mesh.v1.BeylaHttpMetrics.AttributesEntry
+	nil,                                  // 32: coral.mesh.v1.BeylaGrpcMetrics.AttributesEntry
+	nil,                                  // 33: coral.mesh.v1.BeylaSqlMetrics.AttributesEntry
+	nil,                                  // 34: coral.mesh.v1.BeylaTraceSpan.AttributesEntry
+	nil,                                  // 35: coral.mesh.v1.UprobeEvent.LabelsEntry
+	(v1.EbpfCollectorKind)(0),            // 36: coral.agent.v1.EbpfCollectorKind
+	(*durationpb.Duration)(nil),          // 37: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),        // 38: google.protobuf.Timestamp
 }
 var file_coral_mesh_v1_ebpf_proto_depIdxs = []int32{
-	33, // 0: coral.mesh.v1.StartEbpfCollectorRequest.kind:type_name -> coral.agent.v1.EbpfCollectorKind
-	24, // 1: coral.mesh.v1.StartEbpfCollectorRequest.config:type_name -> coral.mesh.v1.StartEbpfCollectorRequest.ConfigEntry
-	34, // 2: coral.mesh.v1.StartEbpfCollectorRequest.duration:type_name -> google.protobuf.Duration
-	35, // 3: coral.mesh.v1.StartEbpfCollectorResponse.expires_at:type_name -> google.protobuf.Timestamp
-	34, // 4: coral.mesh.v1.StartUprobeCollectorRequest.duration:type_name -> google.protobuf.Duration
+	36, // 0: coral.mesh.v1.StartEbpfCollectorRequest.kind:type_name -> coral.agent.v1.EbpfCollectorKind
+	27, // 1: coral.mesh.v1.StartEbpfCollectorRequest.config:type_name -> coral.mesh.v1.StartEbpfCollectorRequest.ConfigEntry
+	37, // 2: coral.mesh.v1.StartEbpfCollectorRequest.duration:type_name -> google.protobuf.Duration
+	38, // 3: coral.mesh.v1.StartEbpfCollectorResponse.expires_at:type_name -> google.protobuf.Timestamp
+	37, // 4: coral.mesh.v1.StartUprobeCollectorRequest.duration:type_name -> google.protobuf.Duration
 	5,  // 5: coral.mesh.v1.StartUprobeCollectorRequest.config:type_name -> coral.mesh.v1.UprobeConfig
-	35, // 6: coral.mesh.v1.StartUprobeCollectorResponse.expires_at:type_name -> google.protobuf.Timestamp
-	35, // 7: coral.mesh.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
-	35, // 8: coral.mesh.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
-	23, // 9: coral.mesh.v1.QueryUprobeEventsResponse.events:type_name -> coral.mesh.v1.EbpfEvent
-	25, // 10: coral.mesh.v1.SyscallStats.labels:type_name -> coral.mesh.v1.SyscallStats.LabelsEntry
-	26, // 11: coral.mesh.v1.HttpLatencyHistogram.labels:type_name -> coral.mesh.v1.HttpLatencyHistogram.LabelsEntry
-	27, // 12: coral.mesh.v1.CpuProfileSample.labels:type_name -> coral.mesh.v1.CpuProfileSample.LabelsEntry
-	35, // 13: coral.mesh.v1.BeylaHttpMetrics.timestamp:type_name -> google.protobuf.Timestamp
-	28, // 14: coral.mesh.v1.BeylaHttpMetrics.attributes:type_name -> coral.mesh.v1.BeylaHttpMetrics.AttributesEntry
-	35, // 15: coral.mesh.v1.BeylaGrpcMetrics.timestamp:type_name -> google.protobuf.Timestamp
-	29, // 16: coral.mesh.v1.BeylaGrpcMetrics.attributes:type_name -> coral.mesh.v1.BeylaGrpcMetrics.AttributesEntry
-	35, // 17: coral.mesh.v1.BeylaSqlMetrics.timestamp:type_name -> google.protobuf.Timestamp
-	30, // 18: coral.mesh.v1.BeylaSqlMetrics.attributes:type_name -> coral.mesh.v1.BeylaSqlMetrics.AttributesEntry
-	35, // 19: coral.mesh.v1.BeylaTraceSpan.start_time:type_name -> google.protobuf.Timestamp
-	34, // 20: coral.mesh.v1.BeylaTraceSpan.duration:type_name -> google.protobuf.Duration
-	31, // 21: coral.mesh.v1.BeylaTraceSpan.attributes:type_name -> coral.mesh.v1.BeylaTraceSpan.AttributesEntry
-	35, // 22: coral.mesh.v1.UprobeEvent.timestamp:type_name -> google.protobuf.Timestamp
-	20, // 23: coral.mesh.v1.UprobeEvent.args:type_name -> coral.mesh.v1.FunctionArgument
-	21, // 24: coral.mesh.v1.UprobeEvent.return_value:type_name -> coral.mesh.v1.FunctionReturnValue
-	32, // 25: coral.mesh.v1.UprobeEvent.labels:type_name -> coral.mesh.v1.UprobeEvent.LabelsEntry
-	35, // 26: coral.mesh.v1.EbpfEvent.timestamp:type_name -> google.protobuf.Timestamp
-	12, // 27: coral.mesh.v1.EbpfEvent.syscall_stats:type_name -> coral.mesh.v1.SyscallStats
-	13, // 28: coral.mesh.v1.EbpfEvent.http_latency:type_name -> coral.mesh.v1.HttpLatencyHistogram
-	14, // 29: coral.mesh.v1.EbpfEvent.cpu_profile:type_name -> coral.mesh.v1.CpuProfileSample
-	16, // 30: coral.mesh.v1.EbpfEvent.beyla_http:type_name -> coral.mesh.v1.BeylaHttpMetrics
-	17, // 31: coral.mesh.v1.EbpfEvent.beyla_grpc:type_name -> coral.mesh.v1.BeylaGrpcMetrics
-	18, // 32: coral.mesh.v1.EbpfEvent.beyla_sql:type_name -> coral.mesh.v1.BeylaSqlMetrics
-	19, // 33: coral.mesh.v1.EbpfEvent.beyla_trace:type_name -> coral.mesh.v1.BeylaTraceSpan
-	22, // 34: coral.mesh.v1.EbpfEvent.uprobe_event:type_name -> coral.mesh.v1.UprobeEvent
-	0,  // 35: coral.mesh.v1.EbpfService.StartCollector:input_type -> coral.mesh.v1.StartEbpfCollectorRequest
-	2,  // 36: coral.mesh.v1.EbpfService.StopCollector:input_type -> coral.mesh.v1.StopEbpfCollectorRequest
-	11, // 37: coral.mesh.v1.EbpfService.StreamEvents:input_type -> coral.mesh.v1.EbpfEventStreamRequest
-	4,  // 38: coral.mesh.v1.DebugService.StartUprobeCollector:input_type -> coral.mesh.v1.StartUprobeCollectorRequest
-	7,  // 39: coral.mesh.v1.DebugService.StopUprobeCollector:input_type -> coral.mesh.v1.StopUprobeCollectorRequest
-	9,  // 40: coral.mesh.v1.DebugService.QueryUprobeEvents:input_type -> coral.mesh.v1.QueryUprobeEventsRequest
-	1,  // 41: coral.mesh.v1.EbpfService.StartCollector:output_type -> coral.mesh.v1.StartEbpfCollectorResponse
-	3,  // 42: coral.mesh.v1.EbpfService.StopCollector:output_type -> coral.mesh.v1.StopEbpfCollectorResponse
-	23, // 43: coral.mesh.v1.EbpfService.StreamEvents:output_type -> coral.mesh.v1.EbpfEvent
-	6,  // 44: coral.mesh.v1.DebugService.StartUprobeCollector:output_type -> coral.mesh.v1.StartUprobeCollectorResponse
-	8,  // 45: coral.mesh.v1.DebugService.StopUprobeCollector:output_type -> coral.mesh.v1.StopUprobeCollectorResponse
-	10, // 46: coral.mesh.v1.DebugService.QueryUprobeEvents:output_type -> coral.mesh.v1.QueryUprobeEventsResponse
-	41, // [41:47] is the sub-list for method output_type
-	35, // [35:41] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	38, // 6: coral.mesh.v1.StartUprobeCollectorResponse.expires_at:type_name -> google.protobuf.Timestamp
+	38, // 7: coral.mesh.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
+	38, // 8: coral.mesh.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
+	26, // 9: coral.mesh.v1.QueryUprobeEventsResponse.events:type_name -> coral.mesh.v1.EbpfEvent
+	12, // 10: coral.mesh.v1.ProfileCPUAgentResponse.samples:type_name -> coral.mesh.v1.StackSample
+	28, // 11: coral.mesh.v1.SyscallStats.labels:type_name -> coral.mesh.v1.SyscallStats.LabelsEntry
+	29, // 12: coral.mesh.v1.HttpLatencyHistogram.labels:type_name -> coral.mesh.v1.HttpLatencyHistogram.LabelsEntry
+	30, // 13: coral.mesh.v1.CpuProfileSample.labels:type_name -> coral.mesh.v1.CpuProfileSample.LabelsEntry
+	38, // 14: coral.mesh.v1.BeylaHttpMetrics.timestamp:type_name -> google.protobuf.Timestamp
+	31, // 15: coral.mesh.v1.BeylaHttpMetrics.attributes:type_name -> coral.mesh.v1.BeylaHttpMetrics.AttributesEntry
+	38, // 16: coral.mesh.v1.BeylaGrpcMetrics.timestamp:type_name -> google.protobuf.Timestamp
+	32, // 17: coral.mesh.v1.BeylaGrpcMetrics.attributes:type_name -> coral.mesh.v1.BeylaGrpcMetrics.AttributesEntry
+	38, // 18: coral.mesh.v1.BeylaSqlMetrics.timestamp:type_name -> google.protobuf.Timestamp
+	33, // 19: coral.mesh.v1.BeylaSqlMetrics.attributes:type_name -> coral.mesh.v1.BeylaSqlMetrics.AttributesEntry
+	38, // 20: coral.mesh.v1.BeylaTraceSpan.start_time:type_name -> google.protobuf.Timestamp
+	37, // 21: coral.mesh.v1.BeylaTraceSpan.duration:type_name -> google.protobuf.Duration
+	34, // 22: coral.mesh.v1.BeylaTraceSpan.attributes:type_name -> coral.mesh.v1.BeylaTraceSpan.AttributesEntry
+	38, // 23: coral.mesh.v1.UprobeEvent.timestamp:type_name -> google.protobuf.Timestamp
+	23, // 24: coral.mesh.v1.UprobeEvent.args:type_name -> coral.mesh.v1.FunctionArgument
+	24, // 25: coral.mesh.v1.UprobeEvent.return_value:type_name -> coral.mesh.v1.FunctionReturnValue
+	35, // 26: coral.mesh.v1.UprobeEvent.labels:type_name -> coral.mesh.v1.UprobeEvent.LabelsEntry
+	38, // 27: coral.mesh.v1.EbpfEvent.timestamp:type_name -> google.protobuf.Timestamp
+	15, // 28: coral.mesh.v1.EbpfEvent.syscall_stats:type_name -> coral.mesh.v1.SyscallStats
+	16, // 29: coral.mesh.v1.EbpfEvent.http_latency:type_name -> coral.mesh.v1.HttpLatencyHistogram
+	17, // 30: coral.mesh.v1.EbpfEvent.cpu_profile:type_name -> coral.mesh.v1.CpuProfileSample
+	19, // 31: coral.mesh.v1.EbpfEvent.beyla_http:type_name -> coral.mesh.v1.BeylaHttpMetrics
+	20, // 32: coral.mesh.v1.EbpfEvent.beyla_grpc:type_name -> coral.mesh.v1.BeylaGrpcMetrics
+	21, // 33: coral.mesh.v1.EbpfEvent.beyla_sql:type_name -> coral.mesh.v1.BeylaSqlMetrics
+	22, // 34: coral.mesh.v1.EbpfEvent.beyla_trace:type_name -> coral.mesh.v1.BeylaTraceSpan
+	25, // 35: coral.mesh.v1.EbpfEvent.uprobe_event:type_name -> coral.mesh.v1.UprobeEvent
+	0,  // 36: coral.mesh.v1.EbpfService.StartCollector:input_type -> coral.mesh.v1.StartEbpfCollectorRequest
+	2,  // 37: coral.mesh.v1.EbpfService.StopCollector:input_type -> coral.mesh.v1.StopEbpfCollectorRequest
+	14, // 38: coral.mesh.v1.EbpfService.StreamEvents:input_type -> coral.mesh.v1.EbpfEventStreamRequest
+	4,  // 39: coral.mesh.v1.DebugService.StartUprobeCollector:input_type -> coral.mesh.v1.StartUprobeCollectorRequest
+	7,  // 40: coral.mesh.v1.DebugService.StopUprobeCollector:input_type -> coral.mesh.v1.StopUprobeCollectorRequest
+	9,  // 41: coral.mesh.v1.DebugService.QueryUprobeEvents:input_type -> coral.mesh.v1.QueryUprobeEventsRequest
+	11, // 42: coral.mesh.v1.DebugService.ProfileCPU:input_type -> coral.mesh.v1.ProfileCPUAgentRequest
+	1,  // 43: coral.mesh.v1.EbpfService.StartCollector:output_type -> coral.mesh.v1.StartEbpfCollectorResponse
+	3,  // 44: coral.mesh.v1.EbpfService.StopCollector:output_type -> coral.mesh.v1.StopEbpfCollectorResponse
+	26, // 45: coral.mesh.v1.EbpfService.StreamEvents:output_type -> coral.mesh.v1.EbpfEvent
+	6,  // 46: coral.mesh.v1.DebugService.StartUprobeCollector:output_type -> coral.mesh.v1.StartUprobeCollectorResponse
+	8,  // 47: coral.mesh.v1.DebugService.StopUprobeCollector:output_type -> coral.mesh.v1.StopUprobeCollectorResponse
+	10, // 48: coral.mesh.v1.DebugService.QueryUprobeEvents:output_type -> coral.mesh.v1.QueryUprobeEventsResponse
+	13, // 49: coral.mesh.v1.DebugService.ProfileCPU:output_type -> coral.mesh.v1.ProfileCPUAgentResponse
+	43, // [43:50] is the sub-list for method output_type
+	36, // [36:43] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_coral_mesh_v1_ebpf_proto_init() }
@@ -2276,7 +2507,7 @@ func file_coral_mesh_v1_ebpf_proto_init() {
 	if File_coral_mesh_v1_ebpf_proto != nil {
 		return
 	}
-	file_coral_mesh_v1_ebpf_proto_msgTypes[23].OneofWrappers = []any{
+	file_coral_mesh_v1_ebpf_proto_msgTypes[26].OneofWrappers = []any{
 		(*EbpfEvent_SyscallStats)(nil),
 		(*EbpfEvent_HttpLatency)(nil),
 		(*EbpfEvent_CpuProfile)(nil),
@@ -2292,7 +2523,7 @@ func file_coral_mesh_v1_ebpf_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_mesh_v1_ebpf_proto_rawDesc), len(file_coral_mesh_v1_ebpf_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   33,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

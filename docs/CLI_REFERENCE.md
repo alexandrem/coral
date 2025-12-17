@@ -100,7 +100,7 @@ coral ask "Check errors" --dry-run
 
 ---
 
-## Unified Query Commands (RFD 067)
+## Unified Query Commands
 
 **Unified interface combining eBPF and OTLP data sources.**
 
@@ -223,6 +223,9 @@ coral duckdb shell --agents <agent-1>,<agent-2>,... [-d <database>]
 coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return]
 coral debug trace <service> --path <path> [--duration <time>]
 
+# CPU profiling
+coral debug cpu-profile --service <name> [--duration <seconds>] [--frequency <hz>] [--format folded|json] [--pod <name>] [--agent-id <id>]
+
 # Manage probes
 coral debug session list [service]
 coral debug session stop <session-id>
@@ -230,6 +233,30 @@ coral debug session get <session-id>
 
 # Query results
 coral debug query <service> --function <name> [--since <duration>]
+```
+
+### CPU Profiling Options
+
+```bash
+# Basic usage
+coral debug cpu-profile --service api
+
+# With options
+coral debug cpu-profile --service api --duration 30 --frequency 99 --format folded
+
+# Generate flame graph
+coral debug cpu-profile --service api --duration 30 | flamegraph.pl > cpu.svg
+
+# JSON output
+coral debug cpu-profile --service api --format json
+
+# Flags:
+#   --service <name>       Service name (required)
+#   --duration <seconds>   Profiling duration in seconds (default: 30, max: 300)
+#   --frequency <hz>       Sampling frequency in Hz (default: 99, max: 1000)
+#   --format <type>        Output format: folded (default), json
+#   --pod <name>           Specific pod/instance name (optional)
+#   --agent-id <id>        Target specific agent (optional, auto-discovered if not provided)
 ```
 
 ---

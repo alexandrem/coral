@@ -255,8 +255,9 @@ Examples:
 			defer func() { _ = wgDevice.Stop() }() // TODO: errcheck
 
 			// Note: Agent continues running with elevated privileges for eBPF operations.
-			// Beyla requires CAP_NET_ADMIN, CAP_SYS_ADMIN, CAP_SYS_PTRACE, CAP_SYS_RESOURCE,
-			// and CAP_BPF throughout its lifetime for continuous telemetry collection.
+			// Required capabilities: CAP_NET_ADMIN, CAP_SYS_PTRACE, CAP_SYS_RESOURCE.
+			// Modern (kernel 5.8+): CAP_BPF, CAP_PERFMON, CAP_SYSLOG (optional).
+			// CAP_SYS_ADMIN: Only needed for nsenter exec mode or as fallback on older kernels.
 			logger.Debug().Msg("Agent running with elevated privileges for eBPF/Beyla operations")
 
 			// Generate agent ID early so we can use it for registration
@@ -1188,15 +1189,22 @@ func performAgentPreflightChecks(logger logging.Logger) error {
 			}
 
 			checkCap("CAP_NET_ADMIN", caps.CapNetAdmin, true, "TUN device, network config")
-			checkCap("CAP_SYS_ADMIN", caps.CapSysAdmin, true, "eBPF program loading")
 			checkCap("CAP_SYS_PTRACE", caps.CapSysPtrace, true, "Process tracing")
 			checkCap("CAP_SYS_RESOURCE", caps.CapSysResource, true, "Memory locking for eBPF")
 			checkCap("CAP_BPF", caps.CapBpf, false, "eBPF operations (Linux 5.8+)")
-			checkCap("CAP_PERFMON", caps.CapPerfmon, false, "Performance monitoring")
+			checkCap("CAP_PERFMON", caps.CapPerfmon, false, "CPU profiling (Linux 5.8+)")
+			checkCap("CAP_SYSLOG", caps.CapSyslog, false, "Kernel symbols (CPU profiling)")
+			checkCap("CAP_SYS_ADMIN", caps.CapSysAdmin, false, "nsenter exec mode + fallback for older kernels")
 
-			// CAP_BPF and CAP_PERFMON are optional (fall back to CAP_SYS_ADMIN)
+			// Verify we have eBPF capabilities (either CAP_BPF or CAP_SYS_ADMIN)
 			if !caps.CapBpf && !caps.CapSysAdmin {
 				warnings = append(warnings, "eBPF requires CAP_BPF or CAP_SYS_ADMIN")
+				hasFullCapabilities = false
+			}
+
+			// Verify we have perf capabilities (either CAP_PERFMON or CAP_SYS_ADMIN)
+			if !caps.CapPerfmon && !caps.CapSysAdmin {
+				warnings = append(warnings, "CPU profiling requires CAP_PERFMON or CAP_SYS_ADMIN")
 				hasFullCapabilities = false
 			}
 		}

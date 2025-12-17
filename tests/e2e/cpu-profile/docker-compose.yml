@@ -1,0 +1,44 @@
+services:
+  cpu-app:
+    platform: linux/arm64
+    build:
+      context: ./cpu-intensive-app
+    ports:
+      - "8081:8080"
+
+  coral-agent-cpu:
+    platform: linux/arm64
+    image: coral:latest
+    build:
+      context: ../../..
+    command:
+      - agent
+      - start
+      - --connect
+      - cpu-app:8080
+    environment:
+      CORAL_COLONY_ID: ${CORAL_COLONY_ID}
+      CORAL_COLONY_SECRET: ${CORAL_COLONY_SECRET}
+      CORAL_DISCOVERY_ENDPOINT: ${CORAL_DISCOVERY_ENDPOINT:-http://host.docker.internal:8080}
+    depends_on:
+      - cpu-app
+    pid: "service:cpu-app"
+    network_mode: "service:cpu-app"
+    cap_add:
+      - NET_ADMIN      # WireGuard mesh networking
+      - SYS_PTRACE     # Process inspection
+      - SYS_RESOURCE   # eBPF memory locking
+      - BPF            # eBPF program loading (instead of SYS_ADMIN)
+      - PERFMON        # CPU profiling (instead of SYS_ADMIN)
+      - SYSLOG         # Kernel symbol resolution
+      - SYS_ADMIN      # Required for most eBPF kprobes in restricted environments (perf_event_paranoid)
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    privileged: false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1

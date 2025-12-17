@@ -58,6 +58,8 @@ const (
 	// DebugServiceProfileFunctionsProcedure is the fully-qualified name of the DebugService's
 	// ProfileFunctions RPC.
 	DebugServiceProfileFunctionsProcedure = "/coral.colony.v1.DebugService/ProfileFunctions"
+	// DebugServiceProfileCPUProcedure is the fully-qualified name of the DebugService's ProfileCPU RPC.
+	DebugServiceProfileCPUProcedure = "/coral.colony.v1.DebugService/ProfileCPU"
 )
 
 // DebugServiceClient is a client for the coral.colony.v1.DebugService service.
@@ -78,6 +80,8 @@ type DebugServiceClient interface {
 	QueryFunctions(context.Context, *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error)
 	// Profile multiple functions with automatic analysis (RFD 069).
 	ProfileFunctions(context.Context, *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error)
+	// Collect CPU profile samples for a target service/pod (RFD 070).
+	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error)
 }
 
 // NewDebugServiceClient constructs a client for the coral.colony.v1.DebugService service. By
@@ -139,6 +143,12 @@ func NewDebugServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(debugServiceMethods.ByName("ProfileFunctions")),
 			connect.WithClientOptions(opts...),
 		),
+		profileCPU: connect.NewClient[v1.ProfileCPURequest, v1.ProfileCPUResponse](
+			httpClient,
+			baseURL+DebugServiceProfileCPUProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("ProfileCPU")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -152,6 +162,7 @@ type debugServiceClient struct {
 	getDebugResults   *connect.Client[v1.GetDebugResultsRequest, v1.GetDebugResultsResponse]
 	queryFunctions    *connect.Client[v1.QueryFunctionsRequest, v1.QueryFunctionsResponse]
 	profileFunctions  *connect.Client[v1.ProfileFunctionsRequest, v1.ProfileFunctionsResponse]
+	profileCPU        *connect.Client[v1.ProfileCPURequest, v1.ProfileCPUResponse]
 }
 
 // AttachUprobe calls coral.colony.v1.DebugService.AttachUprobe.
@@ -194,6 +205,11 @@ func (c *debugServiceClient) ProfileFunctions(ctx context.Context, req *connect.
 	return c.profileFunctions.CallUnary(ctx, req)
 }
 
+// ProfileCPU calls coral.colony.v1.DebugService.ProfileCPU.
+func (c *debugServiceClient) ProfileCPU(ctx context.Context, req *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error) {
+	return c.profileCPU.CallUnary(ctx, req)
+}
+
 // DebugServiceHandler is an implementation of the coral.colony.v1.DebugService service.
 type DebugServiceHandler interface {
 	// Start uprobe debug session.
@@ -212,6 +228,8 @@ type DebugServiceHandler interface {
 	QueryFunctions(context.Context, *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error)
 	// Profile multiple functions with automatic analysis (RFD 069).
 	ProfileFunctions(context.Context, *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error)
+	// Collect CPU profile samples for a target service/pod (RFD 070).
+	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error)
 }
 
 // NewDebugServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -269,6 +287,12 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(debugServiceMethods.ByName("ProfileFunctions")),
 		connect.WithHandlerOptions(opts...),
 	)
+	debugServiceProfileCPUHandler := connect.NewUnaryHandler(
+		DebugServiceProfileCPUProcedure,
+		svc.ProfileCPU,
+		connect.WithSchema(debugServiceMethods.ByName("ProfileCPU")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.DebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DebugServiceAttachUprobeProcedure:
@@ -287,6 +311,8 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 			debugServiceQueryFunctionsHandler.ServeHTTP(w, r)
 		case DebugServiceProfileFunctionsProcedure:
 			debugServiceProfileFunctionsHandler.ServeHTTP(w, r)
+		case DebugServiceProfileCPUProcedure:
+			debugServiceProfileCPUHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -326,4 +352,8 @@ func (UnimplementedDebugServiceHandler) QueryFunctions(context.Context, *connect
 
 func (UnimplementedDebugServiceHandler) ProfileFunctions(context.Context, *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.ProfileFunctions is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) ProfileCPU(context.Context, *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.ProfileCPU is not implemented"))
 }

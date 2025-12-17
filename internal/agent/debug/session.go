@@ -36,22 +36,33 @@ type DebugSession struct {
 
 // SessionManager manages active debug sessions.
 type SessionManager struct {
-	cfg      config.DebugConfig
-	logger   zerolog.Logger
-	sessions map[string]*DebugSession
-	resolver ServiceResolver
-	eventCh  chan *agentv1.DebugEvent
-	mu       sync.RWMutex
+	cfg              config.DebugConfig
+	logger           zerolog.Logger
+	sessions         map[string]*DebugSession
+	resolver         ServiceResolver
+	eventCh          chan *agentv1.DebugEvent
+	kernelSymbolizer *KernelSymbolizer // Shared kernel symbolizer for CPU profiling
+	mu               sync.RWMutex
 }
 
 // NewSessionManager creates a new SessionManager.
 func NewSessionManager(cfg config.DebugConfig, logger zerolog.Logger, resolver ServiceResolver) *SessionManager {
+	// Initialize kernel symbolizer once for all CPU profiling sessions
+	kernelSymbolizer, err := NewKernelSymbolizer(logger)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to initialize kernel symbolizer, kernel stack traces will show raw addresses")
+		kernelSymbolizer = nil
+	} else {
+		logger.Info().Int("symbol_count", kernelSymbolizer.SymbolCount()).Msg("Kernel symbolizer initialized")
+	}
+
 	return &SessionManager{
-		cfg:      cfg,
-		logger:   logger,
-		sessions: make(map[string]*DebugSession),
-		resolver: resolver,
-		eventCh:  make(chan *agentv1.DebugEvent, 1000), // Buffer events
+		cfg:              cfg,
+		logger:           logger,
+		sessions:         make(map[string]*DebugSession),
+		resolver:         resolver,
+		eventCh:          make(chan *agentv1.DebugEvent, 1000), // Buffer events
+		kernelSymbolizer: kernelSymbolizer,
 	}
 }
 
@@ -156,4 +167,22 @@ func (m *SessionManager) CloseSession(sessionID string) error {
 	delete(m.sessions, sessionID)
 	m.logger.Info().Str("session_id", sessionID).Msg("Debug session closed")
 	return nil
+}
+
+// ProfileCPU collects CPU profile samples for a process (RFD 070).
+func (m *SessionManager) ProfileCPU(pid int, durationSeconds int, frequencyHz int) (*CPUProfileResult, error) {
+	// Start CPU profiling session with kernel symbolizer
+	session, err := StartCPUProfile(pid, durationSeconds, frequencyHz, m.kernelSymbolizer, m.logger)
+	if err != nil {
+		return nil, fmt.Errorf("start CPU profile: %w", err)
+	}
+	defer session.Close() //nolint:errcheck
+
+	// Collect profile (this blocks for the duration)
+	result, err := session.CollectProfile()
+	if err != nil {
+		return nil, fmt.Errorf("collect CPU profile: %w", err)
+	}
+
+	return result, nil
 }

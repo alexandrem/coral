@@ -17,10 +17,16 @@
 
 /* BPF map types */
 #define BPF_MAP_TYPE_HASH 1
+#define BPF_MAP_TYPE_ARRAY 2
+#define BPF_MAP_TYPE_STACK_TRACE 7
 #define BPF_MAP_TYPE_RINGBUF 27
 
 /* BPF map update flags */
 #define BPF_ANY 0
+#define BPF_NOEXIST 1
+
+/* BPF get_stackid flags */
+#define BPF_F_USER_STACK (1ULL << 8)
 
 /* Helper functions */
 static unsigned long long (*bpf_ktime_get_ns)(void) = (void *) 5;
@@ -32,5 +38,8 @@ static unsigned long long (*bpf_get_current_pid_tgid)(void) = (void *) 14;
 /* Ring buffer helpers */
 static void *(*bpf_ringbuf_reserve)(void *ringbuf, unsigned long long size, unsigned long long flags) = (void *) 131;
 static void (*bpf_ringbuf_submit)(void *data, unsigned long long flags) = (void *) 132;
+
+/* Stack trace helper */
+static long (*bpf_get_stackid)(void *ctx, void *map, unsigned long long flags) = (void *) 27;
 
 #endif /* __BPF_HELPERS_H */

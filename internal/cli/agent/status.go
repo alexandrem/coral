@@ -217,12 +217,16 @@ func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*age
 	if ctx.Capabilities.LinuxCapabilities != nil {
 		linuxCaps := ctx.Capabilities.LinuxCapabilities
 		fmt.Println("Linux Capabilities:")
-		fmt.Printf("  %s CAP_NET_ADMIN       WireGuard mesh networking\n", formatCapability(linuxCaps.CapNetAdmin))
-		fmt.Printf("  %s CAP_SYS_ADMIN       Container namespace execution (coral exec)\n", formatCapability(linuxCaps.CapSysAdmin))
-		fmt.Printf("  %s CAP_SYS_PTRACE      Process inspection (/proc)\n", formatCapability(linuxCaps.CapSysPtrace))
-		fmt.Printf("  %s CAP_SYS_RESOURCE    eBPF memory locking\n", formatCapability(linuxCaps.CapSysResource))
-		fmt.Printf("  %s CAP_BPF             Modern eBPF (kernel 5.8+)\n", formatCapability(linuxCaps.CapBpf))
-		fmt.Printf("  %s CAP_PERFMON         Performance monitoring\n", formatCapability(linuxCaps.CapPerfmon))
+		fmt.Println("  Required:")
+		fmt.Printf("    %s CAP_NET_ADMIN       TUN device, network config\n", formatCapability(linuxCaps.CapNetAdmin))
+		fmt.Printf("    %s CAP_SYS_PTRACE      Process tracing\n", formatCapability(linuxCaps.CapSysPtrace))
+		fmt.Printf("    %s CAP_SYS_RESOURCE    Memory locking for eBPF\n", formatCapability(linuxCaps.CapSysResource))
+		fmt.Println("  Modern (kernel 5.8+):")
+		fmt.Printf("    %s CAP_BPF             eBPF operations\n", formatCapability(linuxCaps.CapBpf))
+		fmt.Printf("    %s CAP_PERFMON         CPU profiling\n", formatCapability(linuxCaps.CapPerfmon))
+		fmt.Printf("    %s CAP_SYSLOG          Kernel symbols\n", formatCapability(linuxCaps.CapSyslog))
+		fmt.Println("  Optional:")
+		fmt.Printf("    %s CAP_SYS_ADMIN       nsenter exec + fallback for older kernels\n", formatCapability(linuxCaps.CapSysAdmin))
 		fmt.Println()
 	}
 
