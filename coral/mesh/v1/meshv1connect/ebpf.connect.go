@@ -54,6 +54,8 @@ const (
 	// DebugServiceQueryUprobeEventsProcedure is the fully-qualified name of the DebugService's
 	// QueryUprobeEvents RPC.
 	DebugServiceQueryUprobeEventsProcedure = "/coral.mesh.v1.DebugService/QueryUprobeEvents"
+	// DebugServiceProfileCPUProcedure is the fully-qualified name of the DebugService's ProfileCPU RPC.
+	DebugServiceProfileCPUProcedure = "/coral.mesh.v1.DebugService/ProfileCPU"
 )
 
 // EbpfServiceClient is a client for the coral.mesh.v1.EbpfService service.
@@ -192,6 +194,8 @@ type DebugServiceClient interface {
 	StopUprobeCollector(context.Context, *connect.Request[v1.StopUprobeCollectorRequest]) (*connect.Response[v1.StopUprobeCollectorResponse], error)
 	// Query events from a uprobe collector.
 	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
+	// Collect CPU profile samples for a target process (RFD 070).
+	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error)
 }
 
 // NewDebugServiceClient constructs a client for the coral.mesh.v1.DebugService service. By default,
@@ -223,6 +227,12 @@ func NewDebugServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(debugServiceMethods.ByName("QueryUprobeEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		profileCPU: connect.NewClient[v1.ProfileCPUAgentRequest, v1.ProfileCPUAgentResponse](
+			httpClient,
+			baseURL+DebugServiceProfileCPUProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("ProfileCPU")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -231,6 +241,7 @@ type debugServiceClient struct {
 	startUprobeCollector *connect.Client[v1.StartUprobeCollectorRequest, v1.StartUprobeCollectorResponse]
 	stopUprobeCollector  *connect.Client[v1.StopUprobeCollectorRequest, v1.StopUprobeCollectorResponse]
 	queryUprobeEvents    *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
+	profileCPU           *connect.Client[v1.ProfileCPUAgentRequest, v1.ProfileCPUAgentResponse]
 }
 
 // StartUprobeCollector calls coral.mesh.v1.DebugService.StartUprobeCollector.
@@ -248,6 +259,11 @@ func (c *debugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect
 	return c.queryUprobeEvents.CallUnary(ctx, req)
 }
 
+// ProfileCPU calls coral.mesh.v1.DebugService.ProfileCPU.
+func (c *debugServiceClient) ProfileCPU(ctx context.Context, req *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error) {
+	return c.profileCPU.CallUnary(ctx, req)
+}
+
 // DebugServiceHandler is an implementation of the coral.mesh.v1.DebugService service.
 type DebugServiceHandler interface {
 	// Start a uprobe collector on an agent.
@@ -256,6 +272,8 @@ type DebugServiceHandler interface {
 	StopUprobeCollector(context.Context, *connect.Request[v1.StopUprobeCollectorRequest]) (*connect.Response[v1.StopUprobeCollectorResponse], error)
 	// Query events from a uprobe collector.
 	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
+	// Collect CPU profile samples for a target process (RFD 070).
+	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error)
 }
 
 // NewDebugServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -283,6 +301,12 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(debugServiceMethods.ByName("QueryUprobeEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	debugServiceProfileCPUHandler := connect.NewUnaryHandler(
+		DebugServiceProfileCPUProcedure,
+		svc.ProfileCPU,
+		connect.WithSchema(debugServiceMethods.ByName("ProfileCPU")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.mesh.v1.DebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DebugServiceStartUprobeCollectorProcedure:
@@ -291,6 +315,8 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 			debugServiceStopUprobeCollectorHandler.ServeHTTP(w, r)
 		case DebugServiceQueryUprobeEventsProcedure:
 			debugServiceQueryUprobeEventsHandler.ServeHTTP(w, r)
+		case DebugServiceProfileCPUProcedure:
+			debugServiceProfileCPUHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -310,4 +336,8 @@ func (UnimplementedDebugServiceHandler) StopUprobeCollector(context.Context, *co
 
 func (UnimplementedDebugServiceHandler) QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.DebugService.QueryUprobeEvents is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.DebugService.ProfileCPU is not implemented"))
 }

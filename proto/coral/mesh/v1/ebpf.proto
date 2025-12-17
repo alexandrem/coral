@@ -86,6 +86,29 @@ message QueryUprobeEventsResponse {
   bool has_more = 2;                // Pagination indicator
 }
 
+// ProfileCPUAgentRequest initiates CPU profiling on an agent (RFD 070).
+message ProfileCPUAgentRequest {
+  string agent_id = 1;              // Target agent ID
+  string service_name = 2;          // Service name
+  int32 pid = 3;                    // Target process ID
+  int32 duration_seconds = 4;       // Profiling duration (default: 30s, max: 300s)
+  int32 frequency_hz = 5;           // Sampling frequency (default: 99Hz, max: 1000Hz)
+}
+
+// StackSample represents a unique stack trace with sample count.
+message StackSample {
+  repeated string frame_names = 1;  // Stack frames from innermost to outermost
+  uint64 count = 2;                 // Number of times sampled
+}
+
+// ProfileCPUAgentResponse returns CPU profile samples (RFD 070).
+message ProfileCPUAgentResponse {
+  repeated StackSample samples = 1; // Collected stack samples
+  uint64 total_samples = 2;         // Total samples collected
+  uint32 lost_samples = 3;          // Samples lost due to map overflow
+  string error = 4;                 // Error message if collection failed
+  bool success = 5;                 // Whether profiling succeeded
+}
 
 // EbpfEventStreamRequest requests streaming of eBPF events.
 message EbpfEventStreamRequest {
@@ -257,7 +280,7 @@ service EbpfService {
   rpc StreamEvents(EbpfEventStreamRequest) returns (stream EbpfEvent);
 }
 
-// DebugService handles uprobe-based debugging operations (RFD 059).
+// DebugService handles uprobe-based debugging operations (RFD 059) and CPU profiling (RFD 070).
 service DebugService {
   // Start a uprobe collector on an agent.
   rpc StartUprobeCollector(StartUprobeCollectorRequest) returns (StartUprobeCollectorResponse);
@@ -267,4 +290,7 @@ service DebugService {
 
   // Query events from a uprobe collector.
   rpc QueryUprobeEvents(QueryUprobeEventsRequest) returns (QueryUprobeEventsResponse);
+
+  // Collect CPU profile samples for a target process (RFD 070).
+  rpc ProfileCPU(ProfileCPUAgentRequest) returns (ProfileCPUAgentResponse);
 }

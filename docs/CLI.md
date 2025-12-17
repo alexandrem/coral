@@ -167,6 +167,9 @@ coral debug attach payment-service --function processPayment --duration 5m
 # Trace an HTTP request path across services
 coral debug trace api-gateway --path /checkout --duration 2m
 
+# Collect CPU profile samples (RFD 070)
+coral debug cpu-profile --service api-server --duration 30
+
 # List active debug sessions
 coral debug session list
 
@@ -192,6 +195,109 @@ coral debug query payment-service --function processPayment --since 1h
    `coral debug attach payment-service --function processPayment --capture-args`
 
 See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for full command syntax.
+
+---
+
+### CPU Profiling
+
+Coral provides sampling CPU profilers using eBPF to identify CPU-bound
+bottlenecks and generate flame graphs. This complements uprobe-based function
+tracing by showing exactly where CPU time is spent.
+
+**Key Features:**
+
+- **Low overhead** - 99Hz sampling (< 1% CPU overhead)
+- **Production safe** - No code modifications required
+- **Flame graph compatible** - Output in folded stack format for flamegraph.pl
+- **Stack traces** - Captures both user and kernel stack traces
+- **Flexible output** - Folded format (default) or JSON
+
+**Basic Usage:**
+
+```bash
+# Capture 30s CPU profile and output folded format
+coral debug cpu-profile --service api --duration 30
+
+# Generate flamegraph SVG (requires flamegraph.pl)
+coral debug cpu-profile --service api --duration 30 | flamegraph.pl > cpu.svg
+
+# Profile with JSON output
+coral debug cpu-profile --service api --duration 10 --format json
+```
+
+**Advanced Options:**
+
+```bash
+# Custom sampling frequency (default 99Hz, max 1000Hz)
+coral debug cpu-profile --service api --duration 30 --frequency 49
+
+# Profile specific pod instance
+coral debug cpu-profile --service api --pod api-7d8f9c --duration 10
+
+# Profile with specific agent
+coral debug cpu-profile --service api --agent-id hostname-api-1 --duration 30
+```
+
+**Output Format:**
+
+The default folded stack format is compatible with Brendan Gregg's FlameGraph
+tool:
+
+```
+main;processRequest;parseJSON;unmarshal 127
+main;processRequest;validateData 89
+main;processRequest;saveToDatabase;executeQuery 234
+```
+
+Each line shows:
+
+- **Stack frames** - Semicolon-separated from root to leaf
+- **Sample count** - Number of times this stack was observed
+
+**Generating Flame Graphs:**
+
+```bash
+# Install flamegraph.pl (one-time setup)
+git clone https://github.com/brendangregg/FlameGraph
+cd FlameGraph
+
+# Generate CPU flame graph
+coral debug cpu-profile --service api --duration 30 | ./flamegraph.pl > cpu.svg
+
+# Open in browser
+open cpu.svg
+```
+
+**When to Use CPU Profiling:**
+
+- ✅ Identify CPU-bound bottlenecks (tight loops, expensive calculations)
+- ✅ Understand what code paths consume CPU cycles
+- ✅ Optimize algorithm performance
+- ✅ Debug high CPU usage scenarios
+
+**When to Use Uprobe Tracing Instead:**
+
+- ✅ Measure function latency (how long functions take)
+- ✅ Trace request paths across services
+- ✅ Analyze I/O-bound operations
+- ✅ Capture function arguments and return values
+
+**Workflow Example:**
+
+1. **Identify high CPU usage:**
+   `coral ask "Why is the API using so much CPU?"`
+
+2. **Collect CPU profile:**
+   `coral debug cpu-profile --service api --duration 30 > profile.folded`
+
+3. **Generate flame graph:**
+   `cat profile.folded | flamegraph.pl > cpu.svg`
+
+4. **Analyze results:**
+   Open `cpu.svg` in browser to identify hot code paths
+
+5. **Deep dive with uprobes:**
+   `coral debug attach api --function processData --duration 60s`
 
 ---
 

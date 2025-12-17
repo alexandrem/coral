@@ -157,3 +157,21 @@ func (m *SessionManager) CloseSession(sessionID string) error {
 	m.logger.Info().Str("session_id", sessionID).Msg("Debug session closed")
 	return nil
 }
+
+// ProfileCPU collects CPU profile samples for a process (RFD 070).
+func (m *SessionManager) ProfileCPU(pid int, durationSeconds int, frequencyHz int) (*CPUProfileResult, error) {
+	// Start CPU profiling session
+	session, err := StartCPUProfile(pid, durationSeconds, frequencyHz, m.logger)
+	if err != nil {
+		return nil, fmt.Errorf("start CPU profile: %w", err)
+	}
+	defer session.Close() //nolint:errcheck
+
+	// Collect profile (this blocks for the duration)
+	result, err := session.CollectProfile()
+	if err != nil {
+		return nil, fmt.Errorf("collect CPU profile: %w", err)
+	}
+
+	return result, nil
+}

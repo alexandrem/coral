@@ -161,6 +161,54 @@ func (s *DebugService) QueryUprobeEvents(
 	}, nil
 }
 
+// ProfileCPU handles requests to collect CPU profile samples (RFD 070).
+func (s *DebugService) ProfileCPU(
+	ctx context.Context,
+	req *meshv1.ProfileCPUAgentRequest,
+) (*meshv1.ProfileCPUAgentResponse, error) {
+	s.logger.Info().
+		Str("service", req.ServiceName).
+		Int32("pid", req.Pid).
+		Int32("duration_seconds", req.DurationSeconds).
+		Int32("frequency_hz", req.FrequencyHz).
+		Msg("Starting CPU profiling")
+
+	// Import the debug package to use CPU profiler
+	profiler := s.agent.debugManager
+	if profiler == nil {
+		return &meshv1.ProfileCPUAgentResponse{
+			Success: false,
+			Error:   "debug manager not initialized",
+		}, nil
+	}
+
+	// Use the ProfileCPU method from the SessionManager
+	result, err := profiler.ProfileCPU(int(req.Pid), int(req.DurationSeconds), int(req.FrequencyHz))
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to collect CPU profile")
+		return &meshv1.ProfileCPUAgentResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to profile CPU: %v", err),
+		}, nil
+	}
+
+	// Convert result to protobuf response
+	var samples []*meshv1.StackSample
+	for _, sample := range result.Samples {
+		samples = append(samples, &meshv1.StackSample{
+			FrameNames: sample.FrameNames,
+			Count:      sample.Count,
+		})
+	}
+
+	return &meshv1.ProfileCPUAgentResponse{
+		Samples:      samples,
+		TotalSamples: result.TotalSamples,
+		LostSamples:  result.LostSamples,
+		Success:      true,
+	}, nil
+}
+
 // DebugServiceAdapter adapts DebugService to the Connect RPC handler interface.
 type DebugServiceAdapter struct {
 	service *DebugService
@@ -201,6 +249,18 @@ func (a *DebugServiceAdapter) QueryUprobeEvents(
 	req *connect.Request[meshv1.QueryUprobeEventsRequest],
 ) (*connect.Response[meshv1.QueryUprobeEventsResponse], error) {
 	resp, err := a.service.QueryUprobeEvents(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// ProfileCPU implements the Connect RPC handler interface.
+func (a *DebugServiceAdapter) ProfileCPU(
+	ctx context.Context,
+	req *connect.Request[meshv1.ProfileCPUAgentRequest],
+) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
+	resp, err := a.service.ProfileCPU(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

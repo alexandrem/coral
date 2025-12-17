@@ -13,6 +13,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
@@ -46,6 +48,78 @@ func (m *mockDebugClient) QueryUprobeEvents(ctx context.Context, req *connect.Re
 		return m.queryFunc(ctx, req)
 	}
 	return connect.NewResponse(&meshv1.QueryUprobeEventsResponse{Events: []*meshv1.EbpfEvent{}}), nil
+}
+
+func (m *mockDebugClient) ProfileCPU(ctx context.Context, req *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
+	return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{Success: true, TotalSamples: 100}), nil
+}
+
+// mockAgentClient implements agentv1connect.AgentServiceClient for testing.
+type mockAgentClient struct {
+	listServicesFunc func(context.Context, *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error)
+}
+
+func (m *mockAgentClient) GetRuntimeContext(ctx context.Context, req *connect.Request[agentv1.GetRuntimeContextRequest]) (*connect.Response[agentv1.RuntimeContextResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) ConnectService(ctx context.Context, req *connect.Request[agentv1.ConnectServiceRequest]) (*connect.Response[agentv1.ConnectServiceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) DisconnectService(ctx context.Context, req *connect.Request[agentv1.DisconnectServiceRequest]) (*connect.Response[agentv1.DisconnectServiceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) ListServices(ctx context.Context, req *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error) {
+	if m.listServicesFunc != nil {
+		return m.listServicesFunc(ctx, req)
+	}
+	return connect.NewResponse(&agentv1.ListServicesResponse{Services: []*agentv1.ServiceStatus{}}), nil
+}
+
+func (m *mockAgentClient) QueryTelemetry(ctx context.Context, req *connect.Request[agentv1.QueryTelemetryRequest]) (*connect.Response[agentv1.QueryTelemetryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) QueryEbpfMetrics(ctx context.Context, req *connect.Request[agentv1.QueryEbpfMetricsRequest]) (*connect.Response[agentv1.QueryEbpfMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) QuerySystemMetrics(ctx context.Context, req *connect.Request[agentv1.QuerySystemMetricsRequest]) (*connect.Response[agentv1.QuerySystemMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) Shell(ctx context.Context) *connect.BidiStreamForClient[agentv1.ShellRequest, agentv1.ShellResponse] {
+	panic("Shell not implemented in mock")
+}
+
+func (m *mockAgentClient) ShellExec(ctx context.Context, req *connect.Request[agentv1.ShellExecRequest]) (*connect.Response[agentv1.ShellExecResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) ContainerExec(ctx context.Context, req *connect.Request[agentv1.ContainerExecRequest]) (*connect.Response[agentv1.ContainerExecResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) ResizeShellTerminal(ctx context.Context, req *connect.Request[agentv1.ResizeShellTerminalRequest]) (*connect.Response[agentv1.ResizeShellTerminalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) SendShellSignal(ctx context.Context, req *connect.Request[agentv1.SendShellSignalRequest]) (*connect.Response[agentv1.SendShellSignalResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) KillShellSession(ctx context.Context, req *connect.Request[agentv1.KillShellSessionRequest]) (*connect.Response[agentv1.KillShellSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
+}
+
+func (m *mockAgentClient) StreamDebugEvents(ctx context.Context) *connect.BidiStreamForClient[agentv1.DebugCommand, agentv1.DebugEvent] {
+	panic("StreamDebugEvents not implemented in mock")
+}
+
+func (m *mockAgentClient) GetFunctions(ctx context.Context, req *connect.Request[agentv1.GetFunctionsRequest]) (*connect.Response[agentv1.GetFunctionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("not implemented in mock"))
 }
 
 func TestDebugFlowIntegration(t *testing.T) {
@@ -457,4 +531,117 @@ func TestDebugFlow_QueryWithFilters(t *testing.T) {
 	assert.Len(t, resp.Msg.Events, 1)
 	assert.Equal(t, "ProcessPayment", resp.Msg.Events[0].FunctionName)
 	assert.False(t, resp.Msg.HasMore)
+}
+
+func TestDebugFlow_CPUProfile(t *testing.T) {
+	// Setup dependencies
+	logger := zerolog.Nop()
+	db := setupTestDB(t)
+	reg := registry.New(db)
+	defer db.Close()
+
+	// Register mock agent with service
+	agentID := "agent-1"
+	serviceName := "payment-service"
+	services := []*meshv1.ServiceInfo{
+		{
+			Name:      serviceName,
+			Port:      8080,
+			ProcessId: 1234, // Mock PID
+		},
+	}
+	_, err := reg.Register(agentID, agentID, "10.0.0.1", "", services, nil, "v1")
+	require.NoError(t, err)
+
+	// Create orchestrator
+	orch := NewOrchestrator(logger, reg, db, nil)
+
+	// Setup mock agent client to return service list with PID
+	mockAgentCli := &mockAgentClient{
+		listServicesFunc: func(ctx context.Context, req *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error) {
+			return connect.NewResponse(&agentv1.ListServicesResponse{
+				Services: []*agentv1.ServiceStatus{
+					{
+						Name:      serviceName,
+						ProcessId: 1234,
+					},
+				},
+			}), nil
+		},
+	}
+	orch.agentClientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentServiceClient {
+		return mockAgentCli
+	}
+
+	// Override ProfileCPU to return mock samples
+	mockProfileCPU := func(ctx context.Context, req *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
+		// Verify request parameters
+		assert.Equal(t, int32(1234), req.Msg.Pid)
+		assert.Equal(t, serviceName, req.Msg.ServiceName)
+		assert.Equal(t, int32(5), req.Msg.DurationSeconds)
+		assert.Equal(t, int32(99), req.Msg.FrequencyHz)
+
+		// Return mock profile data
+		return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{
+			Success:      true,
+			TotalSamples: 495, // 5 seconds * 99Hz = ~495 samples
+			LostSamples:  0,
+			Samples: []*meshv1.StackSample{
+				{
+					FrameNames: []string{"main", "ProcessPayment", "validateCard"},
+					Count:      245,
+				},
+				{
+					FrameNames: []string{"main", "ProcessPayment", "chargeCard"},
+					Count:      250,
+				},
+			},
+		}), nil
+	}
+
+	// Setup mock debug client factory
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+		return &mockDebugClientWithCPUProfile{
+			mockDebugClient: &mockDebugClient{},
+			profileCPUFunc:  mockProfileCPU,
+		}
+	}
+
+	ctx := context.Background()
+
+	// Test CPU profiling
+	t.Run("ProfileCPU_Success", func(t *testing.T) {
+		req := connect.NewRequest(&debugpb.ProfileCPURequest{
+			ServiceName:     serviceName,
+			DurationSeconds: 5,
+			FrequencyHz:     99,
+			AgentId:         agentID,
+		})
+
+		resp, err := orch.ProfileCPU(ctx, req)
+		require.NoError(t, err)
+		assert.True(t, resp.Msg.Success)
+		assert.Equal(t, uint64(495), resp.Msg.TotalSamples)
+		assert.Equal(t, uint32(0), resp.Msg.LostSamples)
+		assert.Len(t, resp.Msg.Samples, 2)
+
+		// Verify stack samples
+		assert.Equal(t, []string{"main", "ProcessPayment", "validateCard"}, resp.Msg.Samples[0].FrameNames)
+		assert.Equal(t, uint64(245), resp.Msg.Samples[0].Count)
+		assert.Equal(t, []string{"main", "ProcessPayment", "chargeCard"}, resp.Msg.Samples[1].FrameNames)
+		assert.Equal(t, uint64(250), resp.Msg.Samples[1].Count)
+	})
+}
+
+// mockDebugClientWithCPUProfile extends mockDebugClient with ProfileCPU support.
+type mockDebugClientWithCPUProfile struct {
+	*mockDebugClient
+	profileCPUFunc func(context.Context, *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error)
+}
+
+func (m *mockDebugClientWithCPUProfile) ProfileCPU(ctx context.Context, req *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
+	if m.profileCPUFunc != nil {
+		return m.profileCPUFunc(ctx, req)
+	}
+	return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{Success: true, TotalSamples: 100}), nil
 }

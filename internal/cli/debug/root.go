@@ -15,6 +15,7 @@ func NewDebugCmd() *cobra.Command {
 	// Instrumentation
 	cmd.AddCommand(NewAttachCmd())
 	cmd.AddCommand(NewProfileCmd())
+	cmd.AddCommand(NewCPUProfileCmd())
 
 	// Session Management
 	cmd.AddCommand(NewSessionCmd())

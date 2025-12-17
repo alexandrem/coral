@@ -35,6 +35,7 @@ type Orchestrator struct {
 	db                      *database.Database
 	functionRegistry        *colony.FunctionRegistry
 	clientFactory           func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
+	agentClientFactory      func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentServiceClient
 	stopBackgroundPersist   chan struct{}
 	timestampsMu            sync.RWMutex
 	lastPersistedTimestamps map[string]time.Time // sessionID -> last persisted event timestamp
@@ -48,6 +49,7 @@ func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *dat
 		db:                      db,
 		functionRegistry:        functionRegistry,
 		clientFactory:           meshv1connect.NewDebugServiceClient,
+		agentClientFactory:      agentv1connect.NewAgentServiceClient,
 		stopBackgroundPersist:   make(chan struct{}),
 		lastPersistedTimestamps: make(map[string]time.Time),
 	}
@@ -1422,4 +1424,182 @@ func applySelectionStrategy(functions []*colony.FunctionInfo, strategy string) [
 		// TODO: Implement call graph analysis to identify critical path
 		return functions
 	}
+}
+
+// ProfileCPU collects CPU profile samples for a target service/pod (RFD 070).
+func (o *Orchestrator) ProfileCPU(
+	ctx context.Context,
+	req *connect.Request[debugpb.ProfileCPURequest],
+) (*connect.Response[debugpb.ProfileCPUResponse], error) {
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Str("pod", req.Msg.PodName).
+		Int32("duration", req.Msg.DurationSeconds).
+		Int32("frequency", req.Msg.FrequencyHz).
+		Msg("Starting CPU profiling")
+
+	// Set defaults.
+	durationSeconds := req.Msg.DurationSeconds
+	if durationSeconds <= 0 {
+		durationSeconds = 30 // Default 30 seconds
+	}
+	if durationSeconds > 300 {
+		durationSeconds = 300 // Max 5 minutes
+	}
+
+	frequencyHz := req.Msg.FrequencyHz
+	if frequencyHz <= 0 {
+		frequencyHz = 99 // Default 99Hz
+	}
+	if frequencyHz > 1000 {
+		frequencyHz = 1000 // Max 1000Hz
+	}
+
+	// Service Discovery: Find agent for service.
+	agentID := req.Msg.AgentId
+	if agentID == "" {
+		entries := o.registry.ListAll()
+		var foundEntry *registry.Entry
+
+		for _, entry := range entries {
+			// Query agent in real-time for services.
+			agentURL := fmt.Sprintf("http://%s:9001", entry.MeshIPv4)
+			client := o.agentClientFactory(http.DefaultClient, agentURL)
+
+			queryCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+			cancel()
+
+			if err != nil {
+				o.logger.Debug().
+					Err(err).
+					Str("agent_id", entry.AgentID).
+					Msg("Failed to query agent services")
+				continue
+			}
+
+			// Check if this agent has the service.
+			for _, svcStatus := range resp.Msg.Services {
+				if svcStatus.Name == req.Msg.ServiceName {
+					foundEntry = entry
+					break
+				}
+			}
+
+			if foundEntry != nil {
+				break
+			}
+		}
+
+		if foundEntry == nil {
+			return connect.NewResponse(&debugpb.ProfileCPUResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to find agent for service %s: service not found", req.Msg.ServiceName),
+			}), nil
+		}
+
+		agentID = foundEntry.AgentID
+	}
+
+	if agentID == "" {
+		return connect.NewResponse(&debugpb.ProfileCPUResponse{
+			Success: false,
+			Error:   "agent_id is required (could not resolve from service)",
+		}), nil
+	}
+
+	// Get agent entry from registry.
+	entry, err := o.registry.Get(agentID)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("agent_id", agentID).
+			Msg("Failed to get agent from registry")
+		return connect.NewResponse(&debugpb.ProfileCPUResponse{
+			Success: false,
+			Error:   fmt.Sprintf("agent not found: %v", err),
+		}), nil
+	}
+
+	// Get PID for the service.
+	// Query agent for service details to get PID.
+	agentURL := fmt.Sprintf("http://%s:9001", entry.MeshIPv4)
+	agentClient := o.agentClientFactory(http.DefaultClient, agentURL)
+
+	servicesResp, err := agentClient.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileCPUResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to query agent services: %v", err),
+		}), nil
+	}
+
+	var targetPID int32
+	for _, svc := range servicesResp.Msg.Services {
+		if svc.Name == req.Msg.ServiceName {
+			targetPID = svc.ProcessId
+			break
+		}
+	}
+
+	if targetPID == 0 {
+		return connect.NewResponse(&debugpb.ProfileCPUResponse{
+			Success: false,
+			Error:   fmt.Sprintf("service %s not found on agent %s", req.Msg.ServiceName, agentID),
+		}), nil
+	}
+
+	// Call agent to perform CPU profiling.
+	debugClient := o.clientFactory(
+		http.DefaultClient,
+		fmt.Sprintf("http://%s", buildAgentAddress(entry.MeshIPv4)),
+	)
+
+	profileReq := connect.NewRequest(&meshv1.ProfileCPUAgentRequest{
+		AgentId:         agentID,
+		ServiceName:     req.Msg.ServiceName,
+		Pid:             targetPID,
+		DurationSeconds: durationSeconds,
+		FrequencyHz:     frequencyHz,
+	})
+
+	profileResp, err := debugClient.ProfileCPU(ctx, profileReq)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("agent_id", agentID).
+			Str("service", req.Msg.ServiceName).
+			Msg("Failed to collect CPU profile from agent")
+		return connect.NewResponse(&debugpb.ProfileCPUResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to collect CPU profile: %v", err),
+		}), nil
+	}
+
+	if !profileResp.Msg.Success {
+		return connect.NewResponse(&debugpb.ProfileCPUResponse{
+			Success: false,
+			Error:   profileResp.Msg.Error,
+		}), nil
+	}
+
+	// Convert agent response to colony response.
+	var samples []*debugpb.StackSample
+	for _, sample := range profileResp.Msg.Samples {
+		samples = append(samples, &debugpb.StackSample{
+			FrameNames: sample.FrameNames,
+			Count:      sample.Count,
+		})
+	}
+
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Uint64("total_samples", profileResp.Msg.TotalSamples).
+		Int("unique_stacks", len(samples)).
+		Msg("CPU profiling completed")
+
+	return connect.NewResponse(&debugpb.ProfileCPUResponse{
+		Samples:      samples,
+		TotalSamples: profileResp.Msg.TotalSamples,
+		LostSamples:  profileResp.Msg.LostSamples,
+		Success:      true,
+	}), nil
 }
