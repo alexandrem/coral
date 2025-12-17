@@ -173,8 +173,22 @@ func (s *Symbolizer) resolveDWARF(addr uint64) (Symbol, error) {
 			continue
 		}
 
-		low := lowPC.(uint64)
-		high := highPC.(uint64)
+		low, ok := lowPC.(uint64)
+		if !ok {
+			continue
+		}
+
+		// highPC can be either absolute address (uint64) or offset from lowPC (int64)
+		var high uint64
+		switch v := highPC.(type) {
+		case uint64:
+			high = v
+		case int64:
+			// Offset from lowPC
+			high = low + uint64(v)
+		default:
+			continue
+		}
 
 		// Check if address is in this function's range
 		if addr >= low && addr < high {
@@ -250,6 +264,16 @@ func getRuntimeLoadAddress(pid int, binaryPath string) (uint64, error) {
 		return 0, fmt.Errorf("failed to read maps: %w", err)
 	}
 
+	// Resolve the actual binary path from /proc/PID/exe if needed
+	// This handles the case where binaryPath is "/proc/PID/exe"
+	actualPath := binaryPath
+	if strings.Contains(binaryPath, "/proc/") && strings.HasSuffix(binaryPath, "/exe") {
+		resolved, err := os.Readlink(binaryPath)
+		if err == nil {
+			actualPath = resolved
+		}
+	}
+
 	// Parse maps file to find the first executable mapping for the binary
 	// Format: address           perms offset  dev   inode   pathname
 	// Example: 555555554000-555555556000 r-xp 00000000 08:01 123456 /path/to/binary
@@ -259,13 +283,13 @@ func getRuntimeLoadAddress(pid int, binaryPath string) (uint64, error) {
 			continue
 		}
 
-		// Check if this line contains the binary path
-		if !strings.Contains(line, binaryPath) && !strings.HasSuffix(line, "/exe") {
+		// Check if this is an executable mapping (r-xp)
+		if !strings.Contains(line, "r-xp") {
 			continue
 		}
 
-		// Check if this is an executable mapping (r-xp)
-		if !strings.Contains(line, "r-xp") {
+		// Check if this line contains the binary path (match against actualPath or /exe suffix)
+		if !strings.Contains(line, actualPath) && !strings.HasSuffix(line, "/exe") {
 			continue
 		}
 
@@ -291,7 +315,7 @@ func getRuntimeLoadAddress(pid int, binaryPath string) (uint64, error) {
 		return addr, nil
 	}
 
-	return 0, fmt.Errorf("no executable mapping found for %s in /proc/%d/maps", binaryPath, pid)
+	return 0, fmt.Errorf("no executable mapping found for %s in /proc/%d/maps", actualPath, pid)
 }
 
 // FormatSymbol formats a symbol for display.

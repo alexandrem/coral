@@ -101,18 +101,15 @@ func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, logger zerol
 	}
 
 	// Create symbolizer for address resolution
+	// Use /proc/PID/exe directly - it works across container boundaries in shared PID namespace
 	var symbolizer *Symbolizer
-	binaryPath, err := GetBinaryPath(pid)
+	binaryPath := fmt.Sprintf("/proc/%d/exe", pid)
+	symbolizer, err = NewSymbolizer(binaryPath, pid, logger)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to get binary path, symbols will not be resolved")
+		logger.Warn().Err(err).Str("binary", binaryPath).Msg("Failed to create symbolizer, outputting raw addresses")
+		symbolizer = nil // Continue without symbolization
 	} else {
-		symbolizer, err = NewSymbolizer(binaryPath, pid, logger)
-		if err != nil {
-			logger.Warn().Err(err).Str("binary", binaryPath).Msg("Failed to create symbolizer, outputting raw addresses")
-			symbolizer = nil // Continue without symbolization
-		} else {
-			logger.Info().Str("binary", binaryPath).Msg("Symbolizer initialized")
-		}
+		logger.Info().Str("binary", binaryPath).Msg("Symbolizer initialized")
 	}
 
 	session := &CPUProfileSession{
