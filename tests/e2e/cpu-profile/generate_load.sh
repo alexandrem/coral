@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate HTTP load on the demo nginx service to produce CPU samples.
+# Generate HTTP load on the cpu-app service to produce CPU samples.
 
 set -e
 
