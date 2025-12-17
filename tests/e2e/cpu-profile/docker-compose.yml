@@ -15,7 +15,7 @@ services:
       - agent
       - start
       - --connect
-      - localhost:8080
+      - cpu-app:8080
     environment:
       CORAL_COLONY_ID: ${CORAL_COLONY_ID}
       CORAL_COLONY_SECRET: ${CORAL_COLONY_SECRET}

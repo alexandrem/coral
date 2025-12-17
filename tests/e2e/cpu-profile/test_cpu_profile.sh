@@ -18,10 +18,10 @@ NC='\033[0m' # No Color
 # Configuration
 DURATION_SECONDS=5
 FREQUENCY_HZ=99
-SERVICE_NAME="${1:-demo}"  # Allow service name as first argument, default to 'demo'
+SERVICE_NAME="${1:-cpu-app}"  # Allow service name as first argument
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 BINARY_PATH="${REPO_ROOT}/bin/coral"
-DOCKER_COMPOSE_DIR="${REPO_ROOT}/examples/docker-compose"
+DOCKER_COMPOSE_DIR="${REPO_ROOT}/tests/e2e/cpu-profile"
 
 echo -e "${YELLOW}Starting E2E test for CPU profiling...${NC}"
 echo "Service: ${SERVICE_NAME}"
