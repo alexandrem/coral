@@ -4,6 +4,11 @@ import (
 	"math"
 )
 
+const (
+	maxInt32 = int32(math.MaxInt32)
+	minInt32 = int32(math.MinInt32)
+)
+
 // Uint64ToInt64 safely converts an uint64 value to int64, clamping to math.MaxInt64 if overflow
 // would occur.
 // Returns the converted value and a boolean indicating whether clamping occurred.
@@ -19,11 +24,29 @@ func Uint64ToInt64(val uint64) (int64, bool) {
 // On 64-bit systems, int is 64 bits and can exceed int32 range.
 // Returns the converted value and a boolean indicating whether clamping occurred.
 func IntToInt32(val int) (int32, bool) {
-	if val > math.MaxInt32 {
-		return math.MaxInt32, true
+	if val > int(maxInt32) {
+		return maxInt32, true
 	}
-	if val < math.MinInt32 {
-		return math.MinInt32, true
+	if val < int(minInt32) {
+		return minInt32, true
 	}
 	return int32(val), false
+}
+
+// Int32ToUint32 safely converts an int32 value to uint32, clamping to zero
+// if overflow would occur.
+func Int32ToUint32(val int32) (uint32, bool) {
+	if val < 0 {
+		return 0, true // clamped because negative
+	}
+	return uint32(val), false
+}
+
+// IntToUint64 safely converts an int value to uint64, clamping to zero
+// if overflow would occur.
+func IntToUint64(val int) (uint64, bool) {
+	if val < 0 {
+		return 0, true // clamped because negative
+	}
+	return uint64(val), false
 }

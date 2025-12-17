@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go cpu_profile ./bpf/cpu_profile.bpf.c -- -I../ebpf/bpf/headers
@@ -72,13 +73,18 @@ func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, kernelSymbol
 		return nil, fmt.Errorf("load BPF objects: %w", err)
 	}
 
+	sample, clamp := safe.IntToUint64(frequencyHz)
+	if clamp {
+		return nil, fmt.Errorf("invalid frequency %dHz being clamped", frequencyHz)
+	}
+
 	// Open perf event using unix syscall.
 	attr := &unix.PerfEventAttr{
 		Type:   unix.PERF_TYPE_SOFTWARE,
 		Config: unix.PERF_COUNT_SW_CPU_CLOCK,
 		Size:   uint32(unsafe.Sizeof(unix.PerfEventAttr{})),
-		Sample: uint64(frequencyHz), // Frequency in Hz
-		Bits:   unix.PerfBitFreq,    // Interpret Sample as frequency, not period
+		Sample: sample,           // Sample frequency in Hz
+		Bits:   unix.PerfBitFreq, // Interpret Sample as frequency, not period
 	}
 
 	perfEventFD, err := unix.PerfEventOpen(attr, pid, -1, -1, unix.PERF_FLAG_FD_CLOEXEC)
@@ -263,7 +269,10 @@ func (s *CPUProfileSession) resolveStack(key stackKey) ([]string, error) {
 // getStackTrace retrieves a stack trace from the stack_traces map.
 func (s *CPUProfileSession) getStackTrace(stackID int32) ([]uint64, error) {
 	var stack [maxStackDepth]uint64
-	key := uint32(stackID)
+	key, clamp := safe.Int32ToUint32(stackID)
+	if clamp {
+		return nil, fmt.Errorf("invalid stack ID number would overflow: %d", stackID)
+	}
 
 	if err := s.StackTraces.Lookup(&key, &stack); err != nil {
 		return nil, fmt.Errorf("lookup stack %d: %w", stackID, err)
