@@ -17,7 +17,7 @@ import (
 	"github.com/coral-mesh/coral/internal/safe"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go cpu_profile ./bpf/cpu_profile.bpf.c -- -I../ebpf/bpf/headers
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux cpu_profile ./bpf/cpu_profile.bpf.c -- -I../ebpf/bpf/headers
 
 const (
 	defaultSampleFrequency = 99   // 99Hz sampling
