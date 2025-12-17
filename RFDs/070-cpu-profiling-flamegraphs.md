@@ -101,6 +101,7 @@ Agent (Read & Symbolize) → Colony → CLI (FlameGraph)
 - [x] Implement symbolization (IP -> Function Name) using DWARF/ELF
   parsing.
 - [x] Create `Symbolizer` component with DWARF debug info support.
+- [x] Create Kernel symbolizer.
 - [x] Handle both user-space and kernel-space stack traces.
 - [x] Implement fallback for missing symbols (display raw addresses with hex
   format).
@@ -206,8 +207,10 @@ Total samples collected: 2958/3000
 
 ## Security Considerations
 
-- **Privileges**: Requires `CAP_BPF` / `CAP_PERFMON` (already required for
-  existing agent features).
+- **Privileges**:
+  - Requires `CAP_BPF` / `CAP_PERFMON` (already required for
+    existing agent features).
+  - Requires `CAP_SYSLOG` for Kernel symbolization.
 - **Overhead**: Sampling frequency should be capped (e.g., max 1000Hz) to
   prevent DoS.
 - **Stack Information Exposure**: CPU profiles may expose sensitive function
@@ -247,21 +250,17 @@ All four phases have been completed and tested. CPU profiling is production-read
    `debug/elf` packages. Parses debug info on-demand and caches symbol lookups
    for performance.
 
-2. **Bug Fixes:** Fixed critical bugs in BPF map type constant (was ARRAY
-   instead of STACK_TRACE) and perf event frequency configuration.
-
-3. **Testing:** Created comprehensive test suite including E2E tests with
+2. **Testing:** Created comprehensive test suite including E2E tests with
    CPU-intensive workload that actually generates samples (unlike nginx which is
    too efficient).
 
-4. **Documentation:** Added detailed guides for symbolization, troubleshooting,
+3**Documentation:** Added detailed guides for symbolization, troubleshooting,
    and flame graph generation.
 
 ### Known Limitations
 
-1. **Kernel Symbolization:** Not yet implemented (shows raw kernel addresses).
-2. **Inline Functions:** Not yet resolved (shows outermost function only).
-3. **Build ID Matching:** Not implemented (offline symbolization not supported).
+1. **Inline Functions:** Not yet resolved (shows outermost function only).
+2. **Build ID Matching:** Not implemented (offline symbolization not supported).
 
 These limitations are acceptable for v1 and can be addressed in future iterations.
 
@@ -270,7 +269,7 @@ These limitations are acceptable for v1 and can be addressed in future iteration
 The following features are out of scope for this RFD and may be addressed in
 future enhancements:
 
-**Integrated Flame Graphs** (High Priority - Future RFD)
+**Integrated Flame Graphs** (Future RFD)
 - Generate SVG/HTML flame graphs directly in CLI without external tools.
 - Embed interactive flame graphs in Colony UI.
 - Enables easier adoption without requiring `flamegraph.pl` installation.
