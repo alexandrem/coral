@@ -33,7 +33,7 @@ echo ""
 echo -e "\n${YELLOW}Step 1: Checking docker-compose services...${NC}"
 if ! (cd "${DOCKER_COMPOSE_DIR}" && docker compose ps | grep -q "coral-agent.*running"); then
     echo -e "${RED}Error: coral-agent service is not running${NC}"
-    echo "Please start the services with: cd examples/docker-compose && docker compose up -d"
+    echo "Please start the services with: cd tests/e2e/cpu-profile && docker compose up -d"
     exit 1
 fi
 echo -e "${GREEN}✓ Services are running${NC}"
