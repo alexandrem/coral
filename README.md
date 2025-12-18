@@ -1,78 +1,104 @@
 # Coral
 
-**Application Intelligence Mesh**
+**Root cause in seconds, not hours.**
 
-LLM-orchestrated debugging for **distributed apps**. Turn fragmented
-infrastructure into one intelligent system.
+The open-source nervous system for your distributed apps.
 
 [![CI](https://github.com/alexandrem/coral/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandrem/coral/actions/workflows/ci.yml)
 [![Golang](https://img.shields.io/github/go-mod/go-version/alexandrem/coral?color=7fd5ea)](https://golang.org/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alexandrem/coral)](https://goreportcard.com/report/github.com/alexandrem/coral)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-> [!NOTE]
-> 🚧 **Early Development** - Implementation in progress
+> 🚧 **Very early & experimental** — APIs will change, but the vision is solid.
 
-## The Problem
+> TL;DR: Ask your running system “why is it slow?” in plain English → get the exact
+> function and line blocking it, without redeploying.
 
-Your app runs across fragmented infrastructure: laptop, VMs, Kubernetes
-clusters, multiple clouds, VPCs, on-prem.
+## Overview
 
-- **Debug an issue?** Check logs, metrics, traces across multiple dashboards.
-- **Find the root cause?** Add logging, redeploy, wait for it to happen again.
-- **Debug across environments?** Can't correlate laptop dev with prod K8s
-  cluster.
-- **Run diagnostics?** SSH to different networks, navigate firewalls, VPN chaos.
+Coral is the **Application Intelligence Mesh**. It brings the "observe
+everything" philosophy of DTrace to distributed systems, replacing esoteric
+scripts with natural language and sandboxed TypeScript. It unites the deep,
+kernel-level visibility of eBPF with the reasoning power of Large Language
+Models.
 
-**Coral unifies this with an Application Intelligence Mesh.** One CLI to
-observe, debug, and control your distributed app.
+Unlike traditional tools that just show you dashboards, Coral is
+building a Programmable Observability Engine capable of writing and deploying
+its own safe, ephemeral diagnostics to solve problems faster than any human can
+type.
+
+## The Problem: Observability is Fragmented and Passive
+
+Modern distributed applications run across a "chaos of environments" — laptops,
+Kubernetes clusters, edge nodes, and multiple clouds. Current tools fail this
+reality in three ways:
+
+1. **The Context Gap**: Metrics tell you _that_ something is wrong, but not
+   _where_ in the code. You’re forced to jump between dashboards, traces, and
+   source code, manually trying to correlate timestamps.
+2. **The "Observer Effect"**: To get deeper data, you often have to add logging,
+   redeploy, and pray the issue happens again. This is slow, risky, and often
+   changes the very behavior you’re trying to debug.
+3. **Passive Data, Active Toil**: Traditional tools are passive collectors. They
+   wait for you to ask the right question. In a distributed mesh, finding the "
+   right question" is 90% of the work.
+
+**Coral turns this upside down.** We provide the **depth of a kernel debugger**
+with the **reasoning of an AI**, unified into a single intelligence mesh.
 
 ## One Interface for Everything
 
 Coral integrates four layers of data collection to provide complete visibility:
 
-| Level | Feature             | Description                                                                           |
-|-------|---------------------|---------------------------------------------------------------------------------------|
-| **0** | **eBPF Probes**     | Zero-config RED metrics (Rate, Errors, Duration). No code changes.                    |
-| **1** | **OTLP Ingestion**  | Ingests traces/metrics from apps already using OpenTelemetry.                         |
-| **2** | **Shell/Exec**      | LLM-orchestrated diagnostic tools (`netstat`, `curl`, `grep`) for deep investigation. |
-| **3** | **SDK Live Probes** | On-demand dynamic instrumentation (uprobes) attached to running code.                 |
+| Level | Feature                 | Description                                                                     |
+| ----- | ----------------------- | ------------------------------------------------------------------------------- |
+| **0** | **Passive RED Metrics** | Zero-config service metrics (Rate, Errors, Duration) via eBPF. No code changes. |
+| **1** | **External Telemetry**  | Ingests traces/metrics from apps already using OpenTelemetry/OTLP.              |
+| **2** | **Continuous Intel**    | Always-on host metrics (CPU/Mem/Disk) and low-overhead continuous profiling.    |
+| **3** | **Deep Introspection**  | On-demand profiling, function-level tracing, and active investigation.          |
 
 ### 👁️ Observe
 
 **Passive, always-on data collection.**
 
-Coral automatically gathers telemetry from your applications without any
-configuration (Level 0) and ingests existing OpenTelemetry data (Level 1).
+Coral automatically gathers telemetry from your applications and infrastructure
+without any configuration.
 
 - **Zero-config eBPF**: Metrics for every service, instantly.
+- **Host Health**: Continuous monitoring of CPU, memory, disk, and network.
+- **Continuous Profiling**: Low-overhead background CPU profiling to identify
+  hot paths over time.
 - **Dependency Mapping**: Automatically discovers how services connect.
-- **OTLP Support**: Seamlessly integrates with your existing instrumentation.
 
 ### 🔍 Explore
 
-**Human-driven investigation and control.**
+**Deep introspection and investigation tools.**
 
-When you need to dig deeper, Coral gives you the tools to investigate actively (
-Levels 2 & 3).
+When you need to dig deeper, Coral gives you the tools to investigate actively
+or automate the discovery of hotspots.
 
 - **Remote Execution**: Run standard tools like `netstat`, `curl`, and `grep` on
   any agent.
-- **Live Debugging**: Attach eBPF uprobes to specific functions to capture args
-  and return values.
+- **Remote Shell**: Jump into any agent's shell.
+- **On-Demand Profiling**: High-frequency CPU profiling with Flame Graphs for
+  line-level analysis.
+- **Live Debugging**: Attach eBPF uprobes (SDK) to specific functions to capture
+  args and return values.
 - **Traffic Capture**: Sample live requests to understand payload structures.
 
 ### 🤖 Diagnose
 
-**AI-powered insights through standard MCP protocol.**
+**AI-powered insights for intelligent Root Cause Analysis (RCA).**
 
-Connect your favorite AI assistant or use the built-in terminal to query your
-infrastructure in natural language.
+Coral's killer app is its ability to pre-correlate metrics and profiling data
+into structured summaries that LLMs can understand instantly.
 
+- **Profiling-Enriched Summaries**: AI gets metrics + code-level hotspots in one
+  call.
+- **Regression Detection**: Automatically identifies performance shifts across
+  deployment versions.
 - **Built-in Assistant**: Use `coral ask` directly from your terminal.
 - **Universal AI integration**: Works with Claude Desktop, IDEs, any MCP client.
-- **Bring your own LLM**: Use your API keys or local models (Ollama).
-- **Real-time data access**: AI queries live observability data, not dashboards.
 
 ## Architecture: Universal AI Integration via MCP
 
@@ -144,46 +170,55 @@ Coral is designed for **complete data sovereignty**.
    natural language.
 4. **Act on Insights**: Get root cause analysis and recommendations.
 
-## Live Debugging: The Killer Feature (coming soon)
+## Live Debugging & Profiling
 
 **Coral can debug your running code without redeploying.**
 
 Unlike traditional observability (metrics, logs, traces), Coral can **actively
-instrument** your code on-demand using eBPF uprobes.
+instrument** your code on-demand using eBPF uprobes and high-frequency CPU
+profiling.
 
 > [!NOTE]
-> Active instrumentation requires integrating the **Coral Language Runtime SDK**
-> into your application. This enables the agent to safely attach probes to
-> specific functions.
+> Detailed function-level tracing requires integrating the **Coral Language
+> Runtime SDK**, while CPU profiling and system metrics work
+> **agentlessly** on any binary.
 
 ```bash
 $ coral ask "Why is the payment API slow?"
 
-🤖 Analyzing payment service metrics...
-   P95 latency: 2.3s (baseline: 150ms)
+🤖 Analyzing host metrics and continuous profiles...
+   Host: api-v1-pod-abc (CPU: 12%, Mem: 45%)
+   Service: payment-api (P95: 2.3s)
 
-   Root cause unclear from metrics. Attaching live probes...
+   Initial findings: High "Off-CPU" wait time detected in process.
+   Executing coral_profile_functions (strategy: critical_path)...
 
-   ✓ Uprobe attached: payment.ProcessPayment() [offset 0x4a20]
-   ✓ Uprobe attached: payment.ValidateCard() [offset 0x4c80]
-   ✓ Uprobe attached: db.QueryTransactions() [offset 0x3f10]
+   Analysis of 30s capture:
+     • ProcessPayment() total: 2.1s
+       └─ Mutex Contention: 1.8s (Blocked by Logger.Write)
+       └─ VFS Write (Disk I/O): 1.7s (Wait on /var/log/app.log)
 
-   Collecting traces for 30 seconds...
-
-   Analysis:
-     • ProcessPayment(): 2.1s avg (2,847 calls)
-       └─ db.QueryTransactions(): 2.0s (95% of time)
-          └─ Query plan: Sequential scan (234,891 rows)
-          └─ Missing index on transactions.user_id
-
-   Root Cause: Missing database index causing slow queries
-
-   Recommendation:
-     CREATE INDEX idx_transactions_user_id ON transactions(user_id);
-
-   Detaching probes...
-   ✓ Cleanup complete (zero overhead restored)
+   Root Cause: Synchronous logging to a slow disk volume is blocking the main execution thread.
 ```
+
+## What Makes Coral Different?
+
+| Feature          | Coral                                                 | Traditional Tools             |
+| ---------------- | ----------------------------------------------------- | ----------------------------- |
+| **Network**      | **Unified WireGuard Mesh** (Laptop ↔ Cloud ↔ On-prem) | VPNs, Firewalls, Fragmented   |
+| **Debugging**    | **Continuous & On-demand eBPF** (Profiling & Probes)  | Logs, Metrics, Profiling.     |
+| **AI Model**     | **Bring Your Own LLM** (You own the data)             | Vendor-hosted, Privacy risks  |
+| **Architecture** | **Decentralized** (No central SaaS)                   | Centralized SaaS / Data Silos |
+| **Analysis**     | **LLM-Driven RCA** (Pre-correlated hotspots)          | Manual Dashboard Diving       |
+
+**Nothing else does this yet.**
+
+Coral is the first tool that combines:
+
+- LLM-driven analysis
+- On-demand eBPF instrumentation
+- Distributed debugging
+- Zero standing overhead
 
 ## Quick Start
 
@@ -231,35 +266,19 @@ bin/coral ask config
 bin/coral ask "Why is the API slow?"
 ```
 
-## What Makes Coral Different?
-
-| Feature          | Coral                                                 | Traditional Tools             |
-|------------------|-------------------------------------------------------|-------------------------------|
-| **Network**      | **Unified WireGuard Mesh** (Laptop ↔ Cloud ↔ On-prem) | VPNs, Firewalls, Fragmented   |
-| **Debugging**    | **On-demand eBPF** (Live instrumentation)             | Logs, Metrics, Redeploying    |
-| **AI Model**     | **Bring Your Own LLM** (You own the data)             | Vendor-hosted, Privacy risks  |
-| **Architecture** | **Decentralized** (No central SaaS)                   | Centralized SaaS / Data Silos |
-| **Integration**  | **Universal MCP** (Claude, IDEs, Terminal)            | Proprietary Chatbots          |
-
-**This doesn't exist in the market.**
-
-Coral is the first tool that combines:
-
-- LLM-driven analysis
-- On-demand eBPF instrumentation
-- Distributed debugging
-- Zero standing overhead
-
 ## Documentation
 
 - **[Installation & Permissions](docs/INSTALLATION.md)**: Setup guide and
   security options.
+- **[CLI](docs/CLI.md)**: Command-line interface guide.
 - **[CLI Reference](docs/CLI_REFERENCE.md)**: Complete command reference.
 - **[Architecture](docs/ARCHITECTURE.md)**: Deep dive into the system
   architecture.
+- **[Config](docs/CONFIG.md)**: Configuration guide.
 - **[Design](docs/DESIGN.md)**: High-level design principles.
 - **[Live Debugging](docs/LIVE_DEBUGGING.md)**: How the on-demand
   instrumentation works.
+- **[Instrumentation](docs/INSTRUMENTATION.md)**: How to instrument your code.
 
 ## License
 
