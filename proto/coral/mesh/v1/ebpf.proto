@@ -110,6 +110,29 @@ message ProfileCPUAgentResponse {
   bool success = 5;                 // Whether profiling succeeded
 }
 
+// QueryCPUProfileSamplesRequest retrieves historical CPU profile samples from agent's local storage (RFD 072).
+message QueryCPUProfileSamplesRequest {
+  string service_name = 1;                    // Service name filter (optional)
+  string pod_name = 2;                        // Pod name filter (optional)
+  google.protobuf.Timestamp start_time = 3;   // Start of time range
+  google.protobuf.Timestamp end_time = 4;     // End of time range
+}
+
+// CPUProfileSample represents a single aggregated profile sample with build ID (RFD 072).
+message CPUProfileSample {
+  google.protobuf.Timestamp timestamp = 1;    // Sample timestamp
+  string build_id = 2;                        // Binary build ID (for version tracking)
+  repeated string stack_frames = 3;           // Decoded stack frames
+  uint32 sample_count = 4;                    // Number of samples for this stack
+}
+
+// QueryCPUProfileSamplesResponse returns historical CPU profile samples (RFD 072).
+message QueryCPUProfileSamplesResponse {
+  repeated CPUProfileSample samples = 1;      // Historical profile samples
+  uint64 total_samples = 2;                   // Total samples in response
+  string error = 3;                           // Error message if query failed
+}
+
 // EbpfEventStreamRequest requests streaming of eBPF events.
 message EbpfEventStreamRequest {
   string collector_id = 1;
@@ -280,7 +303,7 @@ service EbpfService {
   rpc StreamEvents(EbpfEventStreamRequest) returns (stream EbpfEvent);
 }
 
-// DebugService handles uprobe-based debugging operations (RFD 059) and CPU profiling (RFD 070).
+// DebugService handles uprobe-based debugging operations (RFD 059) and CPU profiling (RFD 070, RFD 072).
 service DebugService {
   // Start a uprobe collector on an agent.
   rpc StartUprobeCollector(StartUprobeCollectorRequest) returns (StartUprobeCollectorResponse);
@@ -293,4 +316,7 @@ service DebugService {
 
   // Collect CPU profile samples for a target process (RFD 070).
   rpc ProfileCPU(ProfileCPUAgentRequest) returns (ProfileCPUAgentResponse);
+
+  // Query historical CPU profile samples from continuous profiling (RFD 072).
+  rpc QueryCPUProfileSamples(QueryCPUProfileSamplesRequest) returns (QueryCPUProfileSamplesResponse);
 }

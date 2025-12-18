@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"connectrpc.com/connect"
+
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/constants"
 )
@@ -25,4 +28,15 @@ func GetAgentClient(agent *registry.Entry) agentv1connect.AgentServiceClient {
 	)
 
 	return client
+}
+
+// GetDebugClient creates a gRPC client for communicating with an agent's debug service over the mesh network.
+// This is a factory function that can be used by pollers and other colony components.
+func GetDebugClient(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	// Create Connect client for debug service.
+	return meshv1connect.NewDebugServiceClient(httpClient, url, opts...)
 }

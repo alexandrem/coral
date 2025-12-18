@@ -19,10 +19,11 @@ import (
 
 // Database wraps a DuckDB connection for colony storage.
 type Database struct {
-	db       *sql.DB
-	path     string
-	colonyID string
-	logger   zerolog.Logger
+	db                *sql.DB
+	path              string
+	colonyID          string
+	logger            zerolog.Logger
+	profileFrameStore *ProfileFrameStore // RFD 072: Global frame dictionary for CPU profiling.
 }
 
 // New creates and initializes a DuckDB database for the colony.
@@ -91,10 +92,11 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 	}
 
 	database := &Database{
-		db:       db,
-		path:     dbPath,
-		colonyID: colonyID,
-		logger:   logger,
+		db:                db,
+		path:              dbPath,
+		colonyID:          colonyID,
+		logger:            logger,
+		profileFrameStore: NewProfileFrameStore(), // RFD 072.
 	}
 
 	// Initialize schema (only in read-write mode).

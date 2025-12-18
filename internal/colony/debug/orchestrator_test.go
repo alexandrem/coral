@@ -569,6 +569,10 @@ func (m *mockFailingDebugServiceClient) ProfileCPU(ctx context.Context, req *con
 	return nil, fmt.Errorf("simulated RPC failure")
 }
 
+func (m *mockFailingDebugServiceClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[meshv1.QueryCPUProfileSamplesRequest]) (*connect.Response[meshv1.QueryCPUProfileSamplesResponse], error) {
+	return nil, fmt.Errorf("simulated RPC failure")
+}
+
 func TestConcurrentSessionOperations(t *testing.T) {
 	orch, db := setupTestOrchestrator(t)
 	defer db.Close()
@@ -892,6 +896,13 @@ func (m *mockDebugServiceClient) ProfileCPU(ctx context.Context, req *connect.Re
 	return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{
 		Success:      true,
 		TotalSamples: 100,
+	}), nil
+}
+
+func (m *mockDebugServiceClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[meshv1.QueryCPUProfileSamplesRequest]) (*connect.Response[meshv1.QueryCPUProfileSamplesResponse], error) {
+	return connect.NewResponse(&meshv1.QueryCPUProfileSamplesResponse{
+		Samples:      []*meshv1.CPUProfileSample{},
+		TotalSamples: 0,
 	}), nil
 }
 

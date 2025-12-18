@@ -56,6 +56,9 @@ const (
 	DebugServiceQueryUprobeEventsProcedure = "/coral.mesh.v1.DebugService/QueryUprobeEvents"
 	// DebugServiceProfileCPUProcedure is the fully-qualified name of the DebugService's ProfileCPU RPC.
 	DebugServiceProfileCPUProcedure = "/coral.mesh.v1.DebugService/ProfileCPU"
+	// DebugServiceQueryCPUProfileSamplesProcedure is the fully-qualified name of the DebugService's
+	// QueryCPUProfileSamples RPC.
+	DebugServiceQueryCPUProfileSamplesProcedure = "/coral.mesh.v1.DebugService/QueryCPUProfileSamples"
 )
 
 // EbpfServiceClient is a client for the coral.mesh.v1.EbpfService service.
@@ -196,6 +199,8 @@ type DebugServiceClient interface {
 	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
 	// Collect CPU profile samples for a target process (RFD 070).
 	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error)
+	// Query historical CPU profile samples from continuous profiling (RFD 072).
+	QueryCPUProfileSamples(context.Context, *connect.Request[v1.QueryCPUProfileSamplesRequest]) (*connect.Response[v1.QueryCPUProfileSamplesResponse], error)
 }
 
 // NewDebugServiceClient constructs a client for the coral.mesh.v1.DebugService service. By default,
@@ -233,15 +238,22 @@ func NewDebugServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(debugServiceMethods.ByName("ProfileCPU")),
 			connect.WithClientOptions(opts...),
 		),
+		queryCPUProfileSamples: connect.NewClient[v1.QueryCPUProfileSamplesRequest, v1.QueryCPUProfileSamplesResponse](
+			httpClient,
+			baseURL+DebugServiceQueryCPUProfileSamplesProcedure,
+			connect.WithSchema(debugServiceMethods.ByName("QueryCPUProfileSamples")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // debugServiceClient implements DebugServiceClient.
 type debugServiceClient struct {
-	startUprobeCollector *connect.Client[v1.StartUprobeCollectorRequest, v1.StartUprobeCollectorResponse]
-	stopUprobeCollector  *connect.Client[v1.StopUprobeCollectorRequest, v1.StopUprobeCollectorResponse]
-	queryUprobeEvents    *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
-	profileCPU           *connect.Client[v1.ProfileCPUAgentRequest, v1.ProfileCPUAgentResponse]
+	startUprobeCollector   *connect.Client[v1.StartUprobeCollectorRequest, v1.StartUprobeCollectorResponse]
+	stopUprobeCollector    *connect.Client[v1.StopUprobeCollectorRequest, v1.StopUprobeCollectorResponse]
+	queryUprobeEvents      *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
+	profileCPU             *connect.Client[v1.ProfileCPUAgentRequest, v1.ProfileCPUAgentResponse]
+	queryCPUProfileSamples *connect.Client[v1.QueryCPUProfileSamplesRequest, v1.QueryCPUProfileSamplesResponse]
 }
 
 // StartUprobeCollector calls coral.mesh.v1.DebugService.StartUprobeCollector.
@@ -264,6 +276,11 @@ func (c *debugServiceClient) ProfileCPU(ctx context.Context, req *connect.Reques
 	return c.profileCPU.CallUnary(ctx, req)
 }
 
+// QueryCPUProfileSamples calls coral.mesh.v1.DebugService.QueryCPUProfileSamples.
+func (c *debugServiceClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[v1.QueryCPUProfileSamplesRequest]) (*connect.Response[v1.QueryCPUProfileSamplesResponse], error) {
+	return c.queryCPUProfileSamples.CallUnary(ctx, req)
+}
+
 // DebugServiceHandler is an implementation of the coral.mesh.v1.DebugService service.
 type DebugServiceHandler interface {
 	// Start a uprobe collector on an agent.
@@ -274,6 +291,8 @@ type DebugServiceHandler interface {
 	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
 	// Collect CPU profile samples for a target process (RFD 070).
 	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error)
+	// Query historical CPU profile samples from continuous profiling (RFD 072).
+	QueryCPUProfileSamples(context.Context, *connect.Request[v1.QueryCPUProfileSamplesRequest]) (*connect.Response[v1.QueryCPUProfileSamplesResponse], error)
 }
 
 // NewDebugServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -307,6 +326,12 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(debugServiceMethods.ByName("ProfileCPU")),
 		connect.WithHandlerOptions(opts...),
 	)
+	debugServiceQueryCPUProfileSamplesHandler := connect.NewUnaryHandler(
+		DebugServiceQueryCPUProfileSamplesProcedure,
+		svc.QueryCPUProfileSamples,
+		connect.WithSchema(debugServiceMethods.ByName("QueryCPUProfileSamples")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.mesh.v1.DebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DebugServiceStartUprobeCollectorProcedure:
@@ -317,6 +342,8 @@ func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOpti
 			debugServiceQueryUprobeEventsHandler.ServeHTTP(w, r)
 		case DebugServiceProfileCPUProcedure:
 			debugServiceProfileCPUHandler.ServeHTTP(w, r)
+		case DebugServiceQueryCPUProfileSamplesProcedure:
+			debugServiceQueryCPUProfileSamplesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -340,4 +367,8 @@ func (UnimplementedDebugServiceHandler) QueryUprobeEvents(context.Context, *conn
 
 func (UnimplementedDebugServiceHandler) ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.DebugService.ProfileCPU is not implemented"))
+}
+
+func (UnimplementedDebugServiceHandler) QueryCPUProfileSamples(context.Context, *connect.Request[v1.QueryCPUProfileSamplesRequest]) (*connect.Response[v1.QueryCPUProfileSamplesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.mesh.v1.DebugService.QueryCPUProfileSamples is not implemented"))
 }
