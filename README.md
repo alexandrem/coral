@@ -31,48 +31,47 @@ observe, debug, and control your distributed app.
 
 Coral integrates four layers of data collection to provide complete visibility:
 
-| Level | Feature             | Description                                                                           |
-|-------|---------------------|---------------------------------------------------------------------------------------|
-| **0** | **eBPF Probes**     | Zero-config RED metrics (Rate, Errors, Duration). No code changes.                    |
-| **1** | **OTLP Ingestion**  | Ingests traces/metrics from apps already using OpenTelemetry.                         |
-| **2** | **Shell/Exec**      | LLM-orchestrated diagnostic tools (`netstat`, `curl`, `grep`) for deep investigation. |
-| **3** | **SDK Live Probes** | On-demand dynamic instrumentation (uprobes) attached to running code.                 |
+| Level | Feature                 | Description                                                                     |
+| ----- | ----------------------- | ------------------------------------------------------------------------------- |
+| **0** | **Passive RED Metrics** | Zero-config service metrics (Rate, Errors, Duration) via eBPF. No code changes. |
+| **1** | **External Telemetry**  | Ingests traces/metrics from apps already using OpenTelemetry/OTLP.              |
+| **2** | **Continuous Intel**    | Always-on host metrics (CPU/Mem/Disk) and low-overhead continuous profiling.    |
+| **3** | **Deep Introspection**  | On-demand profiling, function-level tracing, and active investigation.          |
 
 ### 👁️ Observe
 
 **Passive, always-on data collection.**
 
-Coral automatically gathers telemetry from your applications without any
-configuration (Level 0) and ingests existing OpenTelemetry data (Level 1).
+Coral automatically gathers telemetry from your applications and infrastructure without any
+configuration.
 
 - **Zero-config eBPF**: Metrics for every service, instantly.
+- **Host Health**: Continuous monitoring of CPU, memory, disk, and network.
+- **Continuous Profiling**: Low-overhead background CPU profiling to identify hot paths over time.
 - **Dependency Mapping**: Automatically discovers how services connect.
-- **OTLP Support**: Seamlessly integrates with your existing instrumentation.
 
 ### 🔍 Explore
 
-**Human-driven investigation and control.**
+**Deep introspection and investigation tools.**
 
-When you need to dig deeper, Coral gives you the tools to investigate actively (
-Levels 2 & 3).
+When you need to dig deeper, Coral gives you the tools to investigate actively or automate the discovery of hotspots.
 
-- **Remote Execution**: Run standard tools like `netstat`, `curl`, and `grep` on
-  any agent.
-- **Live Debugging**: Attach eBPF uprobes to specific functions to capture args
-  and return values.
+- **Remote Execution**: Run standard tools like `netstat`, `curl`, and `grep` on any agent.
+- **Remote Shell**: Jump into any agent's shell.
+- **On-Demand Profiling**: High-frequency CPU profiling with Flame Graphs for line-level analysis.
+- **Live Debugging**: Attach eBPF uprobes (SDK) to specific functions to capture args and return values.
 - **Traffic Capture**: Sample live requests to understand payload structures.
 
 ### 🤖 Diagnose
 
-**AI-powered insights through standard MCP protocol.**
+**AI-powered insights for intelligent Root Cause Analysis (RCA).**
 
-Connect your favorite AI assistant or use the built-in terminal to query your
-infrastructure in natural language.
+Coral's killer app is its ability to pre-correlate metrics and profiling data into structured summaries that LLMs can understand instantly.
 
+- **Profiling-Enriched Summaries**: AI gets metrics + code-level hotspots in one call.
+- **Regression Detection**: Automatically identifies performance shifts across deployment versions.
 - **Built-in Assistant**: Use `coral ask` directly from your terminal.
 - **Universal AI integration**: Works with Claude Desktop, IDEs, any MCP client.
-- **Bring your own LLM**: Use your API keys or local models (Ollama).
-- **Real-time data access**: AI queries live observability data, not dashboards.
 
 ## Architecture: Universal AI Integration via MCP
 
@@ -144,17 +143,18 @@ Coral is designed for **complete data sovereignty**.
    natural language.
 4. **Act on Insights**: Get root cause analysis and recommendations.
 
-## Live Debugging: The Killer Feature (coming soon)
+## Live Debugging & Profiling
 
 **Coral can debug your running code without redeploying.**
 
 Unlike traditional observability (metrics, logs, traces), Coral can **actively
-instrument** your code on-demand using eBPF uprobes.
+instrument** your code on-demand using eBPF uprobes and high-frequency CPU
+profiling.
 
 > [!NOTE]
-> Active instrumentation requires integrating the **Coral Language Runtime SDK**
-> into your application. This enables the agent to safely attach probes to
-> specific functions.
+> Detailed function-level tracing requires integrating the **Coral Language
+> Runtime SDK**, while CPU profiling and system metrics work
+> **agentlessly** on any binary.
 
 ```bash
 $ coral ask "Why is the payment API slow?"
@@ -234,12 +234,12 @@ bin/coral ask "Why is the API slow?"
 ## What Makes Coral Different?
 
 | Feature          | Coral                                                 | Traditional Tools             |
-|------------------|-------------------------------------------------------|-------------------------------|
+| ---------------- | ----------------------------------------------------- | ----------------------------- |
 | **Network**      | **Unified WireGuard Mesh** (Laptop ↔ Cloud ↔ On-prem) | VPNs, Firewalls, Fragmented   |
-| **Debugging**    | **On-demand eBPF** (Live instrumentation)             | Logs, Metrics, Redeploying    |
+| **Debugging**    | **Continuous & On-demand eBPF** (Profiling & Probes)  | Logs, Metrics, Profiling.     |
 | **AI Model**     | **Bring Your Own LLM** (You own the data)             | Vendor-hosted, Privacy risks  |
 | **Architecture** | **Decentralized** (No central SaaS)                   | Centralized SaaS / Data Silos |
-| **Integration**  | **Universal MCP** (Claude, IDEs, Terminal)            | Proprietary Chatbots          |
+| **Analysis**     | **LLM-Driven RCA** (Pre-correlated hotspots)          | Manual Dashboard Diving       |
 
 **This doesn't exist in the market.**
 
