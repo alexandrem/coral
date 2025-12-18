@@ -1,17 +1,18 @@
 # Coral
 
-**Application Intelligence Mesh**
+**Root cause in seconds, not hours.**
 
-LLM-orchestrated debugging for **distributed apps**. Turn fragmented
-infrastructure into one intelligent system.
+The open-source nervous system for your distributed apps.
 
 [![CI](https://github.com/alexandrem/coral/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandrem/coral/actions/workflows/ci.yml)
 [![Golang](https://img.shields.io/github/go-mod/go-version/alexandrem/coral?color=7fd5ea)](https://golang.org/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alexandrem/coral)](https://goreportcard.com/report/github.com/alexandrem/coral)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-> [!NOTE]
-> 🚧 **Early Development** - Implementation in progress
+> 🚧 **Very early & experimental** — APIs will change, but the vision is solid.
+
+> TL;DR: Ask your running system “why is it slow?” in plain English → get the exact
+> function and line blocking it, without redeploying.
 
 ## Overview
 
@@ -200,6 +201,25 @@ $ coral ask "Why is the payment API slow?"
    Root Cause: Synchronous logging to a slow disk volume is blocking the main execution thread.
 ```
 
+## What Makes Coral Different?
+
+| Feature          | Coral                                                 | Traditional Tools             |
+| ---------------- | ----------------------------------------------------- | ----------------------------- |
+| **Network**      | **Unified WireGuard Mesh** (Laptop ↔ Cloud ↔ On-prem) | VPNs, Firewalls, Fragmented   |
+| **Debugging**    | **Continuous & On-demand eBPF** (Profiling & Probes)  | Logs, Metrics, Profiling.     |
+| **AI Model**     | **Bring Your Own LLM** (You own the data)             | Vendor-hosted, Privacy risks  |
+| **Architecture** | **Decentralized** (No central SaaS)                   | Centralized SaaS / Data Silos |
+| **Analysis**     | **LLM-Driven RCA** (Pre-correlated hotspots)          | Manual Dashboard Diving       |
+
+**Nothing else does this yet.**
+
+Coral is the first tool that combines:
+
+- LLM-driven analysis
+- On-demand eBPF instrumentation
+- Distributed debugging
+- Zero standing overhead
+
 ## Quick Start
 
 ### 1. Build
@@ -246,35 +266,19 @@ bin/coral ask config
 bin/coral ask "Why is the API slow?"
 ```
 
-## What Makes Coral Different?
-
-| Feature          | Coral                                                 | Traditional Tools             |
-| ---------------- | ----------------------------------------------------- | ----------------------------- |
-| **Network**      | **Unified WireGuard Mesh** (Laptop ↔ Cloud ↔ On-prem) | VPNs, Firewalls, Fragmented   |
-| **Debugging**    | **Continuous & On-demand eBPF** (Profiling & Probes)  | Logs, Metrics, Profiling.     |
-| **AI Model**     | **Bring Your Own LLM** (You own the data)             | Vendor-hosted, Privacy risks  |
-| **Architecture** | **Decentralized** (No central SaaS)                   | Centralized SaaS / Data Silos |
-| **Analysis**     | **LLM-Driven RCA** (Pre-correlated hotspots)          | Manual Dashboard Diving       |
-
-**This doesn't exist in the market.**
-
-Coral is the first tool that combines:
-
-- LLM-driven analysis
-- On-demand eBPF instrumentation
-- Distributed debugging
-- Zero standing overhead
-
 ## Documentation
 
 - **[Installation & Permissions](docs/INSTALLATION.md)**: Setup guide and
   security options.
+- **[CLI](docs/CLI.md)**: Command-line interface guide.
 - **[CLI Reference](docs/CLI_REFERENCE.md)**: Complete command reference.
 - **[Architecture](docs/ARCHITECTURE.md)**: Deep dive into the system
   architecture.
+- **[Config](docs/CONFIG.md)**: Configuration guide.
 - **[Design](docs/DESIGN.md)**: High-level design principles.
 - **[Live Debugging](docs/LIVE_DEBUGGING.md)**: How the on-demand
   instrumentation works.
+- **[Instrumentation](docs/INSTRUMENTATION.md)**: How to instrument your code.
 
 ## License
 
