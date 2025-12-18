@@ -428,4 +428,41 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_system_summaries_lookup ON system_metrics_summaries(agent_id, bucket_time, metric_name)`,
 	`CREATE INDEX IF NOT EXISTS idx_system_summaries_agent_time ON system_metrics_summaries(agent_id, bucket_time DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_system_summaries_bucket_time ON system_metrics_summaries(bucket_time DESC)`,
+
+	// CPU profile summaries - 1-minute aggregated CPU profiling samples (RFD 072).
+	`CREATE TABLE IF NOT EXISTS cpu_profile_summaries (
+		timestamp TIMESTAMPTZ NOT NULL,
+		agent_id TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		build_id TEXT NOT NULL,
+		stack_hash VARCHAR(64) NOT NULL,
+		stack_frame_ids BIGINT[] NOT NULL,
+		sample_count INTEGER NOT NULL,
+		PRIMARY KEY (timestamp, agent_id, service_name, build_id, stack_hash)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_cpu_profiles_service_time ON cpu_profile_summaries(service_name, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_cpu_profiles_agent ON cpu_profile_summaries(agent_id, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_cpu_profiles_build_id ON cpu_profile_summaries(build_id)`,
+
+	// Binary metadata registry - build ID to service mapping (RFD 072).
+	`CREATE TABLE IF NOT EXISTS binary_metadata_registry (
+		build_id TEXT PRIMARY KEY,
+		service_name TEXT NOT NULL,
+		binary_path TEXT,
+		first_seen TIMESTAMPTZ NOT NULL,
+		last_seen TIMESTAMPTZ NOT NULL,
+		has_debug_info BOOLEAN DEFAULT false
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_binary_metadata_service ON binary_metadata_registry(service_name)`,
+
+	// Profile frame dictionary - global frame name mapping (RFD 072).
+	`CREATE SEQUENCE IF NOT EXISTS seq_profile_frame_id START 1`,
+	`CREATE TABLE IF NOT EXISTS profile_frame_dictionary (
+		frame_id BIGINT PRIMARY KEY DEFAULT nextval('seq_profile_frame_id'),
+		frame_name TEXT NOT NULL UNIQUE
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_profile_frame_name ON profile_frame_dictionary(frame_name)`,
 }

@@ -54,6 +54,10 @@ func (m *mockDebugClient) ProfileCPU(ctx context.Context, req *connect.Request[m
 	return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{Success: true, TotalSamples: 100}), nil
 }
 
+func (m *mockDebugClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[meshv1.QueryCPUProfileSamplesRequest]) (*connect.Response[meshv1.QueryCPUProfileSamplesResponse], error) {
+	return connect.NewResponse(&meshv1.QueryCPUProfileSamplesResponse{Samples: []*meshv1.CPUProfileSample{}, TotalSamples: 0}), nil
+}
+
 // mockAgentClient implements agentv1connect.AgentServiceClient for testing.
 type mockAgentClient struct {
 	listServicesFunc func(context.Context, *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error)

@@ -26,16 +26,17 @@ const (
 
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
-	id            string
-	monitors      map[string]*ServiceMonitor
-	ebpfManager   *ebpf.Manager
-	beylaManager  *beyla.Manager
-	debugManager  *debug.SessionManager
-	functionCache *FunctionCache // RFD 063: Function discovery cache
-	logger        zerolog.Logger
-	mu            sync.RWMutex
-	ctx           context.Context
-	cancel        context.CancelFunc
+	id                 string
+	monitors           map[string]*ServiceMonitor
+	ebpfManager        *ebpf.Manager
+	beylaManager       *beyla.Manager
+	debugManager       *debug.SessionManager
+	continuousProfiler interface{}    // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds)
+	functionCache      *FunctionCache // RFD 063: Function discovery cache
+	logger             zerolog.Logger
+	mu                 sync.RWMutex
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
 // Config contains agent configuration.
@@ -143,8 +144,28 @@ func (a *Agent) Stop() error {
 		}
 	}
 
+	// Stop continuous profiler (RFD 072).
+	if a.continuousProfiler != nil {
+		// Type assert to get the Stop method
+		if profiler, ok := a.continuousProfiler.(interface{ Stop() }); ok {
+			profiler.Stop()
+		}
+	}
+
 	a.cancel()
 	return nil
+}
+
+// SetContinuousProfiler sets the continuous CPU profiler (RFD 072).
+func (a *Agent) SetContinuousProfiler(profiler interface{}) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.continuousProfiler = profiler
+}
+
+// GetDebugManager returns the debug session manager (RFD 072).
+func (a *Agent) GetDebugManager() *debug.SessionManager {
+	return a.debugManager
 }
 
 // GetStatus returns the aggregated agent status.

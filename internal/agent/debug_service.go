@@ -5,8 +5,11 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/profiler"
 	"github.com/rs/zerolog"
 )
 
@@ -209,6 +212,78 @@ func (s *DebugService) ProfileCPU(
 	}, nil
 }
 
+// QueryCPUProfileSamples handles requests to query historical CPU profile samples (RFD 072).
+func (s *DebugService) QueryCPUProfileSamples(
+	ctx context.Context,
+	req *meshv1.QueryCPUProfileSamplesRequest,
+) (*meshv1.QueryCPUProfileSamplesResponse, error) {
+	s.logger.Debug().
+		Str("service", req.ServiceName).
+		Str("pod", req.PodName).
+		Msg("Querying CPU profile samples")
+
+	// Get the continuous profiler from the agent
+	cpuProfiler, ok := s.agent.continuousProfiler.(*profiler.ContinuousCPUProfiler)
+	if !ok || cpuProfiler == nil {
+		return &meshv1.QueryCPUProfileSamplesResponse{
+			Error: "continuous profiling not enabled",
+		}, nil
+	}
+
+	storageIface := cpuProfiler.GetStorage()
+	if storageIface == nil {
+		return &meshv1.QueryCPUProfileSamplesResponse{
+			Error: "profiling storage not available",
+		}, nil
+	}
+
+	storage, ok := storageIface.(*profiler.Storage)
+	if !ok {
+		return &meshv1.QueryCPUProfileSamplesResponse{
+			Error: "invalid storage type",
+		}, nil
+	}
+
+	// Query samples from storage
+	startTime := req.StartTime.AsTime()
+	endTime := req.EndTime.AsTime()
+
+	samples, err := storage.QuerySamples(ctx, startTime, endTime, req.ServiceName)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to query CPU profile samples")
+		return &meshv1.QueryCPUProfileSamplesResponse{
+			Error: fmt.Sprintf("failed to query samples: %v", err),
+		}, nil
+	}
+
+	// Convert samples to protobuf response
+	var pbSamples []*meshv1.CPUProfileSample
+	totalSamples := uint64(0)
+
+	for _, sample := range samples {
+		// Decode stack frame IDs to frame names
+		frameNames, err := storage.DecodeStackFrames(ctx, sample.StackFrameIDs)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to decode stack frames")
+			continue
+		}
+
+		pbSamples = append(pbSamples, &meshv1.CPUProfileSample{
+			Timestamp:   timestamppb.New(sample.Timestamp),
+			BuildId:     sample.BuildID,
+			StackFrames: frameNames,
+			SampleCount: uint32(sample.SampleCount),
+		})
+
+		totalSamples += uint64(sample.SampleCount)
+	}
+
+	return &meshv1.QueryCPUProfileSamplesResponse{
+		Samples:      pbSamples,
+		TotalSamples: totalSamples,
+	}, nil
+}
+
 // DebugServiceAdapter adapts DebugService to the Connect RPC handler interface.
 type DebugServiceAdapter struct {
 	service *DebugService
@@ -261,6 +336,18 @@ func (a *DebugServiceAdapter) ProfileCPU(
 	req *connect.Request[meshv1.ProfileCPUAgentRequest],
 ) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
 	resp, err := a.service.ProfileCPU(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// QueryCPUProfileSamples implements the Connect RPC handler interface.
+func (a *DebugServiceAdapter) QueryCPUProfileSamples(
+	ctx context.Context,
+	req *connect.Request[meshv1.QueryCPUProfileSamplesRequest],
+) (*connect.Response[meshv1.QueryCPUProfileSamplesResponse], error) {
+	resp, err := a.service.QueryCPUProfileSamples(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
