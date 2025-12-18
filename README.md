@@ -13,19 +13,37 @@ infrastructure into one intelligent system.
 > [!NOTE]
 > 🚧 **Early Development** - Implementation in progress
 
-## The Problem
+## Overview
 
-Your app runs across fragmented infrastructure: laptop, VMs, Kubernetes
-clusters, multiple clouds, VPCs, on-prem.
+Coral is the **Application Intelligence Mesh**. It brings the "observe
+everything" philosophy of DTrace to distributed systems, replacing esoteric
+scripts with natural language and sandboxed TypeScript. It unites the deep,
+kernel-level visibility of eBPF with the reasoning power of Large Language
+Models.
 
-- **Debug an issue?** Check logs, metrics, traces across multiple dashboards.
-- **Find the root cause?** Add logging, redeploy, wait for it to happen again.
-- **Debug across environments?** Can't correlate laptop dev with prod K8s
-  cluster.
-- **Run diagnostics?** SSH to different networks, navigate firewalls, VPN chaos.
+Unlike traditional tools that just show you dashboards, Coral is
+building a Programmable Observability Engine capable of writing and deploying
+its own safe, ephemeral diagnostics to solve problems faster than any human can
+type.
 
-**Coral unifies this with an Application Intelligence Mesh.** One CLI to
-observe, debug, and control your distributed app.
+## The Problem: Observability is Fragmented and Passive
+
+Modern distributed applications run across a "chaos of environments" — laptops,
+Kubernetes clusters, edge nodes, and multiple clouds. Current tools fail this
+reality in three ways:
+
+1. **The Context Gap**: Metrics tell you _that_ something is wrong, but not
+   _where_ in the code. You’re forced to jump between dashboards, traces, and
+   source code, manually trying to correlate timestamps.
+2. **The "Observer Effect"**: To get deeper data, you often have to add logging,
+   redeploy, and pray the issue happens again. This is slow, risky, and often
+   changes the very behavior you’re trying to debug.
+3. **Passive Data, Active Toil**: Traditional tools are passive collectors. They
+   wait for you to ask the right question. In a distributed mesh, finding the "
+   right question" is 90% of the work.
+
+**Coral turns this upside down.** We provide the **depth of a kernel debugger**
+with the **reasoning of an AI**, unified into a single intelligence mesh.
 
 ## One Interface for Everything
 
@@ -42,34 +60,42 @@ Coral integrates four layers of data collection to provide complete visibility:
 
 **Passive, always-on data collection.**
 
-Coral automatically gathers telemetry from your applications and infrastructure without any
-configuration.
+Coral automatically gathers telemetry from your applications and infrastructure
+without any configuration.
 
 - **Zero-config eBPF**: Metrics for every service, instantly.
 - **Host Health**: Continuous monitoring of CPU, memory, disk, and network.
-- **Continuous Profiling**: Low-overhead background CPU profiling to identify hot paths over time.
+- **Continuous Profiling**: Low-overhead background CPU profiling to identify
+  hot paths over time.
 - **Dependency Mapping**: Automatically discovers how services connect.
 
 ### 🔍 Explore
 
 **Deep introspection and investigation tools.**
 
-When you need to dig deeper, Coral gives you the tools to investigate actively or automate the discovery of hotspots.
+When you need to dig deeper, Coral gives you the tools to investigate actively
+or automate the discovery of hotspots.
 
-- **Remote Execution**: Run standard tools like `netstat`, `curl`, and `grep` on any agent.
+- **Remote Execution**: Run standard tools like `netstat`, `curl`, and `grep` on
+  any agent.
 - **Remote Shell**: Jump into any agent's shell.
-- **On-Demand Profiling**: High-frequency CPU profiling with Flame Graphs for line-level analysis.
-- **Live Debugging**: Attach eBPF uprobes (SDK) to specific functions to capture args and return values.
+- **On-Demand Profiling**: High-frequency CPU profiling with Flame Graphs for
+  line-level analysis.
+- **Live Debugging**: Attach eBPF uprobes (SDK) to specific functions to capture
+  args and return values.
 - **Traffic Capture**: Sample live requests to understand payload structures.
 
 ### 🤖 Diagnose
 
 **AI-powered insights for intelligent Root Cause Analysis (RCA).**
 
-Coral's killer app is its ability to pre-correlate metrics and profiling data into structured summaries that LLMs can understand instantly.
+Coral's killer app is its ability to pre-correlate metrics and profiling data
+into structured summaries that LLMs can understand instantly.
 
-- **Profiling-Enriched Summaries**: AI gets metrics + code-level hotspots in one call.
-- **Regression Detection**: Automatically identifies performance shifts across deployment versions.
+- **Profiling-Enriched Summaries**: AI gets metrics + code-level hotspots in one
+  call.
+- **Regression Detection**: Automatically identifies performance shifts across
+  deployment versions.
 - **Built-in Assistant**: Use `coral ask` directly from your terminal.
 - **Universal AI integration**: Works with Claude Desktop, IDEs, any MCP client.
 
@@ -159,30 +185,19 @@ profiling.
 ```bash
 $ coral ask "Why is the payment API slow?"
 
-🤖 Analyzing payment service metrics...
-   P95 latency: 2.3s (baseline: 150ms)
+🤖 Analyzing host metrics and continuous profiles...
+   Host: api-v1-pod-abc (CPU: 12%, Mem: 45%)
+   Service: payment-api (P95: 2.3s)
 
-   Root cause unclear from metrics. Attaching live probes...
+   Initial findings: High "Off-CPU" wait time detected in process.
+   Executing coral_profile_functions (strategy: critical_path)...
 
-   ✓ Uprobe attached: payment.ProcessPayment() [offset 0x4a20]
-   ✓ Uprobe attached: payment.ValidateCard() [offset 0x4c80]
-   ✓ Uprobe attached: db.QueryTransactions() [offset 0x3f10]
+   Analysis of 30s capture:
+     • ProcessPayment() total: 2.1s
+       └─ Mutex Contention: 1.8s (Blocked by Logger.Write)
+       └─ VFS Write (Disk I/O): 1.7s (Wait on /var/log/app.log)
 
-   Collecting traces for 30 seconds...
-
-   Analysis:
-     • ProcessPayment(): 2.1s avg (2,847 calls)
-       └─ db.QueryTransactions(): 2.0s (95% of time)
-          └─ Query plan: Sequential scan (234,891 rows)
-          └─ Missing index on transactions.user_id
-
-   Root Cause: Missing database index causing slow queries
-
-   Recommendation:
-     CREATE INDEX idx_transactions_user_id ON transactions(user_id);
-
-   Detaching probes...
-   ✓ Cleanup complete (zero overhead restored)
+   Root Cause: Synchronous logging to a slow disk volume is blocking the main execution thread.
 ```
 
 ## Quick Start
