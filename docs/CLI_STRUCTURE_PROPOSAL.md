@@ -17,22 +17,51 @@ The current CLI and recent RFDs have inconsistent command structure:
 
 ## Proposed Consistent Structure
 
-### Principle: Separate by Intent
+### Principle: Separate by Activity Type
 
-**Active Collection (creates new data):**
+**Profiling (performance analysis):**
 ```bash
 coral profile <type> [flags]
 ```
 
-**Historical Queries (reads existing data):**
+**Querying (historical data):**
 ```bash
 coral query <resource> [flags]
 ```
 
-**Live Debugging (attach probes, trace requests):**
+**Debugging (function-level live debugging):**
 ```bash
 coral debug <action> [flags]
 ```
+
+### Rationale
+
+**Why `coral profile` is separate from `coral debug`:**
+
+`coral debug` commands are focused on **function-level live debugging**:
+- `coral debug attach` - Attach uprobes to specific functions
+- `coral debug trace` - Trace request paths through function calls
+- `coral debug search` - Search for functions in binary
+- `coral debug info` - Get function metadata
+
+Profiling is a **distinct performance analysis activity**:
+- Statistical sampling across the entire application
+- Not tied to specific functions
+- Focuses on "what's slow" rather than "attach to this function"
+- Different mental model (sampling vs events)
+
+This separation makes the CLI more discoverable and maintainable.
+
+**Comparison:**
+
+| Aspect | `coral debug` | `coral profile` |
+|--------|---------------|-----------------|
+| **Focus** | Function-level events | Performance analysis |
+| **Mechanism** | eBPF uprobes/kprobes | Statistical sampling |
+| **Target** | Specific functions | Entire application |
+| **Data** | Event traces, arguments | Flame graphs, hotspots |
+| **Use case** | "Debug this function" | "What's using CPU?" |
+| **Examples** | attach, trace, search | cpu, memory, trace-trigger |
 
 ---
 
@@ -215,22 +244,27 @@ coral logs [service] --level error    # = coral query logs
 
 ### Changes Required
 
-**1. Rename `coral debug cpu-profile` → `coral profile cpu`**
+**1. Move profiling from `coral debug` → `coral profile`**
 
 **Before (RFD 070, 072):**
 ```bash
 coral debug cpu-profile --service api --duration 30
-coral debug cpu-profile --service api --since 1h  # Historical query
+coral debug cpu-profile --service api --since 1h  # Historical query (mixed intent)
 ```
 
 **After (consistent):**
 ```bash
-# Active profiling (create new data)
+# Active profiling (create new data) - NEW namespace
 coral profile cpu --service api --duration 30
 
-# Historical query (read existing data)
+# Historical query (read existing data) - Separate namespace
 coral query cpu-profile --service api --since 1h
 ```
+
+**Migration notes:**
+- `coral debug cpu-profile` is deprecated but will work as an alias initially
+- Add deprecation warning: "Use 'coral profile cpu' instead"
+- Remove alias in future major version
 
 **2. Standardize log level flag to `--level`**
 
