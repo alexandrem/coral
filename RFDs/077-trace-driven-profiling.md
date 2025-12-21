@@ -205,7 +205,7 @@ int kretprobe__http_server_handler(struct pt_regs *ctx) {
 
 **Query:**
 ```bash
-coral query profile --trace-id abc123def456
+coral query trace-profile abc123def456
 # Returns CPU flame graph for only the samples from that trace
 ```
 

@@ -77,10 +77,10 @@ Implement a **dual-mode memory profiling system** modeled after RFD 070/072:
 
 ### On-Demand Memory Profiling (High-Resolution)
 
-Similar to `coral profile cpu`, provide:
+Similar to `coral profile cpu` (RFD 070), provide:
 
 ```bash
-coral profile memory --service order-processor --duration 30s
+coral profile memory --service order-processor --duration 30
 ```
 
 - **Mechanism**: Go's `runtime/pprof.WriteHeapProfile()`
@@ -359,7 +359,7 @@ Flags:
 **Example**:
 
 ```bash
-$ coral profile memory --service order-processor --duration 30s
+$ coral profile memory --service order-processor --duration 30
 
 Collecting memory profile for 30 seconds...
 

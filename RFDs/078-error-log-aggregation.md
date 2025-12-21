@@ -625,7 +625,7 @@ coral query logs [flags]
 Flags:
   --service string      Service name or ID (required)
   --trace-id string     Filter by trace ID
-  --severity string     Filter by severity: error, warn (default: both)
+  --level string        Filter by level: error, warn (default: both)
   --since duration      Time range (default: 1h)
   --limit int           Max logs to return (default: 100)
   --group-by-pattern    Group by error pattern (default: false)
@@ -636,7 +636,7 @@ Flags:
 
 ```bash
 # Recent errors for payment-svc
-$ coral query logs --service payment-svc --severity error --since 1h
+$ coral query logs --service payment-svc --level error --since 1h
 
 Recent Error Logs (payment-svc, last 1 hour):
 
@@ -707,11 +707,11 @@ Logs for trace abc123def456:
         "type": "string",
         "description": "Optional: Filter by trace ID to see logs for specific request"
       },
-      "severity": {
+      "level": {
         "type": "string",
         "enum": ["error", "warn", "both"],
         "default": "both",
-        "description": "Log severity level"
+        "description": "Log level"
       },
       "since": {
         "type": "string",
@@ -757,7 +757,7 @@ Output: {
 
 LLM Action 2: Get detailed error logs
 Tool: coral_query_logs
-Input: { "service": "payment-svc", "severity": "error", "since": "1h" }
+Input: { "service": "payment-svc", "level": "error", "since": "1h" }
 Output: {
   "logs": [
     {
