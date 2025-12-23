@@ -75,6 +75,15 @@ Deploy **agent-side Deno runtime** that executes sandboxed TypeScript scripts or
    - Scripts CANNOT write to DuckDB or execute commands
    - Scripts CANNOT modify agent state (read-only observability)
 
+5. **HTTP Proxy for Database Access** (not direct file access):
+   - SDK server provides HTTP/JSON API (localhost:9003)
+   - Scripts use `fetch()` to query DuckDB (Deno native, no dependencies)
+   - Read-only connection pool (20 max concurrent queries)
+   - Centralized query monitoring, timeouts, and row limits
+   - **Alternative considered**: Direct DuckDB file access via FFI/WASM
+   - **Rejected because**: Security (FFI breaks sandbox), maturity (no stable Deno driver), loss of monitoring
+   - **See**: `internal/agent/script/ARCHITECTURE_COMPARISON.md` for detailed analysis
+
 **Benefits:**
 
 - **Natural Language → Code**: AI translates "find slow queries" into TypeScript that queries DuckDB
@@ -115,23 +124,34 @@ Deploy **agent-side Deno runtime** that executes sandboxed TypeScript scripts or
 │ Agent (Deno Script Executor)                                │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │ Deno Runtime (sandboxed)                             │   │
-│  │  - Permissions: --allow-read (DuckDB only)           │   │
-│  │  - No network, no filesystem write, no env access    │   │
+│  │  - Permissions: --allow-net=localhost:9003           │   │
+│  │  - No filesystem write, no external network          │   │
 │  │  - Import Coral SDK (@coral/sdk)                     │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │ Coral TypeScript SDK                                 │   │
-│  │  - db.query(sql): Query local DuckDB                 │   │
-│  │  - metrics.get(service, metric): Get metrics         │   │
-│  │  - traces.query(filter): Query traces                │   │
-│  │  - functions.list(service): List functions (RFD 063) │   │
-│  │  - system.getCPU(), getMemory(), etc.                │   │
-│  │  - emit(event): Send result to colony                │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
+│  │  - db.query(sql): HTTP POST to SDK server            │   │
+│  │  - metrics.get(service, metric): HTTP GET            │   │
+│  │  - traces.query(filter): HTTP GET                    │   │
+│  │  - functions.list(service): HTTP GET                 │   │
+│  │  - system.getCPU(), getMemory(): HTTP GET            │   │
+│  │  - emit(event): HTTP POST to SDK server              │   │
+│  └─────────────────┬────────────────────────────────────┘   │
+│                    │ HTTP localhost:9003 (JSON)             │
+│                    ▼                                         │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │ Local DuckDB (read-only access)                      │   │
+│  │ SDK Server (HTTP Proxy)                              │   │
+│  │  - Connection pool: 20 max concurrent queries        │   │
+│  │  - Query timeout: 30s                                │   │
+│  │  - Row limit: 10k per query                          │   │
+│  │  - Centralized logging & monitoring                  │   │
+│  └─────────────────┬────────────────────────────────────┘   │
+│                    │ sql.DB.QueryContext(ctx, sql)          │
+│                    ▼                                         │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ Local DuckDB (read-only connection pool)             │   │
+│  │  - agent.db?access_mode=read_only&threads=4          │   │
 │  │  - otel_spans_local (~1hr retention)                 │   │
 │  │  - beyla_http_metrics, beyla_grpc_metrics            │   │
 │  │  - system_metrics_local (RFD 071)                    │   │
