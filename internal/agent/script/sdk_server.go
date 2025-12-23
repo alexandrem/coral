@@ -7,30 +7,70 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
+	_ "github.com/marcboeker/go-duckdb" // DuckDB driver
 	"github.com/rs/zerolog"
 )
 
 // SDKServer provides HTTP endpoints for TypeScript scripts to access Coral data.
+// It maintains a read-only connection pool to the agent's DuckDB database.
 type SDKServer struct {
-	port   int
-	db     *sql.DB
-	logger zerolog.Logger
-	server *http.Server
+	port       int
+	dbPath     string
+	db         *sql.DB
+	logger     zerolog.Logger
+	server     *http.Server
+	mu         sync.RWMutex
+	activeReqs int64
 }
 
 // NewSDKServer creates a new SDK server.
-func NewSDKServer(port int, db *sql.DB, logger zerolog.Logger) *SDKServer {
+// The server will open a read-only connection to the DuckDB database at dbPath.
+func NewSDKServer(port int, dbPath string, logger zerolog.Logger) *SDKServer {
 	return &SDKServer{
 		port:   port,
-		db:     db,
+		dbPath: dbPath,
 		logger: logger.With().Str("component", "sdk-server").Logger(),
 	}
 }
 
 // Start starts the SDK HTTP server.
+// Opens a read-only DuckDB connection pool for concurrent script access.
 func (s *SDKServer) Start(ctx context.Context) error {
+	// Open DuckDB in read-only mode to allow concurrent readers.
+	// DuckDB supports multiple concurrent readers when opened in read-only mode.
+	// Format: file.db?access_mode=read_only&threads=4
+	connStr := fmt.Sprintf("%s?access_mode=read_only&threads=4", s.dbPath)
+
+	db, err := sql.Open("duckdb", connStr)
+	if err != nil {
+		return fmt.Errorf("failed to open DuckDB: %w", err)
+	}
+
+	// Configure connection pool for concurrent script access.
+	// DuckDB can handle multiple concurrent read-only connections.
+	// We set conservative limits to avoid overwhelming the database.
+	db.SetMaxOpenConns(20)  // Max concurrent queries from all scripts
+	db.SetMaxIdleConns(5)   // Keep some connections warm
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
+
+	// Verify connection works.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to ping DuckDB: %w", err)
+	}
+
+	s.db = db
+
+	s.logger.Info().
+		Str("db_path", s.dbPath).
+		Int("max_conns", 20).
+		Msg("Opened read-only DuckDB connection pool")
+
+	// Set up HTTP server.
 	mux := http.NewServeMux()
 
 	// Register endpoints.
@@ -44,8 +84,12 @@ func (s *SDKServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/emit", s.handleEmit)
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf("localhost:%d", s.port),
-		Handler: s.loggingMiddleware(mux),
+		Addr:              fmt.Sprintf("localhost:%d", s.port),
+		Handler:           s.concurrencyMiddleware(s.loggingMiddleware(mux)),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
@@ -58,14 +102,53 @@ func (s *SDKServer) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the SDK server.
+// Stop stops the SDK server and closes the database connection.
 func (s *SDKServer) Stop(ctx context.Context) error {
 	if s.server == nil {
 		return nil
 	}
 
 	s.logger.Info().Msg("Stopping SDK server")
-	return s.server.Shutdown(ctx)
+
+	// Shutdown HTTP server.
+	if err := s.server.Shutdown(ctx); err != nil {
+		s.logger.Error().Err(err).Msg("Error shutting down server")
+	}
+
+	// Close database connection pool.
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			s.logger.Error().Err(err).Msg("Error closing database")
+			return err
+		}
+	}
+
+	return nil
+}
+
+// concurrencyMiddleware tracks active requests for monitoring.
+func (s *SDKServer) concurrencyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		s.activeReqs++
+		current := s.activeReqs
+		s.mu.Unlock()
+
+		// Log if we have high concurrency (potential bottleneck).
+		if current > 10 {
+			s.logger.Warn().
+				Int64("active_requests", current).
+				Msg("High SDK server concurrency")
+		}
+
+		defer func() {
+			s.mu.Lock()
+			s.activeReqs--
+			s.mu.Unlock()
+		}()
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // loggingMiddleware logs all requests.
@@ -83,8 +166,29 @@ func (s *SDKServer) loggingMiddleware(next http.Handler) http.Handler {
 
 // handleHealth handles health check requests.
 func (s *SDKServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	// Check database connectivity.
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	if err := s.db.PingContext(ctx); err != nil {
+		http.Error(w, fmt.Sprintf("Database unhealthy: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	s.mu.RLock()
+	activeReqs := s.activeReqs
+	s.mu.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":         "ok",
+		"active_requests": activeReqs,
+		"db_stats": map[string]int{
+			"open_connections": s.db.Stats().OpenConnections,
+			"in_use":           s.db.Stats().InUse,
+			"idle":             s.db.Stats().Idle,
+		},
+	})
 }
 
 // handleDBQuery handles raw DuckDB query requests.
@@ -108,8 +212,12 @@ func (s *SDKServer) handleDBQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Execute query.
-	rows, err := s.db.Query(req.SQL)
+	// Set query timeout to prevent long-running queries.
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	// Execute query with context for timeout.
+	rows, err := s.db.QueryContext(ctx, req.SQL)
 	if err != nil {
 		s.logger.Error().Err(err).Str("sql", req.SQL).Msg("Query failed")
 		http.Error(w, fmt.Sprintf("Query failed: %v", err), http.StatusInternalServerError)
@@ -124,9 +232,11 @@ func (s *SDKServer) handleDBQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read rows.
+	// Read rows (limit to prevent OOM).
+	const maxRows = 10000
 	results := make([]map[string]interface{}, 0)
-	for rows.Next() {
+
+	for rows.Next() && len(results) < maxRows {
 		// Create a slice of interface{}'s to represent each column.
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
@@ -153,10 +263,16 @@ func (s *SDKServer) handleDBQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	truncated := false
+	if len(results) == maxRows {
+		truncated = true
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"rows":  results,
-		"count": len(results),
+		"rows":      results,
+		"count":     len(results),
+		"truncated": truncated,
 	})
 }
 
@@ -177,6 +293,9 @@ func (s *SDKServer) handleMetricsPercentile(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
 	// Query percentile from DuckDB.
 	// This is a simplified example - actual implementation would query beyla_http_metrics.
 	query := fmt.Sprintf(`
@@ -187,7 +306,7 @@ func (s *SDKServer) handleMetricsPercentile(w http.ResponseWriter, r *http.Reque
 	`, p, service)
 
 	var value float64
-	err = s.db.QueryRow(query).Scan(&value)
+	err = s.db.QueryRowContext(ctx, query).Scan(&value)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query percentile")
 		http.Error(w, fmt.Sprintf("Query failed: %v", err), http.StatusInternalServerError)
@@ -214,6 +333,9 @@ func (s *SDKServer) handleMetricsErrorRate(w http.ResponseWriter, r *http.Reques
 		window = "5m"
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
 	// Query error rate from DuckDB.
 	query := fmt.Sprintf(`
 		SELECT
@@ -224,7 +346,7 @@ func (s *SDKServer) handleMetricsErrorRate(w http.ResponseWriter, r *http.Reques
 	`, service, window)
 
 	var errorRate float64
-	err := s.db.QueryRow(query).Scan(&errorRate)
+	err := s.db.QueryRowContext(ctx, query).Scan(&errorRate)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query error rate")
 		http.Error(w, fmt.Sprintf("Query failed: %v", err), http.StatusInternalServerError)
@@ -248,6 +370,9 @@ func (s *SDKServer) handleTracesQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
 	// Build query.
 	query := fmt.Sprintf(`
 		SELECT trace_id, span_id, duration_ns, is_error, http_status, http_method, http_route
@@ -265,7 +390,7 @@ func (s *SDKServer) handleTracesQuery(w http.ResponseWriter, r *http.Request) {
 
 	query += " ORDER BY start_time DESC LIMIT 100"
 
-	rows, err := s.db.Query(query)
+	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query traces")
 		http.Error(w, fmt.Sprintf("Query failed: %v", err), http.StatusInternalServerError)
@@ -305,6 +430,9 @@ func (s *SDKServer) handleTracesQuery(w http.ResponseWriter, r *http.Request) {
 
 // handleSystemCPU handles system CPU metric requests.
 func (s *SDKServer) handleSystemCPU(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	// Query latest CPU metric from system_metrics_local table.
 	query := `
 		SELECT value
@@ -315,7 +443,7 @@ func (s *SDKServer) handleSystemCPU(w http.ResponseWriter, r *http.Request) {
 	`
 
 	var cpuUsage float64
-	err := s.db.QueryRow(query).Scan(&cpuUsage)
+	err := s.db.QueryRowContext(ctx, query).Scan(&cpuUsage)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query CPU metric")
 		http.Error(w, fmt.Sprintf("Query failed: %v", err), http.StatusInternalServerError)
@@ -330,6 +458,9 @@ func (s *SDKServer) handleSystemCPU(w http.ResponseWriter, r *http.Request) {
 
 // handleSystemMemory handles system memory metric requests.
 func (s *SDKServer) handleSystemMemory(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	// Query latest memory metrics from system_metrics_local table.
 	query := `
 		SELECT
@@ -341,7 +472,7 @@ func (s *SDKServer) handleSystemMemory(w http.ResponseWriter, r *http.Request) {
 	`
 
 	var used, total float64
-	err := s.db.QueryRow(query).Scan(&used, &total)
+	err := s.db.QueryRowContext(ctx, query).Scan(&used, &total)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query memory metrics")
 		http.Error(w, fmt.Sprintf("Query failed: %v", err), http.StatusInternalServerError)
