@@ -528,6 +528,94 @@ export namespace Trace {
 //
 
 /**
+ * Service context (injected when ExecutionScope = SERVICE).
+ * Provides dependency injection for service-scoped scripts.
+ */
+export interface ServiceContext {
+  /** Service name (e.g., "payments") */
+  name: string;
+  /** Service namespace/environment (e.g., "prod", "staging") */
+  namespace: string;
+  /** Service deployment region (e.g., "us-east-1") */
+  region: string;
+  /** Service version (e.g., "v1.2.3") */
+  version: string;
+  /** Deployment identifier */
+  deployment: string;
+
+  /**
+   * Get percentile metric for this service (auto-scoped).
+   *
+   * @param metric - Metric name
+   * @param percentile - Percentile value (0.0 - 1.0)
+   * @param timeWindowMs - Time window in milliseconds
+   * @returns Percentile value with statistics
+   *
+   * @example
+   * ```typescript
+   * // Service-scoped: No need to specify service name
+   * const p99 = await coral.context.service.getPercentile("http.server.duration", 0.99);
+   * ```
+   */
+  getPercentile(
+    metric: string,
+    percentile: number,
+    timeWindowMs?: number
+  ): Promise<{
+    value: number;
+    unit: string;
+    stats: DB.QueryStats;
+  }>;
+
+  /**
+   * Get error rate for this service (auto-scoped).
+   *
+   * @param timeWindowMs - Time window in milliseconds
+   * @returns Error rate with statistics
+   */
+  getErrorRate(timeWindowMs?: number): Promise<{
+    rate: number;
+    totalRequests: number;
+    errorRequests: number;
+    stats: DB.QueryStats;
+  }>;
+
+  /**
+   * Find slow traces for this service (auto-scoped).
+   *
+   * @param minDurationMs - Minimum duration in milliseconds
+   * @param timeRangeMs - Time range to search
+   * @param limit - Maximum traces to return
+   * @returns Slow traces with statistics
+   */
+  findSlowTraces(
+    minDurationMs: number,
+    timeRangeMs?: number,
+    limit?: number
+  ): Promise<{
+    traces: Traces.Trace[];
+    totalCount: number;
+    stats: DB.QueryStats;
+  }>;
+
+  /**
+   * Find error traces for this service (auto-scoped).
+   *
+   * @param timeRangeMs - Time range to search
+   * @param limit - Maximum traces to return
+   * @returns Error traces
+   */
+  findErrors(
+    timeRangeMs?: number,
+    limit?: number
+  ): Promise<{
+    traces: Traces.Trace[];
+    totalCount: number;
+    stats: DB.QueryStats;
+  }>;
+}
+
+/**
  * Script execution context (injected by Deno runtime).
  */
 export interface ScriptContext {
@@ -537,8 +625,22 @@ export interface ScriptContext {
   executionId: string;
   /** Script type (adhoc or daemon) */
   scriptType: "adhoc" | "daemon";
+  /** Execution scope (global or service) */
+  scope: "global" | "service";
   /** Execution start time */
   startedAt: Date;
+
+  /**
+   * Service context (only available when scope = "service").
+   * Provides auto-scoped methods for the attached service.
+   */
+  service?: ServiceContext;
+
+  /**
+   * Script parameters (key-value pairs from deployment).
+   * Access via: coral.context.params.get("threshold_ms")
+   */
+  params: Map<string, string>;
 }
 
 /**

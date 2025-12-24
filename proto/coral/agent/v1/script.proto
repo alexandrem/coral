@@ -34,6 +34,48 @@ message Script {
 
   // Script description (optional).
   string description = 9;
+
+  // Execution scope (global or service-scoped).
+  ExecutionScope scope = 10;
+
+  // Script type (adhoc or daemon) for timeout selection.
+  ScriptType type = 11;
+
+  // Service name (required if scope = EXECUTION_SCOPE_SERVICE).
+  // When set, service context is dependency-injected into the script.
+  string service_name = 12;
+
+  // Script parameters (key-value pairs injected as environment variables).
+  map<string, string> parameters = 13;
+
+  // Community metadata (for script marketplace).
+  string author = 14;
+  repeated string tags = 15;
+}
+
+// ExecutionScope defines where a script can access data from.
+enum ExecutionScope {
+  EXECUTION_SCOPE_UNSPECIFIED = 0;
+
+  // Global scripts can access all services, must specify service names.
+  // Use case: Cross-service correlation, system-wide monitoring.
+  EXECUTION_SCOPE_GLOBAL = 1;
+
+  // Service-scoped scripts are bound to a specific service.
+  // Service context is dependency-injected, making scripts portable.
+  // Use case: Reusable community scripts that work for any service.
+  EXECUTION_SCOPE_SERVICE = 2;
+}
+
+// ScriptType defines the execution timeout model.
+enum ScriptType {
+  SCRIPT_TYPE_UNSPECIFIED = 0;
+
+  // Adhoc scripts are short-lived diagnostic queries (default: 60s timeout).
+  SCRIPT_TYPE_ADHOC = 1;
+
+  // Daemon scripts are long-running monitors (max: 24h timeout).
+  SCRIPT_TYPE_DAEMON = 2;
 }
 
 // ScriptTrigger defines how and when a script executes.
