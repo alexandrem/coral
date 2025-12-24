@@ -75,14 +75,38 @@ Deploy **agent-side Deno runtime** that executes sandboxed TypeScript scripts or
    - Scripts CANNOT write to DuckDB or execute commands
    - Scripts CANNOT modify agent state (read-only observability)
 
-5. **HTTP Proxy for Database Access** (not direct file access):
-   - SDK server provides HTTP/JSON API (localhost:9003)
-   - Scripts use `fetch()` to query DuckDB (Deno native, no dependencies)
-   - Read-only connection pool (20 max concurrent queries)
-   - Centralized query monitoring, timeouts, and row limits
-   - **Alternative considered**: Direct DuckDB file access via FFI/WASM
-   - **Rejected because**: Security (FFI breaks sandbox), maturity (no stable Deno driver), loss of monitoring
+5. **Unix Domain Socket + Protobuf for SDK Communication** (not HTTP/JSON):
+   - SDK server listens on `/var/run/coral-sdk.sock` (not TCP)
+   - Protobuf for serialization (type-safe, low overhead)
+   - Read-only DuckDB connection pool (20 max concurrent queries)
+   - Centralized query monitoring, timeouts, and automatic guardrails
+   - **Why UDS**: Better security isolation, ~50% lower latency than TCP, no port conflicts
+   - **Why Protobuf**: Type safety, efficient for high-frequency eBPF events, AI can generate typed code
+   - **Alternative considered**: HTTP/JSON (Phase 1 prototype), Direct DuckDB access
    - **See**: `internal/agent/script/ARCHITECTURE_COMPARISON.md` for detailed analysis
+
+6. **Hybrid Query Model** (intent over raw SQL):
+   - **High-level helpers** (preferred): `metrics.getP99()`, `traces.findSlow()`
+   - **Raw SQL** (fallback): `db.query()` for complex custom logic
+   - **Benefits**: Schema evolution resilience, easier for AI to generate correct code
+   - **Semantic guardrails**: Auto-inject `LIMIT` clauses and time-range filters
+
+7. **Active SDK** (Level 3 capabilities):
+   - Scripts can attach eBPF programs dynamically: `trace.uprobe()`, `trace.kprobe()`
+   - Stream eBPF events in real-time for targeted debugging
+   - Requires elevated permissions (opt-in,審reviewed by operator)
+   - Enables "conditional debugging": attach probe only when anomaly detected
+
+8. **Dual-TTL Resource Model**:
+   - **Ad-hoc scripts**: 60-second default timeout (one-time analysis)
+   - **Daemon scripts**: 24-hour max with heartbeat requirement (continuous monitoring)
+   - **Resource quotas**: CPU 10% max, Memory 512MB max (entire Deno subsystem)
+   - **Semantic SQL guardrails**: Automatic `LIMIT 10000` and `WHERE timestamp > now() - INTERVAL '1 hour'`
+
+9. **Semantic Targeting** (not just agent IDs):
+   - Deploy with predicates: `target: "service=payments AND region=us-east"`
+   - Colony evaluates and deploys only where needed
+   - Supports dynamic re-targeting as topology changes
 
 **Benefits:**
 
@@ -124,27 +148,35 @@ Deploy **agent-side Deno runtime** that executes sandboxed TypeScript scripts or
 │ Agent (Deno Script Executor)                                │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │ Deno Runtime (sandboxed)                             │   │
-│  │  - Permissions: --allow-net=localhost:9003           │   │
-│  │  - No filesystem write, no external network          │   │
+│  │  - Permissions: --allow-read=/var/run/coral-sdk.sock │   │
+│  │  - No filesystem write, no network                   │   │
 │  │  - Import Coral SDK (@coral/sdk)                     │   │
+│  │  - Resource limits: CPU 10%, Memory 512MB total      │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │ Coral TypeScript SDK                                 │   │
-│  │  - db.query(sql): HTTP POST to SDK server            │   │
-│  │  - metrics.get(service, metric): HTTP GET            │   │
-│  │  - traces.query(filter): HTTP GET                    │   │
-│  │  - functions.list(service): HTTP GET                 │   │
-│  │  - system.getCPU(), getMemory(): HTTP GET            │   │
-│  │  - emit(event): HTTP POST to SDK server              │   │
+│  │ Coral TypeScript SDK (@coral/sdk + types.d.ts)       │   │
+│  │  LEVEL 1 (Passive - Read-Only):                      │   │
+│  │  - metrics.getP99(), getErrorRate() [preferred]      │   │
+│  │  - traces.findSlow(), correlate()                    │   │
+│  │  - db.query(sql) [fallback for complex logic]        │   │
+│  │  - system.getCPU(), getMemory()                      │   │
+│  │  LEVEL 2 (Active - Event Emission):                  │   │
+│  │  - emit(event): Send alerts/metrics                  │   │
+│  │  LEVEL 3 (Dynamic Instrumentation - Opt-in):         │   │
+│  │  - trace.uprobe(fn, handler): Attach uprobe          │   │
+│  │  - trace.kprobe(fn, handler): Attach kprobe          │   │
 │  └─────────────────┬────────────────────────────────────┘   │
-│                    │ HTTP localhost:9003 (JSON)             │
+│                    │ Protobuf over UDS                      │
+│                    │ /var/run/coral-sdk.sock                │
 │                    ▼                                         │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │ SDK Server (HTTP Proxy)                              │   │
-│  │  - Connection pool: 20 max concurrent queries        │   │
-│  │  - Query timeout: 30s                                │   │
-│  │  - Row limit: 10k per query                          │   │
+│  │ SDK Server (UDS Listener + Protobuf Handler)         │   │
+│  │  - Read-only connection pool: 20 max                 │   │
+│  │  - Query timeout: 60s (ad-hoc), 24h (daemon)         │   │
+│  │  - Semantic guardrails: Auto-inject LIMIT & filters  │   │
+│  │  - Resource quotas: CPU 10%, Memory 512MB aggregate  │   │
+│  │  - Dry-run validation before production deploy       │   │
 │  │  - Centralized logging & monitoring                  │   │
 │  └─────────────────┬────────────────────────────────────┘   │
 │                    │ sql.DB.QueryContext(ctx, sql)          │

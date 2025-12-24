@@ -30,26 +30,38 @@ type Config struct {
 	// MemoryLimitMB is the memory limit per script in megabytes.
 	MemoryLimitMB int
 
-	// TimeoutSeconds is the maximum execution time per script in seconds.
+	// TimeoutSeconds is the default timeout for ad-hoc scripts (60s default).
 	TimeoutSeconds int
 
-	// SDKServerPort is the port for the local SDK HTTP server.
-	SDKServerPort int
+	// DaemonTimeoutSeconds is the maximum timeout for daemon scripts (24h default).
+	DaemonTimeoutSeconds int
+
+	// SDKSocketPath is the path to the SDK Unix Domain Socket.
+	SDKSocketPath string
 
 	// WorkDir is the directory where scripts are stored.
 	WorkDir string
+
+	// CPULimitPercent is the maximum CPU usage across all scripts (10% default).
+	CPULimitPercent int
+
+	// TotalMemoryLimitMB is the total memory limit across all scripts (512MB default).
+	TotalMemoryLimitMB int
 }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		Enabled:        true,
-		DenoPath:       "/usr/local/bin/deno",
-		MaxConcurrent:  5,
-		MemoryLimitMB:  512,
-		TimeoutSeconds: 300,
-		SDKServerPort:  9003,
-		WorkDir:        "/var/lib/coral/scripts",
+		Enabled:              true,
+		DenoPath:             "/usr/local/bin/deno",
+		MaxConcurrent:        5,
+		MemoryLimitMB:        128, // Per-script limit
+		TimeoutSeconds:       60,  // Ad-hoc default: 60s
+		DaemonTimeoutSeconds: 86400, // Daemon max: 24 hours
+		SDKSocketPath:        DefaultSocketPath,
+		WorkDir:              "/var/lib/coral/scripts",
+		CPULimitPercent:      10,  // Max 10% CPU across all scripts
+		TotalMemoryLimitMB:   512, // Total memory limit
 	}
 }
 
@@ -106,7 +118,9 @@ func (e *Executor) Start(ctx context.Context) error {
 	e.logger.Info().
 		Str("deno_path", e.config.DenoPath).
 		Int("max_concurrent", e.config.MaxConcurrent).
-		Int("sdk_port", e.config.SDKServerPort).
+		Str("sdk_socket", e.config.SDKSocketPath).
+		Int("adhoc_timeout_sec", e.config.TimeoutSeconds).
+		Int("daemon_timeout_sec", e.config.DaemonTimeoutSeconds).
 		Msg("Script executor started")
 
 	return nil
@@ -231,11 +245,23 @@ func (e *Executor) ListExecutions() []*Execution {
 
 // Script represents a TypeScript script to execute.
 type Script struct {
-	ID      string
-	Name    string
-	Code    string
-	Trigger TriggerType
+	ID         string
+	Name       string
+	Code       string
+	Trigger    TriggerType
+	ScriptType ScriptType
 }
+
+// ScriptType defines the execution model for the script.
+type ScriptType string
+
+const (
+	// ScriptTypeAdhoc is for short-lived diagnostic scripts (default: 60s timeout).
+	ScriptTypeAdhoc ScriptType = "adhoc"
+
+	// ScriptTypeDaemon is for long-running monitor scripts (max: 24h timeout).
+	ScriptTypeDaemon ScriptType = "daemon"
+)
 
 // TriggerType defines how a script is triggered.
 type TriggerType string
@@ -318,15 +344,21 @@ func (e *Execution) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to write script file: %w", err)
 	}
 
+	// Determine timeout based on script type (Dual-TTL model).
+	timeout := time.Duration(e.config.TimeoutSeconds) * time.Second
+	if e.script.ScriptType == ScriptTypeDaemon {
+		timeout = time.Duration(e.config.DaemonTimeoutSeconds) * time.Second
+	}
+
 	// Create Deno command with sandboxing.
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(e.config.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	e.cancel = cancel
 
 	// Build Deno command with permissions.
+	// Only allow read access to the SDK socket, no network or filesystem access.
 	args := []string{
 		"run",
-		"--allow-net=localhost:" + fmt.Sprint(e.config.SDKServerPort), // Allow SDK server access only
-		"--allow-read=/var/lib/coral/duckdb",                          // Read-only DuckDB access
+		"--allow-read=" + e.config.SDKSocketPath, // UDS socket access only
 		"--v8-flags=--max-old-space-size=" + fmt.Sprint(e.config.MemoryLimitMB),
 		"--no-prompt",
 		scriptPath,
@@ -336,9 +368,10 @@ func (e *Execution) Start(ctx context.Context) error {
 
 	// Set up environment.
 	e.cmd.Env = []string{
-		"CORAL_SDK_URL=http://localhost:" + fmt.Sprint(e.config.SDKServerPort),
+		"CORAL_SDK_SOCKET=" + e.config.SDKSocketPath,
 		"CORAL_SCRIPT_ID=" + e.ScriptID,
 		"CORAL_EXECUTION_ID=" + e.ID,
+		"CORAL_SCRIPT_TYPE=" + string(e.script.ScriptType),
 	}
 
 	// Capture stdout and stderr.
@@ -369,6 +402,9 @@ func (e *Execution) Start(ctx context.Context) error {
 	e.logger.Info().
 		Str("script_id", e.ScriptID).
 		Str("script_name", e.ScriptName).
+		Str("script_type", string(e.script.ScriptType)).
+		Dur("timeout", timeout).
+		Int("memory_limit_mb", e.config.MemoryLimitMB).
 		Msg("Script execution started")
 
 	// Read stdout and stderr in background.
