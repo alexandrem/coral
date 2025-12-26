@@ -793,30 +793,64 @@ await analyzeCorrelation();
 
 ## Future Work
 
-**Advanced Triggers** (Future - RFD TBD)
-- Event-driven scripts: trigger on metric threshold, trace event, log pattern
-- Distributed triggers: trigger script on ALL agents when condition met
-- Conditional uprobes: attach uprobe only when script detects anomaly
+### Agent-Side Script Execution (DEFERRED - Phase 2+)
 
-**Write Operations** (Future - RFD TBD)
-- Scripts can write custom metrics to agent DuckDB
-- Scripts can trigger actions (e.g., restart service, scale pod, trigger debug session)
-- Requires enhanced RBAC and audit logging
+**Status**: Deferred to future implementation when Colony/Reef AI orchestration is ready.
 
-**NPM Package Support** (Future - RFD TBD)
+**Why Deferred**:
+- **95% of use cases** are satisfied by CLI-side execution (querying aggregated colony summaries)
+- Agent-side only needed for **specific high-frequency processing** (eBPF filtering, real-time sampling)
+- **Colony/Reef AI orchestration** not yet built (required for safe agent deployment)
+- **Infrastructure already complete** - executor, SDK server, protobuf schemas ready to use
+
+**Agent-Side Use Cases** (when implemented in Phase 2+):
+- **eBPF Event Filtering**: Process 10k+ events/sec locally, emit only exceptions to colony
+- **High-Frequency Sampling**: 100Hz CPU/memory sampling with local buffering
+- **Real-Time Aggregation**: Cases where streaming raw data to colony is impractical
+
+**Requirements for Phase 2+**:
+- [ ] Colony/Reef AI orchestration system (AI-driven deployment, not user-facing)
+- [ ] Script registry in colony DuckDB (versioned, immutable storage)
+- [ ] Deployment orchestration (semantic targeting, health checks, rollback)
+- [ ] eBPF integration (Level 3 capabilities, RFD 063 function metadata)
+- [ ] Audit logging and RBAC integration
+- [ ] MCP tools for AI-driven deployment
+
+**Important**: Agent-side execution will be **AI-orchestrated only**. Users will not directly deploy scripts to agents - they will use CLI-side execution (`coral run`) for their custom analysis needs.
+
+---
+
+### CLI Enhancements (Phase 1 Continuation)
+
+**NPM Package Support**:
 - Allow scripts to import npm packages (with security review)
 - Whitelist popular libraries (lodash, date-fns, etc.)
 - Block packages with known vulnerabilities or native code
 
-**Multi-Language Support** (Low Priority)
+**Script Marketplace**:
+- Community-contributed CLI scripts for common use cases
+- Script templates (latency analysis, error correlation, custom dashboards)
+- Version control integration (Git-backed script storage)
+- Rating and discovery system
+
+**Watch Mode & Live Reload**:
+- `coral run --watch script.ts` - Re-run on file changes
+- Live reload for iterative development
+- Error highlighting and debugging
+
+---
+
+### Advanced Features (Low Priority)
+
+**Multi-Language Support**:
 - Python scripts via Pyodide (WASM)
 - Lua scripts via gopher-lua
 - WASM modules for custom languages
 
-**Script Marketplace** (Low Priority)
-- Community-contributed scripts for common use cases
-- Script templates for AI to customize (e.g., "alert template")
-- Version control integration (Git-backed script storage)
+**Write Operations** (Requires careful design):
+- Scripts can write custom metrics to colony DuckDB
+- Scripts can trigger actions (e.g., alerts, notifications)
+- Requires enhanced RBAC and audit logging
 
 ---
 
