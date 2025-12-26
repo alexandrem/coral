@@ -17,7 +17,9 @@ areas: ["agent", "colony", "mcp", "sdk"]
 
 ## Summary
 
-Enable natural language-driven debugging and custom observability logic by deploying sandboxed TypeScript scripts to agents via Deno runtime. Scripts execute locally on agents with controlled access to Coral data (metrics, traces, functions, host state), replacing esoteric eBPF programs and shell scripts with familiar TypeScript and a curated SDK.
+Enable custom observability analysis and debugging through sandboxed TypeScript execution. **Primary use case**: Users write TypeScript locally that queries colony DuckDB summaries for custom analysis, dashboards, and integrations - executed via embedded Deno in Coral CLI. **Secondary use case**: Agent-side execution for high-frequency eBPF filtering and real-time sampling (managed by Colony/future Reef AI, not user-facing).
+
+This replaces esoteric eBPF programs and shell scripts with familiar TypeScript and a curated SDK.
 
 ## Problem
 
@@ -45,35 +47,67 @@ Coral's vision is "DTrace for distributed systems with natural language." DTrace
 - **Conditional Debugging**: "Attach uprobe to function X only when error rate exceeds threshold"
 - **Live Validation**: "Verify that all pods have the same config hash"
 
-## Solution
+## Solution: Dual Execution Model
 
-Deploy **agent-side Deno runtime** that executes sandboxed TypeScript scripts orchestrated by Colony. Scripts access Coral data via a TypeScript SDK and run with explicit Deno permissions (no filesystem write, no network, read-only DuckDB access).
+### Execution Modes
+
+**Mode 1: CLI-Side Scripting (PRIMARY - 95% of use cases)**
+- Users write TypeScript **locally** for custom analysis
+- Runs via **embedded Deno** in Coral binary (no external dependencies)
+- Queries **colony DuckDB summaries** via gRPC
+- Use cases: Ad-hoc queries, custom dashboards, cross-service correlation, integrations
+
+**Mode 2: Agent-Side Scripting (SECONDARY - 5% of use cases)**
+- Scripts run **on agents** for high-frequency processing
+- Queries **local agent DuckDB** via UDS
+- Use cases: eBPF filtering (10k+ events/sec), real-time sampling
+- **Managed by Colony/Reef AI**, not user-deployed
+
+### Why CLI-Primary?
+
+Looking at actual use cases, **most scripts query aggregated data**:
+- "Show me P99 latency for all services" → Queries colony summaries
+- "Find slow traces across services" → Queries colony aggregated traces
+- "Correlate errors with system metrics" → Queries colony summaries
+
+**Agent-side only needed when**:
+- Processing 10k+ events/second (eBPF filtering)
+- High-frequency local sampling (100Hz CPU monitoring)
+- Streaming raw data to colony is impractical
+
+### Architecture
+
+Same Deno executor, different data sources:
+- **CLI mode**: Embedded in Coral binary, queries colony via gRPC
+- **Agent mode**: Queries local DuckDB via UDS for high-frequency processing
 
 **Key Design Decisions:**
 
-1. **Deno over Node.js**:
-   - Built-in sandboxing with granular permissions (--allow-read, --allow-net)
-   - Native TypeScript support (no transpilation)
-   - Secure by default (denies all I/O unless explicitly allowed)
-   - Single binary distribution (simplifies agent deployment)
+1. **Embed Deno in Coral Binary** (not external dependency):
+   - Coral CLI bundles Deno runtime (~100MB additional)
+   - No user installation required (`coral run` just works)
+   - Version consistency (Coral controls exact Deno version)
+   - Platform-specific builds (Linux, macOS, Windows, ARM)
+   - Trade-off: Larger binary, better UX
 
-2. **Agent-side Execution** (not Colony):
-   - Scales horizontally (each agent executes scripts for its services)
-   - Low latency access to local DuckDB (metrics, traces, spans)
-   - Reduces colony load and network traffic
-   - Follows pull-based architecture (RFD 025, 046)
+2. **CLI-Side Primary** (not agent-side):
+   - Users write scripts locally (version controlled with their code)
+   - Easy debugging (local stdout/stderr, no distributed logging)
+   - No deployment complexity (just `coral run script.ts`)
+   - Queries colony DuckDB summaries (already aggregated)
+   - Perfect for community script sharing (just copy files)
 
-3. **Colony-Orchestrated Deployment**:
-   - Colony stores scripts in DuckDB (versioned, immutable)
-   - AI deploys scripts via MCP tools (e.g., `coral_deploy_script`)
-   - Agents pull scripts on-demand or via periodic sync
-   - Script lifecycle: draft → deployed → running → stopped → archived
+3. **Agent-Side Secondary** (deferred to Phase 2+):
+   - Only for high-frequency eBPF filtering and real-time sampling
+   - Colony/Reef AI orchestrates deployment (not user-facing)
+   - Same executor infrastructure, different data source
+   - **Phase 1 focus: CLI-side only**
 
-4. **Read-Only SDK** (Phase 1):
-   - Scripts can query DuckDB (metrics, traces, spans, system metrics)
-   - Scripts can read function metadata (RFD 063, 075)
-   - Scripts CANNOT write to DuckDB or execute commands
-   - Scripts CANNOT modify agent state (read-only observability)
+4. **Read-Only Query Model** (Phase 1):
+   - Scripts query metrics, traces, system metrics (aggregated)
+   - Scripts CANNOT write to DuckDB or modify state
+   - Scripts CANNOT execute shell commands
+   - Future: Event emission, custom metrics (Phase 2+)
 
 5. **Unix Domain Socket + Protobuf for SDK Communication** (not HTTP/JSON):
    - SDK server listens on `/var/run/coral-sdk.sock` (not TCP)
@@ -116,128 +150,107 @@ Deploy **agent-side Deno runtime** that executes sandboxed TypeScript scripts or
 - **Composable**: Scripts combine metrics, traces, profiles, host state for correlation
 - **Persistent**: Scripts run continuously (e.g., anomaly detection) vs one-off shell commands
 
-**Architecture Overview:**
+**Architecture Overview (Phase 1 - CLI-Side):**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ User: "Alert when payments service P99 > 500ms"            │
+│ User writes TypeScript locally                              │
+│  ┌───────────────────────────────────────────────────┐     │
+│  │ analysis.ts                                       │     │
+│  │                                                   │     │
+│  │ import * as coral from "@coral/sdk";             │     │
+│  │                                                   │     │
+│  │ const svcs = await coral.services.list();        │     │
+│  │ for (const svc of svcs) {                        │     │
+│  │   const p99 = await svc.metrics.getP99(...);     │     │
+│  │   if (p99 > threshold) {                         │     │
+│  │     console.log(`⚠️ ${svc.name}: ${p99}ms`);      │     │
+│  │   }                                               │     │
+│  │ }                                                 │     │
+│  └───────────────────────────────────────────────────┘     │
+│                                                             │
+│  $ coral run analysis.ts  ←── Embedded Deno                │
 └───────────────────┬─────────────────────────────────────────┘
-                    │ Natural Language
-                    ▼
+                    │
+                    ▼ gRPC queries
 ┌─────────────────────────────────────────────────────────────┐
-│ Claude Desktop (MCP Client)                                 │
-│  - Translates intent to TypeScript                          │
-│  - Calls coral_deploy_script(name, code, targets)           │
-└───────────────────┬─────────────────────────────────────────┘
-                    │ MCP JSON-RPC (stdio)
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Colony (Script Registry)                                    │
+│ Coral CLI Binary (~140MB)                                   │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │ DuckDB: scripts table                                │   │
-│  │  - id, name, code, version, targets, created_at      │   │
-│  │  - Immutable: updates create new version             │   │
-│  └──────────────────────────────────────────────────────┘   │
-│  - Validates TypeScript syntax                              │
-│  - Stores script with metadata                              │
-│  - Notifies target agents (gRPC)                            │
-└───────────────────┬─────────────────────────────────────────┘
-                    │ DeployScript RPC
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Agent (Deno Script Executor)                                │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ Deno Runtime (sandboxed)                             │   │
-│  │  - Permissions: --allow-read=/var/run/coral-sdk.sock │   │
-│  │  - No filesystem write, no network                   │   │
-│  │  - Import Coral SDK (@coral/sdk)                     │   │
-│  │  - Resource limits: CPU 10%, Memory 512MB total      │   │
+│  │ Embedded Deno Runtime (~100MB)                       │   │
+│  │  - Executes user TypeScript                         │   │
+│  │  - Sandboxed (--allow-net=colony-addr)              │   │
+│  │  - Mode: CORAL_MODE=cli                             │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │ Coral TypeScript SDK (@coral/sdk + types.d.ts)       │   │
-│  │  LEVEL 1 (Passive - Read-Only):                      │   │
-│  │  - metrics.getP99(), getErrorRate() [preferred]      │   │
-│  │  - traces.findSlow(), correlate()                    │   │
-│  │  - db.query(sql) [fallback for complex logic]        │   │
-│  │  - system.getCPU(), getMemory()                      │   │
-│  │  LEVEL 2 (Active - Event Emission):                  │   │
-│  │  - emit(event): Send alerts/metrics                  │   │
-│  │  LEVEL 3 (Dynamic Instrumentation - Opt-in):         │   │
-│  │  - trace.uprobe(fn, handler): Attach uprobe          │   │
-│  │  - trace.kprobe(fn, handler): Attach kprobe          │   │
-│  └─────────────────┬────────────────────────────────────┘   │
-│                    │ Protobuf over UDS                      │
-│                    │ /var/run/coral-sdk.sock                │
-│                    ▼                                         │
+│  │ TypeScript SDK (@coral/sdk)                          │   │
+│  │  - Auto-detects CLI mode                             │   │
+│  │  - Connects to colony gRPC API                       │   │
+│  │  - services.list(), metrics.getP99(), etc.           │   │
+│  └───────────────────┬──────────────────────────────────┘   │
+└────────────────────┬─┴──────────────────────────────────────┘
+                     │ gRPC
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Colony                                                      │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │ SDK Server (UDS Listener + Protobuf Handler)         │   │
-│  │  - Read-only connection pool: 20 max                 │   │
-│  │  - Query timeout: 60s (ad-hoc), 24h (daemon)         │   │
-│  │  - Semantic guardrails: Auto-inject LIMIT & filters  │   │
-│  │  - Resource quotas: CPU 10%, Memory 512MB aggregate  │   │
-│  │  - Dry-run validation before production deploy       │   │
-│  │  - Centralized logging & monitoring                  │   │
-│  └─────────────────┬────────────────────────────────────┘   │
-│                    │ sql.DB.QueryContext(ctx, sql)          │
-│                    ▼                                         │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ Local DuckDB (read-only connection pool)             │   │
-│  │  - agent.db?access_mode=read_only&threads=4          │   │
-│  │  - otel_spans_local (~1hr retention)                 │   │
-│  │  - beyla_http_metrics, beyla_grpc_metrics            │   │
-│  │  - system_metrics_local (RFD 071)                    │   │
-│  │  - cpu_profiles (RFD 072)                            │   │
+│  │ DuckDB (Aggregated Summaries)                        │   │
+│  │  - service_summary (P50, P99, error rates)           │   │
+│  │  - trace_summary (slow traces, errors)               │   │
+│  │  - system_metrics_rollup (1min aggregates)           │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
-│  - Executes script in isolated Deno worker                  │
-│  - Captures stdout/stderr and events                        │
-│  - Reports execution status to colony                       │
-└───────────────────┬─────────────────────────────────────────┘
-                    │ ScriptExecutionResult RPC
-                    ▼
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ gRPC Query API (NEW)                                 │   │
+│  │  - services.List()                                   │   │
+│  │  - metrics.GetPercentile(svc, metric, p)            │   │
+│  │  - traces.FindSlow(svc, threshold)                   │   │
+│  │  - system.GetMetrics()                               │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+
 ┌─────────────────────────────────────────────────────────────┐
-│ Colony (Result Aggregation)                                 │
-│  - Stores execution results in DuckDB                       │
-│  - Aggregates results from multiple agents                  │
-│  - Exposes via MCP tools (coral_script_status)              │
+│ PHASE 2+ (Future): Agent-Side for High-Frequency Only       │
+│  - eBPF filtering (10k+ events/sec)                         │
+│  - Real-time sampling                                       │
+│  - Colony/Reef AI orchestrated (not user-facing)            │
+│  - Same executor, queries local agent DuckDB                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Component Changes
+### Component Changes (Phase 1 - CLI Focus)
 
-1. **Agent** (`internal/agent/`):
+1. **CLI** (`cmd/coral/`):
 
-   - **New**: `script/executor.go` - Deno process manager, executes scripts in isolated workers
-   - **New**: `script/sdk_server.go` - HTTP server exposing SDK functions to Deno scripts (local only)
-   - **Modified**: `service_handler.go` - Add `DeployScript`, `StopScript`, `GetScriptStatus` RPCs
-   - **Modified**: `agent.go` - Initialize script executor on startup
+   - **New**: Embed Deno binary in Coral CLI (~100MB additional)
+   - **New**: `coral run <script.ts>` - Execute TypeScript locally via embedded Deno
+   - **New**: Deno executor wrapper (reuses `internal/agent/script/executor.go`)
+   - **Modified**: Build system to bundle platform-specific Deno binaries
 
 2. **Colony** (`internal/colony/`):
 
-   - **New**: `script/registry.go` - Script storage, versioning, validation
-   - **New**: `script/deployer.go` - Orchestrates script deployment to target agents
-   - **Modified**: `database/schema.go` - Add `scripts`, `script_executions` tables
-   - **Modified**: `mcp/server.go` - Register new MCP tools for script management
-   - **New**: `mcp/tools_script.go` - MCP tools: `coral_deploy_script`, `coral_list_scripts`, `coral_script_status`
+   - **New**: `api/query_service.go` - gRPC API for script queries
+   - **New**: RPCs: `ListServices`, `GetPercentile`, `FindSlowTraces`, etc.
+   - **Modified**: Expose colony DuckDB summaries via gRPC
+   - No script registry needed (Phase 1 - scripts are local files)
+   - No deployment orchestration needed (Phase 1 - local execution only)
 
 3. **SDK** (`pkg/sdk/typescript/`):
 
    - **New**: TypeScript SDK package `@coral/sdk`
-   - **New**: `db.ts` - DuckDB query interface
+   - **New**: `services.ts` - Service discovery and queries
    - **New**: `metrics.ts` - High-level metrics query helpers
    - **New**: `traces.ts` - Trace/span query helpers
-   - **New**: `functions.ts` - Function metadata access (RFD 063)
    - **New**: `system.ts` - System metrics helpers
-   - **New**: `emit.ts` - Send events/results to colony
+   - **New**: SDK auto-detects CLI mode (CORAL_MODE=cli)
+   - **New**: gRPC client for colony queries (CLI mode)
 
-4. **CLI** (`cmd/coral/`):
+4. **Agent** (`internal/agent/`) - DEFERRED TO PHASE 2+:
 
-   - **New**: `coral script deploy` - Deploy script to agents
-   - **New**: `coral script list` - List deployed scripts
-   - **New**: `coral script status <id>` - Show script execution status
-   - **New**: `coral script logs <id>` - Stream script logs (stdout/stderr)
-   - **New**: `coral script stop <id>` - Stop running script
+   - **Existing**: `script/executor.go` - Already built (reusable for CLI)
+   - **Existing**: `script/sdk_server_grpc.go` - Already built (for agent mode)
+   - **Deferred**: Agent-side deployment (Colony/Reef AI orchestration)
+   - **Deferred**: eBPF filtering, high-frequency sampling
 
 **Configuration Example:**
 
@@ -452,56 +465,36 @@ message ScriptLogEntry {
 }
 ```
 
-### CLI Commands
+### CLI Commands (Phase 1)
 
 ```bash
-# Deploy a script
-coral script deploy --name "high-latency-alert" --file alert.ts --targets "payments-service"
+# Run TypeScript locally (primary use case)
+coral run analysis.ts
 
 # Example output:
-Script deployed: high-latency-alert
-  ID: 550e8400-e29b-41d4-a716-446655440000
-  Version: 1
-  Deployed to: 3 agents (payments-service-1, payments-service-2, payments-service-3)
-  Status: RUNNING
+Service Latency Report
 
-# List scripts
-coral script list
+payments:
+  P50: 45.2ms
+  P99: 892.1ms
+  Errors: 0.12%
 
-# Example output:
-ID                                   NAME                  STATUS    TARGETS              DEPLOYED
-550e8400-e29b-41d4-a716-446655440000 high-latency-alert    RUNNING   payments-service     2m ago
-7c9e6679-7425-40de-944b-e07fc1f90ae7 cache-miss-detector   RUNNING   redis-service        1h ago
-9f8b2c5e-4a3b-4c7d-8e6f-1b2c3d4e5f6a sql-slow-query        STOPPED   postgres-service     3d ago
+orders:
+  P50: 23.1ms
+  P99: 456.3ms
+  Errors: 0.03%
 
-# Show script status and logs
-coral script status 550e8400-e29b-41d4-a716-446655440000
+# Run with parameters
+coral run latency-check.ts --param threshold=500
 
-# Example output:
-Script: high-latency-alert (v1)
-Status: RUNNING
-Deployed to: 3 agents
+# Watch mode (re-run on file changes)
+coral run --watch analysis.ts
 
-Recent Executions:
-  Agent: payments-service-1 | Status: RUNNING | Started: 2m ago
-  Agent: payments-service-2 | Status: RUNNING | Started: 2m ago
-  Agent: payments-service-3 | Status: RUNNING | Started: 2m ago
-
-Recent Logs (last 10 lines):
-[payments-service-1] 2025-12-23T10:15:23Z [INFO] Checking P99 latency...
-[payments-service-1] 2025-12-23T10:15:23Z [INFO] P99: 450ms (OK)
-[payments-service-2] 2025-12-23T10:15:24Z [WARN] P99: 520ms (THRESHOLD EXCEEDED)
-[payments-service-2] 2025-12-23T10:15:24Z [ALERT] High latency detected on payments-service-2
-
-# Stream logs in real-time
-coral script logs 550e8400-e29b-41d4-a716-446655440000 --follow
-
-# Stop a script
-coral script stop 550e8400-e29b-41d4-a716-446655440000
-
-# Example output:
-Script stopped: high-latency-alert
-  Stopped on: 3 agents
+# Future (Phase 2+): Agent deployment
+# coral script deploy alert.ts --agents "payments-*"
+# coral script list
+# coral script logs <id>
+# coral script stop <id>
 ```
 
 ### Database Schema
@@ -663,94 +656,98 @@ await analyzeCorrelation();
 
 ## Implementation Plan
 
-### Phase 1: Core Infrastructure
+### Phase 1: CLI-Side Scripting (CURRENT FOCUS)
 
-- [ ] Define protobuf messages in `proto/coral/agent/v1/script.proto`
-- [ ] Generate Go code from proto definitions
-- [ ] Create database migrations for `scripts` and `script_executions` tables
-- [ ] Add Deno binary distribution to agent build (embed or auto-download)
+**Goal**: Users run TypeScript locally via `coral run script.ts`
 
-### Phase 2: Agent-Side Execution
+- [x] Deno executor infrastructure (`internal/agent/script/executor.go`) - DONE
+- [x] TypeScript type definitions (`pkg/sdk/typescript/types.d.ts`) - DONE
+- [ ] Embed Deno binary in Coral CLI
+  - [ ] Download platform-specific Deno binaries (Linux, macOS, Windows, ARM)
+  - [ ] Add to build system (embed via go:embed or extract on first run)
+  - [ ] ~100MB binary size increase (compressed: ~45MB)
+- [ ] Implement `coral run` command
+  - [ ] Parse script file path and parameters
+  - [ ] Set CORAL_MODE=cli environment variable
+  - [ ] Execute via embedded Deno with colony connection
+  - [ ] Stream stdout/stderr to terminal
+- [ ] Colony gRPC Query API
+  - [ ] Define `proto/coral/colony/v1/query.proto`
+  - [ ] Implement `ListServices`, `GetPercentile`, `FindSlowTraces` RPCs
+  - [ ] Expose colony DuckDB summaries (read-only)
+- [ ] TypeScript SDK CLI Mode
+  - [ ] Auto-detect CLI mode (CORAL_MODE=cli)
+  - [ ] gRPC client for colony queries
+  - [ ] Implement `services.ts`, `metrics.ts`, `traces.ts`
+- [ ] Examples & Documentation
+  - [ ] Example CLI scripts (latency analysis, error correlation)
+  - [ ] Update README with `coral run` usage
+  - [ ] Community script templates
 
-- [ ] Implement `internal/agent/script/executor.go` - Deno process manager
-- [ ] Implement `internal/agent/script/sdk_server.go` - Local HTTP server for SDK
-- [ ] Add RPCs to `internal/agent/service_handler.go` (DeployScript, StopScript, GetScriptStatus)
-- [ ] Implement sandboxing with Deno permissions (--allow-read for DuckDB only)
+**Success Criteria**:
+- Users can run `coral run analysis.ts` without any setup
+- No external dependencies (Deno bundled)
+- Scripts query colony DuckDB summaries
+- Full TypeScript flexibility with IDE autocomplete
 
-### Phase 3: Colony-Side Registry
+### Phase 2: Agent-Side Execution (FUTURE - DEFERRED)
 
-- [ ] Implement `internal/colony/script/registry.go` - Script storage and versioning
-- [ ] Implement `internal/colony/script/deployer.go` - Deployment orchestration
-- [ ] Add database queries for script CRUD operations
-- [ ] Implement script validation (TypeScript syntax checking via Deno)
+**Goal**: Colony/Reef AI deploys scripts to agents for eBPF filtering
 
-### Phase 4: TypeScript SDK
+- [ ] Agent deployment orchestration
+- [ ] Colony script registry (DuckDB storage)
+- [ ] eBPF probe integration (Level 3 capabilities)
+- [ ] High-frequency sampling use cases
+- [ ] MCP tools for AI deployment
 
-- [ ] Create `pkg/sdk/typescript/` directory structure
-- [ ] Implement `db.ts` - DuckDB query interface
-- [ ] Implement `metrics.ts` - Metrics helpers
-- [ ] Implement `traces.ts` - Trace query helpers
-- [ ] Implement `functions.ts` - Function metadata access
-- [ ] Implement `system.ts` - System metrics helpers
-- [ ] Implement `emit.ts` - Event emission to colony
-- [ ] Publish `@coral/sdk` package (local registry or npm)
-
-### Phase 5: MCP Integration
-
-- [ ] Implement `internal/colony/mcp/tools_script.go`
-- [ ] Add `coral_deploy_script` tool
-- [ ] Add `coral_list_scripts` tool
-- [ ] Add `coral_script_status` tool
-- [ ] Register tools in `internal/colony/mcp/server.go`
-
-### Phase 6: CLI Commands
-
-- [ ] Add `coral script deploy` command
-- [ ] Add `coral script list` command
-- [ ] Add `coral script status` command
-- [ ] Add `coral script logs` command
-- [ ] Add `coral script stop` command
-
-### Phase 7: Testing & Documentation
-
-- [ ] Unit tests for script executor
-- [ ] Unit tests for script registry
-- [ ] Integration tests (deploy → execute → verify results)
-- [ ] E2E tests with MCP tools
-- [ ] Example scripts (alerts, correlation, custom metrics)
-- [ ] Update ARCHITECTURE.md with script execution flow
+**Deferred because**:
+- Most use cases don't need agent-side (query aggregated data)
+- Colony/Reef AI orchestration not yet built
+- CLI-side provides 95% of value immediately
 
 ## Security Considerations
 
-**Deno Sandboxing:**
+### Phase 1: CLI-Side Security
+
+**Deno Sandboxing (CLI Mode)**:
 
 - Scripts run with minimal permissions:
-  - `--allow-read=/var/lib/coral/duckdb` - Read-only access to local DuckDB
-  - No `--allow-write`, `--allow-net`, `--allow-env`, `--allow-run`
-- Scripts cannot execute shell commands or access filesystem outside DuckDB
-- Scripts cannot make network requests (prevents data exfiltration)
+  - `--allow-net=<colony-address>` - Only connect to colony gRPC
+  - `--allow-read=./` - Read local files only (for imports)
+  - No `--allow-write`, `--allow-env`, `--allow-run`
+- Scripts cannot execute shell commands
+- Scripts cannot access filesystem outside current directory
+- Scripts query colony summaries (already aggregated, no PII)
 - Memory limits enforced via Deno flags (`--v8-flags=--max-old-space-size=512`)
-- CPU limits enforced via cgroups (optional, platform-dependent)
 
-**Script Validation:**
+**Local Execution**:
 
-- Colony validates TypeScript syntax before deployment (via `deno check`)
-- Colony rejects scripts that import non-whitelisted modules
-- Allowed imports: `@coral/sdk`, `@std` (Deno standard library)
-- Blocked imports: External URLs, file:// URIs, npm: packages (Phase 1)
+- Scripts run in user's context (same permissions as user)
+- No elevated privileges required
+- Stdout/stderr visible to user (easy debugging)
+- No remote code execution (runs locally)
 
-**Audit Logging:**
+**Module Imports** (Phase 1):
 
-- All script deployments logged with `created_by` field (user or AI)
-- Script execution logs captured (stdout, stderr, events)
-- Script code stored immutably (versioned, cannot be modified)
-- Colony exposes audit trail via MCP tools
+- Allowed imports: `@coral/sdk`, Deno standard library (`jsr:@std`)
+- Blocked imports: External URLs, `file://` URIs (outside current dir)
+- Future: Whitelist npm: packages for popular libraries
 
-**RBAC Integration** (Future - RFD 058):
+### Phase 2+: Agent-Side Security (Future)
 
-- Script deployment requires `scripts:deploy` permission
-- Script execution results filtered by user's service access
-- Sensitive data (e.g., traces with PII) masked based on RBAC policy
+**Additional Sandboxing**:
+
+- More restrictive permissions (UDS only, no network)
+- Scripts deployed by Colony/Reef AI (not users directly)
+- Audit logging for all deployments
+- RBAC integration for sensitive data
+
+**Deployment Control**:
+
+- Only Colony/Reef AI can deploy to agents
+- Script validation before deployment
+- Immutable script storage (versioned)
+- Automatic cleanup and lifecycle management
 
 ## Migration Strategy
 
@@ -777,9 +774,22 @@ await analyzeCorrelation();
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Phase 1 (CLI-Side):** 🚧 In Progress
 
-This RFD defines a new capability for agent-side sandboxed TypeScript execution. Implementation will proceed in phases as outlined above.
+- ✅ Deno executor infrastructure complete
+- ✅ TypeScript type definitions complete
+- ✅ gRPC SDK server complete (for future agent-side)
+- ✅ Protobuf schemas complete
+- ⏳ Embed Deno in CLI binary (next)
+- ⏳ Implement `coral run` command (next)
+- ⏳ Colony gRPC Query API (next)
+- ⏳ SDK CLI mode implementation (next)
+
+**Phase 2 (Agent-Side):** ⏳ Deferred
+
+- Agent-side deployment orchestration deferred
+- Will be implemented when Colony/Reef AI orchestration is ready
+- Infrastructure already built and ready to use
 
 ## Future Work
 
