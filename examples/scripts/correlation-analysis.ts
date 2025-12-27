@@ -11,7 +11,7 @@
  * - Pattern detection
  */
 
-import * as coral from "../../pkg/sdk/typescript/mod.ts";
+import * as coral from "@coral/sdk";
 
 const CHECK_INTERVAL_MS = 60_000; // 1 minute
 const LATENCY_THRESHOLD_MULTIPLIER = 2; // Alert when service is 2x average

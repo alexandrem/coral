@@ -10,7 +10,7 @@
  * - Console-based alerting
  */
 
-import * as coral from "../../pkg/sdk/typescript/mod.ts";
+import * as coral from "@coral/sdk";
 
 const SERVICE_NAME = "payments";
 const LATENCY_THRESHOLD_MS = 500;
