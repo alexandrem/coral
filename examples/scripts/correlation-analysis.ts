@@ -1,118 +1,142 @@
 /**
- * Correlation Analysis Script
+ * Cross-Service Correlation Analysis
  *
- * Analyzes correlation between errors and system resource usage to identify
- * resource-related issues.
+ * Analyzes latency correlation across multiple services to identify
+ * cascading performance issues.
  *
  * This script demonstrates:
- * - Querying traces with filters
- * - Correlating multiple data sources (traces + system metrics)
+ * - Querying metrics for multiple services
+ * - Correlating data across services
  * - Advanced data analysis in TypeScript
- * - Emitting correlation events for AI analysis
+ * - Pattern detection
  */
 
-import * as coral from "jsr:@coral/sdk";
+import * as coral from "../../pkg/sdk/typescript/mod.ts";
 
-const SERVICE_NAME = "payments";
-const HIGH_MEMORY_THRESHOLD_PCT = 80;
-const HIGH_CPU_THRESHOLD_PCT = 80;
 const CHECK_INTERVAL_MS = 60_000; // 1 minute
+const LATENCY_THRESHOLD_MULTIPLIER = 2; // Alert when service is 2x average
 
 /**
- * Analyze correlation between errors and system resources.
+ * Analyze cross-service latency correlation.
  */
 async function analyzeCorrelation() {
   try {
-    // Get recent error traces
-    const errorTraces = await coral.db.query(`
-      SELECT
-        trace_id,
-        span_id,
-        service_name,
-        duration_ns,
-        http_status,
-        http_route,
-        start_time
-      FROM otel_spans_local
-      WHERE service_name = '${SERVICE_NAME}'
-        AND is_error = true
-        AND start_time > now() - INTERVAL '5 minutes'
-      ORDER BY start_time DESC
-      LIMIT 100
-    `);
+    // Get all services
+    const services = await coral.services.list();
 
-    if (errorTraces.count === 0) {
-      console.log(`✓ No errors detected in ${SERVICE_NAME}`);
+    if (services.length === 0) {
+      console.log("✓ No services found");
       return;
     }
 
-    console.log(`Found ${errorTraces.count} error traces in the last 5 minutes`);
+    console.log(`Analyzing ${services.length} service(s)...\n`);
 
-    // Get current system metrics
-    const cpu = await coral.system.getCPU();
-    const memory = await coral.system.getMemory();
-    const memoryUsagePct = (memory.used / memory.total) * 100;
+    // Collect latency data for all services
+    const serviceLatencies: Array<{
+      name: string;
+      p99: number;
+      p95: number;
+      p50: number;
+    }> = [];
 
-    // Analyze correlation
-    const highMemory = memoryUsagePct > HIGH_MEMORY_THRESHOLD_PCT;
-    const highCPU = cpu.usage_percent > HIGH_CPU_THRESHOLD_PCT;
+    for (const svc of services) {
+      try {
+        const p99 = await coral.metrics.getP99(
+          svc.name,
+          "http.server.duration",
+          5 * 60 * 1000, // Last 5 minutes
+        );
+        const p95 = await coral.metrics.getP95(
+          svc.name,
+          "http.server.duration",
+          5 * 60 * 1000,
+        );
+        const p50 = await coral.metrics.getP50(
+          svc.name,
+          "http.server.duration",
+          5 * 60 * 1000,
+        );
 
-    if (highMemory || highCPU) {
-      // Correlation detected
-      const correlationType = highMemory && highCPU
-        ? "error_high_cpu_memory"
-        : highMemory
-        ? "error_high_memory"
-        : "error_high_cpu";
+        serviceLatencies.push({
+          name: svc.name,
+          p99: p99.value / 1_000_000, // Convert to ms
+          p95: p95.value / 1_000_000,
+          p50: p50.value / 1_000_000,
+        });
+      } catch (error) {
+        console.log(`⚠️  Could not get metrics for ${svc.name}: ${error}`);
+      }
+    }
 
-      await coral.emit("correlation", {
-        type: correlationType,
-        service: SERVICE_NAME,
-        error_count: errorTraces.count,
-        cpu_usage_pct: cpu.usage_percent,
-        memory_usage_pct: memoryUsagePct,
-        sample_traces: errorTraces.rows.slice(0, 5).map((row: any) => ({
-          trace_id: row.trace_id,
-          duration_ms: row.duration_ns / 1_000_000,
-          http_status: row.http_status,
-          http_route: row.http_route,
-        })),
-        timestamp: new Date().toISOString(),
-      }, "warning");
+    if (serviceLatencies.length === 0) {
+      console.log("No latency data available");
+      return;
+    }
 
+    // Calculate average latencies
+    const avgP99 =
+      serviceLatencies.reduce((sum, s) => sum + s.p99, 0) /
+      serviceLatencies.length;
+    const avgP95 =
+      serviceLatencies.reduce((sum, s) => sum + s.p95, 0) /
+      serviceLatencies.length;
+
+    // Find services with high latency (> threshold x average)
+    const highLatencyServices = serviceLatencies.filter(
+      (s) => s.p99 > avgP99 * LATENCY_THRESHOLD_MULTIPLIER,
+    );
+
+    if (highLatencyServices.length > 0) {
       console.log(
-        `🔍 CORRELATION DETECTED: ${errorTraces.count} errors + High ${highCPU ? "CPU" : ""}${highCPU && highMemory ? " & " : ""}${highMemory ? "Memory" : ""}`,
+        `🔍 CORRELATION DETECTED: ${highLatencyServices.length} service(s) with abnormally high latency\n`,
       );
-      console.log(
-        `   CPU: ${cpu.usage_percent.toFixed(1)}%, Memory: ${memoryUsagePct.toFixed(1)}%`,
-      );
+      console.log(`Average P99: ${avgP99.toFixed(1)}ms`);
+      console.log(`Average P95: ${avgP95.toFixed(1)}ms\n`);
+
+      console.log("High latency services:");
+      for (const svc of highLatencyServices) {
+        console.log(`  ${svc.name}:`);
+        console.log(`    P99: ${svc.p99.toFixed(1)}ms (${(svc.p99 / avgP99).toFixed(1)}x average)`);
+        console.log(`    P95: ${svc.p95.toFixed(1)}ms`);
+        console.log(`    P50: ${svc.p50.toFixed(1)}ms`);
+      }
+
+      // Get error details for high-latency services
+      console.log("\nError analysis:");
+      for (const svc of highLatencyServices) {
+        const errorResult = await coral.db.query(`
+          SELECT
+            COUNT(*) FILTER (WHERE status_code >= 400) as error_count,
+            COUNT(*) as total_count
+          FROM ebpf_http_metrics
+          WHERE service_name = '${svc.name}'
+            AND timestamp > now() - INTERVAL '5 minutes'
+        `);
+
+        const errorCount = Number(errorResult.rows[0]?.error_count || 0);
+        const totalCount = Number(errorResult.rows[0]?.total_count || 0);
+        const errorRate = totalCount > 0 ? (errorCount / totalCount) * 100 : 0;
+
+        console.log(
+          `  ${svc.name}: ${errorCount} errors (${errorRate.toFixed(2)}%)`,
+        );
+      }
     } else {
-      console.log(
-        `⚠️  Errors detected but no resource correlation: ${errorTraces.count} errors, CPU=${cpu.usage_percent.toFixed(1)}%, Memory=${memoryUsagePct.toFixed(1)}%`,
-      );
+      console.log("✓ All services within normal latency range\n");
+      console.log(`Average P99: ${avgP99.toFixed(1)}ms`);
+      console.log(`Average P95: ${avgP95.toFixed(1)}ms`);
 
-      // Analyze error patterns
-      const errorsByRoute = new Map<string, number>();
-      for (const row of errorTraces.rows) {
-        const route = (row as any).http_route || "unknown";
-        errorsByRoute.set(route, (errorsByRoute.get(route) || 0) + 1);
+      // Show top 3 slowest services
+      const slowest = serviceLatencies
+        .sort((a, b) => b.p99 - a.p99)
+        .slice(0, 3);
+
+      console.log("\nSlowest services:");
+      for (const svc of slowest) {
+        console.log(
+          `  ${svc.name}: P99=${svc.p99.toFixed(1)}ms, P95=${svc.p95.toFixed(1)}ms, P50=${svc.p50.toFixed(1)}ms`,
+        );
       }
-
-      const topErrorRoutes = Array.from(errorsByRoute.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5);
-
-      console.log("   Top error routes:");
-      for (const [route, count] of topErrorRoutes) {
-        console.log(`     - ${route}: ${count} errors`);
-      }
-
-      await coral.emit("error_pattern", {
-        service: SERVICE_NAME,
-        error_count: errorTraces.count,
-        top_error_routes: Object.fromEntries(topErrorRoutes),
-        timestamp: new Date().toISOString(),
-      }, "info");
     }
   } catch (error) {
     console.error(`Error analyzing correlation: ${error}`);
@@ -123,9 +147,8 @@ async function analyzeCorrelation() {
  * Main monitoring loop.
  */
 async function main() {
-  console.log(`Starting correlation analysis for ${SERVICE_NAME}...`);
-  console.log(`  High memory threshold: ${HIGH_MEMORY_THRESHOLD_PCT}%`);
-  console.log(`  High CPU threshold: ${HIGH_CPU_THRESHOLD_PCT}%`);
+  console.log("Starting cross-service correlation analysis...");
+  console.log(`  Latency threshold: ${LATENCY_THRESHOLD_MULTIPLIER}x average`);
   console.log(`  Check interval: ${CHECK_INTERVAL_MS / 1000}s`);
 
   // Run initial analysis

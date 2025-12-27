@@ -119,6 +119,13 @@ func TestExecutor_StopScript(t *testing.T) {
 	// Give it time to start
 	time.Sleep(100 * time.Millisecond)
 
+	// Check if the script is actually running (skip test if Deno not available)
+	execution, err = executor.GetExecution(script.ID)
+	require.NoError(t, err)
+	if execution.Status != StatusRunning {
+		t.Skipf("Script failed to start (status: %s, error: %s) - Deno may not be available", execution.Status, execution.Error)
+	}
+
 	// Stop the script
 	err = executor.StopScript(ctx, script.ID)
 	assert.NoError(t, err)

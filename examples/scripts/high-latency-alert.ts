@@ -1,16 +1,16 @@
 /**
  * High Latency Alert Script
  *
- * Monitors a service for high latency and emits alerts when thresholds are exceeded.
+ * Monitors a service for high latency and alerts when thresholds are exceeded.
  *
  * This script demonstrates:
  * - Querying metrics using the Coral SDK
- * - Combining multiple data sources for correlation
- * - Emitting custom alert events
+ * - Using SQL for error rate calculation
  * - Continuous monitoring with periodic checks
+ * - Console-based alerting
  */
 
-import * as coral from "jsr:@coral/sdk";
+import * as coral from "../../pkg/sdk/typescript/mod.ts";
 
 const SERVICE_NAME = "payments";
 const LATENCY_THRESHOLD_MS = 500;
@@ -18,98 +18,63 @@ const ERROR_RATE_THRESHOLD = 0.01; // 1%
 const CHECK_INTERVAL_MS = 30_000; // 30 seconds
 
 /**
- * Check service health metrics and emit alerts if thresholds are exceeded.
+ * Check service health metrics and alert if thresholds are exceeded.
  */
 async function checkServiceHealth() {
   try {
     // Get P99 latency
-    const p99Ns = await coral.metrics.getPercentile(
+    const p99 = await coral.metrics.getP99(
       SERVICE_NAME,
       "http.server.duration",
-      0.99,
+      5 * 60 * 1000, // Last 5 minutes
     );
-    const p99Ms = p99Ns / 1_000_000;
+    const p99Ms = p99.value / 1_000_000;
 
-    // Get error rate over last 5 minutes
-    const errorRate = await coral.metrics.getErrorRate(SERVICE_NAME, "5m");
+    // Calculate error rate using SQL
+    const errorRateResult = await coral.db.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status_code >= 400) as error_count,
+        COUNT(*) as total_count,
+        CAST(COUNT(*) FILTER (WHERE status_code >= 400) AS DOUBLE) / COUNT(*) as error_rate
+      FROM ebpf_http_metrics
+      WHERE service_name = '${SERVICE_NAME}'
+        AND timestamp > now() - INTERVAL '5 minutes'
+    `);
 
-    // Get system metrics for correlation
-    const cpu = await coral.system.getCPU();
-    const memory = await coral.system.getMemory();
-    const memoryUsagePct = (memory.used / memory.total) * 100;
+    const errorRate = errorRateResult.rows[0]?.error_rate as number || 0;
+    const errorCount = errorRateResult.rows[0]?.error_count as number || 0;
 
     // Check if thresholds are exceeded
     const latencyExceeded = p99Ms > LATENCY_THRESHOLD_MS;
     const errorRateExceeded = errorRate > ERROR_RATE_THRESHOLD;
 
+    const timestamp = new Date().toISOString();
+
     if (latencyExceeded && errorRateExceeded) {
       // Critical: Both latency and error rate are high
-      await coral.emit("alert", {
-        message: `${SERVICE_NAME} service degraded: high latency AND high error rate`,
-        service: SERVICE_NAME,
-        severity: "critical",
-        p99_latency_ms: p99Ms,
-        latency_threshold_ms: LATENCY_THRESHOLD_MS,
-        error_rate_pct: errorRate * 100,
-        error_rate_threshold_pct: ERROR_RATE_THRESHOLD * 100,
-        cpu_usage_pct: cpu.usage_percent,
-        memory_usage_pct: memoryUsagePct,
-        timestamp: new Date().toISOString(),
-      }, "critical");
-
-      console.log(
-        `🚨 CRITICAL ALERT: ${SERVICE_NAME} degraded - P99=${p99Ms.toFixed(1)}ms, Errors=${(errorRate * 100).toFixed(2)}%`,
-      );
+      console.log(`🚨 CRITICAL ALERT [${timestamp}]`);
+      console.log(`   Service: ${SERVICE_NAME}`);
+      console.log(`   P99 Latency: ${p99Ms.toFixed(1)}ms (threshold: ${LATENCY_THRESHOLD_MS}ms)`);
+      console.log(`   Error Rate: ${(errorRate * 100).toFixed(2)}% (threshold: ${ERROR_RATE_THRESHOLD * 100}%)`);
+      console.log(`   Error Count: ${errorCount}`);
     } else if (latencyExceeded) {
       // Warning: High latency only
-      await coral.emit("alert", {
-        message: `${SERVICE_NAME} service experiencing high latency`,
-        service: SERVICE_NAME,
-        severity: "warning",
-        p99_latency_ms: p99Ms,
-        latency_threshold_ms: LATENCY_THRESHOLD_MS,
-        error_rate_pct: errorRate * 100,
-        cpu_usage_pct: cpu.usage_percent,
-        memory_usage_pct: memoryUsagePct,
-        timestamp: new Date().toISOString(),
-      }, "warning");
-
-      console.log(
-        `⚠️  WARNING: ${SERVICE_NAME} high latency - P99=${p99Ms.toFixed(1)}ms`,
-      );
+      console.log(`⚠️  WARNING [${timestamp}]: ${SERVICE_NAME} high latency`);
+      console.log(`   P99: ${p99Ms.toFixed(1)}ms (threshold: ${LATENCY_THRESHOLD_MS}ms)`);
+      console.log(`   Error Rate: ${(errorRate * 100).toFixed(2)}% (OK)`);
     } else if (errorRateExceeded) {
       // Warning: High error rate only
-      await coral.emit("alert", {
-        message: `${SERVICE_NAME} service experiencing high error rate`,
-        service: SERVICE_NAME,
-        severity: "warning",
-        p99_latency_ms: p99Ms,
-        error_rate_pct: errorRate * 100,
-        error_rate_threshold_pct: ERROR_RATE_THRESHOLD * 100,
-        cpu_usage_pct: cpu.usage_percent,
-        memory_usage_pct: memoryUsagePct,
-        timestamp: new Date().toISOString(),
-      }, "warning");
-
-      console.log(
-        `⚠️  WARNING: ${SERVICE_NAME} high error rate - Errors=${(errorRate * 100).toFixed(2)}%`,
-      );
+      console.log(`⚠️  WARNING [${timestamp}]: ${SERVICE_NAME} high error rate`);
+      console.log(`   Error Rate: ${(errorRate * 100).toFixed(2)}% (threshold: ${ERROR_RATE_THRESHOLD * 100}%)`);
+      console.log(`   Error Count: ${errorCount}`);
+      console.log(`   P99 Latency: ${p99Ms.toFixed(1)}ms (OK)`);
     } else {
       // Everything is healthy
-      console.log(
-        `✓ OK: ${SERVICE_NAME} healthy - P99=${p99Ms.toFixed(1)}ms, Errors=${(errorRate * 100).toFixed(2)}%, CPU=${cpu.usage_percent.toFixed(1)}%, Memory=${memoryUsagePct.toFixed(1)}%`,
-      );
+      console.log(`✓ OK [${timestamp}]: ${SERVICE_NAME} healthy`);
+      console.log(`   P99: ${p99Ms.toFixed(1)}ms, Errors: ${(errorRate * 100).toFixed(2)}%`);
     }
   } catch (error) {
-    console.error(`Error checking service health: ${error}`);
-
-    await coral.emit("alert", {
-      message: `Failed to check ${SERVICE_NAME} service health`,
-      service: SERVICE_NAME,
-      severity: "error",
-      error: String(error),
-      timestamp: new Date().toISOString(),
-    }, "error");
+    console.error(`❌ Error checking service health: ${error}`);
   }
 }
 

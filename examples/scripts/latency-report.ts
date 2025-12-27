@@ -7,7 +7,7 @@
  * Highlights services with latency > 500ms.
  */
 
-import * as coral from "@coral/sdk";
+import * as coral from "../../pkg/sdk/typescript/mod.ts";
 
 console.log("Service Latency Report\n");
 console.log("=".repeat(60));

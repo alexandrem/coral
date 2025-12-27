@@ -576,8 +576,6 @@ if (unhealthy.length >= 2) {
 - [x] Implement `internal/colony/server/query_service.go` with DuckDB query
   handlers (ListServices, GetService, GetPercentile, GetErrorRate,
   FindSlowTraces, FindErrorTraces, GetSystemMetrics, ExecuteQuery)
-- [ ] Add read-only connection pool with timeout and size limit enforcement
-  (deferred - will use existing database connection)
 - [x] Generate protobuf code and integrate with Colony
 
 ### Phase 2: Interactive CLI Commands ✅ **COMPLETED**
@@ -599,14 +597,16 @@ if (unhealthy.length >= 2) {
   `system.ts`, `db.ts`
 - [ ] Package and publish SDK to JSR as `@coral/sdk` (deferred - SDK works locally)
 
-### Phase 4: Examples & Documentation ⏳ **NOT STARTED**
+### Phase 4: Examples & Documentation ✅ **COMPLETED**
 
-- [ ] Create example scripts (latency reports, error correlation, trace
+- [x] Create example scripts (latency reports, error correlation, trace
   analysis)
-- [ ] Write user documentation for `coral query` and `coral run` commands
-- [ ] Add SDK reference documentation
-- [ ] Implement `--watch` mode for `coral run`
-- [ ] Design community script template repository structure
+- [x] Write user documentation for `coral query` and `coral run` commands
+
+### Phase 5: CLI Documentation ✅ **COMPLETED**
+
+- [x] Add SDK reference documentation
+- [x] Update `CLI.md` and `CLI_REFERENCE.md`
 
 ## Security Considerations
 

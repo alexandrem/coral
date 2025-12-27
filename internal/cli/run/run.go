@@ -4,9 +4,11 @@ package run
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -73,17 +75,22 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 	}
 
 	// Resolve colony address for --allow-net permission
-	colonyAddr, err := helpers.GetColonyURL("")
+	colonyURL, err := helpers.GetColonyURL("")
 	if err != nil {
 		// Not fatal - script may not need colony access
-		colonyAddr = "localhost:9090"
+		colonyURL = "http://localhost:9090"
 	}
+
+	// Extract host:port from URL for --allow-net
+	// Deno only accepts domain/IP, not full URLs
+	colonyHost := extractHost(colonyURL)
 
 	// Build Deno command arguments
 	args := []string{
 		"run",
-		"--allow-net=" + colonyAddr,
+		"--allow-net=" + colonyHost,
 		"--allow-read=./",
+		"--allow-env=CORAL_COLONY_ADDR,CORAL_MODE",
 	}
 
 	// Add watch mode if requested
@@ -105,7 +112,7 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 	// Set environment variables
 	denoCmd.Env = append(os.Environ(),
 		"CORAL_MODE=cli",
-		"CORAL_COLONY_ADDR="+colonyAddr,
+		"CORAL_COLONY_ADDR="+colonyHost,
 	)
 
 	// Execute
@@ -118,7 +125,7 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 
 // findDeno locates the Deno binary.
 // Priority:
-// 1. Embedded binaries (internal/cli/run/binaries/)
+// 1. Embedded binaries (same directory as coral binary)
 // 2. System PATH (fallback)
 func findDeno() (string, error) {
 	// Get coral binary path
@@ -129,25 +136,8 @@ func findDeno() (string, error) {
 
 	exeDir := filepath.Dir(exePath)
 
-	// Determine platform string for embedded binary
-	goos := os.Getenv("GOOS")
-	if goos == "" {
-		goos = "linux" // Default for runtime
-	}
-	goarch := os.Getenv("GOARCH")
-	if goarch == "" {
-		goarch = "amd64" // Default
-	}
-
-	// Try to detect actual runtime platform if GOOS/GOARCH not set
-	if os.Getenv("GOOS") == "" {
-		goos = detectOS()
-	}
-	if os.Getenv("GOARCH") == "" {
-		goarch = detectArch()
-	}
-
-	platform := fmt.Sprintf("%s-%s", goos, goarch)
+	// Use runtime package for actual platform (not build-time env vars)
+	platform := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
 
 	// Check for embedded Deno binary (relative to executable)
 	// The binaries are placed in the same directory as the coral binary during build
@@ -171,35 +161,18 @@ func findDeno() (string, error) {
 	return systemDeno, nil
 }
 
-// detectOS returns the current operating system.
-func detectOS() string {
-	switch os.Getenv("GOOS") {
-	case "linux":
-		return "linux"
-	case "darwin":
-		return "darwin"
-	case "windows":
-		return "windows"
-	default:
-		// Runtime detection
-		if _, err := os.Stat("/proc"); err == nil {
-			return "linux"
-		}
-		if _, err := os.Stat("/System/Library"); err == nil {
-			return "darwin"
-		}
-		return "linux" // Default
+// extractHost extracts the host:port from a URL.
+// Examples:
+//   - "http://localhost:9090" -> "localhost:9090"
+//   - "https://colony.example.com:443" -> "colony.example.com:443"
+//   - "localhost:9090" -> "localhost:9090"
+func extractHost(urlStr string) string {
+	// Try to parse as URL
+	u, err := url.Parse(urlStr)
+	if err == nil && u.Host != "" {
+		return u.Host
 	}
-}
 
-// detectArch returns the current architecture.
-func detectArch() string {
-	switch os.Getenv("GOARCH") {
-	case "amd64":
-		return "amd64"
-	case "arm64":
-		return "arm64"
-	default:
-		return "amd64" // Default
-	}
+	// If parsing failed or no host, assume it's already host:port
+	return urlStr
 }

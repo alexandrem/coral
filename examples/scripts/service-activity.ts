@@ -7,7 +7,7 @@
  * Shows request counts and error rates for all services.
  */
 
-import * as coral from "@coral/sdk";
+import * as coral from "../../pkg/sdk/typescript/mod.ts";
 
 console.log("Service Activity Report\n");
 console.log("=".repeat(60));

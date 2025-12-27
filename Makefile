@@ -65,6 +65,17 @@ build: generate ## Build the coral binary
 	@echo "Building coral-discovery..."
 	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-discovery ./cmd/discovery
 	@echo "✓ Built $(BUILD_DIR)/coral-discovery"
+	@# Copy Deno binary for current platform
+	@DENO_SRC="internal/cli/run/binaries/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
+	DENO_DST="$(BUILD_DIR)/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
+	if [ -f "$$DENO_SRC" ]; then \
+		cp "$$DENO_SRC" "$$DENO_DST"; \
+		chmod +x "$$DENO_DST"; \
+		echo "✓ Copied Deno binary to $(BUILD_DIR)"; \
+	else \
+		echo "⚠️  Deno binary not found at $$DENO_SRC"; \
+		echo "   Run 'make generate' to download Deno binaries"; \
+	fi
 
 build-dev: build ## Build and grant TUN creation privileges (Linux: capabilities, macOS: setuid)
 	@echo "Granting TUN device creation privileges..."

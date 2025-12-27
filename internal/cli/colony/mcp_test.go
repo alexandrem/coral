@@ -72,6 +72,18 @@ func (m *mockColonyClient) QueryUnifiedLogs(ctx context.Context, req *connect.Re
 	return connect.NewResponse(&colonyv1.QueryUnifiedLogsResponse{}), nil
 }
 
+func (m *mockColonyClient) ListServices(ctx context.Context, req *connect.Request[colonyv1.ListServicesRequest]) (*connect.Response[colonyv1.ListServicesResponse], error) {
+	return connect.NewResponse(&colonyv1.ListServicesResponse{}), nil
+}
+
+func (m *mockColonyClient) GetMetricPercentile(ctx context.Context, req *connect.Request[colonyv1.GetMetricPercentileRequest]) (*connect.Response[colonyv1.GetMetricPercentileResponse], error) {
+	return connect.NewResponse(&colonyv1.GetMetricPercentileResponse{}), nil
+}
+
+func (m *mockColonyClient) ExecuteQuery(ctx context.Context, req *connect.Request[colonyv1.ExecuteQueryRequest]) (*connect.Response[colonyv1.ExecuteQueryResponse], error) {
+	return connect.NewResponse(&colonyv1.ExecuteQueryResponse{}), nil
+}
+
 // TestMCPProxyInitialize tests the initialize method.
 func TestMCPProxyInitialize(t *testing.T) {
 	// Create mock colony client.
