@@ -126,10 +126,17 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 
 // findDeno locates the Deno binary.
 // Priority:
-// 1. Embedded binaries (same directory as coral binary)
-// 2. System PATH (fallback)
+// 1. Embedded binary (extracted from binary)
+// 2. External binaries (same directory as coral binary)
+// 3. System PATH (fallback)
 func findDeno() (string, error) {
-	// Get coral binary path
+	// Try to extract embedded binary first.
+	embeddedDeno, err := extractDenoBinary()
+	if err == nil {
+		return embeddedDeno, nil
+	}
+
+	// Get coral binary path for checking external binaries.
 	exePath, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("failed to get executable path: %w", err)
@@ -140,11 +147,11 @@ func findDeno() (string, error) {
 	// Use runtime package for actual platform (not build-time env vars)
 	platform := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
 
-	// Check for embedded Deno binary (relative to executable)
+	// Check for external Deno binary (relative to executable)
 	// The binaries are placed in the same directory as the coral binary during build
-	embeddedDeno := filepath.Join(exeDir, fmt.Sprintf("deno-%s", platform))
-	if _, err := os.Stat(embeddedDeno); err == nil {
-		return embeddedDeno, nil
+	externalDeno := filepath.Join(exeDir, fmt.Sprintf("deno-%s", platform))
+	if _, err := os.Stat(externalDeno); err == nil {
+		return externalDeno, nil
 	}
 
 	// Also try without platform suffix (for backwards compatibility)
@@ -156,7 +163,7 @@ func findDeno() (string, error) {
 	// Fallback to system PATH
 	systemDeno, err := exec.LookPath("deno")
 	if err != nil {
-		return "", fmt.Errorf("deno not found (checked %s, %s, and system PATH)", embeddedDeno, simpleDeno)
+		return "", fmt.Errorf("deno not found (checked embedded, %s, %s, and system PATH)", externalDeno, simpleDeno)
 	}
 
 	return systemDeno, nil
