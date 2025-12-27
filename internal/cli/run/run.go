@@ -102,6 +102,7 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 	args = append(args, scriptPath)
 
 	// Create command
+	//nolint:gosec // denoPath is from trusted findDeno(), not user input
 	denoCmd := exec.CommandContext(ctx, denoPath, args...)
 
 	// Pass through stdin/stdout/stderr

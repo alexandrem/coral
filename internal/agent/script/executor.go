@@ -1,3 +1,4 @@
+// Package script provides sandboxed TypeScript script execution via Deno.
 package script
 
 import (
@@ -91,7 +92,7 @@ func (e *Executor) Start(ctx context.Context) error {
 	}
 
 	// Ensure work directory exists.
-	if err := os.MkdirAll(e.config.WorkDir, 0755); err != nil {
+	if err := os.MkdirAll(e.config.WorkDir, 0750); err != nil {
 		return fmt.Errorf("failed to create work directory: %w", err)
 	}
 
@@ -130,6 +131,7 @@ func (e *Executor) Stop(ctx context.Context) error {
 
 // checkDeno verifies that Deno is available.
 func (e *Executor) checkDeno() error {
+	//nolint:gosec // DenoPath is from trusted config, not user input
 	cmd := exec.Command(e.config.DenoPath, "--version")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -317,7 +319,7 @@ func (e *Execution) Start(ctx context.Context) error {
 
 	// Create script file.
 	scriptPath := filepath.Join(e.config.WorkDir, e.ScriptID+".ts")
-	if err := os.WriteFile(scriptPath, []byte(e.script.Code), 0644); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(e.script.Code), 0600); err != nil {
 		e.Status = StatusFailed
 		e.Error = fmt.Sprintf("failed to write script file: %v", err)
 		return fmt.Errorf("failed to write script file: %w", err)
@@ -344,6 +346,7 @@ func (e *Execution) Start(ctx context.Context) error {
 		scriptPath,
 	}
 
+	//nolint:gosec // DenoPath is from trusted config, not user input
 	e.cmd = exec.CommandContext(ctx, e.config.DenoPath, args...)
 
 	// Set up environment.

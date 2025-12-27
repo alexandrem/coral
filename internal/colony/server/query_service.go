@@ -37,7 +37,7 @@ func (s *Server) ListServices(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query services: %w", err))
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var services []*colonyv1.ServiceInfo
 	for rows.Next() {
@@ -73,8 +73,7 @@ func (s *Server) GetMetricPercentile(
 
 	// Map metric name to column (simplified for MVP).
 	// In production, this would be more sophisticated with metric registry.
-	columnName := "duration_ns"
-	unit := "nanoseconds"
+	var columnName, unit string
 
 	switch req.Msg.Metric {
 	case "http.server.duration", "duration":
@@ -136,7 +135,7 @@ func (s *Server) ExecuteQuery(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to execute query: %w", err))
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	columns, err := rows.Columns()
 	if err != nil {
