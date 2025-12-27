@@ -29,9 +29,6 @@ making observability data accessible through local scripting.
 
 **Current Limitations:**
 
-- **Shell Script Brittleness**: MCP shell tools (RFD 045, 026) execute arbitrary
-  commands but lack access to structured Coral data (DuckDB metrics, traces,
-  function metadata).
 - **No Custom Logic**: Operators cannot easily write custom analysis logic that
   combines multiple Coral data sources (e.g., "alert when P99 latency exceeds
   500ms AND error rate > 1% AND heap usage > 80%").
