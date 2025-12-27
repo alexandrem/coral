@@ -28,7 +28,7 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-generate: proto ## Generate eBPF and download Beyla binaries (run before first build)
+generate: proto ## Generate eBPF, download Beyla and Deno binaries (run before first build)
 	@echo "Running go generate..."
 	@# Check for llvm-strip (required for bpf2go)
 	@if ! which llvm-strip >/dev/null 2>&1; then \

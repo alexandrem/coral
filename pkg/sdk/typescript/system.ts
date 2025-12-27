@@ -1,77 +1,45 @@
 /**
- * System metrics helpers.
- */
-
-const SDK_URL = Deno.env.get("CORAL_SDK_URL") || "http://localhost:9003";
-
-/**
- * CPU usage data.
- */
-export interface CPUUsage {
-  usage_percent: number;
-}
-
-/**
- * Memory usage data.
- */
-export interface MemoryUsage {
-  used: number;
-  total: number;
-}
-
-/**
- * Get current CPU usage.
+ * System metrics queries.
  *
- * @returns CPU usage data
+ * Note: System metrics use the unified query API (QueryUnifiedSummary).
+ * For now, this module provides placeholder functions. Full implementation
+ * will be added when Colony system metrics storage is ready.
+ *
+ * @module
+ */
+
+import type { ClientConfig, SystemMetrics } from "./types.ts";
+
+/**
+ * Get system metrics for a service.
+ *
+ * @param service - Service name
+ * @param config - Optional client configuration
+ * @returns System metrics
  *
  * @example
  * ```typescript
- * import { system } from "@coral/sdk";
+ * import * as coral from "@coral/sdk";
  *
- * const cpu = await system.getCPU();
- * console.log(`CPU usage: ${cpu.usage_percent.toFixed(1)}%`);
+ * const metrics = await coral.system.getMetrics("payments");
+ * console.log(`CPU: ${metrics.cpuPercent}%`);
+ * console.log(`Memory: ${metrics.memoryPercent}%`);
  * ```
  */
-export async function getCPU(): Promise<CPUUsage> {
-  const response = await fetch(`${SDK_URL}/system/cpu`);
+export async function getMetrics(
+  service: string,
+  config?: ClientConfig,
+): Promise<SystemMetrics> {
+  // TODO: Implement using QueryUnifiedSummary or a dedicated GetSystemMetrics RPC
+  console.warn(
+    "system.getMetrics() not yet implemented - Colony system metrics storage pending",
+  );
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to get CPU usage: ${error}`);
-  }
-
-  return await response.json();
+  // Return placeholder data
+  return {
+    cpuPercent: 0,
+    memoryPercent: 0,
+    memoryBytes: 0,
+    timestamp: new Date(),
+  };
 }
-
-/**
- * Get current memory usage.
- *
- * @returns Memory usage data
- *
- * @example
- * ```typescript
- * import { system } from "@coral/sdk";
- *
- * const memory = await system.getMemory();
- * const usagePercent = (memory.used / memory.total) * 100;
- * console.log(`Memory usage: ${usagePercent.toFixed(1)}%`);
- * ```
- */
-export async function getMemory(): Promise<MemoryUsage> {
-  const response = await fetch(`${SDK_URL}/system/memory`);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to get memory usage: ${error}`);
-  }
-
-  return await response.json();
-}
-
-/**
- * System namespace.
- */
-export const system = {
-  getCPU,
-  getMemory,
-};

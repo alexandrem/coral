@@ -1,82 +1,83 @@
 /**
- * Trace and span query helpers.
- */
-
-const SDK_URL = Deno.env.get("CORAL_SDK_URL") || "http://localhost:9003";
-
-/**
- * Trace span data.
- */
-export interface Trace {
-  trace_id: string;
-  span_id: string;
-  duration_ns: number;
-  is_error: boolean;
-  http_status: number;
-  http_method: string;
-  http_route: string;
-}
-
-/**
- * Query filter options.
- */
-export interface QueryOptions {
-  /** Service name */
-  service: string;
-  /** Minimum duration (e.g., "500ms", "1s") */
-  minDuration?: string;
-  /** Time range (e.g., "1h", "5m") */
-  timeRange?: string;
-}
-
-/**
- * Query traces matching the filter.
+ * Trace and span queries.
  *
- * @param options Query filter options
- * @returns Matching traces
+ * Note: Trace queries use the unified query API (QueryUnifiedTraces).
+ * For now, this module provides placeholder functions. Full implementation
+ * will be added when Colony trace storage is ready.
+ *
+ * @module
+ */
+
+import type { ClientConfig, Trace } from "./types.ts";
+
+/**
+ * Find slow traces for a service.
+ *
+ * @param service - Service name
+ * @param minDurationNs - Minimum duration in nanoseconds
+ * @param timeRangeMs - Lookback window in milliseconds
+ * @param limit - Maximum number of traces to return
+ * @param config - Optional client configuration
+ * @returns Array of slow traces
  *
  * @example
  * ```typescript
- * import { traces } from "@coral/sdk";
+ * import * as coral from "@coral/sdk";
  *
- * const slowTraces = await traces.query({
- *   service: "payments",
- *   minDuration: "500ms",
- *   timeRange: "1h",
- * });
+ * // Find traces >500ms in last hour
+ * const slowTraces = await coral.traces.findSlow(
+ *   "payments",
+ *   500_000_000,  // 500ms in nanoseconds
+ *   3600_000,     // 1 hour
+ *   10,
+ * );
  *
  * for (const trace of slowTraces) {
- *   console.log(`Slow trace: ${trace.trace_id} (${trace.duration_ns / 1_000_000}ms)`);
+ *   console.log(`${trace.traceId}: ${trace.durationNs / 1_000_000}ms`);
  * }
  * ```
  */
-export async function query(options: QueryOptions): Promise<Trace[]> {
-  const params = new URLSearchParams({
-    service: options.service,
-  });
-
-  if (options.minDuration) {
-    params.set("minDuration", options.minDuration);
-  }
-
-  if (options.timeRange) {
-    params.set("timeRange", options.timeRange);
-  }
-
-  const response = await fetch(`${SDK_URL}/traces/query?${params}`);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to query traces: ${error}`);
-  }
-
-  const result = await response.json();
-  return result.traces;
+export async function findSlow(
+  service: string,
+  minDurationNs: number,
+  timeRangeMs: number = 3600000,
+  limit: number = 100,
+  config?: ClientConfig,
+): Promise<Trace[]> {
+  // TODO: Implement using QueryUnifiedTraces or a dedicated FindSlowTraces RPC
+  // For now, return empty array as placeholder
+  console.warn(
+    "traces.findSlow() not yet implemented - Colony trace storage pending",
+  );
+  return [];
 }
 
 /**
- * Traces namespace.
+ * Find error traces for a service.
+ *
+ * @param service - Service name
+ * @param timeRangeMs - Lookback window in milliseconds
+ * @param limit - Maximum number of traces to return
+ * @param config - Optional client configuration
+ * @returns Array of error traces
+ *
+ * @example
+ * ```typescript
+ * import * as coral from "@coral/sdk";
+ *
+ * const errorTraces = await coral.traces.findErrors("payments", 3600_000);
+ * console.log(`Found ${errorTraces.length} error traces`);
+ * ```
  */
-export const traces = {
-  query,
-};
+export async function findErrors(
+  service: string,
+  timeRangeMs: number = 3600000,
+  limit: number = 100,
+  config?: ClientConfig,
+): Promise<Trace[]> {
+  // TODO: Implement using QueryUnifiedTraces or a dedicated FindErrorTraces RPC
+  console.warn(
+    "traces.findErrors() not yet implemented - Colony trace storage pending",
+  );
+  return [];
+}
