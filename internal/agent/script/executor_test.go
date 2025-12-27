@@ -20,11 +20,10 @@ func TestExecutor_DeployScript(t *testing.T) {
 		MaxConcurrent:  5,
 		MemoryLimitMB:  512,
 		TimeoutSeconds: 30,
-		SDKServerPort:  9003,
 		WorkDir:        t.TempDir(),
 	}
 
-	executor := NewExecutor(config, logger, nil)
+	executor := NewExecutor(config, logger)
 	require.NotNil(t, executor)
 
 	// Create a simple test script
@@ -54,11 +53,10 @@ func TestExecutor_ConcurrencyLimit(t *testing.T) {
 		MaxConcurrent:  2, // Only allow 2 concurrent scripts
 		MemoryLimitMB:  512,
 		TimeoutSeconds: 30,
-		SDKServerPort:  9003,
 		WorkDir:        t.TempDir(),
 	}
 
-	executor := NewExecutor(config, logger, nil)
+	executor := NewExecutor(config, logger)
 
 	// Deploy first script
 	script1 := &Script{
@@ -102,11 +100,10 @@ func TestExecutor_StopScript(t *testing.T) {
 		MaxConcurrent:  5,
 		MemoryLimitMB:  512,
 		TimeoutSeconds: 30,
-		SDKServerPort:  9003,
 		WorkDir:        t.TempDir(),
 	}
 
-	executor := NewExecutor(config, logger, nil)
+	executor := NewExecutor(config, logger)
 
 	// Deploy a long-running script
 	script := &Script{
@@ -142,11 +139,10 @@ func TestExecutor_GetExecution(t *testing.T) {
 		MaxConcurrent:  5,
 		MemoryLimitMB:  512,
 		TimeoutSeconds: 30,
-		SDKServerPort:  9003,
 		WorkDir:        t.TempDir(),
 	}
 
-	executor := NewExecutor(config, logger, nil)
+	executor := NewExecutor(config, logger)
 
 	script := &Script{
 		ID:      "test-get",
@@ -174,11 +170,10 @@ func TestExecutor_ListExecutions(t *testing.T) {
 		MaxConcurrent:  5,
 		MemoryLimitMB:  512,
 		TimeoutSeconds: 30,
-		SDKServerPort:  9003,
 		WorkDir:        t.TempDir(),
 	}
 
-	executor := NewExecutor(config, logger, nil)
+	executor := NewExecutor(config, logger)
 
 	// Deploy multiple scripts
 	for i := 1; i <= 3; i++ {

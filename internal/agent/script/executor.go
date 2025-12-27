@@ -36,9 +36,6 @@ type Config struct {
 	// DaemonTimeoutSeconds is the maximum timeout for daemon scripts (24h default).
 	DaemonTimeoutSeconds int
 
-	// SDKSocketPath is the path to the SDK Unix Domain Socket.
-	SDKSocketPath string
-
 	// WorkDir is the directory where scripts are stored.
 	WorkDir string
 
@@ -55,10 +52,9 @@ func DefaultConfig() *Config {
 		Enabled:              true,
 		DenoPath:             "/usr/local/bin/deno",
 		MaxConcurrent:        5,
-		MemoryLimitMB:        128, // Per-script limit
-		TimeoutSeconds:       60,  // Ad-hoc default: 60s
+		MemoryLimitMB:        128,   // Per-script limit
+		TimeoutSeconds:       60,    // Ad-hoc default: 60s
 		DaemonTimeoutSeconds: 86400, // Daemon max: 24 hours
-		SDKSocketPath:        DefaultSocketPath,
 		WorkDir:              "/var/lib/coral/scripts",
 		CPULimitPercent:      10,  // Max 10% CPU across all scripts
 		TotalMemoryLimitMB:   512, // Total memory limit
@@ -72,12 +68,10 @@ type Executor struct {
 
 	mu         sync.RWMutex
 	executions map[string]*Execution // scriptID -> Execution
-
-	sdkServer *SDKServer
 }
 
 // NewExecutor creates a new script executor.
-func NewExecutor(config *Config, logger zerolog.Logger, sdkServer *SDKServer) *Executor {
+func NewExecutor(config *Config, logger zerolog.Logger) *Executor {
 	if config == nil {
 		config = DefaultConfig()
 	}
@@ -86,7 +80,6 @@ func NewExecutor(config *Config, logger zerolog.Logger, sdkServer *SDKServer) *E
 		config:     config,
 		logger:     logger.With().Str("component", "script-executor").Logger(),
 		executions: make(map[string]*Execution),
-		sdkServer:  sdkServer,
 	}
 }
 
@@ -108,17 +101,9 @@ func (e *Executor) Start(ctx context.Context) error {
 		// Don't return error - allow agent to start.
 	}
 
-	// Start SDK server.
-	if e.sdkServer != nil {
-		if err := e.sdkServer.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start SDK server: %w", err)
-		}
-	}
-
 	e.logger.Info().
 		Str("deno_path", e.config.DenoPath).
 		Int("max_concurrent", e.config.MaxConcurrent).
-		Str("sdk_socket", e.config.SDKSocketPath).
 		Int("adhoc_timeout_sec", e.config.TimeoutSeconds).
 		Int("daemon_timeout_sec", e.config.DaemonTimeoutSeconds).
 		Msg("Script executor started")
@@ -137,12 +122,6 @@ func (e *Executor) Stop(ctx context.Context) error {
 				Err(err).
 				Str("script_id", scriptID).
 				Msg("Failed to stop script")
-		}
-	}
-
-	if e.sdkServer != nil {
-		if err := e.sdkServer.Stop(ctx); err != nil {
-			return fmt.Errorf("failed to stop SDK server: %w", err)
 		}
 	}
 
@@ -274,17 +253,17 @@ const (
 
 // Execution represents a running script execution.
 type Execution struct {
-	ID            string
-	ScriptID      string
-	ScriptName    string
-	Status        ExecutionStatus
-	StartedAt     time.Time
-	CompletedAt   *time.Time
-	ExitCode      int
-	Stdout        []byte
-	Stderr        []byte
-	Events        []Event
-	Error         string
+	ID          string
+	ScriptID    string
+	ScriptName  string
+	Status      ExecutionStatus
+	StartedAt   time.Time
+	CompletedAt *time.Time
+	ExitCode    int
+	Stdout      []byte
+	Stderr      []byte
+	Events      []Event
+	Error       string
 
 	mu     sync.RWMutex
 	cmd    *exec.Cmd
@@ -355,10 +334,11 @@ func (e *Execution) Start(ctx context.Context) error {
 	e.cancel = cancel
 
 	// Build Deno command with permissions.
-	// Only allow read access to the SDK socket, no network or filesystem access.
+	// NOTE: Agent-side execution is deprecated in favor of CLI-side execution (RFD 076).
+	// This code path is retained for future agent-side execution if needed.
 	args := []string{
 		"run",
-		"--allow-read=" + e.config.SDKSocketPath, // UDS socket access only
+		"--allow-read=" + e.config.WorkDir, // Allow reading script files only
 		"--v8-flags=--max-old-space-size=" + fmt.Sprint(e.config.MemoryLimitMB),
 		"--no-prompt",
 		scriptPath,
@@ -368,7 +348,6 @@ func (e *Execution) Start(ctx context.Context) error {
 
 	// Set up environment.
 	e.cmd.Env = []string{
-		"CORAL_SDK_SOCKET=" + e.config.SDKSocketPath,
 		"CORAL_SCRIPT_ID=" + e.ScriptID,
 		"CORAL_EXECUTION_ID=" + e.ID,
 		"CORAL_SCRIPT_TYPE=" + string(e.script.ScriptType),

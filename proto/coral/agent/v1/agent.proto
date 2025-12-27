@@ -3,7 +3,6 @@ syntax = "proto3";
 package coral.agent.v1;
 
 import "google/protobuf/timestamp.proto";
-import "coral/agent/v1/script.proto";
 
 option go_package = "github.com/coral-mesh/coral/coral/agent/v1;agentv1";
 
@@ -53,14 +52,6 @@ service AgentService {
 
   // Function Discovery (RFD 063) - pull-based model.
   rpc GetFunctions(GetFunctionsRequest) returns (GetFunctionsResponse);
-
-  // Script execution (RFD 076) - sandboxed TypeScript execution.
-  rpc DeployScript(DeployScriptRequest) returns (DeployScriptResponse);
-  rpc StopScript(StopScriptRequest) returns (StopScriptResponse);
-  rpc GetScriptStatus(GetScriptStatusRequest) returns (GetScriptStatusResponse);
-  rpc StreamScriptLogs(StreamScriptLogsRequest) returns (stream ScriptLogEntry);
-  rpc ListScripts(ListScriptsRequest) returns (ListScriptsResponse);
-  rpc DeleteScript(DeleteScriptRequest) returns (DeleteScriptResponse);
 }
 
 message GetRuntimeContextRequest {

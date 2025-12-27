@@ -1,0 +1,237 @@
+syntax = "proto3";
+
+package coral.colony.v1;
+
+import "google/protobuf/timestamp.proto";
+import "coral/agent/v1/agent.proto";
+
+option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
+
+// Unified Query Interface (RFD 067) - comprehensive queries for detailed analysis.
+
+message QueryUnifiedSummaryRequest {
+  // Optional: specific service or all services.
+  string service = 1;
+
+  // Time range (e.g., "5m", "1h").
+  string time_range = 2;
+}
+
+message UnifiedSummaryResult {
+  // Service name.
+  string service_name = 1;
+
+  // Health status: healthy, degraded, critical.
+  string status = 2;
+
+  // Total requests/spans.
+  int64 request_count = 3;
+
+  // Error rate as percentage (0-100).
+  double error_rate = 4;
+
+  // Average latency in milliseconds.
+  double avg_latency_ms = 5;
+
+  // Data source: eBPF, OTLP, or eBPF+OTLP.
+  string source = 6;
+
+  // Issues detected (human-readable descriptions).
+  repeated string issues = 7;
+
+  // Host resources (RFD 071).
+  double host_cpu_utilization = 8;      // CPU utilization percentage (max in time window)
+  double host_cpu_utilization_avg = 9;  // CPU utilization percentage (average in time window)
+  double host_memory_usage_gb = 10;     // Memory usage in GB (max in time window)
+  double host_memory_limit_gb = 11;     // Memory limit in GB
+  double host_memory_utilization = 12;  // Memory utilization percentage (max in time window)
+  string agent_id = 13;                 // Agent ID for correlation
+}
+
+message QueryUnifiedSummaryResponse {
+  // Structured summary results.
+  repeated UnifiedSummaryResult summaries = 1;
+}
+
+message QueryUnifiedTracesRequest {
+  // Optional: filter by service.
+  string service = 1;
+
+  // Time range (default: "1h").
+  string time_range = 2;
+
+  // Optional: ebpf|telemetry|all (default: all).
+  string source = 3;
+
+  // Optional: specific trace ID.
+  string trace_id = 4;
+
+  // Optional: filter slow traces (milliseconds).
+  int32 min_duration_ms = 5;
+
+  // Maximum traces to return.
+  int32 max_traces = 6;
+}
+
+message QueryUnifiedTracesResponse {
+  // Structured trace spans (eBPF + OTLP).
+  repeated coral.agent.v1.EbpfTraceSpan spans = 1;
+
+  // Total traces returned.
+  int32 total_traces = 2;
+}
+
+message QueryUnifiedMetricsRequest {
+  // Optional: filter by service.
+  string service = 1;
+
+  // Time range (default: "1h").
+  string time_range = 2;
+
+  // Optional: ebpf|telemetry|all (default: all).
+  string source = 3;
+
+  // Optional: http|grpc|sql|auto (default: auto).
+  string protocol = 4;
+
+  // Optional: HTTP route filter.
+  string http_route = 5;
+
+  // Optional: HTTP method filter.
+  string http_method = 6;
+
+  // Optional: HTTP status code range filter.
+  string status_code_range = 7;
+}
+
+message QueryUnifiedMetricsResponse {
+  // Structured HTTP metrics (eBPF + OTLP).
+  repeated coral.agent.v1.EbpfHttpMetric http_metrics = 1;
+
+  // Structured gRPC metrics (eBPF + OTLP).
+  repeated coral.agent.v1.EbpfGrpcMetric grpc_metrics = 2;
+
+  // Structured SQL metrics (eBPF + OTLP).
+  repeated coral.agent.v1.EbpfSqlMetric sql_metrics = 3;
+
+  // Total metrics returned.
+  int32 total_metrics = 4;
+}
+
+message QueryUnifiedLogsRequest {
+  // Optional: filter by service.
+  string service = 1;
+
+  // Time range (default: "1h").
+  string time_range = 2;
+
+  // Optional: debug|info|warn|error.
+  string level = 3;
+
+  // Optional: full-text search.
+  string search = 4;
+
+  // Maximum logs to return.
+  int32 max_logs = 5;
+}
+
+message UnifiedLogEntry {
+  // Timestamp (Unix milliseconds).
+  int64 timestamp = 1;
+
+  // Service name.
+  string service_name = 2;
+
+  // Log level: debug, info, warn, error.
+  string level = 3;
+
+  // Log message.
+  string message = 4;
+
+  // Associated trace ID (if any).
+  string trace_id = 5;
+
+  // Additional attributes.
+  map<string, string> attributes = 6;
+}
+
+message QueryUnifiedLogsResponse {
+  // Structured log entries.
+  repeated UnifiedLogEntry logs = 1;
+
+  // Total logs returned.
+  int32 total_logs = 2;
+}
+
+// Focused Query Interface (RFD 076) - focused queries for scripting and CLI.
+
+// Service discovery.
+
+message ListServicesRequest {
+  // Optional namespace filter.
+  string namespace = 1;
+}
+
+message ListServicesResponse {
+  repeated ServiceInfo services = 1;
+}
+
+message ServiceInfo {
+  string name = 1;
+  string namespace = 2;
+  int32 instance_count = 3;
+  google.protobuf.Timestamp last_seen = 4;
+}
+
+// Focused metric queries.
+
+message GetMetricPercentileRequest {
+  // Service name.
+  string service = 1;
+
+  // Metric name (e.g., "http.server.duration").
+  string metric = 2;
+
+  // Percentile (0.0-1.0, e.g., 0.99 for P99).
+  double percentile = 3;
+
+  // Time range in milliseconds (default: 1 hour).
+  int64 time_range_ms = 4;
+}
+
+message GetMetricPercentileResponse {
+  // Percentile value in the metric's native unit.
+  double value = 1;
+
+  // Unit (e.g., "nanoseconds", "bytes").
+  string unit = 2;
+
+  // Timestamp of the query.
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// Raw SQL execution.
+
+message ExecuteQueryRequest {
+  // SQL query string.
+  string sql = 1;
+
+  // Optional: maximum rows to return (default: 1000).
+  int32 max_rows = 2;
+}
+
+message ExecuteQueryResponse {
+  // Query results as rows.
+  repeated QueryRow rows = 1;
+
+  // Total rows returned.
+  int32 row_count = 2;
+
+  // Column names.
+  repeated string columns = 3;
+}
+
+message QueryRow {
+  // Column values (stringified).
+  repeated string values = 1;
+}

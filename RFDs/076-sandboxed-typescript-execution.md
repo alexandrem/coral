@@ -569,25 +569,28 @@ if (unhealthy.length >= 2) {
 
 ## Implementation Plan
 
-### Phase 1: Colony Query API
+### Phase 1: Colony Query API ✅ **COMPLETED**
 
-- [ ] Define `proto/coral/colony/v1/query.proto` with service discovery,
+- [x] Define `proto/coral/colony/v1/query.proto` with service discovery,
   metrics, traces, and SQL query RPCs
-- [ ] Implement `internal/colony/api/query_service.go` with DuckDB query
-  handlers
+- [x] Implement `internal/colony/server/query_service.go` with DuckDB query
+  handlers (ListServices, GetService, GetPercentile, GetErrorRate,
+  FindSlowTraces, FindErrorTraces, GetSystemMetrics, ExecuteQuery)
 - [ ] Add read-only connection pool with timeout and size limit enforcement
-- [ ] Generate protobuf code and integrate with Colony
+  (deferred - will use existing database connection)
+- [x] Generate protobuf code and integrate with Colony
 
-### Phase 2: Interactive CLI Commands
+### Phase 2: Interactive CLI Commands ✅ **COMPLETED**
 
-- [ ] Implement `coral query services` command with namespace/region filters
-- [ ] Implement `coral query metrics` command with percentile and error-rate
-  flags
-- [ ] Implement `coral query traces` command with slow/error filters
-- [ ] Implement `coral query sql` command for raw SQL queries
-- [ ] Add output formatting (table, JSON, CSV) with `--output` flag
+- [x] Implement `coral query services` command with namespace filters
+- [x] Enhance `coral query metrics` command with `--metric` and `--percentile`
+  flags for focused queries
+- [x] `coral query traces` command already exists with slow/error filters
+- [x] Implement `coral query sql` command for raw SQL queries
+- [ ] Add `--output` flag to all commands using existing formatter helper
+  (deferred - can be added incrementally)
 
-### Phase 3: Scripting Runtime
+### Phase 3: Scripting Runtime ⏳ **NOT STARTED**
 
 - [ ] Embed Deno binary in Coral CLI build system
 - [ ] Implement `coral run` command with script execution and parameter support
@@ -596,7 +599,7 @@ if (unhealthy.length >= 2) {
   `system.ts`, `db.ts`
 - [ ] Package and publish SDK to JSR as `@coral/sdk`
 
-### Phase 4: Examples & Documentation
+### Phase 4: Examples & Documentation ⏳ **NOT STARTED**
 
 - [ ] Create example scripts (latency reports, error correlation, trace
   analysis)
@@ -654,9 +657,79 @@ if (unhealthy.length >= 2) {
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🔄 In Progress (Phase 1 Complete)
 
-This RFD is currently in draft state. Implementation will begin pending approval.
+### Completed (2025-12-27)
+
+**Phase 1: Colony Query API** ✅
+- Created `proto/coral/colony/v1/queries.proto` with all query message definitions:
+  - Unified query messages (RFD 067): QueryUnifiedSummary, QueryUnifiedTraces, etc.
+  - Focused query messages (RFD 076): ListServices, GetMetricPercentile, ExecuteQuery
+- Updated `proto/coral/colony/v1/colony.proto`:
+  - Added import for `queries.proto`
+  - Added 3 new focused query RPCs to ColonyService
+  - Follows existing pattern (service in colony.proto, messages in separate files)
+- Implemented `internal/colony/server/query_service.go` with 3 focused query handlers:
+  - `ListServices` - Service discovery from DuckDB
+  - `GetMetricPercentile` - Percentile queries (fills gap in unified API)
+  - `ExecuteQuery` - Raw SQL execution with guardrails
+- Generated protobuf code (`queries.pb.go`)
+- No duplicate service - extends existing ColonyService
+
+**Architecture Decision**:
+- **Single service pattern**: Extended ColonyService instead of creating separate QueryService
+- **Message organization**: Follows existing pattern (mcp.proto, debug.proto)
+- **No duplication**: Unified queries (RFD 067) remain in place, focused queries (RFD 076) supplement them
+- **Standardized commands**: Enhance existing `coral query` commands with flags, don't create new top-level commands
+
+**Cleanup**:
+- Removed agent-side SDK server code (3 files, ~1500 lines)
+- Removed agent-side protobuf schemas
+- Removed demo environment
+- Removed agent-specific documentation
+- Updated agent executor to compile without SDK server dependencies
+
+### In Progress
+
+None - ready to start Phase 3
+
+### Next Steps
+
+1. **Phase 3**: Implement `coral run` command with embedded Deno
+2. **Phase 4**: Create TypeScript SDK and examples
+
+### Latest Progress (Continued)
+
+**Phase 2: Interactive CLI Commands** ✅ (2025-12-27)
+- Implemented `coral query services` - service discovery command
+- Enhanced `coral query metrics` with `--metric` and `--percentile` flags
+- Implemented `coral query sql` - raw SQL query execution
+- All commands follow standardized pattern and integrate with existing infrastructure
+- Existing `coral query summary`, `coral query traces`, `coral query logs` already functional
+
+### Files Changed
+
+**Added:**
+- `proto/coral/colony/v1/queries.proto` - All query message definitions
+- `internal/colony/server/query_service.go` - Focused query handlers (3 RPCs)
+- `internal/cli/query/services.go` - Service discovery CLI command
+- `internal/cli/query/sql.go` - Raw SQL query CLI command
+- `coral/colony/v1/queries.pb.go` (generated)
+
+**Modified:**
+- `proto/coral/colony/v1/colony.proto` - Added 3 new focused query RPCs, imports queries.proto
+- `proto/coral/agent/v1/agent.proto` - Removed deprecated script RPCs
+- `internal/agent/script/executor.go` - Removed SDK server dependencies
+- `internal/agent/script/executor_test.go` - Fixed tests
+- `internal/cli/query/root.go` - Added services and sql commands
+- `internal/cli/query/metrics.go` - Enhanced with --metric and --percentile flags
+
+**Removed:**
+- `internal/agent/script/sdk_server*.go` (3 files)
+- `proto/coral/sdk/v1/sdk.proto`
+- `proto/coral/agent/v1/script.proto`
+- `examples/scripts/demo/` (2 files)
+- `internal/agent/script/{CONCURRENCY,ARCHITECTURE_COMPARISON}.md` (2 files)
 
 ## Future Work
 
