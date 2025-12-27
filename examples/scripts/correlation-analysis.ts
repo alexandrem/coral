@@ -5,7 +5,7 @@
  * cascading performance issues.
  *
  * This script demonstrates:
- * - Querying metrics for multiple services
+ * - Querying metrics for multiple services using SDK abstractions
  * - Correlating data across services
  * - Advanced data analysis in TypeScript
  * - Pattern detection
@@ -104,21 +104,13 @@ async function analyzeCorrelation() {
       // Get error details for high-latency services
       console.log("\nError analysis:");
       for (const svc of highLatencyServices) {
-        const errorResult = await coral.db.query(`
-          SELECT
-            COUNT(*) FILTER (WHERE status_code >= 400) as error_count,
-            COUNT(*) as total_count
-          FROM ebpf_http_metrics
-          WHERE service_name = '${svc.name}'
-            AND timestamp > now() - INTERVAL '5 minutes'
-        `);
-
-        const errorCount = Number(errorResult.rows[0]?.error_count || 0);
-        const totalCount = Number(errorResult.rows[0]?.total_count || 0);
-        const errorRate = totalCount > 0 ? (errorCount / totalCount) * 100 : 0;
+        const errors = await coral.activity.getServiceErrors(
+          svc.name,
+          5 * 60 * 1000, // Last 5 minutes
+        );
 
         console.log(
-          `  ${svc.name}: ${errorCount} errors (${errorRate.toFixed(2)}%)`,
+          `  ${svc.name}: ${errors.errorCount} errors (${(errors.errorRate * 100).toFixed(2)}%)`,
         );
       }
     } else {

@@ -183,6 +183,113 @@ func (s *Server) ExecuteQuery(
 	}), nil
 }
 
+// GetServiceActivity handles service activity requests for a specific service.
+func (s *Server) GetServiceActivity(
+	ctx context.Context,
+	req *connect.Request[colonyv1.GetServiceActivityRequest],
+) (*connect.Response[colonyv1.GetServiceActivityResponse], error) {
+	// Convert time range from milliseconds to duration.
+	timeRange := time.Duration(req.Msg.TimeRangeMs) * time.Millisecond
+	if timeRange == 0 {
+		timeRange = 1 * time.Hour // Default to 1 hour
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			service_name,
+			COUNT(*) as request_count,
+			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count
+		FROM ebpf_http_metrics
+		WHERE service_name = ?
+		  AND timestamp > now() - INTERVAL '%s'
+		GROUP BY service_name
+	`, timeRange.String())
+
+	var serviceName string
+	var requestCount, errorCount int64
+
+	err := s.database.DB().QueryRowContext(
+		ctx,
+		query,
+		req.Msg.Service,
+	).Scan(&serviceName, &requestCount, &errorCount)
+
+	if err == sql.ErrNoRows {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no activity found for service: %s", req.Msg.Service))
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query service activity: %w", err))
+	}
+
+	errorRate := 0.0
+	if requestCount > 0 {
+		errorRate = float64(errorCount) / float64(requestCount)
+	}
+
+	return connect.NewResponse(&colonyv1.GetServiceActivityResponse{
+		ServiceName:  serviceName,
+		RequestCount: requestCount,
+		ErrorCount:   errorCount,
+		ErrorRate:    errorRate,
+		Timestamp:    timestamppb.Now(),
+	}), nil
+}
+
+// ListServiceActivity handles service activity requests for all services.
+func (s *Server) ListServiceActivity(
+	ctx context.Context,
+	req *connect.Request[colonyv1.ListServiceActivityRequest],
+) (*connect.Response[colonyv1.ListServiceActivityResponse], error) {
+	// Convert time range from milliseconds to duration.
+	timeRange := time.Duration(req.Msg.TimeRangeMs) * time.Millisecond
+	if timeRange == 0 {
+		timeRange = 1 * time.Hour // Default to 1 hour
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			service_name,
+			COUNT(*) as request_count,
+			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count
+		FROM ebpf_http_metrics
+		WHERE timestamp > now() - INTERVAL '%s'
+		GROUP BY service_name
+		ORDER BY request_count DESC
+	`, timeRange.String())
+
+	rows, err := s.database.DB().QueryContext(ctx, query)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query service activity: %w", err))
+	}
+	defer func() { _ = rows.Close() }()
+
+	var services []*colonyv1.ServiceActivity
+	for rows.Next() {
+		var svc colonyv1.ServiceActivity
+		var requestCount, errorCount int64
+
+		if err := rows.Scan(&svc.ServiceName, &requestCount, &errorCount); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to scan service activity: %w", err))
+		}
+
+		svc.RequestCount = requestCount
+		svc.ErrorCount = errorCount
+		if requestCount > 0 {
+			svc.ErrorRate = float64(errorCount) / float64(requestCount)
+		}
+
+		services = append(services, &svc)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("error iterating service activity: %w", err))
+	}
+
+	return connect.NewResponse(&colonyv1.ListServiceActivityResponse{
+		Services: services,
+	}), nil
+}
+
 // validateSQL performs basic SQL validation to prevent destructive operations.
 func validateSQL(sql string) error {
 	// TODO: Implement comprehensive SQL validation.

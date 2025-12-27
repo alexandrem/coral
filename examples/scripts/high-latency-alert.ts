@@ -5,7 +5,7 @@
  *
  * This script demonstrates:
  * - Querying metrics using the Coral SDK
- * - Using SQL for error rate calculation
+ * - Using activity API for error rate calculation
  * - Continuous monitoring with periodic checks
  * - Console-based alerting
  */
@@ -30,19 +30,14 @@ async function checkServiceHealth() {
     );
     const p99Ms = p99.value / 1_000_000;
 
-    // Calculate error rate using SQL
-    const errorRateResult = await coral.db.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE status_code >= 400) as error_count,
-        COUNT(*) as total_count,
-        CAST(COUNT(*) FILTER (WHERE status_code >= 400) AS DOUBLE) / COUNT(*) as error_rate
-      FROM ebpf_http_metrics
-      WHERE service_name = '${SERVICE_NAME}'
-        AND timestamp > now() - INTERVAL '5 minutes'
-    `);
+    // Get error rate using SDK abstraction
+    const errors = await coral.activity.getServiceErrors(
+      SERVICE_NAME,
+      5 * 60 * 1000, // Last 5 minutes
+    );
 
-    const errorRate = errorRateResult.rows[0]?.error_rate as number || 0;
-    const errorCount = errorRateResult.rows[0]?.error_count as number || 0;
+    const errorRate = errors.errorRate;
+    const errorCount = errors.errorCount;
 
     // Check if thresholds are exceeded
     const latencyExceeded = p99Ms > LATENCY_THRESHOLD_MS;

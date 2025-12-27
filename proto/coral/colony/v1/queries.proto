@@ -210,6 +210,57 @@ message GetMetricPercentileResponse {
   google.protobuf.Timestamp timestamp = 3;
 }
 
+// Service activity metrics.
+
+message GetServiceActivityRequest {
+  // Service name.
+  string service = 1;
+
+  // Time range in milliseconds (default: 1 hour).
+  int64 time_range_ms = 2;
+}
+
+message GetServiceActivityResponse {
+  // Service name.
+  string service_name = 1;
+
+  // Total request count.
+  int64 request_count = 2;
+
+  // Error count (status >= 400).
+  int64 error_count = 3;
+
+  // Error rate (0.0-1.0).
+  double error_rate = 4;
+
+  // Timestamp of the query.
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+message ListServiceActivityRequest {
+  // Time range in milliseconds (default: 1 hour).
+  int64 time_range_ms = 1;
+}
+
+message ListServiceActivityResponse {
+  // Activity stats for all services.
+  repeated ServiceActivity services = 1;
+}
+
+message ServiceActivity {
+  // Service name.
+  string service_name = 1;
+
+  // Total request count.
+  int64 request_count = 2;
+
+  // Error count (status >= 400).
+  int64 error_count = 3;
+
+  // Error rate (0.0-1.0).
+  double error_rate = 4;
+}
+
 // Raw SQL execution.
 
 message ExecuteQueryRequest {

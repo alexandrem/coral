@@ -15,7 +15,11 @@
  * const p99 = await coral.metrics.getP99("payments", "http.server.duration");
  * console.log(`P99: ${p99.value / 1_000_000}ms`);
  *
- * // Raw SQL query
+ * // Get service activity
+ * const activity = await coral.activity.getServiceActivity("payments");
+ * console.log(`Requests: ${activity.requestCount}, Errors: ${activity.errorRate}%`);
+ *
+ * // Raw SQL query (advanced use only)
  * const result = await coral.db.query(`
  *   SELECT service_name, COUNT(*) as count
  *   FROM ebpf_http_metrics
@@ -28,6 +32,7 @@
 
 export * as services from "./services.ts";
 export * as metrics from "./metrics.ts";
+export * as activity from "./activity.ts";
 export * as traces from "./traces.ts";
 export * as system from "./system.ts";
 export * as db from "./db.ts";

@@ -886,7 +886,7 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"5\n" +
 	"\x19RevokeCertificateResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\xd7\v\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\xb8\r\n" +
 	"\rColonyService\x12R\n" +
 	"\tGetStatus\x12!.coral.colony.v1.GetStatusRequest\x1a\".coral.colony.v1.GetStatusResponse\x12U\n" +
 	"\n" +
@@ -897,7 +897,9 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\x13QueryUnifiedMetrics\x12+.coral.colony.v1.QueryUnifiedMetricsRequest\x1a,.coral.colony.v1.QueryUnifiedMetricsResponse\x12g\n" +
 	"\x10QueryUnifiedLogs\x12(.coral.colony.v1.QueryUnifiedLogsRequest\x1a).coral.colony.v1.QueryUnifiedLogsResponse\x12[\n" +
 	"\fListServices\x12$.coral.colony.v1.ListServicesRequest\x1a%.coral.colony.v1.ListServicesResponse\x12p\n" +
-	"\x13GetMetricPercentile\x12+.coral.colony.v1.GetMetricPercentileRequest\x1a,.coral.colony.v1.GetMetricPercentileResponse\x12[\n" +
+	"\x13GetMetricPercentile\x12+.coral.colony.v1.GetMetricPercentileRequest\x1a,.coral.colony.v1.GetMetricPercentileResponse\x12m\n" +
+	"\x12GetServiceActivity\x12*.coral.colony.v1.GetServiceActivityRequest\x1a+.coral.colony.v1.GetServiceActivityResponse\x12p\n" +
+	"\x13ListServiceActivity\x12+.coral.colony.v1.ListServiceActivityRequest\x1a,.coral.colony.v1.ListServiceActivityResponse\x12[\n" +
 	"\fExecuteQuery\x12$.coral.colony.v1.ExecuteQueryRequest\x1a%.coral.colony.v1.ExecuteQueryResponse\x12O\n" +
 	"\bCallTool\x12 .coral.colony.v1.CallToolRequest\x1a!.coral.colony.v1.CallToolResponse\x12Y\n" +
 	"\n" +
@@ -942,20 +944,24 @@ var file_coral_colony_v1_colony_proto_goTypes = []any{
 	(*QueryUnifiedLogsRequest)(nil),     // 18: coral.colony.v1.QueryUnifiedLogsRequest
 	(*ListServicesRequest)(nil),         // 19: coral.colony.v1.ListServicesRequest
 	(*GetMetricPercentileRequest)(nil),  // 20: coral.colony.v1.GetMetricPercentileRequest
-	(*ExecuteQueryRequest)(nil),         // 21: coral.colony.v1.ExecuteQueryRequest
-	(*CallToolRequest)(nil),             // 22: coral.colony.v1.CallToolRequest
-	(*StreamToolRequest)(nil),           // 23: coral.colony.v1.StreamToolRequest
-	(*ListToolsRequest)(nil),            // 24: coral.colony.v1.ListToolsRequest
-	(*QueryUnifiedSummaryResponse)(nil), // 25: coral.colony.v1.QueryUnifiedSummaryResponse
-	(*QueryUnifiedTracesResponse)(nil),  // 26: coral.colony.v1.QueryUnifiedTracesResponse
-	(*QueryUnifiedMetricsResponse)(nil), // 27: coral.colony.v1.QueryUnifiedMetricsResponse
-	(*QueryUnifiedLogsResponse)(nil),    // 28: coral.colony.v1.QueryUnifiedLogsResponse
-	(*ListServicesResponse)(nil),        // 29: coral.colony.v1.ListServicesResponse
-	(*GetMetricPercentileResponse)(nil), // 30: coral.colony.v1.GetMetricPercentileResponse
-	(*ExecuteQueryResponse)(nil),        // 31: coral.colony.v1.ExecuteQueryResponse
-	(*CallToolResponse)(nil),            // 32: coral.colony.v1.CallToolResponse
-	(*StreamToolResponse)(nil),          // 33: coral.colony.v1.StreamToolResponse
-	(*ListToolsResponse)(nil),           // 34: coral.colony.v1.ListToolsResponse
+	(*GetServiceActivityRequest)(nil),   // 21: coral.colony.v1.GetServiceActivityRequest
+	(*ListServiceActivityRequest)(nil),  // 22: coral.colony.v1.ListServiceActivityRequest
+	(*ExecuteQueryRequest)(nil),         // 23: coral.colony.v1.ExecuteQueryRequest
+	(*CallToolRequest)(nil),             // 24: coral.colony.v1.CallToolRequest
+	(*StreamToolRequest)(nil),           // 25: coral.colony.v1.StreamToolRequest
+	(*ListToolsRequest)(nil),            // 26: coral.colony.v1.ListToolsRequest
+	(*QueryUnifiedSummaryResponse)(nil), // 27: coral.colony.v1.QueryUnifiedSummaryResponse
+	(*QueryUnifiedTracesResponse)(nil),  // 28: coral.colony.v1.QueryUnifiedTracesResponse
+	(*QueryUnifiedMetricsResponse)(nil), // 29: coral.colony.v1.QueryUnifiedMetricsResponse
+	(*QueryUnifiedLogsResponse)(nil),    // 30: coral.colony.v1.QueryUnifiedLogsResponse
+	(*ListServicesResponse)(nil),        // 31: coral.colony.v1.ListServicesResponse
+	(*GetMetricPercentileResponse)(nil), // 32: coral.colony.v1.GetMetricPercentileResponse
+	(*GetServiceActivityResponse)(nil),  // 33: coral.colony.v1.GetServiceActivityResponse
+	(*ListServiceActivityResponse)(nil), // 34: coral.colony.v1.ListServiceActivityResponse
+	(*ExecuteQueryResponse)(nil),        // 35: coral.colony.v1.ExecuteQueryResponse
+	(*CallToolResponse)(nil),            // 36: coral.colony.v1.CallToolResponse
+	(*StreamToolResponse)(nil),          // 37: coral.colony.v1.StreamToolResponse
+	(*ListToolsResponse)(nil),           // 38: coral.colony.v1.ListToolsResponse
 }
 var file_coral_colony_v1_colony_proto_depIdxs = []int32{
 	12, // 0: coral.colony.v1.GetStatusResponse.started_at:type_name -> google.protobuf.Timestamp
@@ -974,29 +980,33 @@ var file_coral_colony_v1_colony_proto_depIdxs = []int32{
 	18, // 13: coral.colony.v1.ColonyService.QueryUnifiedLogs:input_type -> coral.colony.v1.QueryUnifiedLogsRequest
 	19, // 14: coral.colony.v1.ColonyService.ListServices:input_type -> coral.colony.v1.ListServicesRequest
 	20, // 15: coral.colony.v1.ColonyService.GetMetricPercentile:input_type -> coral.colony.v1.GetMetricPercentileRequest
-	21, // 16: coral.colony.v1.ColonyService.ExecuteQuery:input_type -> coral.colony.v1.ExecuteQueryRequest
-	22, // 17: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
-	23, // 18: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
-	24, // 19: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
-	8,  // 20: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
-	10, // 21: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
-	1,  // 22: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
-	3,  // 23: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
-	6,  // 24: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
-	25, // 25: coral.colony.v1.ColonyService.QueryUnifiedSummary:output_type -> coral.colony.v1.QueryUnifiedSummaryResponse
-	26, // 26: coral.colony.v1.ColonyService.QueryUnifiedTraces:output_type -> coral.colony.v1.QueryUnifiedTracesResponse
-	27, // 27: coral.colony.v1.ColonyService.QueryUnifiedMetrics:output_type -> coral.colony.v1.QueryUnifiedMetricsResponse
-	28, // 28: coral.colony.v1.ColonyService.QueryUnifiedLogs:output_type -> coral.colony.v1.QueryUnifiedLogsResponse
-	29, // 29: coral.colony.v1.ColonyService.ListServices:output_type -> coral.colony.v1.ListServicesResponse
-	30, // 30: coral.colony.v1.ColonyService.GetMetricPercentile:output_type -> coral.colony.v1.GetMetricPercentileResponse
-	31, // 31: coral.colony.v1.ColonyService.ExecuteQuery:output_type -> coral.colony.v1.ExecuteQueryResponse
-	32, // 32: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
-	33, // 33: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
-	34, // 34: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
-	9,  // 35: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
-	11, // 36: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
-	22, // [22:37] is the sub-list for method output_type
-	7,  // [7:22] is the sub-list for method input_type
+	21, // 16: coral.colony.v1.ColonyService.GetServiceActivity:input_type -> coral.colony.v1.GetServiceActivityRequest
+	22, // 17: coral.colony.v1.ColonyService.ListServiceActivity:input_type -> coral.colony.v1.ListServiceActivityRequest
+	23, // 18: coral.colony.v1.ColonyService.ExecuteQuery:input_type -> coral.colony.v1.ExecuteQueryRequest
+	24, // 19: coral.colony.v1.ColonyService.CallTool:input_type -> coral.colony.v1.CallToolRequest
+	25, // 20: coral.colony.v1.ColonyService.StreamTool:input_type -> coral.colony.v1.StreamToolRequest
+	26, // 21: coral.colony.v1.ColonyService.ListTools:input_type -> coral.colony.v1.ListToolsRequest
+	8,  // 22: coral.colony.v1.ColonyService.RequestCertificate:input_type -> coral.colony.v1.RequestCertificateRequest
+	10, // 23: coral.colony.v1.ColonyService.RevokeCertificate:input_type -> coral.colony.v1.RevokeCertificateRequest
+	1,  // 24: coral.colony.v1.ColonyService.GetStatus:output_type -> coral.colony.v1.GetStatusResponse
+	3,  // 25: coral.colony.v1.ColonyService.ListAgents:output_type -> coral.colony.v1.ListAgentsResponse
+	6,  // 26: coral.colony.v1.ColonyService.GetTopology:output_type -> coral.colony.v1.GetTopologyResponse
+	27, // 27: coral.colony.v1.ColonyService.QueryUnifiedSummary:output_type -> coral.colony.v1.QueryUnifiedSummaryResponse
+	28, // 28: coral.colony.v1.ColonyService.QueryUnifiedTraces:output_type -> coral.colony.v1.QueryUnifiedTracesResponse
+	29, // 29: coral.colony.v1.ColonyService.QueryUnifiedMetrics:output_type -> coral.colony.v1.QueryUnifiedMetricsResponse
+	30, // 30: coral.colony.v1.ColonyService.QueryUnifiedLogs:output_type -> coral.colony.v1.QueryUnifiedLogsResponse
+	31, // 31: coral.colony.v1.ColonyService.ListServices:output_type -> coral.colony.v1.ListServicesResponse
+	32, // 32: coral.colony.v1.ColonyService.GetMetricPercentile:output_type -> coral.colony.v1.GetMetricPercentileResponse
+	33, // 33: coral.colony.v1.ColonyService.GetServiceActivity:output_type -> coral.colony.v1.GetServiceActivityResponse
+	34, // 34: coral.colony.v1.ColonyService.ListServiceActivity:output_type -> coral.colony.v1.ListServiceActivityResponse
+	35, // 35: coral.colony.v1.ColonyService.ExecuteQuery:output_type -> coral.colony.v1.ExecuteQueryResponse
+	36, // 36: coral.colony.v1.ColonyService.CallTool:output_type -> coral.colony.v1.CallToolResponse
+	37, // 37: coral.colony.v1.ColonyService.StreamTool:output_type -> coral.colony.v1.StreamToolResponse
+	38, // 38: coral.colony.v1.ColonyService.ListTools:output_type -> coral.colony.v1.ListToolsResponse
+	9,  // 39: coral.colony.v1.ColonyService.RequestCertificate:output_type -> coral.colony.v1.RequestCertificateResponse
+	11, // 40: coral.colony.v1.ColonyService.RevokeCertificate:output_type -> coral.colony.v1.RevokeCertificateResponse
+	24, // [24:41] is the sub-list for method output_type
+	7,  // [7:24] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name
 	7,  // [7:7] is the sub-list for extension extendee
 	0,  // [0:7] is the sub-list for field type_name

@@ -84,6 +84,14 @@ func (m *mockColonyClient) ExecuteQuery(ctx context.Context, req *connect.Reques
 	return connect.NewResponse(&colonyv1.ExecuteQueryResponse{}), nil
 }
 
+func (m *mockColonyClient) GetServiceActivity(ctx context.Context, req *connect.Request[colonyv1.GetServiceActivityRequest]) (*connect.Response[colonyv1.GetServiceActivityResponse], error) {
+	return connect.NewResponse(&colonyv1.GetServiceActivityResponse{}), nil
+}
+
+func (m *mockColonyClient) ListServiceActivity(ctx context.Context, req *connect.Request[colonyv1.ListServiceActivityRequest]) (*connect.Response[colonyv1.ListServiceActivityResponse], error) {
+	return connect.NewResponse(&colonyv1.ListServiceActivityResponse{}), nil
+}
+
 // TestMCPProxyInitialize tests the initialize method.
 func TestMCPProxyInitialize(t *testing.T) {
 	// Create mock colony client.

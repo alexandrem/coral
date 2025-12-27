@@ -30,6 +30,8 @@ service ColonyService {
   // Focused query interface (RFD 076) - focused queries for scripting and CLI.
   rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
   rpc GetMetricPercentile(GetMetricPercentileRequest) returns (GetMetricPercentileResponse);
+  rpc GetServiceActivity(GetServiceActivityRequest) returns (GetServiceActivityResponse);
+  rpc ListServiceActivity(ListServiceActivityRequest) returns (ListServiceActivityResponse);
   rpc ExecuteQuery(ExecuteQueryRequest) returns (ExecuteQueryResponse);
 
   // MCP Tool Execution (RFD 004 - MCP server integration).
