@@ -59,17 +59,20 @@ go build -ldflags="-w" -o sdk-go main.go
 
 ## Running with Docker (Recommended for macOS/Windows)
 
-To run the example in a Linux environment (required for eBPF tracing) on macOS or Windows, use Docker Compose:
+To run the example in a Linux environment (required for eBPF tracing) on macOS
+or Windows, use Docker Compose:
 
 ```bash
 docker-compose up --build
 ```
 
 This will start:
+
 1. **sdk-go**: The example application
 2. **coral-agent**: The Coral agent (privileged container for eBPF)
 
-Once running, you can attach to the debug session from your host machine using the CLI (if connected to the colony) or by executing into the agent container.
+Once running, you can attach to the debug session from your host machine using
+the CLI (if connected to the colony) or by executing into the agent container.
 
 **Expected output:**
 
@@ -118,8 +121,10 @@ sudo ./bin/coral agent start
 Use the `coral debug` command to attach a uprobe to `ProcessPayment`.
 
 # Attach uprobe
+
 ./bin/coral debug attach payment-service \
-  --function main.ProcessPayment
+--function main.ProcessPayment
+
 ```
 
 ### 3. View Events
@@ -162,6 +167,26 @@ The example includes these instrumentable functions:
 - Only accessible by local agents (not exposed to network)
 - Read-only access to function metadata
 - No ability to modify application state
+
+## Monitoring with TypeScript SDK
+
+Once the docker-compose setup is running, you can monitor the demo service using
+the TypeScript SDK example:
+
+```bash
+# From the repository root
+./bin/coral run examples/scripts/sdk-demo-monitor.ts
+```
+
+This script demonstrates:
+
+- Querying service activity (request count, error rate)
+- Getting latency percentiles (P50, P95, P99)
+- Real-time monitoring with auto-refresh
+- Integration between Go SDK (instrumentation) and TypeScript SDK (querying)
+
+The monitor will show metrics from the payment processing simulation running in
+the Go application.
 
 ## Next Steps
 
