@@ -233,13 +233,13 @@ for storage efficiency.
 
 ### Phase 5: Testing & Validation
 
-- [ ] Add integration tests for continuous collection (deferred to production
-  validation).
+- [x] Add integration tests for continuous collection (`
+  tests/e2e/cpu-profile/test_continuous_profiling.sh`).
 - [ ] Validate storage overhead is acceptable (<10MB per service per day) (
   deferred to production).
 - [ ] Verify 19Hz sampling overhead is <1% CPU (deferred to production).
-- [ ] Test historical flame graph generation matches on-demand profiles (
-  deferred to production).
+- [x] Test historical flame graph generation matches on-demand profiles (
+  validated in e2e test).
 - [ ] Test retention cleanup works correctly (deferred to production).
 
 **Note:** Phase 5 validation tasks are deferred to production deployment and
@@ -289,7 +289,6 @@ retroactive analysis of CPU usage patterns.
 **Deferred Items:**
 
 - Unit tests for profiler components (deferred to production validation)
-- Integration tests (deferred to production validation)
 - Performance validation (<1% CPU overhead, storage limits)
 - `--compare-with` flag for differential flame graphs (future enhancement)
 
@@ -299,13 +298,22 @@ retroactive analysis of CPU usage patterns.
 
 ```yaml
 # agent.yaml - Continuous profiling configuration
+# IMPORTANT: Continuous profiling is ENABLED BY DEFAULT.
+# No configuration is required - it runs automatically.
+# Use 'disabled: true' to explicitly turn it off.
+
 continuous_profiling:
-    enabled: true                # Master switch (default: true)
+    disabled: false              # Master disable switch (default: false, meaning enabled)
     cpu:
-        enabled: true              # CPU profiling (default: true)
+        disabled: false            # CPU profiling disabled (default: false, meaning enabled)
         frequency_hz: 19           # Sampling frequency (default: 19Hz, prime number)
         interval: 15s              # Collection interval (default: 15s)
         retention: 1h              # Local retention (default: 1h)
+        metadata_retention: 7d     # Binary metadata retention (default: 7d)
+
+# To disable continuous profiling:
+# continuous_profiling:
+#     disabled: true
 ```
 
 ### New RPC Endpoint
@@ -345,21 +353,9 @@ message QueryCPUProfileSamplesResponse {
 -- Agent-side: Frame dictionary for compression (shared across all profiles)
 CREATE TABLE IF NOT EXISTS profile_frame_dictionary_local
 (
-    frame_id
-    INTEGER
-    PRIMARY
-    KEY,
-    frame_name
-    TEXT
-    UNIQUE
-    NOT
-    NULL,
-    frame_count
-    BIGINT
-    NOT
-    NULL
-    DEFAULT
-    0 -- Reference count for cleanup
+    frame_id INTEGER PRIMARY KEY,
+    frame_name TEXT UNIQUE NOT NULL,
+    frame_count BIGINT NOT NULL DEFAULT 0 -- Reference count for cleanup
 );
 CREATE INDEX IF NOT EXISTS idx_profile_frame_dictionary_name
     ON profile_frame_dictionary_local (frame_name);
@@ -367,28 +363,12 @@ CREATE INDEX IF NOT EXISTS idx_profile_frame_dictionary_name
 -- Agent-side: Raw 15-second profile samples with integer-encoded stacks
 CREATE TABLE IF NOT EXISTS cpu_profile_samples_local
 (
-    timestamp
-    TIMESTAMP
-    NOT
-    NULL,
-    service_id
-    TEXT
-    NOT
-    NULL,
-    build_id
-    TEXT
-    NOT
-    NULL, -- Binary build ID (ELF build-id or hash)
-    stack_frame_ids
-    INTEGER []
-    NOT
-    NULL, -- Stack as frame IDs: [1, 2, 3]
-    sample_count
-    INTEGER
-    NOT
-    NULL,
-    PRIMARY
-    KEY
+    timestamp TIMESTAMP NOT NULL,
+    service_id TEXT NOT NULL,
+    build_id TEXT NOT NULL, -- Binary build ID (ELF build-id or hash)
+    stack_frame_ids INTEGER [] NOT NULL, -- Stack as frame IDs: [1, 2, 3]
+    sample_count INTEGER NOT NULL,
+    PRIMARY KEY
 (
     timestamp,
     service_id,
@@ -408,32 +388,12 @@ CREATE INDEX IF NOT EXISTS idx_cpu_profile_samples_build_id
 -- Agent-side: Binary metadata for symbol resolution
 CREATE TABLE IF NOT EXISTS binary_metadata_local
 (
-    build_id
-    TEXT
-    PRIMARY
-    KEY,
-    service_id
-    TEXT
-    NOT
-    NULL,
-    binary_path
-    TEXT
-    NOT
-    NULL,
-    first_seen
-    TIMESTAMP
-    NOT
-    NULL,
-    last_seen
-    TIMESTAMP
-    NOT
-    NULL,
-    has_debug_info
-    BOOLEAN
-    NOT
-    NULL
-    DEFAULT
-    false
+    build_id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    binary_path TEXT NOT NULL,
+    first_seen TIMESTAMP NOT NULL,
+    last_seen TIMESTAMP NOT NULL,
+    has_debug_info BOOLEAN NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS idx_binary_metadata_service
     ON binary_metadata_local (service_id);
@@ -441,21 +401,9 @@ CREATE INDEX IF NOT EXISTS idx_binary_metadata_service
 -- Colony-side: Frame dictionary for compression (shared across all services)
 CREATE TABLE IF NOT EXISTS profile_frame_dictionary
 (
-    frame_id
-    INTEGER
-    PRIMARY
-    KEY,
-    frame_name
-    TEXT
-    UNIQUE
-    NOT
-    NULL,
-    frame_count
-    BIGINT
-    NOT
-    NULL
-    DEFAULT
-    0 -- Reference count for cleanup
+    frame_id INTEGER PRIMARY KEY,
+    frame_name TEXT UNIQUE NOT NULL,
+    frame_count BIGINT NOT NULL DEFAULT 0 -- Reference count for cleanup
 );
 CREATE INDEX IF NOT EXISTS idx_profile_frame_dictionary_name
     ON profile_frame_dictionary (frame_name);
@@ -463,36 +411,14 @@ CREATE INDEX IF NOT EXISTS idx_profile_frame_dictionary_name
 -- Colony-side: Aggregated 1-minute profile summaries with integer-encoded stacks
 CREATE TABLE IF NOT EXISTS cpu_profile_summaries
 (
-    bucket_time
-    TIMESTAMP
-    NOT
-    NULL,
-    service_id
-    TEXT
-    NOT
-    NULL,
-    pod_name
-    TEXT
-    NOT
-    NULL,
-    build_id
-    TEXT
-    NOT
-    NULL,
-    stack_frame_ids
-    INTEGER []
-    NOT
-    NULL, -- Stack as frame IDs for compression
-    sample_count
-    INTEGER
-    NOT
-    NULL,
-    sample_percentage
-    DOUBLE
-    NOT
-    NULL,
-    PRIMARY
-    KEY
+    bucket_time TIMESTAMP NOT NULL,
+    service_id TEXT NOT NULL,
+    pod_name TEXT NOT NULL,
+    build_id TEXT NOT NULL,
+    stack_frame_ids INTEGER [] NOT NULL, -- Stack as frame IDs for compression
+    sample_count INTEGER NOT NULL,
+    sample_percentage DOUBLE NOT NULL,
+    PRIMARY KEY
 (
     bucket_time,
     service_id,
@@ -513,34 +439,13 @@ CREATE INDEX IF NOT EXISTS idx_cpu_profile_summaries_build_id
 -- Colony-side: Binary metadata registry
 CREATE TABLE IF NOT EXISTS binary_metadata_registry
 (
-    build_id
-    TEXT
-    PRIMARY
-    KEY,
-    service_id
-    TEXT
-    NOT
-    NULL,
-    binary_path
-    TEXT
-    NOT
-    NULL, -- Path where binary was found
-    first_seen
-    TIMESTAMP
-    NOT
-    NULL,
-    last_seen
-    TIMESTAMP
-    NOT
-    NULL,
-    has_debug_info
-    BOOLEAN
-    NOT
-    NULL
-    DEFAULT
-    false,
-    symbol_storage
-    TEXT  -- Optional: path to stored debug symbols
+    build_id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    binary_path TEXT NOT NULL, -- Path where binary was found
+    first_seen TIMESTAMP NOT NULL,
+    last_seen TIMESTAMP NOT NULL,
+    has_debug_info BOOLEAN NOT NULL DEFAULT false,
+    symbol_storage TEXT  -- Optional: path to stored debug symbols
 );
 CREATE INDEX IF NOT EXISTS idx_binary_metadata_registry_service
     ON binary_metadata_registry (service_id);

@@ -1603,3 +1603,104 @@ func (o *Orchestrator) ProfileCPU(
 		Success:      true,
 	}), nil
 }
+
+// QueryHistoricalCPUProfile queries historical CPU profiles from continuous profiling (RFD 072).
+func (o *Orchestrator) QueryHistoricalCPUProfile(
+	ctx context.Context,
+	req *connect.Request[debugpb.QueryHistoricalCPUProfileRequest],
+) (*connect.Response[debugpb.QueryHistoricalCPUProfileResponse], error) {
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Time("start_time", req.Msg.StartTime.AsTime()).
+		Time("end_time", req.Msg.EndTime.AsTime()).
+		Msg("Querying historical CPU profiles")
+
+	// Query CPU profile summaries from colony database.
+	summaries, err := o.db.QueryCPUProfileSummaries(
+		ctx,
+		req.Msg.ServiceName,
+		req.Msg.StartTime.AsTime(),
+		req.Msg.EndTime.AsTime(),
+	)
+	if err != nil {
+		o.logger.Error().Err(err).
+			Str("service", req.Msg.ServiceName).
+			Msg("Failed to query CPU profile summaries")
+		return connect.NewResponse(&debugpb.QueryHistoricalCPUProfileResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to query historical profiles: %v", err),
+		}), nil
+	}
+
+	if len(summaries) == 0 {
+		o.logger.Info().
+			Str("service", req.Msg.ServiceName).
+			Msg("No historical CPU profile data found")
+		return connect.NewResponse(&debugpb.QueryHistoricalCPUProfileResponse{
+			Success:      true,
+			Samples:      nil,
+			TotalSamples: 0,
+		}), nil
+	}
+
+	// Aggregate samples by stack (sum counts across time).
+	type stackKey struct {
+		stackHash string
+	}
+
+	aggregated := make(map[stackKey]struct {
+		frameIDs    []int64
+		sampleCount uint64
+	})
+
+	for _, summary := range summaries {
+		key := stackKey{stackHash: summary.StackHash}
+
+		if existing, exists := aggregated[key]; exists {
+			// Merge: sum sample counts.
+			existing.sampleCount += uint64(summary.SampleCount)
+			aggregated[key] = existing
+		} else {
+			// New stack.
+			aggregated[key] = struct {
+				frameIDs    []int64
+				sampleCount uint64
+			}{
+				frameIDs:    summary.StackFrameIDs,
+				sampleCount: uint64(summary.SampleCount),
+			}
+		}
+	}
+
+	// Decode frame IDs to frame names and build response.
+	var samples []*debugpb.StackSample
+	totalSamples := uint64(0)
+
+	for _, agg := range aggregated {
+		totalSamples += agg.sampleCount
+
+		// Decode stack frames.
+		frameNames, err := o.db.DecodeStackFrames(ctx, agg.frameIDs)
+		if err != nil {
+			o.logger.Warn().Err(err).Msg("Failed to decode stack frames, skipping sample")
+			continue
+		}
+
+		samples = append(samples, &debugpb.StackSample{
+			FrameNames: frameNames,
+			Count:      agg.sampleCount,
+		})
+	}
+
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Uint64("total_samples", totalSamples).
+		Int("unique_stacks", len(samples)).
+		Msg("Historical CPU profile query completed")
+
+	return connect.NewResponse(&debugpb.QueryHistoricalCPUProfileResponse{
+		Samples:      samples,
+		TotalSamples: totalSamples,
+		Success:      true,
+	}), nil
+}

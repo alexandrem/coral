@@ -8,13 +8,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-mesh/coral/internal/colony/database"
-	"github.com/coral-mesh/coral/internal/config"
 )
 
 // NewCPUProfileCmd creates the cpu-profile command.
@@ -225,7 +223,7 @@ func printCPUProfileJSON(profile *debugpb.ProfileCPUResponse) error {
 	return nil
 }
 
-// runHistoricalCPUProfile queries historical CPU profile samples from colony database (RFD 072).
+// runHistoricalCPUProfile queries historical CPU profile samples via Colony gRPC API (RFD 072).
 func runHistoricalCPUProfile(serviceName, since, until, format string) error {
 	// Parse time range.
 	now := time.Now()
@@ -260,106 +258,62 @@ func runHistoricalCPUProfile(serviceName, since, until, format string) error {
 	fmt.Fprintf(os.Stderr, "Querying historical CPU profiles for service '%s'\n", serviceName)
 	fmt.Fprintf(os.Stderr, "Time range: %s to %s\n", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
-	// Create resolver and get colony ID.
-	resolver, err := config.NewResolver()
+	// Get colony URL.
+	colonyURL, err := getColonyURL()
 	if err != nil {
-		return fmt.Errorf("failed to create config resolver: %w", err)
+		return fmt.Errorf("failed to get colony URL: %w", err)
 	}
 
-	colonyID, err := resolver.ResolveColonyID()
-	if err != nil {
-		return fmt.Errorf("failed to resolve colony ID: %w", err)
-	}
+	// Create gRPC client.
+	client := colonyv1connect.NewDebugServiceClient(
+		http.DefaultClient,
+		colonyURL,
+	)
 
-	// Load colony configuration to get storage path.
-	loader := resolver.GetLoader()
-	cfg, err := loader.LoadColonyConfig(colonyID)
-	if err != nil {
-		return fmt.Errorf("failed to load colony config: %w", err)
-	}
+	// Create request.
+	req := connect.NewRequest(&debugpb.QueryHistoricalCPUProfileRequest{
+		ServiceName: serviceName,
+		StartTime:   timestamppb.New(startTime),
+		EndTime:     timestamppb.New(endTime),
+	})
 
-	// Open colony database in read-only mode.
-	logger := zerolog.Nop() // Use no-op logger for CLI.
-	db, err := database.NewReadOnly(cfg.StoragePath, cfg.ColonyID, logger)
-	if err != nil {
-		return fmt.Errorf("failed to open colony database: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	// Query CPU profile summaries.
+	// Call QueryHistoricalCPUProfile RPC.
 	ctx := context.Background()
-	summaries, err := db.QueryCPUProfileSummaries(ctx, serviceName, startTime, endTime)
+	resp, err := client.QueryHistoricalCPUProfile(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to query CPU profile summaries: %w", err)
+		return fmt.Errorf("failed to query historical CPU profiles: %w", err)
 	}
 
-	if len(summaries) == 0 {
+	if !resp.Msg.Success {
+		return fmt.Errorf("historical CPU profile query failed: %s", resp.Msg.Error)
+	}
+
+	if len(resp.Msg.Samples) == 0 {
 		fmt.Fprintf(os.Stderr, "No profile data found for the specified time range\n")
 		return nil
 	}
 
-	// Aggregate samples by stack (sum counts across time).
-	type stackKey struct {
-		stackHash string
-	}
+	// Output metadata to stderr.
+	fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", len(resp.Msg.Samples))
+	fmt.Fprintf(os.Stderr, "Total samples: %d\n\n", resp.Msg.TotalSamples)
 
-	aggregated := make(map[stackKey]struct {
-		frameIDs    []int64
-		sampleCount int32
-		buildIDs    map[string]bool // Track which build IDs contributed to this stack.
-	})
-
-	for _, summary := range summaries {
-		key := stackKey{stackHash: summary.StackHash}
-
-		if existing, exists := aggregated[key]; exists {
-			// Merge: sum sample counts.
-			existing.sampleCount += summary.SampleCount
-			existing.buildIDs[summary.BuildID] = true
-			aggregated[key] = existing
-		} else {
-			// New stack.
-			aggregated[key] = struct {
-				frameIDs    []int64
-				sampleCount int32
-				buildIDs    map[string]bool
-			}{
-				frameIDs:    summary.StackFrameIDs,
-				sampleCount: summary.SampleCount,
-				buildIDs:    map[string]bool{summary.BuildID: true},
-			}
-		}
-	}
-
-	// Decode frame IDs to frame names and output.
-	fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", len(aggregated))
-	fmt.Fprintf(os.Stderr, "Total samples: %d\n\n", len(summaries))
-
-	totalSamples := uint64(0)
-	for _, agg := range aggregated {
-		totalSamples += uint64(agg.sampleCount)
-
-		// Decode stack frames.
-		frameNames, err := db.DecodeStackFrames(ctx, agg.frameIDs)
-		if err != nil {
-			return fmt.Errorf("failed to decode stack frames: %w", err)
+	// Output folded stack format to stdout.
+	for _, sample := range resp.Msg.Samples {
+		if len(sample.FrameNames) == 0 {
+			continue
 		}
 
-		// Output folded stack format.
-		// Stack frames are stored root-to-leaf, which is the correct order for folded format.
-		for i := len(frameNames) - 1; i >= 0; i-- {
-			fmt.Print(frameNames[i])
+		// Folded format: frame1;frame2;frame3 count
+		// Stack frames from gRPC response are in the correct order (root to leaf).
+		// Reverse them for flamegraph.pl compatibility (innermost first).
+		for i := len(sample.FrameNames) - 1; i >= 0; i-- {
+			fmt.Print(sample.FrameNames[i])
 			if i > 0 {
 				fmt.Print(";")
 			}
 		}
 
-		// Annotate with build ID if multiple versions were involved.
-		if len(agg.buildIDs) > 1 {
-			fmt.Print(";[multi-version]")
-		}
-
-		fmt.Printf(" %d\n", agg.sampleCount)
+		fmt.Printf(" %d\n", sample.Count)
 	}
 
 	return nil

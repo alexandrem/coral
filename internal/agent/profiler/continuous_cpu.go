@@ -227,6 +227,7 @@ func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
 			Timestamp:     startTime,
 			ServiceID:     service.ServiceID,
 			BuildID:       buildID,
+			StackHash:     computeStackHash(frameIDs),
 			StackFrameIDs: frameIDs,
 			SampleCount:   int(sample.Count),
 		})

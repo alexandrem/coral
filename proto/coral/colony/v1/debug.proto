@@ -36,6 +36,9 @@ service DebugService {
 
   // Collect CPU profile samples for a target service/pod (RFD 070).
   rpc ProfileCPU(ProfileCPURequest) returns (ProfileCPUResponse);
+
+  // Query historical CPU profiles from continuous profiling (RFD 072).
+  rpc QueryHistoricalCPUProfile(QueryHistoricalCPUProfileRequest) returns (QueryHistoricalCPUProfileResponse);
 }
 
 // AttachUprobeRequest initiates a debug session on a specific function.
@@ -319,4 +322,19 @@ message ProfileCPUResponse {
   uint32 lost_samples = 3;          // Samples lost due to map overflow
   string error = 4;                 // Error message if collection failed
   bool success = 5;                 // Whether profiling succeeded
+}
+
+// QueryHistoricalCPUProfileRequest queries historical CPU profiles (RFD 072).
+message QueryHistoricalCPUProfileRequest {
+  string service_name = 1;                // Target service name
+  google.protobuf.Timestamp start_time = 2;  // Query start time
+  google.protobuf.Timestamp end_time = 3;    // Query end time
+}
+
+// QueryHistoricalCPUProfileResponse returns aggregated historical profiles (RFD 072).
+message QueryHistoricalCPUProfileResponse {
+  repeated StackSample samples = 1; // Aggregated stack samples
+  uint64 total_samples = 2;         // Total samples across time range
+  string error = 3;                 // Error message if query failed
+  bool success = 4;                 // Whether query succeeded
 }

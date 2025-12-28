@@ -90,6 +90,8 @@ func New(config Config) (*Agent, error) {
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
 		monitor := NewServiceMonitor(service, config.FunctionCache, config.Logger)
+		// Set callback for continuous profiling (RFD 072).
+		monitor.onProcessDiscovered = agent.onProcessDiscovered
 		agent.monitors[service.Name] = monitor
 	}
 
@@ -161,6 +163,33 @@ func (a *Agent) SetContinuousProfiler(profiler interface{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.continuousProfiler = profiler
+}
+
+// onProcessDiscovered is called when a service's PID is discovered by a monitor.
+// It adds the service to continuous profiling if enabled (RFD 072).
+func (a *Agent) onProcessDiscovered(serviceName string, pid int32, binaryPath string) {
+	a.mu.RLock()
+	profiler := a.continuousProfiler
+	a.mu.RUnlock()
+
+	if profiler == nil {
+		return
+	}
+
+	// Type assert to get the AddService method.
+	type profilerWithAddService interface {
+		AddService(serviceID string, pid int, binaryPath string)
+	}
+
+	if p, ok := profiler.(profilerWithAddService); ok {
+		a.logger.Info().
+			Str("service", serviceName).
+			Int32("pid", pid).
+			Str("binary", binaryPath).
+			Msg("Adding service to continuous CPU profiling")
+
+		p.AddService(serviceName, int(pid), binaryPath)
+	}
 }
 
 // GetDebugManager returns the debug session manager (RFD 072).

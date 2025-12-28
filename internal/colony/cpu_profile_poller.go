@@ -2,6 +2,9 @@ package colony
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // CPUProfilePoller periodically queries agents for continuous CPU profile samples.
@@ -381,7 +385,8 @@ func (p *CPUProfilePoller) runCleanup() {
 }
 
 // buildAgentURL constructs the agent gRPC URL from registry entry.
+// Uses the same pattern as GetAgentClient for consistency.
 func buildAgentURL(agent *registry.Entry) string {
-	// Use mesh IP for communication.
-	return "https://" + agent.MeshIPv4 + ":8081"
+	agentAddr := net.JoinHostPort(agent.MeshIPv4, strconv.Itoa(constants.DefaultAgentPort))
+	return fmt.Sprintf("http://%s", agentAddr)
 }
