@@ -1,6 +1,6 @@
 ---
 rfd: "076"
-title: "Sandboxed TypeScript Execution with Deno"
+title: "Sandboxed TypeScript Execution"
 state: "draft"
 breaking_changes: false
 testing_required: true
@@ -29,9 +29,6 @@ making observability data accessible through local scripting.
 
 **Current Limitations:**
 
-- **Shell Script Brittleness**: MCP shell tools (RFD 045, 026) execute arbitrary
-  commands but lack access to structured Coral data (DuckDB metrics, traces,
-  function metadata).
 - **No Custom Logic**: Operators cannot easily write custom analysis logic that
   combines multiple Coral data sources (e.g., "alert when P99 latency exceeds
   500ms AND error rate > 1% AND heap usage > 80%").
@@ -129,45 +126,50 @@ CLI-side execution provides:
 ### Key Design Decisions
 
 1. **Embed Deno in Coral Binary** (not external dependency):
-    - Coral CLI bundles Deno runtime (~100MB additional)
-    - No user installation required (`coral run` just works)
-    - Version consistency (Coral controls exact Deno version)
-    - Platform-specific builds (Linux, macOS, Windows, ARM)
-    - Trade-off: Larger binary, better UX
+
+   - Coral CLI bundles Deno runtime (~100MB additional)
+   - No user installation required (`coral run` just works)
+   - Version consistency (Coral controls exact Deno version)
+   - Platform-specific builds (Linux, macOS, Windows, ARM)
+   - Trade-off: Larger binary, better UX
 
 2. **CLI-Side Execution** (local-first):
-    - Users write scripts locally (version controlled with their code)
-    - Easy debugging (local stdout/stderr, no distributed logging)
-    - No deployment complexity (just `coral run script.ts`)
-    - Queries colony DuckDB summaries (already aggregated)
-    - Perfect for community script sharing (just copy files)
+
+   - Users write scripts locally (version controlled with their code)
+   - Easy debugging (local stdout/stderr, no distributed logging)
+   - No deployment complexity (just `coral run script.ts`)
+   - Queries colony DuckDB summaries (already aggregated)
+   - Perfect for community script sharing (just copy files)
 
 3. **Read-Only Query Model**:
-    - Scripts query metrics, traces, system metrics (aggregated from colony)
-    - Scripts CANNOT write to DuckDB or modify state
-    - Scripts CANNOT execute shell commands (sandboxed by Deno)
-    - Future: Event emission, custom metrics (Phase 2+)
+
+   - Scripts query metrics, traces, system metrics (aggregated from colony)
+   - Scripts CANNOT write to DuckDB or modify state
+   - Scripts CANNOT execute shell commands (sandboxed by Deno)
+   - Future: Event emission, custom metrics (Phase 2+)
 
 4. **gRPC API for Colony Queries** (not HTTP/JSON):
-    - SDK connects to colony via gRPC
-    - Type-safe, efficient serialization
-    - Supports streaming for large result sets
-    - Centralized query monitoring and timeouts
+
+   - SDK connects to colony via gRPC
+   - Type-safe, efficient serialization
+   - Supports streaming for large result sets
+   - Centralized query monitoring and timeouts
 
 5. **Hybrid Query Model** (intent over raw SQL):
-    - **High-level helpers** (preferred): `metrics.getP99()`,
-      `traces.findSlow()`
-    - **Raw SQL** (fallback): `db.query()` for complex custom logic
-    - **Benefits**: Schema evolution resilience, easier for AI to generate
-      correct code
-    - **Semantic guardrails**: Auto-inject `LIMIT` clauses and time-range
-      filters
+
+   - **High-level helpers** (preferred): `metrics.getP99()`,
+     `traces.findSlow()`
+   - **Raw SQL** (fallback): `db.query()` for complex custom logic
+   - **Benefits**: Schema evolution resilience, easier for AI to generate
+     correct code
+   - **Semantic guardrails**: Auto-inject `LIMIT` clauses and time-range
+     filters
 
 6. **Script Timeouts and Resource Limits**:
-    - **Default timeout**: 60 seconds for ad-hoc analysis
-    - **Memory limit**: 512MB max per script
-    - **Semantic SQL guardrails**: Automatic `LIMIT 10000` and
-      `WHERE timestamp > now() - INTERVAL '1 hour'`
+   - **Default timeout**: 60 seconds for ad-hoc analysis
+   - **Memory limit**: 512MB max per script
+   - **Semantic SQL guardrails**: Automatic `LIMIT 10000` and
+     `WHERE timestamp > now() - INTERVAL '1 hour'`
 
 ### Benefits
 
@@ -244,29 +246,29 @@ CLI-side execution provides:
 
 1. **CLI** (`cmd/coral/`):
 
-    - **New**: Embed Deno binary in Coral CLI (~100MB additional)
-    - **New**: `coral run <script.ts>` - Execute TypeScript locally via embedded
-      Deno
-    - **New**: Deno executor wrapper for CLI mode
-    - **Modified**: Build system to bundle platform-specific Deno binaries
+   - **New**: Embed Deno binary in Coral CLI (~100MB additional)
+   - **New**: `coral run <script.ts>` - Execute TypeScript locally via embedded
+     Deno
+   - **New**: Deno executor wrapper for CLI mode
+   - **Modified**: Build system to bundle platform-specific Deno binaries
 
 2. **Colony** (`internal/colony/`):
 
-    - **New**: `api/query_service.go` - gRPC API for querying colony data
-    - **New**: RPCs: `ListServices`, `GetPercentile`, `FindSlowTraces`, etc.
-    - **Modified**: Expose colony DuckDB summaries via gRPC
-    - **Integration**: Powers both `coral query` CLI commands AND TypeScript SDK
-    - No script registry needed (scripts are local files)
-    - No deployment orchestration needed (local execution only)
+   - **New**: `api/query_service.go` - gRPC API for querying colony data
+   - **New**: RPCs: `ListServices`, `GetPercentile`, `FindSlowTraces`, etc.
+   - **Modified**: Expose colony DuckDB summaries via gRPC
+   - **Integration**: Powers both `coral query` CLI commands AND TypeScript SDK
+   - No script registry needed (scripts are local files)
+   - No deployment orchestration needed (local execution only)
 
 3. **SDK** (`pkg/sdk/typescript/`):
 
-    - **New**: TypeScript SDK package `@coral/sdk`
-    - **New**: `services.ts` - Service discovery and queries
-    - **New**: `metrics.ts` - High-level metrics query helpers
-    - **New**: `traces.ts` - Trace/span query helpers
-    - **New**: `system.ts` - System metrics helpers
-    - **New**: gRPC client for colony queries
+   - **New**: TypeScript SDK package `@coral/sdk`
+   - **New**: `services.ts` - Service discovery and queries
+   - **New**: `metrics.ts` - High-level metrics query helpers
+   - **New**: `traces.ts` - Trace/span query helpers
+   - **New**: `system.ts` - System metrics helpers
+   - **New**: gRPC client for colony queries
 
 ### CLI Configuration
 
@@ -569,53 +571,50 @@ if (unhealthy.length >= 2) {
 
 ## Implementation Plan
 
-### Phase 1: Colony Query API ✅ **COMPLETED**
+### Phase 1: Colony Query API
 
-- [x] Define `proto/coral/colony/v1/query.proto` with service discovery,
-  metrics, traces, and SQL query RPCs
-- [x] Implement `internal/colony/server/query_service.go` with DuckDB query
-  handlers (ListServices, GetService, GetPercentile, GetErrorRate,
-  FindSlowTraces, FindErrorTraces, GetSystemMetrics, ExecuteQuery)
-- [x] Generate protobuf code and integrate with Colony
+- [ ] Define `proto/coral/colony/v1/query.proto` with service discovery,
+      metrics, traces, and SQL query RPCs
+- [ ] Implement `internal/colony/api/query_service.go` with DuckDB query
+      handlers
+- [ ] Add read-only connection pool with timeout and size limit enforcement
+- [ ] Generate protobuf code and integrate with Colony
 
-### Phase 2: Interactive CLI Commands ✅ **COMPLETED**
+### Phase 2: Interactive CLI Commands
 
-- [x] Implement `coral query services` command with namespace filters
-- [x] Enhance `coral query metrics` command with `--metric` and `--percentile`
-  flags for focused queries
-- [x] `coral query traces` command already exists with slow/error filters
-- [x] Implement `coral query sql` command for raw SQL queries
-- [ ] Add `--output` flag to all commands using existing formatter helper
-  (deferred - can be added incrementally)
+- [ ] Implement `coral query services` command with namespace/region filters
+- [ ] Implement `coral query metrics` command with percentile and error-rate
+      flags
+- [ ] Implement `coral query traces` command with slow/error filters
+- [ ] Implement `coral query sql` command for raw SQL queries
+- [ ] Add output formatting (table, JSON, CSV) with `--output` flag
 
-### Phase 3: Scripting Runtime ✅ **COMPLETED**
+### Phase 3: Scripting Runtime
 
-- [x] Embed Deno binary in Coral CLI build system
-- [x] Implement `coral run` command with script execution and parameter support
-- [x] Create TypeScript SDK (`pkg/sdk/typescript/`) with gRPC client
-- [x] Implement SDK modules: `services.ts`, `metrics.ts`, `traces.ts`,
-  `system.ts`, `db.ts`
-- [ ] Package and publish SDK to JSR as `@coral/sdk` (deferred - SDK works locally)
+- [ ] Embed Deno binary in Coral CLI build system
+- [ ] Implement `coral run` command with script execution and parameter support
+- [ ] Create TypeScript SDK (`pkg/sdk/typescript/`) with gRPC client
+- [ ] Implement SDK modules: `services.ts`, `metrics.ts`, `traces.ts`,
+      `system.ts`, `db.ts`
+- [ ] Package and publish SDK to JSR as `@coral/sdk`
 
-### Phase 4: Examples & Documentation ✅ **COMPLETED**
+### Phase 4: Examples & Documentation
 
-- [x] Create example scripts (latency reports, error correlation, trace
-  analysis)
-- [x] Write user documentation for `coral query` and `coral run` commands
-
-### Phase 5: CLI Documentation ✅ **COMPLETED**
-
-- [x] Add SDK reference documentation
-- [x] Update `CLI.md` and `CLI_REFERENCE.md`
+- [ ] Create example scripts (latency reports, error correlation, trace
+      analysis)
+- [ ] Write user documentation for `coral query` and `coral run` commands
+- [ ] Add SDK reference documentation
+- [ ] Implement `--watch` mode for `coral run`
+- [ ] Design community script template repository structure
 
 ## Security Considerations
 
 **Deno Sandboxing**:
 
 - Scripts run with minimal permissions:
-    - `--allow-net=<colony-address>` - Only connect to colony gRPC
-    - `--allow-read=./` - Read local files only (for imports)
-    - No `--allow-write`, `--allow-env`, `--allow-run`
+  - `--allow-net=<colony-address>` - Only connect to colony gRPC
+  - `--allow-read=./` - Read local files only (for imports)
+  - No `--allow-write`, `--allow-env`, `--allow-run`
 - Scripts cannot execute shell commands
 - Scripts cannot access filesystem outside current directory
 - Scripts query colony summaries (already aggregated, no PII)
@@ -657,136 +656,9 @@ if (unhealthy.length >= 2) {
 
 ## Implementation Status
 
-**Core Capability:** 🔄 In Progress (Phases 1-3 Complete)
+**Core Capability:** ⏳ Not Started
 
-### Completed (2025-12-27)
-
-**Phase 1: Colony Query API** ✅
-- Created `proto/coral/colony/v1/queries.proto` with all query message definitions:
-  - Unified query messages (RFD 067): QueryUnifiedSummary, QueryUnifiedTraces, etc.
-  - Focused query messages (RFD 076): ListServices, GetMetricPercentile, ExecuteQuery
-- Updated `proto/coral/colony/v1/colony.proto`:
-  - Added import for `queries.proto`
-  - Added 3 new focused query RPCs to ColonyService
-  - Follows existing pattern (service in colony.proto, messages in separate files)
-- Implemented `internal/colony/server/query_service.go` with 3 focused query handlers:
-  - `ListServices` - Service discovery from DuckDB
-  - `GetMetricPercentile` - Percentile queries (fills gap in unified API)
-  - `ExecuteQuery` - Raw SQL execution with guardrails
-- Generated protobuf code (`queries.pb.go`)
-- No duplicate service - extends existing ColonyService
-
-**Architecture Decision**:
-- **Single service pattern**: Extended ColonyService instead of creating separate QueryService
-- **Message organization**: Follows existing pattern (mcp.proto, debug.proto)
-- **No duplication**: Unified queries (RFD 067) remain in place, focused queries (RFD 076) supplement them
-- **Standardized commands**: Enhance existing `coral query` commands with flags, don't create new top-level commands
-
-**Cleanup**:
-- Removed agent-side SDK server code (3 files, ~1500 lines)
-- Removed agent-side protobuf schemas
-- Removed demo environment
-- Removed agent-specific documentation
-- Updated agent executor to compile without SDK server dependencies
-
-### In Progress
-
-None - ready to start Phase 4
-
-### Next Steps
-
-1. **Phase 4**: Create comprehensive example scripts and documentation
-2. **Future**: Publish SDK to JSR registry (optional)
-3. **Future**: Add `--watch` mode implementation for `coral run`
-
-**Phase 2: Interactive CLI Commands** ✅ (2025-12-27)
-- Implemented `coral query services` - service discovery command
-- Enhanced `coral query metrics` with `--metric` and `--percentile` flags
-- Implemented `coral query sql` - raw SQL query execution
-- All commands follow standardized pattern and integrate with existing infrastructure
-- Existing `coral query summary`, `coral query traces`, `coral query logs` already functional
-
-**Phase 3: Scripting Runtime** ✅ (2025-12-27)
-- Created `scripts/download-deno.sh` - downloads Deno binaries for all target platforms
-- Integrated Deno download into `go generate` (follows Beyla pattern):
-  - Created `internal/cli/run/generate.go` with `//go:generate` directive
-  - Downloads all platforms (linux-amd64, linux-arm64, darwin-amd64, darwin-arm64)
-  - Stores binaries in `internal/cli/run/binaries/` (gitignored)
-  - Runs automatically via `make generate` before builds
-- Implemented `internal/cli/run/run.go` - `coral run` command executor:
-  - Executes TypeScript scripts using embedded/bundled Deno
-  - Sandboxed execution with Deno permissions (--allow-net, --allow-read)
-  - Timeout support (default 60s, configurable via --timeout flag)
-  - Watch mode support via --watch flag
-  - Auto-detection of colony address for network permissions
-- Created TypeScript SDK in `pkg/sdk/typescript/`:
-  - **Core infrastructure**: client.ts (Colony gRPC client), types.ts (type definitions)
-  - **SDK modules**: services.ts, metrics.ts, db.ts, traces.ts, system.ts
-  - **Package config**: deno.json with JSR-ready configuration
-  - **Main entry**: mod.ts exports all SDK modules
-- SDK implementation:
-  - `services.list()` - List discovered services with namespace filters
-  - `metrics.getPercentile()`, `getP99()`, `getP95()`, `getP50()` - Percentile queries
-  - `db.query()` - Raw SQL queries against Colony DuckDB
-  - `traces.findSlow()`, `findErrors()` - Placeholder for future trace queries
-  - `system.getMetrics()` - Placeholder for future system metrics
-  - All modules use Connect RPC protocol (HTTP/JSON) to query Colony
-- Created example scripts in `examples/scripts/`:
-  - `latency-report.ts` - Service latency analysis with P50/P95/P99
-  - `service-activity.ts` - SQL-based service activity and error rate analysis
-- Removed old agent-side SDK files (emit.ts, functions.ts, types.d.ts)
-- Updated existing SDK files to use Colony API instead of agent SDK server
-
-### Files Changed
-
-**Phase 1 & 2 - Added:**
-- `proto/coral/colony/v1/queries.proto` - All query message definitions
-- `internal/colony/server/query_service.go` - Focused query handlers (3 RPCs)
-- `internal/cli/query/services.go` - Service discovery CLI command
-- `internal/cli/query/sql.go` - Raw SQL query CLI command
-- `coral/colony/v1/queries.pb.go` (generated)
-
-**Phase 3 - Added:**
-- `scripts/download-deno.sh` - Deno binary download script (follows Beyla pattern)
-- `internal/cli/run/generate.go` - go generate directive for Deno download
-- `internal/cli/run/run.go` - `coral run` command implementation
-- `pkg/sdk/typescript/client.ts` - Colony gRPC client (Connect RPC)
-- `pkg/sdk/typescript/types.ts` - TypeScript type definitions
-- `pkg/sdk/typescript/services.ts` - Service discovery SDK module
-- `pkg/sdk/typescript/deno.json` - Deno package configuration
-- `examples/scripts/latency-report.ts` - Example: service latency analysis
-- `examples/scripts/service-activity.ts` - Example: SQL-based activity report
-
-**Phase 1 & 2 - Modified:**
-- `proto/coral/colony/v1/colony.proto` - Added 3 new focused query RPCs, imports queries.proto
-- `proto/coral/agent/v1/agent.proto` - Removed deprecated script RPCs
-- `internal/agent/script/executor.go` - Removed SDK server dependencies
-- `internal/agent/script/executor_test.go` - Fixed tests
-- `internal/cli/query/root.go` - Added services and sql commands
-- `internal/cli/query/metrics.go` - Enhanced with --metric and --percentile flags
-
-**Phase 3 - Modified:**
-- `Makefile` - Updated generate target description (Deno now via go generate)
-- `.goreleaser.yaml` - Added Deno binaries to release archives
-- `.gitignore` - Added `internal/cli/run/binaries/` to ignore downloaded binaries
-- `internal/cli/root.go` - Added `coral run` command registration
-- `pkg/sdk/typescript/mod.ts` - Updated exports for new SDK structure
-- `pkg/sdk/typescript/metrics.ts` - Rewrote to use Colony gRPC API
-- `pkg/sdk/typescript/db.ts` - Rewrote to use Colony ExecuteQuery RPC
-- `pkg/sdk/typescript/traces.ts` - Added placeholder functions for future implementation
-- `pkg/sdk/typescript/system.ts` - Added placeholder functions for future implementation
-
-**Phase 1 & 2 - Removed:**
-- `internal/agent/script/sdk_server*.go` (3 files)
-- `proto/coral/sdk/v1/sdk.proto`
-- `proto/coral/agent/v1/script.proto`
-- `examples/scripts/demo/` (2 files)
-- `internal/agent/script/{CONCURRENCY,ARCHITECTURE_COMPARISON}.md` (2 files)
-
-**Phase 3 - Removed:**
-- `pkg/sdk/typescript/emit.ts` - Agent-side event emission (obsolete)
-- `pkg/sdk/typescript/functions.ts` - Agent-side function metadata (obsolete)
-- `pkg/sdk/typescript/types.d.ts` - Old type definitions (replaced by types.ts)
+This RFD is currently in draft state. Implementation will begin pending approval.
 
 ## Future Work
 
@@ -838,7 +710,7 @@ is ready.
 **Requirements for Phase 2+**:
 
 - [ ] Colony/Reef AI orchestration system (AI-driven deployment, not
-  user-facing)
+      user-facing)
 - [ ] Script registry in colony DuckDB (versioned, immutable storage)
 - [ ] Deployment orchestration (semantic targeting, health checks, rollback)
 - [ ] eBPF integration (Level 3 capabilities, RFD 063 function metadata)
