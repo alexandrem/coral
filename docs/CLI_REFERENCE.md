@@ -166,6 +166,136 @@ coral query logs api --since 30m --max-logs 50       # Last 30 minutes, limit 50
 
 ---
 
+## Focused Query Commands (RFD 076)
+
+**Scriptable queries optimized for CLI and TypeScript SDK use.**
+
+These commands provide focused, specific queries compared to the unified query
+interface. They're designed for:
+
+- TypeScript SDK usage (`@coral/sdk`)
+- CLI scripting and automation
+- Quick percentile calculations
+- Service discovery
+
+```bash
+# Service discovery
+coral query services [--namespace <name>]
+
+# Percentile queries (precise DuckDB quantile calculations)
+coral query metrics <service> --metric <name> --percentile <0-100>
+
+# Raw SQL queries with safety guardrails
+coral query sql "<sql-query>" [--max-rows <n>]
+
+# Examples - Service discovery:
+coral query services                           # List all services
+coral query services --namespace production    # Filter by namespace
+
+# Examples - Percentile queries:
+coral query metrics payments --metric http.server.duration --percentile 99
+coral query metrics api --metric http.server.duration --percentile 50
+coral query metrics orders --metric http.server.duration --percentile 95
+
+# Examples - Raw SQL:
+coral query sql "SELECT service_name, COUNT(*) FROM beyla_http_metrics GROUP BY service_name"
+coral query sql "SELECT * FROM beyla_http_metrics WHERE http_status_code >= 500 LIMIT 10"
+coral query sql "SELECT service_name, AVG(duration_ns) FROM beyla_http_metrics GROUP BY service_name" --max-rows 100
+```
+
+**What you get:**
+
+- **services**: Service names, instance counts, last seen timestamps
+- **metrics --percentile**: Precise percentile values (P50, P95, P99, etc.)
+  using DuckDB's `quantile_cont` function
+- **sql**: Direct DuckDB queries with automatic row limits and safety validation
+
+**Use cases:**
+
+- Quick percentile checks without full metric analysis
+- Service discovery for scripting
+- Custom SQL queries for advanced analysis
+- TypeScript SDK backend (same API used by `@coral/sdk`)
+
+---
+
+## TypeScript Scripting
+
+**Execute custom analysis scripts locally with sandboxed Deno runtime.**
+
+Write TypeScript scripts that query colony data for custom dashboards, alerts,
+and correlation analysis.
+
+```bash
+# Execute TypeScript script
+coral run <script.ts> [flags]
+
+# Flags:
+#   --timeout <seconds>    Script timeout (default: 60)
+#   --watch                Re-run on file changes
+
+# Examples:
+coral run latency-report.ts                    # Run once
+coral run dashboard.ts --timeout 120           # Custom timeout
+coral run monitor.ts --watch                   # Watch mode for development
+```
+
+### TypeScript SDK (@coral/sdk)
+
+Scripts have access to the Coral SDK for querying observability data:
+
+```typescript
+#!/usr/bin/env -S coral run
+
+import * as coral from "@coral/sdk";
+
+// Service discovery
+const services = await coral.services.list();
+
+// Metrics queries
+const p99 = await coral.metrics.getP99("payments", "http.server.duration");
+const p95 = await coral.metrics.getP95("payments", "http.server.duration");
+const p50 = await coral.metrics.getP50("payments", "http.server.duration");
+
+// Service activity
+const activity = await coral.activity.getServiceActivity("payments");
+console.log(`Requests: ${activity.requestCount}, Error rate: ${activity.errorRate}`);
+
+// Raw SQL queries
+const result = await coral.db.query(`
+  SELECT service_name, AVG(duration_ns) as avg_latency
+  FROM beyla_http_metrics
+  WHERE timestamp > now() - INTERVAL '1 hour'
+  GROUP BY service_name
+`);
+```
+
+### Example Scripts
+
+See `examples/scripts/` directory:
+
+- `latency-report.ts` - Service latency monitoring with P50/P95/P99
+- `correlation-analysis.ts` - Cross-service error correlation
+- `high-latency-alert.ts` - Anomaly detection and alerts
+- `service-activity.ts` - Request counts and error rates
+- `sdk-demo-monitor.ts` - Full SDK feature demonstration
+
+### Security & Sandboxing
+
+Scripts run with restricted permissions:
+
+- ✅ **Allowed**: Network access to colony gRPC API only
+- ✅ **Allowed**: Read local files (for imports)
+- ✅ **Allowed**: Console output (stdout/stderr)
+- ❌ **Blocked**: Write to filesystem
+- ❌ **Blocked**: Execute shell commands
+- ❌ **Blocked**: Access environment variables (except `CORAL_*`)
+
+Deno permissions:
+`--allow-net=<colony-addr> --allow-read=./ --allow-env=CORAL_*`
+
+---
+
 ## DuckDB Queries
 
 ```bash

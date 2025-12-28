@@ -21,6 +21,8 @@ func NewMetricsCmd() *cobra.Command {
 		httpRoute       string
 		httpMethod      string
 		statusCodeRange string
+		metric          string
+		percentile      float64
 	)
 
 	cmd := &cobra.Command{
@@ -30,11 +32,13 @@ func NewMetricsCmd() *cobra.Command {
 
 Returns unified metrics with source annotations.
 
+RFD 076 Enhancement: Use --metric and --percentile for focused percentile queries.
+
 Examples:
-  coral query metrics api                          # All metrics for api service
-  coral query metrics api --protocol http          # Only HTTP metrics
-  coral query metrics api --source ebpf            # Only eBPF metrics
-  coral query metrics api --http-route /api/v1/*   # Filter by route
+  coral query metrics api                                             # All metrics
+  coral query metrics api --protocol http                             # Only HTTP metrics
+  coral query metrics api --metric http.server.duration --percentile 99  # P99 latency (RFD 076)
+  coral query metrics api --metric http.server.duration --percentile 50  # P50 latency (RFD 076)
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			service := ""
@@ -56,7 +60,12 @@ Examples:
 				colonyAddr,
 			)
 
-			// Execute RPC
+			// RFD 076: Focused percentile query if --metric and --percentile are specified
+			if metric != "" && percentile > 0 {
+				return executePercentileQuery(ctx, client, service, metric, percentile, since)
+			}
+
+			// Original unified metrics query
 			req := &colonypb.QueryUnifiedMetricsRequest{
 				Service:         service,
 				TimeRange:       since,
@@ -126,5 +135,71 @@ Examples:
 	cmd.Flags().StringVar(&httpMethod, "http-method", "", "HTTP method filter (GET, POST, etc.)")
 	cmd.Flags().StringVar(&statusCodeRange, "status-code-range", "", "Status code range (2xx, 3xx, 4xx, 5xx)")
 
+	// RFD 076: Focused percentile query flags
+	cmd.Flags().StringVar(&metric, "metric", "", "Metric name for focused query (e.g., http.server.duration)")
+	cmd.Flags().Float64Var(&percentile, "percentile", 0, "Percentile to query (0-100, e.g., 99 for P99)")
+
 	return cmd
+}
+
+// executePercentileQuery executes a focused percentile query (RFD 076).
+func executePercentileQuery(ctx context.Context, client colonyv1connect.ColonyServiceClient, service, metric string, percentile float64, timeRange string) error {
+	if service == "" {
+		return fmt.Errorf("service name is required for percentile queries")
+	}
+
+	// Convert percentile from 0-100 to 0.0-1.0
+	percentileValue := percentile / 100.0
+	if percentileValue < 0 || percentileValue > 1 {
+		return fmt.Errorf("percentile must be between 0 and 100")
+	}
+
+	// Parse time range to milliseconds
+	timeRangeMs := int64(3600000) // Default 1 hour
+	if timeRange != "" {
+		// Simple parsing for common cases
+		switch timeRange {
+		case "5m":
+			timeRangeMs = 5 * 60 * 1000
+		case "15m":
+			timeRangeMs = 15 * 60 * 1000
+		case "30m":
+			timeRangeMs = 30 * 60 * 1000
+		case "1h":
+			timeRangeMs = 60 * 60 * 1000
+		case "2h":
+			timeRangeMs = 2 * 60 * 60 * 1000
+		case "24h":
+			timeRangeMs = 24 * 60 * 60 * 1000
+		}
+	}
+
+	req := &colonypb.GetMetricPercentileRequest{
+		Service:     service,
+		Metric:      metric,
+		Percentile:  percentileValue,
+		TimeRangeMs: timeRangeMs,
+	}
+
+	resp, err := client.GetMetricPercentile(ctx, connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("failed to query percentile: %w", err)
+	}
+
+	// Print focused result
+	fmt.Printf("P%.0f %s for %s: ", percentile, metric, service)
+
+	// Format value based on unit
+	switch resp.Msg.Unit {
+	case "nanoseconds":
+		fmt.Printf("%.2f ms\n", resp.Msg.Value/1_000_000)
+	case "microseconds":
+		fmt.Printf("%.2f ms\n", resp.Msg.Value/1_000)
+	case "milliseconds":
+		fmt.Printf("%.2f ms\n", resp.Msg.Value)
+	default:
+		fmt.Printf("%.2f %s\n", resp.Msg.Value, resp.Msg.Unit)
+	}
+
+	return nil
 }
