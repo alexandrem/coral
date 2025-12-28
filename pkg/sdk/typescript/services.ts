@@ -10,6 +10,9 @@ import type { ClientConfig, Service } from "./types.ts";
 /**
  * List all discovered services.
  *
+ * Uses the same registry-based approach as the CLI to list services
+ * from agent registrations, not from metrics data.
+ *
  * @param namespace - Optional namespace filter
  * @param config - Optional client configuration
  * @returns Array of discovered services
@@ -30,39 +33,85 @@ export async function list(
 ): Promise<Service[]> {
   const client = getClient(config);
 
-  interface ListServicesRequest {
-    namespace?: string;
-  }
+  interface ListAgentsRequest {}
 
-  interface ListServicesResponse {
-    services: Array<{
+  interface Agent {
+    agentId: string;
+    componentName: string;
+    services?: Array<{
       name: string;
-      namespace: string;
-      instanceCount: number;
-      lastSeen?: string; // ISO timestamp
+      namespace?: string;
+      port?: number;
     }>;
   }
 
-  const request: ListServicesRequest = {
-    namespace,
-  };
+  interface ListAgentsResponse {
+    agents: Agent[];
+  }
 
+  // Call ListAgents to get registry data (same as CLI approach).
   const response = await client.call<
-    ListServicesRequest,
-    ListServicesResponse
+    ListAgentsRequest,
+    ListAgentsResponse
   >(
     "coral.colony.v1.ColonyService",
-    "ListServices",
-    request,
+    "ListAgents",
+    {},
   );
 
-  // Convert response to Service objects
-  return response.services.map((svc) => ({
-    name: svc.name,
-    namespace: svc.namespace,
-    instanceCount: svc.instanceCount,
-    lastSeen: svc.lastSeen ? new Date(svc.lastSeen) : undefined,
-  }));
+  // Handle missing or empty agents array
+  if (!response || !response.agents) {
+    return [];
+  }
+
+  // Aggregate services from agents (same logic as CLI).
+  const serviceMap = new Map<string, Service>();
+
+  for (const agent of response.agents) {
+    // Handle legacy single-service agents (componentName).
+    if (agent.componentName && !agent.services) {
+      const key = agent.componentName.toLowerCase();
+      if (!serviceMap.has(key)) {
+        serviceMap.set(key, {
+          name: agent.componentName,
+          namespace: namespace || "",
+          instanceCount: 0,
+        });
+      }
+      const svc = serviceMap.get(key)!;
+      svc.instanceCount++;
+    }
+
+    // Handle multi-service agents.
+    if (agent.services) {
+      for (const svcInfo of agent.services) {
+        const key = svcInfo.name.toLowerCase();
+        if (!serviceMap.has(key)) {
+          serviceMap.set(key, {
+            name: svcInfo.name,
+            namespace: svcInfo.namespace || namespace || "",
+            instanceCount: 0,
+          });
+        }
+        const svc = serviceMap.get(key)!;
+        svc.instanceCount++;
+      }
+    }
+  }
+
+  // Convert map to array and filter by namespace if specified.
+  let serviceList = Array.from(serviceMap.values());
+
+  if (namespace) {
+    serviceList = serviceList.filter((svc) =>
+      svc.namespace?.toLowerCase() === namespace.toLowerCase()
+    );
+  }
+
+  // Sort by name for consistent ordering.
+  serviceList.sort((a, b) => a.name.localeCompare(b.name));
+
+  return serviceList;
 }
 
 /**

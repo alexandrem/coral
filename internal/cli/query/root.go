@@ -28,7 +28,7 @@ Examples:
   coral query traces my-service --since 1h
   coral query metrics my-service --metric http.server.duration --percentile 99
   coral query logs my-service --level error
-  coral query sql "SELECT service_name, COUNT(*) FROM ebpf_http_metrics GROUP BY service_name"
+  coral query sql "SELECT service_name, COUNT(*) FROM beyla_http_metrics GROUP BY service_name"
 `,
 	}
 

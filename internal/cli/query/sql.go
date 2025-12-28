@@ -25,9 +25,9 @@ func NewSQLCmd() *cobra.Command {
 The query is executed in read-only mode with automatic row limits.
 
 Examples:
-  coral query sql "SELECT service_name, COUNT(*) FROM ebpf_http_metrics GROUP BY service_name"
+  coral query sql "SELECT service_name, COUNT(*) FROM beyla_http_metrics GROUP BY service_name"
   coral query sql "SELECT * FROM ebpf_trace_spans WHERE duration_ns > 1000000 LIMIT 10"
-  coral query sql "SELECT AVG(duration_ns) FROM ebpf_http_metrics WHERE service_name = 'api'"
+  coral query sql "SELECT AVG(duration_ns) FROM beyla_http_metrics WHERE service_name = 'api'"
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

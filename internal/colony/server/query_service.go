@@ -21,19 +21,22 @@ func (s *Server) ListServices(
 	ctx context.Context,
 	req *connect.Request[colonyv1.ListServicesRequest],
 ) (*connect.Response[colonyv1.ListServicesResponse], error) {
+	// Calculate cutoff time (1 hour ago).
+	cutoff := time.Now().Add(-1 * time.Hour)
+
 	query := `
 		SELECT DISTINCT
 			service_name,
 			'' as namespace,
 			COUNT(DISTINCT agent_id) as instance_count,
 			MAX(timestamp) as last_seen
-		FROM ebpf_http_metrics
-		WHERE timestamp > now() - INTERVAL '1 hour'
+		FROM beyla_http_metrics
+		WHERE timestamp > ?
 		GROUP BY service_name
 		ORDER BY service_name
 	`
 
-	rows, err := s.database.DB().QueryContext(ctx, query)
+	rows, err := s.database.DB().QueryContext(ctx, query, cutoff)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query services: %w", err))
 	}
@@ -85,13 +88,16 @@ func (s *Server) GetMetricPercentile(
 		unit = "nanoseconds"
 	}
 
+	// Calculate cutoff time.
+	cutoff := time.Now().Add(-timeRange)
+
 	// Use DuckDB's quantile_cont function for accurate percentile calculation.
 	query := fmt.Sprintf(`
 		SELECT quantile_cont(%s, ?) as percentile_value
-		FROM ebpf_http_metrics
+		FROM beyla_http_metrics
 		WHERE service_name = ?
-		  AND timestamp > now() - INTERVAL '%s'
-	`, columnName, timeRange.String())
+		  AND timestamp > ?
+	`, columnName)
 
 	var value float64
 	err := s.database.DB().QueryRowContext(
@@ -99,6 +105,7 @@ func (s *Server) GetMetricPercentile(
 		query,
 		req.Msg.Percentile,
 		req.Msg.Service,
+		cutoff,
 	).Scan(&value)
 
 	if err == sql.ErrNoRows {
@@ -194,16 +201,19 @@ func (s *Server) GetServiceActivity(
 		timeRange = 1 * time.Hour // Default to 1 hour
 	}
 
-	query := fmt.Sprintf(`
+	// Calculate cutoff time.
+	cutoff := time.Now().Add(-timeRange)
+
+	query := `
 		SELECT
 			service_name,
 			COUNT(*) as request_count,
-			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count
-		FROM ebpf_http_metrics
+			SUM(CASE WHEN http_status_code >= 400 THEN 1 ELSE 0 END) as error_count
+		FROM beyla_http_metrics
 		WHERE service_name = ?
-		  AND timestamp > now() - INTERVAL '%s'
+		  AND timestamp > ?
 		GROUP BY service_name
-	`, timeRange.String())
+	`
 
 	var serviceName string
 	var requestCount, errorCount int64
@@ -212,6 +222,7 @@ func (s *Server) GetServiceActivity(
 		ctx,
 		query,
 		req.Msg.Service,
+		cutoff,
 	).Scan(&serviceName, &requestCount, &errorCount)
 
 	if err == sql.ErrNoRows {
@@ -246,18 +257,21 @@ func (s *Server) ListServiceActivity(
 		timeRange = 1 * time.Hour // Default to 1 hour
 	}
 
-	query := fmt.Sprintf(`
+	// Calculate cutoff time.
+	cutoff := time.Now().Add(-timeRange)
+
+	query := `
 		SELECT
 			service_name,
 			COUNT(*) as request_count,
-			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count
-		FROM ebpf_http_metrics
-		WHERE timestamp > now() - INTERVAL '%s'
+			SUM(CASE WHEN http_status_code >= 400 THEN 1 ELSE 0 END) as error_count
+		FROM beyla_http_metrics
+		WHERE timestamp > ?
 		GROUP BY service_name
 		ORDER BY request_count DESC
-	`, timeRange.String())
+	`
 
-	rows, err := s.database.DB().QueryContext(ctx, query)
+	rows, err := s.database.DB().QueryContext(ctx, query, cutoff)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query service activity: %w", err))
 	}

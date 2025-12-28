@@ -75,6 +75,11 @@ export async function listServiceActivity(
     request,
   );
 
+  // Handle missing or empty services array
+  if (!response || !response.services) {
+    return [];
+  }
+
   return response.services.map((svc) => ({
     serviceName: svc.serviceName,
     requestCount: Number(svc.requestCount),
