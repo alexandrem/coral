@@ -54,6 +54,21 @@ const (
 	// ColonyServiceQueryUnifiedLogsProcedure is the fully-qualified name of the ColonyService's
 	// QueryUnifiedLogs RPC.
 	ColonyServiceQueryUnifiedLogsProcedure = "/coral.colony.v1.ColonyService/QueryUnifiedLogs"
+	// ColonyServiceListServicesProcedure is the fully-qualified name of the ColonyService's
+	// ListServices RPC.
+	ColonyServiceListServicesProcedure = "/coral.colony.v1.ColonyService/ListServices"
+	// ColonyServiceGetMetricPercentileProcedure is the fully-qualified name of the ColonyService's
+	// GetMetricPercentile RPC.
+	ColonyServiceGetMetricPercentileProcedure = "/coral.colony.v1.ColonyService/GetMetricPercentile"
+	// ColonyServiceGetServiceActivityProcedure is the fully-qualified name of the ColonyService's
+	// GetServiceActivity RPC.
+	ColonyServiceGetServiceActivityProcedure = "/coral.colony.v1.ColonyService/GetServiceActivity"
+	// ColonyServiceListServiceActivityProcedure is the fully-qualified name of the ColonyService's
+	// ListServiceActivity RPC.
+	ColonyServiceListServiceActivityProcedure = "/coral.colony.v1.ColonyService/ListServiceActivity"
+	// ColonyServiceExecuteQueryProcedure is the fully-qualified name of the ColonyService's
+	// ExecuteQuery RPC.
+	ColonyServiceExecuteQueryProcedure = "/coral.colony.v1.ColonyService/ExecuteQuery"
 	// ColonyServiceCallToolProcedure is the fully-qualified name of the ColonyService's CallTool RPC.
 	ColonyServiceCallToolProcedure = "/coral.colony.v1.ColonyService/CallTool"
 	// ColonyServiceStreamToolProcedure is the fully-qualified name of the ColonyService's StreamTool
@@ -77,11 +92,17 @@ type ColonyServiceClient interface {
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	// Get network topology.
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
-	// Unified query interface (RFD 067) - replaces QueryTelemetry (RFD 025) and QueryEbpfMetrics (RFD 035).
+	// Unified query interface (RFD 067) - comprehensive queries for detailed analysis.
 	QueryUnifiedSummary(context.Context, *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error)
 	QueryUnifiedTraces(context.Context, *connect.Request[v1.QueryUnifiedTracesRequest]) (*connect.Response[v1.QueryUnifiedTracesResponse], error)
 	QueryUnifiedMetrics(context.Context, *connect.Request[v1.QueryUnifiedMetricsRequest]) (*connect.Response[v1.QueryUnifiedMetricsResponse], error)
 	QueryUnifiedLogs(context.Context, *connect.Request[v1.QueryUnifiedLogsRequest]) (*connect.Response[v1.QueryUnifiedLogsResponse], error)
+	// Focused query interface (RFD 076) - focused queries for scripting and CLI.
+	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
+	GetMetricPercentile(context.Context, *connect.Request[v1.GetMetricPercentileRequest]) (*connect.Response[v1.GetMetricPercentileResponse], error)
+	GetServiceActivity(context.Context, *connect.Request[v1.GetServiceActivityRequest]) (*connect.Response[v1.GetServiceActivityResponse], error)
+	ListServiceActivity(context.Context, *connect.Request[v1.ListServiceActivityRequest]) (*connect.Response[v1.ListServiceActivityResponse], error)
+	ExecuteQuery(context.Context, *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -147,6 +168,36 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedLogs")),
 			connect.WithClientOptions(opts...),
 		),
+		listServices: connect.NewClient[v1.ListServicesRequest, v1.ListServicesResponse](
+			httpClient,
+			baseURL+ColonyServiceListServicesProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("ListServices")),
+			connect.WithClientOptions(opts...),
+		),
+		getMetricPercentile: connect.NewClient[v1.GetMetricPercentileRequest, v1.GetMetricPercentileResponse](
+			httpClient,
+			baseURL+ColonyServiceGetMetricPercentileProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("GetMetricPercentile")),
+			connect.WithClientOptions(opts...),
+		),
+		getServiceActivity: connect.NewClient[v1.GetServiceActivityRequest, v1.GetServiceActivityResponse](
+			httpClient,
+			baseURL+ColonyServiceGetServiceActivityProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("GetServiceActivity")),
+			connect.WithClientOptions(opts...),
+		),
+		listServiceActivity: connect.NewClient[v1.ListServiceActivityRequest, v1.ListServiceActivityResponse](
+			httpClient,
+			baseURL+ColonyServiceListServiceActivityProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("ListServiceActivity")),
+			connect.WithClientOptions(opts...),
+		),
+		executeQuery: connect.NewClient[v1.ExecuteQueryRequest, v1.ExecuteQueryResponse](
+			httpClient,
+			baseURL+ColonyServiceExecuteQueryProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("ExecuteQuery")),
+			connect.WithClientOptions(opts...),
+		),
 		callTool: connect.NewClient[v1.CallToolRequest, v1.CallToolResponse](
 			httpClient,
 			baseURL+ColonyServiceCallToolProcedure,
@@ -189,6 +240,11 @@ type colonyServiceClient struct {
 	queryUnifiedTraces  *connect.Client[v1.QueryUnifiedTracesRequest, v1.QueryUnifiedTracesResponse]
 	queryUnifiedMetrics *connect.Client[v1.QueryUnifiedMetricsRequest, v1.QueryUnifiedMetricsResponse]
 	queryUnifiedLogs    *connect.Client[v1.QueryUnifiedLogsRequest, v1.QueryUnifiedLogsResponse]
+	listServices        *connect.Client[v1.ListServicesRequest, v1.ListServicesResponse]
+	getMetricPercentile *connect.Client[v1.GetMetricPercentileRequest, v1.GetMetricPercentileResponse]
+	getServiceActivity  *connect.Client[v1.GetServiceActivityRequest, v1.GetServiceActivityResponse]
+	listServiceActivity *connect.Client[v1.ListServiceActivityRequest, v1.ListServiceActivityResponse]
+	executeQuery        *connect.Client[v1.ExecuteQueryRequest, v1.ExecuteQueryResponse]
 	callTool            *connect.Client[v1.CallToolRequest, v1.CallToolResponse]
 	streamTool          *connect.Client[v1.StreamToolRequest, v1.StreamToolResponse]
 	listTools           *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
@@ -231,6 +287,31 @@ func (c *colonyServiceClient) QueryUnifiedLogs(ctx context.Context, req *connect
 	return c.queryUnifiedLogs.CallUnary(ctx, req)
 }
 
+// ListServices calls coral.colony.v1.ColonyService.ListServices.
+func (c *colonyServiceClient) ListServices(ctx context.Context, req *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error) {
+	return c.listServices.CallUnary(ctx, req)
+}
+
+// GetMetricPercentile calls coral.colony.v1.ColonyService.GetMetricPercentile.
+func (c *colonyServiceClient) GetMetricPercentile(ctx context.Context, req *connect.Request[v1.GetMetricPercentileRequest]) (*connect.Response[v1.GetMetricPercentileResponse], error) {
+	return c.getMetricPercentile.CallUnary(ctx, req)
+}
+
+// GetServiceActivity calls coral.colony.v1.ColonyService.GetServiceActivity.
+func (c *colonyServiceClient) GetServiceActivity(ctx context.Context, req *connect.Request[v1.GetServiceActivityRequest]) (*connect.Response[v1.GetServiceActivityResponse], error) {
+	return c.getServiceActivity.CallUnary(ctx, req)
+}
+
+// ListServiceActivity calls coral.colony.v1.ColonyService.ListServiceActivity.
+func (c *colonyServiceClient) ListServiceActivity(ctx context.Context, req *connect.Request[v1.ListServiceActivityRequest]) (*connect.Response[v1.ListServiceActivityResponse], error) {
+	return c.listServiceActivity.CallUnary(ctx, req)
+}
+
+// ExecuteQuery calls coral.colony.v1.ColonyService.ExecuteQuery.
+func (c *colonyServiceClient) ExecuteQuery(ctx context.Context, req *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error) {
+	return c.executeQuery.CallUnary(ctx, req)
+}
+
 // CallTool calls coral.colony.v1.ColonyService.CallTool.
 func (c *colonyServiceClient) CallTool(ctx context.Context, req *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {
 	return c.callTool.CallUnary(ctx, req)
@@ -264,11 +345,17 @@ type ColonyServiceHandler interface {
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	// Get network topology.
 	GetTopology(context.Context, *connect.Request[v1.GetTopologyRequest]) (*connect.Response[v1.GetTopologyResponse], error)
-	// Unified query interface (RFD 067) - replaces QueryTelemetry (RFD 025) and QueryEbpfMetrics (RFD 035).
+	// Unified query interface (RFD 067) - comprehensive queries for detailed analysis.
 	QueryUnifiedSummary(context.Context, *connect.Request[v1.QueryUnifiedSummaryRequest]) (*connect.Response[v1.QueryUnifiedSummaryResponse], error)
 	QueryUnifiedTraces(context.Context, *connect.Request[v1.QueryUnifiedTracesRequest]) (*connect.Response[v1.QueryUnifiedTracesResponse], error)
 	QueryUnifiedMetrics(context.Context, *connect.Request[v1.QueryUnifiedMetricsRequest]) (*connect.Response[v1.QueryUnifiedMetricsResponse], error)
 	QueryUnifiedLogs(context.Context, *connect.Request[v1.QueryUnifiedLogsRequest]) (*connect.Response[v1.QueryUnifiedLogsResponse], error)
+	// Focused query interface (RFD 076) - focused queries for scripting and CLI.
+	ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error)
+	GetMetricPercentile(context.Context, *connect.Request[v1.GetMetricPercentileRequest]) (*connect.Response[v1.GetMetricPercentileResponse], error)
+	GetServiceActivity(context.Context, *connect.Request[v1.GetServiceActivityRequest]) (*connect.Response[v1.GetServiceActivityResponse], error)
+	ListServiceActivity(context.Context, *connect.Request[v1.ListServiceActivityRequest]) (*connect.Response[v1.ListServiceActivityResponse], error)
+	ExecuteQuery(context.Context, *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error)
 	// Execute an MCP tool and return the result.
 	CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error)
 	// Execute an MCP tool with streaming (bidirectional).
@@ -330,6 +417,36 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("QueryUnifiedLogs")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceListServicesHandler := connect.NewUnaryHandler(
+		ColonyServiceListServicesProcedure,
+		svc.ListServices,
+		connect.WithSchema(colonyServiceMethods.ByName("ListServices")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceGetMetricPercentileHandler := connect.NewUnaryHandler(
+		ColonyServiceGetMetricPercentileProcedure,
+		svc.GetMetricPercentile,
+		connect.WithSchema(colonyServiceMethods.ByName("GetMetricPercentile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceGetServiceActivityHandler := connect.NewUnaryHandler(
+		ColonyServiceGetServiceActivityProcedure,
+		svc.GetServiceActivity,
+		connect.WithSchema(colonyServiceMethods.ByName("GetServiceActivity")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceListServiceActivityHandler := connect.NewUnaryHandler(
+		ColonyServiceListServiceActivityProcedure,
+		svc.ListServiceActivity,
+		connect.WithSchema(colonyServiceMethods.ByName("ListServiceActivity")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyServiceExecuteQueryHandler := connect.NewUnaryHandler(
+		ColonyServiceExecuteQueryProcedure,
+		svc.ExecuteQuery,
+		connect.WithSchema(colonyServiceMethods.ByName("ExecuteQuery")),
+		connect.WithHandlerOptions(opts...),
+	)
 	colonyServiceCallToolHandler := connect.NewUnaryHandler(
 		ColonyServiceCallToolProcedure,
 		svc.CallTool,
@@ -376,6 +493,16 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceQueryUnifiedMetricsHandler.ServeHTTP(w, r)
 		case ColonyServiceQueryUnifiedLogsProcedure:
 			colonyServiceQueryUnifiedLogsHandler.ServeHTTP(w, r)
+		case ColonyServiceListServicesProcedure:
+			colonyServiceListServicesHandler.ServeHTTP(w, r)
+		case ColonyServiceGetMetricPercentileProcedure:
+			colonyServiceGetMetricPercentileHandler.ServeHTTP(w, r)
+		case ColonyServiceGetServiceActivityProcedure:
+			colonyServiceGetServiceActivityHandler.ServeHTTP(w, r)
+		case ColonyServiceListServiceActivityProcedure:
+			colonyServiceListServiceActivityHandler.ServeHTTP(w, r)
+		case ColonyServiceExecuteQueryProcedure:
+			colonyServiceExecuteQueryHandler.ServeHTTP(w, r)
 		case ColonyServiceCallToolProcedure:
 			colonyServiceCallToolHandler.ServeHTTP(w, r)
 		case ColonyServiceStreamToolProcedure:
@@ -421,6 +548,26 @@ func (UnimplementedColonyServiceHandler) QueryUnifiedMetrics(context.Context, *c
 
 func (UnimplementedColonyServiceHandler) QueryUnifiedLogs(context.Context, *connect.Request[v1.QueryUnifiedLogsRequest]) (*connect.Response[v1.QueryUnifiedLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.QueryUnifiedLogs is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) ListServices(context.Context, *connect.Request[v1.ListServicesRequest]) (*connect.Response[v1.ListServicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ListServices is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) GetMetricPercentile(context.Context, *connect.Request[v1.GetMetricPercentileRequest]) (*connect.Response[v1.GetMetricPercentileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.GetMetricPercentile is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) GetServiceActivity(context.Context, *connect.Request[v1.GetServiceActivityRequest]) (*connect.Response[v1.GetServiceActivityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.GetServiceActivity is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) ListServiceActivity(context.Context, *connect.Request[v1.ListServiceActivityRequest]) (*connect.Response[v1.ListServiceActivityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ListServiceActivity is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) ExecuteQuery(context.Context, *connect.Request[v1.ExecuteQueryRequest]) (*connect.Response[v1.ExecuteQueryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.ExecuteQuery is not implemented"))
 }
 
 func (UnimplementedColonyServiceHandler) CallTool(context.Context, *connect.Request[v1.CallToolRequest]) (*connect.Response[v1.CallToolResponse], error) {

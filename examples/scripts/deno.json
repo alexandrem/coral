@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "@coral/sdk": "../../pkg/sdk/typescript/mod.ts"
+  }
+}

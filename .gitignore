@@ -7,3 +7,6 @@ internal/agent/beyla/binaries/
 
 # Generated eBPF object files
 *.o
+
+# Deno binaries (downloaded via go generate)
+internal/cli/run/binaries/
