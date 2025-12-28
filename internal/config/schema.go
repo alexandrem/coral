@@ -333,13 +333,13 @@ type SystemMetricsConfig struct {
 
 // ContinuousProfilingConfig configures continuous CPU profiling (RFD 072).
 type ContinuousProfilingConfig struct {
-	Enabled bool               `yaml:"enabled"`       // Master switch (default: true)
-	CPU     CPUProfilingConfig `yaml:"cpu,omitempty"` // CPU profiling configuration
+	Disabled bool               `yaml:"disabled,omitempty"` // Master disable switch (default: false, meaning enabled)
+	CPU      CPUProfilingConfig `yaml:"cpu,omitempty"`      // CPU profiling configuration
 }
 
 // CPUProfilingConfig contains CPU profiling specific settings.
 type CPUProfilingConfig struct {
-	Enabled           bool          `yaml:"enabled"`                      // CPU profiling enabled (default: true)
+	Disabled          bool          `yaml:"disabled,omitempty"`           // CPU profiling disabled (default: false, meaning enabled)
 	FrequencyHz       int           `yaml:"frequency_hz,omitempty"`       // Sampling frequency (default: 19Hz)
 	Interval          time.Duration `yaml:"interval,omitempty"`           // Collection interval (default: 15s)
 	Retention         time.Duration `yaml:"retention,omitempty"`          // Local sample retention (default: 1h)
@@ -583,8 +583,7 @@ func DefaultAgentConfig() *AgentConfig {
 	cfg.SystemMetrics.NetworkEnabled = true
 
 	// ContinuousProfiling defaults (RFD 072)
-	cfg.ContinuousProfiling.Enabled = true
-	cfg.ContinuousProfiling.CPU.Enabled = true
+	// Note: Disabled defaults to false (meaning enabled by default)
 	cfg.ContinuousProfiling.CPU.FrequencyHz = 19                       // 19Hz sampling (prime number)
 	cfg.ContinuousProfiling.CPU.Interval = 15 * time.Second            // 15-second collection intervals
 	cfg.ContinuousProfiling.CPU.Retention = 1 * time.Hour              // 1-hour local retention

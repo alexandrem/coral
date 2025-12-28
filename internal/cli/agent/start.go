@@ -667,12 +667,13 @@ Examples:
 			}
 
 			// Initialize continuous CPU profiling (RFD 072).
-			if sharedDB != nil && agentCfg.ContinuousProfiling.Enabled && agentCfg.ContinuousProfiling.CPU.Enabled {
+			// Enabled by default unless explicitly disabled.
+			if sharedDB != nil && !agentCfg.ContinuousProfiling.Disabled && !agentCfg.ContinuousProfiling.CPU.Disabled {
 				logger.Info().Msg("Initializing continuous CPU profiling")
 
 				// Import profiler package.
 				profilerConfig := profiler.Config{
-					Enabled:           agentCfg.ContinuousProfiling.CPU.Enabled,
+					Enabled:           !agentCfg.ContinuousProfiling.CPU.Disabled,
 					FrequencyHz:       agentCfg.ContinuousProfiling.CPU.FrequencyHz,
 					Interval:          agentCfg.ContinuousProfiling.CPU.Interval,
 					SampleRetention:   agentCfg.ContinuousProfiling.CPU.Retention,
@@ -718,9 +719,9 @@ Examples:
 						logger.Info().Msg("No services with PIDs to profile - continuous profiling ready for new services")
 					}
 				}
-			} else if agentCfg.ContinuousProfiling.Enabled && !agentCfg.ContinuousProfiling.CPU.Enabled {
+			} else if !agentCfg.ContinuousProfiling.Disabled && agentCfg.ContinuousProfiling.CPU.Disabled {
 				logger.Info().Msg("Continuous CPU profiling is disabled via configuration")
-			} else if !agentCfg.ContinuousProfiling.Enabled {
+			} else if agentCfg.ContinuousProfiling.Disabled {
 				logger.Info().Msg("Continuous profiling is disabled")
 			} else {
 				logger.Warn().Msg("Continuous profiling disabled - shared database not available")
