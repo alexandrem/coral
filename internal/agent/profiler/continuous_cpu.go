@@ -229,7 +229,7 @@ func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
 			BuildID:       buildID,
 			StackHash:     computeStackHash(frameIDs),
 			StackFrameIDs: frameIDs,
-			SampleCount:   sample.Count, // uint64 from protobuf
+			SampleCount:   uint32(sample.Count), // uint64 from protobuf -> uint32
 		})
 	}
 

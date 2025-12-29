@@ -266,11 +266,11 @@ func (s *DebugService) QueryCPUProfileSamples(
 			Timestamp:   timestamppb.New(sample.Timestamp),
 			BuildId:     sample.BuildID,
 			StackFrames: frameNames,
-			SampleCount: uint32(sample.SampleCount), // Safe: internal uint64 -> protobuf uint32
-			ServiceName: sample.ServiceID,           // RFD 072: Include service name
+			SampleCount: sample.SampleCount, // uint32 -> uint32
+			ServiceName: sample.ServiceID,   // RFD 072: Include service name
 		})
 
-		totalSamples += sample.SampleCount
+		totalSamples += uint64(sample.SampleCount)
 	}
 
 	return &meshv1.QueryCPUProfileSamplesResponse{

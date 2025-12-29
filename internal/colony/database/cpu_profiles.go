@@ -20,7 +20,7 @@ type CPUProfileSummary struct {
 	BuildID       string
 	StackHash     string
 	StackFrameIDs []int64
-	SampleCount   uint64 // Number of samples (always >= 0, aggregated over time)
+	SampleCount   uint32 // Number of samples (always >= 0, matches protobuf)
 }
 
 // ComputeStackHash generates a SHA-256 hash of the stack frame IDs.
@@ -229,7 +229,7 @@ func (d *Database) InsertCPUProfileSummaries(ctx context.Context, summaries []CP
 				Str("agent_id", summary.AgentID).
 				Str("service_name", summary.ServiceName).
 				Str("build_id", summary.BuildID).
-				Uint64("sample_count", summary.SampleCount).
+				Uint32("sample_count", summary.SampleCount).
 				Msg("Storing CPU profile summary")
 		}
 

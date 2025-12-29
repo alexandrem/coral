@@ -190,7 +190,7 @@ var schemaDDL = []string{
 		p50 DOUBLE,
 		p95 DOUBLE,
 		p99 DOUBLE,
-		sample_count INTEGER,
+		sample_count BIGINT,
 		last_updated TIMESTAMP NOT NULL,
 		PRIMARY KEY (service_id, metric_name, time_window)
 	)`,
@@ -417,7 +417,7 @@ var schemaDDL = []string{
 		avg_value DOUBLE PRECISION,
 		p95_value DOUBLE PRECISION,
 		delta_value DOUBLE PRECISION,
-		sample_count INTEGER,
+		sample_count BIGINT,
 		unit VARCHAR(20),
 		metric_type VARCHAR(10),
 		attributes TEXT,
