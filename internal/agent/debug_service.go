@@ -231,12 +231,6 @@ func (s *DebugService) QueryCPUProfileSamples(
 	}
 
 	storageIface := cpuProfiler.GetStorage()
-	if storageIface == nil {
-		return &meshv1.QueryCPUProfileSamplesResponse{
-			Error: "profiling storage not available",
-		}, nil
-	}
-
 	storage, ok := storageIface.(*profiler.Storage)
 	if !ok {
 		return &meshv1.QueryCPUProfileSamplesResponse{

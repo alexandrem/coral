@@ -37,6 +37,7 @@ func ExtractBuildID(binaryPath string) (string, error) {
 	}
 
 	// Fallback: compute SHA-256 hash of the binary.
+	// #nosec G304 - binaryPath is a trusted path to a system binary being profiled.
 	file, err := os.Open(binaryPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open binary for hashing: %w", err)

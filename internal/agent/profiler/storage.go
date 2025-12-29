@@ -322,55 +322,6 @@ func (s *Storage) QuerySamples(ctx context.Context, startTime, endTime time.Time
 	return samples, nil
 }
 
-// encodeStackFrames converts frame names to integer-encoded frame IDs.
-func (s *Storage) encodeStackFrames(ctx context.Context, frameNames []string) ([]int64, error) {
-	if len(frameNames) == 0 {
-		return nil, nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	frameIDs := make([]int64, len(frameNames))
-
-	// Process each frame name.
-	for i, frameName := range frameNames {
-		// Check cache first.
-		if frameID, exists := s.frameDictCache[frameName]; exists {
-			frameIDs[i] = frameID
-
-			// Increment frame count.
-			_, err := s.db.ExecContext(ctx, `
-				UPDATE profile_frame_dictionary_local
-				SET frame_count = frame_count + 1
-				WHERE frame_id = ?
-			`, frameID)
-			if err != nil {
-				s.logger.Warn().Err(err).Int64("frame_id", frameID).Msg("Failed to increment frame count")
-			}
-			continue
-		}
-
-		// Not in cache - assign new ID and insert.
-		frameID := s.nextFrameID
-		s.nextFrameID++
-
-		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO profile_frame_dictionary_local (frame_id, frame_name, frame_count)
-			VALUES (?, ?, 1)
-		`, frameID, frameName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to insert frame %q: %w", frameName, err)
-		}
-
-		// Add to cache.
-		s.frameDictCache[frameName] = frameID
-		frameIDs[i] = frameID
-	}
-
-	return frameIDs, nil
-}
-
 // DecodeStackFrames converts integer-encoded frame IDs back to frame names.
 func (s *Storage) DecodeStackFrames(ctx context.Context, frameIDs []int64) ([]string, error) {
 	if len(frameIDs) == 0 {
@@ -505,17 +456,6 @@ func (s *Storage) RunCleanupLoop(ctx context.Context, sampleRetention, metadataR
 			}
 		}
 	}
-}
-
-// computeStackHash computes a hash for a stack trace for deduplication.
-func computeStackHash(frameIDs []int64) string {
-	// Simple hash: join frame IDs with semicolons.
-	// This matches what the colony database uses.
-	parts := make([]string, len(frameIDs))
-	for i, id := range frameIDs {
-		parts[i] = fmt.Sprintf("%d", id)
-	}
-	return strings.Join(parts, ";")
 }
 
 // convertArrayToInt64 converts a DuckDB array ([]interface{}) to []int64.
