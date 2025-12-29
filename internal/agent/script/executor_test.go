@@ -24,6 +24,9 @@ func TestExecutor_DeployScript(t *testing.T) {
 	}
 
 	executor := NewExecutor(config, logger)
+	t.Cleanup(func() {
+		_ = executor.Stop(context.Background())
+	})
 	require.NotNil(t, executor)
 
 	// Create a simple test script
@@ -57,6 +60,9 @@ func TestExecutor_ConcurrencyLimit(t *testing.T) {
 	}
 
 	executor := NewExecutor(config, logger)
+	t.Cleanup(func() {
+		_ = executor.Stop(context.Background())
+	})
 
 	// Deploy first script
 	script1 := &Script{
@@ -104,6 +110,9 @@ func TestExecutor_StopScript(t *testing.T) {
 	}
 
 	executor := NewExecutor(config, logger)
+	t.Cleanup(func() {
+		_ = executor.Stop(context.Background())
+	})
 
 	// Deploy a long-running script
 	script := &Script{
@@ -150,6 +159,9 @@ func TestExecutor_GetExecution(t *testing.T) {
 	}
 
 	executor := NewExecutor(config, logger)
+	t.Cleanup(func() {
+		_ = executor.Stop(context.Background())
+	})
 
 	script := &Script{
 		ID:      "test-get",
@@ -181,6 +193,9 @@ func TestExecutor_ListExecutions(t *testing.T) {
 	}
 
 	executor := NewExecutor(config, logger)
+	t.Cleanup(func() {
+		_ = executor.Stop(context.Background())
+	})
 
 	// Deploy multiple scripts
 	for i := 1; i <= 3; i++ {
