@@ -3,9 +3,10 @@ package ebpf
 import (
 	"os"
 	"runtime"
-	"strings"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/sys/proc"
+	"github.com/coral-mesh/coral/internal/sys/sysfs"
 )
 
 // detectCapabilities detects available eBPF capabilities on this system.
@@ -48,30 +49,13 @@ func detectCapabilities() *agentv1.EbpfCapabilities {
 
 // getKernelVersion reads the kernel version from /proc/version.
 func getKernelVersion() string {
-	data, err := os.ReadFile("/proc/version")
-	if err != nil {
-		return "unknown"
-	}
-
-	// Parse version from output like "Linux version 5.15.0-xxx...".
-	version := string(data)
-	if idx := strings.Index(version, "Linux version "); idx >= 0 {
-		version = version[idx+14:] // Skip "Linux version ".
-		if idx := strings.Index(version, " "); idx >= 0 {
-			version = version[:idx]
-		}
-		return version
-	}
-
-	return "unknown"
+	return proc.GetKernelVersion()
 }
 
 // checkBTF checks if BTF (BPF Type Format) is available.
 // BTF is required for CO-RE (Compile Once, Run Everywhere) support.
 func checkBTF() bool {
-	// Check for /sys/kernel/btf/vmlinux.
-	_, err := os.Stat("/sys/kernel/btf/vmlinux")
-	return err == nil
+	return sysfs.CheckBTFAvailable()
 }
 
 // checkCapBPF checks if CAP_BPF capability is available.

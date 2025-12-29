@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/coral-mesh/coral/internal/sys/proc"
 )
 
 // ExtractBuildID extracts the NT_GNU_BUILD_ID from an ELF binary.
@@ -54,6 +56,9 @@ func ExtractBuildID(binaryPath string) (string, error) {
 
 // ExtractBuildIDFromPID extracts the build ID from a running process.
 func ExtractBuildIDFromPID(pid int) (string, error) {
-	binaryPath := fmt.Sprintf("/proc/%d/exe", pid)
+	binaryPath, err := proc.GetBinaryPath(pid)
+	if err != nil {
+		return "", err
+	}
 	return ExtractBuildID(binaryPath)
 }

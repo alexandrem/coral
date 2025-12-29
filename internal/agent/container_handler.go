@@ -16,6 +16,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/sys/proc"
 )
 
 // ContainerHandler implements the container exec RPC methods for the agent (RFD 056).
@@ -223,23 +224,13 @@ func (h *ContainerHandler) ContainerExec(
 // - K8s DaemonSet: hostPID: true (sees all node containers)
 func (h *ContainerHandler) detectContainerPID(containerName string) (int, error) {
 	// Scan /proc for numeric directories (PIDs).
-	entries, err := os.ReadDir("/proc")
+	allPids, err := proc.ListPids()
 	if err != nil {
 		return 0, fmt.Errorf("failed to read /proc: %w", err)
 	}
 
 	var pids []int
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		// Parse PID from directory name.
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			continue // Not a numeric directory.
-		}
-
+	for _, pid := range allPids {
 		// Skip our own process.
 		// Note: PID 1 is valid in shared PID namespace (sidecar mode).
 		if pid <= 0 || pid == os.Getpid() {
