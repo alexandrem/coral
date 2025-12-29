@@ -7,7 +7,6 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
-	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -192,7 +191,7 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 		m.logger.Info().Int32("pid", pid).Msg("Discovered service process")
 
 		// Also try to get binary path
-		if path, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid)); err == nil {
+		if path, err := proc.GetBinaryPath(int(pid)); err == nil {
 			m.binaryPath = path
 			m.logger.Info().Str("path", path).Msg("Discovered binary path")
 

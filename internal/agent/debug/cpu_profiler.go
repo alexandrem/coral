@@ -15,6 +15,7 @@ import (
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/safe"
+	"github.com/coral-mesh/coral/internal/sys/proc"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -tags linux cpu_profile ./bpf/cpu_profile.bpf.c -- -I../ebpf/bpf/headers
@@ -110,8 +111,10 @@ func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, kernelSymbol
 	// Create symbolizer for address resolution
 	// Use /proc/PID/exe directly - it works across container boundaries in shared PID namespace
 	var symbolizer *Symbolizer
-	binaryPath := fmt.Sprintf("/proc/%d/exe", pid)
-	symbolizer, err = NewSymbolizer(binaryPath, pid, logger)
+	binaryPath, err := proc.GetBinaryPath(pid)
+	if err == nil {
+		symbolizer, err = NewSymbolizer(binaryPath, pid, logger)
+	}
 	if err != nil {
 		logger.Warn().Err(err).Str("binary", binaryPath).Msg("Failed to create symbolizer, outputting raw addresses")
 		symbolizer = nil // Continue without symbolization

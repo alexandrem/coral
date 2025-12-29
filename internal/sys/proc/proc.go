@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -87,22 +88,13 @@ func findPidByInode(inode string) (int32, error) {
 	socketLink := "socket:[" + inode + "]"
 
 	// Iterate over all PIDs in /proc
-	entries, err := os.ReadDir("/proc")
+	pids, err := ListPids()
 	if err != nil {
 		return 0, err
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		pidStr := entry.Name()
-		pid, err := strconv.Atoi(pidStr)
-		if err != nil {
-			continue // Not a PID directory
-		}
-
+	for _, pid := range pids {
+		pidStr := strconv.Itoa(pid)
 		fdDir := filepath.Join("/proc", pidStr, "fd")
 		fds, err := os.ReadDir(fdDir)
 		if err != nil {
@@ -132,4 +124,124 @@ func findPidByInode(inode string) (int32, error) {
 	}
 
 	return 0, nil
+}
+
+// GetKernelVersion reads the kernel version from /proc/version.
+func GetKernelVersion() string {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return "unknown"
+	}
+
+	// Parse version from output like "Linux version 5.15.0-xxx...".
+	version := string(data)
+	if idx := strings.Index(version, "Linux version "); idx >= 0 {
+		version = version[idx+14:] // Skip "Linux version ".
+		if idx := strings.Index(version, " "); idx >= 0 {
+			version = version[:idx]
+		}
+		return version
+	}
+
+	return "unknown"
+}
+
+// GetBinaryPath returns the path to the executable for the given PID.
+func GetBinaryPath(pid int) (string, error) {
+	return os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+}
+
+// ListPids returns a list of all running process IDs from /proc.
+// Pids are sorted in ascending order.
+func ListPids() ([]int, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read /proc: %w", err)
+	}
+
+	var pids []int
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		// Parse PID from directory name.
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue // Not a numeric directory.
+		}
+
+		if pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	// Sort PIDs (lowest first).
+	sort.Ints(pids)
+
+	return pids, nil
+}
+
+// KernelSymbol represents a kernel symbol from /proc/kallsyms.
+type KernelSymbol struct {
+	Address uint64
+	Type    byte
+	Name    string
+	Module  string // Empty for core kernel, module name for loadable modules
+}
+
+// ReadKallsyms reads and parses /proc/kallsyms.
+// It returns a list of symbols and the count of zero addresses found (indicating permission issues).
+func ReadKallsyms() ([]KernelSymbol, int, error) {
+	file, err := os.Open("/proc/kallsyms")
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to open /proc/kallsyms: %w", err)
+	}
+	defer file.Close() // nolint:errcheck
+
+	var symbols []KernelSymbol
+	scanner := bufio.NewScanner(file)
+	zeroAddresses := 0
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Fields(line)
+		if len(parts) < 3 {
+			continue
+		}
+
+		// Parse address
+		var addr uint64
+		if _, err := fmt.Sscanf(parts[0], "%x", &addr); err != nil {
+			continue
+		}
+
+		// Check for zero addresses (means insufficient permissions)
+		if addr == 0 {
+			zeroAddresses++
+			continue
+		}
+
+		// Parse symbol type and name
+		symType := parts[1][0]
+		symName := parts[2]
+
+		// Parse optional module name [module_name]
+		var module string
+		if len(parts) > 3 && strings.HasPrefix(parts[3], "[") && strings.HasSuffix(parts[3], "]") {
+			module = strings.Trim(parts[3], "[]")
+		}
+
+		symbols = append(symbols, KernelSymbol{
+			Address: addr,
+			Type:    symType,
+			Name:    symName,
+			Module:  module,
+		})
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, zeroAddresses, fmt.Errorf("failed to read /proc/kallsyms: %w", err)
+	}
+
+	return symbols, zeroAddresses, nil
 }
