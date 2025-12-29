@@ -273,6 +273,7 @@ type Execution struct {
 	logger zerolog.Logger
 	config *Config
 	script *Script
+	doneCh chan struct{}
 }
 
 // ExecutionStatus represents the status of a script execution.
@@ -305,6 +306,7 @@ func NewExecution(script *Script, config *Config, logger zerolog.Logger) *Execut
 		logger:     logger.With().Str("execution_id", uuid.New().String()).Logger(),
 		config:     config,
 		script:     script,
+		doneCh:     make(chan struct{}),
 	}
 }
 
@@ -315,6 +317,9 @@ func (e *Execution) Start(ctx context.Context) error {
 
 	if e.Status == StatusRunning {
 		return errors.New("execution already running")
+	}
+	if e.Status == StatusStopped {
+		return errors.New("execution stopped before start")
 	}
 
 	// Create script file.
@@ -445,6 +450,8 @@ func (e *Execution) wait(ctx context.Context) {
 
 	// Parse events from stdout if any.
 	e.parseEvents()
+
+	close(e.doneCh)
 }
 
 // parseEvents parses custom events from stdout.
@@ -456,6 +463,15 @@ func (e *Execution) parseEvents() {
 
 // Stop stops the execution.
 func (e *Execution) Stop(ctx context.Context) error {
+	e.mu.Lock()
+	if e.Status == StatusPending {
+		e.Status = StatusStopped
+		close(e.doneCh)
+		e.mu.Unlock()
+		return nil
+	}
+	e.mu.Unlock()
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -481,6 +497,8 @@ func (e *Execution) Stop(ctx context.Context) error {
 		Str("script_id", e.ScriptID).
 		Msg("Script execution stopped")
 
+	// Wait for process to exit and resources to be released
+	<-e.doneCh
 	return nil
 }
 

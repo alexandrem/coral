@@ -103,7 +103,7 @@ func TestContinuousProfilingEndToEnd(t *testing.T) {
 		if i == 0 {
 			logger.Info().
 				Strs("stack", frameNames).
-				Int("count", sample.SampleCount).
+				Uint32("count", sample.SampleCount).
 				Msg("First sample stack trace")
 		}
 	}
