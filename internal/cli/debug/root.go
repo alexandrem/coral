@@ -17,8 +17,7 @@ Function-level debugging commands:
   search   - Search for functions
   info     - Get function details
   trace    - Trace request path
-  session  - Manage debug sessions
-  query    - Query debug results
+  session  - Manage debug sessions (list, get, query, events, stop)
 
 For CPU and memory profiling, use 'coral profile' and 'coral query' commands.`,
 	}
@@ -36,7 +35,6 @@ For CPU and memory profiling, use 'coral profile' and 'coral query' commands.`,
 
 	// Other
 	cmd.AddCommand(NewTraceCmd())
-	cmd.AddCommand(NewQueryCmd())
 
 	return cmd
 }
