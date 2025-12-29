@@ -5,6 +5,7 @@ services:
       context: ./cpu-intensive-app
     ports:
       - "8081:8080"
+      - "9001:9001"  # Agent gRPC port for debugging
 
   coral-agent-cpu:
     platform: linux/arm64
@@ -20,6 +21,7 @@ services:
       CORAL_COLONY_ID: ${CORAL_COLONY_ID}
       CORAL_COLONY_SECRET: ${CORAL_COLONY_SECRET}
       CORAL_DISCOVERY_ENDPOINT: ${CORAL_DISCOVERY_ENDPOINT:-http://host.docker.internal:8080}
+      CORAL_AGENT_BIND_ALL: "true"  # Allow querying from host for e2e tests
     volumes:
       - ./agent.yaml:/etc/coral/agent.yaml:ro
     depends_on:

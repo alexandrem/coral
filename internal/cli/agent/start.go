@@ -854,7 +854,11 @@ Examples:
 			}
 
 			// Server 2: Bind to localhost (local debugging only).
+			// For e2e testing in containers, allow binding to all interfaces via env var.
 			localhostAddr := "127.0.0.1:9001"
+			if os.Getenv("CORAL_AGENT_BIND_ALL") == "true" {
+				localhostAddr = "0.0.0.0:9001"
+			}
 			localhostServer = &http.Server{
 				Addr:              localhostAddr,
 				Handler:           httpHandler,

@@ -78,9 +78,26 @@ else
     echo "This might be OK if profiler started before log capture"
 fi
 
-# Step 4: Wait for continuous profiling samples to accumulate.
-echo -e "\n${YELLOW}Step 4: Waiting ${WAIT_FOR_SAMPLES_SECONDS}s for continuous profiling samples to accumulate...${NC}"
+# Step 4: Generate load and wait for continuous profiling samples to accumulate.
+echo -e "\n${YELLOW}Step 4: Generating load and waiting ${WAIT_FOR_SAMPLES_SECONDS}s for samples to accumulate...${NC}"
 echo "Continuous profiling collects samples every 15 seconds at 19Hz"
+
+# Start load generation in background (multiple workers for higher CPU usage).
+LOAD_PIDS=()
+if command -v curl > /dev/null 2>&1; then
+    echo "Starting background load generation (10 concurrent workers)..."
+    for worker in $(seq 1 10); do
+        (
+            # Generate continuous load for slightly longer than the wait period.
+            end_time=$((SECONDS + WAIT_FOR_SAMPLES_SECONDS + 10))
+            while [ $SECONDS -lt $end_time ]; do
+                curl -s http://localhost:8081 > /dev/null 2>&1 || true
+            done
+        ) &
+        LOAD_PIDS+=($!)
+    done
+fi
+
 echo -n "Progress: "
 for i in $(seq 1 $WAIT_FOR_SAMPLES_SECONDS); do
     sleep 1
@@ -89,6 +106,17 @@ for i in $(seq 1 $WAIT_FOR_SAMPLES_SECONDS); do
     fi
 done
 echo ""
+
+# Stop load generation.
+if [ ${#LOAD_PIDS[@]} -gt 0 ]; then
+    for pid in "${LOAD_PIDS[@]}"; do
+        kill $pid 2>/dev/null || true
+    done
+    for pid in "${LOAD_PIDS[@]}"; do
+        wait $pid 2>/dev/null || true
+    done
+fi
+
 echo -e "${GREEN}✓ Sample collection wait period completed${NC}"
 
 # Step 5: Query historical CPU profiles using --since flag.

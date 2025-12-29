@@ -269,6 +269,8 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 
 	// Create and start new monitor.
 	monitor := NewServiceMonitor(service, a.functionCache, a.logger)
+	// Set callback for continuous profiling (RFD 072).
+	monitor.onProcessDiscovered = a.onProcessDiscovered
 	monitor.Start()
 
 	a.monitors[service.Name] = monitor

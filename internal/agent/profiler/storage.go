@@ -290,23 +290,23 @@ func (s *Storage) QuerySamples(ctx context.Context, startTime, endTime time.Time
 	var samples []ProfileSample
 	for rows.Next() {
 		var sample ProfileSample
-		var frameIDsStr string
+		var frameIDsInterface interface{}
 
 		err := rows.Scan(
 			&sample.Timestamp,
 			&sample.ServiceID,
 			&sample.BuildID,
-			&frameIDsStr,
+			&frameIDsInterface,
 			&sample.SampleCount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		// Parse integer array from DuckDB LIST format.
-		sample.StackFrameIDs, err = s.parseIntArray(frameIDsStr)
+		// Convert DuckDB array to []int64.
+		sample.StackFrameIDs, err = s.convertArrayToInt64(frameIDsInterface)
 		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to parse stack frame IDs")
+			s.logger.Warn().Err(err).Msg("Failed to convert stack frame IDs")
 			continue
 		}
 
@@ -545,6 +545,40 @@ func (s *Storage) parseIntArray(str string) ([]int64, error) {
 			return nil, fmt.Errorf("failed to parse frame ID %q: %w", part, err)
 		}
 		ids[i] = id
+	}
+	return ids, nil
+}
+
+// convertArrayToInt64 converts a DuckDB array ([]interface{}) to []int64.
+func (s *Storage) convertArrayToInt64(val interface{}) ([]int64, error) {
+	if val == nil {
+		return nil, nil
+	}
+
+	// DuckDB Go driver returns arrays as []interface{}.
+	arr, ok := val.([]interface{})
+	if !ok {
+		// Fallback: Try as string for backwards compatibility.
+		if str, ok := val.(string); ok {
+			return s.parseIntArray(str)
+		}
+		return nil, fmt.Errorf("unexpected type for array: %T", val)
+	}
+
+	ids := make([]int64, len(arr))
+	for i, elem := range arr {
+		switch v := elem.(type) {
+		case int64:
+			ids[i] = v
+		case int32:
+			ids[i] = int64(v)
+		case int:
+			ids[i] = int64(v)
+		case float64:
+			ids[i] = int64(v)
+		default:
+			return nil, fmt.Errorf("unexpected array element type: %T", elem)
+		}
 	}
 	return ids, nil
 }

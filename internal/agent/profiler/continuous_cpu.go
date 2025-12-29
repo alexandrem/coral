@@ -248,7 +248,12 @@ func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
 }
 
 // AddService adds a service to be profiled continuously.
-func (p *ContinuousCPUProfiler) AddService(service ServiceInfo) {
+func (p *ContinuousCPUProfiler) AddService(serviceID string, pid int, binaryPath string) {
+	service := ServiceInfo{
+		ServiceID:  serviceID,
+		PID:        pid,
+		BinaryPath: binaryPath,
+	}
 	go p.profileServiceLoop(service)
 }
 
