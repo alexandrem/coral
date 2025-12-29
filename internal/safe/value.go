@@ -50,3 +50,13 @@ func IntToUint64(val int) (uint64, bool) {
 	}
 	return uint64(val), false
 }
+
+// Uint64ToUint32 safely converts a uint64 value to uint32, clamping to math.MaxUint32
+// if overflow would occur.
+// Returns the converted value and a boolean indicating whether clamping occurred.
+func Uint64ToUint32(val uint64) (uint32, bool) {
+	if val > math.MaxUint32 {
+		return math.MaxUint32, true
+	}
+	return uint32(val), false
+}

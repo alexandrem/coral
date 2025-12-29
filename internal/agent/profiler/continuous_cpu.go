@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/coral-mesh/coral/internal/agent/debug"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // ContinuousCPUProfiler continuously profiles CPU usage at low frequency.
@@ -223,13 +224,23 @@ func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
 			continue
 		}
 
+		// Safe conversion from uint64 (eBPF) to uint32 (storage) with overflow detection.
+		sampleCount, clamped := safe.Uint64ToUint32(sample.Count)
+		if clamped {
+			p.logger.Warn().
+				Uint64("original_count", sample.Count).
+				Uint32("clamped_count", sampleCount).
+				Str("service_id", service.ServiceID).
+				Msg("Sample count exceeded uint32 max, clamped to MaxUint32 - investigate eBPF map clearing")
+		}
+
 		samples = append(samples, ProfileSample{
 			Timestamp:     startTime,
 			ServiceID:     service.ServiceID,
 			BuildID:       buildID,
 			StackHash:     computeStackHash(frameIDs),
 			StackFrameIDs: frameIDs,
-			SampleCount:   uint32(sample.Count), // uint64 from protobuf -> uint32
+			SampleCount:   sampleCount,
 		})
 	}
 
