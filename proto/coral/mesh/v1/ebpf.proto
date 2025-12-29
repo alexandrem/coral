@@ -124,6 +124,7 @@ message CPUProfileSample {
   string build_id = 2;                        // Binary build ID (for version tracking)
   repeated string stack_frames = 3;           // Decoded stack frames
   uint32 sample_count = 4;                    // Number of samples for this stack
+  string service_name = 5;                    // Service name (RFD 072 fix)
 }
 
 // QueryCPUProfileSamplesResponse returns historical CPU profile samples (RFD 072).

@@ -13,8 +13,6 @@ import (
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 )
 
 // NewCPUProfileCmd creates the cpu-profile command.
@@ -283,10 +281,7 @@ func runHistoricalCPUProfile(serviceName, since, until, format string) error {
 	ctx := context.Background()
 	resp, err := client.QueryHistoricalCPUProfile(ctx, req)
 	if err != nil {
-		// Fallback: Try querying agent directly if colony is unavailable.
-		// This supports e2e testing and direct agent queries.
-		fmt.Fprintf(os.Stderr, "Colony query failed, trying agent directly...\n")
-		return queryAgentDirectly(serviceName, startTime, endTime, format)
+		return fmt.Errorf("failed to query colony: %w", err)
 	}
 
 	if !resp.Msg.Success {
@@ -294,11 +289,9 @@ func runHistoricalCPUProfile(serviceName, since, until, format string) error {
 	}
 
 	if len(resp.Msg.Samples) == 0 {
-		// Fallback: If colony has no data, try querying agent directly.
-		// This handles the case where the colony exists but hasn't polled yet,
-		// or for e2e tests without a colony.
-		fmt.Fprintf(os.Stderr, "Colony has no data, trying agent directly...\n")
-		return queryAgentDirectly(serviceName, startTime, endTime, format)
+		fmt.Fprintf(os.Stderr, "No historical CPU profile data found for service '%s' in the specified time range.\n", serviceName)
+		fmt.Fprintf(os.Stderr, "The colony polls agents every 30 seconds. Wait a moment and try again.\n")
+		return nil
 	}
 
 	// Output metadata to stderr.
@@ -322,100 +315,6 @@ func runHistoricalCPUProfile(serviceName, since, until, format string) error {
 		}
 
 		fmt.Printf(" %d\n", sample.Count)
-	}
-
-	return nil
-}
-
-// queryAgentDirectly queries the agent's continuous profiling storage directly.
-// This is a fallback when the colony is unavailable (e.g., e2e tests, local development).
-func queryAgentDirectly(serviceName string, startTime, endTime time.Time, format string) error {
-	// Try common agent addresses
-	agentURLs := []string{
-		"http://localhost:9001", // Default agent port
-		"http://127.0.0.1:9001", // Explicit localhost
-	}
-
-	var lastErr error
-	for _, agentURL := range agentURLs {
-		err := tryQueryAgent(agentURL, serviceName, startTime, endTime, format)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-	}
-
-	return fmt.Errorf("failed to query agent: %w", lastErr)
-}
-
-// tryQueryAgent attempts to query a specific agent URL.
-func tryQueryAgent(agentURL, serviceName string, startTime, endTime time.Time, format string) error {
-	// Create agent debug service client.
-	client := meshv1connect.NewDebugServiceClient(
-		http.DefaultClient,
-		agentURL,
-	)
-
-	// Create request.
-	req := connect.NewRequest(&meshv1.QueryCPUProfileSamplesRequest{
-		ServiceName: serviceName,
-		StartTime:   timestamppb.New(startTime),
-		EndTime:     timestamppb.New(endTime),
-	})
-
-	// Call QueryCPUProfileSamples RPC.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	resp, err := client.QueryCPUProfileSamples(ctx, req)
-	if err != nil {
-		return fmt.Errorf("agent RPC call failed: %w", err)
-	}
-
-	if resp.Msg.Error != "" {
-		return fmt.Errorf("agent query error: %s", resp.Msg.Error)
-	}
-
-	if len(resp.Msg.Samples) == 0 {
-		fmt.Fprintf(os.Stderr, "No profile data found for the specified time range\n")
-		return nil
-	}
-
-	// Aggregate samples by stack (sum counts across time).
-	type stackKey string
-	aggregated := make(map[stackKey]uint64)
-	stackFrames := make(map[stackKey][]string)
-
-	for _, sample := range resp.Msg.Samples {
-		// Create stack key from frames.
-		key := stackKey(fmt.Sprintf("%v", sample.StackFrames))
-		aggregated[key] += uint64(sample.SampleCount)
-		if _, exists := stackFrames[key]; !exists {
-			stackFrames[key] = sample.StackFrames
-		}
-	}
-
-	// Output metadata to stderr.
-	fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", len(aggregated))
-	fmt.Fprintf(os.Stderr, "Total samples: %d\n\n", resp.Msg.TotalSamples)
-
-	// Output folded stack format to stdout.
-	for key, count := range aggregated {
-		frames := stackFrames[key]
-		if len(frames) == 0 {
-			continue
-		}
-
-		// Folded format: frame1;frame2;frame3 count
-		// Reverse frames for flamegraph.pl compatibility (innermost first).
-		for i := len(frames) - 1; i >= 0; i-- {
-			fmt.Print(frames[i])
-			if i > 0 {
-				fmt.Print(";")
-			}
-		}
-
-		fmt.Printf(" %d\n", count)
 	}
 
 	return nil

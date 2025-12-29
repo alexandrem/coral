@@ -273,6 +273,7 @@ func (s *DebugService) QueryCPUProfileSamples(
 			BuildId:     sample.BuildID,
 			StackFrames: frameNames,
 			SampleCount: uint32(sample.SampleCount),
+			ServiceName: sample.ServiceID, // RFD 072: Include service name
 		})
 
 		totalSamples += uint64(sample.SampleCount)

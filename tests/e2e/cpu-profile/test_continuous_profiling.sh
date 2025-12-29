@@ -23,7 +23,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 BINARY_PATH="${REPO_ROOT}/bin/coral"
 DOCKER_COMPOSE_DIR="${REPO_ROOT}/tests/e2e/cpu-profile"
 WAIT_FOR_SAMPLES_SECONDS=45  # Wait for at least 3 collection cycles (15s each)
-QUERY_SINCE="30s"  # Query last 30 seconds of data
+QUERY_SINCE="60s"  # Query last 60 seconds of data
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}E2E Test: Continuous CPU Profiling${NC}"
@@ -213,7 +213,7 @@ CHECKS_TOTAL=$((CHECKS_TOTAL + 1))
 TOTAL_SAMPLES=$(awk '{sum += $NF} END {print sum}' "${OUTPUT_FILE}" 2>/dev/null || echo 0)
 if [ "$TOTAL_SAMPLES" -gt 0 ]; then
     echo -e "${GREEN}✓ Total samples collected: ${TOTAL_SAMPLES}${NC}"
-    # At 19Hz for 30s, we'd expect ~570 samples if process was active
+    # At 19Hz for 60s, we'd expect ~1140 samples if process was active
     # But idle processes might have 0 samples, which is valid
     CHECKS_PASSED=$((CHECKS_PASSED + 1))
 else
@@ -228,8 +228,8 @@ echo -e "\n${YELLOW}Step 7: Testing different time range queries...${NC}"
 OUTPUT_FILE_2=$(mktemp)
 if (cd "${REPO_ROOT}" && "${BINARY_PATH}" debug cpu-profile -s "${SERVICE_NAME}" --since "15s" > "${OUTPUT_FILE_2}" 2>/dev/null); then
     LINES_15s=$(wc -l < "${OUTPUT_FILE_2}")
-    LINES_30s=$(wc -l < "${OUTPUT_FILE}")
-    echo -e "${GREEN}✓ Different time ranges work (15s: ${LINES_15s} stacks, 30s: ${LINES_30s} stacks)${NC}"
+    LINES_60s=$(wc -l < "${OUTPUT_FILE}")
+    echo -e "${GREEN}✓ Different time ranges work (15s: ${LINES_15s} stacks, 60s: ${LINES_60s} stacks)${NC}"
     rm -f "${OUTPUT_FILE_2}"
 else
     echo -e "${YELLOW}⚠ Could not test alternative time range${NC}"

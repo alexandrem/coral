@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
 // Storage handles local storage of continuous CPU profile samples.
@@ -160,7 +162,7 @@ func (s *Storage) StoreSample(ctx context.Context, sample ProfileSample) error {
 	defer s.mu.Unlock()
 
 	// Convert integer array to DuckDB LIST format.
-	frameIDsStr := s.formatIntArray(sample.StackFrameIDs)
+	frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
 
 	// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
 	query := `
@@ -202,7 +204,7 @@ func (s *Storage) StoreSamples(ctx context.Context, samples []ProfileSample) err
 	defer func() { _ = tx.Rollback() }()
 
 	for _, sample := range samples {
-		frameIDsStr := s.formatIntArray(sample.StackFrameIDs)
+		frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
 
 		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
 		query := `
@@ -516,39 +518,6 @@ func computeStackHash(frameIDs []int64) string {
 	return strings.Join(parts, ";")
 }
 
-// formatIntArray formats an integer array for DuckDB LIST literal.
-func (s *Storage) formatIntArray(ids []int64) string {
-	if len(ids) == 0 {
-		return "[]"
-	}
-	parts := make([]string, len(ids))
-	for i, id := range ids {
-		parts[i] = fmt.Sprintf("%d", id)
-	}
-	return "[" + strings.Join(parts, ",") + "]"
-}
-
-// parseIntArray parses a DuckDB LIST string representation into []int64.
-func (s *Storage) parseIntArray(str string) ([]int64, error) {
-	// DuckDB returns arrays as "[1, 2, 3]".
-	str = strings.Trim(str, "[]")
-	if str == "" {
-		return nil, nil
-	}
-
-	parts := strings.Split(str, ",")
-	ids := make([]int64, len(parts))
-	for i, part := range parts {
-		part = strings.TrimSpace(part)
-		var id int64
-		if _, err := fmt.Sscanf(part, "%d", &id); err != nil {
-			return nil, fmt.Errorf("failed to parse frame ID %q: %w", part, err)
-		}
-		ids[i] = id
-	}
-	return ids, nil
-}
-
 // convertArrayToInt64 converts a DuckDB array ([]interface{}) to []int64.
 func (s *Storage) convertArrayToInt64(val interface{}) ([]int64, error) {
 	if val == nil {
@@ -560,7 +529,7 @@ func (s *Storage) convertArrayToInt64(val interface{}) ([]int64, error) {
 	if !ok {
 		// Fallback: Try as string for backwards compatibility.
 		if str, ok := val.(string); ok {
-			return s.parseIntArray(str)
+			return duckdb.ParseInt64Array(str)
 		}
 		return nil, fmt.Errorf("unexpected type for array: %T", val)
 	}

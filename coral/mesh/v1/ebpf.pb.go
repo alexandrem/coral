@@ -995,6 +995,7 @@ type CPUProfileSample struct {
 	BuildId       string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`              // Binary build ID (for version tracking)
 	StackFrames   []string               `protobuf:"bytes,3,rep,name=stack_frames,json=stackFrames,proto3" json:"stack_frames,omitempty"`  // Decoded stack frames
 	SampleCount   uint32                 `protobuf:"varint,4,opt,name=sample_count,json=sampleCount,proto3" json:"sample_count,omitempty"` // Number of samples for this stack
+	ServiceName   string                 `protobuf:"bytes,5,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`  // Service name (RFD 072 fix)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1055,6 +1056,13 @@ func (x *CPUProfileSample) GetSampleCount() uint32 {
 		return x.SampleCount
 	}
 	return 0
+}
+
+func (x *CPUProfileSample) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
 }
 
 // QueryCPUProfileSamplesResponse returns historical CPU profile samples (RFD 072).
@@ -2434,12 +2442,13 @@ const file_coral_mesh_v1_ebpf_proto_rawDesc = "" +
 	"\bpod_name\x18\x02 \x01(\tR\apodName\x129\n" +
 	"\n" +
 	"start_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
-	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\"\xad\x01\n" +
+	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\"\xd0\x01\n" +
 	"\x10CPUProfileSample\x128\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x19\n" +
 	"\bbuild_id\x18\x02 \x01(\tR\abuildId\x12!\n" +
 	"\fstack_frames\x18\x03 \x03(\tR\vstackFrames\x12!\n" +
-	"\fsample_count\x18\x04 \x01(\rR\vsampleCount\"\x96\x01\n" +
+	"\fsample_count\x18\x04 \x01(\rR\vsampleCount\x12!\n" +
+	"\fservice_name\x18\x05 \x01(\tR\vserviceName\"\x96\x01\n" +
 	"\x1eQueryCPUProfileSamplesResponse\x129\n" +
 	"\asamples\x18\x01 \x03(\v2\x1f.coral.mesh.v1.CPUProfileSampleR\asamples\x12#\n" +
 	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12\x14\n" +

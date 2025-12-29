@@ -169,6 +169,10 @@ func (p *CPUProfilePoller) pollOnce() {
 	totalSamples := 0
 	allSummaries := make([]database.CPUProfileSummary, 0)
 
+	// Track successful query times per agent for checkpoint updates.
+	// Only update checkpoints AFTER successful storage (like Kafka consumer commits).
+	queryEndTimes := make(map[string]time.Time)
+
 	for _, agent := range agents {
 		// Only query healthy or degraded agents.
 		status := registry.DetermineStatus(agent.LastSeen, now)
@@ -187,7 +191,9 @@ func (p *CPUProfilePoller) pollOnce() {
 		}
 
 		// Query agent for samples since last poll.
-		samples, err := p.queryAgent(agent, lastPoll, now)
+		// Use 'now' as the end time for this query window.
+		queryEndTime := now
+		samples, err := p.queryAgent(agent, lastPoll, queryEndTime)
 		if err != nil {
 			p.logger.Warn().
 				Err(err).
@@ -199,13 +205,12 @@ func (p *CPUProfilePoller) pollOnce() {
 		}
 
 		// Aggregate samples into 1-minute buckets.
+		// Service names are now included in the samples from the agent.
 		summaries := p.aggregateSamples(agent.AgentID, samples)
 		allSummaries = append(allSummaries, summaries...)
 
-		// Update last poll time.
-		p.lastPollTimesMu.Lock()
-		p.lastPollTimes[agent.AgentID] = now
-		p.lastPollTimesMu.Unlock()
+		// Track query end time for checkpoint update (only after successful storage).
+		queryEndTimes[agent.AgentID] = queryEndTime
 
 		successCount++
 		totalSamples += len(samples)
@@ -218,7 +223,15 @@ func (p *CPUProfilePoller) pollOnce() {
 				Err(err).
 				Int("summary_count", len(allSummaries)).
 				Msg("Failed to store CPU profile summaries")
+			// DO NOT update checkpoints on storage failure - retry on next poll.
 		} else {
+			// Storage succeeded - commit checkpoints (like Kafka consumer offset commit).
+			p.lastPollTimesMu.Lock()
+			for agentID, endTime := range queryEndTimes {
+				p.lastPollTimes[agentID] = endTime
+			}
+			p.lastPollTimesMu.Unlock()
+
 			p.logger.Info().
 				Int("agents_queried", successCount).
 				Int("agents_failed", errorCount).
@@ -321,9 +334,9 @@ func (p *CPUProfilePoller) aggregateSamples(
 			// Merge: sum sample counts.
 			existing.sampleCount += int32(sample.SampleCount) // #nosec G115
 		} else {
-			// New group.
+			// New group - use service_name from sample (RFD 072 fix).
 			grouped[key] = &sampleGroup{
-				serviceName:   "", // Will be populated when we support multi-service queries.
+				serviceName:   sample.ServiceName,
 				stackFrameIDs: frameIDs,
 				sampleCount:   int32(sample.SampleCount), // #nosec G115
 			}

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
 // CPUProfileSummary represents a 1-minute aggregated CPU profile sample (RFD 072).
@@ -95,16 +97,24 @@ func (d *Database) EncodeStackFrames(ctx context.Context, frameNames []string) (
 			return nil, fmt.Errorf("failed to query frame dictionary: %w", err)
 		}
 
-		// Not found, insert new frame.
-		err = d.db.QueryRowContext(ctx, `
+		// Not found, insert new frame (or do nothing if already exists due to race).
+		_, err = d.db.ExecContext(ctx, `
 			INSERT INTO profile_frame_dictionary (frame_name)
 			VALUES (?)
-			ON CONFLICT (frame_name) DO UPDATE SET frame_name = excluded.frame_name
-			RETURNING frame_id
-		`, frameName).Scan(&frameID)
+			ON CONFLICT (frame_name) DO NOTHING
+		`, frameName)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert frame: %w", err)
+		}
+
+		// Query to get the frame_id (whether just inserted or already existed).
+		err = d.db.QueryRowContext(ctx, `
+			SELECT frame_id FROM profile_frame_dictionary WHERE frame_name = ?
+		`, frameName).Scan(&frameID)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to query frame_id after insert: %w", err)
 		}
 
 		// Cache the new frame ID.
@@ -204,32 +214,42 @@ func (d *Database) InsertCPUProfileSummaries(ctx context.Context, summaries []CP
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO cpu_profile_summaries (
-			timestamp, agent_id, service_name, build_id, stack_hash, stack_frame_ids, sample_count
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (timestamp, agent_id, service_name, build_id, stack_hash) DO UPDATE SET
-			sample_count = cpu_profile_summaries.sample_count + excluded.sample_count
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	for _, summary := range summaries {
+	for i, summary := range summaries {
 		// Compute stack hash if not provided.
 		stackHash := summary.StackHash
 		if stackHash == "" {
 			stackHash = ComputeStackHash(summary.StackFrameIDs)
 		}
 
-		_, err = stmt.ExecContext(ctx,
+		// Debug logging for first few summaries.
+		if i < 3 {
+			d.logger.Debug().
+				Time("timestamp", summary.Timestamp).
+				Str("agent_id", summary.AgentID).
+				Str("service_name", summary.ServiceName).
+				Str("build_id", summary.BuildID).
+				Int32("sample_count", summary.SampleCount).
+				Msg("Storing CPU profile summary")
+		}
+
+		// Format stack_frame_ids as DuckDB LIST literal.
+		frameIDsStr := duckdb.Int64ArrayToString(summary.StackFrameIDs)
+
+		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
+		query := `
+			INSERT INTO cpu_profile_summaries (
+				timestamp, agent_id, service_name, build_id, stack_hash, stack_frame_ids, sample_count
+			) VALUES (?, ?, ?, ?, ?, ` + frameIDsStr + `, ?)
+			ON CONFLICT (timestamp, agent_id, service_name, build_id, stack_hash) DO UPDATE SET
+				sample_count = cpu_profile_summaries.sample_count + excluded.sample_count
+		`
+
+		_, err = tx.ExecContext(ctx, query,
 			summary.Timestamp,
 			summary.AgentID,
 			summary.ServiceName,
 			summary.BuildID,
 			stackHash,
-			summary.StackFrameIDs,
 			summary.SampleCount,
 		)
 		if err != nil {
@@ -277,6 +297,12 @@ func (d *Database) UpsertBinaryMetadata(ctx context.Context, metadata BinaryMeta
 
 // QueryCPUProfileSummaries retrieves CPU profile summaries for a given time range and service.
 func (d *Database) QueryCPUProfileSummaries(ctx context.Context, serviceName string, startTime, endTime time.Time) ([]CPUProfileSummary, error) {
+	d.logger.Debug().
+		Str("service_name", serviceName).
+		Time("start_time", startTime).
+		Time("end_time", endTime).
+		Msg("Querying CPU profile summaries")
+
 	query := `SELECT timestamp, agent_id, service_name, build_id, stack_hash, stack_frame_ids, sample_count
 		FROM cpu_profile_summaries
 		WHERE timestamp >= ? AND timestamp <= ?
@@ -299,7 +325,7 @@ func (d *Database) QueryCPUProfileSummaries(ctx context.Context, serviceName str
 	var summaries []CPUProfileSummary
 	for rows.Next() {
 		var summary CPUProfileSummary
-		var frameIDsStr string
+		var frameIDsRaw interface{}
 
 		err := rows.Scan(
 			&summary.Timestamp,
@@ -307,18 +333,19 @@ func (d *Database) QueryCPUProfileSummaries(ctx context.Context, serviceName str
 			&summary.ServiceName,
 			&summary.BuildID,
 			&summary.StackHash,
-			&frameIDsStr,
+			&frameIDsRaw,
 			&summary.SampleCount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		// DuckDB returns array as string, parse it.
-		// Format: "[1, 2, 3]"
-		if err := parseBigIntArray(frameIDsStr, &summary.StackFrameIDs); err != nil {
-			return nil, fmt.Errorf("failed to parse frame IDs: %w", err)
+		// DuckDB can return arrays as []interface{} or string, convert to []int64.
+		frameIDs, err := convertArrayToInt64(frameIDsRaw)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert frame IDs: %w", err)
 		}
+		summary.StackFrameIDs = frameIDs
 
 		summary.Timestamp = summary.Timestamp.Local()
 		summaries = append(summaries, summary)
@@ -328,50 +355,12 @@ func (d *Database) QueryCPUProfileSummaries(ctx context.Context, serviceName str
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
+	d.logger.Debug().
+		Int("summary_count", len(summaries)).
+		Str("service_name", serviceName).
+		Msg("Query completed")
+
 	return summaries, nil
-}
-
-// parseBigIntArray parses a DuckDB BIGINT[] string representation into []int64.
-// Example input: "[1, 2, 3]"
-func parseBigIntArray(s string, dest *[]int64) error {
-	if s == "" || s == "[]" {
-		*dest = []int64{}
-		return nil
-	}
-
-	// Simple parser for array format.
-	// Remove brackets and split by comma.
-	s = s[1 : len(s)-1] // Remove [ and ].
-
-	if s == "" {
-		*dest = []int64{}
-		return nil
-	}
-
-	var values []int64
-	var current int64
-	var inNumber bool
-
-	for _, c := range s {
-		if c >= '0' && c <= '9' {
-			current = current*10 + int64(c-'0')
-			inNumber = true
-		} else if c == ',' || c == ' ' {
-			if inNumber {
-				values = append(values, current)
-				current = 0
-				inNumber = false
-			}
-		}
-	}
-
-	// Add last number.
-	if inNumber {
-		values = append(values, current)
-	}
-
-	*dest = values
-	return nil
 }
 
 // CleanupOldCPUProfiles removes CPU profile data older than the specified retention period.
@@ -429,4 +418,41 @@ func (d *Database) CleanupOrphanedFrames(ctx context.Context) (int64, error) {
 	}
 
 	return rowsAffected, nil
+}
+
+// convertArrayToInt64 converts a DuckDB array ([]interface{} or string) to []int64.
+// DuckDB Go driver may return arrays in different formats depending on the query.
+func convertArrayToInt64(val interface{}) ([]int64, error) {
+	if val == nil {
+		return nil, nil
+	}
+
+	// DuckDB Go driver returns arrays as []interface{}.
+	arr, ok := val.([]interface{})
+	if !ok {
+		// Fallback: Try as string for backwards compatibility.
+		if str, ok := val.(string); ok {
+			return duckdb.ParseInt64Array(str)
+		}
+		return nil, fmt.Errorf("unexpected type for array: %T", val)
+	}
+
+	ids := make([]int64, len(arr))
+	for i, v := range arr {
+		// Each element should be a number.
+		switch num := v.(type) {
+		case int64:
+			ids[i] = num
+		case int32:
+			ids[i] = int64(num)
+		case int:
+			ids[i] = int64(num)
+		case float64:
+			ids[i] = int64(num)
+		default:
+			return nil, fmt.Errorf("unexpected array element type: %T", v)
+		}
+	}
+
+	return ids, nil
 }
