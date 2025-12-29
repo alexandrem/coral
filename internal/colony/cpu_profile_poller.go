@@ -302,7 +302,7 @@ func (p *CPUProfilePoller) aggregateSamples(
 	type sampleGroup struct {
 		serviceName   string
 		stackFrameIDs []int64
-		sampleCount   int32
+		sampleCount   uint64 // Number of samples
 	}
 
 	grouped := make(map[sampleKey]*sampleGroup)
@@ -332,13 +332,13 @@ func (p *CPUProfilePoller) aggregateSamples(
 
 		if existing, exists := grouped[key]; exists {
 			// Merge: sum sample counts.
-			existing.sampleCount += int32(sample.SampleCount) // #nosec G115
+			existing.sampleCount += uint64(sample.SampleCount)
 		} else {
 			// New group - use service_name from sample (RFD 072 fix).
 			grouped[key] = &sampleGroup{
 				serviceName:   sample.ServiceName,
 				stackFrameIDs: frameIDs,
-				sampleCount:   int32(sample.SampleCount), // #nosec G115
+				sampleCount:   uint64(sample.SampleCount),
 			}
 		}
 	}

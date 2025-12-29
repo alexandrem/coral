@@ -32,7 +32,7 @@ type ProfileSample struct {
 	BuildID       string
 	StackHash     string  // Hash of stack for deduplication
 	StackFrameIDs []int64 // Integer-encoded stack frames
-	SampleCount   int
+	SampleCount   uint64  // Number of samples
 }
 
 // BinaryMetadata represents metadata about a profiled binary.

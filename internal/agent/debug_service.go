@@ -10,7 +10,6 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/profiler"
-	"github.com/coral-mesh/coral/internal/safe"
 	"github.com/rs/zerolog"
 )
 
@@ -263,21 +262,15 @@ func (s *DebugService) QueryCPUProfileSamples(
 			continue
 		}
 
-		// Safe conversion with clamping for negative values
-		sampleCount64, clamped := safe.IntToUint64(sample.SampleCount)
-		if clamped {
-			s.logger.Warn().Int("sample_count", sample.SampleCount).Msg("Clamped negative sample count to zero")
-		}
-
 		pbSamples = append(pbSamples, &meshv1.CPUProfileSample{
 			Timestamp:   timestamppb.New(sample.Timestamp),
 			BuildId:     sample.BuildID,
 			StackFrames: frameNames,
-			SampleCount: uint32(sampleCount64),
-			ServiceName: sample.ServiceID, // RFD 072: Include service name
+			SampleCount: uint32(sample.SampleCount), // Safe: internal uint64 -> protobuf uint32
+			ServiceName: sample.ServiceID,           // RFD 072: Include service name
 		})
 
-		totalSamples += sampleCount64
+		totalSamples += sample.SampleCount
 	}
 
 	return &meshv1.QueryCPUProfileSamplesResponse{
