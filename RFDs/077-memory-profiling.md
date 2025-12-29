@@ -1,5 +1,5 @@
 ---
-rfd: "076"
+rfd: "077"
 title: "Memory Profiling and Allocation Flame Graphs"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "agent", "sdk", "colony", "cli", "profiling" ]
 ---
 
-# RFD 076 - Memory Profiling and Allocation Flame Graphs
+# RFD 077 - Memory Profiling and Allocation Flame Graphs
 
 **Status:** 🚧 Draft
 
@@ -132,7 +132,7 @@ Integrate with RFD 074's enriched query summary:
 }
 ```
 
-### Integration Flow
+**Architecture Overview:**
 
 ```mermaid
 sequenceDiagram
@@ -151,22 +151,23 @@ sequenceDiagram
     Colony->>User: Display allocation flame graph
 ```
 
-## Architecture Overview
-
 ### Component Changes
 
 1. **SDK** (Profile Provider): [MODIFY]
+
    - Already exposes `/debug/pprof/heap` (standard Go `net/http/pprof`)
    - Add `/debug/pprof/allocs` for allocation-specific profiling
    - Add runtime configuration endpoint to adjust `runtime.MemProfileRate`
 
 2. **Agent** (Profile Collector): [MODIFY]
+
    - Extend `ProfileCollector` to support `profile_type: MEMORY`
    - Implement heap snapshot collection every 60s for continuous mode
    - Parse `pprof` heap profiles and convert to flame graph format
    - Track heap growth trends and detect leaks
 
 3. **Colony** (Profile Storage & Query): [MODIFY]
+
    - Extend DuckDB schema with `memory_profiles` table (parallel to `cpu_profiles`)
    - Add `memory_hotspots` aggregation view for LLM queries
    - Integrate with RFD 074's `coral_query_summary` tool
@@ -176,7 +177,53 @@ sequenceDiagram
    - Add `coral query memory-profile` for historical queries
    - Display allocation flame graphs in terminal (text-based visualization)
 
-### Storage Schema
+## Implementation Plan
+
+### Phase 1: SDK Memory Profile Collection
+
+- [ ] Verify `/debug/pprof/heap` and `/debug/pprof/allocs` endpoints work correctly
+- [ ] Add `POST /debug/config/memory-profile` for runtime sampling rate adjustment
+- [ ] Add unit tests for memory profile generation with various allocation patterns
+
+### Phase 2: Agent Collection & Parsing
+
+- [ ] Extend `ProfileCollector` to support `MEMORY` profile type
+- [ ] Implement `pprof` heap profile parser (convert to flame graph format)
+- [ ] Add continuous memory profiling with 60s snapshot interval
+- [ ] Implement heap growth tracking (compare snapshots over time)
+- [ ] Add functional tests with mock Go applications allocating memory
+
+### Phase 3: Colony Storage & Query
+
+- [ ] Add `memory_profiles` table to DuckDB schema
+- [ ] Implement `memory_hotspots` aggregation view
+- [ ] Add retention policy (1hr agent, 30 days colony)
+- [ ] Create migration scripts for existing deployments
+
+### Phase 4: CLI Integration
+
+- [ ] Implement `coral profile memory` command
+- [ ] Implement `coral query memory-profile` command
+- [ ] Add text-based flame graph rendering
+- [ ] Add allocation type breakdown display
+
+### Phase 5: LLM Integration
+
+- [ ] Extend `coral_query_summary` with `memory_hotspots` field
+- [ ] Add `heap_growth` and `gc_correlation` fields
+- [ ] Update LLM prompt templates to interpret memory diagnostics
+- [ ] Add integration tests for memory leak scenario detection
+
+### Phase 6: Documentation & E2E Testing
+
+- [ ] Update Coral documentation with memory profiling examples
+- [ ] Create runbook for common memory issues (leaks, high allocation)
+- [ ] E2E tests with realistic Go applications (web servers, data processors)
+- [ ] Performance benchmarking: verify <1% overhead for continuous mode
+
+## API Changes
+
+### Database Schema
 
 **DuckDB Table**: `memory_profiles`
 
@@ -216,10 +263,9 @@ CREATE INDEX idx_memory_profiles_build ON memory_profiles(build_id, timestamp DE
 ```
 
 **Retention Policy**: Same as RFD 072
+
 - **Agent**: 1 hour raw profiles
 - **Colony**: 30 days aggregated profiles (60s resolution for continuous)
-
-## API Changes
 
 ### SDK HTTP API Extensions
 
@@ -412,50 +458,6 @@ Top Types:
   *github.com/myapp/Order:   12.1%
 ```
 
-## Implementation Plan
-
-### Phase 1: SDK Memory Profile Collection
-
-- [ ] Verify `/debug/pprof/heap` and `/debug/pprof/allocs` endpoints work correctly
-- [ ] Add `POST /debug/config/memory-profile` for runtime sampling rate adjustment
-- [ ] Add unit tests for memory profile generation with various allocation patterns
-
-### Phase 2: Agent Collection & Parsing
-
-- [ ] Extend `ProfileCollector` to support `MEMORY` profile type
-- [ ] Implement `pprof` heap profile parser (convert to flame graph format)
-- [ ] Add continuous memory profiling with 60s snapshot interval
-- [ ] Implement heap growth tracking (compare snapshots over time)
-- [ ] Add functional tests with mock Go applications allocating memory
-
-### Phase 3: Colony Storage & Query
-
-- [ ] Add `memory_profiles` table to DuckDB schema
-- [ ] Implement `memory_hotspots` aggregation view
-- [ ] Add retention policy (1hr agent, 30 days colony)
-- [ ] Create migration scripts for existing deployments
-
-### Phase 4: CLI Integration
-
-- [ ] Implement `coral profile memory` command
-- [ ] Implement `coral query memory-profile` command
-- [ ] Add text-based flame graph rendering
-- [ ] Add allocation type breakdown display
-
-### Phase 5: LLM Integration
-
-- [ ] Extend `coral_query_summary` with `memory_hotspots` field
-- [ ] Add `heap_growth` and `gc_correlation` fields
-- [ ] Update LLM prompt templates to interpret memory diagnostics
-- [ ] Add integration tests for memory leak scenario detection
-
-### Phase 6: Documentation & E2E Testing
-
-- [ ] Update Coral documentation with memory profiling examples
-- [ ] Create runbook for common memory issues (leaks, high allocation)
-- [ ] E2E tests with realistic Go applications (web servers, data processors)
-- [ ] Performance benchmarking: verify <1% overhead for continuous mode
-
 ## Testing Strategy
 
 ### Unit Tests
@@ -517,15 +519,15 @@ Top Types:
 
 - **CPU Overhead**: <1% (60s snapshot interval, low sampling rate)
 - **Memory Overhead**: ~5MB per snapshot (frame dictionary encoding)
-- **Storage**: ~120MB/day per service (60s * 60min * 24hr * 5MB, compressed)
+- **Storage**: ~120MB/day per service (60s _ 60min _ 24hr \* 5MB, compressed)
 
 ### Sampling Rate Trade-offs
 
-| Sample Rate | Overhead | Accuracy | Use Case |
-|-------------|----------|----------|----------|
-| 512KB (default) | 2-3% | High | On-demand profiling |
-| 4MB (continuous) | <1% | Medium | Always-on monitoring |
-| 128KB (high-res) | 5-8% | Very High | Deep leak investigation |
+| Sample Rate      | Overhead | Accuracy  | Use Case                |
+| ---------------- | -------- | --------- | ----------------------- |
+| 512KB (default)  | 2-3%     | High      | On-demand profiling     |
+| 4MB (continuous) | <1%      | Medium    | Always-on monitoring    |
+| 128KB (high-res) | 5-8%     | Very High | Deep leak investigation |
 
 ## Security Considerations
 
@@ -546,6 +548,10 @@ Top Types:
 - Memory profiles stored in Colony DuckDB
 - **Mitigation**: Same access controls as CPU profiles (RFD 072)
 - **Mitigation**: 30-day retention limit reduces exposure window
+
+## Implementation Status
+
+**Status:** ⏳ Not Started
 
 ## Future Work
 
@@ -632,12 +638,12 @@ Memory flame graphs use the same format as CPU flame graphs (RFD 070):
 
 Memory allocation often drives CPU overhead:
 
-| CPU Symptom | Memory Cause | Flame Graph Evidence |
-|-------------|--------------|----------------------|
-| High `runtime.mallocgc` | Frequent allocations | Caller functions allocating often |
-| High `runtime.scanobject` | Large heap size | Many live objects retained |
-| High `runtime.gcBgMarkWorker` | GC pressure | High allocation rate triggering GC |
-| High `runtime.memmove` | Large object copies | Allocation of big slices/arrays |
+| CPU Symptom                   | Memory Cause         | Flame Graph Evidence               |
+| ----------------------------- | -------------------- | ---------------------------------- |
+| High `runtime.mallocgc`       | Frequent allocations | Caller functions allocating often  |
+| High `runtime.scanobject`     | Large heap size      | Many live objects retained         |
+| High `runtime.gcBgMarkWorker` | GC pressure          | High allocation rate triggering GC |
+| High `runtime.memmove`        | Large object copies  | Allocation of big slices/arrays    |
 
 RFD 074's LLM can correlate these patterns:
 
@@ -652,19 +658,3 @@ Fix: Reduce allocations by reusing buffers (sync.Pool) or optimizing serializati
 - [Go Memory Model](https://go.dev/ref/mem)
 - [Google's pprof Tool](https://github.com/google/pprof)
 - [Continuous Profiling at Datadog](https://www.datadoghq.com/blog/engineering/how-we-optimized-our-akka-application-using-datadogs-continuous-profiler/)
-
----
-
-## Dependencies
-
-**Pre-requisites**:
-
-- ✅ RFD 070 (CPU Profiling) - COMPLETED
-- ✅ RFD 072 (Continuous CPU Profiling) - DRAFT (parallel development)
-- ✅ RFD 074 (LLM-Driven RCA) - DRAFT (integration point)
-
-**Enables**:
-
-- Future heap diff analysis
-- Future goroutine leak detection
-- Complete observability stack (CPU + Memory + Metrics)

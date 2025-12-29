@@ -1,17 +1,17 @@
 ---
-rfd: "077"
+rfd: "078"
 title: "Trace-Driven Profiling and Request-Level Performance Correlation"
 state: "draft"
 breaking_changes: false
 testing_required: true
 database_changes: true
 api_changes: true
-dependencies: [ "036", "070", "072", "074", "076" ]
+dependencies: [ "036", "070", "072", "074", "077" ]
 database_migrations: [ ]
 areas: [ "agent", "profiling", "tracing", "observability", "ai" ]
 ---
 
-# RFD 077 - Trace-Driven Profiling and Request-Level Performance Correlation
+# RFD 078 - Trace-Driven Profiling and Request-Level Performance Correlation
 
 **Status:** 🚧 Draft
 
@@ -36,11 +36,13 @@ This bridges the gap between "what happened" (distributed traces) and "why it wa
 Coral's existing observability tools operate at different granularities:
 
 **Distributed Traces (RFD 036):**
+
 - Show request flow across services (which services were called, in what order)
 - Measure time spent in each service (span duration)
 - Cannot explain **why** a service was slow (CPU? Database? Lock contention?)
 
 **CPU/Memory Profiling (RFD 070, 072, 076):**
+
 - Show aggregate CPU/memory consumption across all requests
 - Identify hot functions in the codebase
 - Cannot isolate profiling data for **specific slow requests**
@@ -64,21 +66,25 @@ The slow request's bottleneck may not appear in top-5 hotspots.
 ### Why This Matters
 
 **Production Debugging:**
+
 - Operators need to debug **specific** slow requests reported by users
 - Aggregate profiles are insufficient when the issue affects <1% of traffic
 - Example: "User X's checkout failed—why?" requires request-level analysis
 
 **AI-Driven Root Cause Analysis:**
+
 - RFD 074 enables LLM to correlate metrics, but lacks request-level code attribution
 - LLM sees: "Trace abc123 spent 4.5s in payment-service" but not which function
 - Missing link: Connect trace span duration to profiling flame graph
 
 **Intermittent Issues:**
+
 - "Slow requests to /api/checkout happen randomly, 1 in 100 requests"
 - Aggregate profiling averages out the slow requests
 - Need: Profile **only** the slow requests to isolate the bottleneck
 
 **Cross-Service Debugging:**
+
 - A slow trace spans multiple services (frontend → API → database)
 - Need: Per-service flame graphs correlated with the same trace ID
 - Cannot answer: "Which service's code caused the slowdown?"
@@ -86,21 +92,25 @@ The slow request's bottleneck may not appear in top-5 hotspots.
 ### Use Cases Affected
 
 1. **Single Request Diagnosis**
+
    - "Why did this specific checkout request (trace abc123) take 5 seconds?"
    - Current: Run aggregate profile, guess which function corresponds to the slow trace
    - Need: Request-level flame graph showing exactly what ran during that trace
 
 2. **Outlier Analysis**
+
    - "99th percentile checkout latency is 5s, but median is 50ms—why?"
    - Current: Aggregate profile dominated by fast requests (99% of samples)
    - Need: Profile only the slow outliers (P99) to see their unique bottlenecks
 
 3. **Error Correlation**
+
    - "Requests with HTTP 500 errors are slow—what's different about them?"
    - Current: No way to profile only failed requests
    - Need: Compare flame graphs between successful vs failed requests
 
 4. **Cross-Service Attribution**
+
    - "Trace abc123 spans 5 services—which service's code caused the 4s delay?"
    - Current: Run separate profiles on each service, manually correlate timestamps
    - Need: Unified view showing per-service flame graphs for the same trace
@@ -195,15 +205,18 @@ int kretprobe__http_server_handler(struct pt_regs *ctx) {
 #### 1. Trace-Tagged Profiling (Always-On)
 
 **How it works:**
+
 - Continuous profiling (RFD 072) now tags each sample with the active trace ID
 - Zero additional overhead (trace ID read from TLS/BPF map is <10ns)
 - Samples without trace context (background jobs) are tagged with trace_id=0
 
 **Storage:**
+
 - Extend `cpu_profile_summaries` table with optional `trace_id` column
 - Index by trace_id for fast lookup: `SELECT * WHERE trace_id = 'abc123...'`
 
 **Query:**
+
 ```bash
 coral query trace-profile abc123def456
 # Returns CPU flame graph for only the samples from that trace
@@ -212,11 +225,13 @@ coral query trace-profile abc123def456
 #### 2. Trace-Triggered Profiling (On-Demand)
 
 **How it works:**
+
 - Start high-frequency profiling (99Hz) for requests matching criteria
 - Criteria: duration threshold, status code, URL pattern, service name
 - Automatically stop after N matching requests collected
 
 **Example:**
+
 ```bash
 coral profile trace-trigger \
   --service payment-service \
@@ -229,6 +244,7 @@ coral profile trace-trigger \
 ```
 
 **Use case:**
+
 - Intermittent slow requests (1% of traffic)
 - Need high-resolution profiling (99Hz) but only for slow requests
 - Avoid profiling overhead on fast requests
@@ -236,10 +252,12 @@ coral profile trace-trigger \
 #### 3. Comparative Flame Graph Analysis
 
 **How it works:**
+
 - Compare flame graphs between different request cohorts
 - Cohorts: slow vs fast, success vs error, before/after deployment
 
 **Example:**
+
 ```bash
 coral query profile-compare \
   --service payment-service \
@@ -253,6 +271,7 @@ coral query profile-compare \
 ```
 
 **Output:**
+
 ```
 Differential Flame Graph (Slow vs Fast Requests)
 
@@ -267,11 +286,13 @@ HOTTER in Fast Requests:
 #### 4. Cross-Service Trace Profiling
 
 **How it works:**
+
 - A single trace spans multiple services (frontend → API → database)
 - Each service's eBPF profiler tags samples with the same trace ID
 - Query aggregates per-service flame graphs for the same trace
 
 **Example:**
+
 ```bash
 coral query trace-profile --trace-id abc123def456 --all-services
 
@@ -282,6 +303,7 @@ coral query trace-profile --trace-id abc123def456 --all-services
 ```
 
 **LLM Integration (RFD 074):**
+
 ```json
 {
   "trace_id": "abc123def456",
@@ -313,11 +335,13 @@ coral query trace-profile --trace-id abc123def456 --all-services
 #### 5. Memory Profiling Correlation (RFD 076 Integration)
 
 **How it works:**
+
 - Same trace ID tagging applies to memory allocation profiling (RFD 076)
 - Correlate memory allocations with specific requests
 - Identify memory leaks or excessive allocations in slow requests
 
 **Example:**
+
 ```bash
 coral query memory-profile --trace-id abc123def456
 
@@ -331,11 +355,13 @@ coral query memory-profile --trace-id abc123def456
 **Three-Tier Strategy:**
 
 1. **Automatic Trace Tagging (Low Overhead, Always-On)**
+
    - Continuous profiling (19Hz, RFD 072) tags samples with trace ID
    - Zero additional overhead (trace ID already in thread context)
    - Enables historical request-level analysis
 
 2. **Trace-Triggered Profiling (High Overhead, On-Demand)**
+
    - High-frequency profiling (99Hz) activated by trace criteria
    - Automatically stops after collecting N matching requests
    - Provides surgical, high-resolution profiling
@@ -897,16 +923,19 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### Overhead Analysis
 
 **Trace ID Tagging (Always-On):**
+
 - **CPU Overhead:** <0.1% (reading 128-bit trace ID from TLS/BPF map adds ~5-10ns per sample)
 - **Memory Overhead:** +16 bytes per sample (trace_id_high + trace_id_low)
 - **Storage Overhead:** +32 bytes per row in `cpu_profile_summaries` (VARCHAR(32))
 
 **Trace-Triggered Profiling (On-Demand):**
+
 - **CPU Overhead:** 2-5% during profiling window (99Hz sampling, same as RFD 070)
 - **Duration:** Limited by trigger criteria (max 10 minutes, default 5 minutes)
 - **Scope:** Only services/requests matching trigger criteria
 
 **Query Performance:**
+
 - **Trace Profile Query:** <200ms for single trace (indexed by trace_id)
 - **Comparative Analysis:** <2s for 1 hour time range (aggregates samples across cohorts)
 - **Join Cost:** Minimal (trace_id is indexed in both tables)
@@ -914,12 +943,14 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### Storage Scaling
 
 **Continuous Profiling with Trace Tagging:**
+
 - **Assumption:** 1,000 req/s per service, 19Hz profiling, 5 unique stacks per request
-- **Samples per day:** 1,000 req/s * 86,400s * 0.05 samples/req = 4.3M samples/day
+- **Samples per day:** 1,000 req/s _ 86,400s _ 0.05 samples/req = 4.3M samples/day
 - **Storage (with compression):** ~200MB/day per service (same as RFD 072)
-- **Trace ID overhead:** +16 bytes/sample * 4.3M = 69MB/day (34% increase)
+- **Trace ID overhead:** +16 bytes/sample \* 4.3M = 69MB/day (34% increase)
 
 **Retention Strategy:**
+
 - **Agent:** 1 hour (same as RFD 072)
 - **Colony:** 7 days for trace-tagged profiles (high-value data for debugging)
 - **Colony:** 30 days for aggregate profiles (trace_id = NULL)
@@ -927,36 +958,43 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### Optimization Strategies
 
 **1. Trace ID Sampling:**
+
 - Only tag samples with trace ID for traced requests (not background jobs)
 - Background jobs: trace_id = NULL, saved space
 
 **2. Partial Trace Profiling:**
+
 - Profile only services where span_duration > threshold (e.g., >100ms)
 - Skip profiling for sub-millisecond spans (not actionable)
 
 **3. Deferred Correlation:**
+
 - Store profiles with trace ID, but don't join with traces until query time
 - Avoid pre-computing correlations (storage-intensive)
 
 ## Security Considerations
 
 **Trace ID Exposure:**
+
 - Trace IDs may reveal request patterns or user activity
 - **Mitigation:** RBAC controls on trace profile queries (same as RFD 058)
 - **Mitigation:** Audit logging for all trace profile queries
 
 **Profile Data Sensitivity:**
+
 - Profiles may reveal code structure and execution patterns
 - **Mitigation:** Profiles contain function names, not source code or data
 - **Mitigation:** Same access controls as existing profiling (RFD 070, 072)
 
 **Trigger Abuse:**
+
 - Malicious users could start many high-frequency triggers to DoS the service
 - **Mitigation:** Rate limit triggers (max 3 active triggers per service)
 - **Mitigation:** Automatic expiration (max 10 minutes)
 - **Mitigation:** RBAC controls on trigger creation
 
 **Cross-Tenant Isolation:**
+
 - Ensure trace profiles from one tenant are not visible to other tenants
 - **Mitigation:** Service-level isolation (profiles scoped to service_id)
 - **Mitigation:** Future: Tenant ID field in profiles
@@ -966,12 +1004,14 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### Unit Tests
 
 **eBPF Trace Tagging:**
+
 - Test trace ID extraction from thread-local storage
 - Test trace ID extraction from HTTP headers (W3C traceparent)
 - Test sample collection with and without active trace context
 - Verify trace_id = 0 for background jobs
 
 **Storage:**
+
 - Test profile insertion with trace_id
 - Test trace_id indexing and query performance
 - Test NULL trace_id handling (backward compatibility)
@@ -979,18 +1019,21 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### Integration Tests
 
 **End-to-End Trace Profiling:**
+
 1. Start mock service with traced requests
 2. Verify eBPF profiler tags samples with trace IDs
 3. Query profile by trace_id, verify flame graph matches
 4. Test multi-service trace with per-service profiles
 
 **Trace-Triggered Profiling:**
+
 1. Start trigger with criteria (duration >1s)
 2. Generate slow and fast requests
 3. Verify only slow requests are profiled
 4. Verify trigger stops after max_requests reached
 
 **Comparative Analysis:**
+
 1. Generate two cohorts of requests (slow vs fast)
 2. Profile both cohorts
 3. Query differential flame graph
@@ -999,12 +1042,14 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### E2E Tests
 
 **Scenario 1: Single Request Diagnosis**
+
 1. User: "Debug trace abc123"
 2. LLM calls `coral_query_trace_profile(trace_id=abc123)`
 3. Verify LLM receives per-service flame graphs
 4. Verify LLM diagnoses correct bottleneck
 
 **Scenario 2: Outlier Analysis**
+
 1. User: "P99 latency is 5s, but median is 50ms—why?"
 2. LLM calls `coral_profile_trace_trigger(min_duration_ms=1000, count=10)`
 3. LLM analyzes collected profiles
@@ -1012,6 +1057,7 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 5. Verify LLM identifies unique hotspots in slow requests
 
 **Scenario 3: Cross-Service Attribution**
+
 1. User: "Which service is slow in trace abc123?"
 2. LLM calls `coral_query_trace_profile(trace_id=abc123, all_services=true)`
 3. Verify LLM receives per-service CPU attribution
@@ -1020,16 +1066,19 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### Performance Tests
 
 **Overhead Measurement:**
+
 - Baseline: Service without trace profiling (0% overhead)
 - With trace tagging: Measure CPU overhead (target: <0.1%)
 - With triggered profiling: Measure CPU overhead (target: <5% during profiling)
 
 **Storage Benchmarks:**
+
 - Insert 1M profiles with trace IDs
 - Query by trace_id (target: <50ms)
 - Join with traces table (target: <200ms)
 
 **Scalability Tests:**
+
 - 10,000 req/s per service
 - Verify profiler keeps up (no dropped samples)
 - Verify query performance degrades gracefully
@@ -1039,26 +1088,31 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### Advanced Trace-Profiling Features (Future RFDs)
 
 **1. Automatic Root Cause Detection (Future RFD)**
+
 - Machine learning to detect anomalous flame graphs automatically
 - Compare each trace's profile against baseline (P50 requests)
 - Alert: "Trace abc123 has anomalous hotspot in function X (not present in typical requests)"
 
 **2. Trace Replay with Profiling (Future RFD)**
+
 - Capture request payload for slow traces
 - Replay request in isolated environment with high-frequency profiling
 - Debug without waiting for issue to recur in production
 
 **3. Line-Level Attribution (Future RFD)**
+
 - Extend eBPF profiler to capture instruction pointer (IP)
 - Map IP to source code line number using DWARF symbols
 - Show line-level CPU time in flame graph: "Line 42 in validateSignature consumed 4.2s"
 
 **4. Network I/O Correlation (Future RFD)**
+
 - Correlate network I/O events (eBPF kprobes on send/recv) with trace IDs
 - Identify slow requests caused by network latency vs CPU
 - Example: "Trace abc123 spent 4.5s waiting for network I/O (external payment gateway)"
 
 **5. Database Query Profiling (Future RFD)**
+
 - Correlate SQL query execution with trace IDs
 - Show SQL query text and execution time within trace flame graph
 - Example: "Trace abc123 spent 3.2s in SELECT query (slow due to missing index)"
@@ -1066,17 +1120,20 @@ payment-svc's validateSignature function is CPU-bound due to 4096-bit RSA valida
 ### LLM Enhancements
 
 **1. Automatic Hypothesis Testing**
+
 - LLM generates hypotheses for slow request ("RSA key size changed?")
 - LLM queries historical profiles to test hypothesis ("Compare with previous build")
 - LLM presents evidence-based root cause
 
 **2. Interactive Debugging**
+
 - User: "Why is this slow?"
 - LLM: "Trace abc123 is slow due to validateSignature. Shall I compare with fast requests?"
 - User: "Yes"
 - LLM: Runs comparative analysis and explains differences
 
 **3. Proactive Anomaly Detection**
+
 - LLM continuously monitors traces and profiles
 - LLM alerts: "Detected anomalous trace abc123 (5x slower than baseline, bottleneck in new function)"
 
@@ -1116,6 +1173,7 @@ int parse_traceparent(char *header, struct trace_id *tid) {
 **User:** "Investigate slow checkout request (order #12345)"
 
 **LLM Action 1: Find Trace ID**
+
 ```
 Tool: coral_query_traces
 Input: { "service": "checkout", "search": "order_id:12345" }
@@ -1123,6 +1181,7 @@ Output: { "trace_id": "abc123def456", "duration_ms": 5200, "status": 500 }
 ```
 
 **LLM Action 2: Get Trace Profile**
+
 ```
 Tool: coral_query_trace_profile
 Input: { "trace_id": "abc123def456", "profile_type": "cpu" }
@@ -1136,6 +1195,7 @@ Output: {
 ```
 
 **LLM Action 3: Compare with Fast Requests**
+
 ```
 Tool: coral_query_profile_compare
 Input: {
@@ -1182,6 +1242,7 @@ c) Create a trace trigger to capture more slow checkouts?
 ## Dependencies
 
 **Pre-requisites:**
+
 - ✅ RFD 036 (Distributed Tracing) - Provides trace IDs and span metadata
 - ✅ RFD 070 (On-Demand CPU Profiling) - Foundation for profiling infrastructure
 - ✅ RFD 072 (Continuous CPU Profiling) - Always-on profiling with low overhead
@@ -1189,6 +1250,7 @@ c) Create a trace trigger to capture more slow checkouts?
 - ✅ RFD 076 (Memory Profiling) - Memory profiling correlation (parallel integration)
 
 **Enables:**
+
 - Future: Trace replay with profiling
 - Future: Automatic root cause detection
 - Future: Line-level performance attribution

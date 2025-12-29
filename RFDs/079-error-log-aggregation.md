@@ -1,5 +1,5 @@
 ---
-rfd: "078"
+rfd: "079"
 title: "Error Log Aggregation for LLM-Driven Debugging"
 state: "draft"
 breaking_changes: false
@@ -11,7 +11,7 @@ database_migrations: [ ]
 areas: [ "agent", "colony", "observability", "logging", "ai" ]
 ---
 
-# RFD 078 - Error Log Aggregation for LLM-Driven Debugging
+# RFD 079 - Error Log Aggregation for LLM-Driven Debugging
 
 **Status:** 🚧 Draft
 
@@ -37,11 +37,13 @@ This completes the "three pillars of observability" (metrics, traces, logs) with
 **Incomplete Diagnostics:**
 
 Coral can answer:
+
 - ✅ "Which requests are slow?" → Distributed traces (RFD 036)
 - ✅ "Which functions consume CPU?" → Profiling (RFD 070, 072, 076)
 - ✅ "What are the error rates?" → Metrics (RFD 032, 071)
 
 But **cannot** answer:
+
 - ❌ "What error message appeared for this slow trace?"
 - ❌ "Why did this request fail?" (need exception stack trace)
 - ❌ "Are errors increasing?" (need error log time-series)
@@ -63,19 +65,23 @@ Gap: No access to application error logs. Must SSH to pods and grep logs manuall
 ### Why Traditional Log Platforms Don't Fit
 
 **Storage Overhead:**
+
 - Elasticsearch/Loki index all logs (INFO, DEBUG, TRACE)
 - High-throughput services: 10GB+ logs/day per service
 - Coral uses DuckDB (embedded), not designed for full-text search at scale
 
 **Query Patterns:**
+
 - Traditional: Compliance, audit trails, full-text search
 - Coral: Debugging, error correlation, trace context
 
 **Retention:**
+
 - Traditional: 30-90 days (compliance requirements)
 - Coral: 7 days (debugging recent issues)
 
 **Cost:**
+
 - Traditional: Expensive (Elasticsearch cluster, SSD storage)
 - Coral: Lightweight (DuckDB, aggressive filtering)
 
@@ -254,6 +260,7 @@ func (r *Receiver) ConsumeLogs(ctx context.Context, logs plog.Logs) error {
 ```
 
 **Storage Reduction:**
+
 - Typical application: 90-95% of logs are INFO/DEBUG
 - Filtering reduces ingestion volume by 10-20x
 
@@ -342,6 +349,7 @@ WHERE t.trace_id = 'abc123def456';
 - **Colony:** 7 days (historical error patterns, trend analysis)
 
 **Rationale:**
+
 - Debugging focuses on recent errors (<24h)
 - Historical compliance logs belong in dedicated log platforms (e.g., S3 + Athena)
 - 7 days balances storage cost with utility
@@ -389,12 +397,14 @@ ORDER BY occurrences DESC;
 DuckDB is not optimized for full-text search:
 
 **What Coral Supports:**
+
 - ✅ Pattern matching: `message LIKE '%timeout%'`
 - ✅ Attribute filtering: `json_extract(attributes, '$.error_code') = 'TIMEOUT'`
 - ✅ Time-range queries: `timestamp > NOW() - INTERVAL '1h'`
 - ✅ Trace correlation: `trace_id = 'abc123'`
 
 **What Coral Does NOT Support:**
+
 - ❌ Full-text search: "Find all logs mentioning user@example.com"
 - ❌ Complex regex: "Find logs matching /[A-Z]{3}-\d{4}/"
 - ❌ Fuzzy search: "Find logs similar to 'connection refused'"
@@ -879,10 +889,10 @@ Recommendation:
 
 ### Without Filtering (All Logs)
 
-- **Log Rate:** 1,000 req/s * 10 logs/req = 10,000 logs/sec
-- **Daily Volume:** 10,000 * 86,400 = 864 million logs/day
-- **Storage:** 864M * 500 bytes = 432 GB/day
-- **Retention (7 days):** 432 GB * 7 = 3 TB
+- **Log Rate:** 1,000 req/s \* 10 logs/req = 10,000 logs/sec
+- **Daily Volume:** 10,000 \* 86,400 = 864 million logs/day
+- **Storage:** 864M \* 500 bytes = 432 GB/day
+- **Retention (7 days):** 432 GB \* 7 = 3 TB
 
 **Not feasible for DuckDB.**
 
@@ -890,17 +900,17 @@ Recommendation:
 
 - **Error Rate:** 2% of requests fail
 - **Logs per error:** 2 logs (WARN + ERROR)
-- **Error Log Rate:** 20 errors/sec * 2 logs = 40 logs/sec
-- **Daily Volume:** 40 * 86,400 = 3.46 million logs/day
-- **Storage:** 3.46M * 500 bytes = 1.73 GB/day
-- **Retention (7 days):** 1.73 GB * 7 = 12 GB
+- **Error Log Rate:** 20 errors/sec \* 2 logs = 40 logs/sec
+- **Daily Volume:** 40 \* 86,400 = 3.46 million logs/day
+- **Storage:** 3.46M \* 500 bytes = 1.73 GB/day
+- **Retention (7 days):** 1.73 GB \* 7 = 12 GB
 
 **Reduction:** 250x (from 3 TB to 12 GB)
 
 ### With Pattern Aggregation
 
 - **Unique Error Patterns:** ~50 (most errors repeat)
-- **Pattern Table:** 50 rows * 1 KB = 50 KB
+- **Pattern Table:** 50 rows \* 1 KB = 50 KB
 - **Raw Logs (for trace correlation):** Keep last 24h only (247 MB)
 - **Total Storage:** 50 KB + 247 MB = 247 MB
 
@@ -936,11 +946,13 @@ Recommendation:
 ### Unit Tests
 
 **OTLP Log Ingestion:**
+
 - Test severity filtering (discard INFO/DEBUG)
 - Test trace_id extraction from log attributes
 - Test attribute parsing (JSON conversion)
 
 **Storage:**
+
 - Test log insertion, querying, deletion
 - Test pattern aggregation (message template extraction)
 - Test retention cleanup (delete logs older than 24h/7d)
@@ -948,15 +960,18 @@ Recommendation:
 ### Integration Tests
 
 **Agent → Colony Polling:**
+
 1. Agent receives OTLP logs
 2. Colony polls agent via `QueryErrorLogs` RPC
 3. Verify logs stored in colony with agent_id
 
 **Pattern Aggregation:**
+
 1. Insert 1000 identical errors with different timestamps
 2. Verify pattern table has 1 row with occurrence_count = 1000
 
 **Trace Correlation:**
+
 1. Insert trace with trace_id = abc123
 2. Insert error log with trace_id = abc123
 3. Query logs by trace_id, verify joined result
@@ -964,6 +979,7 @@ Recommendation:
 ### E2E Tests
 
 **Scenario 1: Application Error → Query**
+
 1. Application logs error via OTLP
 2. Agent ingests and stores log
 3. Colony polls and aggregates log
@@ -971,6 +987,7 @@ Recommendation:
 5. Verify error appears in output
 
 **Scenario 2: LLM Diagnosis**
+
 1. Application experiences errors
 2. User: "Why is app failing?"
 3. LLM calls `coral_query_summary` → sees high error rate
@@ -978,6 +995,7 @@ Recommendation:
 5. LLM diagnoses root cause
 
 **Scenario 3: Trace-Correlated Logs**
+
 1. Slow trace with trace_id = abc123
 2. Error log with same trace_id
 3. `coral query logs --trace-id abc123` shows correlated logs
@@ -985,11 +1003,13 @@ Recommendation:
 ### Performance Tests
 
 **Ingestion Throughput:**
+
 - Send 10,000 logs/sec to OTLP receiver
 - Verify filtering reduces storage rate to ~200 logs/sec (2% error rate)
 - Verify no dropped logs
 
 **Query Performance:**
+
 - Insert 10M error logs over 7 days
 - Query recent errors (last 1h): target <200ms
 - Query by trace_id: target <50ms (indexed)
@@ -1000,26 +1020,31 @@ Recommendation:
 ### Advanced Log Features (Future RFDs)
 
 **1. Log Sampling (Future Enhancement)**
+
 - For very high error rates (>1000 errors/sec), sample logs
 - Keep 100% of unique error patterns, sample duplicates (e.g., keep 1 in 10)
 - Reduces storage while preserving error diversity
 
 **2. Structured Log Parsing (Future RFD)**
+
 - Parse common log formats (JSON, logfmt, syslog)
 - Extract structured fields automatically (no manual instrumentation)
 - Example: Parse stack traces into structured format
 
 **3. Log-Based Alerting (Future RFD)**
+
 - Alert when error rate exceeds threshold
 - Alert on new error patterns (not seen in last 7 days)
 - Integration with RFD 074 for automatic LLM diagnosis
 
 **4. Log Export (Future RFD)**
+
 - Export logs to long-term storage (S3, GCS) for compliance
 - Integration with external log platforms (Elasticsearch, Loki)
 - OTLP forwarding to centralized collector
 
 **5. Log Metrics Derivation (Future RFD)**
+
 - Derive metrics from logs (error rate, latency distribution)
 - Compare log-derived metrics with instrumentation metrics
 - Detect discrepancies (e.g., errors logged but not in metrics)
@@ -1127,12 +1152,14 @@ ORDER BY l.timestamp;
 ## Dependencies
 
 **Pre-requisites:**
+
 - ✅ RFD 025 (OTLP Receiver) - Infrastructure for log ingestion
 - ✅ RFD 036 (Distributed Tracing) - Trace correlation via trace_id
 - ✅ RFD 067 (Unified Query Interface) - `coral_query_logs` tool definition
 - ✅ RFD 074 (LLM-Driven RCA) - Integration point for error context
 
 **Enables:**
+
 - Complete observability stack (metrics + traces + logs)
 - LLM-powered error diagnosis with full context
 - Trace-correlated debugging workflows
