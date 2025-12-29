@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
@@ -23,6 +24,8 @@ func NewCPUProfileCmd() *cobra.Command {
 		frequencyHz     int32
 		format          string
 		agentID         string
+		since           string // RFD 072: Historical query start time (e.g., "1h", "30m")
+		until           string // RFD 072: Historical query end time (default: now)
 	)
 
 	cmd := &cobra.Command{
@@ -34,17 +37,32 @@ This command profiles CPU usage by sampling stack traces at a specified frequenc
 (default 99Hz). The output can be used to generate flame graphs showing where
 CPU time is being spent.
 
+The command supports two modes:
+
+1. On-demand profiling (RFD 070): Captures a new profile for the specified duration.
+2. Historical profiling (RFD 072): Queries pre-collected continuous profiles from
+   the colony database using --since and --until flags.
+
 Examples:
-  # Capture 30s CPU profile and output folded format
+  # On-demand: Capture 30s CPU profile and output folded format
   coral debug cpu-profile --service api --duration 30
 
-  # Generate flamegraph (requires flamegraph.pl installed)
+  # On-demand: Generate flamegraph (requires flamegraph.pl installed)
   coral debug cpu-profile --service api --duration 30 | flamegraph.pl > cpu.svg
 
-  # Profile specific pod instance with JSON output
+  # Historical: Query profiles from the last hour
+  coral debug cpu-profile --service api --since 1h
+
+  # Historical: Query profiles from 2 hours ago to 1 hour ago
+  coral debug cpu-profile --service api --since 2h --until 1h
+
+  # Historical: Generate flame graph from last 30 minutes
+  coral debug cpu-profile --service api --since 30m | flamegraph.pl > cpu-historical.svg
+
+  # On-demand: Profile specific pod instance with JSON output
   coral debug cpu-profile --service api --pod api-7d8f9c --duration 10 --format json
 
-  # Custom sampling frequency
+  # On-demand: Custom sampling frequency
   coral debug cpu-profile --service api --duration 30 --frequency 49
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -52,6 +70,12 @@ Examples:
 				return fmt.Errorf("--service is required")
 			}
 
+			// RFD 072: Check if this is a historical query.
+			if since != "" || until != "" {
+				return runHistoricalCPUProfile(serviceName, since, until, format)
+			}
+
+			// On-demand profiling (existing RFD 070 behavior).
 			if durationSeconds <= 0 {
 				durationSeconds = 30 // Default 30 seconds
 			}
@@ -124,6 +148,10 @@ Examples:
 	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded (default), json")
 	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (optional, auto-discovered if not provided)")
 
+	// RFD 072: Historical query flags.
+	cmd.Flags().StringVar(&since, "since", "", "Query historical profiles from this time ago (e.g., '1h', '30m', '2h30m')")
+	cmd.Flags().StringVar(&until, "until", "", "Query historical profiles until this time ago (default: now)")
+
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 
 	return cmd
@@ -191,6 +219,103 @@ func printCPUProfileJSON(profile *debugpb.ProfileCPUResponse) error {
 
 	fmt.Println("  ]")
 	fmt.Println("}")
+
+	return nil
+}
+
+// runHistoricalCPUProfile queries historical CPU profile samples via Colony gRPC API (RFD 072).
+func runHistoricalCPUProfile(serviceName, since, until, format string) error {
+	// Parse time range.
+	now := time.Now()
+	var startTime, endTime time.Time
+
+	if since != "" {
+		duration, err := time.ParseDuration(since)
+		if err != nil {
+			return fmt.Errorf("invalid --since duration: %w", err)
+		}
+		startTime = now.Add(-duration)
+	} else {
+		// Default to last 1 hour if not specified.
+		startTime = now.Add(-1 * time.Hour)
+	}
+
+	if until != "" {
+		duration, err := time.ParseDuration(until)
+		if err != nil {
+			return fmt.Errorf("invalid --until duration: %w", err)
+		}
+		endTime = now.Add(-duration)
+	} else {
+		// Default to now.
+		endTime = now
+	}
+
+	if startTime.After(endTime) {
+		return fmt.Errorf("--since time must be before --until time")
+	}
+
+	fmt.Fprintf(os.Stderr, "Querying historical CPU profiles for service '%s'\n", serviceName)
+	fmt.Fprintf(os.Stderr, "Time range: %s to %s\n", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+
+	// Get colony URL.
+	colonyURL, err := getColonyURL()
+	if err != nil {
+		return fmt.Errorf("failed to get colony URL: %w", err)
+	}
+
+	// Create gRPC client.
+	client := colonyv1connect.NewDebugServiceClient(
+		http.DefaultClient,
+		colonyURL,
+	)
+
+	// Create request.
+	req := connect.NewRequest(&debugpb.QueryHistoricalCPUProfileRequest{
+		ServiceName: serviceName,
+		StartTime:   timestamppb.New(startTime),
+		EndTime:     timestamppb.New(endTime),
+	})
+
+	// Call QueryHistoricalCPUProfile RPC.
+	ctx := context.Background()
+	resp, err := client.QueryHistoricalCPUProfile(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to query colony: %w", err)
+	}
+
+	if !resp.Msg.Success {
+		return fmt.Errorf("historical CPU profile query failed: %s", resp.Msg.Error)
+	}
+
+	if len(resp.Msg.Samples) == 0 {
+		fmt.Fprintf(os.Stderr, "No historical CPU profile data found for service '%s' in the specified time range.\n", serviceName)
+		fmt.Fprintf(os.Stderr, "The colony polls agents every 30 seconds. Wait a moment and try again.\n")
+		return nil
+	}
+
+	// Output metadata to stderr.
+	fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", len(resp.Msg.Samples))
+	fmt.Fprintf(os.Stderr, "Total samples: %d\n\n", resp.Msg.TotalSamples)
+
+	// Output folded stack format to stdout.
+	for _, sample := range resp.Msg.Samples {
+		if len(sample.FrameNames) == 0 {
+			continue
+		}
+
+		// Folded format: frame1;frame2;frame3 count
+		// Stack frames from gRPC response are in the correct order (root to leaf).
+		// Reverse them for flamegraph.pl compatibility (innermost first).
+		for i := len(sample.FrameNames) - 1; i >= 0; i-- {
+			fmt.Print(sample.FrameNames[i])
+			if i > 0 {
+				fmt.Print(";")
+			}
+		}
+
+		fmt.Printf(" %d\n", sample.Count)
+	}
 
 	return nil
 }

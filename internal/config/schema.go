@@ -68,23 +68,24 @@ type Preferences struct {
 // ColonyConfig represents ~/.coral/colonies/<colony-id>.yaml config file.
 // The config consists of per-colony identity and security credentials.
 type ColonyConfig struct {
-	Version          string                    `yaml:"version"`
-	ColonyID         string                    `yaml:"colony_id"`
-	ApplicationName  string                    `yaml:"application_name"`
-	Environment      string                    `yaml:"environment"`
-	ColonySecret     string                    `yaml:"colony_secret"`
-	WireGuard        WireGuardConfig           `yaml:"wireguard"`
-	Services         ServicesConfig            `yaml:"services"`
-	StoragePath      string                    `yaml:"storage_path"`
-	Discovery        DiscoveryColony           `yaml:"discovery"`
-	MCP              MCPConfig                 `yaml:"mcp,omitempty"`
-	Beyla            BeylaPollerConfig         `yaml:"beyla,omitempty"`
-	SystemMetrics    SystemMetricsPollerConfig `yaml:"system_metrics,omitempty"`    // RFD 071
-	FunctionRegistry FunctionRegistryConfig    `yaml:"function_registry,omitempty"` // RFD 063
-	Ask              *AskConfig                `yaml:"ask,omitempty"`               // Per-colony ask overrides (RFD 030)
-	CreatedAt        time.Time                 `yaml:"created_at"`
-	CreatedBy        string                    `yaml:"created_by"`
-	LastUsed         time.Time                 `yaml:"last_used,omitempty"`
+	Version             string                          `yaml:"version"`
+	ColonyID            string                          `yaml:"colony_id"`
+	ApplicationName     string                          `yaml:"application_name"`
+	Environment         string                          `yaml:"environment"`
+	ColonySecret        string                          `yaml:"colony_secret"`
+	WireGuard           WireGuardConfig                 `yaml:"wireguard"`
+	Services            ServicesConfig                  `yaml:"services"`
+	StoragePath         string                          `yaml:"storage_path"`
+	Discovery           DiscoveryColony                 `yaml:"discovery"`
+	MCP                 MCPConfig                       `yaml:"mcp,omitempty"`
+	Beyla               BeylaPollerConfig               `yaml:"beyla,omitempty"`
+	SystemMetrics       SystemMetricsPollerConfig       `yaml:"system_metrics,omitempty"`       // RFD 071
+	ContinuousProfiling ContinuousProfilingPollerConfig `yaml:"continuous_profiling,omitempty"` // RFD 072
+	FunctionRegistry    FunctionRegistryConfig          `yaml:"function_registry,omitempty"`    // RFD 063
+	Ask                 *AskConfig                      `yaml:"ask,omitempty"`                  // Per-colony ask overrides (RFD 030)
+	CreatedAt           time.Time                       `yaml:"created_at"`
+	CreatedBy           string                          `yaml:"created_by"`
+	LastUsed            time.Time                       `yaml:"last_used,omitempty"`
 }
 
 // ServicesConfig contains service port configuration.
@@ -203,6 +204,17 @@ type SystemMetricsPollerConfig struct {
 	RetentionDays int `yaml:"retention_days,omitempty"`
 }
 
+// ContinuousProfilingPollerConfig contains continuous CPU profiling configuration (RFD 072).
+type ContinuousProfilingPollerConfig struct {
+	// PollInterval is how often to poll agents for CPU profile samples (seconds).
+	// Default: 30 seconds.
+	PollInterval int `yaml:"poll_interval,omitempty"`
+
+	// RetentionDays is how long to keep aggregated CPU profile summaries (days).
+	// Default: 30 days.
+	RetentionDays int `yaml:"retention_days,omitempty"`
+}
+
 // ProjectConfig represents <project>/.coral/config.yaml config file.
 // The config consists of project-local configuration that links to a colony.
 type ProjectConfig struct {
@@ -317,6 +329,21 @@ type SystemMetricsConfig struct {
 	MemoryEnabled  bool          `yaml:"memory_enabled,omitempty"`  // Collect memory metrics
 	DiskEnabled    bool          `yaml:"disk_enabled,omitempty"`    // Collect disk metrics
 	NetworkEnabled bool          `yaml:"network_enabled,omitempty"` // Collect network metrics
+}
+
+// ContinuousProfilingConfig configures continuous CPU profiling (RFD 072).
+type ContinuousProfilingConfig struct {
+	Disabled bool               `yaml:"disabled,omitempty"` // Master disable switch (default: false, meaning enabled)
+	CPU      CPUProfilingConfig `yaml:"cpu,omitempty"`      // CPU profiling configuration
+}
+
+// CPUProfilingConfig contains CPU profiling specific settings.
+type CPUProfilingConfig struct {
+	Disabled          bool          `yaml:"disabled,omitempty"`           // CPU profiling disabled (default: false, meaning enabled)
+	FrequencyHz       int           `yaml:"frequency_hz,omitempty"`       // Sampling frequency (default: 19Hz)
+	Interval          time.Duration `yaml:"interval,omitempty"`           // Collection interval (default: 15s)
+	Retention         time.Duration `yaml:"retention,omitempty"`          // Local sample retention (default: 1h)
+	MetadataRetention time.Duration `yaml:"metadata_retention,omitempty"` // Binary metadata retention (default: 7d)
 }
 
 // ResolvedConfig is the final merged configuration after resolution.
@@ -439,9 +466,10 @@ type AgentConfig struct {
 		HealthEndpoint string `yaml:"health_endpoint,omitempty"`
 		Type           string `yaml:"type,omitempty"`
 	} `yaml:"services"`
-	Beyla         BeylaConfig         `yaml:"beyla,omitempty"`
-	SystemMetrics SystemMetricsConfig `yaml:"system_metrics,omitempty"`
-	Debug         DebugConfig         `yaml:"debug,omitempty"`
+	Beyla               BeylaConfig               `yaml:"beyla,omitempty"`
+	SystemMetrics       SystemMetricsConfig       `yaml:"system_metrics,omitempty"`
+	Debug               DebugConfig               `yaml:"debug,omitempty"`
+	ContinuousProfiling ContinuousProfilingConfig `yaml:"continuous_profiling,omitempty"` // RFD 072
 }
 
 // DebugConfig contains debug session configuration (RFD 061).
@@ -553,6 +581,13 @@ func DefaultAgentConfig() *AgentConfig {
 	cfg.SystemMetrics.MemoryEnabled = true
 	cfg.SystemMetrics.DiskEnabled = true
 	cfg.SystemMetrics.NetworkEnabled = true
+
+	// ContinuousProfiling defaults (RFD 072)
+	// Note: Disabled defaults to false (meaning enabled by default)
+	cfg.ContinuousProfiling.CPU.FrequencyHz = 19                       // 19Hz sampling (prime number)
+	cfg.ContinuousProfiling.CPU.Interval = 15 * time.Second            // 15-second collection intervals
+	cfg.ContinuousProfiling.CPU.Retention = 1 * time.Hour              // 1-hour local retention
+	cfg.ContinuousProfiling.CPU.MetadataRetention = 7 * 24 * time.Hour // 7-day metadata retention
 
 	return cfg
 }

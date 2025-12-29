@@ -1,16 +1,25 @@
-# CPU Profiling E2E Test
+# CPU Profiling E2E Tests
 
-This directory contains an end-to-end test for the CPU profiling feature using
+This directory contains end-to-end tests for CPU profiling features using
 Docker Compose.
 
 ## Overview
 
-The test validates the complete CPU profiling workflow:
+Two test suites are available:
 
-1. Agent running in Linux container with required capabilities
-2. Colony orchestrating the profiling request
-3. BPF-based stack trace collection
-4. Profile data returned in folded format
+### 1. On-Demand CPU Profiling (RFD 070)
+Tests manual profiling with high-frequency sampling:
+- Agent running in Linux container with required capabilities
+- Colony orchestrating the profiling request
+- BPF-based stack trace collection at 99Hz
+- Profile data returned in folded format
+
+### 2. Continuous CPU Profiling (RFD 072)
+Tests automatic background profiling with historical queries:
+- Continuous 19Hz sampling in the background
+- 15-second collection intervals with local storage
+- Historical queries using `--since` flag
+- Frame dictionary compression (implicit validation)
 
 ## Prerequisites
 
@@ -18,7 +27,7 @@ The test validates the complete CPU profiling workflow:
 - Coral binary built (`make build`)
 - Colony credentials configured (CORAL_COLONY_ID and CORAL_COLONY_SECRET)
 
-## Running the Test
+## Running the Tests
 
 ### Quick Start
 
@@ -30,11 +39,15 @@ The test validates the complete CPU profiling workflow:
 # Start services
 docker compose up -d
 
-# Run the E2E test (default: tests 'cpu-app' service)
+# Test 1: On-demand CPU profiling (RFD 070)
 ./test_cpu_profile.sh
+
+# Test 2: Continuous CPU profiling (RFD 072)
+./test_continuous_profiling.sh
 
 # Test specific service
 ./test_cpu_profile.sh cpu-app
+./test_continuous_profiling.sh cpu-app
 ```
 
 ### Manual Testing
@@ -46,8 +59,12 @@ docker compose up -d
 # Wait for agent to be ready
 docker compose logs -f coral-agent-cpu
 
-# Run CPU profiling (from repository root)
+# Test on-demand profiling (RFD 070)
 bin/coral debug cpu-profile -s cpu-app -d 5 --frequency 99
+
+# Test continuous profiling (RFD 072)
+# Wait 30-60s for samples to accumulate, then query historical data
+bin/coral debug cpu-profile -s cpu-app --since 30s
 ```
 
 ## Test Architecture
@@ -155,9 +172,29 @@ The test can be run in CI using Docker:
 To visualize the CPU profile:
 
 ```bash
-# Generate flame graph
-bin/coral debug cpu-profile -s cpu-app -d 30 | scripts/flamegraph.pl > cpu.svg
+# On-demand flame graph (30 seconds at 99Hz)
+bin/coral debug cpu-profile -s cpu-app -d 30 | scripts/flamegraph.pl > cpu-ondemand.svg
+
+# Historical flame graph (last 5 minutes of continuous profiling)
+bin/coral debug cpu-profile -s cpu-app --since 5m | scripts/flamegraph.pl > cpu-historical.svg
 
 # Open in browser
-open cpu.svg
+open cpu-ondemand.svg
+open cpu-historical.svg
 ```
+
+## Test Details
+
+### test_cpu_profile.sh (RFD 070)
+- Tests on-demand profiling with manual triggers
+- 5-second duration at 99Hz sampling
+- Validates immediate stack trace collection
+- Checks for "Total samples" and "Unique stacks"
+
+### test_continuous_profiling.sh (RFD 072)
+- Tests automatic background profiling
+- Waits 45 seconds for samples to accumulate (3 collection cycles)
+- Queries historical data using `--since 30s` flag
+- Validates folded stack format
+- Verifies historical query (not on-demand profiling)
+- Checks sample counts are reasonable for 19Hz profiling

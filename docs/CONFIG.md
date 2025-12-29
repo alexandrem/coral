@@ -466,6 +466,12 @@ telemetry:
 | `system_metrics.memory_enabled`           | bool              | `true`           | Collect memory metrics                 |
 | `system_metrics.disk_enabled`             | bool              | `true`           | Collect disk I/O metrics               |
 | `system_metrics.network_enabled`          | bool              | `true`           | Collect network I/O metrics            |
+| `continuous_profiling.disabled`           | bool              | `false`          | Disable continuous profiling (enabled by default) |
+| `continuous_profiling.cpu.disabled`       | bool              | `false`          | Disable CPU profiling (enabled by default)        |
+| `continuous_profiling.cpu.frequency_hz`   | int               | `19`             | Sampling frequency (Hz)                           |
+| `continuous_profiling.cpu.interval`       | duration          | `15s`            | Collection interval                               |
+| `continuous_profiling.cpu.retention`      | duration          | `1h`             | Local sample retention                            |
+| `continuous_profiling.cpu.metadata_retention` | duration      | `7d`             | Binary metadata retention                         |
 
 ### Beyla Integration Configuration
 
@@ -641,6 +647,135 @@ system_metrics:
     disk_enabled: false      # Disable disk metrics
     network_enabled: false   # Disable network metrics
 ```
+
+### Continuous CPU Profiling Configuration
+
+The `continuous_profiling` section configures automatic background CPU profiling
+for performance analysis and regression detection. Unlike on-demand profiling,
+continuous profiling runs automatically in the background at low overhead.
+
+**IMPORTANT: Continuous profiling is ENABLED BY DEFAULT.** No configuration is
+required - it runs automatically when the agent starts.
+
+```yaml
+continuous_profiling:
+    disabled: false         # Master disable switch (default: false = enabled)
+    cpu:
+        disabled: false       # Disable CPU profiling (default: false = enabled)
+        frequency_hz: 19      # Sampling frequency (default: 19Hz, prime number)
+        interval: 15s         # Collection interval (default: 15s)
+        retention: 1h         # Local retention (default: 1h)
+        metadata_retention: 7d  # Binary metadata retention (default: 7d)
+```
+
+**Configuration Fields:**
+
+| Field                      | Type     | Default | Description                                      |
+|----------------------------|----------|---------|--------------------------------------------------|
+| `disabled`                 | bool     | `false` | Master switch - set `true` to disable entirely   |
+| `cpu.disabled`             | bool     | `false` | Disable CPU profiling - set `true` to disable    |
+| `cpu.frequency_hz`         | int      | `19`    | Sampling frequency (19Hz = low overhead)         |
+| `cpu.interval`             | duration | `15s`   | How often to collect and aggregate samples       |
+| `cpu.retention`            | duration | `1h`    | How long to keep samples locally on agent        |
+| `cpu.metadata_retention`   | duration | `7d`    | How long to keep binary metadata (build IDs)     |
+
+**How It Works:**
+
+- **Automatic Collection:** Profiles collected every 15 seconds at 19Hz sampling
+- **Low Overhead:** <1% CPU impact, designed for production use
+- **Frame Dictionary:** 85% storage compression using integer encoding
+- **Build ID Tracking:** Tracks binary versions for correct symbolization
+- **Historical Queries:** Query past profiles using `coral debug cpu-profile --since 1h`
+- **Colony Aggregation:** Colony polls agents and stores 30-day summaries
+
+**Collected Data:**
+
+- Stack traces from CPU samples (user + kernel space)
+- Binary build IDs for version tracking
+- Sample counts per unique stack trace
+- Compatible with flamegraph.pl for visualization
+
+**Storage and Retention:**
+
+- **Agent-side:** Raw samples stored locally for 1 hour
+- **Colony-side:** Aggregated 1-minute summaries stored for 30 days
+- **Cleanup:** Automatic cleanup runs every 10 minutes on agent
+- **Compression:** Frame dictionary encoding reduces storage by 85%
+
+**Performance Impact:**
+
+- **Overhead:** <1% CPU with 19Hz sampling (prime number avoids timer conflicts)
+- **Memory:** ~500KB per profiled process (BPF maps)
+- **Storage:** ~480KB/hour per service (agent), ~5.8MB/day (colony)
+- **Network:** ~1.9MB/hour per service (agent → colony)
+
+**Querying Historical Profiles:**
+
+```bash
+# Query last hour of CPU profiles
+coral debug cpu-profile --service api --since 1h > profile.folded
+
+# Query specific time range
+coral debug cpu-profile --service api \
+    --since "2025-12-15 14:00:00" \
+    --until "2025-12-15 15:00:00"
+
+# Generate flame graph
+coral debug cpu-profile --service api --since 5m | flamegraph.pl > cpu.svg
+```
+
+**Disabling Continuous Profiling:**
+
+To disable entirely:
+
+```yaml
+continuous_profiling:
+    disabled: true
+```
+
+To disable only CPU profiling:
+
+```yaml
+continuous_profiling:
+    cpu:
+        disabled: true
+```
+
+**Customizing Collection:**
+
+```yaml
+continuous_profiling:
+    cpu:
+        frequency_hz: 49       # Higher frequency = more samples, more overhead
+        interval: 30s          # Less frequent collection
+        retention: 2h          # Keep samples longer locally
+```
+
+**Multi-Version Support:**
+
+Continuous profiling tracks binary build IDs, so historical queries work across
+deployments:
+
+```bash
+# Query spanning a deployment
+coral debug cpu-profile --service api --since 2h
+
+# Output includes build ID annotations when versions change:
+# [build_id:abc123] main;processRequest;parseJSON 1200
+# [build_id:def456] main;processRequest;parseJSONv2 1500  ← New version
+```
+
+**Integration with On-Demand Profiling:**
+
+Continuous profiling (19Hz) runs in the background. You can still trigger
+high-frequency on-demand profiling (99Hz) when needed:
+
+```bash
+# On-demand high-frequency profiling (overrides continuous profiling temporarily)
+coral debug cpu-profile --service api --duration 30s --frequency 99
+```
+
+Both modes use the same eBPF infrastructure and are fully compatible.
 
 ## Environment Variables
 

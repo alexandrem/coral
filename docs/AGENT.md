@@ -11,6 +11,7 @@ applications to collect telemetry data and respond to colony queries.
 - [OpenTelemetry Integration](#opentelemetry-integration)
 - [Beyla Integration (eBPF Metrics)](#beyla-integration-ebpf-metrics)
 - [System Metrics](#system-metrics)
+- [Continuous CPU Profiling](#continuous-cpu-profiling)
 - [Agent API](#agent-api)
 - [Static Filtering](#static-filtering)
 - [Data Flow](#data-flow)
@@ -303,6 +304,135 @@ philosophy as other agent components:
 > **Configuration**: For system metrics configuration options (poll interval,
 > enabling/disabling), see
 > [`docs/CONFIG.md`](CONFIG.md#system-metrics-configuration-rfd-071).
+
+---
+
+## Continuous CPU Profiling
+
+### Overview
+
+The agent performs automatic background CPU profiling to enable performance
+analysis and regression detection without manual intervention. This allows you
+to retroactively investigate CPU usage patterns during incidents and compare
+performance across deployments.
+
+**IMPORTANT: Continuous profiling is ENABLED BY DEFAULT.** It runs automatically
+in the background at low overhead (<1% CPU) with no configuration required.
+
+**What It Provides:**
+
+- **Historical flame graphs**: Generate CPU flame graphs for any past time range
+- **Performance regression detection**: Compare CPU profiles before/after deployments
+- **Zero-config observability**: No manual profiling triggers needed
+- **Multi-version support**: Tracks binary versions across deployments
+- **Minimal overhead**: 19Hz sampling designed for production use
+
+### Architecture
+
+Continuous CPU profiling follows the **pull-based** and **local-first** pattern:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Coral Agent - Continuous CPU Profiler (eBPF)               │
+│  • Samples CPU stack traces via perf_event                  │
+│  • Frequency: 19Hz (prime number, avoids timer conflicts)   │
+│  • Interval: 15-second collection cycles                    │
+│  • Overhead: <1% CPU                                        │
+└─────────────────┬───────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Symbolization & Compression                                │
+│  • Build ID tracking (version-aware symbolization)          │
+│  • Frame dictionary encoding (85% compression)              │
+│  • Stack aggregation (collapse identical stacks)            │
+└─────────────────┬───────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Local Storage (DuckDB)                                     │
+│  • Table: cpu_profile_samples_local                         │
+│  • Retention: 1 hour (raw samples)                          │
+│  • Table: binary_metadata_local (build ID registry)         │
+└─────────────────┬───────────────────────────────────────────┘
+                  │
+                  │ Colony Poll (every 30s)
+                  ▼
+          ┌──────────────────┐
+          │  Colony          │
+          │  • Aggregates    │
+          │  • 30-day retain │
+          └──────────────────┘
+```
+
+**Key Characteristics:**
+
+- **eBPF-based**: Uses Linux perf events, no instrumentation needed
+- **Build ID tracking**: Associates profiles with specific binary versions
+- **Frame dictionary**: Compresses stack traces by 85% using integer encoding
+- **Kernel + user stacks**: Captures both application and kernel stack frames
+- **Prime sampling rate**: 19Hz avoids timer aliasing with system interrupts
+
+### Querying Historical Profiles
+
+Use the `coral debug cpu-profile` command with `--since` flag to query
+historical data:
+
+```bash
+# Query last hour of CPU profiles
+coral debug cpu-profile --service api --since 1h > profile.folded
+
+# Query specific time range
+coral debug cpu-profile --service api \
+    --since "2025-12-15 14:00:00" \
+    --until "2025-12-15 15:00:00"
+
+# Generate flame graph (requires flamegraph.pl)
+coral debug cpu-profile --service api --since 5m | \
+    flamegraph.pl > cpu.svg
+```
+
+**Output Format:**
+
+Profiles are returned in "folded stack" format compatible with flamegraph.pl:
+
+```
+main;processRequest;parseJSON;unmarshal 847
+main;processRequest;validateData 623
+kernel`entry_SYSCALL_64;do_syscall_64;sys_read 234
+```
+
+Each line shows: `stack_trace sample_count`
+
+### Multi-Version Support
+
+Continuous profiling tracks binary build IDs, enabling correct symbolization
+across deployments:
+
+```bash
+# Query spanning a deployment
+coral debug cpu-profile --service api --since 2h
+
+# Output shows both versions:
+# [build_id:abc123] main;oldFunction 1200
+# [build_id:def456] main;newFunction 1500  ← After deployment
+```
+
+### Integration with On-Demand Profiling
+
+Continuous profiling (19Hz) runs in background. You can still trigger
+high-frequency profiling (99Hz) for detailed analysis:
+
+```bash
+# On-demand profiling (temporarily switches to 99Hz)
+coral debug cpu-profile --service api --duration 30s --frequency 99
+```
+
+Both modes share the same eBPF infrastructure and are fully compatible.
+
+> **Configuration**: For continuous profiling options (frequency, retention,
+> disabling), see
+> [`docs/CONFIG.md`](CONFIG.md#continuous-cpu-profiling-configuration-rfd-072).
 
 ---
 

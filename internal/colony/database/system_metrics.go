@@ -16,7 +16,7 @@ type SystemMetricsSummary struct {
 	AvgValue    float64
 	P95Value    float64
 	DeltaValue  float64 // For counters: total change in window.
-	SampleCount int32
+	SampleCount uint64  // Number of samples aggregated
 	Unit        string
 	MetricType  string
 	Attributes  string // JSON string.

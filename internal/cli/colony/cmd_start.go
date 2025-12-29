@@ -380,6 +380,37 @@ Examples:
 					Msg("System metrics poller started")
 			}
 
+			// Create and start CPU Profile poller for RFD 072.
+			// Read CPU profiling configuration from colony config, with sensible defaults.
+			cpuProfilePollIntervalSecs := 30 // Default: poll every 30 seconds
+			cpuProfileRetentionDays := 30    // Default: 30 days retention
+
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.ContinuousProfiling.PollInterval > 0 {
+				cpuProfilePollIntervalSecs = colonyConfigForEndpoints.ContinuousProfiling.PollInterval
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.ContinuousProfiling.RetentionDays > 0 {
+				cpuProfileRetentionDays = colonyConfigForEndpoints.ContinuousProfiling.RetentionDays
+			}
+
+			cpuProfilePoller := colony.NewCPUProfilePoller(
+				agentRegistry,
+				db,
+				time.Duration(cpuProfilePollIntervalSecs)*time.Second,
+				cpuProfileRetentionDays,
+				logger,
+			)
+
+			if err := cpuProfilePoller.Start(); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to start CPU profile poller")
+			} else {
+				logger.Info().
+					Int("poll_interval_secs", cpuProfilePollIntervalSecs).
+					Int("retention_days", cpuProfileRetentionDays).
+					Msg("CPU profile poller started")
+			}
+
 			logger.Info().
 				Str("dashboard_url", fmt.Sprintf("http://localhost:%d", cfg.Dashboard.Port)).
 				Str("colony_id", cfg.ColonyID).
@@ -414,6 +445,13 @@ Examples:
 					logger.Warn().
 						Err(err).
 						Msg("Error stopping system metrics poller")
+				}
+
+				// Stop CPU Profile poller
+				if err := cpuProfilePoller.Stop(); err != nil {
+					logger.Warn().
+						Err(err).
+						Msg("Error stopping CPU profile poller")
 				}
 
 				// Stop registration manager

@@ -29,6 +29,7 @@ import (
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
 	"github.com/coral-mesh/coral/internal/agent/collector"
+	"github.com/coral-mesh/coral/internal/agent/profiler"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/config"
@@ -665,6 +666,67 @@ Examples:
 				logger.Warn().Msg("System metrics disabled - shared database not available")
 			}
 
+			// Initialize continuous CPU profiling (RFD 072).
+			// Enabled by default unless explicitly disabled.
+			if sharedDB != nil && !agentCfg.ContinuousProfiling.Disabled && !agentCfg.ContinuousProfiling.CPU.Disabled {
+				logger.Info().Msg("Initializing continuous CPU profiling")
+
+				// Import profiler package.
+				profilerConfig := profiler.Config{
+					Enabled:           !agentCfg.ContinuousProfiling.CPU.Disabled,
+					FrequencyHz:       agentCfg.ContinuousProfiling.CPU.FrequencyHz,
+					Interval:          agentCfg.ContinuousProfiling.CPU.Interval,
+					SampleRetention:   agentCfg.ContinuousProfiling.CPU.Retention,
+					MetadataRetention: agentCfg.ContinuousProfiling.CPU.MetadataRetention,
+				}
+
+				// Get debug manager for kernel symbolizer access.
+				debugManager := agentInstance.GetDebugManager()
+
+				cpuProfiler, err := profiler.NewContinuousCPUProfiler(
+					sharedDB,
+					debugManager,
+					logger,
+					profilerConfig,
+				)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to create continuous CPU profiler - profiling disabled")
+				} else {
+					// Build list of services to profile.
+					var profilingServices []profiler.ServiceInfo
+					for _, svc := range serviceInfos {
+						if svc.ProcessId > 0 {
+							profilingServices = append(profilingServices, profiler.ServiceInfo{
+								ServiceID:  svc.Name,
+								PID:        int(svc.ProcessId),
+								BinaryPath: fmt.Sprintf("/proc/%d/exe", svc.ProcessId),
+							})
+						}
+					}
+
+					// Set profiler on agent for RPC access.
+					agentInstance.SetContinuousProfiler(cpuProfiler)
+
+					// Start profiling.
+					if len(profilingServices) > 0 {
+						cpuProfiler.Start(profilingServices)
+						logger.Info().
+							Int("frequency_hz", profilerConfig.FrequencyHz).
+							Dur("interval", profilerConfig.Interval).
+							Int("service_count", len(profilingServices)).
+							Msg("Continuous CPU profiling started successfully")
+					} else {
+						logger.Info().Msg("No services with PIDs to profile - continuous profiling ready for new services")
+					}
+				}
+			} else if !agentCfg.ContinuousProfiling.Disabled && agentCfg.ContinuousProfiling.CPU.Disabled {
+				logger.Info().Msg("Continuous CPU profiling is disabled via configuration")
+			} else if agentCfg.ContinuousProfiling.Disabled {
+				logger.Info().Msg("Continuous profiling is disabled")
+			} else {
+				logger.Warn().Msg("Continuous profiling disabled - shared database not available")
+			}
+
 			// Log initial status.
 			if len(serviceSpecs) > 0 {
 				logger.Info().
@@ -792,7 +854,11 @@ Examples:
 			}
 
 			// Server 2: Bind to localhost (local debugging only).
+			// For e2e testing in containers, allow binding to all interfaces via env var.
 			localhostAddr := "127.0.0.1:9001"
+			if os.Getenv("CORAL_AGENT_BIND_ALL") == "true" {
+				localhostAddr = "0.0.0.0:9001"
+			}
 			localhostServer = &http.Server{
 				Addr:              localhostAddr,
 				Handler:           httpHandler,

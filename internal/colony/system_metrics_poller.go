@@ -322,7 +322,7 @@ func (p *SystemMetricsPoller) aggregateMetrics(
 			AvgValue:    avgVal,
 			P95Value:    p95Val,
 			DeltaValue:  deltaVal,
-			SampleCount: int32(len(group.values)), // #nosec G115
+			SampleCount: uint64(len(group.values)),
 			Unit:        group.unit,
 			MetricType:  group.metricType,
 			Attributes:  key.attributes,

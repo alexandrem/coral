@@ -41,21 +41,22 @@ type ServiceStatusInfo struct {
 
 // ServiceMonitor monitors a single service's health.
 type ServiceMonitor struct {
-	service         *meshv1.ServiceInfo
-	sdkCapabilities *agentv1.ServiceSdkCapabilities // RFD 060
-	status          ServiceStatus
-	lastCheck       time.Time
-	lastError       error
-	processID       int32
-	binaryPath      string
-	binaryHash      string
-	checkInterval   time.Duration
-	checkTimeout    time.Duration
-	functionCache   *FunctionCache // RFD 063: Function discovery cache
-	logger          zerolog.Logger
-	mu              sync.RWMutex
-	ctx             context.Context
-	cancel          context.CancelFunc
+	service             *meshv1.ServiceInfo
+	sdkCapabilities     *agentv1.ServiceSdkCapabilities // RFD 060
+	status              ServiceStatus
+	lastCheck           time.Time
+	lastError           error
+	processID           int32
+	binaryPath          string
+	binaryHash          string
+	checkInterval       time.Duration
+	checkTimeout        time.Duration
+	functionCache       *FunctionCache                                         // RFD 063: Function discovery cache
+	onProcessDiscovered func(serviceName string, pid int32, binaryPath string) // RFD 072: Callback when PID is discovered
+	logger              zerolog.Logger
+	mu                  sync.RWMutex
+	ctx                 context.Context
+	cancel              context.CancelFunc
 }
 
 // NewServiceMonitor creates a new service monitor.
@@ -194,6 +195,11 @@ func (m *ServiceMonitor) discoverProcessInfo() {
 		if path, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid)); err == nil {
 			m.binaryPath = path
 			m.logger.Info().Str("path", path).Msg("Discovered binary path")
+
+			// Notify continuous profiler about discovered process (RFD 072).
+			if m.onProcessDiscovered != nil {
+				m.onProcessDiscovered(m.service.Name, pid, path)
+			}
 
 			// Trigger function discovery (RFD 063).
 			// This happens once when service is first discovered, or when process restarts.

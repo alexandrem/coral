@@ -367,15 +367,25 @@ coral debug query <service> --function <name> [--since <duration>]
 
 ### CPU Profiling Options
 
+**Two modes:**
+1. **On-demand profiling (RFD 070)**: Capture new profile for specified duration
+2. **Historical profiling (RFD 072)**: Query pre-collected continuous profiles
+
 ```bash
-# Basic usage
+# On-demand profiling - Basic usage
 coral debug cpu-profile --service api
 
-# With options
+# On-demand profiling - With options
 coral debug cpu-profile --service api --duration 30 --frequency 99 --format folded
 
-# Generate flame graph
+# On-demand profiling - Generate flame graph
 coral debug cpu-profile --service api --duration 30 | flamegraph.pl > cpu.svg
+
+# Historical profiling - Query last hour
+coral debug cpu-profile --service api --since 1h
+
+# Historical profiling - Query specific time range
+coral debug cpu-profile --service api --since 2h --until 1h
 
 # JSON output
 coral debug cpu-profile --service api --format json
@@ -387,6 +397,8 @@ coral debug cpu-profile --service api --format json
 #   --format <type>        Output format: folded (default), json
 #   --pod <name>           Specific pod/instance name (optional)
 #   --agent-id <id>        Target specific agent (optional, auto-discovered if not provided)
+#   --since <duration>     Query historical profiles from this time ago (e.g., '1h', '30m')
+#   --until <duration>     Query historical profiles until this time ago (default: now)
 ```
 
 ---

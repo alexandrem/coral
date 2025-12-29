@@ -150,3 +150,67 @@ func TestIntToInt32(t *testing.T) {
 		})
 	}
 }
+
+func TestUint64ToUint32(t *testing.T) {
+	tests := []struct {
+		name            string
+		input           uint64
+		expectedValue   uint32
+		expectedClamped bool
+	}{
+		{
+			name:            "zero value",
+			input:           0,
+			expectedValue:   0,
+			expectedClamped: false,
+		},
+		{
+			name:            "small positive value",
+			input:           12345,
+			expectedValue:   12345,
+			expectedClamped: false,
+		},
+		{
+			name:            "max uint32 value",
+			input:           math.MaxUint32,
+			expectedValue:   math.MaxUint32,
+			expectedClamped: false,
+		},
+		{
+			name:            "max uint32 plus one (overflow)",
+			input:           math.MaxUint32 + 1,
+			expectedValue:   math.MaxUint32,
+			expectedClamped: true,
+		},
+		{
+			name:            "max uint64 value (overflow)",
+			input:           math.MaxUint64,
+			expectedValue:   math.MaxUint32,
+			expectedClamped: true,
+		},
+		{
+			name:            "large value below max uint32",
+			input:           math.MaxUint32 - 1000,
+			expectedValue:   math.MaxUint32 - 1000,
+			expectedClamped: false,
+		},
+		{
+			name:            "realistic CPU sample count",
+			input:           300000, // 1000Hz × 300sec
+			expectedValue:   300000,
+			expectedClamped: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value, clamped := Uint64ToUint32(tt.input)
+			if value != tt.expectedValue {
+				t.Errorf("Uint64ToUint32(%d) value = %d, expected %d", tt.input, value, tt.expectedValue)
+			}
+			if clamped != tt.expectedClamped {
+				t.Errorf("Uint64ToUint32(%d) clamped = %v, expected %v", tt.input, clamped, tt.expectedClamped)
+			}
+		})
+	}
+}

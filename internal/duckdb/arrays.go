@@ -81,3 +81,52 @@ func Float32ArrayToBytes(arr []float32) []byte {
 
 	return data
 }
+
+// Int64ArrayToString converts []int64 to DuckDB BIGINT[] array string format.
+// Example: [1, 2, 3] -> "[1,2,3]"
+// This format is required for DuckDB LIST/ARRAY literal syntax.
+func Int64ArrayToString(ids []int64) string {
+	if len(ids) == 0 {
+		return "[]"
+	}
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = fmt.Sprintf("%d", id)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+// ParseInt64Array parses a DuckDB BIGINT[] array string to []int64.
+// Example: "[1, 2, 3]" -> [1, 2, 3]
+// Handles both comma-separated and comma-space-separated formats.
+func ParseInt64Array(str string) ([]int64, error) {
+	// DuckDB returns arrays as "[1, 2, 3]" or "[1,2,3]".
+	str = strings.TrimSpace(str)
+	if str == "[]" || str == "" {
+		return []int64{}, nil
+	}
+
+	// Remove brackets.
+	str = strings.TrimPrefix(str, "[")
+	str = strings.TrimSuffix(str, "]")
+
+	// Split by comma.
+	parts := strings.Split(str, ",")
+	result := make([]int64, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		var val int64
+		_, err := fmt.Sscanf(part, "%d", &val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse int64 value '%s': %w", part, err)
+		}
+		result = append(result, val)
+	}
+
+	return result, nil
+}
