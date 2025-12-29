@@ -29,6 +29,7 @@ func ComputeStackHash(frameIDs []int64) string {
 	h := sha256.New()
 	for _, id := range frameIDs {
 		buf := make([]byte, 8)
+		// #nosec G115 - Intentional binary encoding for hash; preserves bit pattern regardless of sign.
 		binary.LittleEndian.PutUint64(buf, uint64(id))
 		h.Write(buf)
 	}
