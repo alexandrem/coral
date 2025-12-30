@@ -2,19 +2,21 @@ package agent
 
 import (
 	"testing"
+
+	"github.com/coral-mesh/coral/internal/cli/agent/types"
 )
 
 func TestParseServiceSpec(t *testing.T) {
 	tests := []struct {
 		name    string
 		spec    string
-		want    *ServiceSpec
+		want    *types.ServiceSpec
 		wantErr bool
 	}{
 		{
 			name: "simple service with port",
 			spec: "api:8080",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:   "api",
 				Port:   8080,
 				Labels: map[string]string{},
@@ -24,7 +26,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "service with health endpoint",
 			spec: "frontend:3000:/health",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:           "frontend",
 				Port:           3000,
 				HealthEndpoint: "/health",
@@ -35,7 +37,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "service with type only",
 			spec: "redis:6379::redis",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:        "redis",
 				Port:        6379,
 				ServiceType: "redis",
@@ -46,7 +48,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "service with health and type",
 			spec: "metrics:9090:/metrics:prometheus",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:           "metrics",
 				Port:           9090,
 				HealthEndpoint: "/metrics",
@@ -58,7 +60,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "service with complex health path",
 			spec: "app:8080:/api/v1/health:http",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:           "app",
 				Port:           8080,
 				HealthEndpoint: "/api/v1/health",
@@ -70,7 +72,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "service with hyphenated name",
 			spec: "payment-api:8080",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:   "payment-api",
 				Port:   8080,
 				Labels: map[string]string{},
@@ -146,7 +148,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "valid port at minimum",
 			spec: "api:1",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:   "api",
 				Port:   1,
 				Labels: map[string]string{},
@@ -156,7 +158,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "valid port at maximum",
 			spec: "api:65535",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:   "api",
 				Port:   65535,
 				Labels: map[string]string{},
@@ -166,7 +168,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "health endpoint with dots",
 			spec: "api:8080:/health.check",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:           "api",
 				Port:           8080,
 				HealthEndpoint: "/health.check",
@@ -177,7 +179,7 @@ func TestParseServiceSpec(t *testing.T) {
 		{
 			name: "health endpoint with underscores",
 			spec: "api:8080:/health_check",
-			want: &ServiceSpec{
+			want: &types.ServiceSpec{
 				Name:           "api",
 				Port:           8080,
 				HealthEndpoint: "/health_check",
@@ -189,9 +191,9 @@ func TestParseServiceSpec(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseServiceSpec(tt.spec)
+			got, err := types.ParseServiceSpec(tt.spec)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseServiceSpec() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("types.ParseServiceSpec() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if err != nil {
@@ -261,9 +263,9 @@ func TestParseMultipleServiceSpecs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseMultipleServiceSpecs(tt.specs)
+			got, err := types.ParseMultipleServiceSpecs(tt.specs)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseMultipleServiceSpecs() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("types.ParseMultipleServiceSpecs() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if err != nil {
@@ -271,14 +273,14 @@ func TestParseMultipleServiceSpecs(t *testing.T) {
 			}
 
 			if len(got) != tt.want {
-				t.Errorf("ParseMultipleServiceSpecs() got %d specs, want %d", len(got), tt.want)
+				t.Errorf("types.ParseMultipleServiceSpecs() got %d specs, want %d", len(got), tt.want)
 			}
 		})
 	}
 }
 
 func TestServiceSpecToProto(t *testing.T) {
-	spec := &ServiceSpec{
+	spec := &types.ServiceSpec{
 		Name:           "api",
 		Port:           8080,
 		HealthEndpoint: "/health",
@@ -310,19 +312,19 @@ func TestServiceSpecToProto(t *testing.T) {
 func TestValidateServiceSpecs(t *testing.T) {
 	tests := []struct {
 		name    string
-		specs   []*ServiceSpec
+		specs   []*types.ServiceSpec
 		wantErr bool
 	}{
 		{
 			name: "valid single service",
-			specs: []*ServiceSpec{
+			specs: []*types.ServiceSpec{
 				{Name: "api", Port: 8080, Labels: make(map[string]string)},
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid multiple services",
-			specs: []*ServiceSpec{
+			specs: []*types.ServiceSpec{
 				{Name: "api", Port: 8080, Labels: make(map[string]string)},
 				{Name: "frontend", Port: 3000, Labels: make(map[string]string)},
 			},
@@ -330,7 +332,7 @@ func TestValidateServiceSpecs(t *testing.T) {
 		},
 		{
 			name:    "empty list",
-			specs:   []*ServiceSpec{},
+			specs:   []*types.ServiceSpec{},
 			wantErr: true,
 		},
 		{
@@ -342,9 +344,9 @@ func TestValidateServiceSpecs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateServiceSpecs(tt.specs)
+			err := types.ValidateServiceSpecs(tt.specs)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateServiceSpecs() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("types.ValidateServiceSpecs() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

@@ -1,4 +1,4 @@
-package agent
+package startup
 
 import (
 	"context"
@@ -19,6 +19,7 @@ import (
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent/ebpf"
 	"github.com/coral-mesh/coral/internal/auth"
+	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -26,8 +27,8 @@ import (
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
-// queryDiscoveryForColony queries the discovery service for colony information.
-func queryDiscoveryForColony(cfg *config.ResolvedConfig, logger logging.Logger) (*discoverypb.LookupColonyResponse, error) {
+// QueryDiscoveryForColony queries the discovery service for colony information.
+func QueryDiscoveryForColony(cfg *config.ResolvedConfig, logger logging.Logger) (*discoverypb.LookupColonyResponse, error) {
 	// Create discovery client
 	client := discoveryv1connect.NewDiscoveryServiceClient(
 		http.DefaultClient,
@@ -50,8 +51,8 @@ func queryDiscoveryForColony(cfg *config.ResolvedConfig, logger logging.Logger) 
 	return resp.Msg, nil
 }
 
-// registerAgentWithDiscovery registers the agent with the discovery service.
-func registerAgentWithDiscovery(
+// RegisterAgentWithDiscovery registers the agent with the discovery service.
+func RegisterAgentWithDiscovery(
 	cfg *config.ResolvedConfig,
 	agentID string,
 	agentPubKey string,
@@ -92,13 +93,12 @@ func registerAgentWithDiscovery(
 	return nil
 }
 
-// setupAgentWireGuard creates and configures the agent's WireGuard device.
+// SetupAgentWireGuard creates and configures the agent's WireGuard device.
 // Returns the WireGuard device, discovered public endpoint, and colony endpoint (RFD 019).
 // The device is returned WITHOUT a peer - peer must be added after registration.
-// setupAgentWireGuard sets up the WireGuard device for the agent.
 // colonyInfo may be nil if discovery service is unavailable - in this case,
 // the device is created but colony endpoint selection is skipped.
-func setupAgentWireGuard(
+func SetupAgentWireGuard(
 	agentKeys *auth.WireGuardKeyPair,
 	colonyInfo *discoverypb.LookupColonyResponse,
 	stunServers []string,
@@ -306,9 +306,9 @@ func setupAgentWireGuard(
 	return wgDevice, agentPublicEndpoint, colonyEndpoint, nil
 }
 
-// configureAgentMesh configures the agent's mesh network after registration.
+// ConfigureAgentMesh configures the agent's mesh network after registration.
 // This adds the colony as a WireGuard peer and tests connectivity (RFD 019).
-func configureAgentMesh(
+func ConfigureAgentMesh(
 	wgDevice *wireguard.Device,
 	meshIP net.IP,
 	meshSubnet *net.IPNet,
@@ -404,7 +404,7 @@ func configureAgentMesh(
 func registerWithColony(
 	cfg *config.ResolvedConfig,
 	agentID string,
-	serviceSpecs []*ServiceSpec,
+	serviceSpecs []*types.ServiceSpec,
 	agentPubKey string,
 	colonyInfo *discoverypb.LookupColonyResponse,
 	runtimeContext *agentv1.RuntimeContextResponse,
@@ -583,38 +583,6 @@ func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectP
 	}
 
 	return candidates
-}
-
-// generateAgentID generates a stable agent ID based on hostname and service specs.
-// The ID remains consistent across agent restarts to maintain identity in the colony.
-func generateAgentID(serviceSpecs []*ServiceSpec) string {
-	// Get hostname for stable identification
-	hostname, err := os.Hostname()
-	if err != nil {
-		// Fallback to "unknown" if hostname cannot be determined
-		hostname = "unknown"
-	}
-
-	// Sanitize hostname: replace dots and underscores with hyphens
-	hostname = strings.ReplaceAll(hostname, ".", "-")
-	hostname = strings.ReplaceAll(hostname, "_", "-")
-	hostname = strings.ToLower(hostname)
-
-	if len(serviceSpecs) == 1 {
-		// Single service: hostname-servicename
-		// Example: "myserver-frontend", "myserver-api"
-		return fmt.Sprintf("%s-%s", hostname, serviceSpecs[0].Name)
-	}
-
-	if len(serviceSpecs) > 1 {
-		// Multi-service: hostname-multi
-		// Example: "myserver-multi" for an agent monitoring multiple services
-		return fmt.Sprintf("%s-multi", hostname)
-	}
-
-	// No services (daemon mode): just hostname
-	// Example: "myserver" for a standalone agent
-	return hostname
 }
 
 // requestRelayAllocation requests a relay allocation from the discovery service.
