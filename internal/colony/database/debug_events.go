@@ -85,40 +85,8 @@ func (d *Database) InsertDebugEvents(sessionID string, events []*meshv1.UprobeEv
 			tid = &event.Tid
 		}
 
-		// NOTE: ID is omitted (auto-increment in DB? Or need to generate?).
-		// Struct has ID `duckdb:"id,pk"`. ORM BatchUpsert will insert 0 if not set.
-		// If ID is auto-increment, we should use a different struct without ID for Insert, OR
-		// use `duckdb:"-"` on ID but then we can't Get.
-		// `DebugEvent` is also used for Get (fetching events).
-		// I'll assume for this batch insert, we use `duckdb.Table[DebugEvent]` but...
-		// If DB has `CREATE SEQUENCE seq_debug_events_id`, removing ID from INSERT is key.
-		// The ORM currently doesn't support "Insert Omit".
-		// I will generate ID manually to be safe or assuming 0 is problematic.
-		// But inserting millions of events -> generating ID is better.
-		// Or creating a `DebugEventInsert` struct without ID?
-		// Existing schema relies on `nextval`.
-		// If I pass ID=0, DuckDB might treat it as value 0.
-		// I should define `DebugEventInsert` struct WITHOUT ID field.
-		// And use `Table[DebugEventInsert]` for insertion.
-		// But I need `debugEventsTable` to be accessible.
-		// I can cast or make a local table for insert.
-		// Or just modify `DebugEvent` to exclude ID for now (if I don't read ID back).
-		// `GetDebugEvents` reads everything EXCEPT ID (in existing implementation!).
-		// Existing `GetDebugEvents` SELECT list: `timestamp, collector_id, ...` NO ID.
-		// So ID is internal only?
-		// Line 132 in `debug_events.go`:
-		// `SELECT timestamp, ...`
-		// It does NOT select ID.
-		// So `DebugEvent` struct in Go code (lines 15-30) HAS ID but it's not populated by Get?
-		// Wait, `GetDebugEvents` return `[]*meshv1.UprobeEvent`. It doesn't use `DebugEvent` struct for retrieval!
-		// It manually scans into vars.
-		// So `DebugEvent` struct is UNUSED currently? Or used as intermediate?
-		// It seems `DebugEvent` struct lines 15-30 is unused in `GetDebugEvents`.
-		// So I can modify `DebugEvent` struct to MATCH what I want to insert.
-		// If I remove `ID` field from `DebugEvent` struct (map it to `duckdb:"-"` or remove it), ORM won't insert it.
-		// Then DuckDB will use default (sequence).
-		// Perfect.
-
+		// Note: ID field is marked with `duckdb:"-"` so it's excluded from inserts.
+		// DuckDB will auto-generate IDs using seq_debug_events_id sequence.
 		items = append(items, &DebugEvent{
 			SessionID:    sessionID,
 			Timestamp:    event.Timestamp.AsTime(),
