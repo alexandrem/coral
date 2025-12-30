@@ -121,12 +121,12 @@ echo -e "${GREEN}✓ Sample collection wait period completed${NC}"
 
 # Step 5: Query historical CPU profiles using --since flag.
 echo -e "\n${YELLOW}Step 5: Querying historical CPU profiles...${NC}"
-echo "Command: ${BINARY_PATH} debug cpu-profile -s ${SERVICE_NAME} --since ${QUERY_SINCE}"
+echo "Command: ${BINARY_PATH} query cpu-profile -s ${SERVICE_NAME} --since ${QUERY_SINCE}"
 
 # Capture output and exit code.
 OUTPUT_FILE=$(mktemp)
 STDERR_FILE=$(mktemp)
-if (cd "${REPO_ROOT}" && "${BINARY_PATH}" debug cpu-profile -s "${SERVICE_NAME}" --since "${QUERY_SINCE}" > "${OUTPUT_FILE}" 2>"${STDERR_FILE}"); then
+if (cd "${REPO_ROOT}" && "${BINARY_PATH}" query cpu-profile -s "${SERVICE_NAME}" --since "${QUERY_SINCE}" > "${OUTPUT_FILE}" 2>"${STDERR_FILE}"); then
     EXIT_CODE=0
 else
     EXIT_CODE=$?
@@ -226,7 +226,7 @@ echo -e "\n${YELLOW}Step 7: Testing different time range queries...${NC}"
 
 # Test --since with different duration.
 OUTPUT_FILE_2=$(mktemp)
-if (cd "${REPO_ROOT}" && "${BINARY_PATH}" debug cpu-profile -s "${SERVICE_NAME}" --since "15s" > "${OUTPUT_FILE_2}" 2>/dev/null); then
+if (cd "${REPO_ROOT}" && "${BINARY_PATH}" query cpu-profile -s "${SERVICE_NAME}" --since "15s" > "${OUTPUT_FILE_2}" 2>/dev/null); then
     LINES_15s=$(wc -l < "${OUTPUT_FILE_2}")
     LINES_60s=$(wc -l < "${OUTPUT_FILE}")
     echo -e "${GREEN}✓ Different time ranges work (15s: ${LINES_15s} stacks, 60s: ${LINES_60s} stacks)${NC}"
