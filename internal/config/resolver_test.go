@@ -16,18 +16,10 @@ func TestResolver_ResolveWithSource_EnvVar(t *testing.T) {
 	tmpProject := t.TempDir()
 
 	// Set up CORAL_CONFIG to use tmp home.
-	originalCoralConfig := os.Getenv("CORAL_CONFIG")
-	_ = os.Setenv("CORAL_CONFIG", tmpHome) // TODO: errcheck
-	defer func(key, value string) {
-		_ = os.Setenv(key, value) // TODO: errcheck
-	}("CORAL_CONFIG", originalCoralConfig)
+	t.Setenv("CORAL_CONFIG", tmpHome)
 
 	// Set CORAL_COLONY_ID env var.
-	originalColonyID := os.Getenv("CORAL_COLONY_ID")
-	_ = os.Setenv("CORAL_COLONY_ID", "env-colony-123") // TODO: errcheck
-	defer func(key, value string) {
-		_ = os.Setenv(key, value) // TODO: errcheck
-	}("CORAL_COLONY_ID", originalColonyID)
+	t.Setenv("CORAL_COLONY_ID", "env-colony-123")
 
 	// Create resolver with temp project dir.
 	loader, err := NewLoader()
@@ -90,18 +82,10 @@ func TestResolver_ResolveWithSource_GlobalDefault(t *testing.T) {
 	tmpProject := t.TempDir()
 
 	// Set up CORAL_CONFIG to use tmp home.
-	originalCoralConfig := os.Getenv("CORAL_CONFIG")
-	_ = os.Setenv("CORAL_CONFIG", tmpHome) // TODO: errcheck
-	defer func(key, value string) {
-		_ = os.Setenv(key, value)
-	}("CORAL_CONFIG", originalCoralConfig)
+	t.Setenv("CORAL_CONFIG", tmpHome)
 
 	// Ensure CORAL_COLONY_ID is not set.
-	originalColonyID := os.Getenv("CORAL_COLONY_ID")
-	_ = os.Unsetenv("CORAL_COLONY_ID") // TODO: errcheck
-	defer func(key, value string) {
-		_ = os.Setenv(key, value) // TODO: errcheck
-	}("CORAL_COLONY_ID", originalColonyID)
+	t.Setenv("CORAL_COLONY_ID", "")
 
 	// Create loader and global config.
 	loader, err := NewLoader()

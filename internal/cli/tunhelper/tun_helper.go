@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/coral-mesh/coral/internal/errors"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -68,7 +69,7 @@ func runTUNHelper(cmd *cobra.Command, args []string) error {
 		logger.Error().Err(err).Msg("Failed to create TUN device")
 		return fmt.Errorf("failed to create TUN device: %w", err)
 	}
-	defer func() { _ = tunDevice.Close() }() // TODO: errcheck
+	defer errors.DeferClose(logger, tunDevice, "failed to close TUN device")
 
 	// Get the file descriptor from the underlying TUN device.
 	file := tunDevice.Device().File()
@@ -82,7 +83,7 @@ func runTUNHelper(cmd *cobra.Command, args []string) error {
 
 	// Send FD to parent via Unix socket.
 	logger.Info().Str("socket", socketPath).Msg("Sending FD to parent")
-	if err := wireguard.SendFDOverSocket(fd, socketPath); err != nil {
+	if err := wireguard.SendFDOverSocket(fd, socketPath, logger); err != nil {
 		logger.Error().Err(err).Msg("Failed to send FD")
 		return fmt.Errorf("failed to send FD to parent: %w", err)
 	}
