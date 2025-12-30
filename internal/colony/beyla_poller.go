@@ -10,12 +10,14 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
 // BeylaPoller periodically queries agents for Beyla metrics data.
 // This implements the pull-based telemetry architecture from RFD 032.
 type BeylaPoller struct {
+	*poller.BasePoller
 	registry           *registry.Registry
 	db                 *database.Database
 	pollInterval       time.Duration
@@ -24,16 +26,13 @@ type BeylaPoller struct {
 	sqlRetentionDays   int // SQL metrics retention in days (default: 14)
 	traceRetentionDays int // Trace retention in days (default: 7) (RFD 036)
 	logger             zerolog.Logger
-	ctx                context.Context
-	cancel             context.CancelFunc
-	wg                 sync.WaitGroup
-	running            bool
-	mu                 sync.Mutex
 	lastPollTime       map[string]time.Time // Track last successful poll time per agent
+	lastPollTimeMu     sync.Mutex           // Protect lastPollTime map
 }
 
 // NewBeylaPoller creates a new Beyla metrics poller.
 func NewBeylaPoller(
+	ctx context.Context,
 	registry *registry.Registry,
 	db *database.Database,
 	pollInterval time.Duration,
@@ -43,8 +42,6 @@ func NewBeylaPoller(
 	traceRetentionDays int,
 	logger zerolog.Logger,
 ) *BeylaPoller {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	// Apply defaults if not specified.
 	if httpRetentionDays <= 0 {
 		httpRetentionDays = 30
@@ -59,7 +56,16 @@ func NewBeylaPoller(
 		traceRetentionDays = 7 // Default: 7 days (RFD 036)
 	}
 
+	componentLogger := logger.With().Str("component", "beyla_poller").Logger()
+
+	base := poller.NewBasePoller(ctx, poller.Config{
+		Name:         "beyla_poller",
+		PollInterval: pollInterval,
+		Logger:       componentLogger,
+	})
+
 	return &BeylaPoller{
+		BasePoller:         base,
 		registry:           registry,
 		db:                 db,
 		pollInterval:       pollInterval,
@@ -67,97 +73,34 @@ func NewBeylaPoller(
 		grpcRetentionDays:  grpcRetentionDays,
 		sqlRetentionDays:   sqlRetentionDays,
 		traceRetentionDays: traceRetentionDays,
-		logger:             logger.With().Str("component", "beyla_poller").Logger(),
-		ctx:                ctx,
-		cancel:             cancel,
+		logger:             componentLogger,
 		lastPollTime:       make(map[string]time.Time),
 	}
 }
 
 // Start begins the Beyla metrics polling loop.
 func (p *BeylaPoller) Start() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.running {
-		return nil
-	}
-
 	p.logger.Info().
 		Dur("poll_interval", p.pollInterval).
 		Msg("Starting Beyla metrics poller")
 
-	p.wg.Add(1)
-	go p.pollLoop()
-
-	p.running = true
-	return nil
+	return p.BasePoller.Start(p)
 }
 
 // Stop stops the Beyla metrics polling loop.
 func (p *BeylaPoller) Stop() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.running {
-		return nil
-	}
-
-	p.logger.Info().Msg("Stopping Beyla metrics poller")
-
-	p.cancel()
-	p.wg.Wait()
-
-	p.running = false
-	return nil
+	return p.BasePoller.Stop()
 }
 
-// pollLoop is the main polling loop.
-func (p *BeylaPoller) pollLoop() {
-	defer p.wg.Done()
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	// Start cleanup loop in a separate goroutine.
-	// Cleanup runs every hour and removes old metrics (RFD 032).
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		cleanupTicker := time.NewTicker(1 * time.Hour)
-		defer cleanupTicker.Stop()
-
-		for {
-			select {
-			case <-p.ctx.Done():
-				return
-			case <-cleanupTicker.C:
-				p.runCleanup()
-			}
-		}
-	}()
-
-	// Run an initial poll immediately.
-	p.pollOnce()
-
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.pollOnce()
-		}
-	}
-}
-
-// pollOnce performs a single polling cycle.
-func (p *BeylaPoller) pollOnce() {
+// PollOnce performs a single polling cycle.
+// Implements the poller.Poller interface.
+func (p *BeylaPoller) PollOnce(ctx context.Context) error {
 	// Get all registered agents.
 	agents := p.registry.ListAll()
 
 	if len(agents) == 0 {
 		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return
+		return nil
 	}
 
 	// Calculate time range for this poll cycle.
@@ -188,13 +131,15 @@ func (p *BeylaPoller) pollOnce() {
 		}
 
 		// Determine start time for this agent.
+		p.lastPollTimeMu.Lock()
 		startTime, ok := p.lastPollTime[agent.AgentID]
+		p.lastPollTimeMu.Unlock()
 		if !ok {
 			// First time polling this agent, default to one interval ago.
 			startTime = endTime.Add(-p.pollInterval)
 		}
 
-		httpMetrics, grpcMetrics, sqlMetrics, traceSpans, err := p.queryAgent(agent, startTime, endTime)
+		httpMetrics, grpcMetrics, sqlMetrics, traceSpans, err := p.queryAgent(ctx, agent, startTime, endTime)
 		if err != nil {
 			p.logger.Warn().
 				Err(err).
@@ -207,7 +152,7 @@ func (p *BeylaPoller) pollOnce() {
 
 		// Store metrics in database.
 		if len(httpMetrics) > 0 {
-			if err := p.db.InsertBeylaHTTPMetrics(p.ctx, agent.AgentID, httpMetrics); err != nil {
+			if err := p.db.InsertBeylaHTTPMetrics(ctx, agent.AgentID, httpMetrics); err != nil {
 				p.logger.Error().
 					Err(err).
 					Str("agent_id", agent.AgentID).
@@ -219,7 +164,7 @@ func (p *BeylaPoller) pollOnce() {
 		}
 
 		if len(grpcMetrics) > 0 {
-			if err := p.db.InsertBeylaGRPCMetrics(p.ctx, agent.AgentID, grpcMetrics); err != nil {
+			if err := p.db.InsertBeylaGRPCMetrics(ctx, agent.AgentID, grpcMetrics); err != nil {
 				p.logger.Error().
 					Err(err).
 					Str("agent_id", agent.AgentID).
@@ -231,7 +176,7 @@ func (p *BeylaPoller) pollOnce() {
 		}
 
 		if len(sqlMetrics) > 0 {
-			if err := p.db.InsertBeylaSQLMetrics(p.ctx, agent.AgentID, sqlMetrics); err != nil {
+			if err := p.db.InsertBeylaSQLMetrics(ctx, agent.AgentID, sqlMetrics); err != nil {
 				p.logger.Error().
 					Err(err).
 					Str("agent_id", agent.AgentID).
@@ -244,7 +189,7 @@ func (p *BeylaPoller) pollOnce() {
 
 		// Store traces in database (RFD 036).
 		if len(traceSpans) > 0 {
-			if err := p.db.InsertBeylaTraces(p.ctx, agent.AgentID, traceSpans); err != nil {
+			if err := p.db.InsertBeylaTraces(ctx, agent.AgentID, traceSpans); err != nil {
 				p.logger.Error().
 					Err(err).
 					Str("agent_id", agent.AgentID).
@@ -256,7 +201,9 @@ func (p *BeylaPoller) pollOnce() {
 		}
 
 		// Update last poll time for this agent.
+		p.lastPollTimeMu.Lock()
 		p.lastPollTime[agent.AgentID] = endTime
+		p.lastPollTimeMu.Unlock()
 
 		successCount++
 	}
@@ -275,10 +222,13 @@ func (p *BeylaPoller) pollOnce() {
 			Int("agents_queried", successCount).
 			Msg("Beyla metrics poll completed with no data")
 	}
+
+	return nil
 }
 
 // queryAgent queries a single agent for Beyla metrics.
 func (p *BeylaPoller) queryAgent(
+	ctx context.Context,
 	agent *registry.Entry,
 	startTime, endTime time.Time,
 ) ([]*agentv1.EbpfHttpMetric, []*agentv1.EbpfGrpcMetric, []*agentv1.EbpfSqlMetric, []*agentv1.EbpfTraceSpan, error) {
@@ -297,11 +247,11 @@ func (p *BeylaPoller) queryAgent(
 	})
 
 	// Set timeout for the request.
-	ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Call agent's QueryBeylaMetrics RPC.
-	resp, err := client.QueryEbpfMetrics(ctx, req)
+	resp, err := client.QueryEbpfMetrics(queryCtx, req)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -309,15 +259,16 @@ func (p *BeylaPoller) queryAgent(
 	return resp.Msg.HttpMetrics, resp.Msg.GrpcMetrics, resp.Msg.SqlMetrics, resp.Msg.TraceSpans, nil
 }
 
-// runCleanup performs Beyla metrics database cleanup.
+// RunCleanup performs Beyla metrics database cleanup.
 // Removes metrics older than configured retention periods.
-func (p *BeylaPoller) runCleanup() {
-	deleted, err := p.db.CleanupOldBeylaMetrics(p.ctx, p.httpRetentionDays, p.grpcRetentionDays, p.sqlRetentionDays)
+// Implements the poller.Poller interface.
+func (p *BeylaPoller) RunCleanup(ctx context.Context) error {
+	deleted, err := p.db.CleanupOldBeylaMetrics(ctx, p.httpRetentionDays, p.grpcRetentionDays, p.sqlRetentionDays)
 	if err != nil {
 		p.logger.Error().
 			Err(err).
 			Msg("Failed to cleanup old Beyla metrics")
-		return
+		return err
 	}
 
 	if deleted > 0 {
@@ -330,12 +281,12 @@ func (p *BeylaPoller) runCleanup() {
 	}
 
 	// Cleanup traces (RFD 036).
-	deletedTraces, err := p.db.CleanupOldBeylaTraces(p.ctx, p.traceRetentionDays)
+	deletedTraces, err := p.db.CleanupOldBeylaTraces(ctx, p.traceRetentionDays)
 	if err != nil {
 		p.logger.Error().
 			Err(err).
 			Msg("Failed to cleanup old Beyla traces")
-		return
+		return err
 	}
 
 	if deletedTraces > 0 {
@@ -344,4 +295,6 @@ func (p *BeylaPoller) runCleanup() {
 			Int("trace_retention_days", p.traceRetentionDays).
 			Msg("Cleaned up old Beyla traces")
 	}
+
+	return nil
 }

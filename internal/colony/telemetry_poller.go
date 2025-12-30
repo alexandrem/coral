@@ -2,7 +2,6 @@ package colony
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -10,134 +9,76 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
 // TelemetryPoller periodically queries agents for telemetry data.
 // This implements the pull-based telemetry architecture from RFD 025.
 type TelemetryPoller struct {
+	*poller.BasePoller
 	registry       *registry.Registry
 	db             *database.Database
 	pollInterval   time.Duration
 	retentionHours int // How long to keep telemetry summaries (default: 24 hours)
 	logger         zerolog.Logger
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	running        bool
-	mu             sync.Mutex
 }
 
 // NewTelemetryPoller creates a new telemetry poller.
 func NewTelemetryPoller(
+	ctx context.Context,
 	registry *registry.Registry,
 	db *database.Database,
 	pollInterval time.Duration,
 	retentionHours int,
 	logger zerolog.Logger,
 ) *TelemetryPoller {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	// Default to 24 hours if not specified.
 	if retentionHours <= 0 {
 		retentionHours = 24
 	}
 
+	componentLogger := logger.With().Str("component", "telemetry_poller").Logger()
+
+	base := poller.NewBasePoller(ctx, poller.Config{
+		Name:         "telemetry_poller",
+		PollInterval: pollInterval,
+		Logger:       componentLogger,
+	})
+
 	return &TelemetryPoller{
+		BasePoller:     base,
 		registry:       registry,
 		db:             db,
 		pollInterval:   pollInterval,
 		retentionHours: retentionHours,
-		logger:         logger.With().Str("component", "telemetry_poller").Logger(),
-		ctx:            ctx,
-		cancel:         cancel,
+		logger:         componentLogger,
 	}
 }
 
 // Start begins the telemetry polling loop.
 func (p *TelemetryPoller) Start() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.running {
-		return nil
-	}
-
 	p.logger.Info().
 		Dur("poll_interval", p.pollInterval).
 		Msg("Starting telemetry poller")
 
-	p.wg.Add(1)
-	go p.pollLoop()
-
-	p.running = true
-	return nil
+	return p.BasePoller.Start(p)
 }
 
 // Stop stops the telemetry polling loop.
 func (p *TelemetryPoller) Stop() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.running {
-		return nil
-	}
-
-	p.logger.Info().Msg("Stopping telemetry poller")
-
-	p.cancel()
-	p.wg.Wait()
-
-	p.running = false
-	return nil
+	return p.BasePoller.Stop()
 }
 
-// pollLoop is the main polling loop.
-func (p *TelemetryPoller) pollLoop() {
-	defer p.wg.Done()
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	// Start cleanup loop in a separate goroutine.
-	// Cleanup runs every hour and removes summaries older than 24 hours (RFD 025).
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		cleanupTicker := time.NewTicker(1 * time.Hour)
-		defer cleanupTicker.Stop()
-
-		for {
-			select {
-			case <-p.ctx.Done():
-				return
-			case <-cleanupTicker.C:
-				p.runCleanup()
-			}
-		}
-	}()
-
-	// Run an initial poll immediately.
-	p.pollOnce()
-
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.pollOnce()
-		}
-	}
-}
-
-// pollOnce performs a single polling cycle.
-func (p *TelemetryPoller) pollOnce() {
+// PollOnce performs a single polling cycle.
+// Implements the poller.Poller interface.
+func (p *TelemetryPoller) PollOnce(ctx context.Context) error {
 	// Get all registered agents.
 	agents := p.registry.ListAll()
 
 	if len(agents) == 0 {
 		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return
+		return nil
 	}
 
 	// Calculate time range for this poll cycle.
@@ -166,7 +107,7 @@ func (p *TelemetryPoller) pollOnce() {
 			continue
 		}
 
-		spans, err := p.queryAgent(agent, startTime, now)
+		spans, err := p.queryAgent(ctx, agent, startTime, now)
 		if err != nil {
 			p.logger.Warn().
 				Err(err).
@@ -188,28 +129,32 @@ func (p *TelemetryPoller) pollOnce() {
 
 	// Store summaries in database.
 	if len(summaries) > 0 {
-		if err := p.db.InsertTelemetrySummaries(p.ctx, summaries); err != nil {
+		if err := p.db.InsertTelemetrySummaries(ctx, summaries); err != nil {
 			p.logger.Error().
 				Err(err).
 				Int("summary_count", len(summaries)).
 				Msg("Failed to store telemetry summaries")
-		} else {
-			p.logger.Info().
-				Int("agents_queried", successCount).
-				Int("agents_failed", errorCount).
-				Int("total_spans", totalSpans).
-				Int("summaries", len(summaries)).
-				Msg("Telemetry poll completed")
+			return err
 		}
+
+		p.logger.Info().
+			Int("agents_queried", successCount).
+			Int("agents_failed", errorCount).
+			Int("total_spans", totalSpans).
+			Int("summaries", len(summaries)).
+			Msg("Telemetry poll completed")
 	} else {
 		p.logger.Debug().
 			Int("agents_queried", successCount).
 			Msg("Telemetry poll completed with no data")
 	}
+
+	return nil
 }
 
 // queryAgent queries a single agent for telemetry spans.
 func (p *TelemetryPoller) queryAgent(
+	ctx context.Context,
 	agent *registry.Entry,
 	startTime, endTime time.Time,
 ) ([]*agentv1.TelemetrySpan, error) {
@@ -224,11 +169,11 @@ func (p *TelemetryPoller) queryAgent(
 	})
 
 	// Set timeout for the request.
-	ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Call agent's QueryTelemetry RPC.
-	resp, err := client.QueryTelemetry(ctx, req)
+	resp, err := client.QueryTelemetry(queryCtx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -236,15 +181,16 @@ func (p *TelemetryPoller) queryAgent(
 	return resp.Msg.Spans, nil
 }
 
-// runCleanup performs telemetry database cleanup.
+// RunCleanup performs telemetry database cleanup.
 // Removes summaries older than configured retention period.
-func (p *TelemetryPoller) runCleanup() {
-	deleted, err := p.db.CleanupOldTelemetry(p.ctx, p.retentionHours)
+// Implements the poller.Poller interface.
+func (p *TelemetryPoller) RunCleanup(ctx context.Context) error {
+	deleted, err := p.db.CleanupOldTelemetry(ctx, p.retentionHours)
 	if err != nil {
 		p.logger.Error().
 			Err(err).
 			Msg("Failed to cleanup old telemetry summaries")
-		return
+		return err
 	}
 
 	if deleted > 0 {
@@ -255,4 +201,6 @@ func (p *TelemetryPoller) runCleanup() {
 	} else {
 		p.logger.Debug().Msg("No old telemetry summaries to clean up")
 	}
+
+	return nil
 }

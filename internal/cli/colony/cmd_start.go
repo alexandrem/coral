@@ -285,6 +285,7 @@ Examples:
 			// Polls agents every 1 minute for recent telemetry data.
 			// Default retention: 24 hours for telemetry summaries.
 			telemetryPoller := colony.NewTelemetryPoller(
+				ctx,
 				agentRegistry,
 				db,
 				1*time.Minute, // Poll interval
@@ -325,6 +326,7 @@ Examples:
 			}
 
 			beylaPoller := colony.NewBeylaPoller(
+				ctx,
 				agentRegistry,
 				db,
 				time.Duration(pollIntervalSecs)*time.Second,
@@ -362,6 +364,7 @@ Examples:
 			}
 
 			systemMetricsPoller := colony.NewSystemMetricsPoller(
+				ctx,
 				agentRegistry,
 				db,
 				time.Duration(systemMetricsPollIntervalSecs)*time.Second,
@@ -393,6 +396,7 @@ Examples:
 			}
 
 			cpuProfilePoller := colony.NewCPUProfilePoller(
+				ctx,
 				agentRegistry,
 				db,
 				time.Duration(cpuProfilePollIntervalSecs)*time.Second,

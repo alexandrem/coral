@@ -15,12 +15,14 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
 // FunctionPoller periodically polls agents for function metadata.
 // It implements change detection to avoid unnecessary database updates.
 type FunctionPoller struct {
+	*poller.BasePoller
 	registry         *registry.Registry
 	functionRegistry *FunctionRegistry
 	logger           zerolog.Logger
@@ -31,8 +33,6 @@ type FunctionPoller struct {
 
 	// Polling configuration.
 	pollInterval time.Duration
-	ctx          context.Context
-	cancel       context.CancelFunc
 }
 
 // FunctionPollerConfig contains configuration for the function poller.
@@ -44,59 +44,58 @@ type FunctionPollerConfig struct {
 }
 
 // NewFunctionPoller creates a new function poller.
-func NewFunctionPoller(config FunctionPollerConfig) *FunctionPoller {
+func NewFunctionPoller(ctx context.Context, config FunctionPollerConfig) *FunctionPoller {
 	if config.PollInterval == 0 {
 		config.PollInterval = 5 * time.Minute // Default: 5 minutes
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	componentLogger := config.Logger.With().Str("component", "function_poller").Logger()
+
+	base := poller.NewBasePoller(ctx, poller.Config{
+		Name:         "function_poller",
+		PollInterval: config.PollInterval,
+		Logger:       componentLogger,
+	})
 
 	return &FunctionPoller{
+		BasePoller:       base,
 		registry:         config.Registry,
 		functionRegistry: config.FunctionRegistry,
-		logger:           config.Logger.With().Str("component", "function_poller").Logger(),
+		logger:           componentLogger,
 		serviceHashes:    make(map[string]string),
 		pollInterval:     config.PollInterval,
-		ctx:              ctx,
-		cancel:           cancel,
 	}
 }
 
 // Start begins the periodic polling loop.
-func (p *FunctionPoller) Start() {
+func (p *FunctionPoller) Start() error {
 	p.logger.Info().
 		Dur("interval", p.pollInterval).
 		Msg("Starting function discovery poller")
 
-	go p.pollLoop()
+	return p.BasePoller.Start(p)
 }
 
 // Stop stops the polling loop.
-func (p *FunctionPoller) Stop() {
-	p.logger.Info().Msg("Stopping function discovery poller")
-	p.cancel()
+func (p *FunctionPoller) Stop() error {
+	return p.BasePoller.Stop()
 }
 
-// pollLoop runs the periodic polling logic.
-func (p *FunctionPoller) pollLoop() {
-	// Perform initial poll immediately.
-	p.pollAllAgents()
+// PollOnce performs a single polling cycle.
+// Implements the poller.Poller interface.
+func (p *FunctionPoller) PollOnce(ctx context.Context) error {
+	p.pollAllAgents(ctx)
+	return nil
+}
 
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.pollAllAgents()
-		}
-	}
+// RunCleanup is a no-op for FunctionPoller as function metadata doesn't require cleanup.
+// Implements the poller.Poller interface.
+func (p *FunctionPoller) RunCleanup(ctx context.Context) error {
+	return nil
 }
 
 // pollAllAgents polls all registered agents for function metadata.
-func (p *FunctionPoller) pollAllAgents() {
+func (p *FunctionPoller) pollAllAgents(ctx context.Context) {
 	agents := p.registry.ListAll()
 
 	p.logger.Debug().
@@ -122,7 +121,7 @@ func (p *FunctionPoller) pollAllAgents() {
 		}
 
 		// Query agent for real-time services (don't rely on stale registry data).
-		services := p.queryAgentServices(agent)
+		services := p.queryAgentServices(ctx, agent)
 		if len(services) == 0 {
 			p.logger.Debug().
 				Str("agent_id", agent.AgentID).
@@ -134,7 +133,7 @@ func (p *FunctionPoller) pollAllAgents() {
 		for _, service := range services {
 			totalPolled++
 
-			if err := p.pollService(agent, service.Name); err != nil {
+			if err := p.pollService(ctx, agent, service.Name); err != nil {
 				p.logger.Warn().
 					Err(err).
 					Str("agent_id", agent.AgentID).
@@ -159,15 +158,15 @@ func (p *FunctionPoller) pollAllAgents() {
 
 // queryAgentServices queries an agent for its current list of services.
 // This ensures we get fresh service data instead of relying on stale registry data.
-func (p *FunctionPoller) queryAgentServices(agent *registry.Entry) []*meshv1.ServiceInfo {
+func (p *FunctionPoller) queryAgentServices(ctx context.Context, agent *registry.Entry) []*meshv1.ServiceInfo {
 	// Create agent client.
 	client := GetAgentClient(agent)
 
 	// Query for services with short timeout.
-	ctx, cancel := context.WithTimeout(p.ctx, 2*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	resp, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+	resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
 	if err != nil {
 		p.logger.Debug().
 			Err(err).
@@ -194,7 +193,7 @@ func (p *FunctionPoller) queryAgentServices(agent *registry.Entry) []*meshv1.Ser
 }
 
 // pollService polls a specific service for function metadata.
-func (p *FunctionPoller) pollService(agent *registry.Entry, serviceName string) error {
+func (p *FunctionPoller) pollService(ctx context.Context, agent *registry.Entry, serviceName string) error {
 	// Find the service in the agent's service list to get binary_hash.
 	var binaryHash string
 	for _, svc := range agent.Services {
@@ -212,10 +211,10 @@ func (p *FunctionPoller) pollService(agent *registry.Entry, serviceName string) 
 	client := GetAgentClient(agent)
 
 	// Call GetFunctions RPC.
-	ctx, cancel := context.WithTimeout(p.ctx, 30*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := client.GetFunctions(ctx, connect.NewRequest(&agentv1.GetFunctionsRequest{
+	resp, err := client.GetFunctions(queryCtx, connect.NewRequest(&agentv1.GetFunctionsRequest{
 		ServiceName: serviceName,
 	}))
 	if err != nil {
