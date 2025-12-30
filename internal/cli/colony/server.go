@@ -1,6 +1,7 @@
 package colony
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
 func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, db *database.Database, endpoints []string, logger logging.Logger) (*http.Server, error) {
+	ctx := context.Background()
 	// Get connect port from config or use default
 	loader, err := config.NewLoader()
 	if err != nil {
@@ -164,16 +166,19 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			pollInterval = time.Duration(colonyConfig.FunctionRegistry.PollInterval) * time.Second
 		}
 
-		functionPoller := colony.NewFunctionPoller(colony.FunctionPollerConfig{
+		functionPoller := colony.NewFunctionPoller(ctx, colony.FunctionPollerConfig{
 			Registry:         agentRegistry,
 			FunctionRegistry: functionReg,
 			PollInterval:     pollInterval,
 			Logger:           logger,
 		})
-		functionPoller.Start()
-		logger.Info().
-			Dur("poll_interval", pollInterval).
-			Msg("Function discovery poller started")
+		if err := functionPoller.Start(); err != nil {
+			logger.Warn().Err(err).Msg("Failed to start function discovery poller")
+		} else {
+			logger.Info().
+				Dur("poll_interval", pollInterval).
+				Msg("Function discovery poller started")
+		}
 	} else {
 		logger.Info().Msg("Function discovery is disabled in configuration")
 	}

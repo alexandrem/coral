@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"sort"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -12,135 +11,77 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
 // SystemMetricsPoller periodically queries agents for system metrics data.
 // This implements the pull-based system metrics architecture from RFD 071.
 type SystemMetricsPoller struct {
+	*poller.BasePoller
 	registry      *registry.Registry
 	db            *database.Database
 	pollInterval  time.Duration
 	retentionDays int // How long to keep system metrics summaries (default: 30 days).
 	logger        zerolog.Logger
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	running       bool
-	mu            sync.Mutex
 }
 
 // NewSystemMetricsPoller creates a new system metrics poller.
 func NewSystemMetricsPoller(
+	ctx context.Context,
 	registry *registry.Registry,
 	db *database.Database,
 	pollInterval time.Duration,
 	retentionDays int,
 	logger zerolog.Logger,
 ) *SystemMetricsPoller {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	// Default to 30 days if not specified.
 	if retentionDays <= 0 {
 		retentionDays = 30
 	}
 
+	componentLogger := logger.With().Str("component", "system_metrics_poller").Logger()
+
+	base := poller.NewBasePoller(ctx, poller.Config{
+		Name:         "system_metrics_poller",
+		PollInterval: pollInterval,
+		Logger:       componentLogger,
+	})
+
 	return &SystemMetricsPoller{
+		BasePoller:    base,
 		registry:      registry,
 		db:            db,
 		pollInterval:  pollInterval,
 		retentionDays: retentionDays,
-		logger:        logger.With().Str("component", "system_metrics_poller").Logger(),
-		ctx:           ctx,
-		cancel:        cancel,
+		logger:        componentLogger,
 	}
 }
 
 // Start begins the system metrics polling loop.
 func (p *SystemMetricsPoller) Start() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.running {
-		return nil
-	}
-
 	p.logger.Info().
 		Dur("poll_interval", p.pollInterval).
 		Int("retention_days", p.retentionDays).
 		Msg("Starting system metrics poller")
 
-	p.wg.Add(1)
-	go p.pollLoop()
-
-	p.running = true
-	return nil
+	return p.BasePoller.Start(p)
 }
 
 // Stop stops the system metrics polling loop.
 func (p *SystemMetricsPoller) Stop() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.running {
-		return nil
-	}
-
-	p.logger.Info().Msg("Stopping system metrics poller")
-
-	p.cancel()
-	p.wg.Wait()
-
-	p.running = false
-	return nil
+	return p.BasePoller.Stop()
 }
 
-// pollLoop is the main polling loop.
-func (p *SystemMetricsPoller) pollLoop() {
-	defer p.wg.Done()
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	// Start cleanup loop in a separate goroutine.
-	// Cleanup runs every 1 hour and removes summaries older than configured retention period (RFD 071).
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		cleanupTicker := time.NewTicker(1 * time.Hour)
-		defer cleanupTicker.Stop()
-
-		for {
-			select {
-			case <-p.ctx.Done():
-				return
-			case <-cleanupTicker.C:
-				p.runCleanup()
-			}
-		}
-	}()
-
-	// Run an initial poll immediately.
-	p.pollOnce()
-
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.pollOnce()
-		}
-	}
-}
-
-// pollOnce performs a single polling cycle.
-func (p *SystemMetricsPoller) pollOnce() {
+// PollOnce performs a single polling cycle.
+// Implements the poller.Poller interface.
+func (p *SystemMetricsPoller) PollOnce(ctx context.Context) error {
 	// Get all registered agents.
 	agents := p.registry.ListAll()
 
 	if len(agents) == 0 {
 		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return
+		return nil
 	}
 
 	// Calculate time range for this poll cycle.
@@ -167,7 +108,7 @@ func (p *SystemMetricsPoller) pollOnce() {
 			continue
 		}
 
-		metrics, err := p.queryAgent(agent, startTime, now)
+		metrics, err := p.queryAgent(ctx, agent, startTime, now)
 		if err != nil {
 			p.logger.Warn().
 				Err(err).
@@ -188,28 +129,32 @@ func (p *SystemMetricsPoller) pollOnce() {
 
 	// Store summaries in database.
 	if len(allSummaries) > 0 {
-		if err := p.db.InsertSystemMetricsSummaries(p.ctx, allSummaries); err != nil {
+		if err := p.db.InsertSystemMetricsSummaries(ctx, allSummaries); err != nil {
 			p.logger.Error().
 				Err(err).
 				Int("summary_count", len(allSummaries)).
 				Msg("Failed to store system metrics summaries")
-		} else {
-			p.logger.Info().
-				Int("agents_queried", successCount).
-				Int("agents_failed", errorCount).
-				Int("total_metrics", totalMetrics).
-				Int("summaries", len(allSummaries)).
-				Msg("System metrics poll completed")
+			return err
 		}
+
+		p.logger.Info().
+			Int("agents_queried", successCount).
+			Int("agents_failed", errorCount).
+			Int("total_metrics", totalMetrics).
+			Int("summaries", len(allSummaries)).
+			Msg("System metrics poll completed")
 	} else {
 		p.logger.Debug().
 			Int("agents_queried", successCount).
 			Msg("System metrics poll completed with no data")
 	}
+
+	return nil
 }
 
 // queryAgent queries a single agent for system metrics.
 func (p *SystemMetricsPoller) queryAgent(
+	ctx context.Context,
 	agent *registry.Entry,
 	startTime, endTime time.Time,
 ) ([]*agentv1.SystemMetric, error) {
@@ -224,11 +169,11 @@ func (p *SystemMetricsPoller) queryAgent(
 	})
 
 	// Set timeout for the request.
-	ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Call agent's QuerySystemMetrics RPC.
-	resp, err := client.QuerySystemMetrics(ctx, req)
+	resp, err := client.QuerySystemMetrics(queryCtx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -362,15 +307,16 @@ func calculatePercentile(sortedValues []float64, p float64) float64 {
 	return lowerValue + (upperValue-lowerValue)*fraction
 }
 
-// runCleanup performs system metrics database cleanup.
+// RunCleanup performs system metrics database cleanup.
 // Removes summaries older than configured retention period.
-func (p *SystemMetricsPoller) runCleanup() {
-	deleted, err := p.db.CleanupOldSystemMetrics(p.ctx, p.retentionDays)
+// Implements the poller.Poller interface.
+func (p *SystemMetricsPoller) RunCleanup(ctx context.Context) error {
+	deleted, err := p.db.CleanupOldSystemMetrics(ctx, p.retentionDays)
 	if err != nil {
 		p.logger.Error().
 			Err(err).
 			Msg("Failed to cleanup old system metrics summaries")
-		return
+		return err
 	}
 
 	if deleted > 0 {
@@ -381,4 +327,6 @@ func (p *SystemMetricsPoller) runCleanup() {
 	} else {
 		p.logger.Debug().Msg("No old system metrics summaries to clean up")
 	}
+
+	return nil
 }

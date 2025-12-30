@@ -15,6 +15,7 @@ import (
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/constants"
 )
@@ -22,31 +23,26 @@ import (
 // CPUProfilePoller periodically queries agents for continuous CPU profile samples.
 // This implements the colony-side aggregation from RFD 072.
 type CPUProfilePoller struct {
+	*poller.BasePoller
 	registry        *registry.Registry
 	db              *database.Database
 	pollInterval    time.Duration
 	retentionDays   int // How long to keep CPU profile summaries (default: 30 days).
 	clientFactory   func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient
 	logger          zerolog.Logger
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	running         bool
-	mu              sync.Mutex
 	lastPollTimes   map[string]time.Time // Track last poll time per agent.
 	lastPollTimesMu sync.RWMutex
 }
 
 // NewCPUProfilePoller creates a new CPU profile poller.
 func NewCPUProfilePoller(
+	ctx context.Context,
 	registry *registry.Registry,
 	db *database.Database,
 	pollInterval time.Duration,
 	retentionDays int,
 	logger zerolog.Logger,
 ) *CPUProfilePoller {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	// Default to 30 days if not specified.
 	if retentionDays <= 0 {
 		retentionDays = 30
@@ -57,104 +53,50 @@ func NewCPUProfilePoller(
 		pollInterval = 30 * time.Second
 	}
 
+	componentLogger := logger.With().Str("component", "cpu_profile_poller").Logger()
+
+	base := poller.NewBasePoller(ctx, poller.Config{
+		Name:         "cpu_profile_poller",
+		PollInterval: pollInterval,
+		Logger:       componentLogger,
+	})
+
 	return &CPUProfilePoller{
+		BasePoller:    base,
 		registry:      registry,
 		db:            db,
 		pollInterval:  pollInterval,
 		retentionDays: retentionDays,
 		clientFactory: GetDebugClient, // Default to production client.
-		logger:        logger.With().Str("component", "cpu_profile_poller").Logger(),
-		ctx:           ctx,
-		cancel:        cancel,
+		logger:        componentLogger,
 		lastPollTimes: make(map[string]time.Time),
 	}
 }
 
 // Start begins the CPU profile polling loop.
 func (p *CPUProfilePoller) Start() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.running {
-		return nil
-	}
-
 	p.logger.Info().
 		Dur("poll_interval", p.pollInterval).
 		Int("retention_days", p.retentionDays).
 		Msg("Starting CPU profile poller")
 
-	p.wg.Add(1)
-	go p.pollLoop()
-
-	p.running = true
-	return nil
+	return p.BasePoller.Start(p)
 }
 
 // Stop stops the CPU profile polling loop.
 func (p *CPUProfilePoller) Stop() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.running {
-		return nil
-	}
-
-	p.logger.Info().Msg("Stopping CPU profile poller")
-
-	p.cancel()
-	p.wg.Wait()
-
-	p.running = false
-	return nil
+	return p.BasePoller.Stop()
 }
 
-// pollLoop is the main polling loop.
-func (p *CPUProfilePoller) pollLoop() {
-	defer p.wg.Done()
-
-	ticker := time.NewTicker(p.pollInterval)
-	defer ticker.Stop()
-
-	// Start cleanup loop in a separate goroutine.
-	// Cleanup runs every 1 hour and removes summaries older than configured retention period (RFD 072).
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		cleanupTicker := time.NewTicker(1 * time.Hour)
-		defer cleanupTicker.Stop()
-
-		for {
-			select {
-			case <-p.ctx.Done():
-				return
-			case <-cleanupTicker.C:
-				p.runCleanup()
-			}
-		}
-	}()
-
-	// Run an initial poll immediately.
-	p.pollOnce()
-
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.pollOnce()
-		}
-	}
-}
-
-// pollOnce performs a single polling cycle.
-func (p *CPUProfilePoller) pollOnce() {
+// PollOnce performs a single polling cycle.
+// Implements the poller.Poller interface.
+func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 	// Get all registered agents.
 	agents := p.registry.ListAll()
 
 	if len(agents) == 0 {
 		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return
+		return nil
 	}
 
 	now := time.Now()
@@ -193,7 +135,7 @@ func (p *CPUProfilePoller) pollOnce() {
 		// Query agent for samples since last poll.
 		// Use 'now' as the end time for this query window.
 		queryEndTime := now
-		samples, err := p.queryAgent(agent, lastPoll, queryEndTime)
+		samples, err := p.queryAgent(ctx, agent, lastPoll, queryEndTime)
 		if err != nil {
 			p.logger.Warn().
 				Err(err).
@@ -206,7 +148,7 @@ func (p *CPUProfilePoller) pollOnce() {
 
 		// Aggregate samples into 1-minute buckets.
 		// Service names are now included in the samples from the agent.
-		summaries := p.aggregateSamples(agent.AgentID, samples)
+		summaries := p.aggregateSamples(ctx, agent.AgentID, samples)
 		allSummaries = append(allSummaries, summaries...)
 
 		// Track query end time for checkpoint update (only after successful storage).
@@ -218,7 +160,7 @@ func (p *CPUProfilePoller) pollOnce() {
 
 	// Store summaries in database.
 	if len(allSummaries) > 0 {
-		if err := p.db.InsertCPUProfileSummaries(p.ctx, allSummaries); err != nil {
+		if err := p.db.InsertCPUProfileSummaries(ctx, allSummaries); err != nil {
 			p.logger.Error().
 				Err(err).
 				Int("summary_count", len(allSummaries)).
@@ -244,10 +186,12 @@ func (p *CPUProfilePoller) pollOnce() {
 			Int("agents_queried", successCount).
 			Msg("CPU profile poll completed with no data")
 	}
+
+	return nil
 }
 
 // queryAgent queries a single agent for CPU profile samples.
-func (p *CPUProfilePoller) queryAgent(
+func (p *CPUProfilePoller) queryAgent(ctx context.Context,
 	agent *registry.Entry,
 	startTime, endTime time.Time,
 ) ([]*meshv1.CPUProfileSample, error) {
@@ -261,7 +205,7 @@ func (p *CPUProfilePoller) queryAgent(
 	})
 
 	// Set timeout for the request.
-	ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Call agent's QueryCPUProfileSamples RPC.
@@ -283,7 +227,7 @@ func (p *CPUProfilePoller) queryAgent(
 
 // aggregateSamples aggregates CPU profile samples into 1-minute buckets.
 // Samples with the same stack (within the same minute bucket) are merged by summing sample counts.
-func (p *CPUProfilePoller) aggregateSamples(
+func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 	agentID string,
 	samples []*meshv1.CPUProfileSample,
 ) []database.CPUProfileSummary {
@@ -312,7 +256,7 @@ func (p *CPUProfilePoller) aggregateSamples(
 		bucketTime := sample.Timestamp.AsTime().Truncate(time.Minute)
 
 		// Encode stack frames to integer IDs using colony's frame dictionary.
-		frameIDs, err := p.db.EncodeStackFrames(p.ctx, sample.StackFrames)
+		frameIDs, err := p.db.EncodeStackFrames(ctx, sample.StackFrames)
 		if err != nil {
 			p.logger.Warn().
 				Err(err).
@@ -363,15 +307,16 @@ func (p *CPUProfilePoller) aggregateSamples(
 	return summaries
 }
 
-// runCleanup performs CPU profile database cleanup.
+// RunCleanup performs CPU profile database cleanup.
 // Removes summaries older than configured retention period.
-func (p *CPUProfilePoller) runCleanup() {
-	deleted, err := p.db.CleanupOldCPUProfiles(p.ctx, p.retentionDays)
+// Implements the poller.Poller interface.
+func (p *CPUProfilePoller) RunCleanup(ctx context.Context) error {
+	deleted, err := p.db.CleanupOldCPUProfiles(ctx, p.retentionDays)
 	if err != nil {
 		p.logger.Error().
 			Err(err).
 			Msg("Failed to cleanup old CPU profile summaries")
-		return
+		return err
 	}
 
 	if deleted > 0 {
@@ -382,12 +327,12 @@ func (p *CPUProfilePoller) runCleanup() {
 	}
 
 	// Also cleanup orphaned frame dictionary entries.
-	deletedFrames, err := p.db.CleanupOrphanedFrames(p.ctx)
+	deletedFrames, err := p.db.CleanupOrphanedFrames(ctx)
 	if err != nil {
 		p.logger.Error().
 			Err(err).
 			Msg("Failed to cleanup orphaned frame dictionary entries")
-		return
+		return err
 	}
 
 	if deletedFrames > 0 {
@@ -395,6 +340,8 @@ func (p *CPUProfilePoller) runCleanup() {
 			Int64("deleted_frames", deletedFrames).
 			Msg("Cleaned up orphaned frame dictionary entries")
 	}
+
+	return nil
 }
 
 // buildAgentURL constructs the agent gRPC URL from registry entry.
