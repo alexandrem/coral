@@ -13,14 +13,14 @@ import (
 
 // Service represents a service registered in the colony.
 type Service struct {
-	ID           string    `duckdb:"id,pk"`
-	Name         string    `duckdb:"name"`
-	AppID        string    `duckdb:"app_id"`
-	Version      string    `duckdb:"version"`
-	AgentID      string    `duckdb:"agent_id"`
-	Labels       string    `duckdb:"labels"`
-	Status       string    `duckdb:"status"`
-	RegisteredAt time.Time `duckdb:"registered_at"`
+	ID           string    `duckdb:"id,pk,immutable"`         // Immutable: PRIMARY KEY, cannot be updated.
+	Name         string    `duckdb:"name,immutable"`          // Immutable: service name shouldn't change for an ID.
+	AppID        string    `duckdb:"app_id,immutable"`        // Immutable: app ID shouldn't change.
+	Version      string    `duckdb:"version"`                 // Mutable: version can be updated.
+	AgentID      string    `duckdb:"agent_id,immutable"`      // Immutable: agent ID shouldn't change for a service.
+	Labels       string    `duckdb:"labels"`                  // Mutable: labels can be updated.
+	Status       string    `duckdb:"status"`                  // Mutable: status changes (active/inactive).
+	RegisteredAt time.Time `duckdb:"registered_at,immutable"` // Immutable: registration time is fixed.
 
 	// LastSeen is populated from service_heartbeats table via join or separate query.
 	// It is not part of the services table definition.
@@ -29,8 +29,8 @@ type Service struct {
 
 // ServiceHeartbeat represents the last seen time of a service.
 type ServiceHeartbeat struct {
-	ServiceID string    `duckdb:"service_id,pk"`
-	LastSeen  time.Time `duckdb:"last_seen"`
+	ServiceID string    `duckdb:"service_id,pk,immutable"` // Immutable: PRIMARY KEY, cannot be updated.
+	LastSeen  time.Time `duckdb:"last_seen"`               // Mutable: updated on each heartbeat.
 }
 
 // GetServiceByName retrieves a service by its name.

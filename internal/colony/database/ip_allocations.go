@@ -9,10 +9,10 @@ import (
 // IPAllocation represents a persistent IP allocation record.
 // IPAllocation represents a persistent IP allocation record.
 type IPAllocation struct {
-	AgentID     string    `duckdb:"agent_id,pk"`
-	IPAddress   string    `duckdb:"ip_address"` // Unique
-	AllocatedAt time.Time `duckdb:"allocated_at"`
-	LastSeen    time.Time `duckdb:"last_seen"`
+	AgentID     string    `duckdb:"agent_id,pk,immutable"`  // Immutable: PRIMARY KEY, cannot be updated.
+	IPAddress   string    `duckdb:"ip_address,immutable"`   // Immutable: has UNIQUE constraint, cannot be updated in DuckDB.
+	AllocatedAt time.Time `duckdb:"allocated_at,immutable"` // Immutable: allocation time is fixed.
+	LastSeen    time.Time `duckdb:"last_seen"`              // Mutable: updated on each heartbeat.
 }
 
 // StoreIPAllocation persists an IP allocation to the database.

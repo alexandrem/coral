@@ -15,13 +15,13 @@ import (
 // CPUProfileSummary represents a 1-minute aggregated CPU profile sample (RFD 072).
 // CPUProfileSummary represents a 1-minute aggregated CPU profile sample (RFD 072).
 type CPUProfileSummary struct {
-	Timestamp     time.Time `duckdb:"timestamp,pk"`
-	AgentID       string    `duckdb:"agent_id,pk"`
-	ServiceName   string    `duckdb:"service_name,pk"`
-	BuildID       string    `duckdb:"build_id,pk"`
-	StackHash     string    `duckdb:"stack_hash,pk"`
-	StackFrameIDs []int64   `duckdb:"stack_frame_ids"`
-	SampleCount   uint32    `duckdb:"sample_count"`
+	Timestamp     time.Time `duckdb:"timestamp,pk,immutable"`    // Immutable: PRIMARY KEY, cannot be updated.
+	AgentID       string    `duckdb:"agent_id,pk,immutable"`     // Immutable: PRIMARY KEY, cannot be updated.
+	ServiceName   string    `duckdb:"service_name,pk,immutable"` // Immutable: PRIMARY KEY, cannot be updated.
+	BuildID       string    `duckdb:"build_id,pk,immutable"`     // Immutable: PRIMARY KEY, cannot be updated.
+	StackHash     string    `duckdb:"stack_hash,pk,immutable"`   // Immutable: PRIMARY KEY, cannot be updated.
+	StackFrameIDs []int64   `duckdb:"stack_frame_ids"`           // Mutable: stack frame IDs.
+	SampleCount   uint32    `duckdb:"sample_count"`              // Mutable: updated when aggregating samples.
 }
 
 // ComputeStackHash generates a SHA-256 hash of the stack frame IDs.
@@ -40,12 +40,12 @@ func ComputeStackHash(frameIDs []int64) string {
 // BinaryMetadata tracks build ID to service mapping (RFD 072).
 // BinaryMetadata tracks build ID to service mapping (RFD 072).
 type BinaryMetadata struct {
-	BuildID      string    `duckdb:"build_id,pk"`
-	ServiceName  string    `duckdb:"service_name"`
-	BinaryPath   string    `duckdb:"binary_path"`
-	FirstSeen    time.Time `duckdb:"first_seen"`
-	LastSeen     time.Time `duckdb:"last_seen"`
-	HasDebugInfo bool      `duckdb:"has_debug_info"`
+	BuildID      string    `duckdb:"build_id,pk,immutable"`  // Immutable: PRIMARY KEY, cannot be updated.
+	ServiceName  string    `duckdb:"service_name,immutable"` // Immutable: has INDEX, cannot be updated in DuckDB.
+	BinaryPath   string    `duckdb:"binary_path,immutable"`  // Immutable: path shouldn't change for a build_id.
+	FirstSeen    time.Time `duckdb:"first_seen,immutable"`   // Immutable: first seen timestamp is fixed.
+	LastSeen     time.Time `duckdb:"last_seen"`              // Mutable: updated on each observation.
+	HasDebugInfo bool      `duckdb:"has_debug_info"`         // Mutable: may be discovered later.
 }
 
 // ProfileFrameStore manages the global frame dictionary for CPU profiles (RFD 072).
