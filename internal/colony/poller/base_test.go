@@ -16,12 +16,22 @@ type mockPoller struct {
 	mu           sync.Mutex
 	pollErr      error
 	cleanupErr   error
+	pollChan     chan struct{} // Optional channel to signal polls
 }
 
 func (m *mockPoller) PollOnce(ctx context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.pollCount++
+	m.mu.Unlock()
+
+	// Signal on channel if provided
+	if m.pollChan != nil {
+		select {
+		case m.pollChan <- struct{}{}:
+		default:
+		}
+	}
+
 	return m.pollErr
 }
 
@@ -174,14 +184,18 @@ func TestBasePoller_DefaultCleanupInterval(t *testing.T) {
 }
 
 func TestBasePoller_ContextCancellation(t *testing.T) {
-	mock := &mockPoller{}
-	logger := zerolog.Nop()
+	// Create a mock that signals on a channel when polled
+	pollChan := make(chan struct{}, 10)
+	mock := &mockPoller{
+		pollChan: pollChan,
+	}
 
+	logger := zerolog.Nop()
 	ctx, cancel := context.WithCancel(context.Background())
 
 	config := Config{
 		Name:         "test_poller",
-		PollInterval: 10 * time.Millisecond,
+		PollInterval: 50 * time.Millisecond,
 		Logger:       logger,
 	}
 
@@ -191,25 +205,38 @@ func TestBasePoller_ContextCancellation(t *testing.T) {
 		t.Fatalf("Failed to start poller: %v", err)
 	}
 
-	// Wait for some polls.
-	time.Sleep(30 * time.Millisecond)
-
-	pollCountBefore := mock.getPollCount()
-
-	// Cancel the parent context.
-	cancel()
-
-	// Wait for goroutines to exit.
-	time.Sleep(20 * time.Millisecond)
-
-	pollCountAfter := mock.getPollCount()
-
-	// Poller should have stopped polling after context cancellation.
-	if pollCountAfter > pollCountBefore {
-		t.Error("Poller should have stopped polling after context cancellation")
+	// Wait for at least one poll to confirm poller is running
+	select {
+	case <-pollChan:
+		// Good, poller is running
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Poller did not start polling")
 	}
 
-	// Stop should still work gracefully.
+	// Cancel the parent context
+	cancel()
+
+	// Drain any polls that were in-flight
+	deadline := time.After(200 * time.Millisecond)
+drainLoop:
+	for {
+		select {
+		case <-pollChan:
+			// Drain in-flight polls
+		case <-deadline:
+			break drainLoop
+		}
+	}
+
+	// Now verify no new polls occur for at least 2 poll intervals
+	select {
+	case <-pollChan:
+		t.Error("Poller should have stopped polling after context cancellation")
+	case <-time.After(150 * time.Millisecond): // 3x poll interval
+		// Good, no more polls
+	}
+
+	// Stop should still work gracefully
 	if err := base.Stop(); err != nil {
 		t.Fatalf("Stop should work after context cancellation: %v", err)
 	}
