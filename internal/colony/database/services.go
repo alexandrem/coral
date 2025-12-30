@@ -13,15 +13,24 @@ import (
 
 // Service represents a service registered in the colony.
 type Service struct {
-	ID           string
-	Name         string
-	AppID        string
-	Version      string
-	AgentID      string
-	Labels       string
-	LastSeen     time.Time // Populated from service_heartbeats table.
-	Status       string
-	RegisteredAt time.Time // From services table.
+	ID           string    `duckdb:"id,pk"`
+	Name         string    `duckdb:"name"`
+	AppID        string    `duckdb:"app_id"`
+	Version      string    `duckdb:"version"`
+	AgentID      string    `duckdb:"agent_id"`
+	Labels       string    `duckdb:"labels"`
+	Status       string    `duckdb:"status"`
+	RegisteredAt time.Time `duckdb:"registered_at"`
+
+	// LastSeen is populated from service_heartbeats table via join or separate query.
+	// It is not part of the services table definition.
+	LastSeen time.Time `duckdb:"-"`
+}
+
+// ServiceHeartbeat represents the last seen time of a service.
+type ServiceHeartbeat struct {
+	ServiceID string    `duckdb:"service_id,pk"`
+	LastSeen  time.Time `duckdb:"last_seen"`
 }
 
 // GetServiceByName retrieves a service by its name.
@@ -66,70 +75,52 @@ func (d *Database) GetServiceByName(ctx context.Context, serviceName string) (*S
 
 // UpsertService creates or updates a service in the database.
 // Uses separate tables for metadata (services) and heartbeats (service_heartbeats).
-// This design allows efficient updates to last_seen without rewriting service metadata.
-// Uses INSERT OR REPLACE with retry logic to handle DuckDB's optimistic concurrency conflicts.
+// Wraps both operations in a retry block to handle concurrent upserts gracefully.
 func (d *Database) UpsertService(ctx context.Context, service *Service) error {
+	if service.RegisteredAt.IsZero() {
+		service.RegisteredAt = time.Now()
+	}
+
+	// Retry the entire multi-operation sequence to handle concurrent conflicts.
 	cfg := retry.Config{
 		MaxRetries:     10,
-		InitialBackoff: 2 * time.Millisecond,
-		Jitter:         0.5, // 50% jitter
+		InitialBackoff: 10 * time.Millisecond,
+		MaxBackoff:     500 * time.Millisecond,
+		Jitter:         0.1,
 	}
 
 	return retry.Do(ctx, cfg, func() error {
-		return d.upsertServiceOnce(ctx, service)
+		// 1. Upsert Service Metadata
+		if err := d.servicesTable.Upsert(ctx, service); err != nil {
+			return fmt.Errorf("failed to upsert service: %w", err)
+		}
+
+		// 2. Upsert Heartbeat
+		heartbeat := &ServiceHeartbeat{
+			ServiceID: service.ID,
+			LastSeen:  service.LastSeen,
+		}
+		if err := d.heartbeatsTable.Upsert(ctx, heartbeat); err != nil {
+			return fmt.Errorf("failed to upsert heartbeat: %w", err)
+		}
+
+		return nil
 	}, isTransactionConflict)
 }
 
-// upsertServiceOnce performs a single upsert attempt.
-func (d *Database) upsertServiceOnce(ctx context.Context, service *Service) error {
-	// Determine registered_at timestamp.
-	// If not provided, use current time for new services.
-	registeredAt := service.RegisteredAt
-	if registeredAt.IsZero() {
-		registeredAt = time.Now()
-	}
-
-	// Use INSERT OR REPLACE for service metadata.
-	// This is atomic and avoids concurrency issues with UPDATE/DELETE patterns.
-	insertServiceQuery := `
-		INSERT OR REPLACE INTO services (id, name, app_id, version, agent_id, labels, status, registered_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`
-	_, err := d.db.ExecContext(ctx, insertServiceQuery,
-		service.ID,
-		service.Name,
-		service.AppID,
-		service.Version,
-		service.AgentID,
-		service.Labels,
-		service.Status,
-		registeredAt,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to upsert service: %w", err)
-	}
-
-	// Use INSERT OR REPLACE for heartbeat.
-	insertHeartbeatQuery := `
-		INSERT OR REPLACE INTO service_heartbeats (service_id, last_seen)
-		VALUES (?, ?)
-	`
-	_, err = d.db.ExecContext(ctx, insertHeartbeatQuery, service.ID, service.LastSeen)
-	if err != nil {
-		return fmt.Errorf("failed to upsert heartbeat: %w", err)
-	}
-
-	return nil
-}
-
-// isTransactionConflict checks if an error is a DuckDB transaction conflict that can be retried.
+// isTransactionConflict checks if an error is a DuckDB transaction conflict.
 func isTransactionConflict(err error) bool {
 	if err == nil {
 		return false
 	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "Conflict on update") ||
-		strings.Contains(errStr, "PRIMARY KEY or UNIQUE constraint violated")
+	msg := err.Error()
+	// Detect various DuckDB transaction conflict patterns
+	return strings.Contains(msg, "Conflict on update") ||
+		strings.Contains(msg, "conflict") ||
+		strings.Contains(msg, "transaction") ||
+		strings.Contains(msg, "serialization") ||
+		strings.Contains(msg, "TransactionContext Error") ||
+		(strings.Contains(msg, "PRIMARY KEY") && strings.Contains(msg, "constraint violated"))
 }
 
 // UpdateServiceLastSeen updates the last_seen timestamp for all services belonging to an agent.

@@ -3,6 +3,8 @@ package debug
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -464,13 +466,13 @@ func (o *Orchestrator) QueryUprobeEvents(
 	// Query session from database
 	session, err := o.db.GetDebugSession(req.Msg.SessionId)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
+		}
 		o.logger.Error().Err(err).
 			Str("session_id", req.Msg.SessionId).
 			Msg("Failed to query debug session from database")
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
-	}
-	if session == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
 	}
 
 	// Determine if we should query from agent or database
@@ -746,13 +748,13 @@ func (o *Orchestrator) GetDebugResults(
 	// Query session from database
 	session, err := o.db.GetDebugSession(req.Msg.SessionId)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
+		}
 		o.logger.Error().Err(err).
 			Str("session_id", req.Msg.SessionId).
 			Msg("Failed to query debug session from database")
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
-	}
-	if session == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
 	}
 
 	// Determine if we should query from agent or database

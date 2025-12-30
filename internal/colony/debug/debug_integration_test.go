@@ -169,6 +169,9 @@ func TestDebugFlowIntegration(t *testing.T) {
 
 		resp, err := orch.AttachUprobe(ctx, req)
 		require.NoError(t, err)
+		if !resp.Msg.Success {
+			t.Logf("AttachUprobe failed: %s", resp.Msg.Error)
+		}
 		assert.True(t, resp.Msg.Success)
 		assert.NotEmpty(t, resp.Msg.SessionId)
 	})
