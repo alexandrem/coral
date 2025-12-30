@@ -1,4 +1,5 @@
-package agent
+// Package types defines core data types for the agent CLI.
+package types
 
 import (
 	"fmt"
@@ -159,4 +160,9 @@ func ValidateServiceSpecs(specs []*ServiceSpec) error {
 	// (e.g., different containers in the same pod)
 
 	return nil
+}
+
+// IsValidServiceName checks if a service name is valid.
+func IsValidServiceName(name string) bool {
+	return serviceNameRegex.MatchString(name)
 }

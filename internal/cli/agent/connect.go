@@ -12,6 +12,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	"github.com/coral-mesh/coral/internal/cli/agent/types"
 )
 
 const (
@@ -79,7 +80,7 @@ Note:
 			}
 
 			// Validate service specs
-			if err := ValidateServiceSpecs(serviceSpecs); err != nil {
+			if err := types.ValidateServiceSpecs(serviceSpecs); err != nil {
 				return fmt.Errorf("invalid service configuration: %w", err)
 			}
 
@@ -288,7 +289,7 @@ func discoverLocalAgent() (string, error) {
 }
 
 // parseServiceSpecsWithLegacySupport parses service specs with backward compatibility.
-func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHealth string) ([]*ServiceSpec, error) {
+func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHealth string) ([]*types.ServiceSpec, error) {
 	// Check if using new syntax (contains colon) or legacy syntax
 	hasColonSyntax := false
 	for _, arg := range args {
@@ -304,7 +305,7 @@ func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHea
 		if legacyPort > 0 || legacyHealth != "" {
 			return nil, fmt.Errorf("cannot use --port or --health flags with new service spec syntax (name:port[:health][:type])")
 		}
-		return ParseMultipleServiceSpecs(args)
+		return types.ParseMultipleServiceSpecs(args)
 	}
 
 	// Legacy syntax: single service with --port flag required
@@ -318,7 +319,7 @@ func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHea
 
 	// Build service spec from legacy format
 	serviceName := args[0]
-	spec := &ServiceSpec{
+	spec := &types.ServiceSpec{
 		Name:   serviceName,
 		Port:   int32(legacyPort),
 		Labels: make(map[string]string),
@@ -335,9 +336,9 @@ func parseServiceSpecsWithLegacySupport(args []string, legacyPort int, legacyHea
 	}
 
 	// Validate the service name
-	if !serviceNameRegex.MatchString(serviceName) {
+	if !types.IsValidServiceName(serviceName) {
 		return nil, fmt.Errorf("invalid service name '%s': must be alphanumeric with hyphens", serviceName)
 	}
 
-	return []*ServiceSpec{spec}, nil
+	return []*types.ServiceSpec{spec}, nil
 }
