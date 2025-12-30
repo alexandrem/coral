@@ -9,21 +9,42 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
+
+// ORM model for telemetry spans table.
+
+type otelSpanDB struct {
+	Timestamp   time.Time `duckdb:"timestamp,immutable"`
+	TraceID     string    `duckdb:"trace_id,pk"`
+	SpanID      string    `duckdb:"span_id,pk"`
+	ServiceName string    `duckdb:"service_name,immutable"`
+	SpanKind    string    `duckdb:"span_kind,immutable"`
+	DurationMs  float64   `duckdb:"duration_ms,immutable"`
+	IsError     bool      `duckdb:"is_error,immutable"`
+	HTTPStatus  *int      `duckdb:"http_status,immutable"`
+	HTTPMethod  *string   `duckdb:"http_method,immutable"`
+	HTTPRoute   *string   `duckdb:"http_route,immutable"`
+	Attributes  string    `duckdb:"attributes,immutable"`
+	CreatedAt   time.Time `duckdb:"created_at,immutable"`
+}
 
 // Storage handles local storage of filtered telemetry spans.
 // Spans are stored for ~1 hour and can be queried by colony on-demand (RFD 025).
 type Storage struct {
-	db     *sql.DB
-	logger zerolog.Logger
-	mu     sync.RWMutex
+	db         *sql.DB
+	logger     zerolog.Logger
+	mu         sync.RWMutex
+	spansTable *duckdb.Table[otelSpanDB]
 }
 
 // NewStorage creates a new telemetry storage.
 func NewStorage(db *sql.DB, logger zerolog.Logger) (*Storage, error) {
 	s := &Storage{
-		db:     db,
-		logger: logger.With().Str("component", "telemetry_storage").Logger(),
+		db:         db,
+		logger:     logger.With().Str("component", "telemetry_storage").Logger(),
+		spansTable: duckdb.NewTable[otelSpanDB](db, "otel_spans_local"),
 	}
 
 	// Initialize schema.
@@ -95,15 +116,6 @@ func (s *Storage) StoreSpan(ctx context.Context, span Span) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	query := `
-		INSERT INTO otel_spans_local (
-			timestamp, trace_id, span_id, service_name, span_kind,
-			duration_ms, is_error, http_status, http_method, http_route,
-			attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (trace_id, span_id) DO NOTHING
-	`
-
 	// Convert attributes to JSON.
 	attributesJSON, err := json.Marshal(span.Attributes)
 	if err != nil {
@@ -113,24 +125,37 @@ func (s *Storage) StoreSpan(ctx context.Context, span Span) error {
 		attributesJSON = []byte("{}")
 	}
 
-	_, err = s.db.ExecContext(
-		ctx,
-		query,
-		span.Timestamp,
-		span.TraceID,
-		span.SpanID,
-		span.ServiceName,
-		span.SpanKind,
-		span.DurationMs,
-		span.IsError,
-		span.HTTPStatus,
-		span.HTTPMethod,
-		span.HTTPRoute,
-		attributesJSON,
-	)
+	// Convert nullable fields to pointers.
+	var httpStatus *int
+	if span.HTTPStatus != 0 {
+		httpStatus = &span.HTTPStatus
+	}
+	var httpMethod *string
+	if span.HTTPMethod != "" {
+		httpMethod = &span.HTTPMethod
+	}
+	var httpRoute *string
+	if span.HTTPRoute != "" {
+		httpRoute = &span.HTTPRoute
+	}
 
-	if err != nil {
-		return fmt.Errorf("failed to store span: %w", err)
+	item := &otelSpanDB{
+		Timestamp:   span.Timestamp,
+		TraceID:     span.TraceID,
+		SpanID:      span.SpanID,
+		ServiceName: span.ServiceName,
+		SpanKind:    span.SpanKind,
+		DurationMs:  span.DurationMs,
+		IsError:     span.IsError,
+		HTTPStatus:  httpStatus,
+		HTTPMethod:  httpMethod,
+		HTTPRoute:   httpRoute,
+		Attributes:  string(attributesJSON),
+		CreatedAt:   time.Now(),
+	}
+
+	if err := s.spansTable.Upsert(ctx, item); err != nil {
+		return fmt.Errorf("failed to upsert span: %w", err)
 	}
 
 	return nil
@@ -143,7 +168,7 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 
 	query := `
 		SELECT timestamp, trace_id, span_id, service_name, span_kind,
-		       duration_ms, is_error, http_status, http_method, http_route, attributes
+		       duration_ms, is_error, http_status, http_method, http_route, CAST(attributes AS TEXT) as attributes
 		FROM otel_spans_local
 		WHERE timestamp >= ? AND timestamp < ?
 	`

@@ -11,14 +11,29 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
+
+// ORM model for system metrics table.
+
+type systemMetricDB struct {
+	Timestamp  time.Time `duckdb:"timestamp"`
+	MetricName string    `duckdb:"metric_name"`
+	Value      float64   `duckdb:"value"`
+	Unit       string    `duckdb:"unit"`
+	MetricType string    `duckdb:"metric_type"`
+	Attributes string    `duckdb:"attributes"`
+	CreatedAt  time.Time `duckdb:"created_at,immutable"`
+}
 
 // Storage handles local storage of system metrics.
 // Metrics are stored for ~1 hour with 15s precision and can be queried by colony on-demand (RFD 071).
 type Storage struct {
-	db     *sql.DB
-	logger zerolog.Logger
-	mu     sync.RWMutex
+	db           *sql.DB
+	logger       zerolog.Logger
+	mu           sync.RWMutex
+	metricsTable *duckdb.Table[systemMetricDB]
 }
 
 // Metric represents a single system metric data point.
@@ -34,8 +49,9 @@ type Metric struct {
 // NewStorage creates a new system metrics storage.
 func NewStorage(db *sql.DB, logger zerolog.Logger) (*Storage, error) {
 	s := &Storage{
-		db:     db,
-		logger: logger.With().Str("component", "system_metrics_storage").Logger(),
+		db:           db,
+		logger:       logger.With().Str("component", "system_metrics_storage").Logger(),
+		metricsTable: duckdb.NewTable[systemMetricDB](db, "system_metrics_local"),
 	}
 
 	// Initialize schema.
@@ -133,43 +149,27 @@ func (s *Storage) StoreMetrics(ctx context.Context, metrics []Metric) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO system_metrics_local (
-			timestamp, metric_name, value, unit, metric_type, attributes
-		) VALUES (?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
+	// Convert to ORM models.
+	items := make([]*systemMetricDB, 0, len(metrics))
 	for _, metric := range metrics {
 		attributesJSON, err := json.Marshal(metric.Attributes)
 		if err != nil {
 			return fmt.Errorf("failed to marshal attributes: %w", err)
 		}
 
-		_, err = stmt.ExecContext(ctx,
-			metric.Timestamp,
-			metric.Name,
-			metric.Value,
-			metric.Unit,
-			metric.MetricType,
-			string(attributesJSON),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to execute statement: %w", err)
-		}
+		items = append(items, &systemMetricDB{
+			Timestamp:  metric.Timestamp,
+			MetricName: metric.Name,
+			Value:      metric.Value,
+			Unit:       metric.Unit,
+			MetricType: metric.MetricType,
+			Attributes: string(attributesJSON),
+			CreatedAt:  time.Now(),
+		})
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	if err := s.metricsTable.BatchUpsert(ctx, items); err != nil {
+		return fmt.Errorf("failed to batch upsert metrics: %w", err)
 	}
 
 	return nil
