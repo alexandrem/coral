@@ -118,7 +118,7 @@ jobs:
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Run tests with coverage
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./... -timeout=10m
+        run: make test-ci
 
       - name: Generate coverage report
         run: go tool cover -func=coverage.out -o coverage.txt
