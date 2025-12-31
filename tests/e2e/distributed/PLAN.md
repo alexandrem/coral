@@ -434,15 +434,20 @@ func (suite *E2EDistributedSuite) SetupSuite() {
 **Status**: ✅ **Phase 1 COMPLETE** - All connectivity and discovery tests implemented and working
 
 ### Phase 2 Completion
-- [x] All 4 observability layers have E2E test coverage (12 tests total)
+- [x] All 4 observability layers have E2E test coverage (13 tests total)
 - [x] Level 1 (OTLP): Data flow from app → agent verified end-to-end
-- [ ] Level 1 (OTLP): Colony aggregation verified (pending colony polling)
+- [x] Level 1 (OTLP): Colony aggregation E2E test implemented (3 tests total)
 - [ ] Level 2: System metrics collection verified (backend ready, query API needed)
 - [ ] Level 0 (Beyla): Real Beyla subprocess integration (binary not in image yet)
 - [ ] Level 3: Test SDK app successfully traced with uprobes (uprobe API needed)
 - [ ] Level 2/3: CPU profiling (continuous + on-demand) verified (profiling API needed)
 
-**Status**: 🟢 **Phase 2 Test Infrastructure Complete** - Level 1 E2E working!
+**Status**: ✅ **Level 1 Complete** - 3 tests verify OTLP telemetry end-to-end!
+
+**Level 1 Test Coverage**:
+1. `TestLevel1_OTLPIngestion` - Verifies app → agent span ingestion and storage
+2. `TestLevel1_OTELAppEndpoints` - Verifies OTLP test app functionality
+3. `TestLevel1_ColonyAggregation` - Verifies agent → colony polling and P50/P95/P99 aggregation
 
 ## Implementation Notes
 

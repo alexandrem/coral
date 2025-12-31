@@ -97,3 +97,43 @@ func QueryAgentTelemetry(
 
 	return resp.Msg, nil
 }
+
+// QueryColonySummary queries colony for unified summary.
+func QueryColonySummary(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	serviceName string,
+	timeRange string,
+) (*colonyv1.QueryUnifiedSummaryResponse, error) {
+	req := connect.NewRequest(&colonyv1.QueryUnifiedSummaryRequest{
+		Service:   serviceName,
+		TimeRange: timeRange,
+	})
+
+	resp, err := client.QueryUnifiedSummary(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query colony summary: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// ExecuteColonyQuery executes a raw SQL query on colony's DuckDB.
+func ExecuteColonyQuery(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	sql string,
+	maxRows int32,
+) (*colonyv1.ExecuteQueryResponse, error) {
+	req := connect.NewRequest(&colonyv1.ExecuteQueryRequest{
+		Sql:     sql,
+		MaxRows: maxRows,
+	})
+
+	resp, err := client.ExecuteQuery(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute colony query: %w", err)
+	}
+
+	return resp.Msg, nil
+}
