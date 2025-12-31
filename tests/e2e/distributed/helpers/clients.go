@@ -137,3 +137,24 @@ func ExecuteColonyQuery(
 
 	return resp.Msg, nil
 }
+
+// QueryAgentSystemMetrics queries an agent for system metrics.
+func QueryAgentSystemMetrics(
+	ctx context.Context,
+	client agentv1connect.AgentServiceClient,
+	startTime, endTime int64,
+	metricNames []string,
+) (*agentv1.QuerySystemMetricsResponse, error) {
+	req := connect.NewRequest(&agentv1.QuerySystemMetricsRequest{
+		StartTime:   startTime,
+		EndTime:     endTime,
+		MetricNames: metricNames,
+	})
+
+	resp, err := client.QuerySystemMetrics(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query system metrics: %w", err)
+	}
+
+	return resp.Msg, nil
+}
