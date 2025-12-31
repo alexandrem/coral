@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog"
 	"golang.org/x/sys/unix"
 
+	"github.com/coral-mesh/coral/internal/errors"
 	"github.com/coral-mesh/coral/internal/privilege"
 )
 
@@ -66,7 +68,7 @@ func validateMTU(mtu int) error {
 // and returns the file descriptor. The subprocess must be running with elevated
 // privileges (root or CAP_NET_ADMIN).
 // nolint:unused // platform specific
-func createTUNWithHelper(deviceName string, mtu int) (int, error) {
+func createTUNWithHelper(deviceName string, mtu int, logger zerolog.Logger) (int, error) {
 	// Validate inputs to prevent injection attacks.
 	if err := validateDeviceName(deviceName); err != nil {
 		return -1, err
@@ -87,14 +89,15 @@ func createTUNWithHelper(deviceName string, mtu int) (int, error) {
 	}
 
 	// Ensure socket is cleaned up.
-	defer func() { _ = os.Remove(socketPath) }() // TODO: errcheck
+	// Best effort - OK to ignore errors since it's a temp file.
+	defer func() { _ = os.Remove(socketPath) }()
 
 	// Create Unix listener for receiving FD from subprocess.
 	listener, err := createUnixListener(socketPath)
 	if err != nil {
 		return -1, fmt.Errorf("failed to create Unix listener: %w", err)
 	}
-	defer func() { _ = listener.Close() }() // TODO: errcheck
+	defer errors.DeferClose(logger, listener, "failed to close Unix listener")
 
 	// Spawn the helper subprocess.
 	if err := spawnHelperSubprocess(deviceName, mtu, socketPath); err != nil {
@@ -102,7 +105,7 @@ func createTUNWithHelper(deviceName string, mtu int) (int, error) {
 	}
 
 	// Wait for subprocess to connect and send FD.
-	fd, err := receiveFDFromSocket(listener)
+	fd, err := receiveFDFromSocket(listener, logger)
 	if err != nil {
 		return -1, fmt.Errorf("failed to receive FD from helper: %w", err)
 	}
@@ -115,7 +118,8 @@ func createTUNWithHelper(deviceName string, mtu int) (int, error) {
 // nolint:unused // platform specific
 func createUnixListener(socketPath string) (*net.UnixListener, error) {
 	// Remove existing socket if present.
-	_ = os.Remove(socketPath) // TODO: errcheck
+	// Best effort - OK to ignore errors.
+	_ = os.Remove(socketPath)
 
 	addr, err := net.ResolveUnixAddr("unix", socketPath)
 	if err != nil {
@@ -129,7 +133,8 @@ func createUnixListener(socketPath string) (*net.UnixListener, error) {
 
 	// Set socket permissions to owner-only (0600).
 	if err := os.Chmod(socketPath, 0600); err != nil {
-		_ = listener.Close() // TODO: errcheck
+		// Best effort close - we're already returning an error.
+		_ = listener.Close()
 		return nil, fmt.Errorf("failed to set socket permissions: %w", err)
 	}
 
@@ -187,16 +192,18 @@ func spawnHelperSubprocess(deviceName string, mtu int, socketPath string) error 
 // receiveFDFromSocket waits for a connection on the Unix listener and receives
 // a file descriptor via SCM_RIGHTS.
 // nolint:unused // platform specific
-func receiveFDFromSocket(listener *net.UnixListener) (int, error) {
+func receiveFDFromSocket(listener *net.UnixListener, logger zerolog.Logger) (int, error) {
 	// Set timeout for receiving FD.
-	_ = listener.SetDeadline(time.Now().Add(HelperTimeout)) // TODO: errcheck
+	if err := listener.SetDeadline(time.Now().Add(HelperTimeout)); err != nil {
+		logger.Warn().Err(err).Msg("failed to set listener deadline")
+	}
 
 	// Accept connection from subprocess.
 	conn, err := listener.AcceptUnix()
 	if err != nil {
 		return -1, fmt.Errorf("failed to accept connection: %w", err)
 	}
-	defer func() { _ = conn.Close() }() // TODO: errcheck
+	defer errors.DeferClose(logger, conn, "failed to close Unix connection")
 
 	// Receive file descriptor via SCM_RIGHTS.
 	// We need to provide a buffer for receiving the FD.
@@ -208,7 +215,7 @@ func receiveFDFromSocket(listener *net.UnixListener) (int, error) {
 	if err != nil {
 		return -1, fmt.Errorf("failed to get connection file: %w", err)
 	}
-	defer func() { _ = connFile.Close() }() // TODO: errcheck
+	defer errors.DeferClose(logger, connFile, "failed to close connection file")
 
 	// Receive message with FD.
 	_, oobn, _, _, err := unix.Recvmsg(int(connFile.Fd()), buf, oob, 0)
@@ -247,19 +254,23 @@ func receiveFDFromSocket(listener *net.UnixListener) (int, error) {
 	dupFD, err := unix.Dup(receivedFD)
 	if err != nil {
 		// Close the original FD before returning error.
-		_ = unix.Close(receivedFD) // TODO: errcheck
+		if closeErr := unix.Close(receivedFD); closeErr != nil {
+			logger.Warn().Err(closeErr).Msg("failed to close received FD after dup error")
+		}
 		return -1, fmt.Errorf("failed to duplicate file descriptor: %w", err)
 	}
 
 	// Close the original FD, we'll use the duplicated one.
-	_ = unix.Close(receivedFD) // TODO: errcheck
+	if err := unix.Close(receivedFD); err != nil {
+		logger.Warn().Err(err).Msg("failed to close original FD after duplication")
+	}
 
 	return dupFD, nil
 }
 
 // SendFDOverSocket sends a file descriptor to the parent process via a Unix
 // domain socket. This is called by the helper subprocess.
-func SendFDOverSocket(fd int, socketPath string) error {
+func SendFDOverSocket(fd int, socketPath string, logger zerolog.Logger) error {
 	// Connect to parent's Unix socket.
 	addr, err := net.ResolveUnixAddr("unix", socketPath)
 	if err != nil {
@@ -270,14 +281,14 @@ func SendFDOverSocket(fd int, socketPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to parent socket: %w", err)
 	}
-	defer func() { _ = conn.Close() }() // TODO: errcheck
+	defer errors.DeferClose(logger, conn, "failed to close Unix connection")
 
 	// Get underlying file from connection.
 	connFile, err := conn.File()
 	if err != nil {
 		return fmt.Errorf("failed to get connection file: %w", err)
 	}
-	defer func() { _ = connFile.Close() }() // TODO: errcheck
+	defer errors.DeferClose(logger, connFile, "failed to close connection file")
 
 	// Prepare ancillary data with FD.
 	rights := unix.UnixRights(fd)

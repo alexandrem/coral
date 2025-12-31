@@ -3,22 +3,17 @@ package debug
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
@@ -32,134 +27,83 @@ import (
 
 // Orchestrator manages debug sessions across agents.
 type Orchestrator struct {
-	logger                  zerolog.Logger
-	registry                *registry.Registry
-	db                      *database.Database
-	functionRegistry        *colony.FunctionRegistry
-	clientFactory           func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
-	agentClientFactory      func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentServiceClient
-	stopBackgroundPersist   chan struct{}
-	timestampsMu            sync.RWMutex
-	lastPersistedTimestamps map[string]time.Time // sessionID -> last persisted event timestamp
+	logger             zerolog.Logger
+	registry           *registry.Registry
+	db                 *database.Database
+	functionRegistry   *colony.FunctionRegistry
+	clientFactory      func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
+	agentClientFactory func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentServiceClient
+
+	// Components.
+	sessionManager   *SessionManager
+	eventPersister   *EventPersister
+	agentCoordinator *AgentCoordinator
+	queryRouter      *QueryRouter
 }
 
 // NewOrchestrator creates a new debug orchestrator.
 func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *database.Database, functionRegistry *colony.FunctionRegistry) *Orchestrator {
 	o := &Orchestrator{
-		logger:                  logger.With().Str("component", "debug_orchestrator").Logger(),
-		registry:                registry,
-		db:                      db,
-		functionRegistry:        functionRegistry,
-		clientFactory:           meshv1connect.NewDebugServiceClient,
-		agentClientFactory:      agentv1connect.NewAgentServiceClient,
-		stopBackgroundPersist:   make(chan struct{}),
-		lastPersistedTimestamps: make(map[string]time.Time),
+		logger:             logger.With().Str("component", "debug_orchestrator").Logger(),
+		registry:           registry,
+		db:                 db,
+		functionRegistry:   functionRegistry,
+		clientFactory:      meshv1connect.NewDebugServiceClient,
+		agentClientFactory: agentv1connect.NewAgentServiceClient,
 	}
 
-	// Start background event persistence for all sessions
-	go o.runBackgroundEventPersistence()
+	// Create agent coordinator with closure that uses orchestrator's factory.
+	agentCoordinator := NewAgentCoordinator(
+		logger,
+		registry,
+		func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentServiceClient {
+			return o.agentClientFactory(client, url, opts...)
+		},
+	)
+
+	// Create query router with closure that uses orchestrator's factory.
+	queryRouter := NewQueryRouter(
+		logger,
+		registry,
+		db,
+		func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+			return o.clientFactory(client, url, opts...)
+		},
+	)
+
+	// Create session manager with closure that uses orchestrator's factory.
+	sessionManager := NewSessionManager(
+		logger,
+		registry,
+		db,
+		agentCoordinator,
+		func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+			return o.clientFactory(client, url, opts...)
+		},
+	)
+
+	// Create event persister.
+	eventPersister := NewEventPersister(
+		logger,
+		db,
+		queryRouter,
+	)
+
+	// Assign components.
+	o.sessionManager = sessionManager
+	o.eventPersister = eventPersister
+	o.agentCoordinator = agentCoordinator
+	o.queryRouter = queryRouter
+
+	// Start background event persistence for all sessions.
+	eventPersister.Start()
 
 	return o
 }
 
-// runBackgroundEventPersistence continuously persists events from all active sessions.
-// This ensures events are always in the database, even if DetachUprobe is never called.
-func (o *Orchestrator) runBackgroundEventPersistence() {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	o.logger.Info().Msg("Started background event persistence for all debug sessions")
-
-	for {
-		select {
-		case <-ticker.C:
-			o.persistEventsFromActiveSessions()
-		case <-o.stopBackgroundPersist:
-			o.logger.Info().Msg("Stopped background event persistence")
-			return
-		}
-	}
-}
-
-// persistEventsFromActiveSessions queries and persists events from all active sessions.
-func (o *Orchestrator) persistEventsFromActiveSessions() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Get all active sessions from database
-	sessions, err := o.db.ListDebugSessions(database.DebugSessionFilters{
-		Status: "active",
-	})
-	if err != nil {
-		o.logger.Error().Err(err).Msg("Failed to list active sessions for background persistence")
-		return
-	}
-
-	if len(sessions) == 0 {
-		return
-	}
-
-	o.logger.Debug().
-		Int("session_count", len(sessions)).
-		Msg("Persisting events from active sessions")
-
-	persistedCount := 0
-	for _, session := range sessions {
-		// Skip expired sessions
-		if time.Now().After(session.ExpiresAt) {
-			continue
-		}
-
-		// Query new events since last persistence
-		o.timestampsMu.RLock()
-		lastTime := o.lastPersistedTimestamps[session.SessionID]
-		o.timestampsMu.RUnlock()
-
-		queryReq := connect.NewRequest(&debugpb.QueryUprobeEventsRequest{
-			SessionId: session.SessionID,
-			StartTime: timestamppb.New(lastTime),
-			MaxEvents: 10000,
-		})
-
-		queryResp, err := o.QueryUprobeEvents(ctx, queryReq)
-		if err != nil {
-			o.logger.Debug().
-				Err(err).
-				Str("session_id", session.SessionID).
-				Msg("Failed to query events for background persistence")
-			continue
-		}
-
-		if len(queryResp.Msg.Events) > 0 {
-			// Persist new events to database
-			if err := o.db.InsertDebugEvents(session.SessionID, queryResp.Msg.Events); err != nil {
-				o.logger.Error().
-					Err(err).
-					Str("session_id", session.SessionID).
-					Int("event_count", len(queryResp.Msg.Events)).
-					Msg("Failed to persist events in background")
-			} else {
-				persistedCount += len(queryResp.Msg.Events)
-				// Update last persisted timestamp
-				lastEvent := queryResp.Msg.Events[len(queryResp.Msg.Events)-1]
-				o.timestampsMu.Lock()
-				o.lastPersistedTimestamps[session.SessionID] = lastEvent.Timestamp.AsTime()
-				o.timestampsMu.Unlock()
-			}
-		}
-	}
-
-	if persistedCount > 0 {
-		o.logger.Info().
-			Int("event_count", persistedCount).
-			Int("session_count", len(sessions)).
-			Msg("Background event persistence completed")
-	}
-}
-
 // Stop gracefully stops the orchestrator's background tasks.
 func (o *Orchestrator) Stop() {
-	close(o.stopBackgroundPersist)
+	o.eventPersister.Stop()
 }
 
 // AttachUprobe starts a new debug session by attaching a uprobe to a function.
@@ -167,162 +111,7 @@ func (o *Orchestrator) AttachUprobe(
 	ctx context.Context,
 	req *connect.Request[debugpb.AttachUprobeRequest],
 ) (*connect.Response[debugpb.AttachUprobeResponse], error) {
-	o.logger.Info().
-		Str("service", req.Msg.ServiceName).
-		Str("function", req.Msg.FunctionName).
-		Msg("Attaching uprobe")
-
-	// Service Discovery (RFD 062)
-	if req.Msg.AgentId == "" {
-		// Lookup agent by service name
-		// Note: registry.FindAgentForService uses cached data which may not have services populated.
-		// We need to query agents in real-time to find the service.
-		entries := o.registry.ListAll()
-
-		var foundEntry *registry.Entry
-
-		for _, entry := range entries {
-			// Query agent in real-time for services
-			agentURL := fmt.Sprintf("http://%s:9001", entry.MeshIPv4)
-			client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			resp, err := client.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
-			cancel()
-
-			if err != nil {
-				o.logger.Debug().
-					Err(err).
-					Str("agent_id", entry.AgentID).
-					Msg("Failed to query agent services")
-				continue
-			}
-
-			// Check if this agent has the service
-			for _, svcStatus := range resp.Msg.Services {
-				if svcStatus.Name == req.Msg.ServiceName {
-					foundEntry = entry
-					break
-				}
-			}
-
-			if foundEntry != nil {
-				break
-			}
-		}
-
-		if foundEntry == nil {
-			return connect.NewResponse(&debugpb.AttachUprobeResponse{
-				Success: false,
-				Error:   fmt.Sprintf("failed to find agent for service %s: service not found", req.Msg.ServiceName),
-			}), nil
-		}
-
-		req.Msg.AgentId = foundEntry.AgentID
-
-		req.Msg.AgentId = foundEntry.AgentID
-
-	}
-
-	if req.Msg.AgentId == "" {
-		return connect.NewResponse(&debugpb.AttachUprobeResponse{
-			Success: false,
-			Error:   "agent_id is required (could not resolve from service)",
-		}), nil
-	}
-
-	// Generate session ID
-	sessionID := uuid.New().String()
-
-	// Calculate expiration
-	duration := req.Msg.Duration
-	if duration == nil || duration.AsDuration() > 10*time.Minute {
-		duration = durationpb.New(60 * time.Second) // Default: 60s, Max: 10min
-	}
-	expiresAt := time.Now().Add(duration.AsDuration())
-
-	// Get agent entry from registry
-	entry, err := o.registry.Get(req.Msg.AgentId)
-	if err != nil {
-		o.logger.Error().Err(err).
-			Str("agent_id", req.Msg.AgentId).
-			Msg("Failed to get agent from registry")
-		return connect.NewResponse(&debugpb.AttachUprobeResponse{
-			Success: false,
-			Error:   fmt.Sprintf("agent not found: %v", err),
-		}), nil
-	}
-
-	// Call agent to start uprobe collector
-	agentAddr := buildAgentAddress(entry.MeshIPv4)
-	agentClient := o.clientFactory(
-		http.DefaultClient,
-		fmt.Sprintf("http://%s", agentAddr),
-	)
-
-	startReq := connect.NewRequest(&meshv1.StartUprobeCollectorRequest{
-		AgentId:      req.Msg.AgentId,
-		ServiceName:  req.Msg.ServiceName,
-		FunctionName: req.Msg.FunctionName,
-		Duration:     duration,
-		Config:       req.Msg.Config,
-		SdkAddr:      req.Msg.SdkAddr,
-	})
-
-	startResp, err := agentClient.StartUprobeCollector(ctx, startReq)
-	if err != nil {
-		o.logger.Error().Err(err).
-			Str("agent_id", req.Msg.AgentId).
-			Str("function", req.Msg.FunctionName).
-			Msg("Failed to start uprobe collector on agent")
-		return connect.NewResponse(&debugpb.AttachUprobeResponse{
-			Success: false,
-			Error:   fmt.Sprintf("failed to start uprobe collector: %v", err),
-		}), nil
-	}
-
-	if !startResp.Msg.Supported || startResp.Msg.Error != "" {
-		return connect.NewResponse(&debugpb.AttachUprobeResponse{
-			Success: false,
-			Error:   fmt.Sprintf("agent failed to start collector: %s", startResp.Msg.Error),
-		}), nil
-	}
-
-	// Create session
-	session := &database.DebugSession{
-		SessionID:    sessionID,
-		CollectorID:  startResp.Msg.CollectorId,
-		ServiceName:  req.Msg.ServiceName,
-		FunctionName: req.Msg.FunctionName,
-		AgentID:      req.Msg.AgentId,
-		SDKAddr:      req.Msg.SdkAddr,
-		StartedAt:    time.Now(),
-		ExpiresAt:    expiresAt,
-		Status:       "active",
-	}
-
-	// Insert session into database
-	if err := o.db.InsertDebugSession(session); err != nil {
-		o.logger.Error().Err(err).
-			Str("session_id", sessionID).
-			Msg("Failed to insert debug session into database")
-		return connect.NewResponse(&debugpb.AttachUprobeResponse{
-			Success: false,
-			Error:   fmt.Sprintf("failed to store session: %v", err),
-		}), nil
-	}
-
-	o.logger.Info().
-		Str("session_id", sessionID).
-		Str("function", req.Msg.FunctionName).
-		Time("expires_at", expiresAt).
-		Msg("Debug session created")
-
-	return connect.NewResponse(&debugpb.AttachUprobeResponse{
-		SessionId: sessionID,
-		ExpiresAt: timestamppb.New(expiresAt),
-		Success:   true,
-	}), nil
+	return o.sessionManager.AttachUprobe(ctx, req)
 }
 
 // DetachUprobe stops a debug session.
@@ -330,128 +119,7 @@ func (o *Orchestrator) DetachUprobe(
 	ctx context.Context,
 	req *connect.Request[debugpb.DetachUprobeRequest],
 ) (*connect.Response[debugpb.DetachUprobeResponse], error) {
-	o.logger.Info().
-		Str("session_id", req.Msg.SessionId).
-		Msg("Detaching uprobe")
-
-	// Query session from database
-	session, err := o.db.GetDebugSession(req.Msg.SessionId)
-	if err != nil {
-		o.logger.Error().Err(err).
-			Str("session_id", req.Msg.SessionId).
-			Msg("Failed to query debug session from database")
-		return connect.NewResponse(&debugpb.DetachUprobeResponse{
-			Success: false,
-			Error:   fmt.Sprintf("database error: %v", err),
-		}), nil
-	}
-	if session == nil {
-		return connect.NewResponse(&debugpb.DetachUprobeResponse{
-			Success: false,
-			Error:   fmt.Sprintf("session not found: %s", req.Msg.SessionId),
-		}), nil
-	}
-
-	// Get agent entry from registry
-	entry, err := o.registry.Get(session.AgentID)
-	agentAvailable := err == nil
-
-	if !agentAvailable {
-		o.logger.Warn().Err(err).
-			Str("session_id", req.Msg.SessionId).
-			Str("agent_id", session.AgentID).
-			Msg("Agent not in registry - will mark session as stopped without contacting agent")
-	}
-
-	// Try to fetch and persist events if agent is available
-	if agentAvailable {
-		// Setup agent client
-		agentAddr := buildAgentAddress(entry.MeshIPv4)
-		agentClient := o.clientFactory(
-			http.DefaultClient,
-			fmt.Sprintf("http://%s", agentAddr),
-		)
-
-		// Fetch and persist events before stopping collector (RFD 062 - event persistence).
-		queryReq := connect.NewRequest(&meshv1.QueryUprobeEventsRequest{
-			CollectorId: session.CollectorID,
-			StartTime:   timestamppb.New(session.StartedAt),
-			EndTime:     timestamppb.New(time.Now()),
-			MaxEvents:   100000, // Fetch all events
-		})
-
-		queryResp, err := agentClient.QueryUprobeEvents(ctx, queryReq)
-		if err != nil {
-			o.logger.Warn().Err(err).
-				Str("session_id", req.Msg.SessionId).
-				Str("collector_id", session.CollectorID).
-				Msg("Failed to fetch events before detaching (continuing with detach)")
-			// Continue with detach even if event fetch fails
-		} else {
-			// Extract UprobeEvent from EbpfEvent wrapper
-			var uprobeEvents []*meshv1.UprobeEvent
-			for _, ebpfEvent := range queryResp.Msg.Events {
-				if ebpfEvent.GetUprobeEvent() != nil {
-					uprobeEvents = append(uprobeEvents, ebpfEvent.GetUprobeEvent())
-				}
-			}
-
-			// Persist events to database
-			if len(uprobeEvents) > 0 {
-				if err := o.db.InsertDebugEvents(req.Msg.SessionId, uprobeEvents); err != nil {
-					o.logger.Error().Err(err).
-						Str("session_id", req.Msg.SessionId).
-						Int("event_count", len(uprobeEvents)).
-						Msg("Failed to persist debug events (continuing with detach)")
-				} else {
-					o.logger.Info().
-						Str("session_id", req.Msg.SessionId).
-						Int("event_count", len(uprobeEvents)).
-						Msg("Persisted debug events to database")
-				}
-			} else {
-				o.logger.Debug().
-					Str("session_id", req.Msg.SessionId).
-					Msg("No events to persist from collector")
-			}
-		}
-
-		// Call agent to stop uprobe collector
-		stopReq := connect.NewRequest(&meshv1.StopUprobeCollectorRequest{
-			CollectorId: session.CollectorID,
-		})
-
-		stopResp, err := agentClient.StopUprobeCollector(ctx, stopReq)
-		if err != nil {
-			o.logger.Warn().Err(err).
-				Str("session_id", req.Msg.SessionId).
-				Str("collector_id", session.CollectorID).
-				Msg("Failed to stop uprobe collector on agent (will mark session as stopped anyway)")
-			// Continue to mark session as stopped even if agent call fails
-		} else if !stopResp.Msg.Success {
-			o.logger.Warn().
-				Str("session_id", req.Msg.SessionId).
-				Str("collector_id", session.CollectorID).
-				Str("error", stopResp.Msg.Error).
-				Msg("Agent reported failure stopping uprobe collector (will mark session as stopped anyway)")
-		}
-	}
-
-	// Update session status in database
-	if err := o.db.UpdateDebugSessionStatus(req.Msg.SessionId, "stopped"); err != nil {
-		o.logger.Error().Err(err).
-			Str("session_id", req.Msg.SessionId).
-			Msg("Failed to update session status in database")
-		// Don't fail the operation if database update fails
-	}
-
-	o.logger.Info().
-		Str("session_id", req.Msg.SessionId).
-		Msg("Debug session detached")
-
-	return connect.NewResponse(&debugpb.DetachUprobeResponse{
-		Success: true,
-	}), nil
+	return o.sessionManager.DetachUprobe(ctx, req)
 }
 
 // QueryUprobeEvents retrieves events from a debug session.
@@ -459,156 +127,7 @@ func (o *Orchestrator) QueryUprobeEvents(
 	ctx context.Context,
 	req *connect.Request[debugpb.QueryUprobeEventsRequest],
 ) (*connect.Response[debugpb.QueryUprobeEventsResponse], error) {
-	o.logger.Debug().
-		Str("session_id", req.Msg.SessionId).
-		Msg("Querying uprobe events")
-
-	// Query session from database
-	session, err := o.db.GetDebugSession(req.Msg.SessionId)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
-		}
-		o.logger.Error().Err(err).
-			Str("session_id", req.Msg.SessionId).
-			Msg("Failed to query debug session from database")
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
-	}
-
-	// Determine if we should query from agent or database
-	var uprobeEvents []*meshv1.UprobeEvent
-	sessionExpired := time.Now().After(session.ExpiresAt) || session.Status == "stopped"
-
-	if sessionExpired {
-		// Session expired or stopped - query from database (RFD 062 - event persistence).
-		o.logger.Debug().
-			Str("session_id", req.Msg.SessionId).
-			Msg("Querying events from database (session expired or stopped)")
-
-		events, err := o.db.GetDebugEvents(req.Msg.SessionId)
-		if err != nil {
-			o.logger.Error().Err(err).
-				Str("session_id", req.Msg.SessionId).
-				Msg("Failed to query events from database")
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query events from database: %v", err))
-		}
-
-		// Filter events by time range if specified
-		for _, event := range events {
-			if req.Msg.StartTime != nil && event.Timestamp.AsTime().Before(req.Msg.StartTime.AsTime()) {
-				continue
-			}
-			if req.Msg.EndTime != nil && event.Timestamp.AsTime().After(req.Msg.EndTime.AsTime()) {
-				continue
-			}
-			uprobeEvents = append(uprobeEvents, event)
-
-			// Apply MaxEvents limit
-			if req.Msg.MaxEvents > 0 && len(uprobeEvents) >= int(req.Msg.MaxEvents) {
-				break
-			}
-		}
-
-		o.logger.Debug().
-			Str("session_id", req.Msg.SessionId).
-			Int("event_count", len(uprobeEvents)).
-			Msg("Retrieved events from database")
-	} else {
-		// Session still active - try to query from agent first, fallback to database
-		o.logger.Debug().
-			Str("session_id", req.Msg.SessionId).
-			Msg("Querying events from agent (session active)")
-
-		var agentQueryFailed bool
-
-		entry, err := o.registry.Get(session.AgentID)
-		if err != nil {
-			o.logger.Warn().Err(err).
-				Str("session_id", req.Msg.SessionId).
-				Str("agent_id", session.AgentID).
-				Msg("Agent not found in registry, will fallback to database")
-			agentQueryFailed = true
-		}
-
-		if !agentQueryFailed {
-			// Call agent to query events
-			agentAddr := buildAgentAddress(entry.MeshIPv4)
-			agentClient := o.clientFactory(
-				http.DefaultClient,
-				fmt.Sprintf("http://%s", agentAddr),
-			)
-
-			queryReq := connect.NewRequest(&meshv1.QueryUprobeEventsRequest{
-				CollectorId: session.CollectorID,
-				StartTime:   req.Msg.StartTime,
-				EndTime:     req.Msg.EndTime,
-				MaxEvents:   req.Msg.MaxEvents,
-			})
-
-			queryResp, err := agentClient.QueryUprobeEvents(ctx, queryReq)
-			if err != nil {
-				o.logger.Warn().Err(err).
-					Str("session_id", req.Msg.SessionId).
-					Str("collector_id", session.CollectorID).
-					Msg("Failed to query uprobe events from agent, will fallback to database")
-				agentQueryFailed = true
-			} else {
-				// Extract UprobeEvent from EbpfEvent wrapper
-				for _, ebpfEvent := range queryResp.Msg.Events {
-					if ebpfEvent.GetUprobeEvent() != nil {
-						uprobeEvents = append(uprobeEvents, ebpfEvent.GetUprobeEvent())
-					}
-				}
-
-				o.logger.Debug().
-					Str("session_id", req.Msg.SessionId).
-					Str("agent_id", session.AgentID).
-					Int("event_count", len(uprobeEvents)).
-					Msg("Retrieved uprobe events from agent")
-			}
-		}
-
-		// Fallback to database if agent query failed
-		if agentQueryFailed {
-			o.logger.Debug().
-				Str("session_id", req.Msg.SessionId).
-				Msg("Falling back to database query for events")
-
-			events, err := o.db.GetDebugEvents(req.Msg.SessionId)
-			if err != nil {
-				o.logger.Error().Err(err).
-					Str("session_id", req.Msg.SessionId).
-					Msg("Failed to query events from database")
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query events from database: %v", err))
-			}
-
-			// Filter events by time range if specified
-			for _, event := range events {
-				if req.Msg.StartTime != nil && event.Timestamp.AsTime().Before(req.Msg.StartTime.AsTime()) {
-					continue
-				}
-				if req.Msg.EndTime != nil && event.Timestamp.AsTime().After(req.Msg.EndTime.AsTime()) {
-					continue
-				}
-				uprobeEvents = append(uprobeEvents, event)
-
-				// Apply MaxEvents limit
-				if req.Msg.MaxEvents > 0 && len(uprobeEvents) >= int(req.Msg.MaxEvents) {
-					break
-				}
-			}
-
-			o.logger.Debug().
-				Str("session_id", req.Msg.SessionId).
-				Int("event_count", len(uprobeEvents)).
-				Msg("Retrieved events from database (fallback)")
-		}
-	}
-
-	return connect.NewResponse(&debugpb.QueryUprobeEventsResponse{
-		Events:  uprobeEvents,
-		HasMore: false, // Database queries return all events at once
-	}), nil
+	return o.queryRouter.QueryUprobeEvents(ctx, req)
 }
 
 // ListDebugSessions lists all active debug sessions.
@@ -616,36 +135,7 @@ func (o *Orchestrator) ListDebugSessions(
 	ctx context.Context,
 	req *connect.Request[debugpb.ListDebugSessionsRequest],
 ) (*connect.Response[debugpb.ListDebugSessionsResponse], error) {
-	o.logger.Debug().Msg("Listing debug sessions")
-
-	// List sessions from database
-	filters := database.DebugSessionFilters{
-		ServiceName: req.Msg.ServiceName,
-		Status:      req.Msg.Status,
-	}
-
-	dbSessions, err := o.db.ListDebugSessions(filters)
-	if err != nil {
-		o.logger.Error().Err(err).Msg("Failed to list debug sessions from database")
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
-	}
-
-	var sessions []*debugpb.DebugSession
-	for _, session := range dbSessions {
-		sessions = append(sessions, &debugpb.DebugSession{
-			SessionId:    session.SessionID,
-			ServiceName:  session.ServiceName,
-			FunctionName: session.FunctionName,
-			AgentId:      session.AgentID,
-			StartedAt:    timestamppb.New(session.StartedAt),
-			ExpiresAt:    timestamppb.New(session.ExpiresAt),
-			Status:       session.Status,
-		})
-	}
-
-	return connect.NewResponse(&debugpb.ListDebugSessionsResponse{
-		Sessions: sessions,
-	}), nil
+	return o.sessionManager.ListDebugSessions(ctx, req)
 }
 
 // TraceRequestPath initiates a trace for a specific request path.
@@ -740,139 +230,7 @@ func (o *Orchestrator) GetDebugResults(
 	ctx context.Context,
 	req *connect.Request[debugpb.GetDebugResultsRequest],
 ) (*connect.Response[debugpb.GetDebugResultsResponse], error) {
-	o.logger.Info().
-		Str("session_id", req.Msg.SessionId).
-		Str("format", req.Msg.Format).
-		Msg("Getting debug results")
-
-	// Query session from database
-	session, err := o.db.GetDebugSession(req.Msg.SessionId)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
-		}
-		o.logger.Error().Err(err).
-			Str("session_id", req.Msg.SessionId).
-			Msg("Failed to query debug session from database")
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
-	}
-
-	// Determine if we should query from agent or database
-	var uprobeEvents []*meshv1.UprobeEvent
-	var processID int32
-	var binaryPath string
-
-	// Try to resolve process info from registry if agent is available
-	if entry, err := o.registry.Get(session.AgentID); err == nil {
-		for _, svc := range entry.Services {
-			if svc.Name == session.ServiceName {
-				processID = svc.ProcessId
-				binaryPath = svc.BinaryPath
-				break
-			}
-		}
-	}
-
-	sessionExpired := time.Now().After(session.ExpiresAt) || session.Status == "stopped"
-
-	if sessionExpired {
-		// Session expired or stopped - query from database (RFD 062 - event persistence).
-		o.logger.Info().
-			Str("session_id", req.Msg.SessionId).
-			Bool("expired", time.Now().After(session.ExpiresAt)).
-			Str("status", session.Status).
-			Msg("Querying events from database (session expired or stopped)")
-
-		events, err := o.db.GetDebugEvents(req.Msg.SessionId)
-		if err != nil {
-			o.logger.Error().Err(err).
-				Str("session_id", req.Msg.SessionId).
-				Msg("Failed to query events from database")
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query events from database: %v", err))
-		}
-		uprobeEvents = events
-
-		o.logger.Info().
-			Str("session_id", req.Msg.SessionId).
-			Int("event_count", len(uprobeEvents)).
-			Msg("Retrieved events from database")
-	} else {
-		// Session still active - query from agent
-		o.logger.Info().
-			Str("session_id", req.Msg.SessionId).
-			Msg("Querying events from agent (session active)")
-
-		entry, err := o.registry.Get(session.AgentID)
-		if err != nil {
-			o.logger.Error().Err(err).
-				Str("session_id", req.Msg.SessionId).
-				Str("agent_id", session.AgentID).
-				Msg("Failed to get agent from registry")
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("agent not found: %v", err))
-		}
-
-		// Call agent to query uprobe events
-		agentAddr := buildAgentAddress(entry.MeshIPv4)
-		agentClient := o.clientFactory(
-			http.DefaultClient,
-			fmt.Sprintf("http://%s", agentAddr),
-		)
-
-		queryReq := connect.NewRequest(&meshv1.QueryUprobeEventsRequest{
-			CollectorId: session.CollectorID,
-			StartTime:   timestamppb.New(session.StartedAt),
-			EndTime:     timestamppb.New(session.ExpiresAt),
-			MaxEvents:   10000, // Limit to prevent overwhelming response
-		})
-
-		queryResp, err := agentClient.QueryUprobeEvents(ctx, queryReq)
-		if err != nil {
-			o.logger.Error().Err(err).
-				Str("session_id", req.Msg.SessionId).
-				Str("collector_id", session.CollectorID).
-				Msg("Failed to query uprobe events from agent")
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query events: %v", err))
-		}
-
-		// Extract UprobeEvent from EbpfEvent wrapper
-		for _, ebpfEvent := range queryResp.Msg.Events {
-			if ebpfEvent.GetUprobeEvent() != nil {
-				uprobeEvents = append(uprobeEvents, ebpfEvent.GetUprobeEvent())
-			}
-		}
-
-		o.logger.Info().
-			Str("session_id", req.Msg.SessionId).
-			Int("event_count", len(uprobeEvents)).
-			Msg("Retrieved uprobe events from agent")
-	}
-
-	// Aggregate statistics
-	statistics := AggregateStatistics(uprobeEvents)
-
-	// Find slow outliers
-	p95Duration := time.Duration(0)
-	if statistics.DurationP95 != nil {
-		p95Duration = statistics.DurationP95.AsDuration()
-	}
-	slowOutliers := FindSlowOutliers(uprobeEvents, p95Duration)
-
-	// Build call tree
-	callTree := BuildCallTreeFromEvents(uprobeEvents, p95Duration)
-
-	// Calculate session duration
-	sessionDuration := session.ExpiresAt.Sub(session.StartedAt)
-
-	return connect.NewResponse(&debugpb.GetDebugResultsResponse{
-		SessionId:    req.Msg.SessionId,
-		Function:     session.FunctionName,
-		Duration:     durationpb.New(sessionDuration),
-		Statistics:   statistics,
-		SlowOutliers: slowOutliers,
-		CallTree:     callTree,
-		ProcessId:    processID,
-		BinaryPath:   binaryPath,
-	}), nil
+	return o.queryRouter.GetDebugResults(ctx, req)
 }
 
 // buildAgentAddress constructs the agent address from the mesh IP.
@@ -1460,47 +818,14 @@ func (o *Orchestrator) ProfileCPU(
 	// Service Discovery: Find agent for service.
 	agentID := req.Msg.AgentId
 	if agentID == "" {
-		entries := o.registry.ListAll()
-		var foundEntry *registry.Entry
-
-		for _, entry := range entries {
-			// Query agent in real-time for services.
-			agentURL := fmt.Sprintf("http://%s:9001", entry.MeshIPv4)
-			client := o.agentClientFactory(http.DefaultClient, agentURL)
-
-			queryCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
-			cancel()
-
-			if err != nil {
-				o.logger.Debug().
-					Err(err).
-					Str("agent_id", entry.AgentID).
-					Msg("Failed to query agent services")
-				continue
-			}
-
-			// Check if this agent has the service.
-			for _, svcStatus := range resp.Msg.Services {
-				if svcStatus.Name == req.Msg.ServiceName {
-					foundEntry = entry
-					break
-				}
-			}
-
-			if foundEntry != nil {
-				break
-			}
-		}
-
-		if foundEntry == nil {
+		var err error
+		agentID, err = o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
+		if err != nil {
 			return connect.NewResponse(&debugpb.ProfileCPUResponse{
 				Success: false,
-				Error:   fmt.Sprintf("failed to find agent for service %s: service not found", req.Msg.ServiceName),
+				Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
 			}), nil
 		}
-
-		agentID = foundEntry.AgentID
 	}
 
 	if agentID == "" {
@@ -1523,30 +848,11 @@ func (o *Orchestrator) ProfileCPU(
 	}
 
 	// Get PID for the service.
-	// Query agent for service details to get PID.
-	agentURL := fmt.Sprintf("http://%s:9001", entry.MeshIPv4)
-	agentClient := o.agentClientFactory(http.DefaultClient, agentURL)
-
-	servicesResp, err := agentClient.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+	targetPID, err := o.agentCoordinator.GetServicePID(ctx, agentID, req.Msg.ServiceName)
 	if err != nil {
 		return connect.NewResponse(&debugpb.ProfileCPUResponse{
 			Success: false,
-			Error:   fmt.Sprintf("failed to query agent services: %v", err),
-		}), nil
-	}
-
-	var targetPID int32
-	for _, svc := range servicesResp.Msg.Services {
-		if svc.Name == req.Msg.ServiceName {
-			targetPID = svc.ProcessId
-			break
-		}
-	}
-
-	if targetPID == 0 {
-		return connect.NewResponse(&debugpb.ProfileCPUResponse{
-			Success: false,
-			Error:   fmt.Sprintf("service %s not found on agent %s", req.Msg.ServiceName, agentID),
+			Error:   fmt.Sprintf("failed to get service PID: %v", err),
 		}), nil
 	}
 

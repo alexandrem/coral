@@ -12,6 +12,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/coral-mesh/coral/internal/errors"
 )
 
 // CreateTUN creates a new TUN device with the given name.
@@ -31,7 +33,7 @@ func CreateTUN(name string, mtu int, logger zerolog.Logger) (*Interface, error) 
 		// If we don't have privileges, try using the helper subprocess.
 		logger.Debug().Err(err).Msg("Direct TUN creation failed, trying helper subprocess")
 
-		fd, helperErr := createTUNWithHelper(tunName, mtu)
+		fd, helperErr := createTUNWithHelper(tunName, mtu, logger)
 		if helperErr != nil {
 			// Return the original error with context.
 			return nil, fmt.Errorf("failed to create TUN device (direct: %v, helper: %v)", err, helperErr)
@@ -85,7 +87,8 @@ func CreateTUNFromFD(name string, fd int, mtu int, logger zerolog.Logger) (*Inte
 
 	realName, err := tunDevice.Name()
 	if err != nil {
-		_ = tunDevice.Close() // TODO: errcheck
+		// Best effort close - we're already returning an error.
+		errors.DeferClose(logger, tunDevice, "failed to close TUN device after name error")
 		return nil, fmt.Errorf("failed to get TUN device name: %w", err)
 	}
 
