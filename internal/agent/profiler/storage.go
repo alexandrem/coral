@@ -16,20 +16,6 @@ import (
 
 // ORM models for profiler tables.
 
-type profileFrameDB struct {
-	FrameID    int64  `duckdb:"frame_id,pk"`
-	FrameName  string `duckdb:"frame_name"`
-	FrameCount int64  `duckdb:"frame_count"`
-}
-
-type cpuProfileSampleDB struct {
-	Timestamp   time.Time `duckdb:"timestamp,pk"`
-	ServiceID   string    `duckdb:"service_id,pk"`
-	BuildID     string    `duckdb:"build_id,pk"`
-	StackHash   string    `duckdb:"stack_hash,pk"`
-	SampleCount int       `duckdb:"sample_count"`
-}
-
 type binaryMetadataDB struct {
 	BuildID      string    `duckdb:"build_id,pk"`
 	ServiceID    string    `duckdb:"service_id"`
