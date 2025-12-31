@@ -434,27 +434,26 @@ func (suite *E2EDistributedSuite) SetupSuite() {
 **Status**: ✅ **Phase 1 COMPLETE** - All connectivity and discovery tests implemented and working
 
 ### Phase 2 Completion
-- [x] All 4 observability layers have E2E test coverage (13 tests total)
-- [x] Level 1 (OTLP): Data flow from app → agent verified end-to-end
-- [x] Level 1 (OTLP): Colony aggregation E2E test implemented (3 tests total)
-- [x] Level 2 (System Metrics): Agent collection verified via QuerySystemMetrics API
-- [x] Level 2 (System Metrics): Colony polling test implemented (2 tests total)
-- [ ] Level 2 (CPU Profiling): Continuous profiling test (requires CPU-intensive app)
+- [x] All 4 observability layers have E2E test coverage (14 tests total)
+- [x] Level 1 (OTLP): Data flow from app → agent verified end-to-end (3 tests)
+- [x] Level 2 (System Metrics): Agent collection and colony polling verified (2 tests)
+- [x] Level 2 (CPU Profiling): Infrastructure test with CPU load generation (1 test)
+- [ ] Level 2 (CPU Profiling): Full verification requires QueryCPUProfiles API
 - [ ] Level 0 (Beyla): Real Beyla subprocess integration (binary not in image yet)
 - [ ] Level 3: Test SDK app successfully traced with uprobes (uprobe API needed)
-- [ ] Level 2/3: CPU profiling (continuous + on-demand) verified (profiling API needed)
 
-**Status**: ✅ **Level 1 Complete, Level 2 System Metrics Complete!**
+**Status**: ✅ **Level 1 Complete, Level 2 Complete (infrastructure)!**
 
 **Level 1 Test Coverage** (3 tests):
-1. `TestLevel1_OTLPIngestion` - Verifies app → agent span ingestion and storage
-2. `TestLevel1_OTELAppEndpoints` - Verifies OTLP test app functionality
-3. `TestLevel1_ColonyAggregation` - Verifies agent → colony polling and P50/P95/P99 aggregation
+1. `TestLevel1_OTLPIngestion` - Verifies app → agent span ingestion and storage ✅
+2. `TestLevel1_OTELAppEndpoints` - Verifies OTLP test app functionality ✅
+3. `TestLevel1_ColonyAggregation` - Verifies agent → colony polling and P50/P95/P99 aggregation ✅
 
-**Level 2 Test Coverage** (2 tests, 1 skipped):
+**Level 2 Test Coverage** (3 tests):
 1. `TestLevel2_SystemMetricsCollection` - Verifies agent collects CPU/memory/disk/network metrics ✅
 2. `TestLevel2_SystemMetricsPolling` - Verifies colony polls agent for system metrics ✅
-3. `TestLevel2_ContinuousCPUProfiling` - Skipped (requires CPU-intensive test app)
+3. `TestLevel2_ContinuousCPUProfiling` - Verifies profiler infrastructure and CPU load generation ✅
+   - Note: Full verification requires QueryCPUProfiles RPC (profiles stored in agent DuckDB)
 
 ## Implementation Notes
 

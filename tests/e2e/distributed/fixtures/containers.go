@@ -34,6 +34,7 @@ type FixtureOptions struct {
 	ColonySecret string
 	WithOTELApp  bool
 	WithSDKApp   bool
+	WithCPUApp   bool
 }
 
 // NewContainerFixture creates and starts all containers for E2E testing.
@@ -103,6 +104,14 @@ func NewContainerFixture(ctx context.Context, opts FixtureOptions) (*ContainerFi
 			return nil, fmt.Errorf("failed to start SDK app: %w", err)
 		}
 		fixture.Apps["sdk-app"] = app
+	}
+
+	if opts.WithCPUApp {
+		app, err := fixture.startCPUApp(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to start CPU app: %w", err)
+		}
+		fixture.Apps["cpu-app"] = app
 	}
 
 	return fixture, nil
@@ -354,6 +363,38 @@ func (f *ContainerFixture) startSDKApp(ctx context.Context) (testcontainers.Cont
 	return container, nil
 }
 
+func (f *ContainerFixture) startCPUApp(ctx context.Context) (testcontainers.Container, error) {
+	// Get project root for building context.
+	// From tests/e2e/distributed/fixtures, go up 3 levels to reach coral root.
+	projectRoot, err := filepath.Abs("../../..")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+
+	req := testcontainers.ContainerRequest{
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context:    projectRoot,
+			Dockerfile: "tests/e2e/cpu-profile/cpu-intensive-app/Dockerfile",
+		},
+		ExposedPorts: []string{"8080/tcp"},
+		Networks:     []string{f.Network.Name},
+		NetworkAliases: map[string][]string{
+			f.Network.Name: {"cpu-app"},
+		},
+		WaitingFor: wait.ForHTTP("/health").WithPort("8080/tcp").WithStartupTimeout(30 * time.Second),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return container, nil
+}
+
 // GetDiscoveryEndpoint returns the HTTP endpoint for the discovery service.
 func (f *ContainerFixture) GetDiscoveryEndpoint(ctx context.Context) (string, error) {
 	return f.Discovery.Endpoint(ctx, "http")
@@ -445,6 +486,26 @@ func (f *ContainerFixture) GetSDKAppEndpoint(ctx context.Context) (string, error
 	}
 
 	port, err := app.MappedPort(ctx, "3001/tcp")
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s:%s", host, port.Port()), nil
+}
+
+// GetCPUAppEndpoint returns the HTTP endpoint for the CPU-intensive test app.
+func (f *ContainerFixture) GetCPUAppEndpoint(ctx context.Context) (string, error) {
+	app, ok := f.Apps["cpu-app"]
+	if !ok {
+		return "", fmt.Errorf("cpu-app not started")
+	}
+
+	host, err := app.Host(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	port, err := app.MappedPort(ctx, "8080/tcp")
 	if err != nil {
 		return "", err
 	}
