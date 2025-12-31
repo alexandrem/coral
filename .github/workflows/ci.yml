@@ -118,7 +118,32 @@ jobs:
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Run tests with coverage
-        run: make test-ci   # should run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./... -timeout=10m
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage.out -o coverage.txt
+
+      - name: Check coverage threshold
+        run: |
+          coverage=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${coverage}%"
+          # Set a minimum threshold (start with current coverage and gradually increase)
+          threshold=15.0
+          if (( $(echo "$coverage < $threshold" | bc -l) )); then
+            echo "❌ Coverage ${coverage}% is below ${threshold}% threshold"
+            exit 1
+          else
+            echo "✅ Coverage ${coverage}% meets ${threshold}% threshold"
+          fi
+
+      - name: Upload coverage to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.txt
+          retention-days: 30
 
   # ──────────────────────────────────────────────────────────────
   # Static Analysis
