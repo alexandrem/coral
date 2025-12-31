@@ -55,7 +55,7 @@ func (qr *QueryRouter) QueryUprobeEvents(
 		Msg("Querying uprobe events")
 
 	// Query session from database.
-	session, err := qr.db.GetDebugSession(req.Msg.SessionId)
+	session, err := qr.db.GetDebugSession(ctx, req.Msg.SessionId)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
@@ -216,7 +216,7 @@ func (qr *QueryRouter) GetDebugResults(
 		Msg("Getting debug results")
 
 	// Query session from database.
-	session, err := qr.db.GetDebugSession(req.Msg.SessionId)
+	session, err := qr.db.GetDebugSession(ctx, req.Msg.SessionId)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))

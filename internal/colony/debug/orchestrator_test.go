@@ -66,7 +66,7 @@ func TestSessionPersistence(t *testing.T) {
 	// Create a test session by inserting directly into database
 	// Create a test session by inserting directly into database
 	sessionID := "test-session-123"
-	err := db.InsertDebugSession(&database.DebugSession{
+	err := db.InsertDebugSession(context.Background(), &database.DebugSession{
 		SessionID:    sessionID,
 		CollectorID:  "collector-456",
 		ServiceName:  "test-service",
@@ -122,7 +122,7 @@ func TestSessionPersistenceWithFilters(t *testing.T) {
 	}
 
 	for _, s := range sessions {
-		err := db.InsertDebugSession(&database.DebugSession{
+		err := db.InsertDebugSession(context.Background(), &database.DebugSession{
 			SessionID:    s.id,
 			CollectorID:  "collector-" + s.id,
 			ServiceName:  s.service,
@@ -187,7 +187,7 @@ func TestSessionUpdate(t *testing.T) {
 
 	// Insert a test session
 	sessionID := "test-session-update"
-	err := db.InsertDebugSession(&database.DebugSession{
+	err := db.InsertDebugSession(context.Background(), &database.DebugSession{
 		SessionID:    sessionID,
 		CollectorID:  "collector-789",
 		ServiceName:  "test-service",
@@ -203,7 +203,7 @@ func TestSessionUpdate(t *testing.T) {
 	}
 
 	// Update session status
-	err = db.UpdateDebugSessionStatus(sessionID, "stopped")
+	err = db.UpdateDebugSessionStatus(context.Background(), sessionID, "stopped")
 	if err != nil {
 		t.Fatalf("Failed to update session status: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestQueryUprobeEvents_AgentNotInRegistry(t *testing.T) {
 
 	// Create a session with an agent that's not in the registry
 	sessionID := "test-session-orphaned"
-	err := db.InsertDebugSession(&database.DebugSession{
+	err := db.InsertDebugSession(context.Background(), &database.DebugSession{
 		SessionID:    sessionID,
 		CollectorID:  "collector-123",
 		ServiceName:  "test-service",
@@ -455,7 +455,7 @@ func TestQueryUprobeEvents_AgentNotInRegistry(t *testing.T) {
 		},
 	}
 
-	err = db.InsertDebugEvents(sessionID, testEvents)
+	err = db.InsertDebugEvents(context.Background(), sessionID, testEvents)
 	if err != nil {
 		t.Fatalf("Failed to insert test events: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestQueryUprobeEvents_AgentRPCFailsFallbackToDatabase(t *testing.T) {
 
 	// Create a session with an agent that IS in the registry
 	sessionID := "test-session-rpc-fail"
-	err := db.InsertDebugSession(&database.DebugSession{
+	err := db.InsertDebugSession(context.Background(), &database.DebugSession{
 		SessionID:    sessionID,
 		CollectorID:  "collector-456",
 		ServiceName:  "test-service",
@@ -519,7 +519,7 @@ func TestQueryUprobeEvents_AgentRPCFailsFallbackToDatabase(t *testing.T) {
 		},
 	}
 
-	err = db.InsertDebugEvents(sessionID, testEvents)
+	err = db.InsertDebugEvents(context.Background(), sessionID, testEvents)
 	if err != nil {
 		t.Fatalf("Failed to insert test events: %v", err)
 	}
@@ -586,7 +586,7 @@ func TestConcurrentSessionOperations(t *testing.T) {
 	for i := 0; i < numSessions; i++ {
 		go func(idx int) {
 			sessionID := fmt.Sprintf("session-%d", idx)
-			err := db.InsertDebugSession(&database.DebugSession{
+			err := db.InsertDebugSession(context.Background(), &database.DebugSession{
 				SessionID:    sessionID,
 				CollectorID:  fmt.Sprintf("collector-%d", idx),
 				ServiceName:  "test-service",
@@ -646,7 +646,7 @@ func TestDetachUprobe_DatabaseUpdateFailureHandled(t *testing.T) {
 
 	// Create a valid session
 	sessionID := "test-session-detach"
-	err := db.InsertDebugSession(&database.DebugSession{
+	err := db.InsertDebugSession(context.Background(), &database.DebugSession{
 		SessionID:    sessionID,
 		CollectorID:  "collector-789",
 		ServiceName:  "test-service",
@@ -663,7 +663,7 @@ func TestDetachUprobe_DatabaseUpdateFailureHandled(t *testing.T) {
 
 	// Note: Without mocking, we can't test the actual detach flow
 	// This is a placeholder that verifies the session exists
-	session, err := db.GetDebugSession(sessionID)
+	session, err := db.GetDebugSession(context.Background(), sessionID)
 	if err != nil {
 		t.Fatalf("Failed to get session: %v", err)
 	}
@@ -761,7 +761,7 @@ func TestProfileFunctions_TracksRealSessionIDs(t *testing.T) {
 	}
 
 	// The returned session ID must exist in the database
-	session, err := db.GetDebugSession(resp.Msg.SessionId)
+	session, err := db.GetDebugSession(context.Background(), resp.Msg.SessionId)
 	if err != nil {
 		t.Fatalf("Failed to query session from database: %v", err)
 	}
@@ -867,9 +867,9 @@ func (m *mockDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *con
 	// This simulates what DetachUprobe does
 	if len(session.events) > 0 {
 		// Find the session ID from the database
-		dbSession, _ := m.factory.db.GetDebugSession(session.sessionID)
+		dbSession, _ := m.factory.db.GetDebugSession(context.Background(), session.sessionID)
 		if dbSession != nil {
-			_ = m.factory.db.InsertDebugEvents(session.sessionID, session.events)
+			_ = m.factory.db.InsertDebugEvents(context.Background(), session.sessionID, session.events)
 		}
 	}
 

@@ -66,14 +66,14 @@ func (d *Database) StoreIPAllocation(agentID, ipAddress string) error {
 }
 
 // GetIPAllocation retrieves the IP allocation for a specific agent.
-func (d *Database) GetIPAllocation(agentID string) (*IPAllocation, error) {
-	return d.ipAllocationsTable.Get(context.Background(), agentID)
+func (d *Database) GetIPAllocation(ctx context.Context, agentID string) (*IPAllocation, error) {
+	return d.ipAllocationsTable.Get(ctx, agentID)
 }
 
 // GetAllIPAllocations retrieves all IP allocations from the database.
 // This is used during colony startup to recover the allocation state.
-func (d *Database) GetAllIPAllocations() ([]*IPAllocation, error) {
-	allocations, err := d.ipAllocationsTable.List(context.Background(), nil)
+func (d *Database) GetAllIPAllocations(ctx context.Context) ([]*IPAllocation, error) {
+	allocations, err := d.ipAllocationsTable.List(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list IP allocations: %w", err)
 	}
@@ -98,8 +98,8 @@ func (d *Database) UpdateIPAllocationLastSeen(agentID string) error {
 }
 
 // ReleaseIPAllocation removes an IP allocation from the database.
-func (d *Database) ReleaseIPAllocation(agentID string) error {
-	return d.ipAllocationsTable.Delete(context.Background(), agentID)
+func (d *Database) ReleaseIPAllocation(ctx context.Context, agentID string) error {
+	return d.ipAllocationsTable.Delete(ctx, agentID)
 }
 
 // IsIPAllocated checks if an IP address is currently allocated.

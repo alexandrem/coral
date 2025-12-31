@@ -239,7 +239,7 @@ func TestDebugFlowIntegration(t *testing.T) {
 	})
 
 	// Verify session is stopped
-	session, err := db.GetDebugSession(sessionID)
+	session, err := db.GetDebugSession(context.Background(), sessionID)
 	require.NoError(t, err)
 	assert.Equal(t, "stopped", session.Status)
 }
@@ -409,7 +409,7 @@ func TestDebugFlow_DetachError(t *testing.T) {
 
 	// Create a session manually
 	sessionID := "test-session"
-	err = db.InsertDebugSession(&database.DebugSession{
+	err = db.InsertDebugSession(context.Background(), &database.DebugSession{
 		SessionID:    sessionID,
 		CollectorID:  "collector-1",
 		ServiceName:  "service-1",
@@ -449,7 +449,7 @@ func TestDebugFlow_DetachError(t *testing.T) {
 	assert.True(t, resp.Msg.Success)
 
 	// Verify session is marked as stopped in database
-	session, err := db.GetDebugSession(sessionID)
+	session, err := db.GetDebugSession(context.Background(), sessionID)
 	require.NoError(t, err)
 	assert.Equal(t, "stopped", session.Status)
 }
@@ -471,7 +471,7 @@ func TestDebugFlow_QueryWithFilters(t *testing.T) {
 
 	// Create a session
 	sessionID := "test-session"
-	err = db.InsertDebugSession(&database.DebugSession{
+	err = db.InsertDebugSession(context.Background(), &database.DebugSession{
 		SessionID:    sessionID,
 		CollectorID:  "collector-1",
 		ServiceName:  "service-1",

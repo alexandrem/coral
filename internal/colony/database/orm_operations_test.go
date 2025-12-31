@@ -211,7 +211,7 @@ func testDebugSessionOperations(t *testing.T, db *Database) {
 			Status:       "active",
 			EventCount:   0,
 		}
-		err := db.InsertDebugSession(session)
+		err := db.InsertDebugSession(context.Background(), session)
 		require.NoError(t, err, "Insert should succeed")
 	})
 
@@ -230,7 +230,7 @@ func testDebugSessionOperations(t *testing.T, db *Database) {
 		}
 
 		// First insert
-		err := db.InsertDebugSession(session)
+		err := db.InsertDebugSession(context.Background(), session)
 		require.NoError(t, err, "First insert should succeed")
 
 		// Update mutable fields
@@ -238,11 +238,11 @@ func testDebugSessionOperations(t *testing.T, db *Database) {
 		session.Status = "stopped"
 		session.EventCount = 42
 
-		err = db.InsertDebugSession(session)
+		err = db.InsertDebugSession(context.Background(), session)
 		require.NoError(t, err, "Second insert (upsert) should succeed")
 
 		// Verify update
-		retrieved, err := db.GetDebugSession("session-upsert")
+		retrieved, err := db.GetDebugSession(context.Background(), "session-upsert")
 		require.NoError(t, err)
 		assert.Equal(t, "stopped", retrieved.Status)
 		assert.Equal(t, 42, retrieved.EventCount)
@@ -265,7 +265,7 @@ func testDebugSessionOperations(t *testing.T, db *Database) {
 			Status:       "active",
 			EventCount:   0,
 		}
-		err := db.InsertDebugSession(session)
+		err := db.InsertDebugSession(context.Background(), session)
 		require.NoError(t, err)
 
 		for i := 0; i < goroutines; i++ {
@@ -282,7 +282,7 @@ func testDebugSessionOperations(t *testing.T, db *Database) {
 					Status:       "active",
 					EventCount:   idx,
 				}
-				errCh <- db.InsertDebugSession(s)
+				errCh <- db.InsertDebugSession(context.Background(), s)
 			}(i)
 		}
 

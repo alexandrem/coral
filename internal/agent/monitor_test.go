@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ func TestServiceMonitor_SetSdkCapabilities(t *testing.T) {
 		Port: 8080,
 	}
 
-	monitor := NewServiceMonitor(service, nil, logger)
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
 
 	// Initial state
 	status := monitor.GetStatus()
@@ -54,7 +55,7 @@ func TestServiceMonitor_GetStatus(t *testing.T) {
 		Port: 8080,
 	}
 
-	monitor := NewServiceMonitor(service, nil, logger)
+	monitor := NewServiceMonitor(context.Background(), service, nil, logger)
 
 	// Set some state
 	monitor.mu.Lock()

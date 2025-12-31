@@ -28,6 +28,7 @@ type RuntimeService struct {
 
 // RuntimeServiceConfig contains configuration for the runtime service.
 type RuntimeServiceConfig struct {
+	Context         context.Context // Parent context for lifecycle management.
 	AgentID         string
 	Logger          zerolog.Logger
 	Version         string
@@ -40,7 +41,13 @@ func NewRuntimeService(config RuntimeServiceConfig) (*RuntimeService, error) {
 		config.RefreshInterval = 5 * time.Minute // Default 5 minutes
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Default to background context if not provided (for backwards compatibility).
+	parentCtx := config.Context
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	detector := runtime.NewDetector(config.Logger, config.Version)
 

@@ -32,7 +32,7 @@ type DebugEvent struct {
 }
 
 // InsertDebugEvents persists a batch of uprobe events to the database.
-func (d *Database) InsertDebugEvents(sessionID string, events []*meshv1.UprobeEvent) error {
+func (d *Database) InsertDebugEvents(ctx context.Context, sessionID string, events []*meshv1.UprobeEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -104,7 +104,7 @@ func (d *Database) InsertDebugEvents(sessionID string, events []*meshv1.UprobeEv
 		})
 	}
 
-	return d.debugEventsTable.BatchUpsert(context.Background(), items)
+	return d.debugEventsTable.BatchUpsert(ctx, items)
 }
 
 // GetDebugEvents retrieves all stored events for a debug session.

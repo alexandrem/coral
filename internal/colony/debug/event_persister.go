@@ -17,6 +17,7 @@ import (
 
 // EventPersister handles background event persistence for debug sessions.
 type EventPersister struct {
+	ctx                     context.Context
 	logger                  zerolog.Logger
 	db                      *database.Database
 	queryRouter             *QueryRouter
@@ -27,11 +28,13 @@ type EventPersister struct {
 
 // NewEventPersister creates a new event persister.
 func NewEventPersister(
+	ctx context.Context,
 	logger zerolog.Logger,
 	db *database.Database,
 	queryRouter *QueryRouter,
 ) *EventPersister {
 	return &EventPersister{
+		ctx:                     ctx,
 		logger:                  logger.With().Str("component", "event_persister").Logger(),
 		db:                      db,
 		queryRouter:             queryRouter,
@@ -66,7 +69,7 @@ func (ep *EventPersister) runBackgroundEventPersistence() {
 
 // persistEventsFromActiveSessions queries and persists events from all active sessions.
 func (ep *EventPersister) persistEventsFromActiveSessions() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ep.ctx, 30*time.Second)
 	defer cancel()
 
 	// Get all active sessions from database.
@@ -115,7 +118,7 @@ func (ep *EventPersister) persistEventsFromActiveSessions() {
 
 		if len(queryResp.Msg.Events) > 0 {
 			// Persist new events to database.
-			if err := ep.db.InsertDebugEvents(session.SessionID, queryResp.Msg.Events); err != nil {
+			if err := ep.db.InsertDebugEvents(ctx, session.SessionID, queryResp.Msg.Events); err != nil {
 				ep.logger.Error().
 					Err(err).
 					Str("session_id", session.SessionID).

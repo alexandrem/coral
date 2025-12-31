@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -34,21 +35,21 @@ func TestDebugSessionAttachUprobeScenario(t *testing.T) {
 	}
 
 	// This is where the original error occurred
-	err = db.InsertDebugSession(session)
+	err = db.InsertDebugSession(context.Background(), session)
 	require.NoError(t, err, "Session storage should succeed (was failing with PRIMARY KEY error)")
 
 	// Verify the session was inserted
-	retrieved, err := db.GetDebugSession(sessionID)
+	retrieved, err := db.GetDebugSession(context.Background(), sessionID)
 	require.NoError(t, err)
 	assert.Equal(t, sessionID, retrieved.SessionID)
 	assert.Equal(t, "demo/main", retrieved.ServiceName)
 	assert.Equal(t, "ValidateCard", retrieved.FunctionName)
 
 	// Simulate DetachUprobe
-	err = db.UpdateDebugSessionStatus(sessionID, "stopped")
+	err = db.UpdateDebugSessionStatus(context.Background(), sessionID, "stopped")
 	require.NoError(t, err)
 
-	retrieved, err = db.GetDebugSession(sessionID)
+	retrieved, err = db.GetDebugSession(context.Background(), sessionID)
 	require.NoError(t, err)
 	assert.Equal(t, "stopped", retrieved.Status)
 }

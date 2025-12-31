@@ -41,6 +41,7 @@ type Agent struct {
 
 // Config contains agent configuration.
 type Config struct {
+	Context       context.Context // Parent context for lifecycle management.
 	AgentID       string
 	Services      []*meshv1.ServiceInfo
 	BeylaConfig   *beyla.Config
@@ -55,7 +56,13 @@ func New(config Config) (*Agent, error) {
 		return nil, fmt.Errorf("agent_id is required")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Default to background context if not provided (for backwards compatibility).
+	parentCtx := config.Context
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	// Initialize eBPF manager.
 	ebpfManager := ebpf.NewManager(ebpf.Config{
@@ -89,7 +96,7 @@ func New(config Config) (*Agent, error) {
 
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
-		monitor := NewServiceMonitor(service, config.FunctionCache, config.Logger)
+		monitor := NewServiceMonitor(ctx, service, config.FunctionCache, config.Logger)
 		// Set callback for continuous profiling (RFD 072).
 		monitor.onProcessDiscovered = agent.onProcessDiscovered
 		agent.monitors[service.Name] = monitor
@@ -268,7 +275,7 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 	}
 
 	// Create and start new monitor.
-	monitor := NewServiceMonitor(service, a.functionCache, a.logger)
+	monitor := NewServiceMonitor(a.ctx, service, a.functionCache, a.logger)
 	// Set callback for continuous profiling (RFD 072).
 	monitor.onProcessDiscovered = a.onProcessDiscovered
 	monitor.Start()
