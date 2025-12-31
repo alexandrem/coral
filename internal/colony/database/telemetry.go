@@ -21,6 +21,20 @@ type TelemetrySummary struct {
 	SampleTraces []string
 }
 
+// otelSummary is the database representation of TelemetrySummary.
+type otelSummary struct {
+	BucketTime       time.Time `duckdb:"bucket_time,pk"`
+	AgentID          string    `duckdb:"agent_id,pk"`
+	ServiceName      string    `duckdb:"service_name,pk"`
+	SpanKind         string    `duckdb:"span_kind,pk"`
+	P50Ms            float64   `duckdb:"p50_ms"`
+	P95Ms            float64   `duckdb:"p95_ms"`
+	P99Ms            float64   `duckdb:"p99_ms"`
+	ErrorCount       int32     `duckdb:"error_count"`
+	TotalSpans       int32     `duckdb:"total_spans"`
+	SampleTracesJSON string    `duckdb:"sample_traces"`
+}
+
 // InsertTelemetrySummaries inserts telemetry summaries into the database.
 // Summaries are created by the colony after querying and aggregating agent data (RFD 025).
 func (d *Database) InsertTelemetrySummaries(ctx context.Context, summaries []TelemetrySummary) error {
@@ -28,56 +42,29 @@ func (d *Database) InsertTelemetrySummaries(ctx context.Context, summaries []Tel
 		return nil
 	}
 
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }() // TODO: errcheck
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO otel_summaries (
-			bucket_time, agent_id, service_name, span_kind,
-			p50_ms, p95_ms, p99_ms, error_count, total_spans, sample_traces
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (bucket_time, agent_id, service_name, span_kind) DO UPDATE SET
-			p50_ms = excluded.p50_ms,
-			p95_ms = excluded.p95_ms,
-			p99_ms = excluded.p99_ms,
-			error_count = excluded.error_count,
-			total_spans = excluded.total_spans,
-			sample_traces = excluded.sample_traces
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() { _ = stmt.Close() }() // TODO: errcheck
-
-	for _, summary := range summaries {
-		// Convert SampleTraces to JSON for DuckDB storage.
-		sampleTracesJSON, err := json.Marshal(summary.SampleTraces)
+	dbItems := make([]*otelSummary, 0, len(summaries))
+	for _, s := range summaries {
+		jsonBytes, err := json.Marshal(s.SampleTraces)
 		if err != nil {
 			return fmt.Errorf("failed to marshal sample traces: %w", err)
 		}
 
-		_, err = stmt.ExecContext(ctx,
-			summary.BucketTime,
-			summary.AgentID,
-			summary.ServiceName,
-			summary.SpanKind,
-			summary.P50Ms,
-			summary.P95Ms,
-			summary.P99Ms,
-			summary.ErrorCount,
-			summary.TotalSpans,
-			string(sampleTracesJSON),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert summary: %w", err)
-		}
+		dbItems = append(dbItems, &otelSummary{
+			BucketTime:       s.BucketTime,
+			AgentID:          s.AgentID,
+			ServiceName:      s.ServiceName,
+			SpanKind:         s.SpanKind,
+			P50Ms:            s.P50Ms,
+			P95Ms:            s.P95Ms,
+			P99Ms:            s.P99Ms,
+			ErrorCount:       s.ErrorCount,
+			TotalSpans:       s.TotalSpans,
+			SampleTracesJSON: string(jsonBytes),
+		})
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	if err := d.telemetryTable.BatchUpsert(ctx, dbItems); err != nil {
+		return fmt.Errorf("failed to batch upsert telemetry summaries: %w", err)
 	}
 
 	d.logger.Debug().

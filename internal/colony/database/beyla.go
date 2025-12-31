@@ -2,13 +2,63 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/safe"
 )
+
+// Private structs for ORM mapping
+
+type beylaHTTPMetricDB struct {
+	Timestamp       time.Time `duckdb:"timestamp,pk"`
+	AgentID         string    `duckdb:"agent_id,pk"`
+	ServiceName     string    `duckdb:"service_name,pk"`
+	HTTPMethod      string    `duckdb:"http_method,pk"`
+	HTTPRoute       string    `duckdb:"http_route,pk"`
+	HTTPStatusCode  int       `duckdb:"http_status_code,pk"` // SMALLINT in DB, int fits
+	LatencyBucketMs float64   `duckdb:"latency_bucket_ms,pk"`
+	Count           int64     `duckdb:"count"`
+	Attributes      string    `duckdb:"attributes"`
+}
+
+type beylaGRPCMetricDB struct {
+	Timestamp       time.Time `duckdb:"timestamp,pk"`
+	AgentID         string    `duckdb:"agent_id,pk"`
+	ServiceName     string    `duckdb:"service_name,pk"`
+	GRPCMethod      string    `duckdb:"grpc_method,pk"`
+	GRPCStatusCode  int       `duckdb:"grpc_status_code,pk"`
+	LatencyBucketMs float64   `duckdb:"latency_bucket_ms,pk"`
+	Count           int64     `duckdb:"count"`
+	Attributes      string    `duckdb:"attributes"`
+}
+
+type beylaSQLMetricDB struct {
+	Timestamp       time.Time `duckdb:"timestamp,pk"`
+	AgentID         string    `duckdb:"agent_id,pk"`
+	ServiceName     string    `duckdb:"service_name,pk"`
+	SQLOperation    string    `duckdb:"sql_operation,pk"`
+	TableName       string    `duckdb:"table_name,pk"`
+	LatencyBucketMs float64   `duckdb:"latency_bucket_ms,pk"`
+	Count           int64     `duckdb:"count"`
+	Attributes      string    `duckdb:"attributes"`
+}
+
+type beylaTraceDB struct {
+	TraceID      string    `duckdb:"trace_id,pk"`
+	SpanID       string    `duckdb:"span_id,pk"`
+	ParentSpanID *string   `duckdb:"parent_span_id"`         // Nullable
+	AgentID      string    `duckdb:"agent_id,immutable"`     // Indexed, cannot be updated
+	ServiceName  string    `duckdb:"service_name,immutable"` // Indexed, cannot be updated
+	SpanName     string    `duckdb:"span_name"`
+	SpanKind     string    `duckdb:"span_kind"`
+	StartTime    time.Time `duckdb:"start_time,immutable"`  // Indexed, cannot be updated
+	DurationUs   int64     `duckdb:"duration_us,immutable"` // Indexed, cannot be updated
+	StatusCode   int       `duckdb:"status_code"`
+	Attributes   string    `duckdb:"attributes"`
+}
 
 // InsertBeylaHTTPMetrics inserts Beyla HTTP metrics into the database (RFD 032).
 func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, metrics []*agentv1.EbpfHttpMetric) error {
@@ -16,24 +66,7 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 		return nil
 	}
 
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }() // TODO: errcheck
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO beyla_http_metrics (
-			timestamp, agent_id, service_name, http_method, http_route,
-			http_status_code, latency_bucket_ms, count, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT DO NOTHING
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() { _ = stmt.Close() }() // TODO: errcheck
-
+	var items []*beylaHTTPMetricDB
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
 
@@ -54,29 +87,40 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 				continue // Skip empty buckets.
 			}
 
-			_, err = stmt.ExecContext(ctx,
-				timestamp,
-				agentID,
-				metric.ServiceName,
-				metric.HttpMethod,
-				metric.HttpRoute,
-				metric.HttpStatusCode,
-				bucket,
-				count,
-				string(attributesJSON),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert HTTP metric: %w", err)
+			countInt64, clamped := safe.Uint64ToInt64(count)
+			if clamped {
+				d.logger.Warn().
+					Uint64("original_count", count).
+					Int64("clamped_count", countInt64).
+					Str("agent_id", agentID).
+					Str("service_name", metric.ServiceName).
+					Msg("HTTP metric count exceeded int64 max, clamped")
 			}
+			items = append(items, &beylaHTTPMetricDB{
+				Timestamp:       timestamp,
+				AgentID:         agentID,
+				ServiceName:     metric.ServiceName,
+				HTTPMethod:      metric.HttpMethod,
+				HTTPRoute:       metric.HttpRoute,
+				HTTPStatusCode:  int(metric.HttpStatusCode),
+				LatencyBucketMs: bucket,
+				Count:           countInt64,
+				Attributes:      string(attributesJSON),
+			})
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	if len(items) == 0 {
+		return nil
+	}
+
+	if err := d.beylaHTTPTable.BatchUpsert(ctx, items); err != nil {
+		return fmt.Errorf("failed to batch upsert HTTP metrics: %w", err)
 	}
 
 	d.logger.Debug().
 		Int("metric_count", len(metrics)).
+		Int("row_count", len(items)).
 		Str("agent_id", agentID).
 		Msg("Inserted Beyla HTTP metrics")
 
@@ -89,24 +133,7 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 		return nil
 	}
 
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }() // TODO: errcheck
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO beyla_grpc_metrics (
-			timestamp, agent_id, service_name, grpc_method,
-			grpc_status_code, latency_bucket_ms, count, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT DO NOTHING
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() { _ = stmt.Close() }() // TODO: errcheck
-
+	var items []*beylaGRPCMetricDB
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
 
@@ -127,28 +154,39 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 				continue // Skip empty buckets.
 			}
 
-			_, err = stmt.ExecContext(ctx,
-				timestamp,
-				agentID,
-				metric.ServiceName,
-				metric.GrpcMethod,
-				metric.GrpcStatusCode,
-				bucket,
-				count,
-				string(attributesJSON),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert gRPC metric: %w", err)
+			countInt64, clamped := safe.Uint64ToInt64(count)
+			if clamped {
+				d.logger.Warn().
+					Uint64("original_count", count).
+					Int64("clamped_count", countInt64).
+					Str("agent_id", agentID).
+					Str("service_name", metric.ServiceName).
+					Msg("gRPC metric count exceeded int64 max, clamped")
 			}
+			items = append(items, &beylaGRPCMetricDB{
+				Timestamp:       timestamp,
+				AgentID:         agentID,
+				ServiceName:     metric.ServiceName,
+				GRPCMethod:      metric.GrpcMethod,
+				GRPCStatusCode:  int(metric.GrpcStatusCode),
+				LatencyBucketMs: bucket,
+				Count:           countInt64,
+				Attributes:      string(attributesJSON),
+			})
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	if len(items) == 0 {
+		return nil
+	}
+
+	if err := d.beylaGRPCTable.BatchUpsert(ctx, items); err != nil {
+		return fmt.Errorf("failed to batch upsert gRPC metrics: %w", err)
 	}
 
 	d.logger.Debug().
 		Int("metric_count", len(metrics)).
+		Int("row_count", len(items)).
 		Str("agent_id", agentID).
 		Msg("Inserted Beyla gRPC metrics")
 
@@ -161,24 +199,7 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 		return nil
 	}
 
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }() // TODO: errcheck
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO beyla_sql_metrics (
-			timestamp, agent_id, service_name, sql_operation, table_name,
-			latency_bucket_ms, count, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT DO NOTHING
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() { _ = stmt.Close() }() // TODO: errcheck
-
+	var items []*beylaSQLMetricDB
 	for _, metric := range metrics {
 		timestamp := time.UnixMilli(metric.Timestamp)
 
@@ -199,28 +220,39 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 				continue // Skip empty buckets.
 			}
 
-			_, err = stmt.ExecContext(ctx,
-				timestamp,
-				agentID,
-				metric.ServiceName,
-				metric.SqlOperation,
-				metric.TableName,
-				bucket,
-				count,
-				string(attributesJSON),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert SQL metric: %w", err)
+			countInt64, clamped := safe.Uint64ToInt64(count)
+			if clamped {
+				d.logger.Warn().
+					Uint64("original_count", count).
+					Int64("clamped_count", countInt64).
+					Str("agent_id", agentID).
+					Str("service_name", metric.ServiceName).
+					Msg("SQL metric count exceeded int64 max, clamped")
 			}
+			items = append(items, &beylaSQLMetricDB{
+				Timestamp:       timestamp,
+				AgentID:         agentID,
+				ServiceName:     metric.ServiceName,
+				SQLOperation:    metric.SqlOperation,
+				TableName:       metric.TableName,
+				LatencyBucketMs: bucket,
+				Count:           countInt64,
+				Attributes:      string(attributesJSON),
+			})
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	if len(items) == 0 {
+		return nil
+	}
+
+	if err := d.beylaSQLTable.BatchUpsert(ctx, items); err != nil {
+		return fmt.Errorf("failed to batch upsert SQL metrics: %w", err)
 	}
 
 	d.logger.Debug().
 		Int("metric_count", len(metrics)).
+		Int("row_count", len(items)).
 		Str("agent_id", agentID).
 		Msg("Inserted Beyla SQL metrics")
 
@@ -233,29 +265,8 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 		return nil
 	}
 
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func(tx *sql.Tx) {
-		_ = tx.Rollback() // TODO: errcheck
-	}(tx)
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO beyla_traces (
-			trace_id, span_id, parent_span_id, agent_id, service_name,
-			span_name, span_kind, start_time, duration_us, status_code, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT DO NOTHING
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func(stmt *sql.Stmt) {
-		_ = stmt.Close() // TODO: errcheck
-	}(stmt)
-
-	for _, span := range spans {
+	items := make([]*beylaTraceDB, len(spans))
+	for i, span := range spans {
 		startTime := time.UnixMilli(span.StartTime)
 
 		// Convert attributes to JSON.
@@ -264,26 +275,30 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 			return fmt.Errorf("failed to marshal attributes: %w", err)
 		}
 
-		_, err = stmt.ExecContext(ctx,
-			span.TraceId,
-			span.SpanId,
-			span.ParentSpanId,
-			agentID,
-			span.ServiceName,
-			span.SpanName,
-			span.SpanKind,
-			startTime,
-			span.DurationUs,
-			span.StatusCode,
-			string(attributesJSON),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert trace span: %w", err)
+		var parentSpanID *string
+		if span.ParentSpanId != "" {
+			// Copy to safely point
+			p := span.ParentSpanId
+			parentSpanID = &p
+		}
+
+		items[i] = &beylaTraceDB{
+			TraceID:      span.TraceId,
+			SpanID:       span.SpanId,
+			ParentSpanID: parentSpanID,
+			AgentID:      agentID,
+			ServiceName:  span.ServiceName,
+			SpanName:     span.SpanName,
+			SpanKind:     span.SpanKind,
+			StartTime:    startTime,
+			DurationUs:   span.DurationUs,
+			StatusCode:   int(span.StatusCode),
+			Attributes:   string(attributesJSON),
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	if err := d.beylaTracesTable.BatchUpsert(ctx, items); err != nil {
+		return fmt.Errorf("failed to batch upsert trace spans: %w", err)
 	}
 
 	d.logger.Debug().

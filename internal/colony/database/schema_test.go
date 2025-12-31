@@ -21,14 +21,10 @@ func TestInitSchema_TablesCreated(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// Verify all six tables exist.
+	// Verify core tables exist.
 	expectedTables := []string{
 		"services",
-		"metric_summaries",
-		"events",
-		"insights",
 		"service_connections",
-		"baselines",
 	}
 
 	for _, table := range expectedTables {
@@ -105,10 +101,8 @@ func TestInitSchema_Indexes(t *testing.T) {
 	// Verify some expected indexes exist.
 	// Note: services table indexes removed due to DuckDB limitations.
 	expectedIndexes := []string{
-		"idx_metric_summaries_service_id",
-		"idx_events_service_id",
-		"idx_insights_status",
-		"idx_baselines_service_id",
+		"idx_service_connections_from",
+		"idx_service_connections_to",
 	}
 
 	for _, idx := range expectedIndexes {
@@ -170,39 +164,6 @@ func TestInitSchema_ColumnTypes(t *testing.T) {
 		}
 	})
 
-	// Test metric_summaries table columns.
-	t.Run("metric_summaries", func(t *testing.T) {
-		_, err := db.DB().Exec(`
-			INSERT INTO metric_summaries (timestamp, service_id, metric_name, interval, p50, p95, mean, count)
-			VALUES (CURRENT_TIMESTAMP, 'svc-1', 'response_time', '5m', 10.5, 50.2, 15.3, 100)
-		`)
-		if err != nil {
-			t.Errorf("Failed to insert into metric_summaries: %v", err)
-		}
-	})
-
-	// Test events table columns.
-	t.Run("events", func(t *testing.T) {
-		_, err := db.DB().Exec(`
-			INSERT INTO events (id, timestamp, service_id, event_type)
-			VALUES (1, CURRENT_TIMESTAMP, 'svc-1', 'deploy')
-		`)
-		if err != nil {
-			t.Errorf("Failed to insert into events: %v", err)
-		}
-	})
-
-	// Test insights table columns.
-	t.Run("insights", func(t *testing.T) {
-		_, err := db.DB().Exec(`
-			INSERT INTO insights (id, created_at, insight_type, priority, title, summary, status)
-			VALUES (1, CURRENT_TIMESTAMP, 'anomaly', 'high', 'Test Insight', 'Test summary', 'active')
-		`)
-		if err != nil {
-			t.Errorf("Failed to insert into insights: %v", err)
-		}
-	})
-
 	// Test service_connections table columns.
 	t.Run("service_connections", func(t *testing.T) {
 		_, err := db.DB().Exec(`
@@ -211,17 +172,6 @@ func TestInitSchema_ColumnTypes(t *testing.T) {
 		`)
 		if err != nil {
 			t.Errorf("Failed to insert into service_connections: %v", err)
-		}
-	})
-
-	// Test baselines table columns.
-	t.Run("baselines", func(t *testing.T) {
-		_, err := db.DB().Exec(`
-			INSERT INTO baselines (service_id, metric_name, time_window, mean, p50, last_updated)
-			VALUES ('svc-1', 'response_time', '1h', 15.5, 10.2, CURRENT_TIMESTAMP)
-		`)
-		if err != nil {
-			t.Errorf("Failed to insert into baselines: %v", err)
 		}
 	})
 }
@@ -260,24 +210,4 @@ func TestInitSchema_PrimaryKeys(t *testing.T) {
 		}
 	})
 
-	// Test composite primary key on metric_summaries table.
-	t.Run("metric_summaries_pk", func(t *testing.T) {
-		ts := "2025-01-01 00:00:00"
-		_, err := db.DB().Exec(`
-			INSERT INTO metric_summaries (timestamp, service_id, metric_name, interval, mean, count)
-			VALUES (?, 'svc-1', 'response_time', '5m', 15.0, 100)
-		`, ts)
-		if err != nil {
-			t.Fatalf("Failed to insert first row: %v", err)
-		}
-
-		// Attempt to insert duplicate composite primary key (should fail).
-		_, err = db.DB().Exec(`
-			INSERT INTO metric_summaries (timestamp, service_id, metric_name, interval, mean, count)
-			VALUES (?, 'svc-1', 'response_time', '5m', 20.0, 200)
-		`, ts)
-		if err == nil {
-			t.Error("Expected primary key constraint violation, but insert succeeded")
-		}
-	})
 }
