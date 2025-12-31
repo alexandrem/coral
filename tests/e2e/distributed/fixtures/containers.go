@@ -392,3 +392,43 @@ func (f *ContainerFixture) GetAgentEndpoint(ctx context.Context, index int) (str
 
 	return fmt.Sprintf("%s:%s", host, port.Port()), nil
 }
+
+// GetOTELAppEndpoint returns the HTTP endpoint for the OTEL test app.
+func (f *ContainerFixture) GetOTELAppEndpoint(ctx context.Context) (string, error) {
+	app, ok := f.Apps["otel-app"]
+	if !ok {
+		return "", fmt.Errorf("otel-app not started")
+	}
+
+	host, err := app.Host(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	port, err := app.MappedPort(ctx, "8080/tcp")
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s:%s", host, port.Port()), nil
+}
+
+// GetSDKAppEndpoint returns the HTTP endpoint for the SDK test app.
+func (f *ContainerFixture) GetSDKAppEndpoint(ctx context.Context) (string, error) {
+	app, ok := f.Apps["sdk-app"]
+	if !ok {
+		return "", fmt.Errorf("sdk-app not started")
+	}
+
+	host, err := app.Host(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	port, err := app.MappedPort(ctx, "3001/tcp")
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s:%s", host, port.Port()), nil
+}
