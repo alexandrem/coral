@@ -14,6 +14,17 @@ import (
 	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
+// ORM models for profiler tables.
+
+type binaryMetadataDB struct {
+	BuildID      string    `duckdb:"build_id,pk"`
+	ServiceID    string    `duckdb:"service_id"`
+	BinaryPath   string    `duckdb:"binary_path"`
+	FirstSeen    time.Time `duckdb:"first_seen,immutable"`
+	LastSeen     time.Time `duckdb:"last_seen"`
+	HasDebugInfo bool      `duckdb:"has_debug_info"`
+}
+
 // Storage handles local storage of continuous CPU profile samples.
 type Storage struct {
 	db     *sql.DB
@@ -23,6 +34,9 @@ type Storage struct {
 	// Frame dictionary cache: frame_name -> frame_id.
 	frameDictCache map[string]int64
 	nextFrameID    int64
+
+	// ORM tables.
+	binaryMetadataTable *duckdb.Table[binaryMetadataDB]
 }
 
 // ProfileSample represents a single aggregated profile sample.
@@ -48,9 +62,10 @@ type BinaryMetadata struct {
 // NewStorage creates a new continuous profiling storage.
 func NewStorage(db *sql.DB, logger zerolog.Logger) (*Storage, error) {
 	s := &Storage{
-		db:             db,
-		logger:         logger.With().Str("component", "continuous_profiler_storage").Logger(),
-		frameDictCache: make(map[string]int64),
+		db:                  db,
+		logger:              logger.With().Str("component", "continuous_profiler_storage").Logger(),
+		frameDictCache:      make(map[string]int64),
+		binaryMetadataTable: duckdb.NewTable[binaryMetadataDB](db, "binary_metadata_local"),
 	}
 
 	// Initialize schema.
@@ -239,25 +254,16 @@ func (s *Storage) UpsertBinaryMetadata(ctx context.Context, metadata BinaryMetad
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	query := `
-		INSERT INTO binary_metadata_local (
-			build_id, service_id, binary_path, first_seen, last_seen, has_debug_info
-		) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (build_id) DO UPDATE SET
-			last_seen = EXCLUDED.last_seen,
-			has_debug_info = EXCLUDED.has_debug_info
-	`
+	item := &binaryMetadataDB{
+		BuildID:      metadata.BuildID,
+		ServiceID:    metadata.ServiceID,
+		BinaryPath:   metadata.BinaryPath,
+		FirstSeen:    metadata.FirstSeen,
+		LastSeen:     metadata.LastSeen,
+		HasDebugInfo: metadata.HasDebugInfo,
+	}
 
-	_, err := s.db.ExecContext(ctx, query,
-		metadata.BuildID,
-		metadata.ServiceID,
-		metadata.BinaryPath,
-		metadata.FirstSeen,
-		metadata.LastSeen,
-		metadata.HasDebugInfo,
-	)
-
-	if err != nil {
+	if err := s.binaryMetadataTable.Upsert(ctx, item); err != nil {
 		return fmt.Errorf("failed to upsert binary metadata: %w", err)
 	}
 

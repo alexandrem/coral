@@ -13,7 +13,59 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
+
+// ORM models for Beyla tables.
+
+type beylaHTTPMetricDB struct {
+	Timestamp       time.Time `duckdb:"timestamp"`
+	ServiceName     string    `duckdb:"service_name"`
+	HTTPMethod      string    `duckdb:"http_method"`
+	HTTPRoute       string    `duckdb:"http_route"`
+	HTTPStatusCode  int       `duckdb:"http_status_code"`
+	LatencyBucketMs float64   `duckdb:"latency_bucket_ms"`
+	Count           int64     `duckdb:"count"`
+	Attributes      string    `duckdb:"attributes"`
+	CreatedAt       time.Time `duckdb:"created_at,immutable"`
+}
+
+type beylaGRPCMetricDB struct {
+	Timestamp       time.Time `duckdb:"timestamp"`
+	ServiceName     string    `duckdb:"service_name"`
+	GRPCMethod      string    `duckdb:"grpc_method"`
+	GRPCStatusCode  int       `duckdb:"grpc_status_code"`
+	LatencyBucketMs float64   `duckdb:"latency_bucket_ms"`
+	Count           int64     `duckdb:"count"`
+	Attributes      string    `duckdb:"attributes"`
+	CreatedAt       time.Time `duckdb:"created_at,immutable"`
+}
+
+type beylaSQLMetricDB struct {
+	Timestamp       time.Time `duckdb:"timestamp"`
+	ServiceName     string    `duckdb:"service_name"`
+	SQLOperation    string    `duckdb:"sql_operation"`
+	TableName       string    `duckdb:"table_name"`
+	LatencyBucketMs float64   `duckdb:"latency_bucket_ms"`
+	Count           int64     `duckdb:"count"`
+	Attributes      string    `duckdb:"attributes"`
+	CreatedAt       time.Time `duckdb:"created_at,immutable"`
+}
+
+type beylaTraceDB struct {
+	TraceID      string    `duckdb:"trace_id,pk"`
+	SpanID       string    `duckdb:"span_id,pk"`
+	ParentSpanID string    `duckdb:"parent_span_id,immutable"`
+	AgentID      string    `duckdb:"agent_id,immutable"`
+	ServiceName  string    `duckdb:"service_name,immutable"`
+	SpanName     string    `duckdb:"span_name,immutable"`
+	SpanKind     string    `duckdb:"span_kind,immutable"`
+	StartTime    time.Time `duckdb:"start_time,immutable"`
+	DurationUs   int64     `duckdb:"duration_us,immutable"`
+	StatusCode   int       `duckdb:"status_code,immutable"`
+	Attributes   string    `duckdb:"attributes,immutable"`
+	CreatedAt    time.Time `duckdb:"created_at,immutable"`
+}
 
 // BeylaStorage handles local storage of Beyla metrics in agent's DuckDB.
 // Metrics are stored for ~1 hour and queried by Colony on-demand (RFD 025 pull-based).
@@ -22,15 +74,25 @@ type BeylaStorage struct {
 	dbPath string // File path to DuckDB file (for HTTP serving, RFD 039).
 	logger zerolog.Logger
 	mu     sync.RWMutex
+
+	// ORM tables.
+	httpMetricsTable *duckdb.Table[beylaHTTPMetricDB]
+	grpcMetricsTable *duckdb.Table[beylaGRPCMetricDB]
+	sqlMetricsTable  *duckdb.Table[beylaSQLMetricDB]
+	tracesTable      *duckdb.Table[beylaTraceDB]
 }
 
 // NewBeylaStorage creates a new Beyla storage instance.
 // dbPath is optional - if empty, database file path will not be available for HTTP serving.
 func NewBeylaStorage(db *sql.DB, dbPath string, logger zerolog.Logger) (*BeylaStorage, error) {
 	s := &BeylaStorage{
-		db:     db,
-		dbPath: dbPath,
-		logger: logger.With().Str("component", "beyla_storage").Logger(),
+		db:               db,
+		dbPath:           dbPath,
+		logger:           logger.With().Str("component", "beyla_storage").Logger(),
+		httpMetricsTable: duckdb.NewTable[beylaHTTPMetricDB](db, "beyla_http_metrics_local"),
+		grpcMetricsTable: duckdb.NewTable[beylaGRPCMetricDB](db, "beyla_grpc_metrics_local"),
+		sqlMetricsTable:  duckdb.NewTable[beylaSQLMetricDB](db, "beyla_sql_metrics_local"),
+		tracesTable:      duckdb.NewTable[beylaTraceDB](db, "beyla_traces_local"),
 	}
 
 	// Initialize schema.
@@ -366,34 +428,26 @@ func (s *BeylaStorage) StoreTrace(ctx context.Context, event *ebpfpb.EbpfEvent) 
 		return fmt.Errorf("failed to marshal attributes: %w", err)
 	}
 
-	query := `
-		INSERT INTO beyla_traces_local (
-			trace_id, span_id, parent_span_id, agent_id, service_name, span_name, span_kind,
-			start_time, duration_us, status_code, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
 	startTime := traceSpan.StartTime.AsTime()
 	durationUs := traceSpan.Duration.AsDuration().Microseconds()
 
-	_, err = s.db.ExecContext(
-		ctx,
-		query,
-		traceSpan.TraceId,
-		traceSpan.SpanId,
-		traceSpan.ParentSpanId,
-		event.AgentId,
-		traceSpan.ServiceName,
-		traceSpan.SpanName,
-		traceSpan.SpanKind,
-		startTime,
-		durationUs,
-		traceSpan.StatusCode,
-		string(attributesJSON),
-	)
+	item := &beylaTraceDB{
+		TraceID:      traceSpan.TraceId,
+		SpanID:       traceSpan.SpanId,
+		ParentSpanID: traceSpan.ParentSpanId,
+		AgentID:      event.AgentId,
+		ServiceName:  traceSpan.ServiceName,
+		SpanName:     traceSpan.SpanName,
+		SpanKind:     traceSpan.SpanKind,
+		StartTime:    startTime,
+		DurationUs:   durationUs,
+		StatusCode:   int(traceSpan.StatusCode),
+		Attributes:   string(attributesJSON),
+		CreatedAt:    time.Now(),
+	}
 
-	if err != nil {
-		return fmt.Errorf("failed to insert trace span: %w", err)
+	if err := s.tracesTable.Upsert(ctx, item); err != nil {
+		return fmt.Errorf("failed to upsert trace span: %w", err)
 	}
 
 	return nil
@@ -412,32 +466,23 @@ func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceI
 		return fmt.Errorf("failed to marshal attributes: %w", err)
 	}
 
-	query := `
-		INSERT INTO beyla_traces_local (
-			trace_id, span_id, parent_span_id, agent_id, service_name, span_name, span_kind,
-			start_time, duration_us, status_code, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (trace_id, span_id) DO NOTHING
-	`
+	item := &beylaTraceDB{
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parentSpanID,
+		AgentID:      agentID,
+		ServiceName:  serviceName,
+		SpanName:     spanName,
+		SpanKind:     spanKind,
+		StartTime:    startTime,
+		DurationUs:   durationUs,
+		StatusCode:   statusCode,
+		Attributes:   string(attributesJSON),
+		CreatedAt:    time.Now(),
+	}
 
-	_, err = s.db.ExecContext(
-		ctx,
-		query,
-		traceID,
-		spanID,
-		parentSpanID,
-		agentID,
-		serviceName,
-		spanName,
-		spanKind,
-		startTime,
-		durationUs,
-		statusCode,
-		string(attributesJSON),
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to insert OTLP span: %w", err)
+	if err := s.tracesTable.Upsert(ctx, item); err != nil {
+		return fmt.Errorf("failed to upsert OTLP span: %w", err)
 	}
 
 	return nil

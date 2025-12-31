@@ -3,6 +3,8 @@ package debug
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -55,6 +57,9 @@ func (qr *QueryRouter) QueryUprobeEvents(
 	// Query session from database.
 	session, err := qr.db.GetDebugSession(req.Msg.SessionId)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
+		}
 		qr.logger.Error().Err(err).
 			Str("session_id", req.Msg.SessionId).
 			Msg("Failed to query debug session from database")
@@ -213,6 +218,9 @@ func (qr *QueryRouter) GetDebugResults(
 	// Query session from database.
 	session, err := qr.db.GetDebugSession(req.Msg.SessionId)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
+		}
 		qr.logger.Error().Err(err).
 			Str("session_id", req.Msg.SessionId).
 			Msg("Failed to query debug session from database")

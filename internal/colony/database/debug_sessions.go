@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -8,17 +9,17 @@ import (
 
 // DebugSession represents a persistent debug session record.
 type DebugSession struct {
-	SessionID    string
-	CollectorID  string
-	ServiceName  string
-	FunctionName string
-	AgentID      string
-	SDKAddr      string
-	StartedAt    time.Time
-	ExpiresAt    time.Time
-	Status       string
-	RequestedBy  string
-	EventCount   int
+	SessionID    string    `duckdb:"session_id,pk"`
+	CollectorID  string    `duckdb:"collector_id,immutable"`
+	ServiceName  string    `duckdb:"service_name,immutable"`
+	FunctionName string    `duckdb:"function_name,immutable"`
+	AgentID      string    `duckdb:"agent_id,immutable"`
+	SDKAddr      string    `duckdb:"sdk_addr,immutable"`
+	StartedAt    time.Time `duckdb:"started_at,immutable"`
+	ExpiresAt    time.Time `duckdb:"expires_at"`
+	Status       string    `duckdb:"status"`
+	RequestedBy  string    `duckdb:"requested_by,immutable"`
+	EventCount   int       `duckdb:"event_count"`
 }
 
 // DebugSessionFilters contains filters for listing debug sessions.
@@ -29,86 +30,23 @@ type DebugSessionFilters struct {
 
 // InsertDebugSession persists a new debug session to the database.
 func (d *Database) InsertDebugSession(session *DebugSession) error {
-	query := `
-		INSERT INTO debug_sessions (
-			session_id, collector_id, service_name, function_name,
-			agent_id, sdk_addr, started_at, expires_at, status, requested_by, event_count
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
-	_, err := d.db.Exec(query,
-		session.SessionID,
-		session.CollectorID,
-		session.ServiceName,
-		session.FunctionName,
-		session.AgentID,
-		session.SDKAddr,
-		session.StartedAt,
-		session.ExpiresAt,
-		session.Status,
-		session.RequestedBy,
-		session.EventCount,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to insert debug session: %w", err)
-	}
-
-	return nil
+	return d.debugSessionsTable.Upsert(context.Background(), session)
 }
 
 // UpdateDebugSessionStatus updates the status of a debug session.
 func (d *Database) UpdateDebugSessionStatus(sessionID, status string) error {
-	query := `
-		UPDATE debug_sessions
-		SET status = ?
-		WHERE session_id = ?
-	`
-
-	_, err := d.db.Exec(query, status, sessionID)
+	ctx := context.Background()
+	session, err := d.debugSessionsTable.Get(ctx, sessionID)
 	if err != nil {
-		return fmt.Errorf("failed to update debug session status: %w", err)
+		return fmt.Errorf("failed to get debug session: %w", err)
 	}
-
-	return nil
+	session.Status = status
+	return d.debugSessionsTable.Update(ctx, session)
 }
 
 // GetDebugSession retrieves a debug session by ID.
 func (d *Database) GetDebugSession(sessionID string) (*DebugSession, error) {
-	query := `
-		SELECT session_id, collector_id, service_name, function_name,
-		       agent_id, sdk_addr, started_at, expires_at, status, requested_by, event_count
-		FROM debug_sessions
-		WHERE session_id = ?
-	`
-
-	var session DebugSession
-	var requestedBy sql.NullString // Handle nullable field
-
-	err := d.db.QueryRow(query, sessionID).Scan(
-		&session.SessionID,
-		&session.CollectorID,
-		&session.ServiceName,
-		&session.FunctionName,
-		&session.AgentID,
-		&session.SDKAddr,
-		&session.StartedAt,
-		&session.ExpiresAt,
-		&session.Status,
-		&requestedBy,
-		&session.EventCount,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil // Not found
-		}
-		return nil, fmt.Errorf("failed to get debug session: %w", err)
-	}
-
-	if requestedBy.Valid {
-		session.RequestedBy = requestedBy.String
-	}
-
-	return &session, nil
+	return d.debugSessionsTable.Get(context.Background(), sessionID)
 }
 
 // ListDebugSessions retrieves debug sessions matching the provided filters.

@@ -2,6 +2,7 @@
 package ca
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -20,8 +21,31 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/privilege"
 )
+
+// IssuedCertificate represents a certificate issued to an agent (RFD 047).
+type IssuedCertificate struct {
+	SerialNumber     string     `duckdb:"serial_number,pk"`
+	AgentID          string     `duckdb:"agent_id"`
+	ColonyID         string     `duckdb:"colony_id"`
+	CertificatePEM   string     `duckdb:"certificate_pem"`
+	IssuedAt         time.Time  `duckdb:"issued_at"`
+	ExpiresAt        time.Time  `duckdb:"expires_at"`
+	RevokedAt        *time.Time `duckdb:"revoked_at"`        // Nullable
+	RevocationReason *string    `duckdb:"revocation_reason"` // Nullable
+	Status           string     `duckdb:"status"`
+}
+
+// Revocation represents a certificate revocation event.
+type Revocation struct {
+	ID           int64     `duckdb:"id,pk"` // Generated manually
+	SerialNumber string    `duckdb:"serial_number"`
+	RevokedAt    time.Time `duckdb:"revoked_at"`
+	Reason       string    `duckdb:"reason"`
+	RevokedBy    string    `duckdb:"revoked_by"`
+}
 
 // Manager handles certificate authority operations for agent mTLS.
 // Implements RFD 047 - Colony CA Infrastructure & Policy Signing.
@@ -37,6 +61,8 @@ type Manager struct {
 	jwtSigningKey          []byte
 	colonyID               string
 	caDir                  string // Filesystem path for CA storage.
+	issuedCertsTable       *duckdb.Table[IssuedCertificate]
+	revocationsTable       *duckdb.Table[Revocation]
 }
 
 // Config contains CA manager configuration.
@@ -50,10 +76,12 @@ type Config struct {
 // NewManager creates a new CA manager instance.
 func NewManager(db *sql.DB, cfg Config) (*Manager, error) {
 	m := &Manager{
-		db:            db,
-		jwtSigningKey: cfg.JWTSigningKey,
-		colonyID:      cfg.ColonyID,
-		caDir:         cfg.CADir,
+		db:               db,
+		jwtSigningKey:    cfg.JWTSigningKey,
+		colonyID:         cfg.ColonyID,
+		caDir:            cfg.CADir,
+		issuedCertsTable: duckdb.NewTable[IssuedCertificate](db, "issued_certificates"),
+		revocationsTable: duckdb.NewTable[Revocation](db, "certificate_revocations"),
 	}
 
 	// Initialize or load CA state from filesystem.
@@ -472,26 +500,19 @@ func (m *Manager) IssueCertificate(agentID, colonyID string, csrPEM []byte) ([]b
 	})...)
 
 	// Store certificate.
-	tx, err := m.db.Begin()
-	if err != nil {
-		return nil, nil, time.Time{}, fmt.Errorf("failed to begin transaction: %w", err)
+	// ORM Upsert handles transaction logic internally.
+	cert := &IssuedCertificate{
+		SerialNumber:   serialNumber.String(),
+		AgentID:        agentID,
+		ColonyID:       colonyID,
+		CertificatePEM: string(certPEM),
+		IssuedAt:       notBefore,
+		ExpiresAt:      notAfter,
+		Status:         "active",
 	}
-	defer func(tx *sql.Tx) {
-		_ = tx.Rollback() // TODO: errcheck
-	}(tx)
 
-	_, err = tx.Exec(`
-		INSERT INTO issued_certificates (
-			serial_number, agent_id, colony_id,
-			certificate_pem, issued_at, expires_at, status
-		) VALUES (?, ?, ?, ?, ?, ?, 'active')
-	`, serialNumber.String(), agentID, colonyID, string(certPEM), notBefore, notAfter)
-	if err != nil {
+	if err := m.issuedCertsTable.Upsert(context.Background(), cert); err != nil {
 		return nil, nil, time.Time{}, fmt.Errorf("failed to store certificate: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, nil, time.Time{}, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return certPEM, caChain, notAfter, nil

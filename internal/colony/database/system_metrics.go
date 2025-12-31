@@ -7,21 +7,24 @@ import (
 )
 
 // SystemMetricsSummary represents an aggregated system metrics summary for a 1-minute bucket (RFD 071).
+// SystemMetricsSummary represents an aggregated system metrics summary for a 1-minute bucket (RFD 071).
 type SystemMetricsSummary struct {
-	BucketTime  time.Time
-	AgentID     string
-	MetricName  string
-	MinValue    float64
-	MaxValue    float64
-	AvgValue    float64
-	P95Value    float64
-	DeltaValue  float64 // For counters: total change in window.
-	SampleCount uint64  // Number of samples aggregated
-	Unit        string
-	MetricType  string
-	Attributes  string // JSON string.
+	BucketTime  time.Time `duckdb:"bucket_time,pk"`
+	AgentID     string    `duckdb:"agent_id,pk"`
+	MetricName  string    `duckdb:"metric_name,pk"`
+	MinValue    float64   `duckdb:"min_value"`
+	MaxValue    float64   `duckdb:"max_value"`
+	AvgValue    float64   `duckdb:"avg_value"`
+	P95Value    float64   `duckdb:"p95_value"`
+	DeltaValue  float64   `duckdb:"delta_value"`
+	SampleCount uint64    `duckdb:"sample_count"`
+	Unit        string    `duckdb:"unit"`
+	MetricType  string    `duckdb:"metric_type"`
+	Attributes  string    `duckdb:"attributes,pk"` // Includes attributes in PK for conflict resolution
 }
 
+// InsertSystemMetricsSummaries inserts system metrics summaries into the database.
+// Summaries are created by the colony after querying and aggregating agent data (RFD 071).
 // InsertSystemMetricsSummaries inserts system metrics summaries into the database.
 // Summaries are created by the colony after querying and aggregating agent data (RFD 071).
 func (d *Database) InsertSystemMetricsSummaries(ctx context.Context, summaries []SystemMetricsSummary) error {
@@ -29,52 +32,14 @@ func (d *Database) InsertSystemMetricsSummaries(ctx context.Context, summaries [
 		return nil
 	}
 
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO system_metrics_summaries (
-			bucket_time, agent_id, metric_name, min_value, max_value, avg_value,
-			p95_value, delta_value, sample_count, unit, metric_type, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (bucket_time, agent_id, metric_name, attributes) DO UPDATE SET
-			min_value = excluded.min_value,
-			max_value = excluded.max_value,
-			avg_value = excluded.avg_value,
-			p95_value = excluded.p95_value,
-			delta_value = excluded.delta_value,
-			sample_count = excluded.sample_count
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
-	for _, summary := range summaries {
-		_, err = stmt.ExecContext(ctx,
-			summary.BucketTime,
-			summary.AgentID,
-			summary.MetricName,
-			summary.MinValue,
-			summary.MaxValue,
-			summary.AvgValue,
-			summary.P95Value,
-			summary.DeltaValue,
-			summary.SampleCount,
-			summary.Unit,
-			summary.MetricType,
-			summary.Attributes,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert summary: %w", err)
-		}
+	// Create a slice of pointers for BatchUpsert
+	items := make([]*SystemMetricsSummary, len(summaries))
+	for i := range summaries {
+		items[i] = &summaries[i]
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	if err := d.systemMetricsTable.BatchUpsert(ctx, items); err != nil {
+		return fmt.Errorf("failed to batch upsert system metrics summaries: %w", err)
 	}
 
 	d.logger.Debug().

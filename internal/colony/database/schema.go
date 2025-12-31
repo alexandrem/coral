@@ -114,57 +114,12 @@ var schemaDDL = []string{
 		last_seen TIMESTAMP NOT NULL
 	)`,
 
-	// Metric summaries - aggregated metrics (downsampled).
-	`CREATE TABLE IF NOT EXISTS metric_summaries (
-		timestamp TIMESTAMP NOT NULL,
-		service_id TEXT NOT NULL,
-		metric_name TEXT NOT NULL,
-		interval TEXT NOT NULL,
-		p50 DOUBLE,
-		p95 DOUBLE,
-		p99 DOUBLE,
-		mean DOUBLE,
-		max DOUBLE,
-		count INTEGER,
-		PRIMARY KEY (timestamp, service_id, metric_name, interval)
+	// Service heartbeats - frequent updates separated for performance.
+	// Note: No foreign key constraint or indexes to avoid DuckDB update conflicts.
+	`CREATE TABLE IF NOT EXISTS service_heartbeats (
+		service_id TEXT PRIMARY KEY,
+		last_seen TIMESTAMP NOT NULL
 	)`,
-
-	`CREATE INDEX IF NOT EXISTS idx_metric_summaries_service_id ON metric_summaries(service_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_metric_summaries_metric_name ON metric_summaries(metric_name)`,
-
-	// Events - important events only (deploy, crash, restart, alert, connection).
-	`CREATE TABLE IF NOT EXISTS events (
-		id INTEGER PRIMARY KEY,
-		timestamp TIMESTAMP NOT NULL,
-		service_id TEXT NOT NULL,
-		event_type TEXT NOT NULL,
-		details TEXT,
-		correlation_group TEXT
-	)`,
-
-	`CREATE INDEX IF NOT EXISTS idx_events_service_id ON events(service_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)`,
-	`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`,
-	`CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_group)`,
-
-	// Insights - AI-generated insights and recommendations.
-	`CREATE TABLE IF NOT EXISTS insights (
-		id INTEGER PRIMARY KEY,
-		created_at TIMESTAMP NOT NULL,
-		insight_type TEXT NOT NULL,
-		priority TEXT NOT NULL,
-		title TEXT NOT NULL,
-		summary TEXT NOT NULL,
-		details TEXT,
-		affected_services TEXT,
-		status TEXT NOT NULL,
-		confidence DOUBLE,
-		expires_at TIMESTAMP
-	)`,
-
-	`CREATE INDEX IF NOT EXISTS idx_insights_status ON insights(status)`,
-	`CREATE INDEX IF NOT EXISTS idx_insights_priority ON insights(priority)`,
-	`CREATE INDEX IF NOT EXISTS idx_insights_created_at ON insights(created_at)`,
 
 	// Service connections - auto-discovered service topology.
 	`CREATE TABLE IF NOT EXISTS service_connections (
@@ -179,24 +134,6 @@ var schemaDDL = []string{
 
 	`CREATE INDEX IF NOT EXISTS idx_service_connections_from ON service_connections(from_service)`,
 	`CREATE INDEX IF NOT EXISTS idx_service_connections_to ON service_connections(to_service)`,
-
-	// Baselines - learned baselines for anomaly detection.
-	`CREATE TABLE IF NOT EXISTS baselines (
-		service_id TEXT NOT NULL,
-		metric_name TEXT NOT NULL,
-		time_window TEXT NOT NULL,
-		mean DOUBLE,
-		stddev DOUBLE,
-		p50 DOUBLE,
-		p95 DOUBLE,
-		p99 DOUBLE,
-		sample_count BIGINT,
-		last_updated TIMESTAMP NOT NULL,
-		PRIMARY KEY (service_id, metric_name, time_window)
-	)`,
-
-	`CREATE INDEX IF NOT EXISTS idx_baselines_service_id ON baselines(service_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_baselines_metric_name ON baselines(metric_name)`,
 
 	// OpenTelemetry summaries - aggregated telemetry data from queried agents (RFD 025 - pull-based).
 	`CREATE TABLE IF NOT EXISTS otel_summaries (
@@ -328,7 +265,7 @@ var schemaDDL = []string{
 
 	// Debug sessions - active and past debug sessions.
 	`CREATE TABLE IF NOT EXISTS debug_sessions (
-		session_id VARCHAR,
+		session_id VARCHAR PRIMARY KEY,
 		collector_id VARCHAR NOT NULL,
 		service_name VARCHAR NOT NULL,
 		function_name VARCHAR NOT NULL,
@@ -341,9 +278,9 @@ var schemaDDL = []string{
 		event_count INTEGER DEFAULT 0
 	)`,
 
-	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_id ON debug_sessions(session_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_service ON debug_sessions(service_name)`,
-	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_status ON debug_sessions(status)`,
+	// Note: Removed index on status due to DuckDB limitation with updating indexed columns.
+	// `CREATE INDEX IF NOT EXISTS idx_debug_sessions_status ON debug_sessions(status)`,
 	`CREATE INDEX IF NOT EXISTS idx_debug_sessions_agent ON debug_sessions(agent_id)`,
 
 	// Debug events - stored uprobe events from debug sessions (RFD 062).

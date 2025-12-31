@@ -13,14 +13,15 @@ import (
 )
 
 // CPUProfileSummary represents a 1-minute aggregated CPU profile sample (RFD 072).
+// CPUProfileSummary represents a 1-minute aggregated CPU profile sample (RFD 072).
 type CPUProfileSummary struct {
-	Timestamp     time.Time
-	AgentID       string
-	ServiceName   string
-	BuildID       string
-	StackHash     string
-	StackFrameIDs []int64
-	SampleCount   uint32 // Number of samples (always >= 0, matches protobuf)
+	Timestamp     time.Time `duckdb:"timestamp,pk,immutable"`    // Immutable: PRIMARY KEY, cannot be updated.
+	AgentID       string    `duckdb:"agent_id,pk,immutable"`     // Immutable: PRIMARY KEY, cannot be updated.
+	ServiceName   string    `duckdb:"service_name,pk,immutable"` // Immutable: PRIMARY KEY, cannot be updated.
+	BuildID       string    `duckdb:"build_id,pk,immutable"`     // Immutable: PRIMARY KEY, cannot be updated.
+	StackHash     string    `duckdb:"stack_hash,pk,immutable"`   // Immutable: PRIMARY KEY, cannot be updated.
+	StackFrameIDs []int64   `duckdb:"stack_frame_ids"`           // Mutable: stack frame IDs.
+	SampleCount   uint32    `duckdb:"sample_count"`              // Mutable: updated when aggregating samples.
 }
 
 // ComputeStackHash generates a SHA-256 hash of the stack frame IDs.
@@ -37,13 +38,14 @@ func ComputeStackHash(frameIDs []int64) string {
 }
 
 // BinaryMetadata tracks build ID to service mapping (RFD 072).
+// BinaryMetadata tracks build ID to service mapping (RFD 072).
 type BinaryMetadata struct {
-	BuildID      string
-	ServiceName  string
-	BinaryPath   string
-	FirstSeen    time.Time
-	LastSeen     time.Time
-	HasDebugInfo bool
+	BuildID      string    `duckdb:"build_id,pk,immutable"`  // Immutable: PRIMARY KEY, cannot be updated.
+	ServiceName  string    `duckdb:"service_name,immutable"` // Immutable: has INDEX, cannot be updated in DuckDB.
+	BinaryPath   string    `duckdb:"binary_path,immutable"`  // Immutable: path shouldn't change for a build_id.
+	FirstSeen    time.Time `duckdb:"first_seen,immutable"`   // Immutable: first seen timestamp is fixed.
+	LastSeen     time.Time `duckdb:"last_seen"`              // Mutable: updated on each observation.
+	HasDebugInfo bool      `duckdb:"has_debug_info"`         // Mutable: may be discovered later.
 }
 
 // ProfileFrameStore manages the global frame dictionary for CPU profiles (RFD 072).
@@ -204,62 +206,41 @@ func (d *Database) DecodeStackFrames(ctx context.Context, frameIDs []int64) ([]s
 
 // InsertCPUProfileSummaries inserts 1-minute aggregated CPU profile summaries.
 // Summaries are created by the colony after polling and aggregating agent samples (RFD 072).
+// InsertCPUProfileSummaries inserts 1-minute aggregated CPU profile summaries.
+// Summaries are created by the colony after polling and aggregating agent samples (RFD 072).
 func (d *Database) InsertCPUProfileSummaries(ctx context.Context, summaries []CPUProfileSummary) error {
 	if len(summaries) == 0 {
 		return nil
 	}
 
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	for i, summary := range summaries {
+	// Prepare items with computed hash if missing
+	items := make([]*CPUProfileSummary, len(summaries))
+	for i := range summaries {
 		// Compute stack hash if not provided.
-		stackHash := summary.StackHash
-		if stackHash == "" {
-			stackHash = ComputeStackHash(summary.StackFrameIDs)
+		// Note: We are modifying the input slice's element indirect via pointer if we assign back,
+		// but here we just set it in the copy if we want to be pure.
+		// However, the original code computed it on the fly.
+		// Let's modify the copy we send to ORM.
+		s := summaries[i] // Copy
+		if s.StackHash == "" {
+			s.StackHash = ComputeStackHash(s.StackFrameIDs)
 		}
+		items[i] = &s
 
 		// Debug logging for first few summaries.
 		if i < 3 {
 			d.logger.Debug().
-				Time("timestamp", summary.Timestamp).
-				Str("agent_id", summary.AgentID).
-				Str("service_name", summary.ServiceName).
-				Str("build_id", summary.BuildID).
-				Uint32("sample_count", summary.SampleCount).
+				Time("timestamp", s.Timestamp).
+				Str("agent_id", s.AgentID).
+				Str("service_name", s.ServiceName).
+				Str("build_id", s.BuildID).
+				Uint32("sample_count", s.SampleCount).
 				Msg("Storing CPU profile summary")
-		}
-
-		// Format stack_frame_ids as DuckDB LIST literal.
-		frameIDsStr := duckdb.Int64ArrayToString(summary.StackFrameIDs)
-
-		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
-		query := `
-			INSERT INTO cpu_profile_summaries (
-				timestamp, agent_id, service_name, build_id, stack_hash, stack_frame_ids, sample_count
-			) VALUES (?, ?, ?, ?, ?, ` + frameIDsStr + `, ?)
-			ON CONFLICT (timestamp, agent_id, service_name, build_id, stack_hash) DO UPDATE SET
-				sample_count = cpu_profile_summaries.sample_count + excluded.sample_count
-		`
-
-		_, err = tx.ExecContext(ctx, query,
-			summary.Timestamp,
-			summary.AgentID,
-			summary.ServiceName,
-			summary.BuildID,
-			stackHash,
-			summary.SampleCount,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert CPU profile summary: %w", err)
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	if err := d.cpuProfilesTable.BatchUpsert(ctx, items); err != nil {
+		return fmt.Errorf("failed to batch upsert CPU profile summaries: %w", err)
 	}
 
 	d.logger.Debug().
@@ -270,29 +251,11 @@ func (d *Database) InsertCPUProfileSummaries(ctx context.Context, summaries []CP
 }
 
 // UpsertBinaryMetadata inserts or updates binary metadata.
+// UpsertBinaryMetadata inserts or updates binary metadata.
 func (d *Database) UpsertBinaryMetadata(ctx context.Context, metadata BinaryMetadata) error {
-	_, err := d.db.ExecContext(ctx, `
-		INSERT INTO binary_metadata_registry (
-			build_id, service_name, binary_path, first_seen, last_seen, has_debug_info
-		) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (build_id) DO UPDATE SET
-			service_name = excluded.service_name,
-			binary_path = excluded.binary_path,
-			last_seen = excluded.last_seen,
-			has_debug_info = excluded.has_debug_info
-	`,
-		metadata.BuildID,
-		metadata.ServiceName,
-		metadata.BinaryPath,
-		metadata.FirstSeen,
-		metadata.LastSeen,
-		metadata.HasDebugInfo,
-	)
-
-	if err != nil {
+	if err := d.binaryMetadataTable.Upsert(ctx, &metadata); err != nil {
 		return fmt.Errorf("failed to upsert binary metadata: %w", err)
 	}
-
 	return nil
 }
 

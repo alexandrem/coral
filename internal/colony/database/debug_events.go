@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -12,21 +13,22 @@ import (
 )
 
 // DebugEvent represents a stored uprobe event.
+// DebugEvent represents a stored uprobe event.
 type DebugEvent struct {
-	ID           int64
-	SessionID    string
-	Timestamp    time.Time
-	CollectorID  string
-	AgentID      string
-	ServiceName  string
-	FunctionName string
-	EventType    string
-	DurationNs   *int64
-	PID          *int32
-	TID          *int32
-	Args         *string
-	ReturnValue  *string
-	Labels       *string
+	ID           int64     `duckdb:"-"` // Auto-increment, ignore in ORM
+	SessionID    string    `duckdb:"session_id"`
+	Timestamp    time.Time `duckdb:"timestamp"`
+	CollectorID  string    `duckdb:"collector_id"`
+	AgentID      string    `duckdb:"agent_id"`
+	ServiceName  string    `duckdb:"service_name"`
+	FunctionName string    `duckdb:"function_name"`
+	EventType    string    `duckdb:"event_type"`
+	DurationNs   *int64    `duckdb:"duration_ns"`
+	PID          *int32    `duckdb:"pid"`
+	TID          *int32    `duckdb:"tid"`
+	Args         *string   `duckdb:"args"`
+	ReturnValue  *string   `duckdb:"return_value"`
+	Labels       *string   `duckdb:"labels"`
 }
 
 // InsertDebugEvents persists a batch of uprobe events to the database.
@@ -35,23 +37,7 @@ func (d *Database) InsertDebugEvents(sessionID string, events []*meshv1.UprobeEv
 		return nil
 	}
 
-	tx, err := d.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	stmt, err := tx.Prepare(`
-		INSERT INTO debug_events (
-			session_id, timestamp, collector_id, agent_id, service_name, function_name,
-			event_type, duration_ns, pid, tid, args, return_value, labels
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() { _ = stmt.Close() }()
-
+	var items []*DebugEvent
 	for _, event := range events {
 		// Serialize complex fields to JSON
 		var argsJSON, returnValueJSON, labelsJSON *string
@@ -99,31 +85,26 @@ func (d *Database) InsertDebugEvents(sessionID string, events []*meshv1.UprobeEv
 			tid = &event.Tid
 		}
 
-		_, err = stmt.Exec(
-			sessionID,
-			event.Timestamp.AsTime(),
-			event.CollectorId,
-			event.AgentId,
-			event.ServiceName,
-			event.FunctionName,
-			event.EventType,
-			durationNs,
-			pid,
-			tid,
-			argsJSON,
-			returnValueJSON,
-			labelsJSON,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert debug event: %w", err)
-		}
+		// Note: ID field is marked with `duckdb:"-"` so it's excluded from inserts.
+		// DuckDB will auto-generate IDs using seq_debug_events_id sequence.
+		items = append(items, &DebugEvent{
+			SessionID:    sessionID,
+			Timestamp:    event.Timestamp.AsTime(),
+			CollectorID:  event.CollectorId,
+			AgentID:      event.AgentId,
+			ServiceName:  event.ServiceName,
+			FunctionName: event.FunctionName,
+			EventType:    event.EventType,
+			DurationNs:   durationNs,
+			PID:          pid,
+			TID:          tid,
+			Args:         argsJSON,
+			ReturnValue:  returnValueJSON,
+			Labels:       labelsJSON,
+		})
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	return d.debugEventsTable.BatchUpsert(context.Background(), items)
 }
 
 // GetDebugEvents retrieves all stored events for a debug session.
