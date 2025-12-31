@@ -180,3 +180,21 @@ func QueryAgentEbpfMetrics(
 
 	return resp.Msg, nil
 }
+
+// ListServices queries colony for registered services.
+func ListServices(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	namespace string,
+) (*colonyv1.ListServicesResponse, error) {
+	req := connect.NewRequest(&colonyv1.ListServicesRequest{
+		Namespace: namespace,
+	})
+
+	resp, err := client.ListServices(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list services: %w", err)
+	}
+
+	return resp.Msg, nil
+}

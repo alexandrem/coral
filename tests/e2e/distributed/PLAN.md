@@ -428,10 +428,23 @@ func (suite *E2EDistributedSuite) SetupSuite() {
 - [x] All connectivity tests pass (discovery, WireGuard, registration, heartbeat)
 - [x] Reconnection scenarios implemented (colony restart)
 - [x] Multi-agent coordination tested (3 agents with unique mesh IPs)
+- [x] Service registration and discovery via colony API ✅ NEW
 - [x] Tests compile successfully and run on Linux with proper cleanup
 - [x] Foundation ready for observability layer tests
 
 **Status**: ✅ **Phase 1 COMPLETE** - All connectivity and discovery tests implemented and working
+
+**Connectivity Test Coverage** (7 tests):
+1. `TestDiscoveryServiceAvailability` - Verifies discovery service is running and healthy ✅
+2. `TestColonyRegistrationWithDiscovery` - Verifies colony registers with discovery service ✅
+3. `TestColonyStatus` - Verifies colony status query returns correct metadata ✅
+4. `TestAgentRegistration` - Verifies agents register with colony successfully ✅
+5. `TestMultiAgentMeshAllocation` - Verifies multiple agents get unique mesh IPs ✅
+6. `TestHeartbeatMechanism` - Verifies agent heartbeats update last_seen timestamps ✅
+7. `TestServiceRegistration` - Verifies services are registered and queryable via colony API ✅ NEW
+   - Bridges Phase 1 (connectivity) and Phase 2 (observability)
+   - Critical for Beyla auto-instrumentation (depends on service registry)
+8. `TestAgentReconnectionAfterColonyRestart` - Verifies agent reconnection after colony restarts ✅
 
 ### Phase 2 Completion
 - [x] All 4 observability layers have E2E test coverage (17 tests total)
