@@ -41,6 +41,7 @@ type Agent struct {
 
 // Config contains agent configuration.
 type Config struct {
+	Context       context.Context // Parent context for lifecycle management.
 	AgentID       string
 	Services      []*meshv1.ServiceInfo
 	BeylaConfig   *beyla.Config
@@ -54,8 +55,11 @@ func New(config Config) (*Agent, error) {
 	if config.AgentID == "" {
 		return nil, fmt.Errorf("agent_id is required")
 	}
+	if config.Context == nil {
+		return nil, fmt.Errorf("context is required")
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(config.Context)
 
 	// Initialize eBPF manager.
 	ebpfManager := ebpf.NewManager(ebpf.Config{
@@ -89,7 +93,7 @@ func New(config Config) (*Agent, error) {
 
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
-		monitor := NewServiceMonitor(service, config.FunctionCache, config.Logger)
+		monitor := NewServiceMonitor(ctx, service, config.FunctionCache, config.Logger)
 		// Set callback for continuous profiling (RFD 072).
 		monitor.onProcessDiscovered = agent.onProcessDiscovered
 		agent.monitors[service.Name] = monitor
@@ -192,6 +196,11 @@ func (a *Agent) onProcessDiscovered(serviceName string, pid int32, binaryPath st
 	}
 }
 
+// GetContext returns the agent's context.
+func (a *Agent) GetContext() context.Context {
+	return a.ctx
+}
+
 // GetDebugManager returns the debug session manager (RFD 072).
 func (a *Agent) GetDebugManager() *debug.SessionManager {
 	return a.debugManager
@@ -268,7 +277,7 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 	}
 
 	// Create and start new monitor.
-	monitor := NewServiceMonitor(service, a.functionCache, a.logger)
+	monitor := NewServiceMonitor(a.ctx, service, a.functionCache, a.logger)
 	// Set callback for continuous profiling (RFD 072).
 	monitor.onProcessDiscovered = a.onProcessDiscovered
 	monitor.Start()

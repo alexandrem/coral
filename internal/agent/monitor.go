@@ -59,8 +59,12 @@ type ServiceMonitor struct {
 }
 
 // NewServiceMonitor creates a new service monitor.
-func NewServiceMonitor(service *meshv1.ServiceInfo, functionCache *FunctionCache, logger zerolog.Logger) *ServiceMonitor {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewServiceMonitor(parentCtx context.Context, service *meshv1.ServiceInfo, functionCache *FunctionCache, logger zerolog.Logger) *ServiceMonitor {
+	if parentCtx == nil {
+		panic("NewServiceMonitor: context must not be nil")
+	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	return &ServiceMonitor{
 		service:       service,

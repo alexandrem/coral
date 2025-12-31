@@ -118,6 +118,7 @@ func TestTelemetryE2E(t *testing.T) {
 
 	// Create agent service handler
 	agentInstance, err := agent.New(agent.Config{
+		Context:  ctx,
 		AgentID:  "test-agent",
 		Services: nil,
 		Logger:   logger,
@@ -128,6 +129,7 @@ func TestTelemetryE2E(t *testing.T) {
 	defer func() { _ = agentInstance.Stop() }() // TODO: errcheck
 
 	runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
+		Context:         ctx,
 		Logger:          logger,
 		Version:         "test",
 		RefreshInterval: 1 * time.Hour,

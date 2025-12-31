@@ -147,7 +147,7 @@ func (sm *SessionManager) AttachUprobe(
 	}
 
 	// Insert session into database.
-	if err := sm.db.InsertDebugSession(session); err != nil {
+	if err := sm.db.InsertDebugSession(ctx, session); err != nil {
 		sm.logger.Error().Err(err).
 			Str("session_id", sessionID).
 			Msg("Failed to insert debug session into database")
@@ -180,7 +180,7 @@ func (sm *SessionManager) DetachUprobe(
 		Msg("Detaching uprobe")
 
 	// Query session from database.
-	session, err := sm.db.GetDebugSession(req.Msg.SessionId)
+	session, err := sm.db.GetDebugSession(ctx, req.Msg.SessionId)
 	if err != nil {
 		sm.logger.Error().Err(err).
 			Str("session_id", req.Msg.SessionId).
@@ -243,7 +243,7 @@ func (sm *SessionManager) DetachUprobe(
 
 			// Persist events to database.
 			if len(uprobeEvents) > 0 {
-				if err := sm.db.InsertDebugEvents(req.Msg.SessionId, uprobeEvents); err != nil {
+				if err := sm.db.InsertDebugEvents(ctx, req.Msg.SessionId, uprobeEvents); err != nil {
 					sm.logger.Error().Err(err).
 						Str("session_id", req.Msg.SessionId).
 						Int("event_count", len(uprobeEvents)).
@@ -283,7 +283,7 @@ func (sm *SessionManager) DetachUprobe(
 	}
 
 	// Update session status in database.
-	if err := sm.db.UpdateDebugSessionStatus(req.Msg.SessionId, "stopped"); err != nil {
+	if err := sm.db.UpdateDebugSessionStatus(ctx, req.Msg.SessionId, "stopped"); err != nil {
 		sm.logger.Error().Err(err).
 			Str("session_id", req.Msg.SessionId).
 			Msg("Failed to update session status in database")

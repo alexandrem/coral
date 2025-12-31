@@ -333,6 +333,7 @@ func (b *AgentServerBuilder) RegisterServices() error {
 	}
 
 	serviceRegistry := NewServiceRegistry(
+		b.agentInstance.GetContext(),
 		b.logger,
 		b.configResult.AgentConfig,
 		b.configResult.Config,

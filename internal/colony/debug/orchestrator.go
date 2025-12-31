@@ -83,7 +83,9 @@ func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *dat
 	)
 
 	// Create event persister.
+	// Use background context for the event persister's lifecycle.
 	eventPersister := NewEventPersister(
+		context.Background(),
 		logger,
 		db,
 		queryRouter,
@@ -594,7 +596,7 @@ func (o *Orchestrator) ProfileFunctions(
 
 				if len(queryResp.Msg.Events) > 0 {
 					// Persist events to database immediately
-					if err := o.db.InsertDebugEvents(sessionID, queryResp.Msg.Events); err != nil {
+					if err := o.db.InsertDebugEvents(ctx, sessionID, queryResp.Msg.Events); err != nil {
 						o.logger.Error().
 							Err(err).
 							Str("session_id", sessionID).

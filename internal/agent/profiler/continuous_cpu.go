@@ -45,6 +45,7 @@ type ServiceInfo struct {
 
 // NewContinuousCPUProfiler creates a new continuous CPU profiler.
 func NewContinuousCPUProfiler(
+	parentCtx context.Context,
 	db *sql.DB,
 	sessionManager *debug.SessionManager,
 	logger zerolog.Logger,
@@ -82,7 +83,11 @@ func NewContinuousCPUProfiler(
 		logger.Info().Int("symbol_count", kernelSymbolizer.SymbolCount()).Msg("Kernel symbolizer initialized for continuous profiling")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	if parentCtx == nil {
+		return nil, fmt.Errorf("context is required")
+	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	profiler := &ContinuousCPUProfiler{
 		storage:          storage,
