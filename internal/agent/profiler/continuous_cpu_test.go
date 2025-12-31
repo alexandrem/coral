@@ -47,7 +47,7 @@ func TestContinuousProfilingEndToEnd(t *testing.T) {
 		MetadataRetention: 7 * 24 * time.Hour,
 	}
 
-	profiler, err := NewContinuousCPUProfiler(db, sessionManager, logger, config)
+	profiler, err := NewContinuousCPUProfiler(context.Background(), db, sessionManager, logger, config)
 	require.NoError(t, err, "Failed to create continuous profiler")
 
 	// Get our own PID to profile.

@@ -42,6 +42,7 @@ type ServicesResult struct {
 
 // ServiceRegistry handles service registration and HTTP servers.
 type ServiceRegistry struct {
+	parentCtx     context.Context
 	logger        logging.Logger
 	agentCfg      *config.AgentConfig
 	cfg           *config.ResolvedConfig
@@ -59,6 +60,7 @@ type ServiceRegistry struct {
 
 // NewServiceRegistry creates a new service registry.
 func NewServiceRegistry(
+	parentCtx context.Context,
 	logger logging.Logger,
 	agentCfg *config.AgentConfig,
 	cfg *config.ResolvedConfig,
@@ -74,6 +76,7 @@ func NewServiceRegistry(
 	meshSubnet string,
 ) *ServiceRegistry {
 	return &ServiceRegistry{
+		parentCtx:     parentCtx,
 		logger:        logger,
 		agentCfg:      agentCfg,
 		cfg:           cfg,
@@ -294,6 +297,7 @@ func (s *ServiceRegistry) startContinuousCPUProfiler() error {
 	debugManager := s.agentInstance.GetDebugManager()
 
 	cpuProfiler, err := profiler.NewContinuousCPUProfiler(
+		s.parentCtx,
 		s.sharedDB,
 		debugManager,
 		s.logger,

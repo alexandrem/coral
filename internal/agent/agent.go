@@ -196,6 +196,11 @@ func (a *Agent) onProcessDiscovered(serviceName string, pid int32, binaryPath st
 	}
 }
 
+// GetContext returns the agent's context.
+func (a *Agent) GetContext() context.Context {
+	return a.ctx
+}
+
 // GetDebugManager returns the debug session manager (RFD 072).
 func (a *Agent) GetDebugManager() *debug.SessionManager {
 	return a.debugManager
