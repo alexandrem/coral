@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/coral-mesh/coral/internal/colony/database/query"
 )
 
 // TelemetrySummary represents an aggregated telemetry summary from queried agents (RFD 025 - pull-based).
@@ -76,22 +78,20 @@ func (d *Database) InsertTelemetrySummaries(ctx context.Context, summaries []Tel
 
 // QueryTelemetrySummaries retrieves telemetry summaries for a given time range and agent.
 func (d *Database) QueryTelemetrySummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]TelemetrySummary, error) {
-	query := `
-		SELECT bucket_time, agent_id, service_name, span_kind,
-		       p50_ms, p95_ms, p99_ms, error_count, total_spans, sample_traces
-		FROM otel_summaries
-		WHERE bucket_time >= ? AND bucket_time <= ?
-	`
-	args := []interface{}{startTime, endTime}
+	sql, args, err := query.New("otel_summaries").
+		Select("bucket_time", "agent_id", "service_name", "span_kind",
+			"p50_ms", "p95_ms", "p99_ms", "error_count", "total_spans", "sample_traces").
+		TimeColumn("bucket_time").
+		TimeRange(startTime, endTime).
+		Eq("agent_id", agentID).
+		OrderBy("-bucket_time").
+		Build()
 
-	if agentID != "" {
-		query += " AND agent_id = ?"
-		args = append(args, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
 	}
 
-	query += " ORDER BY bucket_time DESC"
-
-	rows, err := d.QueryContext(ctx, query, args...)
+	rows, err := d.QueryContext(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query telemetry summaries: %w", err)
 	}

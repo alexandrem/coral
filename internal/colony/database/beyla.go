@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/colony/database/query"
 	"github.com/coral-mesh/coral/internal/safe"
 )
 
@@ -312,51 +313,46 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 // QueryBeylaHTTPMetrics queries HTTP metrics from colony database.
 // Returns aggregated metrics grouped by (service, method, route, status).
 func (d *Database) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*BeylaHTTPMetricResult, error) {
-	query := `
-		SELECT
-			service_name,
-			http_method,
-			http_route,
-			http_status_code,
-			latency_bucket_ms,
-			SUM(count) as total_count,
-			MIN(timestamp) as first_seen,
-			MAX(timestamp) as last_seen
-		FROM beyla_http_metrics
-		WHERE service_name = ? AND timestamp >= ? AND timestamp <= ?
-	`
+	b := query.New("beyla_http_metrics").
+		Select(
+			"service_name",
+			"http_method",
+			"http_route",
+			"http_status_code",
+			"latency_bucket_ms",
+			"SUM(count) as total_count",
+			"MIN(timestamp) as first_seen",
+			"MAX(timestamp) as last_seen",
+		).
+		TimeRange(startTime, endTime).
+		Eq("service_name", serviceName).
+		Eq("http_method", filters["http_method"]).
+		Eq("http_route", filters["http_route"])
 
-	args := []interface{}{serviceName, startTime, endTime}
-
-	// Add optional filters.
-	if method, ok := filters["http_method"]; ok && method != "" {
-		query += " AND http_method = ?"
-		args = append(args, method)
-	}
-	if route, ok := filters["http_route"]; ok && route != "" {
-		query += " AND http_route = ?"
-		args = append(args, route)
-	}
+	// Handle status code range filter.
 	if statusRange, ok := filters["status_code_range"]; ok && statusRange != "" {
-		// Convert status_code_range (e.g., "2xx") to SQL BETWEEN.
 		switch statusRange {
 		case "2xx":
-			query += " AND http_status_code BETWEEN 200 AND 299"
+			b.Between("http_status_code", 200, 299)
 		case "3xx":
-			query += " AND http_status_code BETWEEN 300 AND 399"
+			b.Between("http_status_code", 300, 399)
 		case "4xx":
-			query += " AND http_status_code BETWEEN 400 AND 499"
+			b.Between("http_status_code", 400, 499)
 		case "5xx":
-			query += " AND http_status_code BETWEEN 500 AND 599"
+			b.Between("http_status_code", 500, 599)
 		}
 	}
 
-	query += `
-		GROUP BY service_name, http_method, http_route, http_status_code, latency_bucket_ms
-		ORDER BY http_route, latency_bucket_ms
-	`
+	sql, args, err := b.
+		GroupBy("service_name", "http_method", "http_route", "http_status_code", "latency_bucket_ms").
+		OrderBy("http_route", "latency_bucket_ms").
+		Build()
 
-	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
+	}
+
+	rows, err := d.db.QueryContext(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query HTTP metrics: %w", err)
 	}
@@ -395,37 +391,29 @@ func (d *Database) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string
 
 // QueryBeylaGRPCMetrics queries gRPC metrics from colony database.
 func (d *Database) QueryBeylaGRPCMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*BeylaGRPCMetricResult, error) {
-	query := `
-		SELECT
-			service_name,
-			grpc_method,
-			grpc_status_code,
-			latency_bucket_ms,
-			SUM(count) as total_count,
-			MIN(timestamp) as first_seen,
-			MAX(timestamp) as last_seen
-		FROM beyla_grpc_metrics
-		WHERE service_name = ? AND timestamp >= ? AND timestamp <= ?
-	`
+	sql, args, err := query.New("beyla_grpc_metrics").
+		Select(
+			"service_name",
+			"grpc_method",
+			"grpc_status_code",
+			"latency_bucket_ms",
+			"SUM(count) as total_count",
+			"MIN(timestamp) as first_seen",
+			"MAX(timestamp) as last_seen",
+		).
+		TimeRange(startTime, endTime).
+		Eq("service_name", serviceName).
+		Eq("grpc_method", filters["grpc_method"]).
+		Eq("grpc_status_code", filters["status_code"]).
+		GroupBy("service_name", "grpc_method", "grpc_status_code", "latency_bucket_ms").
+		OrderBy("grpc_method", "latency_bucket_ms").
+		Build()
 
-	args := []interface{}{serviceName, startTime, endTime}
-
-	// Add optional filters.
-	if method, ok := filters["grpc_method"]; ok && method != "" {
-		query += " AND grpc_method = ?"
-		args = append(args, method)
-	}
-	if status, ok := filters["status_code"]; ok && status != "" {
-		query += " AND grpc_status_code = ?"
-		args = append(args, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
 	}
 
-	query += `
-		GROUP BY service_name, grpc_method, grpc_status_code, latency_bucket_ms
-		ORDER BY grpc_method, latency_bucket_ms
-	`
-
-	rows, err := d.db.QueryContext(ctx, query, args...)
+	rows, err := d.db.QueryContext(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query gRPC metrics: %w", err)
 	}
@@ -458,37 +446,29 @@ func (d *Database) QueryBeylaGRPCMetrics(ctx context.Context, serviceName string
 
 // QueryBeylaSQLMetrics queries SQL metrics from colony database.
 func (d *Database) QueryBeylaSQLMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*BeylaSQLMetricResult, error) {
-	query := `
-		SELECT
-			service_name,
-			sql_operation,
-			table_name,
-			latency_bucket_ms,
-			SUM(count) as total_count,
-			MIN(timestamp) as first_seen,
-			MAX(timestamp) as last_seen
-		FROM beyla_sql_metrics
-		WHERE service_name = ? AND timestamp >= ? AND timestamp <= ?
-	`
+	sql, args, err := query.New("beyla_sql_metrics").
+		Select(
+			"service_name",
+			"sql_operation",
+			"table_name",
+			"latency_bucket_ms",
+			"SUM(count) as total_count",
+			"MIN(timestamp) as first_seen",
+			"MAX(timestamp) as last_seen",
+		).
+		TimeRange(startTime, endTime).
+		Eq("service_name", serviceName).
+		Eq("sql_operation", filters["sql_operation"]).
+		Eq("table_name", filters["table_name"]).
+		GroupBy("service_name", "sql_operation", "table_name", "latency_bucket_ms").
+		OrderBy("sql_operation", "table_name", "latency_bucket_ms").
+		Build()
 
-	args := []interface{}{serviceName, startTime, endTime}
-
-	// Add optional filters.
-	if op, ok := filters["sql_operation"]; ok && op != "" {
-		query += " AND sql_operation = ?"
-		args = append(args, op)
-	}
-	if table, ok := filters["table_name"]; ok && table != "" {
-		query += " AND table_name = ?"
-		args = append(args, table)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
 	}
 
-	query += `
-		GROUP BY service_name, sql_operation, table_name, latency_bucket_ms
-		ORDER BY sql_operation, table_name, latency_bucket_ms
-	`
-
-	rows, err := d.db.QueryContext(ctx, query, args...)
+	rows, err := d.db.QueryContext(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SQL metrics: %w", err)
 	}
@@ -521,46 +501,39 @@ func (d *Database) QueryBeylaSQLMetrics(ctx context.Context, serviceName string,
 
 // QueryBeylaTraces queries distributed traces from colony database (RFD 036).
 func (d *Database) QueryBeylaTraces(ctx context.Context, traceID, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*BeylaTraceResult, error) {
-	query := `
-		SELECT
-			trace_id,
-			span_id,
-			parent_span_id,
-			service_name,
-			span_name,
-			span_kind,
-			start_time,
-			duration_us,
-			status_code
-		FROM beyla_traces
-		WHERE start_time >= ? AND start_time <= ?
-	`
-
-	args := []interface{}{startTime, endTime}
-
-	if traceID != "" {
-		query += " AND trace_id = ?"
-		args = append(args, traceID)
-	}
-
-	if serviceName != "" {
-		query += " AND service_name = ?"
-		args = append(args, serviceName)
-	}
+	b := query.New("beyla_traces").
+		Select(
+			"trace_id",
+			"span_id",
+			"parent_span_id",
+			"service_name",
+			"span_name",
+			"span_kind",
+			"start_time",
+			"duration_us",
+			"status_code",
+		).
+		TimeColumn("start_time").
+		TimeRange(startTime, endTime).
+		Eq("trace_id", traceID).
+		Eq("service_name", serviceName).
+		OrderBy("-start_time")
 
 	if minDurationUs > 0 {
-		query += " AND duration_us >= ?"
-		args = append(args, minDurationUs)
+		b.Gte("duration_us", minDurationUs)
 	}
-
-	query += " ORDER BY start_time DESC"
 
 	if maxTraces > 0 {
-		query += " LIMIT ?"
-		args = append(args, maxTraces)
+		b.Limit(maxTraces)
 	}
 
-	rows, err := d.db.QueryContext(ctx, query, args...)
+	sql, args, err := b.Build()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to build query: %w", err)
+	}
+
+	rows, err := d.db.QueryContext(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traces: %w", err)
 	}
