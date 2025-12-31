@@ -107,7 +107,10 @@ install: build ## Install the binary to $GOPATH/bin
 
 test: generate ## Run tests
 	@echo "Running tests..."
+	@echo "  Main module tests..."
 	go test ./...
+	@echo "  E2E module tests..."
+	cd tests/e2e/distributed && go test ./...
 
 test-ci: generate ## Run tests in CI
 	@echo "Running tests..."
@@ -120,6 +123,25 @@ test-linux: ## Run tests in Linux Docker (tests platform-specific code)
 		-w /workspace \
 		golang:1.25 \
 		bash -c "apt-get update -qq && apt-get install -y -qq clang llvm > /dev/null 2>&1 && go test -short ./..."
+
+test-e2e: generate ## Run E2E distributed tests (requires Linux + Docker)
+	@echo "Running E2E distributed tests..."
+	@if [ "$$(uname)" != "Linux" ]; then \
+		echo "⚠️  E2E tests require Linux, running in Docker..."; \
+		$(MAKE) test-e2e-docker; \
+	else \
+		cd tests/e2e/distributed && go test -v -timeout=30m ./...; \
+	fi
+
+test-e2e-docker: ## Run E2E tests in Linux Docker
+	@echo "Building E2E test environment..."
+	@docker build -f tests/e2e/Dockerfile -t coral-e2e:latest .
+	@echo "Running E2E tests in Docker..."
+	@docker run --rm --privileged \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		-v "$(PWD)":/workspace \
+		-w /workspace \
+		coral-e2e:latest
 
 ci-check: ## Run full CI checks locally (lint + test on Linux)
 	@echo "=== Running full CI checks locally ==="
@@ -137,8 +159,13 @@ run: build ## Build and run the CLI
 	@$(BUILD_DIR)/$(BINARY_NAME)
 
 fmt: ## Format Go code
-	@echo "Formatting code..."
-	goimports -w .
+	@if which goimports >/dev/null 2>&1; then \
+		echo "Formatting code..."; \
+		goimports -w .; \
+		echo "✓ Code formatted"; \
+	else \
+		echo "⚠️  goimports not found, skipping formatting"; \
+	fi
 
 vet: ## Run go vet
 	@echo "Running go vet..."
@@ -158,6 +185,7 @@ install-tools: ## Install development tools
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1
 	go install github.com/bufbuild/buf/cmd/buf@v1.61.0
 	go install golang.org/x/tools/cmd/goimports@latest
+	@echo "✓ Development tools installed to $(shell go env GOPATH)/bin"
 
 lint: ## Run linter
 	@echo "Running linter..."

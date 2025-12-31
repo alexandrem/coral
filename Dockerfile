@@ -20,7 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Makefile .
 RUN make init
 
-# Copy go mod files.
+# Ensure Go bin directory is in PATH.
+ENV PATH="${PATH}:/go/bin"
+
+# Copy go mod files (skip go.work - not needed for container builds).
 COPY go.mod go.sum ./
 RUN go mod download
 
