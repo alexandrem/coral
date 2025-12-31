@@ -1,5 +1,4 @@
-// Package query provides a fluent SQL query builder for DuckDB.
-package query
+package duckdb
 
 import (
 	"fmt"
@@ -31,8 +30,8 @@ type orderClause struct {
 	desc   bool
 }
 
-// New creates a new query builder for the specified table.
-func New(table string) *Builder {
+// NewQueryBuilder creates a new query builder for the specified table.
+func NewQueryBuilder(table string) *Builder {
 	return &Builder{
 		table:      table,
 		timeColumn: "timestamp", // default

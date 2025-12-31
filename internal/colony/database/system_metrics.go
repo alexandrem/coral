@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coral-mesh/coral/internal/colony/database/query"
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
 // SystemMetricsSummary represents an aggregated system metrics summary for a 1-minute bucket (RFD 071).
@@ -53,7 +53,7 @@ func (d *Database) InsertSystemMetricsSummaries(ctx context.Context, summaries [
 
 // QuerySystemMetricsSummaries retrieves system metrics summaries for a given time range and agent.
 func (d *Database) QuerySystemMetricsSummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]SystemMetricsSummary, error) {
-	sql, args, err := query.New("system_metrics_summaries").
+	sql, args, err := duckdb.NewQueryBuilder("system_metrics_summaries").
 		Select("bucket_time", "agent_id", "metric_name", "min_value", "max_value",
 			"avg_value", "p95_value", "delta_value", "sample_count", "unit", "metric_type", "attributes").
 		TimeColumn("bucket_time").

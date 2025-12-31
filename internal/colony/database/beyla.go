@@ -7,7 +7,7 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	"github.com/coral-mesh/coral/internal/colony/database/query"
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/safe"
 )
 
@@ -313,7 +313,7 @@ func (d *Database) InsertBeylaTraces(ctx context.Context, agentID string, spans 
 // QueryBeylaHTTPMetrics queries HTTP metrics from colony database.
 // Returns aggregated metrics grouped by (service, method, route, status).
 func (d *Database) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*BeylaHTTPMetricResult, error) {
-	b := query.New("beyla_http_metrics").
+	b := duckdb.NewQueryBuilder("beyla_http_metrics").
 		Select(
 			"service_name",
 			"http_method",
@@ -391,7 +391,7 @@ func (d *Database) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string
 
 // QueryBeylaGRPCMetrics queries gRPC metrics from colony database.
 func (d *Database) QueryBeylaGRPCMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*BeylaGRPCMetricResult, error) {
-	sql, args, err := query.New("beyla_grpc_metrics").
+	sql, args, err := duckdb.NewQueryBuilder("beyla_grpc_metrics").
 		Select(
 			"service_name",
 			"grpc_method",
@@ -446,7 +446,7 @@ func (d *Database) QueryBeylaGRPCMetrics(ctx context.Context, serviceName string
 
 // QueryBeylaSQLMetrics queries SQL metrics from colony database.
 func (d *Database) QueryBeylaSQLMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*BeylaSQLMetricResult, error) {
-	sql, args, err := query.New("beyla_sql_metrics").
+	sql, args, err := duckdb.NewQueryBuilder("beyla_sql_metrics").
 		Select(
 			"service_name",
 			"sql_operation",
@@ -501,7 +501,7 @@ func (d *Database) QueryBeylaSQLMetrics(ctx context.Context, serviceName string,
 
 // QueryBeylaTraces queries distributed traces from colony database (RFD 036).
 func (d *Database) QueryBeylaTraces(ctx context.Context, traceID, serviceName string, startTime, endTime time.Time, minDurationUs int64, maxTraces int) ([]*BeylaTraceResult, error) {
-	b := query.New("beyla_traces").
+	b := duckdb.NewQueryBuilder("beyla_traces").
 		Select(
 			"trace_id",
 			"span_id",

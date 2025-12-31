@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coral-mesh/coral/internal/colony/database/query"
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
 // TelemetrySummary represents an aggregated telemetry summary from queried agents (RFD 025 - pull-based).
@@ -78,7 +78,7 @@ func (d *Database) InsertTelemetrySummaries(ctx context.Context, summaries []Tel
 
 // QueryTelemetrySummaries retrieves telemetry summaries for a given time range and agent.
 func (d *Database) QueryTelemetrySummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]TelemetrySummary, error) {
-	sql, args, err := query.New("otel_summaries").
+	sql, args, err := duckdb.NewQueryBuilder("otel_summaries").
 		Select("bucket_time", "agent_id", "service_name", "span_kind",
 			"p50_ms", "p95_ms", "p99_ms", "error_count", "total_spans", "sample_traces").
 		TimeColumn("bucket_time").

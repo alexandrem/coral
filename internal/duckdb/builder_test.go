@@ -1,4 +1,4 @@
-package query
+package duckdb
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestBuilder_SimpleSelect(t *testing.T) {
-	q, args, err := New("test_table").Build()
+	q, args, err := NewQueryBuilder("test_table").Build()
 
 	require.NoError(t, err)
 	assert.Equal(t, "SELECT * FROM test_table", q)
@@ -17,7 +17,7 @@ func TestBuilder_SimpleSelect(t *testing.T) {
 }
 
 func TestBuilder_SelectColumns(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Select("id", "name", "created_at").
 		Build()
 
@@ -27,7 +27,7 @@ func TestBuilder_SelectColumns(t *testing.T) {
 }
 
 func TestBuilder_SelectAggregations(t *testing.T) {
-	q, args, err := New("metrics").
+	q, args, err := NewQueryBuilder("metrics").
 		Select("service_name", "SUM(count) as total_count", "MIN(timestamp) as first_seen").
 		Build()
 
@@ -40,7 +40,7 @@ func TestBuilder_TimeRange(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		TimeRange(start, end).
 		Build()
 
@@ -53,7 +53,7 @@ func TestBuilder_CustomTimeColumn(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		TimeColumn("bucket_time").
 		TimeRange(start, end).
 		Build()
@@ -67,7 +67,7 @@ func TestBuilder_StartTimeColumn(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	q, args, err := New("beyla_traces").
+	q, args, err := NewQueryBuilder("beyla_traces").
 		TimeColumn("start_time").
 		TimeRange(start, end).
 		Build()
@@ -78,7 +78,7 @@ func TestBuilder_StartTimeColumn(t *testing.T) {
 }
 
 func TestBuilder_Eq(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Eq("service_name", "my-service").
 		Build()
 
@@ -88,7 +88,7 @@ func TestBuilder_Eq(t *testing.T) {
 }
 
 func TestBuilder_EqWithEmptyString(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Eq("agent_id", "").
 		Build()
 
@@ -98,7 +98,7 @@ func TestBuilder_EqWithEmptyString(t *testing.T) {
 }
 
 func TestBuilder_MultipleEq(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Eq("service_name", "my-service").
 		Eq("http_method", "GET").
 		Build()
@@ -109,7 +109,7 @@ func TestBuilder_MultipleEq(t *testing.T) {
 }
 
 func TestBuilder_In(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		In("service_name", "svc1", "svc2", "svc3").
 		Build()
 
@@ -119,7 +119,7 @@ func TestBuilder_In(t *testing.T) {
 }
 
 func TestBuilder_InWithEmptyValues(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		In("service_name").
 		Build()
 
@@ -129,7 +129,7 @@ func TestBuilder_InWithEmptyValues(t *testing.T) {
 }
 
 func TestBuilder_Between(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Between("http_status_code", 200, 299).
 		Build()
 
@@ -139,7 +139,7 @@ func TestBuilder_Between(t *testing.T) {
 }
 
 func TestBuilder_Gte(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Gte("duration_us", 1000).
 		Build()
 
@@ -149,7 +149,7 @@ func TestBuilder_Gte(t *testing.T) {
 }
 
 func TestBuilder_Gt(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Gt("age", 18).
 		Build()
 
@@ -159,7 +159,7 @@ func TestBuilder_Gt(t *testing.T) {
 }
 
 func TestBuilder_Lte(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Lte("price", 100).
 		Build()
 
@@ -170,7 +170,7 @@ func TestBuilder_Lte(t *testing.T) {
 
 func TestBuilder_Lt(t *testing.T) {
 	cutoff := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Lt("timestamp", cutoff).
 		Build()
 
@@ -180,7 +180,7 @@ func TestBuilder_Lt(t *testing.T) {
 }
 
 func TestBuilder_Where(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Where("name IS NOT NULL").
 		Build()
 
@@ -190,7 +190,7 @@ func TestBuilder_Where(t *testing.T) {
 }
 
 func TestBuilder_WhereWithArgs(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Where("http_status_code BETWEEN ? AND ?", 200, 299).
 		Build()
 
@@ -203,7 +203,7 @@ func TestBuilder_MultipleWhere(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		TimeRange(start, end).
 		Eq("service_name", "my-service").
 		Where("duration_us >= ?", 1000).
@@ -215,7 +215,7 @@ func TestBuilder_MultipleWhere(t *testing.T) {
 }
 
 func TestBuilder_GroupBy(t *testing.T) {
-	q, args, err := New("metrics").
+	q, args, err := NewQueryBuilder("metrics").
 		Select("service_name", "SUM(count) as total").
 		GroupBy("service_name").
 		Build()
@@ -226,7 +226,7 @@ func TestBuilder_GroupBy(t *testing.T) {
 }
 
 func TestBuilder_GroupByMultiple(t *testing.T) {
-	q, _, err := New("metrics").
+	q, _, err := NewQueryBuilder("metrics").
 		Select("service_name", "http_method", "SUM(count) as total").
 		GroupBy("service_name", "http_method").
 		Build()
@@ -236,7 +236,7 @@ func TestBuilder_GroupByMultiple(t *testing.T) {
 }
 
 func TestBuilder_OrderBy(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		OrderBy("created_at").
 		Build()
 
@@ -246,7 +246,7 @@ func TestBuilder_OrderBy(t *testing.T) {
 }
 
 func TestBuilder_OrderByDesc(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		OrderBy("-timestamp").
 		Build()
 
@@ -256,7 +256,7 @@ func TestBuilder_OrderByDesc(t *testing.T) {
 }
 
 func TestBuilder_OrderByMultiple(t *testing.T) {
-	q, _, err := New("test_table").
+	q, _, err := NewQueryBuilder("test_table").
 		OrderBy("http_route", "latency_bucket_ms").
 		Build()
 
@@ -265,7 +265,7 @@ func TestBuilder_OrderByMultiple(t *testing.T) {
 }
 
 func TestBuilder_OrderByMixed(t *testing.T) {
-	q, _, err := New("test_table").
+	q, _, err := NewQueryBuilder("test_table").
 		OrderBy("name", "-created_at").
 		Build()
 
@@ -274,7 +274,7 @@ func TestBuilder_OrderByMixed(t *testing.T) {
 }
 
 func TestBuilder_Limit(t *testing.T) {
-	q, args, err := New("test_table").
+	q, args, err := NewQueryBuilder("test_table").
 		Limit(100).
 		Build()
 
@@ -287,7 +287,7 @@ func TestBuilder_ComplexBeylaHTTPQuery(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	q, args, err := New("beyla_http_metrics").
+	q, args, err := NewQueryBuilder("beyla_http_metrics").
 		Select(
 			"service_name",
 			"http_method",
@@ -322,7 +322,7 @@ func TestBuilder_BeylaTracesQuery(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	b := New("beyla_traces").
+	b := NewQueryBuilder("beyla_traces").
 		Select(
 			"trace_id",
 			"span_id",
@@ -360,7 +360,7 @@ func TestBuilder_TelemetrySummariesQuery(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	q, args, err := New("otel_summaries").
+	q, args, err := NewQueryBuilder("otel_summaries").
 		Select("bucket_time", "agent_id", "service_name", "span_kind",
 			"p50_ms", "p95_ms", "p99_ms", "error_count", "total_spans", "sample_traces").
 		TimeColumn("bucket_time").
@@ -380,7 +380,7 @@ func TestBuilder_WildcardAgentID(t *testing.T) {
 	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	q, args, err := New("otel_summaries").
+	q, args, err := NewQueryBuilder("otel_summaries").
 		Select("bucket_time", "agent_id", "service_name").
 		TimeColumn("bucket_time").
 		TimeRange(start, end).
@@ -402,7 +402,7 @@ func TestBuilder_ErrorNoTable(t *testing.T) {
 }
 
 func TestBuilder_MustBuild(t *testing.T) {
-	q, args := New("test_table").
+	q, args := NewQueryBuilder("test_table").
 		Select("id", "name").
 		MustBuild()
 
@@ -426,7 +426,7 @@ func TestBuilder_EmptyFiltersSkipped(t *testing.T) {
 		"http_route":  "", // empty, should be skipped
 	}
 
-	q, args, err := New("beyla_http_metrics").
+	q, args, err := NewQueryBuilder("beyla_http_metrics").
 		Eq("http_method", filters["http_method"]).
 		Eq("http_route", filters["http_route"]).
 		Build()
