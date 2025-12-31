@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/coral-mesh/coral/internal/privilege"
 )
 
@@ -60,7 +62,8 @@ type Config struct {
 	ColonyID      string
 	CADir         string // Filesystem path for CA storage (~/.coral/colonies/<id>/ca/).
 	JWTSigningKey []byte
-	KMSKeyID      string // Optional KMS key for envelope encryption.
+	KMSKeyID      string         // Optional KMS key for envelope encryption.
+	Logger        zerolog.Logger // Logger for storage operations.
 }
 
 // NewManager creates a new CA manager instance.
@@ -70,7 +73,7 @@ func NewManager(db *sql.DB, cfg Config) (*Manager, error) {
 		colonyID:  cfg.ColonyID,
 		caDir:     cfg.CADir,
 		fsStorage: NewFilesystemStorage(cfg.CADir),
-		dbStorage: NewDatabaseStorage(db),
+		dbStorage: NewDatabaseStorage(db, cfg.Logger),
 		policy:    NewPolicyEnforcer(cfg.JWTSigningKey, cfg.ColonyID),
 	}
 

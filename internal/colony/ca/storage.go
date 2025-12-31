@@ -14,7 +14,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/coral-mesh/coral/internal/duckdb"
+	"github.com/coral-mesh/coral/internal/errors"
 	"github.com/coral-mesh/coral/internal/privilege"
 )
 
@@ -222,14 +225,16 @@ func (f *FilesystemStorage) ListCertificates(ctx context.Context, filters map[st
 // DatabaseStorage implements certificate storage using a database.
 type DatabaseStorage struct {
 	db               *sql.DB
+	logger           zerolog.Logger
 	issuedCertsTable *duckdb.Table[IssuedCertificate]
 	revocationsTable *duckdb.Table[Revocation]
 }
 
 // NewDatabaseStorage creates a new database-based certificate storage.
-func NewDatabaseStorage(db *sql.DB) *DatabaseStorage {
+func NewDatabaseStorage(db *sql.DB, logger zerolog.Logger) *DatabaseStorage {
 	return &DatabaseStorage{
 		db:               db,
+		logger:           logger,
 		issuedCertsTable: duckdb.NewTable[IssuedCertificate](db, "issued_certificates"),
 		revocationsTable: duckdb.NewTable[Revocation](db, "certificate_revocations"),
 	}
@@ -352,7 +357,7 @@ func (d *DatabaseStorage) ListCertificates(ctx context.Context, filters map[stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to query certificates: %w", err)
 	}
-	defer rows.Close()
+	defer errors.DeferClose(d.logger, rows, "failed to close certificate query rows")
 
 	var certs []*CertificateMetadata
 	for rows.Next() {

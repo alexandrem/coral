@@ -13,6 +13,7 @@ import (
 
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // NewCACmd creates the CA management command (RFD 047).
@@ -77,11 +78,18 @@ func newCAStatusCmd() *cobra.Command {
 			// TODO: Generate a proper JWT signing key (this should be from config).
 			jwtSigningKey := []byte("temporary-signing-key-change-in-production")
 
+			// Create logger for CA operations.
+			logger := logging.New(logging.Config{
+				Level:  "info",
+				Pretty: false,
+			})
+
 			// Initialize CA manager.
 			manager, err := ca.NewManager(db, ca.Config{
 				ColonyID:      cfg.ColonyID,
 				CADir:         caDir,
 				JWTSigningKey: jwtSigningKey,
+				Logger:        logger,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to initialize CA: %w", err)
@@ -213,6 +221,12 @@ WARNING: This is a sensitive operation. Use --confirm to proceed.`,
 			colonyDir := resolver.GetLoader().ColonyDir(cfg.ColonyID)
 			caDir := filepath.Join(colonyDir, "ca")
 
+			// Create logger for CA operations.
+			logger := logging.New(logging.Config{
+				Level:  "info",
+				Pretty: false,
+			})
+
 			// Initialize CA manager.
 			// TODO: Use proper JWT signing key from config.
 			jwtSigningKey := []byte("temporary-signing-key-change-in-production")
@@ -220,6 +234,7 @@ WARNING: This is a sensitive operation. Use --confirm to proceed.`,
 				ColonyID:      cfg.ColonyID,
 				CADir:         caDir,
 				JWTSigningKey: jwtSigningKey,
+				Logger:        logger,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to initialize CA manager: %w", err)
