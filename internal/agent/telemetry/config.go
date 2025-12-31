@@ -1,6 +1,11 @@
 package telemetry
 
-import "context"
+import (
+	"context"
+	"fmt"
+
+	"github.com/coral-mesh/coral/internal/constants"
+)
 
 // SpanHandler is a callback function for custom span processing.
 // When set, the OTLP receiver calls this instead of storing to default storage.
@@ -62,13 +67,13 @@ type FilterConfig struct {
 func DefaultConfig() Config {
 	return Config{
 		Disabled:              false,
-		GRPCEndpoint:          "0.0.0.0:4317",
-		HTTPEndpoint:          "0.0.0.0:4318",
-		StorageRetentionHours: 1,
+		GRPCEndpoint:          fmt.Sprintf("0.0.0.0:%d", constants.DefaultOTLPGRPCPort),
+		HTTPEndpoint:          fmt.Sprintf("0.0.0.0:%d", constants.DefaultOTLPHTTPPort),
+		StorageRetentionHours: int(constants.DefaultTelemetryRetention.Hours()),
 		Filters: FilterConfig{
 			AlwaysCaptureErrors:    true,
-			HighLatencyThresholdMs: 500.0,
-			SampleRate:             0.10,
+			HighLatencyThresholdMs: constants.DefaultHighLatencyThresholdMs,
+			SampleRate:             constants.DefaultSampleRate,
 		},
 	}
 }

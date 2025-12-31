@@ -16,7 +16,7 @@ const SchemaVersion = "1"
 // The config consists of user-level settings and preferences.
 type GlobalConfig struct {
 	Version       string          `yaml:"version"`
-	DefaultColony string          `yaml:"default_colony,omitempty"`
+	DefaultColony string          `yaml:"default_colony,omitempty" env:"CORAL_DEFAULT_COLONY"`
 	Discovery     DiscoveryGlobal `yaml:"discovery"`
 	AI            AIConfig        `yaml:"ai"`
 	Preferences   Preferences     `yaml:"preferences"`
@@ -24,9 +24,9 @@ type GlobalConfig struct {
 
 // DiscoveryGlobal contains global discovery settings.
 type DiscoveryGlobal struct {
-	Endpoint    string        `yaml:"endpoint"`
-	Timeout     time.Duration `yaml:"timeout"`
-	STUNServers []string      `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
+	Endpoint    string        `yaml:"endpoint" env:"CORAL_DISCOVERY_ENDPOINT"`
+	Timeout     time.Duration `yaml:"timeout" env:"CORAL_DISCOVERY_TIMEOUT"`
+	STUNServers []string      `yaml:"stun_servers,omitempty" env:"CORAL_STUN_SERVERS"` // STUN servers for NAT traversal
 }
 
 // AIConfig contains AI provider configuration.
@@ -322,28 +322,28 @@ type BeylaLimitsConfig struct {
 
 // SystemMetricsConfig configures host system metrics collection (RFD 071).
 type SystemMetricsConfig struct {
-	Disabled       bool          `yaml:"disabled"`
-	Interval       time.Duration `yaml:"interval,omitempty"`        // Collection interval (default: 15s)
-	Retention      time.Duration `yaml:"retention,omitempty"`       // Local retention (default: 1h)
-	CPUEnabled     bool          `yaml:"cpu_enabled,omitempty"`     // Collect CPU metrics
-	MemoryEnabled  bool          `yaml:"memory_enabled,omitempty"`  // Collect memory metrics
-	DiskEnabled    bool          `yaml:"disk_enabled,omitempty"`    // Collect disk metrics
-	NetworkEnabled bool          `yaml:"network_enabled,omitempty"` // Collect network metrics
+	Disabled       bool          `yaml:"disabled" env:"CORAL_SYSTEM_METRICS_DISABLED"`
+	Interval       time.Duration `yaml:"interval,omitempty" env:"CORAL_SYSTEM_METRICS_INTERVAL"`               // Collection interval (default: 15s)
+	Retention      time.Duration `yaml:"retention,omitempty" env:"CORAL_SYSTEM_METRICS_RETENTION"`             // Local retention (default: 1h)
+	CPUEnabled     bool          `yaml:"cpu_enabled,omitempty" env:"CORAL_SYSTEM_METRICS_CPU_ENABLED"`         // Collect CPU metrics
+	MemoryEnabled  bool          `yaml:"memory_enabled,omitempty" env:"CORAL_SYSTEM_METRICS_MEMORY_ENABLED"`   // Collect memory metrics
+	DiskEnabled    bool          `yaml:"disk_enabled,omitempty" env:"CORAL_SYSTEM_METRICS_DISK_ENABLED"`       // Collect disk metrics
+	NetworkEnabled bool          `yaml:"network_enabled,omitempty" env:"CORAL_SYSTEM_METRICS_NETWORK_ENABLED"` // Collect network metrics
 }
 
 // ContinuousProfilingConfig configures continuous CPU profiling (RFD 072).
 type ContinuousProfilingConfig struct {
-	Disabled bool               `yaml:"disabled,omitempty"` // Master disable switch (default: false, meaning enabled)
-	CPU      CPUProfilingConfig `yaml:"cpu,omitempty"`      // CPU profiling configuration
+	Disabled bool               `yaml:"disabled,omitempty" env:"CORAL_CPU_PROFILING_DISABLED"` // Master disable switch (default: false, meaning enabled)
+	CPU      CPUProfilingConfig `yaml:"cpu,omitempty"`                                         // CPU profiling configuration
 }
 
 // CPUProfilingConfig contains CPU profiling specific settings.
 type CPUProfilingConfig struct {
-	Disabled          bool          `yaml:"disabled,omitempty"`           // CPU profiling disabled (default: false, meaning enabled)
-	FrequencyHz       int           `yaml:"frequency_hz,omitempty"`       // Sampling frequency (default: 19Hz)
-	Interval          time.Duration `yaml:"interval,omitempty"`           // Collection interval (default: 15s)
-	Retention         time.Duration `yaml:"retention,omitempty"`          // Local sample retention (default: 1h)
-	MetadataRetention time.Duration `yaml:"metadata_retention,omitempty"` // Binary metadata retention (default: 7d)
+	Disabled          bool          `yaml:"disabled,omitempty" env:"CORAL_CPU_PROFILING_DISABLED"`                     // CPU profiling disabled (default: false, meaning enabled)
+	FrequencyHz       int           `yaml:"frequency_hz,omitempty" env:"CORAL_CPU_PROFILING_FREQUENCY_HZ"`             // Sampling frequency (default: 19Hz)
+	Interval          time.Duration `yaml:"interval,omitempty" env:"CORAL_CPU_PROFILING_INTERVAL"`                     // Collection interval (default: 15s)
+	Retention         time.Duration `yaml:"retention,omitempty" env:"CORAL_CPU_PROFILING_RETENTION"`                   // Local sample retention (default: 1h)
+	MetadataRetention time.Duration `yaml:"metadata_retention,omitempty" env:"CORAL_CPU_PROFILING_METADATA_RETENTION"` // Binary metadata retention (default: 7d)
 }
 
 // ResolvedConfig is the final merged configuration after resolution.
@@ -364,25 +364,25 @@ func DefaultGlobalConfig() *GlobalConfig {
 		Version: SchemaVersion,
 		Discovery: DiscoveryGlobal{
 			Endpoint:    constants.DefaultDiscoveryEndpoint,
-			Timeout:     10 * time.Second,
+			Timeout:     constants.DefaultDiscoveryTimeout,
 			STUNServers: []string{constants.DefaultSTUNServer},
 		},
 		AI: AIConfig{
 			Provider:     "anthropic",
 			APIKeySource: "env",
 			Ask: AskConfig{
-				DefaultModel:   "openai:gpt-4o-mini",
+				DefaultModel:   constants.DefaultAskModel,
 				FallbackModels: []string{"anthropic:claude-3-5-sonnet-20241022"},
 				APIKeys:        make(map[string]string),
 				Conversation: AskConversationConfig{
-					MaxTurns:      10,
-					ContextWindow: 8192,
+					MaxTurns:      constants.DefaultAskMaxTurns,
+					ContextWindow: constants.DefaultAskContextWindow,
 					AutoPrune:     true,
 				},
 				Agent: AskAgentConfig{
-					Mode:         "embedded",
-					DaemonSocket: "~/.coral/ask-agent.sock",
-					IdleTimeout:  10 * time.Minute,
+					Mode:         constants.DefaultAskAgentMode,
+					DaemonSocket: constants.DefaultAskDaemonSocket,
+					IdleTimeout:  constants.DefaultAskIdleTimeout,
 				},
 			},
 		},
@@ -413,7 +413,7 @@ func DefaultColonyConfig(colonyID, appName, env string) *ColonyConfig {
 			Enabled:          true,
 			MeshID:           colonyID, // mesh_id = colony_id
 			AutoRegister:     true,
-			RegisterInterval: 60 * time.Second,
+			RegisterInterval: constants.DefaultRegisterInterval,
 			STUNServers:      []string{constants.DefaultSTUNServer},
 		},
 		CreatedAt: time.Now(),
@@ -438,26 +438,26 @@ func DefaultProjectConfig(colonyID string) *ProjectConfig {
 // AgentConfig represents agent-specific configuration (RFD 025).
 type AgentConfig struct {
 	Agent struct {
-		Runtime string `yaml:"runtime"` // auto, native, docker, kubernetes
+		Runtime string `yaml:"runtime" env:"CORAL_AGENT_RUNTIME"` // auto, native, docker, kubernetes
 		Colony  struct {
-			ID           string `yaml:"id"`
-			AutoDiscover bool   `yaml:"auto_discover"`
+			ID           string `yaml:"id" env:"CORAL_COLONY_ID"`
+			AutoDiscover bool   `yaml:"auto_discover" env:"CORAL_AUTO_DISCOVER"`
 		} `yaml:"colony"`
 		NAT struct {
-			STUNServers []string `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
-			EnableRelay bool     `yaml:"enable_relay,omitempty"` // Enable relay fallback
+			STUNServers []string `yaml:"stun_servers,omitempty" env:"CORAL_STUN_SERVERS"` // STUN servers for NAT traversal
+			EnableRelay bool     `yaml:"enable_relay,omitempty" env:"CORAL_ENABLE_RELAY"` // Enable relay fallback
 		} `yaml:"nat,omitempty"`
 	} `yaml:"agent"`
 	Telemetry struct {
-		Disabled              bool   `yaml:"disabled"`
-		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty"`
-		HTTPEndpoint          string `yaml:"http_endpoint,omitempty"`
-		DatabasePath          string `yaml:"database_path,omitempty"`
-		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty"`
+		Disabled              bool   `yaml:"disabled" env:"CORAL_TELEMETRY_DISABLED"`
+		GRPCEndpoint          string `yaml:"grpc_endpoint,omitempty" env:"CORAL_OTLP_GRPC_ENDPOINT"`
+		HTTPEndpoint          string `yaml:"http_endpoint,omitempty" env:"CORAL_OTLP_HTTP_ENDPOINT"`
+		DatabasePath          string `yaml:"database_path,omitempty" env:"CORAL_TELEMETRY_DATABASE_PATH"`
+		StorageRetentionHours int    `yaml:"storage_retention_hours,omitempty" env:"CORAL_TELEMETRY_RETENTION_HOURS"`
 		Filters               struct {
-			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty"`
-			HighLatencyThresholdMs float64 `yaml:"high_latency_threshold_ms,omitempty"`
-			SampleRate             float64 `yaml:"sample_rate,omitempty"`
+			AlwaysCaptureErrors    bool    `yaml:"always_capture_errors,omitempty" env:"CORAL_ALWAYS_CAPTURE_ERRORS"`
+			HighLatencyThresholdMs float64 `yaml:"high_latency_threshold_ms,omitempty" env:"CORAL_HIGH_LATENCY_THRESHOLD_MS"`
+			SampleRate             float64 `yaml:"sample_rate,omitempty" env:"CORAL_SAMPLE_RATE"`
 		} `yaml:"filters,omitempty"`
 	} `yaml:"telemetry,omitempty"`
 	Services []struct {
@@ -539,44 +539,44 @@ func DefaultAgentConfig() *AgentConfig {
 
 	// Telemetry defaults
 	cfg.Telemetry.Disabled = false
-	cfg.Telemetry.GRPCEndpoint = "0.0.0.0:4317"
-	cfg.Telemetry.HTTPEndpoint = "0.0.0.0:4318"
-	cfg.Telemetry.StorageRetentionHours = 1
+	cfg.Telemetry.GRPCEndpoint = fmt.Sprintf("0.0.0.0:%d", constants.DefaultOTLPGRPCPort)
+	cfg.Telemetry.HTTPEndpoint = fmt.Sprintf("0.0.0.0:%d", constants.DefaultOTLPHTTPPort)
+	cfg.Telemetry.StorageRetentionHours = int(constants.DefaultTelemetryRetention.Hours())
 	cfg.Telemetry.Filters.AlwaysCaptureErrors = true
-	cfg.Telemetry.Filters.HighLatencyThresholdMs = 500.0
-	cfg.Telemetry.Filters.SampleRate = 0.10
+	cfg.Telemetry.Filters.HighLatencyThresholdMs = constants.DefaultHighLatencyThresholdMs
+	cfg.Telemetry.Filters.SampleRate = constants.DefaultSampleRate
 
 	// Beyla defaults
 	cfg.Beyla.Disabled = false
-	cfg.Beyla.OTLPEndpoint = "127.0.0.1:4317"
+	cfg.Beyla.OTLPEndpoint = fmt.Sprintf("127.0.0.1:%d", constants.DefaultOTLPGRPCPort)
 	cfg.Beyla.Protocols.HTTP.Enabled = true
 	cfg.Beyla.Protocols.GRPC.Enabled = true
 	cfg.Beyla.Protocols.SQL.Enabled = true
-	cfg.Beyla.Sampling.Rate = 1.0
+	cfg.Beyla.Sampling.Rate = constants.DefaultBeylaSampleRate
 
 	// Debug defaults
 	cfg.Debug.Enabled = true
-	cfg.Debug.SDKAPI.Timeout = 5 * time.Second
-	cfg.Debug.SDKAPI.RetryAttempts = 3
+	cfg.Debug.SDKAPI.Timeout = constants.DefaultSDKAPITimeout
+	cfg.Debug.SDKAPI.RetryAttempts = constants.DefaultSDKAPIRetryAttempts
 	cfg.Debug.Discovery.EnableSDK = true
 	cfg.Debug.Discovery.EnablePprof = false // Not yet implemented
 	cfg.Debug.Discovery.EnableBinaryScanning = true
-	cfg.Debug.Discovery.BinaryScanning.AccessMethod = "direct"
+	cfg.Debug.Discovery.BinaryScanning.AccessMethod = constants.DefaultBinaryAccessMethod
 	cfg.Debug.Discovery.BinaryScanning.CacheEnabled = true
-	cfg.Debug.Discovery.BinaryScanning.CacheTTL = 1 * time.Hour
-	cfg.Debug.Discovery.BinaryScanning.MaxCachedBinaries = 100
-	cfg.Debug.Discovery.BinaryScanning.TempDir = "/tmp/coral-binaries"
-	cfg.Debug.Limits.MaxConcurrentSessions = 5
-	cfg.Debug.Limits.MaxSessionDuration = 10 * time.Minute
-	cfg.Debug.Limits.MaxEventsPerSecond = 10000
-	cfg.Debug.Limits.MaxMemoryMB = 256
-	cfg.Debug.BPF.MapSize = 10240
-	cfg.Debug.BPF.PerfBufferPages = 64
+	cfg.Debug.Discovery.BinaryScanning.CacheTTL = constants.DefaultBinaryCacheTTL
+	cfg.Debug.Discovery.BinaryScanning.MaxCachedBinaries = constants.DefaultMaxCachedBinaries
+	cfg.Debug.Discovery.BinaryScanning.TempDir = constants.DefaultBinaryTempDir
+	cfg.Debug.Limits.MaxConcurrentSessions = constants.DefaultMaxConcurrentSessions
+	cfg.Debug.Limits.MaxSessionDuration = constants.DefaultMaxSessionDuration
+	cfg.Debug.Limits.MaxEventsPerSecond = constants.DefaultMaxEventsPerSecond
+	cfg.Debug.Limits.MaxMemoryMB = constants.DefaultMaxMemoryMB
+	cfg.Debug.BPF.MapSize = constants.DefaultBPFMapSize
+	cfg.Debug.BPF.PerfBufferPages = constants.DefaultBPFPerfBufferPages
 
 	// SystemMetrics defaults (RFD 071)
 	cfg.SystemMetrics.Disabled = false
-	cfg.SystemMetrics.Interval = 15 * time.Second
-	cfg.SystemMetrics.Retention = 1 * time.Hour
+	cfg.SystemMetrics.Interval = constants.DefaultSystemMetricsInterval
+	cfg.SystemMetrics.Retention = constants.DefaultSystemMetricsRetention
 	cfg.SystemMetrics.CPUEnabled = true
 	cfg.SystemMetrics.MemoryEnabled = true
 	cfg.SystemMetrics.DiskEnabled = true
@@ -584,10 +584,10 @@ func DefaultAgentConfig() *AgentConfig {
 
 	// ContinuousProfiling defaults (RFD 072)
 	// Note: Disabled defaults to false (meaning enabled by default)
-	cfg.ContinuousProfiling.CPU.FrequencyHz = 19                       // 19Hz sampling (prime number)
-	cfg.ContinuousProfiling.CPU.Interval = 15 * time.Second            // 15-second collection intervals
-	cfg.ContinuousProfiling.CPU.Retention = 1 * time.Hour              // 1-hour local retention
-	cfg.ContinuousProfiling.CPU.MetadataRetention = 7 * 24 * time.Hour // 7-day metadata retention
+	cfg.ContinuousProfiling.CPU.FrequencyHz = constants.DefaultCPUProfilingFrequencyHz
+	cfg.ContinuousProfiling.CPU.Interval = constants.DefaultCPUProfilingInterval
+	cfg.ContinuousProfiling.CPU.Retention = constants.DefaultCPUProfilingRetention
+	cfg.ContinuousProfiling.CPU.MetadataRetention = constants.DefaultCPUProfilingMetadataRetention
 
 	return cfg
 }
