@@ -39,6 +39,7 @@ func newTestServer(t *testing.T, config Config) *Server {
 		ColonyID:      config.ColonyID,
 		CADir:         caDir,
 		JWTSigningKey: jwtSigningKey,
+		Logger:        logger,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test CA manager: %v", err)

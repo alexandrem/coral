@@ -70,7 +70,7 @@ func TestValidateReferralTicket(t *testing.T) {
 	// Setup
 	jwtKey := []byte("test-secret")
 	manager := &Manager{
-		jwtSigningKey: jwtKey,
+		policy: NewPolicyEnforcer(jwtKey, "test-colony"),
 	}
 
 	t.Run("valid ticket", func(t *testing.T) {
@@ -382,8 +382,10 @@ func TestIssueServerCertificate(t *testing.T) {
 
 	// Create manager (without DB for this test).
 	manager := &Manager{
-		colonyID: colonyID,
-		caDir:    caDir,
+		colonyID:  colonyID,
+		caDir:     caDir,
+		fsStorage: NewFilesystemStorage(caDir),
+		policy:    NewPolicyEnforcer([]byte("test-secret"), colonyID),
 	}
 	if err := manager.loadCA(); err != nil {
 		t.Fatalf("loadCA failed: %v", err)
@@ -444,7 +446,8 @@ func TestIssueServerCertificate(t *testing.T) {
 	})
 
 	t.Run("signed by server intermediate", func(t *testing.T) {
-		if err := cert.CheckSignatureFrom(manager.serverIntermediateCert); err != nil {
+		serverIntCert := manager.crypto.GetServerIntermediateCert()
+		if err := cert.CheckSignatureFrom(serverIntCert); err != nil {
 			t.Errorf("certificate not signed by server intermediate: %v", err)
 		}
 	})
@@ -476,8 +479,10 @@ func TestGetStatus(t *testing.T) {
 	}
 
 	manager := &Manager{
-		colonyID: colonyID,
-		caDir:    caDir,
+		colonyID:  colonyID,
+		caDir:     caDir,
+		fsStorage: NewFilesystemStorage(caDir),
+		policy:    NewPolicyEnforcer([]byte("test-secret"), colonyID),
 	}
 	if err := manager.loadCA(); err != nil {
 		t.Fatalf("loadCA failed: %v", err)
@@ -528,8 +533,10 @@ func TestGetCAFingerprint(t *testing.T) {
 	}
 
 	manager := &Manager{
-		colonyID: "test-colony",
-		caDir:    caDir,
+		colonyID:  "test-colony",
+		caDir:     caDir,
+		fsStorage: NewFilesystemStorage(caDir),
+		policy:    NewPolicyEnforcer([]byte("test-secret"), "test-colony"),
 	}
 	if err := manager.loadCA(); err != nil {
 		t.Fatalf("loadCA failed: %v", err)
@@ -563,15 +570,17 @@ func TestRotateIntermediate(t *testing.T) {
 	}
 
 	manager := &Manager{
-		colonyID: colonyID,
-		caDir:    caDir,
+		colonyID:  colonyID,
+		caDir:     caDir,
+		fsStorage: NewFilesystemStorage(caDir),
+		policy:    NewPolicyEnforcer([]byte("test-secret"), colonyID),
 	}
 	if err := manager.loadCA(); err != nil {
 		t.Fatalf("loadCA failed: %v", err)
 	}
 
 	// Get original cert serial.
-	origSerial := manager.serverIntermediateCert.SerialNumber
+	origSerial := manager.crypto.GetServerIntermediateCert().SerialNumber
 
 	t.Run("rotate server intermediate", func(t *testing.T) {
 		err := manager.RotateIntermediate("server")
@@ -580,12 +589,15 @@ func TestRotateIntermediate(t *testing.T) {
 		}
 
 		// Serial should change.
-		if manager.serverIntermediateCert.SerialNumber.Cmp(origSerial) == 0 {
+		newSerial := manager.crypto.GetServerIntermediateCert().SerialNumber
+		if newSerial.Cmp(origSerial) == 0 {
 			t.Error("serial number should change after rotation")
 		}
 
 		// Should still be signed by root.
-		if err := manager.serverIntermediateCert.CheckSignatureFrom(manager.rootCert); err != nil {
+		serverIntCert := manager.crypto.GetServerIntermediateCert()
+		rootCert := manager.crypto.GetRootCert()
+		if err := serverIntCert.CheckSignatureFrom(rootCert); err != nil {
 			t.Errorf("rotated cert not signed by root: %v", err)
 		}
 
@@ -607,18 +619,21 @@ func TestRotateIntermediate(t *testing.T) {
 	})
 
 	t.Run("rotate agent intermediate", func(t *testing.T) {
-		origAgentSerial := manager.agentIntermediateCert.SerialNumber
+		origAgentSerial := manager.crypto.GetAgentIntermediateCert().SerialNumber
 
 		err := manager.RotateIntermediate("agent")
 		if err != nil {
 			t.Fatalf("RotateIntermediate failed: %v", err)
 		}
 
-		if manager.agentIntermediateCert.SerialNumber.Cmp(origAgentSerial) == 0 {
+		newAgentSerial := manager.crypto.GetAgentIntermediateCert().SerialNumber
+		if newAgentSerial.Cmp(origAgentSerial) == 0 {
 			t.Error("serial number should change after rotation")
 		}
 
-		if err := manager.agentIntermediateCert.CheckSignatureFrom(manager.rootCert); err != nil {
+		agentIntCert := manager.crypto.GetAgentIntermediateCert()
+		rootCert := manager.crypto.GetRootCert()
+		if err := agentIntCert.CheckSignatureFrom(rootCert); err != nil {
 			t.Errorf("rotated cert not signed by root: %v", err)
 		}
 	})
@@ -645,8 +660,10 @@ func TestGetCertPEMMethods(t *testing.T) {
 	}
 
 	manager := &Manager{
-		colonyID: "test-colony",
-		caDir:    caDir,
+		colonyID:  "test-colony",
+		caDir:     caDir,
+		fsStorage: NewFilesystemStorage(caDir),
+		policy:    NewPolicyEnforcer([]byte("test-secret"), "test-colony"),
 	}
 	if err := manager.loadCA(); err != nil {
 		t.Fatalf("loadCA failed: %v", err)
