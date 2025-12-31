@@ -198,3 +198,130 @@ func ListServices(
 
 	return resp.Msg, nil
 }
+
+// ConnectService connects a service to an agent dynamically.
+func ConnectService(
+	ctx context.Context,
+	client agentv1connect.AgentServiceClient,
+	serviceName string,
+	port int32,
+	healthEndpoint string,
+) (*agentv1.ConnectServiceResponse, error) {
+	req := connect.NewRequest(&agentv1.ConnectServiceRequest{
+		Name:           serviceName,
+		Port:           port,
+		HealthEndpoint: healthEndpoint,
+		ServiceType:    "http", // Default to HTTP for E2E tests.
+	})
+
+	resp, err := client.ConnectService(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect service: %w", err)
+	}
+
+	if !resp.Msg.Success {
+		return nil, fmt.Errorf("service connection failed: %s", resp.Msg.Error)
+	}
+
+	return resp.Msg, nil
+}
+
+// AttachUprobe attaches a uprobe to a function for debugging.
+func AttachUprobe(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	serviceName string,
+	functionName string,
+	duration int32,
+) (*colonyv1.AttachUprobeResponse, error) {
+	req := connect.NewRequest(&colonyv1.AttachUprobeRequest{
+		ServiceName:  serviceName,
+		FunctionName: functionName,
+		Duration:     duration,
+	})
+
+	resp, err := client.AttachUprobe(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach uprobe: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// DetachUprobe detaches a uprobe and retrieves final events.
+func DetachUprobe(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	sessionID string,
+) (*colonyv1.DetachUprobeResponse, error) {
+	req := connect.NewRequest(&colonyv1.DetachUprobeRequest{
+		SessionId: sessionID,
+	})
+
+	resp, err := client.DetachUprobe(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detach uprobe: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// QueryUprobeEvents queries uprobe events for a session.
+func QueryUprobeEvents(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	sessionID string,
+	limit int32,
+) (*colonyv1.QueryUprobeEventsResponse, error) {
+	req := connect.NewRequest(&colonyv1.QueryUprobeEventsRequest{
+		SessionId: sessionID,
+		Limit:     limit,
+	})
+
+	resp, err := client.QueryUprobeEvents(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query uprobe events: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// GetDebugResults retrieves aggregated debug results including call trees.
+func GetDebugResults(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	sessionID string,
+) (*colonyv1.GetDebugResultsResponse, error) {
+	req := connect.NewRequest(&colonyv1.GetDebugResultsRequest{
+		SessionId: sessionID,
+	})
+
+	resp, err := client.GetDebugResults(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get debug results: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// ProfileCPU performs on-demand CPU profiling.
+func ProfileCPU(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	serviceName string,
+	duration int32,
+	frequency int32,
+) (*colonyv1.ProfileCPUResponse, error) {
+	req := connect.NewRequest(&colonyv1.ProfileCPURequest{
+		ServiceName: serviceName,
+		Duration:    duration,
+		Frequency:   frequency,
+	})
+
+	resp, err := client.ProfileCPU(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to profile CPU: %w", err)
+	}
+
+	return resp.Msg, nil
+}

@@ -267,6 +267,7 @@ func (f *ContainerFixture) startAgent(ctx context.Context, index int) (testconta
 			"--agent-id", agentID,
 			"--colony-id", f.ColonyID,
 			"--discovery-endpoint", "http://discovery:8080",
+			"--monitor-all", // Enable Beyla for all listening processes.
 		},
 		Env: map[string]string{
 			"CORAL_COLONY_SECRET": f.ColonySecret,

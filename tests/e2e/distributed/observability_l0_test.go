@@ -57,7 +57,21 @@ func (s *ObservabilityL0Suite) TestLevel0_BeylaHTTPMetrics() {
 	s.Require().NoError(err, "Failed to get CPU app endpoint")
 
 	s.T().Logf("CPU app listening at: %s", cpuAppEndpoint)
-	s.T().Log("Beyla should automatically instrument this service via eBPF")
+
+	// Connect the CPU app to the agent so Beyla knows to instrument it.
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
+
+	agentClient := helpers.NewAgentClient(agentEndpoint)
+
+	s.T().Log("Connecting CPU app to agent...")
+	_, err = helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
+	s.Require().NoError(err, "Failed to connect CPU app to agent")
+
+	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
+	time.Sleep(8 * time.Second) // Wait for debounced restart (default 5s debounce + 3s buffer).
+
+	s.T().Log("Beyla should now be instrumenting the CPU app via eBPF")
 
 	// Generate HTTP traffic for Beyla to observe.
 	s.T().Log("Generating HTTP traffic for Beyla to capture...")
@@ -83,12 +97,7 @@ func (s *ObservabilityL0Suite) TestLevel0_BeylaHTTPMetrics() {
 	s.T().Log("Waiting for Beyla to capture and process eBPF metrics...")
 	time.Sleep(5 * time.Second)
 
-	// Query agent for eBPF metrics.
-	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
-	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
-
-	agentClient := helpers.NewAgentClient(agentEndpoint)
-
+	// Query agent for eBPF metrics (agentClient already created above).
 	now := time.Now()
 	ebpfResp, err := helpers.QueryAgentEbpfMetrics(
 		s.ctx,
@@ -155,6 +164,19 @@ func (s *ObservabilityL0Suite) TestLevel0_BeylaColonyPolling() {
 		}
 	}()
 
+	// Connect CPU app to agent.
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
+
+	agentClient := helpers.NewAgentClient(agentEndpoint)
+
+	s.T().Log("Connecting CPU app to agent...")
+	_, err = helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
+	s.Require().NoError(err, "Failed to connect CPU app to agent")
+
+	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
+	time.Sleep(8 * time.Second)
+
 	// Generate HTTP traffic.
 	cpuAppEndpoint, err := fixture.GetCPUAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get CPU app endpoint")
@@ -173,12 +195,7 @@ func (s *ObservabilityL0Suite) TestLevel0_BeylaColonyPolling() {
 	// Wait for Beyla collection.
 	time.Sleep(5 * time.Second)
 
-	// Verify agent has eBPF metrics first.
-	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
-	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
-
-	agentClient := helpers.NewAgentClient(agentEndpoint)
-
+	// Verify agent has eBPF metrics first (agentClient already created above).
 	now := time.Now()
 	agentResp, err := helpers.QueryAgentEbpfMetrics(
 		s.ctx,
@@ -268,6 +285,19 @@ func (s *ObservabilityL0Suite) TestLevel0_BeylaVsOTLP() {
 		}
 	}()
 
+	// Connect CPU app to agent.
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
+
+	agentClient := helpers.NewAgentClient(agentEndpoint)
+
+	s.T().Log("Connecting CPU app to agent...")
+	_, err = helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
+	s.Require().NoError(err, "Failed to connect CPU app to agent")
+
+	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
+	time.Sleep(8 * time.Second)
+
 	// Generate HTTP traffic.
 	cpuAppEndpoint, err := fixture.GetCPUAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get CPU app endpoint")
@@ -285,11 +315,7 @@ func (s *ObservabilityL0Suite) TestLevel0_BeylaVsOTLP() {
 
 	time.Sleep(5 * time.Second)
 
-	// Query agent.
-	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
-	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
-
-	agentClient := helpers.NewAgentClient(agentEndpoint)
+	// Query agent (agentClient already created above).
 	now := time.Now()
 
 	// Check for eBPF metrics (Beyla - should exist).
