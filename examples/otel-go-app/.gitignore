@@ -1,0 +1,14 @@
+# Binaries
+otel-demo-app
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go test files
+*.test
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
