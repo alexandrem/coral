@@ -158,3 +158,25 @@ func QueryAgentSystemMetrics(
 
 	return resp.Msg, nil
 }
+
+// QueryAgentEbpfMetrics queries an agent for eBPF metrics (Beyla).
+func QueryAgentEbpfMetrics(
+	ctx context.Context,
+	client agentv1connect.AgentServiceClient,
+	startTime, endTime int64,
+	serviceNames []string,
+) (*agentv1.QueryEbpfMetricsResponse, error) {
+	req := connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
+		StartTime:    startTime,
+		EndTime:      endTime,
+		ServiceNames: serviceNames,
+		MetricTypes:  nil, // Query all metric types
+	})
+
+	resp, err := client.QueryEbpfMetrics(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query eBPF metrics: %w", err)
+	}
+
+	return resp.Msg, nil
+}
