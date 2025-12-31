@@ -40,14 +40,11 @@ func NewRuntimeService(config RuntimeServiceConfig) (*RuntimeService, error) {
 	if config.RefreshInterval == 0 {
 		config.RefreshInterval = 5 * time.Minute // Default 5 minutes
 	}
-
-	// Default to background context if not provided (for backwards compatibility).
-	parentCtx := config.Context
-	if parentCtx == nil {
-		parentCtx = context.Background()
+	if config.Context == nil {
+		return nil, fmt.Errorf("context is required")
 	}
 
-	ctx, cancel := context.WithCancel(parentCtx)
+	ctx, cancel := context.WithCancel(config.Context)
 
 	detector := runtime.NewDetector(config.Logger, config.Version)
 

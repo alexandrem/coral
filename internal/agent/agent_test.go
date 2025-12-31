@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ func TestNew(t *testing.T) {
 		}
 
 		agent, err := New(Config{
+			Context:  context.Background(),
 			AgentID:  "test-agent",
 			Services: services,
 			Logger:   logger,
@@ -38,6 +40,7 @@ func TestNew(t *testing.T) {
 		}
 
 		agent, err := New(Config{
+			Context:  context.Background(),
 			AgentID:  "test-agent",
 			Services: services,
 			Logger:   logger,
@@ -53,6 +56,7 @@ func TestNew(t *testing.T) {
 		}
 
 		_, err := New(Config{
+			Context:  context.Background(),
 			AgentID:  "",
 			Services: services,
 			Logger:   logger,
@@ -64,6 +68,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("no services (passive mode)", func(t *testing.T) {
 		agent, err := New(Config{
+			Context:  context.Background(),
 			AgentID:  "test-agent",
 			Services: []*meshv1.ServiceInfo{},
 			Logger:   logger,
@@ -85,6 +90,7 @@ func TestAgent_StartStop(t *testing.T) {
 	}
 
 	agent, err := New(Config{
+		Context:  context.Background(),
 		AgentID:  "test-agent",
 		Services: services,
 		Logger:   logger,
@@ -113,6 +119,7 @@ func TestAgent_GetStatus(t *testing.T) {
 		}
 
 		agent, err := New(Config{
+			Context:  context.Background(),
 			AgentID:  "test-agent",
 			Services: services,
 			Logger:   logger,
@@ -137,6 +144,7 @@ func TestAgent_GetStatus(t *testing.T) {
 		}
 
 		agent, err := New(Config{
+			Context:  context.Background(),
 			AgentID:  "test-agent",
 			Services: services,
 			Logger:   logger,
@@ -162,6 +170,7 @@ func TestAgent_GetStatus(t *testing.T) {
 		}
 
 		agent, err := New(Config{
+			Context:  context.Background(),
 			AgentID:  "test-agent",
 			Services: services,
 			Logger:   logger,
@@ -195,6 +204,7 @@ func TestAgent_GetServiceStatuses(t *testing.T) {
 	}
 
 	agent, err := New(Config{
+		Context:  context.Background(),
 		AgentID:  "test-agent",
 		Services: services,
 		Logger:   logger,
@@ -248,6 +258,7 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 		}
 
 		agent, err := New(Config{
+			Context:     context.Background(),
 			AgentID:     "test-agent",
 			Services:    services,
 			BeylaConfig: beylaConfig,
@@ -283,6 +294,7 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 		}
 
 		agent, err := New(Config{
+			Context:     context.Background(),
 			AgentID:     "test-agent",
 			Services:    services,
 			BeylaConfig: beylaConfig,
@@ -311,6 +323,7 @@ func TestAgent_BeylaIntegration(t *testing.T) {
 		}
 
 		agent, err := New(Config{
+			Context:     context.Background(),
 			AgentID:     "test-agent",
 			Services:    services,
 			BeylaConfig: nil,

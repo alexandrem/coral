@@ -83,9 +83,8 @@ func NewContinuousCPUProfiler(
 		logger.Info().Int("symbol_count", kernelSymbolizer.SymbolCount()).Msg("Kernel symbolizer initialized for continuous profiling")
 	}
 
-	// Default to background context if not provided (for backwards compatibility).
 	if parentCtx == nil {
-		parentCtx = context.Background()
+		return nil, fmt.Errorf("context is required")
 	}
 
 	ctx, cancel := context.WithCancel(parentCtx)

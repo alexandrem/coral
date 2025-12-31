@@ -55,14 +55,11 @@ func New(config Config) (*Agent, error) {
 	if config.AgentID == "" {
 		return nil, fmt.Errorf("agent_id is required")
 	}
-
-	// Default to background context if not provided (for backwards compatibility).
-	parentCtx := config.Context
-	if parentCtx == nil {
-		parentCtx = context.Background()
+	if config.Context == nil {
+		return nil, fmt.Errorf("context is required")
 	}
 
-	ctx, cancel := context.WithCancel(parentCtx)
+	ctx, cancel := context.WithCancel(config.Context)
 
 	// Initialize eBPF manager.
 	ebpfManager := ebpf.NewManager(ebpf.Config{
