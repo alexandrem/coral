@@ -393,6 +393,25 @@ func (f *ContainerFixture) GetAgentEndpoint(ctx context.Context, index int) (str
 	return fmt.Sprintf("%s:%s", host, port.Port()), nil
 }
 
+// GetAgentGRPCEndpoint returns the agent gRPC service endpoint (for QueryTelemetry, etc).
+func (f *ContainerFixture) GetAgentGRPCEndpoint(ctx context.Context, index int) (string, error) {
+	if index >= len(f.Agents) {
+		return "", fmt.Errorf("agent index %d out of range", index)
+	}
+
+	host, err := f.Agents[index].Host(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	port, err := f.Agents[index].MappedPort(ctx, "9001/tcp")
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("http://%s:%s", host, port.Port()), nil
+}
+
 // GetOTELAppEndpoint returns the HTTP endpoint for the OTEL test app.
 func (f *ContainerFixture) GetOTELAppEndpoint(ctx context.Context) (string, error) {
 	app, ok := f.Apps["otel-app"]

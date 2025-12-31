@@ -431,14 +431,18 @@ func (suite *E2EDistributedSuite) SetupSuite() {
 - [x] Tests compile successfully and run on Linux with proper cleanup
 - [x] Foundation ready for observability layer tests
 
-**Status**: ✅ **Phase 1 Complete** - All connectivity and discovery tests implemented
+**Status**: ✅ **Phase 1 COMPLETE** - All connectivity and discovery tests implemented and working
 
 ### Phase 2 Completion
-- [ ] All 4 observability layers have E2E coverage
-- [ ] Data flows from agent → colony → storage verified
-- [ ] Real Beyla subprocess integration working
-- [ ] Test SDK app successfully traced with uprobes
-- [ ] CPU profiling (continuous + on-demand) verified
+- [x] All 4 observability layers have E2E test coverage (12 tests total)
+- [x] Level 1 (OTLP): Data flow from app → agent verified end-to-end
+- [ ] Level 1 (OTLP): Colony aggregation verified (pending colony polling)
+- [ ] Level 2: System metrics collection verified (backend ready, query API needed)
+- [ ] Level 0 (Beyla): Real Beyla subprocess integration (binary not in image yet)
+- [ ] Level 3: Test SDK app successfully traced with uprobes (uprobe API needed)
+- [ ] Level 2/3: CPU profiling (continuous + on-demand) verified (profiling API needed)
+
+**Status**: 🟢 **Phase 2 Test Infrastructure Complete** - Level 1 E2E working!
 
 ## Implementation Notes
 

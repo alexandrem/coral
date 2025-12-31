@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/fixtures"
+	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
 // ObservabilityL1Suite tests Level 1 - OTLP Telemetry observability.
@@ -104,23 +105,48 @@ func (s *ObservabilityL1Suite) TestLevel1_OTLPIngestion() {
 	s.T().Log("Waiting for OTLP spans to be processed by agent...")
 	time.Sleep(3 * time.Second)
 
-	// TODO: Query agent's telemetry storage to verify spans were ingested.
-	// This requires exposing agent telemetry query API or direct DB access.
-	// For now, we verify the infrastructure is working (app runs, sends data).
-	//
-	// Future verification steps:
-	// 1. Query agent HTTP/gRPC endpoint for telemetry data
-	// 2. Verify spans with service_name="otel-app"
-	// 3. Verify span attributes (http.method, http.route, http.status_code)
-	// 4. Verify error spans were captured (checkout endpoint has error rate)
-	// 5. Verify trace IDs and span correlation
+	// Query agent's telemetry storage to verify spans were ingested.
+	s.T().Log("Querying agent for ingested telemetry spans...")
 
-	s.T().Log("✓ OTLP ingestion infrastructure validated")
-	s.T().Log("  - OTLP app started and healthy")
-	s.T().Log("  - Generated telemetry via HTTP requests")
-	s.T().Log("  - Agent OTLP receiver should be processing spans")
-	s.T().Log("")
-	s.T().Log("Next steps: Implement agent telemetry query API for verification")
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
+
+	agentClient := helpers.NewAgentClient(agentEndpoint)
+
+	// Query spans from the last 5 minutes.
+	now := time.Now()
+	telemetryResp, err := helpers.QueryAgentTelemetry(
+		s.ctx,
+		agentClient,
+		now.Add(-5*time.Minute).Unix(),
+		now.Unix(),
+		[]string{"otel-app"}, // Filter by our test app service name
+	)
+	s.Require().NoError(err, "Failed to query telemetry from agent")
+
+	// Verify spans were ingested.
+	s.Require().Greater(int(telemetryResp.TotalSpans), 0,
+		"Expected telemetry spans to be ingested, got 0")
+
+	s.T().Logf("✓ Verified %d spans ingested by agent", telemetryResp.TotalSpans)
+
+	// Verify span properties.
+	if len(telemetryResp.Spans) > 0 {
+		span := telemetryResp.Spans[0]
+		s.Require().Equal("otel-app", span.ServiceName,
+			"Span should be from otel-app service")
+		s.Require().NotEmpty(span.SpanId, "Span should have span ID")
+		s.Require().NotEmpty(span.TraceId, "Span should have trace ID")
+
+		s.T().Logf("  Sample span: service=%s method=%s route=%s duration=%.2fms",
+			span.ServiceName, span.HttpMethod, span.HttpRoute, span.DurationMs)
+	}
+
+	s.T().Log("✓ OTLP ingestion verified end-to-end")
+	s.T().Log("  - OTLP app sends telemetry to agent")
+	s.T().Log("  - Agent OTLP receiver processes spans")
+	s.T().Log("  - Spans stored in agent's local DuckDB")
+	s.T().Log("  - Spans queryable via gRPC API")
 }
 
 // TestLevel1_OTELAppEndpoints verifies the OTEL test app endpoints work correctly.

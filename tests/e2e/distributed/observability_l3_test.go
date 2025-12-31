@@ -155,7 +155,8 @@ func (s *ObservabilityL3Suite) TestLevel3_UprobeTracing() {
 // TestLevel3_UprobeCallTree verifies uprobe call tree construction.
 //
 // This test specifically validates that uprobes can track call chains:
-//   ProcessPayment → ValidateCard → CalculateTotal
+//
+//	ProcessPayment → ValidateCard → CalculateTotal
 //
 // Call tree validation is crucial for understanding code execution paths.
 func (s *ObservabilityL3Suite) TestLevel3_UprobeCallTree() {

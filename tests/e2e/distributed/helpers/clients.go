@@ -7,6 +7,8 @@ import (
 
 	"connectrpc.com/connect"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	agentv1connect "github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	colonyv1connect "github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
@@ -62,6 +64,35 @@ func ListAgents(ctx context.Context, client colonyv1connect.ColonyServiceClient)
 	resp, err := client.ListAgents(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agents: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// NewAgentClient creates a new agent service client.
+func NewAgentClient(endpoint string) agentv1connect.AgentServiceClient {
+	return agentv1connect.NewAgentServiceClient(
+		http.DefaultClient,
+		endpoint,
+	)
+}
+
+// QueryAgentTelemetry queries an agent for telemetry spans.
+func QueryAgentTelemetry(
+	ctx context.Context,
+	client agentv1connect.AgentServiceClient,
+	startTime, endTime int64,
+	serviceNames []string,
+) (*agentv1.QueryTelemetryResponse, error) {
+	req := connect.NewRequest(&agentv1.QueryTelemetryRequest{
+		StartTime:    startTime,
+		EndTime:      endTime,
+		ServiceNames: serviceNames,
+	})
+
+	resp, err := client.QueryTelemetry(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query telemetry: %w", err)
 	}
 
 	return resp.Msg, nil
