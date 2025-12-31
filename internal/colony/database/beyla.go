@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // Private structs for ORM mapping
@@ -86,6 +87,15 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 				continue // Skip empty buckets.
 			}
 
+			countInt64, clamped := safe.Uint64ToInt64(count)
+			if clamped {
+				d.logger.Warn().
+					Uint64("original_count", count).
+					Int64("clamped_count", countInt64).
+					Str("agent_id", agentID).
+					Str("service_name", metric.ServiceName).
+					Msg("HTTP metric count exceeded int64 max, clamped")
+			}
 			items = append(items, &beylaHTTPMetricDB{
 				Timestamp:       timestamp,
 				AgentID:         agentID,
@@ -94,7 +104,7 @@ func (d *Database) InsertBeylaHTTPMetrics(ctx context.Context, agentID string, m
 				HTTPRoute:       metric.HttpRoute,
 				HTTPStatusCode:  int(metric.HttpStatusCode),
 				LatencyBucketMs: bucket,
-				Count:           int64(count),
+				Count:           countInt64,
 				Attributes:      string(attributesJSON),
 			})
 		}
@@ -144,6 +154,15 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 				continue // Skip empty buckets.
 			}
 
+			countInt64, clamped := safe.Uint64ToInt64(count)
+			if clamped {
+				d.logger.Warn().
+					Uint64("original_count", count).
+					Int64("clamped_count", countInt64).
+					Str("agent_id", agentID).
+					Str("service_name", metric.ServiceName).
+					Msg("gRPC metric count exceeded int64 max, clamped")
+			}
 			items = append(items, &beylaGRPCMetricDB{
 				Timestamp:       timestamp,
 				AgentID:         agentID,
@@ -151,7 +170,7 @@ func (d *Database) InsertBeylaGRPCMetrics(ctx context.Context, agentID string, m
 				GRPCMethod:      metric.GrpcMethod,
 				GRPCStatusCode:  int(metric.GrpcStatusCode),
 				LatencyBucketMs: bucket,
-				Count:           int64(count),
+				Count:           countInt64,
 				Attributes:      string(attributesJSON),
 			})
 		}
@@ -201,6 +220,15 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 				continue // Skip empty buckets.
 			}
 
+			countInt64, clamped := safe.Uint64ToInt64(count)
+			if clamped {
+				d.logger.Warn().
+					Uint64("original_count", count).
+					Int64("clamped_count", countInt64).
+					Str("agent_id", agentID).
+					Str("service_name", metric.ServiceName).
+					Msg("SQL metric count exceeded int64 max, clamped")
+			}
 			items = append(items, &beylaSQLMetricDB{
 				Timestamp:       timestamp,
 				AgentID:         agentID,
@@ -208,7 +236,7 @@ func (d *Database) InsertBeylaSQLMetrics(ctx context.Context, agentID string, me
 				SQLOperation:    metric.SqlOperation,
 				TableName:       metric.TableName,
 				LatencyBucketMs: bucket,
-				Count:           int64(count),
+				Count:           countInt64,
 				Attributes:      string(attributesJSON),
 			})
 		}
