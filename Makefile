@@ -111,7 +111,7 @@ test: generate ## Run tests
 
 test-ci: generate ## Run tests in CI
 	@echo "Running tests..."
-	go test -short -count=1 -parallel=8 ./... -timeout=5m
+	go test -short -count=1 -parallel=8 -coverprofile=coverage.out -covermode=atomic ./... -timeout=10m
 
 test-linux: ## Run tests in Linux Docker (tests platform-specific code)
 	@echo "Running tests in Linux Docker..."

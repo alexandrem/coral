@@ -53,3 +53,329 @@ func TestStorage_QueryMetrics_Attributes(t *testing.T) {
 	assert.Equal(t, "value1", result.Attributes["key1"])
 	assert.Equal(t, "value2", result.Attributes["key2"])
 }
+
+func TestNewStorage(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+
+	require.NoError(t, err)
+	assert.NotNil(t, storage)
+	assert.NotNil(t, storage.db)
+	assert.NotNil(t, storage.metricsTable)
+}
+
+func TestStoreMetrics_Batch(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	tests := []struct {
+		name    string
+		metrics []Metric
+		wantErr bool
+	}{
+		{
+			name:    "empty batch",
+			metrics: []Metric{},
+			wantErr: false,
+		},
+		{
+			name: "single metric",
+			metrics: []Metric{
+				{
+					Timestamp:  now,
+					Name:       "cpu.usage",
+					Value:      50.0,
+					Unit:       "percent",
+					MetricType: "gauge",
+					Attributes: map[string]string{},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "multiple metrics",
+			metrics: []Metric{
+				{
+					Timestamp:  now,
+					Name:       "cpu.usage",
+					Value:      50.0,
+					Unit:       "percent",
+					MetricType: "gauge",
+					Attributes: map[string]string{},
+				},
+				{
+					Timestamp:  now,
+					Name:       "memory.usage",
+					Value:      1024,
+					Unit:       "bytes",
+					MetricType: "gauge",
+					Attributes: map[string]string{"type": "heap"},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := storage.StoreMetrics(ctx, tt.metrics)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestQueryMetrics_TimeRange(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert test metrics at different times.
+	metrics := []Metric{
+		{
+			Timestamp:  now.Add(-20 * time.Minute),
+			Name:       "metric.old",
+			Value:      1.0,
+			Unit:       "count",
+			MetricType: "counter",
+			Attributes: map[string]string{},
+		},
+		{
+			Timestamp:  now.Add(-10 * time.Minute),
+			Name:       "metric.middle",
+			Value:      2.0,
+			Unit:       "count",
+			MetricType: "counter",
+			Attributes: map[string]string{},
+		},
+		{
+			Timestamp:  now,
+			Name:       "metric.new",
+			Value:      3.0,
+			Unit:       "count",
+			MetricType: "counter",
+			Attributes: map[string]string{},
+		},
+	}
+
+	err = storage.StoreMetrics(ctx, metrics)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		startTime time.Time
+		endTime   time.Time
+		wantCount int
+	}{
+		{
+			name:      "query all",
+			startTime: now.Add(-30 * time.Minute),
+			endTime:   now.Add(1 * time.Minute),
+			wantCount: 3,
+		},
+		{
+			name:      "query recent",
+			startTime: now.Add(-15 * time.Minute),
+			endTime:   now.Add(1 * time.Minute),
+			wantCount: 2,
+		},
+		{
+			name:      "query old only",
+			startTime: now.Add(-30 * time.Minute),
+			endTime:   now.Add(-15 * time.Minute),
+			wantCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results, err := storage.QueryMetrics(ctx, tt.startTime, tt.endTime, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCount, len(results))
+		})
+	}
+}
+
+func TestQueryMetrics_FilterByName(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert metrics with different names.
+	metrics := []Metric{
+		{
+			Timestamp:  now,
+			Name:       "cpu.usage",
+			Value:      50.0,
+			Unit:       "percent",
+			MetricType: "gauge",
+			Attributes: map[string]string{},
+		},
+		{
+			Timestamp:  now,
+			Name:       "memory.usage",
+			Value:      1024,
+			Unit:       "bytes",
+			MetricType: "gauge",
+			Attributes: map[string]string{},
+		},
+		{
+			Timestamp:  now,
+			Name:       "disk.usage",
+			Value:      2048,
+			Unit:       "bytes",
+			MetricType: "gauge",
+			Attributes: map[string]string{},
+		},
+	}
+
+	err = storage.StoreMetrics(ctx, metrics)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		metricNames []string
+		wantCount   int
+	}{
+		{
+			name:        "query all metrics",
+			metricNames: nil,
+			wantCount:   3,
+		},
+		{
+			name:        "query single metric",
+			metricNames: []string{"cpu.usage"},
+			wantCount:   1,
+		},
+		{
+			name:        "query multiple metrics",
+			metricNames: []string{"cpu.usage", "memory.usage"},
+			wantCount:   2,
+		},
+		{
+			name:        "query non-existent metric",
+			metricNames: []string{"nonexistent"},
+			wantCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results, err := storage.QueryMetrics(ctx, now.Add(-1*time.Minute), now.Add(1*time.Minute), tt.metricNames)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCount, len(results))
+		})
+	}
+}
+
+func TestCleanupOldMetrics(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert metrics at different ages.
+	metrics := []Metric{
+		{
+			Timestamp:  now.Add(-2 * time.Hour),
+			Name:       "very.old",
+			Value:      1.0,
+			Unit:       "count",
+			MetricType: "counter",
+			Attributes: map[string]string{},
+		},
+		{
+			Timestamp:  now.Add(-30 * time.Minute),
+			Name:       "medium.old",
+			Value:      2.0,
+			Unit:       "count",
+			MetricType: "counter",
+			Attributes: map[string]string{},
+		},
+		{
+			Timestamp:  now,
+			Name:       "recent",
+			Value:      3.0,
+			Unit:       "count",
+			MetricType: "counter",
+			Attributes: map[string]string{},
+		},
+	}
+
+	err = storage.StoreMetrics(ctx, metrics)
+	require.NoError(t, err)
+
+	// Cleanup metrics older than 1 hour.
+	err = storage.CleanupOldMetrics(ctx, 1*time.Hour)
+	require.NoError(t, err)
+
+	// Query remaining metrics.
+	results, err := storage.QueryMetrics(ctx, now.Add(-3*time.Hour), now.Add(1*time.Minute), nil)
+	require.NoError(t, err)
+
+	// Should only have the recent and medium.old metrics.
+	assert.LessOrEqual(t, len(results), 2, "Cleanup should remove old metrics")
+}
+
+func TestDefaultConfig(t *testing.T) {
+	config := DefaultConfig()
+
+	assert.True(t, config.Enabled)
+	assert.Equal(t, 15*time.Second, config.Interval)
+	assert.True(t, config.CPUEnabled)
+	assert.True(t, config.MemoryEnabled)
+	assert.True(t, config.DiskEnabled)
+	assert.True(t, config.NetworkEnabled)
+}
+
+func TestNewSystemCollector(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	config := DefaultConfig()
+	collector := NewSystemCollector(storage, config, logger)
+
+	assert.NotNil(t, collector)
+	assert.Equal(t, storage, collector.storage)
+	assert.Equal(t, config.Interval, collector.interval)
+}
