@@ -216,7 +216,7 @@ a complete graph of the application architecture.
           ┌────────────────────────────────┐
           │ CLI / Dashboard / MCP          │
           │                                │
-          │  coral services --all          │
+          │  coral network services        │
           │  Service registry display      │
           │  Ingress/egress annotations    │
           │  LLM queries with context      │
@@ -289,24 +289,25 @@ a complete graph of the application architecture.
 
 3. **CLI / Dashboard**
 
-    - **`coral services` command**: Display all discovered services.
+    - **`coral network services` command**: Display all discovered services.
         - Show service name, agent, port, discovery method.
         - Annotate with ingress/egress indicators.
         - Filter by agent, discovery method, or network classification.
         - Export to JSON, CSV, or GraphViz.
-    - **`coral ingress` command**: List all ingress endpoints.
+    - **`coral network ingress` command**: List all ingress endpoints.
         - Show external IPs calling into mesh.
         - Group by service being accessed.
         - Resolve IPs to hostnames (reverse DNS).
-    - **`coral egress` command**: List all egress endpoints.
+    - **`coral network egress` command**: List all egress endpoints.
         - Show external IPs called from mesh.
         - Group by service making calls.
         - Detect cloud provider services (AWS, GCP, Azure).
-    - **Dashboard network view**: Visualize ingress/egress with topology graph.
+    - **`coral network topology` command**: Enhanced topology view with ingress/egress.
         - Show internal services (nodes).
         - Show external endpoints (special nodes).
         - Draw ingress edges (external → service).
         - Draw egress edges (service → external).
+    - **Dashboard network view**: Visualize ingress/egress with topology graph.
 
 4. **MCP Integration (RFD 004)**
 
@@ -442,10 +443,10 @@ service_discovery:
 
 ### Phase 7: CLI & Visualization
 
-- [ ] Implement `coral services` command (list all services)
-- [ ] Implement `coral ingress` command (list ingress endpoints)
-- [ ] Implement `coral egress` command (list egress endpoints)
-- [ ] Add ingress/egress annotations to `coral topology` command
+- [ ] Implement `coral network services` command (list all services)
+- [ ] Implement `coral network ingress` command (list ingress endpoints)
+- [ ] Implement `coral network egress` command (list egress endpoints)
+- [ ] Implement `coral network topology` command with ingress/egress annotations
 - [ ] Implement dashboard network view with external endpoints
 - [ ] Add export formats (JSON, CSV, GraphViz)
 
@@ -587,7 +588,7 @@ service ColonyService {
 
 ```bash
 # List all services (manual + discovered)
-$ coral services
+$ coral network services
 
 DISCOVERED SERVICES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -604,7 +605,7 @@ prometheus      hostname-mon     9090    listening_socket    yes      no      di
 Total: 6 services (2 managed, 4 discovered)
 
 # List ingress endpoints
-$ coral ingress
+$ coral network ingress
 
 INGRESS ENDPOINTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -619,7 +620,7 @@ prometheus      192.0.2.10           monitoring.corp.internal        23
 Total: 4 external sources
 
 # List egress endpoints
-$ coral egress
+$ coral network egress
 
 EGRESS ENDPOINTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -635,7 +636,7 @@ api             151.101.1.140:443    api.github.com                  12
 Total: 5 external dependencies
 
 # Filter services by discovery method
-$ coral services --discovered
+$ coral network services --discovered
 
 # Promote discovered service to managed
 $ coral connect postgres:5432
@@ -644,7 +645,7 @@ $ coral connect postgres:5432
   Now managed with health monitoring enabled
 
 # Show topology with ingress/egress
-$ coral topology
+$ coral network topology
 
 SERVICE TOPOLOGY (with external dependencies)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
