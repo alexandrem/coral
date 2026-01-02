@@ -102,20 +102,29 @@ Agents observe existing network activity rather than actively probing ports or
 services. This avoids generating synthetic traffic and ensures discovery
 reflects actual usage patterns.
 
-**2. Focused discovery approach**
+**2. Registry-based service mapping**
 
-MVP uses two core mechanisms:
+Services are explicitly registered via `coral connect <service>:<port>`:
 
-- **Listening sockets** (procfs): Detect services accepting connections via
-  `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`
-- **Process metadata** (procfs): Map listening ports to process names and
-  command lines via `/proc/[pid]/cmdline` and `/proc/[pid]/exe`
-- **Connection tracking** (RFD 033 eBPF): Leverage existing connection tracking
-  for attribution
+- Colony maintains service registry (service name → port mapping)
+- Agents receive registry updates from colony
+- Agents map listening ports to registered service names
+- Agents map PIDs to services (PID → listening port → registered service)
+
+Discovery workflow:
+
+1. User registers: `coral connect api:8080`
+2. Colony adds to registry: `{port: 8080, service: "api"}`
+3. Agent receives registry update
+4. Agent detects listening socket on port 8080 → maps to "api"
+5. Agent detects connection from PID 1234 → port 8080 → service "api"
+6. Agent reports: `{source_service_name: "api", ...}`
+
+Unregistered services are reported as "unknown-{port}" for visibility.
 
 Future enhancements (deferred to later RFDs):
 
-- Traffic metadata extraction (HTTP Host headers, gRPC service names via Beyla)
+- Automatic service name inference from HTTP/gRPC traffic (Beyla)
 - Kubernetes API integration (pod labels, service names)
 - Container runtime integration (Docker/containerd APIs)
 
@@ -270,10 +279,11 @@ connections.
         - Parse files to extract local address and port.
         - Identify inode to map to process (via `/proc/[pid]/fd/`).
         - Report all listening ports with timestamps.
-    - **Process Metadata Resolver**: Map listening ports to process metadata.
-        - Read `/proc/[pid]/cmdline` for command line.
-        - Read `/proc/[pid]/exe` for binary path.
-        - Infer service name from process name or binary path.
+    - **Service Name Mapper**: Map listening ports to registered services.
+        - Receive service registry from colony (populated via `coral connect`).
+        - For each listening port, lookup in registry.
+        - If found: use registered service name.
+        - If not found: report as "unknown-{port}".
     - **Connection Classifier**: Analyze active connections and attribute to
       services.
         - Read `/proc/net/tcp` for ESTABLISHED connections.
@@ -286,10 +296,6 @@ connections.
         - Include network IPs for correlation but service name is primary.
         - Colony uses service attribution for classification, with IP registry as
           fallback.
-    - **Service Name Inference**: Simple heuristic-based service naming.
-        - Process command line patterns (e.g., "uvicorn myapp:app" → "myapp").
-        - Port-to-service mapping from config (e.g., 8080 → api).
-        - Binary name as fallback (e.g., `/usr/bin/postgres` → "postgres").
     - **Discovery Reporting**: Stream discovery events to colony.
         - Report new services (listening socket detected).
         - Report service metadata (process name, inferred service name).
@@ -377,23 +383,9 @@ service_discovery:
         enabled: true
         backend: ebpf  # or "procfs" for fallback
 
-    # Service name inference
-    name_inference:
-        # Port mapping (port → service name)
-        port_mapping:
-            8080: api
-            3000: frontend
-            5432: postgres
-            6379: redis
-
-        # Process patterns (regex → service name)
-        process_patterns:
-            - pattern: 'node.*api\.js'
-              name: api
-            - pattern: 'uvicorn.*:app'
-              name: web
-            - pattern: '^postgres'
-              name: postgres
+    # Service registry synced from colony
+    # (populated when users run `coral connect <service>:<port>`)
+    # Agent receives this registry and maps listening ports to service names
 
     # Reporting
     report_interval: 30s
@@ -413,17 +405,17 @@ service_discovery:
 
 - [ ] Implement `/proc/net/tcp` parser for listening sockets
 - [ ] Implement `/proc/net/tcp6` and `/proc/net/udp` parsers
-- [ ] Map inodes to PIDs via `/proc/[pid]/fd/`
-- [ ] Extract process metadata (cmdline, exe, environ)
-- [ ] Report listening sockets to colony
+- [ ] Map socket inodes to PIDs via `/proc/[pid]/fd/`
+- [ ] Report listening ports to colony
 - [ ] Add unit tests for procfs parsing
 
-### Phase 3: Service Name Inference
+### Phase 3: Service Name Mapping
 
-- [ ] Implement port-to-service mapping from config
-- [ ] Implement process pattern matching (regex)
-- [ ] Extract service name from binary path as fallback
-- [ ] Implement confidence scoring for inferred names
+- [ ] Agent receives service registry from colony (services registered via
+  `coral connect`)
+- [ ] For each listening port, lookup port in service registry
+- [ ] Map port to registered service name, or "unknown-{port}" if unregistered
+- [ ] Track which services are registered vs discovered
 
 ### Phase 4: Agent-Side Service Attribution
 
@@ -940,31 +932,46 @@ CREATE INDEX idx_service_endpoints_service ON service_endpoints (service_name);
 CREATE INDEX idx_service_endpoints_type ON service_endpoints (endpoint_type);
 ```
 
-### Service Name Inference Algorithm
+### Service Name Mapping Algorithm
 
 ```
-Input: Port number, process metadata
-Output: Service name, confidence score
+Input: Port number, service registry (from colony)
+Output: Service name
 
-1. Check port-to-service mapping (config)
-   → If match: return (service_name, confidence=1.0)
+The service registry is populated when users run `coral connect <service>:<port>`.
+For example:
+  $ coral connect api:8080
+  $ coral connect postgres:5432
 
-2. Check process command line patterns (regex)
-   → Match "node api.js" against pattern 'node.*api\.js'
-   → Return (service_name="api", confidence=0.8)
+This creates registry entries:
+  {port: 8080, service: "api"}
+  {port: 5432, service: "postgres"}
 
-3. Extract from executable path
-   → /usr/bin/postgres → "postgres"
-   → Return (service_name, confidence=0.7)
+Agent mapping logic:
 
-4. Use process name as fallback
-   → Process name: "java" → "java"
-   → Return (service_name, confidence=0.3)
+1. Agent receives service registry from colony
+   Registry: {8080: "api", 5432: "postgres", 6379: "redis"}
 
-5. Unknown
-   → Return (service_name="unknown-{port}", confidence=0.0)
+2. Agent detects listening socket on port 8080
+   → Lookup port 8080 in registry
+   → Found: "api"
+   → Return service_name="api"
 
-Note: Advanced inference methods (K8s labels, HTTP/gRPC traffic inspection) are
+3. Agent detects listening socket on port 3000
+   → Lookup port 3000 in registry
+   → Not found
+   → Return service_name="unknown-3000"
+
+4. Agent maps connection to PID
+   → PID 1234 owns socket on port 8080
+   → Port 8080 → service "api"
+   → Tag connection with source_service_name="api"
+
+Note: This eliminates complex heuristics (regex patterns, binary path parsing).
+Users explicitly register services they care about via `coral connect`. Anything
+else is "unknown-{port}".
+
+Advanced inference methods (K8s labels, HTTP/gRPC traffic inspection) are
 deferred to future RFDs. See "Traffic-based service name inference" in Future Work.
 ```
 
