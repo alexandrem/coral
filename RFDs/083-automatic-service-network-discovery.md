@@ -137,11 +137,24 @@ Automatically discovered services are added to registry with `discovered: true`
 flag to distinguish from manually registered services. Users can promote
 discovered services to "managed" status via `coral connect` or config.
 
-**6. Integration with existing topology (RFD 033)**
+**6. Integration with topology discovery (RFD 033)**
 
-Service discovery provides the **node set** for topology graph. Topology
-discovery (RFD 033) provides the **edge set** (connections). Together they form
-a complete graph of the application architecture.
+RFD 083 and RFD 033 are complementary and work together:
+
+- **RFD 083 (this RFD)**: Discovers services and classifies traffic as
+  internal/external
+    - Provides the **node set** (services) for topology graph
+    - Adds **external context** (ingress/egress endpoints)
+    - Builds the service IP registry for classification
+- **RFD 033**: Tracks service-to-service connections within the Coral
+  ecosystem
+    - Provides the **edge set** (connections between services)
+    - Captures connection metadata (request rates, protocols, latency)
+
+Both RFDs share the same eBPF connection tracking infrastructure but analyze
+connections at different layers. RFD 083 focuses on classifying all connections
+(internal + external), while RFD 033 focuses on building topology from internal
+connections.
 
 ### Benefits
 
@@ -427,13 +440,15 @@ service_discovery:
 - [ ] Extract gRPC service names from Beyla traces
 - [ ] Implement confidence scoring for inferred names
 
-### Phase 4: Connection Classification
+### Phase 4: Connection Classification (Shared with RFD 033)
 
 - [ ] Implement connection tracker using `/proc/net/tcp` (fallback)
-- [ ] Integrate eBPF connection tracking from RFD 033
+- [ ] Integrate eBPF connection tracking from RFD 033 (shared infrastructure)
+- [ ] Extend RFD 033's connection event stream with classification layer
 - [ ] Report connection endpoints (local IP, remote IP, ports) to colony
 - [ ] Extract and report local IPs used by services (listening addresses)
 - [ ] Colony classifies connections using service IP registry
+- [ ] Feed internal connections to RFD 033 topology builder
 
 ### Phase 5: Colony Service Registry
 
@@ -1032,6 +1047,83 @@ SaaS API detection:
   - Maintain database of known API endpoints
 ```
 
+### Shared Infrastructure with RFD 033
+
+**Single eBPF pipeline, dual analysis layers:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Agent: eBPF Connection Tracking (shared infrastructure)    │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │ eBPF Program (RFD 033 infrastructure)                 │ │
+│  │   - Hook tcp_v4_connect, tcp_v6_connect               │ │
+│  │   - Track connection lifecycle                         │ │
+│  │   - Extract source IP, dest IP, ports, protocol       │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                          │                                  │
+│                          │ Connection events                │
+│                          ▼                                  │
+│         ┌────────────────────────────────────┐              │
+│         │   Connection Event Stream          │              │
+│         │                                    │              │
+│         │   {src: 172.17.0.5:45678,         │              │
+│         │    dst: 172.17.0.8:5432,          │              │
+│         │    proto: TCP,                     │              │
+│         │    state: ESTABLISHED}             │              │
+│         └────────────────┬───────────────────┘              │
+│                          │                                  │
+│          ┌───────────────┴───────────────┐                  │
+│          │                               │                  │
+│          ▼                               ▼                  │
+│  ┌──────────────────┐         ┌─────────────────────────┐  │
+│  │ RFD 083 Layer    │         │ RFD 033 Layer           │  │
+│  │ (This RFD)       │         │ (Topology)              │  │
+│  │                  │         │                         │  │
+│  │ • Report all IPs │         │ • Focus on internal     │  │
+│  │ • Build service  │         │   connections only      │  │
+│  │   IP registry    │         │ • Track request rates   │  │
+│  │ • Classify:      │         │ • Build topology edges  │  │
+│  │   internal/      │         │ • Capture metadata      │  │
+│  │   external       │         │   (protocol, latency)   │  │
+│  └──────────────────┘         └─────────────────────────┘  │
+│          │                               │                  │
+│          │                               │                  │
+│          ▼                               ▼                  │
+│  To colony:                      To colony:                 │
+│  - Service IPs                   - Topology connections     │
+│  - Ingress endpoints             - Connection metadata      │
+│  - Egress endpoints              - Request rates            │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+                ┌──────────────────────┐
+                │ Colony: Merge Data   │
+                │                      │
+                │ Complete Topology:   │
+                │  - Nodes (RFD 083)   │
+                │  - Edges (RFD 033)   │
+                │  - External (083)    │
+                │  - Metrics (033)     │
+                └──────────────────────┘
+```
+
+**Benefits of shared infrastructure:**
+
+1. **Single eBPF overhead**: One set of eBPF programs instead of two
+2. **Consistent data source**: Both RFDs analyze the same connection events
+3. **Efficient resource usage**: Share kernel hooks and perf buffers
+4. **Simpler deployment**: Deploy once, get both service discovery and topology
+5. **Coherent analysis**: Service IP registry (083) informs topology
+   classification (033)
+
+**Implementation strategy:**
+
+- RFD 033's eBPF connection tracking is the foundation
+- RFD 083 extends the analysis layer with classification logic
+- Agent streams connection events once, colony processes them for both purposes
+- Service IP registry (RFD 083) is used by both RFDs for classification
+
 ### Example MCP Tool Integration
 
 ```json
@@ -1079,14 +1171,39 @@ If any of these services experience an outage, your application may be impacted.
 
 ## Related RFDs
 
-- **RFD 033**: Service Topology Discovery via eBPF (provides edge set for
-  topology graph)
+### Complementary RFDs
+
+**RFD 033: Service Topology Discovery via eBPF**
+
+- **Relationship**: RFD 033 and RFD 083 work together to build complete
+  topology
+- **RFD 033 provides**: Service-to-service connections (edge set) with metadata
+  (request rates, protocols)
+- **RFD 083 provides**: Service discovery (node set) and external endpoint
+  classification
+- **Shared infrastructure**: Both use eBPF connection tracking, analyzed at
+  different layers
+- **Combined output**: Complete topology graph showing internal services,
+  service-to-service connections, and external dependencies
+
+**Implementation approach**: Deploy both RFDs together with a single eBPF
+connection tracking pipeline feeding two analysis layers:
+
+1. **RFD 083 layer**: Classify all connections → build service IP registry →
+   identify ingress/egress
+2. **RFD 033 layer**: Analyze internal connections → build service topology →
+   capture connection metadata
+
+### Supporting RFDs
+
 - **RFD 044**: Agent ID Standardization and Routing (agent identification for
   service registry)
 - **RFD 053**: Beyla Dynamic Service Discovery (auto-instrumentation of
   discovered services)
-- **RFD 001**: Discovery Service (colony/agent discovery, different scope)
-- **RFD 004**: MCP Server Integration (exposing discovery to LLMs)
+- **RFD 001**: Discovery Service (colony/agent discovery, different scope from
+  service discovery)
+- **RFD 004**: MCP Server Integration (exposing discovery data to LLMs)
+- **RFD 084**: Network Traffic Capture (uses service IP registry for filtering)
 
 **Note**: RFD 019 (Persistent IP Allocation) manages WireGuard mesh IPs for
 control plane only. Application traffic uses actual host/container IPs tracked
