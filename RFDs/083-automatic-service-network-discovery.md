@@ -102,17 +102,22 @@ Agents observe existing network activity rather than actively probing ports or
 services. This avoids generating synthetic traffic and ensures discovery
 reflects actual usage patterns.
 
-**2. Multi-source detection for robustness**
+**2. Focused discovery approach**
 
-Combine multiple discovery mechanisms:
+MVP uses two core mechanisms:
 
-- **Listening sockets** (`netstat`/`ss`/procfs): Detect services accepting
-  connections
-- **Active connections** (eBPF connection tracking): Discover services
-  communicating with others
-- **Traffic metadata** (OpenTelemetry eBPF): Extract service names from HTTP
-  headers, gRPC metadata
-- **Process metadata**: Map listening ports to process names and command lines
+- **Listening sockets** (procfs): Detect services accepting connections via
+  `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`
+- **Process metadata** (procfs): Map listening ports to process names and
+  command lines via `/proc/[pid]/cmdline` and `/proc/[pid]/exe`
+- **Connection tracking** (RFD 033 eBPF): Leverage existing connection tracking
+  for attribution
+
+Future enhancements (deferred to later RFDs):
+
+- Traffic metadata extraction (HTTP Host headers, gRPC service names via Beyla)
+- Kubernetes API integration (pod labels, service names)
+- Container runtime integration (Docker/containerd APIs)
 
 **3. Coral-internal traffic detection via agent-side service attribution**
 
@@ -146,11 +151,11 @@ don't directly correspond to service IPs.
 - **Internal**: Coral service IP → Coral service IP (service-to-service
   communication)
 
-**5. Auto-registration with low-confidence flag**
+**5. Simple auto-registration**
 
-Automatically discovered services are added to registry with `discovered: true`
-flag to distinguish from manually registered services. Users can promote
-discovered services to "managed" status via `coral connect` or config.
+Automatically discovered services are added to colony registry with metadata
+indicating discovery method and confidence score. This provides immediate
+visibility into all services without manual configuration.
 
 **6. Integration with topology discovery (RFD 033)**
 
@@ -268,9 +273,7 @@ connections.
     - **Process Metadata Resolver**: Map listening ports to process metadata.
         - Read `/proc/[pid]/cmdline` for command line.
         - Read `/proc/[pid]/exe` for binary path.
-        - Read `/proc/[pid]/environ` for environment variables (K8s labels,
-          service names).
-        - Infer service name from process name, binary path, or labels.
+        - Infer service name from process name or binary path.
     - **Connection Classifier**: Analyze active connections and attribute to
       services.
         - Read `/proc/net/tcp` for ESTABLISHED connections.
@@ -283,12 +286,10 @@ connections.
         - Include network IPs for correlation but service name is primary.
         - Colony uses service attribution for classification, with IP registry as
           fallback.
-    - **Service Name Inference**: Extract service names from multiple sources.
-        - HTTP Host header from eBPF HTTP tracing (Beyla).
-        - gRPC service names from eBPF gRPC tracing.
-        - Kubernetes pod labels (if agent running as DaemonSet).
+    - **Service Name Inference**: Simple heuristic-based service naming.
         - Process command line patterns (e.g., "uvicorn myapp:app" → "myapp").
         - Port-to-service mapping from config (e.g., 8080 → api).
+        - Binary name as fallback (e.g., `/usr/bin/postgres` → "postgres").
     - **Discovery Reporting**: Stream discovery events to colony.
         - Report new services (listening socket detected).
         - Report service metadata (process name, inferred service name).
@@ -323,63 +324,41 @@ connections.
         - **Important**: Coral is not a service mesh and cannot reliably introspect
           all east-west traffic. Some INTERNAL connections may be misclassified as
           INGRESS/EGRESS. This is acceptable for debugging use cases.
-    - **Network Endpoint Classifier**: Correlate agent reports to classify
-      endpoints.
+    - **Network Endpoint Classifier**: Simple classification based on service
+      attribution.
         - Check if IP is in service IP registry (Coral-monitored service).
         - Cross-reference unknown IPs against all agent reports.
-        - Identify common external endpoints (cloud providers, CDNs, SaaS APIs).
-        - Resolve external IPs to service names (reverse DNS, cloud provider
-          APIs).
+        - Classify as ingress/egress/internal based on attribution.
     - **Ingress/Egress Aggregator**: Build network dependency map.
         - For each service, list ingress sources (external IPs calling service).
         - For each service, list egress destinations (external IPs service
           calls).
-        - Detect new external dependencies (alert when service calls new
-          endpoint).
     - **Storage**: Persist service registry and network endpoints in DuckDB.
         - `service_registry` table: Discovered services with metadata.
         - `network_endpoints` table: Ingress/egress endpoints with
           classifications.
-        - `endpoint_resolution` table: Map external IPs to service names (cache
-          DNS lookups).
-    - **API Handlers**: Expose service registry via gRPC (CLI) and MCP (LLM).
+    - **API Handlers**: Expose service registry via gRPC for CLI.
         - List all services (manual + discovered).
         - Filter by discovery method, ingress/egress, agent.
-        - Export as JSON for external tools.
 
-3. **CLI / Dashboard**
+3. **CLI**
 
     - **`coral network services` command**: Display all discovered services.
-        - Show service name, agent, port, discovery method.
+        - Show service name, agent, port, discovery method, confidence.
         - Annotate with ingress/egress indicators.
         - Filter by agent, discovery method, or network classification.
-        - Export to JSON, CSV, or GraphViz.
     - **`coral network ingress` command**: List all ingress endpoints.
         - Show external IPs calling into mesh.
         - Group by service being accessed.
-        - Resolve IPs to hostnames (reverse DNS).
+        - Display connection counts and confidence scores.
     - **`coral network egress` command**: List all egress endpoints.
         - Show external IPs called from mesh.
         - Group by service making calls.
-        - Detect cloud provider services (AWS, GCP, Azure).
+        - Display connection counts and confidence scores.
     - **`coral network topology` command**: Enhanced topology view with ingress/egress.
         - Show internal services (nodes).
-        - Show external endpoints (special nodes).
-        - Draw ingress edges (external → service).
-        - Draw egress edges (service → external).
-    - **Dashboard network view**: Visualize ingress/egress with topology graph.
-
-4. **MCP Integration (RFD 004)**
-
-    - New MCP tools for querying network discovery:
-        - `coral_list_services`: List all services (manual + discovered).
-        - `coral_get_ingress`: Get ingress endpoints for service.
-        - `coral_get_egress`: Get egress endpoints for service.
-        - `coral_get_external_dependencies`: List all external dependencies.
-    - Include network context in existing tools:
-        - `coral_get_topology`: Include ingress/egress annotations.
-        - LLM can answer: "What external services does my app use?"
-        - LLM can answer: "Which services are internet-facing?"
+        - Show external endpoints.
+        - Indicate ingress/egress connections with confidence scores.
 
 **Configuration Example:**
 
@@ -388,25 +367,15 @@ connections.
 service_discovery:
     enabled: true
 
-    # Discovery methods (in priority order)
-    methods:
-        -   type: listening_sockets
-            enabled: true
-            config:
-                scan_interval: 30s
-                protocols: [ tcp, udp ]
+    # Discovery methods
+    listening_sockets:
+        enabled: true
+        scan_interval: 30s
+        protocols: [ tcp, udp ]
 
-        -   type: connection_tracking
-            enabled: true
-            config:
-                # Use eBPF for real-time connection tracking
-                backend: ebpf  # or "procfs" for fallback
-
-        -   type: traffic_inspection
-            enabled: true
-            config:
-                # Extract service names from HTTP/gRPC traffic
-                sources: [ http_host, grpc_service ]
+    connection_tracking:
+        enabled: true
+        backend: ebpf  # or "procfs" for fallback
 
     # Service name inference
     name_inference:
@@ -426,26 +395,8 @@ service_discovery:
             - pattern: '^postgres'
               name: postgres
 
-        # Kubernetes integration
-        kubernetes:
-            enabled: true
-            label_selector: app  # Use "app" label as service name
-
-    # Network classification
-    network:
-        # Report all local IPs used by services
-        report_service_ips: true
-
-        # External endpoint resolution
-        resolve_external_ips: true
-        dns_cache_ttl: 1h
-
-        # Cloud provider detection
-        detect_cloud_providers: true
-
     # Reporting
     report_interval: 30s
-    batch_size: 50  # batch discovery events
 ```
 
 ## Implementation Plan
@@ -454,8 +405,7 @@ service_discovery:
 
 - [ ] Define protobuf messages for service discovery (`DiscoveredService`,
   `NetworkEndpoint`)
-- [ ] Create DuckDB schema (`service_registry`, `network_endpoints`,
-  `endpoint_resolution`)
+- [ ] Create DuckDB schema (`service_registry`, `network_endpoints`)
 - [ ] Define agent → colony streaming RPC for discovery events
 - [ ] Implement service IP registry in colony (track all IPs used by services)
 
@@ -470,58 +420,43 @@ service_discovery:
 
 ### Phase 3: Service Name Inference
 
-- [ ] Implement port-to-service mapping
+- [ ] Implement port-to-service mapping from config
 - [ ] Implement process pattern matching (regex)
-- [ ] Integrate with Kubernetes API for pod labels (if available)
-- [ ] Extract HTTP Host header from Beyla eBPF traces
-- [ ] Extract gRPC service names from Beyla traces
+- [ ] Extract service name from binary path as fallback
 - [ ] Implement confidence scoring for inferred names
 
-### Phase 4: Connection Classification (Shared with RFD 033)
+### Phase 4: Agent-Side Service Attribution
 
-- [ ] Implement connection tracker using `/proc/net/tcp` (fallback)
-- [ ] Integrate eBPF connection tracking from RFD 033 (shared infrastructure)
-- [ ] Extend RFD 033's connection event stream with classification layer
-- [ ] Report connection endpoints (local IP, remote IP, ports) to colony
-- [ ] Extract and report local IPs used by services (listening addresses)
-- [ ] Colony classifies connections using service IP registry
+- [ ] Implement connection → process mapping via `/proc/[pid]/fd/` inode lookup
+- [ ] Map process to service using local service registry
+- [ ] Tag ServiceConnection reports with source/dest service names
+- [ ] Integrate with eBPF connection tracking from RFD 033 (shared infrastructure)
+- [ ] Report connections with service attribution to colony
+
+### Phase 5: Cross-Node Correlation & Classification
+
+- [ ] Implement 5-tuple indexing for connection correlation
+- [ ] Implement best-effort correlation with configurable time window (default 5s)
+- [ ] Merge partial attributions from multiple agents
+- [ ] Assign confidence scores based on attribution completeness
+- [ ] Classify connections as ingress/egress/internal with confidence
 - [ ] Feed internal connections to RFD 033 topology builder
 
-### Phase 5: Colony Service Registry
+### Phase 6: Colony Service Registry
 
 - [ ] Implement in-memory service registry with DuckDB persistence
-- [ ] Correlate agent reports to build service list
 - [ ] Store discovery metadata (method, confidence, timestamp)
-- [ ] Implement service promotion (discovered → managed)
+- [ ] Aggregate ingress/egress endpoints per service
 - [ ] Add retention and cleanup for stale services
 
-### Phase 6: External Endpoint Resolution
+### Phase 7: CLI
 
-- [ ] Implement reverse DNS lookup for external IPs
-- [ ] Add DNS result caching (configurable TTL)
-- [ ] Implement cloud provider detection (AWS, GCP, Azure IP ranges)
-- [ ] Map cloud IPs to service names (e.g., S3, CloudFront)
-- [ ] Store resolved names in `endpoint_resolution` table
+- [ ] Implement `coral network services` command
+- [ ] Implement `coral network ingress` command
+- [ ] Implement `coral network egress` command
+- [ ] Implement `coral network topology` command with ingress/egress
 
-### Phase 7: CLI & Visualization
-
-- [ ] Implement `coral network services` command (list all services)
-- [ ] Implement `coral network ingress` command (list ingress endpoints)
-- [ ] Implement `coral network egress` command (list egress endpoints)
-- [ ] Implement `coral network topology` command with ingress/egress annotations
-- [ ] Implement dashboard network view with external endpoints
-- [ ] Add export formats (JSON, CSV, GraphViz)
-
-### Phase 8: MCP Integration
-
-- [ ] Implement `coral_list_services` MCP tool
-- [ ] Implement `coral_get_ingress` MCP tool
-- [ ] Implement `coral_get_egress` MCP tool
-- [ ] Implement `coral_get_external_dependencies` MCP tool
-- [ ] Update `coral_get_topology` to include ingress/egress
-- [ ] Add network discovery context to LLM responses
-
-### Phase 9: Testing & Documentation
+### Phase 8: Testing & Documentation
 
 - [ ] Unit tests: procfs parsing, classification logic
 - [ ] Integration tests: multi-agent discovery
@@ -869,43 +804,60 @@ service_discovery:
 
 ## Future Work
 
-**Container-native discovery** (Future - RFD TBD)
+The following features are deferred to future RFDs to keep RFD 083 focused on the
+core discovery and classification mechanism.
+
+**Traffic-based service name inference** (Future - RFD TBD)
+
+- Extract service names from HTTP Host headers via Beyla eBPF tracing
+- Extract gRPC service names from gRPC metadata
+- Use traffic patterns to improve service naming confidence
+- Integration with OpenTelemetry for richer metadata
+
+**Kubernetes integration** (Future - RFD TBD)
+
+- Discover services from Kubernetes API (Services, Endpoints, Pods)
+- Extract service names from pod labels (app, service, etc.)
+- Track pod lifecycle and update service registry dynamically
+- Map K8s Services to Coral services
+- Integration with service mesh (Istio, Linkerd sidecar detection)
+
+**Container runtime integration** (Future - RFD TBD)
 
 - Discover services from container runtime APIs (Docker, containerd)
 - Extract service names from container labels
 - Track container lifecycle (created, started, stopped)
 - Map container networks to mesh topology
 
-**Kubernetes-native discovery** (Future - RFD TBD)
+**External endpoint enrichment** (Future - RFD TBD)
 
-- Discover services from Kubernetes API (Services, Endpoints, Pods)
-- Use pod labels as service names
-- Track service mesh integration (Istio, Linkerd)
-- Map K8s Services to Coral services
+- Reverse DNS lookup for external IPs with caching
+- Cloud provider IP range detection (AWS, GCP, Azure)
+- Map cloud IPs to service names (e.g., S3, CloudFront, GCS)
+- SaaS API detection (Stripe, Twilio, SendGrid, etc.)
+- Store resolved names in DuckDB for fast lookups
 
-**Service mesh integration** (Future - RFD TBD)
+**MCP integration for network discovery** (Future - RFD TBD)
 
-- Import topology from Istio, Linkerd, Consul
-- Merge service mesh data with Coral discovery
-- Detect service mesh policies and route rules
+- `coral_list_services` MCP tool
+- `coral_get_ingress` and `coral_get_egress` MCP tools
+- `coral_get_external_dependencies` MCP tool
+- Update `coral_get_topology` to include ingress/egress annotations
+- Enable LLM queries: "What external services does my app use?"
 
-**Machine learning for service name inference** (Low Priority)
+**Service promotion workflows** (Future - RFD TBD)
 
-- Train model on process names → service names
-- Improve confidence scores with historical data
-- Auto-detect common frameworks (Django, Rails, Express)
+- Auto-promotion rules (confidence threshold, observation time)
+- Manual promotion via CLI (`coral connect <discovered-service>`)
+- Promotion enables health monitoring, instrumentation
+- Distinguish "managed" vs "discovered" services in UI
 
-**Cloud provider API integration** (Future - RFD TBD)
+**Dashboard visualization** (Future - RFD TBD)
 
-- Query AWS API for service names (ELB, RDS, S3)
-- Query GCP API for service names (GCS, Cloud SQL)
-- Enrich external endpoints with cloud provider metadata
-
-**Real-time discovery alerts** (Low Priority)
-
-- Alert when new service discovered
-- Alert when new external dependency added
-- Alert when unexpected ingress detected
+- Network graph with ingress/egress nodes
+- Visual confidence indicators for classifications
+- Interactive filtering by service, endpoint type, confidence
+- Export to GraphViz, JSON, CSV
 
 ## Appendix
 
@@ -986,19 +938,6 @@ CREATE TABLE service_endpoints
 
 CREATE INDEX idx_service_endpoints_service ON service_endpoints (service_name);
 CREATE INDEX idx_service_endpoints_type ON service_endpoints (endpoint_type);
-
--- DNS resolution cache
-CREATE TABLE endpoint_resolution
-(
-    ip_address   VARCHAR PRIMARY KEY,
-    resolved_name VARCHAR,
-    resolution_method VARCHAR,  -- reverse_dns, cloud_provider_api
-    confidence   FLOAT,
-    resolved_at  TIMESTAMPTZ NOT NULL,
-    expires_at   TIMESTAMPTZ NOT NULL
-);
-
-CREATE INDEX idx_endpoint_resolution_expires ON endpoint_resolution (expires_at);
 ```
 
 ### Service Name Inference Algorithm
@@ -1010,27 +949,23 @@ Output: Service name, confidence score
 1. Check port-to-service mapping (config)
    → If match: return (service_name, confidence=1.0)
 
-2. Check Kubernetes pod labels (if available)
-   → Extract "app" label: return (label_value, confidence=0.95)
-
-3. Parse HTTP Host header from traffic (Beyla)
-   → Extract hostname: "api.example.com" → "api"
-   → Return (service_name, confidence=0.9)
-
-4. Check process command line patterns (regex)
+2. Check process command line patterns (regex)
    → Match "node api.js" against pattern 'node.*api\.js'
    → Return (service_name="api", confidence=0.8)
 
-5. Extract from executable path
+3. Extract from executable path
    → /usr/bin/postgres → "postgres"
    → Return (service_name, confidence=0.7)
 
-6. Use process name as fallback
+4. Use process name as fallback
    → Process name: "java" → "java"
    → Return (service_name, confidence=0.3)
 
-7. Unknown
+5. Unknown
    → Return (service_name="unknown-{port}", confidence=0.0)
+
+Note: Advanced inference methods (K8s labels, HTTP/gRPC traffic inspection) are
+deferred to future RFDs. See "Traffic-based service name inference" in Future Work.
 ```
 
 ### Network Classification Algorithm
@@ -1419,35 +1354,6 @@ confidence scores to indicate classification certainty. Lower confidence (0.5-0.
 suggests potential misclassification due to correlation failure, which is
 acceptable for debugging workflows.
 
-### Cloud Provider IP Range Detection
-
-```
-Detect if external IP belongs to cloud provider:
-
-AWS IP ranges:
-  - Download from https://ip-ranges.amazonaws.com/ip-ranges.json
-  - Check if IP in any range
-  - Extract service name (S3, EC2, CloudFront, etc.)
-
-GCP IP ranges:
-  - Download from https://www.gstatic.com/ipranges/cloud.json
-  - Check if IP in any range
-  - Extract service name (GCS, Compute Engine, etc.)
-
-Azure IP ranges:
-  - Download from ServiceTags_Public.json
-  - Check if IP in any range
-  - Extract service name
-
-CDN detection:
-  - CloudFlare, Fastly, Akamai IP ranges
-  - Resolve to CDN service name
-
-SaaS API detection:
-  - Common SaaS providers (Stripe, Twilio, SendGrid)
-  - Maintain database of known API endpoints
-```
-
 ### Shared Infrastructure with RFD 033
 
 **Single eBPF pipeline, dual analysis layers:**
@@ -1525,49 +1431,6 @@ SaaS API detection:
 - Agent streams connection events once, colony processes them for both purposes
 - Service IP registry (RFD 083) is used by both RFDs for classification
 
-### Example MCP Tool Integration
-
-```json
-{
-    "name": "coral_get_external_dependencies",
-    "description": "Get list of external services/APIs that the application depends on (egress endpoints)",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "service_name": {
-                "type": "string",
-                "description": "Optional: filter by service making the external calls"
-            }
-        }
-    }
-}
-```
-
-**LLM query example:**
-
-```
-User: "What external services does my application depend on?"
-
-Claude: [Uses coral_get_external_dependencies tool]
-
-Your application depends on the following external services:
-
-**Cloud Storage:**
-- AWS S3 (s3.amazonaws.com) - Used by 'api' service (127 requests/hour)
-- Google Cloud Storage (storage.googleapis.com) - Used by 'worker' service (89 uploads/hour)
-
-**Payment Processing:**
-- Stripe API (api.stripe.com) - Used by 'worker' service (45 API calls/hour)
-
-**CDN:**
-- CloudFront (d111111abcdef8.cloudfront.net) - Used by 'api' service (234 requests/hour)
-
-**APIs:**
-- GitHub API (api.github.com) - Used by 'api' service (12 requests/hour)
-
-If any of these services experience an outage, your application may be impacted. The most critical dependency is AWS S3, used heavily by the 'api' service.
-```
-
 ---
 
 ## Related RFDs
@@ -1599,13 +1462,15 @@ connection tracking pipeline feeding two analysis layers:
 
 - **RFD 044**: Agent ID Standardization and Routing (agent identification for
   service registry)
-- **RFD 053**: Beyla Dynamic Service Discovery (auto-instrumentation of
-  discovered services)
 - **RFD 001**: Discovery Service (colony/agent discovery, different scope from
   service discovery)
-- **RFD 004**: MCP Server Integration (exposing discovery data to LLMs)
 - **RFD 084**: Network Traffic Capture (uses service IP registry for filtering)
+- **RFD 019**: Persistent IP Allocation (manages WireGuard mesh IPs for control
+  plane only; application traffic uses actual host/container IPs tracked by
+  service IP registry)
 
-**Note**: RFD 019 (Persistent IP Allocation) manages WireGuard mesh IPs for
-control plane only. Application traffic uses actual host/container IPs tracked
-by the service IP registry.
+**Future integrations** (deferred to later RFDs):
+
+- Beyla for traffic-based service name inference (HTTP/gRPC)
+- MCP for exposing discovery data to LLMs
+- Kubernetes API for pod label extraction
