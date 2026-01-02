@@ -114,17 +114,22 @@ Combine multiple discovery mechanisms:
   headers, gRPC metadata
 - **Process metadata**: Map listening ports to process names and command lines
 
-**3. Coral-internal traffic detection via mesh IP range**
+**3. Coral-internal traffic detection via service IP registry**
 
-Traffic between mesh IPs (10.42.0.0/16) is classified as coral-internal.
-Traffic to/from non-mesh IPs is classified as external. This requires
-maintaining mesh IP allocations in colony registry (already exists per RFD 019).
+Traffic classification is based on whether source/destination IPs belong to
+Coral-monitored services, NOT the mesh IP range. Mesh IPs (10.42.0.0/16) are
+control plane only—applications use their actual host/container/pod IPs. Each
+agent reports the IP addresses its monitored services use (listening IPs,
+connection IPs), and colony maintains a registry of "known service IPs" for
+classification.
 
 **4. Ingress detection via connection direction**
 
-- **Ingress**: Non-mesh IP → Mesh IP (external client calling coral service)
-- **Egress**: Mesh IP → Non-mesh IP (coral service calling external dependency)
-- **Internal**: Mesh IP → Mesh IP (coral service-to-service)
+- **Ingress**: Unknown IP → Coral service IP (external client calling service)
+- **Egress**: Coral service IP → Unknown IP (service calling external
+  dependency)
+- **Internal**: Coral service IP → Coral service IP (service-to-service
+  communication)
 
 **5. Auto-registration with low-confidence flag**
 
@@ -241,8 +246,8 @@ a complete graph of the application architecture.
     - **Connection Classifier**: Analyze active connections to classify traffic.
         - Read `/proc/net/tcp` for ESTABLISHED connections.
         - Use eBPF connection tracking (RFD 033) for real-time classification.
-        - Determine if remote IP is in mesh range (10.42.0.0/16).
-        - Classify as ingress/egress/internal based on direction and IP range.
+        - Report connection endpoints (local IP, remote IP, ports) to colony.
+        - Colony determines classification based on service IP registry.
     - **Service Name Inference**: Extract service names from multiple sources.
         - HTTP Host header from eBPF HTTP tracing (Beyla).
         - gRPC service names from eBPF gRPC tracing.
@@ -263,10 +268,15 @@ a complete graph of the application architecture.
         - Track discovery method (manual, auto-detected, inferred).
         - Store confidence score for auto-discovered services.
         - Support promoting discovered services to managed status.
+    - **Service IP Registry**: Maintain registry of all IPs used by
+      Coral-monitored services.
+        - Track listening IPs reported by agents (service bind addresses).
+        - Track connection source IPs (IPs services connect from).
+        - Build comprehensive set of "known service IPs" for classification.
     - **Network Endpoint Classifier**: Correlate agent reports to classify
       endpoints.
-        - Maintain mesh IP range (10.42.0.0/16).
-        - Cross-reference external IPs against all agent reports.
+        - Check if IP is in service IP registry (Coral-monitored service).
+        - Cross-reference unknown IPs against all agent reports.
         - Identify common external endpoints (cloud providers, CDNs, SaaS APIs).
         - Resolve external IPs to service names (reverse DNS, cloud provider
           APIs).
@@ -373,8 +383,8 @@ service_discovery:
 
     # Network classification
     network:
-        # Mesh IP range (auto-configured by colony)
-        mesh_cidr: 10.42.0.0/16
+        # Report all local IPs used by services
+        report_service_ips: true
 
         # External endpoint resolution
         resolve_external_ips: true
@@ -397,7 +407,7 @@ service_discovery:
 - [ ] Create DuckDB schema (`service_registry`, `network_endpoints`,
   `endpoint_resolution`)
 - [ ] Define agent → colony streaming RPC for discovery events
-- [ ] Implement mesh IP range lookup in colony
+- [ ] Implement service IP registry in colony (track all IPs used by services)
 
 ### Phase 2: Agent Listening Socket Detection
 
@@ -421,9 +431,9 @@ service_discovery:
 
 - [ ] Implement connection tracker using `/proc/net/tcp` (fallback)
 - [ ] Integrate eBPF connection tracking from RFD 033
-- [ ] Classify connections as ingress/egress/internal
-- [ ] Detect mesh IP range membership
-- [ ] Report classified connections to colony
+- [ ] Report connection endpoints (local IP, remote IP, ports) to colony
+- [ ] Extract and report local IPs used by services (listening addresses)
+- [ ] Colony classifies connections using service IP registry
 
 ### Phase 5: Colony Service Registry
 
@@ -724,7 +734,7 @@ service_discovery:
 - Process metadata extraction (cmdline, exe, environ)
 - Service name inference (port mapping, process patterns)
 - Network classification (ingress/egress/internal detection)
-- Mesh IP range membership checks
+- Service IP registry lookups (is IP in known service set)
 
 ### Integration Tests
 
@@ -750,8 +760,9 @@ service_discovery:
   reporting to colony.
 - **External IP disclosure**: Egress endpoints reveal external dependencies.
   Consider RBAC restrictions on who can view egress list.
-- **Network classification accuracy**: Misconfigured mesh CIDR could
-  misclassify internal/external traffic. Validate mesh CIDR configuration.
+- **Network classification accuracy**: Service IP registry must be kept
+  up-to-date to accurately classify traffic. Handle dynamic IP changes (
+  container restarts, DHCP).
 - **DNS privacy**: Reverse DNS lookups may leak information to DNS servers.
   Support private DNS servers for resolution.
 
@@ -947,33 +958,49 @@ Output: Service name, confidence score
 
 ### Network Classification Algorithm
 
+**Important**: Coral mesh IPs (10.42.0.0/16) are control plane only. Application
+traffic uses actual host/container/pod IPs. Classification is based on the
+service IP registry, not mesh CIDR.
+
 ```
-Input: Connection (source_ip:port → dest_ip:port)
+Input: Connection (source_ip:port → dest_ip:port), Agent reports
 Output: Classification (ingress, egress, internal)
 
-1. Load mesh CIDR: 10.42.0.0/16
+1. Load service IP registry from colony
+   → Registry contains all IPs used by Coral-monitored services
+   → Includes listening IPs (bind addresses) and connection source IPs
+   → Example: {10.0.1.42, 10.0.1.43, 172.17.0.5, 192.168.1.10}
 
-2. Check if source_ip in mesh CIDR
-   → If yes: source_is_mesh = true
-   → If no: source_is_mesh = false
+2. Check if source_ip in service IP registry
+   → If yes: source_is_coral_service = true
+   → If no: source_is_coral_service = false
 
-3. Check if dest_ip in mesh CIDR
-   → If yes: dest_is_mesh = true
-   → If no: dest_is_mesh = false
+3. Check if dest_ip in service IP registry
+   → If yes: dest_is_coral_service = true
+   → If no: dest_is_coral_service = false
 
 4. Classify based on source/dest:
    ┌──────────────────┬──────────────────┬─────────────────┐
    │ Source           │ Dest             │ Classification  │
    ├──────────────────┼──────────────────┼─────────────────┤
-   │ Non-mesh         │ Mesh             │ INGRESS         │
-   │ Mesh             │ Non-mesh         │ EGRESS          │
-   │ Mesh             │ Mesh             │ INTERNAL        │
-   │ Non-mesh         │ Non-mesh         │ EXTERNAL (ignore)│
+   │ Unknown IP       │ Coral service    │ INGRESS         │
+   │ Coral service    │ Unknown IP       │ EGRESS          │
+   │ Coral service    │ Coral service    │ INTERNAL        │
+   │ Unknown IP       │ Unknown IP       │ EXTERNAL (ignore)│
    └──────────────────┴──────────────────┴─────────────────┘
 
 5. For INGRESS: store (external_ip → service) in ingress table
 6. For EGRESS: store (service → external_ip) in egress table
 7. For INTERNAL: feed to topology discovery (RFD 033)
+
+Building the Service IP Registry:
+  - Agents report listening socket addresses (e.g., 0.0.0.0:8080 → actual IP)
+  - Agents report source IPs used in outbound connections
+  - Colony aggregates all reported IPs per service
+  - Handle special cases:
+    - 0.0.0.0 → resolve to all host interfaces
+    - 127.0.0.1 → localhost (exclude from registry)
+    - Container IPs, pod IPs, host IPs all included
 ```
 
 ### Cloud Provider IP Range Detection
@@ -1059,5 +1086,8 @@ If any of these services experience an outage, your application may be impacted.
 - **RFD 053**: Beyla Dynamic Service Discovery (auto-instrumentation of
   discovered services)
 - **RFD 001**: Discovery Service (colony/agent discovery, different scope)
-- **RFD 019**: Persistent IP Allocation (mesh IP range management)
 - **RFD 004**: MCP Server Integration (exposing discovery to LLMs)
+
+**Note**: RFD 019 (Persistent IP Allocation) manages WireGuard mesh IPs for
+control plane only. Application traffic uses actual host/container IPs tracked
+by the service IP registry.

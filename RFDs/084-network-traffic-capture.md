@@ -236,7 +236,8 @@ and other network analysis tools.
 2. **Colony (Capture Orchestrator)**
 
     - **Service-to-IP Translation**: Resolve service names to IP addresses.
-        - Query service registry (RFD 083) for service → agent → mesh IP.
+        - Query service IP registry (RFD 083) for service → actual service IPs.
+        - Service IPs are application IPs (host/container/pod), not mesh IPs.
         - Translate service names to BPF filter expressions.
     - **Capture Coordination**: Orchestrate captures across multiple agents.
         - Support capturing traffic between two services (both sides).
@@ -861,8 +862,9 @@ int capture_packets(struct __sk_buff *skb) {
     if ((void *)(ip + 1) > data_end)
         return TC_ACT_OK;
 
-    // Apply filter (example: capture traffic to/from specific IP)
-    __u32 target_ip = 0x0a2a0005;  // 10.42.0.5
+    // Apply filter (example: capture traffic to/from specific service IP)
+    // Note: Service IPs are actual container/host IPs, not mesh IPs
+    __u32 target_ip = 0xac110005;  // 172.17.0.5 (container IP)
     if (ip->saddr != target_ip && ip->daddr != target_ip)
         return TC_ACT_OK;  // Not matching, skip
 
@@ -909,23 +911,34 @@ Packet Record:
 
 ### Service-to-Filter Translation
 
+**Important**: Application traffic uses actual host/container IPs, not mesh IPs.
+The service IP registry (RFD 083) tracks actual IPs used by services.
+
 ```
 Input: --src-service api --dst-service postgres
 
 Translation:
-  1. Query service registry for "api"
-     → Agent: hostname-api, Mesh IP: 10.42.0.5
+  1. Query service IP registry for "api"
+     → Agent: hostname-api
+     → Service IPs: [172.17.0.5, 10.0.1.42]  (container IP, host IP)
 
-  2. Query service registry for "postgres"
-     → Agent: hostname-db, Mesh IP: 10.42.0.8, Port: 5432
+  2. Query service IP registry for "postgres"
+     → Agent: hostname-db
+     → Service IPs: [172.17.0.8]  (container IP)
+     → Port: 5432
 
   3. Generate BPF filter:
-     (src host 10.42.0.5 and dst host 10.42.0.8 and dst port 5432) or
-     (src host 10.42.0.8 and src port 5432 and dst host 10.42.0.5)
+     (src host 172.17.0.5 and dst host 172.17.0.8 and dst port 5432) or
+     (src host 10.0.1.42 and dst host 172.17.0.8 and dst port 5432) or
+     (src host 172.17.0.8 and src port 5432 and dst host 172.17.0.5) or
+     (src host 172.17.0.8 and src port 5432 and dst host 10.0.1.42)
 
   4. Deploy filter to agents:
-     - hostname-api: capture egress to 10.42.0.8:5432
-     - hostname-db: capture ingress from 10.42.0.5
+     - hostname-api: capture egress to 172.17.0.8:5432
+     - hostname-db: capture ingress from api service IPs
+
+Note: Mesh IPs (10.42.x.x) are control plane only and never appear in
+application traffic.
 ```
 
 ### Capture Storage Schema
