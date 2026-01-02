@@ -308,18 +308,21 @@ connections.
         - Track listening IPs reported by agents (service bind addresses).
         - Track connection source IPs (IPs services connect from).
         - Build comprehensive set of "known service IPs" for classification.
-    - **Connection Correlator**: Merge partial attributions from multiple agents
-      for the same connection.
+    - **Connection Correlator**: Best-effort merging of partial attributions from
+      multiple agents using heuristics.
         - Index incoming ServiceConnection reports by 5-tuple (source IP, source
           port, dest IP, dest port, protocol).
-        - Detect when multiple agents report the same connection (cross-node
-          correlation).
-        - Merge source_service_name and dest_service_name fields from different
-          agents.
-        - Handle timing differences (agent reports may arrive seconds apart).
-        - Produce complete ServiceConnection with both endpoints attributed.
-        - Critical for multi-node deployments where each agent sees only one side
-          of connection.
+        - Attempt to correlate matching connections from different agents (
+          best-effort, not guaranteed).
+        - Merge source_service_name and dest_service_name fields when correlation
+          succeeds.
+        - Handle timing differences with configurable correlation window (default
+          5s).
+        - Assign confidence scores to classifications based on attribution
+          completeness.
+        - **Important**: Coral is not a service mesh and cannot reliably introspect
+          all east-west traffic. Some INTERNAL connections may be misclassified as
+          INGRESS/EGRESS. This is acceptable for debugging use cases.
     - **Network Endpoint Classifier**: Correlate agent reports to classify
       endpoints.
         - Check if IP is in service IP registry (Coral-monitored service).
@@ -602,7 +605,12 @@ message ServiceConnection {
     int32 source_pid = 9;            // process owning this connection
     string attribution_method = 10;   // "process_fd", "listening_socket", "config"
 
-    google.protobuf.Timestamp timestamp = 11;
+    // Classification metadata
+    EndpointType classification = 11;  // ingress, egress, internal (set by colony)
+    float confidence = 12;             // 0.0-1.0 confidence in classification
+    bool correlation_merged = 13;      // true if merged from multiple agent reports
+
+    google.protobuf.Timestamp timestamp = 14;
 }
 
 // Service-to-endpoint relationship (aggregated view)
@@ -1035,10 +1043,13 @@ is a fallback for connections where only one side has an agent.
 Input: ServiceConnection reports from agents (include service attribution + network IPs)
 Output: Classification (ingress, egress, internal)
 
-STEP 0: CROSS-NODE CORRELATION (Colony-side)
+STEP 0: CROSS-NODE CORRELATION (Colony-side, best-effort)
 
-For multi-node deployments, the same connection is seen by agents on both sides.
-Colony correlates partial attributions before classification:
+**Important**: Coral is not a service mesh. Correlation is heuristic-based and
+best-effort. Some INTERNAL connections will be misclassified as INGRESS/EGRESS.
+This is acceptable for debugging use cases.
+
+For multi-node deployments, colony attempts to correlate partial attributions:
 
 Example: Service A (Node 1) → Service B (Node 2)
 
@@ -1050,25 +1061,26 @@ Example: Service A (Node 1) → Service B (Node 2)
     {source_service_name: "", dest_service_name: "B",
      source_ip: "10.0.1.5:45678", dest_ip: "10.0.2.8:5432"}
 
-  Colony correlates by 5-tuple (src_ip, src_port, dst_ip, dst_port, protocol):
-    - Match found → same connection
-    - Merge: source_service_name="A" (from Node 1)
-            dest_service_name="B" (from Node 2)
+  Colony attempts correlation by 5-tuple:
+    - If match found within time window (5s) → merge
+      source_service_name="A" (from Node 1)
+      dest_service_name="B" (from Node 2)
+      → Classify as INTERNAL (confidence: 0.9)
 
-  Merged connection:
-    {source_service_name: "A", dest_service_name: "B",
-     source_ip: "10.0.1.5:45678", dest_ip: "10.0.2.8:5432"}
+    - If no match found → classify partial view
+      → Node 1 sees EGRESS: A → unknown (confidence: 0.5)
+      → Node 2 sees INGRESS: unknown → B (confidence: 0.5)
 
-  Classify merged connection → INTERNAL (both services known)
+Correlation limitations:
+- NAT/proxies may change 5-tuple between observations → correlation fails
+- Clock skew between nodes → mismatched timestamps
+- Short-lived connections → complete before both agents report
+- High-volume services → correlation becomes expensive
+- Asymmetric routing → only one side sees traffic
 
-Correlation handles:
-- Timing differences (reports arrive seconds apart → use time window)
-- Asymmetric routing (only one direction seen → classify partial view)
-- Multi-path (same 5-tuple, different agents → aggregate)
+PRIMARY CLASSIFICATION (Agent Attribution with Confidence):
 
-PRIMARY CLASSIFICATION (Agent Attribution):
-
-After correlation, classify using merged service attributions:
+After correlation attempt, classify using available service attributions:
 
 1. Check source_service_name field:
    → If set: Connection attributed to Coral service (agent knows which process)
@@ -1078,20 +1090,29 @@ After correlation, classify using merged service attributions:
    → If set: Destination is Coral service (agent knows which process)
    → If empty: Destination is external
 
-3. Classify based on service attribution:
-   ┌────────────────────┬──────────────────┬─────────────────┐
-   │ Source Service     │ Dest Service     │ Classification  │
-   ├────────────────────┼──────────────────┼─────────────────┤
-   │ empty (unknown)    │ set (known)      │ INGRESS         │
-   │ set (known)        │ empty (unknown)  │ EGRESS          │
-   │ set (known)        │ set (known)      │ INTERNAL        │
-   │ empty (unknown)    │ empty (unknown)  │ N/A (skip)      │
-   └────────────────────┴──────────────────┴─────────────────┘
+3. Classify based on service attribution with confidence scoring:
+   ┌────────────────────┬──────────────────┬─────────────────┬────────────┐
+   │ Source Service     │ Dest Service     │ Classification  │ Confidence │
+   ├────────────────────┼──────────────────┼─────────────────┼────────────┤
+   │ empty (unknown)    │ set (known)      │ INGRESS         │ 0.5-0.9    │
+   │ set (known)        │ empty (unknown)  │ EGRESS          │ 0.5-0.9    │
+   │ set (known)        │ set (known)      │ INTERNAL        │ 0.9        │
+   │ empty (unknown)    │ empty (unknown)  │ N/A (skip)      │ -          │
+   └────────────────────┴──────────────────┴─────────────────┴────────────┘
+
+   Confidence scoring:
+   - 0.9: Both endpoints attributed (merged from cross-node correlation)
+   - 0.7: One endpoint attributed, correlation attempted but no match
+   - 0.5: One endpoint attributed, no correlation attempted (single agent deployment)
+
+   Note: INTERNAL with confidence < 0.9 likely indicates correlation failure.
+         These connections appear as INGRESS or EGRESS but may actually be
+         internal cross-node traffic.
 
 4. Store with actual network IPs for debugging/audit:
-   - INGRESS: (external_ip → service_name)
-   - EGRESS: (service_name → external_ip)
-   - INTERNAL: (source_service → dest_service)
+   - INGRESS: (external_ip → service_name, confidence)
+   - EGRESS: (service_name → external_ip, confidence)
+   - INTERNAL: (source_service → dest_service, confidence)
 
 FALLBACK CLASSIFICATION (IP-Based):
 
@@ -1243,9 +1264,11 @@ Step 5: Report with attribution
 
 ### Cross-Node Correlation Examples
 
-**How colony correlates partial attributions from multiple agents:**
+**Important**: These examples show best-case scenarios. In practice, correlation
+often fails due to NAT, proxies, clock skew, or timing issues. Coral is designed
+to work with partial information and provide confidence scores.
 
-**Example 1: Internal connection across nodes**
+**Example 1: Successful correlation (best case)**
 
 ```
 Scenario: API service (Node 1) queries Postgres (Node 2)
@@ -1289,147 +1312,112 @@ Scenario: API service (Node 1) queries Postgres (Node 2)
 ┌──────────────────────────────────────────────────────────────────┐
 │ Colony: Connection Correlator                                    │
 │                                                                  │
-│   1. Index by 5-tuple:                                           │
-│      Key: (10.0.1.5:45678, 10.0.2.8:5432, TCP)                   │
+│   1. Index by 5-tuple: (10.0.1.5:45678, 10.0.2.8:5432, TCP)      │
 │                                                                  │
-│   2. Find matching reports:                                      │
-│      - Report from node1 (ts: 10:30:00)                          │
-│      - Report from node2 (ts: 10:30:01) ← 1 sec apart, within    │
-│                                            correlation window     │
+│   2. Match found within 5s window                                │
+│      - Merge: source="api", dest="postgres"                      │
 │                                                                  │
-│   3. Merge service attributions:                                 │
-│      source_service_name: "api"       (from node1)               │
-│      dest_service_name: "postgres"    (from node2)               │
-│                                                                  │
-│   4. Classify merged connection:                                 │
-│      Both services known → INTERNAL                              │
-│                                                                  │
-│   5. Store:                                                      │
-│      Connection: api → postgres                                  │
+│   3. Classify:                                                   │
 │      Type: INTERNAL                                              │
-│      Network path: 10.0.1.5:45678 → 10.0.2.8:5432                │
+│      Confidence: 0.9 (both endpoints attributed)                 │
+│      correlation_merged: true                                    │
 └──────────────────────────────────────────────────────────────────┘
 
-Result: Correctly classified as INTERNAL, not EGRESS/INGRESS
+Result: INTERNAL (confidence: 0.9)
 ```
 
-**Example 2: External ingress through load balancer**
+**Example 2: Correlation failure (common case)**
 
 ```
-Scenario: External client → Load Balancer → API service (Node 1)
+Scenario: API service (Node 1) → Postgres (Node 2)
+          NAT gateway between nodes changes source port
 
 ┌──────────────────────────────────────────────────────────────────┐
 │ Node 1: api-server                                               │
-│   Agent observes inbound connection to PID 1234 (api service)    │
-│   (Connection appears to come from LB, but agent sees post-LB)   │
+│   Agent observes outbound connection                             │
 │                                                                  │
 │   Report to colony:                                              │
 │   {                                                              │
-│     agent_id: "node1",                                           │
-│     source_service_name: "",        ← external (no agent there)  │
-│     dest_service_name: "api",       ← knows (local process)      │
-│     source_ip: "1.2.3.4",           ← actual client IP           │
-│     dest_ip: "172.17.0.5",          ← service IP (post-LB)       │
-│     dest_port: 8080,                                             │
-│     protocol: TCP                                                │
-│   }                                                              │
-└──────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────┐
-│ Colony: Connection Correlator                                    │
-│                                                                  │
-│   1. Index by 5-tuple: (1.2.3.4:xxxxx, 172.17.0.5:8080, TCP)     │
-│                                                                  │
-│   2. Wait for correlation window (5 seconds)                     │
-│      - No matching report from another agent                     │
-│      - source_service_name is empty → external source            │
-│                                                                  │
-│   3. Classify single-sided report:                               │
-│      source_service: empty (external)                            │
-│      dest_service: "api" (known)                                 │
-│      → INGRESS                                                   │
-│                                                                  │
-│   4. Store:                                                      │
-│      Ingress: 1.2.3.4 → api                                      │
-│      Type: INGRESS                                               │
-│      Note: LB IP (203.0.113.42) never appears in reports         │
-│            Agent sees actual client IP via X-Forwarded-For       │
-└──────────────────────────────────────────────────────────────────┘
-
-Result: Correctly classified as INGRESS, LB is transparent
-```
-
-**Example 3: Asymmetric routing (only one agent sees connection)**
-
-```
-Scenario: API (Node 1) → External API (no agent)
-          Firewall/NAT on Node 2 performs SNAT
-
-┌──────────────────────────────────────────────────────────────────┐
-│ Node 1: api-server                                               │
-│   Agent observes outbound connection from PID 1234 (api service) │
-│                                                                  │
-│   Report to colony:                                              │
-│   {                                                              │
-│     agent_id: "node1",                                           │
 │     source_service_name: "api",                                  │
-│     dest_service_name: "",          ← external (no agent)        │
-│     source_ip: "172.17.0.5",        ← pre-NAT IP                 │
-│     dest_ip: "54.230.1.1",          ← external API               │
-│     dest_port: 443                                               │
+│     dest_service_name: "",                                       │
+│     source_ip: "10.0.1.5",                                       │
+│     source_port: 45678,        ← pre-NAT port                    │
+│     dest_ip: "10.0.2.8",                                         │
+│     dest_port: 5432                                              │
 │   }                                                              │
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
-│ Node 2: NAT gateway                                              │
-│   No Coral agent installed                                       │
-│   Performs SNAT: 172.17.0.5 → 203.0.113.50                       │
-│   No report sent to colony                                       │
+│ NAT Gateway (between nodes)                                      │
+│   Performs SNAT: 10.0.1.5:45678 → 10.99.0.1:12345                │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Node 2: db-server                                                │
+│   Agent observes inbound connection                              │
+│                                                                  │
+│   Report to colony:                                              │
+│   {                                                              │
+│     source_service_name: "",                                     │
+│     dest_service_name: "postgres",                               │
+│     source_ip: "10.99.0.1",    ← post-NAT IP (different!)        │
+│     source_port: 12345,        ← post-NAT port (different!)      │
+│     dest_ip: "10.0.2.8",                                         │
+│     dest_port: 5432                                              │
+│   }                                                              │
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
 │ Colony: Connection Correlator                                    │
 │                                                                  │
-│   1. Only one report received (from node1)                       │
+│   1. Index reports:                                              │
+│      Key1: (10.0.1.5:45678, 10.0.2.8:5432, TCP)   ← node1        │
+│      Key2: (10.99.0.1:12345, 10.0.2.8:5432, TCP)  ← node2        │
 │                                                                  │
-│   2. Wait for correlation window (5 seconds)                     │
-│      - No matching report                                        │
+│   2. 5-tuple mismatch → correlation FAILS                        │
 │                                                                  │
-│   3. Classify single-sided report:                               │
-│      source_service: "api" (known)                               │
-│      dest_service: empty (external)                              │
-│      → EGRESS                                                    │
+│   3. Classify each report separately:                            │
+│      Report 1: EGRESS (api → unknown)                            │
+│                Confidence: 0.7 (correlation attempted, no match) │
 │                                                                  │
-│   4. Store:                                                      │
-│      Egress: api → 54.230.1.1:443                                │
-│      Type: EGRESS                                                │
-│      Note: NAT IP (203.0.113.50) never appears in reports        │
-│            Agent sees pre-NAT IP, classification still works     │
+│      Report 2: INGRESS (unknown → postgres)                      │
+│                Confidence: 0.7 (correlation attempted, no match) │
 └──────────────────────────────────────────────────────────────────┘
 
-Result: Correctly classified as EGRESS, NAT is transparent
+Result: EGRESS (api → unknown, confidence: 0.7)
+        INGRESS (unknown → postgres, confidence: 0.7)
+
+Note: This INTERNAL connection is misclassified as separate INGRESS/EGRESS
+      due to NAT. This is acceptable for Coral's debugging use case. The low
+      confidence scores (0.7) indicate potential correlation failure.
 ```
 
-**Correlation window tuning:**
+**Example 3: External egress (no correlation needed)**
 
 ```
-Configuration:
-  correlation_window: 5s      # Wait up to 5s for matching reports
-  correlation_strategy: "merge_complete"
+Scenario: API (Node 1) → External API (no Coral agent)
 
-Strategies:
-- "merge_complete": Wait for window, prefer complete picture
-  - Pro: More accurate for cross-node connections
-  - Con: 5s delay before classification
+Agent report:
+  {
+    source_service_name: "api",
+    dest_service_name: "",       ← external (no Coral agent)
+    dest_ip: "54.230.1.1"
+  }
 
-- "classify_immediate": Classify on first report, update if correlation found
-  - Pro: Immediate classification (no delay)
-  - Con: May briefly misclassify INTERNAL as INGRESS/EGRESS
+Colony classification:
+  Type: EGRESS (api → unknown)
+  Confidence: 0.9 (external endpoint clearly identified)
+  correlation_merged: false
 
-- "adaptive": Start immediate, learn typical latency between agents
-  - Pro: Low latency for most connections, accurate for cross-node
-  - Con: More complex implementation
+Result: EGRESS (confidence: 0.9)
 ```
+
+**Key Takeaway:**
+
+Correlation is best-effort and often fails in real deployments. Coral relies on
+confidence scores to indicate classification certainty. Lower confidence (0.5-0.7)
+suggests potential misclassification due to correlation failure, which is
+acceptable for debugging workflows.
 
 ### Cloud Provider IP Range Detection
 
