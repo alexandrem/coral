@@ -755,6 +755,90 @@ service_discovery:
 - Topology integration: discovered services appear in topology graph with
   ingress/egress annotations
 
+## System Requirements
+
+### Linux Capabilities
+
+Both RFD 083 and RFD 033 require specific Linux capabilities to access network
+and process information. Agents must run with elevated privileges.
+
+**Required for RFD 083 (Service Discovery & Classification):**
+
+1. **CAP_SYS_PTRACE** - Access other processes' file descriptors
+   - Required to read `/proc/[pid]/fd/` for socket inode mapping
+   - Maps connections to processes: socket inode → PID → service
+   - Alternative: Run agent as root (not recommended for production)
+
+2. **CAP_NET_ADMIN** - Read network connection state
+   - Required to read `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`
+   - Lists all listening sockets and established connections
+   - Note: These files are world-readable on most systems, but capability
+     ensures consistent access
+
+3. **CAP_BPF** + **CAP_PERFMON** (Linux 5.8+) - eBPF programs
+   - Required for real-time connection tracking (shared with RFD 033)
+   - Allows loading eBPF programs for connection event capture
+   - On older kernels: **CAP_SYS_ADMIN** required instead
+
+**Required for RFD 033 (Topology Discovery via eBPF):**
+
+1. **CAP_BPF** + **CAP_PERFMON** (Linux 5.8+) - eBPF programs
+   - Required to hook `tcp_v4_connect`, `tcp_v6_connect` syscalls
+   - Captures connection lifecycle events (connect, close)
+   - On older kernels: **CAP_SYS_ADMIN** required instead
+
+2. **CAP_NET_ADMIN** - Network introspection
+   - Read connection state and network statistics
+   - Access network namespace information
+
+**Deployment Options:**
+
+1. **Recommended**: Run agent with minimal capabilities
+   ```bash
+   # systemd service with capabilities
+   [Service]
+   CapabilityBoundingSet=CAP_SYS_PTRACE CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+   AmbientCapabilities=CAP_SYS_PTRACE CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+   ```
+
+2. **Alternative**: Run as root (simpler but less secure)
+   ```bash
+   # Not recommended for production
+   User=root
+   ```
+
+3. **Container deployment**: Grant capabilities via Docker/Kubernetes
+   ```yaml
+   # Docker
+   docker run --cap-add=SYS_PTRACE --cap-add=NET_ADMIN --cap-add=BPF ...
+
+   # Kubernetes
+   securityContext:
+     capabilities:
+       add:
+       - SYS_PTRACE
+       - NET_ADMIN
+       - BPF
+       - PERFMON
+   ```
+
+**Kernel version compatibility:**
+
+- **Linux 4.4+**: Basic support (requires CAP_SYS_ADMIN for eBPF)
+- **Linux 5.8+**: Recommended (supports CAP_BPF and CAP_PERFMON for fine-grained
+  permissions)
+- **Linux 5.13+**: Full support for all eBPF features
+
+**Security implications:**
+
+- **CAP_SYS_PTRACE**: Allows reading file descriptors of all processes. This is
+  necessary for PID-to-service mapping but grants significant inspection
+  capabilities.
+- **CAP_BPF**: Allows loading eBPF programs. Modern kernels provide fine-grained
+  control, but older kernels require CAP_SYS_ADMIN (very broad).
+- **Mitigation**: Deploy agents in trusted environments only. Use network
+  namespaces and cgroups to limit blast radius.
+
 ## Security Considerations
 
 - **Listening socket visibility**: Agents can see all listening sockets on
