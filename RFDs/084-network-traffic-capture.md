@@ -71,59 +71,46 @@ root access to production systems.
 
 ## Solution
 
-Implement **network traffic capture** with eBPF-based filtering and integration
-with Coral's service topology:
+Implement **basic network traffic capture** with eBPF-based filtering:
 
-1. **On-demand capture**: Start/stop packet capture for specific services,
-   connections, or protocols
-2. **Smart filtering**: Automatically filter by Coral service names, agent IDs,
-   or topology relationships
-3. **Storage**: Store captured packets in colony with configurable retention
+1. **On-demand capture**: Start/stop packet capture for specific services via CLI
+2. **Service-aware filtering**: Filter by Coral service names (uses RFD 083
+   registry)
+3. **Storage**: Store captured packets in colony with automatic cleanup
 4. **Export**: Download captures in PCAP format for Wireshark analysis
-5. **Live streaming**: Stream packets in real-time for live debugging
-6. **MCP integration**: Expose capture capabilities to AI for automated network
-   debugging
 
 ### Key Design Decisions
 
-**1. eBPF-based capture for efficiency**
+**1. eBPF-only for MVP**
 
-Use eBPF programs attached to network interfaces to filter packets in-kernel
-before copying to userspace. This minimizes overhead compared to traditional
-libpcap approaches that copy all packets to userspace before filtering.
+Use eBPF programs attached to network interfaces for in-kernel packet filtering.
+This provides low overhead and is sufficient for Linux-based deployments (vast
+majority of production infrastructure).
+
+Deferred to future RFDs:
+- AF_PACKET fallback for older kernels
+- libpcap for cross-platform support (macOS/Windows)
 
 **2. Service-aware filtering**
 
-Integrate with service discovery (RFD 083) and topology (RFD 033) to enable
-filtering by service names rather than raw IP addresses. Users request "capture
-traffic between api and postgres" and Coral automatically translates to
-appropriate IP/port filters.
+Integrate with service discovery (RFD 083) to enable filtering by service names.
+Users request "capture traffic from service api" and Coral translates to
+appropriate IP/port filters using the service registry.
 
-**3. Hybrid capture approach**
+**3. Simple capture lifecycle**
 
-Support multiple capture backends:
+Each capture is a session with:
+- Manual start/stop via CLI
+- Automatic timeout (default: 10 minutes)
+- Size limits (default: 100 MB)
+- Automatic cleanup after retention period
 
-- **eBPF (preferred)**: Low overhead, kernel-level filtering, Linux only
-- **AF_PACKET + BPF**: Traditional packet socket with BPF filters, broader
-  compatibility
-- **libpcap (fallback)**: Cross-platform support for macOS/Windows agents
+**4. Streaming to colony**
 
-**4. Capture sessions with lifecycle management**
+Agents stream captured packets to colony for centralized storage and access
+control. This enables RBAC-controlled access without agent SSH.
 
-Each capture is a session with start/stop control, automatic timeout, size
-limits, and cleanup. Prevents runaway captures from filling disk.
-
-**5. Streaming to colony for centralized storage**
-
-Agents stream captured packets to colony instead of storing locally. This
-enables:
-
-- Centralized management and retention
-- Access control via colony RBAC
-- Correlation with other observability data
-- AI access to packet data without agent access
-
-**6. PCAP format for interoperability**
+**5. Standard PCAP format**
 
 Store packets in standard PCAP format for compatibility with Wireshark, tshark,
 and other network analysis tools.
@@ -133,12 +120,10 @@ and other network analysis tools.
 - **Zero-SSH debugging**: Capture packets without SSH access to production
   hosts
 - **Service-aware**: Filter by service names, not manual IP/port mapping
-- **Centralized**: All captures stored in colony, accessible via CLI or
-  dashboard
-- **AI-enabled**: LLM can analyze packet captures to diagnose network issues
+- **Centralized**: All captures stored in colony, accessible via CLI
 - **Secure**: RBAC-controlled access, no root privileges required on hosts
 - **Efficient**: eBPF filtering reduces overhead compared to full packet capture
-- **Integrated**: Correlate packets with traces, metrics, and topology
+- **Standard format**: PCAP output compatible with Wireshark and tshark
 
 ### Architecture Overview
 
@@ -188,12 +173,10 @@ and other network analysis tools.
 │  │                                                   │  │
 │  │  3. Stream to colony via gRPC                    │  │
 │  │     → Batch packets (reduce RPC overhead)        │  │
-│  │     → Compress (optional)                        │  │
 │  │                                                   │  │
 │  │  4. Enforce limits                               │  │
 │  │     → Max duration (default: 10 minutes)         │  │
 │  │     → Max size (default: 100 MB)                 │  │
-│  │     → Packet count limit                         │  │
 │  └──────────────────────────────────────────────────┘  │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐  │
@@ -214,70 +197,44 @@ and other network analysis tools.
 
     - **eBPF Packet Capture**: Implement eBPF program to filter and capture
       packets.
-        - Attach XDP or tc (traffic control) programs to network interfaces.
+        - Attach tc (traffic control) programs to network interfaces.
         - Filter packets based on IP addresses, ports, protocols.
         - Copy matching packets to BPF perf buffer.
         - Read packets from userspace, convert to PCAP format.
-    - **AF_PACKET Fallback**: Use AF_PACKET sockets with BPF filters when eBPF
-      unavailable.
     - **Session Management**: Track active capture sessions.
-        - Enforce max duration, size limits.
+        - Enforce max duration (10 minutes) and size limits (100 MB).
         - Auto-stop captures on timeout.
-        - Support start/stop/pause operations.
+        - Support start/stop operations.
     - **Packet Streaming**: Stream captured packets to colony.
         - Batch packets into chunks (e.g., 1000 packets or 1 MB).
-        - Optionally compress before streaming.
-        - Handle backpressure (if colony can't keep up, drop packets or pause).
-    - **Interface Selection**: Automatically detect relevant network interfaces.
-        - Capture on host network interface (eth0, ens192, etc.).
-        - Capture on WireGuard interface (wg0) for mesh traffic.
-        - Support multiple interfaces simultaneously.
+        - Simple backpressure handling (drop packets if colony overloaded).
+    - **Interface Selection**: Capture on primary network interface (eth0,
+      ens192, etc.).
 
 2. **Colony (Capture Orchestrator)**
 
     - **Service-to-IP Translation**: Resolve service names to IP addresses.
-        - Query service IP registry (RFD 083) for service → actual service IPs.
+        - Query service registry (RFD 083) for service → IPs mapping.
         - Service IPs are application IPs (host/container/pod), not mesh IPs.
-        - Translate service names to BPF filter expressions.
-    - **Capture Coordination**: Orchestrate captures across multiple agents.
-        - Support capturing traffic between two services (both sides).
-        - Merge packet streams from multiple agents.
-        - Correlate packets by timestamp.
+        - Generate BPF filter expressions from service names.
     - **Storage**: Store captured packets with metadata.
-        - PCAP files stored in blob storage (filesystem or S3-compatible).
+        - PCAP files stored in filesystem blob storage.
         - Metadata in DuckDB (capture ID, service, filters, timestamps).
-        - Configurable retention (default: 7 days).
+        - Retention: 7 days (configurable).
     - **API Handlers**: Expose capture operations via gRPC.
         - StartCapture, StopCapture, ListCaptures, DownloadCapture.
-        - Stream packets in real-time (LiveCapture RPC).
     - **Access Control**: RBAC for capture operations.
-        - Restrict who can start captures (privileged operation).
         - Audit log all capture requests.
 
 3. **CLI (`coral network capture`)**
 
     - **`coral network capture start`**: Start a new capture session.
-        - Filter by service, agent, protocol, port.
+        - Filter by service name, protocol, port.
         - Set duration and size limits.
         - Return capture ID for later retrieval.
     - **`coral network capture stop`**: Stop an active capture.
-    - **`coral network capture list`**: List all captures (active and stored).
+    - **`coral network capture list`**: List all captures (active and completed).
     - **`coral network capture download`**: Download capture as PCAP file.
-    - **`coral network capture stream`**: Live stream packets to terminal (for
-      real-time debugging).
-    - **`coral network capture delete`**: Delete stored capture.
-
-4. **MCP Integration (RFD 004)**
-
-    - New MCP tools for AI-driven packet capture:
-        - `coral_start_capture`: Start packet capture for debugging.
-        - `coral_get_capture`: Retrieve capture summary and statistics.
-        - `coral_analyze_capture`: Analyze PCAP for common issues (
-          retransmissions, errors).
-    - Enable AI queries like:
-        - "Capture traffic between api and database for 2 minutes"
-        - "Show me the TLS handshake between frontend and api"
-        - "Why are there so many TCP retransmissions?"
 
 **Configuration Example:**
 
@@ -286,56 +243,32 @@ and other network analysis tools.
 packet_capture:
     enabled: true
 
-    # Capture backends (priority order)
-    backends:
-        -   type: ebpf
-            enabled: true
-            config:
-                # XDP or tc (traffic control)
-                attach_mode: tc
-                # Interfaces to monitor
-                interfaces: [ eth0, wg0 ]
-
-        -   type: af_packet
-            enabled: true
-            config:
-                # BPF filter support
-                bpf_jit: true
-
-        -   type: libpcap
-            enabled: true
-            # Fallback for non-Linux
+    # eBPF capture settings
+    ebpf:
+        attach_mode: tc  # traffic control
+        interface: eth0  # primary network interface
 
     # Capture limits (per session)
     limits:
         max_duration: 10m
         max_size: 100MB
-        max_packets: 1000000
-        max_concurrent_captures: 5  # per agent
+        max_concurrent_captures: 3  # per agent
 
     # Streaming
     streaming:
         batch_size: 1000  # packets per RPC
-        compression: gzip
-        buffer_size: 10MB
 
 # colony-config.yaml
 packet_capture:
     # Storage
     storage:
-        backend: filesystem  # or s3
         path: /var/lib/coral/captures
         retention: 7d
 
     # Limits (global)
     limits:
-        max_concurrent_captures: 50
-        max_capture_size: 1GB
-
-    # Access control
-    rbac:
-        # Require privilege for capture operations
-        require_privilege: capture:write
+        max_concurrent_captures: 20
+        max_capture_size: 500MB
 ```
 
 ## Implementation Plan
@@ -349,64 +282,46 @@ packet_capture:
 
 ### Phase 2: Agent eBPF Capture
 
-- [ ] Implement eBPF program for packet filtering (tc/XDP)
-- [ ] Attach eBPF to network interfaces (eth0, wg0)
+- [ ] Implement eBPF program for packet filtering (tc)
+- [ ] Attach eBPF to primary network interface (eth0)
 - [ ] Read packets from BPF perf buffer
 - [ ] Convert raw packets to PCAP format
-- [ ] Implement session management (start/stop/limits)
+- [ ] Implement session management (start/stop/timeouts/limits)
 
-### Phase 3: Agent Fallback Capture
+### Phase 3: Packet Streaming
 
-- [ ] Implement AF_PACKET capture with BPF filters
-- [ ] Implement libpcap-based capture (cross-platform)
-- [ ] Add backend selection logic (eBPF → AF_PACKET → libpcap)
-
-### Phase 4: Packet Streaming
-
-- [ ] Implement packet batching and compression
+- [ ] Implement packet batching (1000 packets per RPC)
 - [ ] Stream packets to colony via gRPC
-- [ ] Handle backpressure (pause/resume)
-- [ ] Implement network error handling and retry
+- [ ] Basic backpressure handling (drop packets if overloaded)
 
-### Phase 5: Colony Storage & Retrieval
+### Phase 4: Colony Storage & Retrieval
 
-- [ ] Implement blob storage for PCAP files (filesystem)
+- [ ] Implement filesystem blob storage for PCAP files
 - [ ] Store capture metadata in DuckDB
 - [ ] Implement StartCapture RPC handler
 - [ ] Implement StopCapture RPC handler
 - [ ] Implement DownloadCapture RPC handler
-- [ ] Add retention and cleanup for old captures
+- [ ] Add retention and cleanup (7 days default)
 
-### Phase 6: Service-Aware Filtering
+### Phase 5: Service-Aware Filtering
 
 - [ ] Integrate with service registry (RFD 083)
-- [ ] Translate service names to IP/port filters
-- [ ] Support topology-based filtering ("between service A and B")
-- [ ] Generate BPF filter expressions from high-level queries
+- [ ] Translate service names to IP addresses
+- [ ] Generate BPF filter expressions from service names
 
-### Phase 7: CLI Implementation
+### Phase 6: CLI Implementation
 
 - [ ] Implement `coral network capture start` command
 - [ ] Implement `coral network capture stop` command
 - [ ] Implement `coral network capture list` command
 - [ ] Implement `coral network capture download` command
-- [ ] Implement `coral network capture stream` (live view)
-- [ ] Implement `coral network capture delete` command
 
-### Phase 8: MCP Integration
-
-- [ ] Implement `coral_start_capture` MCP tool
-- [ ] Implement `coral_get_capture` MCP tool
-- [ ] Implement `coral_analyze_capture` MCP tool (basic analysis)
-- [ ] Add packet capture context to AI debugging workflows
-
-### Phase 9: Testing & Documentation
+### Phase 7: Testing & Documentation
 
 - [ ] Unit tests: eBPF program, packet parsing, PCAP generation
 - [ ] Integration tests: end-to-end capture workflow
-- [ ] Performance tests: overhead measurement, packet loss detection
+- [ ] Performance tests: overhead measurement
 - [ ] Add capture troubleshooting guide
-- [ ] Document PCAP analysis best practices
 
 ## API Changes
 
@@ -797,13 +712,42 @@ Would you like me to help update the API's database connection string?
 
 ## Future Work
 
-**Advanced filtering** (Future - RFD TBD)
+The following features are deferred to keep RFD 084 focused on basic packet
+capture functionality.
 
+**Live packet streaming** (Future - RFD TBD)
+
+- Real-time packet streaming to terminal (`coral network capture stream`)
+- Live packet inspection without waiting for capture completion
+- Integration with tshark for live analysis
+
+**MCP integration for AI-driven debugging** (Future - RFD TBD)
+
+- `coral_start_capture` MCP tool for AI to start captures
+- `coral_analyze_capture` MCP tool for automated analysis
+- Enable AI queries like "Capture traffic between api and database"
+- Packet-level context for LLM debugging
+
+**Multi-backend capture support** (Future - RFD TBD)
+
+- AF_PACKET fallback for older kernels without eBPF
+- libpcap for cross-platform support (macOS/Windows)
+- Backend auto-selection based on kernel capabilities
+
+**Compression and optimization** (Future - RFD TBD)
+
+- Compress packet streams (gzip) before sending to colony
+- Reduce bandwidth overhead for remote agents
+- Support for S3-compatible blob storage backends
+
+**Advanced service-aware filtering** (Future - RFD TBD)
+
+- Topology-based filtering ("capture traffic between api and postgres")
 - Application-layer filtering (HTTP path, gRPC method)
+- Multi-agent coordinated captures (both sides of connection)
 - Distributed trace correlation (capture only traced requests)
-- Dynamic sampling (capture 1% of traffic)
 
-**Automated analysis** (Future - RFD TBD)
+**Automated packet analysis** (Future - RFD TBD)
 
 - Detect TCP retransmissions and suggest fixes
 - Identify TLS handshake failures
@@ -815,12 +759,6 @@ Would you like me to help update the API's database connection string?
 - Capture traffic within container namespaces
 - Support for encrypted service meshes (Istio, Linkerd)
 - Sidecar-based capture without host privileges
-
-**Real-time anomaly detection** (Low Priority)
-
-- Detect unusual traffic patterns during capture
-- Alert on security events (port scans, data exfiltration)
-- Integration with IDS/IPS systems
 
 **Distributed capture merge** (Future - RFD TBD)
 
