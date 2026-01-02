@@ -114,14 +114,29 @@ Combine multiple discovery mechanisms:
   headers, gRPC metadata
 - **Process metadata**: Map listening ports to process names and command lines
 
-**3. Coral-internal traffic detection via service IP registry**
+**3. Coral-internal traffic detection via agent-side service attribution**
 
-Traffic classification is based on whether source/destination IPs belong to
-Coral-monitored services, NOT the mesh IP range. Mesh IPs (10.42.0.0/16) are
-control plane only—applications use their actual host/container/pod IPs. Each
-agent reports the IP addresses its monitored services use (listening IPs,
-connection IPs), and colony maintains a registry of "known service IPs" for
-classification.
+Traffic classification uses **agent-side service attribution** as the primary
+mechanism, with IP-based classification as a secondary signal. This handles
+real-world scenarios with NAT, load balancers, and elastic IPs where network IPs
+don't directly correspond to service IPs.
+
+**Primary: Agent-side attribution**
+- Agent knows which services it monitors (via `coral connect` or auto-discovery)
+- Agent tags all observed connections with the owning service name/ID
+- Reports: "service 'api' connected to X" not just "IP A connected to IP B"
+- Works regardless of NAT, load balancers, or proxies in between
+
+**Secondary: IP-based classification**
+- Colony maintains service IP registry (actual bind IPs, container IPs)
+- Used for correlation when agent attribution is unavailable
+- Handles connections where only one side has an agent
+
+**Handling network intermediaries:**
+- Load balancers: Agent sees actual service, not just LB IP
+- NAT gateways: Agent attribution bypasses NAT translation
+- Elastic/floating IPs: Agent knows real service regardless of public IP
+- Service mesh proxies: Agent sees application container, not sidecar IP
 
 **4. Ingress detection via connection direction**
 
@@ -256,11 +271,18 @@ connections.
         - Read `/proc/[pid]/environ` for environment variables (K8s labels,
           service names).
         - Infer service name from process name, binary path, or labels.
-    - **Connection Classifier**: Analyze active connections to classify traffic.
+    - **Connection Classifier**: Analyze active connections and attribute to
+      services.
         - Read `/proc/net/tcp` for ESTABLISHED connections.
-        - Use eBPF connection tracking (RFD 033) for real-time classification.
-        - Report connection endpoints (local IP, remote IP, ports) to colony.
-        - Colony determines classification based on service IP registry.
+        - Use eBPF connection tracking (RFD 033) for real-time tracking.
+        - **Service attribution**: Map connections to services via process ownership.
+            - For outbound: Find process making connection → map to service.
+            - For inbound: Find process accepting connection → map to service.
+            - Use `/proc/net/tcp` inode → `/proc/[pid]/fd/` mapping.
+        - Report connections with service attribution: "service 'api' → IP:port".
+        - Include network IPs for correlation but service name is primary.
+        - Colony uses service attribution for classification, with IP registry as
+          fallback.
     - **Service Name Inference**: Extract service names from multiple sources.
         - HTTP Host header from eBPF HTTP tracing (Beyla).
         - gRPC service names from eBPF gRPC tracing.
@@ -551,7 +573,27 @@ enum EndpointType {
     ENDPOINT_TYPE_INTERNAL = 3;      // mesh → mesh
 }
 
-// Service-to-endpoint relationship
+// Connection report with service attribution
+message ServiceConnection {
+    string agent_id = 1;
+    string source_service_name = 2;  // service making the connection (if known)
+    string dest_service_name = 3;    // service receiving (if known)
+
+    // Network-level connection details
+    string source_ip = 4;
+    uint32 source_port = 5;
+    string dest_ip = 6;
+    uint32 dest_port = 7;
+    Protocol protocol = 8;
+
+    // Process attribution (how we determined service ownership)
+    int32 source_pid = 9;            // process owning this connection
+    string attribution_method = 10;   // "process_fd", "listening_socket", "config"
+
+    google.protobuf.Timestamp timestamp = 11;
+}
+
+// Service-to-endpoint relationship (aggregated view)
 message ServiceEndpoint {
     string service_name = 1;
     string agent_id = 2;
@@ -587,12 +629,12 @@ message GetServiceEndpointsResponse {
 message ReportDiscoveryRequest {
     string agent_id = 1;
     repeated DiscoveredService services = 2;
-    repeated ServiceEndpoint endpoints = 3;
+    repeated ServiceConnection connections = 3;  // connections with service attribution
 }
 
 message ReportDiscoveryResponse {
     uint32 accepted_services = 1;
-    uint32 accepted_endpoints = 2;
+    uint32 accepted_connections = 2;
 }
 ```
 
@@ -973,50 +1015,186 @@ Output: Service name, confidence score
 
 ### Network Classification Algorithm
 
-**Important**: Coral mesh IPs (10.42.0.0/16) are control plane only. Application
-traffic uses actual host/container/pod IPs. Classification is based on the
-service IP registry, not mesh CIDR.
+**Important**: Classification uses **agent-side service attribution** as primary
+mechanism to handle NAT, load balancers, and elastic IPs. IP-based classification
+is a fallback for connections where only one side has an agent.
 
 ```
-Input: Connection (source_ip:port → dest_ip:port), Agent reports
+Input: ServiceConnection from agent (includes service attribution + network IPs)
 Output: Classification (ingress, egress, internal)
 
+PRIMARY CLASSIFICATION (Agent Attribution):
+
+1. Check source_service_name field:
+   → If set: Connection attributed to Coral service (agent knows which process)
+   → If empty: Source is external (no Coral agent/service)
+
+2. Check dest_service_name field:
+   → If set: Destination is Coral service (agent knows which process)
+   → If empty: Destination is external
+
+3. Classify based on service attribution:
+   ┌────────────────────┬──────────────────┬─────────────────┐
+   │ Source Service     │ Dest Service     │ Classification  │
+   ├────────────────────┼──────────────────┼─────────────────┤
+   │ empty (unknown)    │ set (known)      │ INGRESS         │
+   │ set (known)        │ empty (unknown)  │ EGRESS          │
+   │ set (known)        │ set (known)      │ INTERNAL        │
+   │ empty (unknown)    │ empty (unknown)  │ N/A (skip)      │
+   └────────────────────┴──────────────────┴─────────────────┘
+
+4. Store with actual network IPs for debugging/audit:
+   - INGRESS: (external_ip → service_name)
+   - EGRESS: (service_name → external_ip)
+   - INTERNAL: (source_service → dest_service)
+
+FALLBACK CLASSIFICATION (IP-Based):
+
+Used when agent attribution is unavailable (partial deployments, legacy systems):
+
 1. Load service IP registry from colony
-   → Registry contains all IPs used by Coral-monitored services
-   → Includes listening IPs (bind addresses) and connection source IPs
-   → Example: {10.0.1.42, 10.0.1.43, 172.17.0.5, 192.168.1.10}
+   → Registry contains known IPs from previous agent reports
+   → Example: {172.17.0.5: "api", 172.17.0.8: "postgres"}
 
-2. Check if source_ip in service IP registry
-   → If yes: source_is_coral_service = true
-   → If no: source_is_coral_service = false
+2. Lookup source_ip in service IP registry:
+   → Found: source_service = registry[source_ip]
+   → Not found: source_service = null
 
-3. Check if dest_ip in service IP registry
-   → If yes: dest_is_coral_service = true
-   → If no: dest_is_coral_service = false
+3. Lookup dest_ip in service IP registry:
+   → Found: dest_service = registry[dest_ip]
+   → Not found: dest_service = null
 
-4. Classify based on source/dest:
-   ┌──────────────────┬──────────────────┬─────────────────┐
-   │ Source           │ Dest             │ Classification  │
-   ├──────────────────┼──────────────────┼─────────────────┤
-   │ Unknown IP       │ Coral service    │ INGRESS         │
-   │ Coral service    │ Unknown IP       │ EGRESS          │
-   │ Coral service    │ Coral service    │ INTERNAL        │
-   │ Unknown IP       │ Unknown IP       │ EXTERNAL (ignore)│
-   └──────────────────┴──────────────────┴─────────────────┘
+4. Classify using same table as above
 
-5. For INGRESS: store (external_ip → service) in ingress table
-6. For EGRESS: store (service → external_ip) in egress table
-7. For INTERNAL: feed to topology discovery (RFD 033)
+HANDLING NETWORK INTERMEDIARIES:
 
-Building the Service IP Registry:
-  - Agents report listening socket addresses (e.g., 0.0.0.0:8080 → actual IP)
-  - Agents report source IPs used in outbound connections
-  - Colony aggregates all reported IPs per service
-  - Handle special cases:
-    - 0.0.0.0 → resolve to all host interfaces
-    - 127.0.0.1 → localhost (exclude from registry)
-    - Container IPs, pod IPs, host IPs all included
+Example: Load balancer scenario
+  - Service 'api' behind LB at 203.0.113.42
+  - Client connects to 203.0.113.42:80
+  - LB forwards to actual service IP 172.17.0.5:8080
+
+Agent report:
+  {
+    source_service_name: "",              // external client (unknown)
+    dest_service_name: "api",             // agent knows this is 'api' service
+    source_ip: "1.2.3.4",                 // actual client IP (may be NATed)
+    dest_ip: "172.17.0.5",                // actual service IP (post-LB)
+    ...
+  }
+
+Classification: INGRESS (unknown → known service)
+  → Stored as: (1.2.3.4 → api)
+  → LB IP (203.0.113.42) is transparent to classification
+
+Example: NAT gateway scenario
+  - Service 'api' makes outbound call to external API
+  - NAT gateway at 203.0.113.50
+  - External API sees 203.0.113.50, not actual service IP
+
+Agent report (from 'api' agent):
+  {
+    source_service_name: "api",           // agent knows this is 'api'
+    dest_service_name: "",                // external API (unknown)
+    source_ip: "172.17.0.5",              // actual service IP (pre-NAT)
+    dest_ip: "54.230.1.1",                // external API IP
+    ...
+  }
+
+Classification: EGRESS (known service → unknown)
+  → Stored as: (api → 54.230.1.1)
+  → NAT IP (203.0.113.50) is transparent to classification
+
+Example: Service mesh (Envoy sidecar) scenario
+  - Service 'api' running in container
+  - Envoy sidecar proxy at 127.0.0.1:15001
+  - Actual service at 127.0.0.1:8080
+
+Agent report:
+  {
+    source_service_name: "frontend",
+    dest_service_name: "api",
+    source_ip: "172.17.0.5:45678",        // frontend IP
+    dest_ip: "127.0.0.1:15001",           // Envoy proxy IP
+    ...
+  }
+
+Classification: INTERNAL (both services known)
+  → Stored as: (frontend → api)
+  → Proxy IP is included for debugging but doesn't affect classification
 ```
+
+### Service Attribution Implementation
+
+**How agents map connections to services:**
+
+```
+Step 1: Discover services on agent
+  - Via `coral connect api:8080` (manual)
+  - Via listening socket detection (automatic)
+  - Via process discovery (automatic)
+
+  Result: Agent knows "service 'api' = PID 1234"
+
+Step 2: Observe network connections
+  - Read /proc/net/tcp for active connections
+  - Or use eBPF connection tracking (RFD 033)
+
+  Result: Connection {inode: 12345, src: 172.17.0.5:45678, dst: 54.230.1.1:443}
+
+Step 3: Map connection → process
+  - Scan /proc/[pid]/fd/ for socket inodes
+  - Find: /proc/1234/fd/3 → socket:[12345]
+
+  Result: Connection 12345 belongs to PID 1234
+
+Step 4: Map process → service
+  - Lookup PID 1234 in service registry
+  - Find: PID 1234 = service "api"
+
+  Result: Connection belongs to service "api"
+
+Step 5: Report with attribution
+  {
+    source_service_name: "api",        // from step 4
+    dest_service_name: "",             // unknown (external)
+    source_ip: "172.17.0.5",
+    dest_ip: "54.230.1.1",
+    source_pid: 1234,
+    attribution_method: "process_fd"
+  }
+```
+
+**Attribution methods:**
+
+1. **process_fd**: Map connection inode to process FD (most reliable)
+   - Works for both inbound and outbound connections
+   - Requires root or CAP_SYS_PTRACE to read /proc/[pid]/fd
+
+2. **listening_socket**: Match listening socket to service
+   - For inbound connections to known ports
+   - Agent knows "port 8080 → service 'api'"
+
+3. **config**: User-provided mapping
+   - Fallback when process mapping fails
+   - Configured via coral.yaml or CLI flags
+
+**Handling edge cases:**
+
+- **Short-lived connections**: May complete before attribution
+  - Use eBPF to capture connection events in real-time
+  - eBPF can attribute at connection time, not post-hoc
+
+- **Multiple services on same host**: Process-level attribution disambiguates
+  - Each service runs as separate process
+  - PID mapping ensures correct attribution
+
+- **Containerized services**: Agent must access container namespaces
+  - Node agent: Can see all container processes via host /proc
+  - Sidecar agent: Only sees own container's processes
+
+- **Load balancer hairpinning**: Service calls itself via LB
+  - Agent sees service 'api' → LB IP → service 'api'
+  - With attribution: Correctly identifies as self-call
 
 ### Cloud Provider IP Range Detection
 
