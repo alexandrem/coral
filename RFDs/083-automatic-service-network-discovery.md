@@ -308,6 +308,18 @@ connections.
         - Track listening IPs reported by agents (service bind addresses).
         - Track connection source IPs (IPs services connect from).
         - Build comprehensive set of "known service IPs" for classification.
+    - **Connection Correlator**: Merge partial attributions from multiple agents
+      for the same connection.
+        - Index incoming ServiceConnection reports by 5-tuple (source IP, source
+          port, dest IP, dest port, protocol).
+        - Detect when multiple agents report the same connection (cross-node
+          correlation).
+        - Merge source_service_name and dest_service_name fields from different
+          agents.
+        - Handle timing differences (agent reports may arrive seconds apart).
+        - Produce complete ServiceConnection with both endpoints attributed.
+        - Critical for multi-node deployments where each agent sees only one side
+          of connection.
     - **Network Endpoint Classifier**: Correlate agent reports to classify
       endpoints.
         - Check if IP is in service IP registry (Coral-monitored service).
@@ -1020,10 +1032,43 @@ mechanism to handle NAT, load balancers, and elastic IPs. IP-based classificatio
 is a fallback for connections where only one side has an agent.
 
 ```
-Input: ServiceConnection from agent (includes service attribution + network IPs)
+Input: ServiceConnection reports from agents (include service attribution + network IPs)
 Output: Classification (ingress, egress, internal)
 
+STEP 0: CROSS-NODE CORRELATION (Colony-side)
+
+For multi-node deployments, the same connection is seen by agents on both sides.
+Colony correlates partial attributions before classification:
+
+Example: Service A (Node 1) → Service B (Node 2)
+
+  Agent on Node 1 reports:
+    {source_service_name: "A", dest_service_name: "",
+     source_ip: "10.0.1.5:45678", dest_ip: "10.0.2.8:5432"}
+
+  Agent on Node 2 reports:
+    {source_service_name: "", dest_service_name: "B",
+     source_ip: "10.0.1.5:45678", dest_ip: "10.0.2.8:5432"}
+
+  Colony correlates by 5-tuple (src_ip, src_port, dst_ip, dst_port, protocol):
+    - Match found → same connection
+    - Merge: source_service_name="A" (from Node 1)
+            dest_service_name="B" (from Node 2)
+
+  Merged connection:
+    {source_service_name: "A", dest_service_name: "B",
+     source_ip: "10.0.1.5:45678", dest_ip: "10.0.2.8:5432"}
+
+  Classify merged connection → INTERNAL (both services known)
+
+Correlation handles:
+- Timing differences (reports arrive seconds apart → use time window)
+- Asymmetric routing (only one direction seen → classify partial view)
+- Multi-path (same 5-tuple, different agents → aggregate)
+
 PRIMARY CLASSIFICATION (Agent Attribution):
+
+After correlation, classify using merged service attributions:
 
 1. Check source_service_name field:
    → If set: Connection attributed to Coral service (agent knows which process)
@@ -1195,6 +1240,196 @@ Step 5: Report with attribution
 - **Load balancer hairpinning**: Service calls itself via LB
   - Agent sees service 'api' → LB IP → service 'api'
   - With attribution: Correctly identifies as self-call
+
+### Cross-Node Correlation Examples
+
+**How colony correlates partial attributions from multiple agents:**
+
+**Example 1: Internal connection across nodes**
+
+```
+Scenario: API service (Node 1) queries Postgres (Node 2)
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Node 1: api-server                                               │
+│   Agent observes outbound connection from PID 1234 (api service) │
+│                                                                  │
+│   Report to colony:                                              │
+│   {                                                              │
+│     agent_id: "node1",                                           │
+│     source_service_name: "api",     ← knows (local process)      │
+│     dest_service_name: "",          ← doesn't know (remote)      │
+│     source_ip: "10.0.1.5",                                       │
+│     source_port: 45678,                                          │
+│     dest_ip: "10.0.2.8",                                         │
+│     dest_port: 5432,                                             │
+│     protocol: TCP,                                               │
+│     timestamp: "2024-01-15T10:30:00Z"                            │
+│   }                                                              │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Node 2: db-server                                                │
+│   Agent observes inbound connection to PID 5678 (postgres)       │
+│                                                                  │
+│   Report to colony:                                              │
+│   {                                                              │
+│     agent_id: "node2",                                           │
+│     source_service_name: "",        ← doesn't know (remote)      │
+│     dest_service_name: "postgres",  ← knows (local process)      │
+│     source_ip: "10.0.1.5",                                       │
+│     source_port: 45678,                                          │
+│     dest_ip: "10.0.2.8",                                         │
+│     dest_port: 5432,                                             │
+│     protocol: TCP,                                               │
+│     timestamp: "2024-01-15T10:30:01Z"  ← 1 sec later             │
+│   }                                                              │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Colony: Connection Correlator                                    │
+│                                                                  │
+│   1. Index by 5-tuple:                                           │
+│      Key: (10.0.1.5:45678, 10.0.2.8:5432, TCP)                   │
+│                                                                  │
+│   2. Find matching reports:                                      │
+│      - Report from node1 (ts: 10:30:00)                          │
+│      - Report from node2 (ts: 10:30:01) ← 1 sec apart, within    │
+│                                            correlation window     │
+│                                                                  │
+│   3. Merge service attributions:                                 │
+│      source_service_name: "api"       (from node1)               │
+│      dest_service_name: "postgres"    (from node2)               │
+│                                                                  │
+│   4. Classify merged connection:                                 │
+│      Both services known → INTERNAL                              │
+│                                                                  │
+│   5. Store:                                                      │
+│      Connection: api → postgres                                  │
+│      Type: INTERNAL                                              │
+│      Network path: 10.0.1.5:45678 → 10.0.2.8:5432                │
+└──────────────────────────────────────────────────────────────────┘
+
+Result: Correctly classified as INTERNAL, not EGRESS/INGRESS
+```
+
+**Example 2: External ingress through load balancer**
+
+```
+Scenario: External client → Load Balancer → API service (Node 1)
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Node 1: api-server                                               │
+│   Agent observes inbound connection to PID 1234 (api service)    │
+│   (Connection appears to come from LB, but agent sees post-LB)   │
+│                                                                  │
+│   Report to colony:                                              │
+│   {                                                              │
+│     agent_id: "node1",                                           │
+│     source_service_name: "",        ← external (no agent there)  │
+│     dest_service_name: "api",       ← knows (local process)      │
+│     source_ip: "1.2.3.4",           ← actual client IP           │
+│     dest_ip: "172.17.0.5",          ← service IP (post-LB)       │
+│     dest_port: 8080,                                             │
+│     protocol: TCP                                                │
+│   }                                                              │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Colony: Connection Correlator                                    │
+│                                                                  │
+│   1. Index by 5-tuple: (1.2.3.4:xxxxx, 172.17.0.5:8080, TCP)     │
+│                                                                  │
+│   2. Wait for correlation window (5 seconds)                     │
+│      - No matching report from another agent                     │
+│      - source_service_name is empty → external source            │
+│                                                                  │
+│   3. Classify single-sided report:                               │
+│      source_service: empty (external)                            │
+│      dest_service: "api" (known)                                 │
+│      → INGRESS                                                   │
+│                                                                  │
+│   4. Store:                                                      │
+│      Ingress: 1.2.3.4 → api                                      │
+│      Type: INGRESS                                               │
+│      Note: LB IP (203.0.113.42) never appears in reports         │
+│            Agent sees actual client IP via X-Forwarded-For       │
+└──────────────────────────────────────────────────────────────────┘
+
+Result: Correctly classified as INGRESS, LB is transparent
+```
+
+**Example 3: Asymmetric routing (only one agent sees connection)**
+
+```
+Scenario: API (Node 1) → External API (no agent)
+          Firewall/NAT on Node 2 performs SNAT
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Node 1: api-server                                               │
+│   Agent observes outbound connection from PID 1234 (api service) │
+│                                                                  │
+│   Report to colony:                                              │
+│   {                                                              │
+│     agent_id: "node1",                                           │
+│     source_service_name: "api",                                  │
+│     dest_service_name: "",          ← external (no agent)        │
+│     source_ip: "172.17.0.5",        ← pre-NAT IP                 │
+│     dest_ip: "54.230.1.1",          ← external API               │
+│     dest_port: 443                                               │
+│   }                                                              │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Node 2: NAT gateway                                              │
+│   No Coral agent installed                                       │
+│   Performs SNAT: 172.17.0.5 → 203.0.113.50                       │
+│   No report sent to colony                                       │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Colony: Connection Correlator                                    │
+│                                                                  │
+│   1. Only one report received (from node1)                       │
+│                                                                  │
+│   2. Wait for correlation window (5 seconds)                     │
+│      - No matching report                                        │
+│                                                                  │
+│   3. Classify single-sided report:                               │
+│      source_service: "api" (known)                               │
+│      dest_service: empty (external)                              │
+│      → EGRESS                                                    │
+│                                                                  │
+│   4. Store:                                                      │
+│      Egress: api → 54.230.1.1:443                                │
+│      Type: EGRESS                                                │
+│      Note: NAT IP (203.0.113.50) never appears in reports        │
+│            Agent sees pre-NAT IP, classification still works     │
+└──────────────────────────────────────────────────────────────────┘
+
+Result: Correctly classified as EGRESS, NAT is transparent
+```
+
+**Correlation window tuning:**
+
+```
+Configuration:
+  correlation_window: 5s      # Wait up to 5s for matching reports
+  correlation_strategy: "merge_complete"
+
+Strategies:
+- "merge_complete": Wait for window, prefer complete picture
+  - Pro: More accurate for cross-node connections
+  - Con: 5s delay before classification
+
+- "classify_immediate": Classify on first report, update if correlation found
+  - Pro: Immediate classification (no delay)
+  - Con: May briefly misclassify INTERNAL as INGRESS/EGRESS
+
+- "adaptive": Start immediate, learn typical latency between agents
+  - Pro: Low latency for most connections, accurate for cross-node
+  - Con: More complex implementation
+```
 
 ### Cloud Provider IP Range Detection
 
