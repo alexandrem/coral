@@ -1,5 +1,7 @@
 # E2E Test Suite for Coral Distributed Systems
 
+**Refactoring Note**: This test suite has been refactored from level-based organization (L0/L1/L2/L3) to behavior-based organization (mesh, service, telemetry, profiling, debug). This improves maintainability and aligns tests with functional domains rather than architectural layers.
+
 ## Objective
 
 Build a comprehensive E2E test suite for Coral's distributed systems functionality, focusing initially on **node connectivity and discovery** (discovery service → WireGuard mesh → agent registration → heartbeat), then expanding to cover all **observability layers (0-3)**.
@@ -26,16 +28,20 @@ Build a comprehensive E2E test suite for Coral's distributed systems functionali
 
 ```
 tests/e2e/
-├── distributed/              # NEW: Main E2E suite
-│   ├── suite.go             # Base test suite with testify/suite
-│   ├── connectivity_test.go # Discovery + WireGuard + Registration
-│   ├── observability_*.go   # Observability layer tests (Phase 2)
+├── distributed/                    # Main E2E suite
+│   ├── suite.go                   # Base test suite with testify/suite
+│   ├── mesh_test.go               # Mesh connectivity tests (discovery, WireGuard, registration, heartbeat)
+│   ├── service_test.go            # Service registration and discovery tests
+│   ├── telemetry_test.go          # Telemetry tests (Beyla, OTLP, system metrics)
+│   ├── profiling_test.go          # Profiling tests (continuous and on-demand CPU profiling)
+│   ├── debug_test.go              # Debug tests (uprobe tracing, debug sessions)
+│   ├── e2e_orchestrator_test.go   # Dependency-ordered orchestration tests
 │   ├── fixtures/
-│   │   ├── containers.go    # Testcontainer builders
-│   │   └── apps/            # Dockerfiles for test apps
+│   │   ├── containers.go          # Testcontainer builders
+│   │   └── apps/                  # Dockerfiles for test apps
 │   └── helpers/
-│       ├── waiters.go       # Polling utilities
-│       └── assertions.go    # Custom assertions
+│       ├── waiters.go             # Polling utilities
+│       └── assertions.go          # Custom assertions
 ```
 
 ### Testcontainer Strategy
@@ -123,7 +129,7 @@ func NewContainerFixture(ctx context.Context) (*ContainerFixture, error) {
 - Verify Docker availability and kernel features
 
 #### Step 1.2: Discovery Service Tests
-**File:** `tests/e2e/distributed/connectivity_test.go`
+**File:** `tests/e2e/distributed/mesh_test.go`
 
 **Test Cases:**
 1. `TestDiscoveryServiceRegistration`
@@ -247,7 +253,7 @@ func AssertMeshIPAllocated(t, allocator, agentID string, expectedIP net.IP)
 ### Phase 2: Observability Layers (Weeks 4-6)
 
 #### Step 2.1: Level 0 - Beyla eBPF Metrics
-**File:** `tests/e2e/distributed/observability_l0_test.go`
+**File:** `tests/e2e/distributed/telemetry_test.go`
 
 **Test Cases:**
 1. `TestLevel0_BeylaHTTPMetrics`
@@ -272,7 +278,7 @@ func AssertMeshIPAllocated(t, allocator, agentID string, expectedIP net.IP)
 **Note:** Run actual Beyla subprocess (user preference). Requires Beyla binary in container image.
 
 #### Step 2.2: Level 1 - OTLP Telemetry
-**File:** `tests/e2e/distributed/observability_l1_test.go`
+**File:** `tests/e2e/distributed/telemetry_test.go`
 
 **Test Cases:**
 1. `TestLevel1_OTLPIngestion`
@@ -298,7 +304,7 @@ func AssertMeshIPAllocated(t, allocator, agentID string, expectedIP net.IP)
 - `internal/colony/telemetry_e2e_test.go` - Existing pattern to adapt
 
 #### Step 2.3: Level 2 - Continuous Intelligence
-**File:** `tests/e2e/distributed/observability_l2_test.go`
+**File:** `tests/e2e/distributed/telemetry_test.go` (system metrics), `tests/e2e/distributed/profiling_test.go` (CPU profiling)
 
 **Test Cases:**
 1. `TestLevel2_SystemMetricsCollection`
@@ -322,7 +328,7 @@ func AssertMeshIPAllocated(t, allocator, agentID string, expectedIP net.IP)
 - `internal/colony/cpu_profile_poller.go` - Profile poller
 
 #### Step 2.4: Level 3 - Deep Introspection
-**File:** `tests/e2e/distributed/observability_l3_test.go`
+**File:** `tests/e2e/distributed/profiling_test.go` (on-demand profiling), `tests/e2e/distributed/debug_test.go` (uprobe tracing)
 
 **Test Cases:**
 1. `TestLevel3_OnDemandCPUProfiling`
@@ -493,6 +499,55 @@ func (suite *E2EDistributedSuite) SetupSuite() {
    - Requires: Debug session coordination across agents, data aggregation in colony
 
 Note: Level 3 tests are implemented with `.Skip()` and detailed documentation of requirements.
+
+### Refactoring Status
+
+✅ **COMPLETE** - Tests reorganized from level-based to behavior-based structure
+
+**Motivation**: The original level-based organization (L0/L1/L2/L3) mixed connectivity tests with observability layers, making it difficult to maintain and understand test boundaries. The behavior-based organization groups tests by functional domain, improving clarity and maintainability.
+
+**New File Organization**:
+1. **mesh_test.go** - Mesh connectivity tests (8 tests)
+   - Discovery service availability and registration
+   - Colony status queries
+   - Agent registration and multi-agent mesh allocation
+   - Heartbeat mechanism
+   - Agent reconnection after colony restart
+
+2. **service_test.go** - Service registration tests (1 test)
+   - Service registration and discovery via colony API
+   - Bridges connectivity and observability layers
+
+3. **telemetry_test.go** - Telemetry tests (9 tests)
+   - Level 0: Beyla eBPF metrics (3 tests)
+   - Level 1: OTLP ingestion and aggregation (3 tests)
+   - Level 2: System metrics collection and polling (3 tests)
+
+4. **profiling_test.go** - Profiling tests (3 tests)
+   - Level 2: Continuous CPU profiling infrastructure (1 test)
+   - Level 3: On-demand CPU profiling (2 placeholder tests)
+
+5. **debug_test.go** - Debug tests (4 tests)
+   - Level 3: Uprobe tracing and call trees (2 placeholder tests)
+   - Level 3: Multi-agent debug sessions (2 placeholder tests)
+
+6. **e2e_orchestrator_test.go** - Dependency-ordered orchestration
+   - Runs all tests in dependency order
+   - Verifies full system integration
+
+**Old Files Removed**:
+- `connectivity_test.go` (replaced by `mesh_test.go` and `service_test.go`)
+- `observability_l0_test.go` (replaced by `telemetry_test.go`)
+- `observability_l1_test.go` (replaced by `telemetry_test.go`)
+- `observability_l2_test.go` (replaced by `telemetry_test.go` and `profiling_test.go`)
+- `observability_l3_test.go` (replaced by `profiling_test.go` and `debug_test.go`)
+
+**Benefits**:
+- Clear separation of concerns (mesh vs telemetry vs profiling vs debug)
+- Easier to navigate and understand test coverage
+- Better alignment with component architecture
+- Simpler to add new tests to appropriate domains
+- Improved test discovery and execution patterns
 
 ## Implementation Notes
 

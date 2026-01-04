@@ -20,10 +20,10 @@ type E2EOrchestratorSuite struct {
 	ctx context.Context
 
 	// Track which test groups have passed.
-	meshPassed             bool
-	servicesPassed         bool
-	passiveObservability   bool
-	onDemandProbesPassed   bool
+	meshPassed           bool
+	servicesPassed       bool
+	passiveObservability bool
+	onDemandProbesPassed bool
 }
 
 // TestE2EOrchestrator runs all E2E tests in dependency order with fail-fast.
@@ -64,38 +64,19 @@ func (s *E2EOrchestratorSuite) Test1_MeshConnectivity() {
 	s.T().Log("GROUP 1: Mesh Connectivity (Foundation)")
 	s.T().Log("========================================")
 
-	// Run mesh connectivity tests.
-	// These are from connectivity_test.go:
-	// - Discovery service
-	// - Colony registration
-	// - WireGuard mesh
-	// - Agent registration
-	// - Heartbeat
+	// Run MeshSuite tests.
+	meshSuite := &MeshSuite{}
+	meshSuite.ctx = s.ctx
+	meshSuite.SetT(s.T())
 
-	s.Run("DiscoveryService", func() {
-		s.T().Log("Testing discovery service availability...")
-		// Test implementation or call existing test
-	})
-
-	s.Run("ColonyRegistration", func() {
-		s.T().Log("Testing colony registration...")
-		// Test implementation
-	})
-
-	s.Run("WireGuardMesh", func() {
-		s.T().Log("Testing WireGuard mesh establishment...")
-		// Test implementation
-	})
-
-	s.Run("AgentRegistration", func() {
-		s.T().Log("Testing agent registration...")
-		// Test implementation
-	})
-
-	s.Run("Heartbeat", func() {
-		s.T().Log("Testing heartbeat mechanism...")
-		// Test implementation
-	})
+	// Run individual tests in order.
+	s.Run("DiscoveryService", meshSuite.TestDiscoveryServiceAvailability)
+	s.Run("ColonyRegistration", meshSuite.TestColonyRegistration)
+	s.Run("ColonyStatus", meshSuite.TestColonyStatus)
+	s.Run("AgentRegistration", meshSuite.TestAgentRegistration)
+	s.Run("MultiAgentMesh", meshSuite.TestMultiAgentMesh)
+	s.Run("Heartbeat", meshSuite.TestHeartbeat)
+	s.Run("AgentReconnection", meshSuite.TestAgentReconnection)
 
 	// Mark as passed if all subtests succeeded.
 	if !s.T().Failed() {
@@ -118,20 +99,15 @@ func (s *E2EOrchestratorSuite) Test2_ServiceManagement() {
 	s.T().Log("GROUP 2: Service Management")
 	s.T().Log("========================================")
 
-	s.Run("ServiceRegistration", func() {
-		s.T().Log("Testing service registration...")
-		// Test from connectivity_test.go:TestServiceRegistration
-	})
+	// Run ServiceSuite tests.
+	serviceSuite := &ServiceSuite{}
+	serviceSuite.ctx = s.ctx
+	serviceSuite.SetT(s.T())
 
-	s.Run("DynamicConnection", func() {
-		s.T().Log("Testing dynamic service connection...")
-		// New test for ConnectService API
-	})
-
-	s.Run("MultiService", func() {
-		s.T().Log("Testing multiple services per agent...")
-		// New test for multi-service scenarios
-	})
+	s.Run("ServiceRegistrationAndDiscovery", serviceSuite.TestServiceRegistrationAndDiscovery)
+	s.Run("DynamicServiceConnection", serviceSuite.TestDynamicServiceConnection)
+	s.Run("ServiceConnectionAtStartup", serviceSuite.TestServiceConnectionAtStartup)
+	s.Run("MultiServiceRegistration", serviceSuite.TestMultiServiceRegistration)
 
 	if !s.T().Failed() {
 		s.servicesPassed = true
@@ -153,25 +129,31 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 	s.T().Log("GROUP 3: Passive Observability")
 	s.T().Log("========================================")
 
-	s.Run("BeylaAutoInstrumentation", func() {
-		s.T().Log("Testing Beyla auto-instrumentation...")
-		// Test from observability_l0_test.go
-	})
+	// Run TelemetrySuite tests (Beyla, OTLP, system metrics).
+	telemetrySuite := &TelemetrySuite{}
+	telemetrySuite.ctx = s.ctx
+	telemetrySuite.SetT(s.T())
 
-	s.Run("OTLPTelemetry", func() {
-		s.T().Log("Testing OTLP telemetry collection...")
-		// Test from observability_l1_test.go
-	})
+	// Beyla tests.
+	s.Run("BeylaPassiveInstrumentation", telemetrySuite.TestBeylaPassiveInstrumentation)
+	s.Run("BeylaColonyPolling", telemetrySuite.TestBeylaColonyPolling)
+	s.Run("BeylaVsOTLPComparison", telemetrySuite.TestBeylaVsOTLPComparison)
 
-	s.Run("SystemMetrics", func() {
-		s.T().Log("Testing system metrics collection...")
-		// Test from observability_l2_test.go
-	})
+	// OTLP tests.
+	s.Run("OTLPIngestion", telemetrySuite.TestOTLPIngestion)
+	s.Run("OTLPAppEndpoints", telemetrySuite.TestOTLPAppEndpoints)
+	s.Run("TelemetryAggregation", telemetrySuite.TestTelemetryAggregation)
 
-	s.Run("ContinuousProfiling", func() {
-		s.T().Log("Testing continuous CPU profiling...")
-		// Test from observability_l2_test.go
-	})
+	// System metrics tests.
+	s.Run("SystemMetricsCollection", telemetrySuite.TestSystemMetricsCollection)
+	s.Run("SystemMetricsPolling", telemetrySuite.TestSystemMetricsPolling)
+
+	// Run ProfilingSuite tests (continuous profiling).
+	profilingSuite := &ProfilingSuite{}
+	profilingSuite.ctx = s.ctx
+	profilingSuite.SetT(s.T())
+
+	s.Run("ContinuousProfiling", profilingSuite.TestContinuousProfiling)
 
 	if !s.T().Failed() {
 		s.passiveObservability = true
@@ -193,25 +175,21 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 	s.T().Log("GROUP 4: On-Demand Probes")
 	s.T().Log("========================================")
 
-	s.Run("OnDemandCPUProfiling", func() {
-		s.T().Log("Testing on-demand CPU profiling (99Hz)...")
-		// Test from observability_l3_test.go
-	})
+	// Run ProfilingSuite tests (on-demand profiling).
+	profilingSuite := &ProfilingSuite{}
+	profilingSuite.ctx = s.ctx
+	profilingSuite.SetT(s.T())
 
-	s.Run("UprobeTracing", func() {
-		s.T().Log("Testing uprobe function tracing...")
-		// Test from observability_l3_test.go
-	})
+	s.Run("OnDemandProfiling", profilingSuite.TestOnDemandProfiling)
 
-	s.Run("CallTreeConstruction", func() {
-		s.T().Log("Testing call tree construction...")
-		// Test from observability_l3_test.go
-	})
+	// Run DebugSuite tests (uprobe tracing, debug sessions).
+	debugSuite := &DebugSuite{}
+	debugSuite.ctx = s.ctx
+	debugSuite.SetT(s.T())
 
-	s.Run("MultiAgentDebug", func() {
-		s.T().Log("Testing multi-agent debug sessions...")
-		// Test from observability_l3_test.go
-	})
+	s.Run("UprobeTracing", debugSuite.TestUprobeTracing)
+	s.Run("UprobeCallTree", debugSuite.TestUprobeCallTree)
+	s.Run("MultiAgentDebugSession", debugSuite.TestMultiAgentDebugSession)
 
 	if !s.T().Failed() {
 		s.onDemandProbesPassed = true

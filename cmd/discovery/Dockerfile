@@ -8,14 +8,21 @@ WORKDIR /build
 
 # Copy go mod files.
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Download dependencies with cache mount for faster builds.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 
 # Copy source code.
 COPY . .
 
 # Build the discovery binary for the target platform.
 # No CGO needed (no DuckDB dependency).
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+# Use cache mounts to speed up builds.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     CGO_ENABLED=0 \
     go build -ldflags="-w -s" \
     -o /build/coral-discovery \

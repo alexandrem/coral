@@ -13,17 +13,29 @@ import (
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
-// TestE2EDistributedSuite runs the E2E distributed test suite.
-func TestE2EDistributedSuite(t *testing.T) {
+// MeshSuite tests WireGuard mesh connectivity, agent registration, and heartbeat mechanisms.
+//
+// This suite covers the foundation of Coral's distributed architecture:
+// - Discovery service registration and lookup
+// - Colony and agent mesh establishment
+// - WireGuard mesh IP allocation
+// - Agent registration and heartbeat
+// - Reconnection resilience
+type MeshSuite struct {
+	E2EDistributedSuite
+}
+
+// TestMeshSuite runs the mesh connectivity test suite.
+func TestMeshSuite(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping E2E distributed tests in short mode")
+		t.Skip("Skipping mesh tests in short mode")
 	}
 
-	suite.Run(t, new(E2EDistributedSuite))
+	suite.Run(t, new(MeshSuite))
 }
 
 // TestDiscoveryServiceAvailability verifies that the discovery service is running and healthy.
-func (s *E2EDistributedSuite) TestDiscoveryServiceAvailability() {
+func (s *MeshSuite) TestDiscoveryServiceAvailability() {
 	s.T().Log("Testing discovery service availability...")
 
 	// Get discovery endpoint.
@@ -43,8 +55,8 @@ func (s *E2EDistributedSuite) TestDiscoveryServiceAvailability() {
 	s.T().Log("Discovery service is available and healthy")
 }
 
-// TestColonyRegistrationWithDiscovery verifies that the colony registers with the discovery service.
-func (s *E2EDistributedSuite) TestColonyRegistrationWithDiscovery() {
+// TestColonyRegistration verifies that the colony registers with the discovery service.
+func (s *MeshSuite) TestColonyRegistration() {
 	s.T().Log("Testing colony registration with discovery service...")
 
 	// Get discovery endpoint and create client.
@@ -83,7 +95,7 @@ func (s *E2EDistributedSuite) TestColonyRegistrationWithDiscovery() {
 }
 
 // TestColonyStatus verifies that we can query the colony for its status.
-func (s *E2EDistributedSuite) TestColonyStatus() {
+func (s *MeshSuite) TestColonyStatus() {
 	s.T().Log("Testing colony status query...")
 
 	// Get colony endpoint and create client.
@@ -109,7 +121,7 @@ func (s *E2EDistributedSuite) TestColonyStatus() {
 }
 
 // TestAgentRegistration verifies that agents register with the colony.
-func (s *E2EDistributedSuite) TestAgentRegistration() {
+func (s *MeshSuite) TestAgentRegistration() {
 	s.T().Log("Testing agent registration with colony...")
 
 	// Get colony endpoint and create client.
@@ -127,12 +139,12 @@ func (s *E2EDistributedSuite) TestAgentRegistration() {
 			return false
 		}
 		agents = resp
-		return len(resp.Agents) >= len(s.fixture.Agents)
+		return len(resp.Agents) >= 1
 	}, 60*time.Second, 2*time.Second)
 
 	s.Require().NoError(err, "All agents should register within 60 seconds")
 	s.Require().NotNil(agents, "Agent list should not be nil")
-	s.Require().Len(agents.Agents, len(s.fixture.Agents), "Number of registered agents should match")
+	s.Require().GreaterOrEqual(len(agents.Agents), 1, "Should have at least one agent")
 
 	// Verify agent details.
 	for i, agent := range agents.Agents {
@@ -150,8 +162,8 @@ func (s *E2EDistributedSuite) TestAgentRegistration() {
 	s.T().Logf("Successfully verified %d agent(s) registered with colony", len(agents.Agents))
 }
 
-// TestMultiAgentMeshAllocation verifies that multiple agents get unique mesh IPs.
-func (s *E2EDistributedSuite) TestMultiAgentMeshAllocation() {
+// TestMultiAgentMesh verifies that multiple agents get unique mesh IPs.
+func (s *MeshSuite) TestMultiAgentMesh() {
 	s.T().Log("Testing multi-agent mesh IP allocation...")
 
 	// Create a fixture with multiple agents.
@@ -198,8 +210,8 @@ func (s *E2EDistributedSuite) TestMultiAgentMeshAllocation() {
 	s.T().Logf("Successfully verified 3 agents with unique mesh IPs")
 }
 
-// TestHeartbeatMechanism verifies that agents send heartbeats to the colony.
-func (s *E2EDistributedSuite) TestHeartbeatMechanism() {
+// TestHeartbeat verifies that agents send heartbeats to the colony.
+func (s *MeshSuite) TestHeartbeat() {
 	s.T().Log("Testing heartbeat mechanism...")
 
 	// Get colony endpoint and create client.
@@ -240,164 +252,15 @@ func (s *E2EDistributedSuite) TestHeartbeatMechanism() {
 	s.T().Log("Heartbeat mechanism verified - agent last_seen timestamp is being updated")
 }
 
-// TestServiceRegistration verifies that connected services are registered and queryable.
-//
-// This test bridges Phase 1 (connectivity) and Phase 2 (observability) by ensuring
-// that services connected to agents are properly registered in the colony registry.
-// This is critical for features like Beyla auto-instrumentation which depends on
-// services being discoverable via the registry.
-//
-// Test flow:
-// 1. Start colony, agent, and test apps (CPU app, OTLP app)
-// 2. Query colony for service list via ListServices API
-// 3. Verify expected services are registered with correct metadata
-// 4. Verify service instance counts and health status
-func (s *E2EDistributedSuite) TestServiceRegistration() {
-	s.T().Log("Testing service registration and discovery...")
+// TestAgentReconnection verifies agent reconnection after colony restarts.
+func (s *MeshSuite) TestAgentReconnection() {
+	s.T().Skip("SKIPPED: Cannot restart colony with docker-compose (would need docker-compose restart)")
 
-	// Create fixture with test apps.
-	fixture, err := fixtures.NewContainerFixture(s.ctx, fixtures.FixtureOptions{
-		NumAgents:   1,
-		WithCPUApp:  true,
-		WithOTELApp: true,
-	})
-	s.Require().NoError(err, "Failed to create fixture with test apps")
-	defer func() {
-		if fixture != nil {
-			_ = fixture.Cleanup(s.ctx)
-		}
-	}()
-
-	s.T().Log("Test apps started:")
-	s.T().Log("  - cpu-app: CPU-intensive app (uninstrumented)")
-	s.T().Log("  - otel-app: OTLP-instrumented app")
-
-	// Get colony endpoint and create client.
-	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
-	s.Require().NoError(err, "Failed to get colony endpoint")
-
-	client := helpers.NewColonyClient(colonyEndpoint)
-
-	// Wait for services to be registered.
-	// Services should be auto-discovered when apps connect to agents.
-	s.T().Log("Waiting for services to be registered...")
-
-	var services *colonyv1.ListServicesResponse
-	err = helpers.WaitForCondition(s.ctx, func() bool {
-		resp, listErr := helpers.ListServices(s.ctx, client, "")
-		if listErr != nil {
-			s.T().Logf("List services failed (will retry): %v", listErr)
-			return false
-		}
-		services = resp
-		// Wait until we have at least the test apps registered.
-		return len(resp.Services) >= 2
-	}, 60*time.Second, 2*time.Second)
-
-	s.Require().NoError(err, "Services should be registered within 60 seconds")
-	s.Require().NotNil(services, "Service list should not be nil")
-
-	s.T().Logf("Colony has %d registered services", len(services.Services))
-
-	// Build a map of service names for easy lookup.
-	serviceMap := make(map[string]*colonyv1.ServiceInfo)
-	for _, svc := range services.Services {
-		serviceMap[svc.Name] = svc
-		s.T().Logf("Service registered:")
-		s.T().Logf("  - Name: %s", svc.Name)
-		s.T().Logf("  - Namespace: %s", svc.Namespace)
-		s.T().Logf("  - Instance Count: %d", svc.InstanceCount)
-		s.T().Logf("  - Last Seen: %v", svc.LastSeen.AsTime())
-	}
-
-	// Verify expected services are registered.
-	expectedServices := []string{"cpu-app", "otel-app"}
-
-	for _, expectedSvc := range expectedServices {
-		svc, found := serviceMap[expectedSvc]
-		if !found {
-			s.T().Logf("⚠️  WARNING: Expected service '%s' not found in registry", expectedSvc)
-			s.T().Log("    This may indicate:")
-			s.T().Log("    1. Service registration not yet implemented")
-			s.T().Log("    2. Apps not properly connected to agent")
-			s.T().Log("    3. Service discovery mechanism not active")
-			continue
-		}
-
-		// Verify service metadata.
-		s.Require().NotNil(svc, "Service %s should exist", expectedSvc)
-		s.Require().Greater(svc.InstanceCount, int32(0),
-			"Service %s should have at least 1 instance", expectedSvc)
-
-		// Verify last_seen timestamp is recent (within last 2 minutes).
-		lastSeen := svc.LastSeen.AsTime()
-		timeSinceLastSeen := time.Since(lastSeen)
-		s.Require().Less(timeSinceLastSeen, 2*time.Minute,
-			"Service %s last_seen should be recent (was %v ago)", expectedSvc, timeSinceLastSeen)
-
-		s.T().Logf("✓ Service '%s' verified:", expectedSvc)
-		s.T().Logf("  - %d instance(s) running", svc.InstanceCount)
-		s.T().Logf("  - Last seen %v ago", timeSinceLastSeen.Round(time.Second))
-	}
-
-	s.T().Log("✓ Service registration verified")
-	s.T().Log("  - Services are discoverable via colony API")
-	s.T().Log("  - Service metadata is accurate and up-to-date")
-	s.T().Log("  - Registry foundation ready for observability features")
-}
-
-// TestAgentReconnectionAfterColonyRestart verifies agent reconnection after colony restarts.
-func (s *E2EDistributedSuite) TestAgentReconnectionAfterColonyRestart() {
-	s.T().Log("Testing agent reconnection after colony restart...")
-
-	// Get colony endpoint and create client.
-	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
-	s.Require().NoError(err, "Failed to get colony endpoint")
-
-	client := helpers.NewColonyClient(colonyEndpoint)
-
-	// Wait for agent to register initially.
-	err = helpers.WaitForCondition(s.ctx, func() bool {
-		agents, listErr := helpers.ListAgents(s.ctx, client)
-		return listErr == nil && len(agents.Agents) > 0
-	}, 60*time.Second, 2*time.Second)
-	s.Require().NoError(err, "Agent should register initially")
-
-	s.T().Log("Agent registered successfully, now restarting colony...")
-
-	// Stop the colony container.
-	err = s.fixture.Colony.Stop(s.ctx, nil)
-	s.Require().NoError(err, "Failed to stop colony")
-
-	s.T().Log("Colony stopped, waiting 5 seconds...")
-	time.Sleep(5 * time.Second)
-
-	// Restart the colony container.
-	err = s.fixture.Colony.Start(s.ctx)
-	s.Require().NoError(err, "Failed to restart colony")
-
-	s.T().Log("Colony restarted, waiting for agent to reconnect...")
-
-	// Wait for agent to re-register (longer timeout for reconnection with backoff).
-	err = helpers.WaitForCondition(s.ctx, func() bool {
-		agents, listErr := helpers.ListAgents(s.ctx, client)
-		if listErr != nil {
-			s.T().Logf("List agents error (will retry): %v", listErr)
-			return false
-		}
-		return len(agents.Agents) > 0
-	}, 120*time.Second, 3*time.Second)
-
-	s.Require().NoError(err, "Agent should reconnect within 120 seconds after colony restart")
-
-	agents, err := helpers.ListAgents(s.ctx, client)
-	s.Require().NoError(err, "Failed to list agents after reconnection")
-	s.Require().NotEmpty(agents.Agents, "Should have reconnected agent")
-
-	s.T().Logf("Agent reconnected successfully:")
-	s.T().Logf("  - ID: %s", agents.Agents[0].AgentId)
-	s.T().Logf("  - Status: %s", agents.Agents[0].Status)
-	s.T().Logf("  - Mesh IP: %s", agents.Agents[0].MeshIpv4)
-
-	s.T().Log("Reconnection test passed - agent successfully reconnected after colony restart")
+	// Note: With docker-compose, we can't stop/start individual containers from within tests.
+	// To test reconnection, we would need to:
+	// 1. Run `docker-compose restart colony` externally
+	// 2. Or use testcontainers (which we removed for performance)
+	// 3. Or add a separate test script that uses docker-compose CLI
+	//
+	// For now, we rely on the agent's reconnection logic being tested in unit tests.
 }

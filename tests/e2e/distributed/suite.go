@@ -10,11 +10,14 @@ import (
 )
 
 // E2EDistributedSuite is the base test suite for distributed E2E tests.
+// This suite uses docker-compose for infrastructure instead of testcontainers.
+// All services (discovery, colony, agents, apps) are started once via docker-compose
+// and shared across all tests for speed.
 type E2EDistributedSuite struct {
 	suite.Suite
 
 	ctx     context.Context
-	fixture *fixtures.ContainerFixture
+	fixture *fixtures.ComposeFixture
 }
 
 // SetupSuite runs once before all tests in the suite.
@@ -24,42 +27,41 @@ func (s *E2EDistributedSuite) SetupSuite() {
 		s.T().Skip("E2E distributed tests require Linux for eBPF and WireGuard")
 	}
 
-	// TODO: Check Docker availability.
-	// TODO: Check kernel features (eBPF, WireGuard support).
+	s.ctx = context.Background()
 
+	s.T().Log("Connecting to docker-compose services...")
+	s.T().Log("(Make sure to run 'docker-compose up -d' in tests/e2e/distributed/ first)")
+
+	// Connect to running docker-compose services.
+	fixture, err := fixtures.NewComposeFixture(s.ctx)
+	s.Require().NoError(err, "Failed to connect to docker-compose services")
+	s.fixture = fixture
+
+	s.T().Log("✓ All services connected and healthy")
 	s.T().Log("E2E distributed suite setup complete")
 }
 
 // TearDownSuite runs once after all tests in the suite.
 func (s *E2EDistributedSuite) TearDownSuite() {
+	if s.fixture != nil {
+		_ = s.fixture.Cleanup(s.ctx)
+		s.fixture = nil
+	}
 	s.T().Log("E2E distributed suite teardown complete")
 }
 
 // SetupTest runs before each test.
 func (s *E2EDistributedSuite) SetupTest() {
-	s.ctx = context.Background()
-
-	s.T().Log("Setting up test environment...")
-
-	// Create fresh container fixture for each test.
-	fixture, err := fixtures.NewContainerFixture(s.ctx, fixtures.FixtureOptions{
-		NumAgents: 1,
-		// ColonyID and Secret will be auto-generated with unique values.
-	})
-	s.Require().NoError(err, "Failed to create container fixture")
-	s.fixture = fixture
-
-	s.T().Log("Test environment ready")
+	s.T().Log("Starting test (using shared docker-compose services)...")
+	// Note: We don't create containers per-test anymore.
+	// All tests share the same docker-compose infrastructure.
+	// If tests need isolation, they should clean up their own state.
 }
 
 // TearDownTest runs after each test.
 func (s *E2EDistributedSuite) TearDownTest() {
-	if s.fixture != nil {
-		s.T().Log("Cleaning up test environment...")
-		err := s.fixture.Cleanup(s.ctx)
-		if err != nil {
-			s.T().Logf("Warning: cleanup failed: %v", err)
-		}
-		s.fixture = nil
-	}
+	// Note: We don't tear down containers per-test.
+	// The docker-compose services stay running for the entire test suite.
+	// Tests should clean up any state they created (e.g., services, data).
+	s.T().Log("Test complete (services remain running for next test)")
 }

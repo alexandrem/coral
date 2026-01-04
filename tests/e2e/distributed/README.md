@@ -1,13 +1,17 @@
 # Coral E2E Distributed Test Suite
 
-Comprehensive end-to-end test suite for Coral's distributed systems functionality, covering connectivity, discovery, and all four observability layers.
+Comprehensive end-to-end test suite for Coral's distributed systems functionality, organized by behavior rather than implementation layers.
 
 ## Overview
 
 This test suite validates the complete distributed architecture of Coral:
-- **Phase 1**: Connectivity & Discovery (8 tests)
-- **Phase 2**: Observability Layers 0-3 (13 tests)
-- **Total**: 21 E2E tests
+- **Mesh Connectivity**: 7 tests (discovery, registration, heartbeat)
+- **Service Management**: 4 tests (registration, discovery, dynamic connections)
+- **Telemetry**: 8 tests (Beyla passive instrumentation, OTLP active telemetry, system metrics)
+- **Profiling**: 2 tests (continuous and on-demand CPU profiling)
+- **Debug**: 3 tests (uprobe tracing, debug sessions)
+- **E2E Orchestration**: 4 tests (dependency-ordered full stack validation)
+- **Total**: 28 tests
 
 ## Prerequisites
 
@@ -24,15 +28,17 @@ cd tests/e2e/distributed
 go test -v -timeout 30m
 
 # Run specific test suite
-go test -v -run TestE2EDistributedSuite
-go test -v -run TestObservabilityL0Suite
-go test -v -run TestObservabilityL1Suite
-go test -v -run TestObservabilityL2Suite
-go test -v -run TestObservabilityL3Suite
+go test -v -run TestMeshSuite           # Mesh connectivity tests
+go test -v -run TestServiceSuite        # Service management tests
+go test -v -run TestTelemetrySuite      # Telemetry collection tests
+go test -v -run TestProfilingSuite      # CPU profiling tests
+go test -v -run TestDebugSuite          # Debug and uprobe tests
+go test -v -run TestE2EOrchestratorSuite # Full stack orchestration
 
 # Run specific test
-go test -v -run TestServiceRegistration
-go test -v -run TestLevel1_OTLPIngestion
+go test -v -run TestServiceRegistrationAndDiscovery
+go test -v -run TestOTLPIngestion
+go test -v -run TestBeylaPassiveInstrumentation
 
 # Skip long-running tests
 go test -v -short
@@ -60,71 +66,90 @@ Each test follows this pattern:
 
 ## Test Coverage
 
-### Phase 1: Connectivity (8 tests)
+### Mesh Connectivity (7 tests)
 
-**File**: `connectivity_test.go`
+**File**: `mesh_test.go`
 
 | Test | Description |
 |------|-------------|
 | `TestDiscoveryServiceAvailability` | Discovery service health check |
-| `TestColonyRegistrationWithDiscovery` | Colony registers with discovery |
+| `TestColonyRegistration` | Colony registers with discovery service |
 | `TestColonyStatus` | Colony status API validation |
 | `TestAgentRegistration` | Agent registration with colony |
-| `TestMultiAgentMeshAllocation` | Unique mesh IP allocation |
-| `TestHeartbeatMechanism` | Agent heartbeat updates |
-| `TestServiceRegistration` | Service registry and discovery ✨ NEW |
-| `TestAgentReconnectionAfterColonyRestart` | Reconnection after colony restart |
+| `TestMultiAgentMesh` | Unique WireGuard mesh IP allocation |
+| `TestHeartbeat` | Agent heartbeat mechanism |
+| `TestAgentReconnection` | Agent reconnection after colony restart |
 
-### Phase 2: Observability (13 tests)
+**Key Feature**: WireGuard mesh network establishment and maintenance.
 
-#### Level 0: Beyla eBPF (3 tests)
+### Service Management (4 tests)
 
-**File**: `observability_l0_test.go`
-
-| Test | Description |
-|------|-------------|
-| `TestLevel0_BeylaHTTPMetrics` | Passive eBPF HTTP metrics capture |
-| `TestLevel0_BeylaColonyPolling` | Colony polls agent for eBPF metrics |
-| `TestLevel0_BeylaVsOTLP` | Compare passive eBPF vs active OTLP |
-
-**Key Feature**: No code instrumentation required - Beyla auto-instruments registered services.
-
-#### Level 1: OTLP Telemetry (3 tests)
-
-**File**: `observability_l1_test.go`
+**File**: `service_test.go`
 
 | Test | Description |
 |------|-------------|
-| `TestLevel1_OTLPIngestion` | App → agent span ingestion |
-| `TestLevel1_OTELAppEndpoints` | OTLP test app functionality |
-| `TestLevel1_ColonyAggregation` | Agent → colony polling with P50/P95/P99 |
+| `TestServiceRegistrationAndDiscovery` | Service registration and queryability |
+| `TestDynamicServiceConnection` | Dynamic service connection after registration |
+| `TestServiceConnectionAtStartup` | Service connection on agent startup |
+| `TestMultiServiceRegistration` | Multiple services registered and tracked |
 
-**Key Feature**: Active instrumentation with OpenTelemetry SDK for detailed traces.
+**Key Feature**: Automatic service discovery and Beyla auto-instrumentation.
 
-#### Level 2: Continuous Intelligence (3 tests)
+### Telemetry (8 tests)
 
-**File**: `observability_l2_test.go`
+**File**: `telemetry_test.go`
 
 | Test | Description |
 |------|-------------|
-| `TestLevel2_SystemMetricsCollection` | CPU/memory/disk/network metrics (15s interval) |
-| `TestLevel2_SystemMetricsPolling` | Colony polls agent for system metrics |
-| `TestLevel2_ContinuousCPUProfiling` | Always-on CPU profiling (19Hz) |
+| `TestBeylaPassiveInstrumentation` | eBPF HTTP metrics without code changes |
+| `TestBeylaColonyPolling` | Colony polls agent for eBPF metrics |
+| `TestBeylaVsOTLPComparison` | Compare passive eBPF vs active OTLP |
+| `TestOTLPIngestion` | OpenTelemetry span ingestion (app → agent) |
+| `TestOTLPAppEndpoints` | OTLP test app functionality validation |
+| `TestTelemetryAggregation` | Colony aggregates telemetry (P50/P95/P99) |
+| `TestSystemMetricsCollection` | CPU/memory/disk/network metrics (15s interval) |
+| `TestSystemMetricsPolling` | Colony polls agent for system metrics |
 
-**Key Feature**: Low-overhead continuous monitoring with system metrics and CPU profiling.
+**Key Features**:
+- Passive instrumentation via Beyla eBPF (no code changes)
+- Active instrumentation via OpenTelemetry SDK (detailed traces)
+- System-level metrics collection
 
-#### Level 3: Deep Introspection (4 placeholder tests)
+### Profiling (2 tests)
 
-**File**: `observability_l3_test.go`
+**File**: `profiling_test.go`
 
-| Test | Status | Requirements |
-|------|--------|--------------|
-| `TestLevel3_OnDemandCPUProfiling` | ⏸️ Skipped | Debug session API, 99Hz profiler |
-| `TestLevel3_UprobeTracing` | ⏸️ Skipped | SDK app, uprobe attachment |
-| `TestLevel3_UprobeCallTree` | ⏸️ Skipped | Call tree construction |
-| `TestLevel3_MultiAgentDebugSession` | ⏸️ Skipped | Multi-agent coordination |
+| Test | Description |
+|------|-------------|
+| `TestContinuousProfiling` | Always-on CPU profiling at 19Hz |
+| `TestOnDemandProfiling` | On-demand CPU profiling at 99Hz (debug sessions) |
+
+**Key Feature**: Low-overhead continuous profiling with high-fidelity on-demand option.
+
+### Debug (3 tests)
+
+**File**: `debug_test.go`
+
+| Test | Status | Description |
+|------|--------|-------------|
+| `TestUprobeTracing` | ⏸️ Skipped | Attach uprobes to specific functions |
+| `TestUprobeCallTree` | ⏸️ Skipped | Construct call trees from uprobe data |
+| `TestMultiAgentDebugSession` | ⏸️ Skipped | Coordinate debug sessions across agents |
 
 **Note**: Tests are implemented with `.Skip()` and detailed documentation for future implementation.
+
+### E2E Orchestration (4 tests)
+
+**File**: `e2e_orchestrator_test.go`
+
+| Test | Description |
+|------|-------------|
+| `Test1_MeshConnectivity` | Full mesh connectivity stack |
+| `Test2_ServiceManagement` | Service registration and discovery |
+| `Test3_PassiveObservability` | Beyla + system metrics + continuous profiling |
+| `Test4_OnDemandProbes` | On-demand profiling and uprobe tracing |
+
+**Key Feature**: Dependency-ordered orchestration that validates the entire stack in sequence.
 
 ## Test Infrastructure
 
@@ -268,12 +293,13 @@ sudo chmod 666 /var/run/docker.sock
 ## Test Timing
 
 Approximate runtime for test suites:
-- **Connectivity Suite**: ~5-8 minutes (8 tests)
-- **Level 0 Suite**: ~4-6 minutes (3 tests)
-- **Level 1 Suite**: ~5-7 minutes (3 tests)
-- **Level 2 Suite**: ~4-5 minutes (3 tests)
-- **Level 3 Suite**: ~1 second (4 skipped tests)
-- **Total**: ~20-30 minutes for all tests
+- **Mesh Suite**: ~5-8 minutes (7 tests)
+- **Service Suite**: ~3-5 minutes (4 tests)
+- **Telemetry Suite**: ~8-10 minutes (8 tests)
+- **Profiling Suite**: ~4-5 minutes (2 tests)
+- **Debug Suite**: ~1 second (3 skipped tests)
+- **E2E Orchestrator Suite**: ~10-15 minutes (4 comprehensive tests)
+- **Total**: ~30-45 minutes for all tests
 
 ## Next Steps
 

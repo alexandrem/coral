@@ -1,4 +1,4 @@
-.PHONY: build build-dev clean init install install-tools test run help generate proto docker-build docker-buildx
+.PHONY: build build-dev clean init install install-tools test run help generate proto docker-build docker-buildx test-e2e test-e2e-up test-e2e-down
 
 # Build variables
 BINARY_NAME=coral
@@ -124,24 +124,46 @@ test-linux: ## Run tests in Linux Docker (tests platform-specific code)
 		golang:1.25 \
 		bash -c "apt-get update -qq && apt-get install -y -qq clang llvm > /dev/null 2>&1 && go test -short ./..."
 
-test-e2e: generate ## Run E2E distributed tests (requires Linux + Docker)
-	@echo "Running E2E distributed tests..."
-	@if [ "$$(uname)" != "Linux" ]; then \
-		echo "⚠️  E2E tests require Linux, running in Docker..."; \
-		$(MAKE) test-e2e-docker; \
-	else \
-		cd tests/e2e/distributed && go test -v -timeout=30m ./...; \
+test-e2e: generate ## Run E2E distributed tests (requires Docker + BuildKit)
+	@echo "Running E2E distributed tests with docker-compose..."
+	@# Check if docker is available
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo "❌ Docker not found. Please install Docker or Colima"; \
+		exit 1; \
 	fi
+	@# Check if docker is running
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "❌ Docker is not running"; \
+		echo "  macOS: Start Colima with 'colima start'"; \
+		echo "  Linux: Start Docker daemon"; \
+		exit 1; \
+	fi
+	@# Verify we're running in a Linux environment (via docker)
+	@if [ "$$(docker version -f '{{.Server.Os}}')" != "linux" ]; then \
+		echo "❌ Docker must be running on Linux"; \
+		echo "  Current: $$(docker version -f '{{.Server.Os}}')"; \
+		exit 1; \
+	fi
+	@echo "✓ Docker running on Linux (host: $$(uname -s))"
+	@echo "Starting E2E test suite (containers will run on Linux)..."
+	@cd tests/e2e/distributed && $(MAKE) test-all
 
-test-e2e-docker: ## Run E2E tests in Linux Docker
-	@echo "Building E2E test environment..."
-	@docker build -f tests/e2e/Dockerfile -t coral-e2e:latest .
-	@echo "Running E2E tests in Docker..."
-	@docker run --rm --privileged \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v "$(PWD)":/workspace \
-		-w /workspace \
-		coral-e2e:latest
+test-e2e-up: ## Start E2E test services (docker-compose)
+	@echo "Starting E2E test services..."
+	@cd tests/e2e/distributed && $(MAKE) up
+
+test-e2e-down: ## Stop E2E test services (docker-compose)
+	@echo "Stopping E2E test services..."
+	@cd tests/e2e/distributed && $(MAKE) down
+
+test-e2e-logs: ## View E2E test service logs
+	@cd tests/e2e/distributed && $(MAKE) logs
+
+test-e2e-docker: ## [DEPRECATED] Use test-e2e instead
+	@echo "⚠️  test-e2e-docker is deprecated"
+	@echo "  Use 'make test-e2e' for docker-compose based tests"
+	@echo "  Or use 'make test-e2e-up && make test-e2e-down' for manual control"
+	@exit 1
 
 ci-check: ## Run full CI checks locally (lint + test on Linux)
 	@echo "=== Running full CI checks locally ==="
