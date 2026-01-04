@@ -1,7 +1,6 @@
 package distributed
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -16,8 +15,7 @@ import (
 //  3. Passive Observability (depends on mesh + services)
 //  4. On-Demand Probes (depends on all above)
 type E2EOrchestratorSuite struct {
-	suite.Suite
-	ctx context.Context
+	E2EDistributedSuite
 
 	// Track which test groups have passed.
 	meshPassed           bool
@@ -37,14 +35,19 @@ func TestE2EOrchestrator(t *testing.T) {
 
 // SetupSuite runs once before all tests.
 func (s *E2EOrchestratorSuite) SetupSuite() {
-	s.ctx = context.Background()
 	s.T().Log("==================================================")
 	s.T().Log("E2E Test Orchestrator - Dependency-Ordered Tests")
 	s.T().Log("==================================================")
+
+	// Call parent SetupSuite to initialize fixture.
+	s.E2EDistributedSuite.SetupSuite()
 }
 
 // TearDownSuite runs once after all tests.
 func (s *E2EOrchestratorSuite) TearDownSuite() {
+	// Call parent TearDownSuite to clean up fixture.
+	s.E2EDistributedSuite.TearDownSuite()
+
 	s.T().Log("")
 	s.T().Log("==================================================")
 	s.T().Log("E2E Test Results Summary")
@@ -64,9 +67,10 @@ func (s *E2EOrchestratorSuite) Test1_MeshConnectivity() {
 	s.T().Log("GROUP 1: Mesh Connectivity (Foundation)")
 	s.T().Log("========================================")
 
-	// Run MeshSuite tests.
-	meshSuite := &MeshSuite{}
-	meshSuite.ctx = s.ctx
+	// Run MeshSuite tests with shared fixture.
+	meshSuite := &MeshSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
 	meshSuite.SetT(s.T())
 
 	// Run individual tests in order.
@@ -99,9 +103,10 @@ func (s *E2EOrchestratorSuite) Test2_ServiceManagement() {
 	s.T().Log("GROUP 2: Service Management")
 	s.T().Log("========================================")
 
-	// Run ServiceSuite tests.
-	serviceSuite := &ServiceSuite{}
-	serviceSuite.ctx = s.ctx
+	// Run ServiceSuite tests with shared fixture.
+	serviceSuite := &ServiceSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
 	serviceSuite.SetT(s.T())
 
 	s.Run("ServiceRegistrationAndDiscovery", serviceSuite.TestServiceRegistrationAndDiscovery)
@@ -129,9 +134,10 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 	s.T().Log("GROUP 3: Passive Observability")
 	s.T().Log("========================================")
 
-	// Run TelemetrySuite tests (Beyla, OTLP, system metrics).
-	telemetrySuite := &TelemetrySuite{}
-	telemetrySuite.ctx = s.ctx
+	// Run TelemetrySuite tests (Beyla, OTLP, system metrics) with shared fixture.
+	telemetrySuite := &TelemetrySuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
 	telemetrySuite.SetT(s.T())
 
 	// Beyla tests.
@@ -148,9 +154,10 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 	s.Run("SystemMetricsCollection", telemetrySuite.TestSystemMetricsCollection)
 	s.Run("SystemMetricsPolling", telemetrySuite.TestSystemMetricsPolling)
 
-	// Run ProfilingSuite tests (continuous profiling).
-	profilingSuite := &ProfilingSuite{}
-	profilingSuite.ctx = s.ctx
+	// Run ProfilingSuite tests (continuous profiling) with shared fixture.
+	profilingSuite := &ProfilingSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
 	profilingSuite.SetT(s.T())
 
 	s.Run("ContinuousProfiling", profilingSuite.TestContinuousProfiling)
@@ -175,16 +182,18 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 	s.T().Log("GROUP 4: On-Demand Probes")
 	s.T().Log("========================================")
 
-	// Run ProfilingSuite tests (on-demand profiling).
-	profilingSuite := &ProfilingSuite{}
-	profilingSuite.ctx = s.ctx
+	// Run ProfilingSuite tests (on-demand profiling) with shared fixture.
+	profilingSuite := &ProfilingSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
 	profilingSuite.SetT(s.T())
 
 	s.Run("OnDemandProfiling", profilingSuite.TestOnDemandProfiling)
 
-	// Run DebugSuite tests (uprobe tracing, debug sessions).
-	debugSuite := &DebugSuite{}
-	debugSuite.ctx = s.ctx
+	// Run DebugSuite tests (uprobe tracing, debug sessions) with shared fixture.
+	debugSuite := &DebugSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
 	debugSuite.SetT(s.T())
 
 	s.Run("UprobeTracing", debugSuite.TestUprobeTracing)

@@ -2,7 +2,6 @@ package distributed
 
 import (
 	"context"
-	"runtime"
 
 	"github.com/stretchr/testify/suite"
 
@@ -22,15 +21,11 @@ type E2EDistributedSuite struct {
 
 // SetupSuite runs once before all tests in the suite.
 func (s *E2EDistributedSuite) SetupSuite() {
-	// Check platform requirements.
-	if runtime.GOOS != "linux" {
-		s.T().Skip("E2E distributed tests require Linux for eBPF and WireGuard")
-	}
-
 	s.ctx = context.Background()
 
 	s.T().Log("Connecting to docker-compose services...")
 	s.T().Log("(Make sure to run 'docker-compose up -d' in tests/e2e/distributed/ first)")
+	s.T().Log("Note: Services run in Linux containers (eBPF/WireGuard), test runner can be on any platform")
 
 	// Connect to running docker-compose services.
 	fixture, err := fixtures.NewComposeFixture(s.ctx)

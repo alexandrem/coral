@@ -29,13 +29,43 @@ services:
     build:
       context: ../../..
       dockerfile: Dockerfile
+    entrypoint: /bin/sh
     command:
-      - colony
-      - start
-      - --colony-id=test-colony-e2e
-      - --discovery-endpoint=http://discovery:8080
+      - -c
+      - |
+        # Initialize colony if config doesn't exist
+        if [ ! -f /var/lib/coral/.colony_id ] || [ ! -d /root/.coral/colonies/test-colony-e2e-* ]; then
+          echo "Initializing colony..."
+          /usr/local/bin/coral init test-colony-e2e --env e2e --storage /var/lib/coral --discovery http://discovery:8080
+          # Find the generated colony directory
+          COLONY_DIR=$$(ls -1d /root/.coral/colonies/test-colony-e2e-* 2>/dev/null | head -1)
+          if [ -n "$$COLONY_DIR" ]; then
+            COLONY_ID=$$(basename "$$COLONY_DIR")
+            echo "$$COLONY_ID" > /var/lib/coral/.colony_id
+            # Share colony ID with agents
+            echo "$$COLONY_ID" > /shared/colony_id
+            echo "Colony ID saved to shared volume: $$COLONY_ID"
+          fi
+        else
+          echo "Colony already initialized, using existing config"
+          # Ensure colony ID is shared
+          if [ -f /var/lib/coral/.colony_id ]; then
+            cp /var/lib/coral/.colony_id /shared/colony_id
+          fi
+        fi
+        # Read the actual colony ID and start
+        if [ -f /var/lib/coral/.colony_id ]; then
+          COLONY_ID=$$(cat /var/lib/coral/.colony_id)
+          echo "Starting colony with ID: $$COLONY_ID"
+          exec /usr/local/bin/coral colony start --colony "$$COLONY_ID"
+        else
+          # Fallback to auto-detection
+          exec /usr/local/bin/coral colony start
+        fi
     environment:
       - CORAL_COLONY_SECRET=test-secret-12345
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+      - CORAL_STORAGE_PATH=/var/lib/coral
     ports:
       - "9000:9000"
       - "51820:51820/udp"
@@ -47,21 +77,29 @@ services:
       - coral-e2e
     volumes:
       - colony-data:/var/lib/coral
+      - colony-shared:/shared
 
   # Agent 0 - Primary agent
   agent-0:
     build:
       context: ../../..
       dockerfile: Dockerfile
+    entrypoint: /bin/sh
     command:
-      - agent
-      - start
-      - --agent-id=agent-0
-      - --colony-id=test-colony-e2e
-      - --discovery-endpoint=http://discovery:8080
-      - --monitor-all  # Enable Beyla for all listening processes
+      - -c
+      - |
+        # Wait for colony to write its ID
+        while [ ! -f /shared/colony_id ]; do
+          echo "Waiting for colony ID..."
+          sleep 2
+        done
+        COLONY_ID=$$(cat /shared/colony_id)
+        echo "Starting agent with colony ID: $$COLONY_ID"
+        export CORAL_COLONY_ID="$$COLONY_ID"
+        exec /usr/local/bin/coral agent start --monitor-all
     environment:
       - CORAL_COLONY_SECRET=test-secret-12345
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
     ports:
       - "4317:4317"  # OTLP gRPC
       - "4318:4318"  # OTLP HTTP
@@ -73,21 +111,29 @@ services:
       - coral-e2e
     volumes:
       - agent-0-data:/var/lib/coral
+      - colony-shared:/shared
 
   # Agent 1 - Secondary agent for multi-agent tests
   agent-1:
     build:
       context: ../../..
       dockerfile: Dockerfile
+    entrypoint: /bin/sh
     command:
-      - agent
-      - start
-      - --agent-id=agent-1
-      - --colony-id=test-colony-e2e
-      - --discovery-endpoint=http://discovery:8080
-      - --monitor-all
+      - -c
+      - |
+        # Wait for colony to write its ID
+        while [ ! -f /shared/colony_id ]; do
+          echo "Waiting for colony ID..."
+          sleep 2
+        done
+        COLONY_ID=$$(cat /shared/colony_id)
+        echo "Starting agent with colony ID: $$COLONY_ID"
+        export CORAL_COLONY_ID="$$COLONY_ID"
+        exec /usr/local/bin/coral agent start --monitor-all
     environment:
       - CORAL_COLONY_SECRET=test-secret-12345
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
     ports:
       - "4327:4317"  # OTLP gRPC
       - "4328:4318"  # OTLP HTTP
@@ -99,6 +145,7 @@ services:
       - coral-e2e
     volumes:
       - agent-1-data:/var/lib/coral
+      - colony-shared:/shared
 
   # CPU App - CPU-intensive test application
   cpu-app:
@@ -161,3 +208,4 @@ volumes:
   colony-data:
   agent-0-data:
   agent-1-data:
+  colony-shared:  # Shared volume for colony ID
