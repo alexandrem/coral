@@ -14,10 +14,9 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
@@ -31,7 +30,7 @@ type Orchestrator struct {
 	registry           *registry.Registry
 	db                 *database.Database
 	functionRegistry   *colony.FunctionRegistry
-	clientFactory      func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
+	clientFactory      func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentDebugServiceClient
 	agentClientFactory func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentServiceClient
 
 	// Components.
@@ -48,7 +47,7 @@ func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *dat
 		registry:           registry,
 		db:                 db,
 		functionRegistry:   functionRegistry,
-		clientFactory:      meshv1connect.NewDebugServiceClient,
+		clientFactory:      agentv1connect.NewAgentDebugServiceClient,
 		agentClientFactory: agentv1connect.NewAgentServiceClient,
 	}
 
@@ -66,7 +65,7 @@ func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *dat
 		logger,
 		registry,
 		db,
-		func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+		func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 			return o.clientFactory(client, url, opts...)
 		},
 	)
@@ -77,7 +76,7 @@ func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *dat
 		registry,
 		db,
 		agentCoordinator,
-		func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+		func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 			return o.clientFactory(client, url, opts...)
 		},
 	)
@@ -167,7 +166,7 @@ func (o *Orchestrator) TraceRequestPath(
 		FunctionName: functionName,
 		Duration:     req.Msg.Duration,
 		SdkAddr:      req.Msg.SdkAddr,
-		Config: &meshv1.UprobeConfig{
+		Config: &agentv1.UprobeConfig{
 			CaptureArgs:   false, // Don't capture args for traces (too much data)
 			CaptureReturn: true,  // Capture return for duration measurement
 		},
@@ -487,7 +486,7 @@ func (o *Orchestrator) ProfileFunctions(
 			FunctionName: fn.FunctionName,
 			AgentId:      fn.AgentID,
 			Duration:     sessionDuration, // Extended duration with buffer
-			Config: &meshv1.UprobeConfig{
+			Config: &agentv1.UprobeConfig{
 				CaptureArgs:   false,
 				CaptureReturn: true,
 				SampleRate:    uint32(req.Msg.SampleRate * 100),
@@ -864,7 +863,7 @@ func (o *Orchestrator) ProfileCPU(
 		fmt.Sprintf("http://%s", buildAgentAddress(entry.MeshIPv4)),
 	)
 
-	profileReq := connect.NewRequest(&meshv1.ProfileCPUAgentRequest{
+	profileReq := connect.NewRequest(&agentv1.ProfileCPUAgentRequest{
 		AgentId:         agentID,
 		ServiceName:     req.Msg.ServiceName,
 		Pid:             targetPID,
@@ -891,23 +890,14 @@ func (o *Orchestrator) ProfileCPU(
 		}), nil
 	}
 
-	// Convert agent response to colony response.
-	var samples []*debugpb.StackSample
-	for _, sample := range profileResp.Msg.Samples {
-		samples = append(samples, &debugpb.StackSample{
-			FrameNames: sample.FrameNames,
-			Count:      sample.Count,
-		})
-	}
-
 	o.logger.Info().
 		Str("service", req.Msg.ServiceName).
 		Uint64("total_samples", profileResp.Msg.TotalSamples).
-		Int("unique_stacks", len(samples)).
+		Int("unique_stacks", len(profileResp.Msg.Samples)).
 		Msg("CPU profiling completed")
 
 	return connect.NewResponse(&debugpb.ProfileCPUResponse{
-		Samples:      samples,
+		Samples:      profileResp.Msg.Samples,
 		TotalSamples: profileResp.Msg.TotalSamples,
 		LostSamples:  profileResp.Msg.LostSamples,
 		Success:      true,
@@ -983,7 +973,7 @@ func (o *Orchestrator) QueryHistoricalCPUProfile(
 	}
 
 	// Decode frame IDs to frame names and build response.
-	var samples []*debugpb.StackSample
+	var samples []*agentv1.StackSample
 	totalSamples := uint64(0)
 
 	for _, agg := range aggregated {
@@ -996,7 +986,7 @@ func (o *Orchestrator) QueryHistoricalCPUProfile(
 			continue
 		}
 
-		samples = append(samples, &debugpb.StackSample{
+		samples = append(samples, &agentv1.StackSample{
 			FrameNames: frameNames,
 			Count:      agg.sampleCount,
 		})

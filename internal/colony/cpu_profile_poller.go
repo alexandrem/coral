@@ -12,8 +12,8 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -28,7 +28,7 @@ type CPUProfilePoller struct {
 	db              *database.Database
 	pollInterval    time.Duration
 	retentionDays   int // How long to keep CPU profile summaries (default: 30 days).
-	clientFactory   func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient
+	clientFactory   func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient
 	logger          zerolog.Logger
 	lastPollTimes   map[string]time.Time // Track last poll time per agent.
 	lastPollTimesMu sync.RWMutex
@@ -194,12 +194,12 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 func (p *CPUProfilePoller) queryAgent(ctx context.Context,
 	agent *registry.Entry,
 	startTime, endTime time.Time,
-) ([]*meshv1.CPUProfileSample, error) {
+) ([]*agentv1.CPUProfileSample, error) {
 	// Create gRPC client for this agent.
 	client := p.clientFactory(nil, buildAgentURL(agent), connect.WithGRPC())
 
 	// Create query request (service_name is optional - query all services on agent).
-	req := connect.NewRequest(&meshv1.QueryCPUProfileSamplesRequest{
+	req := connect.NewRequest(&agentv1.QueryCPUProfileSamplesRequest{
 		StartTime: timestamppb.New(startTime),
 		EndTime:   timestamppb.New(endTime),
 	})
@@ -229,7 +229,7 @@ func (p *CPUProfilePoller) queryAgent(ctx context.Context,
 // Samples with the same stack (within the same minute bucket) are merged by summing sample counts.
 func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 	agentID string,
-	samples []*meshv1.CPUProfileSample,
+	samples []*agentv1.CPUProfileSample,
 ) []database.CPUProfileSummary {
 	if len(samples) == 0 {
 		return nil

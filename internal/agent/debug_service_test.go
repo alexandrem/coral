@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
@@ -20,21 +21,21 @@ func TestFilterEvents(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		req       *meshv1.QueryUprobeEventsRequest
+		req       *agentv1.QueryUprobeEventsRequest
 		events    []*meshv1.EbpfEvent
 		wantCount int
 		wantFirst *timestamppb.Timestamp
 	}{
 		{
 			name:      "No limits",
-			req:       &meshv1.QueryUprobeEventsRequest{},
+			req:       &agentv1.QueryUprobeEventsRequest{},
 			events:    events,
 			wantCount: 3,
 			wantFirst: events[0].Timestamp,
 		},
 		{
 			name: "Max events (current behavior - returns oldest)",
-			req: &meshv1.QueryUprobeEventsRequest{
+			req: &agentv1.QueryUprobeEventsRequest{
 				MaxEvents: 2,
 			},
 			events:    events,
@@ -43,7 +44,7 @@ func TestFilterEvents(t *testing.T) {
 		},
 		{
 			name: "Max events with StartTime (streaming)",
-			req: &meshv1.QueryUprobeEventsRequest{
+			req: &agentv1.QueryUprobeEventsRequest{
 				MaxEvents: 2,
 				StartTime: timestamppb.New(now.Add(-6 * time.Minute)),
 			},
@@ -65,7 +66,7 @@ func TestFilterEvents(t *testing.T) {
 }
 
 // Copy of the logic from debug_service.go for testing purposes before refactoring
-func filterEvents(events []*meshv1.EbpfEvent, req *meshv1.QueryUprobeEventsRequest) []*meshv1.EbpfEvent {
+func filterEvents(events []*meshv1.EbpfEvent, req *agentv1.QueryUprobeEventsRequest) []*meshv1.EbpfEvent {
 	var filteredEvents []*meshv1.EbpfEvent
 	for _, event := range events {
 		// Check time range

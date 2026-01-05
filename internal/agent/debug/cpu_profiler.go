@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sys/unix"
 
-	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/safe"
 	"github.com/coral-mesh/coral/internal/sys/proc"
 )
@@ -43,7 +43,7 @@ type CPUProfileSession struct {
 
 // CPUProfileResult contains the results of a CPU profiling session.
 type CPUProfileResult struct {
-	Samples      []*colonypb.StackSample
+	Samples      []*agentv1.StackSample
 	TotalSamples uint64
 	LostSamples  uint32
 }
@@ -171,8 +171,8 @@ func (s *CPUProfileSession) CollectProfile() (*CPUProfileResult, error) {
 }
 
 // readStackCounts reads and symbolizes stack traces from the BPF maps.
-func (s *CPUProfileSession) readStackCounts() ([]*colonypb.StackSample, uint64, error) {
-	var samples []*colonypb.StackSample
+func (s *CPUProfileSession) readStackCounts() ([]*agentv1.StackSample, uint64, error) {
+	var samples []*agentv1.StackSample
 	var totalSamples uint64
 
 	// Iterate over stack_counts map.
@@ -198,7 +198,7 @@ func (s *CPUProfileSession) readStackCounts() ([]*colonypb.StackSample, uint64, 
 			continue
 		}
 
-		sample := &colonypb.StackSample{
+		sample := &agentv1.StackSample{
 			FrameNames: frames,
 			Count:      value,
 		}
@@ -294,7 +294,7 @@ func (s *CPUProfileSession) getStackTrace(stackID int32) ([]uint64, error) {
 }
 
 // FormatFoldedStacks formats stack samples in the "folded" format for flamegraph.pl.
-func FormatFoldedStacks(samples []*colonypb.StackSample) string {
+func FormatFoldedStacks(samples []*agentv1.StackSample) string {
 	var buf bytes.Buffer
 
 	for _, sample := range samples {

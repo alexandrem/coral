@@ -16,7 +16,6 @@ import (
 
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/collector"
 	"github.com/coral-mesh/coral/internal/agent/profiler"
@@ -357,7 +356,7 @@ func (s *ServiceRegistry) createHTTPServers(
 	// Create debug service handler (RFD 059).
 	debugService := agent.NewDebugService(s.agentInstance, s.logger)
 	debugAdapter := agent.NewDebugServiceAdapter(debugService)
-	debugPath, debugHandler := meshv1connect.NewDebugServiceHandler(debugAdapter)
+	debugPath, debugHandler := agentv1connect.NewAgentDebugServiceHandler(debugAdapter)
 
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)

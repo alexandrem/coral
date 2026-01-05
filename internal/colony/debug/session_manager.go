@@ -13,9 +13,9 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -27,7 +27,7 @@ type SessionManager struct {
 	registry         *registry.Registry
 	db               *database.Database
 	agentCoordinator *AgentCoordinator
-	clientFactory    func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
+	clientFactory    func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentDebugServiceClient
 }
 
 // NewSessionManager creates a new session manager.
@@ -36,7 +36,7 @@ func NewSessionManager(
 	registry *registry.Registry,
 	db *database.Database,
 	agentCoordinator *AgentCoordinator,
-	clientFactory func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient,
+	clientFactory func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentDebugServiceClient,
 ) *SessionManager {
 	return &SessionManager{
 		logger:           logger.With().Str("component", "session_manager").Logger(),
@@ -105,7 +105,7 @@ func (sm *SessionManager) AttachUprobe(
 		fmt.Sprintf("http://%s", agentAddr),
 	)
 
-	startReq := connect.NewRequest(&meshv1.StartUprobeCollectorRequest{
+	startReq := connect.NewRequest(&agentv1.StartUprobeCollectorRequest{
 		AgentId:      req.Msg.AgentId,
 		ServiceName:  req.Msg.ServiceName,
 		FunctionName: req.Msg.FunctionName,
@@ -218,7 +218,7 @@ func (sm *SessionManager) DetachUprobe(
 		)
 
 		// Fetch and persist events before stopping collector (RFD 062 - event persistence).
-		queryReq := connect.NewRequest(&meshv1.QueryUprobeEventsRequest{
+		queryReq := connect.NewRequest(&agentv1.QueryUprobeEventsRequest{
 			CollectorId: session.CollectorID,
 			StartTime:   timestamppb.New(session.StartedAt),
 			EndTime:     timestamppb.New(time.Now()),
@@ -233,13 +233,8 @@ func (sm *SessionManager) DetachUprobe(
 				Msg("Failed to fetch events before detaching (continuing with detach)")
 			// Continue with detach even if event fetch fails
 		} else {
-			// Extract UprobeEvent from EbpfEvent wrapper.
-			var uprobeEvents []*meshv1.UprobeEvent
-			for _, ebpfEvent := range queryResp.Msg.Events {
-				if ebpfEvent.GetUprobeEvent() != nil {
-					uprobeEvents = append(uprobeEvents, ebpfEvent.GetUprobeEvent())
-				}
-			}
+			// Events are already UprobeEvents (not wrapped in EbpfEvent).
+			uprobeEvents := queryResp.Msg.Events
 
 			// Persist events to database.
 			if len(uprobeEvents) > 0 {
@@ -262,7 +257,7 @@ func (sm *SessionManager) DetachUprobe(
 		}
 
 		// Call agent to stop uprobe collector.
-		stopReq := connect.NewRequest(&meshv1.StopUprobeCollectorRequest{
+		stopReq := connect.NewRequest(&agentv1.StopUprobeCollectorRequest{
 			CollectorId: session.CollectorID,
 		})
 

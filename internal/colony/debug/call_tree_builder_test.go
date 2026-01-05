@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 func TestBuildCallTreeFromEvents(t *testing.T) {
@@ -16,13 +16,13 @@ func TestBuildCallTreeFromEvents(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		events      []*meshv1.UprobeEvent
+		events      []*agentv1.UprobeEvent
 		p95Duration time.Duration
 		validate    func(t *testing.T, tree *debugpb.CallTree)
 	}{
 		{
 			name: "Simple linear call",
-			events: []*meshv1.UprobeEvent{
+			events: []*agentv1.UprobeEvent{
 				// Entry A
 				{
 					Timestamp:    timestamppb.New(baseTime),
@@ -79,7 +79,7 @@ func TestBuildCallTreeFromEvents(t *testing.T) {
 		},
 		{
 			name: "Multiple invocations aggregated",
-			events: []*meshv1.UprobeEvent{
+			events: []*agentv1.UprobeEvent{
 				// Call 1: A -> B
 				{Timestamp: timestamppb.New(baseTime), EventType: "entry", FunctionName: "A", Tid: 1},
 				{Timestamp: timestamppb.New(baseTime.Add(10 * time.Millisecond)), EventType: "entry", FunctionName: "B", Tid: 1},
@@ -112,7 +112,7 @@ func TestBuildCallTreeFromEvents(t *testing.T) {
 		},
 		{
 			name: "Slow outlier identification",
-			events: []*meshv1.UprobeEvent{
+			events: []*agentv1.UprobeEvent{
 				{Timestamp: timestamppb.New(baseTime), EventType: "entry", FunctionName: "Fast", Tid: 1},
 				{Timestamp: timestamppb.New(baseTime.Add(10 * time.Millisecond)), EventType: "return", FunctionName: "Fast", Tid: 1, DurationNs: 10 * 1e6},
 
@@ -153,7 +153,7 @@ func TestBuildCallTreeFromEvents(t *testing.T) {
 }
 
 func TestAggregateStatistics(t *testing.T) {
-	events := []*meshv1.UprobeEvent{
+	events := []*agentv1.UprobeEvent{
 		{EventType: "return", DurationNs: 10 * 1e6},
 		{EventType: "return", DurationNs: 20 * 1e6},
 		{EventType: "return", DurationNs: 30 * 1e6},

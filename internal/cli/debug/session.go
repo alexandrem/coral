@@ -49,7 +49,7 @@ func newSessionListCmd() *cobra.Command {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(http.DefaultClient, colonyAddr)
+			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			req := &colonypb.ListDebugSessionsRequest{
 				ServiceName: serviceName,
@@ -93,7 +93,7 @@ func newSessionGetCmd() *cobra.Command {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(http.DefaultClient, colonyAddr)
+			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			// We have to list all sessions and filter because there is no GetSession RPC
 			req := &colonypb.ListDebugSessionsRequest{}
@@ -148,7 +148,7 @@ func newSessionEventsCmd() *cobra.Command {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(http.DefaultClient, colonyAddr)
+			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			var startTime *timestamppb.Timestamp
 			if since > 0 {
@@ -206,7 +206,7 @@ func newSessionStopCmd() *cobra.Command {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(http.DefaultClient, colonyAddr)
+			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			fmt.Printf("Stopping session %s...\n", sessionID)
 
@@ -268,7 +268,7 @@ Examples:
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(
+			client := colonyv1connect.NewColonyDebugServiceClient(
 				http.DefaultClient,
 				colonyAddr,
 			)

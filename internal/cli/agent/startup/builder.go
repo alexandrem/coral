@@ -100,6 +100,7 @@ type AgentServerBuilder struct {
 	colonyIDOverride string
 	connectServices  []string
 	monitorAll       bool
+	ctx              context.Context
 
 	// Phase results.
 	configResult   *ConfigResult
@@ -116,6 +117,7 @@ type AgentServerBuilder struct {
 
 // NewAgentServerBuilder creates a new agent server builder.
 func NewAgentServerBuilder(
+	ctx context.Context,
 	logger logging.Logger,
 	configFile string,
 	colonyIDOverride string,
@@ -123,6 +125,7 @@ func NewAgentServerBuilder(
 	monitorAll bool,
 ) *AgentServerBuilder {
 	return &AgentServerBuilder{
+		ctx:              ctx,
 		logger:           logger,
 		configFile:       configFile,
 		colonyIDOverride: colonyIDOverride,
@@ -207,6 +210,7 @@ func (b *AgentServerBuilder) CreateAgentInstance() error {
 
 	// Create runtime service early (RFD 018).
 	runtimeService, err := agent.NewRuntimeService(agent.RuntimeServiceConfig{
+		Context:         b.ctx,
 		AgentID:         b.agentID,
 		Logger:          b.logger,
 		Version:         "dev", // TODO: Get version from build info
@@ -228,6 +232,7 @@ func (b *AgentServerBuilder) CreateAgentInstance() error {
 	}
 
 	agentInstance, err := agent.New(agent.Config{
+		Context:       b.ctx,
 		AgentID:       b.agentID,
 		Services:      serviceInfos,
 		BeylaConfig:   b.storageResult.BeylaConfig,

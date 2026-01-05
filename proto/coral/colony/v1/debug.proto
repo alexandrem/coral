@@ -4,12 +4,12 @@ package coral.colony.v1;
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
-import "coral/mesh/v1/ebpf.proto";
+import "coral/agent/v1/debug.proto";
 
 option go_package = "github.com/coral-mesh/coral/proto/colony/v1;colonypb";
 
-// DebugService handles live debugging operations (RFD 059).
-service DebugService {
+// ColonyDebugService handles live debugging operations (RFD 059).
+service ColonyDebugService {
   // Start uprobe debug session.
   rpc AttachUprobe(AttachUprobeRequest) returns (AttachUprobeResponse);
 
@@ -46,7 +46,7 @@ message AttachUprobeRequest {
   string service_name = 1;
   string function_name = 2;
   google.protobuf.Duration duration = 3;  // Default: 60s, Max: 600s
-  coral.mesh.v1.UprobeConfig config = 4;
+  coral.agent.v1.UprobeConfig config = 4;
   string agent_id = 5;              // Manual override (until service discovery integration)
   string sdk_addr = 6;              // Manual override (until service discovery integration)
 }
@@ -80,7 +80,7 @@ message QueryUprobeEventsRequest {
 
 // QueryUprobeEventsResponse returns captured events.
 message QueryUprobeEventsResponse {
-  repeated coral.mesh.v1.UprobeEvent events = 1;
+  repeated coral.agent.v1.UprobeEvent events = 1;
   bool has_more = 2;                // Pagination indicator
 }
 
@@ -309,15 +309,9 @@ message ProfileCPURequest {
   string agent_id = 5;              // Manual override (until service discovery integration)
 }
 
-// StackSample represents a unique stack trace with its sample count.
-message StackSample {
-  repeated string frame_names = 1;  // Stack frames from innermost to outermost
-  uint64 count = 2;                 // Number of times this stack was sampled
-}
-
 // ProfileCPUResponse returns CPU profile samples (RFD 070).
 message ProfileCPUResponse {
-  repeated StackSample samples = 1; // Collected stack samples
+  repeated coral.agent.v1.StackSample samples = 1; // Collected stack samples
   uint64 total_samples = 2;         // Total samples collected
   uint32 lost_samples = 3;          // Samples lost due to map overflow
   string error = 4;                 // Error message if collection failed
@@ -333,7 +327,7 @@ message QueryHistoricalCPUProfileRequest {
 
 // QueryHistoricalCPUProfileResponse returns aggregated historical profiles (RFD 072).
 message QueryHistoricalCPUProfileResponse {
-  repeated StackSample samples = 1; // Aggregated stack samples
+  repeated coral.agent.v1.StackSample samples = 1; // Aggregated stack samples
   uint64 total_samples = 2;         // Total samples across time range
   string error = 3;                 // Error message if query failed
   bool success = 4;                 // Whether query succeeded
