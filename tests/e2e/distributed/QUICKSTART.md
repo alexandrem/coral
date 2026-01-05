@@ -111,7 +111,7 @@ When running (`make up`), services are available at:
 
 | Service | Endpoint | Purpose |
 |---------|----------|---------|
-| Discovery | http://localhost:8080 | Service registry |
+| Discovery | http://localhost:18080 | Service registry (non-standard port) |
 | Colony | localhost:9000 | AI coordinator |
 | Agent-0 | localhost:9001 | Primary agent |
 | Agent-1 | localhost:9002 | Secondary agent |
