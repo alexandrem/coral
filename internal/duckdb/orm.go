@@ -142,6 +142,45 @@ func (t *Table[T]) Upsert(ctx context.Context, item *T) error {
 	}, isTransactionConflict)
 }
 
+// Insert inserts a new item into the database.
+// It generates a plain INSERT statement without ON CONFLICT handling.
+// Use this when you know the item doesn't exist and want to fail on duplicates.
+func (t *Table[T]) Insert(ctx context.Context, item *T) error {
+	placeholders := make([]string, len(t.columns))
+	values := make([]interface{}, len(t.columns))
+
+	val := reflect.ValueOf(item)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	for i, col := range t.columns {
+		placeholders[i] = "?"
+		fieldIdx := t.fieldMap[col]
+		values[i] = val.Field(fieldIdx).Interface()
+	}
+
+	// #nosec G201 - table and column names are not user input, they come from struct tags
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+		t.tableName,
+		strings.Join(t.columns, ", "),
+		strings.Join(placeholders, ", "),
+	)
+
+	// Retry mechanism for conflicts.
+	cfg := retry.Config{
+		MaxRetries:     10,
+		InitialBackoff: 10 * time.Millisecond,
+		MaxBackoff:     500 * time.Millisecond,
+		Jitter:         0.1,
+	}
+
+	return retry.Do(ctx, cfg, func() error {
+		_, err := t.db.ExecContext(ctx, query, values...)
+		return err
+	}, isTransactionConflict)
+}
+
 // BatchUpsert inserts multiple items in a single transaction using prepared statements.
 // This is critical for performance.
 func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
