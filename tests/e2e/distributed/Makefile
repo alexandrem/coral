@@ -26,7 +26,7 @@ up:
 	@echo "✓ Services started"
 	@echo ""
 	@echo "Service endpoints:"
-	@echo "  Discovery:  http://localhost:8080"
+	@echo "  Discovery:  http://localhost:18080  (non-standard port to avoid conflicts)"
 	@echo "  Colony:     localhost:9000"
 	@echo "  Agent-0:    localhost:9001"
 	@echo "  Agent-1:    localhost:9002"

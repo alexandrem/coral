@@ -3,6 +3,8 @@ package fixtures
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
@@ -30,12 +32,12 @@ type ComposeFixture struct {
 // It doesn't start containers - they must already be running via docker-compose.
 func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	fixture := &ComposeFixture{
-		ColonyID:          "test-colony-e2e",
+		ColonyID:          "", // Will be discovered
 		ColonySecret:      "test-secret-12345",
-		DiscoveryEndpoint: "http://localhost:8080",
-		ColonyEndpoint:    "localhost:9000",
-		Agent0Endpoint:    "localhost:9001",
-		Agent1Endpoint:    "localhost:9002",
+		DiscoveryEndpoint: "http://localhost:18080", // E2E uses non-standard port
+		ColonyEndpoint:    "http://localhost:9000",
+		Agent0Endpoint:    "http://localhost:9001",
+		Agent1Endpoint:    "http://localhost:9002",
 		CPUAppEndpoint:    "localhost:8081",
 		OTELAppEndpoint:   "localhost:8082",
 		SDKAppEndpoint:    "localhost:3001",
@@ -46,6 +48,11 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 		return nil, fmt.Errorf("services not ready: %w", err)
 	}
 
+	// Discover the actual colony ID from discovery service
+	if err := fixture.discoverColonyID(ctx); err != nil {
+		return nil, fmt.Errorf("failed to discover colony ID: %w", err)
+	}
+
 	return fixture, nil
 }
 
@@ -53,7 +60,7 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 func (f *ComposeFixture) waitForServices(ctx context.Context) error {
 	// Wait for discovery service
 	if err := helpers.WaitForHTTPEndpoint(ctx, f.DiscoveryEndpoint+"/health", 30*time.Second); err != nil {
-		return fmt.Errorf("discovery service not ready: %w", err)
+		return fmt.Errorf("discovery service not ready: %w (check for port conflicts with local dev services)", err)
 	}
 
 	// Wait for CPU app
@@ -75,6 +82,25 @@ func (f *ComposeFixture) waitForServices(ctx context.Context) error {
 	// TODO: Add proper health checks for colony/agents
 	time.Sleep(10 * time.Second)
 
+	return nil
+}
+
+// discoverColonyID reads the actual colony ID from the shared volume.
+// The colony writes its ID to /shared/colony_id after initialization.
+func (f *ComposeFixture) discoverColonyID(ctx context.Context) error {
+	// Use docker exec to read the colony ID from the shared volume
+	cmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "cat", "/shared/colony_id")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to read colony ID from container: %w", err)
+	}
+
+	colonyID := strings.TrimSpace(string(output))
+	if colonyID == "" {
+		return fmt.Errorf("colony ID is empty")
+	}
+
+	f.ColonyID = colonyID
 	return nil
 }
 

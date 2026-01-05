@@ -170,7 +170,7 @@ When services are running (`make up` or `make test-e2e-up`):
 
 | Service | Endpoint | Purpose |
 |---------|----------|---------|
-| Discovery | http://localhost:8080 | Health: http://localhost:8080/health |
+| Discovery | http://localhost:18080 | Health: http://localhost:18080/health |
 | Colony | localhost:9000 | gRPC endpoint |
 | Agent-0 | localhost:9001 | gRPC endpoint |
 | Agent-1 | localhost:9002 | gRPC endpoint |
@@ -239,7 +239,7 @@ make up
 go test -v -timeout 60m
 
 # Check if services are responsive
-curl http://localhost:8080/health  # Discovery
+curl http://localhost:18080/health  # Discovery
 curl http://localhost:8081/health  # CPU app
 curl http://localhost:8082/health  # OTEL app
 ```
