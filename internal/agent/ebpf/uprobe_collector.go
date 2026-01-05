@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/ebpf/uprobe"
 )
@@ -51,7 +52,7 @@ type UprobeCollector struct {
 	// Event collection
 	ctx    context.Context
 	cancel context.CancelFunc
-	events []*meshv1.UprobeEvent
+	events []*agentv1.UprobeEvent
 	mu     sync.Mutex
 }
 
@@ -105,7 +106,7 @@ func NewUprobeCollector(logger zerolog.Logger, config *UprobeConfig) (*UprobeCol
 		config:           config,
 		functionName:     config.FunctionName,
 		discoveryService: discoveryService,
-		events:           make([]*meshv1.UprobeEvent, 0),
+		events:           make([]*agentv1.UprobeEvent, 0),
 	}, nil
 }
 
@@ -288,7 +289,7 @@ func (c *UprobeCollector) readEvents() {
 		}
 
 		// Convert to protobuf
-		event := &meshv1.UprobeEvent{
+		event := &agentv1.UprobeEvent{
 			Timestamp:    timestamppb.New(time.Unix(0, int64(rawEvent.TimestampNs))),
 			FunctionName: c.functionName,
 			ServiceName:  c.config.ServiceName,

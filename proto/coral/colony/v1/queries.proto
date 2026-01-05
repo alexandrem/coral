@@ -173,10 +173,10 @@ message ListServicesRequest {
 }
 
 message ListServicesResponse {
-  repeated ServiceInfo services = 1;
+  repeated ServiceSummary services = 1;
 }
 
-message ServiceInfo {
+message ServiceSummary {
   string name = 1;
   string namespace = 2;
   int32 instance_count = 3;

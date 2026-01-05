@@ -12,9 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -430,7 +429,7 @@ func TestQueryUprobeEvents_AgentNotInRegistry(t *testing.T) {
 	}
 
 	// Insert test events into database
-	testEvents := []*meshv1.UprobeEvent{
+	testEvents := []*agentv1.UprobeEvent{
 		{
 			Timestamp:    timestamppb.New(time.Now()),
 			CollectorId:  "collector-123",
@@ -505,7 +504,7 @@ func TestQueryUprobeEvents_AgentRPCFailsFallbackToDatabase(t *testing.T) {
 	}
 
 	// Insert test events into database
-	testEvents := []*meshv1.UprobeEvent{
+	testEvents := []*agentv1.UprobeEvent{
 		{
 			Timestamp:    timestamppb.New(time.Now()),
 			CollectorId:  "collector-456",
@@ -525,7 +524,7 @@ func TestQueryUprobeEvents_AgentRPCFailsFallbackToDatabase(t *testing.T) {
 	}
 
 	// Set up a client factory that simulates RPC failure
-	orch.clientFactory = func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	orch.clientFactory = func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 		return &mockFailingDebugServiceClient{}
 	}
 
@@ -553,23 +552,23 @@ func TestQueryUprobeEvents_AgentRPCFailsFallbackToDatabase(t *testing.T) {
 // Mock debug service client that always fails RPC calls
 type mockFailingDebugServiceClient struct{}
 
-func (m *mockFailingDebugServiceClient) StartUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
+func (m *mockFailingDebugServiceClient) StartUprobeCollector(ctx context.Context, req *connect.Request[agentv1.StartUprobeCollectorRequest]) (*connect.Response[agentv1.StartUprobeCollectorResponse], error) {
 	return nil, fmt.Errorf("simulated RPC failure")
 }
 
-func (m *mockFailingDebugServiceClient) StopUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StopUprobeCollectorRequest]) (*connect.Response[meshv1.StopUprobeCollectorResponse], error) {
+func (m *mockFailingDebugServiceClient) StopUprobeCollector(ctx context.Context, req *connect.Request[agentv1.StopUprobeCollectorRequest]) (*connect.Response[agentv1.StopUprobeCollectorResponse], error) {
 	return nil, fmt.Errorf("simulated RPC failure")
 }
 
-func (m *mockFailingDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[meshv1.QueryUprobeEventsRequest]) (*connect.Response[meshv1.QueryUprobeEventsResponse], error) {
+func (m *mockFailingDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[agentv1.QueryUprobeEventsRequest]) (*connect.Response[agentv1.QueryUprobeEventsResponse], error) {
 	return nil, fmt.Errorf("simulated RPC failure")
 }
 
-func (m *mockFailingDebugServiceClient) ProfileCPU(ctx context.Context, req *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
+func (m *mockFailingDebugServiceClient) ProfileCPU(ctx context.Context, req *connect.Request[agentv1.ProfileCPUAgentRequest]) (*connect.Response[agentv1.ProfileCPUAgentResponse], error) {
 	return nil, fmt.Errorf("simulated RPC failure")
 }
 
-func (m *mockFailingDebugServiceClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[meshv1.QueryCPUProfileSamplesRequest]) (*connect.Response[meshv1.QueryCPUProfileSamplesResponse], error) {
+func (m *mockFailingDebugServiceClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[agentv1.QueryCPUProfileSamplesRequest]) (*connect.Response[agentv1.QueryCPUProfileSamplesResponse], error) {
 	return nil, fmt.Errorf("simulated RPC failure")
 }
 
@@ -734,7 +733,7 @@ func TestProfileFunctions_TracksRealSessionIDs(t *testing.T) {
 	})
 
 	// Add some mock events to the sessions that will be created
-	mockClientFactory.eventGenerator = func(sessionID string) []*meshv1.UprobeEvent {
+	mockClientFactory.eventGenerator = func(sessionID string) []*agentv1.UprobeEvent {
 		// Generate different latencies for different functions
 		if sessionID == "session-slowFunction" {
 			// High latency events for slow function
@@ -809,15 +808,15 @@ func TestProfileFunctions_TracksRealSessionIDs(t *testing.T) {
 type mockDebugServiceClientFactory struct {
 	sessions       map[string]*mockSession
 	db             *database.Database
-	eventGenerator func(sessionID string) []*meshv1.UprobeEvent
+	eventGenerator func(sessionID string) []*agentv1.UprobeEvent
 }
 
 type mockSession struct {
 	sessionID string
-	events    []*meshv1.UprobeEvent
+	events    []*agentv1.UprobeEvent
 }
 
-func (f *mockDebugServiceClientFactory) newClient(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+func (f *mockDebugServiceClientFactory) newClient(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 	return &mockDebugServiceClient{
 		factory: f,
 	}
@@ -827,13 +826,13 @@ type mockDebugServiceClient struct {
 	factory *mockDebugServiceClientFactory
 }
 
-func (m *mockDebugServiceClient) StartUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
+func (m *mockDebugServiceClient) StartUprobeCollector(ctx context.Context, req *connect.Request[agentv1.StartUprobeCollectorRequest]) (*connect.Response[agentv1.StartUprobeCollectorResponse], error) {
 	// Generate a deterministic session ID based on function name
 	sessionID := "session-" + req.Msg.FunctionName
 	collectorID := "collector-" + req.Msg.FunctionName
 
 	// Store session in factory for later retrieval
-	events := []*meshv1.UprobeEvent{}
+	events := []*agentv1.UprobeEvent{}
 	if m.factory.eventGenerator != nil {
 		events = m.factory.eventGenerator(sessionID)
 	}
@@ -843,23 +842,23 @@ func (m *mockDebugServiceClient) StartUprobeCollector(ctx context.Context, req *
 		events:    events,
 	}
 
-	return connect.NewResponse(&meshv1.StartUprobeCollectorResponse{
+	return connect.NewResponse(&agentv1.StartUprobeCollectorResponse{
 		CollectorId: collectorID,
 		Supported:   true,
 	}), nil
 }
 
-func (m *mockDebugServiceClient) StopUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StopUprobeCollectorRequest]) (*connect.Response[meshv1.StopUprobeCollectorResponse], error) {
-	return connect.NewResponse(&meshv1.StopUprobeCollectorResponse{
+func (m *mockDebugServiceClient) StopUprobeCollector(ctx context.Context, req *connect.Request[agentv1.StopUprobeCollectorRequest]) (*connect.Response[agentv1.StopUprobeCollectorResponse], error) {
+	return connect.NewResponse(&agentv1.StopUprobeCollectorResponse{
 		Success: true,
 	}), nil
 }
 
-func (m *mockDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[meshv1.QueryUprobeEventsRequest]) (*connect.Response[meshv1.QueryUprobeEventsResponse], error) {
+func (m *mockDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[agentv1.QueryUprobeEventsRequest]) (*connect.Response[agentv1.QueryUprobeEventsResponse], error) {
 	session, ok := m.factory.sessions[req.Msg.CollectorId]
 	if !ok {
-		return connect.NewResponse(&meshv1.QueryUprobeEventsResponse{
-			Events: []*meshv1.EbpfEvent{},
+		return connect.NewResponse(&agentv1.QueryUprobeEventsResponse{
+			Events: []*agentv1.UprobeEvent{},
 		}), nil
 	}
 
@@ -873,46 +872,32 @@ func (m *mockDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *con
 		}
 	}
 
-	// Wrap UprobeEvents in EbpfEvent
-	var events []*meshv1.EbpfEvent
-	for _, uprobeEvent := range session.events {
-		events = append(events, &meshv1.EbpfEvent{
-			Timestamp:   uprobeEvent.Timestamp,
-			CollectorId: uprobeEvent.CollectorId,
-			AgentId:     uprobeEvent.AgentId,
-			ServiceName: uprobeEvent.ServiceName,
-			Payload: &meshv1.EbpfEvent_UprobeEvent{
-				UprobeEvent: uprobeEvent,
-			},
-		})
-	}
-
-	return connect.NewResponse(&meshv1.QueryUprobeEventsResponse{
-		Events: events,
+	return connect.NewResponse(&agentv1.QueryUprobeEventsResponse{
+		Events: session.events,
 	}), nil
 }
 
-func (m *mockDebugServiceClient) ProfileCPU(ctx context.Context, req *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
-	return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{
+func (m *mockDebugServiceClient) ProfileCPU(ctx context.Context, req *connect.Request[agentv1.ProfileCPUAgentRequest]) (*connect.Response[agentv1.ProfileCPUAgentResponse], error) {
+	return connect.NewResponse(&agentv1.ProfileCPUAgentResponse{
 		Success:      true,
 		TotalSamples: 100,
 	}), nil
 }
 
-func (m *mockDebugServiceClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[meshv1.QueryCPUProfileSamplesRequest]) (*connect.Response[meshv1.QueryCPUProfileSamplesResponse], error) {
-	return connect.NewResponse(&meshv1.QueryCPUProfileSamplesResponse{
-		Samples:      []*meshv1.CPUProfileSample{},
+func (m *mockDebugServiceClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[agentv1.QueryCPUProfileSamplesRequest]) (*connect.Response[agentv1.QueryCPUProfileSamplesResponse], error) {
+	return connect.NewResponse(&agentv1.QueryCPUProfileSamplesResponse{
+		Samples:      []*agentv1.CPUProfileSample{},
 		TotalSamples: 0,
 	}), nil
 }
 
 // Generate mock events with specified latency
-func generateMockEvents(count int, latency time.Duration) []*meshv1.UprobeEvent {
-	events := make([]*meshv1.UprobeEvent, count)
+func generateMockEvents(count int, latency time.Duration) []*agentv1.UprobeEvent {
+	events := make([]*agentv1.UprobeEvent, count)
 	baseTime := time.Now()
 
 	for i := 0; i < count; i++ {
-		events[i] = &meshv1.UprobeEvent{
+		events[i] = &agentv1.UprobeEvent{
 			Timestamp:  timestamppb.New(baseTime.Add(time.Duration(i) * time.Second)),
 			EventType:  "return",
 			DurationNs: uint64(latency.Nanoseconds()),

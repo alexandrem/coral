@@ -22,8 +22,8 @@ import (
 const _ = connect.IsAtLeastVersion1_13_0
 
 const (
-	// DebugServiceName is the fully-qualified name of the DebugService service.
-	DebugServiceName = "coral.colony.v1.DebugService"
+	// ColonyDebugServiceName is the fully-qualified name of the ColonyDebugService service.
+	ColonyDebugServiceName = "coral.colony.v1.ColonyDebugService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -34,39 +34,40 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// DebugServiceAttachUprobeProcedure is the fully-qualified name of the DebugService's AttachUprobe
-	// RPC.
-	DebugServiceAttachUprobeProcedure = "/coral.colony.v1.DebugService/AttachUprobe"
-	// DebugServiceDetachUprobeProcedure is the fully-qualified name of the DebugService's DetachUprobe
-	// RPC.
-	DebugServiceDetachUprobeProcedure = "/coral.colony.v1.DebugService/DetachUprobe"
-	// DebugServiceQueryUprobeEventsProcedure is the fully-qualified name of the DebugService's
-	// QueryUprobeEvents RPC.
-	DebugServiceQueryUprobeEventsProcedure = "/coral.colony.v1.DebugService/QueryUprobeEvents"
-	// DebugServiceListDebugSessionsProcedure is the fully-qualified name of the DebugService's
-	// ListDebugSessions RPC.
-	DebugServiceListDebugSessionsProcedure = "/coral.colony.v1.DebugService/ListDebugSessions"
-	// DebugServiceTraceRequestPathProcedure is the fully-qualified name of the DebugService's
-	// TraceRequestPath RPC.
-	DebugServiceTraceRequestPathProcedure = "/coral.colony.v1.DebugService/TraceRequestPath"
-	// DebugServiceGetDebugResultsProcedure is the fully-qualified name of the DebugService's
-	// GetDebugResults RPC.
-	DebugServiceGetDebugResultsProcedure = "/coral.colony.v1.DebugService/GetDebugResults"
-	// DebugServiceQueryFunctionsProcedure is the fully-qualified name of the DebugService's
+	// ColonyDebugServiceAttachUprobeProcedure is the fully-qualified name of the ColonyDebugService's
+	// AttachUprobe RPC.
+	ColonyDebugServiceAttachUprobeProcedure = "/coral.colony.v1.ColonyDebugService/AttachUprobe"
+	// ColonyDebugServiceDetachUprobeProcedure is the fully-qualified name of the ColonyDebugService's
+	// DetachUprobe RPC.
+	ColonyDebugServiceDetachUprobeProcedure = "/coral.colony.v1.ColonyDebugService/DetachUprobe"
+	// ColonyDebugServiceQueryUprobeEventsProcedure is the fully-qualified name of the
+	// ColonyDebugService's QueryUprobeEvents RPC.
+	ColonyDebugServiceQueryUprobeEventsProcedure = "/coral.colony.v1.ColonyDebugService/QueryUprobeEvents"
+	// ColonyDebugServiceListDebugSessionsProcedure is the fully-qualified name of the
+	// ColonyDebugService's ListDebugSessions RPC.
+	ColonyDebugServiceListDebugSessionsProcedure = "/coral.colony.v1.ColonyDebugService/ListDebugSessions"
+	// ColonyDebugServiceTraceRequestPathProcedure is the fully-qualified name of the
+	// ColonyDebugService's TraceRequestPath RPC.
+	ColonyDebugServiceTraceRequestPathProcedure = "/coral.colony.v1.ColonyDebugService/TraceRequestPath"
+	// ColonyDebugServiceGetDebugResultsProcedure is the fully-qualified name of the
+	// ColonyDebugService's GetDebugResults RPC.
+	ColonyDebugServiceGetDebugResultsProcedure = "/coral.colony.v1.ColonyDebugService/GetDebugResults"
+	// ColonyDebugServiceQueryFunctionsProcedure is the fully-qualified name of the ColonyDebugService's
 	// QueryFunctions RPC.
-	DebugServiceQueryFunctionsProcedure = "/coral.colony.v1.DebugService/QueryFunctions"
-	// DebugServiceProfileFunctionsProcedure is the fully-qualified name of the DebugService's
-	// ProfileFunctions RPC.
-	DebugServiceProfileFunctionsProcedure = "/coral.colony.v1.DebugService/ProfileFunctions"
-	// DebugServiceProfileCPUProcedure is the fully-qualified name of the DebugService's ProfileCPU RPC.
-	DebugServiceProfileCPUProcedure = "/coral.colony.v1.DebugService/ProfileCPU"
-	// DebugServiceQueryHistoricalCPUProfileProcedure is the fully-qualified name of the DebugService's
-	// QueryHistoricalCPUProfile RPC.
-	DebugServiceQueryHistoricalCPUProfileProcedure = "/coral.colony.v1.DebugService/QueryHistoricalCPUProfile"
+	ColonyDebugServiceQueryFunctionsProcedure = "/coral.colony.v1.ColonyDebugService/QueryFunctions"
+	// ColonyDebugServiceProfileFunctionsProcedure is the fully-qualified name of the
+	// ColonyDebugService's ProfileFunctions RPC.
+	ColonyDebugServiceProfileFunctionsProcedure = "/coral.colony.v1.ColonyDebugService/ProfileFunctions"
+	// ColonyDebugServiceProfileCPUProcedure is the fully-qualified name of the ColonyDebugService's
+	// ProfileCPU RPC.
+	ColonyDebugServiceProfileCPUProcedure = "/coral.colony.v1.ColonyDebugService/ProfileCPU"
+	// ColonyDebugServiceQueryHistoricalCPUProfileProcedure is the fully-qualified name of the
+	// ColonyDebugService's QueryHistoricalCPUProfile RPC.
+	ColonyDebugServiceQueryHistoricalCPUProfileProcedure = "/coral.colony.v1.ColonyDebugService/QueryHistoricalCPUProfile"
 )
 
-// DebugServiceClient is a client for the coral.colony.v1.DebugService service.
-type DebugServiceClient interface {
+// ColonyDebugServiceClient is a client for the coral.colony.v1.ColonyDebugService service.
+type ColonyDebugServiceClient interface {
 	// Start uprobe debug session.
 	AttachUprobe(context.Context, *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error)
 	// Stop uprobe session.
@@ -89,82 +90,82 @@ type DebugServiceClient interface {
 	QueryHistoricalCPUProfile(context.Context, *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error)
 }
 
-// NewDebugServiceClient constructs a client for the coral.colony.v1.DebugService service. By
-// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
-// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
-// connect.WithGRPC() or connect.WithGRPCWeb() options.
+// NewColonyDebugServiceClient constructs a client for the coral.colony.v1.ColonyDebugService
+// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
+// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
+// the connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewDebugServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) DebugServiceClient {
+func NewColonyDebugServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ColonyDebugServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	debugServiceMethods := v1.File_coral_colony_v1_debug_proto.Services().ByName("DebugService").Methods()
-	return &debugServiceClient{
+	colonyDebugServiceMethods := v1.File_coral_colony_v1_debug_proto.Services().ByName("ColonyDebugService").Methods()
+	return &colonyDebugServiceClient{
 		attachUprobe: connect.NewClient[v1.AttachUprobeRequest, v1.AttachUprobeResponse](
 			httpClient,
-			baseURL+DebugServiceAttachUprobeProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("AttachUprobe")),
+			baseURL+ColonyDebugServiceAttachUprobeProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("AttachUprobe")),
 			connect.WithClientOptions(opts...),
 		),
 		detachUprobe: connect.NewClient[v1.DetachUprobeRequest, v1.DetachUprobeResponse](
 			httpClient,
-			baseURL+DebugServiceDetachUprobeProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("DetachUprobe")),
+			baseURL+ColonyDebugServiceDetachUprobeProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("DetachUprobe")),
 			connect.WithClientOptions(opts...),
 		),
 		queryUprobeEvents: connect.NewClient[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse](
 			httpClient,
-			baseURL+DebugServiceQueryUprobeEventsProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("QueryUprobeEvents")),
+			baseURL+ColonyDebugServiceQueryUprobeEventsProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("QueryUprobeEvents")),
 			connect.WithClientOptions(opts...),
 		),
 		listDebugSessions: connect.NewClient[v1.ListDebugSessionsRequest, v1.ListDebugSessionsResponse](
 			httpClient,
-			baseURL+DebugServiceListDebugSessionsProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("ListDebugSessions")),
+			baseURL+ColonyDebugServiceListDebugSessionsProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("ListDebugSessions")),
 			connect.WithClientOptions(opts...),
 		),
 		traceRequestPath: connect.NewClient[v1.TraceRequestPathRequest, v1.TraceRequestPathResponse](
 			httpClient,
-			baseURL+DebugServiceTraceRequestPathProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("TraceRequestPath")),
+			baseURL+ColonyDebugServiceTraceRequestPathProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("TraceRequestPath")),
 			connect.WithClientOptions(opts...),
 		),
 		getDebugResults: connect.NewClient[v1.GetDebugResultsRequest, v1.GetDebugResultsResponse](
 			httpClient,
-			baseURL+DebugServiceGetDebugResultsProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("GetDebugResults")),
+			baseURL+ColonyDebugServiceGetDebugResultsProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("GetDebugResults")),
 			connect.WithClientOptions(opts...),
 		),
 		queryFunctions: connect.NewClient[v1.QueryFunctionsRequest, v1.QueryFunctionsResponse](
 			httpClient,
-			baseURL+DebugServiceQueryFunctionsProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("QueryFunctions")),
+			baseURL+ColonyDebugServiceQueryFunctionsProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("QueryFunctions")),
 			connect.WithClientOptions(opts...),
 		),
 		profileFunctions: connect.NewClient[v1.ProfileFunctionsRequest, v1.ProfileFunctionsResponse](
 			httpClient,
-			baseURL+DebugServiceProfileFunctionsProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("ProfileFunctions")),
+			baseURL+ColonyDebugServiceProfileFunctionsProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("ProfileFunctions")),
 			connect.WithClientOptions(opts...),
 		),
 		profileCPU: connect.NewClient[v1.ProfileCPURequest, v1.ProfileCPUResponse](
 			httpClient,
-			baseURL+DebugServiceProfileCPUProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("ProfileCPU")),
+			baseURL+ColonyDebugServiceProfileCPUProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("ProfileCPU")),
 			connect.WithClientOptions(opts...),
 		),
 		queryHistoricalCPUProfile: connect.NewClient[v1.QueryHistoricalCPUProfileRequest, v1.QueryHistoricalCPUProfileResponse](
 			httpClient,
-			baseURL+DebugServiceQueryHistoricalCPUProfileProcedure,
-			connect.WithSchema(debugServiceMethods.ByName("QueryHistoricalCPUProfile")),
+			baseURL+ColonyDebugServiceQueryHistoricalCPUProfileProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("QueryHistoricalCPUProfile")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// debugServiceClient implements DebugServiceClient.
-type debugServiceClient struct {
+// colonyDebugServiceClient implements ColonyDebugServiceClient.
+type colonyDebugServiceClient struct {
 	attachUprobe              *connect.Client[v1.AttachUprobeRequest, v1.AttachUprobeResponse]
 	detachUprobe              *connect.Client[v1.DetachUprobeRequest, v1.DetachUprobeResponse]
 	queryUprobeEvents         *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
@@ -177,58 +178,58 @@ type debugServiceClient struct {
 	queryHistoricalCPUProfile *connect.Client[v1.QueryHistoricalCPUProfileRequest, v1.QueryHistoricalCPUProfileResponse]
 }
 
-// AttachUprobe calls coral.colony.v1.DebugService.AttachUprobe.
-func (c *debugServiceClient) AttachUprobe(ctx context.Context, req *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error) {
+// AttachUprobe calls coral.colony.v1.ColonyDebugService.AttachUprobe.
+func (c *colonyDebugServiceClient) AttachUprobe(ctx context.Context, req *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error) {
 	return c.attachUprobe.CallUnary(ctx, req)
 }
 
-// DetachUprobe calls coral.colony.v1.DebugService.DetachUprobe.
-func (c *debugServiceClient) DetachUprobe(ctx context.Context, req *connect.Request[v1.DetachUprobeRequest]) (*connect.Response[v1.DetachUprobeResponse], error) {
+// DetachUprobe calls coral.colony.v1.ColonyDebugService.DetachUprobe.
+func (c *colonyDebugServiceClient) DetachUprobe(ctx context.Context, req *connect.Request[v1.DetachUprobeRequest]) (*connect.Response[v1.DetachUprobeResponse], error) {
 	return c.detachUprobe.CallUnary(ctx, req)
 }
 
-// QueryUprobeEvents calls coral.colony.v1.DebugService.QueryUprobeEvents.
-func (c *debugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
+// QueryUprobeEvents calls coral.colony.v1.ColonyDebugService.QueryUprobeEvents.
+func (c *colonyDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
 	return c.queryUprobeEvents.CallUnary(ctx, req)
 }
 
-// ListDebugSessions calls coral.colony.v1.DebugService.ListDebugSessions.
-func (c *debugServiceClient) ListDebugSessions(ctx context.Context, req *connect.Request[v1.ListDebugSessionsRequest]) (*connect.Response[v1.ListDebugSessionsResponse], error) {
+// ListDebugSessions calls coral.colony.v1.ColonyDebugService.ListDebugSessions.
+func (c *colonyDebugServiceClient) ListDebugSessions(ctx context.Context, req *connect.Request[v1.ListDebugSessionsRequest]) (*connect.Response[v1.ListDebugSessionsResponse], error) {
 	return c.listDebugSessions.CallUnary(ctx, req)
 }
 
-// TraceRequestPath calls coral.colony.v1.DebugService.TraceRequestPath.
-func (c *debugServiceClient) TraceRequestPath(ctx context.Context, req *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error) {
+// TraceRequestPath calls coral.colony.v1.ColonyDebugService.TraceRequestPath.
+func (c *colonyDebugServiceClient) TraceRequestPath(ctx context.Context, req *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error) {
 	return c.traceRequestPath.CallUnary(ctx, req)
 }
 
-// GetDebugResults calls coral.colony.v1.DebugService.GetDebugResults.
-func (c *debugServiceClient) GetDebugResults(ctx context.Context, req *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error) {
+// GetDebugResults calls coral.colony.v1.ColonyDebugService.GetDebugResults.
+func (c *colonyDebugServiceClient) GetDebugResults(ctx context.Context, req *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error) {
 	return c.getDebugResults.CallUnary(ctx, req)
 }
 
-// QueryFunctions calls coral.colony.v1.DebugService.QueryFunctions.
-func (c *debugServiceClient) QueryFunctions(ctx context.Context, req *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error) {
+// QueryFunctions calls coral.colony.v1.ColonyDebugService.QueryFunctions.
+func (c *colonyDebugServiceClient) QueryFunctions(ctx context.Context, req *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error) {
 	return c.queryFunctions.CallUnary(ctx, req)
 }
 
-// ProfileFunctions calls coral.colony.v1.DebugService.ProfileFunctions.
-func (c *debugServiceClient) ProfileFunctions(ctx context.Context, req *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error) {
+// ProfileFunctions calls coral.colony.v1.ColonyDebugService.ProfileFunctions.
+func (c *colonyDebugServiceClient) ProfileFunctions(ctx context.Context, req *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error) {
 	return c.profileFunctions.CallUnary(ctx, req)
 }
 
-// ProfileCPU calls coral.colony.v1.DebugService.ProfileCPU.
-func (c *debugServiceClient) ProfileCPU(ctx context.Context, req *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error) {
+// ProfileCPU calls coral.colony.v1.ColonyDebugService.ProfileCPU.
+func (c *colonyDebugServiceClient) ProfileCPU(ctx context.Context, req *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error) {
 	return c.profileCPU.CallUnary(ctx, req)
 }
 
-// QueryHistoricalCPUProfile calls coral.colony.v1.DebugService.QueryHistoricalCPUProfile.
-func (c *debugServiceClient) QueryHistoricalCPUProfile(ctx context.Context, req *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error) {
+// QueryHistoricalCPUProfile calls coral.colony.v1.ColonyDebugService.QueryHistoricalCPUProfile.
+func (c *colonyDebugServiceClient) QueryHistoricalCPUProfile(ctx context.Context, req *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error) {
 	return c.queryHistoricalCPUProfile.CallUnary(ctx, req)
 }
 
-// DebugServiceHandler is an implementation of the coral.colony.v1.DebugService service.
-type DebugServiceHandler interface {
+// ColonyDebugServiceHandler is an implementation of the coral.colony.v1.ColonyDebugService service.
+type ColonyDebugServiceHandler interface {
 	// Start uprobe debug session.
 	AttachUprobe(context.Context, *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error)
 	// Stop uprobe session.
@@ -251,140 +252,140 @@ type DebugServiceHandler interface {
 	QueryHistoricalCPUProfile(context.Context, *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error)
 }
 
-// NewDebugServiceHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
+// NewColonyDebugServiceHandler builds an HTTP handler from the service implementation. It returns
+// the path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewDebugServiceHandler(svc DebugServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	debugServiceMethods := v1.File_coral_colony_v1_debug_proto.Services().ByName("DebugService").Methods()
-	debugServiceAttachUprobeHandler := connect.NewUnaryHandler(
-		DebugServiceAttachUprobeProcedure,
+func NewColonyDebugServiceHandler(svc ColonyDebugServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	colonyDebugServiceMethods := v1.File_coral_colony_v1_debug_proto.Services().ByName("ColonyDebugService").Methods()
+	colonyDebugServiceAttachUprobeHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceAttachUprobeProcedure,
 		svc.AttachUprobe,
-		connect.WithSchema(debugServiceMethods.ByName("AttachUprobe")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("AttachUprobe")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceDetachUprobeHandler := connect.NewUnaryHandler(
-		DebugServiceDetachUprobeProcedure,
+	colonyDebugServiceDetachUprobeHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceDetachUprobeProcedure,
 		svc.DetachUprobe,
-		connect.WithSchema(debugServiceMethods.ByName("DetachUprobe")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("DetachUprobe")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceQueryUprobeEventsHandler := connect.NewUnaryHandler(
-		DebugServiceQueryUprobeEventsProcedure,
+	colonyDebugServiceQueryUprobeEventsHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceQueryUprobeEventsProcedure,
 		svc.QueryUprobeEvents,
-		connect.WithSchema(debugServiceMethods.ByName("QueryUprobeEvents")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("QueryUprobeEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceListDebugSessionsHandler := connect.NewUnaryHandler(
-		DebugServiceListDebugSessionsProcedure,
+	colonyDebugServiceListDebugSessionsHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceListDebugSessionsProcedure,
 		svc.ListDebugSessions,
-		connect.WithSchema(debugServiceMethods.ByName("ListDebugSessions")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("ListDebugSessions")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceTraceRequestPathHandler := connect.NewUnaryHandler(
-		DebugServiceTraceRequestPathProcedure,
+	colonyDebugServiceTraceRequestPathHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceTraceRequestPathProcedure,
 		svc.TraceRequestPath,
-		connect.WithSchema(debugServiceMethods.ByName("TraceRequestPath")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("TraceRequestPath")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceGetDebugResultsHandler := connect.NewUnaryHandler(
-		DebugServiceGetDebugResultsProcedure,
+	colonyDebugServiceGetDebugResultsHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceGetDebugResultsProcedure,
 		svc.GetDebugResults,
-		connect.WithSchema(debugServiceMethods.ByName("GetDebugResults")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("GetDebugResults")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceQueryFunctionsHandler := connect.NewUnaryHandler(
-		DebugServiceQueryFunctionsProcedure,
+	colonyDebugServiceQueryFunctionsHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceQueryFunctionsProcedure,
 		svc.QueryFunctions,
-		connect.WithSchema(debugServiceMethods.ByName("QueryFunctions")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("QueryFunctions")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceProfileFunctionsHandler := connect.NewUnaryHandler(
-		DebugServiceProfileFunctionsProcedure,
+	colonyDebugServiceProfileFunctionsHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceProfileFunctionsProcedure,
 		svc.ProfileFunctions,
-		connect.WithSchema(debugServiceMethods.ByName("ProfileFunctions")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("ProfileFunctions")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceProfileCPUHandler := connect.NewUnaryHandler(
-		DebugServiceProfileCPUProcedure,
+	colonyDebugServiceProfileCPUHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceProfileCPUProcedure,
 		svc.ProfileCPU,
-		connect.WithSchema(debugServiceMethods.ByName("ProfileCPU")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("ProfileCPU")),
 		connect.WithHandlerOptions(opts...),
 	)
-	debugServiceQueryHistoricalCPUProfileHandler := connect.NewUnaryHandler(
-		DebugServiceQueryHistoricalCPUProfileProcedure,
+	colonyDebugServiceQueryHistoricalCPUProfileHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceQueryHistoricalCPUProfileProcedure,
 		svc.QueryHistoricalCPUProfile,
-		connect.WithSchema(debugServiceMethods.ByName("QueryHistoricalCPUProfile")),
+		connect.WithSchema(colonyDebugServiceMethods.ByName("QueryHistoricalCPUProfile")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/coral.colony.v1.DebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/coral.colony.v1.ColonyDebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case DebugServiceAttachUprobeProcedure:
-			debugServiceAttachUprobeHandler.ServeHTTP(w, r)
-		case DebugServiceDetachUprobeProcedure:
-			debugServiceDetachUprobeHandler.ServeHTTP(w, r)
-		case DebugServiceQueryUprobeEventsProcedure:
-			debugServiceQueryUprobeEventsHandler.ServeHTTP(w, r)
-		case DebugServiceListDebugSessionsProcedure:
-			debugServiceListDebugSessionsHandler.ServeHTTP(w, r)
-		case DebugServiceTraceRequestPathProcedure:
-			debugServiceTraceRequestPathHandler.ServeHTTP(w, r)
-		case DebugServiceGetDebugResultsProcedure:
-			debugServiceGetDebugResultsHandler.ServeHTTP(w, r)
-		case DebugServiceQueryFunctionsProcedure:
-			debugServiceQueryFunctionsHandler.ServeHTTP(w, r)
-		case DebugServiceProfileFunctionsProcedure:
-			debugServiceProfileFunctionsHandler.ServeHTTP(w, r)
-		case DebugServiceProfileCPUProcedure:
-			debugServiceProfileCPUHandler.ServeHTTP(w, r)
-		case DebugServiceQueryHistoricalCPUProfileProcedure:
-			debugServiceQueryHistoricalCPUProfileHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceAttachUprobeProcedure:
+			colonyDebugServiceAttachUprobeHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceDetachUprobeProcedure:
+			colonyDebugServiceDetachUprobeHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceQueryUprobeEventsProcedure:
+			colonyDebugServiceQueryUprobeEventsHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceListDebugSessionsProcedure:
+			colonyDebugServiceListDebugSessionsHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceTraceRequestPathProcedure:
+			colonyDebugServiceTraceRequestPathHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceGetDebugResultsProcedure:
+			colonyDebugServiceGetDebugResultsHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceQueryFunctionsProcedure:
+			colonyDebugServiceQueryFunctionsHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceProfileFunctionsProcedure:
+			colonyDebugServiceProfileFunctionsHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceProfileCPUProcedure:
+			colonyDebugServiceProfileCPUHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceQueryHistoricalCPUProfileProcedure:
+			colonyDebugServiceQueryHistoricalCPUProfileHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedDebugServiceHandler returns CodeUnimplemented from all methods.
-type UnimplementedDebugServiceHandler struct{}
+// UnimplementedColonyDebugServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedColonyDebugServiceHandler struct{}
 
-func (UnimplementedDebugServiceHandler) AttachUprobe(context.Context, *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.AttachUprobe is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) AttachUprobe(context.Context, *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.AttachUprobe is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) DetachUprobe(context.Context, *connect.Request[v1.DetachUprobeRequest]) (*connect.Response[v1.DetachUprobeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.DetachUprobe is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) DetachUprobe(context.Context, *connect.Request[v1.DetachUprobeRequest]) (*connect.Response[v1.DetachUprobeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.DetachUprobe is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.QueryUprobeEvents is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.QueryUprobeEvents is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) ListDebugSessions(context.Context, *connect.Request[v1.ListDebugSessionsRequest]) (*connect.Response[v1.ListDebugSessionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.ListDebugSessions is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) ListDebugSessions(context.Context, *connect.Request[v1.ListDebugSessionsRequest]) (*connect.Response[v1.ListDebugSessionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.ListDebugSessions is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) TraceRequestPath(context.Context, *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.TraceRequestPath is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) TraceRequestPath(context.Context, *connect.Request[v1.TraceRequestPathRequest]) (*connect.Response[v1.TraceRequestPathResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.TraceRequestPath is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) GetDebugResults(context.Context, *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.GetDebugResults is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) GetDebugResults(context.Context, *connect.Request[v1.GetDebugResultsRequest]) (*connect.Response[v1.GetDebugResultsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.GetDebugResults is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) QueryFunctions(context.Context, *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.QueryFunctions is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) QueryFunctions(context.Context, *connect.Request[v1.QueryFunctionsRequest]) (*connect.Response[v1.QueryFunctionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.QueryFunctions is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) ProfileFunctions(context.Context, *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.ProfileFunctions is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) ProfileFunctions(context.Context, *connect.Request[v1.ProfileFunctionsRequest]) (*connect.Response[v1.ProfileFunctionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.ProfileFunctions is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) ProfileCPU(context.Context, *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.ProfileCPU is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) ProfileCPU(context.Context, *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.ProfileCPU is not implemented"))
 }
 
-func (UnimplementedDebugServiceHandler) QueryHistoricalCPUProfile(context.Context, *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.DebugService.QueryHistoricalCPUProfile is not implemented"))
+func (UnimplementedColonyDebugServiceHandler) QueryHistoricalCPUProfile(context.Context, *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.QueryHistoricalCPUProfile is not implemented"))
 }

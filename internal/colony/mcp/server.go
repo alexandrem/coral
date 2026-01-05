@@ -24,7 +24,7 @@ type Server struct {
 	config       Config
 	logger       logging.Logger
 	startedAt    time.Time
-	debugService colonyv1connect.DebugServiceHandler
+	debugService colonyv1connect.ColonyDebugServiceHandler
 }
 
 // Config contains configuration for the MCP server.
@@ -54,7 +54,7 @@ type Config struct {
 func New(
 	registry *registry.Registry,
 	db *database.Database,
-	debugService colonyv1connect.DebugServiceHandler,
+	debugService colonyv1connect.ColonyDebugServiceHandler,
 	config Config,
 	logger logging.Logger,
 ) (*Server, error) {

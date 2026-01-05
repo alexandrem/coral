@@ -91,6 +91,7 @@ Examples:
 
 			// Create and configure builder.
 			builder := NewAgentServerBuilder(
+				cmd.Context(),
 				logger,
 				configFile,
 				colonyID,

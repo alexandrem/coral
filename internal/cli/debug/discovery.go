@@ -34,7 +34,7 @@ func NewSearchCmd() *cobra.Command {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(http.DefaultClient, colonyAddr)
+			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			req := &colonypb.QueryFunctionsRequest{
 				ServiceName:    serviceName,
@@ -115,7 +115,7 @@ func NewInfoCmd() *cobra.Command {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(http.DefaultClient, colonyAddr)
+			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			req := &colonypb.QueryFunctionsRequest{
 				ServiceName:    serviceName,
@@ -223,7 +223,7 @@ func NewProfileCmd() *cobra.Command {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(http.DefaultClient, colonyAddr)
+			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			// Parse duration
 			durationProto, err := parseDuration(duration)

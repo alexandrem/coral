@@ -858,7 +858,7 @@ func (x *ListServicesRequest) GetNamespace() string {
 
 type ListServicesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Services      []*ServiceInfo         `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	Services      []*ServiceSummary      `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -893,14 +893,14 @@ func (*ListServicesResponse) Descriptor() ([]byte, []int) {
 	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *ListServicesResponse) GetServices() []*ServiceInfo {
+func (x *ListServicesResponse) GetServices() []*ServiceSummary {
 	if x != nil {
 		return x.Services
 	}
 	return nil
 }
 
-type ServiceInfo struct {
+type ServiceSummary struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -910,20 +910,20 @@ type ServiceInfo struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ServiceInfo) Reset() {
-	*x = ServiceInfo{}
+func (x *ServiceSummary) Reset() {
+	*x = ServiceSummary{}
 	mi := &file_coral_colony_v1_queries_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ServiceInfo) String() string {
+func (x *ServiceSummary) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ServiceInfo) ProtoMessage() {}
+func (*ServiceSummary) ProtoMessage() {}
 
-func (x *ServiceInfo) ProtoReflect() protoreflect.Message {
+func (x *ServiceSummary) ProtoReflect() protoreflect.Message {
 	mi := &file_coral_colony_v1_queries_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -935,33 +935,33 @@ func (x *ServiceInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ServiceInfo.ProtoReflect.Descriptor instead.
-func (*ServiceInfo) Descriptor() ([]byte, []int) {
+// Deprecated: Use ServiceSummary.ProtoReflect.Descriptor instead.
+func (*ServiceSummary) Descriptor() ([]byte, []int) {
 	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *ServiceInfo) GetName() string {
+func (x *ServiceSummary) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *ServiceInfo) GetNamespace() string {
+func (x *ServiceSummary) GetNamespace() string {
 	if x != nil {
 		return x.Namespace
 	}
 	return ""
 }
 
-func (x *ServiceInfo) GetInstanceCount() int32 {
+func (x *ServiceSummary) GetInstanceCount() int32 {
 	if x != nil {
 		return x.InstanceCount
 	}
 	return 0
 }
 
-func (x *ServiceInfo) GetLastSeen() *timestamppb.Timestamp {
+func (x *ServiceSummary) GetLastSeen() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastSeen
 	}
@@ -1642,10 +1642,10 @@ const file_coral_colony_v1_queries_proto_rawDesc = "" +
 	"\n" +
 	"total_logs\x18\x02 \x01(\x05R\ttotalLogs\"3\n" +
 	"\x13ListServicesRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"P\n" +
-	"\x14ListServicesResponse\x128\n" +
-	"\bservices\x18\x01 \x03(\v2\x1c.coral.colony.v1.ServiceInfoR\bservices\"\x9f\x01\n" +
-	"\vServiceInfo\x12\x12\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"S\n" +
+	"\x14ListServicesResponse\x12;\n" +
+	"\bservices\x18\x01 \x03(\v2\x1f.coral.colony.v1.ServiceSummaryR\bservices\"\xa2\x01\n" +
+	"\x0eServiceSummary\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12%\n" +
 	"\x0einstance_count\x18\x03 \x01(\x05R\rinstanceCount\x127\n" +
@@ -1720,7 +1720,7 @@ var file_coral_colony_v1_queries_proto_goTypes = []any{
 	(*QueryUnifiedLogsResponse)(nil),    // 9: coral.colony.v1.QueryUnifiedLogsResponse
 	(*ListServicesRequest)(nil),         // 10: coral.colony.v1.ListServicesRequest
 	(*ListServicesResponse)(nil),        // 11: coral.colony.v1.ListServicesResponse
-	(*ServiceInfo)(nil),                 // 12: coral.colony.v1.ServiceInfo
+	(*ServiceSummary)(nil),              // 12: coral.colony.v1.ServiceSummary
 	(*GetMetricPercentileRequest)(nil),  // 13: coral.colony.v1.GetMetricPercentileRequest
 	(*GetMetricPercentileResponse)(nil), // 14: coral.colony.v1.GetMetricPercentileResponse
 	(*GetServiceActivityRequest)(nil),   // 15: coral.colony.v1.GetServiceActivityRequest
@@ -1746,8 +1746,8 @@ var file_coral_colony_v1_queries_proto_depIdxs = []int32{
 	27, // 4: coral.colony.v1.QueryUnifiedMetricsResponse.sql_metrics:type_name -> coral.agent.v1.EbpfSqlMetric
 	23, // 5: coral.colony.v1.UnifiedLogEntry.attributes:type_name -> coral.colony.v1.UnifiedLogEntry.AttributesEntry
 	8,  // 6: coral.colony.v1.QueryUnifiedLogsResponse.logs:type_name -> coral.colony.v1.UnifiedLogEntry
-	12, // 7: coral.colony.v1.ListServicesResponse.services:type_name -> coral.colony.v1.ServiceInfo
-	28, // 8: coral.colony.v1.ServiceInfo.last_seen:type_name -> google.protobuf.Timestamp
+	12, // 7: coral.colony.v1.ListServicesResponse.services:type_name -> coral.colony.v1.ServiceSummary
+	28, // 8: coral.colony.v1.ServiceSummary.last_seen:type_name -> google.protobuf.Timestamp
 	28, // 9: coral.colony.v1.GetMetricPercentileResponse.timestamp:type_name -> google.protobuf.Timestamp
 	28, // 10: coral.colony.v1.GetServiceActivityResponse.timestamp:type_name -> google.protobuf.Timestamp
 	19, // 11: coral.colony.v1.ListServiceActivityResponse.services:type_name -> coral.colony.v1.ServiceActivity

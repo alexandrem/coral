@@ -17,45 +17,44 @@ import (
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
-// mockDebugClient implements meshv1connect.DebugServiceClient
+// mockDebugClient implements agentv1connect.AgentDebugServiceClient
 type mockDebugClient struct {
-	startFunc func(context.Context, *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error)
-	stopFunc  func(context.Context, *connect.Request[meshv1.StopUprobeCollectorRequest]) (*connect.Response[meshv1.StopUprobeCollectorResponse], error)
-	queryFunc func(context.Context, *connect.Request[meshv1.QueryUprobeEventsRequest]) (*connect.Response[meshv1.QueryUprobeEventsResponse], error)
+	startFunc func(context.Context, *connect.Request[agentv1.StartUprobeCollectorRequest]) (*connect.Response[agentv1.StartUprobeCollectorResponse], error)
+	stopFunc  func(context.Context, *connect.Request[agentv1.StopUprobeCollectorRequest]) (*connect.Response[agentv1.StopUprobeCollectorResponse], error)
+	queryFunc func(context.Context, *connect.Request[agentv1.QueryUprobeEventsRequest]) (*connect.Response[agentv1.QueryUprobeEventsResponse], error)
 }
 
-func (m *mockDebugClient) StartUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
+func (m *mockDebugClient) StartUprobeCollector(ctx context.Context, req *connect.Request[agentv1.StartUprobeCollectorRequest]) (*connect.Response[agentv1.StartUprobeCollectorResponse], error) {
 	if m.startFunc != nil {
 		return m.startFunc(ctx, req)
 	}
-	return connect.NewResponse(&meshv1.StartUprobeCollectorResponse{Supported: true, CollectorId: "mock-collector-id"}), nil
+	return connect.NewResponse(&agentv1.StartUprobeCollectorResponse{Supported: true, CollectorId: "mock-collector-id"}), nil
 }
 
-func (m *mockDebugClient) StopUprobeCollector(ctx context.Context, req *connect.Request[meshv1.StopUprobeCollectorRequest]) (*connect.Response[meshv1.StopUprobeCollectorResponse], error) {
+func (m *mockDebugClient) StopUprobeCollector(ctx context.Context, req *connect.Request[agentv1.StopUprobeCollectorRequest]) (*connect.Response[agentv1.StopUprobeCollectorResponse], error) {
 	if m.stopFunc != nil {
 		return m.stopFunc(ctx, req)
 	}
-	return connect.NewResponse(&meshv1.StopUprobeCollectorResponse{Success: true}), nil
+	return connect.NewResponse(&agentv1.StopUprobeCollectorResponse{Success: true}), nil
 }
 
-func (m *mockDebugClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[meshv1.QueryUprobeEventsRequest]) (*connect.Response[meshv1.QueryUprobeEventsResponse], error) {
+func (m *mockDebugClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[agentv1.QueryUprobeEventsRequest]) (*connect.Response[agentv1.QueryUprobeEventsResponse], error) {
 	if m.queryFunc != nil {
 		return m.queryFunc(ctx, req)
 	}
-	return connect.NewResponse(&meshv1.QueryUprobeEventsResponse{Events: []*meshv1.EbpfEvent{}}), nil
+	return connect.NewResponse(&agentv1.QueryUprobeEventsResponse{Events: []*agentv1.UprobeEvent{}}), nil
 }
 
-func (m *mockDebugClient) ProfileCPU(ctx context.Context, req *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
-	return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{Success: true, TotalSamples: 100}), nil
+func (m *mockDebugClient) ProfileCPU(ctx context.Context, req *connect.Request[agentv1.ProfileCPUAgentRequest]) (*connect.Response[agentv1.ProfileCPUAgentResponse], error) {
+	return connect.NewResponse(&agentv1.ProfileCPUAgentResponse{Success: true, TotalSamples: 100}), nil
 }
 
-func (m *mockDebugClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[meshv1.QueryCPUProfileSamplesRequest]) (*connect.Response[meshv1.QueryCPUProfileSamplesResponse], error) {
-	return connect.NewResponse(&meshv1.QueryCPUProfileSamplesResponse{Samples: []*meshv1.CPUProfileSample{}, TotalSamples: 0}), nil
+func (m *mockDebugClient) QueryCPUProfileSamples(ctx context.Context, req *connect.Request[agentv1.QueryCPUProfileSamplesRequest]) (*connect.Response[agentv1.QueryCPUProfileSamplesResponse], error) {
+	return connect.NewResponse(&agentv1.QueryCPUProfileSamplesResponse{Samples: []*agentv1.CPUProfileSample{}, TotalSamples: 0}), nil
 }
 
 // mockAgentClient implements agentv1connect.AgentServiceClient for testing.
@@ -142,7 +141,7 @@ func TestDebugFlowIntegration(t *testing.T) {
 
 	// Setup mock client
 	mockClient := &mockDebugClient{}
-	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 		return mockClient
 	}
 
@@ -150,11 +149,11 @@ func TestDebugFlowIntegration(t *testing.T) {
 
 	// 1. Attach Uprobe
 	t.Run("AttachUprobe", func(t *testing.T) {
-		mockClient.startFunc = func(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
+		mockClient.startFunc = func(ctx context.Context, req *connect.Request[agentv1.StartUprobeCollectorRequest]) (*connect.Response[agentv1.StartUprobeCollectorResponse], error) {
 			assert.Equal(t, agentID, req.Msg.AgentId)
 			assert.Equal(t, "service-1", req.Msg.ServiceName)
 			assert.Equal(t, "ProcessPayment", req.Msg.FunctionName)
-			return connect.NewResponse(&meshv1.StartUprobeCollectorResponse{
+			return connect.NewResponse(&agentv1.StartUprobeCollectorResponse{
 				Supported:   true,
 				CollectorId: "collector-1",
 			}), nil
@@ -184,27 +183,19 @@ func TestDebugFlowIntegration(t *testing.T) {
 
 	// 2. Query Events
 	t.Run("QueryEvents", func(t *testing.T) {
-		mockClient.queryFunc = func(ctx context.Context, req *connect.Request[meshv1.QueryUprobeEventsRequest]) (*connect.Response[meshv1.QueryUprobeEventsResponse], error) {
+		mockClient.queryFunc = func(ctx context.Context, req *connect.Request[agentv1.QueryUprobeEventsRequest]) (*connect.Response[agentv1.QueryUprobeEventsResponse], error) {
 			assert.Equal(t, "collector-1", req.Msg.CollectorId)
-			return connect.NewResponse(&meshv1.QueryUprobeEventsResponse{
-				Events: []*meshv1.EbpfEvent{
+			return connect.NewResponse(&agentv1.QueryUprobeEventsResponse{
+				Events: []*agentv1.UprobeEvent{
 					{
-						Timestamp:   timestamppb.Now(),
-						CollectorId: "collector-1",
-						AgentId:     agentID,
-						ServiceName: "service-1",
-						Payload: &meshv1.EbpfEvent_UprobeEvent{
-							UprobeEvent: &meshv1.UprobeEvent{
-								Timestamp:    timestamppb.Now(),
-								CollectorId:  "collector-1",
-								AgentId:      agentID,
-								ServiceName:  "service-1",
-								FunctionName: "ProcessPayment",
-								EventType:    "return",
-								DurationNs:   5000000,
-								Pid:          1234,
-							},
-						},
+						Timestamp:    timestamppb.Now(),
+						CollectorId:  "collector-1",
+						AgentId:      agentID,
+						ServiceName:  "service-1",
+						FunctionName: "ProcessPayment",
+						EventType:    "return",
+						DurationNs:   5000000,
+						Pid:          1234,
 					},
 				},
 			}), nil
@@ -222,9 +213,9 @@ func TestDebugFlowIntegration(t *testing.T) {
 
 	// 3. Detach Uprobe
 	t.Run("DetachUprobe", func(t *testing.T) {
-		mockClient.stopFunc = func(ctx context.Context, req *connect.Request[meshv1.StopUprobeCollectorRequest]) (*connect.Response[meshv1.StopUprobeCollectorResponse], error) {
+		mockClient.stopFunc = func(ctx context.Context, req *connect.Request[agentv1.StopUprobeCollectorRequest]) (*connect.Response[agentv1.StopUprobeCollectorResponse], error) {
 			assert.Equal(t, "collector-1", req.Msg.CollectorId)
-			return connect.NewResponse(&meshv1.StopUprobeCollectorResponse{
+			return connect.NewResponse(&agentv1.StopUprobeCollectorResponse{
 				Success: true,
 			}), nil
 		}
@@ -261,14 +252,14 @@ func TestDebugFlow_AgentReturnsError(t *testing.T) {
 
 	// Setup mock client that returns errors
 	mockClient := &mockDebugClient{
-		startFunc: func(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
-			return connect.NewResponse(&meshv1.StartUprobeCollectorResponse{
+		startFunc: func(ctx context.Context, req *connect.Request[agentv1.StartUprobeCollectorRequest]) (*connect.Response[agentv1.StartUprobeCollectorResponse], error) {
+			return connect.NewResponse(&agentv1.StartUprobeCollectorResponse{
 				Supported: false,
 				Error:     "eBPF not supported on this kernel",
 			}), nil
 		},
 	}
-	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 		return mockClient
 	}
 
@@ -310,11 +301,11 @@ func TestDebugFlow_AgentNetworkError(t *testing.T) {
 
 	// Setup mock client that returns network error
 	mockClient := &mockDebugClient{
-		startFunc: func(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
+		startFunc: func(ctx context.Context, req *connect.Request[agentv1.StartUprobeCollectorRequest]) (*connect.Response[agentv1.StartUprobeCollectorResponse], error) {
 			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("connection refused"))
 		},
 	}
-	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 		return mockClient
 	}
 
@@ -363,17 +354,17 @@ func TestDebugFlow_ServiceDiscovery(t *testing.T) {
 
 	// Setup mock client
 	mockClient := &mockDebugClient{
-		startFunc: func(ctx context.Context, req *connect.Request[meshv1.StartUprobeCollectorRequest]) (*connect.Response[meshv1.StartUprobeCollectorResponse], error) {
+		startFunc: func(ctx context.Context, req *connect.Request[agentv1.StartUprobeCollectorRequest]) (*connect.Response[agentv1.StartUprobeCollectorResponse], error) {
 			assert.Equal(t, agentID, req.Msg.AgentId)
 			assert.Equal(t, serviceName, req.Msg.ServiceName)
 			assert.Equal(t, "localhost:9092", req.Msg.SdkAddr)
-			return connect.NewResponse(&meshv1.StartUprobeCollectorResponse{
+			return connect.NewResponse(&agentv1.StartUprobeCollectorResponse{
 				Supported:   true,
 				CollectorId: "collector-1",
 			}), nil
 		},
 	}
-	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 		return mockClient
 	}
 
@@ -424,14 +415,14 @@ func TestDebugFlow_DetachError(t *testing.T) {
 
 	// Setup mock client that fails to stop
 	mockClient := &mockDebugClient{
-		stopFunc: func(ctx context.Context, req *connect.Request[meshv1.StopUprobeCollectorRequest]) (*connect.Response[meshv1.StopUprobeCollectorResponse], error) {
-			return connect.NewResponse(&meshv1.StopUprobeCollectorResponse{
+		stopFunc: func(ctx context.Context, req *connect.Request[agentv1.StopUprobeCollectorRequest]) (*connect.Response[agentv1.StopUprobeCollectorResponse], error) {
+			return connect.NewResponse(&agentv1.StopUprobeCollectorResponse{
 				Success: false,
 				Error:   "collector already stopped",
 			}), nil
 		},
 	}
-	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 		return mockClient
 	}
 
@@ -486,39 +477,31 @@ func TestDebugFlow_QueryWithFilters(t *testing.T) {
 
 	// Setup mock client
 	mockClient := &mockDebugClient{
-		queryFunc: func(ctx context.Context, req *connect.Request[meshv1.QueryUprobeEventsRequest]) (*connect.Response[meshv1.QueryUprobeEventsResponse], error) {
+		queryFunc: func(ctx context.Context, req *connect.Request[agentv1.QueryUprobeEventsRequest]) (*connect.Response[agentv1.QueryUprobeEventsResponse], error) {
 			// Verify filters are passed through
 			assert.Equal(t, "collector-1", req.Msg.CollectorId)
 			assert.NotNil(t, req.Msg.StartTime)
 			assert.NotNil(t, req.Msg.EndTime)
 			assert.Equal(t, int32(100), req.Msg.MaxEvents)
 
-			return connect.NewResponse(&meshv1.QueryUprobeEventsResponse{
-				Events: []*meshv1.EbpfEvent{
+			return connect.NewResponse(&agentv1.QueryUprobeEventsResponse{
+				Events: []*agentv1.UprobeEvent{
 					{
-						Timestamp:   timestamppb.Now(),
-						CollectorId: "collector-1",
-						AgentId:     agentID,
-						ServiceName: "service-1",
-						Payload: &meshv1.EbpfEvent_UprobeEvent{
-							UprobeEvent: &meshv1.UprobeEvent{
-								Timestamp:    timestamppb.Now(),
-								CollectorId:  "collector-1",
-								AgentId:      agentID,
-								ServiceName:  "service-1",
-								FunctionName: "ProcessPayment",
-								EventType:    "return",
-								DurationNs:   5000000,
-								Pid:          1234,
-							},
-						},
+						Timestamp:    timestamppb.Now(),
+						CollectorId:  "collector-1",
+						AgentId:      agentID,
+						ServiceName:  "service-1",
+						FunctionName: "ProcessPayment",
+						EventType:    "return",
+						DurationNs:   5000000,
+						Pid:          1234,
 					},
 				},
 				HasMore: false,
 			}), nil
 		},
 	}
-	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 		return mockClient
 	}
 
@@ -581,7 +564,7 @@ func TestDebugFlow_CPUProfile(t *testing.T) {
 	}
 
 	// Override ProfileCPU to return mock samples
-	mockProfileCPU := func(ctx context.Context, req *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
+	mockProfileCPU := func(ctx context.Context, req *connect.Request[agentv1.ProfileCPUAgentRequest]) (*connect.Response[agentv1.ProfileCPUAgentResponse], error) {
 		// Verify request parameters
 		assert.Equal(t, int32(1234), req.Msg.Pid)
 		assert.Equal(t, serviceName, req.Msg.ServiceName)
@@ -589,11 +572,11 @@ func TestDebugFlow_CPUProfile(t *testing.T) {
 		assert.Equal(t, int32(99), req.Msg.FrequencyHz)
 
 		// Return mock profile data
-		return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{
+		return connect.NewResponse(&agentv1.ProfileCPUAgentResponse{
 			Success:      true,
 			TotalSamples: 495, // 5 seconds * 99Hz = ~495 samples
 			LostSamples:  0,
-			Samples: []*meshv1.StackSample{
+			Samples: []*agentv1.StackSample{
 				{
 					FrameNames: []string{"main", "ProcessPayment", "validateCard"},
 					Count:      245,
@@ -607,7 +590,7 @@ func TestDebugFlow_CPUProfile(t *testing.T) {
 	}
 
 	// Setup mock debug client factory
-	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) meshv1connect.DebugServiceClient {
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
 		return &mockDebugClientWithCPUProfile{
 			mockDebugClient: &mockDebugClient{},
 			profileCPUFunc:  mockProfileCPU,
@@ -643,12 +626,12 @@ func TestDebugFlow_CPUProfile(t *testing.T) {
 // mockDebugClientWithCPUProfile extends mockDebugClient with ProfileCPU support.
 type mockDebugClientWithCPUProfile struct {
 	*mockDebugClient
-	profileCPUFunc func(context.Context, *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error)
+	profileCPUFunc func(context.Context, *connect.Request[agentv1.ProfileCPUAgentRequest]) (*connect.Response[agentv1.ProfileCPUAgentResponse], error)
 }
 
-func (m *mockDebugClientWithCPUProfile) ProfileCPU(ctx context.Context, req *connect.Request[meshv1.ProfileCPUAgentRequest]) (*connect.Response[meshv1.ProfileCPUAgentResponse], error) {
+func (m *mockDebugClientWithCPUProfile) ProfileCPU(ctx context.Context, req *connect.Request[agentv1.ProfileCPUAgentRequest]) (*connect.Response[agentv1.ProfileCPUAgentResponse], error) {
 	if m.profileCPUFunc != nil {
 		return m.profileCPUFunc(ctx, req)
 	}
-	return connect.NewResponse(&meshv1.ProfileCPUAgentResponse{Success: true, TotalSamples: 100}), nil
+	return connect.NewResponse(&agentv1.ProfileCPUAgentResponse{Success: true, TotalSamples: 100}), nil
 }

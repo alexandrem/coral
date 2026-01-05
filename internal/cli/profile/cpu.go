@@ -76,7 +76,7 @@ Examples:
 			}
 
 			// Create client.
-			client := colonyv1connect.NewDebugServiceClient(
+			client := colonyv1connect.NewColonyDebugServiceClient(
 				http.DefaultClient,
 				colonyURL,
 			)

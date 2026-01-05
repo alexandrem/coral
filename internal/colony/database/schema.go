@@ -114,13 +114,6 @@ var schemaDDL = []string{
 		last_seen TIMESTAMP NOT NULL
 	)`,
 
-	// Service heartbeats - frequent updates separated for performance.
-	// Note: No foreign key constraint or indexes to avoid DuckDB update conflicts.
-	`CREATE TABLE IF NOT EXISTS service_heartbeats (
-		service_id TEXT PRIMARY KEY,
-		last_seen TIMESTAMP NOT NULL
-	)`,
-
 	// Service connections - auto-discovered service topology.
 	`CREATE TABLE IF NOT EXISTS service_connections (
 		from_service TEXT NOT NULL,

@@ -30,7 +30,7 @@ type DebugSessionFilters struct {
 
 // InsertDebugSession persists a new debug session to the database.
 func (d *Database) InsertDebugSession(ctx context.Context, session *DebugSession) error {
-	return d.debugSessionsTable.Upsert(ctx, session)
+	return d.debugSessionsTable.Insert(ctx, session)
 }
 
 // UpdateDebugSessionStatus updates the status of a debug session.
