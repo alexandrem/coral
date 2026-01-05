@@ -5,33 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/testcontainers/testcontainers-go"
 )
-
-// WaitForContainerHealth waits for a container's health check to pass.
-func WaitForContainerHealth(ctx context.Context, container testcontainers.Container, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for container health: %w", ctx.Err())
-		case <-ticker.C:
-			state, err := container.State(ctx)
-			if err != nil {
-				continue
-			}
-			if state.Running && state.Health != nil && state.Health.Status == "healthy" {
-				return nil
-			}
-		}
-	}
-}
 
 // WaitForHTTPEndpoint waits for an HTTP endpoint to respond with 200 OK.
 func WaitForHTTPEndpoint(ctx context.Context, url string, timeout time.Duration) error {
@@ -67,7 +41,7 @@ func WaitForHTTPEndpoint(ctx context.Context, url string, timeout time.Duration)
 }
 
 // WaitForCondition polls a condition function until it returns true or timeout.
-func WaitForCondition(ctx context.Context, condition func() bool, timeout time.Duration, interval time.Duration) error {
+func WaitForCondition(ctx context.Context, cn func() bool, timeout time.Duration, interval time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -75,7 +49,7 @@ func WaitForCondition(ctx context.Context, condition func() bool, timeout time.D
 	defer ticker.Stop()
 
 	// Check immediately first.
-	if condition() {
+	if cn() {
 		return nil
 	}
 
@@ -84,7 +58,7 @@ func WaitForCondition(ctx context.Context, condition func() bool, timeout time.D
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for condition: %w", ctx.Err())
 		case <-ticker.C:
-			if condition() {
+			if cn() {
 				return nil
 			}
 		}

@@ -9,7 +9,6 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
-	"github.com/coral-mesh/coral/tests/e2e/distributed/fixtures"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
@@ -166,20 +165,15 @@ func (s *MeshSuite) TestAgentRegistration() {
 func (s *MeshSuite) TestMultiAgentMesh() {
 	s.T().Log("Testing multi-agent mesh IP allocation...")
 
-	// Create a fixture with multiple agents.
-	multiAgentFixture, err := fixtures.NewContainerFixture(s.ctx, fixtures.FixtureOptions{
-		NumAgents: 3,
-	})
-	s.Require().NoError(err, "Failed to create multi-agent fixture")
-	defer multiAgentFixture.Cleanup(s.ctx)
-
 	// Get colony endpoint and create client.
-	colonyEndpoint, err := multiAgentFixture.GetColonyEndpoint(s.ctx)
+	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
 	client := helpers.NewColonyClient(colonyEndpoint)
 
-	// Wait for all 3 agents to register.
+	// Wait for all expected agents (from docker-compose) to register.
+	// docker-compose up starts 2 agents by default.
+	expectedAgents := 2
 	var agents *colonyv1.ListAgentsResponse
 	err = helpers.WaitForCondition(s.ctx, func() bool {
 		resp, listErr := helpers.ListAgents(s.ctx, client)
@@ -187,11 +181,11 @@ func (s *MeshSuite) TestMultiAgentMesh() {
 			return false
 		}
 		agents = resp
-		return len(resp.Agents) >= 3
+		return len(resp.Agents) >= expectedAgents
 	}, 90*time.Second, 2*time.Second)
 
-	s.Require().NoError(err, "All 3 agents should register within 90 seconds")
-	s.Require().Len(agents.Agents, 3, "Should have exactly 3 agents")
+	s.Require().NoError(err, "All agents should register within 90 seconds")
+	s.Require().GreaterOrEqual(len(agents.Agents), expectedAgents, "Should have at least %d agents", expectedAgents)
 
 	// Verify unique mesh IPs.
 	meshIPs := make(map[string]bool)
@@ -207,7 +201,7 @@ func (s *MeshSuite) TestMultiAgentMesh() {
 		s.T().Logf("Agent %s: mesh IP = %s", agent.AgentId, agent.MeshIpv4)
 	}
 
-	s.T().Logf("Successfully verified 3 agents with unique mesh IPs")
+	s.T().Logf("Successfully verified agents have unique mesh IPs")
 }
 
 // TestHeartbeat verifies that agents send heartbeats to the colony.
@@ -253,14 +247,63 @@ func (s *MeshSuite) TestHeartbeat() {
 }
 
 // TestAgentReconnection verifies agent reconnection after colony restarts.
+// TestAgentReconnection verifies agent reconnection after colony restarts.
 func (s *MeshSuite) TestAgentReconnection() {
-	s.T().Skip("SKIPPED: Cannot restart colony with docker-compose (would need docker-compose restart)")
+	s.T().Log("Testing agent reconnection logic...")
 
-	// Note: With docker-compose, we can't stop/start individual containers from within tests.
-	// To test reconnection, we would need to:
-	// 1. Run `docker-compose restart colony` externally
-	// 2. Or use testcontainers (which we removed for performance)
-	// 3. Or add a separate test script that uses docker-compose CLI
-	//
-	// For now, we rely on the agent's reconnection logic being tested in unit tests.
+	// 1. Verify agents are connected initially.
+	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+	client := helpers.NewColonyClient(colonyEndpoint)
+
+	agents, err := helpers.ListAgents(s.ctx, client)
+	s.Require().NoError(err, "Failed to list agents before restart")
+	s.Require().GreaterOrEqual(len(agents.Agents), 1, "Should have agents connected")
+
+	s.T().Logf("Verified %d agents connected before restart", len(agents.Agents))
+
+	// 2. Restart colony service.
+	s.T().Log("Restarting colony service...")
+	err = s.fixture.RestartService(s.ctx, "colony")
+	s.Require().NoError(err, "Failed to restart colony")
+
+	// 3. Wait for colony to be healthy again.
+	s.T().Log("Waiting for colony to recover...")
+	// Wait for discovery to register it again (can take up to a minute).
+	discoveryEndpoint, err := s.fixture.GetDiscoveryEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get discovery endpoint")
+	discoveryClient := helpers.NewDiscoveryClient(discoveryEndpoint)
+
+	err = helpers.WaitForCondition(s.ctx, func() bool {
+		resp, lookupErr := helpers.LookupColony(s.ctx, discoveryClient, s.fixture.ColonyID)
+		if lookupErr != nil {
+			return false
+		}
+		// Also verify we can talk to the colony directly
+		status, statusErr := helpers.GetColonyStatus(s.ctx, client)
+		return resp != nil && statusErr == nil && status.Status == "running"
+	}, 60*time.Second, 2*time.Second)
+	s.Require().NoError(err, "Colony should recover after restart")
+
+	s.T().Log("Colony has recovered")
+
+	// 4. Wait for agents to reconnect.
+	s.T().Log("Waiting for agents to reconnect...")
+	err = helpers.WaitForCondition(s.ctx, func() bool {
+		agentsResp, listErr := helpers.ListAgents(s.ctx, client)
+		if listErr != nil {
+			return false
+		}
+		// We expect the original agent to be present.
+		// If it's a new ID (due to restart), we should just check we have ANY agents.
+		// Real agents persist their ID, so it should be the same.
+		return len(agentsResp.Agents) >= 1
+	}, 90*time.Second, 2*time.Second)
+
+	s.Require().NoError(err, "Agents should reconnect after colony restart")
+
+	// Double check agent status
+	agents, err = helpers.ListAgents(s.ctx, client)
+	s.Require().NoError(err)
+	s.T().Logf("Successfully verified %d agents reconnected", len(agents.Agents))
 }

@@ -147,3 +147,12 @@ func (f *ComposeFixture) GetOTELAppEndpoint(ctx context.Context) (string, error)
 func (f *ComposeFixture) GetSDKAppEndpoint(ctx context.Context) (string, error) {
 	return f.SDKAppEndpoint, nil
 }
+
+// RestartService restarts a specific service using docker-compose.
+func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string) error {
+	cmd := exec.CommandContext(ctx, "docker-compose", "restart", serviceName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to restart service %s: %w\nOutput: %s", serviceName, err, string(output))
+	}
+	return nil
+}
