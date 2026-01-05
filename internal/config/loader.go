@@ -70,26 +70,32 @@ func (l *Loader) ColonyDir(colonyID string) string {
 
 // LoadGlobalConfig loads the global configuration.
 // Returns default config if file doesn't exist.
+// Applies environment variable overrides for layered configuration.
 func (l *Loader) LoadGlobalConfig() (*GlobalConfig, error) {
 	path := l.GlobalConfigPath()
 
-	// Return default if file doesn't exist
+	var config *GlobalConfig
+	// Load from file or use default
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return DefaultGlobalConfig(), nil
+		config = DefaultGlobalConfig()
+	} else {
+		//nolint:gosec // G304: Path is from trusted config directory.
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read global config: %w", err)
+		}
+
+		if err := yaml.Unmarshal(data, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse global config: %w", err)
+		}
 	}
 
-	//nolint:gosec // G304: Path is from trusted config directory.
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read global config: %w", err)
+	// Apply environment variable overrides (layered configuration).
+	if discoveryEndpoint := os.Getenv("CORAL_DISCOVERY_ENDPOINT"); discoveryEndpoint != "" {
+		config.Discovery.Endpoint = discoveryEndpoint
 	}
 
-	var config GlobalConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse global config: %w", err)
-	}
-
-	return &config, nil
+	return config, nil
 }
 
 // SaveGlobalConfig saves the global configuration.

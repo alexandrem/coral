@@ -65,6 +65,49 @@ func TestLoader_LoadGlobalConfig_NotExists(t *testing.T) {
 	assert.Equal(t, "http://localhost:8080", config.Discovery.Endpoint)
 }
 
+func TestLoader_LoadGlobalConfig_DiscoveryEndpointEnvOverride(t *testing.T) {
+	// Create temporary home directory
+	tmpHome := t.TempDir()
+	loader := &Loader{homeDir: tmpHome}
+
+	// Save a config with a specific discovery endpoint
+	config := &GlobalConfig{
+		Version: "1",
+		Discovery: DiscoveryGlobal{
+			Endpoint: "http://localhost:8080",
+			Timeout:  10 * time.Second,
+		},
+	}
+	err := loader.SaveGlobalConfig(config)
+	require.NoError(t, err)
+
+	// Set CORAL_DISCOVERY_ENDPOINT environment variable
+	originalValue := os.Getenv("CORAL_DISCOVERY_ENDPOINT")
+	os.Setenv("CORAL_DISCOVERY_ENDPOINT", "http://discovery:9999")
+	defer os.Setenv("CORAL_DISCOVERY_ENDPOINT", originalValue)
+
+	// Load config - should use env var override
+	loaded, err := loader.LoadGlobalConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "http://discovery:9999", loaded.Discovery.Endpoint)
+}
+
+func TestLoader_LoadGlobalConfig_DiscoveryEndpointEnvOverride_NoFile(t *testing.T) {
+	// Create temporary home directory (no config file exists)
+	tmpHome := t.TempDir()
+	loader := &Loader{homeDir: tmpHome}
+
+	// Set CORAL_DISCOVERY_ENDPOINT environment variable
+	originalValue := os.Getenv("CORAL_DISCOVERY_ENDPOINT")
+	os.Setenv("CORAL_DISCOVERY_ENDPOINT", "http://custom-discovery:8080")
+	defer os.Setenv("CORAL_DISCOVERY_ENDPOINT", originalValue)
+
+	// Load config - should use default config with env var override
+	loaded, err := loader.LoadGlobalConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "http://custom-discovery:8080", loaded.Discovery.Endpoint)
+}
+
 func TestLoader_SaveAndLoadColonyConfig(t *testing.T) {
 	// Create temporary home directory
 	tmpHome := t.TempDir()
