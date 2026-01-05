@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 # E2E Test Infrastructure
 # This compose file starts all services needed for E2E tests:
@@ -14,7 +14,7 @@ services:
       context: ../../..
       dockerfile: cmd/discovery/Dockerfile
     ports:
-      - "18080:8080"  # Use non-standard port to avoid conflicts with local dev
+      - "18080:8080" # Use non-standard port to avoid conflicts with local dev
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -65,11 +65,12 @@ services:
     environment:
       - CORAL_COLONY_SECRET=test-secret-12345
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+      - CORAL_PUBLIC_ENDPOINT=colony:51820
       - CORAL_STORAGE_PATH=/var/lib/coral
     ports:
       - "9000:9000"
       - "51820:51820/udp"
-    privileged: true  # Required for WireGuard
+    privileged: true # Required for WireGuard
     depends_on:
       discovery:
         condition: service_healthy
@@ -101,10 +102,10 @@ services:
       - CORAL_COLONY_SECRET=test-secret-12345
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
     ports:
-      - "4317:4317"  # OTLP gRPC
-      - "4318:4318"  # OTLP HTTP
-      - "9001:9000"  # Agent gRPC
-    privileged: true  # Required for eBPF and WireGuard
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "9001:9000" # Agent gRPC
+    privileged: true # Required for eBPF and WireGuard
     depends_on:
       - colony
     networks:
@@ -135,9 +136,9 @@ services:
       - CORAL_COLONY_SECRET=test-secret-12345
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
     ports:
-      - "4327:4317"  # OTLP gRPC
-      - "4328:4318"  # OTLP HTTP
-      - "9002:9000"  # Agent gRPC
+      - "4327:4317" # OTLP gRPC
+      - "4328:4318" # OTLP HTTP
+      - "9002:9000" # Agent gRPC
     privileged: true
     depends_on:
       - colony
@@ -208,4 +209,4 @@ volumes:
   colony-data:
   agent-0-data:
   agent-1-data:
-  colony-shared:  # Shared volume for colony ID
+  colony-shared: # Shared volume for colony ID
