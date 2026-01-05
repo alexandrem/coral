@@ -43,7 +43,9 @@ down:
 test:
 	@echo "Running E2E tests..."
 	@echo "(Services must be running - use 'make up' first)"
-	go test -v -timeout 30m ./...
+	go test -c -o e2e.test .
+	./e2e.test -test.v -test.timeout 30m
+	@rm e2e.test
 
 .PHONY: test-all
 test-all: build up
