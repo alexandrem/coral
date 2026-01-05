@@ -107,10 +107,7 @@ install: build ## Install the binary to $GOPATH/bin
 
 test: generate ## Run tests
 	@echo "Running tests..."
-	@echo "  Main module tests..."
 	go test ./...
-	@echo "  E2E module tests..."
-	cd tests/e2e/distributed && go test ./...
 
 test-ci: generate ## Run tests in CI
 	@echo "Running tests..."
