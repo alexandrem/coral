@@ -101,10 +101,11 @@ services:
     environment:
       - CORAL_COLONY_SECRET=test-secret-12345
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+      - CORAL_AGENT_BIND_ALL=true
     ports:
       - "4317:4317" # OTLP gRPC
       - "4318:4318" # OTLP HTTP
-      - "9001:9000" # Agent gRPC
+      - "9001:9001" # Agent gRPC
     privileged: true # Required for eBPF and WireGuard
     depends_on:
       - colony
@@ -135,10 +136,11 @@ services:
     environment:
       - CORAL_COLONY_SECRET=test-secret-12345
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+      - CORAL_AGENT_BIND_ALL=true
     ports:
       - "4327:4317" # OTLP gRPC
       - "4328:4318" # OTLP HTTP
-      - "9002:9000" # Agent gRPC
+      - "9002:9001" # Agent gRPC
     privileged: true
     depends_on:
       - colony

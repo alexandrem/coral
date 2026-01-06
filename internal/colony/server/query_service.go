@@ -21,22 +21,22 @@ func (s *Server) ListServices(
 	ctx context.Context,
 	req *connect.Request[colonyv1.ListServicesRequest],
 ) (*connect.Response[colonyv1.ListServicesResponse], error) {
-	// Calculate cutoff time (1 hour ago).
-	cutoff := time.Now().Add(-1 * time.Hour)
-
+	// Query the services registry table.
+	// Services are registered when they connect via ConnectService API or --monitor-all.
 	query := `
-		SELECT DISTINCT
-			service_name,
+		SELECT
+			s.name,
 			'' as namespace,
-			COUNT(DISTINCT agent_id) as instance_count,
-			MAX(timestamp) as last_seen
-		FROM beyla_http_metrics
-		WHERE timestamp > ?
-		GROUP BY service_name
-		ORDER BY service_name
+			COUNT(DISTINCT s.agent_id) as instance_count,
+			COALESCE(MAX(h.last_seen), MAX(s.registered_at)) as last_seen
+		FROM services s
+		LEFT JOIN service_heartbeats h ON s.id = h.service_id
+		WHERE s.status = 'active'
+		GROUP BY s.name
+		ORDER BY s.name
 	`
 
-	rows, err := s.database.DB().QueryContext(ctx, query, cutoff)
+	rows, err := s.database.DB().QueryContext(ctx, query)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query services: %w", err))
 	}

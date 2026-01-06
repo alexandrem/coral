@@ -4,8 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/suite"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
@@ -46,15 +48,47 @@ func (s *ServiceSuite) TestServiceRegistrationAndDiscovery() {
 	s.T().Log("  - cpu-app: CPU-intensive app (uninstrumented)")
 	s.T().Log("  - otel-app: OTLP-instrumented app")
 
-	// Get colony endpoint and create client.
+	// Step 1: Connect services to agent-0.
+	s.T().Log("Connecting services to agent-0...")
+
+	agent0Endpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	s.Require().NoError(err, "Failed to get agent-0 endpoint")
+
+	agentClient := helpers.NewAgentClient(agent0Endpoint)
+
+	// Connect CPU app to agent.
+	_, err = helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
+	s.Require().NoError(err, "Failed to connect cpu-app to agent")
+
+	// Connect OTEL app to agent.
+	_, err = helpers.ConnectService(s.ctx, agentClient, "otel-app", 8080, "/health")
+	s.Require().NoError(err, "Failed to connect otel-app to agent")
+
+	s.T().Log("✓ Services connected to agent")
+
+	// Step 2: Verify services appear in agent's ListServices.
+	s.T().Log("Verifying services registered with agent...")
+
+	agentServicesResp, err := agentClient.ListServices(s.ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+	s.Require().NoError(err, "Failed to list services from agent")
+	s.Require().GreaterOrEqual(len(agentServicesResp.Msg.Services), 2, "Agent should have at least 2 services")
+
+	s.T().Logf("✓ Agent has %d services registered", len(agentServicesResp.Msg.Services))
+
+	// Step 3: Wait for colony to poll services from agent.
+	s.T().Log("Waiting for colony to poll services from agent (10-15 seconds)...")
+	time.Sleep(15 * time.Second) // Service poller runs every 10 seconds.
+
+	// Step 4: Verify services appear in colony's ListServices.
+	s.T().Log("Verifying services registered with colony...")
+
 	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
 	client := helpers.NewColonyClient(colonyEndpoint)
 
-	// Wait for services to be registered.
-	// Services should be auto-discovered when apps connect to agents.
-	s.T().Log("Waiting for services to be registered...")
+	// Wait for services to be registered in colony.
+	s.T().Log("Waiting for services to appear in colony registry...")
 
 	var services *colonyv1.ListServicesResponse
 	err = helpers.WaitForCondition(s.ctx, func() bool {

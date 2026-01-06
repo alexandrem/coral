@@ -1,6 +1,7 @@
 package distributed
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -159,6 +160,80 @@ func (s *MeshSuite) TestAgentRegistration() {
 	}
 
 	s.T().Logf("Successfully verified %d agent(s) registered with colony", len(agents.Agents))
+}
+
+// TestAgentMeshConfiguration verifies that agents properly configure WireGuard mesh after registration.
+// This test queries the agent's /status endpoint to validate mesh setup.
+func (s *MeshSuite) TestAgentMeshConfiguration() {
+	s.T().Log("Testing agent WireGuard mesh configuration...")
+
+	// Get agent-0 endpoint.
+	agent0Endpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	s.Require().NoError(err, "Failed to get agent-0 endpoint")
+
+	// Query agent /status endpoint.
+	statusURL := agent0Endpoint + "/status"
+	s.T().Logf("Querying agent status: %s", statusURL)
+
+	var statusResp map[string]interface{}
+	err = helpers.WaitForCondition(s.ctx, func() bool {
+		resp, fetchErr := http.Get(statusURL)
+		if fetchErr != nil {
+			s.T().Logf("Failed to fetch status (will retry): %v", fetchErr)
+			return false
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			s.T().Logf("Status endpoint returned %d (will retry)", resp.StatusCode)
+			return false
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
+			s.T().Logf("Failed to decode status JSON (will retry): %v", err)
+			return false
+		}
+
+		// Check if mesh is configured.
+		mesh, ok := statusResp["mesh"].(map[string]interface{})
+		if !ok {
+			return false
+		}
+
+		meshIP, _ := mesh["mesh_ip"].(string)
+		return meshIP != "" // Wait until mesh IP is set
+	}, 90*time.Second, 2*time.Second)
+
+	s.Require().NoError(err, "Agent should configure mesh within 90 seconds")
+	s.Require().NotNil(statusResp, "Status response should not be nil")
+
+	// Validate mesh configuration.
+	mesh, ok := statusResp["mesh"].(map[string]interface{})
+	s.Require().True(ok, "Status should include mesh section")
+
+	meshIP, _ := mesh["mesh_ip"].(string)
+	meshSubnet, _ := mesh["mesh_subnet"].(string)
+	s.Require().NotEmpty(meshIP, "Agent should have mesh IP configured")
+	s.Require().NotEmpty(meshSubnet, "Agent should have mesh subnet configured")
+
+	s.T().Logf("✓ Mesh IP configured: %s", meshIP)
+	s.T().Logf("✓ Mesh subnet configured: %s", meshSubnet)
+
+	// Validate WireGuard configuration.
+	wg, ok := mesh["wireguard"].(map[string]interface{})
+	s.Require().True(ok, "Status should include wireguard section")
+
+	interfaceExists, _ := wg["interface_exists"].(bool)
+	peerCount, _ := wg["peer_count"].(float64) // JSON numbers are float64
+	linkStatus, _ := wg["link_status"].(string)
+
+	s.Require().True(interfaceExists, "WireGuard interface should exist")
+	s.Require().Greater(int(peerCount), 0, "Agent should have at least 1 WireGuard peer (colony)")
+	s.Require().Contains(linkStatus, "UP", "WireGuard interface should be UP")
+
+	s.T().Logf("✓ WireGuard interface: UP")
+	s.T().Logf("✓ WireGuard peers: %d", int(peerCount))
+	s.T().Log("✓ Agent mesh configuration validated successfully")
 }
 
 // TestMultiAgentMesh verifies that multiple agents get unique mesh IPs.
