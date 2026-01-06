@@ -52,7 +52,8 @@ func ParsePeerConfig(config *PeerConfig) error {
 		}
 	}
 
-	// Validate endpoint if provided
+	// Validate and resolve endpoint if provided.
+	// WireGuard requires IP:port format, not hostname:port.
 	if config.Endpoint != "" {
 		host, port, err := net.SplitHostPort(config.Endpoint)
 		if err != nil {
@@ -63,6 +64,33 @@ func ParsePeerConfig(config *PeerConfig) error {
 		}
 		if port == "" {
 			return fmt.Errorf("endpoint port is empty")
+		}
+
+		// Check if host is already an IP address.
+		if net.ParseIP(host) == nil {
+			// Host is a hostname - resolve it to an IP address.
+			ips, err := net.LookupIP(host)
+			if err != nil {
+				return fmt.Errorf("failed to resolve endpoint hostname %q: %w", host, err)
+			}
+			if len(ips) == 0 {
+				return fmt.Errorf("no IP addresses found for hostname %q", host)
+			}
+
+			// Use the first IP (prefer IPv4).
+			var selectedIP net.IP
+			for _, ip := range ips {
+				if ip.To4() != nil {
+					selectedIP = ip
+					break
+				}
+			}
+			if selectedIP == nil {
+				selectedIP = ips[0] // Fallback to first IP (might be IPv6)
+			}
+
+			// Update endpoint with resolved IP.
+			config.Endpoint = net.JoinHostPort(selectedIP.String(), port)
 		}
 	}
 
