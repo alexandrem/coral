@@ -1,65 +1,232 @@
-# E2E Distributed Tests
+# Distributed E2E Tests
 
-## Test Status (Last Run: 2026-01-05)
+These tests validate the Coral distributed system in a realistic environment
+using Docker Compose. They cover connectivity, service discovery, telemetry (
+Beyla/OTLP), system metrics, and profiling.
 
-### Passing ✓
-- **TestDebugSuite** - All tests pass (Level 3 features appropriately skipped)
-- **TestMeshSuite** - All mesh connectivity tests pass
-  - Discovery service availability
-  - Colony registration
-  - Agent registration
-  - Multi-agent mesh IP allocation
-  - Heartbeat mechanism
-  - Agent reconnection
-- **TestProfilingSuite** - Continuous CPU profiling verified
+## Quick Start
 
-### Failing ✗
-- **TestTelemetrySuite** - gRPC queries fail with "unexpected EOF"
-  - OTLPIngestion, BeylaPassiveInstrumentation, System metrics tests
-
-### Known Issues
-1. **WireGuard mesh connectivity** - Agent not configuring mesh after failed initial registration
-   - Agent `wg0` interface state is DOWN (colony is UP)
-   - Causes all mesh-based communication to fail (service poller, telemetry poller, etc.)
-   - Colony shows error: "Failed to send handshake initiation: no known endpoint for peer"
-   - **Root cause** (confirmed via `/status` endpoint):
-     - Initial registration fails (colony not in discovery yet)
-     - Code returns early → `ConfigureMesh()` never called
-     - Later, reconnection loop succeeds → but doesn't call `ConfigureMesh()` either
-     - Result: `mesh_ip=""`, `peer_count=0`, wg0 stays DOWN
-   - **Location**: `internal/cli/agent/startup/builder.go:270-274` (early return on failed registration)
-   - **Fix needed**: Reconnection loop must call `ConfigureMesh()` after successful registration
-   - Discovery service is working correctly - this is an agent startup sequencing bug
-
-2. Agent gRPC endpoints returning "unavailable: unexpected EOF" for telemetry queries
-   - Affects QueryTelemetry, QueryEbpfMetrics, QuerySystemMetrics RPCs
-
-### Recently Fixed
-- ✓ **Agent gRPC port configuration** (2026-01-06):
-  - Fixed docker-compose port mapping: `9001:9001` (was `9001:9000`)
-  - Added `CORAL_AGENT_BIND_ALL=true` to bind to all interfaces
-  - Updated service_poller to use `DefaultAgentPort` constant (9001)
-
-- ✓ **Added mesh configuration validation test** (2026-01-06):
-  - New `TestAgentMeshConfiguration` queries agent `/status` endpoint
-  - Validates: mesh_ip set, mesh_subnet set, wg0 UP, peer_count > 0
-  - Helps diagnose WireGuard mesh setup issues in e2e tests
-  - Currently failing due to known issue #1 above
-
-- ✓ **Service registration** - Fixed service discovery architecture:
-  - **Colony ListServices API** now queries `services` table instead of `beyla_http_metrics`
-  - **Created ServicePoller** to sync services from agents to colony every 10 seconds
-  - **Updated test** to verify both agent-side and colony-side service registration
-  - Services are now discoverable immediately after ConnectService (no traffic needed)
-  - **Note**: Colony-side registration blocked by WireGuard mesh issue above
-
-## Port Configuration
-
-**IMPORTANT:** E2E tests use **port 18080** for discovery (not 8080) to avoid conflicts with local dev services.
-
-Before running tests, stop all local Coral services:
 ```bash
-lsof -i :18080  # Check for conflicts
-docker-compose up -d
-go test -v ./...
+cd tests/e2e/distributed
+
+# Enable BuildKit for fast builds (one-time setup)
+export DOCKER_BUILDKIT=1
+
+# Run everything (build, test, cleanup)
+make test-all
+```
+
+## Prerequisites
+
+1. **Linux OS**: eBPF and WireGuard require a Linux kernel.
+    - Native Linux, or
+    - Linux VM (Colima, Multipass, etc.)
+2. **Docker**: With BuildKit enabled.
+3. **Go 1.25+**: For running tests.
+4. **Hardware (Recommended)**:
+    - 4 CPU cores
+    - 8GB RAM
+    - 10GB free disk space
+
+### For Colima Users
+
+```bash
+# Start Colima with appropriate resources
+colima start --cpu 4 --memory 8 --disk 100
+```
+
+## Running Tests
+
+### Option 1: Full Automated Run (Recommended)
+
+```bash
+make test-all
+```
+
+This will:
+
+1. Build all container images (BuildKit recommended).
+2. Start all services (Discovery, Colony, Agents, Apps).
+3. Run all E2E tests.
+4. Stop and cleanup services.
+
+**Time**: ~15-20 minutes (first run), ~6-11 minutes (subsequent runs with
+cache).
+
+### Option 2: Manual Development Workflow
+
+Useful for running specific tests repeatedly without restarting services.
+
+```bash
+cd tests/e2e/distributed
+
+# 1. Build images (one time, or after code changes)
+DOCKER_BUILDKIT=1 make build
+
+# 2. Start services
+make up
+
+# 3. Run all tests (can run multiple times)
+make test
+
+# 4. Or run specific tests
+go test -v -run TestMeshSuite
+go test -v -run TestOTLPIngestion
+
+# 5. Stop services when done
+make down
+```
+
+### Useful Commands
+
+```bash
+make logs              # View logs for all services
+make logs-colony       # View Colony logs
+make logs-agent-0      # View Agent-0 logs
+make status            # Check service status
+make clean             # Stop and remove volumes
+```
+
+## Test Structure
+
+The tests are organized into suites based on functionality.
+
+### mesh_test.go (MeshSuite)
+
+**Purpose**: Tests WireGuard mesh connectivity, agent registration, heartbeat,
+and reconnection.
+
+- `TestDiscoveryServiceAvailability`: Discovery service health checks
+- `TestColonyRegistration`: Colony registers with discovery
+- `TestColonyStatus`: Colony status API validation
+- `TestAgentRegistration`: Agent registration flow
+- `TestMultiAgentMesh`: Multiple agents with unique mesh IPs
+- `TestHeartbeat`: Heartbeat mechanism
+- `TestAgentReconnection`: Reconnection after colony restart
+
+### service_test.go (ServiceSuite)
+
+**Purpose**: Tests service registration, connection, and discovery.
+
+- `TestServiceRegistrationAndDiscovery`: Service registry and discovery
+- `TestDynamicServiceConnection`: Dynamic service connection via API (
+  placeholder)
+- `TestMultiServiceRegistration`: Multiple services per agent (placeholder)
+- `TestServiceConnectionAtStartup`: Service connection at startup (placeholder)
+
+### telemetry_test.go (TelemetrySuite)
+
+**Purpose**: Tests passive (Beyla) and active (OTLP) telemetry collection, plus
+system metrics.
+
+- `TestBeylaPassiveInstrumentation`: Passive eBPF HTTP metrics via Beyla
+- `TestBeylaColonyPolling`: Colony polls agent for eBPF metrics
+- `TestBeylaVsOTLPComparison`: Compare passive vs active instrumentation
+- `TestOTLPIngestion`: OTLP trace ingestion from app to agent
+- `TestOTLPAppEndpoints`: OTLP test app functionality
+- `TestTelemetryAggregation`: Agent → colony polling with P50/P95/P99
+- `TestSystemMetricsCollection`: CPU/memory/disk/network metrics
+- `TestSystemMetricsPolling`: Colony polls agent for system metrics
+
+### profiling_test.go (ProfilingSuite)
+
+**Purpose**: Tests continuous and on-demand CPU profiling.
+
+- `TestContinuousProfiling`: Always-on 19Hz CPU profiling
+- `TestOnDemandProfiling`: On-demand 99Hz profiling (placeholder)
+
+### debug_test.go (DebugSuite)
+
+**Purpose**: Tests deep introspection via uprobe tracing and debug sessions.
+
+- `TestUprobeTracing`: Uprobe-based function tracing (placeholder)
+- `TestUprobeCallTree`: Call tree construction (placeholder)
+- `TestMultiAgentDebugSession`: Multi-agent debug sessions (placeholder)
+
+### Observability Layers
+
+- **Level 0**: Beyla eBPF (TelemetrySuite)
+- **Level 1**: OTLP Telemetry (TelemetrySuite)
+- **Level 2**: System Metrics & Profiling (TelemetrySuite, ProfilingSuite)
+- **Level 3**: Deep Introspection (ProfilingSuite, DebugSuite)
+
+## Service Endpoints
+
+When services are running (`make up`), they are accessible at:
+
+| Service       | Endpoint                 | Purpose                                          |
+|:--------------|:-------------------------|:-------------------------------------------------|
+| **Discovery** | `http://localhost:18080` | Service registry (Port 18080 to avoid conflicts) |
+| **Colony**    | `localhost:9000`         | gRPC endpoint                                    |
+| **Agent-0**   | `localhost:9001`         | gRPC endpoint                                    |
+| **Agent-1**   | `localhost:9002`         | gRPC endpoint                                    |
+| **CPU App**   | `http://localhost:8081`  | CPU-intensive test app (Health: `/health`)       |
+| **OTEL App**  | `http://localhost:8082`  | OTLP instrumented app (Health: `/health`)        |
+| **SDK App**   | `http://localhost:3001`  | SDK app for uprobe tests                         |
+
+## BuildKit Configuration
+
+The E2E tests use Docker BuildKit's cache mounts to dramatically speed up Go
+module downloads.
+
+**Enable BuildKit (Recommended):**
+
+Add to your shell profile (`~/.zshrc`, `~/.bashrc`):
+
+```bash
+export DOCKER_BUILDKIT=1
+```
+
+Verification:
+
+```bash
+echo $DOCKER_BUILDKIT  # Should show "1"
+```
+
+**Performance Impact:**
+
+- Without BuildKit: ~5-10 mins build time.
+- With BuildKit: ~30-60 secs build time (after first run).
+
+## Troubleshooting
+
+### Services won't start
+
+```bash
+docker ps          # Check what's running
+make logs          # Check logs
+make clean         # Clean up volumes
+make build         # Rebuild images
+make up            # Start again
+```
+
+### Tests fail with "services not ready"
+
+```bash
+make status        # Check status
+make down && make up # Restart
+```
+
+### BuildKit errors
+
+```bash
+export DOCKER_BUILDKIT=1
+make build
+```
+
+### Out of memory
+
+If using Colima, you might need to increase resources:
+
+```bash
+colima stop
+colima start --cpu 4 --memory 10
+```
+
+### Tests hang or timeout
+
+You can increase the timeout:
+
+```bash
+go test -v -timeout 60m ./...
 ```
