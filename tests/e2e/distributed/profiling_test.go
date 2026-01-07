@@ -29,6 +29,20 @@ func TestProfilingSuite(t *testing.T) {
 	suite.Run(t, new(ProfilingSuite))
 }
 
+// TearDownSuite cleans up the colony database after all tests in the suite.
+func (s *ProfilingSuite) TearDownSuite() {
+	// Clear profiling data from colony database to ensure clean state for next suite.
+	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
+	if err == nil {
+		colonyClient := helpers.NewColonyClient(colonyEndpoint)
+		_ = helpers.CleanupColonyDatabase(s.ctx, colonyClient)
+		// Ignore errors - cleanup is best-effort.
+	}
+
+	// Call parent TearDownSuite.
+	s.E2EDistributedSuite.TearDownSuite()
+}
+
 // TestContinuousProfiling verifies continuous CPU profiling.
 //
 // Test flow:

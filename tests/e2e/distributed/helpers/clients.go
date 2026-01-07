@@ -118,6 +118,28 @@ func QueryColonySummary(
 	return resp.Msg, nil
 }
 
+// QueryColonyMetrics queries colony for unified metrics (HTTP/gRPC/SQL).
+func QueryColonyMetrics(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+	serviceName string,
+	timeRange string,
+	source string, // "ebpf", "telemetry", or "all"
+) (*colonyv1.QueryUnifiedMetricsResponse, error) {
+	req := connect.NewRequest(&colonyv1.QueryUnifiedMetricsRequest{
+		Service:   serviceName,
+		TimeRange: timeRange,
+		Source:    source,
+	})
+
+	resp, err := client.QueryUnifiedMetrics(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query colony metrics: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
 // ExecuteColonyQuery executes a raw SQL query on colony's DuckDB.
 func ExecuteColonyQuery(
 	ctx context.Context,
@@ -224,6 +246,83 @@ func ConnectService(
 	}
 
 	return resp.Msg, nil
+}
+
+// DisconnectService disconnects a service from the agent.
+func DisconnectService(
+	ctx context.Context,
+	client agentv1connect.AgentServiceClient,
+	serviceName string,
+) (*agentv1.DisconnectServiceResponse, error) {
+	req := connect.NewRequest(&agentv1.DisconnectServiceRequest{
+		ServiceName: serviceName,
+	})
+
+	resp, err := client.DisconnectService(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to disconnect service: %w", err)
+	}
+
+	if !resp.Msg.Success {
+		return nil, fmt.Errorf("service disconnection failed: %s", resp.Msg.Error)
+	}
+
+	return resp.Msg, nil
+}
+
+// CleanupColonyDatabase clears telemetry and service data from colony database.
+//
+// This function is designed to be called in TearDownSuite to reset the database
+// state between test suites. It clears:
+//   - Service registry (services, service_heartbeats, service_connections)
+//   - Telemetry data (otel_summaries, beyla_*, system_metrics_summaries)
+//   - Debug data (debug_sessions, debug_events, functions, function_metrics)
+//   - Profiling data (cpu_profile_summaries)
+//
+// It does NOT clear:
+//   - Mesh configuration (agent_ip_allocations)
+//   - Security data (issued_certificates, certificate_revocations)
+//   - Metadata (binary_metadata_registry, profile_frame_dictionary)
+func CleanupColonyDatabase(
+	ctx context.Context,
+	client colonyv1connect.ColonyServiceClient,
+) error {
+	// List of tables to clear, in dependency order (child tables first).
+	tables := []string{
+		// Service-related tables.
+		"service_heartbeats",
+		"service_connections",
+		"services",
+
+		// Telemetry tables.
+		"otel_summaries",
+		"beyla_http_metrics",
+		"beyla_grpc_metrics",
+		"beyla_sql_metrics",
+		"beyla_traces",
+		"system_metrics_summaries",
+
+		// Debug tables.
+		"debug_events",
+		"debug_sessions",
+		"function_metrics",
+		"functions",
+
+		// Profiling tables.
+		"cpu_profile_summaries",
+	}
+
+	for _, table := range tables {
+		query := fmt.Sprintf("DELETE FROM %s", table)
+		_, err := ExecuteColonyQuery(ctx, client, query, 1)
+		if err != nil {
+			// Table might not exist yet (early in development), log but don't fail.
+			// This makes cleanup more resilient during incremental development.
+			continue
+		}
+	}
+
+	return nil
 }
 
 // // AttachUprobe attaches a uprobe to a function for debugging.

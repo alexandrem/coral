@@ -26,6 +26,36 @@ func TestServiceSuite(t *testing.T) {
 	suite.Run(t, new(ServiceSuite))
 }
 
+// TearDownTest cleans up services after each test to prevent conflicts.
+func (s *ServiceSuite) TearDownTest() {
+	// Disconnect services that may have been connected during this test.
+	// This prevents "service already connected" errors in subsequent tests.
+	agentEndpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	if err == nil {
+		agentClient := helpers.NewAgentClient(agentEndpoint)
+		_, _ = helpers.DisconnectService(s.ctx, agentClient, "cpu-app")
+		_, _ = helpers.DisconnectService(s.ctx, agentClient, "otel-app")
+		// Ignore errors - services may not have been connected in this test.
+	}
+
+	// Call parent TearDownTest.
+	s.E2EDistributedSuite.TearDownTest()
+}
+
+// TearDownSuite cleans up the colony database after all tests in the suite.
+func (s *ServiceSuite) TearDownSuite() {
+	// Clear service data from colony database to ensure clean state for next suite.
+	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
+	if err == nil {
+		colonyClient := helpers.NewColonyClient(colonyEndpoint)
+		_ = helpers.CleanupColonyDatabase(s.ctx, colonyClient)
+		// Ignore errors - cleanup is best-effort.
+	}
+
+	// Call parent TearDownSuite.
+	s.E2EDistributedSuite.TearDownSuite()
+}
+
 // TestServiceRegistrationAndDiscovery verifies that connected services are registered and queryable.
 //
 // This test bridges Phase 1 (connectivity) and Phase 2 (observability) by ensuring

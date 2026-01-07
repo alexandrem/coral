@@ -30,6 +30,35 @@ func TestTelemetrySuite(t *testing.T) {
 	suite.Run(t, new(TelemetrySuite))
 }
 
+// TearDownTest cleans up services after each test to prevent conflicts.
+func (s *TelemetrySuite) TearDownTest() {
+	// Disconnect cpu-app if it was connected during this test.
+	// This prevents "service already connected" errors in subsequent tests.
+	agentEndpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	if err == nil {
+		agentClient := helpers.NewAgentClient(agentEndpoint)
+		_, _ = helpers.DisconnectService(s.ctx, agentClient, "cpu-app")
+		// Ignore errors - service may not have been connected in this test.
+	}
+
+	// Call parent TearDownTest.
+	s.E2EDistributedSuite.TearDownTest()
+}
+
+// TearDownSuite cleans up the colony database after all tests in the suite.
+func (s *TelemetrySuite) TearDownSuite() {
+	// Clear telemetry data from colony database to ensure clean state for next suite.
+	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
+	if err == nil {
+		colonyClient := helpers.NewColonyClient(colonyEndpoint)
+		_ = helpers.CleanupColonyDatabase(s.ctx, colonyClient)
+		// Ignore errors - cleanup is best-effort.
+	}
+
+	// Call parent TearDownSuite.
+	s.E2EDistributedSuite.TearDownSuite()
+}
+
 // TestBeylaPassiveInstrumentation verifies Beyla eBPF captures HTTP metrics.
 //
 // Test flow:
@@ -202,21 +231,22 @@ func (s *TelemetrySuite) TestBeylaColonyPolling() {
 	s.T().Log("Waiting for colony to poll agent for eBPF metrics...")
 	time.Sleep(90 * time.Second)
 
-	// Query colony for aggregated metrics.
+	// Query colony for aggregated metrics using QueryUnifiedMetrics API.
 	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
 	colonyClient := helpers.NewColonyClient(colonyEndpoint)
 
-	// Query beyla_http_metrics table in colony.
-	queryResp, err := helpers.ExecuteColonyQuery(
+	// Query eBPF metrics via colony API.
+	metricsResp, err := helpers.QueryColonyMetrics(
 		s.ctx,
 		colonyClient,
-		"SELECT COUNT(*) as metric_count FROM beyla_http_metrics WHERE service_name = 'cpu-app'",
-		10,
+		"cpu-app",
+		"5m",
+		"ebpf", // Query only eBPF metrics
 	)
 
-	// If table doesn't exist, that's expected for early implementation.
+	// If API fails, metrics polling may not be implemented yet.
 	if err != nil {
 		s.T().Log("⚠️  WARNING: Colony eBPF metrics polling not yet implemented")
 		s.T().Logf("    Error: %v", err)
@@ -224,12 +254,10 @@ func (s *TelemetrySuite) TestBeylaColonyPolling() {
 		return
 	}
 
-	s.Require().Greater(len(queryResp.Rows), 0, "Expected query results")
+	metricCount := metricsResp.TotalMetrics
+	s.T().Logf("Colony has %d eBPF HTTP metrics for cpu-app", len(metricsResp.HttpMetrics))
 
-	metricCount := queryResp.Rows[0].Values[0]
-	s.T().Logf("Colony has %s eBPF metrics for cpu-app", metricCount)
-
-	if metricCount == "0" {
+	if metricCount == 0 {
 		s.T().Log("⚠️  WARNING: Colony has not yet polled eBPF metrics from agent")
 		s.T().Log("    This may indicate:")
 		s.T().Log("    1. eBPF metrics poller is not yet running in colony")
@@ -572,84 +600,57 @@ func (s *TelemetrySuite) TestTelemetryAggregation() {
 
 	// NOTE: Colony polling is asynchronous and we cannot easily trigger it in E2E tests.
 	// The telemetry poller runs on a configurable interval (typically 1 minute).
-	// For E2E testing, we would need to either:
-	//   1. Wait for the poller interval (flaky, slow)
-	//   2. Expose a manual trigger API (not implemented yet)
-	//   3. Verify via direct database query (requires colony DB access)
-	//
-	// For now, we'll verify the data flow works by querying colony's database
-	// using ExecuteQuery API.
+	// For E2E testing, we wait for the poller interval and verify via colony's
+	// QueryUnifiedSummary API.
 
 	s.T().Log("Waiting for colony to poll agent...")
 	// Wait longer than typical poll interval to ensure at least one poll cycle.
 	time.Sleep(90 * time.Second)
 
-	// Query colony for aggregated summaries.
+	// Query colony for aggregated summaries using QueryUnifiedSummary API.
 	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
 	colonyClient := helpers.NewColonyClient(colonyEndpoint)
 
-	// Query otel_summaries table directly.
-	queryResp, err := helpers.ExecuteColonyQuery(
+	// Query telemetry summaries via colony API.
+	summaryResp, err := helpers.QueryColonySummary(
 		s.ctx,
 		colonyClient,
-		"SELECT COUNT(*) as summary_count FROM otel_summaries WHERE service_name = 'otel-app'",
-		10,
+		"otel-app",
+		"5m",
 	)
 	s.Require().NoError(err, "Failed to query colony summaries")
 
-	s.Require().Greater(len(queryResp.Rows), 0, "Expected query results")
-
-	// Parse count from first row, first column.
-	summaryCount := queryResp.Rows[0].Values[0]
-	s.T().Logf("Colony has %s telemetry summaries for otel-app", summaryCount)
+	summaryCount := len(summaryResp.Summaries)
+	s.T().Logf("Colony has %d telemetry summaries for otel-app", summaryCount)
 
 	// Verify summaries exist (relaxed check since polling is async).
 	// In a real deployment, summaries should be created within 1-2 poll cycles.
-	if summaryCount == "0" {
+	if summaryCount == 0 {
 		s.T().Log("⚠️  WARNING: Colony has not yet aggregated telemetry summaries")
 		s.T().Log("    This may indicate:")
 		s.T().Log("    1. Poller interval is too long for E2E test")
 		s.T().Log("    2. Poller failed to query agent")
 		s.T().Log("    3. Aggregation logic has an issue")
-		s.T().Log("    Skipping P50/P95/P99 verification")
+		s.T().Log("    Skipping verification")
 		return
 	}
 
-	// Query for actual summary data with percentiles.
-	detailQuery := `
-		SELECT
-			service_name,
-			p50_ms,
-			p95_ms,
-			p99_ms,
-			error_count,
-			total_spans
-		FROM otel_summaries
-		WHERE service_name = 'otel-app'
-		ORDER BY bucket_time DESC
-		LIMIT 1
-	`
-
-	detailResp, err := helpers.ExecuteColonyQuery(s.ctx, colonyClient, detailQuery, 10)
-	s.Require().NoError(err, "Failed to query summary details")
-
-	if len(detailResp.Rows) > 0 {
-		row := detailResp.Rows[0]
+	// Verify summary data includes expected metrics.
+	if summaryCount > 0 {
+		summary := summaryResp.Summaries[0]
 		s.T().Logf("✓ Colony aggregated summary:")
-		s.T().Logf("  Service: %s", row.Values[0])
-		s.T().Logf("  P50: %s ms", row.Values[1])
-		s.T().Logf("  P95: %s ms", row.Values[2])
-		s.T().Logf("  P99: %s ms", row.Values[3])
-		s.T().Logf("  Errors: %s", row.Values[4])
-		s.T().Logf("  Total spans: %s", row.Values[5])
+		s.T().Logf("  Service: %s", summary.ServiceName)
+		s.T().Logf("  Status: %s", summary.Status)
+		s.T().Logf("  Avg Latency: %.2f ms", summary.AvgLatencyMs)
+		s.T().Logf("  Error Rate: %.2f%%", summary.ErrorRate)
+		s.T().Logf("  Request Count: %d", summary.RequestCount)
+		s.T().Logf("  Data Source: %s", summary.Source)
 
-		// Basic sanity checks on percentiles.
-		// P95 should be >= P50.
-		// P99 should be >= P95.
-		// All should be > 0 since we generated traffic.
-		s.Require().Equal("otel-app", row.Values[0], "Service name should match")
+		// Basic sanity checks.
+		s.Require().Equal("otel-app", summary.ServiceName, "Service name should match")
+		s.Require().Greater(summary.RequestCount, int64(0), "Request count should be > 0")
 	}
 
 	s.T().Log("✓ Colony aggregation verified end-to-end")
@@ -767,22 +768,22 @@ func (s *TelemetrySuite) TestSystemMetricsPolling() {
 	s.T().Log("Waiting for colony to poll agent for system metrics...")
 	time.Sleep(90 * time.Second)
 
-	// Query colony for aggregated metrics.
+	// Query colony for aggregated metrics using QueryUnifiedSummary API.
+	// System metrics are included in the unified summary response as host_* fields.
 	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
 	colonyClient := helpers.NewColonyClient(colonyEndpoint)
 
-	// Check if colony has system metrics summaries.
-	// The exact table name may vary based on implementation.
-	queryResp, err := helpers.ExecuteColonyQuery(
+	// Query all services to get system metrics (host metrics are per-agent).
+	summaryResp, err := helpers.QueryColonySummary(
 		s.ctx,
 		colonyClient,
-		"SELECT COUNT(*) as metric_count FROM system_metrics WHERE agent_id = 'agent-0'",
-		10,
+		"", // Query all services
+		"5m",
 	)
 
-	// If the table doesn't exist yet, that's expected for early implementation.
+	// If API fails, system metrics polling may not be implemented yet.
 	if err != nil {
 		s.T().Log("⚠️  WARNING: Colony system metrics polling not yet implemented")
 		s.T().Logf("    Error: %v", err)
@@ -790,12 +791,22 @@ func (s *TelemetrySuite) TestSystemMetricsPolling() {
 		return
 	}
 
-	s.Require().Greater(len(queryResp.Rows), 0, "Expected query results")
+	// Look for summaries with system metrics populated.
+	hasSystemMetrics := false
+	for _, summary := range summaryResp.Summaries {
+		if summary.AgentId == "agent-0" && summary.HostCpuUtilization > 0 {
+			hasSystemMetrics = true
+			s.T().Logf("✓ Found system metrics for agent-0:")
+			s.T().Logf("  CPU Utilization: %.2f%%", summary.HostCpuUtilization)
+			s.T().Logf("  CPU Utilization (avg): %.2f%%", summary.HostCpuUtilizationAvg)
+			s.T().Logf("  Memory Usage: %.2f GB", summary.HostMemoryUsageGb)
+			s.T().Logf("  Memory Limit: %.2f GB", summary.HostMemoryLimitGb)
+			s.T().Logf("  Memory Utilization: %.2f%%", summary.HostMemoryUtilization)
+			break
+		}
+	}
 
-	metricCount := queryResp.Rows[0].Values[0]
-	s.T().Logf("Colony has %s system metrics for agent-0", metricCount)
-
-	if metricCount == "0" {
+	if !hasSystemMetrics {
 		s.T().Log("⚠️  WARNING: Colony has not yet polled system metrics from agent")
 		s.T().Log("    This may indicate:")
 		s.T().Log("    1. System metrics poller is not yet running in colony")

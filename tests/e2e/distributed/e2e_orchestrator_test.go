@@ -109,7 +109,10 @@ func (s *E2EOrchestratorSuite) Test2_ServiceManagement() {
 	}
 	serviceSuite.SetT(s.T())
 
-	s.Run("ServiceRegistrationAndDiscovery", serviceSuite.TestServiceRegistrationAndDiscovery)
+	s.Run("ServiceRegistrationAndDiscovery", func() {
+		serviceSuite.TestServiceRegistrationAndDiscovery()
+		serviceSuite.TearDownTest() // Clean up services after test
+	})
 	s.Run("DynamicServiceConnection", serviceSuite.TestDynamicServiceConnection)
 	s.Run("ServiceConnectionAtStartup", serviceSuite.TestServiceConnectionAtStartup)
 	s.Run("MultiServiceRegistration", serviceSuite.TestMultiServiceRegistration)
@@ -141,9 +144,18 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 	telemetrySuite.SetT(s.T())
 
 	// Beyla tests.
-	s.Run("BeylaPassiveInstrumentation", telemetrySuite.TestBeylaPassiveInstrumentation)
-	s.Run("BeylaColonyPolling", telemetrySuite.TestBeylaColonyPolling)
-	s.Run("BeylaVsOTLPComparison", telemetrySuite.TestBeylaVsOTLPComparison)
+	s.Run("BeylaPassiveInstrumentation", func() {
+		telemetrySuite.TestBeylaPassiveInstrumentation()
+		telemetrySuite.TearDownTest() // Clean up services after test
+	})
+	s.Run("BeylaColonyPolling", func() {
+		telemetrySuite.TestBeylaColonyPolling()
+		telemetrySuite.TearDownTest() // Clean up services after test
+	})
+	s.Run("BeylaVsOTLPComparison", func() {
+		telemetrySuite.TestBeylaVsOTLPComparison()
+		telemetrySuite.TearDownTest() // Clean up services after test
+	})
 
 	// OTLP tests.
 	s.Run("OTLPIngestion", telemetrySuite.TestOTLPIngestion)
