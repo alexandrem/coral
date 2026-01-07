@@ -388,10 +388,10 @@ func (s *ServiceRegistry) createHTTPServers(
 			// Skip creating a separate mesh server; the wildcard listener below covers it.
 		} else {
 			meshAddr := net.JoinHostPort(s.meshIP, "9001")
-			//nolint:gosec // G112: ReadHeaderTimeout will be added in future refactoring
 			meshServer = &http.Server{
-				Addr:    meshAddr,
-				Handler: httpHandler,
+				Addr:              meshAddr,
+				Handler:           httpHandler,
+				ReadHeaderTimeout: 30 * time.Second,
 			}
 
 			go func() {
