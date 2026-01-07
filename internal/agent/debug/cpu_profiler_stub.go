@@ -8,7 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 )
 
 // CPUProfileSession represents an active CPU profiling session (stub for non-Linux).
@@ -16,7 +16,7 @@ type CPUProfileSession struct{}
 
 // CPUProfileResult contains the results of a CPU profiling session (stub for non-Linux).
 type CPUProfileResult struct {
-	Samples      []*colonypb.StackSample
+	Samples      []*agentv1.StackSample
 	TotalSamples uint64
 	LostSamples  uint32
 }
@@ -37,6 +37,6 @@ func (s *CPUProfileSession) Close() error {
 }
 
 // FormatFoldedStacks formats stack samples in the "folded" format (stub for non-Linux).
-func FormatFoldedStacks(samples []*colonypb.StackSample) string {
+func FormatFoldedStacks(samples []*agentv1.StackSample) string {
 	return ""
 }

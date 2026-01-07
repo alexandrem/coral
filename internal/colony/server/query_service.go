@@ -42,9 +42,9 @@ func (s *Server) ListServices(
 	}
 	defer func() { _ = rows.Close() }()
 
-	var services []*colonyv1.ServiceInfo
+	var services []*colonyv1.ServiceSummary
 	for rows.Next() {
-		var svc colonyv1.ServiceInfo
+		var svc colonyv1.ServiceSummary
 		var lastSeen time.Time
 		if err := rows.Scan(&svc.Name, &svc.Namespace, &svc.InstanceCount, &lastSeen); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to scan service: %w", err))

@@ -23,6 +23,12 @@ func TestContinuousProfilingEndToEnd(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
+	// Skip if not running as root or without eBPF capabilities.
+	// eBPF requires CAP_BPF (or root) and adequate RLIMIT_MEMLOCK.
+	if os.Geteuid() != 0 {
+		t.Skip("Skipping eBPF test: requires root or CAP_BPF capability")
+	}
+
 	// Create temporary database.
 	tmpDB := t.TempDir() + "/test.duckdb"
 	db, err := sql.Open("duckdb", tmpDB)
@@ -47,7 +53,7 @@ func TestContinuousProfilingEndToEnd(t *testing.T) {
 		MetadataRetention: 7 * 24 * time.Hour,
 	}
 
-	profiler, err := NewContinuousCPUProfiler(db, sessionManager, logger, config)
+	profiler, err := NewContinuousCPUProfiler(context.Background(), db, sessionManager, logger, config)
 	require.NoError(t, err, "Failed to create continuous profiler")
 
 	// Get our own PID to profile.

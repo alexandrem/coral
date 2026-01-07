@@ -37,7 +37,7 @@ func NewTraceCmd() *cobra.Command {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			client := colonyv1connect.NewDebugServiceClient(
+			client := colonyv1connect.NewColonyDebugServiceClient(
 				http.DefaultClient,
 				colonyAddr,
 			)

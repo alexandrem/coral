@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -10,7 +11,7 @@ import (
 // GetAllIPAllocationsForWireguard retrieves all IP allocations in the format
 // required by the wireguard.IPAllocationStore interface.
 func (d *Database) GetAllIPAllocationsForWireguard() ([]*wireguard.StoredIPAllocation, error) {
-	allocations, err := d.GetAllIPAllocations()
+	allocations, err := d.GetAllIPAllocations(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +30,7 @@ func (d *Database) GetAllIPAllocationsForWireguard() ([]*wireguard.StoredIPAlloc
 // GetIPAllocationForWireguard retrieves an IP allocation in the format
 // required by the wireguard.IPAllocationStore interface.
 func (d *Database) GetIPAllocationForWireguard(agentID string) (*wireguard.StoredIPAllocation, error) {
-	allocation, err := d.GetIPAllocation(agentID)
+	allocation, err := d.GetIPAllocation(context.Background(), agentID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("no IP allocation found for agent %s", agentID)
@@ -70,7 +71,7 @@ func (s *DatabaseIPAllocationStore) UpdateIPAllocationLastSeen(agentID string) e
 }
 
 func (s *DatabaseIPAllocationStore) ReleaseIPAllocation(agentID string) error {
-	return s.db.ReleaseIPAllocation(agentID)
+	return s.db.ReleaseIPAllocation(context.Background(), agentID)
 }
 
 func (s *DatabaseIPAllocationStore) IsIPAllocated(ipAddress string) (bool, error) {

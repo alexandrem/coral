@@ -29,13 +29,12 @@ type DebugSessionFilters struct {
 }
 
 // InsertDebugSession persists a new debug session to the database.
-func (d *Database) InsertDebugSession(session *DebugSession) error {
-	return d.debugSessionsTable.Upsert(context.Background(), session)
+func (d *Database) InsertDebugSession(ctx context.Context, session *DebugSession) error {
+	return d.debugSessionsTable.Insert(ctx, session)
 }
 
 // UpdateDebugSessionStatus updates the status of a debug session.
-func (d *Database) UpdateDebugSessionStatus(sessionID, status string) error {
-	ctx := context.Background()
+func (d *Database) UpdateDebugSessionStatus(ctx context.Context, sessionID, status string) error {
 	session, err := d.debugSessionsTable.Get(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get debug session: %w", err)
@@ -45,8 +44,8 @@ func (d *Database) UpdateDebugSessionStatus(sessionID, status string) error {
 }
 
 // GetDebugSession retrieves a debug session by ID.
-func (d *Database) GetDebugSession(sessionID string) (*DebugSession, error) {
-	return d.debugSessionsTable.Get(context.Background(), sessionID)
+func (d *Database) GetDebugSession(ctx context.Context, sessionID string) (*DebugSession, error) {
+	return d.debugSessionsTable.Get(ctx, sessionID)
 }
 
 // ListDebugSessions retrieves debug sessions matching the provided filters.

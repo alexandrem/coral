@@ -23,6 +23,7 @@ func TestNewRuntimeService(t *testing.T) {
 		{
 			name: "default refresh interval",
 			config: RuntimeServiceConfig{
+				Context: context.Background(),
 				Logger:  logger,
 				Version: "v2.0.0",
 			},
@@ -31,6 +32,7 @@ func TestNewRuntimeService(t *testing.T) {
 		{
 			name: "custom refresh interval",
 			config: RuntimeServiceConfig{
+				Context:         context.Background(),
 				Logger:          logger,
 				Version:         "v2.0.0",
 				RefreshInterval: 10 * time.Minute,
@@ -53,6 +55,7 @@ func TestNewRuntimeService(t *testing.T) {
 func TestRuntimeService_StartAndStop(t *testing.T) {
 	logger := zerolog.Nop()
 	svc, err := NewRuntimeService(RuntimeServiceConfig{
+		Context:         context.Background(),
 		Logger:          logger,
 		Version:         "v2.0.0-test",
 		RefreshInterval: 1 * time.Minute,
@@ -76,6 +79,7 @@ func TestRuntimeService_StartAndStop(t *testing.T) {
 func TestRuntimeService_GetRuntimeContext(t *testing.T) {
 	logger := zerolog.Nop()
 	svc, err := NewRuntimeService(RuntimeServiceConfig{
+		Context: context.Background(),
 		Logger:  logger,
 		Version: "v2.0.0",
 	})
@@ -102,6 +106,7 @@ func TestRuntimeService_GetRuntimeContext(t *testing.T) {
 func TestRuntimeService_GetRuntimeContext_NotStarted(t *testing.T) {
 	logger := zerolog.Nop()
 	svc, err := NewRuntimeService(RuntimeServiceConfig{
+		Context: context.Background(),
 		Logger:  logger,
 		Version: "v2.0.0",
 	})
@@ -119,6 +124,7 @@ func TestRuntimeService_GetRuntimeContext_NotStarted(t *testing.T) {
 func TestRuntimeService_RefreshContext(t *testing.T) {
 	logger := zerolog.Nop()
 	svc, err := NewRuntimeService(RuntimeServiceConfig{
+		Context: context.Background(),
 		Logger:  logger,
 		Version: "v2.0.0",
 	})
@@ -151,6 +157,7 @@ func TestRuntimeService_RefreshContext(t *testing.T) {
 func TestRuntimeService_HasContextChanged(t *testing.T) {
 	logger := zerolog.Nop()
 	svc, err := NewRuntimeService(RuntimeServiceConfig{
+		Context: context.Background(),
 		Logger:  logger,
 		Version: "v2.0.0",
 	})
@@ -221,6 +228,7 @@ func TestRuntimeService_HasContextChanged(t *testing.T) {
 func TestRuntimeService_GetDetectedAt(t *testing.T) {
 	logger := zerolog.Nop()
 	svc, err := NewRuntimeService(RuntimeServiceConfig{
+		Context: context.Background(),
 		Logger:  logger,
 		Version: "v2.0.0",
 	})
@@ -242,6 +250,7 @@ func TestRuntimeService_GetDetectedAt(t *testing.T) {
 func TestRuntimeService_GetCachedContext(t *testing.T) {
 	logger := zerolog.Nop()
 	svc, err := NewRuntimeService(RuntimeServiceConfig{
+		Context: context.Background(),
 		Logger:  logger,
 		Version: "v2.0.0",
 	})

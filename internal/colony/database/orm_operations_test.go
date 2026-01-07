@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -211,13 +212,13 @@ func testDebugSessionOperations(t *testing.T, db *Database) {
 			Status:       "active",
 			EventCount:   0,
 		}
-		err := db.InsertDebugSession(session)
+		err := db.InsertDebugSession(context.Background(), session)
 		require.NoError(t, err, "Insert should succeed")
 	})
 
-	t.Run("Upsert_SameKey", func(t *testing.T) {
+	t.Run("Update_Status", func(t *testing.T) {
 		session := &DebugSession{
-			SessionID:    "session-upsert",
+			SessionID:    "session-update",
 			CollectorID:  "collector-2",
 			ServiceName:  "test-service",
 			FunctionName: "TestFunction",
@@ -230,48 +231,28 @@ func testDebugSessionOperations(t *testing.T, db *Database) {
 		}
 
 		// First insert
-		err := db.InsertDebugSession(session)
-		require.NoError(t, err, "First insert should succeed")
+		err := db.InsertDebugSession(context.Background(), session)
+		require.NoError(t, err, "Insert should succeed")
 
-		// Update mutable fields
-		session.ExpiresAt = time.Now().Add(120 * time.Second)
-		session.Status = "stopped"
-		session.EventCount = 42
-
-		err = db.InsertDebugSession(session)
-		require.NoError(t, err, "Second insert (upsert) should succeed")
+		// Update status using the proper update method
+		err = db.UpdateDebugSessionStatus(context.Background(), "session-update", "stopped")
+		require.NoError(t, err, "Update status should succeed")
 
 		// Verify update
-		retrieved, err := db.GetDebugSession("session-upsert")
+		retrieved, err := db.GetDebugSession(context.Background(), "session-update")
 		require.NoError(t, err)
 		assert.Equal(t, "stopped", retrieved.Status)
-		assert.Equal(t, 42, retrieved.EventCount)
 	})
 
-	t.Run("ConcurrentUpserts", func(t *testing.T) {
+	t.Run("ConcurrentInserts", func(t *testing.T) {
 		const goroutines = 10
 		errCh := make(chan error, goroutines)
 
-		// First insert
-		session := &DebugSession{
-			SessionID:    "session-concurrent",
-			CollectorID:  "collector-3",
-			ServiceName:  "test-service",
-			FunctionName: "TestFunction",
-			AgentID:      "agent-3",
-			SDKAddr:      "localhost:9092",
-			StartedAt:    time.Now(),
-			ExpiresAt:    time.Now().Add(60 * time.Second),
-			Status:       "active",
-			EventCount:   0,
-		}
-		err := db.InsertDebugSession(session)
-		require.NoError(t, err)
-
+		// Insert different sessions concurrently
 		for i := 0; i < goroutines; i++ {
 			go func(idx int) {
 				s := &DebugSession{
-					SessionID:    "session-concurrent",
+					SessionID:    fmt.Sprintf("session-concurrent-%d", idx),
 					CollectorID:  "collector-3",
 					ServiceName:  "test-service",
 					FunctionName: "TestFunction",
@@ -282,13 +263,13 @@ func testDebugSessionOperations(t *testing.T, db *Database) {
 					Status:       "active",
 					EventCount:   idx,
 				}
-				errCh <- db.InsertDebugSession(s)
+				errCh <- db.InsertDebugSession(context.Background(), s)
 			}(i)
 		}
 
 		for i := 0; i < goroutines; i++ {
 			err := <-errCh
-			assert.NoError(t, err, "Concurrent upsert #%d should succeed", i)
+			assert.NoError(t, err, "Concurrent insert #%d should succeed", i)
 		}
 	})
 }

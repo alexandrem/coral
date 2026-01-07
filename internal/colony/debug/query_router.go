@@ -14,9 +14,9 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -27,7 +27,7 @@ type QueryRouter struct {
 	logger        zerolog.Logger
 	registry      *registry.Registry
 	db            *database.Database
-	clientFactory func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient
+	clientFactory func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentDebugServiceClient
 }
 
 // NewQueryRouter creates a new query router.
@@ -35,7 +35,7 @@ func NewQueryRouter(
 	logger zerolog.Logger,
 	registry *registry.Registry,
 	db *database.Database,
-	clientFactory func(connect.HTTPClient, string, ...connect.ClientOption) meshv1connect.DebugServiceClient,
+	clientFactory func(connect.HTTPClient, string, ...connect.ClientOption) agentv1connect.AgentDebugServiceClient,
 ) *QueryRouter {
 	return &QueryRouter{
 		logger:        logger.With().Str("component", "query_router").Logger(),
@@ -55,7 +55,7 @@ func (qr *QueryRouter) QueryUprobeEvents(
 		Msg("Querying uprobe events")
 
 	// Query session from database.
-	session, err := qr.db.GetDebugSession(req.Msg.SessionId)
+	session, err := qr.db.GetDebugSession(ctx, req.Msg.SessionId)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
@@ -70,7 +70,7 @@ func (qr *QueryRouter) QueryUprobeEvents(
 	}
 
 	// Determine if we should query from agent or database.
-	var uprobeEvents []*meshv1.UprobeEvent
+	var uprobeEvents []*agentv1.UprobeEvent
 	sessionExpired := time.Now().After(session.ExpiresAt) || session.Status == "stopped"
 
 	if sessionExpired {
@@ -132,7 +132,7 @@ func (qr *QueryRouter) QueryUprobeEvents(
 				fmt.Sprintf("http://%s", agentAddr),
 			)
 
-			queryReq := connect.NewRequest(&meshv1.QueryUprobeEventsRequest{
+			queryReq := connect.NewRequest(&agentv1.QueryUprobeEventsRequest{
 				CollectorId: session.CollectorID,
 				StartTime:   req.Msg.StartTime,
 				EndTime:     req.Msg.EndTime,
@@ -147,12 +147,8 @@ func (qr *QueryRouter) QueryUprobeEvents(
 					Msg("Failed to query uprobe events from agent, will fallback to database")
 				agentQueryFailed = true
 			} else {
-				// Extract UprobeEvent from EbpfEvent wrapper.
-				for _, ebpfEvent := range queryResp.Msg.Events {
-					if ebpfEvent.GetUprobeEvent() != nil {
-						uprobeEvents = append(uprobeEvents, ebpfEvent.GetUprobeEvent())
-					}
-				}
+				// Events are already UprobeEvents (not wrapped in EbpfEvent).
+				uprobeEvents = append(uprobeEvents, queryResp.Msg.Events...)
 
 				qr.logger.Debug().
 					Str("session_id", req.Msg.SessionId).
@@ -216,7 +212,7 @@ func (qr *QueryRouter) GetDebugResults(
 		Msg("Getting debug results")
 
 	// Query session from database.
-	session, err := qr.db.GetDebugSession(req.Msg.SessionId)
+	session, err := qr.db.GetDebugSession(ctx, req.Msg.SessionId)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
@@ -231,7 +227,7 @@ func (qr *QueryRouter) GetDebugResults(
 	}
 
 	// Determine if we should query from agent or database.
-	var uprobeEvents []*meshv1.UprobeEvent
+	var uprobeEvents []*agentv1.UprobeEvent
 	var processID int32
 	var binaryPath string
 
@@ -291,7 +287,7 @@ func (qr *QueryRouter) GetDebugResults(
 			fmt.Sprintf("http://%s", agentAddr),
 		)
 
-		queryReq := connect.NewRequest(&meshv1.QueryUprobeEventsRequest{
+		queryReq := connect.NewRequest(&agentv1.QueryUprobeEventsRequest{
 			CollectorId: session.CollectorID,
 			StartTime:   timestamppb.New(session.StartedAt),
 			EndTime:     timestamppb.New(session.ExpiresAt),
@@ -307,12 +303,8 @@ func (qr *QueryRouter) GetDebugResults(
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query events: %v", err))
 		}
 
-		// Extract UprobeEvent from EbpfEvent wrapper.
-		for _, ebpfEvent := range queryResp.Msg.Events {
-			if ebpfEvent.GetUprobeEvent() != nil {
-				uprobeEvents = append(uprobeEvents, ebpfEvent.GetUprobeEvent())
-			}
-		}
+		// Events are already UprobeEvents (not wrapped in EbpfEvent).
+		uprobeEvents = append(uprobeEvents, queryResp.Msg.Events...)
 
 		qr.logger.Info().
 			Str("session_id", req.Msg.SessionId).

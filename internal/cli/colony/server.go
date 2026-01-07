@@ -186,7 +186,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	// Register the handlers
 	meshPath, meshHandler := meshv1connect.NewMeshServiceHandler(meshSvc)
 	colonyPath, colonyHandler := colonyv1connect.NewColonyServiceHandler(colonySvc)
-	debugPath, debugHandler := colonyv1connect.NewDebugServiceHandler(debugOrchestrator)
+	debugPath, debugHandler := colonyv1connect.NewColonyDebugServiceHandler(debugOrchestrator)
 
 	// Create HTTP server
 	mux := http.NewServeMux()

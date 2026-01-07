@@ -1,0 +1,163 @@
+syntax = "proto3";
+package coral.agent.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "coral/agent/v1/agent.proto";
+
+option go_package = "github.com/coral-mesh/coral/coral/agent/v1;agentv1";
+
+// StartUprobeCollectorRequest initiates a uprobe-based function tracer (RFD 059).
+message StartUprobeCollectorRequest {
+  string agent_id = 1;
+  string service_name = 2;
+  string function_name = 3;         // e.g., "github.com/myapp/pkg.ValidateCard"
+  google.protobuf.Duration duration = 4;  // Max 600s
+  UprobeConfig config = 5;
+  string sdk_addr = 6;              // SDK debug service address (e.g., "localhost:50051")
+}
+
+// UprobeConfig specifies what data to capture from function calls.
+message UprobeConfig {
+  bool capture_args = 1;            // Capture function arguments
+  bool capture_return = 2;          // Capture return values
+  uint32 sample_rate = 3;           // Sample every Nth call (0 = all)
+  uint32 max_events = 4;            // Max events to collect (safety limit)
+}
+
+// StartUprobeCollectorResponse confirms uprobe attachment.
+message StartUprobeCollectorResponse {
+  string collector_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  bool supported = 3;  // false if uprobes not available
+  string error = 4;    // error message if supported=false
+}
+
+// StopUprobeCollectorRequest stops a running uprobe collector.
+message StopUprobeCollectorRequest {
+  string collector_id = 1;
+}
+
+// StopUprobeCollectorResponse confirms uprobe stop.
+message StopUprobeCollectorResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// QueryUprobeEventsRequest retrieves events from a uprobe collector.
+message QueryUprobeEventsRequest {
+  string collector_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  int32 max_events = 4;             // Pagination
+}
+
+// FunctionArgument represents a captured function argument (RFD 059).
+message FunctionArgument {
+  string name = 1;                  // Argument name from DWARF
+  string type = 2;                  // Go type
+  string value = 3;                 // String representation (limited depth)
+}
+
+// FunctionReturnValue represents a captured return value (RFD 059).
+message FunctionReturnValue {
+  string type = 1;
+  string value = 2;
+  bool is_error = 3;                // For Go error returns
+  string error_message = 4;
+}
+
+// UprobeEvent represents a single function entry/return event (RFD 059).
+message UprobeEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  string collector_id = 2;
+  string agent_id = 3;
+  string service_name = 4;
+  string function_name = 5;
+
+  string event_type = 6;            // "entry" or "return"
+  uint64 duration_ns = 7;           // Only for "return" events
+
+  int32 pid = 8;
+  int32 tid = 9;
+
+  // Argument/return value capture (optional, based on config).
+  repeated FunctionArgument args = 10;
+  FunctionReturnValue return_value = 11;
+
+  map<string, string> labels = 12;
+}
+
+// EbpfEvent is used for QueryUprobeEventsResponse (contains various event types).
+// Note: This references the EbpfEvent from mesh/v1/ebpf.proto, but we need to import it.
+// For now, we'll define QueryUprobeEventsResponse to return UprobeEvent directly.
+message QueryUprobeEventsResponse {
+  repeated UprobeEvent events = 1;
+  bool has_more = 2;                // Pagination indicator
+}
+
+// ProfileCPUAgentRequest initiates CPU profiling on an agent (RFD 070).
+message ProfileCPUAgentRequest {
+  string agent_id = 1;              // Target agent ID
+  string service_name = 2;          // Service name
+  int32 pid = 3;                    // Target process ID
+  int32 duration_seconds = 4;       // Profiling duration (default: 30s, max: 300s)
+  int32 frequency_hz = 5;           // Sampling frequency (default: 99Hz, max: 1000Hz)
+}
+
+// StackSample represents a unique stack trace with sample count.
+message StackSample {
+  repeated string frame_names = 1;  // Stack frames from innermost to outermost
+  uint64 count = 2;                 // Number of times sampled
+}
+
+// ProfileCPUAgentResponse returns CPU profile samples (RFD 070).
+message ProfileCPUAgentResponse {
+  repeated StackSample samples = 1; // Collected stack samples
+  uint64 total_samples = 2;         // Total samples collected
+  uint32 lost_samples = 3;          // Samples lost due to map overflow
+  string error = 4;                 // Error message if collection failed
+  bool success = 5;                 // Whether profiling succeeded
+}
+
+// QueryCPUProfileSamplesRequest retrieves historical CPU profile samples from agent's local storage (RFD 072).
+message QueryCPUProfileSamplesRequest {
+  string service_name = 1;                    // Service name filter (optional)
+  string pod_name = 2;                        // Pod name filter (optional)
+  google.protobuf.Timestamp start_time = 3;   // Start of time range
+  google.protobuf.Timestamp end_time = 4;     // End of time range
+}
+
+// CPUProfileSample represents a single aggregated profile sample with build ID (RFD 072).
+message CPUProfileSample {
+  google.protobuf.Timestamp timestamp = 1;    // Sample timestamp
+  string build_id = 2;                        // Binary build ID (for version tracking)
+  repeated string stack_frames = 3;           // Decoded stack frames
+  uint32 sample_count = 4;                    // Number of samples for this stack
+  string service_name = 5;                    // Service name (RFD 072 fix)
+}
+
+// QueryCPUProfileSamplesResponse returns historical CPU profile samples (RFD 072).
+message QueryCPUProfileSamplesResponse {
+  repeated CPUProfileSample samples = 1;      // Historical profile samples
+  uint64 total_samples = 2;                   // Total samples in response
+  string error = 3;                           // Error message if query failed
+}
+
+// AgentDebugService handles uprobe-based debugging operations (RFD 059) and CPU profiling (RFD 070, RFD 072).
+service AgentDebugService {
+  // Start a uprobe collector on an agent.
+  rpc StartUprobeCollector(StartUprobeCollectorRequest) returns (StartUprobeCollectorResponse);
+
+  // Stop a running uprobe collector.
+  rpc StopUprobeCollector(StopUprobeCollectorRequest) returns (StopUprobeCollectorResponse);
+
+  // Query events from a uprobe collector.
+  rpc QueryUprobeEvents(QueryUprobeEventsRequest) returns (QueryUprobeEventsResponse);
+
+  // Collect CPU profile samples for a target process (RFD 070).
+  rpc ProfileCPU(ProfileCPUAgentRequest) returns (ProfileCPUAgentResponse);
+
+  // Query historical CPU profile samples from continuous profiling (RFD 072).
+  rpc QueryCPUProfileSamples(QueryCPUProfileSamplesRequest) returns (QueryCPUProfileSamplesResponse);
+}

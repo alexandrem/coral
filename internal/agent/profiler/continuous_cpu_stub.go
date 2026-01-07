@@ -3,6 +3,7 @@
 package profiler
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -33,6 +34,7 @@ type ContinuousCPUProfiler struct{}
 
 // NewContinuousCPUProfiler is not supported on non-Linux platforms.
 func NewContinuousCPUProfiler(
+	parentCtx context.Context,
 	db *sql.DB,
 	sessionManager *debug.SessionManager,
 	logger zerolog.Logger,

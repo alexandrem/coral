@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 func NewAttachCmd() *cobra.Command {
@@ -42,7 +42,7 @@ func NewAttachCmd() *cobra.Command {
 			}
 
 			// Create Colony client
-			client := colonyv1connect.NewDebugServiceClient(
+			client := colonyv1connect.NewColonyDebugServiceClient(
 				http.DefaultClient,
 				colonyAddr,
 			)
@@ -56,7 +56,7 @@ func NewAttachCmd() *cobra.Command {
 				ServiceName:  serviceName,
 				FunctionName: functionName,
 				Duration:     durationpb.New(duration),
-				Config: &meshv1.UprobeConfig{
+				Config: &agentv1.UprobeConfig{
 					CaptureArgs:   captureArgs,
 					CaptureReturn: captureReturn,
 					SampleRate:    sampleRate,

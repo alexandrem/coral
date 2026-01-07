@@ -16,7 +16,6 @@ import (
 
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
-	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/collector"
 	"github.com/coral-mesh/coral/internal/agent/profiler"
@@ -42,6 +41,7 @@ type ServicesResult struct {
 
 // ServiceRegistry handles service registration and HTTP servers.
 type ServiceRegistry struct {
+	parentCtx     context.Context
 	logger        logging.Logger
 	agentCfg      *config.AgentConfig
 	cfg           *config.ResolvedConfig
@@ -60,6 +60,7 @@ type ServiceRegistry struct {
 
 // NewServiceRegistry creates a new service registry.
 func NewServiceRegistry(
+	parentCtx context.Context,
 	logger logging.Logger,
 	agentCfg *config.AgentConfig,
 	cfg *config.ResolvedConfig,
@@ -76,6 +77,7 @@ func NewServiceRegistry(
 	connectionMgr *ConnectionManager,
 ) *ServiceRegistry {
 	return &ServiceRegistry{
+		parentCtx:     parentCtx,
 		logger:        logger,
 		agentCfg:      agentCfg,
 		cfg:           cfg,
@@ -297,6 +299,7 @@ func (s *ServiceRegistry) startContinuousCPUProfiler() error {
 	debugManager := s.agentInstance.GetDebugManager()
 
 	cpuProfiler, err := profiler.NewContinuousCPUProfiler(
+		s.parentCtx,
 		s.sharedDB,
 		debugManager,
 		s.logger,
@@ -356,7 +359,7 @@ func (s *ServiceRegistry) createHTTPServers(
 	// Create debug service handler (RFD 059).
 	debugService := agent.NewDebugService(s.agentInstance, s.logger)
 	debugAdapter := agent.NewDebugServiceAdapter(debugService)
-	debugPath, debugHandler := meshv1connect.NewDebugServiceHandler(debugAdapter)
+	debugPath, debugHandler := agentv1connect.NewAgentDebugServiceHandler(debugAdapter)
 
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)

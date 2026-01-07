@@ -7,14 +7,14 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 )
 
 // EventPair represents a matched entry/exit pair of uprobe events.
 type EventPair struct {
-	Entry    *meshv1.UprobeEvent
-	Exit     *meshv1.UprobeEvent
+	Entry    *agentv1.UprobeEvent
+	Exit     *agentv1.UprobeEvent
 	Duration time.Duration
 }
 
@@ -29,7 +29,7 @@ type CallStackFrame struct {
 }
 
 // BuildCallTreeFromEvents constructs a call tree from uprobe entry/exit events.
-func BuildCallTreeFromEvents(events []*meshv1.UprobeEvent, p95Duration time.Duration) *debugpb.CallTree {
+func BuildCallTreeFromEvents(events []*agentv1.UprobeEvent, p95Duration time.Duration) *debugpb.CallTree {
 	if len(events) == 0 {
 		return nil
 	}
@@ -64,8 +64,8 @@ func BuildCallTreeFromEvents(events []*meshv1.UprobeEvent, p95Duration time.Dura
 }
 
 // groupEventsByThread groups events by their thread ID.
-func groupEventsByThread(events []*meshv1.UprobeEvent) map[int32][]*meshv1.UprobeEvent {
-	grouped := make(map[int32][]*meshv1.UprobeEvent)
+func groupEventsByThread(events []*agentv1.UprobeEvent) map[int32][]*agentv1.UprobeEvent {
+	grouped := make(map[int32][]*agentv1.UprobeEvent)
 
 	for _, event := range events {
 		tid := event.Tid
@@ -83,7 +83,7 @@ func groupEventsByThread(events []*meshv1.UprobeEvent) map[int32][]*meshv1.Uprob
 }
 
 // buildCallStacksForThread builds call stacks from a thread's events.
-func buildCallStacksForThread(events []*meshv1.UprobeEvent) []*CallStackFrame {
+func buildCallStacksForThread(events []*agentv1.UprobeEvent) []*CallStackFrame {
 	var roots []*CallStackFrame
 	var stack []*CallStackFrame
 
@@ -244,7 +244,7 @@ func convertToProtoNode(frame *CallStackFrame, p95Duration time.Duration) *debug
 }
 
 // AggregateStatistics computes statistics from uprobe events.
-func AggregateStatistics(events []*meshv1.UprobeEvent) *debugpb.DebugStatistics {
+func AggregateStatistics(events []*agentv1.UprobeEvent) *debugpb.DebugStatistics {
 	if len(events) == 0 {
 		return &debugpb.DebugStatistics{}
 	}
@@ -299,7 +299,7 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 }
 
 // FindSlowOutliers identifies events that exceed the P95 threshold.
-func FindSlowOutliers(events []*meshv1.UprobeEvent, p95Duration time.Duration) []*debugpb.SlowOutlier {
+func FindSlowOutliers(events []*agentv1.UprobeEvent, p95Duration time.Duration) []*debugpb.SlowOutlier {
 	var outliers []*debugpb.SlowOutlier
 
 	for _, event := range events {

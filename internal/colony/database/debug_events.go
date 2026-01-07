@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 )
 
 // DebugEvent represents a stored uprobe event.
@@ -32,7 +32,7 @@ type DebugEvent struct {
 }
 
 // InsertDebugEvents persists a batch of uprobe events to the database.
-func (d *Database) InsertDebugEvents(sessionID string, events []*meshv1.UprobeEvent) error {
+func (d *Database) InsertDebugEvents(ctx context.Context, sessionID string, events []*agentv1.UprobeEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -104,11 +104,11 @@ func (d *Database) InsertDebugEvents(sessionID string, events []*meshv1.UprobeEv
 		})
 	}
 
-	return d.debugEventsTable.BatchUpsert(context.Background(), items)
+	return d.debugEventsTable.BatchUpsert(ctx, items)
 }
 
 // GetDebugEvents retrieves all stored events for a debug session.
-func (d *Database) GetDebugEvents(sessionID string) ([]*meshv1.UprobeEvent, error) {
+func (d *Database) GetDebugEvents(sessionID string) ([]*agentv1.UprobeEvent, error) {
 	query := `
 		SELECT timestamp, collector_id, agent_id, service_name, function_name,
 		       event_type, duration_ns, pid, tid, args, return_value, labels
@@ -123,7 +123,7 @@ func (d *Database) GetDebugEvents(sessionID string) ([]*meshv1.UprobeEvent, erro
 	}
 	defer func() { _ = rows.Close() }()
 
-	var events []*meshv1.UprobeEvent
+	var events []*agentv1.UprobeEvent
 	for rows.Next() {
 		var timestamp time.Time
 		var collectorID, agentID, serviceName, functionName, eventType string
@@ -148,7 +148,7 @@ func (d *Database) GetDebugEvents(sessionID string) ([]*meshv1.UprobeEvent, erro
 			return nil, fmt.Errorf("failed to scan debug event: %w", err)
 		}
 
-		event := &meshv1.UprobeEvent{
+		event := &agentv1.UprobeEvent{
 			Timestamp:    timestamppb.New(timestamp),
 			CollectorId:  collectorID,
 			AgentId:      agentID,
@@ -171,7 +171,7 @@ func (d *Database) GetDebugEvents(sessionID string) ([]*meshv1.UprobeEvent, erro
 
 		// Deserialize JSON fields
 		if argsJSON.Valid && argsJSON.String != "" {
-			var args []*meshv1.FunctionArgument
+			var args []*agentv1.FunctionArgument
 			if err := json.Unmarshal([]byte(argsJSON.String), &args); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal args: %w", err)
 			}
@@ -179,7 +179,7 @@ func (d *Database) GetDebugEvents(sessionID string) ([]*meshv1.UprobeEvent, erro
 		}
 
 		if returnValueJSON.Valid && returnValueJSON.String != "" {
-			var returnValue meshv1.FunctionReturnValue
+			var returnValue agentv1.FunctionReturnValue
 			if err := json.Unmarshal([]byte(returnValueJSON.String), &returnValue); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal return_value: %w", err)
 			}
