@@ -3,10 +3,7 @@ package distributed
 import (
 	"fmt"
 	"net/http"
-	"testing"
 	"time"
-
-	"github.com/stretchr/testify/suite"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
@@ -18,15 +15,6 @@ import (
 // - On-demand profiling: High-frequency (99Hz) profiling triggered for debugging
 type ProfilingSuite struct {
 	E2EDistributedSuite
-}
-
-// TestProfilingSuite runs the profiling test suite.
-func TestProfilingSuite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping profiling tests in short mode")
-	}
-
-	suite.Run(t, new(ProfilingSuite))
 }
 
 // TearDownSuite cleans up the colony database after all tests in the suite.

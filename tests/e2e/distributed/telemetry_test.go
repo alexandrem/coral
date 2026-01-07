@@ -3,10 +3,7 @@ package distributed
 import (
 	"fmt"
 	"net/http"
-	"testing"
 	"time"
-
-	"github.com/stretchr/testify/suite"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
@@ -19,15 +16,6 @@ import (
 // - System metrics: CPU/memory/disk/network from agents
 type TelemetrySuite struct {
 	E2EDistributedSuite
-}
-
-// TestTelemetrySuite runs the telemetry test suite.
-func TestTelemetrySuite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping telemetry tests in short mode")
-	}
-
-	suite.Run(t, new(TelemetrySuite))
 }
 
 // TearDownTest cleans up services after each test to prevent conflicts.

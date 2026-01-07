@@ -1,11 +1,5 @@
 package distributed
 
-import (
-	"testing"
-
-	"github.com/stretchr/testify/suite"
-)
-
 // DebugSuite tests deep introspection capabilities (uprobe tracing, debug sessions).
 //
 // This suite covers Level 3 observability features:
@@ -14,15 +8,6 @@ import (
 // - Multi-agent debug session coordination
 type DebugSuite struct {
 	E2EDistributedSuite
-}
-
-// TestDebugSuite runs the debug introspection test suite.
-func TestDebugSuite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping debug tests in short mode")
-	}
-
-	suite.Run(t, new(DebugSuite))
 }
 
 // TestUprobeTracing verifies uprobe-based function tracing.

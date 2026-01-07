@@ -1,11 +1,9 @@
 package distributed
 
 import (
-	"testing"
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/stretchr/testify/suite"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
@@ -15,15 +13,6 @@ import (
 // ServiceSuite tests service registration, connection, and discovery behaviors.
 type ServiceSuite struct {
 	E2EDistributedSuite
-}
-
-// TestServiceSuite runs the service behavior test suite.
-func TestServiceSuite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping service tests in short mode")
-	}
-
-	suite.Run(t, new(ServiceSuite))
 }
 
 // TearDownTest cleans up services after each test to prevent conflicts.

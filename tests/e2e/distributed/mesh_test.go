@@ -3,10 +3,7 @@ package distributed
 import (
 	"encoding/json"
 	"net/http"
-	"testing"
 	"time"
-
-	"github.com/stretchr/testify/suite"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
@@ -23,15 +20,6 @@ import (
 // - Reconnection resilience
 type MeshSuite struct {
 	E2EDistributedSuite
-}
-
-// TestMeshSuite runs the mesh connectivity test suite.
-func TestMeshSuite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping mesh tests in short mode")
-	}
-
-	suite.Run(t, new(MeshSuite))
 }
 
 // TestDiscoveryServiceAvailability verifies that the discovery service is running and healthy.
@@ -130,7 +118,7 @@ func (s *MeshSuite) TestAgentRegistration() {
 
 	client := helpers.NewColonyClient(colonyEndpoint)
 
-	// Wait for agents to register.
+	// Wait for agents to register with mesh IPs allocated.
 	var agents *colonyv1.ListAgentsResponse
 	err = helpers.WaitForCondition(s.ctx, func() bool {
 		resp, listErr := helpers.ListAgents(s.ctx, client)
@@ -139,10 +127,21 @@ func (s *MeshSuite) TestAgentRegistration() {
 			return false
 		}
 		agents = resp
-		return len(resp.Agents) >= 1
+		// Ensure we have at least one agent AND it has a mesh IP allocated.
+		if len(resp.Agents) < 1 {
+			return false
+		}
+		// Check that all agents have mesh IPs allocated.
+		for _, agent := range resp.Agents {
+			if agent.MeshIpv4 == "" {
+				s.T().Logf("Agent %s registered but mesh IP not yet allocated (will retry)", agent.AgentId)
+				return false
+			}
+		}
+		return true
 	}, 60*time.Second, 2*time.Second)
 
-	s.Require().NoError(err, "All agents should register within 60 seconds")
+	s.Require().NoError(err, "All agents should register with mesh IPs allocated within 60 seconds")
 	s.Require().NotNil(agents, "Agent list should not be nil")
 	s.Require().GreaterOrEqual(len(agents.Agents), 1, "Should have at least one agent")
 
