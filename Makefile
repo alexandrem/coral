@@ -1,4 +1,4 @@
-.PHONY: build build-dev clean init install install-tools test run help generate proto docker-build docker-buildx
+.PHONY: build build-dev clean init install install-tools test run help generate proto docker-build docker-buildx test-e2e test-e2e-up test-e2e-down
 
 # Build variables
 BINARY_NAME=coral
@@ -121,6 +121,47 @@ test-linux: ## Run tests in Linux Docker (tests platform-specific code)
 		golang:1.25 \
 		bash -c "apt-get update -qq && apt-get install -y -qq clang llvm > /dev/null 2>&1 && go test -short ./..."
 
+test-e2e: generate ## Run E2E distributed tests (requires Docker + BuildKit)
+	@echo "Running E2E distributed tests with docker-compose..."
+	@# Check if docker is available
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo "❌ Docker not found. Please install Docker or Colima"; \
+		exit 1; \
+	fi
+	@# Check if docker is running
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "❌ Docker is not running"; \
+		echo "  macOS: Start Colima with 'colima start'"; \
+		echo "  Linux: Start Docker daemon"; \
+		exit 1; \
+	fi
+	@# Verify we're running in a Linux environment (via docker)
+	@if [ "$$(docker version -f '{{.Server.Os}}')" != "linux" ]; then \
+		echo "❌ Docker must be running on Linux"; \
+		echo "  Current: $$(docker version -f '{{.Server.Os}}')"; \
+		exit 1; \
+	fi
+	@echo "✓ Docker running on Linux (host: $$(uname -s))"
+	@echo "Starting E2E test suite (containers will run on Linux)..."
+	@cd tests/e2e/distributed && $(MAKE) test-all
+
+test-e2e-up: ## Start E2E test services (docker-compose)
+	@echo "Starting E2E test services..."
+	@cd tests/e2e/distributed && $(MAKE) up
+
+test-e2e-down: ## Stop E2E test services (docker-compose)
+	@echo "Stopping E2E test services..."
+	@cd tests/e2e/distributed && $(MAKE) down
+
+test-e2e-logs: ## View E2E test service logs
+	@cd tests/e2e/distributed && $(MAKE) logs
+
+test-e2e-docker: ## [DEPRECATED] Use test-e2e instead
+	@echo "⚠️  test-e2e-docker is deprecated"
+	@echo "  Use 'make test-e2e' for docker-compose based tests"
+	@echo "  Or use 'make test-e2e-up && make test-e2e-down' for manual control"
+	@exit 1
+
 ci-check: ## Run full CI checks locally (lint + test on Linux)
 	@echo "=== Running full CI checks locally ==="
 	@echo "1. Linting on Linux..."
@@ -137,8 +178,13 @@ run: build ## Build and run the CLI
 	@$(BUILD_DIR)/$(BINARY_NAME)
 
 fmt: ## Format Go code
-	@echo "Formatting code..."
-	goimports -w .
+	@if which goimports >/dev/null 2>&1; then \
+		echo "Formatting code..."; \
+		goimports -w .; \
+		echo "✓ Code formatted"; \
+	else \
+		echo "⚠️  goimports not found, skipping formatting"; \
+	fi
 
 vet: ## Run go vet
 	@echo "Running go vet..."
@@ -158,6 +204,7 @@ install-tools: ## Install development tools
 	go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1
 	go install github.com/bufbuild/buf/cmd/buf@v1.61.0
 	go install golang.org/x/tools/cmd/goimports@latest
+	@echo "✓ Development tools installed to $(shell go env GOPATH)/bin"
 
 lint: ## Run linter
 	@echo "Running linter..."

@@ -143,4 +143,63 @@ func TestRegistry_PersistenceWithDatabase(t *testing.T) {
 		assert.Equal(t, "service-1", entry.Services[0].Name)
 		assert.Equal(t, "service-2", entry.Services[1].Name)
 	})
+
+	t.Run("LoadFromDatabase skips services with zero timestamps", func(t *testing.T) {
+		// Regression test: verify that services with zero LastSeen are skipped during load.
+		// This can happen if there was corrupt data from before the timestamp initialization fix.
+		tempDir4 := t.TempDir()
+		db4, err := database.New(tempDir4, "test-colony-4", logger)
+		require.NoError(t, err)
+		defer db4.Close()
+
+		ctx := context.Background()
+
+		// Manually insert a service with zero timestamp (simulating corrupt data).
+		// We use raw SQL to bypass the UpsertService timestamp initialization fix.
+		zeroTime := time.Time{}
+		_, err = db4.ExecContext(ctx, `
+			INSERT INTO services (id, name, app_id, version, agent_id, labels, status, registered_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, "agent-corrupt:corrupt-service", "corrupt-service", "corrupt-app", "1.0.0", "agent-corrupt", "{}", "active", zeroTime)
+		require.NoError(t, err)
+
+		_, err = db4.ExecContext(ctx, `
+			INSERT INTO service_heartbeats (service_id, last_seen)
+			VALUES (?, ?)
+		`, "agent-corrupt:corrupt-service", zeroTime)
+		require.NoError(t, err)
+
+		// Also insert a valid service for comparison.
+		validService := &database.Service{
+			ID:       "agent-valid:valid-service",
+			Name:     "valid-service",
+			AppID:    "valid-app",
+			Version:  "1.0.0",
+			AgentID:  "agent-valid",
+			Labels:   "{}",
+			Status:   "active",
+			LastSeen: time.Now(),
+		}
+		err = db4.UpsertService(ctx, validService)
+		require.NoError(t, err)
+
+		// Create a new registry and load from database.
+		reg := New(db4)
+		err = reg.LoadFromDatabase(ctx)
+		require.NoError(t, err)
+
+		// Verify only the valid agent was loaded (corrupt agent skipped).
+		assert.Equal(t, 1, reg.Count(), "Should only load agent with valid timestamp")
+
+		// Verify corrupt agent was skipped.
+		_, err = reg.Get("agent-corrupt")
+		assert.Error(t, err, "Corrupt agent should not be in registry")
+		assert.Contains(t, err.Error(), "agent not found")
+
+		// Verify valid agent was loaded.
+		entry, err := reg.Get("agent-valid")
+		require.NoError(t, err)
+		assert.Equal(t, "agent-valid", entry.AgentID)
+		assert.False(t, entry.LastSeen.IsZero(), "Valid agent should have non-zero timestamp")
+	})
 }

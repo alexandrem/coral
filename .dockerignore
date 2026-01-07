@@ -1,0 +1,33 @@
+# Version control
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Build artifacts
+bin/
+*.test
+*.out
+
+# Development (workspace files excluded for main Dockerfile)
+go.work
+go.work.sum
+
+# Note: Test module files (tests/e2e/distributed/go.mod) are NOT excluded
+# because the E2E test Dockerfile needs them.
+
+# Documentation
+*.md
+!README.md
+
+# CI/CD
+.github
+
+# Temporary files
+tmp/
+*.tmp

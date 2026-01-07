@@ -550,19 +550,28 @@ func (cm *ConnectionManager) attemptReconnection(ctx context.Context) {
 		return
 	}
 
-	// Registration successful - update IP if changed
-	if err := cm.updateMeshIP(ip, subnet); err != nil {
+	// Registration successful - configure mesh network.
+	// IMPORTANT: Must call ConfigureAgentMesh to:
+	// - Assign mesh IP to wg0 interface
+	// - Add colony as WireGuard peer
+	// - Bring wg0 interface UP
+	// - Establish WireGuard tunnel
+	if err := cm.configureMesh(ip, subnet); err != nil {
 		cm.logger.Warn().
 			Err(err).
-			Msg("Failed to update mesh IP after reconnection")
+			Msg("Failed to configure mesh after reconnection - will retry")
+		cm.setState(StateUnregistered)
+		return
 	}
 
 	cm.logger.Info().
 		Str("assigned_ip", ip).
-		Msg("Successfully reconnected to colony")
+		Msg("Successfully reconnected to colony and configured mesh")
 }
 
+/*
 // updateMeshIP updates the WireGuard interface IP if it has changed.
+// nolint:unused // Used in linux platform.
 func (cm *ConnectionManager) updateMeshIP(newIP, subnet string) error {
 	if cm.assignedIP == newIP {
 		// IP hasn't changed, no update needed
@@ -608,6 +617,59 @@ func (cm *ConnectionManager) updateMeshIP(newIP, subnet string) error {
 
 	cm.assignedIP = newIP
 	cm.assignedSubnet = subnet
+
+	return nil
+}
+*/
+
+// configureMesh configures the mesh network after registration or reconnection.
+// This method handles the complete mesh setup including:
+// - Assigning mesh IP to wg0 interface
+// - Adding colony as WireGuard peer
+// - Bringing wg0 interface UP
+// - Starting mesh server on mesh IP.
+func (cm *ConnectionManager) configureMesh(meshIPStr, meshSubnetStr string) error {
+	// Get colony info.
+	colonyInfo := cm.GetColonyInfo()
+	if colonyInfo == nil {
+		return fmt.Errorf("colony information not available")
+	}
+
+	// Get colony endpoint for WireGuard peer.
+	colonyEndpoint := cm.GetColonyEndpoint()
+	if colonyEndpoint == "" {
+		return fmt.Errorf("no colony endpoint available for mesh configuration")
+	}
+
+	// Parse IP and subnet.
+	parsedMeshIP := net.ParseIP(meshIPStr)
+	if parsedMeshIP == nil {
+		return fmt.Errorf("invalid mesh IP from colony: %s", meshIPStr)
+	}
+
+	_, parsedMeshSubnet, err := net.ParseCIDR(meshSubnetStr)
+	if err != nil {
+		return fmt.Errorf("invalid mesh subnet from colony: %w", err)
+	}
+
+	cm.logger.Info().
+		Str("mesh_ip", meshIPStr).
+		Str("subnet", meshSubnetStr).
+		Str("colony_endpoint", colonyEndpoint).
+		Msg("Configuring agent mesh network")
+
+	// Call ConfigureAgentMesh to set up the complete mesh network.
+	if err := ConfigureAgentMesh(cm.wgDevice, parsedMeshIP, parsedMeshSubnet, colonyInfo, colonyEndpoint, cm.logger); err != nil {
+		return fmt.Errorf("failed to configure agent mesh: %w", err)
+	}
+
+	cm.logger.Info().
+		Str("mesh_ip", meshIPStr).
+		Msg("Agent mesh configured successfully - tunnel ready")
+
+	// Update assigned IP tracking.
+	cm.assignedIP = meshIPStr
+	cm.assignedSubnet = meshSubnetStr
 
 	return nil
 }

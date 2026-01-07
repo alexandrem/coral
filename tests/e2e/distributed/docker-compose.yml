@@ -1,0 +1,216 @@
+version: "3.8"
+
+# E2E Test Infrastructure
+# This compose file starts all services needed for E2E tests:
+# - Discovery service
+# - Colony (coordinator)
+# - Agents (2 instances for multi-agent tests)
+# - Test apps (CPU, OTEL, SDK)
+
+services:
+  # Discovery Service - NAT traversal and service registry
+  discovery:
+    build:
+      context: ../../..
+      dockerfile: cmd/discovery/Dockerfile
+    ports:
+      - "18080:8080" # Use non-standard port to avoid conflicts with local dev
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - coral-e2e
+
+  # Colony - AI coordinator with DuckDB storage
+  colony:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # Initialize colony if config doesn't exist
+        if [ ! -f /var/lib/coral/.colony_id ] || [ ! -d /root/.coral/colonies/test-colony-e2e-* ]; then
+          echo "Initializing colony..."
+          /usr/local/bin/coral init test-colony-e2e --env e2e --storage /var/lib/coral --discovery http://discovery:8080
+          # Find the generated colony directory
+          COLONY_DIR=$$(ls -1d /root/.coral/colonies/test-colony-e2e-* 2>/dev/null | head -1)
+          if [ -n "$$COLONY_DIR" ]; then
+            COLONY_ID=$$(basename "$$COLONY_DIR")
+            echo "$$COLONY_ID" > /var/lib/coral/.colony_id
+            # Share colony ID with agents
+            echo "$$COLONY_ID" > /shared/colony_id
+            echo "Colony ID saved to shared volume: $$COLONY_ID"
+          fi
+        else
+          echo "Colony already initialized, using existing config"
+          # Ensure colony ID is shared
+          if [ -f /var/lib/coral/.colony_id ]; then
+            cp /var/lib/coral/.colony_id /shared/colony_id
+          fi
+        fi
+        # Read the actual colony ID and start
+        if [ -f /var/lib/coral/.colony_id ]; then
+          COLONY_ID=$$(cat /var/lib/coral/.colony_id)
+          echo "Starting colony with ID: $$COLONY_ID"
+          exec /usr/local/bin/coral colony start --colony "$$COLONY_ID"
+        else
+          # Fallback to auto-detection
+          exec /usr/local/bin/coral colony start
+        fi
+    environment:
+      - CORAL_COLONY_SECRET=test-secret-12345
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+      - CORAL_PUBLIC_ENDPOINT=colony:51820
+      - CORAL_STORAGE_PATH=/var/lib/coral
+    ports:
+      - "9000:9000"
+      - "51820:51820/udp"
+    privileged: true # Required for WireGuard
+    depends_on:
+      discovery:
+        condition: service_healthy
+    networks:
+      - coral-e2e
+    volumes:
+      - colony-data:/var/lib/coral
+      - colony-shared:/shared
+      - colony-config:/root/.coral
+
+  # Agent 0 - Primary agent
+  agent-0:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # Wait for colony to write its ID
+        while [ ! -f /shared/colony_id ]; do
+          echo "Waiting for colony ID..."
+          sleep 2
+        done
+        COLONY_ID=$$(cat /shared/colony_id)
+        echo "Starting agent with colony ID: $$COLONY_ID"
+        export CORAL_COLONY_ID="$$COLONY_ID"
+        exec /usr/local/bin/coral agent start --monitor-all
+    environment:
+      - CORAL_COLONY_SECRET=test-secret-12345
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+      - CORAL_AGENT_BIND_ALL=true
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "9001:9001" # Agent gRPC
+    privileged: true # Required for eBPF and WireGuard
+    depends_on:
+      - colony
+    networks:
+      - coral-e2e
+    volumes:
+      - agent-0-data:/var/lib/coral
+      - colony-shared:/shared
+
+  # Agent 1 - Secondary agent for multi-agent tests
+  agent-1:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # Wait for colony to write its ID
+        while [ ! -f /shared/colony_id ]; do
+          echo "Waiting for colony ID..."
+          sleep 2
+        done
+        COLONY_ID=$$(cat /shared/colony_id)
+        echo "Starting agent with colony ID: $$COLONY_ID"
+        export CORAL_COLONY_ID="$$COLONY_ID"
+        exec /usr/local/bin/coral agent start --monitor-all
+    environment:
+      - CORAL_COLONY_SECRET=test-secret-12345
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+      - CORAL_AGENT_BIND_ALL=true
+    ports:
+      - "4327:4317" # OTLP gRPC
+      - "4328:4318" # OTLP HTTP
+      - "9002:9001" # Agent gRPC
+    privileged: true
+    depends_on:
+      - colony
+    networks:
+      - coral-e2e
+    volumes:
+      - agent-1-data:/var/lib/coral
+      - colony-shared:/shared
+
+  # CPU App - CPU-intensive test application
+  cpu-app:
+    build:
+      context: ../../..
+      dockerfile: tests/e2e/cpu-profile/cpu-intensive-app/Dockerfile
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - coral-e2e
+
+  # OTEL App - OpenTelemetry instrumented application
+  otel-app:
+    build:
+      context: ../../..
+      dockerfile: tests/e2e/distributed/fixtures/apps/otel-app/Dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=agent-0:4317
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      - agent-0
+    networks:
+      - coral-e2e
+
+  # SDK App - Application with Coral SDK for uprobe testing
+  sdk-app:
+    build:
+      context: ../../..
+      dockerfile: tests/e2e/distributed/fixtures/apps/sdk-app/Dockerfile
+    ports:
+      - "3001:3001"
+      - "9003:9002"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - coral-e2e
+
+networks:
+  coral-e2e:
+    driver: bridge
+
+volumes:
+  colony-data:
+  agent-0-data:
+  agent-1-data:
+  colony-shared: # Shared volume for colony ID
+  colony-config: # Persist colony config across restarts

@@ -10,3 +10,6 @@ internal/agent/beyla/binaries/
 
 # Deno binaries (downloaded via go generate)
 internal/cli/run/binaries/
+
+# Generated e2e test binary
+e2e.test

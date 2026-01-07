@@ -20,16 +20,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Makefile .
 RUN make init
 
-# Copy go mod files.
+# Ensure Go bin directory is in PATH.
+ENV PATH="${PATH}:/go/bin"
+
+# Copy go mod files (skip go.work - not needed for container builds).
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Download dependencies with cache mount for faster builds.
+# The cache mount persists the Go module cache across builds.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 
 # Copy source code.
 COPY . .
 
 # Build the binary for the target platform.
 # Override BUILD_DIR to use a consistent path instead of platform-specific subdirectories.
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} make build BUILD_DIR=/build/bin
+# Use cache mounts to speed up builds.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make build BUILD_DIR=/build/bin
 
 # Final stage - minimal runtime image.
 FROM debian:bookworm-slim

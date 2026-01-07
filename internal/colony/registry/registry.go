@@ -109,8 +109,17 @@ func (r *Registry) LoadFromDatabase(ctx context.Context) error {
 
 	// Create registry entries for each agent.
 	loadedCount := 0
+	skippedCount := 0
 	for agentID, services := range agentServices {
 		lastSeen := agentLastSeen[agentID]
+
+		// Skip entries with zero timestamps (corrupt/stale data from before timestamp initialization fix).
+		// If the agent is actually running, it will re-register with correct timestamps.
+		if lastSeen.IsZero() {
+			log.Debug().Str("agent_id", agentID).Msg("Skipping agent with zero timestamp from database")
+			skippedCount++
+			continue
+		}
 
 		// Don't overwrite existing entries (agents already connected).
 		if _, exists := r.entries[agentID]; exists {
@@ -134,6 +143,7 @@ func (r *Registry) LoadFromDatabase(ctx context.Context) error {
 
 	log.Info().
 		Int("agents_loaded", loadedCount).
+		Int("agents_skipped", skippedCount).
 		Int("total_services", len(services)).
 		Msg("Loaded persisted services from database")
 

@@ -85,6 +85,27 @@ func setupTestServerWithMetrics(t *testing.T) (*Server, *database.Database) {
 	err = db.InsertBeylaHTTPMetrics(ctx, "agent-2", httpMetrics[3:])
 	require.NoError(t, err)
 
+	// Register services in the services table (required for ListServices to work).
+	// ListServices now queries the services registry table, not metrics tables.
+	database.PopulateTestServices(t, db,
+		&database.Service{
+			ID:       "api-service-agent-1",
+			Name:     "api-service",
+			AppID:    "api-service",
+			Version:  "1.0.0",
+			AgentID:  "agent-1",
+			LastSeen: now.Add(-5 * time.Minute),
+		},
+		&database.Service{
+			ID:       "payment-service-agent-2",
+			Name:     "payment-service",
+			AppID:    "payment-service",
+			Version:  "1.0.0",
+			AgentID:  "agent-2",
+			LastSeen: now.Add(-20 * time.Minute),
+		},
+	)
+
 	server := &Server{
 		database: db,
 		logger:   logger,
@@ -95,7 +116,7 @@ func setupTestServerWithMetrics(t *testing.T) (*Server, *database.Database) {
 
 // TestListServicesIntegration tests the ListServices endpoint end-to-end.
 func TestListServicesIntegration(t *testing.T) {
-	t.Run("successfully lists services from beyla_http_metrics", func(t *testing.T) {
+	t.Run("successfully lists services from services registry", func(t *testing.T) {
 		server, _ := setupTestServerWithMetrics(t)
 
 		req := connect.NewRequest(&colonyv1.ListServicesRequest{})
@@ -285,18 +306,29 @@ func TestTableNameRegression(t *testing.T) {
 	err = db.InsertBeylaHTTPMetrics(ctx, "test-agent", metrics)
 	require.NoError(t, err)
 
+	// Register service in services table (required for ListServices).
+	database.PopulateTestServices(t, db,
+		&database.Service{
+			ID:      "test-service-agent",
+			Name:    "test-service",
+			AppID:   "test-service",
+			AgentID: "test-agent",
+		},
+	)
+
 	server := &Server{
 		database: db,
 		logger:   logger,
 	}
 
-	t.Run("ListServices uses beyla_http_metrics", func(t *testing.T) {
+	t.Run("ListServices uses services registry table", func(t *testing.T) {
 		req := connect.NewRequest(&colonyv1.ListServicesRequest{})
 		resp, err := server.ListServices(ctx, req)
 
-		// If this works, it means we're querying the right table.
-		require.NoError(t, err, "ListServices should work with beyla_http_metrics table")
+		// ListServices now queries the services registry table.
+		require.NoError(t, err, "ListServices should work with services registry table")
 		assert.NotNil(t, resp)
+		assert.GreaterOrEqual(t, len(resp.Msg.Services), 1, "Should find test-service")
 	})
 
 	t.Run("ExecuteQuery confirms beyla_http_metrics exists and has data", func(t *testing.T) {
