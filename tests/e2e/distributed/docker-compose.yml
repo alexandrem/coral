@@ -79,6 +79,7 @@ services:
     volumes:
       - colony-data:/var/lib/coral
       - colony-shared:/shared
+      - colony-config:/root/.coral
 
   # Agent 0 - Primary agent
   agent-0:
@@ -212,3 +213,4 @@ volumes:
   agent-0-data:
   agent-1-data:
   colony-shared: # Shared volume for colony ID
+  colony-config: # Persist colony config across restarts
