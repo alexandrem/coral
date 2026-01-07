@@ -80,6 +80,9 @@ func (d *Database) UpsertService(ctx context.Context, service *Service) error {
 	if service.RegisteredAt.IsZero() {
 		service.RegisteredAt = time.Now()
 	}
+	if service.LastSeen.IsZero() {
+		service.LastSeen = time.Now()
+	}
 
 	// Retry the entire multi-operation sequence to handle concurrent conflicts.
 	cfg := retry.Config{

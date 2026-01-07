@@ -110,6 +110,34 @@ func TestUpsertService(t *testing.T) {
 		require.NotNil(t, retrieved)
 		assert.Equal(t, "degraded", retrieved.Status)
 	})
+
+	t.Run("upsert service with zero LastSeen initializes to now", func(t *testing.T) {
+		// Regression test: verify that when LastSeen is zero (time.Time{}),
+		// UpsertService initializes it to time.Now() to prevent epoch zero timestamps.
+		service := &Service{
+			ID:      "agent-zero:test-service",
+			Name:    "test-service",
+			AppID:   "test-app",
+			Version: "1.0.0",
+			AgentID: "agent-zero",
+			Labels:  "{}",
+			// LastSeen intentionally not set (zero value)
+			Status: "active",
+		}
+
+		// Verify LastSeen is zero before upsert.
+		assert.True(t, service.LastSeen.IsZero())
+
+		err := db.UpsertService(ctx, service)
+		require.NoError(t, err)
+
+		// Retrieve and verify LastSeen was initialized to a non-zero time.
+		retrieved, err := db.GetServiceByName(ctx, "test-service")
+		require.NoError(t, err)
+		require.NotNil(t, retrieved)
+		assert.False(t, retrieved.LastSeen.IsZero(), "LastSeen should be initialized to non-zero time")
+		assert.True(t, retrieved.LastSeen.After(time.Now().Add(-1*time.Minute)), "LastSeen should be recent")
+	})
 }
 
 func TestGetServiceByName(t *testing.T) {
