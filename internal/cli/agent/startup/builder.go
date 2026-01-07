@@ -346,6 +346,7 @@ func (b *AgentServerBuilder) RegisterServices() error {
 		b.networkResult.ColonyInfo,
 		meshIP,
 		meshSubnet,
+		b.connectionManager,
 	)
 
 	servicesResult, err := serviceRegistry.Register(b.runtimeService)

@@ -53,8 +53,9 @@ type ServiceRegistry struct {
 	agentInstance *agent.Agent
 	wgDevice      *wireguard.Device
 	colonyInfo    *discoverypb.LookupColonyResponse
-	meshIP        string
-	meshSubnet    string
+	meshIP        string // Deprecated: Use connectionManager.GetAssignedIP()
+	meshSubnet    string // Deprecated: Use connectionManager.GetAssignedIP()
+	connectionMgr *ConnectionManager
 }
 
 // NewServiceRegistry creates a new service registry.
@@ -72,6 +73,7 @@ func NewServiceRegistry(
 	colonyInfo *discoverypb.LookupColonyResponse,
 	meshIP string,
 	meshSubnet string,
+	connectionMgr *ConnectionManager,
 ) *ServiceRegistry {
 	return &ServiceRegistry{
 		logger:        logger,
@@ -87,6 +89,7 @@ func NewServiceRegistry(
 		colonyInfo:    colonyInfo,
 		meshIP:        meshIP,
 		meshSubnet:    meshSubnet,
+		connectionMgr: connectionMgr,
 	}
 }
 
@@ -369,35 +372,45 @@ func (s *ServiceRegistry) createHTTPServers(
 	h2s := &http2.Server{}
 	httpHandler := h2c.NewHandler(mux, h2s)
 
+	// Determine bind address mode.
+	bindAll := os.Getenv("CORAL_AGENT_BIND_ALL") == "true"
+
 	// Create mesh server.
 	var meshServer *http.Server
 	if s.meshIP != "" {
-		meshAddr := net.JoinHostPort(s.meshIP, "9001")
-		//nolint:gosec // G112: ReadHeaderTimeout will be added in future refactoring
-		meshServer = &http.Server{
-			Addr:    meshAddr,
-			Handler: httpHandler,
-		}
-
-		go func() {
+		if bindAll {
 			s.logger.Info().
-				Str("addr", meshAddr).
-				Msg("Agent API listening on WireGuard mesh")
-
-			if err := meshServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				s.logger.Error().
-					Err(err).
-					Str("addr", meshAddr).
-					Msg("Mesh API server error")
+				Str("mesh_ip", s.meshIP).
+				Msg("CORAL_AGENT_BIND_ALL enabled; mesh traffic will be handled by localhost server (0.0.0.0)")
+			// Skip creating a separate mesh server; the wildcard listener below covers it.
+		} else {
+			meshAddr := net.JoinHostPort(s.meshIP, "9001")
+			//nolint:gosec // G112: ReadHeaderTimeout will be added in future refactoring
+			meshServer = &http.Server{
+				Addr:    meshAddr,
+				Handler: httpHandler,
 			}
-		}()
+
+			go func() {
+				s.logger.Info().
+					Str("addr", meshAddr).
+					Msg("Agent API listening on WireGuard mesh")
+
+				if err := meshServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					s.logger.Error().
+						Err(err).
+						Str("addr", meshAddr).
+						Msg("Mesh API server error")
+				}
+			}()
+		}
 	} else {
 		s.logger.Warn().Msg("No mesh IP available, skipping mesh server (agent not registered)")
 	}
 
 	// Create localhost server.
 	localhostAddr := "127.0.0.1:9001"
-	if os.Getenv("CORAL_AGENT_BIND_ALL") == "true" {
+	if bindAll {
 		localhostAddr = "0.0.0.0:9001"
 	}
 	localhostServer := &http.Server{
@@ -484,7 +497,33 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 	// Basic mesh info.
 	info["agent_id"] = s.agentID
 	info["mesh_ip"] = s.meshIP
-	info["mesh_subnet"] = s.meshSubnet
+	// Basic mesh info.
+	info["agent_id"] = s.agentID
+
+	// Get dynamic mesh IP if available from connection manager.
+	meshIP := s.meshIP
+	meshSubnet := s.meshSubnet
+
+	if s.connectionMgr != nil {
+		currentIP, currentSubnet := s.connectionMgr.GetAssignedIP()
+		s.logger.Debug().
+			Str("method", "gatherMeshNetworkInfo").
+			Str("current_ip", currentIP).
+			Str("current_subnet", currentSubnet).
+			Msg("Checked ConnectionManager for mesh IP")
+
+		if currentIP != "" {
+			meshIP = currentIP
+			meshSubnet = currentSubnet
+		}
+	} else {
+		s.logger.Debug().
+			Str("method", "gatherMeshNetworkInfo").
+			Msg("ConnectionManager is nil in ServiceRegistry")
+	}
+
+	info["mesh_ip"] = meshIP
+	info["mesh_subnet"] = meshSubnet
 
 	// WireGuard interface info.
 	if s.wgDevice != nil {
