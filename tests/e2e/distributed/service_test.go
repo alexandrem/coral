@@ -108,7 +108,7 @@ func (s *ServiceSuite) TestServiceRegistrationAndDiscovery() {
 	s.T().Logf("Colony has %d registered services", len(services.Services))
 
 	// Build a map of service names for easy lookup.
-	serviceMap := make(map[string]*colonyv1.ServiceInfo)
+	serviceMap := make(map[string]*colonyv1.ServiceSummary)
 	for _, svc := range services.Services {
 		serviceMap[svc.Name] = svc
 		s.T().Logf("Service registered:")
