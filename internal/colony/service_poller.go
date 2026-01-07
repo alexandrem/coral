@@ -106,6 +106,7 @@ func (p *ServicePoller) PollOnce(ctx context.Context) error {
 		for _, svc := range services {
 			serviceID := fmt.Sprintf("%s-%s", agent.AgentID, svc.Name)
 
+			now := time.Now()
 			dbService := &database.Service{
 				ID:           serviceID,
 				Name:         svc.Name,
@@ -114,7 +115,8 @@ func (p *ServicePoller) PollOnce(ctx context.Context) error {
 				AgentID:      agent.AgentID,
 				Labels:       "", // Convert labels map to JSON if needed.
 				Status:       "active",
-				RegisteredAt: time.Now(),
+				RegisteredAt: now,
+				LastSeen:     now,
 			}
 
 			if err := p.db.UpsertService(ctx, dbService); err != nil {
