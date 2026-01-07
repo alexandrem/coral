@@ -569,7 +569,9 @@ func (cm *ConnectionManager) attemptReconnection(ctx context.Context) {
 		Msg("Successfully reconnected to colony and configured mesh")
 }
 
+/*
 // updateMeshIP updates the WireGuard interface IP if it has changed.
+// nolint:unused // Used in linux platform.
 func (cm *ConnectionManager) updateMeshIP(newIP, subnet string) error {
 	if cm.assignedIP == newIP {
 		// IP hasn't changed, no update needed
@@ -618,6 +620,7 @@ func (cm *ConnectionManager) updateMeshIP(newIP, subnet string) error {
 
 	return nil
 }
+*/
 
 // configureMesh configures the mesh network after registration or reconnection.
 // This method handles the complete mesh setup including:
