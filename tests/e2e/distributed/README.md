@@ -166,6 +166,95 @@ system metrics.
 - `TestUprobeCallTree`: Call tree construction (placeholder)
 - `TestMultiAgentDebugSession`: Multi-agent debug sessions (placeholder)
 
+### cli_mesh_test.go (CLIMeshSuite)
+
+**Purpose**: Tests user-facing CLI commands for colony and agent management.
+
+CLI tests validate output formatting, error handling, and flag validation - not infrastructure behavior (covered by API tests).
+
+**Tests**:
+- `TestColonyStatusCommand`: Validates `coral colony status` (table + JSON)
+- `TestColonyAgentsCommand`: Validates `coral colony agents` (table + JSON)
+- `TestAgentListCommand`: Validates `coral agent list` (table + JSON)
+- `TestServiceListCommand`: Validates `coral service list` (table + JSON)
+- `TestInvalidColonyEndpoint`: Error handling for invalid endpoints
+- `TestTableOutputFormatting`: Table structure validation
+- `TestJSONOutputValidity`: JSON parsing and structure validation
+
+**Running CLI Tests**:
+```bash
+# Run all tests (includes CLI tests)
+make test-all
+
+# Run CLI tests standalone
+go test -v -run TestCLIMeshSuite -tags=standalone
+
+# Skip CLI tests
+go test -v -run TestE2EOrchestrator -skip CLI_
+
+# Run just CLI tests from orchestrator
+go test -v -run TestE2EOrchestrator/Test5_CLICommands
+```
+
+**Prerequisites**:
+- `coral` binary must be built: Run `make build` in project root
+- CLI tests look for binary in `bin/coral` (relative to project root)
+- Falls back to PATH if `bin/coral` doesn't exist
+
+**What CLI Tests Validate**:
+- ✅ Output formatting (table vs JSON)
+- ✅ Flag combinations and validation
+- ✅ Error messages and exit codes
+- ✅ User experience concerns
+
+**What CLI Tests DON'T Validate**:
+- ❌ Infrastructure behavior (covered by API tests)
+- ❌ Data accuracy (covered by API tests)
+- ❌ Performance benchmarks (separate suite)
+
+### cli_query_test.go (CLIQuerySuite)
+
+**Purpose**: Tests user-facing CLI query commands for observability data.
+
+CLI tests validate output formatting, flag combinations, and error handling - not query accuracy (covered by API tests).
+
+**Tests**:
+- `TestQuerySummaryCommand`: Validates `coral query summary` (table + JSON, with --service and --time flags)
+- `TestQueryServicesCommand`: Validates `coral query services` (table + JSON)
+- `TestQueryTracesCommand`: Validates `coral query traces` (with --service, --time, --limit flags)
+- `TestQueryMetricsCommand`: Validates `coral query metrics` (with --service, --time flags)
+- `TestQueryFlagCombinations`: Tests various flag combinations (time ranges, limits, service filters)
+- `TestQueryInvalidFlags`: Error handling for invalid time ranges and parameters
+- `TestQueryJSONOutputValidity`: JSON parsing and structure validation
+- `TestQueryTableOutputFormatting`: Table structure validation
+
+**Running CLI Query Tests**:
+```bash
+# Run all tests (includes CLI query tests)
+make test-all
+
+# Run CLI query tests standalone
+go test -v -run TestCLIQuerySuite -tags=standalone
+
+# Run just query tests from orchestrator
+go test -v -run TestE2EOrchestrator/Test5_CLICommands/CLI_Query
+```
+
+**What Query CLI Tests Validate**:
+- ✅ Command syntax and flag parsing
+- ✅ Output formatting (table vs JSON)
+- ✅ Flag combinations (--service, --time, --limit)
+- ✅ Time range handling (1m, 5m, 1h, etc.)
+- ✅ Error messages for invalid inputs
+
+**What Query CLI Tests DON'T Validate**:
+- ❌ Query result accuracy (covered by API tests)
+- ❌ Data aggregation logic (covered by TelemetrySuite)
+- ❌ Query performance (separate benchmarks)
+
+**Future Phases**:
+- Phase 3: `cli_config_test.go` - Config commands (`coral config get-contexts/current-context/use-context`)
+
 ### Observability Layers
 
 - **Level 0**: Beyla eBPF (TelemetrySuite)
