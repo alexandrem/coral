@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // CLITestEnv holds environment configuration for CLI tests.
@@ -44,6 +47,18 @@ func SetupCLIEnv(ctx context.Context, colonyID, colonyEndpoint string) (*CLITest
 		ConfigDir:      configDir,
 		TempDir:        tempDir,
 		HomeDir:        homeDir,
+	}
+
+	// Create a minimal colony config file for the test colony.
+	if err := env.createMinimalColonyConfig(colonyID, colonyEndpoint); err != nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to create colony config: %w", err)
+	}
+
+	// Create global config with this colony as default.
+	if err := env.createGlobalConfig(colonyID); err != nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to create global config: %w", err)
 	}
 
 	return env, nil
@@ -145,4 +160,75 @@ func (e *CLITestEnv) FileExists(relativePath string) bool {
 	filePath := filepath.Join(e.ConfigDir, relativePath)
 	_, err := os.Stat(filePath)
 	return err == nil
+}
+
+// createMinimalColonyConfig creates a minimal colony config file for testing.
+// This allows config commands to work without a full colony setup.
+func (e *CLITestEnv) createMinimalColonyConfig(colonyID, endpoint string) error {
+	// Create minimal config structure.
+	config := map[string]interface{}{
+		"version":          "1.0",
+		"colony_id":        colonyID,
+		"application_name": "test-app",
+		"environment":      "test",
+		"colony_secret":    "test-secret-for-e2e",
+		"wireguard": map[string]interface{}{
+			"port":              51820,
+			"mesh_ipv4":         "10.42.0.1",
+			"mesh_network_ipv4": "10.42.0.0/16",
+		},
+		"services": map[string]interface{}{
+			"connect_port": 9000,
+			"grpc_port":    9001,
+		},
+		"storage_path": filepath.Join(e.TempDir, "data"),
+		"discovery": map[string]interface{}{
+			"endpoint": endpoint,
+		},
+		"created_at": time.Now(),
+		"created_by": "e2e-test",
+	}
+
+	// Marshal to YAML.
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal colony config: %w", err)
+	}
+
+	// Write to colonies/<colony-id>/config.yaml.
+	colonyDir := filepath.Join(e.ConfigDir, "colonies", colonyID)
+	if err := os.MkdirAll(colonyDir, 0755); err != nil {
+		return fmt.Errorf("failed to create colony directory: %w", err)
+	}
+
+	configPath := filepath.Join(colonyDir, "config.yaml")
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write colony config: %w", err)
+	}
+
+	return nil
+}
+
+// createGlobalConfig creates a minimal global config file for testing.
+func (e *CLITestEnv) createGlobalConfig(defaultColony string) error {
+	config := map[string]interface{}{
+		"default_colony": defaultColony,
+		"discovery": map[string]interface{}{
+			"endpoint": "https://discovery.coral-mesh.dev",
+		},
+	}
+
+	// Marshal to YAML.
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal global config: %w", err)
+	}
+
+	// Write to config.yaml.
+	configPath := filepath.Join(e.ConfigDir, "config.yaml")
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write global config: %w", err)
+	}
+
+	return nil
 }

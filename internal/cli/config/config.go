@@ -88,6 +88,24 @@ func runGetContexts(jsonOutput bool) error {
 	}
 
 	if len(colonyIDs) == 0 {
+		if jsonOutput {
+			// Return empty JSON structure for JSON output.
+			output := struct {
+				CurrentColony    string        `json:"current_colony"`
+				ResolutionSource string        `json:"resolution_source"`
+				Colonies         []interface{} `json:"colonies"`
+			}{
+				CurrentColony:    "",
+				ResolutionSource: "",
+				Colonies:         []interface{}{},
+			}
+			data, err := json.MarshalIndent(output, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		}
 		fmt.Println("No colonies configured.")
 		fmt.Println("\nRun 'coral init <app-name>' to create one.")
 		return nil
