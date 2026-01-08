@@ -1,15 +1,20 @@
 .claude
 .coral
+
+# Built binaries
 bin/
+
+# Test coverage file output
+coverage.out
+
+# Generated e2e test binary
+e2e.test
 
 # Downloaded Beyla binaries (generated via go generate)
 internal/agent/beyla/binaries/
 
-# Generated eBPF object files
-*.o
-
 # Deno binaries (downloaded via go generate)
 internal/cli/run/binaries/
 
-# Generated e2e test binary
-e2e.test
+# Generated eBPF object files
+*.o
