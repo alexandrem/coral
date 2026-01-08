@@ -14,6 +14,7 @@ import (
 //  2. Service Management (depends on mesh)
 //  3. Passive Observability (depends on mesh + services)
 //  4. On-Demand Probes (depends on all above)
+//  5. CLI Commands (tests user-facing CLI)
 type E2EOrchestratorSuite struct {
 	E2EDistributedSuite
 
@@ -22,6 +23,7 @@ type E2EOrchestratorSuite struct {
 	servicesPassed       bool
 	passiveObservability bool
 	onDemandProbesPassed bool
+	cliCommandsPassed    bool
 }
 
 // TestE2EOrchestrator runs all E2E tests in dependency order with fail-fast.
@@ -56,6 +58,7 @@ func (s *E2EOrchestratorSuite) TearDownSuite() {
 	s.T().Logf("  2. Service Management:       %s", status(s.servicesPassed))
 	s.T().Logf("  3. Passive Observability:    %s", status(s.passiveObservability))
 	s.T().Logf("  4. On-Demand Probes:         %s", status(s.onDemandProbesPassed))
+	s.T().Logf("  5. CLI Commands:             %s", status(s.cliCommandsPassed))
 	s.T().Log("==================================================")
 }
 
@@ -217,6 +220,66 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 		s.T().Log("✓ GROUP 4 PASSED - On-demand probes working")
 	} else {
 		s.T().Log("✗ GROUP 4 FAILED")
+	}
+}
+
+// Test5_CLICommands runs CLI command tests.
+// Requires: Mesh Connectivity + Service Management + Passive Observability
+//
+// This test group validates user-facing CLI commands for:
+// - Colony status and agent management (Phase 1)
+// - Query commands (Phase 2)
+// - Config commands (future: Phase 3)
+func (s *E2EOrchestratorSuite) Test5_CLICommands() {
+	if !s.meshPassed || !s.servicesPassed || !s.passiveObservability {
+		s.T().Skip("Skipping: Prerequisites failed (mesh, services, or observability)")
+	}
+
+	s.T().Log("")
+	s.T().Log("========================================")
+	s.T().Log("GROUP 5: CLI Commands")
+	s.T().Log("========================================")
+
+	// Run CLIMeshSuite (colony and agent commands - Phase 1)
+	cliMeshSuite := &CLIMeshSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliMeshSuite.SetT(s.T())
+	cliMeshSuite.SetupSuite() // Initialize cliEnv
+	defer cliMeshSuite.TearDownSuite()
+
+	s.Run("CLI_ColonyStatus", cliMeshSuite.TestColonyStatusCommand)
+	s.Run("CLI_ColonyAgents", cliMeshSuite.TestColonyAgentsCommand)
+	s.Run("CLI_AgentList", cliMeshSuite.TestAgentListCommand)
+	s.Run("CLI_ServiceList", cliMeshSuite.TestServiceListCommand)
+	s.Run("CLI_ErrorHandling", cliMeshSuite.TestInvalidColonyEndpoint)
+	s.Run("CLI_TableFormatting", cliMeshSuite.TestTableOutputFormatting)
+	s.Run("CLI_JSONValidity", cliMeshSuite.TestJSONOutputValidity)
+
+	// Run CLIQuerySuite (query commands - Phase 2)
+	cliQuerySuite := &CLIQuerySuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliQuerySuite.SetT(s.T())
+	cliQuerySuite.SetupSuite() // Initialize cliEnv
+	defer cliQuerySuite.TearDownSuite()
+
+	s.Run("CLI_QuerySummary", cliQuerySuite.TestQuerySummaryCommand)
+	s.Run("CLI_QueryServices", cliQuerySuite.TestQueryServicesCommand)
+	s.Run("CLI_QueryTraces", cliQuerySuite.TestQueryTracesCommand)
+	s.Run("CLI_QueryMetrics", cliQuerySuite.TestQueryMetricsCommand)
+	s.Run("CLI_QueryFlagCombinations", cliQuerySuite.TestQueryFlagCombinations)
+	s.Run("CLI_QueryInvalidFlags", cliQuerySuite.TestQueryInvalidFlags)
+	s.Run("CLI_QueryJSONValidity", cliQuerySuite.TestQueryJSONOutputValidity)
+	s.Run("CLI_QueryTableFormatting", cliQuerySuite.TestQueryTableOutputFormatting)
+
+	// Future: Add CLIConfigSuite here (Phase 3)
+
+	if !s.T().Failed() {
+		s.cliCommandsPassed = true
+		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")
+	} else {
+		s.T().Log("✗ GROUP 5 FAILED")
 	}
 }
 
