@@ -162,7 +162,7 @@ func QuerySummary(ctx context.Context, colonyEndpoint, service, timeRange string
 	}
 
 	if timeRange != "" {
-		args = append(args, "--time", timeRange)
+		args = append(args, "--since", timeRange)
 	}
 
 	return RunCLIWithEnv(ctx, map[string]string{
@@ -179,7 +179,7 @@ func QuerySummaryJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 	}
 
 	if timeRange != "" {
-		args = append(args, "--time", timeRange)
+		args = append(args, "--since", timeRange)
 	}
 
 	result := RunCLIWithEnv(ctx, map[string]string{
@@ -207,7 +207,7 @@ func QueryTraces(ctx context.Context, colonyEndpoint, service, timeRange string,
 	}
 
 	if timeRange != "" {
-		args = append(args, "--time", timeRange)
+		args = append(args, "--since", timeRange)
 	}
 
 	if limit > 0 {
@@ -228,7 +228,7 @@ func QueryTracesJSON(ctx context.Context, colonyEndpoint, service, timeRange str
 	}
 
 	if timeRange != "" {
-		args = append(args, "--time", timeRange)
+		args = append(args, "--since", timeRange)
 	}
 
 	if limit > 0 {
@@ -260,7 +260,7 @@ func QueryMetrics(ctx context.Context, colonyEndpoint, service, timeRange string
 	}
 
 	if timeRange != "" {
-		args = append(args, "--time", timeRange)
+		args = append(args, "--since", timeRange)
 	}
 
 	return RunCLIWithEnv(ctx, map[string]string{
@@ -277,7 +277,7 @@ func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 	}
 
 	if timeRange != "" {
-		args = append(args, "--time", timeRange)
+		args = append(args, "--since", timeRange)
 	}
 
 	result := RunCLIWithEnv(ctx, map[string]string{

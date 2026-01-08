@@ -74,14 +74,17 @@ func (s *TelemetrySuite) TestBeylaPassiveInstrumentation() {
 
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
-	s.T().Log("Connecting CPU app to agent...")
+	s.T().Logf("Connecting CPU app to agent at %s...", time.Now().Format("15:04:05"))
+	connectTime := time.Now()
 	_, err = helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
 	s.Require().NoError(err, "Failed to connect CPU app to agent")
 
 	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
-	time.Sleep(8 * time.Second) // Wait for debounced restart (default 5s debounce + 3s buffer).
+	s.T().Logf("  Expected Beyla restart at ~%s (5s debounce)", connectTime.Add(5*time.Second).Format("15:04:05"))
+	s.T().Logf("  Expected Beyla ready at ~%s", connectTime.Add(10*time.Second).Format("15:04:05"))
+	time.Sleep(12 * time.Second) // Wait for debounced restart (5s) + eBPF attachment (4s) + buffer (3s).
 
-	s.T().Log("Beyla should now be instrumenting the CPU app via eBPF")
+	s.T().Logf("Beyla should now be instrumenting the CPU app via eBPF (current time: %s)", time.Now().Format("15:04:05"))
 
 	// Generate HTTP traffic for Beyla to observe.
 	s.T().Log("Generating HTTP traffic for Beyla to capture...")
@@ -104,8 +107,11 @@ func (s *TelemetrySuite) TestBeylaPassiveInstrumentation() {
 	s.T().Logf("Generated %d HTTP requests", requestCount)
 
 	// Wait for Beyla to capture and process metrics.
+	// Beyla exports to OTLP receiver (4319), which aggregates every 5s.
+	// We need to wait for: capture (instant) + OTLP export (~1s) + aggregation (up to 5s).
 	s.T().Log("Waiting for Beyla to capture and process eBPF metrics...")
-	time.Sleep(5 * time.Second)
+	s.T().Logf("  (Beyla → OTLP receiver → metrics aggregation @ 5s intervals)")
+	time.Sleep(8 * time.Second)
 
 	// Query agent for eBPF metrics (agentClient already created above).
 	now := time.Now()
@@ -171,12 +177,15 @@ func (s *TelemetrySuite) TestBeylaColonyPolling() {
 
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
-	s.T().Log("Connecting CPU app to agent...")
+	s.T().Logf("Connecting CPU app to agent at %s...", time.Now().Format("15:04:05"))
+	connectTime := time.Now()
 	_, err = helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
 	s.Require().NoError(err, "Failed to connect CPU app to agent")
 
 	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
-	time.Sleep(8 * time.Second)
+	s.T().Logf("  Expected Beyla restart at ~%s (5s debounce)", connectTime.Add(5*time.Second).Format("15:04:05"))
+	s.T().Logf("  Expected Beyla ready at ~%s", connectTime.Add(10*time.Second).Format("15:04:05"))
+	time.Sleep(12 * time.Second) // Wait for debounced restart (5s) + eBPF attachment (4s) + buffer (3s).
 
 	// Generate HTTP traffic.
 	cpuAppEndpoint, err := fixture.GetCPUAppEndpoint(s.ctx)
@@ -193,8 +202,9 @@ func (s *TelemetrySuite) TestBeylaColonyPolling() {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Wait for Beyla collection.
-	time.Sleep(5 * time.Second)
+	// Wait for Beyla to capture and aggregate metrics.
+	s.T().Log("Waiting for Beyla metrics processing...")
+	time.Sleep(8 * time.Second) // Wait for capture + aggregation (5s ticker).
 
 	// Verify agent has eBPF metrics first (agentClient already created above).
 	now := time.Now()
@@ -282,12 +292,15 @@ func (s *TelemetrySuite) TestBeylaVsOTLPComparison() {
 
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
-	s.T().Log("Connecting CPU app to agent...")
+	s.T().Logf("Connecting CPU app to agent at %s...", time.Now().Format("15:04:05"))
+	connectTime := time.Now()
 	_, err = helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
 	s.Require().NoError(err, "Failed to connect CPU app to agent")
 
 	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
-	time.Sleep(8 * time.Second)
+	s.T().Logf("  Expected Beyla restart at ~%s (5s debounce)", connectTime.Add(5*time.Second).Format("15:04:05"))
+	s.T().Logf("  Expected Beyla ready at ~%s", connectTime.Add(10*time.Second).Format("15:04:05"))
+	time.Sleep(12 * time.Second) // Wait for debounced restart (5s) + eBPF attachment (4s) + buffer (3s).
 
 	// Generate HTTP traffic.
 	cpuAppEndpoint, err := fixture.GetCPUAppEndpoint(s.ctx)
@@ -304,7 +317,9 @@ func (s *TelemetrySuite) TestBeylaVsOTLPComparison() {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	time.Sleep(5 * time.Second)
+	// Wait for Beyla to capture and aggregate metrics.
+	s.T().Log("Waiting for Beyla metrics processing...")
+	time.Sleep(8 * time.Second) // Wait for capture + aggregation (5s ticker).
 
 	// Query agent (agentClient already created above).
 	now := time.Now()

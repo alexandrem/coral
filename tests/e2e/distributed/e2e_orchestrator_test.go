@@ -229,7 +229,7 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 // This test group validates user-facing CLI commands for:
 // - Colony status and agent management (Phase 1)
 // - Query commands (Phase 2)
-// - Config commands (future: Phase 3)
+// - Config commands (Phase 3)
 func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	if !s.meshPassed || !s.servicesPassed || !s.passiveObservability {
 		s.T().Skip("Skipping: Prerequisites failed (mesh, services, or observability)")
@@ -273,7 +273,21 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_QueryJSONValidity", cliQuerySuite.TestQueryJSONOutputValidity)
 	s.Run("CLI_QueryTableFormatting", cliQuerySuite.TestQueryTableOutputFormatting)
 
-	// Future: Add CLIConfigSuite here (Phase 3)
+	// Run CLIConfigSuite (config commands - Phase 3)
+	cliConfigSuite := &CLIConfigSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliConfigSuite.SetT(s.T())
+	cliConfigSuite.SetupSuite() // Initialize cliEnv
+	defer cliConfigSuite.TearDownSuite()
+
+	s.Run("CLI_ConfigGetContexts", cliConfigSuite.TestConfigGetContextsCommand)
+	s.Run("CLI_ConfigCurrentContext", cliConfigSuite.TestConfigCurrentContextCommand)
+	s.Run("CLI_ConfigUseContext", cliConfigSuite.TestConfigUseContextCommand)
+	s.Run("CLI_ConfigInvalidContext", cliConfigSuite.TestConfigInvalidContext)
+	s.Run("CLI_ConfigOutputFormats", cliConfigSuite.TestConfigOutputFormats)
+	s.Run("CLI_ConfigWithoutColony", cliConfigSuite.TestConfigCommandsWithoutColony)
+	s.Run("CLI_ConfigHelpText", cliConfigSuite.TestConfigHelpText)
 
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
