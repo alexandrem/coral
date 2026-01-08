@@ -178,9 +178,10 @@ func (s *CLIMeshSuite) TestServiceListCommand() {
 // - Commands fail gracefully with invalid endpoint
 // - Error messages are helpful
 // - Exit codes are non-zero
+//
+// NOTE: Currently skipped - we don't have a colony endpoint env var yet.
 func (s *CLIMeshSuite) TestInvalidColonyEndpoint() {
 	s.T().Log("Testing error handling for invalid endpoint...")
-	s.T().Skip("We don't have a colony endpoint env var yet")
 
 	// Use an invalid endpoint that will definitely fail
 	result := helpers.RunCLIWithEnv(s.ctx, map[string]string{
