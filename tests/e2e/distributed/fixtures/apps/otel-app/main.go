@@ -56,8 +56,8 @@ func main() {
 	}()
 
 	// Create tracer and meter.
-	tracer = otel.Tracer("otel-test-app")
-	meter = otel.Meter("otel-test-app")
+	tracer = otel.Tracer("otel-app")
+	meter = otel.Meter("otel-app")
 
 	// Initialize metrics.
 	requestCounter, err = meter.Int64Counter(
@@ -78,6 +78,12 @@ func main() {
 		log.Fatalf("Failed to create histogram: %v", err)
 	}
 
+	// Get HTTP port from environment or use default.
+	httpPort := os.Getenv("HTTP_PORT")
+	if httpPort == "" {
+		httpPort = "8080"
+	}
+
 	// Setup HTTP server.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRoot)
@@ -87,7 +93,7 @@ func main() {
 	mux.HandleFunc("/health", handleHealth)
 
 	server := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":" + httpPort,
 		Handler: mux,
 	}
 
@@ -118,7 +124,7 @@ func initOTel(ctx context.Context, endpoint string) (shutdown func(context.Conte
 	// Create resource with service information.
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceNameKey.String("otel-test-app"),
+			semconv.ServiceNameKey.String("otel-app"),
 			semconv.ServiceVersionKey.String("1.0.0"),
 			attribute.String("environment", "test"),
 		),
@@ -230,7 +236,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status": "ok", "service": "otel-test-app"}`)
+		fmt.Fprintf(w, `{"status": "ok", "service": "otel-app"}`)
 	})(w, r)
 }
 

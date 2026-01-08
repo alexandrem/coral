@@ -114,7 +114,8 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 
 		telemetryConfig := s.buildTelemetryConfig()
 
-		otlpReceiver, err := agent.NewTelemetryReceiverWithSharedDB(telemetryConfig, s.sharedDB, s.sharedDBPath, s.logger)
+		var err error
+		otlpReceiver, err = agent.NewTelemetryReceiverWithSharedDB(telemetryConfig, s.sharedDB, s.sharedDBPath, s.logger)
 		if err != nil {
 			s.logger.Warn().Err(err).Msg("Failed to create OTLP receiver - telemetry disabled")
 		} else {

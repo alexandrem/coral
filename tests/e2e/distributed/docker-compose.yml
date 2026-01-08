@@ -108,6 +108,7 @@ services:
       - "4318:4318" # OTLP HTTP
       - "9001:9001" # Agent gRPC
       - "8081:8080" # CPU app (shared network namespace for Beyla)
+      - "8082:8090" # OTEL app (shared network namespace for Beyla + OTLP)
     privileged: true # Required for eBPF and WireGuard
     depends_on:
       - colony
@@ -171,25 +172,26 @@ services:
       start_period: 5s
 
   # OTEL App - OpenTelemetry instrumented application
-  # Runs in its own container (uses OTLP SDK, not Beyla)
+  # Runs in agent-0's network AND PID namespace so Beyla can instrument it via eBPF
+  # This tests the combination of Beyla (passive) + OTLP SDK (active) together
   otel-app:
     build:
       context: ../../..
       dockerfile: tests/e2e/distributed/fixtures/apps/otel-app/Dockerfile
     environment:
-      - OTEL_EXPORTER_OTLP_ENDPOINT=agent-0:4317
-    ports:
-      - "8082:8080"
+      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - HTTP_PORT=8090
+    network_mode: "service:agent-0"
+    pid: "service:agent-0"
+    depends_on:
+      agent-0:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/health"]
       interval: 5s
       timeout: 3s
       retries: 3
       start_period: 5s
-    depends_on:
-      - agent-0
-    networks:
-      - coral-e2e
 
   # SDK App - Application with Coral SDK for uprobe testing
   sdk-app:

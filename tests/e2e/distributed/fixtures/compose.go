@@ -38,8 +38,8 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 		ColonyEndpoint:    "http://localhost:9000",
 		Agent0Endpoint:    "http://localhost:9001",
 		Agent1Endpoint:    "http://localhost:9002",
-		CPUAppEndpoint:    "localhost:8081",
-		OTELAppEndpoint:   "localhost:8082",
+		CPUAppEndpoint:    "localhost:8081", // cpu-app on port 8080 in agent-0 namespace, exposed as 8081
+		OTELAppEndpoint:   "localhost:8082", // otel-app on port 8090 in agent-0 namespace, exposed as 8082
 		SDKAppEndpoint:    "localhost:3001",
 	}
 
