@@ -53,10 +53,19 @@ services:
             cp /var/lib/coral/.colony_id /shared/colony_id
           fi
         fi
-        # Read the actual colony ID and start
+        # Read the actual colony ID and configure e2e-specific settings
         if [ -f /var/lib/coral/.colony_id ]; then
           COLONY_ID=$$(cat /var/lib/coral/.colony_id)
           echo "Starting colony with ID: $$COLONY_ID"
+
+          # Apply e2e-specific configuration overlay
+          CONFIG_FILE="/root/.coral/colonies/$$COLONY_ID/config.yaml"
+          if [ -f "$$CONFIG_FILE" ] && [ ! -f "$$CONFIG_FILE.e2e_applied" ]; then
+            echo "Applying e2e configuration overlay..."
+            cat /fixtures/e2e-config-overlay.yaml >> "$$CONFIG_FILE"
+            touch "$$CONFIG_FILE.e2e_applied"
+          fi
+
           exec /usr/local/bin/coral colony start --colony "$$COLONY_ID"
         else
           # Fallback to auto-detection
@@ -80,6 +89,7 @@ services:
       - colony-data:/var/lib/coral
       - colony-shared:/shared
       - colony-config:/root/.coral
+      - ./fixtures:/fixtures:ro  # Mount fixtures directory for e2e config overlay
 
   # Agent 0 - Primary agent
   agent-0:

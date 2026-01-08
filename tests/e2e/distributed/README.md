@@ -4,6 +4,29 @@ These tests validate the Coral distributed system in a realistic environment
 using Docker Compose. They cover connectivity, service discovery, telemetry (
 Beyla/OTLP), system metrics, and profiling.
 
+## Test Categories
+
+### 1. Initialization Tests (`init_test.go`)
+Tests `coral init` command in isolation (no docker-compose needed):
+- Colony config generation
+- WireGuard key generation
+- Certificate Authority setup
+- Config validation
+
+```bash
+# Run init tests standalone
+go test -v -run TestInitSuite
+```
+
+### 2. Runtime Tests (all others)
+Tests requiring docker-compose infrastructure:
+- Mesh connectivity
+- Service management
+- Passive observability (Beyla, OTLP, system metrics)
+- On-demand probes (CPU profiling, debugging)
+
+See [TESTING.md](TESTING.md) for detailed documentation.
+
 ## Quick Start
 
 ```bash

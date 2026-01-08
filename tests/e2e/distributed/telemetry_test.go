@@ -752,9 +752,10 @@ func (s *TelemetrySuite) TestSystemMetricsPolling() {
 	s.T().Logf("✓ Agent has %d system metrics", agentResp.TotalMetrics)
 
 	// Wait for colony polling.
-	// Colony system metrics poller typically runs every 1-2 minutes.
+	// E2E environment is configured with 15-second poll interval for faster tests.
+	// Wait 35 seconds to ensure at least one poll cycle completes.
 	s.T().Log("Waiting for colony to poll agent for system metrics...")
-	time.Sleep(90 * time.Second)
+	time.Sleep(35 * time.Second)
 
 	// Query colony for aggregated metrics using QueryUnifiedSummary API.
 	// System metrics are included in the unified summary response as host_* fields.

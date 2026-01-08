@@ -1,0 +1,55 @@
+# E2E Test Colony Configuration Template
+# This template is used to create colonies for e2e tests with optimized settings.
+# The colony_id, secrets, and WireGuard keys will be generated during initialization.
+
+version: "1"
+# colony_id: will be set during init
+application_name: test-colony-e2e
+environment: e2e
+# colony_secret: will be generated during init
+
+wireguard:
+    # private_key: will be generated during init
+    # public_key: will be generated during init
+    port: 41580
+    interface_name: wg0
+    mesh_ipv4: 100.64.0.1
+    mesh_ipv6: fd42::1
+    mesh_network_ipv4: 100.64.0.0/10
+    mesh_network_ipv6: fd42::/48
+    mtu: 1420
+    persistent_keepalive: 25
+
+services:
+    connect_port: 0
+    dashboard_port: 0
+
+storage_path: /var/lib/coral
+
+discovery:
+    enabled: true
+    # mesh_id: will be set to colony_id during init
+    auto_register: true
+    register_interval: 1m0s
+    stun_servers:
+        - stun.cloudflare.com:3478
+
+# E2E-specific optimizations: Faster poll intervals for reliable, fast testing
+beyla:
+    poll_interval: 15  # Poll every 15 seconds (production default: 60)
+    retention:
+        http_days: 30
+        grpc_days: 30
+        sql_days: 14
+        traces_days: 7
+
+system_metrics:
+    poll_interval: 15  # Poll every 15 seconds (production default: 60)
+    retention_days: 30
+
+continuous_profiling:
+    poll_interval: 15  # Poll every 15 seconds (production default: 30)
+    retention_days: 30
+
+# created_at: will be set during init
+# created_by: will be set during init
