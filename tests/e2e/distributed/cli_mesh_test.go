@@ -156,7 +156,7 @@ func (s *CLIMeshSuite) TestAgentListCommand() {
 // - Service list command works
 // - Output formatting
 func (s *CLIMeshSuite) TestServiceListCommand() {
-	s.T().Log("Testing 'coral service list' command...")
+	s.T().Log("Testing 'coral colony service list' command...")
 
 	// Test with table output
 	result := helpers.ServiceList(s.ctx, s.cliEnv.ColonyEndpoint)
@@ -180,7 +180,7 @@ func (s *CLIMeshSuite) TestServiceListCommand() {
 // - Exit codes are non-zero
 func (s *CLIMeshSuite) TestInvalidColonyEndpoint() {
 	s.T().Log("Testing error handling for invalid endpoint...")
-	s.T().Skipf("We don't have a colony endpoint env var yet")
+	s.T().Skip("We don't have a colony endpoint env var yet")
 
 	// Use an invalid endpoint that will definitely fail
 	result := helpers.RunCLIWithEnv(s.ctx, map[string]string{

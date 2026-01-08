@@ -7,7 +7,9 @@ Beyla/OTLP), system metrics, and profiling.
 ## Test Categories
 
 ### 1. Initialization Tests (`init_test.go`)
+
 Tests `coral init` command in isolation (no docker-compose needed):
+
 - Colony config generation
 - WireGuard key generation
 - Certificate Authority setup
@@ -19,7 +21,9 @@ go test -v -run TestInitSuite
 ```
 
 ### 2. Runtime Tests (all others)
+
 Tests requiring docker-compose infrastructure:
+
 - Mesh connectivity
 - Service management
 - Passive observability (Beyla, OTLP, system metrics)
@@ -110,6 +114,26 @@ make status            # Check service status
 make clean             # Stop and remove volumes
 ```
 
+### Important Timing Notes
+
+**Beyla Tests (Phase 3)** have specific timing requirements due to the debounced restart
+mechanism. See [BEYLA_TIMING_INVESTIGATION.md](BEYLA_TIMING_INVESTIGATION.md) for
+detailed analysis.
+
+**Key Timings:**
+
+- **Service Connection → Beyla Restart**: 5 seconds (debounce interval)
+- **Beyla Restart → Ready**: 4-5 seconds (process stop/start + eBPF attachment)
+- **Metrics Aggregation**: 5 seconds (ticker interval)
+- **Total Wait**: Tests wait 12 seconds after ConnectService before generating
+  traffic
+
+If you see intermittent failures with 0 eBPF metrics:
+
+1. Check that Beyla is running: `make logs-agent-0 | grep beyla`
+2. Verify timing logs in test output (shows expected vs actual times)
+3. Consider increasing wait times if running on slow hardware
+
 ## Test Structure
 
 The tests are organized into suites based on functionality.
@@ -170,9 +194,11 @@ system metrics.
 
 **Purpose**: Tests user-facing CLI commands for colony and agent management.
 
-CLI tests validate output formatting, error handling, and flag validation - not infrastructure behavior (covered by API tests).
+CLI tests validate output formatting, error handling, and flag validation - not
+infrastructure behavior (covered by API tests).
 
 **Tests**:
+
 - `TestColonyStatusCommand`: Validates `coral colony status` (table + JSON)
 - `TestColonyAgentsCommand`: Validates `coral colony agents` (table + JSON)
 - `TestAgentListCommand`: Validates `coral agent list` (table + JSON)
@@ -182,6 +208,7 @@ CLI tests validate output formatting, error handling, and flag validation - not 
 - `TestJSONOutputValidity`: JSON parsing and structure validation
 
 **Running CLI Tests**:
+
 ```bash
 # Run all tests (includes CLI tests)
 make test-all
@@ -197,17 +224,20 @@ go test -v -run TestE2EOrchestrator/Test5_CLICommands
 ```
 
 **Prerequisites**:
+
 - `coral` binary must be built: Run `make build` in project root
 - CLI tests look for binary in `bin/coral` (relative to project root)
 - Falls back to PATH if `bin/coral` doesn't exist
 
 **What CLI Tests Validate**:
+
 - ✅ Output formatting (table vs JSON)
 - ✅ Flag combinations and validation
 - ✅ Error messages and exit codes
 - ✅ User experience concerns
 
 **What CLI Tests DON'T Validate**:
+
 - ❌ Infrastructure behavior (covered by API tests)
 - ❌ Data accuracy (covered by API tests)
 - ❌ Performance benchmarks (separate suite)
@@ -216,19 +246,26 @@ go test -v -run TestE2EOrchestrator/Test5_CLICommands
 
 **Purpose**: Tests user-facing CLI query commands for observability data.
 
-CLI tests validate output formatting, flag combinations, and error handling - not query accuracy (covered by API tests).
+CLI tests validate output formatting, flag combinations, and error handling -
+not query accuracy (covered by API tests).
 
 **Tests**:
-- `TestQuerySummaryCommand`: Validates `coral query summary` (table + JSON, with --service and --time flags)
+
+- `TestQuerySummaryCommand`: Validates `coral query summary` (table + JSON, with
+  --service and --time flags)
 - `TestQueryServicesCommand`: Validates `coral query services` (table + JSON)
-- `TestQueryTracesCommand`: Validates `coral query traces` (with --service, --time, --limit flags)
-- `TestQueryMetricsCommand`: Validates `coral query metrics` (with --service, --time flags)
-- `TestQueryFlagCombinations`: Tests various flag combinations (time ranges, limits, service filters)
+- `TestQueryTracesCommand`: Validates `coral query traces` (with --service,
+  --time, --limit flags)
+- `TestQueryMetricsCommand`: Validates `coral query metrics` (with --service,
+  --time flags)
+- `TestQueryFlagCombinations`: Tests various flag combinations (time ranges,
+  limits, service filters)
 - `TestQueryInvalidFlags`: Error handling for invalid time ranges and parameters
 - `TestQueryJSONOutputValidity`: JSON parsing and structure validation
 - `TestQueryTableOutputFormatting`: Table structure validation
 
 **Running CLI Query Tests**:
+
 ```bash
 # Run all tests (includes CLI query tests)
 make test-all
@@ -241,6 +278,7 @@ go test -v -run TestE2EOrchestrator/Test5_CLICommands/CLI_Query
 ```
 
 **What Query CLI Tests Validate**:
+
 - ✅ Command syntax and flag parsing
 - ✅ Output formatting (table vs JSON)
 - ✅ Flag combinations (--service, --time, --limit)
@@ -248,12 +286,55 @@ go test -v -run TestE2EOrchestrator/Test5_CLICommands/CLI_Query
 - ✅ Error messages for invalid inputs
 
 **What Query CLI Tests DON'T Validate**:
+
 - ❌ Query result accuracy (covered by API tests)
 - ❌ Data aggregation logic (covered by TelemetrySuite)
 - ❌ Query performance (separate benchmarks)
 
-**Future Phases**:
-- Phase 3: `cli_config_test.go` - Config commands (`coral config get-contexts/current-context/use-context`)
+### cli_config_test.go (CLIConfigSuite)
+
+**Purpose**: Tests user-facing CLI config commands for context management.
+
+CLI tests validate config command UX, not the underlying colony infrastructure.
+
+**Tests**:
+
+- `TestConfigGetContextsCommand`: Validates `coral config get-contexts` (table +
+  JSON)
+- `TestConfigCurrentContextCommand`: Validates `coral config current-context`
+- `TestConfigUseContextCommand`: Validates `coral config use-context` (context
+  switching)
+- `TestConfigInvalidContext`: Error handling for non-existent contexts
+- `TestConfigOutputFormats`: Output format consistency (table vs JSON)
+- `TestConfigCommandsWithoutColony`: Config commands work independently
+- `TestConfigHelpText`: Help text availability and quality
+
+**Running CLI Config Tests**:
+
+```bash
+# Run all tests (includes CLI config tests)
+make test-all
+
+# Run CLI config tests standalone
+go test -v -run TestCLIConfigSuite -tags=standalone
+
+# Run just config tests from orchestrator
+go test -v -run TestE2EOrchestrator/Test5_CLICommands/CLI_Config
+```
+
+**What Config CLI Tests Validate**:
+
+- ✅ Command syntax and execution
+- ✅ Context listing and switching
+- ✅ Output formatting (table vs JSON)
+- ✅ Error handling for invalid contexts
+- ✅ Help text availability
+
+**What Config CLI Tests DON'T Validate**:
+
+- ❌ Config file schema details (unit tests)
+- ❌ Colony infrastructure (covered by other suites)
+- ❌ Advanced config file manipulation
 
 ### Observability Layers
 
