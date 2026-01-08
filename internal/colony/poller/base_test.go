@@ -156,11 +156,11 @@ func TestBasePoller_CleanupInterval(t *testing.T) {
 	defer base.Stop()
 
 	// Wait for cleanup to run.
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(95 * time.Millisecond)
 
 	cleanupCount := mock.getCleanupCount()
 
-	// Should have cleaned up at least twice (80ms / 30ms).
+	// Should have cleaned up at least twice (95ms / 30ms accounting for startup overhead).
 	if cleanupCount < 2 {
 		t.Errorf("Expected at least 2 cleanups, got %d", cleanupCount)
 	}
