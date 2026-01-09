@@ -77,6 +77,7 @@ func (s *E2EOrchestratorSuite) Test1_MeshConnectivity() {
 		E2EDistributedSuite: s.E2EDistributedSuite,
 	}
 	meshSuite.SetT(s.T())
+	defer meshSuite.TearDownTest()
 
 	// Run individual tests in order.
 	s.Run("DiscoveryService", meshSuite.TestDiscoveryServiceAvailability)

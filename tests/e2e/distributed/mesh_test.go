@@ -381,3 +381,17 @@ func (s *MeshSuite) TestAgentReconnection() {
 	s.Require().NoError(err)
 	s.T().Logf("Successfully verified %d agents reconnected", len(agents.Agents))
 }
+
+func (s *MeshSuite) TearDownTest() {
+	agentEndpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	if err == nil {
+		agentClient := helpers.NewAgentClient(agentEndpoint)
+		_, _ = helpers.DisconnectService(s.ctx, agentClient, "cpu-app")
+		_, _ = helpers.DisconnectService(s.ctx, agentClient, "otel-app")
+		// Ignore errors - services may not have been connected in this test.
+		s.T().Logf("Teared down app services")
+	}
+
+	// Call parent TearDownTest.
+	s.E2EDistributedSuite.TearDownTest()
+}
