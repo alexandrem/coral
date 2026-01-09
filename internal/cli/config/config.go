@@ -5,7 +5,6 @@ package config
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 )
 
@@ -54,7 +54,7 @@ Environment Variables:
 
 // newGetContextsCmd creates the 'config get-contexts' command.
 func newGetContextsCmd() *cobra.Command {
-	var jsonOutput bool
+	var format string
 
 	cmd := &cobra.Command{
 		Use:   "get-contexts",
@@ -66,16 +66,20 @@ The RESOLUTION column shows where the current colony was resolved from:
   project - .coral/config.yaml in current directory
   global  - ~/.coral/config.yaml default_colony`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGetContexts(jsonOutput)
+			return runGetContexts(format)
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+		helpers.FormatYAML,
+	})
 
 	return cmd
 }
 
-func runGetContexts(jsonOutput bool) error {
+func runGetContexts(format string) error {
 	resolver, err := config.NewResolver()
 	if err != nil {
 		return fmt.Errorf("failed to create resolver: %w", err)
@@ -88,8 +92,8 @@ func runGetContexts(jsonOutput bool) error {
 	}
 
 	if len(colonyIDs) == 0 {
-		if jsonOutput {
-			// Return empty JSON structure for JSON output.
+		if format != string(helpers.FormatTable) {
+			// Return empty structure for structured output.
 			output := struct {
 				CurrentColony    string        `json:"current_colony"`
 				ResolutionSource string        `json:"resolution_source"`
@@ -99,12 +103,11 @@ func runGetContexts(jsonOutput bool) error {
 				ResolutionSource: "",
 				Colonies:         []interface{}{},
 			}
-			data, err := json.MarshalIndent(output, "", "  ")
+			formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
 			if err != nil {
 				return err
 			}
-			fmt.Println(string(data))
-			return nil
+			return formatter.Format(output, os.Stdout)
 		}
 		fmt.Println("No colonies configured.")
 		fmt.Println("\nRun 'coral init <app-name>' to create one.")
@@ -114,14 +117,14 @@ func runGetContexts(jsonOutput bool) error {
 	// Get current colony and resolution source.
 	currentColonyID, source, _ := resolver.ResolveWithSource()
 
-	if jsonOutput {
-		return outputGetContextsJSON(loader, colonyIDs, currentColonyID, source)
+	if format != string(helpers.FormatTable) {
+		return outputGetContextsFormatted(loader, colonyIDs, currentColonyID, source, format)
 	}
 
 	return outputGetContextsTable(loader, colonyIDs, currentColonyID, source)
 }
 
-func outputGetContextsJSON(loader *config.Loader, colonyIDs []string, currentColonyID string, source config.ResolutionSource) error {
+func outputGetContextsFormatted(loader *config.Loader, colonyIDs []string, currentColonyID string, source config.ResolutionSource, format string) error {
 	type contextInfo struct {
 		ColonyID    string `json:"colony_id"`
 		Application string `json:"application"`
@@ -159,12 +162,11 @@ func outputGetContextsJSON(loader *config.Loader, colonyIDs []string, currentCol
 		output.Colonies = append(output.Colonies, info)
 	}
 
-	data, err := json.MarshalIndent(output, "", "  ")
+	formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(data))
-	return nil
+	return formatter.Format(output, os.Stdout)
 }
 
 func outputGetContextsTable(loader *config.Loader, colonyIDs []string, currentColonyID string, source config.ResolutionSource) error {
@@ -408,7 +410,7 @@ func checkProjectConfig() string {
 
 // newValidateCmd creates the 'config validate' command.
 func newValidateCmd() *cobra.Command {
-	var jsonOutput bool
+	var format string
 
 	cmd := &cobra.Command{
 		Use:   "validate",
@@ -421,16 +423,19 @@ Checks each colony's configuration for:
 - Valid port ranges
 - Valid MTU values`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runValidate(jsonOutput)
+			return runValidate(format)
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+	})
 
 	return cmd
 }
 
-func runValidate(jsonOutput bool) error {
+func runValidate(format string) error {
 	loader, err := config.NewLoader()
 	if err != nil {
 		return fmt.Errorf("failed to create config loader: %w", err)
@@ -446,14 +451,14 @@ func runValidate(jsonOutput bool) error {
 		return nil
 	}
 
-	if jsonOutput {
-		return outputValidateJSON(results)
+	if format != string(helpers.FormatTable) {
+		return outputValidateFormatted(results, format)
 	}
 
 	return outputValidateTable(results)
 }
 
-func outputValidateJSON(results map[string]error) error {
+func outputValidateFormatted(results map[string]error, format string) error {
 	type validationResult struct {
 		ColonyID string `json:"colony_id"`
 		Valid    bool   `json:"valid"`
@@ -482,12 +487,11 @@ func outputValidateJSON(results map[string]error) error {
 		output.Results = append(output.Results, result)
 	}
 
-	data, err := json.MarshalIndent(output, "", "  ")
+	formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(data))
-	return nil
+	return formatter.Format(output, os.Stdout)
 }
 
 func outputValidateTable(results map[string]error) error {

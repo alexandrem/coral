@@ -17,6 +17,7 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
 )
@@ -35,7 +36,7 @@ func newServiceCmd() *cobra.Command {
 
 func newServiceListCmd() *cobra.Command {
 	var (
-		jsonOutput    bool
+		format        string
 		colonyID      string
 		filterService string
 		filterType    string
@@ -158,7 +159,7 @@ Examples:
 				services = filtered
 			}
 
-			if jsonOutput {
+			if format != string(helpers.FormatTable) {
 				return outputServicesJSONv2(services, snapshotTime)
 			}
 
@@ -170,11 +171,14 @@ Examples:
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (overrides auto-detection)")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+	})
+	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().StringVar(&filterService, "service", "", "Filter by service name (case-insensitive)")
 	cmd.Flags().StringVar(&filterType, "type", "", "Filter by service type (e.g., http, redis)")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show detailed per-agent information")
+	helpers.AddVerboseFlag(cmd, &verbose)
 
 	return cmd
 }

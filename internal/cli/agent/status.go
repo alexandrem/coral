@@ -2,9 +2,9 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -12,15 +12,16 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 // NewStatusCmd creates the agent status command.
 func NewStatusCmd() *cobra.Command {
 	var (
-		jsonOutput bool
-		agentURL   string
-		agent      string
-		colony     string
+		format   string
+		agentURL string
+		agent    string
+		colony   string
 	)
 
 	cmd := &cobra.Command{
@@ -94,25 +95,29 @@ The agent must be running and accessible.`,
 				services = servicesResp.Msg.Services
 			}
 
-			// Output in requested format
-			if jsonOutput {
-				return outputAgentStatusJSON(runtimeCtx, services)
+			// Output in requested format.
+			if format != string(helpers.FormatTable) {
+				return outputAgentStatusFormatted(runtimeCtx, services, format)
 			}
 
 			return outputAgentStatusTable(runtimeCtx, services)
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+		helpers.FormatYAML,
+	})
 	cmd.Flags().StringVar(&agentURL, "agent-url", "", "Agent URL (default: http://localhost:9001)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
-	cmd.Flags().StringVar(&colony, "colony", "", "Colony ID (default: auto-detect)")
+	helpers.AddColonyFlag(cmd, &colony)
 
 	return cmd
 }
 
-// outputAgentStatusJSON outputs agent status in JSON format.
-func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus) error {
+// outputAgentStatusFormatted outputs agent status in structured format (JSON, YAML, etc).
+func outputAgentStatusFormatted(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, format string) error {
 	output := map[string]interface{}{
 		"runtime_context": ctx,
 	}
@@ -121,13 +126,12 @@ func outputAgentStatusJSON(ctx *agentv1.RuntimeContextResponse, services []*agen
 		output["services"] = services
 	}
 
-	data, err := json.MarshalIndent(output, "", "  ")
+	formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
 	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
+		return err
 	}
 
-	fmt.Println(string(data))
-	return nil
+	return formatter.Format(output, os.Stdout)
 }
 
 // outputAgentStatusTable outputs agent status in human-readable format.

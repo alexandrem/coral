@@ -63,7 +63,7 @@ func TestConfigCommandsE2E(t *testing.T) {
 	})
 
 	t.Run("get-contexts_json", func(t *testing.T) {
-		output := runCoral(t, binaryPath, "config", "get-contexts", "--json")
+		output := runCoral(t, binaryPath, "config", "get-contexts", "--format", "json")
 
 		var result struct {
 			CurrentColony    string `json:"current_colony"`
@@ -122,7 +122,7 @@ func TestConfigCommandsE2E(t *testing.T) {
 	})
 
 	t.Run("validate_json", func(t *testing.T) {
-		output := runCoral(t, binaryPath, "config", "validate", "--json")
+		output := runCoral(t, binaryPath, "config", "validate", "--format", "json")
 
 		var result struct {
 			Results []struct {

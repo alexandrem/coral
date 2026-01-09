@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/cli/status"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/discovery/client"
@@ -15,8 +16,8 @@ import (
 // newStatusCmd creates the global status command.
 func newStatusCmd() *cobra.Command {
 	var (
-		jsonOutput bool
-		verbose    bool
+		format  string
+		verbose bool
 	)
 
 	cmd := &cobra.Command{
@@ -74,9 +75,9 @@ Use 'coral colony status <id>' for detailed information about a specific colony.
 				}
 			}
 
-			// Output in requested format
+			// Output in requested format.
 			formatter := status.NewFormatter(globalConfig)
-			if jsonOutput {
+			if format != string(helpers.FormatTable) {
 				return formatter.OutputJSON(coloniesInfo, discoveryHealthy, runningCount, stoppedCount)
 			}
 
@@ -84,8 +85,11 @@ Use 'coral colony status <id>' for detailed information about a specific colony.
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show additional details (WireGuard public keys, endpoints)")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+	})
+	helpers.AddVerboseFlag(cmd, &verbose)
 
 	return cmd
 }

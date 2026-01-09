@@ -8,6 +8,50 @@
 
 ---
 
+## Global Flags & Options
+
+### Output Format
+
+All commands that produce output support the `--format` / `-o` flag:
+
+```bash
+--format <format>    # Output format: table (default), json, csv, yaml
+-o <format>          # Short form
+```
+
+**Supported formats:**
+- `table` - Human-readable tabular output (default)
+- `json` - JSON format for programmatic consumption
+- `csv` - CSV format for spreadsheet import (where applicable)
+- `yaml` - YAML format (where applicable)
+
+**Examples:**
+```bash
+coral colony list --format json
+coral colony status -o yaml
+coral config get-contexts --format table
+```
+
+### Verbose Output
+
+Global verbose flag available to all commands:
+
+```bash
+--verbose    # Show additional details
+-v           # Short form
+```
+
+### Colony Selection
+
+Standard colony ID parameter across all commands:
+
+```bash
+--colony <id>    # Specify colony ID (overrides auto-detection)
+-c <id>          # Short form
+```
+
+---
+
 ## Setup & Configuration
 
 ```bash
@@ -15,11 +59,11 @@
 coral init <colony-name>
 
 # Configuration management
-coral config get-contexts [--json]
+coral config get-contexts [--format <format>]
 coral config current-context [--verbose]
 coral config use-context <colony-id>
 coral config view [--colony <id>] [--raw]
-coral config validate [--json]
+coral config validate [--format <format>]
 coral config delete-context <colony-id>
 
 # Version
@@ -33,12 +77,12 @@ coral version
 ```bash
 # Colony (central coordinator)
 coral colony start [--daemon] [--port <port>] [--config <file>]
-coral colony status [--json]
+coral colony status [--format <format>]
 coral colony stop
 
 # Agent (local observer)
-coral agent start [--config <file>] [--colony-id <id>] [--connect <service>...] [--monitor-all]
-coral agent status
+coral agent start [--config <file>] [--colony <id>] [--connect <service>...] [--monitor-all]
+coral agent status [--format <format>]
 coral agent stop
 
 # Agent startup modes:
@@ -82,10 +126,10 @@ coral connect <name> --port <port> [--health <path>]
 coral ask config
 
 # Ask questions
-coral ask "<question>" [--json] [--model <provider:model>] [--debug] [--dry-run]
+coral ask "<question>" [--format <format>] [--model <provider:model>] [--debug] [--dry-run]
 
 # Flags:
-#   --json             Output as JSON
+#   --format <format>  Output format (table, json)
 #   --model <name>     Use specific model (e.g., anthropic:claude-3-5-sonnet-20241022)
 #   --debug            Show debug information (prompts, tool calls, etc.)
 #   --dry-run          Show what would be queried without executing

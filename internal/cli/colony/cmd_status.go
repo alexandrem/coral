@@ -2,9 +2,9 @@ package colony
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -12,14 +12,15 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func newStatusCmd() *cobra.Command {
 	var (
-		jsonOutput bool
-		colonyID   string
+		format   string
+		colonyID string
 	)
 
 	cmd := &cobra.Command{
@@ -99,54 +100,55 @@ This command is useful for troubleshooting connectivity issues.`,
 				}
 			}
 
-			if jsonOutput {
-				output := map[string]interface{}{
-					"colony_id":    colonyConfig.ColonyID,
-					"application":  colonyConfig.ApplicationName,
-					"environment":  colonyConfig.Environment,
-					"storage_path": colonyConfig.StoragePath,
-					"wireguard": map[string]interface{}{
-						"public_key":        colonyConfig.WireGuard.PublicKey,
-						"port":              colonyConfig.WireGuard.Port,
-						"mesh_ipv4":         colonyConfig.WireGuard.MeshIPv4,
-						"mesh_ipv6":         colonyConfig.WireGuard.MeshIPv6,
-						"mesh_network_ipv4": colonyConfig.WireGuard.MeshNetworkIPv4,
-						"mesh_network_ipv6": colonyConfig.WireGuard.MeshNetworkIPv6,
-						"mtu":               colonyConfig.WireGuard.MTU,
-					},
-					"discovery_endpoint": globalConfig.Discovery.Endpoint,
-					"connect_port":       connectPort,
+			// Prepare output data.
+			output := map[string]interface{}{
+				"colony_id":    colonyConfig.ColonyID,
+				"application":  colonyConfig.ApplicationName,
+				"environment":  colonyConfig.Environment,
+				"storage_path": colonyConfig.StoragePath,
+				"wireguard": map[string]interface{}{
+					"public_key":        colonyConfig.WireGuard.PublicKey,
+					"port":              colonyConfig.WireGuard.Port,
+					"mesh_ipv4":         colonyConfig.WireGuard.MeshIPv4,
+					"mesh_ipv6":         colonyConfig.WireGuard.MeshIPv6,
+					"mesh_network_ipv4": colonyConfig.WireGuard.MeshNetworkIPv4,
+					"mesh_network_ipv6": colonyConfig.WireGuard.MeshNetworkIPv6,
+					"mtu":               colonyConfig.WireGuard.MTU,
+				},
+				"discovery_endpoint": globalConfig.Discovery.Endpoint,
+				"connect_port":       connectPort,
+			}
+
+			// Add runtime status if colony is running.
+			if runtimeStatus != nil {
+				output["status"] = runtimeStatus.Status
+				output["uptime_seconds"] = runtimeStatus.UptimeSeconds
+				output["agent_count"] = runtimeStatus.AgentCount
+				output["active_agent_count"] = runtimeStatus.ActiveAgentCount
+				output["degraded_agent_count"] = runtimeStatus.DegradedAgentCount
+				output["storage_bytes"] = runtimeStatus.StorageBytes
+				output["dashboard_url"] = runtimeStatus.DashboardUrl
+				output["started_at"] = runtimeStatus.StartedAt.AsTime().Format(time.RFC3339)
+
+				// Add network endpoint information from runtime.
+				output["network_endpoints"] = map[string]interface{}{
+					"local_endpoint":       fmt.Sprintf("http://localhost:%d", runtimeStatus.ConnectPort),
+					"mesh_endpoint":        fmt.Sprintf("http://%s:%d", runtimeStatus.MeshIpv4, runtimeStatus.ConnectPort),
+					"wireguard_port":       runtimeStatus.WireguardPort,
+					"wireguard_public_key": runtimeStatus.WireguardPublicKey,
+					"wireguard_endpoints":  runtimeStatus.WireguardEndpoints,
 				}
+			} else {
+				output["status"] = "configured"
+			}
 
-				// Add runtime status if colony is running
-				if runtimeStatus != nil {
-					output["status"] = runtimeStatus.Status
-					output["uptime_seconds"] = runtimeStatus.UptimeSeconds
-					output["agent_count"] = runtimeStatus.AgentCount
-					output["active_agent_count"] = runtimeStatus.ActiveAgentCount
-					output["degraded_agent_count"] = runtimeStatus.DegradedAgentCount
-					output["storage_bytes"] = runtimeStatus.StorageBytes
-					output["dashboard_url"] = runtimeStatus.DashboardUrl
-					output["started_at"] = runtimeStatus.StartedAt.AsTime().Format(time.RFC3339)
-
-					// Add network endpoint information from runtime
-					output["network_endpoints"] = map[string]interface{}{
-						"local_endpoint":       fmt.Sprintf("http://localhost:%d", runtimeStatus.ConnectPort),
-						"mesh_endpoint":        fmt.Sprintf("http://%s:%d", runtimeStatus.MeshIpv4, runtimeStatus.ConnectPort),
-						"wireguard_port":       runtimeStatus.WireguardPort,
-						"wireguard_public_key": runtimeStatus.WireguardPublicKey,
-						"wireguard_endpoints":  runtimeStatus.WireguardEndpoints,
-					}
-				} else {
-					output["status"] = "configured"
-				}
-
-				data, err := json.MarshalIndent(output, "", "  ")
+			// Use formatter for non-table output.
+			if format != string(helpers.FormatTable) {
+				formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
 				if err != nil {
 					return err
 				}
-				fmt.Println(string(data))
-				return nil
+				return formatter.Format(output, os.Stdout)
 			}
 
 			// Human-readable output
@@ -252,8 +254,12 @@ This command is useful for troubleshooting connectivity issues.`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (overrides auto-detection)")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+		helpers.FormatYAML,
+	})
+	helpers.AddColonyFlag(cmd, &colonyID)
 
 	return cmd
 }
