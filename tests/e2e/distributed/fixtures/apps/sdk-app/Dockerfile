@@ -17,8 +17,8 @@ RUN go mod download
 # Copy app source code.
 COPY tests/e2e/distributed/fixtures/apps/sdk-app/main.go ./
 
-# Build the application.
-RUN CGO_ENABLED=0 GOOS=linux go build -o sdk-app main.go
+# Build the application with frame pointers for eBPF profiling (ARM64 support).
+RUN CGO_ENABLED=0 GOOS=linux go build -tags=framepointer -o sdk-app main.go
 
 # Final stage.
 FROM alpine:latest

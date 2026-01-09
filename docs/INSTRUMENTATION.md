@@ -128,6 +128,88 @@ go build -ldflags="-w -s" -o myapp main.go
 reduction and security. For these binaries, **you must integrate the SDK** -
 agentless mode will not work.
 
+### CPU Profiling Requirements (ARM64)
+
+Coral's eBPF-based CPU profiler requires **frame pointers** for stack unwinding.
+On AMD64, Go enables frame pointers by default (Go 1.7+). However, on **ARM64
+(Apple Silicon, AWS Graviton)**, frame pointers must be explicitly enabled:
+
+```bash
+# ARM64: Enable frame pointers for CPU profiling
+go build -tags=framepointer -o myapp main.go
+
+# AMD64: Frame pointers enabled by default (no special flags needed)
+go build -o myapp main.go
+```
+
+**Why This Matters:**
+
+- **eBPF Stack Unwinding**: The eBPF profiler uses `bpf_get_stackid()` which
+  performs kernel-side stack unwinding
+- **DWARF Not Available**: Unlike userspace profilers (like `perf`), eBPF cannot
+  use DWARF symbols for unwinding
+- **Frame Pointers Required**: The kernel's BPF stack walker requires frame
+  pointers to traverse the call stack
+
+**Symptoms Without Frame Pointers:**
+
+- CPU profiler captures 0 samples even under load
+- Continuous profiling shows `total_samples=0` in logs
+- On-demand profiling returns success but no stack traces
+
+**Platform-Specific Behavior:**
+
+| Platform | Frame Pointers | Build Flag Required |
+|----------|----------------|---------------------|
+| AMD64 (x86_64) | ✅ Default (Go 1.7+) | None |
+| ARM64 (Apple Silicon, Graviton) | ❌ Not default | `-tags=framepointer` |
+| ARM32 | ❌ Not default | `-tags=framepointer` |
+
+**Docker/Container Example:**
+
+```dockerfile
+FROM golang:1.25-alpine
+
+WORKDIR /app
+COPY . .
+
+# Enable frame pointers for ARM64 CPU profiling
+RUN go build -tags=framepointer -o myapp main.go
+
+CMD ["./myapp"]
+```
+
+**Verification:**
+
+```bash
+# Check if your app is capturing CPU samples
+docker exec <container> cat /sys/kernel/debug/tracing/trace_pipe
+# Should show perf_event samples when profiler is active
+
+# Or check agent logs
+docker logs <agent-container> | grep "CPU profile collected"
+# Should show total_samples > 0
+```
+
+**Alternative: System-Level Perf Events**
+
+If you cannot rebuild with `-tags=framepointer`, ensure the host/VM has perf
+events enabled:
+
+```bash
+# Required for eBPF profiling (default is often 4, which blocks everything)
+sudo sysctl -w kernel.perf_event_paranoid=-1
+
+# For Colima users
+colima ssh -- sudo sysctl -w kernel.perf_event_paranoid=-1
+```
+
+This setting persists until reboot. For permanent configuration, add to `/etc/sysctl.conf`:
+
+```bash
+kernel.perf_event_paranoid=-1
+```
+
 ### Example: Live Debugging Session
 
 ```bash

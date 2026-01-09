@@ -82,7 +82,8 @@ func (s *TelemetrySuite) TestBeylaPassiveInstrumentation() {
 	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
 	s.T().Logf("  Expected Beyla restart at ~%s (5s debounce)", connectTime.Add(5*time.Second).Format("15:04:05"))
 	s.T().Logf("  Expected Beyla ready at ~%s", connectTime.Add(10*time.Second).Format("15:04:05"))
-	time.Sleep(12 * time.Second) // Wait for debounced restart (5s) + eBPF attachment (4s) + buffer (3s).
+	err = helpers.WaitForBeylaRestart(s.ctx, "cpu-app")
+	s.Require().NoError(err, "Context cancelled while waiting for Beyla restart")
 
 	s.T().Logf("Beyla should now be instrumenting the CPU app via eBPF (current time: %s)", time.Now().Format("15:04:05"))
 
@@ -185,7 +186,8 @@ func (s *TelemetrySuite) TestBeylaColonyPolling() {
 	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
 	s.T().Logf("  Expected Beyla restart at ~%s (5s debounce)", connectTime.Add(5*time.Second).Format("15:04:05"))
 	s.T().Logf("  Expected Beyla ready at ~%s", connectTime.Add(10*time.Second).Format("15:04:05"))
-	time.Sleep(12 * time.Second) // Wait for debounced restart (5s) + eBPF attachment (4s) + buffer (3s).
+	err = helpers.WaitForBeylaRestart(s.ctx, "cpu-app")
+	s.Require().NoError(err, "Context cancelled while waiting for Beyla restart")
 
 	// Generate HTTP traffic.
 	cpuAppEndpoint, err := fixture.GetCPUAppEndpoint(s.ctx)
@@ -300,7 +302,8 @@ func (s *TelemetrySuite) TestBeylaVsOTLPComparison() {
 	s.T().Log("Waiting for Beyla to restart with updated discovery configuration...")
 	s.T().Logf("  Expected Beyla restart at ~%s (5s debounce)", connectTime.Add(5*time.Second).Format("15:04:05"))
 	s.T().Logf("  Expected Beyla ready at ~%s", connectTime.Add(10*time.Second).Format("15:04:05"))
-	time.Sleep(12 * time.Second) // Wait for debounced restart (5s) + eBPF attachment (4s) + buffer (3s).
+	err = helpers.WaitForBeylaRestart(s.ctx, "cpu-app")
+	s.Require().NoError(err, "Context cancelled while waiting for Beyla restart")
 
 	// Generate HTTP traffic.
 	cpuAppEndpoint, err := fixture.GetCPUAppEndpoint(s.ctx)

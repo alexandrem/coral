@@ -127,6 +127,9 @@ services:
     volumes:
       - agent-0-data:/var/lib/coral
       - colony-shared:/shared
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
 
   # Agent 1 - Secondary agent for multi-agent tests
   agent-1:
@@ -154,6 +157,8 @@ services:
       - "4327:4317" # OTLP gRPC
       - "4328:4318" # OTLP HTTP
       - "9002:9001" # Agent gRPC
+      - "3001:3001" # SDK app HTTP (shared network namespace)
+      - "9003:9002" # SDK app debug endpoint (shared network namespace)
     privileged: true
     depends_on:
       - colony
@@ -162,6 +167,9 @@ services:
     volumes:
       - agent-1-data:/var/lib/coral
       - colony-shared:/shared
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
 
   # CPU App - CPU-intensive test application
   # Runs in agent-0's network AND PID namespace so Beyla can instrument it via eBPF
@@ -204,21 +212,21 @@ services:
       start_period: 5s
 
   # SDK App - Application with Coral SDK for uprobe testing
+  # Runs in agent-1's network AND PID namespace so agent can profile it
   sdk-app:
     build:
       context: ../../..
       dockerfile: tests/e2e/distributed/fixtures/apps/sdk-app/Dockerfile
-    ports:
-      - "3001:3001"
-      - "9003:9002"
+    network_mode: "service:agent-1"
+    pid: "service:agent-1"
+    depends_on:
+      - agent-1
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
       interval: 5s
       timeout: 3s
       retries: 3
       start_period: 5s
-    networks:
-      - coral-e2e
 
 networks:
   coral-e2e:
