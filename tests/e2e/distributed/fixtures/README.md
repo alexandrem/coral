@@ -2,6 +2,38 @@
 
 This directory contains configuration files and fixtures for E2E tests.
 
+## Test Applications
+
+The `apps/` directory contains test applications used across E2E test suites:
+
+### `cpu-app`
+
+A CPU-intensive test application for profiling tests. Simple HTTP server that
+performs SHA-256 hashing on each request to generate CPU load.
+
+- **Port**: 8080
+- **Endpoints**:
+  - `GET /` - CPU-intensive workload (10k SHA-256 iterations)
+  - `GET /health` - Health check
+- **Used by**: Profiling tests (continuous and on-demand)
+
+### `otel-app`
+
+OpenTelemetry instrumented application that emits traces and metrics via OTLP.
+Tests the combination of Beyla (passive eBPF instrumentation) and OTLP SDK
+(active instrumentation).
+
+- **Port**: 8090
+- **Endpoints**: Various API endpoints with trace/metric instrumentation
+- **Used by**: Telemetry tests
+
+### `sdk-app`
+
+Application with Coral SDK integration for uprobe testing and SDK functionality.
+
+- **Port**: 3001
+- **Used by**: SDK integration tests
+
 ## Colony Configuration
 
 ### `colony-config-template.yaml`
@@ -55,3 +87,16 @@ To change E2E-specific settings:
 
 Do NOT modify these files for production - they are optimized for fast E2E
 testing only.
+
+## Manual Validation Scripts
+
+The `../scripts/` directory contains shell scripts for manual testing and
+validation of the E2E infrastructure:
+
+- **test_cpu_profile.sh**: Test on-demand CPU profiling (RFD 070)
+- **test_continuous_profiling.sh**: Test continuous CPU profiling (RFD 072)
+- **test_agent_endpoint.sh**: Verify agent's CPU profile endpoint
+- **generate_load.sh**: Generate HTTP load on test applications
+
+These scripts work with the same docker-compose setup as automated tests,
+allowing manual validation and debugging of E2E infrastructure.
