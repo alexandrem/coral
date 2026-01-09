@@ -34,6 +34,18 @@ See [TESTING.md](TESTING.md) for detailed documentation.
 ## Quick Start
 
 ```bash
+# Run full test suite (build, test, cleanup)
+make test-e2e
+
+# Or for faster iteration, run specific test groups:
+make test-e2e-up                                    # Start services
+make test-e2e-filter FILTER=Test4_OnDemandProbes    # Run specific group
+make test-e2e-down                                  # Stop services
+```
+
+**For full control from the test directory:**
+
+```bash
 cd tests/e2e/distributed
 
 # Enable BuildKit for fast builds (one-time setup)
@@ -60,7 +72,12 @@ make test-all
 ```bash
 # Start Colima with appropriate resources
 colima start --cpu 4 --memory 8 --disk 100
+
+# Enable perf events for CPU profiling (required for profiling tests)
+colima ssh -- sudo sysctl -w kernel.perf_event_paranoid=-1
 ```
+
+**Note**: The `perf_event_paranoid=-1` setting is required for CPU profiling tests to work. This enables unprivileged perf events which the eBPF profiler needs to capture samples. The setting persists until the Colima VM is restarted.
 
 ## Running Tests
 
@@ -104,14 +121,72 @@ go test -v -run TestOTLPIngestion
 make down
 ```
 
+### Option 3: Run Specific Test Groups (Filtered)
+
+For faster iteration when working on specific features, you can run individual test groups without running the full suite.
+
+```bash
+# From project root
+make test-e2e-up    # Start services (one time)
+
+# Run specific test group
+make test-e2e-filter FILTER=Test4_OnDemandProbes
+
+# Or run specific test within a group
+make test-e2e-filter FILTER=Test4_OnDemandProbes/OnDemandProfiling
+
+# Run multiple times as needed...
+make test-e2e-filter FILTER=Test3_PassiveObservability
+
+# Stop when done
+make test-e2e-down
+```
+
+**Available Test Groups:**
+- `Test1_MeshConnectivity` - Mesh setup, agent registration, heartbeat
+- `Test2_ServiceManagement` - Service registration and connection
+- `Test3_PassiveObservability` - Beyla eBPF, OTLP, system metrics
+- `Test4_OnDemandProbes` - CPU profiling, uprobe tracing, debug sessions
+- `Test5_CLICommands` - CLI command validation
+
+**Individual Tests:**
+```bash
+# Mesh tests
+make test-e2e-filter FILTER=Test1_MeshConnectivity/DiscoveryService
+make test-e2e-filter FILTER=Test1_MeshConnectivity/AgentRegistration
+
+# Observability tests
+make test-e2e-filter FILTER=Test3_PassiveObservability/BeylaPassiveInstrumentation
+make test-e2e-filter FILTER=Test3_PassiveObservability/OTLPIngestion
+
+# Profiling tests
+make test-e2e-filter FILTER=Test4_OnDemandProbes/OnDemandProfiling
+make test-e2e-filter FILTER=Test4_OnDemandProbes/UprobeTracing
+
+# CLI tests
+make test-e2e-filter FILTER=Test5_CLICommands/CLI_ColonyStatus
+```
+
+**Note:** Test groups have dependencies. For example, `Test4_OnDemandProbes` requires `Test1_MeshConnectivity`, `Test2_ServiceManagement`, and `Test3_PassiveObservability` to have passed. If you run a filtered test and it skips with "Prerequisites failed", you may need to run the full suite once, or run the prerequisite groups first.
+
 ### Useful Commands
 
 ```bash
+# Test execution
+make test              # Run all tests
+make test-filter FILTER=<name>  # Run specific test group (see Option 3)
+
+# Service management
+make up                # Start all services
+make down              # Stop all services
+make build             # Rebuild container images
+make clean             # Stop and remove volumes
+
+# Logs and debugging
 make logs              # View logs for all services
 make logs-colony       # View Colony logs
 make logs-agent-0      # View Agent-0 logs
 make status            # Check service status
-make clean             # Stop and remove volumes
 ```
 
 ### Important Timing Notes

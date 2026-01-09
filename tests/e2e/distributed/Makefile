@@ -4,13 +4,18 @@
 .PHONY: help
 help:
 	@echo "E2E Test Commands:"
-	@echo "  make up          - Start all services with docker-compose"
-	@echo "  make down        - Stop all services"
-	@echo "  make build       - Build all container images"
-	@echo "  make test        - Run E2E tests (services must be running)"
-	@echo "  make test-all    - Build, start services, run tests, then cleanup"
-	@echo "  make logs        - Show logs from all services"
-	@echo "  make clean       - Stop services and remove volumes"
+	@echo "  make up                        - Start all services with docker-compose"
+	@echo "  make down                      - Stop all services"
+	@echo "  make build                     - Build all container images"
+	@echo "  make test                      - Run all E2E tests (services must be running)"
+	@echo "  make test-filter FILTER=<name> - Run specific test group"
+	@echo "  make test-all                  - Build, start services, run tests, then cleanup"
+	@echo "  make logs                      - Show logs from all services"
+	@echo "  make clean                     - Stop services and remove volumes"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make test-filter FILTER=Test4_OnDemandProbes"
+	@echo "  make test-filter FILTER=Test4_OnDemandProbes/OnDemandProfiling"
 
 .PHONY: build
 build:
@@ -46,6 +51,28 @@ test:
 	go test -c -o e2e.test .
 	./e2e.test -test.v -test.timeout 30m
 	@rm e2e.test
+
+.PHONY: test-filter
+test-filter:
+	@if [ -z "$(FILTER)" ]; then \
+		echo "Usage: make test-filter FILTER=<test-name>"; \
+		echo ""; \
+		echo "Examples:"; \
+		echo "  make test-filter FILTER=Test4_OnDemandProbes"; \
+		echo "  make test-filter FILTER=Test4_OnDemandProbes/OnDemandProfiling"; \
+		echo "  make test-filter FILTER=Test1_MeshConnectivity"; \
+		echo ""; \
+		echo "Available test groups:"; \
+		echo "  Test1_MeshConnectivity"; \
+		echo "  Test2_ServiceManagement"; \
+		echo "  Test3_PassiveObservability"; \
+		echo "  Test4_OnDemandProbes"; \
+		echo "  Test5_CLICommands"; \
+		exit 1; \
+	fi
+	@echo "Running E2E tests matching: $(FILTER)..."
+	@echo "(Services must be running - use 'make up' first)"
+	go test -v -timeout 30m -run "TestE2EOrchestrator/$(FILTER)"
 
 .PHONY: test-all
 test-all: build up

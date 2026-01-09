@@ -145,6 +145,22 @@ test-e2e: generate ## Run E2E distributed tests (requires Docker + BuildKit)
 	@echo "Starting E2E test suite (containers will run on Linux)..."
 	@cd tests/e2e/distributed && $(MAKE) test-all
 
+test-e2e-filter: generate ## Run specific E2E test group (use FILTER=<test-name>)
+	@if [ -z "$(FILTER)" ]; then \
+		echo "Usage: make test-e2e-filter FILTER=<test-name>"; \
+		echo ""; \
+		echo "Examples:"; \
+		echo "  make test-e2e-filter FILTER=Test4_OnDemandProbes"; \
+		echo "  make test-e2e-filter FILTER=Test4_OnDemandProbes/OnDemandProfiling"; \
+		echo ""; \
+		echo "This requires services to be running:"; \
+		echo "  1. Start services: make test-e2e-up"; \
+		echo "  2. Run test: make test-e2e-filter FILTER=Test4_OnDemandProbes"; \
+		echo "  3. Stop services: make test-e2e-down"; \
+		exit 1; \
+	fi
+	@cd tests/e2e/distributed && $(MAKE) test-filter FILTER=$(FILTER)
+
 test-e2e-up: ## Start E2E test services (docker-compose)
 	@echo "Starting E2E test services..."
 	@cd tests/e2e/distributed && $(MAKE) up
