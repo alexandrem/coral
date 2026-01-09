@@ -21,7 +21,7 @@ FREQUENCY_HZ=99
 SERVICE_NAME="${1:-cpu-app}"  # Allow service name as first argument
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 BINARY_PATH="${REPO_ROOT}/bin/coral"
-DOCKER_COMPOSE_DIR="${REPO_ROOT}/tests/e2e/cpu-profile"
+DOCKER_COMPOSE_DIR="${REPO_ROOT}/tests/e2e/distributed"
 
 echo -e "${YELLOW}Starting E2E test for CPU profiling...${NC}"
 echo "Service: ${SERVICE_NAME}"
@@ -31,9 +31,9 @@ echo ""
 
 # Step 1: Check if docker-compose services are running
 echo -e "\n${YELLOW}Step 1: Checking docker-compose services...${NC}"
-if ! (cd "${DOCKER_COMPOSE_DIR}" && docker compose ps | grep -q "coral-agent.*running"); then
-    echo -e "${RED}Error: coral-agent service is not running${NC}"
-    echo "Please start the services with: cd tests/e2e/cpu-profile && docker compose up -d"
+if ! (cd "${DOCKER_COMPOSE_DIR}" && docker compose ps | grep -q "agent-0.*running"); then
+    echo -e "${RED}Error: agent-0 service is not running${NC}"
+    echo "Please start the services with: cd tests/e2e/distributed && docker compose up -d"
     exit 1
 fi
 echo -e "${GREEN}✓ Services are running${NC}"
@@ -43,7 +43,7 @@ echo -e "\n${YELLOW}Step 2: Waiting for agent to be ready...${NC}"
 MAX_WAIT=30
 WAIT_COUNT=0
 while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-    if (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs coral-agent 2>&1 | grep -q "Agent started successfully\|RPC server listening"); then
+    if (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs agent-0 2>&1 | grep -q "Agent started successfully\|RPC server listening"); then
         echo -e "${GREEN}✓ Agent is ready${NC}"
         break
     fi
@@ -57,7 +57,7 @@ done
 if [ $WAIT_COUNT -eq $MAX_WAIT ]; then
     echo -e "${RED}Error: Agent did not become ready within ${MAX_WAIT} seconds${NC}"
     echo "Agent logs:"
-    (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs coral-agent | tail -20)
+    (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs agent-0 | tail -20)
     exit 1
 fi
 

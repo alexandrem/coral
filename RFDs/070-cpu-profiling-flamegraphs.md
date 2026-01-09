@@ -121,7 +121,7 @@ Agent (Read & Symbolize) → Colony → CLI (FlameGraph)
 - [x] Add unit tests for symbolization (mock debug client).
 - [x] Add integration tests to `debug_integration_test.go`.
 - [x] Validate folded stack format output compatibility with `flamegraph.pl`.
-- [x] Create E2E test suite in `tests/e2e/cpu-profile/`.
+- [x] Create E2E test suite in `tests/e2e/distributed/` (scripts and fixtures).
 - [x] Create CPU-intensive test application for validation.
 - [x] Test with CPU-bound benchmark programs (SHA-256 hashing).
 - [x] Test behavior with missing debug symbols (graceful fallback to addresses).

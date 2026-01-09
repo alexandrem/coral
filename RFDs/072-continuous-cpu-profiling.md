@@ -234,7 +234,7 @@ for storage efficiency.
 ### Phase 5: Testing & Validation
 
 - [x] Add integration tests for continuous collection (`
-  tests/e2e/cpu-profile/test_continuous_profiling.sh`).
+  tests/e2e/distributed/scripts/test_continuous_profiling.sh`).
 - [ ] Validate storage overhead is acceptable (<10MB per service per day) (
   deferred to production).
 - [ ] Verify 19Hz sampling overhead is <1% CPU (deferred to production).
