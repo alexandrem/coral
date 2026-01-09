@@ -168,7 +168,7 @@ services:
   cpu-app:
     build:
       context: ../../..
-      dockerfile: tests/e2e/cpu-profile/cpu-intensive-app/Dockerfile
+      dockerfile: tests/e2e/distributed/fixtures/apps/cpu-app/Dockerfile
     network_mode: "service:agent-0"
     pid: "service:agent-0"
     depends_on:

@@ -15,8 +15,8 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # Check if agent is running.
-if ! docker compose ps coral-agent-cpu --status running --format json | grep -q "coral-agent-cpu"; then
-    echo -e "${RED}Error: coral-agent-cpu service is not running${NC}"
+if ! docker compose ps agent-0 --status running --format json | grep -q "agent-0"; then
+    echo -e "${RED}Error: agent-0 service is not running${NC}"
     echo "Please start with: docker compose up -d"
     exit 1
 fi
@@ -29,7 +29,7 @@ echo -e "${YELLOW}Waiting 30 seconds for continuous profiling to collect samples
 sleep 30
 
 # Get agent mesh IP from docker inspect.
-AGENT_CONTAINER=$(docker compose ps coral-agent-cpu -q)
+AGENT_CONTAINER=$(docker compose ps agent-0 -q)
 if [ -z "$AGENT_CONTAINER" ]; then
     echo -e "${RED}Error: Could not find agent container${NC}"
     exit 1
@@ -37,22 +37,22 @@ fi
 
 # Check agent logs for continuous profiling.
 echo -e "\n${YELLOW}Checking agent logs for continuous profiling activity...${NC}"
-if docker compose logs coral-agent-cpu 2>&1 | grep -q "Starting continuous CPU profiling\|Continuous profiling"; then
+if docker compose logs agent-0 2>&1 | grep -q "Starting continuous CPU profiling\|Continuous profiling"; then
     echo -e "${GREEN}✓ Continuous profiling is enabled in agent${NC}"
 
     # Show some log lines.
     echo -e "\n${BLUE}Recent profiling logs:${NC}"
-    docker compose logs coral-agent-cpu 2>&1 | grep -i "continuous\|profil" | tail -5
+    docker compose logs agent-0 2>&1 | grep -i "continuous\|profil" | tail -5
 else
     echo -e "${RED}✗ Continuous profiling may not be running${NC}"
     echo "Agent logs:"
-    docker compose logs coral-agent-cpu | tail -20
+    docker compose logs agent-0 | tail -20
     exit 1
 fi
 
 # Check if agent has collected any samples locally.
 echo -e "\n${YELLOW}Checking agent's local database for samples...${NC}"
-docker compose exec coral-agent-cpu sh -c '
+docker compose exec agent-0 sh -c '
     if [ -f /root/.coral/agent/metrics.duckdb ]; then
         echo "Database exists at /root/.coral/agent/metrics.duckdb"
         # Try to query sample count (basic check).

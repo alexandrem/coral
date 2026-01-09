@@ -21,7 +21,7 @@ NC='\033[0m' # No Color
 SERVICE_NAME="${1:-cpu-app}"  # Allow service name as first argument
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 BINARY_PATH="${REPO_ROOT}/bin/coral"
-DOCKER_COMPOSE_DIR="${REPO_ROOT}/tests/e2e/cpu-profile"
+DOCKER_COMPOSE_DIR="${REPO_ROOT}/tests/e2e/distributed"
 WAIT_FOR_SAMPLES_SECONDS=45  # Wait for at least 3 collection cycles (15s each)
 QUERY_SINCE="60s"  # Query last 60 seconds of data
 
@@ -36,9 +36,9 @@ echo ""
 
 # Step 1: Check if docker-compose services are running.
 echo -e "${YELLOW}Step 1: Checking docker-compose services...${NC}"
-if ! (cd "${DOCKER_COMPOSE_DIR}" && docker compose ps coral-agent-cpu --status running --format json | grep -q "coral-agent-cpu"); then
-    echo -e "${RED}Error: coral-agent-cpu service is not running${NC}"
-    echo "Please start the services with: cd tests/e2e/cpu-profile && docker compose up -d"
+if ! (cd "${DOCKER_COMPOSE_DIR}" && docker compose ps agent-0 --status running --format json | grep -q "agent-0"); then
+    echo -e "${RED}Error: agent-0 service is not running${NC}"
+    echo "Please start the services with: cd tests/e2e/distributed && docker compose up -d"
     echo ""
     echo "Current service status:"
     (cd "${DOCKER_COMPOSE_DIR}" && docker compose ps)
@@ -51,7 +51,7 @@ echo -e "\n${YELLOW}Step 2: Waiting for agent to be ready...${NC}"
 MAX_WAIT=30
 WAIT_COUNT=0
 while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-    if (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs coral-agent-cpu 2>&1 | grep -q "Agent started successfully\|RPC server listening"); then
+    if (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs agent-0 2>&1 | grep -q "Agent started successfully\|RPC server listening"); then
         echo -e "${GREEN}✓ Agent is ready${NC}"
         break
     fi
@@ -65,13 +65,13 @@ done
 if [ $WAIT_COUNT -eq $MAX_WAIT ]; then
     echo -e "${RED}Error: Agent did not become ready within ${MAX_WAIT} seconds${NC}"
     echo "Agent logs:"
-    (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs coral-agent-cpu | tail -20)
+    (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs agent-0 | tail -20)
     exit 1
 fi
 
 # Step 3: Verify continuous profiling is enabled.
 echo -e "\n${YELLOW}Step 3: Verifying continuous profiling is enabled...${NC}"
-if (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs coral-agent-cpu 2>&1 | grep -q "Starting CPU profile poller\|continuous_cpu_profiler\|Continuous profiling"); then
+if (cd "${DOCKER_COMPOSE_DIR}" && docker compose logs agent-0 2>&1 | grep -q "Starting CPU profile poller\|continuous_cpu_profiler\|Continuous profiling"); then
     echo -e "${GREEN}✓ Continuous profiling is enabled${NC}"
 else
     echo -e "${YELLOW}⚠ Could not confirm continuous profiling status from logs${NC}"
