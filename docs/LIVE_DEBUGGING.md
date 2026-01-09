@@ -148,6 +148,74 @@ $ coral debug attach legacy-app --function executeSlowQuery
 - Binaries where you control the build and can integrate SDK
 - SDK provides metadata API that works even with `-w -s` stripped binaries
 
+## CPU Profiling Requirements
+
+Coral includes continuous and on-demand CPU profiling using eBPF. This requires
+**frame pointers** for stack unwinding.
+
+### ARM64 (Apple Silicon, AWS Graviton)
+
+On ARM64, Go does **not** enable frame pointers by default. You must explicitly
+enable them:
+
+```bash
+# Build with frame pointers for CPU profiling
+go build -tags=framepointer -o myapp main.go
+```
+
+### AMD64 (x86_64)
+
+Frame pointers are enabled by default on AMD64 (Go 1.7+). No special flags
+needed.
+
+### Why Frame Pointers Matter
+
+- **eBPF Limitation**: The eBPF profiler uses `bpf_get_stackid()` for
+  kernel-side stack unwinding
+- **No DWARF Access**: Unlike userspace profilers (`perf`), eBPF cannot use
+  DWARF symbols
+- **Frame Pointers Required**: The kernel's BPF stack walker needs frame
+  pointers to traverse call stacks
+
+### Symptoms Without Frame Pointers
+
+If you see these symptoms, frame pointers are likely missing:
+
+- CPU profiler returns 0 samples even under heavy load
+- Continuous profiling logs show `total_samples=0`
+- On-demand profiling succeeds but captures no stack traces
+
+### Platform Matrix
+
+| Platform                    | Frame Pointers Default | Build Flag Required      |
+|-----------------------------|------------------------|--------------------------|
+| AMD64 (x86_64)              | ✅ Yes (Go 1.7+)        | None                     |
+| ARM64 (Apple Silicon)       | ❌ No                   | `-tags=framepointer`     |
+| ARM64 (AWS Graviton)        | ❌ No                   | `-tags=framepointer`     |
+| ARM32                       | ❌ No                   | `-tags=framepointer`     |
+
+### System Requirements
+
+In addition to frame pointers, the host/VM must allow perf events:
+
+```bash
+# Check current setting (4 = completely disabled, -1 = enabled)
+cat /proc/sys/kernel/perf_event_paranoid
+
+# Enable perf events for eBPF profiling
+sudo sysctl -w kernel.perf_event_paranoid=-1
+
+# For Colima users (macOS)
+colima ssh -- sudo sysctl -w kernel.perf_event_paranoid=-1
+```
+
+**Note**: This setting resets on reboot. For permanent configuration, add to
+`/etc/sysctl.conf`:
+
+```bash
+kernel.perf_event_paranoid=-1
+```
+
 ## Why This Is Different
 
 | Traditional Tools                     | Coral                                             |
