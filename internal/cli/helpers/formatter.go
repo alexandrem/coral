@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"text/tabwriter"
+
+	"gopkg.in/yaml.v3"
 )
 
 // OutputFormat represents the desired output format.
@@ -17,6 +19,7 @@ const (
 	FormatTable OutputFormat = "table"
 	FormatJSON  OutputFormat = "json"
 	FormatCSV   OutputFormat = "csv"
+	FormatYAML  OutputFormat = "yaml"
 )
 
 // Formatter defines the interface for formatting query results.
@@ -33,6 +36,8 @@ func NewFormatter(format OutputFormat) (Formatter, error) {
 		return &JSONFormatter{}, nil
 	case FormatCSV:
 		return &CSVFormatter{}, nil
+	case FormatYAML:
+		return &YAMLFormatter{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported format: %s", format)
 	}
@@ -103,6 +108,18 @@ func (f *CSVFormatter) Format(data interface{}, writer io.Writer) error {
 		return w.Error()
 	}
 	return fmt.Errorf("data must be a slice")
+}
+
+// YAMLFormatter formats data as YAML.
+type YAMLFormatter struct{}
+
+func (f *YAMLFormatter) Format(data interface{}, writer io.Writer) error {
+	enc := yaml.NewEncoder(writer)
+	enc.SetIndent(2)
+	defer func(enc *yaml.Encoder) {
+		_ = enc.Close()
+	}(enc)
+	return enc.Encode(data)
 }
 
 func getHeaders(t reflect.Type) []string {

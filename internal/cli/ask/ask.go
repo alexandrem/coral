@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	askagent "github.com/coral-mesh/coral/internal/agent/ask"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 )
 
@@ -31,7 +32,7 @@ func NewAskCmd() *cobra.Command {
 		colonyID string
 		model    string
 		stream   bool
-		jsonFlag bool
+		format   string
 		cont     bool // --continue flag for multi-turn conversations
 		debug    bool // --debug flag for verbose logging
 		dryRun   bool // --dry-run flag to inspect payload without sending to LLM
@@ -59,18 +60,21 @@ Examples:
   coral ask "what's the current status?" --model ollama:llama3.2
 
   # JSON output for scripting
-  coral ask "list unhealthy services" --json`,
+  coral ask "list unhealthy services" --format json`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			question := strings.Join(args, " ")
-			return runAsk(cmd.Context(), question, colonyID, model, stream, jsonFlag, cont, debug, dryRun)
+			return runAsk(cmd.Context(), question, colonyID, model, stream, format, cont, debug, dryRun)
 		},
 	}
 
-	cmd.Flags().StringVarP(&colonyID, "colony-id", "c", "", "Colony ID to query (defaults to current colony)")
+	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().StringVar(&model, "model", "", "Override model for this query (e.g., openai:gpt-4o-mini)")
 	cmd.Flags().BoolVar(&stream, "stream", true, "Stream output progressively (default: true)")
-	cmd.Flags().BoolVar(&jsonFlag, "json", false, "Output JSON format for scripting")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+	})
 	cmd.Flags().BoolVar(&cont, "continue", false, "Continue previous conversation")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable debug logging to stderr")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show LLM payload and prompt before sending (saves tokens)")
@@ -79,7 +83,7 @@ Examples:
 }
 
 // runAsk executes the ask command.
-func runAsk(ctx context.Context, question, colonyID, modelOverride string, stream, jsonOutput, continueConv, debug, dryRun bool) error {
+func runAsk(ctx context.Context, question, colonyID, modelOverride string, stream bool, format string, continueConv, debug, dryRun bool) error {
 	// Configure debug logger.
 	if debug {
 		fmt.Fprintln(os.Stderr, "[DEBUG] Debug mode enabled")
@@ -171,7 +175,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	}
 
 	// Output response.
-	if jsonOutput {
+	if format != string(helpers.FormatTable) {
 		return outputJSON(resp)
 	}
 	return outputTerminal(resp, stream)

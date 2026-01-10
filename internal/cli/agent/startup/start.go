@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -164,7 +165,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&configFile, "config", "", "Path to agent configuration file (default: /etc/coral/agent.yaml)")
-	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID to connect to (overrides config file)")
+	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().BoolVar(&daemon, "daemon", false, "Run in background (requires PID file support)")
 	cmd.Flags().BoolVar(&monitorAll, "monitor-all", false, "Monitor all processes (auto-discovery mode)")
 	cmd.Flags().StringArrayVar(&connectService, "connect", []string{}, "Service to connect at startup (format: name:port[:health][:type], can be specified multiple times)")

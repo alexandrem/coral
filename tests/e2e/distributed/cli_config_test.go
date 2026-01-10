@@ -71,7 +71,7 @@ func (s *CLIConfigSuite) TestConfigGetContextsCommand() {
 	}
 
 	// Test JSON format
-	result = helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts", "--json")
+	result = helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts", "-o", "json")
 
 	if result.HasError() {
 		s.T().Logf("Get contexts JSON failed (acceptable if no contexts): %v", result.Err)
@@ -170,7 +170,7 @@ func (s *CLIConfigSuite) TestConfigOutputFormats() {
 
 	// Test get-contexts with both formats
 	tableResult := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts")
-	jsonResult := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts", "--json")
+	jsonResult := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts", "-o", "json")
 
 	// Both should either succeed or fail consistently
 	if tableResult.HasError() != jsonResult.HasError() {

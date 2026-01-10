@@ -1,11 +1,13 @@
 package colony
 
 import (
-	"encoding/json"
 	"fmt"
+	"os"
 
-	"github.com/coral-mesh/coral/internal/config"
 	"github.com/spf13/cobra"
+
+	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 func newUseCmd() *cobra.Command {
@@ -48,8 +50,8 @@ func newUseCmd() *cobra.Command {
 
 func newCurrentCmd() *cobra.Command {
 	var (
-		jsonOutput bool
-		verbose    bool
+		format  string
+		verbose bool
 	)
 
 	cmd := &cobra.Command{
@@ -82,26 +84,28 @@ colony was selected (environment variable, project config, or global default).`,
 				return fmt.Errorf("failed to load global config: %w", err)
 			}
 
-			if jsonOutput {
-				output := map[string]interface{}{
-					"colony_id":   cfg.ColonyID,
-					"application": cfg.ApplicationName,
-					"environment": cfg.Environment,
-					"storage":     cfg.StoragePath,
-					"discovery":   globalConfig.Discovery.Endpoint,
-					"mesh_id":     cfg.Discovery.MeshID,
-				}
-				// Include resolution info in JSON output (RFD 050).
-				output["resolution"] = map[string]string{
-					"source": source.Type,
-					"path":   source.Path,
-				}
-				data, err := json.MarshalIndent(output, "", "  ")
+			// Prepare output data.
+			output := map[string]interface{}{
+				"colony_id":   cfg.ColonyID,
+				"application": cfg.ApplicationName,
+				"environment": cfg.Environment,
+				"storage":     cfg.StoragePath,
+				"discovery":   globalConfig.Discovery.Endpoint,
+				"mesh_id":     cfg.Discovery.MeshID,
+			}
+			// Include resolution info in output (RFD 050).
+			output["resolution"] = map[string]string{
+				"source": source.Type,
+				"path":   source.Path,
+			}
+
+			// Use formatter for non-table output.
+			if format != string(helpers.FormatTable) {
+				formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
 				if err != nil {
 					return err
 				}
-				fmt.Println(string(data))
-				return nil
+				return formatter.Format(output, os.Stdout)
 			}
 
 			fmt.Println("Current Colony:")
@@ -128,8 +132,12 @@ colony was selected (environment variable, project config, or global default).`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show resolution source details")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+		helpers.FormatYAML,
+	})
+	helpers.AddVerboseFlag(cmd, &verbose)
 
 	return cmd
 }

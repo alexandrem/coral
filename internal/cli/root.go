@@ -19,6 +19,11 @@ import (
 	"github.com/coral-mesh/coral/pkg/version"
 )
 
+var (
+	// globalVerbose is the global verbose flag accessible to all commands.
+	globalVerbose bool
+)
+
 var rootCmd = &cobra.Command{
 	Use:   "coral",
 	Short: "Coral - LLM-orchestrated debugging for distributed apps",
@@ -41,6 +46,9 @@ Key capabilities:
 }
 
 func init() {
+	// Add global persistent flags.
+	rootCmd.PersistentFlags().BoolVarP(&globalVerbose, "verbose", "v", false, "Verbose output (show additional details)")
+
 	// Add subcommands
 	rootCmd.AddCommand(initcmd.NewInitCmd())
 	rootCmd.AddCommand(newStatusCmd())
@@ -76,7 +84,12 @@ func newVersionCmd() *cobra.Command {
 	}
 }
 
-// Execute runs the root command
+// Execute runs the root command.
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// IsVerbose returns the value of the global verbose flag.
+func IsVerbose() bool {
+	return globalVerbose
 }

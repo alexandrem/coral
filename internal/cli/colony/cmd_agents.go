@@ -2,9 +2,9 @@ package colony
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -13,14 +13,15 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 )
 
 func newAgentsCmd() *cobra.Command {
 	var (
-		jsonOutput bool
-		verbose    bool
-		colonyID   string
+		format   string
+		verbose  bool
+		colonyID string
 	)
 
 	cmd := &cobra.Command{
@@ -94,13 +95,13 @@ Note: The colony must be running for this command to work.`,
 
 			agents := resp.Msg.Agents
 
-			if jsonOutput {
-				data, err := json.MarshalIndent(agents, "", "  ")
+			// Use formatter for non-table output.
+			if format != string(helpers.FormatTable) {
+				formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
 				if err != nil {
 					return err
 				}
-				fmt.Println(string(data))
-				return nil
+				return formatter.Format(agents, os.Stdout)
 			}
 
 			// Human-readable output
@@ -160,9 +161,13 @@ Note: The colony must be running for this command to work.`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show detailed runtime context for each agent")
-	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (overrides auto-detection)")
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+		helpers.FormatYAML,
+	})
+	helpers.AddVerboseFlag(cmd, &verbose)
+	helpers.AddColonyFlag(cmd, &colonyID)
 
 	return cmd
 }

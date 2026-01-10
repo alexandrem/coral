@@ -480,6 +480,13 @@ Examples:
 						Msg("Error stopping CPU profile poller")
 				}
 
+				// Stop Service poller
+				if err := servicePoller.Stop(); err != nil {
+					logger.Warn().
+						Err(err).
+						Msg("Error stopping service poller")
+				}
+
 				// Stop registration manager
 				if err := regManager.Stop(); err != nil {
 					logger.Warn().

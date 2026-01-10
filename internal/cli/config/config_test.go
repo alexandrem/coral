@@ -65,9 +65,9 @@ func TestNewGetContextsCmd(t *testing.T) {
 	}
 
 	// Verify --json flag exists
-	jsonFlag := cmd.Flags().Lookup("json")
-	if jsonFlag == nil {
-		t.Error("--json flag not defined")
+	formatFlag := cmd.Flags().Lookup("format")
+	if formatFlag == nil {
+		t.Error("--format flag not defined")
 	}
 }
 
@@ -152,9 +152,9 @@ func TestNewValidateCmd(t *testing.T) {
 	}
 
 	// Verify --json flag exists
-	jsonFlag := cmd.Flags().Lookup("json")
-	if jsonFlag == nil {
-		t.Error("--json flag not defined")
+	formatFlag := cmd.Flags().Lookup("format")
+	if formatFlag == nil {
+		t.Error("--format flag not defined")
 	}
 }
 
@@ -334,7 +334,7 @@ func TestRunGetContexts_NoColonies(t *testing.T) {
 	os.Setenv("CORAL_CONFIG", tmpDir)
 
 	// This should not error, just print a message
-	err := runGetContexts(false)
+	err := runGetContexts("table")
 	if err != nil {
 		t.Errorf("runGetContexts() with no colonies should not error, got: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestRunValidate_NoColonies(t *testing.T) {
 	os.Setenv("CORAL_CONFIG", tmpDir)
 
 	// Should not error with no colonies
-	err := runValidate(false)
+	err := runValidate("table")
 	if err != nil {
 		t.Errorf("runValidate() with no colonies should not error, got: %v", err)
 	}

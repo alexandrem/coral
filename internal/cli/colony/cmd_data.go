@@ -6,8 +6,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/coral-mesh/coral/internal/config"
 	"github.com/spf13/cobra"
+
+	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 func newExportCmd() *cobra.Command {
@@ -164,7 +166,7 @@ Note: The colony's WireGuard public key will be retrieved from discovery service
 		},
 	}
 
-	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID")
+	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().StringVar(&colonySecret, "secret", "", "Colony secret")
 	cmd.Flags().BoolVar(&useStdin, "stdin", false, "Read from stdin")
 
