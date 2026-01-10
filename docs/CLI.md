@@ -46,7 +46,7 @@ coral version
 3. **Start Agents** - `coral agent start` on each monitored machine
 4. **Connect Services** - `coral connect frontend:3000 api:8080` or use
    `--connect` at startup
-5. **Query Metrics** - `coral query ebpf http my-service --since 1h`
+5. **Query Metrics** - `coral query metrics my-service --since 1h`
 6. **AI Debug** - `coral ask "what services are running?"`
 
 **Agent Startup Modes:**
@@ -323,183 +323,292 @@ open cpu.svg
 
 ---
 
-## Querying eBPF Metrics and Traces
+## Unified Query Interface
 
-Coral provides high-level CLI commands for querying eBPF-collected observability
-data without writing SQL. These commands query aggregated data from the Colony's
-centralized storage.
+Coral provides a unified query interface that combines data from multiple sources
+(eBPF and OTLP) by default, giving you a complete picture of your system without
+needing to query different data sources separately.
 
 **Key Features:**
 
+- **Unified data sources** - Automatically combines eBPF and OTLP data
+- **Summary-first workflow** - Quick health overview before deep dive
 - **No SQL required** - Simple, intuitive commands for common queries
-- **Automatic aggregation** - Histogram data automatically processed into
-  percentiles
 - **Multiple formats** - Table (default), JSON, CSV, or tree visualization
-- **Time-based filtering** - Natural time expressions (`--since 1h`, `--from`,
-  `--to`)
-- **Colony-centralized** - Queries aggregated historical data (vs. agent-local
-  with `coral duckdb`)
+- **Time-based filtering** - Natural time expressions (`--since 1h`)
+- **Source transparency** - Data annotated with origin (eBPF/OTLP)
 
 **Available Commands:**
 
 ```bash
-# HTTP RED metrics (Rate, Errors, Duration)
-coral query ebpf http <service> [--since <duration>]
+# Quick health overview (recommended first step)
+coral query summary [service] [--since <duration>]
 
-# gRPC call metrics
-coral query ebpf grpc <service> [--since <duration>]
+# Distributed traces (combines eBPF + OTLP)
+coral query traces [service] [--since <duration>]
 
-# SQL query metrics
-coral query ebpf sql <service> [--since <duration>]
+# Service metrics (combines eBPF + OTLP)
+coral query metrics [service] [--since <duration>]
 
-# Distributed traces
-coral query ebpf traces [--trace-id <id>] [--service <name>]
+# Application logs (OTLP)
+coral query logs [service] [--since <duration>]
 ```
 
 ---
 
-### HTTP Metrics
+### Summary - Quick Health Overview
 
-Query HTTP request metrics including latency percentiles, request counts, and
-error rates:
+The summary command provides an intelligent health overview, perfect as a first
+diagnostic step:
 
 ```bash
-# Basic usage - show HTTP metrics for a service
-coral query ebpf http payments-api --since 1h
+# Check all services
+coral query summary
 
-# Filter by route
-coral query ebpf http api-server --route "/api/v1/checkout" --since 30m
+# Check specific service
+coral query summary payments-api --since 5m
 
 # Export as JSON
-coral query ebpf http payments-api --since 1h --output json
-
-# Export as CSV for spreadsheet analysis
-coral query ebpf http payments-api --since 6h --output csv
+coral query summary --since 10m --format json
 ```
 
-**Example Output (table format):**
+**Example Output:**
 
 ```
-Service      Method  Route            Requests  Errors  P50      P95       P99
-payments-api POST    /api/v1/pay      15247     3       45.2ms   120.5ms   250.0ms
-payments-api GET     /api/v1/status   42891     0       12.3ms   28.4ms    45.0ms
-payments-api POST    /api/v1/refund   892       1       67.8ms   145.2ms   310.0ms
+Service Health Summary (last 5m)
+
+┌─────────────────┬────────┬──────────┬─────────┬──────────┐
+│ Service         │ Status │ Requests │ Errors  │ P95      │
+├─────────────────┼────────┼──────────┼─────────┼──────────┤
+│ api-gateway     │ ✅     │ 12.5k    │ 0.2%    │ 45ms     │
+│ payment-service │ ⚠️      │ 3.2k     │ 2.8% ⬆  │ 234ms ⬆  │
+│ auth-service    │ ✅     │ 8.1k     │ 0.1%    │ 12ms     │
+└─────────────────┴────────┴──────────┴─────────┴──────────┘
+
+⚠️ Issues Detected:
+
+[payment-service]
+• Error rate elevated: 2.8% (threshold: 1%)
+• P95 latency spike: 234ms (threshold: 1000ms)
+• Source: eBPF+OTLP
 ```
 
 **What it shows:**
 
-- **Service** - Service name from eBPF instrumentation
-- **Method** - HTTP method (GET, POST, etc.)
-- **Route** - HTTP route pattern
-- **Requests** - Total request count in time range
-- **Errors** - Count of 5xx status codes
-- **P50/P95/P99** - Latency percentiles calculated from histograms
+- **Service** - Service name
+- **Status** - Health status (✅ Healthy, ⚠️ Degraded, ❌ Critical)
+- **Requests** - Total request count
+- **Errors** - Error rate percentage
+- **P95** - 95th percentile latency
+
+**Health Status Thresholds:**
+
+- ✅ **Healthy**: Error rate < 1%, P95 latency < 1000ms
+- ⚠️ **Degraded**: Error rate 1-5% or P95 latency 1000-2000ms
+- ❌ **Critical**: Error rate > 5% or P95 latency > 2000ms
 
 ---
 
-### gRPC Metrics
+### Traces - Distributed Request Tracing
 
-Query gRPC call metrics with latency distributions:
-
-```bash
-# Basic usage
-coral query ebpf grpc payment-service --since 1h
-
-# Filter by method
-coral query ebpf grpc api-gateway --method "/api.Payment/Process" --since 30m
-
-# Export as JSON
-coral query ebpf grpc payment-service --since 2h --output json
-```
-
-**Example Output:**
-
-```
-Service          Method                  Requests  Errors  P50      P95       P99
-payment-service  /api.Payment/Process    8234      2       32.1ms   78.4ms    145.0ms
-payment-service  /api.Payment/Validate   15678     0       8.5ms    18.2ms    35.0ms
-```
-
----
-
-### SQL Query Metrics
-
-Query database interaction metrics collected via eBPF:
+Query distributed traces from all sources (eBPF and OTLP combined):
 
 ```bash
-# Basic usage
-coral query ebpf sql api-server --since 1h
+# Get traces for a service
+coral query traces payments-api --since 1h
 
-# Filter by operation
-coral query ebpf sql backend --operation SELECT --since 30m
-
-# Filter by table
-coral query ebpf sql backend --table users --since 2h
-```
-
-**Example Output:**
-
-```
-Service     Operation  Table    Queries  P50      P95       P99
-api-server  SELECT     users    12456    8.2ms    24.5ms    45.0ms
-api-server  INSERT     orders   3421     12.3ms   32.1ms    67.8ms
-api-server  UPDATE     users    892      15.4ms   38.9ms    78.0ms
-```
-
----
-
-### Distributed Traces
-
-Query and visualize distributed traces collected via eBPF:
-
-**Query by trace ID:**
-
-```bash
 # Find a specific trace
-coral query ebpf traces --trace-id abc123def456789
+coral query traces --trace-id abc123def456789
 
-# View as hierarchical tree
-coral query ebpf traces --trace-id abc123def456789 --format tree
-```
+# Filter slow traces
+coral query traces api --min-duration-ms 500 --since 30m
 
-**Query by service and time:**
-
-```bash
-# Get recent traces for a service
-coral query ebpf traces --service payments-api --since 1h
+# Filter by data source
+coral query traces api --source ebpf --since 1h
+coral query traces api --source telemetry --since 1h
 
 # Export as JSON
-coral query ebpf traces --service api-gateway --since 30m --output json
+coral query traces payments-api --since 1h --format json
 ```
 
-**Example Output (table format):**
+**Example Output:**
 
 ```
-Trace ID          Span ID       Service          Operation        Duration  Start Time
-abc123def456789   span-001      api-gateway      /checkout        245ms     2025-11-20T10:30:15
-abc123def456789   span-002      auth-service     validateToken    12ms      2025-11-20T10:30:15
-abc123def456789   span-003      payment-service  processPayment   180ms     2025-11-20T10:30:15
-abc123def456789   span-004      inventory-svc    reserveItems     45ms      2025-11-20T10:30:16
+Traces for service 'api' (last 1h):
+
+Trace: abc123def456 (Duration: 1,234ms)
+├─ [OTLP] api-gateway: GET /api/payments (1,234ms)
+│  ├─ [eBPF] payment-service: ProcessPayment (800ms)
+│  │  ├─ [OTLP] fraud-service: CheckFraud (300ms)
+│  │  └─ [eBPF] database: SELECT payments (450ms) ← SLOW
+│  └─ [OTLP] notification-service: SendEmail (200ms)
+
+Trace: def789ghi012 (Duration: 890ms)
+├─ [eBPF] api-gateway: POST /api/checkout (890ms)
+   └─ [eBPF] payment-service: Charge (850ms) ← SLOW
 ```
 
-**Example Output (tree format):**
+**Features:**
+
+- **Unified view** - Combines eBPF and OTLP spans into single trace tree
+- **Source annotations** - Each span labeled with [eBPF] or [OTLP]
+- **Bottleneck detection** - Slow spans marked with ← SLOW
+- **Flexible filtering** - By service, trace ID, duration, or source
+
+**Options:**
+
+- `--source <ebpf|telemetry|all>` - Filter by data source (default: all)
+- `--trace-id <id>` - Find specific trace
+- `--min-duration-ms <ms>` - Filter traces slower than threshold
+- `--max-traces <n>` - Limit number of results
+- `--since <duration>` - Time range (e.g., 1h, 30m, 24h)
+
+---
+
+### Metrics - Service Performance Metrics
+
+Query service metrics from all sources (eBPF and OTLP combined):
+
+```bash
+# Get all metrics for a service
+coral query metrics payments-api --since 1h
+
+# Filter by protocol
+coral query metrics api --protocol http --since 30m
+coral query metrics api --protocol grpc --since 1h
+coral query metrics api --protocol sql --since 2h
+
+# Filter by data source
+coral query metrics api --source ebpf --since 1h
+coral query metrics api --source telemetry --since 1h
+
+# Filter HTTP-specific attributes
+coral query metrics api --http-route "/api/v1/*" --since 1h
+coral query metrics api --http-method GET --since 30m
+coral query metrics api --status-code-range 5xx --since 1h
+
+# Export as JSON
+coral query metrics payments-api --since 1h --format json
+```
+
+**Example Output:**
 
 ```
-📊 Trace: abc123def456789
+Metrics for service 'payments-api' (last 1h):
 
-/checkout [api-gateway] (245.0ms)
-├─ validateToken [auth-service] (12.0ms)
-└─ processPayment [payment-service] (180.0ms)
-   ├─ reserveItems [inventory-svc] (45.0ms)
-   └─ chargeCard [payment-gateway] (120.0ms) ⚠️ slow
+HTTP Metrics [eBPF]:
+Route: /api/payments (POST)
+  Requests: 1,234 | P50: 23ms | P95: 45ms | P99: 89ms | Errors: 2.1%
+
+Route: /api/status (GET)
+  Requests: 5,678 | P50: 8ms | P95: 15ms | P99: 28ms | Errors: 0.0%
+
+HTTP Metrics [OTLP]:
+Route: /api/payments (POST)
+  Requests: 1,200 | P50: 24ms | P95: 46ms | P99: 90ms | Errors: 2.0%
+  (Note: OTLP data may differ due to sampling)
 ```
 
-The tree format shows:
+**What it shows:**
 
-- **Parent-child relationships** between spans
-- **Service names** and operations
-- **Duration** for each span
-- **Slow spans** marked with ⚠️ (> 1 second)
+- **Protocol** - HTTP, gRPC, or SQL metrics
+- **Source** - Data origin ([eBPF] or [OTLP])
+- **Route/Method** - Endpoint and operation
+- **Requests** - Total request count
+- **Percentiles** - P50/P95/P99 latency
+- **Errors** - Error rate percentage
+
+**Options:**
+
+- `--source <ebpf|telemetry|all>` - Filter by data source (default: all)
+- `--protocol <http|grpc|sql|auto>` - Filter by protocol (default: auto)
+- `--http-route <pattern>` - Filter HTTP requests by route pattern
+- `--http-method <method>` - Filter HTTP requests by method (GET, POST, etc.)
+- `--status-code-range <range>` - Filter by HTTP status (e.g., 5xx, 4xx, 2xx)
+- `--since <duration>` - Time range
+
+---
+
+### Logs - Application Logs
+
+Query application logs from OTLP telemetry:
+
+```bash
+# Get all logs for a service
+coral query logs api --since 1h
+
+# Filter by log level
+coral query logs api --level error --since 30m
+coral query logs api --level warn --since 1h
+
+# Search log content
+coral query logs --search "timeout" --since 2h
+coral query logs api --search "database" --level error --since 1h
+
+# Limit results
+coral query logs api --max-logs 50 --since 30m
+
+# Export as JSON
+coral query logs api --level error --since 1h --format json
+```
+
+**Example Output:**
+
+```
+Logs for service 'api' (last 1h, level: error):
+
+[2025-11-20 21:14:32] ERROR: Database connection timeout
+  service: payment-service
+  trace_id: abc123def456
+  error_code: ETIMEDOUT
+
+[2025-11-20 21:14:15] ERROR: Payment gateway unavailable
+  service: payment-service
+  trace_id: def789ghi012
+  error_code: 503
+```
+
+**Options:**
+
+- `--level <debug|info|warn|error>` - Filter by log level
+- `--search <text>` - Full-text search in log messages
+- `--max-logs <n>` - Limit number of results
+- `--since <duration>` - Time range
+
+---
+
+### Recommended Workflow
+
+**Step 1: Quick Health Check**
+
+```bash
+coral query summary
+```
+
+Identify services with issues (elevated errors, high latency).
+
+**Step 2: Investigate Specific Service**
+
+```bash
+# Check traces for slow requests
+coral query traces payment-service --min-duration-ms 500 --since 30m
+
+# Check metrics breakdown
+coral query metrics payment-service --protocol http --since 1h
+
+# Check recent errors
+coral query logs payment-service --level error --since 30m
+```
+
+**Step 3: Deep Dive (if needed)**
+
+```bash
+# Analyze specific trace
+coral query traces --trace-id abc123def456789
+
+# Use raw SQL for complex queries
+coral duckdb query colony "SELECT * FROM beyla_http_metrics WHERE ..."
+```
 
 ---
 
@@ -512,60 +621,86 @@ All query commands support flexible time range expressions:
 --since 1h        # Last hour
 --since 30m       # Last 30 minutes
 --since 24h       # Last 24 hours
-
-# Absolute timestamps (ISO 8601)
---from 2025-11-20T10:00:00 --to 2025-11-20T11:00:00
-
-# Shortcuts
 --since 1d        # Last day
 --since 1w        # Last week
+
+# Default time ranges
+summary: 5m
+traces:  1h
+metrics: 1h
+logs:    1h
 ```
 
 ---
 
 ### Output Formats
 
-Control output format with `--output` or `-o` flag:
+Control output format with `--format` or `-o` flag:
 
 ```bash
 # Table (default) - human-readable aligned columns
-coral query ebpf http api --since 1h --output table
+coral query summary --format table
 
 # JSON - for programmatic consumption
-coral query ebpf http api --since 1h --output json
+coral query metrics api --format json
 
-# CSV - for spreadsheet import
-coral query ebpf http api --since 1h --output csv
+# CSV - for spreadsheet import (where applicable)
+coral query metrics api --format csv
 
 # Tree (traces only) - hierarchical visualization
-coral query ebpf traces --trace-id <id> --format tree
+coral query traces --trace-id <id> --format tree
 ```
 
 ---
 
-### When to Use `coral query ebpf` vs `coral duckdb`
+### Data Source Filtering
 
-**Use `coral query ebpf` when:**
+By default, queries combine data from all sources (eBPF and OTLP). You can filter
+to specific sources when needed:
 
-- ✅ You want quick, high-level insights (RED metrics, percentiles)
+```bash
+# All sources (default)
+coral query metrics api --since 1h
+
+# eBPF only (zero-config instrumentation)
+coral query metrics api --source ebpf --since 1h
+
+# OTLP only (SDK instrumentation)
+coral query metrics api --source telemetry --since 1h
+```
+
+**When to filter by source:**
+
+- **eBPF only**: Debugging uninstrumented services, verifying zero-config data
+- **OTLP only**: Comparing with manual instrumentation, checking SDK data
+- **All sources** (default): Complete diagnostic picture
+
+---
+
+### When to Use `coral query` vs `coral duckdb`
+
+**Use `coral query` when:**
+
+- ✅ You want quick, high-level insights
+- ✅ You need combined eBPF + OTLP data
 - ✅ You don't need to write SQL
 - ✅ You want formatted, human-readable output
-- ✅ You're querying common observability patterns
+- ✅ You're doing first-line diagnostics
 
 **Use `coral duckdb` when:**
 
 - ✅ You need complex SQL queries (joins, aggregations, window functions)
 - ✅ You want to query raw data directly
-- ✅ You need to join multiple tables or data sources
-- ✅ You're exploring data structure interactively
+- ✅ You need to explore data structure interactively
+- ✅ You're doing advanced analysis
 
 **Example comparison:**
 
 ```bash
-# High-level query (no SQL needed)
-coral query ebpf http payments-api --since 1h
+# High-level query (no SQL needed, combines eBPF + OTLP)
+coral query metrics payments-api --since 1h
 
-# Equivalent raw SQL query
+# Equivalent raw SQL query (eBPF data only)
 coral duckdb query colony "
   SELECT
     service_name,
@@ -578,6 +713,34 @@ coral duckdb query colony "
     AND service_name = 'payments-api'
   GROUP BY service_name, http_method, http_route
 "
+```
+
+---
+
+### Migration from Old Commands
+
+> **Note**: The old `coral query ebpf` commands have been replaced by the unified
+> query interface. See [RFD 067](../RFDs/067-unified-query-interface.md) for
+> details.
+
+**Old command → New command:**
+
+```bash
+# HTTP metrics
+coral query ebpf http api --since 1h
+→ coral query metrics api --protocol http --since 1h
+
+# gRPC metrics
+coral query ebpf grpc api --since 1h
+→ coral query metrics api --protocol grpc --since 1h
+
+# SQL metrics
+coral query ebpf sql api --since 1h
+→ coral query metrics api --protocol sql --since 1h
+
+# Traces
+coral query ebpf traces --service api --since 1h
+→ coral query traces api --since 1h
 ```
 
 ---
