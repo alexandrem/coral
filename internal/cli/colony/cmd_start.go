@@ -415,30 +415,27 @@ Examples:
 					Msg("CPU profile poller started")
 			}
 
-			/*
-				// Create and start Service poller to sync agent services to colony.
-				// This ensures ListServices API shows all connected services.
-				servicePollIntervalSecs := 10 // Poll every 10 seconds (services change frequently).
+			// Create and start Service poller to sync agent services to colony.
+			// This ensures ListServices API shows all connected services.
+			servicePollIntervalSecs := 10 // Poll every 10 seconds (services change frequently).
 
-				servicePoller := colony.NewServicePoller(
-					ctx,
-					agentRegistry,
-					db,
-					time.Duration(servicePollIntervalSecs)*time.Second,
-					logger,
-				)
+			servicePoller := colony.NewServicePoller(
+				ctx,
+				agentRegistry,
+				db,
+				time.Duration(servicePollIntervalSecs)*time.Second,
+				logger,
+			)
 
-				if err := servicePoller.Start(); err != nil {
-					logger.Warn().
-						Err(err).
-						Msg("Failed to start service poller")
-				} else {
-					logger.Info().
-						Int("poll_interval_secs", servicePollIntervalSecs).
-						Msg("Service poller started")
-				}
-
-			*/
+			if err := servicePoller.Start(); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to start service poller")
+			} else {
+				logger.Info().
+					Int("poll_interval_secs", servicePollIntervalSecs).
+					Msg("Service poller started")
+			}
 
 			logger.Info().
 				Str("dashboard_url", fmt.Sprintf("http://localhost:%d", cfg.Dashboard.Port)).
@@ -481,6 +478,13 @@ Examples:
 					logger.Warn().
 						Err(err).
 						Msg("Error stopping CPU profile poller")
+				}
+
+				// Stop Service poller
+				if err := servicePoller.Stop(); err != nil {
+					logger.Warn().
+						Err(err).
+						Msg("Error stopping service poller")
 				}
 
 				// Stop registration manager
