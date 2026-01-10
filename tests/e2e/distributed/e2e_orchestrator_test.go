@@ -191,9 +191,9 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 // Test4_OnDemandProbes runs deep introspection tests.
 // Requires: All previous groups
 func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
-	// if !s.meshPassed || !s.servicesPassed || !s.passiveObservability {
-	//	s.T().Skip("Skipping: Prerequisites failed")
-	// }
+	if !s.meshPassed || !s.servicesPassed || !s.passiveObservability {
+		s.T().Skip("Skipping: Prerequisites failed")
+	}
 
 	s.T().Log("")
 	s.T().Log("========================================")
@@ -239,9 +239,9 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 // - Query commands (Phase 2)
 // - Config commands (Phase 3)
 func (s *E2EOrchestratorSuite) Test5_CLICommands() {
-	if !s.meshPassed || !s.servicesPassed || !s.passiveObservability {
-		s.T().Skip("Skipping: Prerequisites failed (mesh, services, or observability)")
-	}
+	// if !s.meshPassed || !s.servicesPassed || !s.passiveObservability {
+	// 	s.T().Skip("Skipping: Prerequisites failed (mesh, services, or observability)")
+	// }
 
 	s.T().Log("")
 	s.T().Log("========================================")
