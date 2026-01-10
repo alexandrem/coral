@@ -92,7 +92,7 @@ func AgentList(ctx context.Context, colonyEndpoint string) *CLIResult {
 func AgentListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
 	result := RunCLIWithEnv(ctx, map[string]string{
 		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents", "--json")
+	}, "colony", "agents", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("agent list failed: %w\nOutput: %s", result.Err, result.Output)
@@ -117,7 +117,7 @@ func ServiceList(ctx context.Context, colonyEndpoint string) *CLIResult {
 func ServiceListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
 	result := RunCLIWithEnv(ctx, map[string]string{
 		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "service", "list", "--json")
+	}, "colony", "service", "list", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("service list failed: %w\nOutput: %s", result.Err, result.Output)
@@ -328,7 +328,7 @@ func ColonyStatus(ctx context.Context, colonyEndpoint string) *CLIResult {
 func ColonyStatusJSON(ctx context.Context, colonyEndpoint string) (map[string]interface{}, error) {
 	result := RunCLIWithEnv(ctx, map[string]string{
 		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "status", "--json")
+	}, "colony", "status", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("colony status failed: %w\nOutput: %s", result.Err, result.Output)
@@ -353,7 +353,7 @@ func ColonyAgents(ctx context.Context, colonyEndpoint string) *CLIResult {
 func ColonyAgentsJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
 	result := RunCLIWithEnv(ctx, map[string]string{
 		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents", "--json")
+	}, "colony", "agents", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("colony agents failed: %w\nOutput: %s", result.Err, result.Output)
