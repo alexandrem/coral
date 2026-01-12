@@ -28,16 +28,30 @@ func NewTelemetrySuite(suite E2EDistributedSuite, t *testing.T) *TelemetrySuite 
 	return s
 }
 
-// TearDownTest cleans up services after each test to prevent conflicts.
+// SetupSuite runs once before all tests in the suite.
+// Connects otel-app which is used by OTLP tests and system metrics tests.
+// Note: Beyla tests connect cpu-app dynamically per-test (to test Beyla restart).
+func (s *TelemetrySuite) SetupSuite() {
+	// OTLP tests require otel-app to be connected for telemetry ingestion.
+	// Connect it once at suite level since all OTLP tests can share the same connection.
+	s.T().Log("Setting up TelemetrySuite - connecting otel-app for OTLP tests...")
+
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
+		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+	})
+
+	s.T().Log("TelemetrySuite setup complete - otel-app connected")
+}
+
+// TearDownTest cleans up cpu-app if it was connected during a test.
+//
+// IMPORTANT: This is only for cpu-app, not otel-app!
+// - cpu-app is connected dynamically by Beyla tests (to test Beyla restart behavior)
+// - otel-app is connected once in SetupSuite() and shared across all OTLP tests
+//
+// This prevents "service already connected" errors in subsequent Beyla tests.
 func (s *TelemetrySuite) TearDownTest() {
-	// Disconnect cpu-app if it was connected during this test.
-	// This prevents "service already connected" errors in subsequent tests.
-	agentEndpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
-	if err == nil {
-		agentClient := helpers.NewAgentClient(agentEndpoint)
-		_, _ = helpers.DisconnectService(s.ctx, agentClient, "cpu-app")
-		// Ignore errors - service may not have been connected in this test.
-	}
+	s.disconnectCpuApp()
 
 	// Call parent TearDownTest.
 	s.E2EDistributedSuite.TearDownTest()
@@ -965,4 +979,14 @@ func (s *TelemetrySuite) TestSystemMetricsPolling() {
 	s.T().Log("  - Colony and agent connected")
 	s.T().Log("  - Colony polls agent for system metrics")
 	s.T().Log("  - Metrics are aggregated in colony database")
+}
+
+// =============================================================================
+// Helper Methods
+// =============================================================================
+
+// disconnectCpuApp disconnects cpu-app from agent-0 if it was connected.
+// This is called by TearDownTest() after Beyla tests that dynamically connect cpu-app.
+func (s *TelemetrySuite) disconnectCpuApp() {
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{"cpu-app"})
 }
