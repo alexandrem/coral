@@ -15,6 +15,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -33,6 +34,7 @@ var (
 	// Metrics.
 	requestCounter  metric.Int64Counter
 	requestDuration metric.Float64Histogram
+	activeRequests  metric.Int64UpDownCounter
 )
 
 func main() {
@@ -68,6 +70,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create counter: %v", err)
 	}
+	log.Printf("Created metric: http.server.requests (Counter)")
 
 	requestDuration, err = meter.Float64Histogram(
 		"http.server.duration",
@@ -77,6 +80,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create histogram: %v", err)
 	}
+	log.Printf("Created metric: http.server.duration (Histogram)")
+
+	activeRequests, err = meter.Int64UpDownCounter(
+		"http.server.active_requests",
+		metric.WithDescription("Number of active HTTP requests"),
+		metric.WithUnit("{requests}"),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create gauge: %v", err)
+	}
+	log.Printf("Created metric: http.server.active_requests (UpDownCounter)")
+	log.Printf("Metrics will be exported every 5 seconds to: %s", otlpEndpoint)
 
 	// Get HTTP port from environment or use default.
 	httpPort := os.Getenv("HTTP_PORT")
@@ -151,9 +166,21 @@ func initOTel(ctx context.Context, endpoint string) (shutdown func(context.Conte
 	)
 	otel.SetTracerProvider(tracerProvider)
 
-	// Create meter provider.
+	// Create OTLP metrics exporter.
+	metricExporter, err := otlpmetricgrpc.New(ctx,
+		otlpmetricgrpc.WithEndpoint(endpoint),
+		otlpmetricgrpc.WithTLSCredentials(insecure.NewCredentials()),
+		otlpmetricgrpc.WithDialOption(grpc.WithBlock()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metric exporter: %w", err)
+	}
+
+	// Create meter provider with periodic reader (exports every 5 seconds).
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter,
+			sdkmetric.WithInterval(5*time.Second))),
 	)
 	otel.SetMeterProvider(meterProvider)
 
@@ -187,6 +214,17 @@ func instrumentHandler(name string, handler func(http.ResponseWriter, *http.Requ
 		)
 		defer span.End()
 
+		// Increment active requests counter.
+		attrs := []attribute.KeyValue{
+			attribute.String("http.method", r.Method),
+			attribute.String("http.route", r.URL.Path),
+		}
+		activeRequests.Add(ctx, 1, metric.WithAttributes(attrs...))
+		defer func() {
+			// Decrement active requests counter when request completes.
+			activeRequests.Add(ctx, -1, metric.WithAttributes(attrs...))
+		}()
+
 		// Create response writer wrapper to capture status code.
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -195,14 +233,17 @@ func instrumentHandler(name string, handler func(http.ResponseWriter, *http.Requ
 
 		// Record metrics.
 		duration := float64(time.Since(start).Milliseconds())
-		attrs := []attribute.KeyValue{
+		statusAttrs := []attribute.KeyValue{
 			attribute.String("http.method", r.Method),
 			attribute.String("http.route", r.URL.Path),
 			attribute.Int("http.status_code", rw.statusCode),
 		}
 
-		requestCounter.Add(ctx, 1, metric.WithAttributes(attrs...))
-		requestDuration.Record(ctx, duration, metric.WithAttributes(attrs...))
+		requestCounter.Add(ctx, 1, metric.WithAttributes(statusAttrs...))
+		requestDuration.Record(ctx, duration, metric.WithAttributes(statusAttrs...))
+
+		// Log metrics recording for debugging.
+		log.Printf("Recorded metrics: counter=1, duration=%.2fms, route=%s", duration, r.URL.Path)
 
 		// Add status code to span.
 		span.SetAttributes(semconv.HTTPStatusCodeKey.Int(rw.statusCode))

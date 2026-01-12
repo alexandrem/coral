@@ -140,3 +140,9 @@ func (r *TelemetryReceiver) GetDatabasePath() string {
 	}
 	return r.dbPath
 }
+
+// GetReceiver returns the underlying OTLP receiver.
+// This allows other components (like Beyla) to access the receiver for metrics polling.
+func (r *TelemetryReceiver) GetReceiver() *telemetry.OTLPReceiver {
+	return r.receiver
+}

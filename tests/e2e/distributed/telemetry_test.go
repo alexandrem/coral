@@ -485,6 +485,135 @@ func (s *TelemetrySuite) TestOTLPIngestion() {
 	s.T().Log("  - Spans queryable via gRPC API")
 }
 
+// TestOTLPMetricsIngestion verifies that the agent receives and processes OTLP metrics.
+//
+// Test flow:
+// 1. Start agent container with OTLP receiver enabled (port 4317/4318)
+// 2. Start OTLP test app configured to send metrics to agent
+// 3. Generate HTTP traffic to create metrics data
+// 4. Wait for metrics to be exported (5s interval) and processed by Beyla
+// 5. Verify metrics appear in QueryEbpfMetrics (proves ingestion + transformation)
+//
+// This tests the full OTLP metrics pipeline:
+// - OTLP app exports metrics via gRPC (Counter, Histogram, UpDownCounter)
+// - Agent OTLP receiver ingests metrics into in-memory buffer
+// - Beyla polls OTLP receiver and transforms metrics to eBPF format
+// - Metrics stored in DuckDB and queryable via gRPC API
+func (s *TelemetrySuite) TestOTLPMetricsIngestion() {
+	s.T().Log("Testing OTLP metrics ingestion flow...")
+
+	// Use shared docker-compose fixture.
+	fixture := s.fixture
+
+	// Get OTLP app endpoint.
+	otlpAppEndpoint, err := fixture.GetOTELAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get OTLP app endpoint")
+
+	s.T().Logf("OTLP app listening at: %s", otlpAppEndpoint)
+
+	// Verify OTLP app is responsive.
+	s.T().Log("Verifying OTLP app is responsive...")
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(fmt.Sprintf("http://%s/health", otlpAppEndpoint))
+	s.Require().NoError(err, "OTLP app health check should succeed")
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode, "OTLP app should be healthy")
+
+	s.T().Log("OTLP app is healthy and ready")
+
+	// Generate HTTP traffic to create metrics.
+	// The OTLP app instruments endpoints with:
+	// - http.server.requests (Counter)
+	// - http.server.duration (Histogram) <- Transformed by Beyla
+	// - http.server.active_requests (UpDownCounter)
+	endpoints := []string{
+		"/api/users",
+		"/api/products",
+		"/",
+	}
+
+	s.T().Log("Generating HTTP traffic to create metrics...")
+	requestCount := 0
+
+	for i := 0; i < 15; i++ {
+		for _, endpoint := range endpoints {
+			url := fmt.Sprintf("http://%s%s", otlpAppEndpoint, endpoint)
+
+			resp, err := client.Get(url)
+			if err != nil {
+				s.T().Logf("Request to %s failed: %v", url, err)
+				continue
+			}
+
+			requestCount++
+			_ = resp.Body.Close()
+		}
+
+		// Small delay between requests.
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	s.T().Logf("Generated %d requests across %d endpoints", requestCount, len(endpoints))
+
+	// Wait for metrics to be exported and processed.
+	// - OTLP app exports metrics every 5 seconds
+	// - Beyla polls OTLP receiver every 5 seconds
+	// - Need to wait for at least one export + one poll cycle
+	s.T().Log("Waiting for metrics to be exported and processed...")
+	s.T().Log("  (OTLP export @ 5s → Beyla poll @ 5s → DuckDB storage)")
+	time.Sleep(12 * time.Second)
+
+	// Query agent for eBPF metrics to verify OTLP metrics were ingested.
+	s.T().Log("Querying agent for processed OTLP metrics...")
+
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
+	s.Require().NoError(err, "Failed to get agent gRPC endpoint")
+
+	agentClient := helpers.NewAgentClient(agentEndpoint)
+
+	// Query metrics from the last 5 minutes.
+	now := time.Now()
+	metricsResp, err := helpers.QueryAgentEbpfMetrics(
+		s.ctx,
+		agentClient,
+		now.Add(-5*time.Minute).Unix(),
+		now.Unix(),
+		[]string{"otel-app"}, // Filter by our test app service name
+	)
+	s.Require().NoError(err, "Failed to query eBPF metrics from agent")
+
+	// Verify metrics were ingested and transformed.
+	// The http.server.duration histogram should be transformed to HTTP metrics.
+	s.Require().Greater(int(metricsResp.TotalMetrics), 0,
+		"Expected OTLP metrics to be ingested and transformed, got 0")
+
+	s.T().Logf("✓ Verified %d HTTP metrics from OTLP ingestion", len(metricsResp.HttpMetrics))
+
+	// Verify metric properties.
+	if len(metricsResp.HttpMetrics) > 0 {
+		// Group metrics by endpoint to verify we captured all endpoints.
+		endpointSeen := make(map[string]bool)
+		for _, metric := range metricsResp.HttpMetrics {
+			endpointSeen[metric.HttpRoute] = true
+			s.T().Logf("  Metric: %s %s (status: %d, requests: %d)",
+				metric.HttpMethod, metric.HttpRoute, metric.HttpStatusCode, metric.RequestCount)
+		}
+
+		// Verify we captured metrics for at least some endpoints.
+		s.Require().Greater(len(endpointSeen), 0,
+			"Expected to see metrics for at least one endpoint")
+
+		s.T().Logf("  Captured metrics for %d unique endpoints", len(endpointSeen))
+	}
+
+	s.T().Log("✓ OTLP metrics ingestion verified end-to-end")
+	s.T().Log("  - OTLP app exports metrics via gRPC (Counter, Histogram, UpDownCounter)")
+	s.T().Log("  - Agent OTLP receiver ingests metrics (port 4317)")
+	s.T().Log("  - Beyla polls and transforms http.server.duration to eBPF format")
+	s.T().Log("  - Metrics stored in DuckDB and queryable via gRPC API")
+}
+
 // TestOTLPAppEndpoints verifies the OTEL test app endpoints work correctly.
 func (s *TelemetrySuite) TestOTLPAppEndpoints() {
 	s.T().Log("Testing OTEL app endpoint functionality...")

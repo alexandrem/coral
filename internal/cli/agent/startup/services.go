@@ -129,6 +129,12 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 					Float64("latency_threshold_ms", telemetryConfig.Filters.HighLatencyThresholdMs).
 					Msg("OTLP receiver started successfully")
 				result.OTLPReceiver = otlpReceiver
+
+				// Wire up shared OTLP receiver with Beyla for user application metrics.
+				if beylaManager := s.agentInstance.GetBeylaManager(); beylaManager != nil {
+					beylaManager.SetSharedOTLPReceiver(otlpReceiver.GetReceiver())
+					s.logger.Info().Msg("Configured Beyla to process user application OTLP metrics")
+				}
 			}
 		}
 	} else if s.agentCfg.Telemetry.Disabled {
