@@ -15,6 +15,7 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/logging"
 )
@@ -54,7 +55,10 @@ Examples:
 
 // newMCPListToolsCmd creates the 'coral colony mcp list-tools' command.
 func newMCPListToolsCmd() *cobra.Command {
-	var colonyID string
+	var (
+		colonyID string
+		format   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "list-tools",
@@ -108,33 +112,66 @@ This shows the tools that can be called by MCP clients like Claude Desktop.`,
 				return fmt.Errorf("failed to list tools: %w", err)
 			}
 
-			fmt.Printf("Available MCP Tools for colony %s:\n\n", colonyID)
+			// Filter enabled tools.
+			type ToolOutput struct {
+				Name        string                 `json:"name"`
+				Description string                 `json:"description"`
+				Enabled     bool                   `json:"enabled"`
+				InputSchema map[string]interface{} `json:"inputSchema,omitempty"`
+			}
 
-			// Display tools from RPC response.
+			output := make([]ToolOutput, 0)
 			for _, tool := range resp.Msg.Tools {
 				if !tool.Enabled {
 					continue
 				}
 
-				fmt.Printf("  %s\n", tool.Name)
-				fmt.Printf("    %s\n", tool.Description)
+				t := ToolOutput{
+					Name:        tool.Name,
+					Description: tool.Description,
+					Enabled:     tool.Enabled,
+				}
 
-				// Parse schema to extract required fields.
+				// Parse schema.
 				if tool.InputSchemaJson != "" {
 					var schema map[string]interface{}
 					if err := json.Unmarshal([]byte(tool.InputSchemaJson), &schema); err == nil {
-						if _, ok := schema["properties"].(map[string]interface{}); ok {
-							required := []string{}
-							if reqList, ok := schema["required"].([]interface{}); ok {
-								for _, r := range reqList {
-									if rStr, ok := r.(string); ok {
-										required = append(required, rStr)
-									}
+						t.InputSchema = schema
+					}
+				}
+
+				output = append(output, t)
+			}
+
+			// Use formatter for non-table output.
+			if format != string(helpers.FormatTable) {
+				formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
+				if err != nil {
+					return err
+				}
+				return formatter.Format(output, os.Stdout)
+			}
+
+			// Table format (default) - human-readable.
+			fmt.Printf("Available MCP Tools for colony %s:\n\n", colonyID)
+
+			for _, tool := range output {
+				fmt.Printf("  %s\n", tool.Name)
+				fmt.Printf("    %s\n", tool.Description)
+
+				// Extract required fields from schema.
+				if tool.InputSchema != nil {
+					if _, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+						required := []string{}
+						if reqList, ok := tool.InputSchema["required"].([]interface{}); ok {
+							for _, r := range reqList {
+								if rStr, ok := r.(string); ok {
+									required = append(required, rStr)
 								}
 							}
-							if len(required) > 0 {
-								fmt.Printf("    Required: %v\n", required)
-							}
+						}
+						if len(required) > 0 {
+							fmt.Printf("    Required: %v\n", required)
 						}
 					}
 				}
@@ -150,7 +187,11 @@ This shows the tools that can be called by MCP clients like Claude Desktop.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (overrides auto-detection)")
+	helpers.AddColonyFlag(cmd, &colonyID)
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+	})
 
 	return cmd
 }
