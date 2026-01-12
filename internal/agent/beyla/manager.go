@@ -32,8 +32,10 @@ type Manager struct {
 
 	// OTLP receiver from RFD 025 (receives Beyla's trace and metrics output).
 	otlpReceiver *telemetry.OTLPReceiver
-	storage      *telemetry.Storage
-	transformer  *Transformer
+	// Shared OTLP receiver for user application metrics (optional).
+	sharedOTLPReceiver *telemetry.OTLPReceiver
+	storage            *telemetry.Storage
+	transformer        *Transformer
 
 	// Beyla metrics storage (local DuckDB for pull-based queries).
 	beylaStorage *BeylaStorage
@@ -300,6 +302,16 @@ func (m *Manager) GetMetrics() <-chan *ebpfpb.EbpfEvent {
 	return m.metricsCh
 }
 
+// SetSharedOTLPReceiver sets the shared OTLP receiver for user application metrics.
+// This allows Beyla to transform user application OTLP metrics (e.g., http.server.duration)
+// into eBPF-style metrics for unified querying.
+func (m *Manager) SetSharedOTLPReceiver(receiver *telemetry.OTLPReceiver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sharedOTLPReceiver = receiver
+	m.logger.Info().Msg("Shared OTLP receiver configured for user application metrics")
+}
+
 // QueryHTTPMetrics queries Beyla HTTP metrics from local storage (RFD 032).
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
@@ -522,8 +534,18 @@ func (m *Manager) consumeMetrics() {
 			return
 
 		case <-ticker.C:
-			// Query recent metrics from OTLP receiver.
+			// Query recent metrics from Beyla's OTLP receiver.
 			metrics := m.otlpReceiver.QueryMetrics(m.ctx)
+
+			// Also query metrics from shared OTLP receiver (user application metrics).
+			if m.sharedOTLPReceiver != nil {
+				sharedMetrics := m.sharedOTLPReceiver.QueryMetrics(m.ctx)
+				metrics = append(metrics, sharedMetrics...)
+				m.logger.Debug().
+					Int("beyla_metrics", len(metrics)-len(sharedMetrics)).
+					Int("shared_metrics", len(sharedMetrics)).
+					Msg("Queried metrics from both receivers")
+			}
 
 			if len(metrics) == 0 {
 				continue

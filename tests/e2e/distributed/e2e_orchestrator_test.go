@@ -165,6 +165,7 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 
 	// OTLP tests.
 	s.Run("OTLPIngestion", telemetrySuite.TestOTLPIngestion)
+	s.Run("OTLPMetricsIngestion", telemetrySuite.TestOTLPMetricsIngestion)
 	s.Run("OTLPAppEndpoints", telemetrySuite.TestOTLPAppEndpoints)
 	s.Run("TelemetryAggregation", telemetrySuite.TestTelemetryAggregation)
 
