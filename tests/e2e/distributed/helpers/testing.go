@@ -8,4 +8,6 @@ import (
 type T interface {
 	require.TestingT
 	Helper()
+	Log(args ...interface{})
+	Logf(format string, args ...interface{})
 }

@@ -119,3 +119,14 @@ func WaitForBeylaRestart(ctx context.Context, serviceName string) error {
 		return nil
 	}
 }
+
+// WaitForServices waits for a specified duration for services to be polled by colony.
+// This is a simple sleep-based wait used when we don't need to poll for readiness.
+func WaitForServices(ctx context.Context, seconds int) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(time.Duration(seconds) * time.Second):
+		return
+	}
+}

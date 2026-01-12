@@ -484,34 +484,12 @@ func (s *MCPSuite) TestMCPToolShellExec() {
 // =============================================================================
 
 // ensureServicesConnected ensures that test services are connected.
+// This uses the shared helper for idempotent service connection.
 func (s *MCPSuite) ensureServicesConnected() {
-	s.T().Log("Ensuring services are connected...")
-
-	// List current services
-	services, err := helpers.ServiceListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
-	if err == nil && len(services) > 0 {
-		s.T().Logf("Services already connected: %d", len(services))
-		return
-	}
-
-	// Connect test services if none connected
-	// This allows tests to run standalone (e.g., with test filter)
-	s.T().Log("No services connected - connecting test services...")
-
-	// Connect OTEL app to agent-0 (primary test app)
-	helpers.ConnectServiceToAgent(s.T(), s.ctx, s.fixture, 0, "otel-app", 8080, "/health")
-
-	s.T().Log("✓ Services connected - waiting for colony to poll...")
-
-	// Wait for colony to poll services from agent (runs every 10 seconds)
-	time.Sleep(15 * time.Second)
-
-	// Verify services are now listed
-	services, err = helpers.ServiceListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
-	s.Require().NoError(err, "Failed to list services after connect")
-	s.Require().NotEmpty(services, "Services should be registered after connect")
-
-	s.T().Logf("✓ Services registered in colony: %d", len(services))
+	// MCP tests only need otel-app (OTLP-instrumented)
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
+		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+	})
 }
 
 // ensureTelemetryData ensures that telemetry data exists for testing queries.

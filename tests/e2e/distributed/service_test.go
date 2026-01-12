@@ -1,6 +1,7 @@
 package distributed
 
 import (
+	"testing"
 	"time"
 
 	"connectrpc.com/connect"
@@ -11,28 +12,37 @@ import (
 )
 
 // ServiceSuite tests service registration, connection, and discovery behaviors.
+//
+// Services are connected once in SetupSuite() and shared across all tests for efficiency.
+// Tests should be idempotent and not rely on specific connection order.
 type ServiceSuite struct {
 	E2EDistributedSuite
 }
 
-// TearDownTest cleans up services after each test to prevent conflicts.
-func (s *ServiceSuite) TearDownTest() {
-	// Disconnect services that may have been connected during this test.
-	// This prevents "service already connected" errors in subsequent tests.
-	agentEndpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
-	if err == nil {
-		agentClient := helpers.NewAgentClient(agentEndpoint)
-		_, _ = helpers.DisconnectService(s.ctx, agentClient, "cpu-app")
-		_, _ = helpers.DisconnectService(s.ctx, agentClient, "otel-app")
-		// Ignore errors - services may not have been connected in this test.
+// NewServiceSuite instantiates a ServiceSuite.
+func NewServiceSuite(suite E2EDistributedSuite, t *testing.T) *ServiceSuite {
+	s := &ServiceSuite{
+		E2EDistributedSuite: suite,
 	}
-
-	// Call parent TearDownTest.
-	s.E2EDistributedSuite.TearDownTest()
+	s.SetT(t)
+	return s
 }
 
-// TearDownSuite cleans up the colony database after all tests in the suite.
+// SetupSuite runs once before all tests in the suite.
+func (s *ServiceSuite) SetupSuite() {
+	s.E2EDistributedSuite.SetupSuite()
+
+	// Ensure services are connected once for all tests.
+	s.ensureServicesConnected()
+
+	s.T().Log("ServiceSuite setup complete - services connected")
+}
+
+// TearDownSuite cleans up after all tests in the suite.
 func (s *ServiceSuite) TearDownSuite() {
+	// Disconnect all services.
+	s.disconnectAllServices()
+
 	// Clear service data from colony database to ensure clean state for next suite.
 	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
 	if err == nil {
@@ -66,27 +76,15 @@ func (s *ServiceSuite) TestServiceRegistrationAndDiscovery() {
 	s.T().Log("Test apps already running via docker-compose:")
 	s.T().Log("  - cpu-app: CPU-intensive app (uninstrumented)")
 	s.T().Log("  - otel-app: OTLP-instrumented app")
+	s.T().Log("  Note: Services connected in SetupSuite()")
 
-	// Step 1: Connect services to agent-0.
-	s.T().Log("Connecting services to agent-0...")
+	// Step 1: Verify services appear in agent's ListServices.
+	s.T().Log("Verifying services registered with agent...")
 
 	agent0Endpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
 	s.Require().NoError(err, "Failed to get agent-0 endpoint")
 
 	agentClient := helpers.NewAgentClient(agent0Endpoint)
-
-	// Connect CPU app to agent.
-	_, err = helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
-	s.Require().NoError(err, "Failed to connect cpu-app to agent")
-
-	// Connect OTEL app to agent.
-	_, err = helpers.ConnectService(s.ctx, agentClient, "otel-app", 8080, "/health")
-	s.Require().NoError(err, "Failed to connect otel-app to agent")
-
-	s.T().Log("✓ Services connected to agent")
-
-	// Step 2: Verify services appear in agent's ListServices.
-	s.T().Log("Verifying services registered with agent...")
 
 	agentServicesResp, err := agentClient.ListServices(s.ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
 	s.Require().NoError(err, "Failed to list services from agent")
@@ -212,4 +210,26 @@ func (s *ServiceSuite) TestMultiServiceRegistration() {
 
 	// Test multiple services on single agent
 	s.T().Log("✓ Multi-service registration - new comprehensive test")
+}
+
+// =============================================================================
+// Helper Methods
+// =============================================================================
+
+// ensureServicesConnected ensures that test services are connected to agent-0.
+// This is a thin wrapper around the shared helper.EnsureServicesConnected function.
+func (s *ServiceSuite) ensureServicesConnected() {
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
+		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
+		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+	})
+}
+
+// disconnectAllServices disconnects all test services from all agents.
+// This is called during TearDownSuite() to clean up after all tests.
+func (s *ServiceSuite) disconnectAllServices() {
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{
+		"cpu-app",
+		"otel-app",
+	})
 }

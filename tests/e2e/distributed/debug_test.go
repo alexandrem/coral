@@ -15,31 +15,42 @@ import (
 // - Uprobe-based function tracing (entry events only, exits not yet implemented)
 // - Call tree construction from uprobe events
 // - Multi-agent debug session coordination
+//
+// Services are connected once in SetupSuite:
+// - sdk-app to agent-1 (for uprobe tests)
+// - cpu-app to agent-0 (for multi-agent profiling test)
 type DebugSuite struct {
 	E2EDistributedSuite
 }
 
-// TearDownTest cleans up services after each test to prevent conflicts.
-func (s *DebugSuite) TearDownTest() {
-	// Disconnect SDK app from agent-1 if it was connected during this test.
-	// This prevents "service already connected" errors in subsequent tests.
-	agentEndpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 1)
-	if err == nil {
-		agentClient := helpers.NewAgentClient(agentEndpoint)
-		_, _ = helpers.DisconnectService(s.ctx, agentClient, "sdk-app")
-		// Ignore errors - service may not have been connected in this test.
-	}
+// SetupSuite runs once before all tests in the suite.
+// Connects services needed for debug tests.
+func (s *DebugSuite) SetupSuite() {
+	s.T().Log("Setting up DebugSuite - connecting test services...")
 
-	// Disconnect CPU app from agent-0 if it was connected during this test.
-	agentEndpoint, err = s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
-	if err == nil {
-		agentClient := helpers.NewAgentClient(agentEndpoint)
-		_, _ = helpers.DisconnectService(s.ctx, agentClient, "cpu-app")
-		// Ignore errors - service may not have been connected in this test.
-	}
+	// Connect sdk-app to agent-1 for uprobe tracing tests
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 1, []helpers.ServiceConfig{
+		{Name: "sdk-app", Port: 3001, HealthEndpoint: "/health"},
+	})
 
-	// Call parent TearDownTest.
-	s.E2EDistributedSuite.TearDownTest()
+	// Connect cpu-app to agent-0 for multi-agent profiling test
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
+		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
+	})
+
+	s.T().Log("DebugSuite setup complete - sdk-app and cpu-app connected")
+}
+
+// TearDownSuite cleans up after all tests in the suite.
+func (s *DebugSuite) TearDownSuite() {
+	// Disconnect sdk-app from agent-1
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 1, []string{"sdk-app"})
+
+	// Disconnect cpu-app from agent-0
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{"cpu-app"})
+
+	// Call parent TearDownSuite
+	s.E2EDistributedSuite.TearDownSuite()
 }
 
 // TestUprobeTracing verifies uprobe-based function tracing.
@@ -84,18 +95,11 @@ func (s *DebugSuite) TestUprobeTracing() {
 	// Use agent-1 since SDK app runs in its namespace.
 	agentID := listAgentsResp.Agents[1].AgentId
 	s.T().Logf("Agent-1 ID: %s", agentID)
+	s.T().Log("Note: SDK app already connected in SetupSuite()")
 
-	// Connect SDK app to agent-1.
+	// Verify service is registered with agent-1.
 	agentClient := helpers.NewAgentClient(agentEndpoint)
-	connectResp, err := helpers.ConnectService(s.ctx, agentClient, "sdk-app", 3001, "/health")
-	s.Require().NoError(err, "Failed to connect SDK app")
-	s.Require().True(connectResp.Success, "Service connection should succeed")
-
-	s.T().Log("SDK app connected to agent-1")
-
-	// Wait for service registration to be fully processed by the agent.
-	// Poll the agent's service list to verify the service is actually registered.
-	s.T().Log("Waiting for service registration to be fully processed...")
+	s.T().Log("Verifying service registration...")
 	err = helpers.WaitForServiceRegistration(s.ctx, agentClient, "sdk-app", 10*time.Second)
 	s.Require().NoError(err, "Timeout waiting for service registration")
 	s.T().Log("✓ SDK app verified in agent's service registry")

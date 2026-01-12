@@ -102,25 +102,17 @@ func (s *E2EOrchestratorSuite) Test1_MeshConnectivity() {
 // Test2_ServiceManagement runs service registration and connection tests.
 // Requires: Mesh Connectivity
 func (s *E2EOrchestratorSuite) Test2_ServiceManagement() {
-	if !s.meshPassed {
-		s.T().Skip("Skipping: Mesh connectivity tests failed")
-	}
-
 	s.T().Log("")
 	s.T().Log("========================================")
 	s.T().Log("GROUP 2: Service Management")
 	s.T().Log("========================================")
 
 	// Run ServiceSuite tests with shared fixture.
-	serviceSuite := &ServiceSuite{
-		E2EDistributedSuite: s.E2EDistributedSuite,
-	}
-	serviceSuite.SetT(s.T())
+	serviceSuite := NewServiceSuite(s.E2EDistributedSuite, s.T())
+	serviceSuite.SetupSuite()
+	defer serviceSuite.TearDownSuite()
 
-	s.Run("ServiceRegistrationAndDiscovery", func() {
-		serviceSuite.TestServiceRegistrationAndDiscovery()
-		serviceSuite.TearDownTest() // Clean up services after test
-	})
+	s.Run("ServiceRegistrationAndDiscovery", serviceSuite.TestServiceRegistrationAndDiscovery)
 	s.Run("DynamicServiceConnection", serviceSuite.TestDynamicServiceConnection)
 	s.Run("ServiceConnectionAtStartup", serviceSuite.TestServiceConnectionAtStartup)
 	s.Run("MultiServiceRegistration", serviceSuite.TestMultiServiceRegistration)
@@ -136,20 +128,15 @@ func (s *E2EOrchestratorSuite) Test2_ServiceManagement() {
 // Test3_PassiveObservability runs passive monitoring tests.
 // Requires: Mesh Connectivity + Service Management
 func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
-	if !s.meshPassed || !s.servicesPassed {
-		s.T().Skip("Skipping: Prerequisites failed (mesh or services)")
-	}
-
 	s.T().Log("")
 	s.T().Log("========================================")
 	s.T().Log("GROUP 3: Passive Observability")
 	s.T().Log("========================================")
 
 	// Run TelemetrySuite tests (Beyla, OTLP, system metrics) with shared fixture.
-	telemetrySuite := &TelemetrySuite{
-		E2EDistributedSuite: s.E2EDistributedSuite,
-	}
-	telemetrySuite.SetT(s.T())
+	telemetrySuite := NewTelemetrySuite(s.E2EDistributedSuite, s.T())
+	telemetrySuite.SetupSuite()
+	defer telemetrySuite.TearDownSuite()
 
 	// Beyla tests.
 	s.Run("BeylaPassiveInstrumentation", func() {
@@ -221,6 +208,8 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 		E2EDistributedSuite: s.E2EDistributedSuite,
 	}
 	debugSuite.SetT(s.T())
+	debugSuite.SetupSuite() // Connect sdk-app and cpu-app
+	defer debugSuite.TearDownSuite()
 
 	s.Run("UprobeTracing", debugSuite.TestUprobeTracing)
 	s.Run("UprobeCallTree", debugSuite.TestUprobeCallTree)
@@ -286,7 +275,7 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 		E2EDistributedSuite: s.E2EDistributedSuite,
 	}
 	cliConfigSuite.SetT(s.T())
-	cliConfigSuite.SetupSuite() // Initialize cliEnv
+	cliConfigSuite.SetupSuite()
 	defer cliConfigSuite.TearDownSuite()
 
 	s.Run("CLI_ConfigGetContexts", cliConfigSuite.TestConfigGetContextsCommand)

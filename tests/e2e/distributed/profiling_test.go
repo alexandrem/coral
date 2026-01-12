@@ -14,20 +14,20 @@ import (
 // This suite covers two types of profiling:
 // - Continuous profiling: Always-on, low-overhead (19Hz) background profiling
 // - On-demand profiling: High-frequency (99Hz) profiling triggered for debugging
+//
+// Note: TestOnDemandProfiling connects cpu-app dynamically and requires per-test cleanup.
 type ProfilingSuite struct {
 	E2EDistributedSuite
 }
 
-// TearDownTest cleans up services after each test to prevent conflicts.
+// TearDownTest cleans up cpu-app if it was connected during a test.
+//
+// IMPORTANT: Only TestOnDemandProfiling connects cpu-app (to test on-demand profiling).
+// TestContinuousProfiling does not connect services, it just uses cpu-app directly.
+//
+// This prevents "service already connected" errors in subsequent tests.
 func (s *ProfilingSuite) TearDownTest() {
-	// Disconnect cpu-app if it was connected during this test.
-	// This prevents "service already connected" errors in subsequent tests.
-	agentEndpoint, err := s.fixture.GetAgentGRPCEndpoint(s.ctx, 0)
-	if err == nil {
-		agentClient := helpers.NewAgentClient(agentEndpoint)
-		_, _ = helpers.DisconnectService(s.ctx, agentClient, "cpu-app")
-		// Ignore errors - service may not have been connected in this test.
-	}
+	s.disconnectCpuApp()
 
 	// Call parent TearDownTest.
 	s.E2EDistributedSuite.TearDownTest()
@@ -343,4 +343,14 @@ func (s *ProfilingSuite) TestOnDemandProfiling() {
 	s.T().Logf("  - Effective frequency: %.1f Hz", float64(result.resp.TotalSamples)/profileDuration.Seconds())
 
 	// Note: Service cleanup handled by TearDownTest.
+}
+
+// =============================================================================
+// Helper Methods
+// =============================================================================
+
+// disconnectCpuApp disconnects cpu-app from agent-0 if it was connected.
+// This is called by TearDownTest() after TestOnDemandProfiling which dynamically connects cpu-app.
+func (s *ProfilingSuite) disconnectCpuApp() {
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{"cpu-app"})
 }
