@@ -119,3 +119,131 @@ func ConnectServiceToAgent(
 	_, err = ConnectService(ctx, agentClient, serviceName, port, healthEndpoint)
 	require.NoError(t, err, "Failed to connect %s to agent-%d", serviceName, agentIndex)
 }
+
+// ColonyEndpointGetter provides access to colony endpoint.
+// This interface allows service helpers to work with different fixture types.
+type ColonyEndpointGetter interface {
+	GetColonyEndpoint(ctx context.Context) (string, error)
+}
+
+// ServiceFixture combines the interfaces needed for service setup operations.
+type ServiceFixture interface {
+	AgentEndpointGetter
+	ColonyEndpointGetter
+}
+
+// ServiceConfig defines configuration for a service to connect.
+type ServiceConfig struct {
+	Name           string
+	Port           int32
+	HealthEndpoint string
+}
+
+// EnsureServicesConnected ensures that test services are connected to an agent.
+// This function is idempotent - it checks if services are already connected before
+// attempting to connect them. This allows test suites to work both when running
+// the full suite and when running individual tests.
+//
+// The function will wait for services to be registered in the colony after connecting.
+//
+// Example:
+//
+//	helpers.EnsureServicesConnected(t, ctx, fixture, 0, []ServiceConfig{
+//	    {Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
+//	    {Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+//	})
+func EnsureServicesConnected(
+	t T,
+	ctx context.Context,
+	fixture ServiceFixture,
+	agentIndex int,
+	services []ServiceConfig,
+) {
+	t.Helper()
+	t.Log("Ensuring services are connected...")
+
+	// Get agent endpoint.
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(ctx, agentIndex)
+	require.NoError(t, err, "Failed to get agent-%d endpoint", agentIndex)
+
+	agentClient := NewAgentClient(agentEndpoint)
+
+	// Check if services are already connected.
+	listResp, err := agentClient.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
+	if err == nil && len(listResp.Msg.Services) >= len(services) {
+		t.Logf("Services already connected: %d", len(listResp.Msg.Services))
+		return
+	}
+
+	// Connect services if not already connected.
+	t.Log("Connecting test services...")
+
+	for _, svc := range services {
+		_, err = ConnectService(ctx, agentClient, svc.Name, svc.Port, svc.HealthEndpoint)
+		if err != nil {
+			t.Logf("Failed to connect %s (may already be connected): %v", svc.Name, err)
+		}
+	}
+
+	t.Log("✓ Services connected - waiting for colony to poll...")
+
+	// Wait for colony to poll services from agent (runs every 10 seconds).
+	// Using sleep instead of polling to avoid excessive API calls.
+	WaitForServices(ctx, 15)
+
+	// Verify services are registered in colony.
+	colonyEndpoint, err := fixture.GetColonyEndpoint(ctx)
+	if err == nil {
+		colonyClient := NewColonyClient(colonyEndpoint)
+
+		// Wait for services to appear in colony registry.
+		err = WaitForCondition(ctx, func() bool {
+			resp, listErr := ListServices(ctx, colonyClient, "")
+			if listErr != nil {
+				t.Logf("List services failed (will retry): %v", listErr)
+				return false
+			}
+			return len(resp.Services) >= len(services)
+		}, 60000, 2000) // 60s timeout, 2s interval
+
+		if err != nil {
+			t.Logf("Warning: Services may not be registered in colony yet: %v", err)
+		} else {
+			t.Log("✓ Services registered in colony")
+		}
+	}
+}
+
+// DisconnectAllServices disconnects multiple services from an agent.
+// Errors are logged but not returned to allow best-effort cleanup.
+//
+// Example:
+//
+//	helpers.DisconnectAllServices(t, ctx, fixture, 0, []string{"cpu-app", "otel-app"})
+func DisconnectAllServices(
+	t T,
+	ctx context.Context,
+	fixture AgentEndpointGetter,
+	agentIndex int,
+	serviceNames []string,
+) {
+	t.Helper()
+	t.Log("Disconnecting services...")
+
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(ctx, agentIndex)
+	if err != nil {
+		t.Logf("Failed to get agent-%d endpoint: %v", agentIndex, err)
+		return
+	}
+
+	agentClient := NewAgentClient(agentEndpoint)
+
+	for _, serviceName := range serviceNames {
+		_, err = DisconnectService(ctx, agentClient, serviceName)
+		if err != nil {
+			t.Logf("Failed to disconnect %s: %v", serviceName, err)
+		}
+	}
+
+	t.Log("✓ Services disconnected")
+}

@@ -3,6 +3,7 @@ package distributed
 import (
 	"fmt"
 	"net/http"
+	"testing"
 	"time"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
@@ -16,6 +17,15 @@ import (
 // - System metrics: CPU/memory/disk/network from agents
 type TelemetrySuite struct {
 	E2EDistributedSuite
+}
+
+// NewTelemetrySuite instantiates a TelemetrySuite.
+func NewTelemetrySuite(suite E2EDistributedSuite, t *testing.T) *TelemetrySuite {
+	s := &TelemetrySuite{
+		E2EDistributedSuite: suite,
+	}
+	s.SetT(t)
+	return s
 }
 
 // TearDownTest cleans up services after each test to prevent conflicts.
