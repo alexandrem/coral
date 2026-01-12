@@ -37,6 +37,9 @@ func (s *MCPSuite) SetupSuite() {
 	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, colonyID, colonyEndpoint)
 	s.Require().NoError(err, "Failed to setup CLI environment")
 
+	// Ensure services are connected for testing
+	s.ensureServicesConnected()
+
 	s.T().Logf("MCP test environment ready: endpoint=%s, colonyID=%s", colonyEndpoint, colonyID)
 }
 
@@ -104,9 +107,6 @@ func (s *MCPSuite) TestMCPListToolsCommand() {
 // - Error handling for invalid tools
 func (s *MCPSuite) TestMCPTestToolCommand() {
 	s.T().Log("Testing 'coral colony mcp test-tool' command...")
-
-	// Ensure services are connected for testing
-	s.ensureServicesConnected()
 
 	// Test simple tool with no arguments
 	result := helpers.MCPTestTool(s.ctx, s.cliEnv.ColonyEndpoint, "coral_list_services", "")
