@@ -208,6 +208,8 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 		E2EDistributedSuite: s.E2EDistributedSuite,
 	}
 	debugSuite.SetT(s.T())
+	debugSuite.SetupSuite() // Connect sdk-app and cpu-app
+	defer debugSuite.TearDownSuite()
 
 	s.Run("UprobeTracing", debugSuite.TestUprobeTracing)
 	s.Run("UprobeCallTree", debugSuite.TestUprobeCallTree)
