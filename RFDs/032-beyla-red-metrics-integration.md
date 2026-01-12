@@ -13,7 +13,7 @@ areas: [ "observability", "ebpf", "metrics", "tracing" ]
 
 # RFD 032 - Beyla Integration for RED Metrics Collection
 
-**Status:** ✅ Implemented
+**Status:** 🎉 Implemented
 
 **Date:** 2025-11-15
 

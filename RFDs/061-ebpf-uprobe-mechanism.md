@@ -13,7 +13,7 @@ areas: [ "agent", "ebpf", "linux" ]
 
 # RFD 061 - eBPF Uprobe Mechanism
 
-**Status:** ✅ Implemented
+**Status:** 🎉 Implemented
 
 ## Summary
 

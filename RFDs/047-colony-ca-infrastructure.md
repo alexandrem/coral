@@ -15,7 +15,7 @@ areas: [ "security", "colony" ]
 
 # RFD 047 - Colony CA Infrastructure
 
-**Status:** ✅ Implemented
+**Status:** 🎉 Implemented
 
 ## Summary
 

@@ -13,8 +13,7 @@ areas: [ "sdk", "go", "debugging" ]
 
 # RFD 060 - SDK Runtime Monitoring
 
-**Status:** ✅ Implemented
-
+**Status:** 🎉 Implemented
 
 ## Summary
 

@@ -14,7 +14,7 @@ areas: ["cli", "colony", "ux", "protobuf"]
 
 # RFD 052 - Service-Centric CLI View
 
-**Status:** ✅ Implemented
+**Status:** 🎉 Implemented
 
 ## Summary
 

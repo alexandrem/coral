@@ -13,7 +13,7 @@ areas: [ "agent", "cli" ]
 
 # RFD 057 - Agent Status Capability Reporting
 
-**Status:** ✅ Implemented
+**Status:** 🎉 Implemented
 
 ## Summary
 

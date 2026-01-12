@@ -13,7 +13,7 @@ areas: [ "agent", "colony", "debugging", "ebpf" ]
 
 # RFD 064 - Service Registry Process Information
 
-**Status:** ✅ Completed
+**Status:** 🎉 Implemented
 
 **Note:** This RFD should be implemented **before RFD 065** (Agentless Binary
 Scanning) and **RFD 066** (SDK HTTP API), as both depend on `process_id` and
