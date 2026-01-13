@@ -158,7 +158,7 @@ func QuerySummary(ctx context.Context, colonyEndpoint, service, timeRange string
 	args := []string{"query", "summary"}
 
 	if service != "" {
-		args = append(args, "--service", service)
+		args = append(args, service)
 	}
 
 	if timeRange != "" {
@@ -203,7 +203,7 @@ func QueryTraces(ctx context.Context, colonyEndpoint, service, timeRange string,
 	args := []string{"query", "traces"}
 
 	if service != "" {
-		args = append(args, "--service", service)
+		args = append(args, service)
 	}
 
 	if timeRange != "" {
@@ -224,7 +224,7 @@ func QueryTracesJSON(ctx context.Context, colonyEndpoint, service, timeRange str
 	args := []string{"query", "traces", "--format", "json"}
 
 	if service != "" {
-		args = append(args, "--service", service)
+		args = append(args, service)
 	}
 
 	if timeRange != "" {
@@ -256,7 +256,7 @@ func QueryMetrics(ctx context.Context, colonyEndpoint, service, timeRange string
 	args := []string{"query", "metrics"}
 
 	if service != "" {
-		args = append(args, "--service", service)
+		args = append(args, service)
 	}
 
 	if timeRange != "" {
@@ -273,7 +273,7 @@ func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 	args := []string{"query", "metrics", "--format", "json"}
 
 	if service != "" {
-		args = append(args, "--service", service)
+		args = append(args, service)
 	}
 
 	if timeRange != "" {
@@ -296,9 +296,9 @@ func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 	return metrics, nil
 }
 
-// DebugCPUProfile executes `coral debug cpu-profile` and returns the output.
+// DebugCPUProfile executes `coral profile cpu` and returns the output.
 func DebugCPUProfile(ctx context.Context, colonyEndpoint, agentID, serviceName string, duration int) *CLIResult {
-	args := []string{"debug", "cpu-profile"}
+	args := []string{"profile", "cpu"}
 
 	if agentID != "" {
 		args = append(args, "--agent", agentID)

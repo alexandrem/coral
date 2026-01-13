@@ -12,7 +12,395 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/internal/safe"
 )
+
+// executeAttachUprobeTool executes the coral_attach_uprobe tool.
+func (s *Server) executeAttachUprobeTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
+	var input AttachUprobeInput
+	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_attach_uprobe", input)
+
+	// Parse duration
+	duration := 60 * time.Second
+	if input.Duration != nil {
+		d, err := time.ParseDuration(*input.Duration)
+		if err != nil {
+			return "", fmt.Errorf("invalid duration format: %w", err)
+		}
+		duration = d
+	}
+
+	// Handle optional fields
+	var agentID, sdkAddr string
+	if input.AgentID != nil {
+		agentID = *input.AgentID
+	}
+	if input.SDKAddr != nil {
+		sdkAddr = *input.SDKAddr
+	}
+
+	// Call DebugService.AttachUprobe
+	req := connect.NewRequest(&debugpb.AttachUprobeRequest{
+		ServiceName:  input.Service,
+		FunctionName: input.Function,
+		AgentId:      agentID,
+		SdkAddr:      sdkAddr,
+		Duration:     durationpb.New(duration),
+	})
+
+	resp, err := s.debugService.AttachUprobe(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to attach uprobe: %w", err)
+	}
+
+	if !resp.Msg.Success {
+		return "", fmt.Errorf("failed to attach uprobe: %s", resp.Msg.Error)
+	}
+
+	return fmt.Sprintf("Debug session started for %s/%s\nSession ID: %s\nExpires At: %s",
+		input.Service, input.Function, resp.Msg.SessionId, resp.Msg.ExpiresAt.AsTime().Format(time.RFC3339)), nil
+}
+
+// executeTraceRequestPathTool executes the coral_trace_request_path tool.
+func (s *Server) executeTraceRequestPathTool(ctx context.Context, argumentsJSON string) (string, error) {
+	var input TraceRequestPathInput
+	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_trace_request_path", input)
+
+	// TODO: Call DebugService.TraceRequestPath
+	// Note: TraceRequestPath is not yet implemented in the orchestrator
+	return "", fmt.Errorf("coral_trace_request_path is not yet implemented")
+}
+
+// executeListDebugSessionsTool executes the coral_list_debug_sessions tool.
+func (s *Server) executeListDebugSessionsTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
+	var input ListDebugSessionsInput
+	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_list_debug_sessions", input)
+
+	status := ""
+	if input.Status != nil {
+		status = *input.Status
+	}
+
+	// Call DebugService.ListDebugSessions
+	req := connect.NewRequest(&debugpb.ListDebugSessionsRequest{
+		Status: status,
+	})
+
+	resp, err := s.debugService.ListDebugSessions(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to list debug sessions: %w", err)
+	}
+
+	if len(resp.Msg.Sessions) == 0 {
+		return "No active debug sessions found.", nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Found %d debug sessions:\n\n", len(resp.Msg.Sessions)))
+	for _, session := range resp.Msg.Sessions {
+		sb.WriteString(fmt.Sprintf("- Session ID: %s\n", session.SessionId))
+		sb.WriteString(fmt.Sprintf("  Service:    %s\n", session.ServiceName))
+		sb.WriteString(fmt.Sprintf("  Function:   %s\n", session.FunctionName))
+		sb.WriteString(fmt.Sprintf("  Agent ID:   %s\n", session.AgentId))
+		sb.WriteString(fmt.Sprintf("  Status:     %s\n", session.Status))
+		sb.WriteString(fmt.Sprintf("  Expires:    %s\n", session.ExpiresAt.AsTime().Format(time.RFC3339)))
+		sb.WriteString("\n")
+	}
+
+	return sb.String(), nil
+}
+
+// executeDetachUprobeTool executes the coral_detach_uprobe tool.
+func (s *Server) executeDetachUprobeTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
+	var input DetachUprobeInput
+	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_detach_uprobe", input)
+
+	// Call DebugService.DetachUprobe
+	req := connect.NewRequest(&debugpb.DetachUprobeRequest{
+		SessionId: input.SessionID,
+	})
+
+	resp, err := s.debugService.DetachUprobe(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to detach uprobe: %w", err)
+	}
+
+	if !resp.Msg.Success {
+		return "", fmt.Errorf("failed to detach uprobe: %s", resp.Msg.Error)
+	}
+
+	return fmt.Sprintf("Session %s detached successfully.", input.SessionID), nil
+}
+
+// executeGetDebugResultsTool executes the coral_get_debug_results tool.
+func (s *Server) executeGetDebugResultsTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
+	var input GetDebugResultsInput
+	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_get_debug_results", input)
+
+	// Call DebugService.QueryUprobeEvents (used for getting results)
+	req := connect.NewRequest(&debugpb.QueryUprobeEventsRequest{
+		SessionId: input.SessionID,
+	})
+
+	resp, err := s.debugService.QueryUprobeEvents(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to get debug results: %w", err)
+	}
+
+	// Format results
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Debug Results for Session %s:\n\n", input.SessionID))
+	sb.WriteString(fmt.Sprintf("Total Events: %d\n", len(resp.Msg.Events)))
+
+	if len(resp.Msg.Events) > 0 {
+		sb.WriteString("\nRecent Events:\n")
+		for i, event := range resp.Msg.Events {
+			if i >= 10 {
+				sb.WriteString(fmt.Sprintf("... and %d more events\n", len(resp.Msg.Events)-10))
+				break
+			}
+			durationNS, clamped := safe.Uint64ToInt64(event.DurationNs)
+			if clamped {
+				s.logger.Warn().
+					Uint64("durationNS", event.DurationNs).
+					Msg("Event duration NS exceeds int64 max, clamped to max value")
+			}
+
+			duration := time.Duration(durationNS) * time.Nanosecond
+			sb.WriteString(fmt.Sprintf("- [%s] Duration: %s\n",
+				event.Timestamp.AsTime().Format(time.RFC3339),
+				duration.String()))
+		}
+	}
+
+	return sb.String(), nil
+}
+
+// executeDiscoverFunctionsTool executes the coral_discover_functions tool (RFD 069).
+func (s *Server) executeDiscoverFunctionsTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
+	var input DiscoverFunctionsInput
+	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_discover_functions", input)
+
+	// Set defaults
+	maxResults := int32(20)
+	if input.MaxResults != nil {
+		maxResults = *input.MaxResults
+	}
+	includeMetrics := true
+	if input.IncludeMetrics != nil {
+		includeMetrics = *input.IncludeMetrics
+	}
+	prioritizeSlow := false
+	if input.PrioritizeSlow != nil {
+		prioritizeSlow = *input.PrioritizeSlow
+	}
+	serviceName := ""
+	if input.Service != nil {
+		serviceName = *input.Service
+	}
+
+	// Call DebugService.QueryFunctions
+	req := connect.NewRequest(&debugpb.QueryFunctionsRequest{
+		ServiceName:    serviceName,
+		Query:          input.Query,
+		MaxResults:     maxResults,
+		IncludeMetrics: includeMetrics,
+		PrioritizeSlow: prioritizeSlow,
+	})
+
+	resp, err := s.debugService.QueryFunctions(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to query functions: %w", err)
+	}
+
+	// Format response
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Found %d function(s) matching '%s'", len(resp.Msg.Results), input.Query))
+	if serviceName != "" {
+		sb.WriteString(fmt.Sprintf(" in service '%s'", serviceName))
+	}
+	sb.WriteString(fmt.Sprintf("\nData coverage: %d%%\n\n", resp.Msg.DataCoveragePct))
+
+	for i, result := range resp.Msg.Results {
+		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, result.Function.Name))
+		if result.Function.Package != "" {
+			sb.WriteString(fmt.Sprintf("   Package: %s\n", result.Function.Package))
+		}
+		if result.Function.File != "" {
+			sb.WriteString(fmt.Sprintf("   Location: %s:%d\n", result.Function.File, result.Function.Line))
+		}
+		if result.Search != nil {
+			sb.WriteString(fmt.Sprintf("   Relevance: %.2f - %s\n", result.Search.Score, result.Search.Reason))
+		}
+		if result.Instrumentation != nil {
+			sb.WriteString(fmt.Sprintf("   Probeable: %v, Has DWARF: %v\n",
+				result.Instrumentation.IsProbeable, result.Instrumentation.HasDwarf))
+		}
+		if result.Metrics != nil {
+			sb.WriteString(fmt.Sprintf("   Metrics [%s]:\n", result.Metrics.Source))
+			if result.Metrics.P95 != nil {
+				sb.WriteString(fmt.Sprintf("     P95: %s\n", result.Metrics.P95.AsDuration().String()))
+			}
+			if result.Metrics.CallsPerMin > 0 {
+				sb.WriteString(fmt.Sprintf("     Calls/min: %.1f\n", result.Metrics.CallsPerMin))
+			}
+		}
+		if result.Suggestion != "" {
+			sb.WriteString(fmt.Sprintf("   → %s\n", result.Suggestion))
+		}
+		sb.WriteString("\n")
+	}
+
+	if resp.Msg.Suggestion != "" {
+		sb.WriteString(fmt.Sprintf("💡 %s\n", resp.Msg.Suggestion))
+	}
+
+	return sb.String(), nil
+}
+
+// executeProfileFunctionsTool executes the coral_profile_functions tool (RFD 069).
+func (s *Server) executeProfileFunctionsTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
+	var input ProfileFunctionsInput
+	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_profile_functions", input)
+
+	// Set defaults
+	strategy := "critical_path"
+	if input.Strategy != nil {
+		strategy = *input.Strategy
+	}
+	maxFunctions := int32(20)
+	if input.MaxFunctions != nil {
+		maxFunctions = *input.MaxFunctions
+	}
+	async := false
+	if input.Async != nil {
+		async = *input.Async
+	}
+	sampleRate := 1.0
+	if input.SampleRate != nil {
+		sampleRate = *input.SampleRate
+	}
+
+	// Parse duration
+	duration := time.Duration(60 * time.Second)
+	if input.Duration != nil {
+		d, err := time.ParseDuration(*input.Duration)
+		if err != nil {
+			return "", fmt.Errorf("invalid duration format: %w", err)
+		}
+		duration = d
+	}
+
+	// Call DebugService.ProfileFunctions
+	req := connect.NewRequest(&debugpb.ProfileFunctionsRequest{
+		ServiceName:  input.Service,
+		Query:        input.Query,
+		Strategy:     strategy,
+		MaxFunctions: maxFunctions,
+		Duration:     durationpb.New(duration),
+		Async:        async,
+		SampleRate:   sampleRate,
+	})
+
+	resp, err := s.debugService.ProfileFunctions(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to profile functions: %w", err)
+	}
+
+	// Format response
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Profiling Session: %s\n", resp.Msg.SessionId))
+	sb.WriteString(fmt.Sprintf("Status: %s\n\n", resp.Msg.Status))
+
+	if resp.Msg.Summary != nil {
+		sb.WriteString("Summary:\n")
+		sb.WriteString(fmt.Sprintf("  Functions Selected: %d\n", resp.Msg.Summary.FunctionsSelected))
+		sb.WriteString(fmt.Sprintf("  Functions Probed:   %d\n", resp.Msg.Summary.FunctionsProbed))
+		if resp.Msg.Summary.ProbesFailed > 0 {
+			sb.WriteString(fmt.Sprintf("  Probes Failed:      %d\n", resp.Msg.Summary.ProbesFailed))
+		}
+		if resp.Msg.Summary.Duration != nil {
+			sb.WriteString(fmt.Sprintf("  Duration:           %s\n", resp.Msg.Summary.Duration.AsDuration().String()))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(resp.Msg.Bottlenecks) > 0 {
+		sb.WriteString("🔥 Bottlenecks Identified:\n\n")
+		for i, b := range resp.Msg.Bottlenecks {
+			sb.WriteString(fmt.Sprintf("%d. %s [%s]\n", i+1, b.Function, b.Severity))
+			sb.WriteString(fmt.Sprintf("   P95: %s (%d%% contribution)\n",
+				b.P95.AsDuration().String(), b.ContributionPct))
+			sb.WriteString(fmt.Sprintf("   Impact: %s\n", b.Impact))
+			sb.WriteString(fmt.Sprintf("   → %s\n\n", b.Recommendation))
+		}
+	}
+
+	if resp.Msg.Recommendation != "" {
+		sb.WriteString(fmt.Sprintf("💡 Recommendation: %s\n\n", resp.Msg.Recommendation))
+	}
+
+	if len(resp.Msg.NextSteps) > 0 {
+		sb.WriteString("Next Steps:\n")
+		for _, step := range resp.Msg.NextSteps {
+			sb.WriteString(fmt.Sprintf("  • %s\n", step))
+		}
+	}
+
+	return sb.String(), nil
+}
 
 // registerShellExecTool registers the coral_shell_exec tool (RFD 045).
 func (s *Server) registerShellExecTool() {
@@ -94,6 +482,10 @@ func (s *Server) registerAttachUprobeTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input AttachUprobeInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -218,6 +610,10 @@ func (s *Server) registerListDebugSessionsTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input ListDebugSessionsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -291,6 +687,10 @@ func (s *Server) registerDetachUprobeTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input DetachUprobeInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -347,6 +747,10 @@ func (s *Server) registerGetDebugResultsTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input GetDebugResultsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -419,6 +823,10 @@ func (s *Server) registerDiscoverFunctionsTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input DiscoverFunctionsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -535,6 +943,10 @@ func (s *Server) registerProfileFunctionsTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input ProfileFunctionsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
