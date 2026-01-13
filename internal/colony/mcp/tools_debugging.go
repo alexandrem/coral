@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // executeAttachUprobeTool executes the coral_attach_uprobe tool.
@@ -194,8 +195,14 @@ func (s *Server) executeGetDebugResultsTool(ctx context.Context, argumentsJSON s
 				sb.WriteString(fmt.Sprintf("... and %d more events\n", len(resp.Msg.Events)-10))
 				break
 			}
+			durationNS, clamped := safe.Uint64ToInt64(event.DurationNs)
+			if clamped {
+				s.logger.Warn().
+					Uint64("durationNS", event.DurationNs).
+					Msg("Event duration NS exceeds int64 max, clamped to max value")
+			}
 
-			duration := time.Duration(event.DurationNs) * time.Nanosecond
+			duration := time.Duration(durationNS) * time.Nanosecond
 			sb.WriteString(fmt.Sprintf("- [%s] Duration: %s\n",
 				event.Timestamp.AsTime().Format(time.RFC3339),
 				duration.String()))
