@@ -164,48 +164,76 @@ func (s *Server) registerUnifiedSummaryTool() {
 
 			s.auditToolCall("coral_query_summary", input)
 
-			timeRangeStr := "5m"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
-			}
-			startTime, endTime, err := parseTimeRange(timeRangeStr)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("invalid time_range: %v", err)), nil
-			}
-
-			serviceName := ""
-			if input.Service != nil {
-				serviceName = *input.Service
-			}
-
-			ebpfService := colony.NewEbpfQueryService(s.db)
-			results, err := ebpfService.QueryUnifiedSummary(ctx, serviceName, startTime, endTime)
+			text, err := s.generateSummaryOutput(ctx, input)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to query summary: %v", err)), nil
 			}
 
-			// Format results as text for LLM consumption
-			text := "Service Health Summary:\n\n"
-			for _, r := range results {
-				statusIcon := "✅"
-				switch r.Status {
-				case colony.ServiceStatusDegraded:
-					statusIcon = "⚠️"
-				case colony.ServiceStatusCritical:
-					statusIcon = "❌"
-				case colony.ServiceStatusIdle:
-					statusIcon = "💤"
-				}
-
-				text += fmt.Sprintf("%s %s (%s)\n", statusIcon, r.ServiceName, r.Source)
-				text += fmt.Sprintf("   Status: %s\n", r.Status)
-				text += fmt.Sprintf("   Requests: %d\n", r.RequestCount)
-				text += fmt.Sprintf("   Error Rate: %.2f%%\n", r.ErrorRate)
-				text += fmt.Sprintf("   Avg Latency: %.2fms\n\n", r.AvgLatencyMs)
-			}
-
 			return mcp.NewToolResultText(text), nil
 		})
+}
+
+// generateSummaryOutput generates the text output for query_summary.
+func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummaryInput) (string, error) {
+	timeRangeStr := "5m"
+	if input.TimeRange != nil {
+		timeRangeStr = *input.TimeRange
+	}
+	startTime, endTime, err := parseTimeRange(timeRangeStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid time_range: %w", err)
+	}
+
+	serviceName := ""
+	if input.Service != nil {
+		serviceName = *input.Service
+	}
+
+	ebpfService := colony.NewEbpfQueryService(s.db)
+	results, err := ebpfService.QueryUnifiedSummary(ctx, serviceName, startTime, endTime)
+	if err != nil {
+		return "", fmt.Errorf("failed to query summary: %w", err)
+	}
+
+	// Format results as text for LLM consumption
+	text := "Service Health Summary:\n\n"
+	for _, r := range results {
+		statusIcon := "✅"
+		switch r.Status {
+		case colony.ServiceStatusDegraded:
+			statusIcon = "⚠️"
+		case colony.ServiceStatusCritical:
+			statusIcon = "❌"
+		case colony.ServiceStatusIdle:
+			statusIcon = "💤"
+		}
+
+		text += fmt.Sprintf("%s %s (%s)\n", statusIcon, r.ServiceName, r.Source)
+		text += fmt.Sprintf("   Status: %s\n", r.Status)
+		text += fmt.Sprintf("   Requests: %d\n", r.RequestCount)
+		text += fmt.Sprintf("   Error Rate: %.2f%%\n", r.ErrorRate)
+		text += fmt.Sprintf("   Avg Latency: %.2fms\n", r.AvgLatencyMs)
+
+		// Display host resources if available (RFD 071)
+		if r.HostCPUUtilization > 0 || r.HostMemoryUtilization > 0 {
+			text += "   Host Resources:\n"
+			if r.HostCPUUtilization > 0 {
+				text += fmt.Sprintf("     CPU: %.0f%% (avg: %.0f%%)\n",
+					r.HostCPUUtilization,
+					r.HostCPUUtilizationAvg)
+			}
+			if r.HostMemoryUtilization > 0 {
+				text += fmt.Sprintf("     Memory: %.1fGB/%.1fGB (%.0f%%)\n",
+					r.HostMemoryUsageGB,
+					r.HostMemoryLimitGB,
+					r.HostMemoryUtilization)
+			}
+		}
+
+		text += "\n"
+	}
+
+	return text, nil
 }
 
 // registerUnifiedTracesTool registers the coral_query_traces tool.
@@ -228,65 +256,75 @@ func (s *Server) registerUnifiedTracesTool() {
 
 			s.auditToolCall("coral_query_traces", input)
 
-			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
-			}
-			startTime, endTime, err := parseTimeRange(timeRangeStr)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("invalid time_range: %v", err)), nil
-			}
-
-			serviceName := ""
-			if input.Service != nil {
-				serviceName = *input.Service
-			}
-
-			traceID := ""
-			if input.TraceID != nil {
-				traceID = *input.TraceID
-			}
-
-			ebpfService := colony.NewEbpfQueryService(s.db)
-			spans, err := ebpfService.QueryUnifiedTraces(ctx, traceID, serviceName, startTime, endTime, 0, 10)
+			text, err := s.generateTracesOutput(ctx, input)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to query traces: %v", err)), nil
 			}
 
-			// Count unique traces
-			traceGroups := make(map[string][]*agentv1.EbpfTraceSpan)
-			for _, span := range spans {
-				traceGroups[span.TraceId] = append(traceGroups[span.TraceId], span)
-			}
-
-			// Format results as text for LLM consumption
-			text := fmt.Sprintf("Found %d spans across %d traces:\n\n", len(spans), len(traceGroups))
-
-			for traceID, traceSpans := range traceGroups {
-				text += fmt.Sprintf("Trace: %s (%d spans)\n", traceID, len(traceSpans))
-				for _, span := range traceSpans {
-					durationMs := float64(span.DurationUs) / 1000.0
-					sourceIcon := "📍" // Default eBPF
-					if span.ServiceName != "" && len(span.ServiceName) > 6 {
-						if span.ServiceName[len(span.ServiceName)-6:] == "[OTLP]" {
-							sourceIcon = "📊" // OTLP data
-						}
-					}
-
-					text += fmt.Sprintf("  %s %s: %s (%.2fms)\n",
-						sourceIcon, span.ServiceName, span.SpanName, durationMs)
-
-					// Show OTLP attributes if present
-					if source, ok := span.Attributes["source"]; ok && source == "OTLP" {
-						text += fmt.Sprintf("     Aggregated: %s spans, %s errors\n",
-							span.Attributes["total_spans"], span.Attributes["error_count"])
-					}
-				}
-				text += "\n"
-			}
-
 			return mcp.NewToolResultText(text), nil
 		})
+}
+
+// generateTracesOutput generates the text output for query_traces.
+func (s *Server) generateTracesOutput(ctx context.Context, input UnifiedTracesInput) (string, error) {
+	timeRangeStr := "1h"
+	if input.TimeRange != nil {
+		timeRangeStr = *input.TimeRange
+	}
+	startTime, endTime, err := parseTimeRange(timeRangeStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid time_range: %w", err)
+	}
+
+	serviceName := ""
+	if input.Service != nil {
+		serviceName = *input.Service
+	}
+
+	traceID := ""
+	if input.TraceID != nil {
+		traceID = *input.TraceID
+	}
+
+	ebpfService := colony.NewEbpfQueryService(s.db)
+	spans, err := ebpfService.QueryUnifiedTraces(ctx, traceID, serviceName, startTime, endTime, 0, 10)
+	if err != nil {
+		return "", fmt.Errorf("failed to query traces: %w", err)
+	}
+
+	// Count unique traces
+	traceGroups := make(map[string][]*agentv1.EbpfTraceSpan)
+	for _, span := range spans {
+		traceGroups[span.TraceId] = append(traceGroups[span.TraceId], span)
+	}
+
+	// Format results as text for LLM consumption
+	text := fmt.Sprintf("Found %d spans across %d traces:\n\n", len(spans), len(traceGroups))
+
+	for traceID, traceSpans := range traceGroups {
+		text += fmt.Sprintf("Trace: %s (%d spans)\n", traceID, len(traceSpans))
+		for _, span := range traceSpans {
+			durationMs := float64(span.DurationUs) / 1000.0
+			sourceIcon := "📍" // Default eBPF
+			if span.ServiceName != "" && len(span.ServiceName) > 6 {
+				if span.ServiceName[len(span.ServiceName)-6:] == "[OTLP]" {
+					sourceIcon = "📊" // OTLP data
+				}
+			}
+
+			text += fmt.Sprintf("  %s %s: %s (%.2fms)\n",
+				sourceIcon, span.ServiceName, span.SpanName, durationMs)
+
+			// Show OTLP attributes if present
+			if source, ok := span.Attributes["source"]; ok && source == "OTLP" {
+				text += fmt.Sprintf("     Aggregated: %s spans, %s errors\n",
+					span.Attributes["total_spans"], span.Attributes["error_count"])
+			}
+		}
+		text += "\n"
+	}
+
+	return text, nil
 }
 
 // registerUnifiedMetricsTool registers the coral_query_metrics tool.
@@ -309,56 +347,66 @@ func (s *Server) registerUnifiedMetricsTool() {
 
 			s.auditToolCall("coral_query_metrics", input)
 
-			timeRangeStr := "1h"
-			if input.TimeRange != nil {
-				timeRangeStr = *input.TimeRange
-			}
-			startTime, endTime, err := parseTimeRange(timeRangeStr)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("invalid time_range: %v", err)), nil
-			}
-
-			serviceName := ""
-			if input.Service != nil {
-				serviceName = *input.Service
-			}
-
-			ebpfService := colony.NewEbpfQueryService(s.db)
-			metrics, err := ebpfService.QueryUnifiedMetrics(ctx, serviceName, startTime, endTime)
+			text, err := s.generateMetricsOutput(ctx, input)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to query metrics: %v", err)), nil
 			}
 
-			// Format results as text for LLM consumption
-			text := fmt.Sprintf("Metrics for %s:\n\n", serviceName)
-
-			if len(metrics.HttpMetrics) > 0 {
-				text += "HTTP Metrics:\n"
-				for _, m := range metrics.HttpMetrics {
-					text += fmt.Sprintf("  %s %s %s\n", m.HttpMethod, m.HttpRoute, m.ServiceName)
-					// Calculate percentiles from buckets if available
-					p50, p95, p99 := "-", "-", "-"
-					if len(m.LatencyBuckets) >= 3 {
-						p50 = fmt.Sprintf("%.2fms", m.LatencyBuckets[0])
-						p95 = fmt.Sprintf("%.2fms", m.LatencyBuckets[1])
-						p99 = fmt.Sprintf("%.2fms", m.LatencyBuckets[2])
-					}
-					text += fmt.Sprintf("    Requests: %d | P50: %s | P95: %s | P99: %s\n",
-						m.RequestCount, p50, p95, p99)
-				}
-				text += "\n"
-			}
-
-			if len(metrics.GrpcMetrics) > 0 {
-				text += fmt.Sprintf("gRPC Metrics: %d\n", len(metrics.GrpcMetrics))
-			}
-
-			if len(metrics.SqlMetrics) > 0 {
-				text += fmt.Sprintf("SQL Metrics: %d\n", len(metrics.SqlMetrics))
-			}
-
 			return mcp.NewToolResultText(text), nil
 		})
+}
+
+// generateMetricsOutput generates the text output for query_metrics.
+func (s *Server) generateMetricsOutput(ctx context.Context, input UnifiedMetricsInput) (string, error) {
+	timeRangeStr := "1h"
+	if input.TimeRange != nil {
+		timeRangeStr = *input.TimeRange
+	}
+	startTime, endTime, err := parseTimeRange(timeRangeStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid time_range: %w", err)
+	}
+
+	serviceName := ""
+	if input.Service != nil {
+		serviceName = *input.Service
+	}
+
+	ebpfService := colony.NewEbpfQueryService(s.db)
+	metrics, err := ebpfService.QueryUnifiedMetrics(ctx, serviceName, startTime, endTime)
+	if err != nil {
+		return "", fmt.Errorf("failed to query metrics: %w", err)
+	}
+
+	// Format results as text for LLM consumption
+	text := fmt.Sprintf("Metrics for %s:\n\n", serviceName)
+
+	if len(metrics.HttpMetrics) > 0 {
+		text += "HTTP Metrics:\n"
+		for _, m := range metrics.HttpMetrics {
+			text += fmt.Sprintf("  %s %s %s\n", m.HttpMethod, m.HttpRoute, m.ServiceName)
+			// Calculate percentiles from buckets if available
+			p50, p95, p99 := "-", "-", "-"
+			if len(m.LatencyBuckets) >= 3 {
+				p50 = fmt.Sprintf("%.2fms", m.LatencyBuckets[0])
+				p95 = fmt.Sprintf("%.2fms", m.LatencyBuckets[1])
+				p99 = fmt.Sprintf("%.2fms", m.LatencyBuckets[2])
+			}
+			text += fmt.Sprintf("    Requests: %d | P50: %s | P95: %s | P99: %s\n",
+				m.RequestCount, p50, p95, p99)
+		}
+		text += "\n"
+	}
+
+	if len(metrics.GrpcMetrics) > 0 {
+		text += fmt.Sprintf("gRPC Metrics: %d\n", len(metrics.GrpcMetrics))
+	}
+
+	if len(metrics.SqlMetrics) > 0 {
+		text += fmt.Sprintf("SQL Metrics: %d\n", len(metrics.SqlMetrics))
+	}
+
+	return text, nil
 }
 
 // registerUnifiedLogsTool registers the coral_query_logs tool.
@@ -396,33 +444,7 @@ func (s *Server) executeUnifiedSummaryTool(ctx context.Context, argsJSON string)
 	}
 
 	s.auditToolCall("coral_query_summary", input)
-
-	timeRangeStr := "5m"
-	if input.TimeRange != nil {
-		timeRangeStr = *input.TimeRange
-	}
-	startTime, endTime, err := parseTimeRange(timeRangeStr)
-	if err != nil {
-		return "", fmt.Errorf("invalid time_range: %w", err)
-	}
-
-	serviceName := ""
-	if input.Service != nil {
-		serviceName = *input.Service
-	}
-
-	ebpfService := colony.NewEbpfQueryService(s.db)
-	results, err := ebpfService.QueryUnifiedSummary(ctx, serviceName, startTime, endTime)
-	if err != nil {
-		return "", fmt.Errorf("failed to query summary: %w", err)
-	}
-
-	text := "Service Health Summary:\n\n"
-	for _, r := range results {
-		text += fmt.Sprintf("Service: %s, Status: %s\n", r.ServiceName, r.Status)
-	}
-
-	return text, nil
+	return s.generateSummaryOutput(ctx, input)
 }
 
 // executeUnifiedTracesTool executes the coral_query_traces tool.
@@ -433,34 +455,7 @@ func (s *Server) executeUnifiedTracesTool(ctx context.Context, argsJSON string) 
 	}
 
 	s.auditToolCall("coral_query_traces", input)
-
-	timeRangeStr := "1h"
-	if input.TimeRange != nil {
-		timeRangeStr = *input.TimeRange
-	}
-	startTime, endTime, err := parseTimeRange(timeRangeStr)
-	if err != nil {
-		return "", fmt.Errorf("invalid time_range: %w", err)
-	}
-
-	serviceName := ""
-	if input.Service != nil {
-		serviceName = *input.Service
-	}
-
-	traceID := ""
-	if input.TraceID != nil {
-		traceID = *input.TraceID
-	}
-
-	ebpfService := colony.NewEbpfQueryService(s.db)
-	spans, err := ebpfService.QueryUnifiedTraces(ctx, traceID, serviceName, startTime, endTime, 0, 10)
-	if err != nil {
-		return "", fmt.Errorf("failed to query traces: %w", err)
-	}
-
-	text := fmt.Sprintf("Found %d spans.\n", len(spans))
-	return text, nil
+	return s.generateTracesOutput(ctx, input)
 }
 
 // executeUnifiedMetricsTool executes the coral_query_metrics tool.
@@ -471,32 +466,7 @@ func (s *Server) executeUnifiedMetricsTool(ctx context.Context, argsJSON string)
 	}
 
 	s.auditToolCall("coral_query_metrics", input)
-
-	timeRangeStr := "1h"
-	if input.TimeRange != nil {
-		timeRangeStr = *input.TimeRange
-	}
-	startTime, endTime, err := parseTimeRange(timeRangeStr)
-	if err != nil {
-		return "", fmt.Errorf("invalid time_range: %w", err)
-	}
-
-	serviceName := ""
-	if input.Service != nil {
-		serviceName = *input.Service
-	}
-
-	ebpfService := colony.NewEbpfQueryService(s.db)
-	metrics, err := ebpfService.QueryUnifiedMetrics(ctx, serviceName, startTime, endTime)
-	if err != nil {
-		return "", fmt.Errorf("failed to query metrics: %w", err)
-	}
-
-	text := fmt.Sprintf("Metrics for %s:\n", serviceName)
-	if len(metrics.HttpMetrics) > 0 {
-		text += fmt.Sprintf("HTTP Metrics: %d\n", len(metrics.HttpMetrics))
-	}
-	return text, nil
+	return s.generateMetricsOutput(ctx, input)
 }
 
 // executeUnifiedLogsTool executes the coral_query_logs tool.
