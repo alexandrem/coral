@@ -36,6 +36,9 @@ func (s *MCPParitySuite) SetupSuite() {
 	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, colonyID, colonyEndpoint)
 	s.Require().NoError(err, "Failed to setup CLI environment")
 
+	// Ensure services are connected for testing
+	s.ensureServicesConnected()
+
 	s.T().Logf("MCP parity test environment ready: endpoint=%s, colonyID=%s", colonyEndpoint, colonyID)
 }
 
@@ -404,4 +407,13 @@ func allowFloatVariance(a, b, maxVariance float64) bool {
 // formatComparisonError formats a comparison error message.
 func formatComparisonError(field string, mcpValue, cliValue interface{}) string {
 	return fmt.Sprintf("Mismatch in %s: MCP=%v, CLI=%v", field, mcpValue, cliValue)
+}
+
+// ensureServicesConnected ensures that test services are connected.
+// This uses the shared helper for idempotent service connection.
+func (s *MCPParitySuite) ensureServicesConnected() {
+	// MCP tests only need otel-app (OTLP-instrumented)
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
+		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+	})
 }
