@@ -157,7 +157,7 @@ func (s *MCPParitySuite) TestParityListServices() {
 
 	cliServiceNames := make(map[string]bool)
 	for _, svc := range cliServices {
-		if name, ok := svc["name"].(string); ok {
+		if name, ok := svc["service_name"].(string); ok {
 			cliServiceNames[name] = true
 		}
 	}

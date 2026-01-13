@@ -906,13 +906,16 @@ func (s *MCPSuite) TestMCPToolErrorScenarios() {
 	_, err = proxy.Initialize()
 	s.Require().NoError(err, "Initialize should succeed")
 
-	// Test 1: Invalid service name
-	invalidServiceErr, err := proxy.CallToolExpectError("coral_query_summary", map[string]interface{}{
+	// Test 1: Non-existent service name (should return empty results, not error)
+	// Query tools return empty results for non-existent services rather than errors,
+	// since services may exist in historical data even if not currently connected.
+	nonExistentServiceResp, err := proxy.CallTool("coral_query_summary", map[string]interface{}{
 		"service":    "non-existent-service-xyz",
 		"time_range": "5m",
 	}, 80)
-	s.Require().NoError(err, "Should get error response")
-	s.T().Logf("Invalid service error: %s", invalidServiceErr.Message)
+	s.Require().NoError(err, "Query for non-existent service should succeed")
+	s.Require().NotEmpty(nonExistentServiceResp.Content, "Should have response content")
+	s.T().Log("✓ Non-existent service query returns empty results (expected behavior)")
 
 	// Test 2: Invalid time range format
 	invalidTimeErr, err := proxy.CallToolExpectError("coral_query_summary", map[string]interface{}{

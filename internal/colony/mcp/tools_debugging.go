@@ -16,6 +16,10 @@ import (
 
 // executeAttachUprobeTool executes the coral_attach_uprobe tool.
 func (s *Server) executeAttachUprobeTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
 	var input AttachUprobeInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
@@ -80,6 +84,10 @@ func (s *Server) executeTraceRequestPathTool(ctx context.Context, argumentsJSON 
 
 // executeListDebugSessionsTool executes the coral_list_debug_sessions tool.
 func (s *Server) executeListDebugSessionsTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
 	var input ListDebugSessionsInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
@@ -123,6 +131,10 @@ func (s *Server) executeListDebugSessionsTool(ctx context.Context, argumentsJSON
 
 // executeDetachUprobeTool executes the coral_detach_uprobe tool.
 func (s *Server) executeDetachUprobeTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
 	var input DetachUprobeInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
@@ -149,6 +161,10 @@ func (s *Server) executeDetachUprobeTool(ctx context.Context, argumentsJSON stri
 
 // executeGetDebugResultsTool executes the coral_get_debug_results tool.
 func (s *Server) executeGetDebugResultsTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
 	var input GetDebugResultsInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
@@ -191,6 +207,10 @@ func (s *Server) executeGetDebugResultsTool(ctx context.Context, argumentsJSON s
 
 // executeDiscoverFunctionsTool executes the coral_discover_functions tool (RFD 069).
 func (s *Server) executeDiscoverFunctionsTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
 	var input DiscoverFunctionsInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
@@ -277,6 +297,10 @@ func (s *Server) executeDiscoverFunctionsTool(ctx context.Context, argumentsJSON
 
 // executeProfileFunctionsTool executes the coral_profile_functions tool (RFD 069).
 func (s *Server) executeProfileFunctionsTool(ctx context.Context, argumentsJSON string) (string, error) {
+	if s.debugService == nil {
+		return "", fmt.Errorf("debug service not available")
+	}
+
 	var input ProfileFunctionsInput
 	if err := json.Unmarshal([]byte(argumentsJSON), &input); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
@@ -451,6 +475,10 @@ func (s *Server) registerAttachUprobeTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input AttachUprobeInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -575,6 +603,10 @@ func (s *Server) registerListDebugSessionsTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input ListDebugSessionsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -648,6 +680,10 @@ func (s *Server) registerDetachUprobeTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input DetachUprobeInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -704,6 +740,10 @@ func (s *Server) registerGetDebugResultsTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input GetDebugResultsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -776,6 +816,10 @@ func (s *Server) registerDiscoverFunctionsTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input DiscoverFunctionsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
@@ -892,6 +936,10 @@ func (s *Server) registerProfileFunctionsTool() {
 	)
 
 	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if s.debugService == nil {
+			return mcp.NewToolResultError("debug service not available"), nil
+		}
+
 		var input ProfileFunctionsInput
 		if request.Params.Arguments != nil {
 			argBytes, err := json.Marshal(request.Params.Arguments)
