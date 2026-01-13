@@ -158,7 +158,7 @@ func QuerySummary(ctx context.Context, colonyEndpoint, service, timeRange string
 	args := []string{"query", "summary"}
 
 	if service != "" {
-		args = append(args, "--service", service)
+		args = append(args, service)
 	}
 
 	if timeRange != "" {

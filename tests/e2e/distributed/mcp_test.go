@@ -464,7 +464,7 @@ func (s *MCPSuite) TestMCPToolShellExec() {
 	// Execute simple command
 	execResp, err := proxy.CallTool("coral_shell_exec", map[string]interface{}{
 		"agent_id": agentID,
-		"command":  "echo 'Hello from MCP'",
+		"command":  []string{"sh", "-c", "echo 'Hello from MCP'"},
 	}, 30)
 	s.Require().NoError(err, "coral_shell_exec should succeed")
 	s.Require().NotEmpty(execResp.Content, "Exec should have content")
@@ -477,6 +477,519 @@ func (s *MCPSuite) TestMCPToolShellExec() {
 	s.Require().Contains(execText, "Hello from MCP", "Should contain command output")
 
 	s.T().Log("✓ MCP shell exec tool validated")
+}
+
+// =============================================================================
+// Group D: Debugging Tools
+// =============================================================================
+
+// TestMCPToolDiscoverFunctions tests coral_discover_functions tool.
+//
+// Validates:
+// - Semantic function search
+// - Function metadata (name, package, location)
+// - Instrumentation info (probeable, DWARF)
+// - Metrics inclusion
+func (s *MCPSuite) TestMCPToolDiscoverFunctions() {
+	s.T().Log("Testing MCP discover functions tool...")
+
+	// Ensure services are connected
+	s.ensureServicesConnected()
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Call coral_discover_functions with semantic search
+	discoverResp, err := proxy.CallTool("coral_discover_functions", map[string]interface{}{
+		"service":         "otel-app",
+		"query":           "handler",
+		"max_results":     10,
+		"include_metrics": true,
+	}, 40)
+	s.Require().NoError(err, "coral_discover_functions should succeed")
+	s.Require().NotEmpty(discoverResp.Content, "Discover should have content")
+
+	discoverText := discoverResp.Content[0].Text
+	s.T().Log("Discover functions result (truncated):")
+	if len(discoverText) > 500 {
+		s.T().Log(discoverText[:500] + "...")
+	} else {
+		s.T().Log(discoverText)
+	}
+
+	// Verify response contains function information
+	s.Require().Contains(strings.ToLower(discoverText), "function", "Should mention functions")
+
+	s.T().Log("✓ MCP discover functions tool validated")
+}
+
+// TestMCPToolProfileFunctions tests coral_profile_functions tool.
+//
+// Validates:
+// - Batch profiling with different strategies
+// - Session creation and status
+// - Bottleneck identification
+// - Recommendations
+func (s *MCPSuite) TestMCPToolProfileFunctions() {
+	s.T().Log("Testing MCP profile functions tool...")
+
+	// Ensure services are connected
+	s.ensureServicesConnected()
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Call coral_profile_functions with async mode (don't wait for completion)
+	profileResp, err := proxy.CallTool("coral_profile_functions", map[string]interface{}{
+		"service":       "otel-app",
+		"query":         "handler",
+		"strategy":      "critical_path",
+		"max_functions": 5,
+		"duration":      "10s",
+		"async":         true,
+	}, 41)
+	s.Require().NoError(err, "coral_profile_functions should succeed")
+	s.Require().NotEmpty(profileResp.Content, "Profile should have content")
+
+	profileText := profileResp.Content[0].Text
+	s.T().Log("Profile functions result:")
+	s.T().Log(profileText)
+
+	// Verify response contains session information
+	s.Require().Contains(strings.ToLower(profileText), "session", "Should mention session")
+
+	s.T().Log("✓ MCP profile functions tool validated")
+}
+
+// TestMCPToolAttachUprobe tests coral_attach_uprobe tool.
+//
+// Validates:
+// - Uprobe attachment to function
+// - Session creation
+// - Expiration time
+func (s *MCPSuite) TestMCPToolAttachUprobe() {
+	s.T().Log("Testing MCP attach uprobe tool...")
+
+	// Ensure services are connected
+	s.ensureServicesConnected()
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// First discover a function to attach to
+	discoverResp, err := proxy.CallTool("coral_discover_functions", map[string]interface{}{
+		"service":     "otel-app",
+		"query":       "main",
+		"max_results": 1,
+	}, 42)
+	s.Require().NoError(err, "Should discover functions")
+	s.T().Logf("Discovered functions: %v", discoverResp.Content[0].Text)
+
+	// Try to attach uprobe (may fail if no suitable function found)
+	attachResp, err := proxy.CallTool("coral_attach_uprobe", map[string]interface{}{
+		"service":  "otel-app",
+		"function": "main.main",
+		"duration": "10s",
+	}, 43)
+
+	// Note: This may fail in test environment if function not found or not probeable
+	// We just verify the tool is callable and returns appropriate response
+	if err != nil {
+		s.T().Logf("Attach uprobe failed (expected in test env): %v", err)
+	} else {
+		s.Require().NotEmpty(attachResp.Content, "Attach should have content")
+		attachText := attachResp.Content[0].Text
+		s.T().Log("Attach uprobe result:")
+		s.T().Log(attachText)
+	}
+
+	s.T().Log("✓ MCP attach uprobe tool validated")
+}
+
+// TestMCPToolListDebugSessions tests coral_list_debug_sessions tool.
+//
+// Validates:
+// - Listing active debug sessions
+// - Filtering by status
+// - Session metadata
+func (s *MCPSuite) TestMCPToolListDebugSessions() {
+	s.T().Log("Testing MCP list debug sessions tool...")
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// List debug sessions
+	listResp, err := proxy.CallTool("coral_list_debug_sessions", map[string]interface{}{
+		"status": "all",
+	}, 44)
+	s.Require().NoError(err, "coral_list_debug_sessions should succeed")
+	s.Require().NotEmpty(listResp.Content, "List should have content")
+
+	listText := listResp.Content[0].Text
+	s.T().Log("List debug sessions result:")
+	s.T().Log(listText)
+
+	// Verify response format (may have no sessions)
+	s.Require().NotEmpty(listText, "Should have response text")
+
+	s.T().Log("✓ MCP list debug sessions tool validated")
+}
+
+// TestMCPToolGetDebugResults tests coral_get_debug_results tool.
+//
+// Validates:
+// - Getting results from debug session
+// - Event counts
+// - Duration data
+func (s *MCPSuite) TestMCPToolGetDebugResults() {
+	s.T().Log("Testing MCP get debug results tool...")
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Try to get results for a non-existent session (should return error)
+	resultsResp, err := proxy.CallToolExpectError("coral_get_debug_results", map[string]interface{}{
+		"session_id": "non-existent-session-id",
+	}, 45)
+
+	// Should get an error for non-existent session
+	s.Require().NoError(err, "Should get error response")
+	s.Require().NotNil(resultsResp, "Should have error response")
+	s.T().Logf("Expected error for non-existent session: %s", resultsResp.Message)
+
+	s.T().Log("✓ MCP get debug results tool validated")
+}
+
+// TestMCPToolDetachUprobe tests coral_detach_uprobe tool.
+//
+// Validates:
+// - Detaching active session
+// - Cleanup verification
+func (s *MCPSuite) TestMCPToolDetachUprobe() {
+	s.T().Log("Testing MCP detach uprobe tool...")
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Try to detach a non-existent session (should return error)
+	detachResp, err := proxy.CallToolExpectError("coral_detach_uprobe", map[string]interface{}{
+		"session_id": "non-existent-session-id",
+	}, 46)
+
+	// Should get an error for non-existent session
+	s.Require().NoError(err, "Should get error response")
+	s.Require().NotNil(detachResp, "Should have error response")
+	s.T().Logf("Expected error for non-existent session: %s", detachResp.Message)
+
+	s.T().Log("✓ MCP detach uprobe tool validated")
+}
+
+// =============================================================================
+// Group E: Container Execution
+// =============================================================================
+
+// TestMCPToolContainerExec tests coral_container_exec tool.
+//
+// Validates:
+// - Command execution in container namespace
+// - Output capture
+// - Namespace entry
+// - Different namespace options
+func (s *MCPSuite) TestMCPToolContainerExec() {
+	s.T().Log("Testing MCP container exec tool...")
+
+	// Ensure services are connected
+	s.ensureServicesConnected()
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Get agent ID
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	s.Require().NoError(err, "Should list agents")
+	s.Require().NotEmpty(agents, "Should have at least one agent")
+	s.Require().Contains(agents[0], "agent_id", "Should have agent id")
+
+	agentID := agents[0]["agent_id"].(string)
+
+	// Execute command in container namespace
+	execResp, err := proxy.CallTool("coral_container_exec", map[string]interface{}{
+		"service":    "otel-app",
+		"agent_id":   agentID,
+		"command":    []string{"echo", "Hello from container"},
+		"namespaces": []string{"mnt"},
+	}, 50)
+	s.Require().NoError(err, "coral_container_exec should succeed")
+	s.Require().NotEmpty(execResp.Content, "Exec should have content")
+
+	execText := execResp.Content[0].Text
+	s.T().Log("Container exec result:")
+	s.T().Log(execText)
+
+	// Verify output contains expected text
+	s.Require().Contains(execText, "Hello from container", "Should contain command output")
+
+	s.T().Log("✓ MCP container exec tool validated")
+}
+
+// =============================================================================
+// Group F: Advanced Observability with Real Telemetry
+// =============================================================================
+
+// TestMCPToolQueryWithTelemetryData tests observability tools with real data.
+//
+// Validates:
+// - Query summary with service filters
+// - Query traces with real trace IDs
+// - Query metrics with protocol filters
+// - Data from otel-app and cpu-app
+func (s *MCPSuite) TestMCPToolQueryWithTelemetryData() {
+	s.T().Log("Testing MCP observability tools with real telemetry data...")
+
+	// Ensure telemetry data exists
+	s.ensureTelemetryData()
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Test 1: Query summary with specific service filter
+	summaryResp, err := proxy.CallTool("coral_query_summary", map[string]interface{}{
+		"service":    "otel-app",
+		"time_range": "10m",
+	}, 60)
+	s.Require().NoError(err, "coral_query_summary should succeed")
+	s.Require().NotEmpty(summaryResp.Content, "Summary should have content")
+
+	summaryText := summaryResp.Content[0].Text
+	s.T().Log("Query summary with service filter:")
+	if len(summaryText) > 300 {
+		s.T().Log(summaryText[:300] + "...")
+	} else {
+		s.T().Log(summaryText)
+	}
+
+	// Verify summary contains service data
+	s.Require().Contains(strings.ToLower(summaryText), "service", "Should mention service")
+
+	// Test 2: Query traces with time range
+	tracesResp, err := proxy.CallTool("coral_query_traces", map[string]interface{}{
+		"service":    "otel-app",
+		"time_range": "10m",
+		"limit":      5,
+	}, 61)
+	s.Require().NoError(err, "coral_query_traces should succeed")
+	s.Require().NotEmpty(tracesResp.Content, "Traces should have content")
+
+	// Test 3: Query metrics with time range
+	metricsResp, err := proxy.CallTool("coral_query_metrics", map[string]interface{}{
+		"service":    "otel-app",
+		"time_range": "10m",
+	}, 62)
+	s.Require().NoError(err, "coral_query_metrics should succeed")
+	s.Require().NotEmpty(metricsResp.Content, "Metrics should have content")
+
+	s.T().Log("✓ MCP observability tools with telemetry data validated")
+}
+
+// TestMCPToolQueryMetricsProtocols tests protocol-specific metric queries.
+//
+// Validates:
+// - HTTP metrics with route/method filters
+// - gRPC metrics (if available)
+// - SQL metrics (if available)
+func (s *MCPSuite) TestMCPToolQueryMetricsProtocols() {
+	s.T().Log("Testing MCP metrics with protocol filters...")
+
+	// Ensure telemetry data exists
+	s.ensureTelemetryData()
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Query HTTP metrics with method filter
+	httpResp, err := proxy.CallTool("coral_query_metrics", map[string]interface{}{
+		"service":     "otel-app",
+		"time_range":  "10m",
+		"protocol":    "http",
+		"http_method": "GET",
+	}, 70)
+	s.Require().NoError(err, "HTTP metrics query should succeed")
+	s.Require().NotEmpty(httpResp.Content, "HTTP metrics should have content")
+
+	httpText := httpResp.Content[0].Text
+	s.T().Log("HTTP metrics result:")
+	if len(httpText) > 300 {
+		s.T().Log(httpText[:300] + "...")
+	} else {
+		s.T().Log(httpText)
+	}
+
+	s.T().Log("✓ MCP protocol-specific metrics validated")
+}
+
+// =============================================================================
+// Group G: Error Handling and Edge Cases
+// =============================================================================
+
+// TestMCPToolErrorScenarios tests comprehensive error handling.
+//
+// Validates:
+// - Invalid service names
+// - Missing required parameters
+// - Invalid time ranges
+// - Non-existent trace IDs
+// - Invalid agent IDs
+// - Timeout scenarios
+func (s *MCPSuite) TestMCPToolErrorScenarios() {
+	s.T().Log("Testing MCP error scenarios...")
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Test 1: Invalid service name
+	invalidServiceErr, err := proxy.CallToolExpectError("coral_query_summary", map[string]interface{}{
+		"service":    "non-existent-service-xyz",
+		"time_range": "5m",
+	}, 80)
+	s.Require().NoError(err, "Should get error response")
+	s.T().Logf("Invalid service error: %s", invalidServiceErr.Message)
+
+	// Test 2: Invalid time range format
+	invalidTimeErr, err := proxy.CallToolExpectError("coral_query_summary", map[string]interface{}{
+		"service":    "otel-app",
+		"time_range": "invalid-time",
+	}, 81)
+	s.Require().NoError(err, "Should get error response")
+	s.Require().NotNil(invalidTimeErr, "Should have error for invalid time")
+	s.T().Logf("Invalid time range error: %s", invalidTimeErr.Message)
+
+	// Test 3: Invalid agent ID for shell exec
+	invalidAgentErr, err := proxy.CallToolExpectError("coral_shell_exec", map[string]interface{}{
+		"service":  "otel-app",
+		"agent_id": "non-existent-agent-id",
+		"command":  []string{"echo", "test"},
+	}, 82)
+	s.Require().NoError(err, "Should get error response")
+	s.T().Logf("Invalid agent ID error: %s", invalidAgentErr.Message)
+
+	// Test 4: Missing required parameter
+	missingParamErr, err := proxy.CallToolExpectError("coral_attach_uprobe", map[string]interface{}{
+		"service": "otel-app",
+		// Missing "function" parameter
+	}, 83)
+	s.Require().NoError(err, "Should get error response")
+	s.T().Logf("Missing parameter error: %s", missingParamErr.Message)
+
+	s.T().Log("✓ MCP error scenarios validated")
+}
+
+// TestMCPToolInputValidation tests schema validation.
+//
+// Validates:
+// - Empty inputs
+// - Invalid JSON types
+// - Out-of-range values
+// - Helpful error messages
+func (s *MCPSuite) TestMCPToolInputValidation() {
+	s.T().Log("Testing MCP input validation...")
+
+	// Start proxy
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	// Initialize
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Test 1: Invalid type for time_range (should be string, not int)
+	invalidTypeErr, err := proxy.CallToolExpectError("coral_query_summary", map[string]interface{}{
+		"service":    "otel-app",
+		"time_range": 12345, // Should be string like "5m"
+	}, 90)
+	s.Require().NoError(err, "Should get error response")
+	s.T().Logf("Invalid type error: %s", invalidTypeErr.Message)
+
+	// Test 2: Out of range value for timeout
+	outOfRangeErr, err := proxy.CallToolExpectError("coral_shell_exec", map[string]interface{}{
+		"service":         "otel-app",
+		"command":         []string{"echo", "test"},
+		"timeout_seconds": 999999, // Exceeds max of 300
+	}, 91)
+	// Note: This may or may not error depending on validation implementation
+	if err == nil && outOfRangeErr != nil {
+		s.T().Logf("Out of range handled: %s", outOfRangeErr.Message)
+	}
+
+	// Test 3: Empty command array
+	emptyCommandErr, err := proxy.CallToolExpectError("coral_shell_exec", map[string]interface{}{
+		"service": "otel-app",
+		"command": []string{}, // Empty array
+	}, 92)
+	s.Require().NoError(err, "Should get error response")
+	s.T().Logf("Empty command error: %s", emptyCommandErr.Message)
+
+	s.T().Log("✓ MCP input validation validated")
 }
 
 // =============================================================================

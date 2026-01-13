@@ -144,6 +144,24 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 	case "coral_list_services":
 		return s.executeListServicesTool(ctx, argumentsJSON)
 
+	// Live debugging tools (RFD 062)
+	case "coral_attach_uprobe":
+		return s.executeAttachUprobeTool(ctx, argumentsJSON)
+	case "coral_trace_request_path":
+		return s.executeTraceRequestPathTool(ctx, argumentsJSON)
+	case "coral_list_debug_sessions":
+		return s.executeListDebugSessionsTool(ctx, argumentsJSON)
+	case "coral_detach_uprobe":
+		return s.executeDetachUprobeTool(ctx, argumentsJSON)
+	case "coral_get_debug_results":
+		return s.executeGetDebugResultsTool(ctx, argumentsJSON)
+
+	// Function discovery and profiling tools (RFD 069)
+	case "coral_discover_functions":
+		return s.executeDiscoverFunctionsTool(ctx, argumentsJSON)
+	case "coral_profile_functions":
+		return s.executeProfileFunctionsTool(ctx, argumentsJSON)
+
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}

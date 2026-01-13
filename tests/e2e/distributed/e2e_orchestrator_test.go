@@ -27,6 +27,7 @@ type E2EOrchestratorSuite struct {
 	onDemandProbesPassed bool
 	cliCommandsPassed    bool
 	mcpTestsPassed       bool
+	mcpParityPassed      bool
 }
 
 // TestE2EOrchestrator runs all E2E tests in dependency order with fail-fast.
@@ -63,6 +64,7 @@ func (s *E2EOrchestratorSuite) TearDownSuite() {
 	s.T().Logf("  4. On-Demand Probes:         %s", status(s.onDemandProbesPassed))
 	s.T().Logf("  5. CLI Commands:             %s", status(s.cliCommandsPassed))
 	s.T().Logf("  6. MCP Server:               %s", status(s.mcpTestsPassed))
+	s.T().Logf("  7. MCP/CLI Parity:           %s", status(s.mcpParityPassed))
 	s.T().Log("==================================================")
 }
 
@@ -323,15 +325,65 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 	// Group C: Tool Execution
 	s.Run("MCP_ToolObservability", mcpSuite.TestMCPToolObservabilityQuery)
 	s.Run("MCP_ToolDiscovery", mcpSuite.TestMCPToolServiceDiscovery)
+	s.Run("MCP_ToolShellExec", mcpSuite.TestMCPToolShellExec)
 
-	// MCP server implementation is currently broken.
-	// s.Run("MCP_ToolShellExec", mcpSuite.TestMCPToolShellExec)
+	// Group D: Debugging Tools
+	s.Run("MCP_ToolDiscoverFunctions", mcpSuite.TestMCPToolDiscoverFunctions)
+	s.Run("MCP_ToolProfileFunctions", mcpSuite.TestMCPToolProfileFunctions)
+	s.Run("MCP_ToolAttachUprobe", mcpSuite.TestMCPToolAttachUprobe)
+	s.Run("MCP_ToolListDebugSessions", mcpSuite.TestMCPToolListDebugSessions)
+	s.Run("MCP_ToolGetDebugResults", mcpSuite.TestMCPToolGetDebugResults)
+	s.Run("MCP_ToolDetachUprobe", mcpSuite.TestMCPToolDetachUprobe)
+
+	// Group E: Container Execution
+	s.Run("MCP_ToolContainerExec", mcpSuite.TestMCPToolContainerExec)
+
+	// Group F: Advanced Observability
+	s.Run("MCP_ToolQueryWithTelemetry", mcpSuite.TestMCPToolQueryWithTelemetryData)
+	s.Run("MCP_ToolQueryMetricsProtocols", mcpSuite.TestMCPToolQueryMetricsProtocols)
+
+	// Group G: Error Handling
+	s.Run("MCP_ToolErrorScenarios", mcpSuite.TestMCPToolErrorScenarios)
+	s.Run("MCP_ToolInputValidation", mcpSuite.TestMCPToolInputValidation)
 
 	if !s.T().Failed() {
 		s.mcpTestsPassed = true
 		s.T().Log("✓ GROUP 6 PASSED - MCP server working")
 	} else {
 		s.T().Log("✗ GROUP 6 FAILED")
+	}
+}
+
+// Test7_MCPParityTests runs MCP/CLI parity validation tests.
+// Requires: MCP tests to have run
+func (s *E2EOrchestratorSuite) Test7_MCPParityTests() {
+	s.T().Log("")
+	s.T().Log("========================================")
+	s.T().Log("GROUP 7: MCP/CLI Parity Validation")
+	s.T().Log("========================================")
+
+	// Run MCPParitySuite (validates MCP and CLI return consistent data)
+	mcpParitySuite := &MCPParitySuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	mcpParitySuite.SetT(s.T())
+	mcpParitySuite.SetupSuite() // Initialize MCP parity env
+	defer mcpParitySuite.TearDownSuite()
+
+	// Observability Parity Tests
+	s.Run("Parity_QuerySummary", mcpParitySuite.TestParityQuerySummary)
+	s.Run("Parity_ListServices", mcpParitySuite.TestParityListServices)
+	s.Run("Parity_QueryTraces", mcpParitySuite.TestParityQueryTraces)
+	s.Run("Parity_QueryMetrics", mcpParitySuite.TestParityQueryMetrics)
+
+	// Execution Parity Tests
+	s.Run("Parity_ShellExec", mcpParitySuite.TestParityShellExec)
+
+	if !s.T().Failed() {
+		s.mcpParityPassed = true
+		s.T().Log("✓ GROUP 7 PASSED - MCP/CLI parity validated")
+	} else {
+		s.T().Log("✗ GROUP 7 FAILED")
 	}
 }
 
