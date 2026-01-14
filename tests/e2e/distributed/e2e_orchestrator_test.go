@@ -288,6 +288,18 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_ConfigWithoutColony", cliConfigSuite.TestConfigCommandsWithoutColony)
 	s.Run("CLI_ConfigHelpText", cliConfigSuite.TestConfigHelpText)
 
+	// Run CLIAskSuite (ask command)
+	cliAskSuite := &CLIAskSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliAskSuite.SetT(s.T())
+	cliAskSuite.SetupSuite()
+	defer cliAskSuite.TearDownSuite()
+
+	s.Run("CLI_AskBasicFlow", cliAskSuite.TestAskBasicFlow)
+	s.Run("CLI_AskWithTools", cliAskSuite.TestAskWithTools)
+	s.Run("CLI_AskContinuation", cliAskSuite.TestAskContinuation)
+
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
 		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")

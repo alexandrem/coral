@@ -102,6 +102,23 @@ func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bo
 	}, nil
 }
 
+// SetConversationHistory initializes a conversation with existing history.
+func (a *Agent) SetConversationHistory(conversationID string, messages []Message) {
+	conv := NewConversation(conversationID)
+	for _, msg := range messages {
+		conv.AddMessage(msg)
+	}
+	a.conversations[conversationID] = conv
+}
+
+// GetConversationHistory returns the history of a conversation.
+func (a *Agent) GetConversationHistory(conversationID string) []Message {
+	if conv, exists := a.conversations[conversationID]; exists {
+		return conv.GetMessages()
+	}
+	return nil
+}
+
 // createProvider creates an LLM provider based on the provider name.
 func createProvider(ctx context.Context, providerName string, modelID string, cfg *config.AskConfig, debug bool) (llm.Provider, error) {
 	switch providerName {
@@ -115,13 +132,17 @@ func createProvider(ctx context.Context, providerName string, modelID string, cf
 		}
 		return llm.NewGoogleProvider(ctx, apiKey, modelID)
 
+	case "mock":
+		// For mock provider, the modelID is the path to the replay script
+		return llm.NewMockProvider(ctx, modelID)
+
 	// TODO: Add other providers
 	// case "openai":
 	// case "anthropic":
 	// case "grok", "xai":
 
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s (supported: google)", providerName)
+		return nil, fmt.Errorf("unsupported provider: %s (supported: google, mock)", providerName)
 	}
 }
 
