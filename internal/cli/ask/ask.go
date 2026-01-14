@@ -316,22 +316,27 @@ func getConversationMetadataPath(colonyID string) string {
 
 // getConversationHistoryPath returns the path to the conversation history file.
 func getConversationHistoryPath(colonyID, conversationID string) (string, error) {
-	// 1. Check for empty strings or path separators
-	if colonyID == "" || conversationID == "" {
-		return "", errors.New("invalid ID: cannot be empty")
-	}
-
-	// 2. Prevent directory traversal by checking for separators or ".."
-	if strings.ContainsAny(colonyID, `/\`) || strings.ContainsAny(conversationID, `/\`) {
-		return "", errors.New("invalid ID: contains path separators")
-	}
-
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("could not find home directory: %w", err)
 	}
 
-	return filepath.Join(home, ".coral", "conversations", colonyID, conversationID+".json"), nil
+	// Define and clean the root directory
+	baseDir := filepath.Join(home, ".coral", "conversations")
+
+	// Construct the path
+	relPath := filepath.Join(colonyID, conversationID+".json")
+	finalPath := filepath.Join(baseDir, relPath)
+
+	// Final security check: Ensure the path is still inside baseDir
+	// filepath.Rel returns an error if the path cannot be made relative to baseDir
+	// without using ".." to escape.
+	_, err = filepath.Rel(baseDir, finalPath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return "", errors.New("invalid path: potential traversal attack")
+	}
+
+	return finalPath, nil
 }
 
 // outputJSON outputs the response in JSON format.
