@@ -14,6 +14,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -270,8 +271,11 @@ func saveConversationID(colonyID, conversationID string) error {
 
 // loadConversationHistory loads the conversation history from disk.
 func loadConversationHistory(colonyID, conversationID string) ([]askagent.Message, error) {
-	path := getConversationHistoryPath(colonyID, conversationID)
-	data, err := os.ReadFile(path)
+	path, err := getConversationHistoryPath(colonyID, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation history: %w", err)
+	}
+	data, err := os.ReadFile(path) // #nosec G304 - the path value is safe from getConversationHistoryPath
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +290,10 @@ func loadConversationHistory(colonyID, conversationID string) ([]askagent.Messag
 
 // saveConversationHistory saves the conversation history to disk.
 func saveConversationHistory(colonyID, conversationID string, messages []askagent.Message) error {
-	path := getConversationHistoryPath(colonyID, conversationID)
+	path, err := getConversationHistoryPath(colonyID, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to get conversation history: %w", err)
+	}
 
 	data, err := json.MarshalIndent(messages, "", "  ")
 	if err != nil {
@@ -308,9 +315,23 @@ func getConversationMetadataPath(colonyID string) string {
 }
 
 // getConversationHistoryPath returns the path to the conversation history file.
-func getConversationHistoryPath(colonyID, conversationID string) string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".coral", "conversations", colonyID, conversationID+".json")
+func getConversationHistoryPath(colonyID, conversationID string) (string, error) {
+	// 1. Check for empty strings or path separators
+	if colonyID == "" || conversationID == "" {
+		return "", errors.New("invalid ID: cannot be empty")
+	}
+
+	// 2. Prevent directory traversal by checking for separators or ".."
+	if strings.ContainsAny(colonyID, `/\`) || strings.ContainsAny(conversationID, `/\`) {
+		return "", errors.New("invalid ID: contains path separators")
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(home, ".coral", "conversations", colonyID, conversationID+".json"), nil
 }
 
 // outputJSON outputs the response in JSON format.
