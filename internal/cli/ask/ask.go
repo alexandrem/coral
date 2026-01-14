@@ -261,8 +261,8 @@ func saveConversationID(colonyID, conversationID string) error {
 		return fmt.Errorf("failed to marshal conversation metadata: %w", err)
 	}
 
-	// #nosec G306 - Non-sensitive metadata file
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// Use restrictive permissions - no reason for other users to read this.
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write conversation metadata: %w", err)
 	}
 
@@ -300,8 +300,8 @@ func saveConversationHistory(colonyID, conversationID string, messages []askagen
 		return fmt.Errorf("failed to marshal conversation history: %w", err)
 	}
 
-	//nolint:gosec // G306: Non-sensitive history file
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// Use restrictive permissions - conversation history may contain sensitive information.
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write conversation history: %w", err)
 	}
 
