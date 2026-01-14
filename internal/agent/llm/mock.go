@@ -39,7 +39,7 @@ type MockProvider struct {
 
 // NewMockProvider creates a new mock provider that replays the given script.
 func NewMockProvider(ctx context.Context, scriptPath string) (*MockProvider, error) {
-	data, err := os.ReadFile(scriptPath)
+	data, err := os.ReadFile(scriptPath) // #nosec G304 - Only for mocks
 	if err != nil {
 		return nil, fmt.Errorf("failed to read mock script: %w", err)
 	}

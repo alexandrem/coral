@@ -261,7 +261,7 @@ func saveConversationID(colonyID, conversationID string) error {
 		return fmt.Errorf("failed to marshal conversation metadata: %w", err)
 	}
 
-	//nolint:gosec // G306: Non-sensitive metadata file
+	// #nosec G306 - Non-sensitive metadata file
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write conversation metadata: %w", err)
 	}
