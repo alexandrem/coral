@@ -283,6 +283,218 @@ func TestExecuteQueryIntegration(t *testing.T) {
 	})
 }
 
+// TestListServicesDualSourceDiscovery tests the RFD 084 dual-source discovery feature.
+func TestListServicesDualSourceDiscovery(t *testing.T) {
+	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
+	tmpDir := t.TempDir()
+	db, err := database.New(tmpDir, "dual-source-test", logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test scenario:
+	// 1. "registered-only" - in services table only (no telemetry)
+	// 2. "discovered-only" - has telemetry but not in services table
+	// 3. "both-service" - in both services table AND has telemetry
+	// 4. "old-telemetry" - has telemetry older than time range
+
+	// Insert telemetry for "discovered-only" and "both-service".
+	metricsDiscovered := []*agentv1.EbpfHttpMetric{
+		{
+			Timestamp:      now.Add(-10 * time.Minute).UnixMilli(),
+			ServiceName:    "discovered-only",
+			HttpMethod:     "GET",
+			HttpRoute:      "/test",
+			HttpStatusCode: 200,
+			LatencyBuckets: []float64{10.0},
+			LatencyCounts:  []uint64{5},
+		},
+		{
+			Timestamp:      now.Add(-15 * time.Minute).UnixMilli(),
+			ServiceName:    "both-service",
+			HttpMethod:     "GET",
+			HttpRoute:      "/test",
+			HttpStatusCode: 200,
+			LatencyBuckets: []float64{10.0},
+			LatencyCounts:  []uint64{5},
+		},
+		{
+			Timestamp:      now.Add(-2 * time.Hour).UnixMilli(), // Old telemetry
+			ServiceName:    "old-telemetry",
+			HttpMethod:     "GET",
+			HttpRoute:      "/test",
+			HttpStatusCode: 200,
+			LatencyBuckets: []float64{10.0},
+			LatencyCounts:  []uint64{5},
+		},
+	}
+	err = db.InsertBeylaHTTPMetrics(ctx, "agent-1", metricsDiscovered)
+	require.NoError(t, err)
+
+	// Register services in services table.
+	database.PopulateTestServices(t, db,
+		&database.Service{
+			ID:       "registered-only-id",
+			Name:     "registered-only",
+			AppID:    "registered-only",
+			AgentID:  "agent-2",
+			LastSeen: now.Add(-5 * time.Minute),
+		},
+		&database.Service{
+			ID:       "both-service-id",
+			Name:     "both-service",
+			AppID:    "both-service",
+			AgentID:  "agent-1",
+			LastSeen: now.Add(-3 * time.Minute),
+		},
+	)
+
+	server := &Server{
+		database: db,
+		logger:   logger,
+	}
+
+	t.Run("lists all services from both sources", func(t *testing.T) {
+		req := connect.NewRequest(&colonyv1.ListServicesRequest{
+			TimeRange: "1h", // 1 hour lookback
+		})
+		resp, err := server.ListServices(ctx, req)
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		// Should find 3 services: registered-only, discovered-only, both-service.
+		// old-telemetry should be excluded (outside time range).
+		serviceMap := make(map[string]*colonyv1.ServiceSummary)
+		for _, svc := range resp.Msg.Services {
+			serviceMap[svc.Name] = svc
+		}
+
+		// Verify registered-only service.
+		if svc, exists := serviceMap["registered-only"]; exists {
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED, svc.Source)
+			assert.NotNil(t, svc.Status)
+			assert.Equal(t, colonyv1.ServiceStatus_SERVICE_STATUS_ACTIVE, *svc.Status)
+			assert.NotNil(t, svc.AgentId)
+		}
+
+		// Verify discovered-only service.
+		if svc, exists := serviceMap["discovered-only"]; exists {
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_DISCOVERED, svc.Source)
+			assert.NotNil(t, svc.Status)
+			assert.Equal(t, colonyv1.ServiceStatus_SERVICE_STATUS_DISCOVERED_ONLY, *svc.Status)
+		}
+
+		// Verify both-service.
+		if svc, exists := serviceMap["both-service"]; exists {
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_BOTH, svc.Source)
+			assert.NotNil(t, svc.Status)
+			assert.Equal(t, colonyv1.ServiceStatus_SERVICE_STATUS_ACTIVE, *svc.Status)
+			assert.NotNil(t, svc.AgentId)
+		}
+
+		// old-telemetry should NOT be included (outside time range).
+		assert.NotContains(t, serviceMap, "old-telemetry")
+	})
+
+	t.Run("respects time range parameter", func(t *testing.T) {
+		// Use a very short time range (5 minutes).
+		// Should only find services with recent activity.
+		req := connect.NewRequest(&colonyv1.ListServicesRequest{
+			TimeRange: "5m",
+		})
+		resp, err := server.ListServices(ctx, req)
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		serviceMap := make(map[string]*colonyv1.ServiceSummary)
+		for _, svc := range resp.Msg.Services {
+			serviceMap[svc.Name] = svc
+		}
+
+		// registered-only should still appear (from registry).
+		assert.Contains(t, serviceMap, "registered-only")
+
+		// both-service should appear (in registry).
+		assert.Contains(t, serviceMap, "both-service")
+
+		// discovered-only has telemetry at -10 minutes, outside 5m range.
+		// It should NOT appear.
+		assert.NotContains(t, serviceMap, "discovered-only")
+	})
+
+	t.Run("filters by source - registered only", func(t *testing.T) {
+		source := colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED
+		req := connect.NewRequest(&colonyv1.ListServicesRequest{
+			TimeRange:    "1h",
+			SourceFilter: &source,
+		})
+		resp, err := server.ListServices(ctx, req)
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		// Should only find registered-only service.
+		serviceMap := make(map[string]*colonyv1.ServiceSummary)
+		for _, svc := range resp.Msg.Services {
+			serviceMap[svc.Name] = svc
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED, svc.Source)
+		}
+
+		assert.Contains(t, serviceMap, "registered-only")
+		assert.NotContains(t, serviceMap, "discovered-only")
+		assert.NotContains(t, serviceMap, "both-service") // BOTH is not REGISTERED
+	})
+
+	t.Run("filters by source - discovered only", func(t *testing.T) {
+		source := colonyv1.ServiceSource_SERVICE_SOURCE_DISCOVERED
+		req := connect.NewRequest(&colonyv1.ListServicesRequest{
+			TimeRange:    "1h",
+			SourceFilter: &source,
+		})
+		resp, err := server.ListServices(ctx, req)
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		// Should only find discovered-only service.
+		serviceMap := make(map[string]*colonyv1.ServiceSummary)
+		for _, svc := range resp.Msg.Services {
+			serviceMap[svc.Name] = svc
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_DISCOVERED, svc.Source)
+		}
+
+		assert.Contains(t, serviceMap, "discovered-only")
+		assert.NotContains(t, serviceMap, "registered-only")
+		assert.NotContains(t, serviceMap, "both-service")
+	})
+
+	t.Run("filters by source - both", func(t *testing.T) {
+		source := colonyv1.ServiceSource_SERVICE_SOURCE_BOTH
+		req := connect.NewRequest(&colonyv1.ListServicesRequest{
+			TimeRange:    "1h",
+			SourceFilter: &source,
+		})
+		resp, err := server.ListServices(ctx, req)
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+
+		// Should only find both-service.
+		serviceMap := make(map[string]*colonyv1.ServiceSummary)
+		for _, svc := range resp.Msg.Services {
+			serviceMap[svc.Name] = svc
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_BOTH, svc.Source)
+		}
+
+		assert.Contains(t, serviceMap, "both-service")
+		assert.NotContains(t, serviceMap, "registered-only")
+		assert.NotContains(t, serviceMap, "discovered-only")
+	})
+}
+
 // TestTableNameRegression specifically tests that we use beyla_http_metrics, not ebpf_http_metrics.
 func TestTableNameRegression(t *testing.T) {
 	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)

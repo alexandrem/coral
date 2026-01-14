@@ -24,6 +24,122 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ServiceSource indicates where service information originated (RFD 084).
+type ServiceSource int32
+
+const (
+	ServiceSource_SERVICE_SOURCE_UNSPECIFIED ServiceSource = 0
+	// Service is explicitly registered via ConnectService API.
+	ServiceSource_SERVICE_SOURCE_REGISTERED ServiceSource = 1
+	// Service is auto-discovered from telemetry data only.
+	ServiceSource_SERVICE_SOURCE_DISCOVERED ServiceSource = 2
+	// Service is both registered AND has telemetry data.
+	ServiceSource_SERVICE_SOURCE_BOTH ServiceSource = 3
+)
+
+// Enum value maps for ServiceSource.
+var (
+	ServiceSource_name = map[int32]string{
+		0: "SERVICE_SOURCE_UNSPECIFIED",
+		1: "SERVICE_SOURCE_REGISTERED",
+		2: "SERVICE_SOURCE_DISCOVERED",
+		3: "SERVICE_SOURCE_BOTH",
+	}
+	ServiceSource_value = map[string]int32{
+		"SERVICE_SOURCE_UNSPECIFIED": 0,
+		"SERVICE_SOURCE_REGISTERED":  1,
+		"SERVICE_SOURCE_DISCOVERED":  2,
+		"SERVICE_SOURCE_BOTH":        3,
+	}
+)
+
+func (x ServiceSource) Enum() *ServiceSource {
+	p := new(ServiceSource)
+	*p = x
+	return p
+}
+
+func (x ServiceSource) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ServiceSource) Descriptor() protoreflect.EnumDescriptor {
+	return file_coral_colony_v1_queries_proto_enumTypes[0].Descriptor()
+}
+
+func (ServiceSource) Type() protoreflect.EnumType {
+	return &file_coral_colony_v1_queries_proto_enumTypes[0]
+}
+
+func (x ServiceSource) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ServiceSource.Descriptor instead.
+func (ServiceSource) EnumDescriptor() ([]byte, []int) {
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{0}
+}
+
+// ServiceStatus indicates the current registration and health status (RFD 084).
+type ServiceStatus int32
+
+const (
+	ServiceStatus_SERVICE_STATUS_UNSPECIFIED ServiceStatus = 0
+	// Service is registered and passing health checks.
+	ServiceStatus_SERVICE_STATUS_ACTIVE ServiceStatus = 1
+	// Service is registered but health checks are failing.
+	ServiceStatus_SERVICE_STATUS_UNHEALTHY ServiceStatus = 2
+	// Service is no longer registered but has recent telemetry.
+	ServiceStatus_SERVICE_STATUS_DISCONNECTED ServiceStatus = 3
+	// Service is only known from telemetry, never explicitly registered.
+	ServiceStatus_SERVICE_STATUS_DISCOVERED_ONLY ServiceStatus = 4
+)
+
+// Enum value maps for ServiceStatus.
+var (
+	ServiceStatus_name = map[int32]string{
+		0: "SERVICE_STATUS_UNSPECIFIED",
+		1: "SERVICE_STATUS_ACTIVE",
+		2: "SERVICE_STATUS_UNHEALTHY",
+		3: "SERVICE_STATUS_DISCONNECTED",
+		4: "SERVICE_STATUS_DISCOVERED_ONLY",
+	}
+	ServiceStatus_value = map[string]int32{
+		"SERVICE_STATUS_UNSPECIFIED":     0,
+		"SERVICE_STATUS_ACTIVE":          1,
+		"SERVICE_STATUS_UNHEALTHY":       2,
+		"SERVICE_STATUS_DISCONNECTED":    3,
+		"SERVICE_STATUS_DISCOVERED_ONLY": 4,
+	}
+)
+
+func (x ServiceStatus) Enum() *ServiceStatus {
+	p := new(ServiceStatus)
+	*p = x
+	return p
+}
+
+func (x ServiceStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ServiceStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_coral_colony_v1_queries_proto_enumTypes[1].Descriptor()
+}
+
+func (ServiceStatus) Type() protoreflect.EnumType {
+	return &file_coral_colony_v1_queries_proto_enumTypes[1]
+}
+
+func (x ServiceStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ServiceStatus.Descriptor instead.
+func (ServiceStatus) EnumDescriptor() ([]byte, []int) {
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{1}
+}
+
 type QueryUnifiedSummaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional: specific service or all services.
@@ -814,7 +930,14 @@ func (x *QueryUnifiedLogsResponse) GetTotalLogs() int32 {
 type ListServicesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional namespace filter.
-	Namespace     string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// Time range for telemetry-based discovery (e.g., "1h", "24h").
+	// Defaults to "1h" if not specified.
+	// Only affects telemetry-discovered services (RFD 084).
+	TimeRange string `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	// Filter by service source (RFD 084).
+	// If unspecified, returns all services regardless of source.
+	SourceFilter  *ServiceSource `protobuf:"varint,3,opt,name=source_filter,json=sourceFilter,proto3,enum=coral.colony.v1.ServiceSource,oneof" json:"source_filter,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -854,6 +977,20 @@ func (x *ListServicesRequest) GetNamespace() string {
 		return x.Namespace
 	}
 	return ""
+}
+
+func (x *ListServicesRequest) GetTimeRange() string {
+	if x != nil {
+		return x.TimeRange
+	}
+	return ""
+}
+
+func (x *ListServicesRequest) GetSourceFilter() ServiceSource {
+	if x != nil && x.SourceFilter != nil {
+		return *x.SourceFilter
+	}
+	return ServiceSource_SERVICE_SOURCE_UNSPECIFIED
 }
 
 type ListServicesResponse struct {
@@ -906,6 +1043,14 @@ type ServiceSummary struct {
 	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	InstanceCount int32                  `protobuf:"varint,3,opt,name=instance_count,json=instanceCount,proto3" json:"instance_count,omitempty"`
 	LastSeen      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	// Indicates where this service information came from (RFD 084).
+	Source ServiceSource `protobuf:"varint,5,opt,name=source,proto3,enum=coral.colony.v1.ServiceSource" json:"source,omitempty"`
+	// Current registration and health status (if applicable) (RFD 084).
+	// Only set when source includes SERVICE_SOURCE_REGISTERED.
+	Status *ServiceStatus `protobuf:"varint,6,opt,name=status,proto3,enum=coral.colony.v1.ServiceStatus,oneof" json:"status,omitempty"`
+	// Agent ID where service is registered (if applicable) (RFD 084).
+	// Only set when source includes SERVICE_SOURCE_REGISTERED.
+	AgentId       *string `protobuf:"bytes,7,opt,name=agent_id,json=agentId,proto3,oneof" json:"agent_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -966,6 +1111,27 @@ func (x *ServiceSummary) GetLastSeen() *timestamppb.Timestamp {
 		return x.LastSeen
 	}
 	return nil
+}
+
+func (x *ServiceSummary) GetSource() ServiceSource {
+	if x != nil {
+		return x.Source
+	}
+	return ServiceSource_SERVICE_SOURCE_UNSPECIFIED
+}
+
+func (x *ServiceSummary) GetStatus() ServiceStatus {
+	if x != nil && x.Status != nil {
+		return *x.Status
+	}
+	return ServiceStatus_SERVICE_STATUS_UNSPECIFIED
+}
+
+func (x *ServiceSummary) GetAgentId() string {
+	if x != nil && x.AgentId != nil {
+		return *x.AgentId
+	}
+	return ""
 }
 
 type GetMetricPercentileRequest struct {
@@ -1640,16 +1806,25 @@ const file_coral_colony_v1_queries_proto_rawDesc = "" +
 	"\x18QueryUnifiedLogsResponse\x124\n" +
 	"\x04logs\x18\x01 \x03(\v2 .coral.colony.v1.UnifiedLogEntryR\x04logs\x12\x1d\n" +
 	"\n" +
-	"total_logs\x18\x02 \x01(\x05R\ttotalLogs\"3\n" +
+	"total_logs\x18\x02 \x01(\x05R\ttotalLogs\"\xae\x01\n" +
 	"\x13ListServicesRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"S\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x1d\n" +
+	"\n" +
+	"time_range\x18\x02 \x01(\tR\ttimeRange\x12H\n" +
+	"\rsource_filter\x18\x03 \x01(\x0e2\x1e.coral.colony.v1.ServiceSourceH\x00R\fsourceFilter\x88\x01\x01B\x10\n" +
+	"\x0e_source_filter\"S\n" +
 	"\x14ListServicesResponse\x12;\n" +
-	"\bservices\x18\x01 \x03(\v2\x1f.coral.colony.v1.ServiceSummaryR\bservices\"\xa2\x01\n" +
+	"\bservices\x18\x01 \x03(\v2\x1f.coral.colony.v1.ServiceSummaryR\bservices\"\xcf\x02\n" +
 	"\x0eServiceSummary\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12%\n" +
 	"\x0einstance_count\x18\x03 \x01(\x05R\rinstanceCount\x127\n" +
-	"\tlast_seen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\"\x92\x01\n" +
+	"\tlast_seen\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x126\n" +
+	"\x06source\x18\x05 \x01(\x0e2\x1e.coral.colony.v1.ServiceSourceR\x06source\x12;\n" +
+	"\x06status\x18\x06 \x01(\x0e2\x1e.coral.colony.v1.ServiceStatusH\x00R\x06status\x88\x01\x01\x12\x1e\n" +
+	"\bagent_id\x18\a \x01(\tH\x01R\aagentId\x88\x01\x01B\t\n" +
+	"\a_statusB\v\n" +
+	"\t_agent_id\"\x92\x01\n" +
 	"\x1aGetMetricPercentileRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x16\n" +
 	"\x06metric\x18\x02 \x01(\tR\x06metric\x12\x1e\n" +
@@ -1691,7 +1866,18 @@ const file_coral_colony_v1_queries_proto_rawDesc = "" +
 	"\trow_count\x18\x02 \x01(\x05R\browCount\x12\x18\n" +
 	"\acolumns\x18\x03 \x03(\tR\acolumns\"\"\n" +
 	"\bQueryRow\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\tR\x06valuesB\xb7\x01\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values*\x86\x01\n" +
+	"\rServiceSource\x12\x1e\n" +
+	"\x1aSERVICE_SOURCE_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19SERVICE_SOURCE_REGISTERED\x10\x01\x12\x1d\n" +
+	"\x19SERVICE_SOURCE_DISCOVERED\x10\x02\x12\x17\n" +
+	"\x13SERVICE_SOURCE_BOTH\x10\x03*\xad\x01\n" +
+	"\rServiceStatus\x12\x1e\n" +
+	"\x1aSERVICE_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15SERVICE_STATUS_ACTIVE\x10\x01\x12\x1c\n" +
+	"\x18SERVICE_STATUS_UNHEALTHY\x10\x02\x12\x1f\n" +
+	"\x1bSERVICE_STATUS_DISCONNECTED\x10\x03\x12\"\n" +
+	"\x1eSERVICE_STATUS_DISCOVERED_ONLY\x10\x04B\xb7\x01\n" +
 	"\x13com.coral.colony.v1B\fQueriesProtoP\x01Z4github.com/coral-mesh/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
 
 var (
@@ -1706,57 +1892,63 @@ func file_coral_colony_v1_queries_proto_rawDescGZIP() []byte {
 	return file_coral_colony_v1_queries_proto_rawDescData
 }
 
+var file_coral_colony_v1_queries_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_coral_colony_v1_queries_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_coral_colony_v1_queries_proto_goTypes = []any{
-	(*QueryUnifiedSummaryRequest)(nil),  // 0: coral.colony.v1.QueryUnifiedSummaryRequest
-	(*UnifiedSummaryResult)(nil),        // 1: coral.colony.v1.UnifiedSummaryResult
-	(*QueryUnifiedSummaryResponse)(nil), // 2: coral.colony.v1.QueryUnifiedSummaryResponse
-	(*QueryUnifiedTracesRequest)(nil),   // 3: coral.colony.v1.QueryUnifiedTracesRequest
-	(*QueryUnifiedTracesResponse)(nil),  // 4: coral.colony.v1.QueryUnifiedTracesResponse
-	(*QueryUnifiedMetricsRequest)(nil),  // 5: coral.colony.v1.QueryUnifiedMetricsRequest
-	(*QueryUnifiedMetricsResponse)(nil), // 6: coral.colony.v1.QueryUnifiedMetricsResponse
-	(*QueryUnifiedLogsRequest)(nil),     // 7: coral.colony.v1.QueryUnifiedLogsRequest
-	(*UnifiedLogEntry)(nil),             // 8: coral.colony.v1.UnifiedLogEntry
-	(*QueryUnifiedLogsResponse)(nil),    // 9: coral.colony.v1.QueryUnifiedLogsResponse
-	(*ListServicesRequest)(nil),         // 10: coral.colony.v1.ListServicesRequest
-	(*ListServicesResponse)(nil),        // 11: coral.colony.v1.ListServicesResponse
-	(*ServiceSummary)(nil),              // 12: coral.colony.v1.ServiceSummary
-	(*GetMetricPercentileRequest)(nil),  // 13: coral.colony.v1.GetMetricPercentileRequest
-	(*GetMetricPercentileResponse)(nil), // 14: coral.colony.v1.GetMetricPercentileResponse
-	(*GetServiceActivityRequest)(nil),   // 15: coral.colony.v1.GetServiceActivityRequest
-	(*GetServiceActivityResponse)(nil),  // 16: coral.colony.v1.GetServiceActivityResponse
-	(*ListServiceActivityRequest)(nil),  // 17: coral.colony.v1.ListServiceActivityRequest
-	(*ListServiceActivityResponse)(nil), // 18: coral.colony.v1.ListServiceActivityResponse
-	(*ServiceActivity)(nil),             // 19: coral.colony.v1.ServiceActivity
-	(*ExecuteQueryRequest)(nil),         // 20: coral.colony.v1.ExecuteQueryRequest
-	(*ExecuteQueryResponse)(nil),        // 21: coral.colony.v1.ExecuteQueryResponse
-	(*QueryRow)(nil),                    // 22: coral.colony.v1.QueryRow
-	nil,                                 // 23: coral.colony.v1.UnifiedLogEntry.AttributesEntry
-	(*v1.EbpfTraceSpan)(nil),            // 24: coral.agent.v1.EbpfTraceSpan
-	(*v1.EbpfHttpMetric)(nil),           // 25: coral.agent.v1.EbpfHttpMetric
-	(*v1.EbpfGrpcMetric)(nil),           // 26: coral.agent.v1.EbpfGrpcMetric
-	(*v1.EbpfSqlMetric)(nil),            // 27: coral.agent.v1.EbpfSqlMetric
-	(*timestamppb.Timestamp)(nil),       // 28: google.protobuf.Timestamp
+	(ServiceSource)(0),                  // 0: coral.colony.v1.ServiceSource
+	(ServiceStatus)(0),                  // 1: coral.colony.v1.ServiceStatus
+	(*QueryUnifiedSummaryRequest)(nil),  // 2: coral.colony.v1.QueryUnifiedSummaryRequest
+	(*UnifiedSummaryResult)(nil),        // 3: coral.colony.v1.UnifiedSummaryResult
+	(*QueryUnifiedSummaryResponse)(nil), // 4: coral.colony.v1.QueryUnifiedSummaryResponse
+	(*QueryUnifiedTracesRequest)(nil),   // 5: coral.colony.v1.QueryUnifiedTracesRequest
+	(*QueryUnifiedTracesResponse)(nil),  // 6: coral.colony.v1.QueryUnifiedTracesResponse
+	(*QueryUnifiedMetricsRequest)(nil),  // 7: coral.colony.v1.QueryUnifiedMetricsRequest
+	(*QueryUnifiedMetricsResponse)(nil), // 8: coral.colony.v1.QueryUnifiedMetricsResponse
+	(*QueryUnifiedLogsRequest)(nil),     // 9: coral.colony.v1.QueryUnifiedLogsRequest
+	(*UnifiedLogEntry)(nil),             // 10: coral.colony.v1.UnifiedLogEntry
+	(*QueryUnifiedLogsResponse)(nil),    // 11: coral.colony.v1.QueryUnifiedLogsResponse
+	(*ListServicesRequest)(nil),         // 12: coral.colony.v1.ListServicesRequest
+	(*ListServicesResponse)(nil),        // 13: coral.colony.v1.ListServicesResponse
+	(*ServiceSummary)(nil),              // 14: coral.colony.v1.ServiceSummary
+	(*GetMetricPercentileRequest)(nil),  // 15: coral.colony.v1.GetMetricPercentileRequest
+	(*GetMetricPercentileResponse)(nil), // 16: coral.colony.v1.GetMetricPercentileResponse
+	(*GetServiceActivityRequest)(nil),   // 17: coral.colony.v1.GetServiceActivityRequest
+	(*GetServiceActivityResponse)(nil),  // 18: coral.colony.v1.GetServiceActivityResponse
+	(*ListServiceActivityRequest)(nil),  // 19: coral.colony.v1.ListServiceActivityRequest
+	(*ListServiceActivityResponse)(nil), // 20: coral.colony.v1.ListServiceActivityResponse
+	(*ServiceActivity)(nil),             // 21: coral.colony.v1.ServiceActivity
+	(*ExecuteQueryRequest)(nil),         // 22: coral.colony.v1.ExecuteQueryRequest
+	(*ExecuteQueryResponse)(nil),        // 23: coral.colony.v1.ExecuteQueryResponse
+	(*QueryRow)(nil),                    // 24: coral.colony.v1.QueryRow
+	nil,                                 // 25: coral.colony.v1.UnifiedLogEntry.AttributesEntry
+	(*v1.EbpfTraceSpan)(nil),            // 26: coral.agent.v1.EbpfTraceSpan
+	(*v1.EbpfHttpMetric)(nil),           // 27: coral.agent.v1.EbpfHttpMetric
+	(*v1.EbpfGrpcMetric)(nil),           // 28: coral.agent.v1.EbpfGrpcMetric
+	(*v1.EbpfSqlMetric)(nil),            // 29: coral.agent.v1.EbpfSqlMetric
+	(*timestamppb.Timestamp)(nil),       // 30: google.protobuf.Timestamp
 }
 var file_coral_colony_v1_queries_proto_depIdxs = []int32{
-	1,  // 0: coral.colony.v1.QueryUnifiedSummaryResponse.summaries:type_name -> coral.colony.v1.UnifiedSummaryResult
-	24, // 1: coral.colony.v1.QueryUnifiedTracesResponse.spans:type_name -> coral.agent.v1.EbpfTraceSpan
-	25, // 2: coral.colony.v1.QueryUnifiedMetricsResponse.http_metrics:type_name -> coral.agent.v1.EbpfHttpMetric
-	26, // 3: coral.colony.v1.QueryUnifiedMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.EbpfGrpcMetric
-	27, // 4: coral.colony.v1.QueryUnifiedMetricsResponse.sql_metrics:type_name -> coral.agent.v1.EbpfSqlMetric
-	23, // 5: coral.colony.v1.UnifiedLogEntry.attributes:type_name -> coral.colony.v1.UnifiedLogEntry.AttributesEntry
-	8,  // 6: coral.colony.v1.QueryUnifiedLogsResponse.logs:type_name -> coral.colony.v1.UnifiedLogEntry
-	12, // 7: coral.colony.v1.ListServicesResponse.services:type_name -> coral.colony.v1.ServiceSummary
-	28, // 8: coral.colony.v1.ServiceSummary.last_seen:type_name -> google.protobuf.Timestamp
-	28, // 9: coral.colony.v1.GetMetricPercentileResponse.timestamp:type_name -> google.protobuf.Timestamp
-	28, // 10: coral.colony.v1.GetServiceActivityResponse.timestamp:type_name -> google.protobuf.Timestamp
-	19, // 11: coral.colony.v1.ListServiceActivityResponse.services:type_name -> coral.colony.v1.ServiceActivity
-	22, // 12: coral.colony.v1.ExecuteQueryResponse.rows:type_name -> coral.colony.v1.QueryRow
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	3,  // 0: coral.colony.v1.QueryUnifiedSummaryResponse.summaries:type_name -> coral.colony.v1.UnifiedSummaryResult
+	26, // 1: coral.colony.v1.QueryUnifiedTracesResponse.spans:type_name -> coral.agent.v1.EbpfTraceSpan
+	27, // 2: coral.colony.v1.QueryUnifiedMetricsResponse.http_metrics:type_name -> coral.agent.v1.EbpfHttpMetric
+	28, // 3: coral.colony.v1.QueryUnifiedMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.EbpfGrpcMetric
+	29, // 4: coral.colony.v1.QueryUnifiedMetricsResponse.sql_metrics:type_name -> coral.agent.v1.EbpfSqlMetric
+	25, // 5: coral.colony.v1.UnifiedLogEntry.attributes:type_name -> coral.colony.v1.UnifiedLogEntry.AttributesEntry
+	10, // 6: coral.colony.v1.QueryUnifiedLogsResponse.logs:type_name -> coral.colony.v1.UnifiedLogEntry
+	0,  // 7: coral.colony.v1.ListServicesRequest.source_filter:type_name -> coral.colony.v1.ServiceSource
+	14, // 8: coral.colony.v1.ListServicesResponse.services:type_name -> coral.colony.v1.ServiceSummary
+	30, // 9: coral.colony.v1.ServiceSummary.last_seen:type_name -> google.protobuf.Timestamp
+	0,  // 10: coral.colony.v1.ServiceSummary.source:type_name -> coral.colony.v1.ServiceSource
+	1,  // 11: coral.colony.v1.ServiceSummary.status:type_name -> coral.colony.v1.ServiceStatus
+	30, // 12: coral.colony.v1.GetMetricPercentileResponse.timestamp:type_name -> google.protobuf.Timestamp
+	30, // 13: coral.colony.v1.GetServiceActivityResponse.timestamp:type_name -> google.protobuf.Timestamp
+	21, // 14: coral.colony.v1.ListServiceActivityResponse.services:type_name -> coral.colony.v1.ServiceActivity
+	24, // 15: coral.colony.v1.ExecuteQueryResponse.rows:type_name -> coral.colony.v1.QueryRow
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_coral_colony_v1_queries_proto_init() }
@@ -1764,18 +1956,21 @@ func file_coral_colony_v1_queries_proto_init() {
 	if File_coral_colony_v1_queries_proto != nil {
 		return
 	}
+	file_coral_colony_v1_queries_proto_msgTypes[10].OneofWrappers = []any{}
+	file_coral_colony_v1_queries_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_colony_v1_queries_proto_rawDesc), len(file_coral_colony_v1_queries_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      2,
 			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_coral_colony_v1_queries_proto_goTypes,
 		DependencyIndexes: file_coral_colony_v1_queries_proto_depIdxs,
+		EnumInfos:         file_coral_colony_v1_queries_proto_enumTypes,
 		MessageInfos:      file_coral_colony_v1_queries_proto_msgTypes,
 	}.Build()
 	File_coral_colony_v1_queries_proto = out.File
