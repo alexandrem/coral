@@ -67,6 +67,14 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 
+	// Ensure the directory containing the coral binary is in PATH
+	// This is required for commands that spawn subprocesses using "coral" (e.g. ask)
+	coralDir := filepath.Dir(coralBin)
+	pathVar := "PATH"
+	currentPath := os.Getenv(pathVar)
+	newPath := fmt.Sprintf("%s%c%s", coralDir, os.PathListSeparator, currentPath)
+	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", pathVar, newPath))
+
 	output, err := cmd.CombinedOutput()
 
 	result := &CLIResult{

@@ -187,6 +187,11 @@ func (e *CLITestEnv) createMinimalColonyConfig(colonyID, endpoint string) error 
 		},
 		"created_at": time.Now(),
 		"created_by": "e2e-test",
+		"ask": map[string]interface{}{
+			"agent": map[string]interface{}{
+				"mode": "ephemeral",
+			},
+		},
 	}
 
 	// Marshal to YAML.

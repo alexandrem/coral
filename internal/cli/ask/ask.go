@@ -14,6 +14,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -152,6 +153,20 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		if err != nil {
 			return fmt.Errorf("failed to load conversation: %w", err)
 		}
+
+		// Load conversation history.
+		history, err := loadConversationHistory(colonyID, conversationID)
+		if err != nil {
+			// Warn but continue with empty history if load fails
+			if debug {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Failed to load conversation history: %v\n", err)
+			}
+		} else {
+			if debug {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Loaded %d messages from history\n", len(history))
+			}
+			agent.SetConversationHistory(conversationID, history)
+		}
 	} else {
 		conversationID = generateConversationID()
 	}
@@ -159,7 +174,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	// Validate model provider is implemented.
 	// Currently only Google is supported, other providers are planned.
 	providerName := strings.SplitN(askCfg.DefaultModel, ":", 2)[0]
-	if providerName != "google" {
+	if providerName != "google" && providerName != "mock" {
 		return fmt.Errorf("provider %q is not yet implemented\n\nCurrently supported:\n  - google:gemini-2.0-flash-exp (fast, experimental)\n  - google:gemini-1.5-pro (high quality, stable)\n  - google:gemini-1.5-flash (balanced)\n\nPlanned providers:\n  - openai (gpt-4o, gpt-4o-mini)\n  - anthropic (claude-3-5-sonnet)\n  - ollama (local models)\n\nSee docs/PROVIDERS.md for implementation status", providerName)
 	}
 
@@ -172,6 +187,12 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	// Save conversation ID for --continue.
 	if err := saveConversationID(colonyID, conversationID); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to save conversation ID: %v\n", err)
+	}
+
+	// Save conversation history.
+	history := agent.GetConversationHistory(conversationID)
+	if err := saveConversationHistory(colonyID, conversationID, history); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save conversation history: %v\n", err)
 	}
 
 	// Output response.
@@ -240,18 +261,82 @@ func saveConversationID(colonyID, conversationID string) error {
 		return fmt.Errorf("failed to marshal conversation metadata: %w", err)
 	}
 
-	//nolint:gosec // G306: Non-sensitive metadata file
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// Use restrictive permissions - no reason for other users to read this.
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write conversation metadata: %w", err)
 	}
 
 	return nil
 }
 
-// getConversationMetadataPath returns the path to the conversation metadata file.
+// loadConversationHistory loads the conversation history from disk.
+func loadConversationHistory(colonyID, conversationID string) ([]askagent.Message, error) {
+	path, err := getConversationHistoryPath(colonyID, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation history: %w", err)
+	}
+	data, err := os.ReadFile(path) // #nosec G304 - the path value is safe from getConversationHistoryPath
+	if err != nil {
+		return nil, err
+	}
+
+	var messages []askagent.Message
+	if err := json.Unmarshal(data, &messages); err != nil {
+		return nil, fmt.Errorf("failed to parse conversation history: %w", err)
+	}
+
+	return messages, nil
+}
+
+// saveConversationHistory saves the conversation history to disk.
+func saveConversationHistory(colonyID, conversationID string, messages []askagent.Message) error {
+	path, err := getConversationHistoryPath(colonyID, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to get conversation history: %w", err)
+	}
+
+	data, err := json.MarshalIndent(messages, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal conversation history: %w", err)
+	}
+
+	// Use restrictive permissions - conversation history may contain sensitive information.
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("failed to write conversation history: %w", err)
+	}
+
+	return nil
+}
+
+// getConversationMetadataPath returns the path to the last conversation metadata file.
 func getConversationMetadataPath(colonyID string) string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".coral", "conversations", colonyID, "last.json")
+}
+
+// getConversationHistoryPath returns the path to the conversation history file.
+func getConversationHistoryPath(colonyID, conversationID string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not find home directory: %w", err)
+	}
+
+	// Define and clean the root directory
+	baseDir := filepath.Join(home, ".coral", "conversations")
+
+	// Construct the path
+	relPath := filepath.Join(colonyID, conversationID+".json")
+	finalPath := filepath.Join(baseDir, relPath)
+
+	// Final security check: Ensure the path is still inside baseDir
+	// filepath.Rel returns an error if the path cannot be made relative to baseDir
+	// without using ".." to escape.
+	_, err = filepath.Rel(baseDir, finalPath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return "", errors.New("invalid path: potential traversal attack")
+	}
+
+	return finalPath, nil
 }
 
 // outputJSON outputs the response in JSON format.

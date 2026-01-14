@@ -39,11 +39,19 @@ func (s *CLIQuerySuite) SetupSuite() {
 	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, colonyID, colonyEndpoint)
 	s.Require().NoError(err, "Failed to setup CLI environment")
 
+	// Ensure services are connected for query tests.
+	// This populates the services registry table via ConnectService API,
+	// allowing registry-based queries (like 'coral query services') to work.
+	s.ensureServicesConnected()
+
 	s.T().Logf("CLI environment ready: endpoint=%s", colonyEndpoint)
 }
 
 // TearDownSuite cleans up after all tests.
 func (s *CLIQuerySuite) TearDownSuite() {
+	// Disconnect services to clean up.
+	s.disconnectAllServices()
+
 	if s.cliEnv != nil {
 		_ = s.cliEnv.Cleanup()
 	}
@@ -342,4 +350,20 @@ func (s *CLIQuerySuite) ensureTelemetryData() {
 	// E2E environment has 15-second poll intervals
 	s.T().Log("Waiting for telemetry collection (20 seconds)...")
 	time.Sleep(20 * time.Second)
+}
+
+// ensureServicesConnected ensures test services are connected to agent for query tests.
+func (s *CLIQuerySuite) ensureServicesConnected() {
+	// CLI query tests need otel-app for testing queries.
+	// This populates the services registry table via ConnectService API.
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
+		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+	})
+}
+
+// disconnectAllServices disconnects all test services from all agents.
+func (s *CLIQuerySuite) disconnectAllServices() {
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{
+		"otel-app",
+	})
 }
