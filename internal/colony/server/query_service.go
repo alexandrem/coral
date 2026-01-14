@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // Focused Query Handlers (RFD 076).
@@ -89,19 +91,27 @@ func (s *Server) ListServices(
 
 	var services []*colonyv1.ServiceSummary
 	for rows.Next() {
-		var name, namespace string
-		var sourceInt int
-		var registrationStatus sql.NullString
-		var instanceCount int32
-		var lastSeen time.Time
-		var agentID sql.NullString
+		var (
+			name, namespace    string
+			sourceInt          int
+			registrationStatus sql.NullString
+			instanceCount      int32
+			lastSeen           time.Time
+			agentID            sql.NullString
+		)
 
 		if err := rows.Scan(&name, &namespace, &sourceInt, &registrationStatus, &instanceCount, &lastSeen, &agentID); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to scan service: %w", err))
 		}
 
 		// Convert source integer to enum.
-		source := colonyv1.ServiceSource(sourceInt)
+		sourceValue, clamped := safe.IntToInt32(sourceInt)
+		if clamped {
+			s.logger.Warn().
+				Int("source", sourceInt).
+				Msg("Source value exceeds limit and was clamped")
+		}
+		source := colonyv1.ServiceSource(sourceValue)
 
 		// Apply source filter if specified.
 		if req.Msg.SourceFilter != nil && *req.Msg.SourceFilter != source {
@@ -206,7 +216,7 @@ func (s *Server) GetMetricPercentile(
 		cutoff,
 	).Scan(&value)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no metrics found for service: %s", req.Msg.Service))
 	}
 	if err != nil {
@@ -323,7 +333,7 @@ func (s *Server) GetServiceActivity(
 		cutoff,
 	).Scan(&serviceName, &requestCount, &errorCount)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no activity found for service: %s", req.Msg.Service))
 	}
 	if err != nil {
