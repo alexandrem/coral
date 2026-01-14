@@ -241,7 +241,7 @@ interface. They're designed for:
 
 ```bash
 # Service discovery
-coral query services [--namespace <name>]
+coral query services [--namespace <name>] [--since <duration>] [--source <type>]
 
 # Percentile queries (precise DuckDB quantile calculations)
 coral query metrics <service> --metric <name> --percentile <0-100>
@@ -250,8 +250,13 @@ coral query metrics <service> --metric <name> --percentile <0-100>
 coral query sql "<sql-query>" [--max-rows <n>]
 
 # Examples - Service discovery:
-coral query services                           # List all services
+coral query services                           # List all services (registry + telemetry)
 coral query services --namespace production    # Filter by namespace
+coral query services --since 24h               # Extend telemetry lookback
+coral query services --source registered       # Only explicitly connected services
+coral query services --source discovered       # Only auto-discovered from telemetry
+
+# See: docs/SERVICE_DISCOVERY.md for architecture details
 
 # Examples - Percentile queries:
 coral query metrics payments --metric http.server.duration --percentile 99

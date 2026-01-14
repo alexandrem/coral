@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,33 +11,79 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // Focused Query Handlers (RFD 076).
 // These provide focused, scriptable queries for CLI and TypeScript SDK.
 // Unified query handlers (RFD 067) are in unified_query_handlers.go.
 
-// ListServices handles service discovery requests.
+// ListServices handles service discovery requests with dual-source discovery (RFD 084).
+// Returns services from both the registry (explicitly connected) and telemetry data (auto-discovered).
 func (s *Server) ListServices(
 	ctx context.Context,
 	req *connect.Request[colonyv1.ListServicesRequest],
 ) (*connect.Response[colonyv1.ListServicesResponse], error) {
-	// Query the services registry table.
-	// Services are registered when they connect via ConnectService API or --monitor-all.
+	// Parse time range for telemetry-based discovery (default: 1 hour).
+	timeRange := req.Msg.TimeRange
+	if timeRange == "" {
+		timeRange = "1h"
+	}
+	duration, err := time.ParseDuration(timeRange)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid time_range: %w", err))
+	}
+	cutoff := time.Now().Add(-duration)
+
+	// Enhanced query combining both registry and telemetry sources (RFD 084).
+	// Uses FULL OUTER JOIN to include services from either source.
 	query := `
 		SELECT
-			s.name,
+			COALESCE(s.name, t.service_name) as name,
 			'' as namespace,
-			COUNT(DISTINCT s.agent_id) as instance_count,
-			COALESCE(MAX(h.last_seen), MAX(s.registered_at)) as last_seen
+
+			-- Source attribution
+			CASE
+				WHEN s.name IS NOT NULL AND t.service_name IS NOT NULL THEN 3  -- BOTH
+				WHEN s.name IS NOT NULL THEN 1                                  -- REGISTERED
+				ELSE 2                                                          -- DISCOVERED
+			END as source,
+
+			-- Registration status (only for registered services)
+			s.status as registration_status,
+
+			-- Instance count (only for registered services)
+			COALESCE(COUNT(DISTINCT s.agent_id), 0) as instance_count,
+
+			-- Last seen (prefer registry heartbeat, fall back to telemetry)
+			COALESCE(
+				MAX(h.last_seen),
+				MAX(s.registered_at),
+				MAX(t.last_timestamp)
+			) as last_seen,
+
+			-- Agent ID (only for registered services, pick first if multiple)
+			MIN(s.agent_id) as agent_id
+
 		FROM services s
+
+		-- FULL OUTER JOIN with telemetry-discovered services
+		FULL OUTER JOIN (
+			SELECT DISTINCT
+				service_name,
+				MAX(timestamp) as last_timestamp
+			FROM beyla_http_metrics
+			WHERE timestamp > ?
+			GROUP BY service_name
+		) t ON s.name = t.service_name
+
 		LEFT JOIN service_heartbeats h ON s.id = h.service_id
-		WHERE s.status = 'active'
-		GROUP BY s.name
-		ORDER BY s.name
+
+		GROUP BY s.name, t.service_name, s.status
+		ORDER BY last_seen DESC
 	`
 
-	rows, err := s.database.DB().QueryContext(ctx, query)
+	rows, err := s.database.DB().QueryContext(ctx, query, cutoff)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to query services: %w", err))
 	}
@@ -44,13 +91,74 @@ func (s *Server) ListServices(
 
 	var services []*colonyv1.ServiceSummary
 	for rows.Next() {
-		var svc colonyv1.ServiceSummary
-		var lastSeen time.Time
-		if err := rows.Scan(&svc.Name, &svc.Namespace, &svc.InstanceCount, &lastSeen); err != nil {
+		var (
+			name, namespace    string
+			sourceInt          int
+			registrationStatus sql.NullString
+			instanceCount      int32
+			lastSeen           time.Time
+			agentID            sql.NullString
+		)
+
+		if err := rows.Scan(&name, &namespace, &sourceInt, &registrationStatus, &instanceCount, &lastSeen, &agentID); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to scan service: %w", err))
 		}
-		svc.LastSeen = timestamppb.New(lastSeen)
-		services = append(services, &svc)
+
+		// Convert source integer to enum.
+		sourceValue, clamped := safe.IntToInt32(sourceInt)
+		if clamped {
+			s.logger.Warn().
+				Int("source", sourceInt).
+				Msg("Source value exceeds limit and was clamped")
+		}
+		source := colonyv1.ServiceSource(sourceValue)
+
+		// Apply source filter if specified.
+		if req.Msg.SourceFilter != nil && *req.Msg.SourceFilter != source {
+			continue
+		}
+
+		// Determine service status based on source and registration status.
+		var status *colonyv1.ServiceStatus
+		switch source {
+		// Service is registered.
+		case colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED, colonyv1.ServiceSource_SERVICE_SOURCE_BOTH:
+			// Determine health status
+			if registrationStatus.Valid {
+				switch registrationStatus.String {
+				case "active":
+					s := colonyv1.ServiceStatus_SERVICE_STATUS_ACTIVE
+					status = &s
+				case "unhealthy":
+					s := colonyv1.ServiceStatus_SERVICE_STATUS_UNHEALTHY
+					status = &s
+				default:
+					s := colonyv1.ServiceStatus_SERVICE_STATUS_UNHEALTHY
+					status = &s
+				}
+			}
+
+		// Service is only discovered from telemetry.
+		case colonyv1.ServiceSource_SERVICE_SOURCE_DISCOVERED:
+			s := colonyv1.ServiceStatus_SERVICE_STATUS_DISCOVERED_ONLY
+			status = &s
+		}
+
+		svc := &colonyv1.ServiceSummary{
+			Name:          name,
+			Namespace:     namespace,
+			InstanceCount: instanceCount,
+			LastSeen:      timestamppb.New(lastSeen),
+			Source:        source,
+			Status:        status,
+		}
+
+		// Include agent_id if present and service is registered.
+		if agentID.Valid && (source == colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED || source == colonyv1.ServiceSource_SERVICE_SOURCE_BOTH) {
+			svc.AgentId = &agentID.String
+		}
+
+		services = append(services, svc)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -108,7 +216,7 @@ func (s *Server) GetMetricPercentile(
 		cutoff,
 	).Scan(&value)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no metrics found for service: %s", req.Msg.Service))
 	}
 	if err != nil {
@@ -225,7 +333,7 @@ func (s *Server) GetServiceActivity(
 		cutoff,
 	).Scan(&serviceName, &requestCount, &errorCount)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no activity found for service: %s", req.Msg.Service))
 	}
 	if err != nil {

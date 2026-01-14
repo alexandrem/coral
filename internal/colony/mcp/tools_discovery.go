@@ -18,65 +18,75 @@ type ListServicesOutput struct {
 	Services []ServiceInfo `json:"services"`
 }
 
-// ServiceInfo contains basic information about a service.
+// ServiceInfo contains information about a service.
 type ServiceInfo struct {
-	Name        string            `json:"name"`
-	Port        int32             `json:"port,omitempty"`
-	ServiceType string            `json:"service_type,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
+	Name          string            `json:"name"`
+	Port          int32             `json:"port,omitempty"`
+	ServiceType   string            `json:"service_type,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	Source        string            `json:"source"`                   // REGISTERED, DISCOVERED, or BOTH
+	Status        string            `json:"status,omitempty"`         // ACTIVE, UNHEALTHY, DISCONNECTED, or DISCOVERED_ONLY
+	InstanceCount int32             `json:"instance_count,omitempty"` // Number of instances
+	AgentID       string            `json:"agent_id,omitempty"`       // Agent ID if registered
 }
 
-// registerListServicesTool registers the coral_list_services tool (RFD 054).
+// registerListServicesTool registers the coral_list_services tool (RFD 054, enhanced by RFD 084).
 func (s *Server) registerListServicesTool() {
 	s.registerToolWithSchema(
 		"coral_list_services",
-		"List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
+		"List all services known to the colony - includes both explicitly registered services and auto-discovered services from telemetry data (RFD 084). Returns service names, source attribution (REGISTERED/DISCOVERED/BOTH), health status, instance counts, and metadata. Useful for discovering available services before querying metrics or traces.",
 		ListServicesInput{},
 		s.handleListServices,
 	)
 }
 
-// handleListServices implements the coral_list_services tool handler.
+// handleListServices implements the coral_list_services tool handler (RFD 084 enhanced).
+// Implements dual-source service discovery (registry + telemetry).
 func (s *Server) handleListServices(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	s.auditToolCall("coral_list_services", request.Params.Arguments)
 
-	// Collect unique services from two sources:
-	// 1. Live agents in registry (currently connected)
-	// 2. Historical services in DuckDB (from observability data)
+	// Collect services using the dual-source approach from RFD 084.
 	servicesMap := make(map[string]ServiceInfo)
 
-	// Source 1: Get services from live agents in registry.
-	entries := s.registry.ListAll()
-	for _, entry := range entries {
+	// Source 1: Get services from registry (explicitly registered).
+	registryServices := s.registry.ListAll()
+	for _, entry := range registryServices {
 		for _, svc := range entry.Services {
 			if svc == nil {
 				continue
 			}
 
-			// Use service name as key to deduplicate across agents.
-			if _, exists := servicesMap[svc.Name]; !exists {
-				servicesMap[svc.Name] = ServiceInfo{
-					Name:        svc.Name,
-					Port:        svc.Port,
-					ServiceType: svc.ServiceType,
-					Labels:      svc.Labels,
-				}
+			servicesMap[svc.Name] = ServiceInfo{
+				Name:          svc.Name,
+				Port:          svc.Port,
+				ServiceType:   svc.ServiceType,
+				Labels:        svc.Labels,
+				Source:        "REGISTERED",
+				Status:        "ACTIVE", // Services in registry are active
+				InstanceCount: 1,        // Will be aggregated later if needed
+				AgentID:       entry.AgentID,
 			}
 		}
 	}
 
-	// Source 2: Get historical services from DuckDB observability data.
-	// This includes services that have sent telemetry but may not be currently connected.
-	historicalServices, err := s.getHistoricalServicesFromDB(ctx)
+	// Source 2: Get services from telemetry data (auto-discovered).
+	// This includes services that have sent telemetry but may not be registered.
+	telemetryServices, err := s.getHistoricalServicesFromDB(ctx)
 	if err != nil {
-		s.logger.Warn().Err(err).Msg("Failed to fetch historical services from DuckDB")
-		// Continue anyway with just registry services
+		s.logger.Warn().Err(err).Msg("Failed to fetch telemetry services from DuckDB")
+		// Continue with just registry services
 	} else {
-		for _, serviceName := range historicalServices {
-			if _, exists := servicesMap[serviceName]; !exists {
-				// Add historical service (no port/type/labels available from DB)
+		for _, serviceName := range telemetryServices {
+			if existing, exists := servicesMap[serviceName]; exists {
+				// Service is in both registry and telemetry - mark as BOTH.
+				existing.Source = "BOTH"
+				servicesMap[serviceName] = existing
+			} else {
+				// Service is only in telemetry - discovered only.
 				servicesMap[serviceName] = ServiceInfo{
-					Name: serviceName,
+					Name:   serviceName,
+					Source: "DISCOVERED",
+					Status: "DISCOVERED_ONLY",
 				}
 			}
 		}

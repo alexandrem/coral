@@ -323,15 +323,41 @@ Returns:
 
 #### `coral_list_services`
 
-List all services known to the colony.
+List all services known to the colony from both registry and telemetry sources (RFD 084).
+
+**Dual-Source Discovery:**
+- **REGISTERED**: Services explicitly connected via `ConnectService` API
+- **DISCOVERED**: Services auto-discovered from telemetry data
+- **BOTH**: Services present in both sources
 
 ```
 Input:
-  agent_id (optional): Filter by agent ID
-  service_name (optional): Filter by service name
+  (no parameters - returns all services)
 
-Returns: Service names, ports, types, and health status
+Returns:
+  {
+    "services": [
+      {
+        "name": "api-service",
+        "port": 8080,
+        "service_type": "http",
+        "labels": {},
+        "source": "BOTH",              // REGISTERED | DISCOVERED | BOTH
+        "status": "ACTIVE",             // ACTIVE | UNHEALTHY | DISCONNECTED | DISCOVERED_ONLY
+        "instance_count": 2,
+        "agent_id": "agent-abc123"
+      }
+    ]
+  }
 ```
+
+**Status Types:**
+- `ACTIVE` - Registered and passing health checks
+- `UNHEALTHY` - Registered but health checks failing
+- `DISCONNECTED` - No longer registered but has recent telemetry
+- `DISCOVERED_ONLY` - Only known from telemetry, never registered
+
+**See:** [SERVICE_DISCOVERY.md](./SERVICE_DISCOVERY.md) for complete architecture details
 
 ### Live Debugging
 

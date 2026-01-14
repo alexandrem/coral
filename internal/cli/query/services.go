@@ -15,17 +15,27 @@ import (
 
 func NewServicesCmd() *cobra.Command {
 	var namespace string
+	var timeRange string
+	var sourceFilter string
 
 	cmd := &cobra.Command{
 		Use:   "services",
 		Short: "List discovered services",
 		Long: `List all services discovered by Coral.
 
-Shows service names, namespaces, and instance counts.
+Shows services from both registry (explicitly connected) and telemetry data (auto-discovered).
+
+Visual Indicators:
+  ● (solid circle)  - Active and healthy (registered + telemetry)
+  ◐ (half circle)   - Discovered from telemetry only
+  ○ (hollow circle) - Registered but unhealthy/no telemetry
 
 Examples:
-  coral query services                    # All services
-  coral query services --namespace prod   # Filter by namespace
+  coral query services                          # All services (default: 1h)
+  coral query services --namespace prod         # Filter by namespace
+  coral query services --since 24h              # Extend telemetry lookback
+  coral query services --source registered      # Only registered services
+  coral query services --source discovered      # Only telemetry-discovered
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
@@ -42,11 +52,29 @@ Examples:
 				colonyAddr,
 			)
 
-			// Execute RPC
+			// Build request
 			req := &colonypb.ListServicesRequest{
 				Namespace: namespace,
+				TimeRange: timeRange,
 			}
 
+			// Parse source filter if provided.
+			if sourceFilter != "" {
+				var source colonypb.ServiceSource
+				switch sourceFilter {
+				case "registered":
+					source = colonypb.ServiceSource_SERVICE_SOURCE_REGISTERED
+				case "discovered":
+					source = colonypb.ServiceSource_SERVICE_SOURCE_DISCOVERED
+				case "both":
+					source = colonypb.ServiceSource_SERVICE_SOURCE_BOTH
+				default:
+					return fmt.Errorf("invalid source filter: %s (must be 'registered', 'discovered', or 'both')", sourceFilter)
+				}
+				req.SourceFilter = &source
+			}
+
+			// Execute RPC
 			resp, err := client.ListServices(ctx, connect.NewRequest(req))
 			if err != nil {
 				return fmt.Errorf("failed to list services: %w", err)
@@ -60,14 +88,35 @@ Examples:
 
 			fmt.Printf("Found %d service(s):\n\n", len(resp.Msg.Services))
 			for _, svc := range resp.Msg.Services {
-				fmt.Printf("• %s", svc.Name)
+				// Visual indicator based on source and status.
+				icon := getServiceIcon(svc.Source, svc.Status)
+				fmt.Printf("%s %s", icon, svc.Name)
+
 				if svc.Namespace != "" {
 					fmt.Printf(" (%s)", svc.Namespace)
 				}
+
 				fmt.Printf(" - %d instance(s)", svc.InstanceCount)
-				if svc.LastSeen != nil {
-					fmt.Printf(" (last seen: %s)", svc.LastSeen.AsTime().Format("15:04:05"))
+
+				// Display status if available.
+				if svc.Status != nil {
+					statusStr := formatServiceStatus(*svc.Status)
+					if statusStr != "" {
+						fmt.Printf(" [%s]", statusStr)
+					}
 				}
+
+				fmt.Println()
+
+				// Display source and last seen on second line.
+				fmt.Printf("  Source: %s", formatServiceSource(svc.Source))
+				if svc.LastSeen != nil {
+					fmt.Printf(" | Last seen: %s", svc.LastSeen.AsTime().Format("15:04:05"))
+				}
+				if svc.AgentId != nil {
+					fmt.Printf(" | Agent: %s", *svc.AgentId)
+				}
+				fmt.Println()
 				fmt.Println()
 			}
 
@@ -76,5 +125,49 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&namespace, "namespace", "", "Filter by namespace")
+	cmd.Flags().StringVar(&timeRange, "since", "", "Time range for telemetry discovery (e.g., '1h', '24h')")
+	cmd.Flags().StringVar(&sourceFilter, "source", "", "Filter by source: 'registered', 'discovered', or 'both'")
 	return cmd
+}
+
+// getServiceIcon returns a visual indicator based on service source and status.
+func getServiceIcon(source colonypb.ServiceSource, status *colonypb.ServiceStatus) string {
+	if source == colonypb.ServiceSource_SERVICE_SOURCE_BOTH &&
+		status != nil && *status == colonypb.ServiceStatus_SERVICE_STATUS_ACTIVE {
+		return "●" // Solid circle - active and healthy
+	}
+	if source == colonypb.ServiceSource_SERVICE_SOURCE_DISCOVERED {
+		return "◐" // Half circle - telemetry only
+	}
+	return "○" // Hollow circle - registered but unhealthy/no telemetry
+}
+
+// formatServiceSource returns a human-readable source string.
+func formatServiceSource(source colonypb.ServiceSource) string {
+	switch source {
+	case colonypb.ServiceSource_SERVICE_SOURCE_REGISTERED:
+		return "REGISTERED (registry only)"
+	case colonypb.ServiceSource_SERVICE_SOURCE_DISCOVERED:
+		return "DISCOVERED (telemetry only)"
+	case colonypb.ServiceSource_SERVICE_SOURCE_BOTH:
+		return "BOTH (registered + telemetry)"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// formatServiceStatus returns a human-readable status string.
+func formatServiceStatus(status colonypb.ServiceStatus) string {
+	switch status {
+	case colonypb.ServiceStatus_SERVICE_STATUS_ACTIVE:
+		return "ACTIVE"
+	case colonypb.ServiceStatus_SERVICE_STATUS_UNHEALTHY:
+		return "UNHEALTHY"
+	case colonypb.ServiceStatus_SERVICE_STATUS_DISCONNECTED:
+		return "DISCONNECTED"
+	case colonypb.ServiceStatus_SERVICE_STATUS_DISCOVERED_ONLY:
+		return "DISCOVERED"
+	default:
+		return ""
+	}
 }
