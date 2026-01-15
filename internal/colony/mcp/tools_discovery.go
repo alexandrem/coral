@@ -24,17 +24,17 @@ type ServiceInfo struct {
 	Port          int32             `json:"port,omitempty"`
 	ServiceType   string            `json:"service_type,omitempty"`
 	Labels        map[string]string `json:"labels,omitempty"`
-	Source        string            `json:"source"`                   // REGISTERED, DISCOVERED, or BOTH
-	Status        string            `json:"status,omitempty"`         // ACTIVE, UNHEALTHY, DISCONNECTED, or DISCOVERED_ONLY
-	InstanceCount int32             `json:"instance_count,omitempty"` // Number of instances
-	AgentID       string            `json:"agent_id,omitempty"`       // Agent ID if registered
+	Source        string            `json:"source"`                   // REGISTERED, OBSERVED, or VERIFIED.
+	Status        string            `json:"status,omitempty"`         // ACTIVE, UNHEALTHY, DISCONNECTED, or OBSERVED_ONLY.
+	InstanceCount int32             `json:"instance_count,omitempty"` // Number of instances.
+	AgentID       string            `json:"agent_id,omitempty"`       // Agent ID if registered.
 }
 
 // registerListServicesTool registers the coral_list_services tool (RFD 054, enhanced by RFD 084).
 func (s *Server) registerListServicesTool() {
 	s.registerToolWithSchema(
 		"coral_list_services",
-		"List all services known to the colony - includes both explicitly registered services and auto-discovered services from telemetry data (RFD 084). Returns service names, source attribution (REGISTERED/DISCOVERED/BOTH), health status, instance counts, and metadata. Useful for discovering available services before querying metrics or traces.",
+		"List all services known to the colony - includes both explicitly registered services and auto-observed services from telemetry data (RFD 084). Returns service names, source attribution (REGISTERED/OBSERVED/VERIFIED), health status, instance counts, and metadata. Useful for discovering available services before querying metrics or traces.",
 		ListServicesInput{},
 		s.handleListServices,
 	)
@@ -69,7 +69,7 @@ func (s *Server) handleListServices(ctx context.Context, request mcp.CallToolReq
 		}
 	}
 
-	// Source 2: Get services from telemetry data (auto-discovered).
+	// Source 2: Get services from telemetry data (auto-observed).
 	// This includes services that have sent telemetry but may not be registered.
 	telemetryServices, err := s.getHistoricalServicesFromDB(ctx)
 	if err != nil {
@@ -78,15 +78,15 @@ func (s *Server) handleListServices(ctx context.Context, request mcp.CallToolReq
 	} else {
 		for _, serviceName := range telemetryServices {
 			if existing, exists := servicesMap[serviceName]; exists {
-				// Service is in both registry and telemetry - mark as BOTH.
-				existing.Source = "BOTH"
+				// Service is in both registry and telemetry - mark as VERIFIED.
+				existing.Source = "VERIFIED"
 				servicesMap[serviceName] = existing
 			} else {
-				// Service is only in telemetry - discovered only.
+				// Service is only in telemetry - observed only.
 				servicesMap[serviceName] = ServiceInfo{
 					Name:   serviceName,
-					Source: "DISCOVERED",
-					Status: "DISCOVERED_ONLY",
+					Source: "OBSERVED",
+					Status: "OBSERVED_ONLY",
 				}
 			}
 		}

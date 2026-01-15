@@ -341,6 +341,9 @@ needing to query different data sources separately.
 **Available Commands:**
 
 ```bash
+# Service discovery (dual-source: registry + telemetry)
+coral query services [--namespace <name>] [--since <duration>] [--source <type>]
+
 # Quick health overview (recommended first step)
 coral query summary [service] [--since <duration>]
 
@@ -353,6 +356,108 @@ coral query metrics [service] [--since <duration>]
 # Application logs (OTLP)
 coral query logs [service] [--since <duration>]
 ```
+
+---
+
+### Service Discovery
+
+Coral uses **dual-source service discovery** that combines explicitly registered
+services with services auto-observed from telemetry data. This provides
+complete visibility into your system.
+
+**See:** [SERVICE_DISCOVERY.md](./SERVICE_DISCOVERY.md) for complete
+architecture documentation.
+
+**Service Sources:**
+
+- **REGISTERED** - Services explicitly connected via `coral connect` or
+  `--connect` flag
+- **OBSERVED** - Services auto-observed from HTTP/gRPC traffic or OTLP data
+- **VERIFIED** - Services verified (both registered AND has telemetry data - ideal state)
+
+**Commands:**
+
+```bash
+# List all services (default: registry + telemetry from last 1h)
+coral query services
+
+# Extend telemetry lookback window
+coral query services --since 24h
+
+# Filter by source type
+coral query services --source registered    # Only explicitly connected
+coral query services --source observed      # Only auto-observed
+coral query services --source verified      # Verified services (registered + telemetry)
+coral query services --shadow               # Alias for --source observed
+
+# Filter by namespace
+coral query services --namespace production
+```
+
+**Example Output:**
+
+```
+Found 3 service(s):
+
+● api-service (default) - 2 instance(s) [ACTIVE]
+  Source: VERIFIED (Registered + Observed) | Last seen: 14:23:45 | Agent: agent-1
+
+◐ background-worker (default) - 0 instance(s) [OBSERVED]
+  Source: OBSERVED (Telemetry only) | Last seen: 14:20:15
+
+○ legacy-service (default) - 1 instance(s) [UNHEALTHY]
+  Source: REGISTERED (Registry only) | Last seen: 14:22:30 | Agent: agent-2
+```
+
+**Visual Indicators:**
+
+- ● (solid circle) - Active and verified (VERIFIED source, ACTIVE status)
+- ◐ (half circle) - Observed from telemetry only
+- ○ (hollow circle) - Registered but unhealthy or no recent telemetry
+
+**Status Types:**
+
+- `ACTIVE` - Registered and passing health checks
+- `UNHEALTHY` - Registered but health checks failing
+- `DISCONNECTED` - Was registered, now disconnected but has recent telemetry
+- `OBSERVED` - Only observed from telemetry, never explicitly registered
+
+**Common Use Cases:**
+
+```bash
+# Find all actively running services
+coral query services
+
+# Debug why a service disappeared
+coral query services --since 4h  # Check historical data
+
+# Find unregistered services sending traffic
+coral query services --source observed
+coral query services --shadow  # Same as above
+
+# Production monitoring (only explicitly configured services)
+coral query services --source registered
+
+# Investigate flaky service
+coral query services  # Look for UNHEALTHY status
+coral query summary <service> --since 10m  # Still queryable!
+```
+
+**Troubleshooting:**
+
+**Q: Service not appearing?**
+- Try extending time range: `coral query services --since 24h`
+- Check if explicitly connected: `coral query services --source registered`
+- Verify telemetry is being generated
+
+**Q: Service shows as OBSERVED_ONLY - is this bad?**
+- No! It means Coral auto-observed it from traffic
+- To get health monitoring, explicitly connect: `coral connect <service>:<port>`
+
+**Q: Service shows as UNHEALTHY?**
+- Service is registered but health checks failing
+- Data is still queryable: `coral query summary <service>`
+- Reconnect if needed: `coral connect <service>:<port>`
 
 ---
 

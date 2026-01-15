@@ -381,14 +381,14 @@ func TestListServicesDualSourceDiscovery(t *testing.T) {
 
 		// Verify discovered-only service.
 		if svc, exists := serviceMap["discovered-only"]; exists {
-			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_DISCOVERED, svc.Source)
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_OBSERVED, svc.Source)
 			assert.NotNil(t, svc.Status)
-			assert.Equal(t, colonyv1.ServiceStatus_SERVICE_STATUS_DISCOVERED_ONLY, *svc.Status)
+			assert.Equal(t, colonyv1.ServiceStatus_SERVICE_STATUS_OBSERVED_ONLY, *svc.Status)
 		}
 
 		// Verify both-service.
 		if svc, exists := serviceMap["both-service"]; exists {
-			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_BOTH, svc.Source)
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_VERIFIED, svc.Source)
 			assert.NotNil(t, svc.Status)
 			assert.Equal(t, colonyv1.ServiceStatus_SERVICE_STATUS_ACTIVE, *svc.Status)
 			assert.NotNil(t, svc.AgentId)
@@ -449,7 +449,7 @@ func TestListServicesDualSourceDiscovery(t *testing.T) {
 	})
 
 	t.Run("filters by source - discovered only", func(t *testing.T) {
-		source := colonyv1.ServiceSource_SERVICE_SOURCE_DISCOVERED
+		source := colonyv1.ServiceSource_SERVICE_SOURCE_OBSERVED
 		req := connect.NewRequest(&colonyv1.ListServicesRequest{
 			TimeRange:    "1h",
 			SourceFilter: &source,
@@ -463,7 +463,7 @@ func TestListServicesDualSourceDiscovery(t *testing.T) {
 		serviceMap := make(map[string]*colonyv1.ServiceSummary)
 		for _, svc := range resp.Msg.Services {
 			serviceMap[svc.Name] = svc
-			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_DISCOVERED, svc.Source)
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_OBSERVED, svc.Source)
 		}
 
 		assert.Contains(t, serviceMap, "discovered-only")
@@ -472,7 +472,7 @@ func TestListServicesDualSourceDiscovery(t *testing.T) {
 	})
 
 	t.Run("filters by source - both", func(t *testing.T) {
-		source := colonyv1.ServiceSource_SERVICE_SOURCE_BOTH
+		source := colonyv1.ServiceSource_SERVICE_SOURCE_VERIFIED
 		req := connect.NewRequest(&colonyv1.ListServicesRequest{
 			TimeRange:    "1h",
 			SourceFilter: &source,
@@ -486,7 +486,7 @@ func TestListServicesDualSourceDiscovery(t *testing.T) {
 		serviceMap := make(map[string]*colonyv1.ServiceSummary)
 		for _, svc := range resp.Msg.Services {
 			serviceMap[svc.Name] = svc
-			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_BOTH, svc.Source)
+			assert.Equal(t, colonyv1.ServiceSource_SERVICE_SOURCE_VERIFIED, svc.Source)
 		}
 
 		assert.Contains(t, serviceMap, "both-service")

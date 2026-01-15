@@ -24,33 +24,71 @@ integration.
 
 ---
 
-## Service Connections
+## Service Discovery (RFD 084)
 
 ```bash
-# Connect agent to services
-coral connect <service-spec>...
-coral connect frontend:3000 api:8080:/health
+# List all services (dual-source: registry + telemetry)
+coral query services [--namespace <name>] [--since <duration>] [--source <type>]
 
-# List connected services
-# (no direct CLI command, but can check agent status)
+# Examples:
+coral query services                     # All services (1h telemetry lookback)
+coral query services --since 24h         # Extended lookback
+coral query services --source registered # Only explicitly connected
+coral query services --source observed   # Only auto-observed
+coral query services --source verified   # Verified services (registered + telemetry)
+coral query services --shadow            # Alias for --source observed
 ```
 
-**MCP Equivalents:**
+**MCP Equivalent:** `coral_list_services`
 
-| Operation                | MCP Tool                     | Parameters                                                              |
-|--------------------------|------------------------------|-------------------------------------------------------------------------|
-| List services            | `coral_list_services`        | `agent_id` (optional), `service_name` (optional)                        |
+**See:** [SERVICE_DISCOVERY.md](./SERVICE_DISCOVERY.md) for architecture details
+
+| CLI Parameter     | MCP Parameter | Example                                    |
+|-------------------|---------------|--------------------------------------------|
+| `--namespace`     | N/A           | (filters applied client-side)              |
+| `--since`         | N/A           | (uses colony default: 1h telemetry)        |
+| `--source`        | N/A           | (filters applied client-side)              |
+
+**Note:** The MCP tool returns all services with full metadata. Filtering by namespace or source is done client-side by the AI.
 
 **Example:**
 
 ```json
 {
     "name": "coral_list_services",
-    "arguments": {
-        "agent_id": "hostname-api-1"
-    }
+    "arguments": {}
 }
 ```
+
+**Response includes (RFD 084):**
+
+```json
+{
+    "services": [
+        {
+            "name": "api-service",
+            "port": 8080,
+            "service_type": "http",
+            "labels": {},
+            "source": "VERIFIED",           // REGISTERED | OBSERVED | VERIFIED
+            "status": "ACTIVE",             // ACTIVE | UNHEALTHY | DISCONNECTED | OBSERVED_ONLY
+            "instance_count": 2,
+            "agent_id": "agent-abc123"
+        }
+    ]
+}
+```
+
+**Service Sources:**
+- `REGISTERED` - Explicitly connected via `coral connect` or `--connect` flag
+- `OBSERVED` - Auto-observed from HTTP/gRPC traffic or OTLP data
+- `VERIFIED` - Verified (registered AND has telemetry data - ideal state)
+
+**Service Status:**
+- `ACTIVE` - Registered and passing health checks
+- `UNHEALTHY` - Registered but health checks failing
+- `DISCONNECTED` - Was registered, now disconnected but has recent telemetry
+- `OBSERVED_ONLY` - Only observed from telemetry
 
 ---
 
@@ -547,11 +585,11 @@ coral exec <service> <command> [args...] [flags]
 | `coral_query_metrics` | HTTP/gRPC/SQL metrics (eBPF + OTLP)  | `service`, `time_range`             |
 | `coral_query_logs`    | Logs (OTLP)                          | `service`, `time_range`, `level`    |
 
-### Service Discovery
+### Service Discovery (RFD 084)
 
-| Tool Name             | Description                 | Key Parameters                 |
-|-----------------------|-----------------------------|--------------------------------|
-| `coral_list_services` | List all monitored services | `agent_id`, `service_name`     |
+| Tool Name             | Description                                                          | Key Parameters                                              |
+|-----------------------|----------------------------------------------------------------------|-------------------------------------------------------------|
+| `coral_list_services` | List all services (dual-source: registry + telemetry observed) | None (returns all with source/status metadata for filtering) |
 
 ### Live Debugging (RFD 062)
 
