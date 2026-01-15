@@ -19,7 +19,7 @@ areas: [ "colony", "query", "observability", "cli", "mcp" ]
 
 Enhance the `ListServices` RPC to support dual-source service discovery, showing
 both explicitly registered services (via `ConnectService` API) and
-auto-discovered services (from telemetry data). This unifies service visibility
+auto-observed services (from telemetry data). This unifies service visibility
 across all query interfaces, eliminating the current inconsistency where
 services appear in `coral query summary` but not in `coral query services`.
 
@@ -58,7 +58,7 @@ problem is NOT lost data, but rather inconsistent service discovery between
 - **Confusion for users**: Users don't understand why services appear in
   summaries but not in service lists, or why they need two different commands
 - **No unified service discovery**: Cannot get a complete list of all services
-  (both registered and telemetry-discovered) from a single query
+  (both registered and telemetry-observed) from a single query
 
 **Why This Matters:**
 
@@ -82,7 +82,7 @@ implementation details about two separate query paths.
   results than `coral query summary`, confusing users
 - **Intermittent failures**: Services that flap between healthy/unhealthy
   disappear from `ListServices` but remain visible in `QueryUnifiedSummary`
-- **Auto-discovered services**: Services discovered only through telemetry (no
+- **Auto-observed services**: Services observed only through telemetry (no
   explicit registration) remain hidden from `ListServices` query
 - **LLM-driven debugging**: AI assistants using `coral_query_services` MCP tool
   cannot discover all services with available telemetry data (must use separate
@@ -115,7 +115,7 @@ additional metadata indicating registration status and last activity.
 1. **Non-breaking enhancement** - Existing behavior preserved by default, new
    fields are optional additions
 2. **Time-bounded telemetry discovery** - Use `last_seen` timestamp to limit
-   telemetry-discovered services to recent activity
+   telemetry-observed services to recent activity
 3. **Source transparency** - Always indicate where service information came from
 4. **Opt-in filtering** - Allow filtering by source type for specialized use
    cases
@@ -146,7 +146,7 @@ additional metadata indicating registration status and last activity.
 │  │  Registry Source    │    │  Telemetry Source          │ │
 │  │  (services table)   │    │  (beyla_http_metrics, etc) │ │
 │  │                     │    │                             │ │
-│  │  • Explicit connect │    │  • Auto-discovered         │ │
+│  │  • Explicit connect │    │  • Auto-observed           │ │
 │  │  • Health status    │    │  • Historical data         │ │
 │  │  • Agent ID         │    │  • Active in time range    │ │
 │  └──────────┬──────────┘    └──────────┬─────────────────┘ │
@@ -201,7 +201,7 @@ The time range for telemetry-based discovery is configurable in colony settings:
 ```yaml
 colony:
     service_discovery:
-        # How far back to look for telemetry-discovered services
+        # How far back to look for telemetry-observed services
         # Services with telemetry data newer than this are included
         telemetry_lookback: "1h" # default: 1 hour
 ```
@@ -218,11 +218,11 @@ enum ServiceSource {
     // Service is explicitly registered via ConnectService API
     SERVICE_SOURCE_REGISTERED = 1;
 
-    // Service is auto-discovered from telemetry data only
-    SERVICE_SOURCE_DISCOVERED = 2;
+    // Service is auto-observed from telemetry data only
+    SERVICE_SOURCE_OBSERVED = 2;
 
-    // Service is both registered AND has telemetry data
-    SERVICE_SOURCE_BOTH = 3;
+    // Service is verified (both registered AND has telemetry data)
+    SERVICE_SOURCE_VERIFIED = 3;
 }
 
 // ServiceStatus indicates the current registration and health status.
@@ -239,7 +239,7 @@ enum ServiceStatus {
     SERVICE_STATUS_DISCONNECTED = 3;
 
     // Service is only known from telemetry, never explicitly registered
-    SERVICE_STATUS_DISCOVERED_ONLY = 4;
+    SERVICE_STATUS_OBSERVED_ONLY = 4;
 }
 
 // ServiceSummary represents a discovered service.
@@ -268,7 +268,7 @@ message ListServicesRequest {
 
     // NEW: Time range for telemetry-based discovery (e.g., "1h", "24h")
     // Defaults to "1h" if not specified
-    // Only affects telemetry-discovered services
+    // Only affects telemetry-observed services
     string time_range = 2;
 
     // NEW: Filter by service source
@@ -283,7 +283,7 @@ The existing RPC signature remains unchanged (backward compatible):
 
 ```protobuf
 service ColonyService {
-    // Lists all known services (registry + telemetry discovered)
+    // Lists all known services (registry + telemetry observed)
     rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
 }
 ```
@@ -300,11 +300,11 @@ coral query services
 Found 3 service(s):
 
 ● otel-app (default) - 1 instance(s) [ACTIVE]
-  Source: BOTH (registered + telemetry)
+  Source: VERIFIED (registered + telemetry)
   Last seen: 14:23:45
 
 ◐ flaky-api (default) - 0 instance(s) [DISCONNECTED]
-  Source: DISCOVERED (telemetry only)
+  Source: OBSERVED (telemetry only)
   Last seen: 14:20:12 (3 minutes ago)
 
 ○ legacy-service (default) - 1 instance(s) [UNHEALTHY]
@@ -314,7 +314,7 @@ Found 3 service(s):
 # Filter to only registered services
 coral query services --source registered
 
-# Filter to only telemetry-discovered services
+# Filter to only telemetry-observed services
 coral query services --source discovered
 
 # Extend telemetry lookback window
@@ -323,8 +323,8 @@ coral query services --since 24h
 
 **Visual Indicators:**
 
-- `●` (solid circle) - Active and healthy (BOTH source, ACTIVE status)
-- `◐` (half circle) - Discovered from telemetry only (DISCOVERED source)
+- `●` (solid circle) - Active and verified (VERIFIED source, ACTIVE status)
+- `◐` (half circle) - Observed from telemetry only (OBSERVED source)
 - `○` (hollow circle) - Registered but unhealthy/no telemetry (REGISTERED
   source)
 
@@ -339,9 +339,9 @@ SELECT COALESCE(s.name, t.service_name) as name,
 
        -- Source attribution
        CASE
-           WHEN s.name IS NOT NULL AND t.service_name IS NOT NULL THEN 'BOTH'
+           WHEN s.name IS NOT NULL AND t.service_name IS NOT NULL THEN 'VERIFIED'
            WHEN s.name IS NOT NULL THEN 'REGISTERED'
-           ELSE 'DISCOVERED'
+           ELSE 'OBSERVED'
            END                          as source,
 
        -- Registration status (only for registered services)
@@ -362,7 +362,7 @@ SELECT COALESCE(s.name, t.service_name) as name,
 
 FROM services s
 
--- FULL OUTER JOIN with telemetry-discovered services
+-- FULL OUTER JOIN with telemetry-observed services
          FULL OUTER JOIN (SELECT DISTINCT service_name,
                                           MAX(timestamp) as last_timestamp
                           FROM beyla_http_metrics
@@ -388,14 +388,14 @@ ORDER BY last_seen DESC
 **Colony Server (`query_service_test.go`):**
 
 - `TestListServices_RegisteredOnly` - Services only in registry, no telemetry
-- `TestListServices_DiscoveredOnly` - Services only in telemetry, not registered
-- `TestListServices_Both` - Services in both registry and telemetry
+- `TestListServices_ObservedOnly` - Services only in telemetry, not registered
+- `TestListServices_Verified` - Services in both registry and telemetry
 - `TestListServices_UnhealthyWithTelemetry` - Registered but unhealthy service
   with telemetry data
 - `TestListServices_DisconnectedWithTelemetry` - Disconnected service with
   recent telemetry
 - `TestListServices_TimeRangeFilter` - Telemetry lookback window filtering
-- `TestListServices_SourceFilter` - Filter by REGISTERED/DISCOVERED/BOTH
+- `TestListServices_SourceFilter` - Filter by REGISTERED/OBSERVED/VERIFIED
 
 **Test Data Setup:**
 
@@ -427,10 +427,10 @@ ORDER BY last_seen DESC
 ```go
 // 1. Connect otel-app via ConnectService
 // 2. Generate telemetry data for otel-app
-// 3. Generate telemetry for "auto-discovered-app" (no explicit connection)
+// 3. Generate telemetry for "auto-observed-app" (no explicit connection)
 // 4. Query services → Should see both
 // 5. Disconnect otel-app
-// 6. Query services → Should still see otel-app (via telemetry) + auto-discovered-app
+// 6. Query services → Should still see otel-app (via telemetry) + auto-observed-app
 ```
 
 ### E2E Tests
@@ -443,7 +443,7 @@ coral agent connect otel-app --port 8080
 
 # 2. Verify service appears as ACTIVE + BOTH
 coral query services | grep otel-app
-# Expected: ● otel-app ... [ACTIVE] Source: BOTH
+# Expected: ● otel-app ... [ACTIVE] Source: VERIFIED
 
 # 3. Make service unhealthy (stop health endpoint)
 docker-compose stop otel-app-health-proxy
@@ -453,7 +453,7 @@ sleep 30
 
 # 5. Verify service still appears, status changed
 coral query services | grep otel-app
-# Expected: ○ otel-app ... [UNHEALTHY] Source: BOTH
+# Expected: ○ otel-app ... [UNHEALTHY] Source: VERIFIED
 
 # 6. Verify telemetry is still queryable
 coral query summary otel-app --since 5m
@@ -511,8 +511,8 @@ All components have been implemented and tested. All tests pass.
 **Implementation Details:**
 
 - ✅ Protobuf message enhancements
-  - Added `ServiceSource` enum (REGISTERED, DISCOVERED, BOTH)
-  - Added `ServiceStatus` enum (ACTIVE, UNHEALTHY, DISCONNECTED, DISCOVERED_ONLY)
+  - Added `ServiceSource` enum (REGISTERED, OBSERVED, VERIFIED)
+  - Added `ServiceStatus` enum (ACTIVE, UNHEALTHY, DISCONNECTED, OBSERVED_ONLY)
   - Extended `ServiceSummary` with source, status, and agent_id fields
   - Extended `ListServicesRequest` with time_range and source_filter fields
   - File: `proto/coral/colony/v1/queries.proto`
@@ -539,7 +539,7 @@ All components have been implemented and tested. All tests pass.
 
 - ✅ Unit tests
   - Comprehensive test suite for dual-source discovery
-  - Tests for registered-only, discovered-only, and both sources
+  - Tests for registered-only, observed-only, and verified sources
   - Tests for time range filtering
   - Tests for source filtering
   - File: `internal/colony/server/query_service_test.go`
@@ -555,9 +555,9 @@ future work:
 
 **Service Activity Metrics** (Future - Low Priority)
 
-- Track "first seen" timestamp for telemetry-discovered services
-- Count total requests/traces seen for auto-discovered services
-- Add "confidence score" for auto-discovered services based on data volume
+- Track "first seen" timestamp for telemetry-observed services
+- Count total requests/traces seen for auto-observed services
+- Add "confidence score" for auto-observed services based on data volume
 
 **Namespace Support** (Blocked by RFD XXX)
 
@@ -628,10 +628,10 @@ services:
         labels:
             coral.auto_connect: "true"
 
-    # Auto-discovered (no explicit registration)
-    auto-discovered-app:
+    # Auto-observed (no explicit registration)
+    auto-observed-app:
         image: coral/test-app
-        # No coral labels, will be discovered via telemetry only
+        # No coral labels, will be observed via telemetry only
 
     # Flaky service for testing unhealthy scenarios
     flaky-app:

@@ -19,7 +19,7 @@ import (
 // Unified query handlers (RFD 067) are in unified_query_handlers.go.
 
 // ListServices handles service discovery requests with dual-source discovery (RFD 084).
-// Returns services from both the registry (explicitly connected) and telemetry data (auto-discovered).
+// Returns services from both the registry (explicitly connected) and telemetry data (auto-observed).
 func (s *Server) ListServices(
 	ctx context.Context,
 	req *connect.Request[colonyv1.ListServicesRequest],
@@ -44,9 +44,9 @@ func (s *Server) ListServices(
 
 			-- Source attribution
 			CASE
-				WHEN s.name IS NOT NULL AND t.service_name IS NOT NULL THEN 3  -- BOTH
+				WHEN s.name IS NOT NULL AND t.service_name IS NOT NULL THEN 3  -- VERIFIED
 				WHEN s.name IS NOT NULL THEN 1                                  -- REGISTERED
-				ELSE 2                                                          -- DISCOVERED
+				ELSE 2                                                          -- OBSERVED
 			END as source,
 
 			-- Registration status (only for registered services)
@@ -67,7 +67,7 @@ func (s *Server) ListServices(
 
 		FROM services s
 
-		-- FULL OUTER JOIN with telemetry-discovered services
+		-- FULL OUTER JOIN with telemetry-observed services
 		FULL OUTER JOIN (
 			SELECT DISTINCT
 				service_name,
@@ -122,7 +122,7 @@ func (s *Server) ListServices(
 		var status *colonyv1.ServiceStatus
 		switch source {
 		// Service is registered.
-		case colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED, colonyv1.ServiceSource_SERVICE_SOURCE_BOTH:
+		case colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED, colonyv1.ServiceSource_SERVICE_SOURCE_VERIFIED:
 			// Determine health status
 			if registrationStatus.Valid {
 				switch registrationStatus.String {
@@ -138,9 +138,9 @@ func (s *Server) ListServices(
 				}
 			}
 
-		// Service is only discovered from telemetry.
-		case colonyv1.ServiceSource_SERVICE_SOURCE_DISCOVERED:
-			s := colonyv1.ServiceStatus_SERVICE_STATUS_DISCOVERED_ONLY
+		// Service is only observed from telemetry.
+		case colonyv1.ServiceSource_SERVICE_SOURCE_OBSERVED:
+			s := colonyv1.ServiceStatus_SERVICE_STATUS_OBSERVED_ONLY
 			status = &s
 		}
 
@@ -154,7 +154,7 @@ func (s *Server) ListServices(
 		}
 
 		// Include agent_id if present and service is registered.
-		if agentID.Valid && (source == colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED || source == colonyv1.ServiceSource_SERVICE_SOURCE_BOTH) {
+		if agentID.Valid && (source == colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED || source == colonyv1.ServiceSource_SERVICE_SOURCE_VERIFIED) {
 			svc.AgentId = &agentID.String
 		}
 

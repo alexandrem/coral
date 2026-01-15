@@ -7,7 +7,7 @@
 Coral uses a **dual-source service discovery** system that combines explicit
 service registration with automatic discovery from telemetry data. This provides
 complete visibility into your distributed system, showing both services you've
-explicitly connected and services that are automatically discovered from
+explicitly connected and services that are automatically observed from
 observability data.
 
 ## Architecture
@@ -21,7 +21,7 @@ observability data.
 │                                                                   │
 │  ┌───────────────────────────┐    ┌────────────────────────────┐  │
 │  │   Source 1: Registry      │    │  Source 2: Telemetry       │  │
-│  │   (Explicit Registration) │    │  (Auto-Discovery)          │  │
+│  │   (Explicit Registration) │    │  (Auto-Observation)          │  │
 │  ├───────────────────────────┤    ├────────────────────────────┤  │
 │  │                           │    │                            │  │
 │  │ • ConnectService API      │    │ • eBPF HTTP/gRPC metrics   │  │
@@ -93,9 +93,9 @@ client.ConnectService(ctx, &agentv1.ConnectServiceRequest{
 - Instance count aggregated across agents
 - Persists until explicitly disconnected or health checks fail
 
-### Source 2: Telemetry (Auto-Discovery)
+### Source 2: Telemetry (Auto-Observation)
 
-Services are automatically discovered when they:
+Services are automatically observed when they:
 
 **Generate HTTP/gRPC Traffic:**
 
@@ -123,7 +123,7 @@ Services are automatically discovered when they:
 
 ```
                     ┌──────────────────┐
-                    │  Not Discovered  │
+                    │  Not Observed    │
                     └────────┬─────────┘
                              │
                 ┌────────────┴────────────┐
@@ -132,10 +132,10 @@ Services are automatically discovered when they:
                 │                         │
                 ▼                         ▼
     ┌───────────────────┐     ┌───────────────────┐
-    │    REGISTERED     │     │    DISCOVERED     │
+    │    REGISTERED     │     │     OBSERVED      │
     │                   │     │                   │
-    │ Source: REGISTERED│     │ Source: DISCOVERED│
-    │ Status: ACTIVE    │     │ Status: DISCOVERED│
+    │ Source: REGISTERED│     │ Source: OBSERVED│
+    │ Status: ACTIVE    │     │ Status: OBSERVED  │
     │                   │     │       _ONLY       │
     └─────────┬─────────┘     └─────────┬─────────┘
               │                         │
@@ -144,9 +144,9 @@ Services are automatically discovered when they:
               └──────────┬──────────────┘
                          ▼
                 ┌──────────────────┐
-                │      BOTH        │
+                │    VERIFIED      │
                 │                  │
-                │ Source: BOTH     │
+                │ Source: VERIFIED │
                 │ Status: ACTIVE   │
                 │ (healthy)        │
                 └─────────┬────────┘
@@ -160,22 +160,22 @@ Services are automatically discovered when they:
     │UNHEALTHY │   │DISCONNECT│   │  ACTIVE  │
     │          │   │   ED     │   │          │
     │Source:   │   │          │   │Source:   │
-    │BOTH/REG  │   │Source:   │   │BOTH      │
-    │Status:   │   │DISCOVERED│   │Status:   │
-    │UNHEALTHY │   │Status:   │   │ACTIVE    │
-    │          │   │DISCONNECT│   │          │
-    └──────────┘   │   ED     │   └──────────┘
-                   └──────────┘
+    │VERIFIED/ │   │Source:   │   │VERIFIED  │
+    │REGISTERED│   │OBSERVED  │   │          │
+    │Status:   │   │Status:   │   │Status:   │
+    │UNHEALTHY │   │DISCONNECT│   │ACTIVE    │
+    │          │   │   ED     │   │          │
+    └──────────┘   └──────────┘   └──────────┘
 ```
 
 ## Service Status Types
 
-| Status            | Source             | Meaning                                                                 | CLI Indicator                                 |
-|-------------------|--------------------|-------------------------------------------------------------------------|-----------------------------------------------|
-| `ACTIVE`          | REGISTERED or BOTH | Service registered and passing health checks                            | ● (solid) if BOTH<br>○ (hollow) if REGISTERED |
-| `UNHEALTHY`       | REGISTERED or BOTH | Service registered but health checks failing                            | ○ (hollow)                                    |
-| `DISCONNECTED`    | DISCOVERED         | Service was registered but now disconnected; still has recent telemetry | ◐ (half)                                      |
-| `DISCOVERED_ONLY` | DISCOVERED         | Service never registered; only known from telemetry                     | ◐ (half)                                      |
+| Status            | Source                 | Meaning                                                                 | CLI Indicator                                     |
+|-------------------|------------------------|-------------------------------------------------------------------------|---------------------------------------------------|
+| `ACTIVE`          | REGISTERED or VERIFIED | Service registered and passing health checks                            | ● (solid) if VERIFIED<br>○ (hollow) if REGISTERED |
+| `UNHEALTHY`       | REGISTERED or VERIFIED | Service registered but health checks failing                            | ○ (hollow)                                        |
+| `DISCONNECTED`    | OBSERVED               | Service was registered but now disconnected; still has recent telemetry | ◐ (half)                                          |
+| `OBSERVED_ONLY`   | OBSERVED               | Service never registered; only known from telemetry                     | ◐ (half)                                          |
 
 ## Query Implementation
 
@@ -189,9 +189,9 @@ SELECT COALESCE(s.name, t.service_name)        as name,
 
        -- Source attribution
        CASE
-           WHEN s.name IS NOT NULL AND t.service_name IS NOT NULL THEN 3 -- BOTH
+           WHEN s.name IS NOT NULL AND t.service_name IS NOT NULL THEN 3 -- VERIFIED
            WHEN s.name IS NOT NULL THEN 1 -- REGISTERED
-           ELSE 2 -- DISCOVERED
+           ELSE 2 -- OBSERVED
            END                                 as source,
 
        -- Registration status (only for registered services)
@@ -212,7 +212,7 @@ SELECT COALESCE(s.name, t.service_name)        as name,
 
 FROM services s
 
--- FULL OUTER JOIN with telemetry-discovered services
+-- FULL OUTER JOIN with telemetry-observed services
          FULL OUTER JOIN (SELECT DISTINCT service_name,
                                           MAX(timestamp) as last_timestamp
                           FROM beyla_http_metrics
@@ -244,7 +244,7 @@ coral query services --since 1w   # Week-long lookback
 
 **How It Works:**
 
-- Time range only affects telemetry-discovered services
+- Time range only affects telemetry-observed services
 - Registry services always appear regardless of time range
 - Cutoff: `WHERE timestamp > NOW() - INTERVAL '<time_range>'`
 
@@ -264,13 +264,13 @@ coral query services
 Found 3 service(s):
 
 ● api-service (default) - 2 instance(s) [ACTIVE]
-  Source: BOTH (registered + telemetry) | Last seen: 14:23:45 | Agent: agent-1
+  Source: VERIFIED (registered + telemetry) | Last seen: 14:23:45 | Agent: agent-1
 
 ● frontend (default) - 1 instance(s) [ACTIVE]
-  Source: BOTH (registered + telemetry) | Last seen: 14:23:40 | Agent: agent-2
+  Source: VERIFIED (registered + telemetry) | Last seen: 14:23:40 | Agent: agent-2
 
 ◐ background-worker (default) - 0 instance(s) [DISCOVERED]
-  Source: DISCOVERED (telemetry only) | Last seen: 14:20:15
+  Source: OBSERVED (telemetry only) | Last seen: 14:20:15
 ```
 
 **Analysis:**
@@ -288,7 +288,7 @@ coral query services
 
 # Output shows:
 ○ payment-api (default) - 1 instance(s) [UNHEALTHY]
-  Source: BOTH (registered + telemetry) | Last seen: 14:22:30 | Agent: agent-3
+  Source: VERIFIED (registered + telemetry) | Last seen: 14:22:30 | Agent: agent-3
 ```
 
 **What This Tells You:**
@@ -303,7 +303,7 @@ coral query services
 **Goal:** Discover services sending traffic but not explicitly monitored
 
 ```bash
-coral query services --source discovered
+coral query services --source observed
 ```
 
 **Output:**
@@ -311,11 +311,11 @@ coral query services --source discovered
 ```
 Found 2 service(s):
 
-◐ redis-proxy (default) - 0 instance(s) [DISCOVERED_ONLY]
-  Source: DISCOVERED (telemetry only) | Last seen: 14:18:22
+◐ redis-proxy (default) - 0 instance(s) [OBSERVED_ONLY]
+  Source: OBSERVED (telemetry only) | Last seen: 14:18:22
 
-◐ kafka-consumer (default) - 0 instance(s) [DISCOVERED_ONLY]
-  Source: DISCOVERED (telemetry only) | Last seen: 14:15:10
+◐ kafka-consumer (default) - 0 instance(s) [OBSERVED_ONLY]
+  Source: OBSERVED (telemetry only) | Last seen: 14:15:10
 ```
 
 **Action:**
@@ -360,7 +360,7 @@ coral query services
 # With filters
 coral query services --namespace prod
 coral query services --since 24h
-coral query services --source both
+coral query services --source verified
 
 # JSON output for automation
 coral query services --format json
@@ -376,7 +376,7 @@ AI assistants can query services via MCP:
         {
             "name": "api-service",
             "port": 8080,
-            "source": "BOTH",
+            "source": "VERIFIED",
             "status": "ACTIVE",
             "instance_count": 2,
             "agent_id": "agent-1"
@@ -388,7 +388,7 @@ AI assistants can query services via MCP:
 **Example Claude Desktop Query:**
 > "What services are currently running?"
 
-Claude calls `coral_list_services` → Filters for `source: BOTH` and
+Claude calls `coral_list_services` → Filters for `source: VERIFIED` and
 `status: ACTIVE` → Presents results.
 
 ### TypeScript SDK
@@ -401,7 +401,7 @@ const client = new CoralClient();
 // List all services
 const response = await client.query.listServices({
     timeRange: "1h",
-    sourceFilter: "BOTH"
+    sourceFilter: "VERIFIED"
 });
 
 for (const service of response.services) {
@@ -416,7 +416,7 @@ import colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 
 resp, err := client.ListServices(ctx, &colonyv1.ListServicesRequest{
     TimeRange: "1h",
-    SourceFilter: colonyv1.ServiceSource_SERVICE_SOURCE_BOTH.Enum(),
+    SourceFilter: colonyv1.ServiceSource_SERVICE_SOURCE_VERIFIED.Enum(),
 })
 ```
 
@@ -446,7 +446,7 @@ resp, err := client.ListServices(ctx, &colonyv1.ListServicesRequest{
     - Service in different namespace
     - **Solution:** Check `coral query services --namespace <other>`
 
-### Service Shows as DISCOVERED_ONLY
+### Service Shows as OBSERVED_ONLY
 
 **Is this a problem?** No, this is expected behavior.
 
@@ -565,7 +565,7 @@ scale
 
 ### Privacy Considerations
 
-**Auto-Discovery Implications:**
+**Auto-Observation Implications:**
 
 - Services may appear without explicit registration
 - This is by design: provides complete observability

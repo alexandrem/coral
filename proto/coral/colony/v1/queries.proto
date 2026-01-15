@@ -174,11 +174,11 @@ enum ServiceSource {
   // Service is explicitly registered via ConnectService API.
   SERVICE_SOURCE_REGISTERED = 1;
 
-  // Service is auto-discovered from telemetry data only.
-  SERVICE_SOURCE_DISCOVERED = 2;
+  // Service is auto-observed from telemetry data only.
+  SERVICE_SOURCE_OBSERVED = 2;
 
-  // Service is both registered AND has telemetry data.
-  SERVICE_SOURCE_BOTH = 3;
+  // Service is verified (both registered AND has telemetry data).
+  SERVICE_SOURCE_VERIFIED = 3;
 }
 
 // ServiceStatus indicates the current registration and health status (RFD 084).
@@ -194,8 +194,8 @@ enum ServiceStatus {
   // Service is no longer registered but has recent telemetry.
   SERVICE_STATUS_DISCONNECTED = 3;
 
-  // Service is only known from telemetry, never explicitly registered.
-  SERVICE_STATUS_DISCOVERED_ONLY = 4;
+  // Service is only observed from telemetry, never explicitly registered.
+  SERVICE_STATUS_OBSERVED_ONLY = 4;
 }
 
 message ListServicesRequest {
@@ -204,7 +204,7 @@ message ListServicesRequest {
 
   // Time range for telemetry-based discovery (e.g., "1h", "24h").
   // Defaults to "1h" if not specified.
-  // Only affects telemetry-discovered services (RFD 084).
+  // Only affects telemetry-observed services (RFD 084).
   string time_range = 2;
 
   // Filter by service source (RFD 084).

@@ -327,8 +327,8 @@ List all services known to the colony from both registry and telemetry sources (
 
 **Dual-Source Discovery:**
 - **REGISTERED**: Services explicitly connected via `ConnectService` API
-- **DISCOVERED**: Services auto-discovered from telemetry data
-- **BOTH**: Services present in both sources
+- **OBSERVED**: Services auto-observed from telemetry data
+- **VERIFIED**: Services verified (registered AND has telemetry data)
 
 ```
 Input:
@@ -342,8 +342,8 @@ Returns:
         "port": 8080,
         "service_type": "http",
         "labels": {},
-        "source": "BOTH",              // REGISTERED | DISCOVERED | BOTH
-        "status": "ACTIVE",             // ACTIVE | UNHEALTHY | DISCONNECTED | DISCOVERED_ONLY
+        "source": "VERIFIED",           // REGISTERED | OBSERVED | VERIFIED
+        "status": "ACTIVE",             // ACTIVE | UNHEALTHY | DISCONNECTED | OBSERVED_ONLY
         "instance_count": 2,
         "agent_id": "agent-abc123"
       }
@@ -355,7 +355,7 @@ Returns:
 - `ACTIVE` - Registered and passing health checks
 - `UNHEALTHY` - Registered but health checks failing
 - `DISCONNECTED` - No longer registered but has recent telemetry
-- `DISCOVERED_ONLY` - Only known from telemetry, never registered
+- `OBSERVED_ONLY` - Only observed from telemetry, never registered
 
 **See:** [SERVICE_DISCOVERY.md](./SERVICE_DISCOVERY.md) for complete architecture details
 

@@ -254,7 +254,8 @@ coral query services                           # List all services (registry + t
 coral query services --namespace production    # Filter by namespace
 coral query services --since 24h               # Extend telemetry lookback
 coral query services --source registered       # Only explicitly connected services
-coral query services --source discovered       # Only auto-discovered from telemetry
+coral query services --source observed         # Only auto-observed from telemetry
+coral query services --shadow                  # Alias for --source observed
 
 # See: docs/SERVICE_DISCOVERY.md for architecture details
 

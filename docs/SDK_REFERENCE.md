@@ -58,15 +58,20 @@ Scripts automatically connect to the active colony via environment variables:
 
 **Module:** `coral.services`
 
-Service discovery and enumeration.
+Service discovery and enumeration with dual-source discovery (RFD 084).
 
-### `list(namespace?: string): Promise<ServiceInfo[]>`
+**See:** [SERVICE_DISCOVERY.md](./SERVICE_DISCOVERY.md) for architecture details.
 
-List all discovered services.
+### `list(options?: ListServicesOptions): Promise<ServiceInfo[]>`
+
+List all services from both registry and telemetry sources (dual-source discovery).
 
 **Parameters:**
 
-- `namespace` (optional): Filter by namespace
+- `options` (optional): Query options
+  - `namespace?: string` - Filter by namespace
+  - `timeRange?: string` - Time range for telemetry discovery (e.g., "1h", "24h", default: "1h")
+  - `sourceFilter?: ServiceSource` - Filter by source type
 
 **Returns:** Array of `ServiceInfo` objects
 
@@ -75,25 +80,74 @@ List all discovered services.
 ```typescript
 import * as coral from "@coral/sdk";
 
-// List all services
+// List all services (registry + telemetry from last 1h)
 const services = await coral.services.list();
 
 for (const svc of services) {
-    console.log(`${svc.name} - ${svc.instanceCount} instance(s)`);
+    console.log(`${svc.name} - ${svc.source} [${svc.status || 'N/A'}]`);
+    console.log(`  Instances: ${svc.instanceCount}`);
+    if (svc.agentId) {
+        console.log(`  Agent: ${svc.agentId}`);
+    }
 }
 
 // Filter by namespace
-const prodServices = await coral.services.list("production");
+const prodServices = await coral.services.list({ namespace: "production" });
+
+// Extend telemetry lookback
+const recentServices = await coral.services.list({ timeRange: "24h" });
+
+// Filter by source
+const registeredOnly = await coral.services.list({
+    sourceFilter: ServiceSource.REGISTERED
+});
+
+const observedOnly = await coral.services.list({
+    sourceFilter: ServiceSource.OBSERVED
+});
 ```
 
 **ServiceInfo Type:**
 
 ```typescript
 interface ServiceInfo {
-    name: string;              // Service name
-    namespace: string;         // Namespace (empty if none)
-    instanceCount: number;     // Number of instances
-    lastSeen: Date;           // Last seen timestamp
+    name: string;                    // Service name
+    namespace: string;               // Namespace (empty if none)
+    instanceCount: number;           // Number of instances
+    lastSeen: Date;                  // Last seen timestamp
+
+    // RFD 084: Dual-source discovery fields
+    source: ServiceSource;           // Where this service info came from
+    status?: ServiceStatus;          // Current status (if registered)
+    agentId?: string;                // Agent ID (if registered)
+}
+
+enum ServiceSource {
+    UNSPECIFIED = 0,
+    REGISTERED = 1,    // Explicitly connected via ConnectService API
+    OBSERVED = 2,      // Auto-observed from telemetry data
+    VERIFIED = 3       // Verified (registered AND has telemetry)
+}
+
+enum ServiceStatus {
+    UNSPECIFIED = 0,
+    ACTIVE = 1,           // Registered and passing health checks
+    UNHEALTHY = 2,        // Registered but health checks failing
+    DISCONNECTED = 3,     // No longer registered but has recent telemetry
+    OBSERVED_ONLY = 4     // Only observed from telemetry
+}
+```
+
+**Service Source Interpretation:**
+
+```typescript
+// Check service source
+if (svc.source === ServiceSource.VERIFIED && svc.status === ServiceStatus.ACTIVE) {
+    console.log(`✅ ${svc.name} is fully verified and healthy`);
+} else if (svc.source === ServiceSource.OBSERVED) {
+    console.log(`◐ ${svc.name} is auto-observed (consider explicitly connecting)`);
+} else if (svc.status === ServiceStatus.UNHEALTHY) {
+    console.log(`⚠️ ${svc.name} is unhealthy (health checks failing)`);
 }
 ```
 

@@ -31,10 +31,10 @@ const (
 	ServiceSource_SERVICE_SOURCE_UNSPECIFIED ServiceSource = 0
 	// Service is explicitly registered via ConnectService API.
 	ServiceSource_SERVICE_SOURCE_REGISTERED ServiceSource = 1
-	// Service is auto-discovered from telemetry data only.
-	ServiceSource_SERVICE_SOURCE_DISCOVERED ServiceSource = 2
-	// Service is both registered AND has telemetry data.
-	ServiceSource_SERVICE_SOURCE_BOTH ServiceSource = 3
+	// Service is auto-observed from telemetry data only.
+	ServiceSource_SERVICE_SOURCE_OBSERVED ServiceSource = 2
+	// Service is verified (both registered AND has telemetry data).
+	ServiceSource_SERVICE_SOURCE_VERIFIED ServiceSource = 3
 )
 
 // Enum value maps for ServiceSource.
@@ -42,14 +42,14 @@ var (
 	ServiceSource_name = map[int32]string{
 		0: "SERVICE_SOURCE_UNSPECIFIED",
 		1: "SERVICE_SOURCE_REGISTERED",
-		2: "SERVICE_SOURCE_DISCOVERED",
-		3: "SERVICE_SOURCE_BOTH",
+		2: "SERVICE_SOURCE_OBSERVED",
+		3: "SERVICE_SOURCE_VERIFIED",
 	}
 	ServiceSource_value = map[string]int32{
 		"SERVICE_SOURCE_UNSPECIFIED": 0,
 		"SERVICE_SOURCE_REGISTERED":  1,
-		"SERVICE_SOURCE_DISCOVERED":  2,
-		"SERVICE_SOURCE_BOTH":        3,
+		"SERVICE_SOURCE_OBSERVED":    2,
+		"SERVICE_SOURCE_VERIFIED":    3,
 	}
 )
 
@@ -91,8 +91,8 @@ const (
 	ServiceStatus_SERVICE_STATUS_UNHEALTHY ServiceStatus = 2
 	// Service is no longer registered but has recent telemetry.
 	ServiceStatus_SERVICE_STATUS_DISCONNECTED ServiceStatus = 3
-	// Service is only known from telemetry, never explicitly registered.
-	ServiceStatus_SERVICE_STATUS_DISCOVERED_ONLY ServiceStatus = 4
+	// Service is only observed from telemetry, never explicitly registered.
+	ServiceStatus_SERVICE_STATUS_OBSERVED_ONLY ServiceStatus = 4
 )
 
 // Enum value maps for ServiceStatus.
@@ -102,14 +102,14 @@ var (
 		1: "SERVICE_STATUS_ACTIVE",
 		2: "SERVICE_STATUS_UNHEALTHY",
 		3: "SERVICE_STATUS_DISCONNECTED",
-		4: "SERVICE_STATUS_DISCOVERED_ONLY",
+		4: "SERVICE_STATUS_OBSERVED_ONLY",
 	}
 	ServiceStatus_value = map[string]int32{
-		"SERVICE_STATUS_UNSPECIFIED":     0,
-		"SERVICE_STATUS_ACTIVE":          1,
-		"SERVICE_STATUS_UNHEALTHY":       2,
-		"SERVICE_STATUS_DISCONNECTED":    3,
-		"SERVICE_STATUS_DISCOVERED_ONLY": 4,
+		"SERVICE_STATUS_UNSPECIFIED":   0,
+		"SERVICE_STATUS_ACTIVE":        1,
+		"SERVICE_STATUS_UNHEALTHY":     2,
+		"SERVICE_STATUS_DISCONNECTED":  3,
+		"SERVICE_STATUS_OBSERVED_ONLY": 4,
 	}
 )
 
@@ -933,7 +933,7 @@ type ListServicesRequest struct {
 	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	// Time range for telemetry-based discovery (e.g., "1h", "24h").
 	// Defaults to "1h" if not specified.
-	// Only affects telemetry-discovered services (RFD 084).
+	// Only affects telemetry-observed services (RFD 084).
 	TimeRange string `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
 	// Filter by service source (RFD 084).
 	// If unspecified, returns all services regardless of source.
@@ -1866,18 +1866,18 @@ const file_coral_colony_v1_queries_proto_rawDesc = "" +
 	"\trow_count\x18\x02 \x01(\x05R\browCount\x12\x18\n" +
 	"\acolumns\x18\x03 \x03(\tR\acolumns\"\"\n" +
 	"\bQueryRow\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\tR\x06values*\x86\x01\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values*\x88\x01\n" +
 	"\rServiceSource\x12\x1e\n" +
 	"\x1aSERVICE_SOURCE_UNSPECIFIED\x10\x00\x12\x1d\n" +
-	"\x19SERVICE_SOURCE_REGISTERED\x10\x01\x12\x1d\n" +
-	"\x19SERVICE_SOURCE_DISCOVERED\x10\x02\x12\x17\n" +
-	"\x13SERVICE_SOURCE_BOTH\x10\x03*\xad\x01\n" +
+	"\x19SERVICE_SOURCE_REGISTERED\x10\x01\x12\x1b\n" +
+	"\x17SERVICE_SOURCE_OBSERVED\x10\x02\x12\x1b\n" +
+	"\x17SERVICE_SOURCE_VERIFIED\x10\x03*\xab\x01\n" +
 	"\rServiceStatus\x12\x1e\n" +
 	"\x1aSERVICE_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15SERVICE_STATUS_ACTIVE\x10\x01\x12\x1c\n" +
 	"\x18SERVICE_STATUS_UNHEALTHY\x10\x02\x12\x1f\n" +
-	"\x1bSERVICE_STATUS_DISCONNECTED\x10\x03\x12\"\n" +
-	"\x1eSERVICE_STATUS_DISCOVERED_ONLY\x10\x04B\xb7\x01\n" +
+	"\x1bSERVICE_STATUS_DISCONNECTED\x10\x03\x12 \n" +
+	"\x1cSERVICE_STATUS_OBSERVED_ONLY\x10\x04B\xb7\x01\n" +
 	"\x13com.coral.colony.v1B\fQueriesProtoP\x01Z4github.com/coral-mesh/coral/coral/colony/v1;colonyv1\xa2\x02\x03CCX\xaa\x02\x0fCoral.Colony.V1\xca\x02\x0fCoral\\Colony\\V1\xe2\x02\x1bCoral\\Colony\\V1\\GPBMetadata\xea\x02\x11Coral::Colony::V1b\x06proto3"
 
 var (
