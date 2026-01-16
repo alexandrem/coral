@@ -65,6 +65,10 @@ type Config struct {
 	// ColonyDir is the directory path for colony config (for token storage).
 	ColonyDir string
 
+	// TLSCertificate is the pre-loaded TLS certificate (optional).
+	// If provided, it overrides CertFile/KeyFile in PublicConfig.
+	TLSCertificate *tls.Certificate
+
 	// Logger is the logger instance.
 	Logger zerolog.Logger
 }
@@ -177,8 +181,14 @@ func New(cfg Config) (*Server, error) {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// Configure TLS if not localhost.
-	if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+	// Configure TLS if not localhost or if certificate provided.
+	isLocalhost := host == "127.0.0.1" || host == "localhost" || host == "::1"
+	if cfg.TLSCertificate != nil {
+		httpServer.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{*cfg.TLSCertificate},
+			MinVersion:   tls.VersionTLS13,
+		}
+	} else if !isLocalhost {
 		if cfg.PublicConfig.TLS.CertFile == "" || cfg.PublicConfig.TLS.KeyFile == "" {
 			return nil, fmt.Errorf("TLS cert and key required for non-localhost HTTP API endpoint (host=%s)", host)
 		}

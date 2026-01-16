@@ -2,6 +2,7 @@ package colony
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -286,17 +287,41 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		}
 		tokenStore := auth.NewTokenStore(tokensFile)
 
+		// Issue server certificate from internal CA if no cert provided.
+		var tlsCert *tls.Certificate
+		if colonyConfig.PublicEndpoint.TLS.CertFile == "" && caManager != nil {
+			// Include local and identity-based DNS names.
+			dnsNames := []string{"localhost", cfg.ColonyID}
+			if colonyConfig.PublicEndpoint.Host != "" && colonyConfig.PublicEndpoint.Host != "0.0.0.0" {
+				dnsNames = append(dnsNames, colonyConfig.PublicEndpoint.Host)
+			}
+
+			certPEM, keyPEM, err := caManager.IssueServerCertificate(dnsNames)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to issue server certificate from CA")
+			} else {
+				cert, err := tls.X509KeyPair(certPEM, keyPEM)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to load issued server certificate")
+				} else {
+					tlsCert = &cert
+					logger.Info().Msg("Issued public endpoint server certificate from colony CA (RFD 047)")
+				}
+			}
+		}
+
 		// Create public endpoint server.
 		publicConfig := httpapi.Config{
-			PublicConfig:  colonyConfig.PublicEndpoint,
-			ColonyPath:    colonyPath,
-			ColonyHandler: colonyHandler,
-			DebugPath:     debugPath,
-			DebugHandler:  debugHandler,
-			MCPServer:     mcpServer,
-			TokenStore:    tokenStore,
-			ColonyDir:     colonyDir,
-			Logger:        logger.With().Str("component", "public-endpoint").Logger(),
+			PublicConfig:   colonyConfig.PublicEndpoint,
+			ColonyPath:     colonyPath,
+			ColonyHandler:  colonyHandler,
+			DebugPath:      debugPath,
+			DebugHandler:   debugHandler,
+			MCPServer:      mcpServer,
+			TokenStore:     tokenStore,
+			ColonyDir:      colonyDir,
+			TLSCertificate: tlsCert,
+			Logger:         logger.With().Str("component", "public-endpoint").Logger(),
 		}
 
 		publicServer, err := httpapi.New(publicConfig)
