@@ -73,7 +73,8 @@ func (s *MCPSuite) TestMCPListToolsCommand() {
 
 	// Verify output contains tool names
 	s.Require().NotEmpty(result.Output, "Tool list should not be empty")
-	s.Require().Contains(result.Output, "coral_list_services", "Should list coral_list_services tool")
+	s.Require().Contains(result.Output, "coral_list_services",
+		"Should list coral_list_services tool")
 	s.Require().Contains(result.Output, "coral_query_summary", "Should list coral_query_summary tool")
 
 	// Test JSON format

@@ -84,7 +84,7 @@ implementation details about two separate query paths.
   disappear from `ListServices` but remain visible in `QueryUnifiedSummary`
 - **Auto-observed services**: Services observed only through telemetry (no
   explicit registration) remain hidden from `ListServices` query
-- **LLM-driven debugging**: AI assistants using `coral_query_services` MCP tool
+- **LLM-driven debugging**: AI assistants using `coral_list_services` MCP tool
   cannot discover all services with available telemetry data (must use separate
   summary query)
 
@@ -191,7 +191,7 @@ additional metadata indicating registration status and last activity.
     - Support filtering by source type via flags
 
 4. **MCP Tools** (`internal/colony/mcp/tools_discovery.go`):
-    - Update `coral_query_services` tool to expose new metadata
+    - Update `coral_list_services` tool to expose new metadata
     - Ensure consistent behavior with CLI commands
 
 **Configuration Example:**

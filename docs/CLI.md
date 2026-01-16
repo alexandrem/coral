@@ -378,79 +378,83 @@ architecture documentation.
 **Commands:**
 
 ```bash
-# List all services (default: registry + telemetry from last 1h)
-coral query services
-
-# Extend telemetry lookback window
-coral query services --since 24h
+# Operational view: List all services with agent/health status
+coral colony service list
 
 # Filter by source type
-coral query services --source registered    # Only explicitly connected
-coral query services --source observed      # Only auto-observed
-coral query services --source verified      # Verified services (registered + telemetry)
-coral query services --shadow               # Alias for --source observed
+coral colony service list --source registered    # Only explicitly connected
+coral colony service list --source observed      # Only auto-observed
+coral colony service list --source verified      # Verified services
 
-# Filter by namespace
-coral query services --namespace production
+# Telemetry/analytics view: Query service metrics and performance
+coral query summary                              # All services with telemetry
+coral query summary api --since 10m              # Specific service metrics
 ```
 
-**Example Output:**
+**Example Output (Operational View):**
 
-```
-Found 3 service(s):
+```bash
+$ coral colony service list
+Services (3) at 2026-01-15 20:47:14 UTC:
 
-● api-service (default) - 2 instance(s) [ACTIVE]
-  Source: VERIFIED (Registered + Observed) | Last seen: 14:23:45 | Agent: agent-1
-
-◐ background-worker (default) - 0 instance(s) [OBSERVED]
-  Source: OBSERVED (Telemetry only) | Last seen: 14:20:15
-
-○ legacy-service (default) - 1 instance(s) [UNHEALTHY]
-  Source: REGISTERED (Registry only) | Last seen: 14:22:30 | Agent: agent-2
+SERVICE       TYPE   INSTANCES   SOURCE      AGENTS
+api-service   http   2           VERIFIED    agent-1 (100.64.0.2, ✓ healthy), agent-2 (100.64.0.3, ✓ healthy)
+redis         -      1           OBSERVED    agent-1 (100.64.0.2, ✓ healthy)
+legacy-api    http   1           REGISTERED  agent-3 (100.64.0.4, ⚠ degraded)
 ```
 
-**Visual Indicators:**
+**Source Types:**
 
-- ● (solid circle) - Active and verified (VERIFIED source, ACTIVE status)
-- ◐ (half circle) - Observed from telemetry only
-- ○ (hollow circle) - Registered but unhealthy or no recent telemetry
+- `REGISTERED` - Explicitly connected, no recent telemetry
+- `OBSERVED` - Auto-observed from telemetry only
+- `VERIFIED` - Registered AND has telemetry (ideal state)
 
-**Status Types:**
+**Example Output (Telemetry View):**
 
-- `ACTIVE` - Registered and passing health checks
-- `UNHEALTHY` - Registered but health checks failing
-- `DISCONNECTED` - Was registered, now disconnected but has recent telemetry
-- `OBSERVED` - Only observed from telemetry, never explicitly registered
+```bash
+$ coral query summary
+Service Health Summary:
+✅ api-service (ebpf)
+   Status: healthy
+   Requests: 125431
+   Error Rate: 0.27%
+   Avg Latency: 45.23ms
+
+✅ redis (ebpf)
+   Status: healthy
+   Requests: 89245
+   Error Rate: 0.00%
+   Avg Latency: 2.15ms
+```
 
 **Common Use Cases:**
 
 ```bash
-# Find all actively running services
-coral query services
-
-# Debug why a service disappeared
-coral query services --since 4h  # Check historical data
+# Find all actively running services (operational view)
+coral colony service list
 
 # Find unregistered services sending traffic
-coral query services --source observed
-coral query services --shadow  # Same as above
+coral colony service list --source observed
 
 # Production monitoring (only explicitly configured services)
-coral query services --source registered
+coral colony service list --source registered
 
-# Investigate flaky service
-coral query services  # Look for UNHEALTHY status
-coral query summary <service> --since 10m  # Still queryable!
+# Investigate flaky service health
+coral colony service list  # Look for UNHEALTHY status
+
+# Analyze service telemetry and performance
+coral query summary                    # All services
+coral query summary api --since 10m    # Specific service metrics
 ```
 
 **Troubleshooting:**
 
 **Q: Service not appearing?**
-- Try extending time range: `coral query services --since 24h`
-- Check if explicitly connected: `coral query services --source registered`
+- Check registered services: `coral colony service list`
+- Check telemetry data: `coral query summary`
 - Verify telemetry is being generated
 
-**Q: Service shows as OBSERVED_ONLY - is this bad?**
+**Q: Service shows as OBSERVED - is this bad?**
 - No! It means Coral auto-observed it from traffic
 - To get health monitoring, explicitly connect: `coral connect <service>:<port>`
 

@@ -323,7 +323,8 @@ Returns:
 
 #### `coral_list_services`
 
-List all services known to the colony from both registry and telemetry sources (RFD 084).
+List all services known to the colony from both registry and telemetry sources
+(RFD 084).
 
 **Dual-Source Discovery:**
 - **REGISTERED**: Services explicitly connected via `ConnectService` API

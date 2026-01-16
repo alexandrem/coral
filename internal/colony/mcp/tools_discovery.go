@@ -30,8 +30,8 @@ type ServiceInfo struct {
 	AgentID       string            `json:"agent_id,omitempty"`       // Agent ID if registered.
 }
 
-// registerListServicesTool registers the coral_list_services tool (RFD 054, enhanced by RFD 084).
-func (s *Server) registerListServicesTool() {
+// registerQueryServicesTool registers the coral_list_services tool (RFD 054, enhanced by RFD 084).
+func (s *Server) registerQueryServicesTool() {
 	s.registerToolWithSchema(
 		"coral_list_services",
 		"List all services known to the colony - includes both explicitly registered services and auto-observed services from telemetry data (RFD 084). Returns service names, source attribution (REGISTERED/OBSERVED/VERIFIED), health status, instance counts, and metadata. Useful for discovering available services before querying metrics or traces.",

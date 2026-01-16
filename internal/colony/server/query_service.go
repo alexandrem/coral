@@ -52,8 +52,8 @@ func (s *Server) ListServices(
 			-- Registration status (only for registered services)
 			s.status as registration_status,
 
-			-- Instance count (only for registered services)
-			COALESCE(COUNT(DISTINCT s.agent_id), 0) as instance_count,
+			-- Instance count (from registry or telemetry agent count)
+			COALESCE(COUNT(DISTINCT s.agent_id), COUNT(DISTINCT t.agent_id), 0) as instance_count,
 
 			-- Last seen (prefer registry heartbeat, fall back to telemetry)
 			COALESCE(
@@ -62,8 +62,11 @@ func (s *Server) ListServices(
 				MAX(t.last_timestamp)
 			) as last_seen,
 
-			-- Agent ID (only for registered services, pick first if multiple)
-			MIN(s.agent_id) as agent_id
+			-- Agent ID (from registry or telemetry, pick first if multiple)
+			COALESCE(MIN(s.agent_id), MIN(t.agent_id)) as agent_id,
+
+			-- Agent IDs from telemetry (comma-separated for OBSERVED services)
+			STRING_AGG(DISTINCT t.agent_id, ',') as telemetry_agent_ids
 
 		FROM services s
 
@@ -71,10 +74,11 @@ func (s *Server) ListServices(
 		FULL OUTER JOIN (
 			SELECT DISTINCT
 				service_name,
+				agent_id,
 				MAX(timestamp) as last_timestamp
 			FROM beyla_http_metrics
 			WHERE timestamp > ?
-			GROUP BY service_name
+			GROUP BY service_name, agent_id
 		) t ON s.name = t.service_name
 
 		LEFT JOIN service_heartbeats h ON s.id = h.service_id
@@ -98,9 +102,10 @@ func (s *Server) ListServices(
 			instanceCount      int32
 			lastSeen           time.Time
 			agentID            sql.NullString
+			telemetryAgentIDs  sql.NullString
 		)
 
-		if err := rows.Scan(&name, &namespace, &sourceInt, &registrationStatus, &instanceCount, &lastSeen, &agentID); err != nil {
+		if err := rows.Scan(&name, &namespace, &sourceInt, &registrationStatus, &instanceCount, &lastSeen, &agentID, &telemetryAgentIDs); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to scan service: %w", err))
 		}
 
