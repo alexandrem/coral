@@ -40,20 +40,26 @@ func newServiceListCmd() *cobra.Command {
 		colonyID      string
 		filterService string
 		filterType    string
+		filterSource  string
 		verbose       bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all services",
-		Long: `List all services discovered across all agents in the colony.
+		Long: `List all services discovered across agents in the colony.
 
-This command aggregates services from all connected agents and presents
-a service-centric view. Each service shows instance counts and the agents
-running that service.
+This command shows the operational view of services from both the registry
+(explicitly connected) and telemetry data (auto-observed). It displays which
+agents are running each service, their health status, and instance counts.
+
+Source Types:
+  REGISTERED - Explicitly connected via coral connect
+  OBSERVED   - Auto-observed from telemetry data only
+  VERIFIED   - Registered AND has telemetry (ideal state)
 
 Examples:
-  # List all services
+  # List all services (registry + telemetry)
   coral service list
 
   # Filter by service name
@@ -61,6 +67,10 @@ Examples:
 
   # Filter by service type
   coral service list --type http
+
+  # Filter by source
+  coral service list --source verified     # Only verified services
+  coral service list --source observed     # Only telemetry-observed
 
   # JSON output
   coral service list --json
@@ -125,8 +135,18 @@ Examples:
 				}
 			}
 
+			// Use ListServices for dual-source discovery.
+			listServicesReq := connect.NewRequest(&colonyv1.ListServicesRequest{
+				TimeRange: "1h", // Default 1 hour lookback for telemetry
+			})
+			listServicesResp, err := client.ListServices(ctx, listServicesReq)
+			if err != nil {
+				return fmt.Errorf("failed to list services: %w", err)
+			}
+
+			// Get agent details for all services.
 			agents := resp.Msg.Agents
-			services := aggregateServicesWithStatus(agents)
+			services := convertServicesToView(listServicesResp.Msg.Services, agents)
 
 			// Get all service names for error messages.
 			allServiceNames := make([]string, 0, len(services))
@@ -159,6 +179,21 @@ Examples:
 				services = filtered
 			}
 
+			// Filter by source if requested.
+			if filterSource != "" {
+				sourceUpper := strings.ToUpper(filterSource)
+				if sourceUpper != "REGISTERED" && sourceUpper != "OBSERVED" && sourceUpper != "VERIFIED" {
+					return fmt.Errorf("invalid source filter: %s (must be 'registered', 'observed', or 'verified')", filterSource)
+				}
+				filtered := make([]serviceView, 0)
+				for _, svc := range services {
+					if strings.EqualFold(svc.Source, sourceUpper) {
+						filtered = append(filtered, svc)
+					}
+				}
+				services = filtered
+			}
+
 			if format != string(helpers.FormatTable) {
 				return outputServicesJSONv2(services, snapshotTime)
 			}
@@ -178,6 +213,7 @@ Examples:
 	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().StringVar(&filterService, "service", "", "Filter by service name (case-insensitive)")
 	cmd.Flags().StringVar(&filterType, "type", "", "Filter by service type (e.g., http, redis)")
+	cmd.Flags().StringVar(&filterSource, "source", "", "Filter by source: 'registered', 'observed', or 'verified'")
 	helpers.AddVerboseFlag(cmd, &verbose)
 
 	return cmd
@@ -199,6 +235,7 @@ type serviceView struct {
 	Name          string          `json:"service_name"`
 	Type          string          `json:"service_type,omitempty"`
 	InstanceCount int             `json:"instance_count"`
+	Source        string          `json:"source"` // REGISTERED, OBSERVED, or VERIFIED
 	Agents        []agentInstance `json:"agents"`
 }
 
@@ -211,80 +248,93 @@ type serviceListResponse struct {
 	Services       []serviceView `json:"services"`
 }
 
-// aggregateServicesWithStatus aggregates services from agents with status information.
-func aggregateServicesWithStatus(agents []*colonyv1.Agent) []serviceView {
-	serviceMap := make(map[string]*serviceView)
+// convertServicesToView converts ListServices response to serviceView format,
+// enriching with agent details for all services (registered and observed).
+func convertServicesToView(services []*colonyv1.ServiceSummary, agents []*colonyv1.Agent) []serviceView {
+	// Build agent maps for quick lookup.
+	agentMapByService := make(map[string]map[string]*colonyv1.Agent) // service_name -> agent_id -> agent
+	agentMapByID := make(map[string]*colonyv1.Agent)                 // agent_id -> agent
 
 	for _, agent := range agents {
-		// Determine agent status from the agent's status field or last_seen.
-		agentStatus := agent.Status
-		if agentStatus == "" {
-			agentStatus = "unknown"
-		}
-
-		var lastSeen time.Time
-		if agent.LastSeen != nil {
-			lastSeen = agent.LastSeen.AsTime()
-		}
-
-		// Handle multi-service agents.
+		agentMapByID[agent.AgentId] = agent
 		for _, svcInfo := range agent.Services {
-			// Use lowercase name for grouping (case-insensitive).
-			key := strings.ToLower(svcInfo.Name)
-
-			if _, exists := serviceMap[key]; !exists {
-				serviceMap[key] = &serviceView{
-					Name:          svcInfo.Name, // Preserve original casing
-					Type:          svcInfo.ServiceType,
-					InstanceCount: 0,
-					Agents:        make([]agentInstance, 0),
-				}
+			serviceName := strings.ToLower(svcInfo.Name)
+			if agentMapByService[serviceName] == nil {
+				agentMapByService[serviceName] = make(map[string]*colonyv1.Agent)
 			}
-
-			entry := serviceMap[key]
-			entry.InstanceCount++
-			entry.Agents = append(entry.Agents, agentInstance{
-				AgentID:        agent.AgentId,
-				MeshIPv4:       agent.MeshIpv4,
-				Status:         agentStatus,
-				Port:           svcInfo.Port,
-				HealthEndpoint: svcInfo.HealthEndpoint,
-				LastSeen:       lastSeen,
-				Labels:         svcInfo.Labels,
-			})
-		}
-
-		// Handle legacy single-service agents (fallback).
-		if len(agent.Services) == 0 && agent.ComponentName != "" {
-			key := strings.ToLower(agent.ComponentName)
-			if _, exists := serviceMap[key]; !exists {
-				serviceMap[key] = &serviceView{
-					Name:          agent.ComponentName,
-					Type:          "unknown",
-					InstanceCount: 0,
-					Agents:        make([]agentInstance, 0),
-				}
-			}
-			entry := serviceMap[key]
-			entry.InstanceCount++
-			entry.Agents = append(entry.Agents, agentInstance{
-				AgentID:  agent.AgentId,
-				MeshIPv4: agent.MeshIpv4,
-				Status:   agentStatus,
-				Port:     0,
-				LastSeen: lastSeen,
-			})
+			agentMapByService[serviceName][agent.AgentId] = agent
 		}
 	}
 
-	// Convert map to slice.
-	result := make([]serviceView, 0, len(serviceMap))
-	for _, svc := range serviceMap {
-		// Sort agents by ID within each service.
-		sort.Slice(svc.Agents, func(i, j int) bool {
-			return svc.Agents[i].AgentID < svc.Agents[j].AgentID
+	result := make([]serviceView, 0, len(services))
+	for _, svc := range services {
+		view := serviceView{
+			Name:          svc.Name,
+			InstanceCount: int(svc.InstanceCount),
+			Source:        formatSourceEnum(svc.Source),
+			Agents:        make([]agentInstance, 0),
+		}
+
+		serviceName := strings.ToLower(svc.Name)
+
+		// For registered/verified services, get full agent details including port/health.
+		if serviceAgents, hasAgents := agentMapByService[serviceName]; hasAgents {
+			for _, agent := range serviceAgents {
+				var lastSeen time.Time
+				if agent.LastSeen != nil {
+					lastSeen = agent.LastSeen.AsTime()
+				}
+
+				// Find the service info for this agent.
+				for _, svcInfo := range agent.Services {
+					if strings.EqualFold(svcInfo.Name, svc.Name) {
+						view.Agents = append(view.Agents, agentInstance{
+							AgentID:        agent.AgentId,
+							MeshIPv4:       agent.MeshIpv4,
+							Status:         agent.Status,
+							Port:           svcInfo.Port,
+							HealthEndpoint: svcInfo.HealthEndpoint,
+							LastSeen:       lastSeen,
+							Labels:         svcInfo.Labels,
+						})
+						if view.Type == "" && svcInfo.ServiceType != "" {
+							view.Type = svcInfo.ServiceType
+						}
+						break
+					}
+				}
+			}
+		} else if svc.AgentId != nil {
+			// Fallback: show agent info from database when no live agent claims this service.
+			// This handles disconnected agents for REGISTERED/VERIFIED services,
+			// and OBSERVED services where the agent is still connected.
+			if agent, exists := agentMapByID[*svc.AgentId]; exists {
+				var lastSeen time.Time
+				if agent.LastSeen != nil {
+					lastSeen = agent.LastSeen.AsTime()
+				}
+
+				view.Agents = append(view.Agents, agentInstance{
+					AgentID:  agent.AgentId,
+					MeshIPv4: agent.MeshIpv4,
+					Status:   agent.Status,
+					LastSeen: lastSeen,
+				})
+			} else {
+				// Agent is disconnected - show historical agent ID from database.
+				view.Agents = append(view.Agents, agentInstance{
+					AgentID: *svc.AgentId,
+					Status:  "disconnected",
+				})
+			}
+		}
+
+		// Sort agents by ID.
+		sort.Slice(view.Agents, func(i, j int) bool {
+			return view.Agents[i].AgentID < view.Agents[j].AgentID
 		})
-		result = append(result, *svc)
+
+		result = append(result, view)
 	}
 
 	// Sort by service name.
@@ -293,6 +343,20 @@ func aggregateServicesWithStatus(agents []*colonyv1.Agent) []serviceView {
 	})
 
 	return result
+}
+
+// formatSourceEnum converts ServiceSource enum to string.
+func formatSourceEnum(source colonyv1.ServiceSource) string {
+	switch source {
+	case colonyv1.ServiceSource_SERVICE_SOURCE_REGISTERED:
+		return "REGISTERED"
+	case colonyv1.ServiceSource_SERVICE_SOURCE_OBSERVED:
+		return "OBSERVED"
+	case colonyv1.ServiceSource_SERVICE_SOURCE_VERIFIED:
+		return "VERIFIED"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 // statusIndicator returns a status indicator string with optional color.
@@ -368,7 +432,7 @@ func outputServicesTablev2(services []serviceView, snapshotTime time.Time) error
 	fmt.Printf("Services (%d) at %s:\n\n", len(services), snapshotTime.Format("2006-01-02 15:04:05 UTC"))
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "SERVICE\tTYPE\tINSTANCES\tAGENTS")
+	fmt.Fprintln(w, "SERVICE\tTYPE\tINSTANCES\tSOURCE\tAGENTS")
 
 	for _, svc := range services {
 		// Build agent list with status indicators.
@@ -395,11 +459,17 @@ func outputServicesTablev2(services []serviceView, snapshotTime time.Time) error
 			typeStr = "-"
 		}
 
+		sourceStr := svc.Source
+		if sourceStr == "" {
+			sourceStr = "REGISTERED" // Default if not enriched
+		}
+
 		// TODO: errcheck
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n",
 			svc.Name,
 			typeStr,
 			svc.InstanceCount,
+			sourceStr,
 			agentsStr,
 		)
 	}
@@ -424,6 +494,12 @@ func outputServicesVerbose(services []serviceView, snapshotTime time.Time) error
 		}
 		fmt.Printf("  Type: %s\n", typeStr)
 		fmt.Printf("  Instances: %d\n", svc.InstanceCount)
+
+		sourceStr := svc.Source
+		if sourceStr == "" {
+			sourceStr = "REGISTERED"
+		}
+		fmt.Printf("  Source: %s\n", sourceStr)
 		fmt.Println()
 
 		for _, agent := range svc.Agents {

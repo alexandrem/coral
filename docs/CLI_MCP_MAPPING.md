@@ -12,34 +12,39 @@ integration.
 
 ## Quick Reference
 
-| CLI Category              | MCP Tool(s)                                                                             | Status                            |
-|---------------------------|-----------------------------------------------------------------------------------------|-----------------------------------|
-| eBPF Metrics & Traces     | `coral_query_summary`, `coral_query_traces`, `coral_query_metrics`                      | ✅ Available                       |
-| Live Debugging            | `coral_attach_uprobe`, `coral_detach_uprobe`, `coral_list_debug_sessions`, etc.         | ✅ Available                       |
-| Container Execution       | `coral_container_exec`                                                                  | ✅ Available                       |
-| Agent Shell Access        | `coral_shell_exec`                                                                      | ✅ Available                       |
-| Service Discovery         | `coral_list_services`                                                                   | ✅ Available                       |
-| DuckDB Queries            | ❌ No MCP equivalent                                                                     | Use `coral_query_*` tools instead |
-| Setup & Configuration     | ❌ No MCP equivalent                                                                     | Local operations only             |
+| CLI Category              | MCP Tool(s)                                                                     | Status                            |
+|---------------------------|---------------------------------------------------------------------------------|-----------------------------------|
+| eBPF Metrics & Traces     | `coral_query_summary`, `coral_query_traces`, `coral_query_metrics`              | ✅ Available                       |
+| Live Debugging            | `coral_attach_uprobe`, `coral_detach_uprobe`, `coral_list_debug_sessions`, etc. | ✅ Available                       |
+| Container Execution       | `coral_container_exec`                                                          | ✅ Available                       |
+| Agent Shell Access        | `coral_shell_exec`                                                              | ✅ Available                       |
+| Service Discovery         | `coral_list_services`                                                           | ✅ Available                       |
+| DuckDB Queries            | ❌ No MCP equivalent                                                             | Use `coral_query_*` tools instead |
+| Setup & Configuration     | ❌ No MCP equivalent                                                             | Local operations only             |
 
 ---
 
-## Service Discovery (RFD 084)
+## Service Discovery
 
 ```bash
-# List all services (dual-source: registry + telemetry)
-coral query services [--namespace <name>] [--since <duration>] [--source <type>]
+# Operational view: List services with agent/health status
+coral colony service list [--service <name>] [--type <type>] [--source <type>]
+
+# Telemetry view: Query service metrics and performance
+coral query summary [service] [--since <duration>]
 
 # Examples:
-coral query services                     # All services (1h telemetry lookback)
-coral query services --since 24h         # Extended lookback
-coral query services --source registered # Only explicitly connected
-coral query services --source observed   # Only auto-observed
-coral query services --source verified   # Verified services (registered + telemetry)
-coral query services --shadow            # Alias for --source observed
+coral colony service list                     # All services (operational view)
+coral colony service list --source verified   # Only verified services
+coral colony service list --source observed   # Only auto-observed
+coral query summary                           # Telemetry summary (all services)
+coral query summary api --since 10m           # Specific service metrics
 ```
 
 **MCP Equivalent:** `coral_list_services`
+
+**Note:** The MCP tool `coral_list_services` provides dual-source service
+discovery similar to `coral colony service list`. For detailed telemetry analysis, AI can follow up with additional queries.
 
 **See:** [SERVICE_DISCOVERY.md](./SERVICE_DISCOVERY.md) for architecture details
 
@@ -60,7 +65,7 @@ coral query services --shadow            # Alias for --source observed
 }
 ```
 
-**Response includes (RFD 084):**
+**Response includes:**
 
 ```json
 {
@@ -116,7 +121,7 @@ may call:
 
 ---
 
-## Unified Query Commands (RFD 067)
+## Unified Query Commands
 
 The unified query interface combines data from eBPF and OTLP sources by default, providing a complete observability picture.
 
@@ -576,7 +581,7 @@ coral exec <service> <command> [args...] [flags]
 
 ## Summary: Complete MCP Tool Reference
 
-### Unified Query Tools (RFD 067)
+### Unified Query Tools
 
 | Tool Name             | Description                          | Key Parameters                      |
 |-----------------------|--------------------------------------|-------------------------------------|
@@ -585,13 +590,13 @@ coral exec <service> <command> [args...] [flags]
 | `coral_query_metrics` | HTTP/gRPC/SQL metrics (eBPF + OTLP)  | `service`, `time_range`             |
 | `coral_query_logs`    | Logs (OTLP)                          | `service`, `time_range`, `level`    |
 
-### Service Discovery (RFD 084)
+### Service Discovery
 
-| Tool Name             | Description                                                          | Key Parameters                                              |
-|-----------------------|----------------------------------------------------------------------|-------------------------------------------------------------|
-| `coral_list_services` | List all services (dual-source: registry + telemetry observed) | None (returns all with source/status metadata for filtering) |
+| Tool Name             | Description                                                         | Key Parameters                                               |
+|-----------------------|---------------------------------------------------------------------|--------------------------------------------------------------|
+| `coral_list_services` | List all services (dual-source: registry + telemetry <br/>observed) | None (returns all with source/status metadata for filtering) |
 
-### Live Debugging (RFD 062)
+### Live Debugging
 
 | Tool Name                        | Description                | Key Parameters                                                                        |
 |----------------------------------|----------------------------|---------------------------------------------------------------------------------------|

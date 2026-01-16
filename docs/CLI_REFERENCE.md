@@ -240,8 +240,11 @@ interface. They're designed for:
 - Service discovery
 
 ```bash
-# Service discovery
-coral query services [--namespace <name>] [--since <duration>] [--source <type>]
+# Service discovery (operational view with agents/health)
+coral colony service list [--service <name>] [--type <type>] [--source <type>]
+
+# Service telemetry summary
+coral query summary [service] [--since <duration>]
 
 # Percentile queries (precise DuckDB quantile calculations)
 coral query metrics <service> --metric <name> --percentile <0-100>
@@ -250,12 +253,11 @@ coral query metrics <service> --metric <name> --percentile <0-100>
 coral query sql "<sql-query>" [--max-rows <n>]
 
 # Examples - Service discovery:
-coral query services                           # List all services (registry + telemetry)
-coral query services --namespace production    # Filter by namespace
-coral query services --since 24h               # Extend telemetry lookback
-coral query services --source registered       # Only explicitly connected services
-coral query services --source observed         # Only auto-observed from telemetry
-coral query services --shadow                  # Alias for --source observed
+coral colony service list                      # List all services (operational view)
+coral colony service list --source verified    # Only verified services
+coral colony service list --source observed    # Only auto-observed from telemetry
+coral query summary                            # Telemetry summary for all services
+coral query summary api --since 10m            # Detailed metrics for specific service
 
 # See: docs/SERVICE_DISCOVERY.md for architecture details
 

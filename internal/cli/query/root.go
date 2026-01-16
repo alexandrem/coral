@@ -15,8 +15,7 @@ func NewQueryCmd() *cobra.Command {
 Unified query interface combining eBPF and OTLP data sources.
 
 Commands:
-  services       - List discovered services (RFD 076)
-  summary        - Quick health overview
+  summary        - Service health overview and discovery
   traces         - Distributed traces
   metrics        - Service metrics (enhanced with --percentile - RFD 076)
   logs           - Application logs
@@ -25,8 +24,8 @@ Commands:
   sql            - Execute raw SQL queries (RFD 076)
 
 Examples:
-  coral query services
-  coral query summary my-service
+  coral query summary                  # List all services with telemetry
+  coral query summary my-service       # Detailed service summary
   coral query traces my-service --since 1h
   coral query metrics my-service --metric http.server.duration --percentile 99
   coral query logs my-service --level error
@@ -36,7 +35,6 @@ Examples:
 `,
 	}
 
-	cmd.AddCommand(NewServicesCmd())
 	cmd.AddCommand(NewSummaryCmd())
 	cmd.AddCommand(NewTracesCmd())
 	cmd.AddCommand(NewMetricsCmd())

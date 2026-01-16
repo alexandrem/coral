@@ -305,7 +305,7 @@ func (s *Server) registerTools() error {
 	s.registerShellExecTool()
 
 	// Register service discovery tools (RFD 054).
-	s.registerListServicesTool()
+	s.registerQueryServicesTool()
 
 	// Register live debugging tools (RFD 062).
 	s.registerAttachUprobeTool()
