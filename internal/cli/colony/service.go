@@ -304,8 +304,10 @@ func convertServicesToView(services []*colonyv1.ServiceSummary, agents []*colony
 					}
 				}
 			}
-		} else if svc.AgentId != nil && svc.Source == colonyv1.ServiceSource_SERVICE_SOURCE_OBSERVED {
-			// For OBSERVED-only services, show basic agent info without service-specific details.
+		} else if svc.AgentId != nil {
+			// Fallback: show agent info from database when no live agent claims this service.
+			// This handles disconnected agents for REGISTERED/VERIFIED services,
+			// and OBSERVED services where the agent is still connected.
 			if agent, exists := agentMapByID[*svc.AgentId]; exists {
 				var lastSeen time.Time
 				if agent.LastSeen != nil {
@@ -317,6 +319,12 @@ func convertServicesToView(services []*colonyv1.ServiceSummary, agents []*colony
 					MeshIPv4: agent.MeshIpv4,
 					Status:   agent.Status,
 					LastSeen: lastSeen,
+				})
+			} else {
+				// Agent is disconnected - show historical agent ID from database.
+				view.Agents = append(view.Agents, agentInstance{
+					AgentID: *svc.AgentId,
+					Status:  "disconnected",
 				})
 			}
 		}
