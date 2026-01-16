@@ -183,10 +183,6 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 // Test4_OnDemandProbes runs deep introspection tests.
 // Requires: All previous groups
 func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
-	if !s.meshPassed || !s.servicesPassed || !s.passiveObservability {
-		s.T().Skip("Skipping: Prerequisites failed")
-	}
-
 	s.T().Log("")
 	s.T().Log("========================================")
 	s.T().Log("GROUP 4: On-Demand Probes")
