@@ -78,6 +78,7 @@ type ColonyConfig struct {
 	StoragePath         string                          `yaml:"storage_path"`
 	Discovery           DiscoveryColony                 `yaml:"discovery"`
 	MCP                 MCPConfig                       `yaml:"mcp,omitempty"`
+	PublicEndpoint      PublicEndpointConfig            `yaml:"public_endpoint,omitempty"` // RFD 031
 	Beyla               BeylaPollerConfig               `yaml:"beyla,omitempty"`
 	SystemMetrics       SystemMetricsPollerConfig       `yaml:"system_metrics,omitempty"`       // RFD 071
 	ContinuousProfiling ContinuousProfilingPollerConfig `yaml:"continuous_profiling,omitempty"` // RFD 072
@@ -155,6 +156,67 @@ type MCPSecurityConfig struct {
 
 	// AuditEnabled enables auditing of all MCP tool calls.
 	AuditEnabled bool `yaml:"audit_enabled,omitempty"`
+}
+
+// PublicEndpointConfig contains optional public HTTPS endpoint configuration (RFD 031).
+// When enabled, Colony exposes a public HTTPS endpoint in addition to the WireGuard mesh.
+// This enables CLI access without coral proxy, external integrations, and MCP SSE transport.
+type PublicEndpointConfig struct {
+	// Enabled controls whether the public endpoint is active.
+	// Default: false (opt-in for security).
+	Enabled bool `yaml:"enabled"`
+
+	// Host is the address to bind the public endpoint to.
+	// Default: "127.0.0.1" (localhost-only for security).
+	// Set to "0.0.0.0" to expose on all interfaces (requires TLS).
+	Host string `yaml:"host,omitempty"`
+
+	// Port is the port for the public HTTPS endpoint.
+	// Default: 8443.
+	Port int `yaml:"port,omitempty"`
+
+	// TLS contains TLS certificate configuration.
+	// Required when Host is not "127.0.0.1" or "localhost".
+	TLS TLSConfig `yaml:"tls,omitempty"`
+
+	// MCP contains MCP-over-SSE configuration for AI assistant integration.
+	MCP PublicMCPConfig `yaml:"mcp,omitempty"`
+
+	// Auth contains authentication configuration for the public endpoint.
+	Auth PublicAuthConfig `yaml:"auth,omitempty"`
+}
+
+// TLSConfig contains TLS certificate configuration.
+type TLSConfig struct {
+	// CertFile is the path to the TLS certificate file.
+	CertFile string `yaml:"cert,omitempty"`
+
+	// KeyFile is the path to the TLS private key file.
+	KeyFile string `yaml:"key,omitempty"`
+}
+
+// PublicMCPConfig contains MCP-over-SSE configuration for the public endpoint.
+type PublicMCPConfig struct {
+	// Enabled controls whether MCP SSE endpoint is active.
+	Enabled bool `yaml:"enabled"`
+
+	// Transport is the MCP transport type (currently only "sse" supported).
+	Transport string `yaml:"transport,omitempty"`
+
+	// Path is the URL path for the MCP SSE endpoint.
+	// Default: "/mcp/sse".
+	Path string `yaml:"path,omitempty"`
+}
+
+// PublicAuthConfig contains authentication configuration for the public endpoint.
+type PublicAuthConfig struct {
+	// Require controls whether authentication is required.
+	// Default: true (anonymous access is not allowed).
+	Require bool `yaml:"require"`
+
+	// TokensFile is the path to the API tokens file.
+	// Default: tokens.yaml in the colony config directory.
+	TokensFile string `yaml:"tokens_file,omitempty"`
 }
 
 // BeylaPollerConfig contains Beyla metrics/traces collection configuration (RFD 032, RFD 036).

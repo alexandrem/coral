@@ -11,9 +11,11 @@ import (
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/debug"
+	"github.com/coral-mesh/coral/internal/colony/httpapi"
 	"github.com/coral-mesh/coral/internal/colony/mcp"
 	"github.com/coral-mesh/coral/internal/colony/mesh"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -115,6 +117,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry, db, functionReg)
 
 	// Create MCP server if not disabled.
+	var mcpServer *mcp.Server
 	if !colonyConfig.MCP.Disabled {
 		mcpConfig := mcp.Config{
 			ColonyID:              cfg.ColonyID,
@@ -126,7 +129,8 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			AuditEnabled:          colonyConfig.MCP.Security.AuditEnabled,
 		}
 
-		mcpServer, err := mcp.New(
+		var err error
+		mcpServer, err = mcp.New(
 			agentRegistry,
 			db,
 			debugOrchestrator,
@@ -271,6 +275,44 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				Msg("Server error")
 		}
 	}()
+
+	// Start public endpoint server if enabled (RFD 031).
+	if colonyConfig.PublicEndpoint.Enabled {
+		// Initialize token store with tokens from colony config directory.
+		colonyDir := loader.ColonyDir(cfg.ColonyID)
+		tokensFile := colonyConfig.PublicEndpoint.Auth.TokensFile
+		if tokensFile == "" {
+			tokensFile = filepath.Join(colonyDir, "tokens.yaml")
+		}
+		tokenStore := auth.NewTokenStore(tokensFile)
+
+		// Create public endpoint server.
+		publicConfig := httpapi.Config{
+			PublicConfig:  colonyConfig.PublicEndpoint,
+			ColonyPath:    colonyPath,
+			ColonyHandler: colonyHandler,
+			DebugPath:     debugPath,
+			DebugHandler:  debugHandler,
+			MCPServer:     mcpServer,
+			TokenStore:    tokenStore,
+			ColonyDir:     colonyDir,
+			Logger:        logger.With().Str("component", "public-endpoint").Logger(),
+		}
+
+		publicServer, err := httpapi.New(publicConfig)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to create public endpoint server, continuing without it")
+		} else {
+			if err := publicServer.Start(); err != nil {
+				logger.Error().Err(err).Msg("Failed to start public endpoint server")
+			} else {
+				logger.Info().
+					Str("url", publicServer.URL()).
+					Bool("mcp_enabled", colonyConfig.PublicEndpoint.MCP.Enabled).
+					Msg("Public endpoint server started (RFD 031)")
+			}
+		}
+	}
 
 	return httpServer, nil
 }

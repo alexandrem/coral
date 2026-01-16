@@ -99,7 +99,7 @@ func New(
 
 // ServeStdio starts the MCP server and serves over stdio.
 // This blocks until the context is cancelled or an error occurs.
-func (s *Server) ServeStdio(ctx context.Context) error {
+func (s *Server) ServeStdio(_ context.Context) error {
 	s.logger.Info().Msg("Starting MCP server on stdio")
 
 	// Use mark3labs/mcp-go stdio transport.
