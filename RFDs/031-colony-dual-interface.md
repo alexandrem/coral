@@ -6,7 +6,7 @@ breaking_changes: false
 testing_required: true
 database_changes: false
 api_changes: true
-dependencies: [ "001", "002", "003", "005" ]
+dependencies: [ "001", "003", "005", "049" ]
 database_migrations: [ ]
 areas: [ "networking", "security", "cli", "architecture" ]
 ---
@@ -182,15 +182,21 @@ colony:
     - Development/testing scenarios
 - But most users will use direct public endpoint access
 
-#### 4. Same Security Model as Reef
+#### 4. Minimal Auth for CLI Access
 
-**Decision:** Reuse Reef's auth/RBAC model (API tokens, JWT, mTLS).
+**Decision:** Use API tokens for CLI authentication. OIDC/JWT for human users
+deferred to separate RFD.
 
 **Rationale:**
 
-- Proven design (RFD 003)
-- Consistent security model
-- Same token management
+- Simple to implement and use
+- Sufficient for CLI and bot integrations
+- No dependency on external identity providers
+- Agent authorization is separate concern (RFD 049)
+
+**Note:** This auth layer is specifically for CLI/external client access to the
+public endpoint. Agent-to-colony authorization uses referral tickets via
+Discovery (RFD 049).
 
 ### Configuration Example
 
@@ -228,28 +234,19 @@ public_endpoint:
         transport: sse  # or stdio
         path: /mcp/sse
 
-    # Authentication
+    # Authentication (API tokens for CLI/bots)
+    # Note: Agent auth uses referral tickets via Discovery (RFD 049)
+    # Note: OIDC for human users deferred to separate RFD
     auth:
-        # API tokens (for bots, CI/CD)
         api_tokens:
+            -   token_id: cli-dev
+                permissions: [ status, query, analyze, debug, admin ]
             -   token_id: ci-cd
-                permissions: [ status, query, analyze ]
+                permissions: [ status, query ]
                 rate_limit: 100/hour
             -   token_id: slack-bot
-                permissions: [ analyze, query ]
+                permissions: [ status, query, analyze ]
                 rate_limit: 50/hour
-
-        # JWT (for human users)
-        jwt:
-            enabled: true
-            issuer: https://colony.mycompany.com
-            audience: coral-colony
-            # Verify with JWKS endpoint or shared secret
-
-        # mTLS (for service-to-service)
-        mtls:
-            enabled: false
-            client_ca: /etc/coral/ca.pem
 
 storage:
     type: duckdb
@@ -274,15 +271,13 @@ colonies:
         # Public endpoint (remote access)
         endpoint: https://colony.mycompany.com:8443
         auth:
-            type: jwt
-            token_file: ~/.coral/tokens/prod.jwt
+            type: api_token
+            token_file: ~/.coral/tokens/prod.token
 
     my-app-staging:
         # Mesh-only (uses coral proxy fallback)
         endpoint: mesh://10.43.0.1:9000
-        auth:
-            type: colony_secret
-            secret_file: ~/.coral/colonies/my-app-staging.yaml
+        # No auth needed for mesh (WireGuard provides auth)
 ```
 
 ### CLI Behavior
@@ -448,25 +443,25 @@ public_endpoint:
 **Layers:**
 
 1. **TLS:** Encrypted transport (required for public endpoint)
-2. **Authentication:** Verify caller identity
-    - API tokens (bots, CI/CD)
-    - JWT (human users)
-    - mTLS (service-to-service)
-3. **Authorization (RBAC):** Check permissions
+2. **Authentication:** API tokens verify caller identity
+3. **Authorization (RBAC):** Check permissions per token
     - `status`: Read colony status
     - `query`: Query metrics/traces
     - `analyze`: AI analysis (may trigger shell/exec, probes)
     - `debug`: Attach live probes
     - `admin`: Change colony config
-4. **Rate Limiting:** Prevent abuse
+4. **Rate Limiting:** Prevent abuse (per token)
 5. **Audit Logging:** Track who did what
+
+**Note:** Agent-to-colony authorization uses referral tickets via Discovery
+(RFD 049). OIDC for human user authentication deferred to separate RFD.
 
 **Comparison:**
 
 | Aspect            | Mesh Interface    | Public Endpoint    |
 |-------------------|-------------------|--------------------|
 | **Encryption**    | WireGuard         | TLS 1.3            |
-| **Auth**          | Colony secret     | API token/JWT/mTLS |
+| **Auth**          | Referral tickets  | API tokens         |
 | **Access**        | Mesh peers only   | Network-reachable  |
 | **Rate Limiting** | No (trusted mesh) | Yes (per token)    |
 | **Audit**         | Optional          | Recommended        |
@@ -491,7 +486,7 @@ public_endpoint:
 
 1. **Local dev:** `host: 127.0.0.1` (localhost-only, no TLS needed)
 2. **Remote access:** `host: 0.0.0.0` + TLS + API tokens
-3. **Enterprise:** Add JWT + RBAC + audit logging
+3. **Enterprise:** Add OIDC (separate RFD) + audit logging
 
 ## Use Cases
 
@@ -583,64 +578,55 @@ public_endpoint:
 
 ## Comparison: Dual Interface vs coral proxy
 
-| Aspect                    | RFD 005 (coral proxy)            | RFD 031 (Dual Interface)      |
-|---------------------------|----------------------------------|-------------------------------|
-| **Architecture**          | CLI → proxy → mesh → Colony      | CLI → HTTPS → Colony          |
-| **Deployment**            | Separate proxy process           | Built into Colony             |
-| **Performance**           | Extra hop (proxy)                | Direct connection             |
-| **External integrations** | Requires ngrok/tunnel workaround | Native HTTPS endpoint         |
-| **Consistency**           | Colony ≠ Reef                    | Colony = Reef                 |
-| **Configuration**         | Proxy config + colony config     | Single colony config          |
-| **Local dev**             | Proxy on localhost:8000          | Colony on localhost:8443      |
-| **Remote access**         | Proxy per colony                 | Direct HTTPS                  |
-| **Security**              | Localhost-only proxy             | TLS + auth on public endpoint |
+| Aspect                    | RFD 005 (coral proxy) ✅ Implemented | RFD 031 (Dual Interface)      |
+|---------------------------|--------------------------------------|-------------------------------|
+| **Architecture**          | CLI → proxy → mesh → Colony          | CLI → HTTPS → Colony          |
+| **Deployment**            | Separate proxy process               | Built into Colony             |
+| **Performance**           | Extra hop (proxy)                    | Direct connection             |
+| **External integrations** | Requires ngrok/tunnel workaround     | Native HTTPS endpoint         |
+| **Consistency**           | Colony ≠ Reef                        | Colony = Reef                 |
+| **Configuration**         | Proxy config + colony config         | Single colony config          |
+| **Local dev**             | Proxy on localhost:8000              | Colony on localhost:8443      |
+| **Remote access**         | Proxy per colony                     | Direct HTTPS                  |
+| **Security**              | Localhost-only proxy                 | TLS + auth on public endpoint |
+| **Status**                | ✅ Implemented (simplified)          | 🚧 Draft                      |
 
-**When to still use coral proxy:**
+**When to use coral proxy (RFD 005):**
 
 - Colony has no public endpoint (mesh-only)
 - Need to tunnel through restricted network
 - Development/testing specific proxy behavior
+- Already have mesh connectivity via local agent
 
-**When to use dual interface:**
+**When to use dual interface (RFD 031):**
 
-- Enable external integrations
-- Simplify CLI access
+- Enable external integrations (Slack, CI/CD, IDEs)
+- Simplify CLI access without proxy setup
 - Consistent with Reef architecture
-- Simpler deployment (one process)
+- Single-colony users needing integration capabilities
 
-## Migration from RFD 005
+## Migration Path
 
-### Phase 1: Add Public Endpoint Support to Colony
+RFD 005 (CLI Local Proxy) is now implemented in a simplified form. This RFD
+provides an **alternative approach** where Colony exposes a public HTTPS
+endpoint directly, eliminating the need for a separate proxy process in most
+cases.
 
-- [ ] Implement dual listener (mesh + public HTTPS)
-- [ ] Add auth middleware (API tokens, JWT, mTLS)
-- [ ] Add RBAC enforcement
-- [ ] Add rate limiting
-- [ ] Add MCP SSE endpoint
+**Coexistence Model:**
 
-### Phase 2: Update CLI to Prefer Public Endpoint
+- **RFD 005 (coral proxy):** For mesh-only colonies, restricted networks, or
+  development/testing scenarios
+- **RFD 031 (dual interface):** For external integrations, simplified CLI access,
+  and Claude Desktop/MCP integration
 
-- [ ] CLI checks for `public_endpoint.enabled` in colony config
-- [ ] If public endpoint available: Direct HTTPS
-- [ ] If mesh-only: Fallback to coral proxy (RFD 005 behavior)
-- [ ] Clear error messages guide users
+Both approaches remain valid. Users choose based on their deployment needs:
 
-### Phase 3: Update Documentation
-
-- [ ] Document dual interface pattern
-- [ ] Update CLI examples to use public endpoint
-- [ ] Show external integration examples
-- [ ] Mark RFD 005 as "Partially superseded by RFD 031"
-
-### Phase 4: Deprecation (Future)
-
-- [ ] Monitor coral proxy usage
-- [ ] Consider deprecating proxy for common cases
-- [ ] Keep proxy for special cases (mesh-only colonies)
-
-**Note:** RFD 005 is **not fully superseded** - coral proxy remains useful for
-mesh-only colonies and special networking scenarios. But most users will use
-dual interface.
+| Scenario                      | Recommended Approach    |
+| ----------------------------- | ----------------------- |
+| External integrations needed  | RFD 031 (dual interface)|
+| Air-gapped / ultra-secure     | RFD 005 (proxy only)    |
+| Local development             | Either (031 is simpler) |
+| CI/CD / Slack bot integration | RFD 031 (dual interface)|
 
 ## Implementation Plan
 
@@ -664,10 +650,8 @@ dual interface.
 ### Phase 2: Authentication & Authorization
 
 - [ ] Create `internal/colony/auth` package
-    - [ ] API token verification
-    - [ ] JWT verification (optional)
-    - [ ] mTLS verification (optional)
-    - [ ] RBAC permission checks
+    - [ ] API token verification (Bearer token in Authorization header)
+    - [ ] RBAC permission checks per token
     - [ ] Token management (create, revoke, list)
 - [ ] Add rate limiting
     - [ ] Per-token rate limits
@@ -676,7 +660,9 @@ dual interface.
 - [ ] Add audit logging
     - [ ] Log authenticated requests
     - [ ] Include: timestamp, token_id, method, source IP
-    - [ ] Optional: send to external log aggregator
+
+**Note:** OIDC/JWT for human users deferred to separate RFD. Agent auth uses
+referral tickets (RFD 049).
 
 ### Phase 3: CLI Updates
 
@@ -735,15 +721,13 @@ dual interface.
 - Valid API token → request allowed
 - Invalid API token → 401 Unauthorized
 - Missing token → 401 Unauthorized
-- Expired JWT → 401 Unauthorized
-- Valid JWT with wrong audience → 403 Forbidden
+- Malformed Authorization header → 401 Unauthorized
 
 **RBAC Middleware:**
 
 - Token with permission → request allowed
 - Token without permission → 403 Forbidden
 - Admin token → all requests allowed
-- Verify permission inheritance
 
 **Rate Limiting:**
 
@@ -772,51 +756,67 @@ dual interface.
 
 **Penetration Testing:**
 
-- Attempt to bypass auth
-- Attempt to escalate permissions
+- Attempt to bypass API token auth
+- Attempt to escalate permissions with limited token
 - Attempt to DoS with high request rate
 - Attempt TLS downgrade
-- Verify token leakage doesn't expose sensitive data
+- Verify token values not logged
 
 **Compliance:**
 
 - TLS 1.3 only (no TLS 1.2 or below)
 - Strong cipher suites
 - HSTS header sent
-- No sensitive data in logs
+- No sensitive data in logs (tokens redacted)
 
-## Relationship to Other RFDs
+## Implementation Status
 
-**RFD 001 (Discovery Service):**
+**Core Capability:** ⏳ Not Started
 
-- Discovery can optionally advertise public endpoint
-- Clients can discover colony via public endpoint or mesh IP
+This RFD is in draft status. Implementation has not yet begun.
 
-**RFD 003 (Reef Multi-Colony Federation):**
+**Dependencies:**
 
-- **Reef uses same dual interface pattern**
-- Colony and Reef share auth/RBAC implementation
-- Consistent architecture across tiers
+- RFD 003 (Reef) already implements dual interface pattern - can reuse code
+- RFD 005 (coral proxy) is implemented and provides fallback mechanism
 
-**RFD 004 (MCP Server Integration):**
+**What's Needed:**
 
-- MCP server exposed on both mesh and public endpoint
-- Public endpoint enables Claude Desktop without mesh access
+- Colony server changes to support dual listener
+- Auth middleware implementation (can share with Reef)
+- CLI updates to prefer public endpoint when available
+- MCP SSE endpoint on public interface
 
-**RFD 005 (CLI Access via Local Proxy):**
+## Future Work
 
-- **Partially superseded by RFD 031**
-- coral proxy remains useful for mesh-only colonies
-- Most users will use public endpoint instead
-- Proxy becomes opt-in fallback
+The following features are out of scope for this RFD and may be addressed in
+future RFDs:
 
-**RFD 030 (coral ask Local Genkit):**
+**OIDC/OAuth2 for Human Users** (Separate RFD - High Priority)
 
-- `coral ask` connects to Colony's MCP server
-- Can use public endpoint instead of mesh/proxy
-- Simpler configuration
+- Single sign-on for human users via identity providers
+- JWT-based authentication for web dashboards
+- Integration with corporate identity providers (Okta, Auth0, etc.)
+- Deferred to keep this RFD focused on CLI/bot access via API tokens
 
-## Notes
+**Auto-TLS** (Future Enhancement)
+
+- Integrate with Let's Encrypt / cert-manager
+- Automatic cert renewal
+- No manual TLS cert management
+
+**Audit Log Export** (Future Enhancement)
+
+- Send audit logs to external SIEM
+- Compliance reporting
+- Security monitoring
+
+**IP Allowlisting** (Future Enhancement)
+
+- Restrict public endpoint to specific IPs/CIDR ranges
+- Additional security layer
+
+## Appendix
 
 ### Design Philosophy
 
@@ -839,12 +839,6 @@ dual interface.
 - No dependency on Coral-owned servers
 - User controls access (their tokens, their TLS certs)
 
-**Developer Experience:**
-
-- Local dev: Enable public endpoint on localhost (no TLS needed)
-- Remote access: Enable public endpoint with TLS + tokens
-- CLI "just works" without proxy setup
-
 ### When to Enable Public Endpoint
 
 **Enable when:**
@@ -862,41 +856,17 @@ dual interface.
 - Comfortable using coral proxy
 - Security policy prohibits public endpoints
 
-### Future Enhancements
+### Related RFDs
 
-1. **Auto-TLS:**
-    - Integrate with Let's Encrypt / cert-manager
-    - Automatic cert renewal
-    - No manual TLS cert management
-
-2. **OAuth2/OIDC Integration:**
-    - Single sign-on for human users
-    - Integrate with corporate identity providers
-    - More sophisticated user management
-
-3. **WebAuthn Support:**
-    - Hardware key authentication
-    - Biometric authentication
-    - Phishing-resistant auth
-
-4. **Audit Log Export:**
-    - Send audit logs to external SIEM
-    - Compliance reporting
-    - Security monitoring
-
-5. **IP Allowlisting:**
-    - Restrict public endpoint to specific IPs/CIDR ranges
-    - Additional security layer
-
-## Conclusion
-
-Colony's dual-interface pattern (mesh + optional public endpoint) provides:
-
-1. **Architectural consistency** with Reef
-2. **Simpler CLI access** (no proxy needed)
-3. **External integration support** for single-colony users
-4. **Progressive enhancement** (opt-in, not required)
-5. **Maintains decentralization** (public endpoint is optional)
-
-This supersedes parts of RFD 005 (coral proxy) while keeping proxy as a valid
-fallback for mesh-only colonies and special networking scenarios.
+- **RFD 001 (Discovery Service):** Discovery can optionally advertise public
+  endpoint
+- **RFD 003 (Reef Multi-Colony Federation):** Reef uses same dual interface
+  pattern; code can be shared
+- **RFD 004 (MCP Server Integration):** MCP server exposed on both mesh and
+  public endpoint
+- **RFD 005 (CLI Access via Local Proxy):** Implemented; provides fallback for
+  mesh-only colonies
+- **RFD 030 (coral ask Local Genkit):** Can use public endpoint instead of
+  mesh/proxy
+- **RFD 049 (Discovery-Based Agent Authorization):** Agent-to-colony auth uses
+  referral tickets; separate from CLI auth in this RFD
