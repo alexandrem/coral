@@ -372,7 +372,7 @@ func ConfigureAgentMesh(
 	if colonyInfo.MeshIpv4 != "" {
 		connectPort := colonyInfo.ConnectPort
 		if connectPort == 0 {
-			connectPort = 9000 // Default connect port
+			connectPort = constants.DefaultColonyPort // Default connect port
 		}
 
 		meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
@@ -418,7 +418,7 @@ func registerWithColony(
 
 	connectPort := colonyInfo.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000
+		connectPort = constants.DefaultColonyPort
 	}
 
 	candidateURLs := buildMeshServiceURLs(colonyInfo, connectPort, preferredURL)

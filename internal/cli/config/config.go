@@ -20,6 +20,7 @@ import (
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // NewConfigCmd creates the config command and its subcommands.
@@ -603,7 +604,7 @@ func isColonyRunning(colonyID string, loader *config.Loader) bool {
 
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000
+		connectPort = constants.DefaultColonyPort
 	}
 
 	baseURL := fmt.Sprintf("http://localhost:%d", connectPort)

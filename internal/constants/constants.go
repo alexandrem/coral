@@ -51,7 +51,10 @@ const (
 	// DefaultPublicEndpointPort is the default port for the public HTTPS endpoint (RFD 031).
 	DefaultPublicEndpointPort = 8443
 
-	// DefaultAgentPort is the default port for the agent's gRPC/Connect server.
+	// DefaultColonyPort is the default port for the colony's gRPC/Connect server over mesh.
+	DefaultColonyPort = 9000
+
+	// DefaultAgentPort is the default port for the agent's gRPC/Connect server over mesh.
 	DefaultAgentPort = 9001
 
 	// DefaultOTLPGRPCPort is the default port for OTLP gRPC endpoint.

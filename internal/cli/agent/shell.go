@@ -23,6 +23,7 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // NewShellCmd creates the shell command for interactive debugging (RFD 026, RFD 044).
@@ -514,7 +515,7 @@ func resolveAgentID(ctx context.Context, agentID, colonyID string) (string, erro
 	// Get connect port.
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000
+		connectPort = constants.DefaultColonyPort
 	}
 
 	// Create RPC client - try localhost first, then mesh IP.

@@ -12,6 +12,7 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // ColonyStatusInfo holds status information for a single colony.
@@ -88,7 +89,7 @@ func (p *Provider) QueryColonyStatus(colonyID string, defaultColony string) Colo
 	// Get connect port
 	connectPort := cfg.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000
+		connectPort = constants.DefaultColonyPort
 	}
 	info.ConnectPort = connectPort
 

@@ -20,6 +20,7 @@ import (
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/logging"
 	wg "github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -358,7 +359,7 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 
 		connectPort := colonyInfo.ConnectPort
 		if connectPort == 0 {
-			connectPort = 9000
+			connectPort = constants.DefaultColonyPort
 		}
 
 		colonyURL := fmt.Sprintf("http://%s", net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort)))

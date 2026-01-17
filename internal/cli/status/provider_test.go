@@ -2,6 +2,8 @@ package status
 
 import (
 	"testing"
+
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func TestColonyStatusInfo(t *testing.T) {
@@ -18,7 +20,7 @@ func TestColonyStatusInfo(t *testing.T) {
 		ActiveAgentCount:   3,
 		DegradedAgentCount: 2,
 		WireGuardPort:      51820,
-		ConnectPort:        9000,
+		ConnectPort:        constants.DefaultColonyPort,
 		LocalEndpoint:      "http://localhost:9000",
 		MeshEndpoint:       "http://100.64.0.1:9000",
 		MeshIPv4:           "100.64.0.1",

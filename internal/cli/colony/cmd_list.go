@@ -10,6 +10,7 @@ import (
 
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 type colonyInfo struct {
@@ -76,7 +77,7 @@ shows where the current colony was resolved from (env, project, or global).`,
 
 				connectPort := cfg.Services.ConnectPort
 				if connectPort == 0 {
-					connectPort = 9000
+					connectPort = constants.DefaultColonyPort
 				}
 
 				info := colonyInfo{

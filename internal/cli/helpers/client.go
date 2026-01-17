@@ -17,6 +17,7 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // Colony client helpers for CLI commands.
@@ -82,7 +83,7 @@ func GetColonyURL(colonyID string) (string, error) {
 	// 3. Fall back to localhost URL (CLI commands run on same host as colony).
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000
+		connectPort = constants.DefaultColonyPort
 	}
 
 	return fmt.Sprintf("http://localhost:%d", connectPort), nil
@@ -306,7 +307,7 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 	// Get connect port (default: 9000).
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000
+		connectPort = constants.DefaultColonyPort
 	}
 
 	// Try localhost first.

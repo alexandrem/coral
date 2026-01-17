@@ -50,7 +50,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000 // Default Buf Connect port
+		connectPort = constants.DefaultColonyPort // Default Buf Connect port
 	}
 
 	dashboardPort := colonyConfig.Services.DashboardPort

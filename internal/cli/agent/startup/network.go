@@ -191,7 +191,7 @@ func (n *NetworkInitializer) ConfigureMesh(
 	if result.ColonyInfo != nil {
 		connectPort := result.ColonyInfo.ConnectPort
 		if connectPort == 0 {
-			connectPort = 9000
+			connectPort = constants.DefaultColonyPort
 		}
 		meshAddr := net.JoinHostPort(result.ColonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
 		n.logger.Info().
