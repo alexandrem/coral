@@ -48,6 +48,7 @@ func (s *PublicEndpointSuite) SetupSuite() {
 	}
 	s.Require().NotEmpty(token, "Token should be in CLI output")
 	s.testToken = token
+	s.T().Logf("Using api token: %s", s.testToken)
 
 	// Copy tokens.yaml from CLI env to colony container
 	// The colony server looks for tokens at /root/.coral/colonies/<colony-id>/tokens.yaml

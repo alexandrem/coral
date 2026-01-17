@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -16,10 +15,8 @@ import (
 	"github.com/spf13/cobra"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func newServiceCmd() *cobra.Command {
@@ -94,20 +91,16 @@ Examples:
 
 			// Load colony configuration.
 			loader := resolver.GetLoader()
-			colonyConfig, err := loader.LoadColonyConfig(colonyID)
+			_, err = loader.LoadColonyConfig(colonyID)
 			if err != nil {
 				return fmt.Errorf("failed to load colony config: %w", err)
 			}
 
-			// Get connect port.
-			connectPort := colonyConfig.Services.ConnectPort
-			if connectPort == 0 {
-				connectPort = 9000
+			// Create RPC client using shared helper
+			client, _, err := helpers.GetColonyClientWithFallback(cmd.Context(), colonyID)
+			if err != nil {
+				return err
 			}
-
-			// Create RPC client - try localhost first, then mesh IP.
-			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
 
 			// Call ListAgents RPC to get all agents and their services.
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -117,22 +110,7 @@ Examples:
 			req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
 			resp, err := client.ListAgents(ctx, req)
 			if err != nil {
-				// Try mesh IP as fallback.
-				meshIP := colonyConfig.WireGuard.MeshIPv4
-				if meshIP == "" {
-					meshIP = constants.DefaultColonyMeshIPv4
-				}
-				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
-				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-				ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel2()
-
-				snapshotTime = time.Now().UTC()
-				resp, err = client.ListAgents(ctx2, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
-				if err != nil {
-					return fmt.Errorf("failed to list agents (is colony running?): %w", err)
-				}
+				return fmt.Errorf("failed to list agents (is colony running?): %w", err)
 			}
 
 			// Use ListServices for dual-source discovery.

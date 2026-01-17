@@ -3,7 +3,6 @@ package colony
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -67,36 +65,19 @@ This command is useful for troubleshooting connectivity issues.`,
 				connectPort = 9000
 			}
 
-			// Try to query running colony for real-time status
-			// First try localhost (for querying from the same host where colony runs)
-			// If that fails, try the mesh IP (for remote queries through the mesh)
+			// Try to query running colony for real-time status.
+			// Use shared helper which tries env var -> remote -> local -> mesh.
 			var runtimeStatus *colonyv1.GetStatusResponse
 
-			// Try localhost first
-			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-
-			req := connect.NewRequest(&colonyv1.GetStatusRequest{})
-			resp, err := client.GetStatus(ctx, req)
+			// We don't want to error out if connection fails, because we can still show static config.
+			client, _, err := helpers.GetColonyClientWithFallback(cmd.Context(), colonyID)
 			if err == nil {
-				runtimeStatus = resp.Msg
-			} else {
-				// Try mesh IP as fallback (for remote queries)
-				meshIP := colonyConfig.WireGuard.MeshIPv4
-				if meshIP == "" {
-					meshIP = constants.DefaultColonyMeshIPv4
-				}
-				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
-				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+				// Connection successful, get full status
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
 
-				ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel2()
-
-				if resp2, err2 := client.GetStatus(ctx2, connect.NewRequest(&colonyv1.GetStatusRequest{})); err2 == nil {
-					runtimeStatus = resp2.Msg
+				if resp, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err == nil {
+					runtimeStatus = resp.Msg
 				}
 			}
 

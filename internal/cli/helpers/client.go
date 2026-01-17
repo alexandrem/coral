@@ -260,6 +260,21 @@ func expandPath(path string) string {
 // Tries localhost first, then falls back to mesh IP if localhost fails.
 // Returns the client and the successful URL.
 func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1connect.ColonyServiceClient, string, error) {
+	// 0. Check environment variable override (RFD 031) - HIGHEST PRIORITY.
+	// If CORAL_COLONY_ENDPOINT is set, we use it directly and skip all other resolution logic.
+	if endpoint := os.Getenv("CORAL_COLONY_ENDPOINT"); endpoint != "" {
+		client, err := GetColonyClient(colonyID) // This already uses the env var
+		if err != nil {
+			return nil, "", err
+		}
+		// Verify connection
+		_, err = client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{}))
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to connect to CORAL_COLONY_ENDPOINT=%s: %w", endpoint, err)
+		}
+		return client, endpoint, nil
+	}
+
 	// Create resolver.
 	resolver, err := config.NewResolver()
 	if err != nil {
@@ -301,14 +316,14 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
-	_, err = client.ListAgents(ctxWithTimeout, req)
+	req := connect.NewRequest(&colonyv1.GetStatusRequest{}) // Changed to GetStatus for lighter check
+	_, err = client.GetStatus(ctxWithTimeout, req)
 	if err == nil {
 		// Localhost worked.
 		return client, localhostURL, nil
 	}
 
-	// Try remote endpoint if configured.
+	// Try remote endpoint if configured in YAML.
 	if colonyConfig.Remote.Endpoint != "" {
 		remoteURL := colonyConfig.Remote.Endpoint
 		client = colonyv1connect.NewColonyServiceClient(httpClient, remoteURL)
@@ -316,7 +331,7 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 		ctxWithTimeout2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel2()
 
-		_, err = client.ListAgents(ctxWithTimeout2, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
+		_, err = client.GetStatus(ctxWithTimeout2, connect.NewRequest(&colonyv1.GetStatusRequest{}))
 		if err == nil {
 			return client, remoteURL, nil
 		}
@@ -333,7 +348,7 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 	ctxWithTimeout3, cancel3 := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel3()
 
-	_, err = client.ListAgents(ctxWithTimeout3, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
+	_, err = client.GetStatus(ctxWithTimeout3, connect.NewRequest(&colonyv1.GetStatusRequest{}))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to connect to colony (tried localhost, remote, and mesh IP): %w", err)
 	}

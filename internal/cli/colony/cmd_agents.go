@@ -3,7 +3,6 @@ package colony
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 )
@@ -52,45 +50,25 @@ Note: The colony must be running for this command to work.`,
 				}
 			}
 
-			// Load colony configuration
-			loader := resolver.GetLoader()
-			colonyConfig, err := loader.LoadColonyConfig(colonyID)
+			// Create RPC client using shared helper (prioritizes env var > local > mesh)
+			client, endpoint, err := helpers.GetColonyClientWithFallback(cmd.Context(), colonyID)
 			if err != nil {
-				return fmt.Errorf("failed to load colony config: %w", err)
+				return err
 			}
-
-			// Get connect port
-			connectPort := colonyConfig.Services.ConnectPort
-			if connectPort == 0 {
-				connectPort = 9000
+			if verbose {
+				fmt.Printf("Connected to colony at: %s\n\n", endpoint)
 			}
-
-			// Create RPC client - try localhost first, then mesh IP
-			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
 
 			// Call ListAgents RPC
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			// Note: timeout is handled inside GetColonyClientWithFallback for connection,
+			// but we want a timeout for the actual request too.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
 			req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
 			resp, err := client.ListAgents(ctx, req)
 			if err != nil {
-				// Try mesh IP as fallback
-				meshIP := colonyConfig.WireGuard.MeshIPv4
-				if meshIP == "" {
-					meshIP = "10.42.0.1"
-				}
-				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
-				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-				ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel2()
-
-				resp, err = client.ListAgents(ctx2, connect.NewRequest(&colonyv1.ListAgentsRequest{}))
-				if err != nil {
-					return fmt.Errorf("failed to list agents (is colony running?): %w", err)
-				}
+				return fmt.Errorf("failed to list agents: %w", err)
 			}
 
 			agents := resp.Msg.Agents

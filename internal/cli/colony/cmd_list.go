@@ -3,15 +3,11 @@ package colony
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 )
@@ -101,16 +97,19 @@ shows where the current colony was resolved from (env, project, or global).`,
 					info.Resolution = source.Type
 				}
 
-				// Try to query running status (with quick timeout).
-				baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-				client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-				if resp, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err == nil {
+				// Check if running using shared helper
+				// We use a short timeout context for the checking logic inside the helper if needed,
+				// but the helper itself takes a context.
+
+				// Use a timeout context for the check
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+
+				// We don't care about the client, just if we can connect
+				_, _, err = helpers.GetColonyClientWithFallback(ctx, id)
+				if err == nil {
 					info.Running = true
-					info.LocalEndpoint = fmt.Sprintf("http://localhost:%d", resp.Msg.ConnectPort)
-					info.MeshEndpoint = fmt.Sprintf("http://%s:%d", resp.Msg.MeshIpv4, resp.Msg.ConnectPort)
 				}
-				cancel()
 
 				colonies = append(colonies, info)
 			}
