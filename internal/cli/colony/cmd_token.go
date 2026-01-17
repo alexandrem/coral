@@ -314,7 +314,9 @@ Revoked tokens can no longer authenticate to the public endpoint.`,
 				fmt.Print("Type 'yes' to confirm: ")
 
 				var confirm string
-				fmt.Scanln(&confirm)
+				if _, err := fmt.Scanln(&confirm); err != nil {
+					return fmt.Errorf("failed to read user confirmation: %w", err)
+				}
 				if confirm != "yes" {
 					fmt.Println("Cancelled.")
 					return nil
