@@ -223,5 +223,5 @@ func setDefaultColony(colonyName string) error {
 		return err
 	}
 
-	return os.WriteFile(configPath, configData, 0o644)
+	return os.WriteFile(configPath, configData, 0o600)
 }
