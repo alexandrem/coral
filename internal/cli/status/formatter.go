@@ -149,6 +149,9 @@ func (f *Formatter) OutputTable(colonies []ColonyStatusInfo, discoveryHealthy bo
 			endpointsStr := "-"
 			if info.Running {
 				endpointsStr = fmt.Sprintf("localhost:%d, %s:%d", info.ConnectPort, info.MeshIPv4, info.ConnectPort)
+				if info.PublicEndpointUrl != "" {
+					endpointsStr += ", " + info.PublicEndpointUrl
+				}
 			}
 
 			fmt.Printf("%-25s %-8s %-11s %-9s %-7s %-14s %s\n",
@@ -176,8 +179,12 @@ func (f *Formatter) OutputTable(colonies []ColonyStatusInfo, discoveryHealthy bo
 		fmt.Println("Endpoints:")
 		for _, info := range colonies {
 			if info.Running {
-				fmt.Printf("  %-16s http://localhost:%d (local), http://%s:%d (mesh)\n",
-					info.ColonyID+":", info.ConnectPort, info.MeshIPv4, info.ConnectPort)
+				endpointLine := fmt.Sprintf("http://localhost:%d (local), http://%s:%d (mesh)",
+					info.ConnectPort, info.MeshIPv4, info.ConnectPort)
+				if info.PublicEndpointUrl != "" {
+					endpointLine += fmt.Sprintf(", %s (public)", info.PublicEndpointUrl)
+				}
+				fmt.Printf("  %-16s %s\n", info.ColonyID+":", endpointLine)
 			}
 		}
 		fmt.Println()

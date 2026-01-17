@@ -30,6 +30,7 @@ type ColonyStatusInfo struct {
 	ConnectPort        int    `json:"connect_port"`
 	LocalEndpoint      string `json:"local_endpoint,omitempty"`
 	MeshEndpoint       string `json:"mesh_endpoint,omitempty"`
+	PublicEndpointUrl  string `json:"public_endpoint_url,omitempty"`
 	MeshIPv4           string `json:"mesh_ipv4"`
 	WireGuardPubkey    string `json:"wireguard_pubkey,omitempty"`
 }
@@ -110,6 +111,7 @@ func (p *Provider) QueryColonyStatus(colonyID string, defaultColony string) Colo
 		info.DegradedAgentCount = resp.Msg.DegradedAgentCount
 		info.LocalEndpoint = fmt.Sprintf("http://localhost:%d", resp.Msg.ConnectPort)
 		info.MeshEndpoint = fmt.Sprintf("http://%s:%d", resp.Msg.MeshIpv4, resp.Msg.ConnectPort)
+		info.PublicEndpointUrl = resp.Msg.PublicEndpointUrl
 	}
 
 	return info

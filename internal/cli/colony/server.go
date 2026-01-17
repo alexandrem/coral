@@ -82,7 +82,26 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
 	}
 
-	// Create colony service handler
+	// Compute public endpoint URL if enabled (RFD 031).
+	var publicEndpointURL string
+	if colonyConfig.PublicEndpoint.Enabled {
+		host := colonyConfig.PublicEndpoint.Host
+		if host == "" {
+			host = constants.DefaultPublicEndpointHost
+		}
+		port := colonyConfig.PublicEndpoint.Port
+		if port == 0 {
+			port = constants.DefaultPublicEndpointPort
+		}
+		scheme := "http"
+		isLocalhost := host == "127.0.0.1" || host == "localhost" || host == "::1"
+		if !isLocalhost || colonyConfig.PublicEndpoint.TLS.CertFile != "" {
+			scheme = "https"
+		}
+		publicEndpointURL = fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	}
+
+	// Create colony service handler.
 	colonyServerConfig := server.Config{
 		ColonyID:           cfg.ColonyID,
 		ApplicationName:    cfg.ApplicationName,
@@ -95,6 +114,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		ConnectPort:        connectPort,
 		MeshIPv4:           cfg.WireGuard.MeshIPv4,
 		MeshIPv6:           cfg.WireGuard.MeshIPv6,
+		PublicEndpointURL:  publicEndpointURL,
 	}
 	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 

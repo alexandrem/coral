@@ -108,6 +108,10 @@ message GetStatusResponse {
 
   // Number of degraded agents.
   int32 degraded_agent_count = 17;
+
+  // Public endpoint URL (RFD 031).
+  // Empty if public endpoint is not enabled.
+  string public_endpoint_url = 18;
 }
 
 message ListAgentsRequest {}

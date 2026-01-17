@@ -98,8 +98,11 @@ type GetStatusResponse struct {
 	ActiveAgentCount int32 `protobuf:"varint,16,opt,name=active_agent_count,json=activeAgentCount,proto3" json:"active_agent_count,omitempty"`
 	// Number of degraded agents.
 	DegradedAgentCount int32 `protobuf:"varint,17,opt,name=degraded_agent_count,json=degradedAgentCount,proto3" json:"degraded_agent_count,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Public endpoint URL (RFD 031).
+	// Empty if public endpoint is not enabled.
+	PublicEndpointUrl string `protobuf:"bytes,18,opt,name=public_endpoint_url,json=publicEndpointUrl,proto3" json:"public_endpoint_url,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetStatusResponse) Reset() {
@@ -249,6 +252,13 @@ func (x *GetStatusResponse) GetDegradedAgentCount() int32 {
 		return x.DegradedAgentCount
 	}
 	return 0
+}
+
+func (x *GetStatusResponse) GetPublicEndpointUrl() string {
+	if x != nil {
+		return x.PublicEndpointUrl
+	}
+	return ""
 }
 
 type ListAgentsRequest struct {
@@ -830,7 +840,7 @@ var File_coral_colony_v1_colony_proto protoreflect.FileDescriptor
 const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\n" +
 	"\x1ccoral/colony/v1/colony.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18coral/mesh/v1/auth.proto\x1a\x1acoral/agent/v1/agent.proto\x1a\x19coral/colony/v1/mcp.proto\x1a\x1dcoral/colony/v1/queries.proto\"\x12\n" +
-	"\x10GetStatusRequest\"\x99\x05\n" +
+	"\x10GetStatusRequest\"\xc9\x05\n" +
 	"\x11GetStatusResponse\x12\x1b\n" +
 	"\tcolony_id\x18\x01 \x01(\tR\bcolonyId\x12\x19\n" +
 	"\bapp_name\x18\x02 \x01(\tR\aappName\x12 \n" +
@@ -851,7 +861,8 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"\tmesh_ipv4\x18\x0e \x01(\tR\bmeshIpv4\x12\x1b\n" +
 	"\tmesh_ipv6\x18\x0f \x01(\tR\bmeshIpv6\x12,\n" +
 	"\x12active_agent_count\x18\x10 \x01(\x05R\x10activeAgentCount\x120\n" +
-	"\x14degraded_agent_count\x18\x11 \x01(\x05R\x12degradedAgentCount\"\x13\n" +
+	"\x14degraded_agent_count\x18\x11 \x01(\x05R\x12degradedAgentCount\x12.\n" +
+	"\x13public_endpoint_url\x18\x12 \x01(\tR\x11publicEndpointUrl\"\x13\n" +
 	"\x11ListAgentsRequest\"D\n" +
 	"\x12ListAgentsResponse\x12.\n" +
 	"\x06agents\x18\x01 \x03(\v2\x16.coral.colony.v1.AgentR\x06agents\"\xe1\x02\n" +

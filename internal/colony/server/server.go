@@ -35,6 +35,7 @@ type Config struct {
 	ConnectPort        int
 	MeshIPv4           string
 	MeshIPv6           string
+	PublicEndpointURL  string // RFD 031 - public endpoint URL if enabled.
 }
 
 // Server implements the ColonyService.
@@ -133,6 +134,7 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		ConnectPort:        int32(s.config.ConnectPort),
 		MeshIpv4:           s.config.MeshIPv4,
 		MeshIpv6:           s.config.MeshIPv6,
+		PublicEndpointUrl:  s.config.PublicEndpointURL,
 	}
 }
 

@@ -131,13 +131,17 @@ This command is useful for troubleshooting connectivity issues.`,
 				output["started_at"] = runtimeStatus.StartedAt.AsTime().Format(time.RFC3339)
 
 				// Add network endpoint information from runtime.
-				output["network_endpoints"] = map[string]interface{}{
+				networkEndpoints := map[string]interface{}{
 					"local_endpoint":       fmt.Sprintf("http://localhost:%d", runtimeStatus.ConnectPort),
 					"mesh_endpoint":        fmt.Sprintf("http://%s:%d", runtimeStatus.MeshIpv4, runtimeStatus.ConnectPort),
 					"wireguard_port":       runtimeStatus.WireguardPort,
 					"wireguard_public_key": runtimeStatus.WireguardPublicKey,
 					"wireguard_endpoints":  runtimeStatus.WireguardEndpoints,
 				}
+				if runtimeStatus.PublicEndpointUrl != "" {
+					networkEndpoints["public_endpoint"] = runtimeStatus.PublicEndpointUrl
+				}
+				output["network_endpoints"] = networkEndpoints
 			} else {
 				output["status"] = "configured"
 			}
@@ -187,6 +191,9 @@ This command is useful for troubleshooting connectivity issues.`,
 				fmt.Println("Network Endpoints (Running):")
 				fmt.Printf("  Local (CLI):       http://localhost:%d\n", runtimeStatus.ConnectPort)
 				fmt.Printf("  Mesh (Agents):     http://%s:%d\n", runtimeStatus.MeshIpv4, runtimeStatus.ConnectPort)
+				if runtimeStatus.PublicEndpointUrl != "" {
+					fmt.Printf("  Public (CLI):      %s\n", runtimeStatus.PublicEndpointUrl)
+				}
 				fmt.Printf("  WireGuard Listen:  udp://0.0.0.0:%d\n", runtimeStatus.WireguardPort)
 				fmt.Printf("  WireGuard Pubkey:  %s\n", truncateKey(runtimeStatus.WireguardPublicKey))
 				if len(runtimeStatus.WireguardEndpoints) > 0 {
