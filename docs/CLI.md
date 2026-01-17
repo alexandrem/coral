@@ -73,9 +73,10 @@ environments).
 
 **Configuration Priority:**
 
-1. `CORAL_COLONY_ID` environment variable (highest)
-2. Project config (`.coral/config.yaml` in current directory)
-3. Global config (`~/.coral/config.yaml`)
+1. `CORAL_COLONY_ENDPOINT` + `CORAL_API_TOKEN` environment variables (highest)
+2. `CORAL_COLONY_ID` environment variable
+3. Project config (`.coral/config.yaml` in current directory)
+4. Global config (`~/.coral/config.yaml`)
 
 **Workflow Example:**
 
@@ -195,6 +196,46 @@ coral debug session query payment-service --function processPayment --since 1h
    `coral debug attach payment-service --function processPayment --capture-args`
 
 See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for full command syntax.
+
+---
+
+## Public Endpoint & Authentication (RFD 031)
+
+For remote access (e.g., from an IDE or CI/CD) without WireGuard, Colony provides
+a public HTTPS endpoint. This endpoint requires an API token for authentication.
+
+**Key Features:**
+
+- **Automatic TLS** - Uses internal CA to provision certificates for the public
+  endpoint
+- **Token-based Auth** - Secure access via `Authorization: Bearer <token>`
+- **Direct CLI Support** - Targeted via `CORAL_COLONY_ENDPOINT`
+
+**Managing API Tokens:**
+
+```bash
+# Create a new token with specific permissions
+# Permissions: read, write, admin (comma-separated)
+coral colony token create --name "my-ide-token" --permissions read,write
+
+# List active tokens
+coral colony token list
+
+# Revoke a token
+coral colony token revoke <token-id>
+```
+
+**Using the Public Endpoint with CLI:**
+
+```bash
+# Export the endpoint and token
+export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
+export CORAL_API_TOKEN=cpt_abc123...
+
+# Now all coral commands will use this endpoint
+coral status
+coral query summary
+```
 
 ---
 
@@ -450,15 +491,18 @@ coral query summary api --since 10m    # Specific service metrics
 **Troubleshooting:**
 
 **Q: Service not appearing?**
+
 - Check registered services: `coral colony service list`
 - Check telemetry data: `coral query summary`
 - Verify telemetry is being generated
 
 **Q: Service shows as OBSERVED - is this bad?**
+
 - No! It means Coral auto-observed it from traffic
 - To get health monitoring, explicitly connect: `coral connect <service>:<port>`
 
 **Q: Service shows as UNHEALTHY?**
+
 - Service is registered but health checks failing
 - Data is still queryable: `coral query summary <service>`
 - Reconnect if needed: `coral connect <service>:<port>`
@@ -1208,7 +1252,7 @@ Database query metrics.
 ### Common Query Patterns
 
 > **💡 Tip:** For common observability queries, use the high-level
-`coral query ebpf` commands instead of writing SQL. These commands automatically
+> `coral query ebpf` commands instead of writing SQL. These commands automatically
 > calculate percentiles, aggregate data, and format output. See
 > the [Querying eBPF Metrics and Traces](#querying-ebpf-metrics-and-traces)
 > section above.
@@ -1814,7 +1858,7 @@ See docs/CLI_REFERENCE.md:180 for command syntax.
 Understanding when to use each command is critical:
 
 | Command       | Target                      | Filesystem View                     | Use Case                                              |
-|---------------|-----------------------------|-------------------------------------|-------------------------------------------------------|
+| ------------- | --------------------------- | ----------------------------------- | ----------------------------------------------------- |
 | `coral shell` | Agent host environment      | Agent's filesystem                  | Host diagnostics, network debugging, agent management |
 | `coral exec`  | Service container (nsenter) | Container's mounted volumes/configs | Container configs, app files, mounted volumes         |
 

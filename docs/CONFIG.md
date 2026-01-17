@@ -94,16 +94,20 @@ observability data.
 > data from your colony.
 >
 > **Currently Supported:**
-> - **Google Gemini**: Only provider currently implemented. Uses direct SDK
-    integration with full MCP tool calling support.
 >
+> - **Google Gemini**: Only provider currently implemented. Uses direct SDK
+
+    integration with full MCP tool calling support.
+
 > **Planned Providers:**
+>
 > - **OpenAI**: Implementation needed for GPT-4o and GPT-4o-mini support
 > - **Anthropic**: Native tool calling support available, implementation planned
 > - **Ollama**: For air-gapped/offline deployments
 > - **Grok**: Evaluate tool calling support and implement if viable
 >
 > **Recommendation:** Use Google models for `coral ask`:
+>
 > - Production: `google:gemini-1.5-pro` (stable, long context)
 > - Development: `google:gemini-2.0-flash-exp` (fast, experimental)
 > - Cost-effective: `google:gemini-1.5-flash` (balanced)
@@ -143,6 +147,7 @@ Models are specified as `provider:model-id`:
 **Current Limitation:**
 
 If you specify a non-Google provider, you'll receive an error:
+
 ```
 provider "openai" is not yet implemented
 
@@ -202,9 +207,11 @@ ask:
 ## Colony Configuration
 
 Locations (in priority order):
+
 1. `~/.coral/colonies/<colony-id>/config.yaml` (User-specific)
 2. `/etc/coral/colonies/<colony-id>.yaml` (System-wide, multi-colony)
-3. `/etc/coral/colony.yaml` (System-wide, single-colony - only if `colony_id` matches)
+3. `/etc/coral/colony.yaml` (System-wide, single-colony - only if `colony_id`
+   matches)
 
 ```yaml
 version: "1"
@@ -360,10 +367,10 @@ System metrics are collected from agents and aggregated by the colony for
 infrastructure observability. The colony polls agents for host-level metrics
 (CPU, memory, disk, network) and stores aggregated summaries.
 
-| Field                              | Type | Default | Description                                      |
-|------------------------------------|------|---------|--------------------------------------------------|
-| `system_metrics.poll_interval`     | int  | `60`    | Interval (seconds) to poll agents for metrics   |
-| `system_metrics.retention_days`    | int  | `30`    | Retention period for aggregated summaries (days) |
+| Field                           | Type | Default | Description                                      |
+|---------------------------------|------|---------|--------------------------------------------------|
+| `system_metrics.poll_interval`  | int  | `60`    | Interval (seconds) to poll agents for metrics    |
+| `system_metrics.retention_days` | int  | `30`    | Retention period for aggregated summaries (days) |
 
 **Example Configuration:**
 
@@ -416,6 +423,7 @@ storage:
 ## Agent Configuration
 
 Locations (in priority order):
+
 1. `agent.yaml` (Local)
 2. `/etc/coral/agent.yaml` (System-wide)
 
@@ -434,44 +442,44 @@ telemetry:
 
 ### Agent Configuration Fields
 
-| Field                                     | Type              | Default          | Description                            |
-|-------------------------------------------|-------------------|------------------|----------------------------------------|
-| `version`                                 | string            | `"1"`            | Configuration schema version           |
-| `agent_id`                                | string            | Required         | Unique agent identifier                |
-| `telemetry.enabled`                       | bool              | `false`          | Enable OpenTelemetry collection        |
-| `telemetry.endpoint`                      | string            | `127.0.0.1:4317` | OTLP endpoint                          |
-| `telemetry.filters.always_capture_errors` | bool              | `true`           | Always capture error traces            |
-| `telemetry.filters.latency_threshold_ms`  | float             | `500.0`          | Latency threshold for capture          |
-| `telemetry.filters.sample_rate`           | float             | `0.10`           | Sample rate (0.0-1.0)                  |
-| `beyla.disabled`                          | bool              | `false`          | Disable Beyla eBPF instrumentation     |
-| `beyla.discovery.services`                | []Service         | `[]`             | List of services to instrument         |
-| `beyla.protocols.http.enabled`            | bool              | `true`           | Enable HTTP instrumentation            |
-| `beyla.protocols.http.route_patterns`     | []string          | `[]`             | URL patterns for cardinality reduction |
-| `beyla.protocols.grpc.enabled`            | bool              | `true`           | Enable gRPC instrumentation            |
-| `beyla.protocols.sql.enabled`             | bool              | `true`           | Enable SQL instrumentation             |
-| `beyla.protocols.sql.obfuscate_queries`   | bool              | `true`           | Obfuscate SQL query literals           |
-| `beyla.attributes`                        | map[string]string | `{}`             | Custom attributes for metrics/traces   |
-| `beyla.sampling.rate`                     | float             | `1.0`            | Trace sampling rate (0.0-1.0)          |
-| `beyla.limits.max_traced_connections`     | int               | `1000`           | Max concurrent tracked connections     |
-| `beyla.otlp_endpoint`                     | string            | `localhost:4318` | OTLP export endpoint                   |
-| `debug.enabled`                           | bool              | `true`           | Enable debug session capability        |
-| `debug.sdk_api.timeout`                   | duration          | `5s`             | Timeout for SDK communication          |
-| `debug.limits.max_concurrent_sessions`    | int               | `5`              | Max concurrent debug sessions          |
-| `debug.limits.max_session_duration`       | duration          | `10m`            | Max duration for a debug session       |
-| `debug.limits.max_events_per_second`      | int               | `10000`          | Rate limit for debug events            |
-| `system_metrics.disabled`                 | bool              | `false`          | Disable system metrics collection      |
-| `system_metrics.interval`                 | duration          | `15s`            | Collection interval                    |
-| `system_metrics.retention`                | duration          | `1h`             | Local retention period                 |
-| `system_metrics.cpu_enabled`              | bool              | `true`           | Collect CPU metrics                    |
-| `system_metrics.memory_enabled`           | bool              | `true`           | Collect memory metrics                 |
-| `system_metrics.disk_enabled`             | bool              | `true`           | Collect disk I/O metrics               |
-| `system_metrics.network_enabled`          | bool              | `true`           | Collect network I/O metrics            |
-| `continuous_profiling.disabled`           | bool              | `false`          | Disable continuous profiling (enabled by default) |
-| `continuous_profiling.cpu.disabled`       | bool              | `false`          | Disable CPU profiling (enabled by default)        |
-| `continuous_profiling.cpu.frequency_hz`   | int               | `19`             | Sampling frequency (Hz)                           |
-| `continuous_profiling.cpu.interval`       | duration          | `15s`            | Collection interval                               |
-| `continuous_profiling.cpu.retention`      | duration          | `1h`             | Local sample retention                            |
-| `continuous_profiling.cpu.metadata_retention` | duration      | `7d`             | Binary metadata retention                         |
+| Field                                         | Type              | Default          | Description                                       |
+|-----------------------------------------------|-------------------|------------------|---------------------------------------------------|
+| `version`                                     | string            | `"1"`            | Configuration schema version                      |
+| `agent_id`                                    | string            | Required         | Unique agent identifier                           |
+| `telemetry.enabled`                           | bool              | `false`          | Enable OpenTelemetry collection                   |
+| `telemetry.endpoint`                          | string            | `127.0.0.1:4317` | OTLP endpoint                                     |
+| `telemetry.filters.always_capture_errors`     | bool              | `true`           | Always capture error traces                       |
+| `telemetry.filters.latency_threshold_ms`      | float             | `500.0`          | Latency threshold for capture                     |
+| `telemetry.filters.sample_rate`               | float             | `0.10`           | Sample rate (0.0-1.0)                             |
+| `beyla.disabled`                              | bool              | `false`          | Disable Beyla eBPF instrumentation                |
+| `beyla.discovery.services`                    | []Service         | `[]`             | List of services to instrument                    |
+| `beyla.protocols.http.enabled`                | bool              | `true`           | Enable HTTP instrumentation                       |
+| `beyla.protocols.http.route_patterns`         | []string          | `[]`             | URL patterns for cardinality reduction            |
+| `beyla.protocols.grpc.enabled`                | bool              | `true`           | Enable gRPC instrumentation                       |
+| `beyla.protocols.sql.enabled`                 | bool              | `true`           | Enable SQL instrumentation                        |
+| `beyla.protocols.sql.obfuscate_queries`       | bool              | `true`           | Obfuscate SQL query literals                      |
+| `beyla.attributes`                            | map[string]string | `{}`             | Custom attributes for metrics/traces              |
+| `beyla.sampling.rate`                         | float             | `1.0`            | Trace sampling rate (0.0-1.0)                     |
+| `beyla.limits.max_traced_connections`         | int               | `1000`           | Max concurrent tracked connections                |
+| `beyla.otlp_endpoint`                         | string            | `localhost:4318` | OTLP export endpoint                              |
+| `debug.enabled`                               | bool              | `true`           | Enable debug session capability                   |
+| `debug.sdk_api.timeout`                       | duration          | `5s`             | Timeout for SDK communication                     |
+| `debug.limits.max_concurrent_sessions`        | int               | `5`              | Max concurrent debug sessions                     |
+| `debug.limits.max_session_duration`           | duration          | `10m`            | Max duration for a debug session                  |
+| `debug.limits.max_events_per_second`          | int               | `10000`          | Rate limit for debug events                       |
+| `system_metrics.disabled`                     | bool              | `false`          | Disable system metrics collection                 |
+| `system_metrics.interval`                     | duration          | `15s`            | Collection interval                               |
+| `system_metrics.retention`                    | duration          | `1h`             | Local retention period                            |
+| `system_metrics.cpu_enabled`                  | bool              | `true`           | Collect CPU metrics                               |
+| `system_metrics.memory_enabled`               | bool              | `true`           | Collect memory metrics                            |
+| `system_metrics.disk_enabled`                 | bool              | `true`           | Collect disk I/O metrics                          |
+| `system_metrics.network_enabled`              | bool              | `true`           | Collect network I/O metrics                       |
+| `continuous_profiling.disabled`               | bool              | `false`          | Disable continuous profiling (enabled by default) |
+| `continuous_profiling.cpu.disabled`           | bool              | `false`          | Disable CPU profiling (enabled by default)        |
+| `continuous_profiling.cpu.frequency_hz`       | int               | `19`             | Sampling frequency (Hz)                           |
+| `continuous_profiling.cpu.interval`           | duration          | `15s`            | Collection interval                               |
+| `continuous_profiling.cpu.retention`          | duration          | `1h`             | Local sample retention                            |
+| `continuous_profiling.cpu.metadata_retention` | duration          | `7d`             | Binary metadata retention                         |
 
 ### Beyla Integration Configuration
 
@@ -587,28 +595,31 @@ system_metrics:
 
 **Configuration Fields:**
 
-| Field              | Type     | Default | Description                                |
-|--------------------|----------|---------|--------------------------------------------|
-| `disabled`         | bool     | `false` | Master switch for system metrics           |
-| `interval`         | duration | `15s`   | How often to sample system metrics         |
-| `retention`        | duration | `1h`    | How long to keep raw samples locally       |
-| `cpu_enabled`      | bool     | `true`  | Collect CPU utilization and time           |
-| `memory_enabled`   | bool     | `true`  | Collect memory usage, limit, utilization   |
-| `disk_enabled`     | bool     | `true`  | Collect disk I/O and usage                 |
-| `network_enabled`  | bool     | `true`  | Collect network I/O and errors             |
+| Field             | Type     | Default | Description                              |
+|-------------------|----------|---------|------------------------------------------|
+| `disabled`        | bool     | `false` | Master switch for system metrics         |
+| `interval`        | duration | `15s`   | How often to sample system metrics       |
+| `retention`       | duration | `1h`    | How long to keep raw samples locally     |
+| `cpu_enabled`     | bool     | `true`  | Collect CPU utilization and time         |
+| `memory_enabled`  | bool     | `true`  | Collect memory usage, limit, utilization |
+| `disk_enabled`    | bool     | `true`  | Collect disk I/O and usage               |
+| `network_enabled` | bool     | `true`  | Collect network I/O and errors           |
 
 **Collected Metrics:**
 
 - **CPU:**
+
     - `system.cpu.utilization` - CPU usage percentage (0-100)
     - `system.cpu.time` - Cumulative CPU time (seconds)
 
 - **Memory:**
+
     - `system.memory.usage` - Memory used (bytes)
     - `system.memory.limit` - Total memory available (bytes)
     - `system.memory.utilization` - Memory usage percentage (0-100)
 
 - **Disk:**
+
     - `system.disk.io` - Disk I/O operations (reads/writes)
     - `system.disk.usage` - Disk space used (bytes)
 
@@ -670,14 +681,14 @@ continuous_profiling:
 
 **Configuration Fields:**
 
-| Field                      | Type     | Default | Description                                      |
-|----------------------------|----------|---------|--------------------------------------------------|
-| `disabled`                 | bool     | `false` | Master switch - set `true` to disable entirely   |
-| `cpu.disabled`             | bool     | `false` | Disable CPU profiling - set `true` to disable    |
-| `cpu.frequency_hz`         | int      | `19`    | Sampling frequency (19Hz = low overhead)         |
-| `cpu.interval`             | duration | `15s`   | How often to collect and aggregate samples       |
-| `cpu.retention`            | duration | `1h`    | How long to keep samples locally on agent        |
-| `cpu.metadata_retention`   | duration | `7d`    | How long to keep binary metadata (build IDs)     |
+| Field                    | Type     | Default | Description                                    |
+|--------------------------|----------|---------|------------------------------------------------|
+| `disabled`               | bool     | `false` | Master switch - set `true` to disable entirely |
+| `cpu.disabled`           | bool     | `false` | Disable CPU profiling - set `true` to disable  |
+| `cpu.frequency_hz`       | int      | `19`    | Sampling frequency (19Hz = low overhead)       |
+| `cpu.interval`           | duration | `15s`   | How often to collect and aggregate samples     |
+| `cpu.retention`          | duration | `1h`    | How long to keep samples locally on agent      |
+| `cpu.metadata_retention` | duration | `7d`    | How long to keep binary metadata (build IDs)   |
 
 **How It Works:**
 
@@ -685,7 +696,8 @@ continuous_profiling:
 - **Low Overhead:** <1% CPU impact, designed for production use
 - **Frame Dictionary:** 85% storage compression using integer encoding
 - **Build ID Tracking:** Tracks binary versions for correct symbolization
-- **Historical Queries:** Query past profiles using `coral debug cpu-profile --since 1h`
+- **Historical Queries:** Query past profiles using
+  `coral debug cpu-profile --since 1h`
 - **Colony Aggregation:** Colony polls agents and stores 30-day summaries
 
 **Collected Data:**
@@ -791,6 +803,8 @@ Environment variables override configuration file values.
 | `CORAL_STORAGE_PATH`       | `storage_path`                | `/var/lib/coral`           | Storage directory path                                                 |
 | `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`  | `colony.example.com:41580` | **Production required:** Public WireGuard endpoint(s), comma-separated |
 | `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4` | `100.64.0.0/10`            | Mesh network subnet                                                    |
+| `CORAL_COLONY_ENDPOINT`    | -                             | `https://colony:8443`      | **Public API:** Public HTTPS endpoint for CLI/SDK access (RFD 031)     |
+| `CORAL_API_TOKEN`          | -                             | `cpt_abc123...`            | API token for authenticating to the public endpoint (RFD 031)          |
 
 **Multiple Endpoints Example:**
 
@@ -805,6 +819,15 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 | `CORAL_AGENT_ID`           | Agent identifier      |
 | `CORAL_COLONY_ID`          | Colony to connect to  |
 | `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL |
+
+### CLI Environment Variables
+
+| Variable                | Description                                                            |
+|-------------------------|------------------------------------------------------------------------|
+| `CORAL_COLONY_ENDPOINT` | Explicit colony endpoint URL (e.g., `https://colony.example.com:8443`) |
+| `CORAL_API_TOKEN`       | API token for authenticating to the public endpoint (RFD 031)          |
+| `CORAL_COLONY_ID`       | Override default colony ID                                             |
+| `CORAL_COLONY_SECRET`   | Override colony secret (used for local config-less agent mode)         |
 
 ### Configuration Precedence
 
@@ -982,6 +1005,7 @@ coral colony start  # Uses 127.0.0.1:<port>
 Understanding the difference:
 
 - **Mesh IP** (`mesh_ipv4`): Address **inside** the WireGuard tunnel
+
     - Used for service-to-service communication
     - Example: `100.64.0.1`
 
