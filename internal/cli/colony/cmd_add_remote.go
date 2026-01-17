@@ -80,7 +80,7 @@ Examples:
 			}
 
 			// Create colony directory.
-			if err := os.MkdirAll(colonyDir, 0o755); err != nil {
+			if err := os.MkdirAll(colonyDir, 0o700); err != nil {
 				return fmt.Errorf("failed to create colony directory: %w", err)
 			}
 
