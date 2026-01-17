@@ -192,6 +192,14 @@ func (e *CLITestEnv) createMinimalColonyConfig(colonyID, endpoint string) error 
 				"mode": "ephemeral",
 			},
 		},
+		"public_endpoint": map[string]interface{}{
+			"enabled": true,
+			"host":    "0.0.0.0",
+			"port":    8443,
+			"auth": map[string]interface{}{
+				"require": true,
+			},
+		},
 	}
 
 	// Marshal to YAML.

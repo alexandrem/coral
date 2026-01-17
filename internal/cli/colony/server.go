@@ -338,7 +338,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				logger.Info().
 					Str("url", publicServer.URL()).
 					Bool("mcp_enabled", colonyConfig.PublicEndpoint.MCP.Enabled).
-					Msg("Public endpoint server started (RFD 031)")
+					Msg("Public endpoint server started")
 			}
 		}
 	}

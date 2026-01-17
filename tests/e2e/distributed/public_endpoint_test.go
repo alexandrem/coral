@@ -2,7 +2,11 @@ package distributed
 
 import (
 	"crypto/tls"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,7 +17,8 @@ import (
 type PublicEndpointSuite struct {
 	E2EDistributedSuite
 
-	cliEnv *helpers.CLITestEnv
+	cliEnv    *helpers.CLITestEnv
+	testToken string // Pre-created token for tests
 }
 
 func (s *PublicEndpointSuite) SetupSuite() {
@@ -23,10 +28,51 @@ func (s *PublicEndpointSuite) SetupSuite() {
 	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
-	colonyID := "test-colony-e2e"
+	// Use the actual colony ID from the fixture (discovered from the container)
+	colonyID := s.fixture.ColonyID
 
 	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, colonyID, colonyEndpoint)
 	s.Require().NoError(err, "Failed to setup CLI environment")
+
+	// Create token using CLI
+	result := helpers.ColonyTokenCreate(s.ctx, s.cliEnv.EnvVars(), "e2e-test-token", "admin")
+	result.MustSucceed(s.T())
+
+	// Extract token from CLI output
+	var token string
+	for _, line := range strings.Split(result.Output, "\n") {
+		if strings.HasPrefix(line, "Token: ") {
+			token = strings.TrimPrefix(line, "Token: ")
+			break
+		}
+	}
+	s.Require().NotEmpty(token, "Token should be in CLI output")
+	s.testToken = token
+
+	// Copy tokens.yaml from CLI env to colony container
+	// The colony server looks for tokens at /root/.coral/colonies/<colony-id>/tokens.yaml
+	tokensPath := filepath.Join(s.cliEnv.ColonyPath(colonyID), "tokens.yaml")
+	destPath := fmt.Sprintf("distributed-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
+	cmd := exec.Command("docker", "cp", tokensPath, destPath)
+	err = cmd.Run()
+	s.Require().NoError(err, "Failed to copy tokens.yaml to colony container")
+
+	// Restart colony to reload tokens (TokenStore loads from file only on startup)
+	s.T().Log("Restarting colony to reload tokens...")
+	err = s.fixture.RestartService(s.ctx, "colony")
+	s.Require().NoError(err, "Failed to restart colony service")
+
+	// Wait for colony to be healthy again
+	// Note: We use the discovery service to check checking colony health indirectly,
+	// or we can use the colony's HTTP endpoint if it's exposed.
+	// The fixture doesn't have a direct "waitForColony" but waitForServices checks dependencies.
+	// Let's use written helper logic or just sleep briefly + wait for endpoint.
+
+	// Wait for the public endpoint to be up.
+	err = helpers.WaitForHTTPEndpoint(s.ctx, "https://localhost:8443/health", 30*time.Second)
+	// Look for /status handler.
+	err = helpers.WaitForHTTPEndpoint(s.ctx, s.fixture.ColonyEndpoint+"/status", 30*time.Second)
+	s.Require().NoError(err, "Colony service failed to become healthy after restart")
 }
 
 func (s *PublicEndpointSuite) TearDownSuite() {
@@ -63,21 +109,8 @@ func (s *PublicEndpointSuite) TestPublicEndpointConnectivity() {
 func (s *PublicEndpointSuite) TestPublicEndpointAuthorization() {
 	s.T().Log("Testing public endpoint authorization with API key...")
 
-	// 1. Create a token via CLI
-	tokenID := "e2e-test-token"
-	result := helpers.ColonyTokenCreate(s.ctx, s.cliEnv.EnvVars(), tokenID, "status")
-	result.MustSucceed(s.T())
-
-	// Extract token from output. Output format: "Token: <token-value>"
-	var token string
-	lines := strings.Split(result.Output, "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "Token: ") {
-			token = strings.TrimPrefix(line, "Token: ")
-			break
-		}
-	}
-	s.Require().NotEmpty(token, "Created token should be in output")
+	// Use pre-created token from SetupSuite
+	token := s.testToken
 
 	// 2. Access with valid token
 	url := "https://localhost:8443/status"
@@ -106,18 +139,8 @@ func (s *PublicEndpointSuite) TestPublicEndpointAuthorization() {
 func (s *PublicEndpointSuite) TestCLIUsingPublicEndpoint() {
 	s.T().Log("Testing CLI direct access to public endpoint...")
 
-	// Create a token with full permissions for the CLI
-	tokenID := "cli-e2e-token"
-	result := helpers.ColonyTokenCreate(s.ctx, s.cliEnv.EnvVars(), tokenID, "admin")
-	result.MustSucceed(s.T())
-
-	var token string
-	for _, line := range strings.Split(result.Output, "\n") {
-		if strings.HasPrefix(line, "Token: ") {
-			token = strings.TrimPrefix(line, "Token: ")
-			break
-		}
-	}
+	// Use pre-created token from SetupSuite
+	token := s.testToken
 
 	// Run 'coral colony status' using the public endpoint and API token
 	// We override CORAL_COLONY_ENDPOINT to point to the public endpoint
@@ -129,7 +152,7 @@ func (s *PublicEndpointSuite) TestCLIUsingPublicEndpoint() {
 
 	// Note: Connect-Go (which Coral uses) uses HTTP/2.
 	// The CLI will try to use the public endpoint if it starts with https://
-	result = helpers.RunCLIWithEnv(s.ctx, env, "colony", "status")
+	result := helpers.RunCLIWithEnv(s.ctx, env, "colony", "status", "-o", "json")
 
 	// We expect this to fail if the CLI doesn't trust the Colony CA.
 	// However, for E2E purposes, we want to see if the wiring works.
@@ -138,6 +161,11 @@ func (s *PublicEndpointSuite) TestCLIUsingPublicEndpoint() {
 		s.T().Log("Success: CLI reached public endpoint (blocked by expected cert validation error)")
 	} else {
 		result.MustSucceed(s.T())
-		s.Require().Contains(result.Output, "Colony ID: test-colony-e2e")
+
+		var status map[string]interface{}
+		err := json.Unmarshal([]byte(result.Output), &status)
+		s.Require().NoError(err, "Failed to parse JSON output")
+
+		s.Require().Equal(s.fixture.ColonyID, status["colony_id"], "Colony ID match fixture")
 	}
 }
