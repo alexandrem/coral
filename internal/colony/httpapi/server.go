@@ -69,6 +69,10 @@ type Config struct {
 	// If provided, it overrides CertFile/KeyFile in PublicConfig.
 	TLSCertificate *tls.Certificate
 
+	// StatusHandler is the optional handler for the /status endpoint.
+	// If provided, it will be registered on the public endpoint and subject to auth.
+	StatusHandler http.Handler
+
 	// Logger is the logger instance.
 	Logger zerolog.Logger
 }
@@ -132,6 +136,12 @@ func New(cfg Config) (*Server, error) {
 		logger.Info().Str("path", mcpPath).Msg("MCP SSE endpoint registered")
 	}
 
+	// Register /status endpoint if handler provided.
+	if cfg.StatusHandler != nil {
+		mux.Handle("/status", cfg.StatusHandler)
+		logger.Debug().Msg("Registered /status endpoint")
+	}
+
 	// Create health endpoint (bypasses authentication).
 	healthMux := http.NewServeMux()
 	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -157,10 +167,12 @@ func New(cfg Config) (*Server, error) {
 
 		if requireAuth {
 			// Apply full middleware chain.
+			// The order MUST be: audit -> auth -> rate -> rbac -> handler
+			// (auth must run before rate/rbac as they need the authenticated token).
 			chain := auditMw.Handler(
-				rateMw.Handler(
-					rbacMw.Handler(
-						authMw.Handler(mux),
+				authMw.Handler(
+					rateMw.Handler(
+						rbacMw.Handler(mux),
 					),
 				),
 			)

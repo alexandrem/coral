@@ -375,6 +375,16 @@ func ColonyAgentsJSON(ctx context.Context, colonyEndpoint string) ([]map[string]
 	return agents, nil
 }
 
+// ColonyTokenCreate executes `coral colony token create` and returns the output.
+func ColonyTokenCreate(ctx context.Context, env map[string]string, tokenID, permissions string) *CLIResult {
+	args := []string{"colony", "token", "create", tokenID}
+	if permissions != "" {
+		args = append(args, "--permissions", permissions)
+	}
+	// Note: We use the provided env which should have CORAL_CONFIG or HOME set
+	return RunCLIWithEnv(ctx, env, args...)
+}
+
 // AgentStatus executes `coral agent status` for a specific agent and returns the output.
 func AgentStatus(ctx context.Context, colonyEndpoint, agentID string) *CLIResult {
 	args := []string{"agent", "status"}

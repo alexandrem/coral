@@ -25,8 +25,13 @@ import (
 // ensure consistent connection behavior across all CLI commands.
 
 // GetColonyURL returns the colony URL using config resolution.
-// Returns http://localhost:{connectPort} for local connections.
+// Priority: CORAL_COLONY_ENDPOINT env var > localhost:{connectPort}.
 func GetColonyURL(colonyID string) (string, error) {
+	// 1. Check environment variable override (RFD 031).
+	if endpoint := os.Getenv("CORAL_COLONY_ENDPOINT"); endpoint != "" {
+		return endpoint, nil
+	}
+
 	// Create resolver.
 	resolver, err := config.NewResolver()
 	if err != nil {
@@ -68,15 +73,29 @@ func GetColonyURL(colonyID string) (string, error) {
 
 // GetColonyClient creates a colony service client for the specified colony.
 // If colonyID is empty, uses the default colony from config.
+// Supports CORAL_API_TOKEN for authentication (RFD 031).
 func GetColonyClient(colonyID string) (colonyv1connect.ColonyServiceClient, error) {
 	url, err := GetColonyURL(colonyID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Prepare interceptors for authentication.
+	var opts []connect.ClientOption
+	if token := os.Getenv("CORAL_API_TOKEN"); token != "" {
+		interceptor := connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+			return connect.UnaryFunc(func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+				req.Header().Set("Authorization", "Bearer "+token)
+				return next(ctx, req)
+			})
+		}))
+		opts = append(opts, interceptor)
+	}
+
 	client := colonyv1connect.NewColonyServiceClient(
 		http.DefaultClient,
 		url,
+		opts...,
 	)
 
 	return client, nil

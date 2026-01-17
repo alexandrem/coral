@@ -211,8 +211,8 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			Msg("Colony database registered for remote query")
 	}
 
-	// Add simple HTTP /status endpoint (similar to agent).
-	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+	// Create status handler (reused for public endpoint).
+	statusHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Call the colony service's internal GetStatusResponse method directly.
 		// This avoids the Connect protocol overhead and potential auth middleware issues.
 		resp := colonySvc.GetStatusResponse()
@@ -255,6 +255,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			logger.Error().Err(err).Msg("Failed to encode status response")
 		}
 	})
+
+	// Add simple HTTP /status endpoint (similar to agent).
+	mux.Handle("/status", statusHandler)
 
 	addr := fmt.Sprintf(":%d", connectPort)
 	httpServer := &http.Server{
@@ -321,6 +324,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			TokenStore:     tokenStore,
 			ColonyDir:      colonyDir,
 			TLSCertificate: tlsCert,
+			StatusHandler:  statusHandler,
 			Logger:         logger.With().Str("component", "public-endpoint").Logger(),
 		}
 
