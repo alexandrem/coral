@@ -236,7 +236,9 @@ Note: Token values are never displayed - only metadata.`,
 				)
 			}
 
-			w.Flush()
+			if err = w.Flush(); err != nil {
+				return fmt.Errorf("failed to flush output: %w", err)
+			}
 			return nil
 		},
 	}
