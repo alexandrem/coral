@@ -79,6 +79,7 @@ type ColonyConfig struct {
 	Discovery           DiscoveryColony                 `yaml:"discovery"`
 	MCP                 MCPConfig                       `yaml:"mcp,omitempty"`
 	PublicEndpoint      PublicEndpointConfig            `yaml:"public_endpoint,omitempty"` // RFD 031
+	Remote              RemoteConfig                    `yaml:"remote,omitempty"`          // Client-side remote connection config
 	Beyla               BeylaPollerConfig               `yaml:"beyla,omitempty"`
 	SystemMetrics       SystemMetricsPollerConfig       `yaml:"system_metrics,omitempty"`       // RFD 071
 	ContinuousProfiling ContinuousProfilingPollerConfig `yaml:"continuous_profiling,omitempty"` // RFD 072
@@ -156,6 +157,27 @@ type MCPSecurityConfig struct {
 
 	// AuditEnabled enables auditing of all MCP tool calls.
 	AuditEnabled bool `yaml:"audit_enabled,omitempty"`
+}
+
+// RemoteConfig contains client-side connection settings for remote colonies.
+// This enables CLI access to colonies running on remote hosts without WireGuard.
+// Similar to kubectl's cluster configuration in kubeconfig.
+type RemoteConfig struct {
+	// Endpoint is the remote colony's public HTTPS endpoint URL.
+	// Example: "https://colony.example.com:8443"
+	Endpoint string `yaml:"endpoint,omitempty" env:"CORAL_COLONY_ENDPOINT"`
+
+	// CertificateAuthority is the path to the CA certificate file for TLS verification.
+	// Example: "~/.coral/ca/production-ca.crt"
+	CertificateAuthority string `yaml:"certificate_authority,omitempty" env:"CORAL_CA_FILE"`
+
+	// CertificateAuthorityData is the base64-encoded CA certificate for TLS verification.
+	// Takes precedence over CertificateAuthority if both are set.
+	CertificateAuthorityData string `yaml:"certificate_authority_data,omitempty"`
+
+	// InsecureSkipTLSVerify disables TLS certificate verification.
+	// WARNING: Only use for testing. Never use in production.
+	InsecureSkipTLSVerify bool `yaml:"insecure_skip_tls_verify,omitempty" env:"CORAL_INSECURE"`
 }
 
 // PublicEndpointConfig contains optional public HTTPS endpoint configuration (RFD 031).

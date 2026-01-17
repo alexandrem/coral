@@ -319,6 +319,48 @@ last_used: "2025-01-15T14:22:00Z"
 | `mcp.security.require_rbac_for_actions` | bool     | `false`    | Require RBAC for exec/shell/eBPF |
 | `mcp.security.audit_enabled`            | bool     | `false`    | Enable MCP tool call auditing    |
 
+#### Remote Colony Connection (Client-Side)
+
+For connecting to remote colonies from the CLI without WireGuard mesh access.
+Similar to kubectl's cluster configuration in kubeconfig.
+
+| Field                              | Type   | Default | Description                                          |
+|------------------------------------|--------|---------|------------------------------------------------------|
+| `remote.endpoint`                  | string | -       | Remote colony's public HTTPS endpoint URL            |
+| `remote.certificate_authority`     | string | -       | Path to CA certificate file for TLS verification     |
+| `remote.certificate_authority_data`| string | -       | Base64-encoded CA certificate (takes precedence)     |
+| `remote.insecure_skip_tls_verify`  | bool   | `false` | Skip TLS verification (testing only, never in prod) |
+
+**Example - Remote Colony with CA Certificate:**
+
+```yaml
+# ~/.coral/colonies/prod-remote/config.yaml
+version: "1"
+colony_id: "prod-remote"
+application_name: "MyApp"
+environment: "production"
+
+remote:
+    endpoint: https://colony.example.com:8443
+    certificate_authority: ~/.coral/ca/prod-ca.crt
+```
+
+**Example - Remote Colony with Inline CA (Base64):**
+
+```yaml
+remote:
+    endpoint: https://colony.example.com:8443
+    certificate_authority_data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t...
+```
+
+**Example - Insecure Mode (Testing Only):**
+
+```yaml
+remote:
+    endpoint: https://localhost:8443
+    insecure_skip_tls_verify: true  # Never use in production!
+```
+
 #### Beyla Observability (RFD 032, RFD 036)
 
 Beyla metrics and traces are collected from agents and stored in the colony's
@@ -826,6 +868,8 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 |-------------------------|------------------------------------------------------------------------|
 | `CORAL_COLONY_ENDPOINT` | Explicit colony endpoint URL (e.g., `https://colony.example.com:8443`) |
 | `CORAL_API_TOKEN`       | API token for authenticating to the public endpoint (RFD 031)          |
+| `CORAL_CA_FILE`         | Path to CA certificate file for TLS verification                       |
+| `CORAL_INSECURE`        | Skip TLS verification (`true` or `1`) - testing only, never in prod    |
 | `CORAL_COLONY_ID`       | Override default colony ID                                             |
 | `CORAL_COLONY_SECRET`   | Override colony secret (used for local config-less agent mode)         |
 
@@ -1260,7 +1304,69 @@ For a high-traffic service (1000 req/s):
 Consider shorter trace retention (7 days) or sampling for very high throughput
 services.
 
-### Example 8: AI-Powered Diagnostics with Coral Ask
+### Example 8: Remote Colony Connection
+
+For CLI access to a colony running on a remote server without WireGuard mesh.
+
+**Remote Colony Config** (`~/.coral/colonies/prod-remote/config.yaml`):
+
+```yaml
+version: "1"
+colony_id: "prod-remote"
+application_name: "MyApp"
+environment: "production"
+
+# Remote connection settings (no WireGuard needed)
+remote:
+    endpoint: https://colony.example.com:8443
+    certificate_authority: ~/.coral/ca/prod-ca.crt
+```
+
+**Quick Test with Environment Variables:**
+
+```bash
+# Skip TLS verification for testing (never in production!)
+export CORAL_COLONY_ENDPOINT=https://localhost:8443
+export CORAL_API_TOKEN=cpt_abc123...
+export CORAL_INSECURE=true
+coral colony status
+
+# With CA certificate file
+export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
+export CORAL_API_TOKEN=cpt_abc123...
+export CORAL_CA_FILE=~/.coral/ca/prod-ca.crt
+coral colony status
+```
+
+**Using the Config File:**
+
+```bash
+# Set as default colony
+coral config use-context prod-remote
+
+# Now all commands use the remote endpoint
+export CORAL_API_TOKEN=cpt_abc123...
+coral colony status
+coral query summary
+```
+
+**Importing a Remote Colony:**
+
+Colony administrators can provide connection details that users import:
+
+```bash
+# Import remote colony configuration
+coral colony add-remote prod-remote \
+    --endpoint https://colony.example.com:8443 \
+    --ca-file ./colony-ca.crt
+
+# Or with insecure mode for testing
+coral colony add-remote dev-remote \
+    --endpoint https://dev-colony:8443 \
+    --insecure
+```
+
+### Example 9: AI-Powered Diagnostics with Coral Ask
 
 **Global Config** (`~/.coral/config.yaml`):
 
