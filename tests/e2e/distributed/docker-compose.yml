@@ -77,9 +77,9 @@ services:
       - CORAL_PUBLIC_ENDPOINT=colony:51820
       - CORAL_STORAGE_PATH=/var/lib/coral
     ports:
-      #- "9000:9000"
+      - "9000:9000"
       - "8443:8443"
-      #- "51820:51820/udp"
+      - "51820:51820/udp"
     privileged: true # Required for WireGuard
     depends_on:
       discovery:
