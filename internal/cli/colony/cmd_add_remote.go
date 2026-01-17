@@ -3,7 +3,6 @@ package colony
 import (
 	"encoding/base64"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // newAddRemoteCmd creates the add-remote command for adding remote colony configurations.
@@ -59,7 +59,7 @@ Examples:
 			}
 
 			if !insecure && caFile == "" && caData == "" {
-				return fmt.Errorf("TLS verification requires --ca-file, --ca-data, or --insecure flag\n\nFor production, use --ca-file to specify the colony's CA certificate.\nFor testing only, use --insecure to skip TLS verification.")
+				return fmt.Errorf("TLS verification requires --ca-file, --ca-data, or --insecure flag\n\nFor production, use --ca-file to specify the colony's CA certificate.\nFor testing only, use --insecure to skip TLS verification")
 			}
 
 			if insecure && (caFile != "" || caData != "") {
@@ -91,19 +91,19 @@ Examples:
 
 			// Handle CA certificate.
 			if caFile != "" {
-				// Read and validate CA file.
-				caBytes, err := os.ReadFile(caFile)
-				if err != nil {
-					return fmt.Errorf("failed to read CA file %s: %w", caFile, err)
-				}
-
-				// Copy CA file to colony directory.
+				// Copy CA file to colony directory (includes security validations).
 				destCAPath := filepath.Join(colonyDir, "ca.crt")
-				if err := copyFile(caFile, destCAPath); err != nil {
+				if err := safe.CopyFile(caFile, destCAPath, nil); err != nil {
 					return fmt.Errorf("failed to copy CA file: %w", err)
 				}
 
-				// Use relative path in config for portability.
+				// Read the copied file to get its size for display.
+				caBytes, err := os.ReadFile(destCAPath) // #nosec G304 - validated with safe prior
+				if err != nil {
+					return fmt.Errorf("failed to read copied CA file: %w", err)
+				}
+
+				// Use the destination path in config.
 				remoteConfig.CertificateAuthority = destCAPath
 
 				fmt.Printf("CA certificate copied to: %s\n", destCAPath)
@@ -174,24 +174,6 @@ Examples:
 	_ = cmd.MarkFlagRequired("endpoint")
 
 	return cmd
-}
-
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
 }
 
 // setDefaultColony updates the global config to set the default colony.

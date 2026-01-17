@@ -217,7 +217,7 @@ func buildTLSConfig(colonyConfig *config.ColonyConfig) (*tls.Config, error) {
 
 // loadCACertFromFile loads a CA certificate from a file path.
 func loadCACertFromFile(path string) (*x509.CertPool, error) {
-	caCert, err := os.ReadFile(path)
+	caCert, err := os.ReadFile(path) // #nosec G304 - validated prior
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA certificate file %s: %w", path, err)
 	}

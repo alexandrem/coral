@@ -208,8 +208,8 @@ Note: Token values are never displayed - only metadata.`,
 			fmt.Printf("API Tokens for colony %q:\n\n", colonyID)
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "TOKEN ID\tPERMISSIONS\tRATE LIMIT\tCREATED\tLAST USED")
-			fmt.Fprintln(w, "--------\t-----------\t----------\t-------\t---------")
+			_, _ = fmt.Fprintln(w, "TOKEN ID\tPERMISSIONS\tRATE LIMIT\tCREATED\tLAST USED")
+			_, _ = fmt.Fprintln(w, "--------\t-----------\t----------\t-------\t---------")
 
 			for _, t := range tokens {
 				perms := make([]string, len(t.Permissions))
@@ -227,7 +227,7 @@ Note: Token values are never displayed - only metadata.`,
 					lastUsed = t.LastUsedAt.Format("2006-01-02 15:04")
 				}
 
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 					t.TokenID,
 					strings.Join(perms, ","),
 					rateLimit,

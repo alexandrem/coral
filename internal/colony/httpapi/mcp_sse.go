@@ -297,11 +297,11 @@ func (h *MCPSSEHandler) sendEvent(w http.ResponseWriter, flusher http.Flusher, e
 		payload, _ = json.Marshal(data)
 	}
 
-	fmt.Fprintf(w, "event: %s\n", event)
+	_, _ = fmt.Fprintf(w, "event: %s\n", event)
 	if len(payload) > 0 {
-		fmt.Fprintf(w, "data: %s\n", payload)
+		_, _ = fmt.Fprintf(w, "data: %s\n", payload)
 	}
-	fmt.Fprint(w, "\n")
+	_, _ = fmt.Fprint(w, "\n")
 	flusher.Flush()
 }
 
