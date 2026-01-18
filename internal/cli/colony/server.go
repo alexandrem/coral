@@ -2,6 +2,7 @@ package colony
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,9 +12,11 @@ import (
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/debug"
+	"github.com/coral-mesh/coral/internal/colony/httpapi"
 	"github.com/coral-mesh/coral/internal/colony/mcp"
 	"github.com/coral-mesh/coral/internal/colony/mesh"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -47,7 +50,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000 // Default Buf Connect port
+		connectPort = constants.DefaultColonyPort // Default Buf Connect port
 	}
 
 	dashboardPort := colonyConfig.Services.DashboardPort
@@ -79,7 +82,26 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
 	}
 
-	// Create colony service handler
+	// Compute public endpoint URL if enabled (RFD 031).
+	var publicEndpointURL string
+	if colonyConfig.PublicEndpoint.Enabled {
+		host := colonyConfig.PublicEndpoint.Host
+		if host == "" {
+			host = constants.DefaultPublicEndpointHost
+		}
+		port := colonyConfig.PublicEndpoint.Port
+		if port == 0 {
+			port = constants.DefaultPublicEndpointPort
+		}
+		scheme := "http"
+		isLocalhost := host == "127.0.0.1" || host == "localhost" || host == "::1"
+		if !isLocalhost || colonyConfig.PublicEndpoint.TLS.CertFile != "" {
+			scheme = "https"
+		}
+		publicEndpointURL = fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	}
+
+	// Create colony service handler.
 	colonyServerConfig := server.Config{
 		ColonyID:           cfg.ColonyID,
 		ApplicationName:    cfg.ApplicationName,
@@ -92,6 +114,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		ConnectPort:        connectPort,
 		MeshIPv4:           cfg.WireGuard.MeshIPv4,
 		MeshIPv6:           cfg.WireGuard.MeshIPv6,
+		PublicEndpointURL:  publicEndpointURL,
 	}
 	colonySvc := server.New(agentRegistry, db, caManager, colonyServerConfig, logger.With().Str("component", "colony-server").Logger())
 
@@ -115,6 +138,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	debugOrchestrator := debug.NewOrchestrator(logger, agentRegistry, db, functionReg)
 
 	// Create MCP server if not disabled.
+	var mcpServer *mcp.Server
 	if !colonyConfig.MCP.Disabled {
 		mcpConfig := mcp.Config{
 			ColonyID:              cfg.ColonyID,
@@ -126,7 +150,8 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			AuditEnabled:          colonyConfig.MCP.Security.AuditEnabled,
 		}
 
-		mcpServer, err := mcp.New(
+		var err error
+		mcpServer, err = mcp.New(
 			agentRegistry,
 			db,
 			debugOrchestrator,
@@ -206,8 +231,8 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			Msg("Colony database registered for remote query")
 	}
 
-	// Add simple HTTP /status endpoint (similar to agent).
-	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+	// Create status handler (reused for public endpoint).
+	statusHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Call the colony service's internal GetStatusResponse method directly.
 		// This avoids the Connect protocol overhead and potential auth middleware issues.
 		resp := colonySvc.GetStatusResponse()
@@ -251,6 +276,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		}
 	})
 
+	// Add simple HTTP /status endpoint (similar to agent).
+	mux.Handle("/status", statusHandler)
+
 	addr := fmt.Sprintf(":%d", connectPort)
 	httpServer := &http.Server{
 		Addr:              addr,
@@ -271,6 +299,69 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 				Msg("Server error")
 		}
 	}()
+
+	// Start public endpoint server if enabled (RFD 031).
+	if colonyConfig.PublicEndpoint.Enabled {
+		// Initialize token store with tokens from colony config directory.
+		colonyDir := loader.ColonyDir(cfg.ColonyID)
+		tokensFile := colonyConfig.PublicEndpoint.Auth.TokensFile
+		if tokensFile == "" {
+			tokensFile = filepath.Join(colonyDir, "tokens.yaml")
+		}
+		tokenStore := auth.NewTokenStore(tokensFile)
+
+		// Issue server certificate from internal CA if no cert provided.
+		var tlsCert *tls.Certificate
+		if colonyConfig.PublicEndpoint.TLS.CertFile == "" && caManager != nil {
+			// Include local and identity-based DNS names.
+			dnsNames := []string{"localhost", cfg.ColonyID}
+			if colonyConfig.PublicEndpoint.Host != "" && colonyConfig.PublicEndpoint.Host != "0.0.0.0" {
+				dnsNames = append(dnsNames, colonyConfig.PublicEndpoint.Host)
+			}
+
+			certPEM, keyPEM, err := caManager.IssueServerCertificate(dnsNames)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to issue server certificate from CA")
+			} else {
+				cert, err := tls.X509KeyPair(certPEM, keyPEM)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to load issued server certificate")
+				} else {
+					tlsCert = &cert
+					logger.Info().Msg("Issued public endpoint server certificate from colony CA (RFD 047)")
+				}
+			}
+		}
+
+		// Create public endpoint server.
+		publicConfig := httpapi.Config{
+			PublicConfig:   colonyConfig.PublicEndpoint,
+			ColonyPath:     colonyPath,
+			ColonyHandler:  colonyHandler,
+			DebugPath:      debugPath,
+			DebugHandler:   debugHandler,
+			MCPServer:      mcpServer,
+			TokenStore:     tokenStore,
+			ColonyDir:      colonyDir,
+			TLSCertificate: tlsCert,
+			StatusHandler:  statusHandler,
+			Logger:         logger.With().Str("component", "public-endpoint").Logger(),
+		}
+
+		publicServer, err := httpapi.New(publicConfig)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to create public endpoint server, continuing without it")
+		} else {
+			if err := publicServer.Start(); err != nil {
+				logger.Error().Err(err).Msg("Failed to start public endpoint server")
+			} else {
+				logger.Info().
+					Str("url", publicServer.URL()).
+					Bool("mcp_enabled", colonyConfig.PublicEndpoint.MCP.Enabled).
+					Msg("Public endpoint server started")
+			}
+		}
+	}
 
 	return httpServer, nil
 }

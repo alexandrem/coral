@@ -22,6 +22,7 @@ import (
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
@@ -624,7 +625,7 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 	if s.colonyInfo != nil && s.colonyInfo.MeshIpv4 != "" {
 		connectPort := s.colonyInfo.ConnectPort
 		if connectPort == 0 {
-			connectPort = 9000
+			connectPort = constants.DefaultColonyPort
 		}
 		meshAddr := net.JoinHostPort(s.colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
 

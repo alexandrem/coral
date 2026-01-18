@@ -20,12 +20,14 @@ All commands that produce output support the `--format` / `-o` flag:
 ```
 
 **Supported formats:**
+
 - `table` - Human-readable tabular output (default)
 - `json` - JSON format for programmatic consumption
 - `csv` - CSV format for spreadsheet import (where applicable)
 - `yaml` - YAML format (where applicable)
 
 **Examples:**
+
 ```bash
 coral colony list --format json
 coral colony status -o yaml
@@ -223,7 +225,7 @@ coral query memory-profile --service api --since 1h --show-growth --show-types
 - **No SQL needed**: High-level commands for common observability patterns
 
 > **Note**: Old `coral query ebpf` commands are deprecated. Use the unified
-`coral query` commands above.
+> `coral query` commands above.
 
 ---
 
@@ -561,8 +563,14 @@ coral exec web --container nginx cat /etc/nginx/nginx.conf
 
 ## Environment Variables
 
-- `CORAL_CONFIG` - Override config directory (default: `~/.coral`)
-- `CORAL_COLONY_ID` - Override active colony
+| Variable                   | Description                                                            |
+| -------------------------- | ---------------------------------------------------------------------- |
+| `CORAL_COLONY_ENDPOINT`    | Explicit colony endpoint URL (e.g., `https://colony.example.com:8443`) |
+| `CORAL_API_TOKEN`          | API token for authenticating to the public endpoint (RFD 031)          |
+| `CORAL_COLONY_ID`          | Override active colony ID                                              |
+| `CORAL_CONFIG`             | Override config directory (default: `~/.coral`)                        |
+| `CORAL_COLONY_SECRET`      | Override colony secret (used for local config-less agent mode)         |
+| `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL override                                         |
 
 ---
 

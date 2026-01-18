@@ -238,17 +238,18 @@ message RegisterAgentRequest {
 
 ## When Discovery Service is Needed
 
-| Scenario                       | Colony Location       | Discovery Needed? | Why/Why Not                           |
-|--------------------------------|-----------------------|-------------------|---------------------------------------|
-| **Local dev (docker-compose)** | `localhost:8080`      | ❌ No              | Agent connects to localhost directly  |
-| **Explicit Colony URL**        | Hardcoded in config   | ❌ No              | Agent has endpoint, connects directly |
-| **Same network (no NAT)**      | Internal IP           | ❌ No              | Direct IP connectivity works          |
-| **Air-gapped environment**     | No Colony             | ❌ No              | Agent-only mode                       |
-| **Colony behind NAT**          | Dynamic public IP     | ✅ Yes             | Agent needs to find current endpoint  |
-| **Agent behind NAT**           | Both behind NAT       | ✅ Yes             | Needs NAT traversal coordination      |
-| **Multi-region mesh**          | Multiple regions      | ✅ Yes             | Agent needs to find correct Colony    |
-| **Laptop → Production**        | Remote, both NAT'd    | ✅ Yes             | Full NAT traversal required           |
-| **Production (K8s)**           | Load-balanced service | ⚠️ Optional       | Can use K8s DNS or Discovery Service  |
+| Scenario                       | Colony Location       | Discovery Needed? | Why/Why Not                                 |
+|--------------------------------|-----------------------|-------------------|---------------------------------------------|
+| **Local dev (docker-compose)** | `localhost:8080`      | ❌ No              | Agent connects to localhost directly        |
+| **Explicit Colony URL**        | Hardcoded in config   | ❌ No              | Agent has endpoint, connects directly       |
+| **Same network (no NAT)**      | Internal IP           | ❌ No              | Direct IP connectivity works                |
+| **Air-gapped environment**     | No Colony             | ❌ No              | Agent-only mode                             |
+| **Public Endpoint (CLI/SDK)**  | HTTPS URL             | ❌ No              | Target directly via `CORAL_COLONY_ENDPOINT` |
+| **Colony behind NAT**          | Dynamic public IP     | ✅ Yes             | Agent needs to find current endpoint        |
+| **Agent behind NAT**           | Both behind NAT       | ✅ Yes             | Needs NAT traversal coordination            |
+| **Multi-region mesh**          | Multiple regions      | ✅ Yes             | Agent needs to find correct Colony          |
+| **Laptop → Production**        | Remote, both NAT'd    | ✅ Yes             | Full NAT traversal required                 |
+| **Production (K8s)**           | Load-balanced service | ⚠️ Optional       | Can use K8s DNS or Discovery Service        |
 
 ### Configuration: With vs Without Discovery
 
@@ -424,7 +425,8 @@ T5: Agents retry, query Discovery Service
 
 **Status**: Not yet implemented. For HA deployments, consider:
 
-- Running multiple colonies with different IDs (e.g., `prod-us-east`, `prod-us-west`)
+- Running multiple colonies with different IDs (e.g., `prod-us-east`,
+  `prod-us-west`)
 - Using Kubernetes StatefulSets with persistent storage
 - Implementing leader election in a future RFD
 
@@ -471,9 +473,11 @@ Currently, single Colony per colony_id is supported.
 
 ### Symmetric NAT
 
-**Status**: Not yet implemented. See RFD 029 for planned symmetric NAT solutions.
+**Status**: Not yet implemented. See RFD 029 for planned symmetric NAT
+solutions.
 
 Currently, symmetric NAT scenarios require:
+
 - At least one side (Colony or Agent) with public IP or non-symmetric NAT
 - Or manual WireGuard endpoint configuration
 

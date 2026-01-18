@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // CLITestEnv holds environment configuration for CLI tests.
@@ -178,8 +180,8 @@ func (e *CLITestEnv) createMinimalColonyConfig(colonyID, endpoint string) error 
 			"mesh_network_ipv4": "10.42.0.0/16",
 		},
 		"services": map[string]interface{}{
-			"connect_port": 9000,
-			"grpc_port":    9001,
+			"connect_port": constants.DefaultColonyPort,
+			"grpc_port":    constants.DefaultAgentPort,
 		},
 		"storage_path": filepath.Join(e.TempDir, "data"),
 		"discovery": map[string]interface{}{
@@ -190,6 +192,14 @@ func (e *CLITestEnv) createMinimalColonyConfig(colonyID, endpoint string) error 
 		"ask": map[string]interface{}{
 			"agent": map[string]interface{}{
 				"mode": "ephemeral",
+			},
+		},
+		"public_endpoint": map[string]interface{}{
+			"enabled": true,
+			"host":    "0.0.0.0",
+			"port":    8443,
+			"auth": map[string]interface{}{
+				"require": true,
 			},
 		},
 	}

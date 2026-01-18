@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"time"
 
@@ -88,23 +87,20 @@ This shows the tools that can be called by MCP clients like Claude Desktop.`,
 				return fmt.Errorf("failed to load colony config: %w", err)
 			}
 
-			// Get connect port.
-			connectPort := colonyConfig.Services.ConnectPort
-			if connectPort == 0 {
-				connectPort = 9000
+			// Connect to colony to get actual registered tools.
+			// Use shared helper which tries env var -> remote -> local -> mesh.
+			client, _, err := helpers.GetColonyClientWithFallback(cmd.Context(), colonyID)
+			if err != nil {
+				// The helper returns an error if all connection attempts fail, which wraps the underlying errors.
+				// We can just return it or wrap it to provide more context if needed.
+				return fmt.Errorf("failed to connect to colony: %w", err)
 			}
 
-			// Connect to colony to get actual registered tools.
-			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
+			// We already verified connection inside GetColonyClientWithFallback via GetStatus check
+			// (if env var was used) or by finding a responsive endpoint.
+			// So we can proceed to ListTools.
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-
-			// Check if colony is running.
-			if _, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err != nil {
-				return fmt.Errorf("colony is not running (failed to connect on port %d): %w\n\nRun 'coral colony start' first", connectPort, err)
-			}
 
 			// Get tools from colony via RPC.
 			resp, err := client.ListTools(ctx, connect.NewRequest(&colonyv1.ListToolsRequest{}))
@@ -247,37 +243,26 @@ Examples:
 				return fmt.Errorf("MCP server is disabled in configuration")
 			}
 
-			// Get connect port.
-			connectPort := colonyConfig.Services.ConnectPort
-			if connectPort == 0 {
-				connectPort = 9000
-			}
-
-			// Parse args.
+			// Parse arguments.
 			var toolArgs map[string]interface{}
-			if argsJSON != "" {
-				if err := json.Unmarshal([]byte(argsJSON), &toolArgs); err != nil {
-					return fmt.Errorf("failed to parse args JSON: %w", err)
-				}
-			} else {
-				toolArgs = make(map[string]interface{})
+			if err := json.Unmarshal([]byte(argsJSON), &toolArgs); err != nil {
+				return fmt.Errorf("failed to parse arguments JSON: %w", err)
 			}
 
 			fmt.Printf("Calling tool: %s\n", toolName)
 			argsBytes, _ := json.MarshalIndent(toolArgs, "", "  ")
 			fmt.Printf("Arguments: %s\n\n", string(argsBytes))
 
-			// Verify colony is running.
-			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+			// Verify colony is running and get client.
+			client, endpoint, err := helpers.GetColonyClientWithFallback(cmd.Context(), colonyID)
+			if err != nil {
+				return fmt.Errorf("failed to connect to colony: %w", err)
+			}
+
+			fmt.Printf("Connected to colony at: %s\n", endpoint)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-
-			// Check colony is running.
-			if _, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err != nil {
-				return fmt.Errorf("colony is not running (failed to connect on port %d): %w\n\nRun 'coral colony start' first", connectPort, err)
-			}
 
 			// Call the tool via RPC.
 			req := &colonyv1.CallToolRequest{
@@ -473,12 +458,11 @@ Examples:
 			}
 
 			// Verify colony is running.
-			connectPort := colonyConfig.Services.ConnectPort
-			if connectPort == 0 {
-				connectPort = 9000
+			// Use shared helper.
+			client, baseURL, err := helpers.GetColonyClientWithFallback(cmd.Context(), colonyID)
+			if err != nil {
+				return fmt.Errorf("colony is not running or unreachable: %w", err)
 			}
-
-			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
 
 			logger = logger.With().
 				Str("colony_id", colonyID).
@@ -487,14 +471,17 @@ Examples:
 
 			logger.Info().Msg("Connecting to colony...")
 
-			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+			// We already have the client from the helper
 
+			// Double check connection if desired, but helper does it.
+			// However, proxy command relies on client being ready.
+			// We can do a quick check to be sure and to log "Connected" message similar to before.
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
 			_, err = client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{}))
 			if err != nil {
-				return fmt.Errorf("colony is not running (failed to connect on port %d): %w", connectPort, err)
+				return fmt.Errorf("failed to verify connection to colony: %w", err)
 			}
 
 			logger.Info().Msg("Connected to colony")

@@ -48,7 +48,13 @@ const (
 	// DefaultDashboardPort is the default port for the dashboard.
 	DefaultDashboardPort = 3000
 
-	// DefaultAgentPort is the default port for the agent's gRPC/Connect server.
+	// DefaultPublicEndpointPort is the default port for the public HTTPS endpoint (RFD 031).
+	DefaultPublicEndpointPort = 8443
+
+	// DefaultColonyPort is the default port for the colony's gRPC/Connect server over mesh.
+	DefaultColonyPort = 9000
+
+	// DefaultAgentPort is the default port for the agent's gRPC/Connect server over mesh.
 	DefaultAgentPort = 9001
 
 	// DefaultOTLPGRPCPort is the default port for OTLP gRPC endpoint.
@@ -230,4 +236,20 @@ const (
 
 	// DefaultAskDaemonSocket is the default Unix socket for ask daemon.
 	DefaultAskDaemonSocket = "~/.coral/ask-agent.sock"
+)
+
+// Public Endpoint Configuration (RFD 031).
+const (
+	// DefaultPublicEndpointHost is the default host for the public HTTPS endpoint.
+	// Defaults to localhost-only for security (no network exposure by default).
+	DefaultPublicEndpointHost = "127.0.0.1"
+
+	// DefaultMCPSSEPath is the default path for the MCP SSE endpoint.
+	DefaultMCPSSEPath = "/mcp/sse"
+
+	// DefaultRateLimitWindow is the default rate limit time window.
+	DefaultRateLimitWindow = 1 * time.Hour
+
+	// DefaultRateLimitRequests is the default requests allowed per window.
+	DefaultRateLimitRequests = 1000
 )

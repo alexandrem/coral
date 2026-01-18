@@ -16,6 +16,7 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // NewExecCmd creates the exec command for container namespace execution (RFD 056).
@@ -284,7 +285,7 @@ func resolveServiceToAgent(ctx context.Context, serviceName, colonyID string) (s
 	// Get connect port.
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000
+		connectPort = constants.DefaultColonyPort
 	}
 
 	// Create RPC client - try localhost first, then mesh IP.

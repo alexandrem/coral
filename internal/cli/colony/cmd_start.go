@@ -246,7 +246,7 @@ Examples:
 			// Set default connect port if not configured
 			connectPort := colonyConfig.Services.ConnectPort
 			if connectPort == 0 {
-				connectPort = 9000 // Default Buf Connect port
+				connectPort = constants.DefaultColonyPort // Default Buf Connect port
 			}
 
 			// TODO: Implement STUN discovery before WireGuard initialization.

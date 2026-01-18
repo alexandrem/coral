@@ -73,9 +73,10 @@ environments).
 
 **Configuration Priority:**
 
-1. `CORAL_COLONY_ID` environment variable (highest)
-2. Project config (`.coral/config.yaml` in current directory)
-3. Global config (`~/.coral/config.yaml`)
+1. `CORAL_COLONY_ENDPOINT` + `CORAL_API_TOKEN` environment variables (highest)
+2. `CORAL_COLONY_ID` environment variable
+3. Project config (`.coral/config.yaml` in current directory)
+4. Global config (`~/.coral/config.yaml`)
 
 **Workflow Example:**
 
@@ -195,6 +196,140 @@ coral debug session query payment-service --function processPayment --since 1h
    `coral debug attach payment-service --function processPayment --capture-args`
 
 See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for full command syntax.
+
+---
+
+## Public Endpoint & Authentication
+
+For remote access (e.g., from an IDE or CI/CD) without WireGuard, Colony provides
+a public HTTPS endpoint. This endpoint requires an API token for authentication.
+
+**Key Features:**
+
+- **Automatic TLS** - Uses internal CA to provision certificates for the public
+  endpoint
+- **Token-based Auth** - Secure access via `Authorization: Bearer <token>`
+- **Direct CLI Support** - Targeted via `CORAL_COLONY_ENDPOINT`
+- **CA Trust** - Similar to kubectl, supports custom CA certificates
+
+**Managing API Tokens:**
+
+```bash
+# Create a new token with specific permissions
+# Permissions: read, write, admin (comma-separated)
+coral colony token create --name "my-ide-token" --permissions read,write
+
+# List active tokens
+coral colony token list
+
+# Revoke a token
+coral colony token revoke <token-id>
+```
+
+**Using the Public Endpoint with CLI:**
+
+```bash
+# Export the endpoint and token
+export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
+export CORAL_API_TOKEN=cpt_abc123...
+
+# Now all coral commands will use this endpoint
+coral status
+coral query summary
+```
+
+### Connecting to Remote Colonies
+
+When connecting to a remote colony, the CLI needs to trust the colony's TLS
+certificate. This works similarly to kubectl's cluster configuration.
+
+**TLS Configuration Priority:**
+
+1. `CORAL_INSECURE=true` - Skip TLS verification (testing only)
+2. `CORAL_CA_FILE` - Path to CA certificate file
+3. Config file `remote.insecure_skip_tls_verify`
+4. Config file `remote.certificate_authority_data` (base64)
+5. Config file `remote.certificate_authority` (file path)
+6. System CA pool (default)
+
+**Option 1: Quick Test (Insecure Mode)**
+
+For local testing with self-signed certificates:
+
+```bash
+export CORAL_COLONY_ENDPOINT=https://localhost:8443
+export CORAL_API_TOKEN=cpt_abc123...
+export CORAL_INSECURE=true
+
+coral colony status
+```
+
+⚠️ **Never use `CORAL_INSECURE=true` in production!**
+
+**Option 2: Environment Variable with CA File**
+
+```bash
+export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
+export CORAL_API_TOKEN=cpt_abc123...
+export CORAL_CA_FILE=~/.coral/ca/prod-ca.crt
+
+coral colony status
+```
+
+**Option 3: Persistent Configuration (Recommended)**
+
+Add a remote colony to your local config for persistent access:
+
+```bash
+# Import remote colony with CA certificate
+coral colony add-remote prod-remote \
+    --endpoint https://colony.example.com:8443 \
+    --ca-file ./colony-ca.crt
+
+# Set as default
+coral config use-context prod-remote
+
+# Now all commands use this colony
+export CORAL_API_TOKEN=cpt_abc123...
+coral colony status
+coral query summary
+```
+
+This creates a config file at `~/.coral/colonies/prod-remote/config.yaml`:
+
+```yaml
+version: "1"
+colony_id: "prod-remote"
+
+remote:
+    endpoint: https://colony.example.com:8443
+    certificate_authority: ~/.coral/colonies/prod-remote/ca.crt
+```
+
+**Option 4: Inline CA Certificate (Base64)**
+
+For environments where file paths are inconvenient (CI/CD, containers):
+
+```yaml
+# ~/.coral/colonies/prod-remote/config.yaml
+remote:
+    endpoint: https://colony.example.com:8443
+    certificate_authority_data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t...
+```
+
+### Getting the Colony CA Certificate
+
+Colony administrators can export the CA certificate for distribution:
+
+```bash
+# On the colony server
+coral colony ca export > colony-ca.crt
+
+# Or find it in the colony config directory
+cat ~/.coral/colonies/<colony-id>/ca/root-ca.crt
+```
+
+Distribute this file securely to users who need CLI access.
 
 ---
 
@@ -450,15 +585,18 @@ coral query summary api --since 10m    # Specific service metrics
 **Troubleshooting:**
 
 **Q: Service not appearing?**
+
 - Check registered services: `coral colony service list`
 - Check telemetry data: `coral query summary`
 - Verify telemetry is being generated
 
 **Q: Service shows as OBSERVED - is this bad?**
+
 - No! It means Coral auto-observed it from traffic
 - To get health monitoring, explicitly connect: `coral connect <service>:<port>`
 
 **Q: Service shows as UNHEALTHY?**
+
 - Service is registered but health checks failing
 - Data is still queryable: `coral query summary <service>`
 - Reconnect if needed: `coral connect <service>:<port>`
@@ -824,36 +962,6 @@ coral duckdb query colony "
 "
 ```
 
----
-
-### Migration from Old Commands
-
-> **Note**: The old `coral query ebpf` commands have been replaced by the unified
-> query interface. See [RFD 067](../RFDs/067-unified-query-interface.md) for
-> details.
-
-**Old command → New command:**
-
-```bash
-# HTTP metrics
-coral query ebpf http api --since 1h
-→ coral query metrics api --protocol http --since 1h
-
-# gRPC metrics
-coral query ebpf grpc api --since 1h
-→ coral query metrics api --protocol grpc --since 1h
-
-# SQL metrics
-coral query ebpf sql api --since 1h
-→ coral query metrics api --protocol sql --since 1h
-
-# Traces
-coral query ebpf traces --service api --since 1h
-→ coral query traces api --since 1h
-```
-
----
-
 ## SQL Metrics Queries with DuckDB
 
 Coral provides direct SQL access to agent databases using DuckDB, enabling
@@ -1208,7 +1316,7 @@ Database query metrics.
 ### Common Query Patterns
 
 > **💡 Tip:** For common observability queries, use the high-level
-`coral query ebpf` commands instead of writing SQL. These commands automatically
+> `coral query ebpf` commands instead of writing SQL. These commands automatically
 > calculate percentiles, aggregate data, and format output. See
 > the [Querying eBPF Metrics and Traces](#querying-ebpf-metrics-and-traces)
 > section above.
@@ -1814,7 +1922,7 @@ See docs/CLI_REFERENCE.md:180 for command syntax.
 Understanding when to use each command is critical:
 
 | Command       | Target                      | Filesystem View                     | Use Case                                              |
-|---------------|-----------------------------|-------------------------------------|-------------------------------------------------------|
+| ------------- | --------------------------- | ----------------------------------- | ----------------------------------------------------- |
 | `coral shell` | Agent host environment      | Agent's filesystem                  | Host diagnostics, network debugging, agent management |
 | `coral exec`  | Service container (nsenter) | Container's mounted volumes/configs | Container configs, app files, mounted volumes         |
 

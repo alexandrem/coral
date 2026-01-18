@@ -23,8 +23,10 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMCPCmd())
-	cmd.AddCommand(newServiceCmd()) // RFD 052 - Service-centric CLI.
-	cmd.AddCommand(NewCACmd())      // RFD 047 - CA management commands.
+	cmd.AddCommand(newServiceCmd())   // RFD 052 - Service-centric CLI.
+	cmd.AddCommand(NewCACmd())        // RFD 047 - CA management commands.
+	cmd.AddCommand(newTokenCmd())     // RFD 031 - API token management for public endpoint.
+	cmd.AddCommand(newAddRemoteCmd()) // RFD 031 - Add remote colony connection.
 
 	return cmd
 }

@@ -3,7 +3,6 @@ package colony
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -48,65 +46,62 @@ This command is useful for troubleshooting connectivity issues.`,
 				}
 			}
 
+			// Check if we're in remote-only mode
+			remoteEndpoint := os.Getenv("CORAL_COLONY_ENDPOINT")
+
 			// Load colony configuration
 			loader := resolver.GetLoader()
 			colonyConfig, err := loader.LoadColonyConfig(colonyID)
 			if err != nil {
-				return fmt.Errorf("failed to load colony config: %w", err)
+				// If we have a remote endpoint, we can proceed without local config
+				if remoteEndpoint == "" {
+					return fmt.Errorf("failed to load colony config: %w", err)
+				}
+				// Proceed with nil config - we rely on remote connection
 			}
 
-			// Load global config
+			// Load global config (optional in remote mode)
 			globalConfig, err := loader.LoadGlobalConfig()
-			if err != nil {
+			if err != nil && remoteEndpoint == "" {
 				return fmt.Errorf("failed to load global config: %w", err)
+			}
+			if globalConfig == nil {
+				// Create empty config to avoid nil panics
+				globalConfig = &config.GlobalConfig{}
+				globalConfig.Discovery.Endpoint = "unknown"
 			}
 
 			// Get connect port
-			connectPort := colonyConfig.Services.ConnectPort
-			if connectPort == 0 {
-				connectPort = 9000
+			connectPort := constants.DefaultColonyPort
+			if colonyConfig != nil && colonyConfig.Services.ConnectPort != 0 {
+				connectPort = colonyConfig.Services.ConnectPort
 			}
 
-			// Try to query running colony for real-time status
-			// First try localhost (for querying from the same host where colony runs)
-			// If that fails, try the mesh IP (for remote queries through the mesh)
+			// Try to query running colony for real-time status.
+			// Use shared helper which tries env var -> remote -> local -> mesh.
 			var runtimeStatus *colonyv1.GetStatusResponse
 
-			// Try localhost first
-			baseURL := fmt.Sprintf("http://localhost:%d", connectPort)
-			client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-
-			req := connect.NewRequest(&colonyv1.GetStatusRequest{})
-			resp, err := client.GetStatus(ctx, req)
+			// We don't want to error out if connection fails, because we can still show static config.
+			client, _, err := helpers.GetColonyClientWithFallback(cmd.Context(), colonyID)
 			if err == nil {
-				runtimeStatus = resp.Msg
-			} else {
-				// Try mesh IP as fallback (for remote queries)
-				meshIP := colonyConfig.WireGuard.MeshIPv4
-				if meshIP == "" {
-					meshIP = constants.DefaultColonyMeshIPv4
-				}
-				baseURL = fmt.Sprintf("http://%s:%d", meshIP, connectPort)
-				client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, baseURL)
+				// Connection successful, get full status
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
 
-				ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel2()
-
-				if resp2, err2 := client.GetStatus(ctx2, connect.NewRequest(&colonyv1.GetStatusRequest{})); err2 == nil {
-					runtimeStatus = resp2.Msg
+				if resp, err := client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{})); err == nil {
+					runtimeStatus = resp.Msg
 				}
 			}
 
 			// Prepare output data.
-			output := map[string]interface{}{
-				"colony_id":    colonyConfig.ColonyID,
-				"application":  colonyConfig.ApplicationName,
-				"environment":  colonyConfig.Environment,
-				"storage_path": colonyConfig.StoragePath,
-				"wireguard": map[string]interface{}{
+			output := map[string]interface{}{}
+
+			if colonyConfig != nil {
+				output["colony_id"] = colonyConfig.ColonyID
+				output["application"] = colonyConfig.ApplicationName
+				output["environment"] = colonyConfig.Environment
+				output["storage_path"] = colonyConfig.StoragePath
+				output["wireguard"] = map[string]interface{}{
 					"public_key":        colonyConfig.WireGuard.PublicKey,
 					"port":              colonyConfig.WireGuard.Port,
 					"mesh_ipv4":         colonyConfig.WireGuard.MeshIPv4,
@@ -114,10 +109,16 @@ This command is useful for troubleshooting connectivity issues.`,
 					"mesh_network_ipv4": colonyConfig.WireGuard.MeshNetworkIPv4,
 					"mesh_network_ipv6": colonyConfig.WireGuard.MeshNetworkIPv6,
 					"mtu":               colonyConfig.WireGuard.MTU,
-				},
-				"discovery_endpoint": globalConfig.Discovery.Endpoint,
-				"connect_port":       connectPort,
+				}
+				output["connect_port"] = connectPort
+			} else {
+				// Remote only mode
+				output["colony_id"] = colonyID
+				output["mode"] = "remote-only"
+				output["endpoint"] = remoteEndpoint
 			}
+
+			output["discovery_endpoint"] = globalConfig.Discovery.Endpoint
 
 			// Add runtime status if colony is running.
 			if runtimeStatus != nil {
@@ -131,13 +132,17 @@ This command is useful for troubleshooting connectivity issues.`,
 				output["started_at"] = runtimeStatus.StartedAt.AsTime().Format(time.RFC3339)
 
 				// Add network endpoint information from runtime.
-				output["network_endpoints"] = map[string]interface{}{
+				networkEndpoints := map[string]interface{}{
 					"local_endpoint":       fmt.Sprintf("http://localhost:%d", runtimeStatus.ConnectPort),
 					"mesh_endpoint":        fmt.Sprintf("http://%s:%d", runtimeStatus.MeshIpv4, runtimeStatus.ConnectPort),
 					"wireguard_port":       runtimeStatus.WireguardPort,
 					"wireguard_public_key": runtimeStatus.WireguardPublicKey,
 					"wireguard_endpoints":  runtimeStatus.WireguardEndpoints,
 				}
+				if runtimeStatus.PublicEndpointUrl != "" {
+					networkEndpoints["public_endpoint"] = runtimeStatus.PublicEndpointUrl
+				}
+				output["network_endpoints"] = networkEndpoints
 			} else {
 				output["status"] = "configured"
 			}
@@ -155,10 +160,15 @@ This command is useful for troubleshooting connectivity issues.`,
 			fmt.Println("Colony Status")
 			fmt.Println("=============")
 			fmt.Println()
-			fmt.Printf("Colony ID:     %s\n", colonyConfig.ColonyID)
-			fmt.Printf("Application:   %s\n", colonyConfig.ApplicationName)
-			fmt.Printf("Environment:   %s\n", colonyConfig.Environment)
-			fmt.Printf("Storage:       %s\n", colonyConfig.StoragePath)
+			fmt.Printf("Colony ID:     %s\n", colonyID)
+
+			if colonyConfig != nil {
+				fmt.Printf("Application:   %s\n", colonyConfig.ApplicationName)
+				fmt.Printf("Environment:   %s\n", colonyConfig.Environment)
+				fmt.Printf("Storage:       %s\n", colonyConfig.StoragePath)
+			} else {
+				fmt.Printf("Endpoint:      %s (Remote)\n", remoteEndpoint)
+			}
 
 			// Show runtime status if colony is running
 			if runtimeStatus != nil {
@@ -187,6 +197,9 @@ This command is useful for troubleshooting connectivity issues.`,
 				fmt.Println("Network Endpoints (Running):")
 				fmt.Printf("  Local (CLI):       http://localhost:%d\n", runtimeStatus.ConnectPort)
 				fmt.Printf("  Mesh (Agents):     http://%s:%d\n", runtimeStatus.MeshIpv4, runtimeStatus.ConnectPort)
+				if runtimeStatus.PublicEndpointUrl != "" {
+					fmt.Printf("  Public (CLI):      %s\n", runtimeStatus.PublicEndpointUrl)
+				}
 				fmt.Printf("  WireGuard Listen:  udp://0.0.0.0:%d\n", runtimeStatus.WireguardPort)
 				fmt.Printf("  WireGuard Pubkey:  %s\n", truncateKey(runtimeStatus.WireguardPublicKey))
 				if len(runtimeStatus.WireguardEndpoints) > 0 {
@@ -199,46 +212,53 @@ This command is useful for troubleshooting connectivity issues.`,
 
 			fmt.Println()
 
-			fmt.Println("WireGuard Mesh Configuration:")
-			fmt.Printf("  Public Key:     %s\n", colonyConfig.WireGuard.PublicKey)
-			fmt.Printf("  Listen Port:    %d (UDP)\n", colonyConfig.WireGuard.Port)
+			if colonyConfig != nil {
+				fmt.Println("WireGuard Mesh Configuration:")
+				fmt.Printf("  Public Key:     %s\n", colonyConfig.WireGuard.PublicKey)
+				fmt.Printf("  Listen Port:    %d (UDP)\n", colonyConfig.WireGuard.Port)
 
-			// Show interface name - use stored name if available, otherwise predict
-			if colonyConfig.WireGuard.InterfaceName != "" {
-				fmt.Printf("  Interface:      %s (last used)\n", colonyConfig.WireGuard.InterfaceName)
+				// Show interface name - use stored name if available, otherwise predict
+				if colonyConfig.WireGuard.InterfaceName != "" {
+					fmt.Printf("  Interface:      %s (last used)\n", colonyConfig.WireGuard.InterfaceName)
+				} else {
+					interfaceInfo := getInterfaceInfo()
+					fmt.Printf("  Interface:      %s\n", interfaceInfo)
+				}
+
+				fmt.Printf("  Mesh IPv4:      %s\n", colonyConfig.WireGuard.MeshIPv4)
+				if colonyConfig.WireGuard.MeshIPv6 != "" {
+					fmt.Printf("  Mesh IPv6:      %s\n", colonyConfig.WireGuard.MeshIPv6)
+				}
+				fmt.Printf("  Mesh Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv4)
+				if colonyConfig.WireGuard.MeshNetworkIPv6 != "" {
+					fmt.Printf("  IPv6 Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv6)
+				}
+				fmt.Printf("  MTU:            %d\n", colonyConfig.WireGuard.MTU)
+				fmt.Println()
+
+				fmt.Println("Services:")
+				fmt.Printf("  Discovery:      %s\n", globalConfig.Discovery.Endpoint)
+				fmt.Printf("  Agent Connect:  %s:%d (gRPC/Connect)\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
+				fmt.Printf("  Dashboard:      http://localhost:%d (planned)\n", constants.DefaultDashboardPort)
+				fmt.Println()
 			} else {
-				interfaceInfo := getInterfaceInfo()
-				fmt.Printf("  Interface:      %s\n", interfaceInfo)
+				fmt.Println("Local Configuration: Not detected (Running in remote-only mode)")
+				fmt.Println()
 			}
 
-			fmt.Printf("  Mesh IPv4:      %s\n", colonyConfig.WireGuard.MeshIPv4)
-			if colonyConfig.WireGuard.MeshIPv6 != "" {
-				fmt.Printf("  Mesh IPv6:      %s\n", colonyConfig.WireGuard.MeshIPv6)
+			if colonyConfig != nil {
+				fmt.Println("Agent Connection Info:")
+				fmt.Println("  1. Agents query discovery service:")
+				fmt.Printf("     Mesh ID: %s\n", colonyConfig.ColonyID)
+				fmt.Println()
+				fmt.Println("  2. Discovery returns WireGuard endpoint:")
+				fmt.Printf("     Public Key: %s\n", colonyConfig.WireGuard.PublicKey)
+				fmt.Printf("     UDP Port:   %d\n", colonyConfig.WireGuard.Port)
+				fmt.Println()
+				fmt.Println("  3. Agents establish WireGuard tunnel, then register:")
+				fmt.Printf("     Colony Mesh IP: %s:%d\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
+				fmt.Println()
 			}
-			fmt.Printf("  Mesh Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv4)
-			if colonyConfig.WireGuard.MeshNetworkIPv6 != "" {
-				fmt.Printf("  IPv6 Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv6)
-			}
-			fmt.Printf("  MTU:            %d\n", colonyConfig.WireGuard.MTU)
-			fmt.Println()
-
-			fmt.Println("Services:")
-			fmt.Printf("  Discovery:      %s\n", globalConfig.Discovery.Endpoint)
-			fmt.Printf("  Agent Connect:  %s:%d (gRPC/Connect)\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
-			fmt.Printf("  Dashboard:      http://localhost:%d (planned)\n", constants.DefaultDashboardPort)
-			fmt.Println()
-
-			fmt.Println("Agent Connection Info:")
-			fmt.Println("  1. Agents query discovery service:")
-			fmt.Printf("     Mesh ID: %s\n", colonyConfig.ColonyID)
-			fmt.Println()
-			fmt.Println("  2. Discovery returns WireGuard endpoint:")
-			fmt.Printf("     Public Key: %s\n", colonyConfig.WireGuard.PublicKey)
-			fmt.Printf("     UDP Port:   %d\n", colonyConfig.WireGuard.Port)
-			fmt.Println()
-			fmt.Println("  3. Agents establish WireGuard tunnel, then register:")
-			fmt.Printf("     Colony Mesh IP: %s:%d\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
-			fmt.Println()
 
 			if runtimeStatus != nil {
 				fmt.Printf("Status: Colony is running (%s)\n", runtimeStatus.Status)

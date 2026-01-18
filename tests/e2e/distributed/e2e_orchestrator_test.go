@@ -28,6 +28,7 @@ type E2EOrchestratorSuite struct {
 	cliCommandsPassed    bool
 	mcpTestsPassed       bool
 	mcpParityPassed      bool
+	publicEndpointPassed bool
 }
 
 // TestE2EOrchestrator runs all E2E tests in dependency order with fail-fast.
@@ -65,6 +66,7 @@ func (s *E2EOrchestratorSuite) TearDownSuite() {
 	s.T().Logf("  5. CLI Commands:             %s", status(s.cliCommandsPassed))
 	s.T().Logf("  6. MCP Server:               %s", status(s.mcpTestsPassed))
 	s.T().Logf("  7. MCP/CLI Parity:           %s", status(s.mcpParityPassed))
+	s.T().Logf("  8. Public Endpoint:          %s", status(s.publicEndpointPassed))
 	s.T().Log("==================================================")
 }
 
@@ -392,6 +394,34 @@ func (s *E2EOrchestratorSuite) Test7_MCPParityTests() {
 		s.T().Log("✓ GROUP 7 PASSED - MCP/CLI parity validated")
 	} else {
 		s.T().Log("✗ GROUP 7 FAILED")
+	}
+}
+
+// Test8_PublicEndpoint runs public HTTPS endpoint and authorization tests.
+// Requires: Mesh Connectivity (to setup CA)
+func (s *E2EOrchestratorSuite) Test8_PublicEndpoint() {
+	s.T().Log("")
+	s.T().Log("========================================")
+	s.T().Log("GROUP 8: Public Endpoint & Auth")
+	s.T().Log("========================================")
+
+	// Run PublicEndpointSuite
+	publicSuite := &PublicEndpointSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	publicSuite.SetT(s.T())
+	publicSuite.SetupSuite()
+	defer publicSuite.TearDownSuite()
+
+	s.Run("PublicEndpointConnectivity", publicSuite.TestPublicEndpointConnectivity)
+	s.Run("PublicEndpointAuthorization", publicSuite.TestPublicEndpointAuthorization)
+	s.Run("CLI_PublicEndpointAccess", publicSuite.TestCLIUsingPublicEndpoint)
+
+	if !s.T().Failed() {
+		s.publicEndpointPassed = true
+		s.T().Log("✓ GROUP 8 PASSED - Public endpoint and auth working")
+	} else {
+		s.T().Log("✗ GROUP 8 FAILED")
 	}
 }
 

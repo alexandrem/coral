@@ -12,6 +12,7 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // ColonyStatusInfo holds status information for a single colony.
@@ -30,6 +31,7 @@ type ColonyStatusInfo struct {
 	ConnectPort        int    `json:"connect_port"`
 	LocalEndpoint      string `json:"local_endpoint,omitempty"`
 	MeshEndpoint       string `json:"mesh_endpoint,omitempty"`
+	PublicEndpointURL  string `json:"public_endpoint_url,omitempty"`
 	MeshIPv4           string `json:"mesh_ipv4"`
 	WireGuardPubkey    string `json:"wireguard_pubkey,omitempty"`
 }
@@ -87,7 +89,7 @@ func (p *Provider) QueryColonyStatus(colonyID string, defaultColony string) Colo
 	// Get connect port
 	connectPort := cfg.Services.ConnectPort
 	if connectPort == 0 {
-		connectPort = 9000
+		connectPort = constants.DefaultColonyPort
 	}
 	info.ConnectPort = connectPort
 
@@ -110,6 +112,7 @@ func (p *Provider) QueryColonyStatus(colonyID string, defaultColony string) Colo
 		info.DegradedAgentCount = resp.Msg.DegradedAgentCount
 		info.LocalEndpoint = fmt.Sprintf("http://localhost:%d", resp.Msg.ConnectPort)
 		info.MeshEndpoint = fmt.Sprintf("http://%s:%d", resp.Msg.MeshIpv4, resp.Msg.ConnectPort)
+		info.PublicEndpointURL = resp.Msg.PublicEndpointUrl
 	}
 
 	return info
