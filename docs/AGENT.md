@@ -619,7 +619,6 @@ or can be triggered manually.
 - **SPIFFE IDs**: Each agent gets a unique identity: `spiffe://coral/colony/<colony-id>/agent/<agent-id>`
 - **CA Fingerprint Validation**: Prevents MITM attacks by validating the colony's Root CA
 - **Automatic Renewal**: Certificates are renewed before expiry without Discovery
-- **Fallback Support**: Can fall back to `colony_secret` during migration
 
 ### Bootstrap Flow
 
@@ -669,9 +668,6 @@ agent:
     # Directory for storing certificates (default: ~/.coral/certs/)
     certs_dir: "/etc/coral/certs"
 
-    # Fall back to colony_secret if bootstrap fails (default: true)
-    fallback_to_secret: true
-
     # Retry configuration
     retry_attempts: 10
     retry_delay: 1s
@@ -685,7 +681,6 @@ agent:
 | `CORAL_CA_FINGERPRINT` | Root CA fingerprint (sha256:hex) |
 | `CORAL_CERTS_DIR` | Certificate storage directory |
 | `CORAL_BOOTSTRAP_ENABLED` | Enable/disable bootstrap |
-| `CORAL_BOOTSTRAP_FALLBACK` | Enable fallback to colony_secret |
 
 ### Manual Bootstrap
 
