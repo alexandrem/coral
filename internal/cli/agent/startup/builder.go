@@ -18,6 +18,7 @@ type AgentServer struct {
 	OTLPReceiver         *agent.TelemetryReceiver
 	SystemMetricsHandler *agent.SystemMetricsHandler
 	ConnectionManager    *ConnectionManager
+	BootstrapResult      *BootstrapResult // RFD 048: Certificate bootstrap result.
 	NetworkResult        *NetworkResult
 	StorageResult        *StorageResult
 	ServicesResult       *ServicesResult
@@ -103,10 +104,11 @@ type AgentServerBuilder struct {
 	ctx              context.Context
 
 	// Phase results.
-	configResult   *ConfigResult
-	networkResult  *NetworkResult
-	storageResult  *StorageResult
-	servicesResult *ServicesResult
+	configResult    *ConfigResult
+	bootstrapResult *BootstrapResult // RFD 048: Certificate bootstrap result.
+	networkResult   *NetworkResult
+	storageResult   *StorageResult
+	servicesResult  *ServicesResult
 
 	// Components.
 	agentID           string
@@ -153,6 +155,38 @@ func (b *AgentServerBuilder) Validate() error {
 	// Generate agent ID early.
 	b.agentID = GenerateAgentID(configResult.ServiceSpecs)
 
+	return nil
+}
+
+// InitializeBootstrap performs certificate bootstrap if configured (RFD 048).
+// This should be called after Validate() and before InitializeNetwork().
+// Bootstrap is optional - if not configured, agent uses colony_secret for auth.
+func (b *AgentServerBuilder) InitializeBootstrap() error {
+	if b.configResult == nil {
+		return fmt.Errorf("must call Validate() before InitializeBootstrap()")
+	}
+
+	bootstrapPhase := NewBootstrapPhase(
+		b.logger,
+		b.configResult.AgentConfig,
+		b.configResult.Config.ColonyID,
+		b.agentID,
+	)
+
+	// Check if bootstrap is needed.
+	if !bootstrapPhase.ShouldBootstrap() {
+		b.logger.Debug().Msg("Certificate bootstrap not configured, using colony_secret")
+		b.bootstrapResult = &BootstrapResult{FallbackToSecret: true}
+		return nil
+	}
+
+	// Execute bootstrap phase.
+	result, err := bootstrapPhase.Execute(b.ctx)
+	if err != nil {
+		return fmt.Errorf("certificate bootstrap failed: %w", err)
+	}
+
+	b.bootstrapResult = result
 	return nil
 }
 
@@ -388,6 +422,7 @@ func (b *AgentServerBuilder) Build() *AgentServer {
 		OTLPReceiver:         b.servicesResult.OTLPReceiver,
 		SystemMetricsHandler: b.servicesResult.SystemMetricsHandler,
 		ConnectionManager:    b.connectionManager,
+		BootstrapResult:      b.bootstrapResult, // RFD 048
 		NetworkResult:        b.networkResult,
 		StorageResult:        b.storageResult,
 		ServicesResult:       b.servicesResult,

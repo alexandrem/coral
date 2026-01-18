@@ -454,6 +454,7 @@ type AgentConfig struct {
 			STUNServers []string `yaml:"stun_servers,omitempty" env:"CORAL_STUN_SERVERS"` // STUN servers for NAT traversal
 			EnableRelay bool     `yaml:"enable_relay,omitempty" env:"CORAL_ENABLE_RELAY"` // Enable relay fallback
 		} `yaml:"nat,omitempty"`
+		Bootstrap BootstrapConfig `yaml:"bootstrap,omitempty"` // RFD 048
 	} `yaml:"agent"`
 	Telemetry struct {
 		Disabled              bool   `yaml:"disabled" env:"CORAL_TELEMETRY_DISABLED"`
@@ -477,6 +478,39 @@ type AgentConfig struct {
 	SystemMetrics       SystemMetricsConfig       `yaml:"system_metrics,omitempty"`
 	Debug               DebugConfig               `yaml:"debug,omitempty"`
 	ContinuousProfiling ContinuousProfilingConfig `yaml:"continuous_profiling,omitempty"` // RFD 072
+}
+
+// BootstrapConfig contains certificate bootstrap configuration (RFD 048).
+type BootstrapConfig struct {
+	// Enabled controls whether automatic bootstrap is enabled on first connect.
+	// Default: true.
+	Enabled bool `yaml:"enabled,omitempty" env:"CORAL_BOOTSTRAP_ENABLED"`
+
+	// CAFingerprint is the expected Root CA fingerprint (sha256:hex format).
+	// This is used to validate the colony's identity during bootstrap.
+	CAFingerprint string `yaml:"ca_fingerprint,omitempty" env:"CORAL_CA_FINGERPRINT"`
+
+	// CertsDir is the directory for storing certificates.
+	// Default: ~/.coral/certs/
+	CertsDir string `yaml:"certs_dir,omitempty" env:"CORAL_CERTS_DIR"`
+
+	// FallbackToSecret enables falling back to colony_secret if bootstrap fails.
+	// This is useful during migration from shared secrets to certificates.
+	// Default: true.
+	FallbackToSecret bool `yaml:"fallback_to_secret,omitempty" env:"CORAL_BOOTSTRAP_FALLBACK"`
+
+	// RetryAttempts is the maximum number of bootstrap retry attempts.
+	// Default: 10.
+	RetryAttempts int `yaml:"retry_attempts,omitempty" env:"CORAL_BOOTSTRAP_RETRY_ATTEMPTS"`
+
+	// RetryDelay is the initial delay between retry attempts.
+	// Uses exponential backoff with jitter.
+	// Default: 1s.
+	RetryDelay time.Duration `yaml:"retry_delay,omitempty" env:"CORAL_BOOTSTRAP_RETRY_DELAY"`
+
+	// TotalTimeout is the total time allowed for bootstrap before giving up.
+	// Default: 30m.
+	TotalTimeout time.Duration `yaml:"total_timeout,omitempty" env:"CORAL_BOOTSTRAP_TIMEOUT"`
 }
 
 // DebugConfig contains debug session configuration (RFD 061).

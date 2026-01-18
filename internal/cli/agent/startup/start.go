@@ -105,6 +105,12 @@ Examples:
 				return err
 			}
 
+			// Phase 1.5: Certificate bootstrap (RFD 048).
+			// Optional - if not configured, agent uses colony_secret.
+			if err := builder.InitializeBootstrap(); err != nil {
+				return err
+			}
+
 			// Phase 2: Initialize network (WireGuard, STUN, discovery).
 			if err := builder.InitializeNetwork(); err != nil {
 				return err
