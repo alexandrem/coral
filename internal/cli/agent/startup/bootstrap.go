@@ -3,6 +3,7 @@ package startup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -176,19 +177,37 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// Initialize metrics for telemetry (RFD 048).
+	metrics := bootstrap.NewMetrics(bp.logger)
+	startTime := time.Now()
+
 	result, err := client.Bootstrap(ctx)
+	duration := time.Since(startTime)
+
 	if err != nil {
 		bp.logger.Error().Err(err).Msg("Certificate bootstrap failed")
 
+		// Record metrics based on error type.
+		metricResult := bootstrap.MetricResultFailure
+		if errors.Is(err, context.DeadlineExceeded) {
+			metricResult = bootstrap.MetricResultTimeout
+		}
+
 		if bootstrapCfg.FallbackToSecret {
+			metricResult = bootstrap.MetricResultFallback
+			metrics.RecordBootstrapAttempt(metricResult, duration, bp.agentID, bp.colonyID, err.Error())
 			bp.logger.Info().Msg("Falling back to colony_secret authentication")
 			return &BootstrapResult{
 				FallbackToSecret: true,
 			}, nil
 		}
 
+		metrics.RecordBootstrapAttempt(metricResult, duration, bp.agentID, bp.colonyID, err.Error())
 		return nil, fmt.Errorf("certificate bootstrap failed: %w", err)
 	}
+
+	// Record success metric.
+	metrics.RecordBootstrapAttempt(bootstrap.MetricResultSuccess, duration, bp.agentID, bp.colonyID, "")
 
 	// Save the certificate.
 	if err := certManager.Save(result); err != nil {

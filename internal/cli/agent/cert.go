@@ -140,11 +140,12 @@ func runCertStatus(certsDir string) error {
 // newCertRenewCmd creates the cert renew subcommand.
 func newCertRenewCmd() *cobra.Command {
 	var (
-		colonyID      string
-		caFingerprint string
-		discoveryURL  string
-		certsDir      string
-		force         bool
+		colonyID       string
+		caFingerprint  string
+		discoveryURL   string
+		colonyEndpoint string
+		certsDir       string
+		force          bool
 	)
 
 	cmd := &cobra.Command{
@@ -155,28 +156,37 @@ func newCertRenewCmd() *cobra.Command {
 Certificate renewal uses the existing mTLS certificate for authentication,
 so no Discovery interaction is required (no new bootstrap token needed).
 
+When --colony-endpoint is provided, renewal uses direct mTLS authentication
+with the colony (preferred, no Discovery required). Otherwise, falls back
+to the bootstrap flow via Discovery.
+
 If the certificate is expired or invalid, a full bootstrap is required instead.
 
 Examples:
-  # Renew certificate (uses existing cert for auth)
-  coral agent cert renew
+  # Renew using direct mTLS (no Discovery needed)
+  coral agent cert renew --colony-endpoint https://colony.example.com:9000
+
+  # Renew via Discovery (fallback)
+  coral agent cert renew --discovery https://discovery.coral.io:8080
 
   # Force renewal even if certificate is still valid
-  coral agent cert renew --force`,
+  coral agent cert renew --colony-endpoint https://colony:9000 --force`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCertRenew(cmd.Context(), certRenewOptions{
-				ColonyID:      colonyID,
-				CAFingerprint: caFingerprint,
-				DiscoveryURL:  discoveryURL,
-				CertsDir:      certsDir,
-				Force:         force,
+				ColonyID:       colonyID,
+				CAFingerprint:  caFingerprint,
+				DiscoveryURL:   discoveryURL,
+				ColonyEndpoint: colonyEndpoint,
+				CertsDir:       certsDir,
+				Force:          force,
 			})
 		},
 	}
 
 	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().StringVar(&caFingerprint, "fingerprint", os.Getenv("CORAL_CA_FINGERPRINT"), "Expected Root CA fingerprint")
-	cmd.Flags().StringVar(&discoveryURL, "discovery", os.Getenv("CORAL_DISCOVERY_ENDPOINT"), "Discovery service URL")
+	cmd.Flags().StringVar(&discoveryURL, "discovery", os.Getenv("CORAL_DISCOVERY_ENDPOINT"), "Discovery service URL (fallback)")
+	cmd.Flags().StringVar(&colonyEndpoint, "colony-endpoint", os.Getenv("CORAL_COLONY_ENDPOINT"), "Colony HTTPS endpoint for direct mTLS renewal")
 	cmd.Flags().StringVar(&certsDir, "certs-dir", os.Getenv("CORAL_CERTS_DIR"), "Directory containing certificates")
 	cmd.Flags().BoolVar(&force, "force", false, "Force renewal even if not near expiry")
 
@@ -184,11 +194,12 @@ Examples:
 }
 
 type certRenewOptions struct {
-	ColonyID      string
-	CAFingerprint string
-	DiscoveryURL  string
-	CertsDir      string
-	Force         bool
+	ColonyID       string
+	CAFingerprint  string
+	DiscoveryURL   string
+	ColonyEndpoint string
+	CertsDir       string
+	Force          bool
 }
 
 func runCertRenew(ctx context.Context, opts certRenewOptions) error {
@@ -231,24 +242,12 @@ func runCertRenew(ctx context.Context, opts certRenewOptions) error {
 		opts.ColonyID = info.ColonyID
 	}
 
-	// Load global config for discovery and fingerprint.
-	loader, err := config.NewLoader()
-	if err == nil {
-		globalCfg, err := loader.LoadGlobalConfig()
-		if err == nil && opts.DiscoveryURL == "" {
-			opts.DiscoveryURL = globalCfg.Discovery.Endpoint
-		}
-	}
-
 	// Validate required parameters.
 	if opts.ColonyID == "" {
 		return fmt.Errorf("colony ID is required")
 	}
 	if opts.CAFingerprint == "" {
 		return fmt.Errorf("CA fingerprint is required (--fingerprint or CORAL_CA_FINGERPRINT)")
-	}
-	if opts.DiscoveryURL == "" {
-		return fmt.Errorf("discovery URL is required")
 	}
 
 	// Load agent ID.
@@ -262,29 +261,72 @@ func runCertRenew(ctx context.Context, opts certRenewOptions) error {
 	fmt.Printf("  Expires:   %s (%d days remaining)\n", info.NotAfter.Format(time.RFC3339), info.DaysRemaining)
 	fmt.Println()
 
-	// TODO: Implement proper renewal using existing mTLS certificate.
-	// For now, we do a full bootstrap (which requires Discovery token).
-	// This matches RFD 048's renewal flow using mTLS auth, but for the initial
-	// implementation we'll use the bootstrap flow.
-
-	client := bootstrap.NewClient(bootstrap.Config{
-		AgentID:           agentID,
-		ColonyID:          opts.ColonyID,
-		CAFingerprint:     opts.CAFingerprint,
-		DiscoveryEndpoint: opts.DiscoveryURL,
-		Logger:            logger,
-	})
+	// Get colony endpoint for mTLS renewal.
+	colonyEndpoint := opts.ColonyEndpoint
+	if colonyEndpoint == "" {
+		// Try to resolve from global config or use Discovery.
+		loader, loadErr := config.NewLoader()
+		if loadErr == nil {
+			globalCfg, loadErr := loader.LoadGlobalConfig()
+			if loadErr == nil && opts.DiscoveryURL == "" {
+				opts.DiscoveryURL = globalCfg.Discovery.Endpoint
+			}
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	fmt.Print("Requesting new certificate... ")
-	result, err := client.Bootstrap(ctx)
-	if err != nil {
-		fmt.Println("✗")
-		return fmt.Errorf("renewal failed: %w", err)
+	var result *bootstrap.Result
+
+	// Try mTLS renewal first if we have colony endpoint.
+	if colonyEndpoint != "" {
+		fmt.Print("Renewing using existing mTLS certificate... ")
+
+		renewClient := bootstrap.NewRenewalClient(bootstrap.RenewalConfig{
+			AgentID:          agentID,
+			ColonyID:         opts.ColonyID,
+			CAFingerprint:    opts.CAFingerprint,
+			ColonyEndpoint:   colonyEndpoint,
+			ExistingCertPath: certManager.GetCertPath(),
+			ExistingKeyPath:  certManager.GetKeyPath(),
+			RootCAPath:       certManager.GetRootCAPath(),
+			Logger:           logger,
+		})
+
+		result, err = renewClient.Renew(ctx)
+		if err != nil {
+			fmt.Println("✗")
+			logger.Debug().Err(err).Msg("mTLS renewal failed, falling back to bootstrap")
+			// Fall through to bootstrap.
+		} else {
+			fmt.Println("✓")
+		}
 	}
-	fmt.Println("✓")
+
+	// Fallback to bootstrap flow if mTLS renewal failed or no endpoint.
+	if result == nil {
+		if opts.DiscoveryURL == "" {
+			return fmt.Errorf("renewal failed: colony endpoint or discovery URL is required")
+		}
+
+		fmt.Print("Falling back to bootstrap renewal... ")
+
+		client := bootstrap.NewClient(bootstrap.Config{
+			AgentID:           agentID,
+			ColonyID:          opts.ColonyID,
+			CAFingerprint:     opts.CAFingerprint,
+			DiscoveryEndpoint: opts.DiscoveryURL,
+			Logger:            logger,
+		})
+
+		result, err = client.Bootstrap(ctx)
+		if err != nil {
+			fmt.Println("✗")
+			return fmt.Errorf("renewal failed: %w", err)
+		}
+		fmt.Println("✓")
+	}
 
 	// Save new certificates.
 	fmt.Print("Saving certificates... ")

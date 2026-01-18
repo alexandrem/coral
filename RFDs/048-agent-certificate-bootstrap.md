@@ -671,7 +671,7 @@ security:
     - Auto-issue on valid CSR + ticket (or valid mTLS cert for renewal)
     - Certificate tracking in database
 - [x] Add unit tests for ticket validation and issuance
-- [ ] **Add unit tests for renewal without Discovery**
+- [x] **Add unit tests for renewal without Discovery**
 
 ### Phase 4: Agent Connection Integration
 
@@ -691,9 +691,9 @@ security:
 - [x] Implement `coral agent bootstrap` command
 - [x] Implement `coral agent cert status` command **(include SPIFFE ID)**
 - [x] Implement `coral agent cert renew` command
-- [ ] Add certificate expiry warnings to `coral agent status`
-- [ ] Add telemetry for bootstrap success/failure rates
-- [ ] **Add telemetry for renewal success/failure rates**
+- [x] Add certificate expiry warnings to `coral agent status`
+- [x] Add telemetry for bootstrap success/failure rates
+- [x] **Add telemetry for renewal success/failure rates**
 
 ### Phase 6: Testing & Documentation
 
@@ -1390,7 +1390,7 @@ security posture.
 
 ## Implementation Status
 
-**Core Capability:** ✅ Implemented (Phase 1-4)
+**Core Capability:** ✅ Implemented (Phase 1-5)
 
 **Dependencies:**
 
