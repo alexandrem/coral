@@ -602,12 +602,189 @@ filters:
 
 ---
 
+## Certificate Bootstrap (mTLS Authentication)
+
+The agent uses **mutual TLS (mTLS)** for secure authentication with the colony.
+This replaces shared secrets with per-agent X.509 certificates that include
+SPIFFE IDs for strong identity verification.
+
+### Overview
+
+Certificate bootstrap is the process by which a new agent obtains its initial
+mTLS certificate from the colony. This happens automatically on first connection
+or can be triggered manually.
+
+**Key Features:**
+
+- **SPIFFE IDs**: Each agent gets a unique identity: `spiffe://coral/colony/<colony-id>/agent/<agent-id>`
+- **CA Fingerprint Validation**: Prevents MITM attacks by validating the colony's Root CA
+- **Automatic Renewal**: Certificates are renewed before expiry without Discovery
+- **Fallback Support**: Can fall back to `colony_secret` during migration
+
+### Bootstrap Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. Agent starts, checks for existing certificate           │
+└─────────────────┬───────────────────────────────────────────┘
+                  │ No valid cert?
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│  2. Connect to Discovery service                            │
+│     • Provide colony_id and agent_id                        │
+│     • Receive referral ticket (JWT, 1-minute TTL)           │
+│     • Validate colony endpoint via CA fingerprint           │
+└─────────────────┬───────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│  3. Connect to Colony                                       │
+│     • Validate Root CA fingerprint (MITM protection)        │
+│     • Validate colony ID in server certificate SAN          │
+│     • Submit CSR with referral ticket                       │
+└─────────────────┬───────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│  4. Receive and store certificate                           │
+│     • Agent certificate with SPIFFE ID                      │
+│     • CA chain (Agent Intermediate + Root)                  │
+│     • Store in ~/.coral/certs/                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Configuration
+
+Configure bootstrap in `coral-agent.yaml`:
+
+```yaml
+agent:
+  bootstrap:
+    # Enable automatic bootstrap on first connect (default: true)
+    enabled: true
+
+    # Root CA fingerprint for MITM protection (required)
+    ca_fingerprint: "sha256:abc123..."
+
+    # Directory for storing certificates (default: ~/.coral/certs/)
+    certs_dir: "/etc/coral/certs"
+
+    # Fall back to colony_secret if bootstrap fails (default: true)
+    fallback_to_secret: true
+
+    # Retry configuration
+    retry_attempts: 10
+    retry_delay: 1s
+    total_timeout: 30m
+```
+
+**Environment Variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `CORAL_CA_FINGERPRINT` | Root CA fingerprint (sha256:hex) |
+| `CORAL_CERTS_DIR` | Certificate storage directory |
+| `CORAL_BOOTSTRAP_ENABLED` | Enable/disable bootstrap |
+| `CORAL_BOOTSTRAP_FALLBACK` | Enable fallback to colony_secret |
+
+### Manual Bootstrap
+
+Trigger bootstrap manually using the CLI:
+
+```bash
+# Bootstrap with explicit fingerprint
+coral agent bootstrap \
+  --colony my-app-prod \
+  --fingerprint sha256:abc123... \
+  --discovery https://discovery.coral.io:8080
+
+# Check bootstrap status
+coral agent cert status
+```
+
+### Certificate Renewal
+
+Certificates are automatically renewed before expiry. The renewal process uses
+the existing mTLS certificate for authentication, so **no Discovery interaction
+is required**.
+
+```bash
+# Check certificate status
+coral agent cert status
+
+# Output:
+# Certificate Status
+# ==================
+# Agent ID:          web-api-1
+# Colony ID:         my-app-prod
+# Certificate Path:  /home/user/.coral/certs/agent.crt
+#
+# Certificate Details:
+#   SPIFFE ID:       spiffe://coral/colony/my-app-prod/agent/web-api-1
+#   Not After:       2025-03-15T10:30:00Z
+#   Days Remaining:  45
+#
+# Status:            ✓ Valid
+
+# Manual renewal (if needed)
+coral agent cert renew --colony-endpoint https://colony.example.com:9000
+
+# Force renewal even if not near expiry
+coral agent cert renew --colony-endpoint https://colony:9000 --force
+```
+
+**Renewal Thresholds:**
+
+| Status | Days Remaining | Action |
+|--------|----------------|--------|
+| Valid | > 30 days | No action |
+| Renewal Needed | 15-30 days | Background renewal attempted |
+| Expiring Soon | < 15 days | Warning displayed, immediate renewal |
+| Expired | 0 days | Full bootstrap required |
+
+### Security Considerations
+
+**MITM Protection:**
+
+The CA fingerprint prevents man-in-the-middle attacks during bootstrap:
+
+1. Agent validates Colony's TLS certificate against expected fingerprint
+2. Colony ID in certificate SAN must match expected colony
+3. If either check fails, bootstrap is aborted
+
+**Cross-Colony Impersonation:**
+
+SPIFFE IDs include both colony and agent identifiers:
+- `spiffe://coral/colony/<colony-id>/agent/<agent-id>`
+- Colony validates that the SPIFFE ID matches the requesting agent
+- Prevents agents from one colony impersonating agents in another
+
+**Certificate Storage:**
+
+```
+~/.coral/certs/
+├── agent.crt        # Agent certificate (mode 0644)
+├── agent.key        # Private key (mode 0600)
+├── root-ca.crt      # Root CA certificate
+├── ca-chain.crt     # Full CA chain
+└── agent-id         # Persisted agent ID
+```
+
+### Troubleshooting
+
+See **[Bootstrap Troubleshooting Guide](BOOTSTRAP_TROUBLESHOOTING.md)** for
+common issues and solutions.
+
+---
+
 ## See Also
 
 - **[Instrumentation Guide](INSTRUMENTATION.md)**: How to instrument
   applications with Coral SDK and OpenTelemetry
 - **[Configuration Guide](CONFIG.md)**: Detailed configuration options for
   agents
+- **[Bootstrap Troubleshooting](BOOTSTRAP_TROUBLESHOOTING.md)**: Common bootstrap
+  issues and solutions
 - **[Kubernetes Deployments](../deployments/k8s/README.md)**: Kubernetes
   deployment patterns (Sidecar, DaemonSet)
 - **[CLI Reference](CLI.md)**: Agent management commands
