@@ -1,7 +1,7 @@
 ---
 rfd: "048"
 title: "Agent Certificate Bootstrap"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "security", "agent" ]
 
 # RFD 048 - Agent Certificate Bootstrap
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -293,15 +293,15 @@ referral ticket needed.
 4. Colony rejects certificates signed by old intermediate
 
 ### Security Properties
- 
+
  **Defense in depth:**
- 
+
  1. **CA fingerprint**: Prevents MITM attacks during bootstrap
  2. **Authorization**: Handled via RFD 049 (Referral Tickets)
  3. **Monitoring**: Detects suspicious patterns and alerts operators
- 
+
  **Attack scenarios:**
- 
+
  | Attack                            | Protection                                                    |
  |-----------------------------------|---------------------------------------------------------------|
  | **Discovery MITM**                | Agent validates Root CA fingerprint, aborts on mismatch ✅     |
@@ -683,8 +683,8 @@ security:
 - [x] Implement certificate manager
     - **Automatic renewal using existing mTLS cert (no Discovery required)**
     - Certificate expiry monitoring
-- [ ] Add integration tests for mTLS connections
-- [ ] **Add integration tests for renewal without Discovery**
+- [x] Add integration tests for mTLS connections
+- [x] **Add integration tests for renewal without Discovery**
 
 ### Phase 5: CLI Commands & Monitoring
 
@@ -698,16 +698,14 @@ security:
 ### Phase 6: Testing & Documentation
 
 - [x] Unit tests for all new components
-- [ ] Integration test: full bootstrap flow **(with SPIFFE ID validation)**
-- [ ] Integration test: intermediate rotation
-- [ ] E2E test: MITM detection (wrong fingerprint)
-- [ ] **E2E test: Cross-colony impersonation detection (wrong colony ID in SAN)
-  **
-- [ ] E2E test: certificate renewal **(without Discovery)**
-- [ ] **E2E test: Bootstrap intermediate compromised (cannot issue server certs)
-  **
-- [ ] Update agent deployment documentation
-- [ ] Add troubleshooting guide for bootstrap failures
+- [x] Integration test: full bootstrap flow **(with SPIFFE ID validation)**
+- [x] Integration test: intermediate rotation
+- [x] E2E test: MITM detection (wrong fingerprint)
+- [x] **E2E test: Cross-colony impersonation detection (wrong colony ID in SAN)**
+- [x] E2E test: certificate renewal **(without Discovery)**
+- [x] **E2E test: Bootstrap intermediate compromised (cannot issue server certs)**
+- [x] Update agent deployment documentation
+- [x] Add troubleshooting guide for bootstrap failures
 
 ## API Changes
 
@@ -1390,7 +1388,7 @@ security posture.
 
 ## Implementation Status
 
-**Core Capability:** ✅ Implemented (Phase 1-5)
+**Core Capability:** ✅ Implemented (Phase 1-6)
 
 **Dependencies:**
 
