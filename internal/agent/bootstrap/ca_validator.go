@@ -167,7 +167,7 @@ func (v *CAValidator) manualChainVerification(certs []*x509.Certificate) error {
 func (v *CAValidator) GetTLSConfig() *tls.Config {
 	return &tls.Config{
 		// We skip automatic verification and perform manual fingerprint validation instead.
-		InsecureSkipVerify: true, //nolint:gosec // G402: Manual validation via fingerprint.
+		InsecureSkipVerify: true, // #nosec G402: Manual validation via fingerprint.
 	}
 }
 
