@@ -144,7 +144,7 @@ func (m *Manager) Load() error {
 	}
 
 	// Load Root CA pool.
-	//nolint:gosec // G304: Path is constructed from trusted config.
+	// #nosec G304: Path is constructed from trusted config.
 	rootCAPEM, err := os.ReadFile(rootCAPath)
 	if err != nil {
 		return fmt.Errorf("failed to read root CA: %w", err)
@@ -181,7 +181,7 @@ func (m *Manager) Save(result *bootstrap.Result) error {
 
 	// Save certificate (readable by user for inspection).
 	certPath := filepath.Join(m.certsDir, CertFileName)
-	//nolint:gosec // G306: Certificate file should be readable (not secret).
+	// #nosec G306: Certificate file should be readable (not secret).
 	if err := os.WriteFile(certPath, result.Certificate, 0644); err != nil {
 		return fmt.Errorf("failed to write certificate: %w", err)
 	}
@@ -194,14 +194,14 @@ func (m *Manager) Save(result *bootstrap.Result) error {
 
 	// Save Root CA (readable for verification).
 	rootCAPath := filepath.Join(m.certsDir, RootCAFileName)
-	//nolint:gosec // G306: CA certificate should be readable (public trust anchor).
+	// #nosec G306: CA certificate should be readable (public trust anchor).
 	if err := os.WriteFile(rootCAPath, result.RootCA, 0644); err != nil {
 		return fmt.Errorf("failed to write root CA: %w", err)
 	}
 
 	// Save CA chain (readable for verification).
 	chainPath := filepath.Join(m.certsDir, CAChainFileName)
-	//nolint:gosec // G306: CA chain should be readable (public certificates).
+	// #nosec G306: CA chain should be readable (public certificates).
 	if err := os.WriteFile(chainPath, result.CAChain, 0644); err != nil {
 		return fmt.Errorf("failed to write CA chain: %w", err)
 	}
@@ -228,7 +228,7 @@ func (m *Manager) SaveAgentID(agentID string) error {
 	}
 
 	agentIDPath := filepath.Join(m.certsDir, AgentIDFileName)
-	//nolint:gosec // G306: Agent ID is not secret, readable for inspection.
+	// #nosec G306: Agent ID is not secret, readable for inspection.
 	if err := os.WriteFile(agentIDPath, []byte(agentID), 0644); err != nil {
 		return fmt.Errorf("failed to write agent ID: %w", err)
 	}
@@ -239,7 +239,7 @@ func (m *Manager) SaveAgentID(agentID string) error {
 // LoadAgentID loads the persisted agent ID.
 func (m *Manager) LoadAgentID() (string, error) {
 	agentIDPath := filepath.Join(m.certsDir, AgentIDFileName)
-	//nolint:gosec // G304: Path is constructed from trusted config.
+	// #nosec G304: Path is constructed from trusted config.
 	data, err := os.ReadFile(agentIDPath)
 	if err != nil {
 		return "", err
