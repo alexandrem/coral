@@ -30,10 +30,6 @@ type BootstrapResult struct {
 
 	// Bootstrapped indicates whether a new certificate was obtained.
 	Bootstrapped bool
-
-	// FallbackToSecret indicates certificate bootstrap was skipped or failed,
-	// and agent should use colony_secret for authentication instead.
-	FallbackToSecret bool
 }
 
 // NewBootstrapPhase creates a new bootstrap phase handler.
@@ -60,10 +56,7 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	// Check if bootstrap is enabled.
 	// Default is enabled unless explicitly disabled.
 	if !bootstrapCfg.Enabled && bootstrapCfg.CAFingerprint == "" {
-		bp.logger.Debug().Msg("Certificate bootstrap disabled, using colony_secret authentication")
-		return &BootstrapResult{
-			FallbackToSecret: true,
-		}, nil
+		return nil, fmt.Errorf("certificate bootstrap required: set ca_fingerprint or CORAL_CA_FINGERPRINT")
 	}
 
 	// Create certificate manager.
@@ -122,13 +115,7 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	}
 
 	if fingerprint == "" {
-		bp.logger.Info().Msg("No CA fingerprint configured, falling back to colony_secret")
-		if !bootstrapCfg.FallbackToSecret {
-			return nil, fmt.Errorf("certificate bootstrap required but no CA fingerprint configured")
-		}
-		return &BootstrapResult{
-			FallbackToSecret: true,
-		}, nil
+		return nil, fmt.Errorf("certificate bootstrap required but no CA fingerprint configured")
 	}
 
 	// Get discovery endpoint.
@@ -145,13 +132,7 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	}
 
 	if discoveryURL == "" {
-		bp.logger.Info().Msg("No discovery endpoint configured, falling back to colony_secret")
-		if !bootstrapCfg.FallbackToSecret {
-			return nil, fmt.Errorf("certificate bootstrap required but no discovery endpoint configured")
-		}
-		return &BootstrapResult{
-			FallbackToSecret: true,
-		}, nil
+		return nil, fmt.Errorf("certificate bootstrap required but no discovery endpoint configured")
 	}
 
 	// Perform bootstrap.
@@ -193,15 +174,6 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 			metricResult = bootstrap.MetricResultTimeout
 		}
 
-		if bootstrapCfg.FallbackToSecret {
-			metricResult = bootstrap.MetricResultFallback
-			metrics.RecordBootstrapAttempt(metricResult, duration, bp.agentID, bp.colonyID, err.Error())
-			bp.logger.Info().Msg("Falling back to colony_secret authentication")
-			return &BootstrapResult{
-				FallbackToSecret: true,
-			}, nil
-		}
-
 		metrics.RecordBootstrapAttempt(metricResult, duration, bp.agentID, bp.colonyID, err.Error())
 		return nil, fmt.Errorf("certificate bootstrap failed: %w", err)
 	}
@@ -212,11 +184,6 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	// Save the certificate.
 	if err := certManager.Save(result); err != nil {
 		bp.logger.Error().Err(err).Msg("Failed to save bootstrap certificate")
-		if bootstrapCfg.FallbackToSecret {
-			return &BootstrapResult{
-				FallbackToSecret: true,
-			}, nil
-		}
 		return nil, fmt.Errorf("failed to save certificate: %w", err)
 	}
 
@@ -228,11 +195,6 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 	// Reload the certificate.
 	if err := certManager.Load(); err != nil {
 		bp.logger.Error().Err(err).Msg("Failed to load bootstrap certificate")
-		if bootstrapCfg.FallbackToSecret {
-			return &BootstrapResult{
-				FallbackToSecret: true,
-			}, nil
-		}
 		return nil, fmt.Errorf("failed to load certificate: %w", err)
 	}
 

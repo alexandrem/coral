@@ -21,9 +21,6 @@ const (
 
 	// MetricResultTimeout indicates the operation timed out.
 	MetricResultTimeout MetricResult = "timeout"
-
-	// MetricResultFallback indicates fallback to colony_secret was used.
-	MetricResultFallback MetricResult = "fallback"
 )
 
 // Metrics provides telemetry tracking for bootstrap and renewal operations.
@@ -31,7 +28,7 @@ const (
 // - coral_agent_bootstrap_attempts_total{result="success|failure|timeout"}
 // - coral_agent_bootstrap_duration_seconds
 // - coral_agent_renewal_attempts_total{result="success|failure"}
-// - coral_agent_renewal_duration_seconds
+// - coral_agent_renewal_duration_seconds.
 type Metrics struct {
 	logger zerolog.Logger
 
@@ -128,7 +125,6 @@ func (m *Metrics) GetBootstrapStats() BootstrapStats {
 		SuccessCount:           m.bootstrapTotal[MetricResultSuccess],
 		FailureCount:           m.bootstrapTotal[MetricResultFailure],
 		TimeoutCount:           m.bootstrapTotal[MetricResultTimeout],
-		FallbackCount:          m.bootstrapTotal[MetricResultFallback],
 		AverageDurationSeconds: avgDuration,
 	}
 }
@@ -166,7 +162,6 @@ type BootstrapStats struct {
 	SuccessCount           int64   `json:"success_count"`
 	FailureCount           int64   `json:"failure_count"`
 	TimeoutCount           int64   `json:"timeout_count"`
-	FallbackCount          int64   `json:"fallback_count"`
 	AverageDurationSeconds float64 `json:"average_duration_seconds"`
 }
 

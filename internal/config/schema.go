@@ -494,11 +494,6 @@ type BootstrapConfig struct {
 	// Default: ~/.coral/certs/
 	CertsDir string `yaml:"certs_dir,omitempty" env:"CORAL_CERTS_DIR"`
 
-	// FallbackToSecret enables falling back to colony_secret if bootstrap fails.
-	// This is useful during migration from shared secrets to certificates.
-	// Default: true.
-	FallbackToSecret bool `yaml:"fallback_to_secret,omitempty" env:"CORAL_BOOTSTRAP_FALLBACK"`
-
 	// RetryAttempts is the maximum number of bootstrap retry attempts.
 	// Default: 10.
 	RetryAttempts int `yaml:"retry_attempts,omitempty" env:"CORAL_BOOTSTRAP_RETRY_ATTEMPTS"`

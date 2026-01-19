@@ -173,11 +173,9 @@ func (b *AgentServerBuilder) InitializeBootstrap() error {
 		b.agentID,
 	)
 
-	// Check if bootstrap is needed.
+	// Check if bootstrap is configured.
 	if !bootstrapPhase.ShouldBootstrap() {
-		b.logger.Debug().Msg("Certificate bootstrap not configured, using colony_secret")
-		b.bootstrapResult = &BootstrapResult{FallbackToSecret: true}
-		return nil
+		return fmt.Errorf("certificate bootstrap required: set ca_fingerprint or CORAL_CA_FINGERPRINT")
 	}
 
 	// Execute bootstrap phase.

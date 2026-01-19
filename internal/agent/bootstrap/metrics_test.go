@@ -17,16 +17,14 @@ func TestMetrics_RecordBootstrapAttempt(t *testing.T) {
 	metrics.RecordBootstrapAttempt(MetricResultSuccess, 3*time.Second, "agent-2", "colony-1", "")
 	metrics.RecordBootstrapAttempt(MetricResultFailure, 10*time.Second, "agent-3", "colony-1", "connection failed")
 	metrics.RecordBootstrapAttempt(MetricResultTimeout, 30*time.Second, "agent-4", "colony-1", "context deadline exceeded")
-	metrics.RecordBootstrapAttempt(MetricResultFallback, 2*time.Second, "agent-5", "colony-1", "using colony_secret")
 
 	stats := metrics.GetBootstrapStats()
 
-	assert.Equal(t, int64(5), stats.TotalAttempts)
+	assert.Equal(t, int64(4), stats.TotalAttempts)
 	assert.Equal(t, int64(2), stats.SuccessCount)
 	assert.Equal(t, int64(1), stats.FailureCount)
 	assert.Equal(t, int64(1), stats.TimeoutCount)
-	assert.Equal(t, int64(1), stats.FallbackCount)
-	assert.InDelta(t, 10.0, stats.AverageDurationSeconds, 0.1) // (5+3+10+30+2)/5 = 10
+	assert.InDelta(t, 12.0, stats.AverageDurationSeconds, 0.1) // (5+3+10+30)/4 = 12
 }
 
 func TestMetrics_RecordRenewalAttempt(t *testing.T) {
