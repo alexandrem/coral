@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -23,6 +24,7 @@ import (
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
 	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
+	"github.com/coral-mesh/coral/internal/retry"
 )
 
 // Config contains configuration for the bootstrap client.
@@ -109,14 +111,37 @@ func (c *Client) Bootstrap(ctx context.Context) (*Result, error) {
 	c.logger.Debug().Msg("Bootstrap token received")
 
 	// Step 2: Lookup colony endpoints from Discovery.
+	// Retry with exponential backoff since colony may not be registered yet.
 	c.logger.Debug().Msg("Looking up colony endpoints")
-	colonyInfo, err := c.lookupColony(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to lookup colony: %w", err)
+	var colonyInfo *discoverypb.LookupColonyResponse
+	retryCfg := retry.Config{
+		MaxRetries:     30,               // Up to 30 retries
+		InitialBackoff: 2 * time.Second,  // Start with 2s
+		MaxBackoff:     10 * time.Second, // Cap at 10s
+		Jitter:         0.1,
 	}
 
-	if len(colonyInfo.Endpoints) == 0 {
-		return nil, fmt.Errorf("no colony endpoints returned from Discovery")
+	err = retry.Do(ctx, retryCfg, func() error {
+		var lookupErr error
+		colonyInfo, lookupErr = c.lookupColony(ctx)
+		if lookupErr != nil {
+			c.logger.Debug().
+				Err(lookupErr).
+				Msg("Colony lookup failed, will retry")
+			return lookupErr
+		}
+		if len(colonyInfo.Endpoints) == 0 {
+			return fmt.Errorf("no colony endpoints returned from Discovery")
+		}
+		return nil
+	}, func(err error) bool {
+		// Retry on "not found" errors (colony not yet registered).
+		return strings.Contains(err.Error(), "not_found") ||
+			strings.Contains(err.Error(), "not found")
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup colony: %w", err)
 	}
 
 	c.logger.Debug().
@@ -133,7 +158,7 @@ func (c *Client) Bootstrap(ctx context.Context) (*Result, error) {
 		c.logger.Debug().Str("endpoint", endpoint).Msg("Attempting connection to colony")
 
 		// Build colony URL (assuming HTTPS on connect port).
-		colonyURL := fmt.Sprintf("https://%s:%d", endpoint, colonyInfo.ConnectPort)
+		colonyURL := fmt.Sprintf("https://%s", endpoint)
 
 		validationResult, tlsConn, err = c.connectAndValidate(ctx, colonyURL)
 		if err != nil {

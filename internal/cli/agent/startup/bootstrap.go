@@ -55,7 +55,9 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 
 	// Check if bootstrap is enabled.
 	// Default is enabled unless explicitly disabled.
-	if !bootstrapCfg.Enabled && bootstrapCfg.CAFingerprint == "" {
+	// Also check environment variable for containerized agents.
+	envFingerprint := os.Getenv("CORAL_CA_FINGERPRINT")
+	if !bootstrapCfg.Enabled && bootstrapCfg.CAFingerprint == "" && envFingerprint == "" {
 		return nil, fmt.Errorf("certificate bootstrap required: set ca_fingerprint or CORAL_CA_FINGERPRINT")
 	}
 

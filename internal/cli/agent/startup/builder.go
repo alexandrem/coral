@@ -158,9 +158,9 @@ func (b *AgentServerBuilder) Validate() error {
 	return nil
 }
 
-// InitializeBootstrap performs certificate bootstrap if configured (RFD 048).
+// InitializeBootstrap performs certificate bootstrap (RFD 048).
 // This should be called after Validate() and before InitializeNetwork().
-// Bootstrap is optional - if not configured, agent uses colony_secret for auth.
+// Bootstrap is required - agents must have CA fingerprint configured.
 func (b *AgentServerBuilder) InitializeBootstrap() error {
 	if b.configResult == nil {
 		return fmt.Errorf("must call Validate() before InitializeBootstrap()")

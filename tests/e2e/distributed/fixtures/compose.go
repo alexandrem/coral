@@ -15,8 +15,8 @@ import (
 // connects to existing services started by docker-compose.
 type ComposeFixture struct {
 	// Configuration
-	ColonyID     string
-	ColonySecret string
+	ColonyID      string
+	CAFingerprint string // Root CA fingerprint for agent bootstrap (RFD 048)
 
 	// Service endpoints (set by docker-compose port mappings)
 	DiscoveryEndpoint string
@@ -32,8 +32,8 @@ type ComposeFixture struct {
 // It doesn't start containers - they must already be running via docker-compose.
 func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	fixture := &ComposeFixture{
-		ColonyID:          "", // Will be discovered
-		ColonySecret:      "test-secret-12345",
+		ColonyID:          "",                       // Will be discovered
+		CAFingerprint:     "",                       // Will be discovered
 		DiscoveryEndpoint: "http://localhost:18080", // E2E uses non-standard port
 		ColonyEndpoint:    "http://localhost:9000",
 		Agent0Endpoint:    "http://localhost:9001",
@@ -51,6 +51,11 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	// Discover the actual colony ID from discovery service
 	if err := fixture.discoverColonyID(ctx); err != nil {
 		return nil, fmt.Errorf("failed to discover colony ID: %w", err)
+	}
+
+	// Discover the CA fingerprint for agent bootstrap
+	if err := fixture.discoverCAFingerprint(ctx); err != nil {
+		return nil, fmt.Errorf("failed to discover CA fingerprint: %w", err)
 	}
 
 	return fixture, nil
@@ -102,6 +107,30 @@ func (f *ComposeFixture) discoverColonyID(ctx context.Context) error {
 
 	f.ColonyID = colonyID
 	return nil
+}
+
+// discoverCAFingerprint reads the Root CA fingerprint from the shared volume.
+// The colony writes its CA fingerprint to /shared/ca_fingerprint after initialization.
+func (f *ComposeFixture) discoverCAFingerprint(ctx context.Context) error {
+	// Use docker exec to read the CA fingerprint from the shared volume
+	cmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "cat", "/shared/ca_fingerprint")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to read CA fingerprint from container: %w", err)
+	}
+
+	fingerprint := strings.TrimSpace(string(output))
+	if fingerprint == "" {
+		return fmt.Errorf("CA fingerprint is empty")
+	}
+
+	f.CAFingerprint = fingerprint
+	return nil
+}
+
+// GetCAFingerprint returns the Root CA fingerprint for agent bootstrap.
+func (f *ComposeFixture) GetCAFingerprint() string {
+	return f.CAFingerprint
 }
 
 // Cleanup is a no-op for compose fixtures since we don't manage container lifecycle.
