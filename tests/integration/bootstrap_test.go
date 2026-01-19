@@ -378,21 +378,23 @@ func TestRenewalWithoutDiscoveryIntegration(t *testing.T) {
 	t.Run("renewal with mTLS authentication", func(t *testing.T) {
 		logger := zerolog.Nop()
 
-		renewClient := bootstrap.NewRenewalClient(bootstrap.RenewalConfig{
-			AgentID:          agentID,
-			ColonyID:         colonyID,
-			CAFingerprint:    fingerprint,
-			ColonyEndpoint:   mockServer.URL,
-			ExistingCertPath: filepath.Join(tmpDir, "agent.crt"),
-			ExistingKeyPath:  filepath.Join(tmpDir, "agent.key"),
-			RootCAPath:       filepath.Join(tmpDir, "root-ca.crt"),
-			Logger:           logger,
+		renewClient := bootstrap.NewClient(bootstrap.Config{
+			AgentID:        agentID,
+			ColonyID:       colonyID,
+			CAFingerprint:  fingerprint,
+			ColonyEndpoint: mockServer.URL,
+			Logger:         logger,
 		})
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		result, err := renewClient.Renew(ctx)
+		result, err := renewClient.Renew(
+			ctx,
+			filepath.Join(tmpDir, "agent.crt"),
+			filepath.Join(tmpDir, "agent.key"),
+			filepath.Join(tmpDir, "root-ca.crt"),
+		)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.NotEmpty(t, result.Certificate)
@@ -733,22 +735,20 @@ func saveKeyToFile(t *testing.T, dir, filename string, key *ecdsa.PrivateKey) {
 func createMockColonyServer(t *testing.T, clientCAPool *x509.CertPool, serverCert *x509.Certificate, serverKey *ecdsa.PrivateKey, caCert *x509.Certificate, caKey *ecdsa.PrivateKey, colonyID string) *httptest.Server {
 	t.Helper()
 
-	// Create handler that implements RequestCertificate.
 	mux := http.NewServeMux()
-
-	// Mock RequestCertificate endpoint.
 	path, handler := colonyv1connect.NewColonyServiceHandler(&mockColonyService{
 		caCert:   caCert,
 		caKey:    caKey,
 		colonyID: colonyID,
 	})
-
 	mux.Handle(path, handler)
 
 	server := httptest.NewUnstartedServer(mux)
 	server.TLS = &tls.Config{
 		Certificates: []tls.Certificate{{
-			Certificate: [][]byte{serverCert.Raw},
+			// FIX: Include the CA certificate in the chain.
+			// The first element is the leaf, subsequent elements are intermediates/root.
+			Certificate: [][]byte{serverCert.Raw, caCert.Raw},
 			PrivateKey:  serverKey,
 		}},
 		ClientCAs:  clientCAPool,

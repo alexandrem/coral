@@ -44,6 +44,7 @@ type RegisterColonyRequest struct {
 	MeshIPv4         string
 	MeshIPv6         string
 	ConnectPort      uint32
+	PublicPort       uint32 // Public HTTPS port for bootstrap (e.g., 8443).
 	Metadata         map[string]string
 	ObservedEndpoint interface{} // *discoveryv1.Endpoint (using interface{} to avoid import issues)
 }
@@ -72,6 +73,7 @@ func (c *Client) RegisterColony(ctx context.Context, req *RegisterColonyRequest)
 		MeshIpv4:         req.MeshIPv4,
 		MeshIpv6:         req.MeshIPv6,
 		ConnectPort:      req.ConnectPort,
+		PublicPort:       req.PublicPort,
 		Metadata:         req.Metadata,
 		ObservedEndpoint: observedEndpoint,
 	}
@@ -101,6 +103,7 @@ type LookupColonyResponse struct {
 	MeshIPv4    string
 	MeshIPv6    string
 	ConnectPort uint32
+	PublicPort  uint32 // Public HTTPS port for bootstrap (e.g., 8443).
 	Metadata    map[string]string
 	LastSeen    time.Time
 }
@@ -128,6 +131,7 @@ func (c *Client) LookupColony(ctx context.Context, meshID string) (*LookupColony
 		MeshIPv4:    resp.Msg.MeshIpv4,
 		MeshIPv6:    resp.Msg.MeshIpv6,
 		ConnectPort: resp.Msg.ConnectPort,
+		PublicPort:  resp.Msg.PublicPort,
 		Metadata:    resp.Msg.Metadata,
 		LastSeen:    lastSeen,
 	}, nil

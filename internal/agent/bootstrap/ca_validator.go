@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // CAValidator validates the Root CA fingerprint and colony identity during TLS handshake.
@@ -23,9 +24,10 @@ type CAValidator struct {
 // fingerprint should be in the format "sha256:hexstring" or just "hexstring".
 // colonyID is the expected colony ID that should appear in the server certificate SAN.
 func NewCAValidator(fingerprint, colonyID string) *CAValidator {
-	// Normalize fingerprint format.
+	// Normalize: remove prefix, remove colons, and lowercase
 	fp := strings.TrimPrefix(fingerprint, "sha256:")
-	fp = strings.ToLower(fp)
+	fp = strings.ReplaceAll(fp, ":", "")
+	fp = strings.ToLower(strings.TrimSpace(fp))
 
 	return &CAValidator{
 		expectedFingerprint: fp,
@@ -141,22 +143,25 @@ func (v *CAValidator) manualChainVerification(certs []*x509.Certificate) error {
 		return fmt.Errorf("no certificates to verify")
 	}
 
-	// Build verification options.
-	// We need to verify each certificate is signed by its parent.
-	for i := 0; i < len(certs)-1; i++ {
-		child := certs[i]
-		parent := certs[i+1]
+	now := time.Now()
+	for i, cert := range certs {
+		// Idiom: Check expiration in manual verification
+		if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
+			return fmt.Errorf("certificate at index %d is expired or not yet valid", i)
+		}
 
-		// Verify the child is signed by the parent.
-		if err := child.CheckSignatureFrom(parent); err != nil {
-			return fmt.Errorf("certificate at index %d not signed by parent: %w", i, err)
+		if i < len(certs)-1 {
+			parent := certs[i+1]
+			if err := cert.CheckSignatureFrom(parent); err != nil {
+				return fmt.Errorf("certificate at index %d not signed by parent: %w", i, err)
+			}
 		}
 	}
 
 	// Verify the root is self-signed.
 	root := certs[len(certs)-1]
 	if err := root.CheckSignatureFrom(root); err != nil {
-		return fmt.Errorf("root certificate is not self-signed: %w", err)
+		return fmt.Errorf("root certificate is not self-signed (chain might be incomplete): %w", err)
 	}
 
 	return nil
@@ -179,24 +184,23 @@ func computeFingerprint(cert *x509.Certificate) string {
 
 // extractColonyFromSAN extracts the SPIFFE ID and colony ID from a server certificate's SAN.
 // Expected format: spiffe://coral/colony/{colony-id}
-func extractColonyFromSAN(cert *x509.Certificate) (spiffeID, colonyID string, err error) {
+func extractColonyFromSAN(cert *x509.Certificate) (string, string, error) {
 	for _, uri := range cert.URIs {
-		if uri.Scheme != "spiffe" {
+		// Ensure standard SPIFFE format: spiffe://trust-domain/path
+		if uri.Scheme != "spiffe" || uri.Host != "coral" {
 			continue
 		}
 
-		// Parse SPIFFE ID: spiffe://coral/colony/{colony-id}
-		if uri.Host != "coral" {
-			continue
-		}
+		// Use TrimPrefix to handle the leading slash safely
+		path := strings.TrimPrefix(uri.Path, "/")
+		parts := strings.Split(path, "/")
 
-		pathParts := strings.Split(strings.TrimPrefix(uri.Path, "/"), "/")
-		if len(pathParts) >= 2 && pathParts[0] == "colony" {
-			return uri.String(), pathParts[1], nil
+		if len(parts) >= 2 && parts[0] == "colony" {
+			return uri.String(), parts[1], nil
 		}
 	}
 
-	return "", "", fmt.Errorf("no valid SPIFFE ID found in certificate SANs")
+	return "", "", fmt.Errorf("no valid Coral Colony SPIFFE ID found in SAN URIs")
 }
 
 // BuildAgentSPIFFEID builds a SPIFFE ID URI for an agent.

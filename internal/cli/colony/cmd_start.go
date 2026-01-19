@@ -249,6 +249,12 @@ Examples:
 				connectPort = constants.DefaultColonyPort // Default Buf Connect port
 			}
 
+			// Set default public endpoint port if not configured
+			publicPort := colonyConfig.PublicEndpoint.Port
+			if publicPort == 0 {
+				publicPort = constants.DefaultPublicEndpointPort
+			}
+
 			// TODO: Implement STUN discovery before WireGuard initialization.
 			// For now, colonies rely on configured endpoints or agents discovering them via STUN.
 			// See RFD 029 for planned colony-based STUN enhancement.
@@ -265,6 +271,7 @@ Examples:
 				MeshIPv4:          meshIPv4,
 				MeshIPv6:          meshIPv6,
 				ConnectPort:       uint32(connectPort), //nolint:gosec // G115: Port numbers are small positive values
+				PublicPort:        uint32(publicPort),  //nolint:gosec // G115: Port numbers are small positive values
 				Metadata:          metadata,
 				DiscoveryEndpoint: globalConfig.Discovery.Endpoint,
 				DiscoveryTimeout:  globalConfig.Discovery.Timeout,

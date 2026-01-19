@@ -17,6 +17,7 @@ type Entry struct {
 	MeshIPv4         string
 	MeshIPv6         string
 	ConnectPort      uint32
+	PublicPort       uint32 // Public HTTPS port for bootstrap (e.g., 8443).
 	Metadata         map[string]string
 	LastSeen         time.Time
 	ExpiresAt        time.Time
@@ -60,7 +61,7 @@ func (r *Registry) Register(
 	meshID, pubkey string,
 	endpoints []string,
 	meshIPv4, meshIPv6 string,
-	connectPort uint32,
+	connectPort, publicPort uint32,
 	metadata map[string]string,
 	observedEndpoint *discoveryv1.Endpoint,
 	natHint discoveryv1.NatHint,
@@ -115,6 +116,7 @@ func (r *Registry) Register(
 		MeshIPv4:         meshIPv4,
 		MeshIPv6:         meshIPv6,
 		ConnectPort:      connectPort,
+		PublicPort:       publicPort,
 		Metadata:         metadata,
 		LastSeen:         now,
 		ExpiresAt:        now.Add(r.ttl),

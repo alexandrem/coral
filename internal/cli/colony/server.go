@@ -323,7 +323,14 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 			if err != nil {
 				logger.Warn().Err(err).Msg("Failed to issue server certificate from CA")
 			} else {
-				cert, err := tls.X509KeyPair(certPEM, keyPEM)
+				// Build full certificate chain: leaf + server intermediate + root CA.
+				// This allows agents to validate the CA fingerprint during bootstrap.
+				serverIntPEM := caManager.GetServerIntermediateCertPEM()
+				rootCAPEM := caManager.GetRootCertPEM()
+				fullChainPEM := append(certPEM, serverIntPEM...)
+				fullChainPEM = append(fullChainPEM, rootCAPEM...)
+
+				cert, err := tls.X509KeyPair(fullChainPEM, keyPEM)
 				if err != nil {
 					logger.Warn().Err(err).Msg("Failed to load issued server certificate")
 				} else {

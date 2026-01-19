@@ -11,7 +11,6 @@ import (
 	"github.com/coral-mesh/coral/internal/agent/bootstrap"
 	"github.com/coral-mesh/coral/internal/agent/certs"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
-	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -213,133 +212,89 @@ func runCertRenew(ctx context.Context, opts certRenewOptions) error {
 		Logger:   logger,
 	})
 
-	// Check if certificate exists.
+	// 1. Initial State Checks
 	if !certManager.CertificateExists() {
 		return fmt.Errorf("no certificate found; use 'coral agent bootstrap' to obtain a certificate first")
 	}
 
-	// Load existing certificate.
 	if err := certManager.Load(); err != nil {
 		return fmt.Errorf("failed to load certificate: %w", err)
 	}
 
 	info := certManager.GetCertificateInfo()
 
-	// Check if renewal is needed.
+	// 2. Policy Checks (Force vs Expiry)
 	if !opts.Force && info.Status == certs.CertStatusValid {
-		fmt.Printf("Certificate is valid for %d more days.\n", info.DaysRemaining)
-		fmt.Println("Use --force to renew anyway.")
+		fmt.Printf("Certificate is valid for %d more days. Use --force to renew anyway.\n", info.DaysRemaining)
 		return nil
 	}
 
-	// Check if expired (need full bootstrap).
 	if info.Status == certs.CertStatusExpired {
 		return fmt.Errorf("certificate has expired; use 'coral agent bootstrap' for a new certificate")
 	}
 
-	// Resolve parameters from existing certificate or config.
-	if opts.ColonyID == "" {
-		opts.ColonyID = info.ColonyID
-	}
-
-	// Validate required parameters.
-	if opts.ColonyID == "" {
-		return fmt.Errorf("colony ID is required")
-	}
-	if opts.CAFingerprint == "" {
-		return fmt.Errorf("CA fingerprint is required (--fingerprint or CORAL_CA_FINGERPRINT)")
-	}
-
-	// Load agent ID.
+	// 3. Resolve Missing Configuration
 	agentID, err := certManager.LoadAgentID()
 	if err != nil {
 		agentID = info.AgentID
 	}
 
-	fmt.Printf("Renewing certificate for agent %s...\n", agentID)
-	fmt.Printf("  Colony:    %s\n", opts.ColonyID)
-	fmt.Printf("  Expires:   %s (%d days remaining)\n", info.NotAfter.Format(time.RFC3339), info.DaysRemaining)
-	fmt.Println()
-
-	// Get colony endpoint for mTLS renewal.
-	colonyEndpoint := opts.ColonyEndpoint
-	if colonyEndpoint == "" {
-		// Try to resolve from global config or use Discovery.
-		loader, loadErr := config.NewLoader()
-		if loadErr == nil {
-			globalCfg, loadErr := loader.LoadGlobalConfig()
-			if loadErr == nil && opts.DiscoveryURL == "" {
-				opts.DiscoveryURL = globalCfg.Discovery.Endpoint
-			}
-		}
+	if opts.ColonyID == "" {
+		opts.ColonyID = info.ColonyID
 	}
+
+	// 4. Initialize the Unified Bootstrap Client
+	// This client now handles both mTLS renewal and Token-based bootstrap
+	client := bootstrap.NewClient(bootstrap.Config{
+		AgentID:           agentID,
+		ColonyID:          opts.ColonyID,
+		CAFingerprint:     opts.CAFingerprint,
+		DiscoveryEndpoint: opts.DiscoveryURL,
+		Logger:            logger,
+	})
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	var result *bootstrap.Result
 
-	// Try mTLS renewal first if we have colony endpoint.
-	if colonyEndpoint != "" {
-		fmt.Print("Renewing using existing mTLS certificate... ")
+	// 5. Strategy A: Attempt Direct mTLS Renewal
+	// This is preferred as it doesn't require Discovery or a new Token
+	fmt.Print("Attempting mTLS renewal... ")
+	result, err = client.Renew(
+		ctx,
+		certManager.GetCertPath(),
+		certManager.GetKeyPath(),
+		certManager.GetRootCAPath(),
+	)
 
-		renewClient := bootstrap.NewRenewalClient(bootstrap.RenewalConfig{
-			AgentID:          agentID,
-			ColonyID:         opts.ColonyID,
-			CAFingerprint:    opts.CAFingerprint,
-			ColonyEndpoint:   colonyEndpoint,
-			ExistingCertPath: certManager.GetCertPath(),
-			ExistingKeyPath:  certManager.GetKeyPath(),
-			RootCAPath:       certManager.GetRootCAPath(),
-			Logger:           logger,
-		})
+	// 6. Strategy B: Fallback to Token-based Bootstrap
+	if err != nil {
+		fmt.Println("✗")
+		logger.Warn().Err(err).Msg("mTLS renewal failed; falling back to bootstrap flow")
 
-		result, err = renewClient.Renew(ctx)
-		if err != nil {
-			fmt.Println("✗")
-			logger.Debug().Err(err).Msg("mTLS renewal failed, falling back to bootstrap")
-			// Fall through to bootstrap.
-		} else {
-			fmt.Println("✓")
-		}
-	}
-
-	// Fallback to bootstrap flow if mTLS renewal failed or no endpoint.
-	if result == nil {
 		if opts.DiscoveryURL == "" {
-			return fmt.Errorf("renewal failed: colony endpoint or discovery URL is required")
+			return fmt.Errorf("renewal failed and no discovery URL provided for fallback: %w", err)
 		}
 
-		fmt.Print("Falling back to bootstrap renewal... ")
-
-		client := bootstrap.NewClient(bootstrap.Config{
-			AgentID:           agentID,
-			ColonyID:          opts.ColonyID,
-			CAFingerprint:     opts.CAFingerprint,
-			DiscoveryEndpoint: opts.DiscoveryURL,
-			Logger:            logger,
-		})
-
+		fmt.Print("Attempting bootstrap renewal (Token-based)... ")
 		result, err = client.Bootstrap(ctx)
 		if err != nil {
 			fmt.Println("✗")
-			return fmt.Errorf("renewal failed: %w", err)
+			return fmt.Errorf("certificate recovery failed: %w", err)
 		}
-		fmt.Println("✓")
 	}
+	fmt.Println("✓")
 
-	// Save new certificates.
-	fmt.Print("Saving certificates... ")
+	// 7. Persist the New Identity
+	fmt.Print("Saving updated certificates... ")
 	if err := certManager.Save(result); err != nil {
 		fmt.Println("✗")
 		return fmt.Errorf("failed to save certificates: %w", err)
 	}
 	fmt.Println("✓")
 
-	fmt.Println()
-	fmt.Printf("✓ Certificate renewed successfully!\n")
-	fmt.Printf("  Valid until: %s\n", result.ExpiresAt.Format(time.RFC3339))
-
+	fmt.Printf("\n✓ Success! Certificate renewed. Valid until: %s\n", result.ExpiresAt.Format(time.RFC3339))
 	return nil
 }
 
