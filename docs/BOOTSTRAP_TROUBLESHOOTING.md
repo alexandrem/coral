@@ -35,7 +35,7 @@ openssl x509 -in ~/.coral/certs/agent.crt -text -noout
 openssl x509 -in ~/.coral/certs/root-ca.crt -fingerprint -sha256 -noout
 
 # Test connectivity to Discovery
-curl -v https://discovery.coral.io:8080/health
+curl -v https://discovery.coralmesh.dev/health
 
 # Test connectivity to Colony (requires valid cert)
 curl -v --cert ~/.coral/certs/agent.crt --key ~/.coral/certs/agent.key \
@@ -124,7 +124,7 @@ Error: Colony ID mismatch - potential cross-colony impersonation
 2. **Verify DNS**: Ensure Discovery returns the correct colony endpoint:
 
    ```bash
-   curl https://discovery.coral.io:8080/v1/colonies/my-app-prod
+   curl https://discovery.coral.:8080/v1/colonies/my-app-prod
    ```
 
 3. **Check network**: Verify you're connecting to the intended colony server.
@@ -157,7 +157,7 @@ Error: failed to get referral ticket: context deadline exceeded
 1. **Verify Discovery is reachable**:
 
    ```bash
-   curl -v https://discovery.coral.io:8080/health
+   curl -v https://discovery.coralmesh.dev/health
    ```
 
 2. **Check firewall rules**: Ensure outbound HTTPS (port 443 or 8080) is
@@ -168,13 +168,13 @@ Error: failed to get referral ticket: context deadline exceeded
    ```yaml
    # In ~/.coral/config.yaml
    discovery:
-     endpoint: "https://discovery.coral.io:8080"
+     endpoint: "https://discovery.coralmesh.dev"
    ```
 
    Or via environment variable:
 
    ```bash
-   export CORAL_DISCOVERY_ENDPOINT="https://discovery.coral.io:8080"
+   export CORAL_DISCOVERY_ENDPOINT="https://discovery.coralmesh.dev"
    ```
 
 ---
@@ -214,8 +214,7 @@ coral agent cert status
    # Re-bootstrap
    coral agent bootstrap \
      --colony my-app-prod \
-     --fingerprint sha256:abc123... \
-     --discovery https://discovery.coral.io:8080
+     --fingerprint sha256:abc123...
    ```
 
 2. **Prevent future expiry**: Ensure the agent can reach the colony for renewal.
@@ -298,14 +297,14 @@ Error: bootstrap failed: context deadline exceeded
 2. **Check network latency**:
 
    ```bash
-   ping discovery.coral.io
+   ping discovery.coralmesh.dev
    ping colony.example.com
    ```
 
 3. **Verify services are healthy**:
 
    ```bash
-   curl https://discovery.coral.io:8080/health
+   curl https://discovery.coralmesh.dev/health
    curl https://colony.example.com:9000/health
    ```
 
@@ -398,8 +397,7 @@ cat ~/.coral/config.yaml
 # 4. Re-bootstrap
 coral agent bootstrap \
   --colony my-app-prod \
-  --fingerprint sha256:abc123... \
-  --discovery https://discovery.coral.io:8080
+  --fingerprint sha256:abc123...
 
 # 5. Verify new certificate
 coral agent cert status
@@ -429,7 +427,7 @@ If issues persist:
    ```
 
 3. **Report issue**: Open an issue
-   at https://github.com/anthropics/claude-code/issues
+   at https://github.com/alexandrem/coral/issues
    with diagnostics (remove any secrets/sensitive data).
 
 ---
