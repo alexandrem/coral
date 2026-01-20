@@ -874,7 +874,6 @@ Environment variables override configuration file values.
 | Variable                   | Overrides                     | Example                    | Description                                                            |
 |----------------------------|-------------------------------|----------------------------|------------------------------------------------------------------------|
 | `CORAL_COLONY_ID`          | -                             | `my-app-prod`              | Colony to start                                                        |
-| `CORAL_COLONY_SECRET`      | `colony_secret`               | `secret123`                | Colony authentication secret                                           |
 | `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`          | `http://discovery:8080`    | Discovery service URL                                                  |
 | `CORAL_STORAGE_PATH`       | `storage_path`                | `/var/lib/coral`           | Storage directory path                                                 |
 | `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`  | `colony.example.com:41580` | **Production required:** Public WireGuard endpoint(s), comma-separated |
@@ -910,7 +909,6 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 | `CORAL_CA_FILE`         | Path to CA certificate file for TLS verification                       |
 | `CORAL_INSECURE`        | Skip TLS verification (`true` or `1`) - testing only, never in prod    |
 | `CORAL_COLONY_ID`       | Override default colony ID                                             |
-| `CORAL_COLONY_SECRET`   | Override colony secret (used for local config-less agent mode)         |
 
 ### Configuration Precedence
 
