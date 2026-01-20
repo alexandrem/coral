@@ -82,6 +82,9 @@ const (
 	// ColonyServiceRevokeCertificateProcedure is the fully-qualified name of the ColonyService's
 	// RevokeCertificate RPC.
 	ColonyServiceRevokeCertificateProcedure = "/coral.colony.v1.ColonyService/RevokeCertificate"
+	// ColonyServiceGetCAStatusProcedure is the fully-qualified name of the ColonyService's GetCAStatus
+	// RPC.
+	ColonyServiceGetCAStatusProcedure = "/coral.colony.v1.ColonyService/GetCAStatus"
 )
 
 // ColonyServiceClient is a client for the coral.colony.v1.ColonyService service.
@@ -113,6 +116,8 @@ type ColonyServiceClient interface {
 	RequestCertificate(context.Context, *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error)
 	// Revoke an issued certificate.
 	RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error)
+	// Get CA status and fingerprint (RFD 047).
+	GetCAStatus(context.Context, *connect.Request[v1.GetCAStatusRequest]) (*connect.Response[v1.GetCAStatusResponse], error)
 }
 
 // NewColonyServiceClient constructs a client for the coral.colony.v1.ColonyService service. By
@@ -228,6 +233,12 @@ func NewColonyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(colonyServiceMethods.ByName("RevokeCertificate")),
 			connect.WithClientOptions(opts...),
 		),
+		getCAStatus: connect.NewClient[v1.GetCAStatusRequest, v1.GetCAStatusResponse](
+			httpClient,
+			baseURL+ColonyServiceGetCAStatusProcedure,
+			connect.WithSchema(colonyServiceMethods.ByName("GetCAStatus")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -250,6 +261,7 @@ type colonyServiceClient struct {
 	listTools           *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
 	requestCertificate  *connect.Client[v1.RequestCertificateRequest, v1.RequestCertificateResponse]
 	revokeCertificate   *connect.Client[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse]
+	getCAStatus         *connect.Client[v1.GetCAStatusRequest, v1.GetCAStatusResponse]
 }
 
 // GetStatus calls coral.colony.v1.ColonyService.GetStatus.
@@ -337,6 +349,11 @@ func (c *colonyServiceClient) RevokeCertificate(ctx context.Context, req *connec
 	return c.revokeCertificate.CallUnary(ctx, req)
 }
 
+// GetCAStatus calls coral.colony.v1.ColonyService.GetCAStatus.
+func (c *colonyServiceClient) GetCAStatus(ctx context.Context, req *connect.Request[v1.GetCAStatusRequest]) (*connect.Response[v1.GetCAStatusResponse], error) {
+	return c.getCAStatus.CallUnary(ctx, req)
+}
+
 // ColonyServiceHandler is an implementation of the coral.colony.v1.ColonyService service.
 type ColonyServiceHandler interface {
 	// Get colony status and health.
@@ -366,6 +383,8 @@ type ColonyServiceHandler interface {
 	RequestCertificate(context.Context, *connect.Request[v1.RequestCertificateRequest]) (*connect.Response[v1.RequestCertificateResponse], error)
 	// Revoke an issued certificate.
 	RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error)
+	// Get CA status and fingerprint (RFD 047).
+	GetCAStatus(context.Context, *connect.Request[v1.GetCAStatusRequest]) (*connect.Response[v1.GetCAStatusResponse], error)
 }
 
 // NewColonyServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -477,6 +496,12 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(colonyServiceMethods.ByName("RevokeCertificate")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyServiceGetCAStatusHandler := connect.NewUnaryHandler(
+		ColonyServiceGetCAStatusProcedure,
+		svc.GetCAStatus,
+		connect.WithSchema(colonyServiceMethods.ByName("GetCAStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.ColonyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ColonyServiceGetStatusProcedure:
@@ -513,6 +538,8 @@ func NewColonyServiceHandler(svc ColonyServiceHandler, opts ...connect.HandlerOp
 			colonyServiceRequestCertificateHandler.ServeHTTP(w, r)
 		case ColonyServiceRevokeCertificateProcedure:
 			colonyServiceRevokeCertificateHandler.ServeHTTP(w, r)
+		case ColonyServiceGetCAStatusProcedure:
+			colonyServiceGetCAStatusHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -588,4 +615,8 @@ func (UnimplementedColonyServiceHandler) RequestCertificate(context.Context, *co
 
 func (UnimplementedColonyServiceHandler) RevokeCertificate(context.Context, *connect.Request[v1.RevokeCertificateRequest]) (*connect.Response[v1.RevokeCertificateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.RevokeCertificate is not implemented"))
+}
+
+func (UnimplementedColonyServiceHandler) GetCAStatus(context.Context, *connect.Request[v1.GetCAStatusRequest]) (*connect.Response[v1.GetCAStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyService.GetCAStatus is not implemented"))
 }

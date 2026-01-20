@@ -99,7 +99,7 @@ func (r *Resolver) ResolveWithSource() (string, ResolutionSource, error) {
 
 // ResolveConfig loads and merges configuration for a colony.
 // For containerized agents, supports "config-less" mode where only CORAL_COLONY_ID
-// and CORAL_COLONY_SECRET env vars are required (no colony config file needed).
+// and CORAL_CA_FINGERPRINT env vars are required (no colony config file needed).
 func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 	// Load all config sources
 	globalConfig, err := r.loader.LoadGlobalConfig()
@@ -110,8 +110,9 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 	colonyConfig, err := r.loader.LoadColonyConfig(colonyID)
 	if err != nil {
 		// Config-less mode: if colony config file doesn't exist but we have
-		// CORAL_COLONY_SECRET env var, create a synthetic config for agents.
-		if os.Getenv("CORAL_COLONY_SECRET") != "" {
+		// CORAL_CA_FINGERPRINT env var, create a synthetic config for agents.
+		// This supports containerized agents that bootstrap via Discovery (RFD 048).
+		if os.Getenv("CORAL_CA_FINGERPRINT") != "" {
 			colonyConfig = DefaultColonyConfig(colonyID, colonyID, "container")
 		} else {
 			return nil, fmt.Errorf("failed to load colony config: %w", err)
@@ -141,19 +142,20 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 	resolved.WireGuard.MeshNetworkIPv4 = meshSubnet
 	resolved.WireGuard.MeshIPv4 = colonyIP
 
-	// Apply environment variable overrides
-	if secret := os.Getenv("CORAL_COLONY_SECRET"); secret != "" {
-		resolved.ColonySecret = secret
-	} else {
-		resolved.ColonySecret = colonyConfig.ColonySecret
-	}
-
 	if discoveryURL := os.Getenv("CORAL_DISCOVERY_ENDPOINT"); discoveryURL != "" {
 		resolved.DiscoveryURL = discoveryURL
 	}
 
 	if storagePath := os.Getenv("CORAL_STORAGE_PATH"); storagePath != "" {
 		resolved.StoragePath = storagePath
+	}
+
+	// Resolve JWT signing key (RFD 049)
+	// Priority: CORAL_JWT_SIGNING_KEY > ColonySecret (deprecated fallback)
+	if jwtKey := os.Getenv("CORAL_JWT_SIGNING_KEY"); jwtKey != "" {
+		resolved.JWTSigningKey = jwtKey
+	} else {
+		resolved.JWTSigningKey = resolved.ColonySecret
 	}
 
 	// Apply project config overrides

@@ -52,6 +52,9 @@ service ColonyService {
 
   // Revoke an issued certificate.
   rpc RevokeCertificate(RevokeCertificateRequest) returns (RevokeCertificateResponse);
+
+  // Get CA status and fingerprint (RFD 047).
+  rpc GetCAStatus(GetCAStatusRequest) returns (GetCAStatusResponse);
 }
 
 message GetStatusRequest {}
@@ -207,4 +210,30 @@ message RevokeCertificateRequest {
 message RevokeCertificateResponse {
   // Revocation successful.
   bool success = 1;
+}
+
+// GetCAStatus messages (RFD 047)
+
+message GetCAStatusRequest {}
+
+message GetCAStatusResponse {
+  message CertStatus {
+    string path = 1;
+    string fingerprint = 2;
+    google.protobuf.Timestamp expires_at = 3;
+    string subject = 4;
+  }
+  
+  CertStatus root_ca = 1;
+  CertStatus server_intermediate = 2;
+  CertStatus agent_intermediate = 3;
+  CertStatus policy_signing = 4;
+  string colony_spiffe_id = 5;
+  
+  message Stats {
+    int32 total_issued = 1;
+    int32 active = 2;
+    int32 revoked = 3;
+  }
+  Stats statistics = 6;
 }

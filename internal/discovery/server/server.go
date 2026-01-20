@@ -98,6 +98,7 @@ func (s *Server) RegisterColony(
 		req.Msg.MeshIpv4,
 		req.Msg.MeshIpv6,
 		req.Msg.ConnectPort,
+		req.Msg.PublicPort,
 		req.Msg.Metadata,
 		clientObservedEndpoint,
 		natHint,
@@ -181,6 +182,7 @@ func (s *Server) LookupColony(
 		MeshIpv4:          entry.MeshIPv4,
 		MeshIpv6:          entry.MeshIPv6,
 		ConnectPort:       entry.ConnectPort,
+		PublicPort:        entry.PublicPort,
 		Metadata:          entry.Metadata,
 		LastSeen:          timestamppb.New(entry.LastSeen),
 		ObservedEndpoints: observedEndpoints,
@@ -508,6 +510,7 @@ func (s *Server) RegisterAgent(
 		"", // Agent doesn't have mesh IPv4 yet
 		"", // Agent doesn't have mesh IPv6 yet
 		0,  // Agent doesn't have connect port
+		0,  // Agent doesn't have public port
 		req.Msg.Metadata,
 		clientObservedEndpoint,
 		natHint,

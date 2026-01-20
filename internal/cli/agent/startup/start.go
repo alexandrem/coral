@@ -48,7 +48,8 @@ Configuration sources (in order of precedence):
 
 Environment Variables:
   CORAL_COLONY_ID        - Colony ID to connect to
-  CORAL_COLONY_SECRET    - Colony authentication secret
+  CORAL_CA_FINGERPRINT   - Root CA fingerprint for bootstrap (sha256:hex)
+  CORAL_DISCOVERY_ENDPOINT - Discovery service URL
   CORAL_SERVICES         - Services to monitor (format: name:port[:health][:type],...)
   CORAL_LOG_LEVEL        - Logging level (debug, info, warn, error)
   CORAL_LOG_FORMAT       - Logging format (json, pretty)
@@ -102,6 +103,12 @@ Examples:
 
 			// Phase 1: Validate (preflight + config).
 			if err := builder.Validate(); err != nil {
+				return err
+			}
+
+			// Phase 1.5: Certificate bootstrap (RFD 048).
+			// Required - agents must bootstrap with CA fingerprint validation.
+			if err := builder.InitializeBootstrap(); err != nil {
 				return err
 			}
 

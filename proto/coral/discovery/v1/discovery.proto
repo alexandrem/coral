@@ -50,7 +50,7 @@ message RegisterColonyRequest {
   // Private mesh IPv6 address (e.g., "fd42::1")
   string mesh_ipv6 = 5;
 
-  // Buf Connect HTTP/2 port (e.g., 9000)
+  // Buf Connect HTTP/2 port (e.g., 9000) - internal mesh communication.
   uint32 connect_port = 6;
 
   // Optional metadata
@@ -58,6 +58,9 @@ message RegisterColonyRequest {
 
   // Observed endpoint from external STUN server (optional)
   Endpoint observed_endpoint = 8;
+
+  // Public HTTPS port for bootstrap and remote access (e.g., 8443).
+  uint32 public_port = 9;
 }
 
 message RegisterColonyResponse {
@@ -101,7 +104,7 @@ message LookupColonyResponse {
   // Private mesh IPv6 address (e.g., "fd42::1")
   string mesh_ipv6 = 5;
 
-  // Buf Connect HTTP/2 port (e.g., 9000)
+  // Buf Connect HTTP/2 port (e.g., 9000) - internal mesh communication.
   uint32 connect_port = 6;
 
   // Metadata
@@ -118,6 +121,9 @@ message LookupColonyResponse {
 
   // Available relay options for fallback
   repeated RelayOption relays = 11;
+
+  // Public HTTPS port for bootstrap and remote access (e.g., 8443).
+  uint32 public_port = 12;
 }
 
 // Health check

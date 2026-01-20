@@ -31,13 +31,6 @@ func NewLoader() (*Loader, error) {
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		// Config-less mode fallback: if we have CORAL_COLONY_SECRET, we can
-		// run without a home directory by using /tmp as the base.
-		if os.Getenv("CORAL_COLONY_SECRET") != "" {
-			return &Loader{
-				homeDir: "/tmp",
-			}, nil
-		}
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
 

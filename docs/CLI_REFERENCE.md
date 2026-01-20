@@ -84,8 +84,16 @@ coral colony stop
 
 # Agent (local observer)
 coral agent start [--config <file>] [--colony <id>] [--connect <service>...] [--monitor-all]
+coral agent bootstrap --colony <id> --fingerprint <sha256:hex> [--agent <id>] [--discovery <url>] [--force]
+coral agent cert status [--certs-dir <path>]
+coral agent cert renew --colony-endpoint <url> [--fingerprint <sha256:hex>] [--force]
 coral agent status [--format <format>]
 coral agent stop
+
+# Agent identity commands:
+#   Bootstrap identity:   coral agent bootstrap --colony my-colony --fingerprint sha256:a3b2c1...
+#   Show cert status:     coral agent cert status
+#   Manual renewal:       coral agent cert renew --colony-endpoint https://colony:9000
 
 # Agent startup modes:
 #   Passive:      coral agent start
@@ -163,10 +171,10 @@ coral query metrics [service] [--since <duration>] [--source ebpf|telemetry|all]
 # Application logs
 coral query logs [service] [--since <duration>] [--level debug|info|warn|error] [--search <text>] [--max-logs <n>]
 
-# Historical CPU profiles (RFD 072)
+# Historical CPU profiles
 coral query cpu-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--format folded|json]
 
-# Historical memory profiles (RFD 077 - coming soon)
+# Historical memory profiles
 coral query memory-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--show-growth] [--show-types]
 
 # Time range options (all commands):
@@ -218,7 +226,7 @@ coral query memory-profile --service api --since 1h --show-growth --show-types
 - **Traces**: Distributed trace spans with parent-child relationships, source
   annotations (eBPF/OTLP)
 - **Logs**: Application logs from OTLP with filtering and search
-- **CPU Profiles**: Historical CPU profile data from continuous profiling (RFD 072)
+- **CPU Profiles**: Historical CPU profile data from continuous profiling
 - **Memory Profiles**: Historical memory allocation data (RFD 077 - coming soon)
 - **Automatic merging**: eBPF and OTLP data combined by default with source
   annotations
@@ -229,7 +237,7 @@ coral query memory-profile --service api --since 1h --show-growth --show-types
 
 ---
 
-## Focused Query Commands (RFD 076)
+## Focused Query Commands
 
 **Scriptable queries optimized for CLI and TypeScript SDK use.**
 
@@ -451,9 +459,11 @@ coral profile memory --service api --sample-rate 4096         # Custom sampling 
 
 **What you get:**
 
-- **CPU Profiles**: Stack traces showing where CPU time is spent (on-demand, high-frequency sampling)
-- **Memory Profiles**: Allocation flame graphs showing memory usage patterns (RFD 077)
-- **Flame graph compatible**: Outputs folded stack format for flamegraph.pl visualization
+- **CPU Profiles**: Stack traces showing where CPU time is spent (on-demand,
+  high-frequency sampling)
+- **Memory Profiles**: Allocation flame graphs showing memory usage patterns
+- **Flame graph compatible**: Outputs folded stack format for flamegraph.pl
+  visualization
 - **Low overhead**: ~2-5% CPU overhead during profiling window
 
 **Use cases:**
@@ -463,7 +473,8 @@ coral profile memory --service api --sample-rate 4096         # Custom sampling 
 - Generate flame graphs for performance analysis
 - Compare before/after optimization changes
 
-**See also:** Use `coral query cpu-profile` and `coral query memory-profile` for historical profiling data.
+**See also:** Use `coral query cpu-profile` and `coral query memory-profile` for
+historical profiling data.
 
 ---
 
@@ -564,12 +575,12 @@ coral exec web --container nginx cat /etc/nginx/nginx.conf
 ## Environment Variables
 
 | Variable                   | Description                                                            |
-| -------------------------- | ---------------------------------------------------------------------- |
+|----------------------------|------------------------------------------------------------------------|
 | `CORAL_COLONY_ENDPOINT`    | Explicit colony endpoint URL (e.g., `https://colony.example.com:8443`) |
-| `CORAL_API_TOKEN`          | API token for authenticating to the public endpoint (RFD 031)          |
+| `CORAL_API_TOKEN`          | API token for authenticating to the public endpoint                    |
 | `CORAL_COLONY_ID`          | Override active colony ID                                              |
+| `CORAL_CA_FINGERPRINT`     | Root CA fingerprint for agent bootstrap (sha256:hex)                   |
 | `CORAL_CONFIG`             | Override config directory (default: `~/.coral`)                        |
-| `CORAL_COLONY_SECRET`      | Override colony secret (used for local config-less agent mode)         |
 | `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL override                                         |
 
 ---

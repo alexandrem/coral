@@ -89,14 +89,16 @@ type RegisterColonyRequest struct {
 	MeshIpv4 string `protobuf:"bytes,4,opt,name=mesh_ipv4,json=meshIpv4,proto3" json:"mesh_ipv4,omitempty"`
 	// Private mesh IPv6 address (e.g., "fd42::1")
 	MeshIpv6 string `protobuf:"bytes,5,opt,name=mesh_ipv6,json=meshIpv6,proto3" json:"mesh_ipv6,omitempty"`
-	// Buf Connect HTTP/2 port (e.g., 9000)
+	// Buf Connect HTTP/2 port (e.g., 9000) - internal mesh communication.
 	ConnectPort uint32 `protobuf:"varint,6,opt,name=connect_port,json=connectPort,proto3" json:"connect_port,omitempty"`
 	// Optional metadata
 	Metadata map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Observed endpoint from external STUN server (optional)
 	ObservedEndpoint *Endpoint `protobuf:"bytes,8,opt,name=observed_endpoint,json=observedEndpoint,proto3" json:"observed_endpoint,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Public HTTPS port for bootstrap and remote access (e.g., 8443).
+	PublicPort    uint32 `protobuf:"varint,9,opt,name=public_port,json=publicPort,proto3" json:"public_port,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RegisterColonyRequest) Reset() {
@@ -183,6 +185,13 @@ func (x *RegisterColonyRequest) GetObservedEndpoint() *Endpoint {
 		return x.ObservedEndpoint
 	}
 	return nil
+}
+
+func (x *RegisterColonyRequest) GetPublicPort() uint32 {
+	if x != nil {
+		return x.PublicPort
+	}
+	return 0
 }
 
 type RegisterColonyResponse struct {
@@ -326,7 +335,7 @@ type LookupColonyResponse struct {
 	MeshIpv4 string `protobuf:"bytes,4,opt,name=mesh_ipv4,json=meshIpv4,proto3" json:"mesh_ipv4,omitempty"`
 	// Private mesh IPv6 address (e.g., "fd42::1")
 	MeshIpv6 string `protobuf:"bytes,5,opt,name=mesh_ipv6,json=meshIpv6,proto3" json:"mesh_ipv6,omitempty"`
-	// Buf Connect HTTP/2 port (e.g., 9000)
+	// Buf Connect HTTP/2 port (e.g., 9000) - internal mesh communication.
 	ConnectPort uint32 `protobuf:"varint,6,opt,name=connect_port,json=connectPort,proto3" json:"connect_port,omitempty"`
 	// Metadata
 	Metadata map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -337,7 +346,9 @@ type LookupColonyResponse struct {
 	// NAT type hint for connection strategy
 	Nat NatHint `protobuf:"varint,10,opt,name=nat,proto3,enum=coral.discovery.v1.NatHint" json:"nat,omitempty"`
 	// Available relay options for fallback
-	Relays        []*RelayOption `protobuf:"bytes,11,rep,name=relays,proto3" json:"relays,omitempty"`
+	Relays []*RelayOption `protobuf:"bytes,11,rep,name=relays,proto3" json:"relays,omitempty"`
+	// Public HTTPS port for bootstrap and remote access (e.g., 8443).
+	PublicPort    uint32 `protobuf:"varint,12,opt,name=public_port,json=publicPort,proto3" json:"public_port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -447,6 +458,13 @@ func (x *LookupColonyResponse) GetRelays() []*RelayOption {
 		return x.Relays
 	}
 	return nil
+}
+
+func (x *LookupColonyResponse) GetPublicPort() uint32 {
+	if x != nil {
+		return x.PublicPort
+	}
+	return 0
 }
 
 // Health check
@@ -1404,7 +1422,7 @@ var File_coral_discovery_v1_discovery_proto protoreflect.FileDescriptor
 
 const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\n" +
-	"\"coral/discovery/v1/discovery.proto\x12\x12coral.discovery.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x03\n" +
+	"\"coral/discovery/v1/discovery.proto\x12\x12coral.discovery.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x03\n" +
 	"\x15RegisterColonyRequest\x12\x17\n" +
 	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x16\n" +
 	"\x06pubkey\x18\x02 \x01(\tR\x06pubkey\x12\x1c\n" +
@@ -1413,7 +1431,9 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\tmesh_ipv6\x18\x05 \x01(\tR\bmeshIpv6\x12!\n" +
 	"\fconnect_port\x18\x06 \x01(\rR\vconnectPort\x12S\n" +
 	"\bmetadata\x18\a \x03(\v27.coral.discovery.v1.RegisterColonyRequest.MetadataEntryR\bmetadata\x12I\n" +
-	"\x11observed_endpoint\x18\b \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x1a;\n" +
+	"\x11observed_endpoint\x18\b \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x12\x1f\n" +
+	"\vpublic_port\x18\t \x01(\rR\n" +
+	"publicPort\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xed\x01\n" +
@@ -1425,7 +1445,7 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\x11observed_endpoint\x18\x04 \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x12!\n" +
 	"\fstun_servers\x18\x05 \x03(\tR\vstunServers\".\n" +
 	"\x13LookupColonyRequest\x12\x17\n" +
-	"\amesh_id\x18\x01 \x01(\tR\x06meshId\"\xc1\x04\n" +
+	"\amesh_id\x18\x01 \x01(\tR\x06meshId\"\xe2\x04\n" +
 	"\x14LookupColonyResponse\x12\x17\n" +
 	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x16\n" +
 	"\x06pubkey\x18\x02 \x01(\tR\x06pubkey\x12\x1c\n" +
@@ -1438,7 +1458,9 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\x12observed_endpoints\x18\t \x03(\v2\x1c.coral.discovery.v1.EndpointR\x11observedEndpoints\x12-\n" +
 	"\x03nat\x18\n" +
 	" \x01(\x0e2\x1b.coral.discovery.v1.NatHintR\x03nat\x127\n" +
-	"\x06relays\x18\v \x03(\v2\x1f.coral.discovery.v1.RelayOptionR\x06relays\x1a;\n" +
+	"\x06relays\x18\v \x03(\v2\x1f.coral.discovery.v1.RelayOptionR\x06relays\x12\x1f\n" +
+	"\vpublic_port\x18\f \x01(\rR\n" +
+	"publicPort\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x0f\n" +

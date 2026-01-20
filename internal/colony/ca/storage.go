@@ -254,7 +254,7 @@ func (d *DatabaseStorage) StoreCertificate(ctx context.Context, cert *Certificat
 		Status:           cert.Status,
 	}
 
-	if err := d.issuedCertsTable.Upsert(ctx, issuedCert); err != nil {
+	if err := d.issuedCertsTable.Insert(ctx, issuedCert); err != nil {
 		return fmt.Errorf("failed to store certificate: %w", err)
 	}
 

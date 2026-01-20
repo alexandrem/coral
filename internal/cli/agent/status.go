@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	"github.com/coral-mesh/coral/internal/agent/certs"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
@@ -22,6 +25,8 @@ func NewStatusCmd() *cobra.Command {
 		agentURL string
 		agent    string
 		colony   string
+		showCert bool
+		certsDir string
 	)
 
 	cmd := &cobra.Command{
@@ -35,6 +40,7 @@ This command shows:
 - Available capabilities (run, exec, shell, connect)
 - Visibility scope and container access
 - Colony connection status
+- Certificate status (with --cert flag)
 
 Examples:
   # Show status of local agent
@@ -45,6 +51,9 @@ Examples:
 
   # Show status of agent by mesh IP
   coral agent status --agent-url http://10.42.0.15:9001
+
+  # Show certificate status (RFD 048)
+  coral agent status --cert
 
   # Output in JSON format
   coral agent status --agent hostname-api-1 --json
@@ -95,12 +104,19 @@ The agent must be running and accessible.`,
 				services = servicesResp.Msg.Services
 			}
 
-			// Output in requested format.
-			if format != string(helpers.FormatTable) {
-				return outputAgentStatusFormatted(runtimeCtx, services, format)
+			// Get certificate info if --cert flag is set or querying localhost.
+			var certInfo *certs.CertificateInfo
+			isLocal := strings.HasPrefix(agentURL, "http://localhost") || strings.HasPrefix(agentURL, "http://127.0.0.1")
+			if showCert || isLocal {
+				certInfo = getLocalCertificateInfo(certsDir)
 			}
 
-			return outputAgentStatusTable(runtimeCtx, services)
+			// Output in requested format.
+			if format != string(helpers.FormatTable) {
+				return outputAgentStatusFormattedWithCert(runtimeCtx, services, certInfo, format)
+			}
+
+			return outputAgentStatusTableWithCert(runtimeCtx, services, certInfo)
 		},
 	}
 
@@ -111,27 +127,11 @@ The agent must be running and accessible.`,
 	})
 	cmd.Flags().StringVar(&agentURL, "agent-url", "", "Agent URL (default: http://localhost:9001)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent ID (resolves via colony registry)")
+	cmd.Flags().BoolVar(&showCert, "cert", false, "Show certificate status (RFD 048)")
+	cmd.Flags().StringVar(&certsDir, "certs-dir", os.Getenv("CORAL_CERTS_DIR"), "Directory containing certificates")
 	helpers.AddColonyFlag(cmd, &colony)
 
 	return cmd
-}
-
-// outputAgentStatusFormatted outputs agent status in structured format (JSON, YAML, etc).
-func outputAgentStatusFormatted(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, format string) error {
-	output := map[string]interface{}{
-		"runtime_context": ctx,
-	}
-
-	if len(services) > 0 {
-		output["services"] = services
-	}
-
-	formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
-	if err != nil {
-		return err
-	}
-
-	return formatter.Format(output, os.Stdout)
 }
 
 // outputAgentStatusTable outputs agent status in human-readable format.
@@ -417,4 +417,116 @@ func truncateContainerID(id string) string {
 		return id
 	}
 	return id[:12]
+}
+
+// getLocalCertificateInfo retrieves local certificate information for status display (RFD 048).
+func getLocalCertificateInfo(certsDir string) *certs.CertificateInfo {
+	logger := zerolog.Nop()
+	certManager := certs.NewManager(certs.Config{
+		CertsDir: certsDir,
+		Logger:   logger,
+	})
+
+	if !certManager.CertificateExists() {
+		return nil
+	}
+
+	if err := certManager.Load(); err != nil {
+		return nil
+	}
+
+	return certManager.GetCertificateInfo()
+}
+
+// outputAgentStatusFormattedWithCert outputs agent status with cert info in structured format.
+func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, format string) error {
+	output := map[string]interface{}{
+		"runtime_context": ctx,
+	}
+
+	if len(services) > 0 {
+		output["services"] = services
+	}
+
+	if certInfo != nil {
+		output["certificate"] = map[string]interface{}{
+			"agent_id":       certInfo.AgentID,
+			"colony_id":      certInfo.ColonyID,
+			"spiffe_id":      certInfo.SPIFFEID,
+			"issuer":         certInfo.Issuer,
+			"serial_number":  certInfo.SerialNumber,
+			"not_before":     certInfo.NotBefore,
+			"not_after":      certInfo.NotAfter,
+			"days_remaining": certInfo.DaysRemaining,
+			"status":         string(certInfo.Status),
+		}
+	}
+
+	formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
+	if err != nil {
+		return err
+	}
+
+	return formatter.Format(output, os.Stdout)
+}
+
+// outputAgentStatusTableWithCert outputs agent status with cert info in human-readable format.
+func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo) error {
+	// Output standard status info first.
+	if err := outputAgentStatusTable(ctx, services); err != nil {
+		return err
+	}
+
+	// Output certificate status if available.
+	if certInfo != nil {
+		printCertificateStatus(certInfo)
+	}
+
+	return nil
+}
+
+// printCertificateStatus prints certificate information and warnings (RFD 048).
+func printCertificateStatus(info *certs.CertificateInfo) {
+	fmt.Println("Certificate:")
+
+	// Determine status display with appropriate icon.
+	var statusDisplay string
+	switch info.Status {
+	case certs.CertStatusValid:
+		statusDisplay = "✓ Valid"
+	case certs.CertStatusRenewalNeeded:
+		statusDisplay = "⚠ Renewal needed"
+	case certs.CertStatusExpiringSoon:
+		statusDisplay = "⚠ Expiring soon"
+	case certs.CertStatusExpired:
+		statusDisplay = "✗ Expired"
+	default:
+		statusDisplay = string(info.Status)
+	}
+
+	fmt.Printf("  Status:         %s\n", statusDisplay)
+	fmt.Printf("  Agent ID:       %s\n", info.AgentID)
+
+	if info.SPIFFEID != "" {
+		fmt.Printf("  SPIFFE ID:      %s\n", info.SPIFFEID)
+	}
+
+	fmt.Printf("  Expires:        %s (%d days)\n", info.NotAfter.Format(time.RFC3339), info.DaysRemaining)
+	fmt.Println()
+
+	// Show warnings based on certificate status.
+	switch info.Status {
+	case certs.CertStatusRenewalNeeded:
+		fmt.Println("⚠️  Note: Certificate will need renewal soon.")
+		fmt.Println("    The agent will attempt automatic renewal, or use 'coral agent cert renew'.")
+		fmt.Println()
+	case certs.CertStatusExpiringSoon:
+		fmt.Println("⚠️  Warning: Certificate is expiring soon!")
+		fmt.Printf("    Only %d days remaining. Use 'coral agent cert renew' to renew immediately.\n", info.DaysRemaining)
+		fmt.Println()
+	case certs.CertStatusExpired:
+		fmt.Println("❌  Error: Certificate has expired!")
+		fmt.Println("    Use 'coral agent bootstrap' to obtain a new certificate.")
+		fmt.Println()
+	}
 }

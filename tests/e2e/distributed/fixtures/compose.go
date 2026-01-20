@@ -3,6 +3,7 @@ package fixtures
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -15,8 +16,8 @@ import (
 // connects to existing services started by docker-compose.
 type ComposeFixture struct {
 	// Configuration
-	ColonyID     string
-	ColonySecret string
+	ColonyID      string
+	CAFingerprint string // Root CA fingerprint for agent bootstrap (RFD 048)
 
 	// Service endpoints (set by docker-compose port mappings)
 	DiscoveryEndpoint string
@@ -32,8 +33,8 @@ type ComposeFixture struct {
 // It doesn't start containers - they must already be running via docker-compose.
 func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	fixture := &ComposeFixture{
-		ColonyID:          "", // Will be discovered
-		ColonySecret:      "test-secret-12345",
+		ColonyID:          "",                       // Will be discovered
+		CAFingerprint:     "",                       // Will be discovered
 		DiscoveryEndpoint: "http://localhost:18080", // E2E uses non-standard port
 		ColonyEndpoint:    "http://localhost:9000",
 		Agent0Endpoint:    "http://localhost:9001",
@@ -51,6 +52,11 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	// Discover the actual colony ID from discovery service
 	if err := fixture.discoverColonyID(ctx); err != nil {
 		return nil, fmt.Errorf("failed to discover colony ID: %w", err)
+	}
+
+	// Discover the CA fingerprint for agent bootstrap
+	if err := fixture.discoverCAFingerprint(ctx); err != nil {
+		return nil, fmt.Errorf("failed to discover CA fingerprint: %w", err)
 	}
 
 	return fixture, nil
@@ -104,6 +110,30 @@ func (f *ComposeFixture) discoverColonyID(ctx context.Context) error {
 	return nil
 }
 
+// discoverCAFingerprint reads the Root CA fingerprint from the shared volume.
+// The colony writes its CA fingerprint to /shared/ca_fingerprint after initialization.
+func (f *ComposeFixture) discoverCAFingerprint(ctx context.Context) error {
+	// Use docker exec to read the CA fingerprint from the shared volume
+	cmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "cat", "/shared/ca_fingerprint")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to read CA fingerprint from container: %w", err)
+	}
+
+	fingerprint := strings.TrimSpace(string(output))
+	if fingerprint == "" {
+		return fmt.Errorf("CA fingerprint is empty")
+	}
+
+	f.CAFingerprint = fingerprint
+	return nil
+}
+
+// GetCAFingerprint returns the Root CA fingerprint for agent bootstrap.
+func (f *ComposeFixture) GetCAFingerprint() string {
+	return f.CAFingerprint
+}
+
 // Cleanup is a no-op for compose fixtures since we don't manage container lifecycle.
 // Containers are stopped via docker-compose down.
 func (f *ComposeFixture) Cleanup(ctx context.Context) error {
@@ -154,5 +184,73 @@ func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w\nOutput: %s", serviceName, err, string(output))
 	}
+	return nil
+}
+
+// CreateDotEnvFile creates a .env file with the environment variables needed for the CLI
+// to talk to the colony endpoint hosted in the container.
+func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
+	// Run coral colony export inside the colony container
+	cmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "/usr/local/bin/coral", "colony", "export", f.ColonyID)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to run coral colony export in container: %w\nOutput: %s", err, string(output))
+	}
+
+	var envLines []string
+	envLines = append(envLines, "# Coral E2E Distributed Test Environment")
+	envLines = append(envLines, fmt.Sprintf("# Generated: %s", time.Now().Format("2006-01-02 15:04:05")))
+	envLines = append(envLines, "")
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "export ") {
+			// Override discovery endpoint with host-accessible one if it matches the container one
+			if strings.Contains(line, "CORAL_DISCOVERY_ENDPOINT") {
+				envLines = append(envLines, fmt.Sprintf("export CORAL_DISCOVERY_ENDPOINT=\"%s\"", f.DiscoveryEndpoint))
+			} else {
+				envLines = append(envLines, line)
+			}
+		}
+	}
+
+	// Create an admin API token for the CLI
+	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "/usr/local/bin/coral", "colony", "token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
+	tokenOutput, err := tokenCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to run token create in container: %w\nOutput: %s", err, string(tokenOutput))
+	}
+	lines = strings.Split(string(tokenOutput), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Token: ") {
+			token := strings.TrimPrefix(line, "Token: ")
+			envLines = append(envLines, fmt.Sprintf("export CORAL_API_TOKEN=\"%s\"", token))
+			break
+		}
+	}
+
+	// Add public endpoint (HTTPS) for convenience
+	envLines = append(envLines, "export CORAL_COLONY_ENDPOINT=\"https://localhost:8443\"")
+	envLines = append(envLines, "export CORAL_INSECURE=true")
+
+	// Write to .env file in the current directory
+	dotEnvPath := ".env"
+	err = os.WriteFile(dotEnvPath, []byte(strings.Join(envLines, "\n")+"\n"), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write .env file: %w", err)
+	}
+
+	// Restart colony to reload tokens (TokenStore loads from file only on startup).
+	// This ensures the token is immediately usable by the CLI.
+	if err := f.RestartService(ctx, "colony"); err != nil {
+		return fmt.Errorf("failed to restart colony to reload tokens: %w", err)
+	}
+
+	// Wait for the colony to be healthy again
+	time.Sleep(5 * time.Second)
+	if err := helpers.WaitForHTTPEndpoint(ctx, f.ColonyEndpoint+"/status", 30*time.Second); err != nil {
+		return fmt.Errorf("colony failed to become healthy after token reload restart: %w", err)
+	}
+
 	return nil
 }

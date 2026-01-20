@@ -23,6 +23,9 @@ services:
       start_period: 5s
     networks:
       - coral-e2e
+    environment:
+      # Shared secret for bootstrap token validation (must match colony)
+      - CORAL_JWT_SIGNING_KEY=dev-secret-key-must-be-32-bytes-long-1234
 
   # Colony - AI coordinator with DuckDB storage
   colony:
@@ -45,12 +48,30 @@ services:
             # Share colony ID with agents
             echo "$$COLONY_ID" > /shared/colony_id
             echo "Colony ID saved to shared volume: $$COLONY_ID"
+
+            # Calculate and share Root CA fingerprint for agent bootstrap (RFD 048)
+            ROOT_CA_PATH="$$COLONY_DIR/ca/root-ca.crt"
+            if [ -f "$$ROOT_CA_PATH" ]; then
+              # Calculate SHA256 fingerprint of the Root CA certificate
+              FINGERPRINT=$$(openssl x509 -in "$$ROOT_CA_PATH" -noout -fingerprint -sha256 | sed 's/.*=//;s/://g' | tr '[:upper:]' '[:lower:]')
+              echo "sha256:$$FINGERPRINT" > /shared/ca_fingerprint
+              echo "CA fingerprint saved: sha256:$$FINGERPRINT"
+            fi
           fi
         else
           echo "Colony already initialized, using existing config"
           # Ensure colony ID is shared
           if [ -f /var/lib/coral/.colony_id ]; then
             cp /var/lib/coral/.colony_id /shared/colony_id
+            # Also ensure fingerprint is shared
+            COLONY_ID=$$(cat /var/lib/coral/.colony_id)
+            COLONY_DIR="/root/.coral/colonies/$$COLONY_ID"
+            ROOT_CA_PATH="$$COLONY_DIR/ca/root-ca.crt"
+            if [ -f "$$ROOT_CA_PATH" ] && [ ! -f /shared/ca_fingerprint ]; then
+              FINGERPRINT=$$(openssl x509 -in "$$ROOT_CA_PATH" -noout -fingerprint -sha256 | sed 's/.*=//;s/://g' | tr '[:upper:]' '[:lower:]')
+              echo "sha256:$$FINGERPRINT" > /shared/ca_fingerprint
+              echo "CA fingerprint saved: sha256:$$FINGERPRINT"
+            fi
           fi
         fi
         # Read the actual colony ID and configure e2e-specific settings
@@ -72,10 +93,11 @@ services:
           exec /usr/local/bin/coral colony start
         fi
     environment:
-      - CORAL_COLONY_SECRET=test-secret-12345
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
       - CORAL_PUBLIC_ENDPOINT=colony:51820
       - CORAL_STORAGE_PATH=/var/lib/coral
+      # Shared secret for bootstrap token validation (must match discovery)
+      - CORAL_JWT_SIGNING_KEY=dev-secret-key-must-be-32-bytes-long-1234
     ports:
       - "9000:9000"
       - "8443:8443"
@@ -90,7 +112,7 @@ services:
       - colony-data:/var/lib/coral
       - colony-shared:/shared
       - colony-config:/root/.coral
-      - ./fixtures:/fixtures:ro  # Mount fixtures directory for e2e config overlay
+      - ./fixtures:/fixtures:ro # Mount fixtures directory for e2e config overlay
 
   # Agent 0 - Primary agent
   agent-0:
@@ -101,17 +123,25 @@ services:
     command:
       - -c
       - |
-        # Wait for colony to write its ID
+        # Wait for colony to write its ID and CA fingerprint
+        echo "Waiting for colony initialization..."
         while [ ! -f /shared/colony_id ]; do
-          echo "Waiting for colony ID..."
+          echo "  Waiting for colony ID..."
+          sleep 2
+        done
+        while [ ! -f /shared/ca_fingerprint ]; do
+          echo "  Waiting for CA fingerprint..."
           sleep 2
         done
         COLONY_ID=$$(cat /shared/colony_id)
+        CA_FINGERPRINT=$$(cat /shared/ca_fingerprint)
         echo "Starting agent with colony ID: $$COLONY_ID"
+        echo "Using CA fingerprint: $$CA_FINGERPRINT"
         export CORAL_COLONY_ID="$$COLONY_ID"
+        export CORAL_CA_FINGERPRINT="$$CA_FINGERPRINT"
+        # Bootstrap client will retry colony lookup with exponential backoff
         exec /usr/local/bin/coral agent start --monitor-all
     environment:
-      - CORAL_COLONY_SECRET=test-secret-12345
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
       - CORAL_AGENT_BIND_ALL=true
     ports:
@@ -141,17 +171,24 @@ services:
     command:
       - -c
       - |
-        # Wait for colony to write its ID
+        # Wait for colony to write its ID and CA fingerprint
+        echo "Waiting for colony initialization..."
         while [ ! -f /shared/colony_id ]; do
-          echo "Waiting for colony ID..."
+          echo "  Waiting for colony ID..."
+          sleep 2
+        done
+        while [ ! -f /shared/ca_fingerprint ]; do
+          echo "  Waiting for CA fingerprint..."
           sleep 2
         done
         COLONY_ID=$$(cat /shared/colony_id)
+        CA_FINGERPRINT=$$(cat /shared/ca_fingerprint)
         echo "Starting agent with colony ID: $$COLONY_ID"
+        echo "Using CA fingerprint: $$CA_FINGERPRINT"
         export CORAL_COLONY_ID="$$COLONY_ID"
+        export CORAL_CA_FINGERPRINT="$$CA_FINGERPRINT"
         exec /usr/local/bin/coral agent start --monitor-all
     environment:
-      - CORAL_COLONY_SECRET=test-secret-12345
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
       - CORAL_AGENT_BIND_ALL=true
     ports:

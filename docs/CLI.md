@@ -43,11 +43,13 @@ coral version
 1. **Initialize** - `coral init <colony-name>` creates `~/.coral/config.yaml`
    and WireGuard keypair
 2. **Start Colony** - `coral colony start` launches the central coordinator
-3. **Start Agents** - `coral agent start` on each monitored machine
-4. **Connect Services** - `coral connect frontend:3000 api:8080` or use
+3. **Bootstrap Agent** - `coral agent bootstrap --colony <id> --fingerprint <sha256:hex>`
+   initializes agent identity
+4. **Start Agents** - `coral agent start` (now uses mTLS identity)
+5. **Connect Services** - `coral connect frontend:3000 api:8080` or use
    `--connect` at startup
-5. **Query Metrics** - `coral query metrics my-service --since 1h`
-6. **AI Debug** - `coral ask "what services are running?"`
+6. **Query Metrics** - `coral query metrics my-service --since 1h`
+7. **AI Debug** - `coral ask "what services are running?"`
 
 **Agent Startup Modes:**
 
@@ -63,6 +65,72 @@ coral agent start --monitor-all
 ```
 
 See [CLI_REFERENCE.md](./CLI_REFERENCE.md) for command syntax.
+
+---
+
+## Agent Identity & Bootstrap
+
+Coral agents use mTLS (Mutual TLS) for secure communication with the Colony. Before
+starting an agent for the first time, it must be bootstrapped to obtain a unique
+identity and a valid certificate signed by the Colony's Root CA.
+
+### Bootstrapping an Agent
+
+The bootstrap process uses a "trust-on-first-use" model validated by the Colony's
+Root CA fingerprint.
+
+```bash
+# Obtain a certificate (replace with your actual fingerprint)
+coral agent bootstrap \
+    --colony my-colony \
+    --fingerprint sha256:a3b2c1... \
+    --discovery http://discovery.coral.io:8080
+```
+
+**Required Parameters:**
+
+- `--colony`: The ID of the colony you are joining.
+- `--fingerprint`: The SHA256 hash of the Colony's Root CA. This is obtained from
+  the colony administrator or by running `coral colony ca status` on the colony
+  server.
+- `--discovery`: (Optional if configured) The URL of the Discovery service.
+
+**What happens during bootstrap:**
+
+1. Agent requests a time-limited **Bootstrap Token** from Discovery.
+2. Agent finds the Colony endpoint via Discovery.
+3. Agent connects to Colony and verifies its TLS certificate against the
+   provided `--fingerprint`.
+4. Agent generates an **Ed25519 keypair** locally.
+5. Agent submits a Certificate Signing Request (CSR) to the Colony.
+6. Colony issues a signed certificate with a **SPIFFE ID** (e.g.,
+   `spiffe://coral.io/colony/my-colony/agent/my-agent-id`).
+7. Agent stores the certificate and private key in `~/.coral/certs/`.
+
+### Certificate Management
+
+You can inspect and manage the agent's identity using the `coral agent cert`
+command group.
+
+**Checking Status:**
+
+```bash
+# View certificate metadata and validity
+coral agent cert status
+```
+
+**Manual Renewal:**
+
+Certificates are automatically renewed by the agent in the background. However,
+you can trigger a manual renewal if needed:
+
+```bash
+# Renew using existing mTLS identity (no Discovery required)
+coral agent cert renew --colony-endpoint https://colony.example.com:9000
+
+# Force renewal even if not near expiry
+coral agent cert renew --force
+```
 
 ---
 

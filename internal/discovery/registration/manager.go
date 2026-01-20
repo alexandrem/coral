@@ -42,6 +42,9 @@ type Config struct {
 	// ConnectPort is the Buf Connect HTTP/2 port.
 	ConnectPort uint32
 
+	// PublicPort is the public HTTPS port for bootstrap (e.g., 8443).
+	PublicPort uint32
+
 	// Metadata contains additional colony information.
 	Metadata map[string]string
 
@@ -233,6 +236,7 @@ func (m *Manager) register(ctx context.Context) error {
 		MeshIPv4:         m.config.MeshIPv4,
 		MeshIPv6:         m.config.MeshIPv6,
 		ConnectPort:      m.config.ConnectPort,
+		PublicPort:       m.config.PublicPort,
 		Metadata:         m.config.Metadata,
 		ObservedEndpoint: observedEndpoint,
 	}

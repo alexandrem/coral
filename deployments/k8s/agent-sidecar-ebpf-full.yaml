@@ -72,11 +72,11 @@ spec:
                 secretKeyRef:
                   name: coral-colony-secret
                   key: colony_id
-            - name: CORAL_COLONY_SECRET
+            - name: CORAL_CA_FINGERPRINT
               valueFrom:
                 secretKeyRef:
                   name: coral-colony-secret
-                  key: colony_secret
+                  key: colony_ca_fingerprint
             - name: CORAL_LOG_LEVEL
               value: "info"
             - name: CORAL_LOG_FORMAT

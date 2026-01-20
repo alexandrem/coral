@@ -77,17 +77,6 @@ func (h *Handler) Register(
 		}), nil
 	}
 
-	if req.Msg.ColonySecret != h.cfg.ColonySecret {
-		h.logger.Warn().
-			Str("agent_id", req.Msg.AgentId).
-			Msg("Agent registration rejected: invalid colony secret")
-
-		return connect.NewResponse(&meshv1.RegisterResponse{
-			Accepted: false,
-			Reason:   "invalid_secret",
-		}), nil
-	}
-
 	// Validate WireGuard public key
 	if req.Msg.WireguardPubkey == "" {
 		h.logger.Warn().

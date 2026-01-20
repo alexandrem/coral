@@ -1,7 +1,7 @@
 ---
 rfd: "048"
 title: "Agent Certificate Bootstrap"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "security", "agent" ]
 
 # RFD 048 - Agent Certificate Bootstrap
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -293,15 +293,15 @@ referral ticket needed.
 4. Colony rejects certificates signed by old intermediate
 
 ### Security Properties
- 
+
  **Defense in depth:**
- 
+
  1. **CA fingerprint**: Prevents MITM attacks during bootstrap
  2. **Authorization**: Handled via RFD 049 (Referral Tickets)
  3. **Monitoring**: Detects suspicious patterns and alerts operators
- 
+
  **Attack scenarios:**
- 
+
  | Attack                            | Protection                                                    |
  |-----------------------------------|---------------------------------------------------------------|
  | **Discovery MITM**                | Agent validates Root CA fingerprint, aborts on mismatch ✅     |
@@ -630,7 +630,7 @@ security:
 
 ### Phase 1: CA Fingerprint Validation
 
-- [ ] Implement `internal/agent/bootstrap/ca_validator.go`
+- [x] Implement `internal/agent/bootstrap/ca_validator.go`
     - Extract Root CA from TLS connection
     - Compute SHA256 fingerprint
     - Compare against expected value
@@ -639,15 +639,15 @@ security:
     - Validate certificate chain integrity (Server cert → Server Intermediate →
       Root)
     - Log detailed errors on mismatch
-- [ ] Add `CORAL_CA_FINGERPRINT` environment variable support
-- [ ] Add configuration field `security.ca_fingerprint`
-- [ ] **Add unit tests for fingerprint validation**
-- [ ] **Add unit tests for SAN validation (cross-colony impersonation detection)
+- [x] Add `CORAL_CA_FINGERPRINT` environment variable support
+- [x] Add configuration field `security.ca_fingerprint`
+- [x] **Add unit tests for fingerprint validation**
+- [x] **Add unit tests for SAN validation (cross-colony impersonation detection)
   **
 
 ### Phase 2: Agent Bootstrap Implementation
 
-- [ ] Implement `internal/agent/bootstrap/client.go`
+- [x] Implement `internal/agent/bootstrap/client.go`
     - Query Discovery for endpoints
     - CA fingerprint validation before CSR submission
     - **Colony ID SAN validation before CSR submission**
@@ -656,13 +656,13 @@ security:
     - Certificate request with referral ticket (passed from RFD 049 logic)
     - **Validate received certificate includes SPIFFE SAN**
     - Certificate storage
-- [ ] Add retry logic with exponential backoff
-- [ ] Add unit tests for bootstrap client
-- [ ] **Add unit tests for SPIFFE ID validation**
+- [x] Add retry logic with exponential backoff
+- [x] Add unit tests for bootstrap client
+- [x] **Add unit tests for SPIFFE ID validation**
 
 ### Phase 3: Colony Certificate Issuance
 
-- [ ] Update `internal/colony/ca/issuer.go`
+- [x] Update `internal/colony/ca/issuer.go`
     - **Distinguish between bootstrap and renewal requests**
     - **For bootstrap:** Validate referral ticket (delegated to RFD 049)
     - **For renewal:** Validate existing mTLS certificate (no ticket required)
@@ -670,44 +670,44 @@ security:
     - **Issue certificates with SPIFFE ID in SAN**
     - Auto-issue on valid CSR + ticket (or valid mTLS cert for renewal)
     - Certificate tracking in database
-- [ ] Add unit tests for ticket validation and issuance
-- [ ] **Add unit tests for renewal without Discovery**
+- [x] Add unit tests for ticket validation and issuance
+- [x] **Add unit tests for renewal without Discovery**
 
 ### Phase 4: Agent Connection Integration
 
-- [ ] Update `internal/agent/connection.go`
+- [x] Update `internal/agent/connection.go`
     - Use certificates for mTLS
     - Root CA validation for colony server
     - **Colony ID SAN validation for colony server**
     - Fallback to `colony_secret` during migration
-- [ ] Implement certificate manager
+- [x] Implement certificate manager
     - **Automatic renewal using existing mTLS cert (no Discovery required)**
     - Certificate expiry monitoring
-- [ ] Add integration tests for mTLS connections
-- [ ] **Add integration tests for renewal without Discovery**
+- [x] Add integration tests for mTLS connections
+- [x] **Add integration tests for renewal without Discovery**
 
 ### Phase 5: CLI Commands & Monitoring
 
-- [ ] Implement `coral agent bootstrap` command
-- [ ] Implement `coral agent cert status` command **(include SPIFFE ID)**
-- [ ] Implement `coral agent cert renew` command
-- [ ] Add certificate expiry warnings to `coral agent status`
-- [ ] Add telemetry for bootstrap success/failure rates
-- [ ] **Add telemetry for renewal success/failure rates**
+- [x] Implement `coral agent bootstrap` command
+- [x] Implement `coral agent cert status` command **(include SPIFFE ID)**
+- [x] Implement `coral agent cert renew` command
+- [x] Add certificate expiry warnings to `coral agent status`
+- [x] Add telemetry for bootstrap success/failure rates
+- [x] **Add telemetry for renewal success/failure rates**
 
 ### Phase 6: Testing & Documentation
 
-- [ ] Unit tests for all new components
-- [ ] Integration test: full bootstrap flow **(with SPIFFE ID validation)**
-- [ ] Integration test: intermediate rotation
-- [ ] E2E test: MITM detection (wrong fingerprint)
-- [ ] **E2E test: Cross-colony impersonation detection (wrong colony ID in SAN)
-  **
-- [ ] E2E test: certificate renewal **(without Discovery)**
-- [ ] **E2E test: Bootstrap intermediate compromised (cannot issue server certs)
-  **
-- [ ] Update agent deployment documentation
-- [ ] Add troubleshooting guide for bootstrap failures
+- [x] Unit tests for all new components
+- [x] Integration test: full bootstrap flow **(with SPIFFE ID validation)**
+- [x] Integration test: intermediate rotation
+- [x] E2E test: MITM detection (wrong fingerprint)
+- [x] **E2E test: Cross-colony impersonation detection (wrong colony ID in SAN)**
+- [x] E2E test: certificate renewal **(without Discovery)**
+- [x] **E2E test: Bootstrap intermediate compromised (cannot issue server certs)**
+- [x] Update agent deployment documentation
+- [x] Add troubleshooting guide for bootstrap failures
+- [x] Update docs/CLI.md and docs/CLI_REFERENCE.md
+- [x] Update docs/CONFIG.md
 
 ## API Changes
 
@@ -1390,7 +1390,7 @@ security posture.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** ✅ Implemented (Phase 1-6)
 
 **Dependencies:**
 

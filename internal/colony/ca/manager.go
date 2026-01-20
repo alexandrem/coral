@@ -26,11 +26,11 @@ import (
 // IssuedCertificate represents a certificate issued to an agent (RFD 047).
 type IssuedCertificate struct {
 	SerialNumber     string     `duckdb:"serial_number,pk"`
-	AgentID          string     `duckdb:"agent_id"`
-	ColonyID         string     `duckdb:"colony_id"`
-	CertificatePEM   string     `duckdb:"certificate_pem"`
-	IssuedAt         time.Time  `duckdb:"issued_at"`
-	ExpiresAt        time.Time  `duckdb:"expires_at"`
+	AgentID          string     `duckdb:"agent_id,immutable"`
+	ColonyID         string     `duckdb:"colony_id,immutable"`
+	CertificatePEM   string     `duckdb:"certificate_pem,immutable"`
+	IssuedAt         time.Time  `duckdb:"issued_at,immutable"`
+	ExpiresAt        time.Time  `duckdb:"expires_at,immutable"`
 	RevokedAt        *time.Time `duckdb:"revoked_at"`        // Nullable
 	RevocationReason *string    `duckdb:"revocation_reason"` // Nullable
 	Status           string     `duckdb:"status"`
