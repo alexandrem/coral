@@ -4,16 +4,11 @@ package colony
 import (
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	_ "github.com/marcboeker/go-duckdb"
-
-	"github.com/coral-mesh/coral/internal/colony/ca"
-	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/logging"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 // NewCACmd creates the CA management command (RFD 047).
@@ -42,7 +37,7 @@ func newCAStatusCmd() *cobra.Command {
 		Long:  `Display the status of the colony certificate authority including root CA fingerprint and hierarchy.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Get CA manager.
-			manager, db, _, err := getCAManager(colonyID)
+			manager, db, _, err := helpers.GetCAManager(colonyID)
 			if err != nil {
 				return err
 			}
@@ -94,63 +89,6 @@ func newCAStatusCmd() *cobra.Command {
 	return cmd
 }
 
-// getCAManager returns an initialized CA manager and its associated resources.
-func getCAManager(colonyID string) (*ca.Manager, *sql.DB, *config.ResolvedConfig, error) {
-	// Create resolver.
-	resolver, err := config.NewResolver()
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create config resolver: %w", err)
-	}
-
-	// Resolve colony ID.
-	if colonyID == "" {
-		colonyID, err = resolver.ResolveColonyID()
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to resolve colony: %w\n\nRun 'coral init <app-name>' to create a colony", err)
-		}
-	}
-
-	// Load colony config.
-	cfg, err := resolver.ResolveConfig(colonyID)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to load colony config: %w", err)
-	}
-
-	// Open database.
-	dbPath := fmt.Sprintf("%s/colony.db", cfg.StoragePath)
-	db, err := sql.Open("duckdb", dbPath)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	// CA directory path - stored in ~/.coral/colonies/<colony-id>/ca/
-	colonyDir := resolver.GetLoader().ColonyDir(cfg.ColonyID)
-	caDir := filepath.Join(colonyDir, "ca")
-
-	// TODO: Generate a proper JWT signing key (this should be from config).
-	jwtSigningKey := []byte("temporary-signing-key-change-in-production")
-
-	// Create logger for CA operations.
-	logger := logging.New(logging.Config{
-		Level:  "info",
-		Pretty: false,
-	})
-
-	// Initialize CA manager.
-	manager, err := ca.NewManager(db, ca.Config{
-		ColonyID:      cfg.ColonyID,
-		CADir:         caDir,
-		JWTSigningKey: jwtSigningKey,
-		Logger:        logger,
-	})
-	if err != nil {
-		_ = db.Close()
-		return nil, nil, nil, fmt.Errorf("failed to initialize CA: %w", err)
-	}
-
-	return manager, db, cfg, nil
-}
-
 // formatValidity returns "Valid" or "Expired" based on expiry time.
 func formatValidity(expiresAt time.Time) string {
 	if time.Now().Before(expiresAt) {
@@ -198,7 +136,7 @@ WARNING: This is a sensitive operation. Use --confirm to proceed.`,
 			}
 
 			// Get CA manager.
-			manager, db, cfg, err := getCAManager(colonyID)
+			manager, db, cfg, err := helpers.GetCAManager(colonyID)
 			if err != nil {
 				return err
 			}

@@ -33,7 +33,7 @@ Keep them secure and do not commit to version control.`,
 			colonyID := args[0]
 
 			// Get CA manager and configuration (RFD 048).
-			manager, db, cfg, err := getCAManager(colonyID)
+			manager, db, cfg, err := helpers.GetCAManager(colonyID)
 			if err != nil {
 				return err
 			}
