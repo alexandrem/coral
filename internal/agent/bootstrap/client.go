@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -24,6 +23,7 @@ import (
 	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/retry"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 type Config struct {
@@ -99,7 +99,7 @@ func (c *Client) Renew(ctx context.Context, certPath, keyPath, rootCAPath string
 		return nil, fmt.Errorf("load keypair: %w", err)
 	}
 
-	rootCAPEM, err := os.ReadFile(rootCAPath)
+	rootCAPEM, err := safe.ReadFile(rootCAPath, nil)
 	if err != nil {
 		return nil, fmt.Errorf("read root CA: %w", err)
 	}
