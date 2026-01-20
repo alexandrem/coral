@@ -84,8 +84,16 @@ coral colony stop
 
 # Agent (local observer)
 coral agent start [--config <file>] [--colony <id>] [--connect <service>...] [--monitor-all]
+coral agent bootstrap --colony <id> --fingerprint <sha256:hex> [--agent <id>] [--discovery <url>] [--force]
+coral agent cert status [--certs-dir <path>]
+coral agent cert renew --colony-endpoint <url> [--fingerprint <sha256:hex>] [--force]
 coral agent status [--format <format>]
 coral agent stop
+
+# Agent identity commands:
+#   Bootstrap identity:   coral agent bootstrap --colony my-colony --fingerprint sha256:a3b2c1...
+#   Show cert status:     coral agent cert status
+#   Manual renewal:       coral agent cert renew --colony-endpoint https://colony:9000
 
 # Agent startup modes:
 #   Passive:      coral agent start
