@@ -513,7 +513,7 @@ func TestBootstrapIntermediateCACannotIssueServerCerts(t *testing.T) {
 		// The verification should succeed cryptographically but the certificate
 		// is from the wrong intermediate (agent vs server).
 		// In a real deployment, the server intermediate would be separate.
-		_, err = serverCert.Verify(opts)
+		_, _ = serverCert.Verify(opts)
 		// This actually passes because x509 doesn't enforce intermediate constraints.
 		// The RFD requirement is about organizational policy, not x509 constraints.
 		// Log for documentation purposes.

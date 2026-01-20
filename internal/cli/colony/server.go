@@ -75,7 +75,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 	// Initialize CA manager (RFD 047 - Colony CA Infrastructure).
 	// Use CA from colony config directory (generated during init).
-	jwtSigningKey := []byte(cfg.ColonySecret) // Use colony secret as JWT signing key for now.
+	jwtSigningKey := []byte(cfg.JWTSigningKey)
 	caDir := filepath.Join(loader.ColonyDir(cfg.ColonyID), "ca")
 	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwtSigningKey, logger)
 	if err != nil {

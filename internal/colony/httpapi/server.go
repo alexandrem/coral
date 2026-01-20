@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -163,6 +164,13 @@ func New(cfg Config) (*Server, error) {
 		// Default to requiring auth unless explicitly disabled.
 		if !cfg.PublicConfig.Auth.Require && cfg.PublicConfig.Auth.TokensFile == "" {
 			requireAuth = true
+		}
+
+		// Exception: Bootstrapping agents don't have a token yet but need to call RequestCertificate.
+		// They are authenticated via the bootstrapping JWT payload (RFD 048/049).
+		// We skip the Auth and RBAC middleware for this specific endpoint.
+		if strings.HasSuffix(r.URL.Path, "/RequestCertificate") {
+			requireAuth = false
 		}
 
 		if requireAuth {

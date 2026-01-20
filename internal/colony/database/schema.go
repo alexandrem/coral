@@ -243,7 +243,7 @@ var schemaDDL = []string{
 
 	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_agent ON issued_certificates(agent_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_colony ON issued_certificates(colony_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_status ON issued_certificates(status)`,
+	// `CREATE INDEX IF NOT EXISTS idx_issued_certificates_status ON issued_certificates(status)`,
 	`CREATE INDEX IF NOT EXISTS idx_issued_certificates_expires ON issued_certificates(expires_at)`,
 
 	`CREATE TABLE IF NOT EXISTS certificate_revocations (
