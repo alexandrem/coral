@@ -484,9 +484,9 @@ func (s *Server) GetCAStatus(
 	status := s.caManager.GetStatus()
 
 	// Query stats from database.
-	var totalCerts, activeCerts, revokedCerts int
+	var totalCerts, activeCerts, revokedCerts int32
 	err := s.database.DB().QueryRowContext(ctx, `
-		SELECT 
+		SELECT
 			COUNT(*) as total,
 			SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
 			SUM(CASE WHEN status = 'revoked' THEN 1 ELSE 0 END) as revoked
@@ -517,9 +517,9 @@ func (s *Server) GetCAStatus(
 		},
 		ColonySpiffeId: status.ColonySPIFFEID,
 		Statistics: &colonyv1.GetCAStatusResponse_Stats{
-			TotalIssued: int32(totalCerts),
-			Active:      int32(activeCerts),
-			Revoked:     int32(revokedCerts),
+			TotalIssued: totalCerts,
+			Active:      activeCerts,
+			Revoked:     revokedCerts,
 		},
 	}
 
