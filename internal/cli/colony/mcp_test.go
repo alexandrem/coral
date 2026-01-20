@@ -56,6 +56,10 @@ func (m *mockColonyClient) RevokeCertificate(ctx context.Context, req *connect.R
 	return connect.NewResponse(&colonyv1.RevokeCertificateResponse{}), nil
 }
 
+func (m *mockColonyClient) GetCAStatus(ctx context.Context, req *connect.Request[colonyv1.GetCAStatusRequest]) (*connect.Response[colonyv1.GetCAStatusResponse], error) {
+	return connect.NewResponse(&colonyv1.GetCAStatusResponse{}), nil
+}
+
 func (m *mockColonyClient) QueryUnifiedSummary(ctx context.Context, req *connect.Request[colonyv1.QueryUnifiedSummaryRequest]) (*connect.Response[colonyv1.QueryUnifiedSummaryResponse], error) {
 	return connect.NewResponse(&colonyv1.QueryUnifiedSummaryResponse{}), nil
 }
