@@ -449,7 +449,6 @@ func registerWithColony(
 	regReq := &meshv1.RegisterRequest{
 		AgentId:          agentID,
 		ColonyId:         cfg.ColonyID,
-		ColonySecret:     cfg.ColonySecret,
 		WireguardPubkey:  agentPubKey,
 		Version:          "0.1.0",
 		Labels:           make(map[string]string),

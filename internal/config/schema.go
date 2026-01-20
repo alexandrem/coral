@@ -433,7 +433,7 @@ type CPUProfilingConfig struct {
 // ResolvedConfig is the final merged configuration after resolution.
 type ResolvedConfig struct {
 	ColonyID        string
-	ColonySecret    string
+	ColonySecret    string // Deprecated
 	JWTSigningKey   string
 	ApplicationName string
 	Environment     string
