@@ -347,9 +347,26 @@ func runView(colonyID string, raw bool) error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
+	// Get CA fingerprint (RFD 048).
+	var caFingerprint string
+	manager, db, _, err := helpers.GetCAManager(colonyID)
+	if err == nil {
+		status := manager.GetStatus()
+		caFingerprint = "sha256:" + status.RootCA.Fingerprint
+		db.Close()
+	}
+
 	if raw {
 		// Output raw YAML.
-		data, err := yaml.Marshal(colonyConfig)
+		output := struct {
+			*config.ColonyConfig `yaml:",inline"`
+			CAFingerprint        string `yaml:"ca_fingerprint,omitempty"`
+		}{
+			ColonyConfig:  colonyConfig,
+			CAFingerprint: caFingerprint,
+		}
+
+		data, err := yaml.Marshal(output)
 		if err != nil {
 			return err
 		}
@@ -369,30 +386,27 @@ func runView(colonyID string, raw bool) error {
 	fmt.Println()
 
 	// Output key config values with source annotations.
-	fmt.Printf("colony_id: %s                        # colony\n", colonyConfig.ColonyID)
-	fmt.Printf("application_name: %s                 # colony\n", colonyConfig.ApplicationName)
-	fmt.Printf("environment: %s                      # colony\n", colonyConfig.Environment)
+	fmt.Printf("colony_id: %s\n", colonyConfig.ColonyID)
+	fmt.Printf("application_name: %s\n", colonyConfig.ApplicationName)
+	fmt.Printf("environment: %s\n", colonyConfig.Environment)
 
-	// Check for secret override.
-	if os.Getenv("CORAL_COLONY_SECRET") != "" {
-		fmt.Println("colony_secret: ***                         # env:CORAL_COLONY_SECRET")
-	} else {
-		fmt.Println("colony_secret: ***                         # colony")
+	if caFingerprint != "" {
+		fmt.Printf("ca_fingerprint: %s\n", caFingerprint)
 	}
 
 	fmt.Println()
 	fmt.Println("discovery:")
-	fmt.Printf("  endpoint: %s     # global\n", globalConfig.Discovery.Endpoint)
+	fmt.Printf("  endpoint: %s\n", globalConfig.Discovery.Endpoint)
 
 	if colonyConfig.StoragePath != "" {
-		fmt.Printf("\nstorage_path: %s             # colony\n", colonyConfig.StoragePath)
+		fmt.Printf("\nstorage_path: %s\n", colonyConfig.StoragePath)
 	}
 
 	fmt.Println()
 	fmt.Println("wireguard:")
-	fmt.Printf("  port: %d                              # colony\n", colonyConfig.WireGuard.Port)
-	fmt.Printf("  mesh_ipv4: %s                    # colony\n", colonyConfig.WireGuard.MeshIPv4)
-	fmt.Printf("  mesh_network_ipv4: %s              # colony\n", colonyConfig.WireGuard.MeshNetworkIPv4)
+	fmt.Printf("  port: %d\n", colonyConfig.WireGuard.Port)
+	fmt.Printf("  mesh_ipv4: %s\n", colonyConfig.WireGuard.MeshIPv4)
+	fmt.Printf("  mesh_network_ipv4: %s\n", colonyConfig.WireGuard.MeshNetworkIPv4)
 
 	return nil
 }
