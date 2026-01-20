@@ -134,24 +134,6 @@ The agent must be running and accessible.`,
 	return cmd
 }
 
-// outputAgentStatusFormatted outputs agent status in structured format (JSON, YAML, etc).
-func outputAgentStatusFormatted(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, format string) error {
-	output := map[string]interface{}{
-		"runtime_context": ctx,
-	}
-
-	if len(services) > 0 {
-		output["services"] = services
-	}
-
-	formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
-	if err != nil {
-		return err
-	}
-
-	return formatter.Format(output, os.Stdout)
-}
-
 // outputAgentStatusTable outputs agent status in human-readable format.
 func outputAgentStatusTable(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus) error {
 	fmt.Println()
