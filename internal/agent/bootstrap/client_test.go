@@ -68,8 +68,10 @@ func TestClient_parseAndVerifyResult(t *testing.T) {
 		certPEM := generateTestAgentCert(t, caCert, caKey, agentID, colonyID, agentPubKey)
 
 		// Mock a response object as received from the server
+		caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw})
 		res := &colonyv1.RequestCertificateResponse{
 			Certificate: certPEM,
+			CaChain:     caPEM,
 			ExpiresAt:   time.Now().Add(time.Hour).Unix(),
 		}
 
@@ -85,7 +87,11 @@ func TestClient_parseAndVerifyResult(t *testing.T) {
 		// New key that doesn't match the cert
 		wrongPub, wrongPriv, _ := ed25519.GenerateKey(rand.Reader)
 
-		res := &colonyv1.RequestCertificateResponse{Certificate: certPEM}
+		caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw})
+		res := &colonyv1.RequestCertificateResponse{
+			Certificate: certPEM,
+			CaChain:     caPEM,
+		}
 		_, err := client.parseAndVerifyResult(res, wrongPub, wrongPriv)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "mismatch")
