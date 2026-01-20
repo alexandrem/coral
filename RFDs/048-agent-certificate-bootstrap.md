@@ -706,6 +706,8 @@ security:
 - [x] **E2E test: Bootstrap intermediate compromised (cannot issue server certs)**
 - [x] Update agent deployment documentation
 - [x] Add troubleshooting guide for bootstrap failures
+- [x] Update docs/CLI.md and docs/CLI_REFERENCE.md
+- [x] Update docs/CONFIG.md
 
 ## API Changes
 
