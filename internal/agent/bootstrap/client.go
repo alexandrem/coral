@@ -330,10 +330,43 @@ func (c *Client) parseAndVerifyResult(res *colonyv1.RequestCertificateResponse, 
 
 	privBytes, _ := x509.MarshalPKCS8PrivateKey(priv)
 
+	// Extract Root CA from chain (last cert in chain).
+	// The colony sends [Intermediate, Root].
+	var certBlocks []*pem.Block
+	rest := res.CaChain
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type == "CERTIFICATE" {
+			certBlocks = append(certBlocks, block)
+		}
+	}
+
+	if len(certBlocks) == 0 {
+		return nil, fmt.Errorf("no certificates found in chain")
+	}
+
+	// The last cert in the chain is the Root CA.
+	lastBlock := certBlocks[len(certBlocks)-1]
+
+	// Re-encode to ensure clean PEM.
+	rootCA := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: lastBlock.Bytes,
+	})
+
+	if len(rootCA) == 0 {
+		return nil, fmt.Errorf("failed to encode root CA")
+	}
+
 	return &Result{
 		Certificate:   res.Certificate,
 		PrivateKey:    pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes}),
 		CAChain:       res.CaChain,
+		RootCA:        rootCA,
 		ExpiresAt:     time.Unix(res.ExpiresAt, 0),
 		AgentSPIFFEID: cert.URIs[0].String(),
 	}, nil

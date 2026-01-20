@@ -150,8 +150,11 @@ func (m *Manager) Load() error {
 		return fmt.Errorf("failed to read root CA: %w", err)
 	}
 
+	m.logger.Info().Str("path", rootCAPath).Int("size", len(rootCAPEM)).Msg("Read Root CA file")
+
 	rootCAPool := x509.NewCertPool()
 	if !rootCAPool.AppendCertsFromPEM(rootCAPEM) {
+		m.logger.Error().Str("content", string(rootCAPEM)).Msg("Failed to parse Root CA PEM")
 		return fmt.Errorf("failed to parse root CA")
 	}
 
