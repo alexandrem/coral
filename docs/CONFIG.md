@@ -324,12 +324,12 @@ last_used: "2025-01-15T14:22:00Z"
 For connecting to remote colonies from the CLI without WireGuard mesh access.
 Similar to kubectl's cluster configuration in kubeconfig.
 
-| Field                              | Type   | Default | Description                                          |
-|------------------------------------|--------|---------|------------------------------------------------------|
-| `remote.endpoint`                  | string | -       | Remote colony's public HTTPS endpoint URL            |
-| `remote.certificate_authority`     | string | -       | Path to CA certificate file for TLS verification     |
-| `remote.certificate_authority_data`| string | -       | Base64-encoded CA certificate (takes precedence)     |
-| `remote.insecure_skip_tls_verify`  | bool   | `false` | Skip TLS verification (testing only, never in prod) |
+| Field                               | Type   | Default | Description                                         |
+|-------------------------------------|--------|---------|-----------------------------------------------------|
+| `remote.endpoint`                   | string | -       | Remote colony's public HTTPS endpoint URL           |
+| `remote.certificate_authority`      | string | -       | Path to CA certificate file for TLS verification    |
+| `remote.certificate_authority_data` | string | -       | Base64-encoded CA certificate (takes precedence)    |
+| `remote.insecure_skip_tls_verify`   | bool   | `false` | Skip TLS verification (testing only, never in prod) |
 
 **Example - Remote Colony with CA Certificate:**
 
@@ -471,57 +471,94 @@ Locations (in priority order):
 
 ```yaml
 version: "1"
-agent_id: "my-service-agent"
 
+# Core Agent settings (RFD 025, RFD 048)
+agent:
+    runtime: "auto"          # auto, native, docker, kubernetes
+    colony:
+        id: "my-colony"      # Colony ID to connect to
+        auto_discover: true   # Auto-discover colony via Discovery Service
+
+    # Bootstrap settings (RFD 048)
+    bootstrap:
+        enabled: true
+        ca_fingerprint: "sha256:7f...a0"  # Required for first bootstrap
+        certs_dir: "~/.coral/certs"
+        retry_attempts: 10
+        retry_delay: 1s
+        total_timeout: 30m
+
+# Telemetry (OpenTelemetry) configuration
 telemetry:
-    enabled: false
-    endpoint: "127.0.0.1:4317"
+    disabled: false
+    grpc_endpoint: "0.0.0.0:4317"
+    http_endpoint: "0.0.0.0:4318"
     filters:
         always_capture_errors: true
-        latency_threshold_ms: 500.0
+        high_latency_threshold_ms: 500.0
         sample_rate: 0.10
+
+# Services to monitor at startup
+services:
+    -   name: "api-gateway"
+        port: 8080
+        health_endpoint: "/health"
+        type: "http"
 ```
 
 ### Agent Configuration Fields
 
-| Field                                         | Type              | Default          | Description                                       |
-|-----------------------------------------------|-------------------|------------------|---------------------------------------------------|
-| `version`                                     | string            | `"1"`            | Configuration schema version                      |
-| `agent_id`                                    | string            | Required         | Unique agent identifier                           |
-| `telemetry.enabled`                           | bool              | `false`          | Enable OpenTelemetry collection                   |
-| `telemetry.endpoint`                          | string            | `127.0.0.1:4317` | OTLP endpoint                                     |
-| `telemetry.filters.always_capture_errors`     | bool              | `true`           | Always capture error traces                       |
-| `telemetry.filters.latency_threshold_ms`      | float             | `500.0`          | Latency threshold for capture                     |
-| `telemetry.filters.sample_rate`               | float             | `0.10`           | Sample rate (0.0-1.0)                             |
-| `beyla.disabled`                              | bool              | `false`          | Disable Beyla eBPF instrumentation                |
-| `beyla.discovery.services`                    | []Service         | `[]`             | List of services to instrument                    |
-| `beyla.protocols.http.enabled`                | bool              | `true`           | Enable HTTP instrumentation                       |
-| `beyla.protocols.http.route_patterns`         | []string          | `[]`             | URL patterns for cardinality reduction            |
-| `beyla.protocols.grpc.enabled`                | bool              | `true`           | Enable gRPC instrumentation                       |
-| `beyla.protocols.sql.enabled`                 | bool              | `true`           | Enable SQL instrumentation                        |
-| `beyla.protocols.sql.obfuscate_queries`       | bool              | `true`           | Obfuscate SQL query literals                      |
-| `beyla.attributes`                            | map[string]string | `{}`             | Custom attributes for metrics/traces              |
-| `beyla.sampling.rate`                         | float             | `1.0`            | Trace sampling rate (0.0-1.0)                     |
-| `beyla.limits.max_traced_connections`         | int               | `1000`           | Max concurrent tracked connections                |
-| `beyla.otlp_endpoint`                         | string            | `localhost:4318` | OTLP export endpoint                              |
-| `debug.enabled`                               | bool              | `true`           | Enable debug session capability                   |
-| `debug.sdk_api.timeout`                       | duration          | `5s`             | Timeout for SDK communication                     |
-| `debug.limits.max_concurrent_sessions`        | int               | `5`              | Max concurrent debug sessions                     |
-| `debug.limits.max_session_duration`           | duration          | `10m`            | Max duration for a debug session                  |
-| `debug.limits.max_events_per_second`          | int               | `10000`          | Rate limit for debug events                       |
-| `system_metrics.disabled`                     | bool              | `false`          | Disable system metrics collection                 |
-| `system_metrics.interval`                     | duration          | `15s`            | Collection interval                               |
-| `system_metrics.retention`                    | duration          | `1h`             | Local retention period                            |
-| `system_metrics.cpu_enabled`                  | bool              | `true`           | Collect CPU metrics                               |
-| `system_metrics.memory_enabled`               | bool              | `true`           | Collect memory metrics                            |
-| `system_metrics.disk_enabled`                 | bool              | `true`           | Collect disk I/O metrics                          |
-| `system_metrics.network_enabled`              | bool              | `true`           | Collect network I/O metrics                       |
-| `continuous_profiling.disabled`               | bool              | `false`          | Disable continuous profiling (enabled by default) |
-| `continuous_profiling.cpu.disabled`           | bool              | `false`          | Disable CPU profiling (enabled by default)        |
-| `continuous_profiling.cpu.frequency_hz`       | int               | `19`             | Sampling frequency (Hz)                           |
-| `continuous_profiling.cpu.interval`           | duration          | `15s`            | Collection interval                               |
-| `continuous_profiling.cpu.retention`          | duration          | `1h`             | Local sample retention                            |
-| `continuous_profiling.cpu.metadata_retention` | duration          | `7d`             | Binary metadata retention                         |
+| Field                                         | Type              | Default                      | Description                                                   |
+|-----------------------------------------------|-------------------|------------------------------|---------------------------------------------------------------|
+| `version`                                     | string            | `"1"`                        | Configuration schema version                                  |
+| `agent.runtime`                               | string            | `auto`                       | Runtime environment: `auto`, `native`, `docker`, `kubernetes` |
+| `agent.colony.id`                             | string            | -                            | Colony ID to connect to                                       |
+| `agent.colony.auto_discover`                  | bool              | `true`                       | Enable automatic colony discovery                             |
+| `agent.nat.stun_servers`                      | []string          | `[stun.cloudflare.com:3478]` | STUN servers for NAT traversal                                |
+| `agent.nat.enable_relay`                      | bool              | `false`                      | Enable relay fallback (future)                                |
+| `agent.bootstrap.enabled`                     | bool              | `true`                       | Enable automatic certificate bootstrap                        |
+| `agent.bootstrap.ca_fingerprint`              | string            | -                            | Root CA fingerprint (sha256:hex) for trust                    |
+| `agent.bootstrap.certs_dir`                   | string            | `~/.coral/certs`             | Directory for storing certificates                            |
+| `agent.bootstrap.retry_attempts`              | int               | `10`                         | Max bootstrap retry attempts                                  |
+| `agent.bootstrap.retry_delay`                 | duration          | `1s`                         | Initial retry delay (exponential)                             |
+| `agent.bootstrap.total_timeout`               | duration          | `30m`                        | Total time allowed for bootstrap                              |
+| `telemetry.disabled`                          | bool              | `false`                      | Disable OpenTelemetry collection                              |
+| `telemetry.grpc_endpoint`                     | string            | `0.0.0.0:4317`               | OTLP gRPC export endpoint                                     |
+| `telemetry.http_endpoint`                     | string            | `0.0.0.0:4318`               | OTLP HTTP export endpoint                                     |
+| `telemetry.filters.always_capture_errors`     | bool              | `true`                       | Always capture error traces                                   |
+| `telemetry.filters.high_latency_threshold_ms` | float             | `500.0`                      | Latency threshold for capture                                 |
+| `telemetry.filters.sample_rate`               | float             | `0.10`                       | Sample rate (0.0-1.0)                                         |
+| `beyla.disabled`                              | bool              | `false`                      | Disable Beyla eBPF instrumentation                            |
+| `beyla.discovery.services`                    | []Service         | `[]`                         | List of services to instrument                                |
+| `beyla.protocols.http.enabled`                | bool              | `true`                       | Enable HTTP instrumentation                                   |
+| `beyla.protocols.http.route_patterns`         | []string          | `[]`                         | URL patterns for cardinality reduction                        |
+| `beyla.protocols.grpc.enabled`                | bool              | `true`                       | Enable gRPC instrumentation                                   |
+| `beyla.protocols.sql.enabled`                 | bool              | `true`                       | Enable SQL instrumentation                                    |
+| `beyla.protocols.sql.obfuscate_queries`       | bool              | `true`                       | Obfuscate SQL query literals                                  |
+| `beyla.attributes`                            | map[string]string | `{}`                         | Custom attributes for metrics/traces                          |
+| `beyla.sampling.rate`                         | float             | `1.0`                        | Trace sampling rate (0.0-1.0)                                 |
+| `beyla.limits.max_traced_connections`         | int               | `1000`                       | Max concurrent tracked connections                            |
+| `beyla.otlp_endpoint`                         | string            | `localhost:4318`             | OTLP export endpoint                                          |
+| `debug.enabled`                               | bool              | `true`                       | Enable debug session capability                               |
+| `debug.discovery.enable_sdk`                  | bool              | `true`                       | Enable SDK-based function discovery                           |
+| `debug.discovery.enable_binary_scanning`      | bool              | `true`                       | Enable binary DWARF scanning                                  |
+| `debug.sdk_api.timeout`                       | duration          | `5s`                         | Timeout for SDK communication                                 |
+| `debug.limits.max_concurrent_sessions`        | int               | `5`                          | Max concurrent debug sessions                                 |
+| `debug.limits.max_session_duration`           | duration          | `10m`                        | Max duration for a debug session                              |
+| `debug.limits.max_events_per_second`          | int               | `10000`                      | Rate limit for debug events                                   |
+| `system_metrics.disabled`                     | bool              | `false`                      | Disable system metrics collection                             |
+| `system_metrics.interval`                     | duration          | `15s`                        | Collection interval                                           |
+| `system_metrics.retention`                    | duration          | `1h`                         | Local retention period                                        |
+| `system_metrics.cpu_enabled`                  | bool              | `true`                       | Collect CPU metrics                                           |
+| `system_metrics.memory_enabled`               | bool              | `true`                       | Collect memory metrics                                        |
+| `system_metrics.disk_enabled`                 | bool              | `true`                       | Collect disk I/O metrics                                      |
+| `system_metrics.network_enabled`              | bool              | `true`                       | Collect network I/O metrics                                   |
+| `continuous_profiling.disabled`               | bool              | `false`                      | Disable continuous profiling (enabled by default)             |
+| `continuous_profiling.cpu.disabled`           | bool              | `false`                      | Disable CPU profiling (enabled by default)                    |
+| `continuous_profiling.cpu.frequency_hz`       | int               | `19`                         | Sampling frequency (Hz)                                       |
+| `continuous_profiling.cpu.interval`           | duration          | `15s`                        | Collection interval                                           |
+| `continuous_profiling.cpu.retention`          | duration          | `1h`                         | Local sample retention                                        |
+| `continuous_profiling.cpu.metadata_retention` | duration          | `7d`                         | Binary metadata retention                                     |
 
 ### Beyla Integration Configuration
 
@@ -650,18 +687,15 @@ system_metrics:
 **Collected Metrics:**
 
 - **CPU:**
-
     - `system.cpu.utilization` - CPU usage percentage (0-100)
     - `system.cpu.time` - Cumulative CPU time (seconds)
 
 - **Memory:**
-
     - `system.memory.usage` - Memory used (bytes)
     - `system.memory.limit` - Total memory available (bytes)
     - `system.memory.utilization` - Memory usage percentage (0-100)
 
 - **Disk:**
-
     - `system.disk.io` - Disk I/O operations (reads/writes)
     - `system.disk.usage` - Disk space used (bytes)
 
@@ -856,11 +890,16 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 
 ### Agent Environment Variables
 
-| Variable                   | Description           |
-|----------------------------|-----------------------|
-| `CORAL_AGENT_ID`           | Agent identifier      |
-| `CORAL_COLONY_ID`          | Colony to connect to  |
-| `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL |
+| Variable                   | Description                                         |
+|----------------------------|-----------------------------------------------------|
+| `CORAL_AGENT_ID`           | Unique agent identifier (overrides auto-generation) |
+| `CORAL_COLONY_ID`          | Colony ID to connect to                             |
+| `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL                               |
+| `CORAL_CA_FINGERPRINT`     | Root CA fingerprint for bootstrap (sha256:hex)      |
+| `CORAL_BOOTSTRAP_ENABLED`  | Enable/disable automatic bootstrap (`true`/`false`) |
+| `CORAL_CERTS_DIR`          | Directory for storing certificates                  |
+| `CORAL_SERVICES`           | Services to monitor (name:port[:health][:type],...) |
+| `CORAL_AGENT_RUNTIME`      | Agent runtime (auto, native, docker, kubernetes)    |
 
 ### CLI Environment Variables
 
@@ -1049,7 +1088,6 @@ coral colony start  # Uses 127.0.0.1:<port>
 Understanding the difference:
 
 - **Mesh IP** (`mesh_ipv4`): Address **inside** the WireGuard tunnel
-
     - Used for service-to-service communication
     - Example: `100.64.0.1`
 
