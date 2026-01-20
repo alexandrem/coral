@@ -353,7 +353,7 @@ func runView(colonyID string, raw bool) error {
 	if err == nil {
 		status := manager.GetStatus()
 		caFingerprint = "sha256:" + status.RootCA.Fingerprint
-		db.Close()
+		db.Close() // nolint:errcheck
 	}
 
 	if raw {

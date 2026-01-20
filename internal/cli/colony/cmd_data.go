@@ -37,7 +37,7 @@ Keep them secure and do not commit to version control.`,
 			if err != nil {
 				return err
 			}
-			defer db.Close()
+			defer db.Close() // nolint:errcheck
 
 			status := manager.GetStatus()
 			caFingerprint := "sha256:" + status.RootCA.Fingerprint

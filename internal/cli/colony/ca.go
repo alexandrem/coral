@@ -76,7 +76,7 @@ func newCAStatusCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to get CA status: colony is unreachable and local access failed: %w", err)
 			}
-			defer db.Close()
+			defer db.Close() // nolint:errcheck // nolint:errcheck
 
 			// Get CA status.
 			status := manager.GetStatus()
@@ -175,7 +175,7 @@ WARNING: This is a sensitive operation. Use --confirm to proceed.`,
 			if err != nil {
 				return err
 			}
-			defer db.Close()
+			defer db.Close() // nolint:errcheck
 
 			// Perform rotation.
 			fmt.Printf("Rotating %s intermediate CA for colony %s...\n", certType, cfg.ColonyID)
