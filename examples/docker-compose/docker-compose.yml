@@ -21,9 +21,9 @@ services:
       - --connect
       - nginx:80
     environment:
-      # Config-less mode: only CORAL_COLONY_ID and CORAL_COLONY_SECRET are required.
+      # Config-less mode: only CORAL_COLONY_ID and CORAL_CA_FINGERPRINT are required.
       CORAL_COLONY_ID: ${CORAL_COLONY_ID}
-      CORAL_COLONY_SECRET: ${CORAL_COLONY_SECRET}
+      CORAL_CA_FINGERPRINT: ${CORAL_CA_FINGERPRINT}
       CORAL_DISCOVERY_ENDPOINT: ${CORAL_DISCOVERY_ENDPOINT:-http://host.docker.internal:8080}
     depends_on:
       - demo-app

@@ -98,7 +98,6 @@ services:
       - CORAL_STORAGE_PATH=/var/lib/coral
       # Shared secret for bootstrap token validation (must match discovery)
       - CORAL_JWT_SIGNING_KEY=dev-secret-key-must-be-32-bytes-long-1234
-      - CORAL_COLONY_SECRET=dev-secret-key-must-be-32-bytes-long-1234
     ports:
       - "9000:9000"
       - "8443:8443"
