@@ -3,6 +3,7 @@ package fixtures
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -183,5 +184,73 @@ func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w\nOutput: %s", serviceName, err, string(output))
 	}
+	return nil
+}
+
+// CreateDotEnvFile creates a .env file with the environment variables needed for the CLI
+// to talk to the colony endpoint hosted in the container.
+func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
+	// Run coral colony export inside the colony container
+	cmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "/usr/local/bin/coral", "colony", "export", f.ColonyID)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to run coral colony export in container: %w\nOutput: %s", err, string(output))
+	}
+
+	var envLines []string
+	envLines = append(envLines, "# Coral E2E Distributed Test Environment")
+	envLines = append(envLines, fmt.Sprintf("# Generated: %s", time.Now().Format("2006-01-02 15:04:05")))
+	envLines = append(envLines, "")
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "export ") {
+			// Override discovery endpoint with host-accessible one if it matches the container one
+			if strings.Contains(line, "CORAL_DISCOVERY_ENDPOINT") {
+				envLines = append(envLines, fmt.Sprintf("export CORAL_DISCOVERY_ENDPOINT=\"%s\"", f.DiscoveryEndpoint))
+			} else {
+				envLines = append(envLines, line)
+			}
+		}
+	}
+
+	// Create an admin API token for the CLI
+	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "/usr/local/bin/coral", "colony", "token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
+	tokenOutput, err := tokenCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to run token create in container: %w\nOutput: %s", err, string(tokenOutput))
+	}
+	lines = strings.Split(string(tokenOutput), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Token: ") {
+			token := strings.TrimPrefix(line, "Token: ")
+			envLines = append(envLines, fmt.Sprintf("export CORAL_API_TOKEN=\"%s\"", token))
+			break
+		}
+	}
+
+	// Add public endpoint (HTTPS) for convenience
+	envLines = append(envLines, "export CORAL_COLONY_ENDPOINT=\"https://localhost:8443\"")
+	envLines = append(envLines, "export CORAL_INSECURE=true")
+
+	// Write to .env file in the current directory
+	dotEnvPath := ".env"
+	err = os.WriteFile(dotEnvPath, []byte(strings.Join(envLines, "\n")+"\n"), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write .env file: %w", err)
+	}
+
+	// Restart colony to reload tokens (TokenStore loads from file only on startup).
+	// This ensures the token is immediately usable by the CLI.
+	if err := f.RestartService(ctx, "colony"); err != nil {
+		return fmt.Errorf("failed to restart colony to reload tokens: %w", err)
+	}
+
+	// Wait for the colony to be healthy again
+	time.Sleep(5 * time.Second)
+	if err := helpers.WaitForHTTPEndpoint(ctx, f.ColonyEndpoint+"/status", 30*time.Second); err != nil {
+		return fmt.Errorf("colony failed to become healthy after token reload restart: %w", err)
+	}
+
 	return nil
 }

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
+	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
@@ -36,10 +38,43 @@ func newCAStatusCmd() *cobra.Command {
 		Short: "Show CA status and fingerprint",
 		Long:  `Display the status of the colony certificate authority including root CA fingerprint and hierarchy.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Get CA manager.
+			ctx := cmd.Context()
+
+			// 1. Try to use Colony RPC first (RFD 031).
+			client, err := helpers.GetColonyClient(colonyID)
+			if err == nil {
+				resp, err := client.GetCAStatus(ctx, connect.NewRequest(&colonyv1.GetCAStatusRequest{}))
+				if err == nil {
+					// Print RPC response.
+					status := resp.Msg
+					fmt.Printf("Root CA:\n")
+					fmt.Printf("  Path:        %s\n", status.RootCa.Path)
+					fmt.Printf("  Fingerprint: sha256:%s\n", status.RootCa.Fingerprint)
+					fmt.Printf("  Expires:     %s (%s)\n", status.RootCa.ExpiresAt.AsTime().Format("2006-01-02"), formatCADuration(time.Until(status.RootCa.ExpiresAt.AsTime())))
+
+					fmt.Printf("\nIntermediates:\n")
+					fmt.Printf("  Server: %s (Expires %s)\n", formatValidity(status.ServerIntermediate.ExpiresAt.AsTime()), status.ServerIntermediate.ExpiresAt.AsTime().Format("2006-01-02"))
+					fmt.Printf("  Agent:  %s (Expires %s)\n", formatValidity(status.AgentIntermediate.ExpiresAt.AsTime()), status.AgentIntermediate.ExpiresAt.AsTime().Format("2006-01-02"))
+
+					fmt.Printf("\nPolicy Signing:\n")
+					fmt.Printf("  Certificate: %s (Expires %s)\n", formatValidity(status.PolicySigning.ExpiresAt.AsTime()), status.PolicySigning.ExpiresAt.AsTime().Format("2006-01-02"))
+
+					fmt.Printf("\nColony SPIFFE ID: %s\n", status.ColonySpiffeId)
+
+					fmt.Printf("\nCertificate Statistics:\n")
+					fmt.Printf("  Total Issued: %d\n", status.Statistics.TotalIssued)
+					fmt.Printf("  Active:       %d\n", status.Statistics.Active)
+					fmt.Printf("  Revoked:      %d\n", status.Statistics.Revoked)
+
+					return nil
+				}
+				// If RPC failed due to connection, fall back to local access.
+			}
+
+			// 2. Fallback to local database access (requires same-host execution).
 			manager, db, _, err := helpers.GetCAManager(colonyID)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get CA status: colony is unreachable and local access failed: %w", err)
 			}
 			defer db.Close()
 

@@ -32,7 +32,12 @@ func (s *E2EDistributedSuite) SetupSuite() {
 	s.Require().NoError(err, "Failed to connect to docker-compose services")
 	s.fixture = fixture
 
+	// Create .env file for the CLI to talk to the colony in the container (RFD 031/048).
+	err = s.fixture.CreateDotEnvFile(s.ctx)
+	s.Require().NoError(err, "Failed to create .env file")
+
 	s.T().Log("✓ All services connected and healthy")
+	s.T().Log("✓ .env file created for CLI access")
 	s.T().Log("E2E distributed suite setup complete")
 }
 

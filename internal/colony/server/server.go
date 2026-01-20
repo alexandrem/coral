@@ -470,3 +470,58 @@ func (s *Server) RevokeCertificate(
 
 	return connect.NewResponse(resp), nil
 }
+
+// GetCAStatus handles CA status requests (RFD 047).
+func (s *Server) GetCAStatus(
+	ctx context.Context,
+	req *connect.Request[colonyv1.GetCAStatusRequest],
+) (*connect.Response[colonyv1.GetCAStatusResponse], error) {
+	if s.caManager == nil {
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("CA is not initialized"))
+	}
+
+	// Get status from manager.
+	status := s.caManager.GetStatus()
+
+	// Query stats from database.
+	var totalCerts, activeCerts, revokedCerts int
+	err := s.database.DB().QueryRowContext(ctx, `
+		SELECT 
+			COUNT(*) as total,
+			SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+			SUM(CASE WHEN status = 'revoked' THEN 1 ELSE 0 END) as revoked
+		FROM issued_certificates
+	`).Scan(&totalCerts, &activeCerts, &revokedCerts)
+	if err != nil {
+		// Table might not exist yet, treat as 0.
+		totalCerts, activeCerts, revokedCerts = 0, 0, 0
+	}
+
+	resp := &colonyv1.GetCAStatusResponse{
+		RootCa: &colonyv1.GetCAStatusResponse_CertStatus{
+			Path:        status.RootCA.Path,
+			Fingerprint: status.RootCA.Fingerprint,
+			ExpiresAt:   timestamppb.New(status.RootCA.ExpiresAt),
+		},
+		ServerIntermediate: &colonyv1.GetCAStatusResponse_CertStatus{
+			Path:      status.ServerIntermediate.Path,
+			ExpiresAt: timestamppb.New(status.ServerIntermediate.ExpiresAt),
+		},
+		AgentIntermediate: &colonyv1.GetCAStatusResponse_CertStatus{
+			Path:      status.AgentIntermediate.Path,
+			ExpiresAt: timestamppb.New(status.AgentIntermediate.ExpiresAt),
+		},
+		PolicySigning: &colonyv1.GetCAStatusResponse_CertStatus{
+			Path:      status.PolicySigning.Path,
+			ExpiresAt: timestamppb.New(status.PolicySigning.ExpiresAt),
+		},
+		ColonySpiffeId: status.ColonySPIFFEID,
+		Statistics: &colonyv1.GetCAStatusResponse_Stats{
+			TotalIssued: int32(totalCerts),
+			Active:      int32(activeCerts),
+			Revoked:     int32(revokedCerts),
+		},
+	}
+
+	return connect.NewResponse(resp), nil
+}

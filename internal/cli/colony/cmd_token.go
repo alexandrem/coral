@@ -40,7 +40,9 @@ Permissions:
 
 	cmd.AddCommand(newTokenCreateCmd())
 	cmd.AddCommand(newTokenListCmd())
+	cmd.AddCommand(newTokenShowCmd())
 	cmd.AddCommand(newTokenRevokeCmd())
+	cmd.AddCommand(newTokenDeleteCmd())
 
 	return cmd
 }
@@ -50,6 +52,7 @@ func newTokenCreateCmd() *cobra.Command {
 		colonyID    string
 		permissions string
 		rateLimit   string
+		recreate    bool
 	)
 
 	cmd := &cobra.Command{
@@ -118,8 +121,19 @@ Examples:
 				return fmt.Errorf("at least one permission required\n\nAvailable permissions: status, query, analyze, debug, admin")
 			}
 
-			// Initialize token store and create token.
+			// Initialize token store.
 			tokenStore := auth.NewTokenStore(tokensFile)
+
+			// If recreate is set, delete the token if it exists.
+			if recreate {
+				if _, exists := tokenStore.GetToken(tokenID); exists {
+					if err := tokenStore.DeleteToken(tokenID); err != nil {
+						return fmt.Errorf("failed to delete existing token for recreation: %w", err)
+					}
+				}
+			}
+
+			// Create token.
 			tokenInfo, err := tokenStore.GenerateToken(tokenID, perms, rateLimit)
 			if err != nil {
 				return fmt.Errorf("failed to create token: %w", err)
@@ -148,6 +162,7 @@ Examples:
 	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (defaults to current colony)")
 	cmd.Flags().StringVar(&permissions, "permissions", "status,query", "Comma-separated permissions (status,query,analyze,debug,admin)")
 	cmd.Flags().StringVar(&rateLimit, "rate-limit", "", "Rate limit (e.g., 100/hour, 50/minute)")
+	cmd.Flags().BoolVar(&recreate, "recreate", false, "Recreate token if it already exists (invalidates old token)")
 
 	return cmd
 }
@@ -248,6 +263,94 @@ Note: Token values are never displayed - only metadata.`,
 	return cmd
 }
 
+func newTokenShowCmd() *cobra.Command {
+	var colonyID string
+
+	cmd := &cobra.Command{
+		Use:   "show <token-id>",
+		Short: "Show API token metadata",
+		Long: `Show metadata for a specific API token.
+
+Note: The actual token value is hashed and cannot be retrieved.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tokenID := args[0]
+
+			// Resolve colony ID.
+			resolver, err := config.NewResolver()
+			if err != nil {
+				return fmt.Errorf("failed to create config resolver: %w", err)
+			}
+
+			if colonyID == "" {
+				colonyID, err = resolver.ResolveColonyID()
+				if err != nil {
+					return fmt.Errorf("failed to resolve colony: %w", err)
+				}
+			}
+
+			// Load colony config.
+			loader, err := config.NewLoader()
+			if err != nil {
+				return fmt.Errorf("failed to create config loader: %w", err)
+			}
+
+			colonyConfig, err := loader.LoadColonyConfig(colonyID)
+			if err != nil {
+				return fmt.Errorf("failed to load colony config: %w", err)
+			}
+
+			// Get tokens file path.
+			colonyDir := loader.ColonyDir(colonyID)
+			tokensFile := colonyConfig.PublicEndpoint.Auth.TokensFile
+			if tokensFile == "" {
+				tokensFile = filepath.Join(colonyDir, "tokens.yaml")
+			}
+
+			// Load tokens.
+			tokenStore := auth.NewTokenStore(tokensFile)
+			token, exists := tokenStore.GetToken(tokenID)
+			if !exists {
+				return fmt.Errorf("token %q not found", tokenID)
+			}
+
+			fmt.Printf("Token ID:    %s\n", token.TokenID)
+
+			perms := make([]string, len(token.Permissions))
+			for i, p := range token.Permissions {
+				perms[i] = string(p)
+			}
+			fmt.Printf("Permissions: %s\n", strings.Join(perms, ","))
+
+			rateLimit := "-"
+			if token.RateLimit != "" {
+				rateLimit = token.RateLimit
+			}
+			fmt.Printf("Rate Limit:  %s\n", rateLimit)
+
+			fmt.Printf("Created:     %s\n", token.CreatedAt.Format("2006-01-02 15:04:05"))
+
+			lastUsed := "-"
+			if token.LastUsedAt != nil {
+				lastUsed = token.LastUsedAt.Format("2006-01-02 15:04:05")
+			}
+			fmt.Printf("Last Used:   %s\n", lastUsed)
+
+			status := "active"
+			if token.Revoked {
+				status = "revoked"
+			}
+			fmt.Printf("Status:      %s\n", status)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (defaults to current colony)")
+
+	return cmd
+}
+
 func newTokenRevokeCmd() *cobra.Command {
 	var (
 		colonyID string
@@ -329,6 +432,92 @@ Revoked tokens can no longer authenticate to the public endpoint.`,
 			}
 
 			fmt.Printf("Token %q has been revoked.\n", tokenID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&colonyID, "colony", "", "Colony ID (defaults to current colony)")
+	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
+
+	return cmd
+}
+
+func newTokenDeleteCmd() *cobra.Command {
+	var (
+		colonyID string
+		force    bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "delete <token-id>",
+		Short: "Permanently delete an API token",
+		Long: `Permanently delete an API token from the store.
+ 
+Unlike revoke, delete removes the token record entirely.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tokenID := args[0]
+
+			// Resolve colony ID.
+			resolver, err := config.NewResolver()
+			if err != nil {
+				return fmt.Errorf("failed to create config resolver: %w", err)
+			}
+
+			if colonyID == "" {
+				colonyID, err = resolver.ResolveColonyID()
+				if err != nil {
+					return fmt.Errorf("failed to resolve colony: %w", err)
+				}
+			}
+
+			// Load colony config.
+			loader, err := config.NewLoader()
+			if err != nil {
+				return fmt.Errorf("failed to create config loader: %w", err)
+			}
+
+			colonyConfig, err := loader.LoadColonyConfig(colonyID)
+			if err != nil {
+				return fmt.Errorf("failed to load colony config: %w", err)
+			}
+
+			// Get tokens file path.
+			colonyDir := loader.ColonyDir(colonyID)
+			tokensFile := colonyConfig.PublicEndpoint.Auth.TokensFile
+			if tokensFile == "" {
+				tokensFile = filepath.Join(colonyDir, "tokens.yaml")
+			}
+
+			// Load tokens.
+			tokenStore := auth.NewTokenStore(tokensFile)
+
+			// Check if token exists.
+			if _, exists := tokenStore.GetToken(tokenID); !exists {
+				return fmt.Errorf("token %q not found", tokenID)
+			}
+
+			// Confirm unless force flag is set.
+			if !force {
+				fmt.Printf("Are you sure you want to PERMANENTLY DELETE token %q? This cannot be undone.\n", tokenID)
+				fmt.Print("Type 'yes' to confirm: ")
+
+				var confirm string
+				if _, err := fmt.Scanln(&confirm); err != nil {
+					return fmt.Errorf("failed to read user confirmation: %w", err)
+				}
+				if confirm != "yes" {
+					fmt.Println("Cancelled.")
+					return nil
+				}
+			}
+
+			// Delete the token.
+			if err := tokenStore.DeleteToken(tokenID); err != nil {
+				return fmt.Errorf("failed to delete token: %w", err)
+			}
+
+			fmt.Printf("Token %q has been deleted.\n", tokenID)
 			return nil
 		},
 	}
