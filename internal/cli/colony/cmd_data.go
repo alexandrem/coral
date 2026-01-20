@@ -32,20 +32,15 @@ Keep them secure and do not commit to version control.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			colonyID := args[0]
 
-			loader, err := config.NewLoader()
+			// Get CA manager and configuration (RFD 048).
+			manager, db, cfg, err := getCAManager(colonyID)
 			if err != nil {
-				return fmt.Errorf("failed to create config loader: %w", err)
+				return err
 			}
+			defer db.Close()
 
-			cfg, err := loader.LoadColonyConfig(colonyID)
-			if err != nil {
-				return fmt.Errorf("failed to load colony config: %w", err)
-			}
-
-			globalConfig, err := loader.LoadGlobalConfig()
-			if err != nil {
-				return fmt.Errorf("failed to load global config: %w", err)
-			}
+			status := manager.GetStatus()
+			caFingerprint := "sha256:" + status.RootCA.Fingerprint
 
 			switch format {
 			case "env":
@@ -54,8 +49,8 @@ Keep them secure and do not commit to version control.`,
 				fmt.Println("# SECURITY: Keep these credentials secure. Do not commit to version control.")
 				fmt.Println()
 				fmt.Printf("export CORAL_COLONY_ID=\"%s\"\n", cfg.ColonyID)
-				fmt.Printf("export CORAL_COLONY_SECRET=\"%s\"\n", cfg.ColonySecret)
-				fmt.Printf("export CORAL_DISCOVERY_ENDPOINT=\"%s\"\n", globalConfig.Discovery.Endpoint)
+				fmt.Printf("export CORAL_CA_FINGERPRINT=\"%s\"\n", caFingerprint)
+				fmt.Printf("export CORAL_DISCOVERY_ENDPOINT=\"%s\"\n", cfg.DiscoveryURL)
 				fmt.Println()
 				fmt.Println("# To use in your shell:")
 				fmt.Printf("#   eval $(coral colony export %s)\n", colonyID)
@@ -63,14 +58,14 @@ Keep them secure and do not commit to version control.`,
 			case "yaml":
 				fmt.Println("# Coral Colony Credentials (YAML)")
 				fmt.Printf("colony_id: %s\n", cfg.ColonyID)
-				fmt.Printf("colony_secret: %s\n", cfg.ColonySecret)
-				fmt.Printf("discovery_endpoint: %s\n", globalConfig.Discovery.Endpoint)
+				fmt.Printf("ca_fingerprint: %s\n", caFingerprint)
+				fmt.Printf("discovery_endpoint: %s\n", cfg.DiscoveryURL)
 
 			case "json":
 				data := map[string]string{
 					"colony_id":          cfg.ColonyID,
-					"colony_secret":      cfg.ColonySecret,
-					"discovery_endpoint": globalConfig.Discovery.Endpoint,
+					"ca_fingerprint":     caFingerprint,
+					"discovery_endpoint": cfg.DiscoveryURL,
 				}
 				output, err := json.MarshalIndent(data, "", "  ")
 				if err != nil {
@@ -86,8 +81,8 @@ Keep them secure and do not commit to version control.`,
 				fmt.Println("type: Opaque")
 				fmt.Println("stringData:")
 				fmt.Printf("  colony-id: %s\n", cfg.ColonyID)
-				fmt.Printf("  colony-secret: %s\n", cfg.ColonySecret)
-				fmt.Printf("  discovery-endpoint: %s\n", globalConfig.Discovery.Endpoint)
+				fmt.Printf("  ca-fingerprint: %s\n", caFingerprint)
+				fmt.Printf("  discovery-endpoint: %s\n", cfg.DiscoveryURL)
 
 			default:
 				return fmt.Errorf("unknown format: %s (supported: env, yaml, json, k8s)", format)
