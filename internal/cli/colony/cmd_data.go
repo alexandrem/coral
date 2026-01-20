@@ -122,9 +122,6 @@ Note: The colony's WireGuard public key will be retrieved from discovery service
 			if colonyID == "" {
 				colonyID = os.Getenv("CORAL_COLONY_ID")
 			}
-			if colonySecret == "" {
-				colonySecret = os.Getenv("CORAL_COLONY_SECRET")
-			}
 
 			if colonyID == "" || colonySecret == "" {
 				return fmt.Errorf("colony-id and secret are required (use flags or env vars)")

@@ -142,13 +142,6 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 	resolved.WireGuard.MeshNetworkIPv4 = meshSubnet
 	resolved.WireGuard.MeshIPv4 = colonyIP
 
-	// Apply environment variable overrides
-	if secret := os.Getenv("CORAL_COLONY_SECRET"); secret != "" {
-		resolved.ColonySecret = secret
-	} else {
-		resolved.ColonySecret = colonyConfig.ColonySecret
-	}
-
 	if discoveryURL := os.Getenv("CORAL_DISCOVERY_ENDPOINT"); discoveryURL != "" {
 		resolved.DiscoveryURL = discoveryURL
 	}
