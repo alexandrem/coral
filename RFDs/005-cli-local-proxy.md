@@ -563,89 +563,89 @@ proxies:
 
 ### Phase 1: Discovery Service Updates
 
-- [ ] Update `proto/coral/discovery/v1/discovery.proto`
-    - [ ] Add `mesh_ipv4` field to `RegisterColonyRequest`
-    - [ ] Add `mesh_ipv6` field to `RegisterColonyRequest`
-    - [ ] Add `connect_port` field to `RegisterColonyRequest`
-    - [ ] Add corresponding fields to `LookupColonyResponse`
-- [ ] Regenerate Go code with `buf generate`
-- [ ] Update discovery registry to store new fields (dual-stack mesh IPs)
-- [ ] Update discovery client to handle new fields
-- [ ] Add unit tests for new fields (test both IPv4 and IPv6)
+- [x] Update `proto/coral/discovery/v1/discovery.proto`
+    - [x] Add `mesh_ipv4` field to `RegisterColonyRequest`
+    - [x] Add `mesh_ipv6` field to `RegisterColonyRequest`
+    - [x] Add `connect_port` field to `RegisterColonyRequest`
+    - [x] Add corresponding fields to `LookupColonyResponse`
+- [x] Regenerate Go code with `buf generate`
+- [x] Update discovery registry to store new fields (dual-stack mesh IPs)
+- [x] Update discovery client to handle new fields
+- [x] Add unit tests for new fields (test both IPv4 and IPv6)
 
 ### Phase 2: Colony Service Definition
 
-- [ ] Create `proto/coral/colony/v1/colony.proto`
-    - [ ] Define `ColonyService` with GetStatus, ListAgents, GetTopology
-    - [ ] Define request/response message types (Agent message with dual-stack
+- [x] Create `proto/coral/colony/v1/colony.proto`
+    - [x] Define `ColonyService` with GetStatus, ListAgents, GetTopology
+    - [x] Define request/response message types (Agent message with dual-stack
       IPs)
-- [ ] Regenerate Go code with `buf generate`
-- [ ] Implement `ColonyService` server in colony
-    - [ ] GetStatus: query local state, return colony info
-    - [ ] ListAgents: query agent registry (return dual-stack mesh IPs)
-    - [ ] GetTopology: return agent connections
-- [ ] Start Buf Connect server on mesh IP:9000 (accessible via both IPv4 and
+- [x] Regenerate Go code with `buf generate`
+- [x] Implement `ColonyService` server in colony
+    - [x] GetStatus: query local state, return colony info
+    - [x] ListAgents: query agent registry (return dual-stack mesh IPs)
+    - [x] GetTopology: return agent connections
+- [x] Start Buf Connect server on mesh IP:9000 (accessible via both IPv4 and
   IPv6)
-- [ ] Update colony startup to register with new dual-stack mesh IP fields
+- [x] Update colony startup to register with new dual-stack mesh IP fields
 
 ### Phase 3: Proxy Implementation
 
-- [ ] Create `internal/proxy` package
-    - [ ] `server.go`: HTTP/2 server on localhost
-    - [ ] `wireguard.go`: WireGuard peer setup (dual-stack IPv4+IPv6 support)
-    - [ ] `discovery.go`: Colony lookup via discovery
-    - [ ] `forwarder.go`: HTTP/2 reverse proxy logic (handle both IPv4 and IPv6
+- [x] Create `internal/proxy` package
+    - [x] `server.go`: HTTP/2 server on localhost
+    - [x] `wireguard.go`: WireGuard peer setup (dual-stack IPv4+IPv6 support)
+    - [x] `discovery.go`: Colony lookup via discovery
+    - [x] `forwarder.go`: HTTP/2 reverse proxy logic (handle both IPv4 and IPv6
       targets)
-    - [ ] `registry.go`: Track active colony connections
-- [ ] Create `cmd/coral-proxy/main.go` standalone binary
-- [ ] Implement proxy lifecycle
-    - [ ] Discovery lookup
-    - [ ] WireGuard tunnel establishment (AllowedIPs: IPv4 + IPv6 ranges)
-    - [ ] Colony peer registration (receive dual-stack mesh IPs)
-    - [ ] HTTP/2 forwarding (support both IPv4 and IPv6 mesh targets)
-- [ ] Add multi-colony routing (path-based or header-based)
-- [ ] Add graceful shutdown and cleanup
+    - [x] `registry.go`: Track active colony connections
+- [x] Create `cmd/coral-proxy/main.go` standalone binary
+- [x] Implement proxy lifecycle
+    - [x] Discovery lookup
+    - [x] WireGuard tunnel establishment (AllowedIPs: IPv4 + IPv6 ranges)
+    - [x] Colony peer registration (receive dual-stack mesh IPs)
+    - [x] HTTP/2 forwarding (support both IPv4 and IPv6 mesh targets)
+- [x] Add multi-colony routing (path-based or header-based)
+- [x] Add graceful shutdown and cleanup
 
 ### Phase 4: CLI Integration
 
-- [ ] Create `internal/cli/proxy.go`
-    - [ ] `coral proxy start <colony-id>` command
-    - [ ] `coral proxy stop <colony-id>` command
-    - [ ] `coral proxy status` command
-    - [ ] `coral proxy list` command
-- [ ] Update CLI client configuration
-    - [ ] Default to localhost:8000 if proxy running
-    - [ ] Fallback behavior when proxy not available
-- [ ] Update existing commands to use proxy
-    - [ ] `coral status`
-    - [ ] `coral ask`
-    - [ ] `coral topology` (future)
-- [ ] Add proxy state management (PID files, config)
+- [x] Create `internal/cli/proxy.go`
+    - [x] `coral proxy start <colony-id>` command
+    - [x] `coral proxy stop <colony-id>` command
+    - [x] `coral proxy status` command
+    - [x] `coral proxy list` command
+- [x] Update CLI client configuration
+    - [x] Default to localhost:8000 if proxy running
+    - [x] Fallback behavior when proxy not available
+- [x] Update existing commands to use proxy
+    - [x] `coral status`
+    - [x] `coral ask`
+    - [x] `coral topology` (future)
+- [x] Add proxy state management (PID files, config)
 
 ### Phase 5: Agent Embedding (Optional)
 
-- [ ] Update `internal/agent/connect.go`
-    - [ ] Add `--enable-proxy` flag
-    - [ ] Embed proxy server when enabled
-    - [ ] Share WireGuard connection with monitoring
-- [ ] Agent becomes dual-purpose: monitor + gateway
+- [x] Update `internal/agent/connect.go`
+    - [x] Add `--enable-proxy` flag
+    - [x] Embed proxy server when enabled
+    - [x] Share WireGuard connection with monitoring
+- [x] Agent becomes dual-purpose: monitor + gateway
 
 ### Phase 6: Testing
 
-- [ ] Unit tests for proxy components
-- [ ] Integration tests: proxy ↔ discovery ↔ colony
-- [ ] E2E tests: CLI → proxy → colony
-- [ ] Test multi-colony scenarios
-- [ ] Test error handling and reconnection
-- [ ] Test graceful degradation (proxy offline)
+- [x] Unit tests for proxy components
+- [x] Integration tests: proxy ↔ discovery ↔ colony
+- [x] E2E tests: CLI → proxy → colony
+- [x] Test multi-colony scenarios
+- [x] Test error handling and reconnection
+- [x] Test graceful degradation (proxy offline)
 
 ### Phase 7: Documentation
 
-- [ ] Update IMPLEMENTATION.md with proxy architecture and IPv6 mesh addressing
-- [ ] Update CLI reference docs (include dual-stack mesh IP examples)
-- [ ] Add proxy setup guide (document IPv6 mesh configuration)
-- [ ] Add troubleshooting guide (IPv6 connectivity issues)
-- [ ] Update architecture diagrams (show dual-stack mesh IPs)
+- [x] Update IMPLEMENTATION.md with proxy architecture and IPv6 mesh addressing
+- [x] Update CLI reference docs (include dual-stack mesh IP examples)
+- [x] Add proxy setup guide (document IPv6 mesh configuration)
+- [x] Add troubleshooting guide (IPv6 connectivity issues)
+- [x] Update architecture diagrams (show dual-stack mesh IPs)
 
 ## Testing Strategy
 
