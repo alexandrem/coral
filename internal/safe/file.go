@@ -140,6 +140,9 @@ func ReadFile(path string, opts *CopyFileOptions) ([]byte, error) {
 
 // Close closes gracefully a Closer interface, handling and logging the error.
 func Close(c io.Closer, logger zerolog.Logger, msg string) {
+	if c == nil {
+		return
+	}
 	if err := c.Close(); err != nil {
 		logger.Error().Err(err).Msg(msg)
 	}
@@ -150,7 +153,7 @@ func RemoveFile(f *os.File, logger zerolog.Logger) {
 	if f == nil {
 		return
 	}
-	if err := os.Remove(f.Name()); err != nil {
+	if err := os.Remove(f.Name()); err != nil && !os.IsNotExist(err) {
 		logger.Error().Err(err).Msg("failed to remove file")
 	}
 }
