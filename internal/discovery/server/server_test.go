@@ -16,6 +16,7 @@ import (
 	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery"
+	"github.com/coral-mesh/coral/internal/discovery/keys"
 	"github.com/coral-mesh/coral/internal/discovery/registry"
 )
 
@@ -31,9 +32,14 @@ func testSTUNServers() []string {
 
 // testTokenManager returns a token manager for tests.
 func testTokenManager(t *testing.T) *discovery.TokenManager {
+	tempDir := t.TempDir()
+	keyPath := tempDir + "/keys.json"
+
+	keyMgr, err := keys.NewManager(keyPath, 30*24*time.Hour)
+	require.NoError(t, err)
 
 	return discovery.NewTokenManager(discovery.TokenConfig{
-		SigningKey: []byte("test-key"),
+		KeyManager: keyMgr,
 		DefaultTTL: 5 * time.Minute,
 		Issuer:     "test-issuer",
 		Audience:   "test-audience",

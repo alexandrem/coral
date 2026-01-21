@@ -17,6 +17,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/debug"
 	"github.com/coral-mesh/coral/internal/colony/httpapi"
+	"github.com/coral-mesh/coral/internal/colony/jwks"
 	"github.com/coral-mesh/coral/internal/colony/mcp"
 	"github.com/coral-mesh/coral/internal/colony/mesh"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -75,9 +76,10 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 
 	// Initialize CA manager (RFD 047 - Colony CA Infrastructure).
 	// Use CA from colony config directory (generated during init).
-	jwtSigningKey := []byte(cfg.JWTSigningKey)
+	// RFD 049: Use JWKS client for referral ticket validation.
+	jwksClient := jwks.NewClient(cfg.DiscoveryURL, logger.With().Str("component", "jwks-client").Logger())
 	caDir := filepath.Join(loader.ColonyDir(cfg.ColonyID), "ca")
-	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwtSigningKey, logger)
+	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwksClient, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
 	}

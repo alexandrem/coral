@@ -6,20 +6,21 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/colony/jwks"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 // PolicyEnforcer handles access control and policy enforcement for certificate operations.
 type PolicyEnforcer struct {
-	jwtSigningKey []byte
-	colonyID      string
+	jwksClient *jwks.Client
+	colonyID   string
 }
 
 // NewPolicyEnforcer creates a new PolicyEnforcer instance.
-func NewPolicyEnforcer(jwtSigningKey []byte, colonyID string) *PolicyEnforcer {
+func NewPolicyEnforcer(jwksClient *jwks.Client, colonyID string) *PolicyEnforcer {
 	return &PolicyEnforcer{
-		jwtSigningKey: jwtSigningKey,
-		colonyID:      colonyID,
+		jwksClient: jwksClient,
+		colonyID:   colonyID,
 	}
 }
 
@@ -42,15 +43,15 @@ type BootstrapClaims struct {
 }
 
 // ValidateReferralTicket validates a referral ticket JWT.
-// This is a stateless validation per RFD 049.
+// This is a stateless validation per RFD 049 using JWKS.
 func (p *PolicyEnforcer) ValidateReferralTicket(tokenString string) (*ReferralClaims, error) {
-	// Parse and validate JWT.
-	token, err := jwt.ParseWithClaims(tokenString, &ReferralClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return p.jwtSigningKey, nil
-	})
+	if p.jwksClient == nil {
+		return nil, fmt.Errorf("JWKS client not initialized")
+	}
+
+	// Parse and validate JWT using JWKS keyfunc.
+	// The Keyfunc in jwks.Client enforces EdDSA whitelist.
+	token, err := jwt.ParseWithClaims(tokenString, &ReferralClaims{}, p.jwksClient.GetKeyFunc())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}

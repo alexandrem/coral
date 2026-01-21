@@ -26,6 +26,8 @@ services:
     environment:
       # Shared secret for bootstrap token validation (must match colony)
       - CORAL_JWT_SIGNING_KEY=dev-secret-key-must-be-32-bytes-long-1234
+    command:
+      - "--key-storage=/tmp/discovery-keys.json"
 
   # Colony - AI coordinator with DuckDB storage
   colony:
@@ -272,6 +274,7 @@ networks:
 
 volumes:
   colony-data:
+  discovery-data:
   agent-0-data:
   agent-1-data:
   colony-shared: # Shared volume for colony ID
