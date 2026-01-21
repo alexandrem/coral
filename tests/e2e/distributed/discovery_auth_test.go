@@ -1,36 +1,14 @@
 package distributed
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
-	"testing"
 
-	"github.com/stretchr/testify/suite"
-
-	"github.com/coral-mesh/coral/tests/e2e/distributed/fixtures"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
 type DiscoveryAuthSuite struct {
-	suite.Suite
-	ctx     context.Context
-	fixture *fixtures.ComposeFixture
-}
-
-func (s *DiscoveryAuthSuite) SetupSuite() {
-	s.ctx = context.Background()
-
-	// Connect to the existing E2E environment.
-	// This assumes 'make e2e-up' has been run or the CI has set it up.
-	f, err := fixtures.NewComposeFixture(s.ctx)
-	s.Require().NoError(err, "Failed to connect to compose fixture")
-	s.fixture = f
-	s.T().Log("Connected to E2E environment")
-}
-
-func (s *DiscoveryAuthSuite) TearDownSuite() {
-	// No specific cleanup needed for context.Background()
+	E2EDistributedSuite
 }
 
 // TestJWKSEndpoint verifies that the Discovery service exposes a valid JWKS endpoint
@@ -103,8 +81,4 @@ func (s *DiscoveryAuthSuite) TestDiscoveryAuthorizationFlow() {
 	s.T().Logf("Agent %v is healthy", agent["agent_id"])
 
 	s.T().Log("Agent successfully authenticated via Discovery and connected to Colony")
-}
-
-func TestDiscoveryAuthSuite(t *testing.T) {
-	suite.Run(t, new(DiscoveryAuthSuite))
 }
