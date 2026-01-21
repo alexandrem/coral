@@ -434,7 +434,6 @@ type CPUProfilingConfig struct {
 type ResolvedConfig struct {
 	ColonyID        string
 	ColonySecret    string // Deprecated
-	JWTSigningKey   string
 	ApplicationName string
 	Environment     string
 	WireGuard       WireGuardConfig

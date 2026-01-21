@@ -23,9 +23,8 @@ services:
       start_period: 5s
     networks:
       - coral-e2e
-    environment:
-      # Shared secret for bootstrap token validation (must match colony)
-      - CORAL_JWT_SIGNING_KEY=dev-secret-key-must-be-32-bytes-long-1234
+
+    # No shared secret needed for Discovery (uses Ed25519 keys)
     command:
       - "--key-storage=/tmp/discovery-keys.json"
 
@@ -98,8 +97,6 @@ services:
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
       - CORAL_PUBLIC_ENDPOINT=colony:51820
       - CORAL_STORAGE_PATH=/var/lib/coral
-      # Shared secret for bootstrap token validation (must match discovery)
-      - CORAL_JWT_SIGNING_KEY=dev-secret-key-must-be-32-bytes-long-1234
     ports:
       - "9000:9000"
       - "8443:8443"
