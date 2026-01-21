@@ -1,3 +1,4 @@
+// Package keys implements management of Ed25519 signing keys, including generation, rotation, and persistence.
 package keys
 
 import (
@@ -7,10 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
+	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // KeyPair represents an Ed25519 key pair with metadata.
@@ -29,6 +34,7 @@ type Manager struct {
 	previousKeys   []*KeyPair
 	storagePath    string
 	rotationPeriod time.Duration
+	logger         zerolog.Logger
 }
 
 // JWK represents a JSON Web Key.
@@ -47,7 +53,11 @@ type JWKS struct {
 }
 
 // NewManager creates a new key manager.
-func NewManager(storagePath string, rotationPeriod time.Duration) (*Manager, error) {
+func NewManager(
+	storagePath string,
+	rotationPeriod time.Duration,
+	logger zerolog.Logger,
+) (*Manager, error) {
 	if rotationPeriod == 0 {
 		rotationPeriod = 30 * 24 * time.Hour // Default 30 days
 	}
@@ -56,6 +66,7 @@ func NewManager(storagePath string, rotationPeriod time.Duration) (*Manager, err
 		storagePath:    storagePath,
 		rotationPeriod: rotationPeriod,
 		previousKeys:   make([]*KeyPair, 0),
+		logger:         logger.With().Str("component", "keys_manager").Logger(),
 	}
 
 	if err := km.loadKeys(); err != nil {
@@ -165,8 +176,33 @@ func (km *Manager) saveKeys() error {
 		return fmt.Errorf("failed to marshal keys: %w", err)
 	}
 
-	// Write atomically is better, but simple write for now
-	return os.WriteFile(km.storagePath, bytes, 0600)
+	// Atomic write: create temp file, write, sync, rename
+	dir := filepath.Dir(km.storagePath)
+	tmpFile, err := os.CreateTemp(dir, "discovery-keys-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp key file: %w", err)
+	}
+	defer safe.RemoveFile(tmpFile, km.logger) // Clean up if something fails
+
+	if _, err := tmpFile.Write(bytes); err != nil {
+		safe.Close(tmpFile, km.logger, "failed to close temp key file")
+		return fmt.Errorf("failed to write to temp key file: %w", err)
+	}
+
+	if err := tmpFile.Sync(); err != nil {
+		safe.Close(tmpFile, km.logger, "failed to close temp key file")
+		return fmt.Errorf("failed to sync temp key file: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp key file: %w", err)
+	}
+
+	if err := os.Rename(tmpFile.Name(), km.storagePath); err != nil {
+		return fmt.Errorf("failed to rename temp key file to storage path: %w", err)
+	}
+
+	return nil
 }
 
 func (km *Manager) loadKeys() error {

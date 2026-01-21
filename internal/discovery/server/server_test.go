@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-
 	"io"
 	"testing"
 	"time"
@@ -35,7 +34,7 @@ func testTokenManager(t *testing.T) *discovery.TokenManager {
 	tempDir := t.TempDir()
 	keyPath := tempDir + "/keys.json"
 
-	keyMgr, err := keys.NewManager(keyPath, 30*24*time.Hour)
+	keyMgr, err := keys.NewManager(keyPath, 30*24*time.Hour, zerolog.Nop())
 	require.NoError(t, err)
 
 	return discovery.NewTokenManager(discovery.TokenConfig{

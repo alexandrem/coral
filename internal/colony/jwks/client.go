@@ -1,3 +1,4 @@
+// Package jwks implements a client for fetching and verifying JSON Web Key Sets.
 package jwks
 
 import (
@@ -11,6 +12,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // Client handles fetching and caching of JWKS keys.
@@ -118,7 +121,7 @@ func (c *Client) Refresh() error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch JWKS: %w", err)
 	}
-	defer resp.Body.Close()
+	defer safe.Close(resp.Body, c.logger, "failed to close http connection to fetch JWKS")
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)

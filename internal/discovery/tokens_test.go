@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,7 +19,7 @@ func TestTokenManager_Ed25519(t *testing.T) {
 	keyPath := filepath.Join(tempDir, "keys.json")
 
 	// Initialize Key Manager
-	keyMgr, err := keys.NewManager(keyPath, 30*24*time.Hour)
+	keyMgr, err := keys.NewManager(keyPath, 30*24*time.Hour, zerolog.Nop())
 	require.NoError(t, err)
 
 	// Initialize Token Manager

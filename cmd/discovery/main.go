@@ -81,7 +81,11 @@ func main() {
 	go reg.StartCleanup(time.Duration(*cleanupInterval)*time.Second, stopCh)
 
 	// Initialize Key Manager
-	keyMgr, err := keys.NewManager(*keyStoragePath, time.Duration(*keyRotationDays)*24*time.Hour)
+	keyMgr, err := keys.NewManager(
+		*keyStoragePath,
+		time.Duration(*keyRotationDays)*24*time.Hour,
+		logger,
+	)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to initialize key manager")
 	}
