@@ -909,6 +909,7 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 | `CORAL_COLONY_ENDPOINT` | Explicit colony endpoint URL (e.g., `https://colony.example.com:8443`) |
 | `CORAL_API_TOKEN`       | API token for authenticating to the public endpoint (RFD 031)          |
 | `CORAL_CA_FILE`         | Path to CA certificate file for TLS verification                       |
+| `CORAL_CA_DATA`         | Base64-encoded CA certificate for TLS verification                     |
 | `CORAL_INSECURE`        | Skip TLS verification (`true` or `1`) - testing only, never in prod    |
 | `CORAL_COLONY_ID`       | Override default colony ID                                             |
 
@@ -1373,6 +1374,12 @@ coral colony status
 export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
 export CORAL_API_TOKEN=cpt_abc123...
 export CORAL_CA_FILE=~/.coral/ca/prod-ca.crt
+coral colony status
+
+# With base64-encoded CA (useful for CI/CD)
+export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
+export CORAL_API_TOKEN=cpt_abc123...
+export CORAL_CA_DATA=$(base64 < ~/.coral/ca/prod-ca.crt)
 coral colony status
 ```
 
