@@ -125,21 +125,41 @@ GET /.well-known/jwks.json
 ### 1. Colony - Referral Ticket Validation
 
 - **JWKS Client** (`internal/colony/jwks/client.go`):
-    - Fetch JWKS from Discovery's `/.well-known/jwks.json`.
-    - Cache JWKS with refresh logic.
+  - Fetch JWKS from Discovery's `/.well-known/jwks.json`.
+  - Cache JWKS with refresh logic.
 - **Ticket Validator** (`internal/colony/ca/policy.go`):
-    - Validate JWT signature and claims using cached JWKS.
-    - Integrated with `RequestCertificate` flow.
+  - Validate JWT signature and claims using cached JWKS.
+  - Integrated with `RequestCertificate` flow.
 
 ### 2. Discovery - Referral Ticket Issuance
 
 - **Token Manager** (`internal/discovery/tokens.go`):
-    - Generate Ed25519 signed JWTs with 1-minute TTL.
+  - Generate Ed25519 signed JWTs with 1-minute TTL.
 - **Key Manager** (`internal/discovery/keys/manager.go`):
-    - Generate and rotate Ed25519 signing keys.
-    - Publish JWKS at `/.well-known/jwks.json`.
+  - Generate and rotate Ed25519 signing keys.
+  - Publish JWKS at `/.well-known/jwks.json`.
 - **RPC Handler** (`internal/discovery/server/server.go`):
-    - Implement `CreateBootstrapToken` RPC.
+  - Implement `CreateBootstrapToken` RPC.
+
+## Implementation Plan
+
+### Phase 1: Referral Ticket Issuance (Discovery-Side)
+
+- [x] Implement Ed25519 key generation and rotation (`internal/discovery/keys/manager.go`)
+- [x] Implement JWKS endpoint (`/.well-known/jwks.json`)
+- [x] Implement ticket issuer (`internal/discovery/tokens.go`)
+- [x] Add `CreateBootstrapToken` RPC handler (`internal/discovery/server/server.go`)
+
+### Phase 2: Referral Ticket Validation (Colony-Side)
+
+- [x] Implement JWKS client with caching (`internal/colony/jwks/client.go`)
+- [x] Implement ticket validator (`internal/colony/ca/policy.go`)
+- [x] Integrate with `RequestCertificate` RPC (from RFD 047)
+
+### Phase 3: Integration & Testing
+
+- [x] E2E test: agent bootstrap with referral ticket (`tests/e2e/distributed/discovery_auth_test.go`)
+- [x] Documentation updates
 
 ## API Changes
 
@@ -152,21 +172,43 @@ service DiscoveryService {
 }
 ```
 
-## Implementation Plan (Completed)
+## Implementation Status
 
-- [x] Ed25519 key generation and rotation (`internal/discovery/keys/manager.go`)
-- [x] JWKS endpoint (`/.well-known/jwks.json`)
-- [x] Ticket issuer (`internal/discovery/tokens.go`)
-- [x] `CreateBootstrapToken` RPC handler
-- [x] JWKS client with caching (`internal/colony/jwks/client.go`)
-- [x] Ticket validator (`internal/colony/ca/policy.go`)
-- [x] Integration with `RequestCertificate` RPC (from RFD 047)
-- [x] E2E test: agent bootstrap with referral ticket (
-  `tests/e2e/distributed/discovery_auth_test.go`)
-- [x] Documentation updates
+**Core Capability:** ✅ Complete
 
-## Dependencies
+Discovery-based agent authorization using Ed25519-signed referral tickets is fully
+implemented. Agents can request short-lived bootstrap tokens from the discovery
+service, which colonies validate using a cached JWKS before issuing mTLS certificates.
+
+**Operational Components:**
+
+- ✅ Ed25519 signing key management and automatic rotation in Discovery.
+- ✅ JWKS publication and colony-side caching.
+- ✅ Referral ticket issuance via `CreateBootstrapToken` gRPC.
+- ✅ Stateless ticket validation in Colony CA.
+- ✅ Integrated E2E test suite.
+
+**What Works Now:**
+
+- Automated agent certificate bootstrap with discovery-gatekept authorization.
+- Secure key rotation without interrupting service.
+- Verification of agent identity and colony binding during enrollment.
+
+## Future Work
+
+The following features are out of scope for this RFD and are addressed in
+RFD 086:
+
+- **Colony-Defined Policies**: Ability for colonies to push signed auth rules.
+- **Advanced Enforcement**: Discovery-side validation of quotas, CIDRs, and
+  agent ID patterns.
+- **JTI Replay Prevention**: Persistent tracking of ticket IDs to prevent reuse.
+
+## Notes
+
+**Relationship to Other RFDs:**
 
 - **RFD 047** (Implemented): Colony CA infrastructure.
-- **RFD 048**: Agent bootstrap flow (consumes referral tickets).
+- **RFD 048**: (Implemented) Agent bootstrap flow.
+- **RFD 085**: Store and publish colony public CA cert in discovery.
 - **RFD 086**: Advanced Policy Enforcement (extension of this RFD).
