@@ -344,9 +344,40 @@ export CORAL_CA_FILE=~/.coral/ca/prod-ca.crt
 coral colony status
 ```
 
-**Option 3: Persistent Configuration (Recommended)**
+**Option 3: Discovery Mode (Recommended for Teams)**
 
-Add a remote colony to your local config for persistent access:
+Use Discovery Service to automatically fetch endpoint and CA certificate. Get
+credentials from colony owner (`coral colony export`):
+
+```bash
+# Connect using Discovery (TOFU security via fingerprint verification)
+coral colony add-remote prod-remote \
+    --from-discovery \
+    --colony-id my-app-prod-a3f2e1 \
+    --ca-fingerprint sha256:e3b0c44298fc1c149afbf4c8996fb924...
+
+# Set as default
+coral config use-context prod-remote
+
+# Now all commands use this colony
+export CORAL_API_TOKEN=cpt_abc123...
+coral colony status
+coral query summary
+```
+
+**Discovery Mode Flags (RFD 085):**
+
+- `--from-discovery` - Fetch endpoint and CA from Discovery Service
+- `--colony-id` - Colony ID (required with --from-discovery)
+- `--ca-fingerprint` - CA fingerprint for verification (required with --from-discovery)
+- `--discovery-endpoint` - Override Discovery Service URL
+
+The CA fingerprint is verified against the certificate received from Discovery,
+ensuring you're connecting to the authentic colony (TOFU security model).
+
+**Option 4: Manual Mode (Direct Configuration)**
+
+Add a remote colony to your local config with manual CA file:
 
 ```bash
 # Import remote colony with CA certificate

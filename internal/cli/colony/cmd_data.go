@@ -52,8 +52,14 @@ Keep them secure and do not commit to version control.`,
 				fmt.Printf("export CORAL_CA_FINGERPRINT=\"%s\"\n", caFingerprint)
 				fmt.Printf("export CORAL_DISCOVERY_ENDPOINT=\"%s\"\n", cfg.DiscoveryURL)
 				fmt.Println()
-				fmt.Println("# To use in your shell:")
+				fmt.Println("# To deploy agents:")
 				fmt.Printf("#   eval $(coral colony export %s)\n", colonyID)
+				fmt.Println()
+				fmt.Println("# To connect CLI users (share colony ID + CA fingerprint):")
+				fmt.Printf("#   coral colony add-remote <name> \\\n")
+				fmt.Println("#       --from-discovery \\")
+				fmt.Printf("#       --colony-id %s \\\n", cfg.ColonyID)
+				fmt.Printf("#       --ca-fingerprint %s\n", caFingerprint)
 
 			case "yaml":
 				fmt.Println("# Coral Colony Credentials (YAML)")

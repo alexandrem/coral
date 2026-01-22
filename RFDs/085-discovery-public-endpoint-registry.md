@@ -1,7 +1,7 @@
 ---
 rfd: "085"
 title: "Discovery Service Public Endpoint Registry"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "discovery", "cli", "security", "ux" ]
 
 # RFD 085 - Discovery Service Public Endpoint Registry
 
-**Status:** Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -639,53 +639,53 @@ WireGuard mesh access only (disable `public_endpoint.discovery.register`).
 
 ### Phase 1: Discovery Proto Extensions
 
-- [ ] Add `PublicEndpointInfo` message to `discovery.proto`
-- [ ] Add `public_endpoint` field to `RegisterColonyRequest`
-- [ ] Add `public_endpoint` field to `LookupColonyResponse`
-- [ ] Regenerate protobuf code
+- [x] Add `PublicEndpointInfo` message to `discovery.proto`
+- [x] Add `public_endpoint` field to `RegisterColonyRequest`
+- [x] Add `public_endpoint` field to `LookupColonyResponse`
+- [x] Regenerate protobuf code
 
 ### Phase 2: Discovery Service Updates
 
-- [ ] Update Discovery storage schema to include public endpoint info
-- [ ] Update `RegisterColony` handler to store public endpoint info
-- [ ] Update `LookupColony` handler to return public endpoint info
-- [ ] Add validation for CA certificate format
+- [x] Update Discovery storage schema to include public endpoint info
+- [x] Update `RegisterColony` handler to store public endpoint info
+- [x] Update `LookupColony` handler to return public endpoint info
+- [x] Add validation for CA certificate format
 
 ### Phase 3: Colony Registration Updates
 
-- [ ] Update colony startup to include public endpoint in Discovery registration
-- [ ] Add `discovery.register` config option (default: true)
-- [ ] Add `discovery.advertise_url` config option for URL override
-- [ ] Compute and include CA fingerprint
+- [x] Update colony startup to include public endpoint in Discovery registration
+- [x] Add `discovery.register` config option (default: true)
+- [x] Add `discovery.advertise_url` config option for URL override
+- [x] Compute and include CA fingerprint
 
 ### Phase 4: CLI Updates
 
-- [ ] Enhance `coral colony export` to include CA fingerprint
-- [ ] Enhance `coral colony export` to show `add-remote` command example
-- [ ] Add `--from-discovery` flag to `coral colony add-remote`
-- [ ] Add `--colony-id` flag (required with `--from-discovery`)
-- [ ] Add `--ca-fingerprint` flag (required with `--from-discovery`)
-- [ ] Enforce `--insecure` mutually exclusive with `--from-discovery`
-- [ ] Implement Discovery lookup for public endpoint info
-- [ ] Implement mandatory CA fingerprint verification
-- [ ] Add `--discovery-endpoint` flag for Discovery URL override
-- [ ] Write CA certificate to colony config directory
-- [ ] Store CA fingerprint in local config for continuous verification
-- [ ] Implement continuous fingerprint verification on every CLI command
-- [ ] Error if `--from-discovery` used without `--colony-id` and
+- [x] Enhance `coral colony export` to include CA fingerprint
+- [x] Enhance `coral colony export` to show `add-remote` command example
+- [x] Add `--from-discovery` flag to `coral colony add-remote`
+- [x] Add `--colony-id` flag (required with `--from-discovery`)
+- [x] Add `--ca-fingerprint` flag (required with `--from-discovery`)
+- [x] Enforce `--insecure` mutually exclusive with `--from-discovery`
+- [x] Implement Discovery lookup for public endpoint info
+- [x] Implement mandatory CA fingerprint verification
+- [x] Add `--discovery-endpoint` flag for Discovery URL override
+- [x] Write CA certificate to colony config directory
+- [x] Store CA fingerprint in local config for continuous verification
+- [x] Implement continuous fingerprint verification on every CLI command
+- [x] Error if `--from-discovery` used without `--colony-id` and
   `--ca-fingerprint`
 
 ### Phase 5: Testing & Documentation
 
-- [ ] Unit tests for Discovery proto changes
-- [ ] Integration tests for colony registration with public endpoint
-- [ ] Integration tests for CLI `--from-discovery` flow
-- [ ] E2E test: full flow from colony start to CLI connection
-- [ ] Security tests: fingerprint verification, invalid CA rejection
-- [ ] Security tests: `--insecure` / `--from-discovery` mutual exclusivity
-- [ ] Security tests: continuous verification detects local CA tampering
-- [ ] Update CONFIG.md with new options
-- [ ] Update CLI.md with `--from-discovery` usage
+- [x] Unit tests for Discovery proto changes
+- [x] Integration tests for colony registration with public endpoint
+- [x] Integration tests for CLI `--from-discovery` flow
+- [x] E2E test: full flow from colony start to CLI connection
+- [x] Security tests: fingerprint verification, invalid CA rejection
+- [x] Security tests: `--insecure` / `--from-discovery` mutual exclusivity
+- [x] Security tests: continuous verification detects local CA tampering
+- [x] Update CONFIG.md with new options
+- [x] Update CLI.md with `--from-discovery` usage
 
 ## Testing Strategy
 
@@ -757,6 +757,48 @@ WireGuard mesh access only (disable `public_endpoint.discovery.register`).
 2. Deploy Colony with public endpoint registration
 3. Update CLI with `--from-discovery` flag
 4. Document new flow in user guides
+
+## Implementation Status
+
+**Core Capability:** ✅ Complete
+
+Discovery Service Public Endpoint Registry is fully implemented. Colonies can
+register their public endpoint information (URL, CA certificate, CA fingerprint)
+with the Discovery Service, and CLI users can connect to remote colonies using
+the TOFU (Trust On First Use) security model via `--from-discovery`.
+
+**Operational Components:**
+
+- ✅ Proto: `PublicEndpointInfo`, `CertificateFingerprint` messages
+- ✅ Discovery Service: storage and retrieval of public endpoint info
+- ✅ Colony registration: automatic registration with Discovery on startup
+- ✅ CLI: `--from-discovery`, `--colony-id`, `--ca-fingerprint` flags
+- ✅ CLI: CA fingerprint verification on connect
+- ✅ CLI: Continuous fingerprint verification on every command
+- ✅ Config: `public_endpoint.discovery.register`, `public_endpoint.discovery.advertise_url`
+- ✅ Config: `remote.ca_fingerprint` for stored fingerprint
+
+**What Works Now:**
+
+- Colony registers public endpoint info with Discovery on startup
+- `coral colony export` shows `add-remote --from-discovery` command example
+- `coral colony add-remote --from-discovery` fetches CA from Discovery
+- CA fingerprint is verified against user-provided fingerprint (TOFU security)
+- CA certificate and fingerprint are stored locally for continuous verification
+- Subsequent CLI commands verify CA file hasn't been tampered with
+- Clear error messages for fingerprint mismatch or missing credentials
+
+**Key Files Modified:**
+
+- `proto/coral/discovery/v1/discovery.proto` - PublicEndpointInfo message
+- `internal/discovery/registry/registry.go` - Storage schema
+- `internal/discovery/server/server.go` - Registration/lookup handlers
+- `internal/discovery/client/client.go` - Client lookup with public endpoint
+- `internal/cli/colony/cmd_start.go` - Colony registration with public endpoint
+- `internal/cli/colony/cmd_add_remote.go` - `--from-discovery` flow
+- `internal/cli/colony/cmd_data.go` - Export shows add-remote example
+- `internal/cli/helpers/client.go` - Continuous fingerprint verification
+- `internal/config/schema.go` - Config types for fingerprint
 
 ## Future Work
 

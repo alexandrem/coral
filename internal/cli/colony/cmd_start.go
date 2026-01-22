@@ -2,13 +2,17 @@ package colony
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
 	"github.com/coral-mesh/coral/internal/colony"
@@ -268,6 +272,20 @@ Examples:
 				}
 			}
 
+			// Build public endpoint info for Discovery registration (RFD 085).
+			var publicEndpoint *discoverypb.PublicEndpointInfo
+			if colonyConfig.PublicEndpoint.Enabled {
+				// Check if discovery registration is enabled (default: true).
+				shouldRegister := true
+				if colonyConfig.PublicEndpoint.Discovery.Register != nil {
+					shouldRegister = *colonyConfig.PublicEndpoint.Discovery.Register
+				}
+
+				if shouldRegister {
+					publicEndpoint = buildPublicEndpointInfo(colonyConfig, loader.ColonyDir(cfg.ColonyID), logger)
+				}
+			}
+
 			// Create and start registration manager for continuous auto-registration.
 			regConfig := registration.Config{
 				Enabled:           !colonyConfig.Discovery.Disabled,
@@ -283,7 +301,8 @@ Examples:
 				Metadata:          metadata,
 				DiscoveryEndpoint: globalConfig.Discovery.Endpoint,
 				DiscoveryTimeout:  globalConfig.Discovery.Timeout,
-				ObservedEndpoint:  colonyObservedEndpoint, // Add STUN-discovered endpoint
+				ObservedEndpoint:  colonyObservedEndpoint, // Add STUN-discovered endpoint.
+				PublicEndpoint:    publicEndpoint,         // Add public endpoint info (RFD 085).
 			}
 
 			regManager := registration.NewManager(regConfig, logger)
@@ -558,4 +577,65 @@ Examples:
 	cmd.Flags().IntVar(&port, "port", 0, "Dashboard port (overrides config)")
 
 	return cmd
+}
+
+// buildPublicEndpointInfo constructs the PublicEndpointInfo for Discovery registration (RFD 085).
+// It reads the root CA certificate from the colony's ca directory and computes its fingerprint.
+func buildPublicEndpointInfo(colonyConfig *config.ColonyConfig, colonyDir string, logger logging.Logger) *discoverypb.PublicEndpointInfo {
+	// Build the public endpoint URL.
+	host := colonyConfig.PublicEndpoint.Host
+	if host == "" {
+		host = constants.DefaultPublicEndpointHost
+	}
+	port := colonyConfig.PublicEndpoint.Port
+	if port == 0 {
+		port = constants.DefaultPublicEndpointPort
+	}
+
+	// Use advertise URL if configured, otherwise construct from host:port.
+	url := colonyConfig.PublicEndpoint.Discovery.AdvertiseURL
+	if url == "" {
+		// Determine scheme based on host.
+		scheme := "https"
+		if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+			// Local development without TLS.
+			if colonyConfig.PublicEndpoint.TLS.CertFile == "" {
+				scheme = "http"
+			}
+		}
+		url = fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	}
+
+	// Read the root CA certificate from the colony's ca directory.
+	caCertPath := filepath.Join(colonyDir, "ca", "root-ca.crt")
+	caCertPEM, err := os.ReadFile(caCertPath) // #nosec G304: we construct the path
+	if err != nil {
+		logger.Warn().
+			Err(err).
+			Str("path", caCertPath).
+			Msg("Failed to read root CA certificate for public endpoint registration")
+		return nil
+	}
+
+	// Compute SHA256 fingerprint of the CA certificate.
+	fingerprint := sha256.Sum256(caCertPEM)
+
+	// Base64-encode the CA certificate for transmission.
+	caCertBase64 := base64.StdEncoding.EncodeToString(caCertPEM)
+
+	logger.Info().
+		Str("url", url).
+		Str("fingerprint", fmt.Sprintf("sha256:%x", fingerprint)).
+		Msg("Registering public endpoint with Discovery (RFD 085)")
+
+	return &discoverypb.PublicEndpointInfo{
+		Enabled: true,
+		Url:     url,
+		CaCert:  caCertBase64,
+		CaFingerprint: &discoverypb.CertificateFingerprint{
+			Algorithm: discoverypb.FingerprintAlgorithm_FINGERPRINT_ALGORITHM_SHA256,
+			Value:     fingerprint[:],
+		},
+		UpdatedAt: timestamppb.Now(),
+	}
 }

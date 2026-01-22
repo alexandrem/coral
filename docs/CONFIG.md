@@ -330,6 +330,8 @@ Similar to kubectl's cluster configuration in kubeconfig.
 | `remote.certificate_authority`      | string | -       | Path to CA certificate file for TLS verification    |
 | `remote.certificate_authority_data` | string | -       | Base64-encoded CA certificate (takes precedence)    |
 | `remote.insecure_skip_tls_verify`   | bool   | `false` | Skip TLS verification (testing only, never in prod) |
+| `remote.ca_fingerprint.algorithm`   | string | -       | CA fingerprint hash algorithm (e.g., `sha256`)      |
+| `remote.ca_fingerprint.value`       | string | -       | Hex-encoded CA fingerprint for continuous verification (RFD 085) |
 
 **Example - Remote Colony with CA Certificate:**
 
@@ -1391,16 +1393,34 @@ coral query summary
 Colony administrators can provide connection details that users import:
 
 ```bash
-# Import remote colony configuration
+# Using Discovery Mode (Recommended - RFD 085)
+# Get colony-id and ca-fingerprint from colony owner (coral colony export)
+coral colony add-remote prod-remote \
+    --from-discovery \
+    --colony-id my-app-prod-a3f2e1 \
+    --ca-fingerprint sha256:e3b0c44298fc1c149afbf4c8996fb924...
+
+# With custom Discovery endpoint
+coral colony add-remote prod-remote \
+    --from-discovery \
+    --colony-id my-app-prod-a3f2e1 \
+    --ca-fingerprint sha256:e3b0c44298fc1c149afbf4c8996fb924... \
+    --discovery-endpoint https://discovery.internal:8080
+
+# Manual mode: with CA certificate file
 coral colony add-remote prod-remote \
     --endpoint https://colony.example.com:8443 \
     --ca-file ./colony-ca.crt
 
-# Or with insecure mode for testing
+# Manual mode: with insecure (testing only)
 coral colony add-remote dev-remote \
     --endpoint https://dev-colony:8443 \
     --insecure
 ```
+
+The `--from-discovery` mode provides TOFU (Trust On First Use) security: the CA
+fingerprint is verified against the certificate received from Discovery Service,
+ensuring you're connecting to the authentic colony.
 
 ### Example 9: AI-Powered Diagnostics with Coral Ask
 
