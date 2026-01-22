@@ -105,6 +105,12 @@ services:
     depends_on:
       discovery:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "coral", "colony", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     networks:
       - coral-e2e
     volumes:
@@ -152,6 +158,12 @@ services:
     privileged: true # Required for eBPF and WireGuard
     depends_on:
       - colony
+    healthcheck:
+      test: ["CMD", "coral", "agent", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     networks:
       - coral-e2e
     volumes:
@@ -199,6 +211,12 @@ services:
     privileged: true
     depends_on:
       - colony
+    healthcheck:
+      test: ["CMD", "coral", "agent", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     networks:
       - coral-e2e
     volumes:
