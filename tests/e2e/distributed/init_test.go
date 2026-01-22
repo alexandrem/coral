@@ -105,7 +105,7 @@ func (s *InitSuite) TestInitCommandGeneratesValidConfig() {
 	s.NotEmpty(colonyConfig.WireGuard.MeshIPv6, "Mesh IPv6 should be set")
 
 	// Verify discovery configuration
-	s.True(colonyConfig.Discovery.Enabled, "Discovery should be enabled by default")
+	s.False(colonyConfig.Discovery.Disabled, "Discovery should be enabled by default")
 	s.Equal(colonyID, colonyConfig.Discovery.MeshID, "Mesh ID should match colony ID")
 
 	// Verify timestamps

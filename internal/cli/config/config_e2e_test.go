@@ -293,8 +293,7 @@ func createTestColony(t *testing.T, configDir, colonyID, appName, env string) {
 			MTU:             1420,
 		},
 		Discovery: config.DiscoveryColony{
-			Enabled: true,
-			MeshID:  colonyID,
+			MeshID: colonyID,
 		},
 		CreatedAt: time.Now(),
 	}

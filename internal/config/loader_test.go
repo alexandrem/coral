@@ -127,7 +127,7 @@ func TestLoader_SaveAndLoadColonyConfig(t *testing.T) {
 		},
 		StoragePath: "/path/to/storage",
 		Discovery: DiscoveryColony{
-			Enabled:          true,
+			Disabled:         false,
 			MeshID:           "test-app-dev-abc123",
 			AutoRegister:     true,
 			RegisterInterval: 60 * time.Second,
