@@ -101,24 +101,24 @@ signature_algorithm: "Ed25519-RFC8785-JCS"
 ### 1. Colony - Policy Signing & Pushing
 
 - **Policy Signer** (`internal/colony/policy/signer.go`):
-    - Define `ColonyPolicy` struct.
-    - Implement RFC 8785 JCS canonicalization.
-    - Sign policies using the `policy-signing` key from the CA.
+  - Define `ColonyPolicy` struct.
+  - Implement RFC 8785 JCS canonicalization.
+  - Sign policies using the `policy-signing` key from the CA.
 - **Policy Pusher** (`internal/colony/policy/pusher.go`):
-    - Push signed policy to Discovery via `UpsertColonyPolicy` RPC.
-    - Handle retries and versioning.
+  - Push signed policy to Discovery via `UpsertColonyPolicy` RPC.
+  - Handle retries and versioning.
 
 ### 2. Discovery - Policy Enforcement
 
 - **Policy Store** (`internal/discovery/policy/store.go`):
-    - Persistent storage for signed policies per colony.
-    - Verify policy certificate chains to colony Root CA.
-    - Lock colony ID to Root CA fingerprint on first registration.
+  - Persistent storage for signed policies per colony.
+  - Verify policy certificate chains to colony Root CA.
+  - Lock colony ID to Root CA fingerprint on first registration.
 - **Policy Enforcer** (`internal/discovery/policy/enforcer.go`):
-    - Enforce rate limits, quotas, agent ID patterns, and IP allowlists defined
-      in the policy.
-    - Integrate with the `RequestReferralTicket` (or `CreateBootstrapToken`)
-      flow.
+  - Enforce rate limits, quotas, agent ID patterns, and IP allowlists defined
+    in the policy.
+  - Integrate with the `RequestReferralTicket` (or `CreateBootstrapToken`)
+    flow.
 
 ## API Changes
 
@@ -164,12 +164,20 @@ $ coral colony policy show
 ...
 ```
 
+## Implementation Status
+
+**Core Capability:** ⏳ Not Started
+
+This RFD defines the second stage of discovery-based authorization. Initial
+foundations (referral tickets) are implemented in RFD 049, but colony-defined
+policy enforcement is not yet started.
+
 ## Implementation Plan
 
 ### Phase 1: Policy Signing (Colony-Side)
 
 - [ ] Add RFC 8785 JCS library dependency (
-  `github.com/cyberphone/json-canonicalization`)
+      `github.com/cyberphone/json-canonicalization`)
 - [ ] Implement `ColonyPolicy` struct
 - [ ] Implement policy canonicalization and signing
 - [ ] Implement `UpsertColonyPolicy` client
