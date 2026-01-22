@@ -4,7 +4,7 @@
 
 # E2E-specific optimizations: Faster poll intervals for reliable, fast testing
 beyla:
-  poll_interval: 15 # Poll every 15 seconds (production default: 60)
+  poll_interval: 1 # Poll every 1 second (production default: 60)
   retention:
     http_days: 30
     grpc_days: 30
@@ -12,12 +12,21 @@ beyla:
     traces_days: 7
 
 system_metrics:
-  poll_interval: 15 # Poll every 15 seconds (production default: 60)
+  poll_interval: 1 # Poll every 1 second (production default: 60)
   retention_days: 30
 
 continuous_profiling:
-  poll_interval: 15 # Poll every 15 seconds (production default: 30)
+  poll_interval: 1 # Poll every 1 second (production default: 30)
   retention_days: 30
+
+services:
+  poll_interval: 1 # Poll every 1 second (production default: 10)
+
+telemetry:
+  poll_interval: 1 # Poll every 1 second (production default: 60)
+
+discovery:
+  register_interval: 1s # Register every 1 second (production default: 60)
 
 public_endpoint:
   enabled: true

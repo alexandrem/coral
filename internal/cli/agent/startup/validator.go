@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -277,9 +278,15 @@ func (v *ConfigValidator) loadAgentConfig() (*config.ResolvedConfig, []*types.Se
 	}
 
 	// Check environment variables (they take precedence).
-	envColonyID := os.Getenv("CORAL_COLONY_ID")
-	if envColonyID != "" {
+	if envColonyID := os.Getenv("CORAL_COLONY_ID"); envColonyID != "" {
 		agentCfg.Agent.Colony.ID = envColonyID
+	}
+	if heartbeat := os.Getenv("CORAL_HEARTBEAT_INTERVAL"); heartbeat != "" {
+		interval, err := time.ParseDuration(heartbeat)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to parse CORAL_HEARTBEAT_INTERVAL: %w", err)
+		}
+		agentCfg.Agent.HeartbeatInterval = interval
 	}
 
 	// Apply colony ID override from flag.

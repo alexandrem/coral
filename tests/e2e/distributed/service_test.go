@@ -93,8 +93,8 @@ func (s *ServiceSuite) TestServiceRegistrationAndDiscovery() {
 	s.T().Logf("✓ Agent has %d services registered", len(agentServicesResp.Msg.Services))
 
 	// Step 3: Wait for colony to poll services from agent.
-	s.T().Log("Waiting for colony to poll services from agent (10-15 seconds)...")
-	time.Sleep(15 * time.Second) // Service poller runs every 10 seconds.
+	s.T().Log("Waiting for colony to poll services from agent...")
+	time.Sleep(2 * time.Second) // Poll interval is 1s in E2E.
 
 	// Step 4: Verify services appear in colony's ListServices.
 	s.T().Log("Verifying services registered with colony...")
@@ -229,8 +229,8 @@ func (s *ServiceSuite) TestDynamicServiceConnection() {
 	s.Require().True(found, "cpu-app should appear in agent's service list")
 
 	// Step 4: Wait for colony to poll services from agent.
-	s.T().Log("Waiting for colony to poll services from agent (15 seconds)...")
-	time.Sleep(15 * time.Second)
+	s.T().Log("Waiting for colony to poll services from agent (2 seconds)...")
+	time.Sleep(2 * time.Second)
 
 	// Step 5: Verify service appears in colony registry.
 	s.T().Log("Verifying cpu-app appears in colony registry...")

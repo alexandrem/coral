@@ -132,11 +132,8 @@ func (s *TelemetrySuite) TestBeylaPassiveInstrumentation() {
 	s.T().Logf("Generated %d HTTP requests", requestCount)
 
 	// Wait for Beyla to capture and process metrics.
-	// Beyla exports to OTLP receiver (4319), which aggregates every 5s.
-	// We need to wait for: capture (instant) + OTLP export (~1s) + aggregation (up to 5s).
 	s.T().Log("Waiting for Beyla to capture and process eBPF metrics...")
-	s.T().Logf("  (Beyla → OTLP receiver → metrics aggregation @ 5s intervals)")
-	time.Sleep(8 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Query agent for eBPF metrics (agentClient already created above).
 	now := time.Now()
@@ -230,7 +227,7 @@ func (s *TelemetrySuite) TestBeylaColonyPolling() {
 
 	// Wait for Beyla to capture and aggregate metrics.
 	s.T().Log("Waiting for Beyla metrics processing...")
-	time.Sleep(8 * time.Second) // Wait for capture + aggregation (5s ticker).
+	time.Sleep(3 * time.Second)
 
 	// Verify agent has eBPF metrics first (agentClient already created above).
 	now := time.Now()
@@ -251,9 +248,9 @@ func (s *TelemetrySuite) TestBeylaColonyPolling() {
 
 	s.T().Logf("✓ Agent has %d eBPF metrics", agentResp.TotalMetrics)
 
-	// Wait for colony polling.
-	s.T().Log("Waiting for colony to poll agent for eBPF metrics...")
-	time.Sleep(90 * time.Second)
+	// Step 3: Wait for colony to poll services from agent.
+	s.T().Log("Waiting for colony to poll services from agent...")
+	time.Sleep(1 * time.Second) // Poll interval is 1s in E2E.
 
 	// Query colony for aggregated metrics using QueryUnifiedMetrics API.
 	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
@@ -346,7 +343,7 @@ func (s *TelemetrySuite) TestBeylaVsOTLPComparison() {
 
 	// Wait for Beyla to capture and aggregate metrics.
 	s.T().Log("Waiting for Beyla metrics processing...")
-	time.Sleep(8 * time.Second) // Wait for capture + aggregation (5s ticker).
+	time.Sleep(3 * time.Second)
 
 	// Query agent (agentClient already created above).
 	now := time.Now()
@@ -581,12 +578,8 @@ func (s *TelemetrySuite) TestOTLPMetricsIngestion() {
 	s.T().Logf("Generated %d requests across %d endpoints", requestCount, len(endpoints))
 
 	// Wait for metrics to be exported and processed.
-	// - OTLP app exports metrics every 5 seconds
-	// - Beyla polls OTLP receiver every 5 seconds
-	// - Need to wait for at least one export + one poll cycle
 	s.T().Log("Waiting for metrics to be exported and processed...")
-	s.T().Log("  (OTLP export @ 5s → Beyla poll @ 5s → DuckDB storage)")
-	time.Sleep(12 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Query agent for eBPF metrics to verify OTLP metrics were ingested.
 	s.T().Log("Querying agent for processed OTLP metrics...")
@@ -763,8 +756,7 @@ func (s *TelemetrySuite) TestTelemetryAggregation() {
 	// QueryUnifiedSummary API.
 
 	s.T().Log("Waiting for colony to poll agent...")
-	// Wait longer than typical poll interval to ensure at least one poll cycle.
-	time.Sleep(90 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Query colony for aggregated summaries using QueryUnifiedSummary API.
 	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
@@ -838,7 +830,7 @@ func (s *TelemetrySuite) TestSystemMetricsCollection() {
 	// Wait for at least one collection cycle.
 	// According to design, SystemCollector runs every 15 seconds.
 	s.T().Log("Waiting for system metrics collection cycle (15s interval)...")
-	time.Sleep(20 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Query agent for system metrics.
 	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
@@ -901,7 +893,7 @@ func (s *TelemetrySuite) TestSystemMetricsPolling() {
 
 	// Wait for metrics collection on agent.
 	s.T().Log("Waiting for system metrics collection cycle...")
-	time.Sleep(20 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Verify agent has metrics first.
 	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
@@ -926,7 +918,7 @@ func (s *TelemetrySuite) TestSystemMetricsPolling() {
 	// E2E environment is configured with 15-second poll interval for faster tests.
 	// Wait 35 seconds to ensure at least one poll cycle completes.
 	s.T().Log("Waiting for colony to poll agent for system metrics...")
-	time.Sleep(35 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// Query colony for aggregated metrics using QueryUnifiedSummary API.
 	// System metrics are included in the unified summary response as host_* fields.

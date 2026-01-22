@@ -23,6 +23,11 @@ type E2EDistributedSuite struct {
 func (s *E2EDistributedSuite) SetupSuite() {
 	s.ctx = context.Background()
 
+	if s.fixture != nil {
+		s.T().Log("Using existing docker-compose services (reusing fixture)")
+		return
+	}
+
 	s.T().Log("Connecting to docker-compose services...")
 	s.T().Log("(Make sure to run 'docker-compose up -d' in tests/e2e/distributed/ first)")
 	s.T().Log("Note: Services run in Linux containers (eBPF/WireGuard), test runner can be on any platform")
