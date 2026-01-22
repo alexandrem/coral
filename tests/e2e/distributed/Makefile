@@ -27,7 +27,6 @@ up:
 	@echo "Starting docker-compose services..."
 	docker-compose up -d
 	@echo "Waiting for services to be healthy..."
-	@sleep 10
 	@echo "✓ Services started"
 	@echo ""
 	@echo "Service endpoints:"

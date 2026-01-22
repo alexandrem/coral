@@ -348,8 +348,8 @@ func (s *CLIQuerySuite) ensureTelemetryData() {
 
 	// Wait for telemetry to be collected and aggregated
 	// E2E environment has 15-second poll intervals
-	s.T().Log("Waiting for telemetry collection (20 seconds)...")
-	time.Sleep(20 * time.Second)
+	s.T().Log("Waiting for telemetry collection (3 seconds)...")
+	time.Sleep(3 * time.Second)
 }
 
 // ensureServicesConnected ensures test services are connected to agent for query tests.

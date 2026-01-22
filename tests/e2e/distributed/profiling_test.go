@@ -97,9 +97,8 @@ func (s *ProfilingSuite) TestContinuousProfiling() {
 	s.T().Log("CPU load generation complete")
 
 	// Wait for at least one profiling collection cycle.
-	// Continuous profiler runs every 15 seconds at 19Hz.
-	s.T().Log("Waiting for continuous profiler to collect samples (15s interval)...")
-	time.Sleep(20 * time.Second)
+	s.T().Log("Waiting for continuous profiler to collect samples...")
+	time.Sleep(3 * time.Second) // Poll interval is 1s in E2E.
 
 	// Query agent's profiling database for samples.
 	// The continuous profiler stores samples in cpu_profile_samples_local table.

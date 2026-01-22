@@ -35,13 +35,13 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	fixture := &ComposeFixture{
 		ColonyID:          "",                       // Will be discovered
 		CAFingerprint:     "",                       // Will be discovered
-		DiscoveryEndpoint: "http://localhost:18080", // E2E uses non-standard port
-		ColonyEndpoint:    "http://localhost:9000",
-		Agent0Endpoint:    "http://localhost:9001",
-		Agent1Endpoint:    "http://localhost:9002",
-		CPUAppEndpoint:    "localhost:8081", // cpu-app on port 8080 in agent-0 namespace, exposed as 8081
-		OTELAppEndpoint:   "localhost:8082", // otel-app on port 8090 in agent-0 namespace, exposed as 8082
-		SDKAppEndpoint:    "localhost:3001",
+		DiscoveryEndpoint: "http://127.0.0.1:18080", // E2E uses non-standard port
+		ColonyEndpoint:    "http://127.0.0.1:9000",
+		Agent0Endpoint:    "http://127.0.0.1:9001",
+		Agent1Endpoint:    "http://127.0.0.1:9002",
+		CPUAppEndpoint:    "127.0.0.1:8081", // cpu-app on port 8080 in agent-0 namespace, exposed as 8081
+		OTELAppEndpoint:   "127.0.0.1:8082", // otel-app on port 8090 in agent-0 namespace, exposed as 8082
+		SDKAppEndpoint:    "127.0.0.1:3001",
 	}
 
 	// Wait for all services to be healthy
@@ -84,9 +84,16 @@ func (f *ComposeFixture) waitForServices(ctx context.Context) error {
 		return fmt.Errorf("sdk-app not ready: %w", err)
 	}
 
-	// Give colony and agents a bit more time to initialize WireGuard mesh
-	// TODO: Add proper health checks for colony/agents
-	time.Sleep(10 * time.Second)
+	// Wait for colony and agents via their /status endpoints
+	if err := helpers.WaitForHTTPEndpoint(ctx, f.ColonyEndpoint+"/status", 60*time.Second); err != nil {
+		return fmt.Errorf("colony not ready: %w", err)
+	}
+	if err := helpers.WaitForHTTPEndpoint(ctx, f.Agent0Endpoint+"/status", 60*time.Second); err != nil {
+		return fmt.Errorf("agent-0 not ready: %w", err)
+	}
+	if err := helpers.WaitForHTTPEndpoint(ctx, f.Agent1Endpoint+"/status", 60*time.Second); err != nil {
+		return fmt.Errorf("agent-1 not ready: %w", err)
+	}
 
 	return nil
 }
@@ -246,8 +253,7 @@ func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 		return fmt.Errorf("failed to restart colony to reload tokens: %w", err)
 	}
 
-	// Wait for the colony to be healthy again
-	time.Sleep(5 * time.Second)
+	// Wait for colony to be healthy after restart
 	if err := helpers.WaitForHTTPEndpoint(ctx, f.ColonyEndpoint+"/status", 30*time.Second); err != nil {
 		return fmt.Errorf("colony failed to become healthy after token reload restart: %w", err)
 	}

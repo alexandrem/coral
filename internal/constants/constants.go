@@ -102,6 +102,9 @@ const (
 	// DefaultRegisterInterval is the default registration interval for discovery.
 	DefaultRegisterInterval = 60 * time.Second
 
+	// DefaultHeartbeatInterval is the default heartbeat interval for agents.
+	DefaultHeartbeatInterval = 30 * time.Second
+
 	// DefaultSystemMetricsInterval is the default system metrics collection interval.
 	DefaultSystemMetricsInterval = 15 * time.Second
 

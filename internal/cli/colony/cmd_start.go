@@ -260,11 +260,19 @@ Examples:
 			// See RFD 029 for planned colony-based STUN enhancement.
 			var colonyObservedEndpoint *discoverypb.Endpoint
 
+			// Set default register interval if not configured
+			registerInterval := colonyConfig.Discovery.RegisterInterval
+			if envInterval := os.Getenv("CORAL_DISCOVERY_REGISTER_INTERVAL"); envInterval != "" {
+				if d, err := time.ParseDuration(envInterval); err == nil {
+					registerInterval = d
+				}
+			}
+
 			// Create and start registration manager for continuous auto-registration.
 			regConfig := registration.Config{
 				Enabled:           !colonyConfig.Discovery.Disabled,
 				AutoRegister:      colonyConfig.Discovery.AutoRegister,
-				RegisterInterval:  colonyConfig.Discovery.RegisterInterval,
+				RegisterInterval:  registerInterval,
 				MeshID:            cfg.ColonyID,
 				PublicKey:         cfg.WireGuard.PublicKey,
 				Endpoints:         endpoints,
@@ -291,12 +299,27 @@ Examples:
 			// Create and start telemetry poller for RFD 025 pull-based telemetry.
 			// Polls agents every 1 minute for recent telemetry data.
 			// Default retention: 24 hours for telemetry summaries.
+			telemetryPollInterval := 1 * time.Minute
+			telemetryRetentionHours := 24
+
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Telemetry.PollInterval > 0 {
+				telemetryPollInterval = time.Duration(colonyConfigForEndpoints.Telemetry.PollInterval) * time.Second
+			}
+			if envInterval := os.Getenv("CORAL_TELEMETRY_POLL_INTERVAL"); envInterval != "" {
+				if d, err := time.ParseDuration(envInterval); err == nil {
+					telemetryPollInterval = d
+				}
+			}
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Telemetry.RetentionHours > 0 {
+				telemetryRetentionHours = colonyConfigForEndpoints.Telemetry.RetentionHours
+			}
+
 			telemetryPoller := colony.NewTelemetryPoller(
 				ctx,
 				agentRegistry,
 				db,
-				1*time.Minute, // Poll interval
-				24,            // Retention in hours (default: 24)
+				telemetryPollInterval,
+				telemetryRetentionHours,
 				logger,
 			)
 
@@ -318,6 +341,11 @@ Examples:
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.PollInterval > 0 {
 				pollIntervalSecs = colonyConfigForEndpoints.Beyla.PollInterval
+			}
+			if envInterval := os.Getenv("CORAL_BEYLA_POLL_INTERVAL"); envInterval != "" {
+				if d, err := time.ParseDuration(envInterval); err == nil {
+					pollIntervalSecs = int(d.Seconds())
+				}
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.HTTPDays > 0 {
 				httpRetentionDays = colonyConfigForEndpoints.Beyla.Retention.HTTPDays
@@ -366,6 +394,11 @@ Examples:
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.SystemMetrics.PollInterval > 0 {
 				systemMetricsPollIntervalSecs = colonyConfigForEndpoints.SystemMetrics.PollInterval
 			}
+			if envInterval := os.Getenv("CORAL_SYSTEM_METRICS_POLL_INTERVAL"); envInterval != "" {
+				if d, err := time.ParseDuration(envInterval); err == nil {
+					systemMetricsPollIntervalSecs = int(d.Seconds())
+				}
+			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.SystemMetrics.RetentionDays > 0 {
 				systemMetricsRetentionDays = colonyConfigForEndpoints.SystemMetrics.RetentionDays
 			}
@@ -398,6 +431,11 @@ Examples:
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.ContinuousProfiling.PollInterval > 0 {
 				cpuProfilePollIntervalSecs = colonyConfigForEndpoints.ContinuousProfiling.PollInterval
 			}
+			if envInterval := os.Getenv("CORAL_PROFILING_POLL_INTERVAL"); envInterval != "" {
+				if d, err := time.ParseDuration(envInterval); err == nil {
+					cpuProfilePollIntervalSecs = int(d.Seconds())
+				}
+			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.ContinuousProfiling.RetentionDays > 0 {
 				cpuProfileRetentionDays = colonyConfigForEndpoints.ContinuousProfiling.RetentionDays
 			}
@@ -425,6 +463,15 @@ Examples:
 			// Create and start Service poller to sync agent services to colony.
 			// This ensures ListServices API shows all connected services.
 			servicePollIntervalSecs := 10 // Poll every 10 seconds (services change frequently).
+
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Services.PollInterval > 0 {
+				servicePollIntervalSecs = colonyConfigForEndpoints.Services.PollInterval
+			}
+			if envInterval := os.Getenv("CORAL_SERVICES_POLL_INTERVAL"); envInterval != "" {
+				if d, err := time.ParseDuration(envInterval); err == nil {
+					servicePollIntervalSecs = int(d.Seconds())
+				}
+			}
 
 			servicePoller := colony.NewServicePoller(
 				ctx,

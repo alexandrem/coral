@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -155,7 +154,7 @@ Examples:
 					Msg("Discovery succeeded - configuring mesh and attempting registration")
 			})
 
-			go server.ConnectionManager.StartHeartbeatLoop(ctx, 15*time.Second)
+			go server.ConnectionManager.StartHeartbeatLoop(ctx, builder.Config().Agent.HeartbeatInterval)
 			go server.ConnectionManager.StartReconnectionLoop(ctx)
 
 			// Wait for interrupt signal.

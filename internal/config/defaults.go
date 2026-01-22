@@ -91,6 +91,7 @@ func DefaultAgentConfig() *AgentConfig {
 	cfg.Agent.Runtime = "auto"
 	cfg.Agent.Colony.AutoDiscover = true
 	cfg.Agent.NAT.STUNServers = []string{constants.DefaultSTUNServer}
+	cfg.Agent.HeartbeatInterval = constants.DefaultHeartbeatInterval
 
 	// Telemetry defaults
 	cfg.Telemetry.Disabled = false

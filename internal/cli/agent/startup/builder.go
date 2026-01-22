@@ -8,6 +8,7 @@ import (
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -426,4 +427,14 @@ func (b *AgentServerBuilder) Build() *AgentServer {
 		ServicesResult:       b.servicesResult,
 		Logger:               b.logger,
 	}
+}
+
+// Config returns the loaded agent config.
+// You must call Validate prior to this to ensure the config is loaded.
+// This will return nil otherwise.
+func (b *AgentServerBuilder) Config() *config.AgentConfig {
+	if b.configResult == nil {
+		return nil
+	}
+	return b.configResult.AgentConfig
 }

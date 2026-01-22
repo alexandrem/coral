@@ -80,6 +80,7 @@ type ColonyConfig struct {
 	MCP                 MCPConfig                       `yaml:"mcp,omitempty"`
 	PublicEndpoint      PublicEndpointConfig            `yaml:"public_endpoint,omitempty"` // RFD 031
 	Remote              RemoteConfig                    `yaml:"remote,omitempty"`          // Client-side remote connection config
+	Telemetry           TelemetryPollerConfig           `yaml:"telemetry,omitempty"`       // RFD 025
 	Beyla               BeylaPollerConfig               `yaml:"beyla,omitempty"`
 	SystemMetrics       SystemMetricsPollerConfig       `yaml:"system_metrics,omitempty"`       // RFD 071
 	ContinuousProfiling ContinuousProfilingPollerConfig `yaml:"continuous_profiling,omitempty"` // RFD 072
@@ -94,6 +95,7 @@ type ColonyConfig struct {
 type ServicesConfig struct {
 	ConnectPort   int `yaml:"connect_port"`
 	DashboardPort int `yaml:"dashboard_port"`
+	PollInterval  int `yaml:"poll_interval,omitempty"` // How often to poll agents for service list (seconds)
 }
 
 // WireGuardConfig contains WireGuard mesh configuration.
@@ -299,6 +301,17 @@ type ContinuousProfilingPollerConfig struct {
 	RetentionDays int `yaml:"retention_days,omitempty"`
 }
 
+// TelemetryPollerConfig contains telemetry collection configuration (RFD 025).
+type TelemetryPollerConfig struct {
+	// PollInterval is how often to poll agents for telemetry data (seconds).
+	// Default: 60 (1 minute).
+	PollInterval int `yaml:"poll_interval,omitempty"`
+
+	// RetentionHours is how long to keep telemetry summaries (hours).
+	// Default: 24.
+	RetentionHours int `yaml:"retention_hours,omitempty"`
+}
+
 // ProjectConfig represents <project>/.coral/config.yaml config file.
 // The config consists of project-local configuration that links to a colony.
 type ProjectConfig struct {
@@ -454,7 +467,8 @@ type AgentConfig struct {
 			STUNServers []string `yaml:"stun_servers,omitempty" env:"CORAL_STUN_SERVERS"` // STUN servers for NAT traversal
 			EnableRelay bool     `yaml:"enable_relay,omitempty" env:"CORAL_ENABLE_RELAY"` // Enable relay fallback
 		} `yaml:"nat,omitempty"`
-		Bootstrap BootstrapConfig `yaml:"bootstrap,omitempty"` // RFD 048
+		Bootstrap         BootstrapConfig `yaml:"bootstrap,omitempty"` // RFD 048
+		HeartbeatInterval time.Duration   `yaml:"heartbeat_interval,omitempty" env:"CORAL_HEARTBEAT_INTERVAL"`
 	} `yaml:"agent"`
 	Telemetry struct {
 		Disabled              bool   `yaml:"disabled" env:"CORAL_TELEMETRY_DISABLED"`

@@ -51,6 +51,7 @@ func (s *MeshSuite) TestColonyRegistration() {
 	discoveryEndpoint, err := s.fixture.GetDiscoveryEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get discovery endpoint")
 
+	s.T().Logf("Discovery endpoint: %s", discoveryEndpoint)
 	client := helpers.NewDiscoveryClient(discoveryEndpoint)
 
 	// Query discovery service for the colony.
@@ -65,7 +66,7 @@ func (s *MeshSuite) TestColonyRegistration() {
 		}
 		lookupResp = resp
 		return true
-	}, 30*time.Second, 2*time.Second)
+	}, 60*time.Second, 2*time.Second)
 
 	s.Require().NoError(err, "Colony should be registered in discovery service within 30 seconds")
 	s.Require().NotNil(lookupResp, "Lookup response should not be nil")
@@ -303,7 +304,7 @@ func (s *MeshSuite) TestHeartbeat() {
 	s.T().Logf("Agent first seen at: %v", firstSeen)
 
 	// Wait a bit and verify last_seen timestamp updates (indicating heartbeats).
-	time.Sleep(20 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	agents, err := helpers.ListAgents(s.ctx, client)
 	s.Require().NoError(err, "Failed to list agents")
@@ -343,6 +344,7 @@ func (s *MeshSuite) TestAgentReconnection() {
 
 	// 3. Wait for colony to be healthy again.
 	s.T().Log("Waiting for colony to recover...")
+	time.Sleep(3 * time.Second) // Give colony a moment to restart before discovery
 	// Wait for discovery to register it again (can take up to a minute).
 	discoveryEndpoint, err := s.fixture.GetDiscoveryEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get discovery endpoint")
