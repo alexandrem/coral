@@ -157,7 +157,7 @@ func (c *ColonyConfig) Validate() error {
 	}
 
 	// Validate discovery mesh ID matches colony ID
-	if c.Discovery.Enabled && c.Discovery.MeshID != c.ColonyID {
+	if !c.Discovery.Disabled && c.Discovery.MeshID != c.ColonyID {
 		errors = append(errors, ValidationError{
 			Field:   "discovery.mesh_id",
 			Message: "mesh ID must match colony ID",

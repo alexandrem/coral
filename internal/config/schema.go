@@ -128,7 +128,7 @@ type WireGuardConfig struct {
 
 // DiscoveryColony contains colony-specific discovery settings.
 type DiscoveryColony struct {
-	Enabled          bool          `yaml:"enabled"`
+	Disabled         bool          `yaml:"disabled,omitempty"`
 	MeshID           string        `yaml:"mesh_id"` // Should match colony_id
 	AutoRegister     bool          `yaml:"auto_register"`
 	RegisterInterval time.Duration `yaml:"register_interval"`
@@ -434,7 +434,6 @@ type CPUProfilingConfig struct {
 type ResolvedConfig struct {
 	ColonyID        string
 	ColonySecret    string // Deprecated
-	JWTSigningKey   string
 	ApplicationName string
 	Environment     string
 	WireGuard       WireGuardConfig

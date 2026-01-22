@@ -29,6 +29,7 @@ type E2EOrchestratorSuite struct {
 	mcpTestsPassed       bool
 	mcpParityPassed      bool
 	publicEndpointPassed bool
+	discoveryAuthPassed  bool
 }
 
 // TestE2EOrchestrator runs all E2E tests in dependency order with fail-fast.
@@ -67,6 +68,7 @@ func (s *E2EOrchestratorSuite) TearDownSuite() {
 	s.T().Logf("  6. MCP Server:               %s", status(s.mcpTestsPassed))
 	s.T().Logf("  7. MCP/CLI Parity:           %s", status(s.mcpParityPassed))
 	s.T().Logf("  8. Public Endpoint:          %s", status(s.publicEndpointPassed))
+	s.T().Logf("  9. Discovery Auth:           %s", status(s.discoveryAuthPassed))
 	s.T().Log("==================================================")
 }
 
@@ -422,6 +424,32 @@ func (s *E2EOrchestratorSuite) Test8_PublicEndpoint() {
 		s.T().Log("✓ GROUP 8 PASSED - Public endpoint and auth working")
 	} else {
 		s.T().Log("✗ GROUP 8 FAILED")
+	}
+}
+
+// Test9_DiscoveryAuth runs discovery service authentication and JWKS tests.
+// Requires: Mesh Connectivity
+func (s *E2EOrchestratorSuite) Test9_DiscoveryAuth() {
+	s.T().Log("")
+	s.T().Log("========================================")
+	s.T().Log("GROUP 9: Discovery Auth")
+	s.T().Log("========================================")
+
+	// Run DiscoveryAuthSuite tests with shared fixture.
+	discoveryAuthSuite := &DiscoveryAuthSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	discoveryAuthSuite.SetT(s.T())
+	defer discoveryAuthSuite.TearDownTest()
+
+	s.Run("JWKSEndpoint", discoveryAuthSuite.TestJWKSEndpoint)
+	s.Run("DiscoveryAuthorizationFlow", discoveryAuthSuite.TestDiscoveryAuthorizationFlow)
+
+	if !s.T().Failed() {
+		s.discoveryAuthPassed = true
+		s.T().Log("✓ GROUP 9 PASSED - Discovery auth working")
+	} else {
+		s.T().Log("✗ GROUP 9 FAILED")
 	}
 }
 

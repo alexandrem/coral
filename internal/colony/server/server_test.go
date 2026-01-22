@@ -34,12 +34,11 @@ func newTestServer(t *testing.T, config Config) *Server {
 	caDir := filepath.Join(tmpDir, "ca")
 
 	// Initialize CA manager for testing (RFD 047).
-	jwtSigningKey := []byte("test-signing-key")
 	caManager, err := ca.NewManager(db.DB(), ca.Config{
-		ColonyID:      config.ColonyID,
-		CADir:         caDir,
-		JWTSigningKey: jwtSigningKey,
-		Logger:        logger,
+		ColonyID:   config.ColonyID,
+		CADir:      caDir,
+		JWKSClient: nil, // Validating tokens not needed for these tests
+		Logger:     logger,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test CA manager: %v", err)

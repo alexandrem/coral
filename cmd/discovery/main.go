@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
@@ -23,6 +21,7 @@ import (
 	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery"
+	"github.com/coral-mesh/coral/internal/discovery/keys"
 	"github.com/coral-mesh/coral/internal/discovery/registry"
 	"github.com/coral-mesh/coral/internal/discovery/server"
 	"github.com/coral-mesh/coral/internal/logging"
@@ -36,15 +35,13 @@ func main() {
 		ttlSeconds      = flag.Int("ttl", 300, "Registration TTL in seconds")
 		cleanupInterval = flag.Int("cleanup-interval", 60, "Cleanup interval in seconds")
 		logLevel        = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-		stunServersFlag = flag.String("stun-servers", "", "Comma-separated list of recommended fallback STUN servers returned to clients (e.g., stun.cloudflare.com:3478,stun.l.google.com:19302)")
-		jwtSigningKey   = flag.String("jwt-signing-key", "", "JWT signing key for referral tickets (base64 or hex encoded, min 32 bytes). Can also use CORAL_JWT_SIGNING_KEY env var or CORAL_JWT_SIGNING_KEY_FILE for file path")
+		stunServersFlag = flag.String("stun-servers", "", "Comma-separated list of recommended fallback STUN servers returned to clients")
+		keyStoragePath  = flag.String("key-storage", "discovery-keys.json", "Path to store JWK signing keys")
+		keyRotationDays = flag.Int("key-rotation-days", 30, "Key rotation period in days")
 	)
 	flag.Parse()
 
 	// Parse STUN servers from environment variable (overrides flag).
-	// These are recommended fallback STUN servers returned to clients during registration.
-	// Clients may ignore these and use their own configured STUN servers.
-	// Primary STUN mechanism is colony-based STUN (RFD 029), not public STUN servers.
 	stunServersEnv := os.Getenv("CORAL_STUN_SERVERS")
 	var stunServers []string
 	if stunServersEnv != "" {
@@ -83,14 +80,24 @@ func main() {
 	stopCh := make(chan struct{})
 	go reg.StartCleanup(time.Duration(*cleanupInterval)*time.Second, stopCh)
 
-	// Initialize token manager with JWT signing key.
-	signingKey, err := loadJWTSigningKey(*jwtSigningKey, logger)
+	// Initialize Key Manager
+	keyMgr, err := keys.NewManager(
+		*keyStoragePath,
+		time.Duration(*keyRotationDays)*24*time.Hour,
+		logger,
+	)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to load JWT signing key")
+		logger.Fatal().Err(err).Msg("Failed to initialize key manager")
 	}
+	logger.Info().
+		Str("storage_path", *keyStoragePath).
+		Int("rotation_days", *keyRotationDays).
+		Str("current_kid", keyMgr.CurrentKey().ID).
+		Msg("Initialized Key Manager")
 
+	// Initialize Token Manager with Key Manager
 	tokenMgr := discovery.NewTokenManager(discovery.TokenConfig{
-		SigningKey: signingKey,
+		KeyManager: keyMgr,
 	})
 
 	// Create server
@@ -103,6 +110,15 @@ func main() {
 	// Wrap handler with middleware to inject remote address
 	wrappedHandler := remoteAddrMiddleware(handler, logger)
 	mux.Handle(path, wrappedHandler)
+
+	// JWKS Endpoint
+	mux.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
+		jwks := keyMgr.GetJWKS()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(jwks); err != nil {
+			logger.Error().Err(err).Msg("Failed to encode JWKS")
+		}
+	})
 
 	// Add basic health endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -170,96 +186,4 @@ func remoteAddrMiddleware(next http.Handler, logger zerolog.Logger) http.Handler
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-// loadJWTSigningKey loads the JWT signing key from various sources.
-// Priority order: flag > CORAL_JWT_SIGNING_KEY env > CORAL_JWT_SIGNING_KEY_FILE env > auto-generate.
-func loadJWTSigningKey(flagValue string, logger zerolog.Logger) ([]byte, error) {
-	const minKeyLength = 32 // Minimum 256 bits for HS256.
-
-	// 1. Check command-line flag.
-	if flagValue != "" {
-		key, err := decodeKey(flagValue)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --jwt-signing-key: %w", err)
-		}
-		if len(key) < minKeyLength {
-			return nil, fmt.Errorf("JWT signing key too short: got %d bytes, need at least %d", len(key), minKeyLength)
-		}
-		logger.Info().Int("key_length", len(key)).Msg("Loaded JWT signing key from flag")
-		return key, nil
-	}
-
-	// 2. Check CORAL_JWT_SIGNING_KEY environment variable.
-	if envKey := os.Getenv("CORAL_JWT_SIGNING_KEY"); envKey != "" {
-		key, err := decodeKey(envKey)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CORAL_JWT_SIGNING_KEY: %w", err)
-		}
-		if len(key) < minKeyLength {
-			return nil, fmt.Errorf("JWT signing key too short: got %d bytes, need at least %d", len(key), minKeyLength)
-		}
-		logger.Info().Int("key_length", len(key)).Msg("Loaded JWT signing key from CORAL_JWT_SIGNING_KEY")
-		return key, nil
-	}
-
-	// 3. Check CORAL_JWT_SIGNING_KEY_FILE environment variable.
-	if keyFile := os.Getenv("CORAL_JWT_SIGNING_KEY_FILE"); keyFile != "" {
-		//nolint:gosec // G304: Path from environment variable for JWT key file.
-		data, err := os.ReadFile(keyFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read key file %s: %w", keyFile, err)
-		}
-		// Try to decode as base64/hex, otherwise use raw bytes.
-		key, err := decodeKey(strings.TrimSpace(string(data)))
-		if err != nil {
-			// Use raw bytes if not encoded.
-			key = data
-		}
-		if len(key) < minKeyLength {
-			return nil, fmt.Errorf("JWT signing key too short: got %d bytes, need at least %d", len(key), minKeyLength)
-		}
-		logger.Info().
-			Str("file", keyFile).
-			Int("key_length", len(key)).
-			Msg("Loaded JWT signing key from file")
-		return key, nil
-	}
-
-	// 4. Auto-generate key (development mode).
-	logger.Warn().Msg("No JWT signing key configured - generating random key (NOT RECOMMENDED FOR PRODUCTION)")
-	logger.Warn().Msg("Set CORAL_JWT_SIGNING_KEY or CORAL_JWT_SIGNING_KEY_FILE for production deployments")
-
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		return nil, fmt.Errorf("failed to generate random key: %w", err)
-	}
-
-	// Log the generated key so it can be saved for development.
-	logger.Info().
-		Str("generated_key_base64", base64.StdEncoding.EncodeToString(key)).
-		Msg("Generated JWT signing key (save this for consistent development)")
-
-	return key, nil
-}
-
-// decodeKey attempts to decode a key from base64 or hex format.
-func decodeKey(encoded string) ([]byte, error) {
-	// Try base64 first (more common for keys).
-	if key, err := base64.StdEncoding.DecodeString(encoded); err == nil && len(key) > 0 {
-		return key, nil
-	}
-	// Try base64 URL encoding.
-	if key, err := base64.URLEncoding.DecodeString(encoded); err == nil && len(key) > 0 {
-		return key, nil
-	}
-	// Try hex encoding.
-	if key, err := hex.DecodeString(encoded); err == nil && len(key) > 0 {
-		return key, nil
-	}
-	// Use raw string as bytes (for simple passwords, though not recommended).
-	if len(encoded) >= 32 {
-		return []byte(encoded), nil
-	}
-	return nil, fmt.Errorf("could not decode key (tried base64, hex) and raw string too short")
 }

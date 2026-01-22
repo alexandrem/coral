@@ -59,7 +59,6 @@ func DefaultColonyConfig(colonyID, appName, env string) *ColonyConfig {
 			PersistentKeepalive: constants.DefaultWireGuardKeepaliveSeconds,
 		},
 		Discovery: DiscoveryColony{
-			Enabled:          true,
 			MeshID:           colonyID, // mesh_id = colony_id
 			AutoRegister:     true,
 			RegisterInterval: constants.DefaultRegisterInterval,

@@ -7,12 +7,14 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"github.com/coral-mesh/coral/internal/discovery/keys"
 )
 
 // TokenManager handles referral ticket issuance for agent certificate enrollment.
 // Implements RFD 049 - Discovery-Based Agent Authorization.
 type TokenManager struct {
-	signingKey []byte
+	keyManager *keys.Manager
 	defaultTTL time.Duration
 	issuer     string
 	audience   string
@@ -20,7 +22,7 @@ type TokenManager struct {
 
 // TokenConfig contains token manager configuration.
 type TokenConfig struct {
-	SigningKey []byte
+	KeyManager *keys.Manager
 	DefaultTTL time.Duration
 	Issuer     string
 	Audience   string
@@ -39,7 +41,7 @@ func NewTokenManager(cfg TokenConfig) *TokenManager {
 	}
 
 	return &TokenManager{
-		signingKey: cfg.SigningKey,
+		keyManager: cfg.KeyManager,
 		defaultTTL: cfg.DefaultTTL,
 		issuer:     cfg.Issuer,
 		audience:   cfg.Audience,
@@ -61,6 +63,12 @@ func (tm *TokenManager) CreateReferralTicket(reefID, colonyID, agentID, intent s
 	now := time.Now()
 	expiresAt := now.Add(tm.defaultTTL)
 
+	// Get current signing key.
+	currentKey := tm.keyManager.CurrentKey()
+	if currentKey == nil {
+		return "", 0, fmt.Errorf("no active signing key available")
+	}
+
 	// Create JWT claims.
 	claims := &ReferralClaims{
 		ReefID:   reefID,
@@ -76,9 +84,11 @@ func (tm *TokenManager) CreateReferralTicket(reefID, colonyID, agentID, intent s
 		},
 	}
 
-	// Sign token.
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(tm.signingKey)
+	// Sign token with Ed25519.
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = currentKey.ID
+
+	tokenString, err := token.SignedString(currentKey.PrivateKey)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to sign token: %w", err)
 	}

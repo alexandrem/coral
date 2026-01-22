@@ -234,7 +234,7 @@ type DatabaseStorage struct {
 func NewDatabaseStorage(db *sql.DB, logger zerolog.Logger) *DatabaseStorage {
 	return &DatabaseStorage{
 		db:               db,
-		logger:           logger,
+		logger:           logger.With().Str("component", "ca_database").Logger(),
 		issuedCertsTable: duckdb.NewTable[IssuedCertificate](db, "issued_certificates"),
 		revocationsTable: duckdb.NewTable[Revocation](db, "certificate_revocations"),
 	}

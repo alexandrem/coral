@@ -45,9 +45,6 @@ func GetCAManager(colonyID string) (*ca.Manager, *sql.DB, *config.ResolvedConfig
 	colonyDir := resolver.GetLoader().ColonyDir(cfg.ColonyID)
 	caDir := filepath.Join(colonyDir, "ca")
 
-	// TODO: Generate a proper JWT signing key (this should be from config).
-	jwtSigningKey := []byte("temporary-signing-key-change-in-production")
-
 	// Create logger for CA operations.
 	logger := logging.New(logging.Config{
 		Level:  "info",
@@ -56,10 +53,10 @@ func GetCAManager(colonyID string) (*ca.Manager, *sql.DB, *config.ResolvedConfig
 
 	// Initialize CA manager.
 	manager, err := ca.NewManager(db, ca.Config{
-		ColonyID:      cfg.ColonyID,
-		CADir:         caDir,
-		JWTSigningKey: jwtSigningKey,
-		Logger:        logger,
+		ColonyID:   cfg.ColonyID,
+		CADir:      caDir,
+		JWKSClient: nil, // CLI helpers don't validate tickets
+		Logger:     logger,
 	})
 	if err != nil {
 		_ = db.Close()

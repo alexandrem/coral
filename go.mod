@@ -13,6 +13,7 @@ require (
 	github.com/kr/pty v1.1.8
 	github.com/marcboeker/go-duckdb v1.8.5
 	github.com/mark3labs/mcp-go v0.29.0
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pion/stun v0.6.1
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v4 v4.25.11

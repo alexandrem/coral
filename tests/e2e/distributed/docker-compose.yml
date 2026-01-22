@@ -23,9 +23,10 @@ services:
       start_period: 5s
     networks:
       - coral-e2e
-    environment:
-      # Shared secret for bootstrap token validation (must match colony)
-      - CORAL_JWT_SIGNING_KEY=dev-secret-key-must-be-32-bytes-long-1234
+
+    # No shared secret needed for Discovery (uses Ed25519 keys)
+    command:
+      - "--key-storage=/tmp/discovery-keys.json"
 
   # Colony - AI coordinator with DuckDB storage
   colony:
@@ -96,8 +97,6 @@ services:
       - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
       - CORAL_PUBLIC_ENDPOINT=colony:51820
       - CORAL_STORAGE_PATH=/var/lib/coral
-      # Shared secret for bootstrap token validation (must match discovery)
-      - CORAL_JWT_SIGNING_KEY=dev-secret-key-must-be-32-bytes-long-1234
     ports:
       - "9000:9000"
       - "8443:8443"
@@ -106,6 +105,12 @@ services:
     depends_on:
       discovery:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "coral", "colony", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     networks:
       - coral-e2e
     volumes:
@@ -153,6 +158,12 @@ services:
     privileged: true # Required for eBPF and WireGuard
     depends_on:
       - colony
+    healthcheck:
+      test: ["CMD", "coral", "agent", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     networks:
       - coral-e2e
     volumes:
@@ -200,6 +211,12 @@ services:
     privileged: true
     depends_on:
       - colony
+    healthcheck:
+      test: ["CMD", "coral", "agent", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     networks:
       - coral-e2e
     volumes:
@@ -272,6 +289,7 @@ networks:
 
 volumes:
   colony-data:
+  discovery-data:
   agent-0-data:
   agent-1-data:
   colony-shared: # Shared volume for colony ID

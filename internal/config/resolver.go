@@ -150,12 +150,8 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 		resolved.StoragePath = storagePath
 	}
 
-	// Resolve JWT signing key (RFD 049)
-	// Priority: CORAL_JWT_SIGNING_KEY > ColonySecret (deprecated fallback)
-	if jwtKey := os.Getenv("CORAL_JWT_SIGNING_KEY"); jwtKey != "" {
-		resolved.JWTSigningKey = jwtKey
-	} else {
-		resolved.JWTSigningKey = resolved.ColonySecret
+	if storagePath := os.Getenv("CORAL_STORAGE_PATH"); storagePath != "" {
+		resolved.StoragePath = storagePath
 	}
 
 	// Apply project config overrides

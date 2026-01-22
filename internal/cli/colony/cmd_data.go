@@ -140,8 +140,7 @@ Note: The colony's WireGuard public key will be retrieved from discovery service
 				ColonySecret: colonySecret,
 				CreatedAt:    time.Now(),
 				Discovery: config.DiscoveryColony{
-					Enabled: true,
-					MeshID:  colonyID,
+					MeshID: colonyID,
 				},
 			}
 

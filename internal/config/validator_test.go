@@ -249,8 +249,7 @@ func TestColonyConfig_Validate(t *testing.T) {
 					DashboardPort: 3000,
 				},
 				Discovery: DiscoveryColony{
-					Enabled: true,
-					MeshID:  "different-id",
+					MeshID: "different-id",
 				},
 			},
 			wantErr: true,

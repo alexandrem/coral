@@ -262,7 +262,7 @@ Examples:
 
 			// Create and start registration manager for continuous auto-registration.
 			regConfig := registration.Config{
-				Enabled:           colonyConfig.Discovery.Enabled,
+				Enabled:           !colonyConfig.Discovery.Disabled,
 				AutoRegister:      colonyConfig.Discovery.AutoRegister,
 				RegisterInterval:  colonyConfig.Discovery.RegisterInterval,
 				MeshID:            cfg.ColonyID,
