@@ -35,10 +35,11 @@ import (
 // TLS configuration priority:
 //  1. CORAL_INSECURE=true env var (skip TLS verification)
 //  2. CORAL_CA_FILE env var (path to CA certificate)
-//  3. Colony config remote.insecure_skip_tls_verify
-//  4. Colony config remote.certificate_authority_data (base64)
-//  5. Colony config remote.certificate_authority (file path)
-//  6. System CA pool (default)
+//  3. CORAL_CA_DATA env var (base64-encoded CA certificate)
+//  4. Colony config remote.insecure_skip_tls_verify
+//  5. Colony config remote.certificate_authority_data (base64)
+//  6. Colony config remote.certificate_authority (file path)
+//  7. System CA pool (default)
 
 // GetColonyURL returns the colony URL using config resolution.
 // Priority: CORAL_COLONY_ENDPOINT env var > remote.endpoint config > localhost:{connectPort}.
@@ -182,17 +183,27 @@ func buildTLSConfig(colonyConfig *config.ColonyConfig) (*tls.Config, error) {
 		return tlsConfig, nil
 	}
 
-	// 3. Check colony config for TLS settings.
+	// 3. Check CORAL_CA_DATA env var (base64-encoded).
+	if caData := os.Getenv("CORAL_CA_DATA"); caData != "" {
+		certPool, err := loadCACertFromData(caData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load CA from CORAL_CA_DATA: %w", err)
+		}
+		tlsConfig.RootCAs = certPool
+		return tlsConfig, nil
+	}
+
+	// 4-6. Check colony config for TLS settings.
 	if colonyConfig != nil {
 		remote := colonyConfig.Remote
 
-		// Check insecure flag in config.
+		// 4. Check insecure flag in config.
 		if remote.InsecureSkipTLSVerify {
 			tlsConfig.InsecureSkipVerify = true
 			return tlsConfig, nil
 		}
 
-		// Check for CA data (base64-encoded, takes precedence).
+		// 5. Check for CA data (base64-encoded, takes precedence).
 		if remote.CertificateAuthorityData != "" {
 			caCert, err := base64.StdEncoding.DecodeString(remote.CertificateAuthorityData)
 			if err != nil {
@@ -212,7 +223,7 @@ func buildTLSConfig(colonyConfig *config.ColonyConfig) (*tls.Config, error) {
 			return tlsConfig, nil
 		}
 
-		// Check for CA file path in config.
+		// 6. Check for CA file path in config.
 		if remote.CertificateAuthority != "" {
 			caPath := expandPath(remote.CertificateAuthority)
 			caCert, err := os.ReadFile(caPath) // #nosec G304 - path from config
@@ -234,7 +245,7 @@ func buildTLSConfig(colonyConfig *config.ColonyConfig) (*tls.Config, error) {
 		}
 	}
 
-	// 4. Use system CA pool (default).
+	// 7. Use system CA pool (default).
 	return tlsConfig, nil
 }
 
