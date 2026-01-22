@@ -6,6 +6,7 @@ package debug
 import (
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/rs/zerolog"
 
@@ -16,6 +17,7 @@ import (
 type KernelSymbolizer struct {
 	symbols []proc.KernelSymbol // Sorted by address for binary search
 	cache   map[uint64]string   // Address -> symbol name cache
+	mu      sync.RWMutex
 	logger  zerolog.Logger
 }
 
@@ -61,9 +63,12 @@ func NewKernelSymbolizer(logger zerolog.Logger) (*KernelSymbolizer, error) {
 // Uses binary search on the sorted symbol list.
 func (k *KernelSymbolizer) Resolve(addr uint64) string {
 	// Check cache first
+	k.mu.RLock()
 	if sym, ok := k.cache[addr]; ok {
+		k.mu.RUnlock()
 		return sym
 	}
+	k.mu.RUnlock()
 
 	// Binary search to find the symbol containing this address
 	// Find the largest symbol address <= addr
@@ -86,7 +91,9 @@ func (k *KernelSymbolizer) Resolve(addr uint64) string {
 	}
 
 	// Cache the result
+	k.mu.Lock()
 	k.cache[addr] = result
+	k.mu.Unlock()
 
 	return result
 }
