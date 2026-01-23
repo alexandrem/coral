@@ -59,21 +59,29 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 	coralBin := getCoralBinaryPath()
 	cmd := exec.CommandContext(ctx, coralBin, args...)
 
-	// Start with current environment
-	cmd.Env = os.Environ()
+	// Create a map of override keys for efficient lookup.
+	overrideKeys := make(map[string]bool)
+	for key := range env {
+		overrideKeys[key] = true
+	}
 
-	// Add custom environment variables
+	// Add custom environment variables (these take precedence).
 	for key, value := range env {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 
-	// Ensure the directory containing the coral binary is in PATH
-	// This is required for commands that spawn subprocesses using "coral" (e.g. ask)
+	// Add current HOME unless it's overridden.
+	if _, exists := overrideKeys["HOME"]; !exists {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("HOME=%s", os.Getenv("HOME")))
+	}
+
+	// Ensure the directory containing the coral binary is in PATH.
+	// This is required for commands that spawn subprocesses using "coral" (e.g. ask).
 	coralDir := filepath.Dir(coralBin)
 	pathVar := "PATH"
-	currentPath := os.Getenv(pathVar)
-	newPath := fmt.Sprintf("%s%c%s", coralDir, os.PathListSeparator, currentPath)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", pathVar, newPath))
+	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", pathVar, coralDir))
+
+	// fmt.Println(cmd.Env)
 
 	output, err := cmd.CombinedOutput()
 

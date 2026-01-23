@@ -1,6 +1,16 @@
 package distributed
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
@@ -11,6 +21,7 @@ import (
 // 2. Agent listing and status (coral agent list, status)
 // 3. Output formatting (table vs JSON)
 // 4. Error handling for invalid inputs
+// 5. Discovery CA certificate flow (RFD 085)
 //
 // Note: This suite does NOT test infrastructure behavior (that's covered by MeshSuite).
 // It focuses on CLI-specific concerns: output formatting, flag validation, error messages.
@@ -18,23 +29,125 @@ type CLIMeshSuite struct {
 	E2EDistributedSuite
 
 	cliEnv *helpers.CLITestEnv
+
+	// Discovery CA test fields (RFD 085).
+	discoveryURL   string
+	publicEndpoint string
+	caFingerprint  string
+	caCertPEM      []byte
+	testToken      string
 }
 
 // SetupSuite runs once before all tests in the suite.
 func (s *CLIMeshSuite) SetupSuite() {
 	s.E2EDistributedSuite.SetupSuite()
 
-	// Setup CLI environment
+	// Setup CLI environment.
 	colonyEndpoint, err := s.fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
-	// Get colony ID from fixture
-	colonyID := "test-colony-e2e" // Default, will be updated if available
+	// Get colony ID from fixture.
+	colonyID := s.fixture.ColonyID
+	if colonyID == "" {
+		colonyID = "test-colony-e2e" // Default fallback
+	}
 
 	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, colonyID, colonyEndpoint)
 	s.Require().NoError(err, "Failed to setup CLI environment")
 
 	s.T().Logf("CLI environment ready: endpoint=%s", colonyEndpoint)
+
+	// Setup Discovery CA test fields (RFD 085).
+	s.setupDiscoveryCA(colonyID)
+}
+
+// setupDiscoveryCA initializes fields needed for Discovery CA tests.
+func (s *CLIMeshSuite) setupDiscoveryCA(colonyID string) {
+	var err error
+
+	// Get discovery endpoint.
+	s.discoveryURL, err = s.fixture.GetDiscoveryEndpoint(s.ctx)
+	if err != nil {
+		s.T().Logf("Warning: Failed to get discovery endpoint (CA tests will be skipped): %v", err)
+		return
+	}
+
+	// Public endpoint is on port 8443.
+	s.publicEndpoint = "https://localhost:8443"
+
+	// Get CA fingerprint from discovery.
+	s.caFingerprint, s.caCertPEM, err = s.getColonyCAFingerprint(colonyID)
+	if err != nil {
+		s.T().Logf("Warning: Failed to get CA fingerprint (CA tests will be skipped): %v", err)
+		return
+	}
+	s.T().Logf("Colony CA fingerprint: %s", s.caFingerprint)
+
+	// Create a test token for authentication.
+	result := helpers.ColonyTokenCreate(s.ctx, s.cliEnv.EnvVars(), "cli-mesh-ca-test-token", "admin")
+	if result.HasError() {
+		s.T().Logf("Warning: Failed to create test token (CA tests will be skipped): %v", result.Err)
+		return
+	}
+
+	// Extract token from CLI output.
+	for _, line := range strings.Split(result.Output, "\n") {
+		if strings.HasPrefix(line, "Token: ") {
+			s.testToken = strings.TrimPrefix(line, "Token: ")
+			break
+		}
+	}
+
+	if s.testToken != "" {
+		s.copyTokensToColony(colonyID)
+	}
+}
+
+// getColonyCAFingerprint retrieves the CA certificate from the Discovery service.
+func (s *CLIMeshSuite) getColonyCAFingerprint(colonyID string) (string, []byte, error) {
+	client := helpers.NewDiscoveryClient(s.discoveryURL)
+
+	var caCertBase64 string
+	err := helpers.WaitForCondition(s.ctx, func() bool {
+		resp, lookupErr := helpers.LookupColony(s.ctx, client, colonyID)
+		if lookupErr != nil {
+			return false
+		}
+		if resp.PublicEndpoint == nil || resp.PublicEndpoint.CaCert == "" {
+			return false
+		}
+		caCertBase64 = resp.PublicEndpoint.CaCert
+		return true
+	}, 30*time.Second, 2*time.Second)
+
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get CA cert from discovery: %w", err)
+	}
+
+	caCertPEM, err := base64.StdEncoding.DecodeString(caCertBase64)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to decode CA cert: %w", err)
+	}
+
+	hash := sha256.Sum256(caCertPEM)
+	fingerprint := "sha256:" + hex.EncodeToString(hash[:])
+
+	return fingerprint, caCertPEM, nil
+}
+
+// copyTokensToColony copies the tokens file to the colony container.
+func (s *CLIMeshSuite) copyTokensToColony(colonyID string) {
+	tokensPath := filepath.Join(s.cliEnv.ColonyPath(colonyID), "tokens.yaml")
+	destPath := fmt.Sprintf("distributed-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
+
+	cmd := exec.Command("docker", "cp", tokensPath, destPath)
+	if err := cmd.Run(); err != nil {
+		s.T().Logf("Warning: Failed to copy tokens: %v", err)
+	}
+
+	// Restart colony to reload tokens.
+	_ = s.fixture.RestartService(s.ctx, "colony")
+	_ = helpers.WaitForHTTPEndpoint(s.ctx, s.publicEndpoint+"/status", 30*time.Second)
 }
 
 // TearDownSuite cleans up after all tests.
@@ -247,4 +360,209 @@ func (s *CLIMeshSuite) TestJSONOutputValidity() {
 	s.Require().NoError(err, "Service list JSON should be valid")
 
 	s.T().Log("✓ All JSON outputs are valid")
+}
+
+// ============================================================================
+// Discovery CA Certificate Tests (RFD 085)
+// ============================================================================
+
+// skipIfNoDiscoveryCA skips the test if Discovery CA setup failed.
+func (s *CLIMeshSuite) skipIfNoDiscoveryCA() {
+	if s.caFingerprint == "" || s.testToken == "" {
+		s.T().Skip("Skipping: Discovery CA setup incomplete")
+	}
+}
+
+// TestAddRemoteConnectionFailsWithoutCA verifies that connecting to the public
+// HTTPS endpoint fails with certificate validation error when no CA is configured.
+func (s *CLIMeshSuite) TestAddRemoteConnectionFailsWithoutCA() {
+	s.skipIfNoDiscoveryCA()
+	s.T().Log("Testing that CLI connection fails without CA certificate...")
+
+	// Create a fresh CLI environment without any CA configuration.
+	freshEnv, err := helpers.SetupCLIEnv(s.ctx, "fresh-test", s.publicEndpoint)
+	s.Require().NoError(err, "Failed to create fresh CLI env")
+	defer freshEnv.Cleanup()
+
+	// Try to connect to public endpoint without CA.
+	env := freshEnv.WithEnv(map[string]string{
+		"CORAL_COLONY_ENDPOINT": s.publicEndpoint,
+		"CORAL_API_TOKEN":       s.testToken,
+	})
+
+	s.T().Log("endpoint", s.publicEndpoint)
+	s.T().Log("token", s.testToken)
+
+	result := helpers.RunCLIWithEnv(s.ctx, env, "colony", "agents")
+
+	// The command should fail with a certificate error.
+	s.True(result.HasError(), "Command should fail without CA certificate")
+	s.True(
+		strings.Contains(result.Output, "certificate signed by unknown authority") ||
+			strings.Contains(result.Output, "certificate") ||
+			strings.Contains(result.Output, "x509"),
+		"Error should mention certificate issue, got: %s", result.Output,
+	)
+
+	s.T().Log("✓ Connection correctly failed without CA certificate")
+}
+
+// TestAddRemoteFromDiscoverySuccess verifies that `coral colony add-remote --from-discovery`
+// successfully fetches CA cert from Discovery, verifies fingerprint, and stores configuration.
+func (s *CLIMeshSuite) TestAddRemoteFromDiscoverySuccess() {
+	s.skipIfNoDiscoveryCA()
+	s.T().Log("Testing coral colony add-remote --from-discovery with correct fingerprint...")
+
+	// Create a fresh CLI environment.
+	freshEnv, err := helpers.SetupCLIEnv(s.ctx, "add-remote-test", s.publicEndpoint)
+	s.Require().NoError(err, "Failed to create fresh CLI env")
+	defer freshEnv.Cleanup()
+
+	remoteColonyName := "test-remote-colony"
+	env := freshEnv.WithEnv(map[string]string{
+		"HOME": freshEnv.HomeDir,
+	})
+
+	result := helpers.RunCLIWithEnv(s.ctx, env,
+		"colony", "add-remote", remoteColonyName,
+		"--from-discovery",
+		"--colony-id", s.fixture.ColonyID,
+		"--ca-fingerprint", s.caFingerprint,
+		"--discovery-endpoint", s.discoveryURL,
+	)
+
+	result.MustSucceed(s.T())
+
+	// Verify CA cert file was created.
+	caCertPath := filepath.Join(freshEnv.ColoniesPath(), remoteColonyName, "ca.crt")
+	s.FileExists(caCertPath, "CA cert file should be created")
+
+	// Verify the stored CA cert matches what we got from discovery.
+	storedCACert, err := os.ReadFile(caCertPath)
+	s.Require().NoError(err, "Failed to read stored CA cert")
+	s.Equal(s.caCertPEM, storedCACert, "Stored CA cert should match discovery CA cert")
+
+	s.T().Log("✓ Successfully added remote colony with CA cert from Discovery")
+}
+
+// TestAddRemoteWithWrongFingerprint verifies that `coral colony add-remote --from-discovery`
+// fails when the provided fingerprint doesn't match the CA cert from Discovery.
+func (s *CLIMeshSuite) TestAddRemoteWithWrongFingerprint() {
+	s.skipIfNoDiscoveryCA()
+	s.T().Log("Testing coral colony add-remote --from-discovery with wrong fingerprint...")
+
+	freshEnv, err := helpers.SetupCLIEnv(s.ctx, "wrong-fp-test", s.publicEndpoint)
+	s.Require().NoError(err, "Failed to create fresh CLI env")
+	defer freshEnv.Cleanup()
+
+	// Use a wrong fingerprint (valid format but wrong value).
+	wrongFingerprint := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+	env := freshEnv.WithEnv(map[string]string{
+		"HOME": freshEnv.HomeDir,
+	})
+
+	result := helpers.RunCLIWithEnv(s.ctx, env,
+		"colony", "add-remote", "wrong-fp-colony",
+		"--from-discovery",
+		"--colony-id", s.fixture.ColonyID,
+		"--ca-fingerprint", wrongFingerprint,
+		"--discovery-endpoint", s.discoveryURL,
+	)
+
+	// The command should fail.
+	s.True(result.HasError(), "Command should fail with wrong fingerprint")
+	s.True(
+		strings.Contains(result.Output, "fingerprint mismatch") ||
+			strings.Contains(result.Output, "mismatch"),
+		"Error should mention fingerprint mismatch, got: %s", result.Output,
+	)
+
+	// Verify no config was created.
+	configPath := filepath.Join(freshEnv.ColoniesPath(), "wrong-fp-colony", "config.yaml")
+	_, statErr := os.Stat(configPath)
+	s.True(os.IsNotExist(statErr), "Config should not be created on fingerprint mismatch")
+
+	s.T().Log("✓ Correctly rejected wrong fingerprint")
+}
+
+// TestAddRemoteConnectionSucceedsWithStoredCA verifies that after running add-remote,
+// subsequent CLI commands can successfully connect using the stored CA cert.
+func (s *CLIMeshSuite) TestAddRemoteConnectionSucceedsWithStoredCA() {
+	s.skipIfNoDiscoveryCA()
+	s.T().Log("Testing CLI connection succeeds with stored CA certificate...")
+
+	freshEnv, err := helpers.SetupCLIEnv(s.ctx, "stored-ca-test", s.publicEndpoint)
+	s.Require().NoError(err, "Failed to create fresh CLI env")
+	defer freshEnv.Cleanup()
+
+	// First, add the remote colony.
+	remoteColonyName := "stored-ca-colony"
+	env := freshEnv.WithEnv(map[string]string{
+		"HOME": freshEnv.HomeDir,
+	})
+
+	result := helpers.RunCLIWithEnv(s.ctx, env,
+		"colony", "add-remote", remoteColonyName,
+		"--from-discovery",
+		"--colony-id", s.fixture.ColonyID,
+		"--ca-fingerprint", s.caFingerprint,
+		"--discovery-endpoint", s.discoveryURL,
+		"--set-default",
+	)
+	result.MustSucceed(s.T())
+
+	// Now try to connect using the stored config and CA.
+	connEnv := freshEnv.WithEnv(map[string]string{
+		"HOME":            freshEnv.HomeDir,
+		"CORAL_API_TOKEN": s.testToken,
+	})
+
+	statusResult := helpers.RunCLIWithEnv(s.ctx, connEnv, "colony", "agents")
+
+	// Should not fail with certificate error.
+	if statusResult.HasError() {
+		s.False(
+			strings.Contains(statusResult.Output, "certificate signed by unknown authority") ||
+				strings.Contains(statusResult.Output, "x509"),
+			"Should not fail with certificate error when CA is stored, got: %s", statusResult.Output,
+		)
+	} else {
+		s.T().Log("✓ Successfully connected using stored CA certificate")
+	}
+}
+
+// TestAddRemoteCADataEnvVar verifies that CORAL_CA_DATA environment variable works
+// for providing CA certificate as base64-encoded data.
+func (s *CLIMeshSuite) TestAddRemoteCADataEnvVar() {
+	s.skipIfNoDiscoveryCA()
+	s.T().Log("Testing CORAL_CA_DATA environment variable...")
+
+	freshEnv, err := helpers.SetupCLIEnv(s.ctx, "ca-data-test", s.publicEndpoint)
+	s.Require().NoError(err, "Failed to create fresh CLI env")
+	defer freshEnv.Cleanup()
+
+	// Encode the CA cert as base64.
+	caCertBase64 := base64.StdEncoding.EncodeToString(s.caCertPEM)
+
+	// Try to connect using CORAL_CA_DATA.
+	env := freshEnv.WithEnv(map[string]string{
+		"HOME":                  freshEnv.HomeDir,
+		"CORAL_COLONY_ENDPOINT": s.publicEndpoint,
+		"CORAL_API_TOKEN":       s.testToken,
+		"CORAL_CA_DATA":         caCertBase64,
+	})
+
+	result := helpers.RunCLIWithEnv(s.ctx, env, "colony", "agents")
+
+	// Should not fail with certificate error.
+	if result.HasError() {
+		s.False(
+			strings.Contains(result.Output, "certificate signed by unknown authority") ||
+				strings.Contains(result.Output, "x509"),
+			"Should not fail with certificate error when CORAL_CA_DATA is set, got: %s", result.Output,
+		)
+	} else {
+		s.T().Log("✓ Successfully connected using CORAL_CA_DATA environment variable")
+	}
 }

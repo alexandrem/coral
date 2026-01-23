@@ -300,6 +300,13 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_AskWithTools", cliAskSuite.TestAskWithTools)
 	s.Run("CLI_AskContinuation", cliAskSuite.TestAskContinuation)
 
+	// Discovery CA tests (RFD 085) - using CLIMeshSuite.
+	s.Run("CLI_AddRemoteConnectionFailsWithoutCA", cliMeshSuite.TestAddRemoteConnectionFailsWithoutCA)
+	s.Run("CLI_AddRemoteFromDiscoverySuccess", cliMeshSuite.TestAddRemoteFromDiscoverySuccess)
+	s.Run("CLI_AddRemoteWithWrongFingerprint", cliMeshSuite.TestAddRemoteWithWrongFingerprint)
+	s.Run("CLI_AddRemoteConnectionSucceedsWithStoredCA", cliMeshSuite.TestAddRemoteConnectionSucceedsWithStoredCA)
+	s.Run("CLI_AddRemoteCADataEnvVar", cliMeshSuite.TestAddRemoteCADataEnvVar)
+
 	if !s.T().Failed() {
 		s.cliCommandsPassed = true
 		s.T().Log("✓ GROUP 5 PASSED - CLI commands working")
