@@ -58,6 +58,20 @@ func (s ResolutionSource) String() string {
 	}
 }
 
+// Description returns a user-friendly description of the resolution source.
+func (s ResolutionSource) Description() string {
+	switch s.Type {
+	case "env":
+		return fmt.Sprintf("environment variable %s", s.Path)
+	case "project":
+		return fmt.Sprintf("project config at %s", s.Path)
+	case "global":
+		return fmt.Sprintf("global config at %s", s.Path)
+	default:
+		return "unknown source"
+	}
+}
+
 // ResolveColonyID determines which colony to use.
 // Priority: CORAL_COLONY_ID env var > project config > global default > error
 func (r *Resolver) ResolveColonyID() (string, error) {

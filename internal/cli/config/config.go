@@ -287,6 +287,29 @@ func runUseContext(colonyID string) error {
 
 	fmt.Printf("Default colony set to: %s\n", colonyID)
 
+	// Check if higher-priority config will override this setting.
+	resolver, err := config.NewResolver()
+	if err != nil {
+		return nil // Don't fail, just skip the warning
+	}
+
+	effectiveID, source, err := resolver.ResolveWithSource()
+	if err != nil {
+		return nil // Don't fail, just skip the warning
+	}
+
+	// Warn if the effective colony differs from what was just set.
+	if effectiveID != colonyID {
+		fmt.Println()
+		fmt.Printf("⚠ Note: %s overrides the global default.\n", source.Description())
+		fmt.Printf("  Current effective colony: %s\n", effectiveID)
+		if source.Type == "env" {
+			fmt.Printf("  To use global default, unset %s\n", source.Path)
+		} else if source.Type == "project" {
+			fmt.Printf("  To use global default, remove or update %s\n", source.Path)
+		}
+	}
+
 	return nil
 }
 
