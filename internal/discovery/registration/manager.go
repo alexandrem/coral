@@ -56,6 +56,10 @@ type Config struct {
 
 	// ObservedEndpoint is the colony's observed public endpoint from STUN.
 	ObservedEndpoint interface{} // *discoveryv1.Endpoint (avoiding import cycle)
+
+	// PublicEndpoint contains public HTTPS endpoint info for CLI access (RFD 085).
+	// This includes CA certificate and fingerprint for CLI users to verify.
+	PublicEndpoint interface{} // *discoveryv1.PublicEndpointInfo (avoiding import cycle)
 }
 
 // Manager handles continuous registration and reconnection.
@@ -223,10 +227,16 @@ func (m *Manager) register(ctx context.Context) error {
 	regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer regCancel()
 
-	// Convert observed endpoint (avoid import cycle by using interface{})
+	// Convert observed endpoint (avoid import cycle by using interface{}).
 	var observedEndpoint interface{}
 	if m.config.ObservedEndpoint != nil {
 		observedEndpoint = m.config.ObservedEndpoint
+	}
+
+	// Convert public endpoint (RFD 085).
+	var publicEndpoint interface{}
+	if m.config.PublicEndpoint != nil {
+		publicEndpoint = m.config.PublicEndpoint
 	}
 
 	req := &client.RegisterColonyRequest{
@@ -239,6 +249,7 @@ func (m *Manager) register(ctx context.Context) error {
 		PublicPort:       m.config.PublicPort,
 		Metadata:         m.config.Metadata,
 		ObservedEndpoint: observedEndpoint,
+		PublicEndpoint:   publicEndpoint,
 	}
 
 	m.logger.Debug().

@@ -330,6 +330,8 @@ Similar to kubectl's cluster configuration in kubeconfig.
 | `remote.certificate_authority`      | string | -       | Path to CA certificate file for TLS verification    |
 | `remote.certificate_authority_data` | string | -       | Base64-encoded CA certificate (takes precedence)    |
 | `remote.insecure_skip_tls_verify`   | bool   | `false` | Skip TLS verification (testing only, never in prod) |
+| `remote.ca_fingerprint.algorithm`   | string | -       | CA fingerprint hash algorithm (e.g., `sha256`)      |
+| `remote.ca_fingerprint.value`       | string | -       | Hex-encoded CA fingerprint for continuous verification (RFD 085) |
 
 **Example - Remote Colony with CA Certificate:**
 
@@ -907,6 +909,7 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 | `CORAL_COLONY_ENDPOINT` | Explicit colony endpoint URL (e.g., `https://colony.example.com:8443`) |
 | `CORAL_API_TOKEN`       | API token for authenticating to the public endpoint (RFD 031)          |
 | `CORAL_CA_FILE`         | Path to CA certificate file for TLS verification                       |
+| `CORAL_CA_DATA`         | Base64-encoded CA certificate for TLS verification                     |
 | `CORAL_INSECURE`        | Skip TLS verification (`true` or `1`) - testing only, never in prod    |
 | `CORAL_COLONY_ID`       | Override default colony ID                                             |
 
@@ -1372,6 +1375,12 @@ export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
 export CORAL_API_TOKEN=cpt_abc123...
 export CORAL_CA_FILE=~/.coral/ca/prod-ca.crt
 coral colony status
+
+# With base64-encoded CA (useful for CI/CD)
+export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
+export CORAL_API_TOKEN=cpt_abc123...
+export CORAL_CA_DATA=$(base64 < ~/.coral/ca/prod-ca.crt)
+coral colony status
 ```
 
 **Using the Config File:**
@@ -1391,16 +1400,34 @@ coral query summary
 Colony administrators can provide connection details that users import:
 
 ```bash
-# Import remote colony configuration
+# Using Discovery Mode (Recommended - RFD 085)
+# Get colony-id and ca-fingerprint from colony owner (coral colony export)
+coral colony add-remote prod-remote \
+    --from-discovery \
+    --colony-id my-app-prod-a3f2e1 \
+    --ca-fingerprint sha256:e3b0c44298fc1c149afbf4c8996fb924...
+
+# With custom Discovery endpoint
+coral colony add-remote prod-remote \
+    --from-discovery \
+    --colony-id my-app-prod-a3f2e1 \
+    --ca-fingerprint sha256:e3b0c44298fc1c149afbf4c8996fb924... \
+    --discovery-endpoint https://discovery.internal:8080
+
+# Manual mode: with CA certificate file
 coral colony add-remote prod-remote \
     --endpoint https://colony.example.com:8443 \
     --ca-file ./colony-ca.crt
 
-# Or with insecure mode for testing
+# Manual mode: with insecure (testing only)
 coral colony add-remote dev-remote \
     --endpoint https://dev-colony:8443 \
     --insecure
 ```
+
+The `--from-discovery` mode provides TOFU (Trust On First Use) security: the CA
+fingerprint is verified against the certificate received from Discovery Service,
+ensuring you're connecting to the authentic colony.
 
 ### Example 9: AI-Powered Diagnostics with Coral Ask
 

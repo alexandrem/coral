@@ -76,6 +76,53 @@ func (NatHint) EnumDescriptor() ([]byte, []int) {
 	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{0}
 }
 
+// Algorithm used for certificate fingerprint computation.
+type FingerprintAlgorithm int32
+
+const (
+	FingerprintAlgorithm_FINGERPRINT_ALGORITHM_UNSPECIFIED FingerprintAlgorithm = 0
+	FingerprintAlgorithm_FINGERPRINT_ALGORITHM_SHA256      FingerprintAlgorithm = 1
+)
+
+// Enum value maps for FingerprintAlgorithm.
+var (
+	FingerprintAlgorithm_name = map[int32]string{
+		0: "FINGERPRINT_ALGORITHM_UNSPECIFIED",
+		1: "FINGERPRINT_ALGORITHM_SHA256",
+	}
+	FingerprintAlgorithm_value = map[string]int32{
+		"FINGERPRINT_ALGORITHM_UNSPECIFIED": 0,
+		"FINGERPRINT_ALGORITHM_SHA256":      1,
+	}
+)
+
+func (x FingerprintAlgorithm) Enum() *FingerprintAlgorithm {
+	p := new(FingerprintAlgorithm)
+	*p = x
+	return p
+}
+
+func (x FingerprintAlgorithm) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FingerprintAlgorithm) Descriptor() protoreflect.EnumDescriptor {
+	return file_coral_discovery_v1_discovery_proto_enumTypes[1].Descriptor()
+}
+
+func (FingerprintAlgorithm) Type() protoreflect.EnumType {
+	return &file_coral_discovery_v1_discovery_proto_enumTypes[1]
+}
+
+func (x FingerprintAlgorithm) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FingerprintAlgorithm.Descriptor instead.
+func (FingerprintAlgorithm) EnumDescriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{1}
+}
+
 // Registration request
 type RegisterColonyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -96,9 +143,11 @@ type RegisterColonyRequest struct {
 	// Observed endpoint from external STUN server (optional)
 	ObservedEndpoint *Endpoint `protobuf:"bytes,8,opt,name=observed_endpoint,json=observedEndpoint,proto3" json:"observed_endpoint,omitempty"`
 	// Public HTTPS port for bootstrap and remote access (e.g., 8443).
-	PublicPort    uint32 `protobuf:"varint,9,opt,name=public_port,json=publicPort,proto3" json:"public_port,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PublicPort uint32 `protobuf:"varint,9,opt,name=public_port,json=publicPort,proto3" json:"public_port,omitempty"`
+	// Public HTTPS endpoint information for CLI access (RFD 085).
+	PublicEndpoint *PublicEndpointInfo `protobuf:"bytes,10,opt,name=public_endpoint,json=publicEndpoint,proto3" json:"public_endpoint,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RegisterColonyRequest) Reset() {
@@ -192,6 +241,13 @@ func (x *RegisterColonyRequest) GetPublicPort() uint32 {
 		return x.PublicPort
 	}
 	return 0
+}
+
+func (x *RegisterColonyRequest) GetPublicEndpoint() *PublicEndpointInfo {
+	if x != nil {
+		return x.PublicEndpoint
+	}
+	return nil
 }
 
 type RegisterColonyResponse struct {
@@ -348,9 +404,11 @@ type LookupColonyResponse struct {
 	// Available relay options for fallback
 	Relays []*RelayOption `protobuf:"bytes,11,rep,name=relays,proto3" json:"relays,omitempty"`
 	// Public HTTPS port for bootstrap and remote access (e.g., 8443).
-	PublicPort    uint32 `protobuf:"varint,12,opt,name=public_port,json=publicPort,proto3" json:"public_port,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PublicPort uint32 `protobuf:"varint,12,opt,name=public_port,json=publicPort,proto3" json:"public_port,omitempty"`
+	// Public HTTPS endpoint information for CLI access (RFD 085).
+	PublicEndpoint *PublicEndpointInfo `protobuf:"bytes,13,opt,name=public_endpoint,json=publicEndpoint,proto3" json:"public_endpoint,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *LookupColonyResponse) Reset() {
@@ -465,6 +523,13 @@ func (x *LookupColonyResponse) GetPublicPort() uint32 {
 		return x.PublicPort
 	}
 	return 0
+}
+
+func (x *LookupColonyResponse) GetPublicEndpoint() *PublicEndpointInfo {
+	if x != nil {
+		return x.PublicEndpoint
+	}
+	return nil
 }
 
 // Health check
@@ -1290,6 +1355,145 @@ func (x *LookupAgentResponse) GetLastSeen() *timestamppb.Timestamp {
 	return nil
 }
 
+// Public endpoint information for non-WireGuard CLI access (RFD 085).
+type PublicEndpointInfo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether the public endpoint is enabled and advertised.
+	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// Public HTTPS endpoint URL (e.g., "https://colony.example.com:8443").
+	Url string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	// CA certificate for TLS verification (PEM-encoded, then base64).
+	// Clients use this to verify the colony's TLS certificate.
+	CaCert string `protobuf:"bytes,3,opt,name=ca_cert,json=caCert,proto3" json:"ca_cert,omitempty"`
+	// CA certificate fingerprint for TOFU verification.
+	CaFingerprint *CertificateFingerprint `protobuf:"bytes,4,opt,name=ca_fingerprint,json=caFingerprint,proto3" json:"ca_fingerprint,omitempty"`
+	// When the public endpoint info was last updated.
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublicEndpointInfo) Reset() {
+	*x = PublicEndpointInfo{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublicEndpointInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublicEndpointInfo) ProtoMessage() {}
+
+func (x *PublicEndpointInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublicEndpointInfo.ProtoReflect.Descriptor instead.
+func (*PublicEndpointInfo) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *PublicEndpointInfo) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *PublicEndpointInfo) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *PublicEndpointInfo) GetCaCert() string {
+	if x != nil {
+		return x.CaCert
+	}
+	return ""
+}
+
+func (x *PublicEndpointInfo) GetCaFingerprint() *CertificateFingerprint {
+	if x != nil {
+		return x.CaFingerprint
+	}
+	return nil
+}
+
+func (x *PublicEndpointInfo) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+// Certificate fingerprint with explicit algorithm specification.
+type CertificateFingerprint struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Hash algorithm used to compute the fingerprint.
+	Algorithm FingerprintAlgorithm `protobuf:"varint,1,opt,name=algorithm,proto3,enum=coral.discovery.v1.FingerprintAlgorithm" json:"algorithm,omitempty"`
+	// Raw fingerprint bytes (not hex-encoded).
+	// For SHA256, this is exactly 32 bytes.
+	Value         []byte `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CertificateFingerprint) Reset() {
+	*x = CertificateFingerprint{}
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CertificateFingerprint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CertificateFingerprint) ProtoMessage() {}
+
+func (x *CertificateFingerprint) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CertificateFingerprint.ProtoReflect.Descriptor instead.
+func (*CertificateFingerprint) Descriptor() ([]byte, []int) {
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *CertificateFingerprint) GetAlgorithm() FingerprintAlgorithm {
+	if x != nil {
+		return x.Algorithm
+	}
+	return FingerprintAlgorithm_FINGERPRINT_ALGORITHM_UNSPECIFIED
+}
+
+func (x *CertificateFingerprint) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
 // CreateBootstrapTokenRequest initiates bootstrap token issuance.
 type CreateBootstrapTokenRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1307,7 +1511,7 @@ type CreateBootstrapTokenRequest struct {
 
 func (x *CreateBootstrapTokenRequest) Reset() {
 	*x = CreateBootstrapTokenRequest{}
-	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[16]
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1319,7 +1523,7 @@ func (x *CreateBootstrapTokenRequest) String() string {
 func (*CreateBootstrapTokenRequest) ProtoMessage() {}
 
 func (x *CreateBootstrapTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[16]
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1332,7 +1536,7 @@ func (x *CreateBootstrapTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateBootstrapTokenRequest.ProtoReflect.Descriptor instead.
 func (*CreateBootstrapTokenRequest) Descriptor() ([]byte, []int) {
-	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{16}
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateBootstrapTokenRequest) GetReefId() string {
@@ -1376,7 +1580,7 @@ type CreateBootstrapTokenResponse struct {
 
 func (x *CreateBootstrapTokenResponse) Reset() {
 	*x = CreateBootstrapTokenResponse{}
-	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[17]
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1388,7 +1592,7 @@ func (x *CreateBootstrapTokenResponse) String() string {
 func (*CreateBootstrapTokenResponse) ProtoMessage() {}
 
 func (x *CreateBootstrapTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[17]
+	mi := &file_coral_discovery_v1_discovery_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1401,7 +1605,7 @@ func (x *CreateBootstrapTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateBootstrapTokenResponse.ProtoReflect.Descriptor instead.
 func (*CreateBootstrapTokenResponse) Descriptor() ([]byte, []int) {
-	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{17}
+	return file_coral_discovery_v1_discovery_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CreateBootstrapTokenResponse) GetJwt() string {
@@ -1422,7 +1626,7 @@ var File_coral_discovery_v1_discovery_proto protoreflect.FileDescriptor
 
 const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\n" +
-	"\"coral/discovery/v1/discovery.proto\x12\x12coral.discovery.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x03\n" +
+	"\"coral/discovery/v1/discovery.proto\x12\x12coral.discovery.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x92\x04\n" +
 	"\x15RegisterColonyRequest\x12\x17\n" +
 	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x16\n" +
 	"\x06pubkey\x18\x02 \x01(\tR\x06pubkey\x12\x1c\n" +
@@ -1433,7 +1637,9 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\bmetadata\x18\a \x03(\v27.coral.discovery.v1.RegisterColonyRequest.MetadataEntryR\bmetadata\x12I\n" +
 	"\x11observed_endpoint\x18\b \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x12\x1f\n" +
 	"\vpublic_port\x18\t \x01(\rR\n" +
-	"publicPort\x1a;\n" +
+	"publicPort\x12O\n" +
+	"\x0fpublic_endpoint\x18\n" +
+	" \x01(\v2&.coral.discovery.v1.PublicEndpointInfoR\x0epublicEndpoint\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xed\x01\n" +
@@ -1445,7 +1651,7 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\x11observed_endpoint\x18\x04 \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x12!\n" +
 	"\fstun_servers\x18\x05 \x03(\tR\vstunServers\".\n" +
 	"\x13LookupColonyRequest\x12\x17\n" +
-	"\amesh_id\x18\x01 \x01(\tR\x06meshId\"\xe2\x04\n" +
+	"\amesh_id\x18\x01 \x01(\tR\x06meshId\"\xb3\x05\n" +
 	"\x14LookupColonyResponse\x12\x17\n" +
 	"\amesh_id\x18\x01 \x01(\tR\x06meshId\x12\x16\n" +
 	"\x06pubkey\x18\x02 \x01(\tR\x06pubkey\x12\x1c\n" +
@@ -1460,7 +1666,8 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	" \x01(\x0e2\x1b.coral.discovery.v1.NatHintR\x03nat\x127\n" +
 	"\x06relays\x18\v \x03(\v2\x1f.coral.discovery.v1.RelayOptionR\x06relays\x12\x1f\n" +
 	"\vpublic_port\x18\f \x01(\rR\n" +
-	"publicPort\x1a;\n" +
+	"publicPort\x12O\n" +
+	"\x0fpublic_endpoint\x18\r \x01(\v2&.coral.discovery.v1.PublicEndpointInfoR\x0epublicEndpoint\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x0f\n" +
@@ -1527,7 +1734,17 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\tlast_seen\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x86\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe7\x01\n" +
+	"\x12PublicEndpointInfo\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12\x17\n" +
+	"\aca_cert\x18\x03 \x01(\tR\x06caCert\x12Q\n" +
+	"\x0eca_fingerprint\x18\x04 \x01(\v2*.coral.discovery.v1.CertificateFingerprintR\rcaFingerprint\x129\n" +
+	"\n" +
+	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"v\n" +
+	"\x16CertificateFingerprint\x12F\n" +
+	"\talgorithm\x18\x01 \x01(\x0e2(.coral.discovery.v1.FingerprintAlgorithmR\talgorithm\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"\x86\x01\n" +
 	"\x1bCreateBootstrapTokenRequest\x12\x17\n" +
 	"\areef_id\x18\x01 \x01(\tR\x06reefId\x12\x1b\n" +
 	"\tcolony_id\x18\x02 \x01(\tR\bcolonyId\x12\x19\n" +
@@ -1541,7 +1758,10 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\vNAT_UNKNOWN\x10\x00\x12\f\n" +
 	"\bNAT_CONE\x10\x01\x12\x12\n" +
 	"\x0eNAT_RESTRICTED\x10\x02\x12\x11\n" +
-	"\rNAT_SYMMETRIC\x10\x032\xb6\x06\n" +
+	"\rNAT_SYMMETRIC\x10\x03*_\n" +
+	"\x14FingerprintAlgorithm\x12%\n" +
+	"!FINGERPRINT_ALGORITHM_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cFINGERPRINT_ALGORITHM_SHA256\x10\x012\xb6\x06\n" +
 	"\x10DiscoveryService\x12g\n" +
 	"\x0eRegisterColony\x12).coral.discovery.v1.RegisterColonyRequest\x1a*.coral.discovery.v1.RegisterColonyResponse\x12a\n" +
 	"\fLookupColony\x12'.coral.discovery.v1.LookupColonyRequest\x1a(.coral.discovery.v1.LookupColonyResponse\x12d\n" +
@@ -1565,76 +1785,84 @@ func file_coral_discovery_v1_discovery_proto_rawDescGZIP() []byte {
 	return file_coral_discovery_v1_discovery_proto_rawDescData
 }
 
-var file_coral_discovery_v1_discovery_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_coral_discovery_v1_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_coral_discovery_v1_discovery_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_coral_discovery_v1_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_coral_discovery_v1_discovery_proto_goTypes = []any{
 	(NatHint)(0),                         // 0: coral.discovery.v1.NatHint
-	(*RegisterColonyRequest)(nil),        // 1: coral.discovery.v1.RegisterColonyRequest
-	(*RegisterColonyResponse)(nil),       // 2: coral.discovery.v1.RegisterColonyResponse
-	(*LookupColonyRequest)(nil),          // 3: coral.discovery.v1.LookupColonyRequest
-	(*LookupColonyResponse)(nil),         // 4: coral.discovery.v1.LookupColonyResponse
-	(*HealthRequest)(nil),                // 5: coral.discovery.v1.HealthRequest
-	(*HealthResponse)(nil),               // 6: coral.discovery.v1.HealthResponse
-	(*Endpoint)(nil),                     // 7: coral.discovery.v1.Endpoint
-	(*RelayOption)(nil),                  // 8: coral.discovery.v1.RelayOption
-	(*RequestRelayRequest)(nil),          // 9: coral.discovery.v1.RequestRelayRequest
-	(*RequestRelayResponse)(nil),         // 10: coral.discovery.v1.RequestRelayResponse
-	(*ReleaseRelayRequest)(nil),          // 11: coral.discovery.v1.ReleaseRelayRequest
-	(*ReleaseRelayResponse)(nil),         // 12: coral.discovery.v1.ReleaseRelayResponse
-	(*RegisterAgentRequest)(nil),         // 13: coral.discovery.v1.RegisterAgentRequest
-	(*RegisterAgentResponse)(nil),        // 14: coral.discovery.v1.RegisterAgentResponse
-	(*LookupAgentRequest)(nil),           // 15: coral.discovery.v1.LookupAgentRequest
-	(*LookupAgentResponse)(nil),          // 16: coral.discovery.v1.LookupAgentResponse
-	(*CreateBootstrapTokenRequest)(nil),  // 17: coral.discovery.v1.CreateBootstrapTokenRequest
-	(*CreateBootstrapTokenResponse)(nil), // 18: coral.discovery.v1.CreateBootstrapTokenResponse
-	nil,                                  // 19: coral.discovery.v1.RegisterColonyRequest.MetadataEntry
-	nil,                                  // 20: coral.discovery.v1.LookupColonyResponse.MetadataEntry
-	nil,                                  // 21: coral.discovery.v1.RegisterAgentRequest.MetadataEntry
-	nil,                                  // 22: coral.discovery.v1.LookupAgentResponse.MetadataEntry
-	(*timestamppb.Timestamp)(nil),        // 23: google.protobuf.Timestamp
+	(FingerprintAlgorithm)(0),            // 1: coral.discovery.v1.FingerprintAlgorithm
+	(*RegisterColonyRequest)(nil),        // 2: coral.discovery.v1.RegisterColonyRequest
+	(*RegisterColonyResponse)(nil),       // 3: coral.discovery.v1.RegisterColonyResponse
+	(*LookupColonyRequest)(nil),          // 4: coral.discovery.v1.LookupColonyRequest
+	(*LookupColonyResponse)(nil),         // 5: coral.discovery.v1.LookupColonyResponse
+	(*HealthRequest)(nil),                // 6: coral.discovery.v1.HealthRequest
+	(*HealthResponse)(nil),               // 7: coral.discovery.v1.HealthResponse
+	(*Endpoint)(nil),                     // 8: coral.discovery.v1.Endpoint
+	(*RelayOption)(nil),                  // 9: coral.discovery.v1.RelayOption
+	(*RequestRelayRequest)(nil),          // 10: coral.discovery.v1.RequestRelayRequest
+	(*RequestRelayResponse)(nil),         // 11: coral.discovery.v1.RequestRelayResponse
+	(*ReleaseRelayRequest)(nil),          // 12: coral.discovery.v1.ReleaseRelayRequest
+	(*ReleaseRelayResponse)(nil),         // 13: coral.discovery.v1.ReleaseRelayResponse
+	(*RegisterAgentRequest)(nil),         // 14: coral.discovery.v1.RegisterAgentRequest
+	(*RegisterAgentResponse)(nil),        // 15: coral.discovery.v1.RegisterAgentResponse
+	(*LookupAgentRequest)(nil),           // 16: coral.discovery.v1.LookupAgentRequest
+	(*LookupAgentResponse)(nil),          // 17: coral.discovery.v1.LookupAgentResponse
+	(*PublicEndpointInfo)(nil),           // 18: coral.discovery.v1.PublicEndpointInfo
+	(*CertificateFingerprint)(nil),       // 19: coral.discovery.v1.CertificateFingerprint
+	(*CreateBootstrapTokenRequest)(nil),  // 20: coral.discovery.v1.CreateBootstrapTokenRequest
+	(*CreateBootstrapTokenResponse)(nil), // 21: coral.discovery.v1.CreateBootstrapTokenResponse
+	nil,                                  // 22: coral.discovery.v1.RegisterColonyRequest.MetadataEntry
+	nil,                                  // 23: coral.discovery.v1.LookupColonyResponse.MetadataEntry
+	nil,                                  // 24: coral.discovery.v1.RegisterAgentRequest.MetadataEntry
+	nil,                                  // 25: coral.discovery.v1.LookupAgentResponse.MetadataEntry
+	(*timestamppb.Timestamp)(nil),        // 26: google.protobuf.Timestamp
 }
 var file_coral_discovery_v1_discovery_proto_depIdxs = []int32{
-	19, // 0: coral.discovery.v1.RegisterColonyRequest.metadata:type_name -> coral.discovery.v1.RegisterColonyRequest.MetadataEntry
-	7,  // 1: coral.discovery.v1.RegisterColonyRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	23, // 2: coral.discovery.v1.RegisterColonyResponse.expires_at:type_name -> google.protobuf.Timestamp
-	7,  // 3: coral.discovery.v1.RegisterColonyResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	20, // 4: coral.discovery.v1.LookupColonyResponse.metadata:type_name -> coral.discovery.v1.LookupColonyResponse.MetadataEntry
-	23, // 5: coral.discovery.v1.LookupColonyResponse.last_seen:type_name -> google.protobuf.Timestamp
-	7,  // 6: coral.discovery.v1.LookupColonyResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
-	0,  // 7: coral.discovery.v1.LookupColonyResponse.nat:type_name -> coral.discovery.v1.NatHint
-	8,  // 8: coral.discovery.v1.LookupColonyResponse.relays:type_name -> coral.discovery.v1.RelayOption
-	7,  // 9: coral.discovery.v1.RelayOption.endpoint:type_name -> coral.discovery.v1.Endpoint
-	7,  // 10: coral.discovery.v1.RequestRelayResponse.relay_endpoint:type_name -> coral.discovery.v1.Endpoint
-	23, // 11: coral.discovery.v1.RequestRelayResponse.expires_at:type_name -> google.protobuf.Timestamp
-	7,  // 12: coral.discovery.v1.RegisterAgentRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	21, // 13: coral.discovery.v1.RegisterAgentRequest.metadata:type_name -> coral.discovery.v1.RegisterAgentRequest.MetadataEntry
-	23, // 14: coral.discovery.v1.RegisterAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
-	7,  // 15: coral.discovery.v1.RegisterAgentResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
-	7,  // 16: coral.discovery.v1.LookupAgentResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
-	0,  // 17: coral.discovery.v1.LookupAgentResponse.nat:type_name -> coral.discovery.v1.NatHint
-	22, // 18: coral.discovery.v1.LookupAgentResponse.metadata:type_name -> coral.discovery.v1.LookupAgentResponse.MetadataEntry
-	23, // 19: coral.discovery.v1.LookupAgentResponse.last_seen:type_name -> google.protobuf.Timestamp
-	1,  // 20: coral.discovery.v1.DiscoveryService.RegisterColony:input_type -> coral.discovery.v1.RegisterColonyRequest
-	3,  // 21: coral.discovery.v1.DiscoveryService.LookupColony:input_type -> coral.discovery.v1.LookupColonyRequest
-	13, // 22: coral.discovery.v1.DiscoveryService.RegisterAgent:input_type -> coral.discovery.v1.RegisterAgentRequest
-	15, // 23: coral.discovery.v1.DiscoveryService.LookupAgent:input_type -> coral.discovery.v1.LookupAgentRequest
-	9,  // 24: coral.discovery.v1.DiscoveryService.RequestRelay:input_type -> coral.discovery.v1.RequestRelayRequest
-	11, // 25: coral.discovery.v1.DiscoveryService.ReleaseRelay:input_type -> coral.discovery.v1.ReleaseRelayRequest
-	5,  // 26: coral.discovery.v1.DiscoveryService.Health:input_type -> coral.discovery.v1.HealthRequest
-	17, // 27: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:input_type -> coral.discovery.v1.CreateBootstrapTokenRequest
-	2,  // 28: coral.discovery.v1.DiscoveryService.RegisterColony:output_type -> coral.discovery.v1.RegisterColonyResponse
-	4,  // 29: coral.discovery.v1.DiscoveryService.LookupColony:output_type -> coral.discovery.v1.LookupColonyResponse
-	14, // 30: coral.discovery.v1.DiscoveryService.RegisterAgent:output_type -> coral.discovery.v1.RegisterAgentResponse
-	16, // 31: coral.discovery.v1.DiscoveryService.LookupAgent:output_type -> coral.discovery.v1.LookupAgentResponse
-	10, // 32: coral.discovery.v1.DiscoveryService.RequestRelay:output_type -> coral.discovery.v1.RequestRelayResponse
-	12, // 33: coral.discovery.v1.DiscoveryService.ReleaseRelay:output_type -> coral.discovery.v1.ReleaseRelayResponse
-	6,  // 34: coral.discovery.v1.DiscoveryService.Health:output_type -> coral.discovery.v1.HealthResponse
-	18, // 35: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:output_type -> coral.discovery.v1.CreateBootstrapTokenResponse
-	28, // [28:36] is the sub-list for method output_type
-	20, // [20:28] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	22, // 0: coral.discovery.v1.RegisterColonyRequest.metadata:type_name -> coral.discovery.v1.RegisterColonyRequest.MetadataEntry
+	8,  // 1: coral.discovery.v1.RegisterColonyRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
+	18, // 2: coral.discovery.v1.RegisterColonyRequest.public_endpoint:type_name -> coral.discovery.v1.PublicEndpointInfo
+	26, // 3: coral.discovery.v1.RegisterColonyResponse.expires_at:type_name -> google.protobuf.Timestamp
+	8,  // 4: coral.discovery.v1.RegisterColonyResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
+	23, // 5: coral.discovery.v1.LookupColonyResponse.metadata:type_name -> coral.discovery.v1.LookupColonyResponse.MetadataEntry
+	26, // 6: coral.discovery.v1.LookupColonyResponse.last_seen:type_name -> google.protobuf.Timestamp
+	8,  // 7: coral.discovery.v1.LookupColonyResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
+	0,  // 8: coral.discovery.v1.LookupColonyResponse.nat:type_name -> coral.discovery.v1.NatHint
+	9,  // 9: coral.discovery.v1.LookupColonyResponse.relays:type_name -> coral.discovery.v1.RelayOption
+	18, // 10: coral.discovery.v1.LookupColonyResponse.public_endpoint:type_name -> coral.discovery.v1.PublicEndpointInfo
+	8,  // 11: coral.discovery.v1.RelayOption.endpoint:type_name -> coral.discovery.v1.Endpoint
+	8,  // 12: coral.discovery.v1.RequestRelayResponse.relay_endpoint:type_name -> coral.discovery.v1.Endpoint
+	26, // 13: coral.discovery.v1.RequestRelayResponse.expires_at:type_name -> google.protobuf.Timestamp
+	8,  // 14: coral.discovery.v1.RegisterAgentRequest.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
+	24, // 15: coral.discovery.v1.RegisterAgentRequest.metadata:type_name -> coral.discovery.v1.RegisterAgentRequest.MetadataEntry
+	26, // 16: coral.discovery.v1.RegisterAgentResponse.expires_at:type_name -> google.protobuf.Timestamp
+	8,  // 17: coral.discovery.v1.RegisterAgentResponse.observed_endpoint:type_name -> coral.discovery.v1.Endpoint
+	8,  // 18: coral.discovery.v1.LookupAgentResponse.observed_endpoints:type_name -> coral.discovery.v1.Endpoint
+	0,  // 19: coral.discovery.v1.LookupAgentResponse.nat:type_name -> coral.discovery.v1.NatHint
+	25, // 20: coral.discovery.v1.LookupAgentResponse.metadata:type_name -> coral.discovery.v1.LookupAgentResponse.MetadataEntry
+	26, // 21: coral.discovery.v1.LookupAgentResponse.last_seen:type_name -> google.protobuf.Timestamp
+	19, // 22: coral.discovery.v1.PublicEndpointInfo.ca_fingerprint:type_name -> coral.discovery.v1.CertificateFingerprint
+	26, // 23: coral.discovery.v1.PublicEndpointInfo.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 24: coral.discovery.v1.CertificateFingerprint.algorithm:type_name -> coral.discovery.v1.FingerprintAlgorithm
+	2,  // 25: coral.discovery.v1.DiscoveryService.RegisterColony:input_type -> coral.discovery.v1.RegisterColonyRequest
+	4,  // 26: coral.discovery.v1.DiscoveryService.LookupColony:input_type -> coral.discovery.v1.LookupColonyRequest
+	14, // 27: coral.discovery.v1.DiscoveryService.RegisterAgent:input_type -> coral.discovery.v1.RegisterAgentRequest
+	16, // 28: coral.discovery.v1.DiscoveryService.LookupAgent:input_type -> coral.discovery.v1.LookupAgentRequest
+	10, // 29: coral.discovery.v1.DiscoveryService.RequestRelay:input_type -> coral.discovery.v1.RequestRelayRequest
+	12, // 30: coral.discovery.v1.DiscoveryService.ReleaseRelay:input_type -> coral.discovery.v1.ReleaseRelayRequest
+	6,  // 31: coral.discovery.v1.DiscoveryService.Health:input_type -> coral.discovery.v1.HealthRequest
+	20, // 32: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:input_type -> coral.discovery.v1.CreateBootstrapTokenRequest
+	3,  // 33: coral.discovery.v1.DiscoveryService.RegisterColony:output_type -> coral.discovery.v1.RegisterColonyResponse
+	5,  // 34: coral.discovery.v1.DiscoveryService.LookupColony:output_type -> coral.discovery.v1.LookupColonyResponse
+	15, // 35: coral.discovery.v1.DiscoveryService.RegisterAgent:output_type -> coral.discovery.v1.RegisterAgentResponse
+	17, // 36: coral.discovery.v1.DiscoveryService.LookupAgent:output_type -> coral.discovery.v1.LookupAgentResponse
+	11, // 37: coral.discovery.v1.DiscoveryService.RequestRelay:output_type -> coral.discovery.v1.RequestRelayResponse
+	13, // 38: coral.discovery.v1.DiscoveryService.ReleaseRelay:output_type -> coral.discovery.v1.ReleaseRelayResponse
+	7,  // 39: coral.discovery.v1.DiscoveryService.Health:output_type -> coral.discovery.v1.HealthResponse
+	21, // 40: coral.discovery.v1.DiscoveryService.CreateBootstrapToken:output_type -> coral.discovery.v1.CreateBootstrapTokenResponse
+	33, // [33:41] is the sub-list for method output_type
+	25, // [25:33] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_coral_discovery_v1_discovery_proto_init() }
@@ -1647,8 +1875,8 @@ func file_coral_discovery_v1_discovery_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_discovery_v1_discovery_proto_rawDesc), len(file_coral_discovery_v1_discovery_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   22,
+			NumEnums:      2,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

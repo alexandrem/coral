@@ -21,8 +21,9 @@ type Entry struct {
 	Metadata         map[string]string
 	LastSeen         time.Time
 	ExpiresAt        time.Time
-	ObservedEndpoint *discoveryv1.Endpoint // NAT traversal: observed public endpoint
-	NatHint          discoveryv1.NatHint   // NAT traversal: detected NAT type
+	ObservedEndpoint *discoveryv1.Endpoint           // NAT traversal: observed public endpoint
+	NatHint          discoveryv1.NatHint             // NAT traversal: detected NAT type
+	PublicEndpoint   *discoveryv1.PublicEndpointInfo // RFD 085: public HTTPS endpoint for CLI access
 }
 
 // RelaySession represents an active relay allocation.
@@ -65,6 +66,7 @@ func (r *Registry) Register(
 	metadata map[string]string,
 	observedEndpoint *discoveryv1.Endpoint,
 	natHint discoveryv1.NatHint,
+	publicEndpoint *discoveryv1.PublicEndpointInfo,
 ) (*Entry, error) {
 	if meshID == "" {
 		return nil, fmt.Errorf("mesh_id cannot be empty")
@@ -122,6 +124,7 @@ func (r *Registry) Register(
 		ExpiresAt:        now.Add(r.ttl),
 		ObservedEndpoint: observedEndpoint,
 		NatHint:          natHint,
+		PublicEndpoint:   publicEndpoint,
 	}
 
 	r.entries[meshID] = entry

@@ -102,6 +102,7 @@ func (s *Server) RegisterColony(
 		req.Msg.Metadata,
 		clientObservedEndpoint,
 		natHint,
+		req.Msg.PublicEndpoint,
 	)
 	if err != nil {
 		s.logger.Error().
@@ -188,6 +189,7 @@ func (s *Server) LookupColony(
 		ObservedEndpoints: observedEndpoints,
 		Nat:               entry.NatHint,
 		Relays:            relays,
+		PublicEndpoint:    entry.PublicEndpoint,
 	}
 
 	s.logger.Debug().
@@ -514,6 +516,7 @@ func (s *Server) RegisterAgent(
 		req.Msg.Metadata,
 		clientObservedEndpoint,
 		natHint,
+		nil, // Agent doesn't have public endpoint
 	)
 	if err != nil {
 		s.logger.Error().

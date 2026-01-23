@@ -315,10 +315,11 @@ certificate. This works similarly to kubectl's cluster configuration.
 
 1. `CORAL_INSECURE=true` - Skip TLS verification (testing only)
 2. `CORAL_CA_FILE` - Path to CA certificate file
-3. Config file `remote.insecure_skip_tls_verify`
-4. Config file `remote.certificate_authority_data` (base64)
-5. Config file `remote.certificate_authority` (file path)
-6. System CA pool (default)
+3. `CORAL_CA_DATA` - Base64-encoded CA certificate
+4. Config file `remote.insecure_skip_tls_verify`
+5. Config file `remote.certificate_authority_data` (base64)
+6. Config file `remote.certificate_authority` (file path)
+7. System CA pool (default)
 
 **Option 1: Quick Test (Insecure Mode)**
 
@@ -344,9 +345,52 @@ export CORAL_CA_FILE=~/.coral/ca/prod-ca.crt
 coral colony status
 ```
 
-**Option 3: Persistent Configuration (Recommended)**
+**Option 2b: Environment Variable with Base64 CA Data**
 
-Add a remote colony to your local config for persistent access:
+Useful for CI/CD environments where passing files is inconvenient:
+
+```bash
+export CORAL_COLONY_ENDPOINT=https://colony.example.com:8443
+export CORAL_API_TOKEN=cpt_abc123...
+export CORAL_CA_DATA=$(base64 < ~/.coral/ca/prod-ca.crt)
+
+coral colony status
+```
+
+**Option 3: Discovery Mode (Recommended for Teams)**
+
+Use Discovery Service to automatically fetch endpoint and CA certificate. Get
+credentials from colony owner (`coral colony export`):
+
+```bash
+# Connect using Discovery (TOFU security via fingerprint verification)
+coral colony add-remote prod-remote \
+    --from-discovery \
+    --colony-id my-app-prod-a3f2e1 \
+    --ca-fingerprint sha256:e3b0c44298fc1c149afbf4c8996fb924...
+
+# Set as default
+coral config use-context prod-remote
+
+# Now all commands use this colony
+export CORAL_API_TOKEN=cpt_abc123...
+coral colony status
+coral query summary
+```
+
+**Discovery Mode Flags (RFD 085):**
+
+- `--from-discovery` - Fetch endpoint and CA from Discovery Service
+- `--colony-id` - Colony ID (required with --from-discovery)
+- `--ca-fingerprint` - CA fingerprint for verification (required with --from-discovery)
+- `--discovery-endpoint` - Override Discovery Service URL
+
+The CA fingerprint is verified against the certificate received from Discovery,
+ensuring you're connecting to the authentic colony (TOFU security model).
+
+**Option 4: Manual Mode (Direct Configuration)**
+
+Add a remote colony to your local config with manual CA file:
 
 ```bash
 # Import remote colony with CA certificate

@@ -180,6 +180,19 @@ type RemoteConfig struct {
 	// InsecureSkipTLSVerify disables TLS certificate verification.
 	// WARNING: Only use for testing. Never use in production.
 	InsecureSkipTLSVerify bool `yaml:"insecure_skip_tls_verify,omitempty" env:"CORAL_INSECURE"`
+
+	// CAFingerprint stores the expected CA certificate fingerprint for continuous verification (RFD 085).
+	// This protects against local CA file tampering.
+	CAFingerprint *CAFingerprintConfig `yaml:"ca_fingerprint,omitempty"`
+}
+
+// CAFingerprintConfig stores CA fingerprint information for continuous verification (RFD 085).
+type CAFingerprintConfig struct {
+	// Algorithm is the hash algorithm used (e.g., "sha256").
+	Algorithm string `yaml:"algorithm"`
+
+	// Value is the hex-encoded fingerprint value.
+	Value string `yaml:"value"`
 }
 
 // PublicEndpointConfig contains optional public HTTPS endpoint configuration (RFD 031).
@@ -208,6 +221,22 @@ type PublicEndpointConfig struct {
 
 	// Auth contains authentication configuration for the public endpoint.
 	Auth PublicAuthConfig `yaml:"auth,omitempty"`
+
+	// Discovery contains Discovery Service registration configuration (RFD 085).
+	Discovery PublicEndpointDiscoveryConfig `yaml:"discovery,omitempty"`
+}
+
+// PublicEndpointDiscoveryConfig contains Discovery registration settings for public endpoint (RFD 085).
+type PublicEndpointDiscoveryConfig struct {
+	// Register controls whether to register public endpoint info with Discovery.
+	// Default: true (when public_endpoint.enabled is true).
+	Register *bool `yaml:"register,omitempty"`
+
+	// AdvertiseURL is the URL to advertise to CLI users (optional override).
+	// By default, the URL is constructed from host:port.
+	// Use this when behind a load balancer or reverse proxy with a different external URL.
+	// Example: "https://colony.example.com:8443"
+	AdvertiseURL string `yaml:"advertise_url,omitempty" env:"CORAL_PUBLIC_ENDPOINT_ADVERTISE_URL"`
 }
 
 // TLSConfig contains TLS certificate configuration.

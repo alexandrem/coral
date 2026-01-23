@@ -2,9 +2,11 @@ package helpers
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -33,10 +35,11 @@ import (
 // TLS configuration priority:
 //  1. CORAL_INSECURE=true env var (skip TLS verification)
 //  2. CORAL_CA_FILE env var (path to CA certificate)
-//  3. Colony config remote.insecure_skip_tls_verify
-//  4. Colony config remote.certificate_authority_data (base64)
-//  5. Colony config remote.certificate_authority (file path)
-//  6. System CA pool (default)
+//  3. CORAL_CA_DATA env var (base64-encoded CA certificate)
+//  4. Colony config remote.insecure_skip_tls_verify
+//  5. Colony config remote.certificate_authority_data (base64)
+//  6. Colony config remote.certificate_authority (file path)
+//  7. System CA pool (default)
 
 // GetColonyURL returns the colony URL using config resolution.
 // Priority: CORAL_COLONY_ENDPOINT env var > remote.endpoint config > localhost:{connectPort}.
@@ -180,39 +183,69 @@ func buildTLSConfig(colonyConfig *config.ColonyConfig) (*tls.Config, error) {
 		return tlsConfig, nil
 	}
 
-	// 3. Check colony config for TLS settings.
+	// 3. Check CORAL_CA_DATA env var (base64-encoded).
+	if caData := os.Getenv("CORAL_CA_DATA"); caData != "" {
+		certPool, err := loadCACertFromData(caData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load CA from CORAL_CA_DATA: %w", err)
+		}
+		tlsConfig.RootCAs = certPool
+		return tlsConfig, nil
+	}
+
+	// 4-6. Check colony config for TLS settings.
 	if colonyConfig != nil {
 		remote := colonyConfig.Remote
 
-		// Check insecure flag in config.
+		// 4. Check insecure flag in config.
 		if remote.InsecureSkipTLSVerify {
 			tlsConfig.InsecureSkipVerify = true
 			return tlsConfig, nil
 		}
 
-		// Check for CA data (base64-encoded, takes precedence).
+		// 5. Check for CA data (base64-encoded, takes precedence).
 		if remote.CertificateAuthorityData != "" {
-			certPool, err := loadCACertFromData(remote.CertificateAuthorityData)
+			caCert, err := base64.StdEncoding.DecodeString(remote.CertificateAuthorityData)
 			if err != nil {
-				return nil, fmt.Errorf("failed to load CA from certificate_authority_data: %w", err)
+				return nil, fmt.Errorf("failed to decode CA from certificate_authority_data: %w", err)
+			}
+
+			// Verify fingerprint if configured (RFD 085).
+			if err := verifyCAFingerprint(caCert, remote.CAFingerprint); err != nil {
+				return nil, fmt.Errorf("CA certificate verification failed: %w\n\nThe local CA certificate may have been tampered with.\nRe-run 'coral colony add-remote' with the correct --ca-fingerprint", err)
+			}
+
+			certPool := x509.NewCertPool()
+			if !certPool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("failed to parse CA certificate from certificate_authority_data")
 			}
 			tlsConfig.RootCAs = certPool
 			return tlsConfig, nil
 		}
 
-		// Check for CA file path in config.
+		// 6. Check for CA file path in config.
 		if remote.CertificateAuthority != "" {
 			caPath := expandPath(remote.CertificateAuthority)
-			certPool, err := loadCACertFromFile(caPath)
+			caCert, err := os.ReadFile(caPath) // #nosec G304 - path from config
 			if err != nil {
-				return nil, fmt.Errorf("failed to load CA from certificate_authority: %w", err)
+				return nil, fmt.Errorf("failed to read CA certificate from %s: %w", caPath, err)
+			}
+
+			// Verify fingerprint if configured (RFD 085).
+			if err := verifyCAFingerprint(caCert, remote.CAFingerprint); err != nil {
+				return nil, fmt.Errorf("CA certificate verification failed: %w\n\nThe local CA certificate may have been tampered with.\nRe-run 'coral colony add-remote' with the correct --ca-fingerprint", err)
+			}
+
+			certPool := x509.NewCertPool()
+			if !certPool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("failed to parse CA certificate from %s", caPath)
 			}
 			tlsConfig.RootCAs = certPool
 			return tlsConfig, nil
 		}
 	}
 
-	// 4. Use system CA pool (default).
+	// 7. Use system CA pool (default).
 	return tlsConfig, nil
 }
 
@@ -255,6 +288,29 @@ func expandPath(path string) string {
 		}
 	}
 	return path
+}
+
+// verifyCAFingerprint verifies the CA certificate matches the stored fingerprint (RFD 085).
+// This protects against local CA file tampering.
+func verifyCAFingerprint(caCert []byte, fpConfig *config.CAFingerprintConfig) error {
+	if fpConfig == nil {
+		// No fingerprint configured, skip verification.
+		return nil
+	}
+
+	if fpConfig.Algorithm != "sha256" {
+		return fmt.Errorf("unsupported fingerprint algorithm: %s (only sha256 is supported)", fpConfig.Algorithm)
+	}
+
+	// Compute SHA256 fingerprint of the CA certificate.
+	computed := sha256.Sum256(caCert)
+	computedHex := hex.EncodeToString(computed[:])
+
+	if computedHex != fpConfig.Value {
+		return fmt.Errorf("fingerprint mismatch: expected sha256:%s, got sha256:%s", fpConfig.Value, computedHex)
+	}
+
+	return nil
 }
 
 // GetColonyClientWithFallback creates a colony service client with automatic fallback.

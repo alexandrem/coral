@@ -1,27 +1,36 @@
 package colony
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // newAddRemoteCmd creates the add-remote command for adding remote colony configurations.
 func newAddRemoteCmd() *cobra.Command {
 	var (
-		endpoint   string
-		caFile     string
-		caData     string
-		insecure   bool
-		setDefault bool
+		endpoint          string
+		caFile            string
+		caData            string
+		caFingerprint     string
+		insecure          bool
+		setDefault        bool
+		fromDiscovery     bool
+		colonyID          string
+		discoveryEndpoint string
 	)
 
 	cmd := &cobra.Command{
@@ -32,38 +41,67 @@ func newAddRemoteCmd() *cobra.Command {
 This creates a local config file that stores the connection details for a remote
 colony. The config is stored at ~/.coral/colonies/<colony-name>/config.yaml.
 
-Similar to kubectl's cluster configuration, you can specify:
-  - The colony's public HTTPS endpoint
-  - A CA certificate to trust (file path or base64-encoded)
-  - Or skip TLS verification for testing (not recommended for production)
+Two modes are supported:
+
+1. Discovery Mode (Recommended): Fetch endpoint and CA from Discovery Service
+   Requires colony ID and CA fingerprint (get from colony owner via 'coral colony export')
+   The fingerprint is used to cryptographically verify the CA certificate.
+
+2. Manual Mode: Specify endpoint and CA directly
+   Similar to kubectl's cluster configuration.
 
 Examples:
-  # Add remote colony with CA certificate file
+  # Connect using Discovery (recommended) - get credentials from colony owner
+  coral colony add-remote prod \
+      --from-discovery \
+      --colony-id my-app-prod-a3f2e1 \
+      --ca-fingerprint sha256:e3b0c44298fc1c149afbf4c8996fb924...
+
+  # Use custom Discovery endpoint
+  coral colony add-remote prod \
+      --from-discovery \
+      --colony-id my-app-prod-a3f2e1 \
+      --ca-fingerprint sha256:e3b0c44298fc1c149afbf4c8996fb924... \
+      --discovery-endpoint https://discovery.internal:8080
+
+  # Manual mode: Add remote colony with CA certificate file
   coral colony add-remote prod --endpoint https://colony.example.com:8443 --ca-file ./ca.crt
 
-  # Add remote colony with inline CA certificate (base64)
+  # Manual mode: Add with inline CA certificate (base64)
   coral colony add-remote prod --endpoint https://colony.example.com:8443 --ca-data "LS0tLS1..."
 
-  # Add remote colony with insecure mode (testing only)
+  # Manual mode: Insecure (testing only)
   coral colony add-remote dev --endpoint https://localhost:8443 --insecure
 
-  # Add and set as default colony
-  coral colony add-remote prod --endpoint https://colony.example.com:8443 --ca-file ./ca.crt --set-default`,
+  # Set as default colony
+  coral colony add-remote prod --from-discovery --colony-id ... --ca-fingerprint ... --set-default`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			colonyName := args[0]
 
-			// Validate arguments.
-			if endpoint == "" {
-				return fmt.Errorf("--endpoint is required")
-			}
-
-			if !insecure && caFile == "" && caData == "" {
-				return fmt.Errorf("TLS verification requires --ca-file, --ca-data, or --insecure flag\n\nFor production, use --ca-file to specify the colony's CA certificate.\nFor testing only, use --insecure to skip TLS verification")
-			}
-
-			if insecure && (caFile != "" || caData != "") {
-				return fmt.Errorf("--insecure cannot be used with --ca-file or --ca-data")
+			// Validate mode-specific arguments.
+			if fromDiscovery {
+				// Discovery mode validation.
+				if colonyID == "" || caFingerprint == "" {
+					return fmt.Errorf("--colony-id and --ca-fingerprint are required with --from-discovery\n\nUsage:\n  coral colony add-remote %s \\\n      --from-discovery \\\n      --colony-id <colony-id> \\\n      --ca-fingerprint <sha256:...>\n\nGet these values from the colony owner (coral colony export)", colonyName)
+				}
+				if insecure {
+					return fmt.Errorf("--insecure cannot be used with --from-discovery\n\nThe --from-discovery flow requires fingerprint verification for security.\nUse --insecure only with manual mode (--endpoint + --ca-file) for testing")
+				}
+				if endpoint != "" || caFile != "" || caData != "" {
+					return fmt.Errorf("--endpoint, --ca-file, and --ca-data cannot be used with --from-discovery")
+				}
+			} else {
+				// Manual mode validation.
+				if endpoint == "" {
+					return fmt.Errorf("--endpoint is required (or use --from-discovery)")
+				}
+				if !insecure && caFile == "" && caData == "" {
+					return fmt.Errorf("TLS verification requires --ca-file, --ca-data, or --insecure flag\n\nFor production, use --ca-file to specify the colony's CA certificate.\nFor testing only, use --insecure to skip TLS verification")
+				}
+				if insecure && (caFile != "" || caData != "") {
+					return fmt.Errorf("--insecure cannot be used with --ca-file or --ca-data")
+				}
 			}
 
 			// Create config loader.
@@ -85,41 +123,93 @@ Examples:
 			}
 
 			// Build remote config.
-			remoteConfig := config.RemoteConfig{
-				Endpoint: endpoint,
-			}
+			var remoteConfig config.RemoteConfig
+			var resolvedEndpoint string
 
-			// Handle CA certificate.
-			if caFile != "" {
-				// Copy CA file to colony directory (includes security validations).
-				destCAPath := filepath.Join(colonyDir, "ca.crt")
-				if err := safe.CopyFile(caFile, destCAPath, nil); err != nil {
-					return fmt.Errorf("failed to copy CA file: %w", err)
-				}
-
-				// Read the copied file to get its size for display.
-				caBytes, err := os.ReadFile(destCAPath) // #nosec G304 - validated with safe prior
+			if fromDiscovery {
+				// Discovery mode: fetch endpoint and CA from Discovery Service.
+				remoteConfig, resolvedEndpoint, err = fetchFromDiscovery(
+					colonyID, caFingerprint, discoveryEndpoint, colonyDir, loader,
+				)
 				if err != nil {
-					return fmt.Errorf("failed to read copied CA file: %w", err)
+					// Clean up colony directory on error.
+					_ = os.RemoveAll(colonyDir)
+					return err
 				}
-
-				// Use the destination path in config.
-				remoteConfig.CertificateAuthority = destCAPath
-
-				fmt.Printf("CA certificate copied to: %s\n", destCAPath)
-				fmt.Printf("CA certificate size: %d bytes\n", len(caBytes))
-			} else if caData != "" {
-				// Validate base64 encoding.
-				decoded, err := base64.StdEncoding.DecodeString(caData)
-				if err != nil {
-					return fmt.Errorf("invalid base64 CA data: %w", err)
+			} else {
+				// Manual mode: use provided endpoint and CA.
+				remoteConfig = config.RemoteConfig{
+					Endpoint: endpoint,
 				}
-				remoteConfig.CertificateAuthorityData = caData
+				resolvedEndpoint = endpoint
 
-				fmt.Printf("CA certificate (base64): %d bytes decoded\n", len(decoded))
-			} else if insecure {
-				remoteConfig.InsecureSkipTLSVerify = true
-				fmt.Println("⚠️  WARNING: TLS verification disabled. Never use in production!")
+				// Handle CA certificate.
+				if caFile != "" {
+					// Copy CA file to colony directory (includes security validations).
+					destCAPath := filepath.Join(colonyDir, "ca.crt")
+					if err := safe.CopyFile(caFile, destCAPath, nil); err != nil {
+						_ = os.RemoveAll(colonyDir)
+						return fmt.Errorf("failed to copy CA file: %w", err)
+					}
+
+					// Read the copied file to get its size for display.
+					caBytes, err := os.ReadFile(destCAPath) // #nosec G304 - validated with safe prior
+					if err != nil {
+						_ = os.RemoveAll(colonyDir)
+						return fmt.Errorf("failed to read copied CA file: %w", err)
+					}
+
+					// Use the destination path in config.
+					remoteConfig.CertificateAuthority = destCAPath
+
+					// Store fingerprint for continuous verification if provided.
+					if caFingerprint != "" {
+						fp, err := parseFingerprint(caFingerprint)
+						if err != nil {
+							_ = os.RemoveAll(colonyDir)
+							return fmt.Errorf("invalid --ca-fingerprint: %w", err)
+						}
+						// Verify the fingerprint matches the CA file.
+						computed := sha256.Sum256(caBytes)
+						if hex.EncodeToString(computed[:]) != fp.Value {
+							_ = os.RemoveAll(colonyDir)
+							return fmt.Errorf("CA certificate fingerprint mismatch!\n\n  Expected: %s\n  Computed: sha256:%x\n\nVerify the --ca-fingerprint with the colony owner", caFingerprint, computed)
+						}
+						remoteConfig.CAFingerprint = fp
+					}
+
+					fmt.Printf("CA certificate copied to: %s\n", destCAPath)
+					fmt.Printf("CA certificate size: %d bytes\n", len(caBytes))
+				} else if caData != "" {
+					// Validate base64 encoding.
+					decoded, err := base64.StdEncoding.DecodeString(caData)
+					if err != nil {
+						_ = os.RemoveAll(colonyDir)
+						return fmt.Errorf("invalid base64 CA data: %w", err)
+					}
+					remoteConfig.CertificateAuthorityData = caData
+
+					// Store fingerprint for continuous verification if provided.
+					if caFingerprint != "" {
+						fp, err := parseFingerprint(caFingerprint)
+						if err != nil {
+							_ = os.RemoveAll(colonyDir)
+							return fmt.Errorf("invalid --ca-fingerprint: %w", err)
+						}
+						// Verify the fingerprint matches the CA data.
+						computed := sha256.Sum256(decoded)
+						if hex.EncodeToString(computed[:]) != fp.Value {
+							_ = os.RemoveAll(colonyDir)
+							return fmt.Errorf("CA certificate fingerprint mismatch!\n\n  Expected: %s\n  Computed: sha256:%x\n\nVerify the --ca-fingerprint with the colony owner", caFingerprint, computed)
+						}
+						remoteConfig.CAFingerprint = fp
+					}
+
+					fmt.Printf("CA certificate (base64): %d bytes decoded\n", len(decoded))
+				} else if insecure {
+					remoteConfig.InsecureSkipTLSVerify = true
+					fmt.Println("WARNING: TLS verification disabled. Never use in production!")
+				}
 			}
 
 			// Create colony config.
@@ -134,16 +224,18 @@ Examples:
 			// Write config file.
 			configData, err := yaml.Marshal(&colonyConfig)
 			if err != nil {
+				_ = os.RemoveAll(colonyDir)
 				return fmt.Errorf("failed to marshal config: %w", err)
 			}
 
 			if err := os.WriteFile(configPath, configData, 0o600); err != nil {
+				_ = os.RemoveAll(colonyDir)
 				return fmt.Errorf("failed to write config file: %w", err)
 			}
 
 			fmt.Printf("\nRemote colony %q added successfully!\n", colonyName)
 			fmt.Printf("Config: %s\n", configPath)
-			fmt.Printf("Endpoint: %s\n", endpoint)
+			fmt.Printf("Endpoint: %s\n", resolvedEndpoint)
 
 			// Set as default if requested.
 			if setDefault {
@@ -165,13 +257,20 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "Colony's public HTTPS endpoint URL (required)")
-	cmd.Flags().StringVar(&caFile, "ca-file", "", "Path to CA certificate file for TLS verification")
-	cmd.Flags().StringVar(&caData, "ca-data", "", "Base64-encoded CA certificate for TLS verification")
-	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS verification (testing only, never in production)")
-	cmd.Flags().BoolVar(&setDefault, "set-default", false, "Set this colony as the default")
+	// Manual mode flags.
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "Colony's public HTTPS endpoint URL (manual mode)")
+	cmd.Flags().StringVar(&caFile, "ca-file", "", "Path to CA certificate file for TLS verification (manual mode)")
+	cmd.Flags().StringVar(&caData, "ca-data", "", "Base64-encoded CA certificate for TLS verification (manual mode)")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS verification (testing only, manual mode only)")
 
-	_ = cmd.MarkFlagRequired("endpoint")
+	// Discovery mode flags (RFD 085).
+	cmd.Flags().BoolVar(&fromDiscovery, "from-discovery", false, "Fetch endpoint and CA from Discovery Service")
+	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID (required with --from-discovery)")
+	cmd.Flags().StringVar(&caFingerprint, "ca-fingerprint", "", "CA fingerprint for verification (required with --from-discovery, format: sha256:hex)")
+	cmd.Flags().StringVar(&discoveryEndpoint, "discovery-endpoint", "", "Override Discovery Service URL")
+
+	// Common flags.
+	cmd.Flags().BoolVar(&setDefault, "set-default", false, "Set this colony as the default")
 
 	return cmd
 }
@@ -206,4 +305,115 @@ func setDefaultColony(colonyName string) error {
 	}
 
 	return os.WriteFile(configPath, configData, 0o600)
+}
+
+// fetchFromDiscovery fetches public endpoint info from Discovery Service and verifies the CA fingerprint.
+func fetchFromDiscovery(colonyID, caFingerprint, discoveryEndpoint, colonyDir string, loader *config.Loader) (config.RemoteConfig, string, error) {
+	// Parse expected fingerprint.
+	expectedFP, err := parseFingerprint(caFingerprint)
+	if err != nil {
+		return config.RemoteConfig{}, "", fmt.Errorf("invalid --ca-fingerprint: %w", err)
+	}
+
+	// Determine Discovery endpoint.
+	if discoveryEndpoint == "" {
+		// Try to get from global config.
+		globalConfig, err := loader.LoadGlobalConfig()
+		if err == nil && globalConfig.Discovery.Endpoint != "" {
+			discoveryEndpoint = globalConfig.Discovery.Endpoint
+		} else {
+			// Use default public Discovery endpoint.
+			discoveryEndpoint = "https://discovery.coral.dev:8080"
+		}
+	}
+
+	fmt.Println("Fetching colony info from Discovery Service...")
+	fmt.Printf("  Colony ID: %s\n", colonyID)
+
+	// Create Discovery client and lookup colony.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	discoveryClient := client.NewDiscoveryClient(discoveryEndpoint)
+	resp, err := discoveryClient.LookupColony(ctx, colonyID)
+	if err != nil {
+		return config.RemoteConfig{}, "", fmt.Errorf("failed to lookup colony from Discovery: %w", err)
+	}
+
+	// Check if public endpoint info is available.
+	if resp.PublicEndpoint == nil || !resp.PublicEndpoint.Enabled {
+		return config.RemoteConfig{}, "", fmt.Errorf("colony %q does not have a public endpoint registered with Discovery.\n\nThe colony owner may need to:\n  1. Enable public_endpoint in colony config\n  2. Ensure discovery.register is not disabled\n  3. Restart the colony", colonyID)
+	}
+
+	fmt.Printf("  Public Endpoint: %s\n", resp.PublicEndpoint.URL)
+
+	// Decode the CA certificate.
+	caCertPEM, err := base64.StdEncoding.DecodeString(resp.PublicEndpoint.CACert)
+	if err != nil {
+		return config.RemoteConfig{}, "", fmt.Errorf("failed to decode CA certificate from Discovery: %w", err)
+	}
+
+	// Verify the CA fingerprint.
+	fmt.Println("\nVerifying CA certificate...")
+	fmt.Printf("  Expected fingerprint: %s\n", caFingerprint)
+
+	computedHash := sha256.Sum256(caCertPEM)
+	computedFP := hex.EncodeToString(computedHash[:])
+	fmt.Printf("  Received fingerprint: sha256:%s\n", computedFP)
+
+	if computedFP != expectedFP.Value {
+		return config.RemoteConfig{}, "", fmt.Errorf(`CA fingerprint mismatch!
+
+The CA certificate from Discovery does not match the expected fingerprint.
+This could indicate:
+  - A man-in-the-middle attack
+  - Compromised Discovery Service
+  - Incorrect fingerprint provided by colony owner
+  - Colony CA was rotated (get new fingerprint from colony owner)
+
+Connection aborted. Verify the fingerprint with the colony owner`)
+	}
+
+	fmt.Println("  Fingerprint verified")
+
+	// Write CA certificate to colony directory.
+	destCAPath := filepath.Join(colonyDir, "ca.crt")
+	if err := os.WriteFile(destCAPath, caCertPEM, 0o600); err != nil {
+		return config.RemoteConfig{}, "", fmt.Errorf("failed to write CA certificate: %w", err)
+	}
+
+	fmt.Printf("\nCA cert: %s\n", destCAPath)
+
+	// Build remote config with fingerprint for continuous verification.
+	remoteConfig := config.RemoteConfig{
+		Endpoint:             resp.PublicEndpoint.URL,
+		CertificateAuthority: destCAPath,
+		CAFingerprint:        expectedFP,
+	}
+
+	return remoteConfig, resp.PublicEndpoint.URL, nil
+}
+
+// parseFingerprint parses a fingerprint string in the format "sha256:hex".
+func parseFingerprint(fp string) (*config.CAFingerprintConfig, error) {
+	if !strings.HasPrefix(fp, "sha256:") {
+		return nil, fmt.Errorf("fingerprint must start with 'sha256:' (got: %q)", fp)
+	}
+
+	hexValue := strings.TrimPrefix(fp, "sha256:")
+
+	// Validate hex encoding.
+	if _, err := hex.DecodeString(hexValue); err != nil {
+		return nil, fmt.Errorf("invalid hex encoding in fingerprint: %w", err)
+	}
+
+	// SHA256 produces 32 bytes = 64 hex characters.
+	if len(hexValue) != 64 {
+		return nil, fmt.Errorf("SHA256 fingerprint must be 64 hex characters (got %d)", len(hexValue))
+	}
+
+	return &config.CAFingerprintConfig{
+		Algorithm: "sha256",
+		Value:     hexValue,
+	}, nil
 }

@@ -47,6 +47,7 @@ type RegisterColonyRequest struct {
 	PublicPort       uint32 // Public HTTPS port for bootstrap (e.g., 8443).
 	Metadata         map[string]string
 	ObservedEndpoint interface{} // *discoveryv1.Endpoint (using interface{} to avoid import issues)
+	PublicEndpoint   interface{} // *discoveryv1.PublicEndpointInfo (RFD 085)
 }
 
 // RegisterColonyResponse contains the registration response.
@@ -58,11 +59,19 @@ type RegisterColonyResponse struct {
 
 // RegisterColony registers a colony with the discovery service.
 func (c *Client) RegisterColony(ctx context.Context, req *RegisterColonyRequest) (*RegisterColonyResponse, error) {
-	// Convert observed endpoint if provided
+	// Convert observed endpoint if provided.
 	var observedEndpoint *discoveryv1.Endpoint
 	if req.ObservedEndpoint != nil {
 		if ep, ok := req.ObservedEndpoint.(*discoveryv1.Endpoint); ok {
 			observedEndpoint = ep
+		}
+	}
+
+	// Convert public endpoint if provided (RFD 085).
+	var publicEndpoint *discoveryv1.PublicEndpointInfo
+	if req.PublicEndpoint != nil {
+		if ep, ok := req.PublicEndpoint.(*discoveryv1.PublicEndpointInfo); ok {
+			publicEndpoint = ep
 		}
 	}
 
@@ -76,6 +85,7 @@ func (c *Client) RegisterColony(ctx context.Context, req *RegisterColonyRequest)
 		PublicPort:       req.PublicPort,
 		Metadata:         req.Metadata,
 		ObservedEndpoint: observedEndpoint,
+		PublicEndpoint:   publicEndpoint,
 	}
 
 	resp, err := c.client.RegisterColony(ctx, connect.NewRequest(protoReq))
@@ -97,15 +107,24 @@ func (c *Client) RegisterColony(ctx context.Context, req *RegisterColonyRequest)
 
 // LookupColonyResponse contains the colony lookup response.
 type LookupColonyResponse struct {
-	MeshID      string
-	Pubkey      string
-	Endpoints   []string
-	MeshIPv4    string
-	MeshIPv6    string
-	ConnectPort uint32
-	PublicPort  uint32 // Public HTTPS port for bootstrap (e.g., 8443).
-	Metadata    map[string]string
-	LastSeen    time.Time
+	MeshID         string
+	Pubkey         string
+	Endpoints      []string
+	MeshIPv4       string
+	MeshIPv6       string
+	ConnectPort    uint32
+	PublicPort     uint32 // Public HTTPS port for bootstrap (e.g., 8443).
+	Metadata       map[string]string
+	LastSeen       time.Time
+	PublicEndpoint *PublicEndpointInfo // RFD 085: public HTTPS endpoint for CLI access.
+}
+
+// PublicEndpointInfo contains public endpoint information for CLI access (RFD 085).
+type PublicEndpointInfo struct {
+	Enabled       bool
+	URL           string
+	CACert        string // Base64-encoded PEM.
+	CAFingerprint string // sha256:hex format.
 }
 
 // LookupColony looks up a colony by mesh ID.
@@ -124,16 +143,33 @@ func (c *Client) LookupColony(ctx context.Context, meshID string) (*LookupColony
 		lastSeen = resp.Msg.LastSeen.AsTime()
 	}
 
+	// Convert public endpoint info (RFD 085).
+	var publicEndpoint *PublicEndpointInfo
+	if resp.Msg.PublicEndpoint != nil && resp.Msg.PublicEndpoint.Enabled {
+		// Format CA fingerprint as sha256:hex.
+		var caFingerprint string
+		if resp.Msg.PublicEndpoint.CaFingerprint != nil {
+			caFingerprint = fmt.Sprintf("sha256:%x", resp.Msg.PublicEndpoint.CaFingerprint.Value)
+		}
+		publicEndpoint = &PublicEndpointInfo{
+			Enabled:       resp.Msg.PublicEndpoint.Enabled,
+			URL:           resp.Msg.PublicEndpoint.Url,
+			CACert:        resp.Msg.PublicEndpoint.CaCert,
+			CAFingerprint: caFingerprint,
+		}
+	}
+
 	return &LookupColonyResponse{
-		MeshID:      resp.Msg.MeshId,
-		Pubkey:      resp.Msg.Pubkey,
-		Endpoints:   resp.Msg.Endpoints,
-		MeshIPv4:    resp.Msg.MeshIpv4,
-		MeshIPv6:    resp.Msg.MeshIpv6,
-		ConnectPort: resp.Msg.ConnectPort,
-		PublicPort:  resp.Msg.PublicPort,
-		Metadata:    resp.Msg.Metadata,
-		LastSeen:    lastSeen,
+		MeshID:         resp.Msg.MeshId,
+		Pubkey:         resp.Msg.Pubkey,
+		Endpoints:      resp.Msg.Endpoints,
+		MeshIPv4:       resp.Msg.MeshIpv4,
+		MeshIPv6:       resp.Msg.MeshIpv6,
+		ConnectPort:    resp.Msg.ConnectPort,
+		PublicPort:     resp.Msg.PublicPort,
+		Metadata:       resp.Msg.Metadata,
+		LastSeen:       lastSeen,
+		PublicEndpoint: publicEndpoint,
 	}, nil
 }
 

@@ -14,7 +14,7 @@ func TestRegistry_Register(t *testing.T) {
 	reg := New(5 * time.Minute)
 
 	t.Run("successful registration", func(t *testing.T) {
-		entry, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, 8443, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, 8443, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "mesh-1", entry.MeshID)
 		assert.Equal(t, "pubkey-1", entry.PubKey)
@@ -28,19 +28,19 @@ func TestRegistry_Register(t *testing.T) {
 	})
 
 	t.Run("empty mesh_id", func(t *testing.T) {
-		_, err := reg.Register("", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "mesh_id cannot be empty")
 	})
 
 	t.Run("empty pubkey", func(t *testing.T) {
-		_, err := reg.Register("mesh-1", "", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("mesh-1", "", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "pubkey cannot be empty")
 	})
 
 	t.Run("no endpoints and no observed endpoint", func(t *testing.T) {
-		_, err := reg.Register("mesh-1", "pubkey-1", []string{}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "at least one endpoint or observed endpoint is required")
 	})
@@ -51,7 +51,7 @@ func TestRegistry_Register(t *testing.T) {
 			Port:     51820,
 			Protocol: "udp",
 		}
-		entry, err := reg.Register("agent-1", "pubkey-agent", []string{}, "", "", 0, 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE)
+		entry, err := reg.Register("agent-1", "pubkey-agent", []string{}, "", "", 0, 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE, nil)
 		assert.NoError(t, err)
 		assert.NotNil(t, entry)
 		assert.Equal(t, "agent-1", entry.MeshID)
@@ -62,13 +62,13 @@ func TestRegistry_Register(t *testing.T) {
 		reg := New(5 * time.Minute)
 
 		// Initial registration
-		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 
 		time.Sleep(10 * time.Millisecond)
 
 		// Update with same pubkey (should succeed - this is a renewal)
-		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "100.64.0.2", "fd42::2", 9001, 0, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry2, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.2:41820"}, "100.64.0.2", "fd42::2", 9001, 0, map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 
 		assert.Equal(t, "pubkey-1", entry2.PubKey)
@@ -81,7 +81,7 @@ func TestRegistry_Lookup(t *testing.T) {
 	reg := New(5 * time.Minute)
 
 	t.Run("lookup existing colony", func(t *testing.T) {
-		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, 8443, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "100.64.0.1", "fd42::1", 9000, 8443, map[string]string{"env": "prod"}, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 
 		entry, err := reg.Lookup("mesh-1")
@@ -106,7 +106,7 @@ func TestRegistry_Lookup(t *testing.T) {
 	t.Run("lookup expired colony", func(t *testing.T) {
 		reg := New(50 * time.Millisecond)
 
-		_, err := reg.Register("mesh-expire", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("mesh-expire", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 
 		// Wait for expiration
@@ -123,10 +123,10 @@ func TestRegistry_Count(t *testing.T) {
 
 	assert.Equal(t, 0, reg.Count())
 
-	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 	assert.Equal(t, 1, reg.Count())
 
-	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 	assert.Equal(t, 2, reg.Count())
 }
 
@@ -134,8 +134,8 @@ func TestRegistry_CountActive(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register two colonies
-	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
-	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
+	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 
 	assert.Equal(t, 2, reg.CountActive())
 
@@ -149,8 +149,8 @@ func TestRegistry_Cleanup(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register two colonies
-	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
-	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
+	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 
 	assert.Equal(t, 2, reg.Count())
 
@@ -167,8 +167,8 @@ func TestRegistry_StartCleanup(t *testing.T) {
 	reg := New(50 * time.Millisecond)
 
 	// Register colonies
-	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
-	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+	_, _ = reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
+	_, _ = reg.Register("mesh-2", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 
 	assert.Equal(t, 2, reg.Count())
 
@@ -203,6 +203,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 				nil,
 				nil,
 				discoveryv1.NatHint_NAT_UNKNOWN,
+				nil,
 			)
 			done <- true
 		}(i)
@@ -235,11 +236,11 @@ func TestRegistry_SplitBrainDetection(t *testing.T) {
 
 	t.Run("prevent duplicate registration with different pubkey", func(t *testing.T) {
 		// First registration
-		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 
 		// Try to register same mesh_id with different pubkey (should fail)
-		_, err = reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err = reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "already registered with different public key")
 		assert.Contains(t, err.Error(), "split-brain")
@@ -249,7 +250,7 @@ func TestRegistry_SplitBrainDetection(t *testing.T) {
 		reg := New(5 * time.Minute)
 
 		// First registration
-		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		entry1, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 
 		time.Sleep(10 * time.Millisecond)
@@ -262,7 +263,7 @@ func TestRegistry_SplitBrainDetection(t *testing.T) {
 			"", "",
 			0,
 			0,
-			map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+			map[string]string{"updated": "true"}, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "pubkey-1", entry2.PubKey)
 		assert.Equal(t, []string{"10.0.0.2:41820"}, entry2.Endpoints)
@@ -273,14 +274,14 @@ func TestRegistry_SplitBrainDetection(t *testing.T) {
 		reg := New(50 * time.Millisecond)
 
 		// First registration
-		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err := reg.Register("mesh-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		require.NoError(t, err)
 
 		// Wait for expiration
 		time.Sleep(100 * time.Millisecond)
 
 		// Register with different pubkey (should succeed after expiration)
-		_, err = reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN)
+		_, err = reg.Register("mesh-1", "pubkey-2", []string{"10.0.0.2:41820"}, "", "", 0, 0, nil, nil, discoveryv1.NatHint_NAT_UNKNOWN, nil)
 		assert.NoError(t, err)
 	})
 }
@@ -296,7 +297,7 @@ func TestRegistry_EndpointValidation(t *testing.T) {
 			Protocol: "udp",
 		}
 
-		_, err := reg.Register("agent-1", "pubkey-1", []string{}, "", "", 0, 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE)
+		_, err := reg.Register("agent-1", "pubkey-1", []string{}, "", "", 0, 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "observed endpoint must have a valid port")
 		assert.Contains(t, err.Error(), "STUN discovery")
@@ -310,7 +311,7 @@ func TestRegistry_EndpointValidation(t *testing.T) {
 			Protocol: "udp",
 		}
 
-		entry, err := reg.Register("agent-1", "pubkey-1", []string{}, "", "", 0, 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE)
+		entry, err := reg.Register("agent-1", "pubkey-1", []string{}, "", "", 0, 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE, nil)
 		assert.NoError(t, err)
 		assert.NotNil(t, entry)
 		assert.Equal(t, observedEndpoint, entry.ObservedEndpoint)
@@ -324,7 +325,7 @@ func TestRegistry_EndpointValidation(t *testing.T) {
 			Protocol: "udp",
 		}
 
-		entry, err := reg.Register("colony-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE)
+		entry, err := reg.Register("colony-1", "pubkey-1", []string{"10.0.0.1:41820"}, "", "", 0, 0, nil, observedEndpoint, discoveryv1.NatHint_NAT_CONE, nil)
 		assert.NoError(t, err)
 		assert.NotNil(t, entry)
 	})
