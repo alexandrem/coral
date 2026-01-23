@@ -512,10 +512,26 @@ func (s *CLIMeshSuite) TestAddRemoteConnectionSucceedsWithStoredCA() {
 	)
 	result.MustSucceed(s.T())
 
-	// Now try to connect using the stored config and CA.
-	connEnv := freshEnv.WithEnv(map[string]string{
+	// Verify that --set-default correctly set the new colony as default.
+	// Clear CORAL_COLONY_ID so get-contexts shows the global default, not env override.
+	checkEnv := freshEnv.WithEnv(map[string]string{
 		"HOME":            freshEnv.HomeDir,
-		"CORAL_API_TOKEN": s.testToken,
+		"CORAL_COLONY_ID": "", // Clear to see global default
+	})
+	contextsResult := helpers.RunCLIWithEnv(s.ctx, checkEnv, "config", "get-contexts")
+	contextsResult.MustSucceed(s.T())
+	// The output has columns: CURRENT, COLONY-ID, ... The default has "*" in CURRENT column.
+	// Look for a line starting with "*" followed by spaces then the colony name.
+	s.Regexp(`(?m)^\*\s+`+remoteColonyName, contextsResult.Output,
+		"Expected %q to be the default colony (marked with *)", remoteColonyName)
+
+	// Now try to connect using the stored config and CA.
+	// Clear env vars so CLI uses global default (set by --set-default) with stored CA.
+	connEnv := freshEnv.WithEnv(map[string]string{
+		"HOME":                  freshEnv.HomeDir,
+		"CORAL_API_TOKEN":       s.testToken,
+		"CORAL_COLONY_ID":       "", // Clear to use global default from --set-default
+		"CORAL_COLONY_ENDPOINT": "", // Clear to use stored config
 	})
 
 	statusResult := helpers.RunCLIWithEnv(s.ctx, connEnv, "colony", "agents")
