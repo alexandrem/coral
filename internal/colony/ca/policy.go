@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	cryptojwt "github.com/coral-mesh/coral-crypto/jwt"
+
 	"github.com/coral-mesh/coral/internal/colony/jwks"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // PolicyEnforcer handles access control and policy enforcement for certificate operations.
@@ -24,23 +25,11 @@ func NewPolicyEnforcer(jwksClient *jwks.Client, colonyID string) *PolicyEnforcer
 	}
 }
 
-// ReferralClaims contains JWT claims for referral tickets (RFD 049).
-type ReferralClaims struct {
-	ReefID   string `json:"reef_id"`
-	ColonyID string `json:"colony_id"`
-	AgentID  string `json:"agent_id"`
-	Intent   string `json:"intent"`
-	jwt.RegisteredClaims
-}
+// ReferralClaims is an alias to coral-crypto's ReferralClaims for API compatibility.
+type ReferralClaims = cryptojwt.ReferralClaims
 
-// BootstrapClaims contains JWT claims for bootstrap tokens.
-type BootstrapClaims struct {
-	ReefID   string `json:"reef_id"`
-	ColonyID string `json:"colony_id"`
-	AgentID  string `json:"agent_id"`
-	Intent   string `json:"intent"`
-	jwt.RegisteredClaims
-}
+// BootstrapClaims is an alias to coral-crypto's BootstrapClaims for API compatibility.
+type BootstrapClaims = cryptojwt.BootstrapClaims
 
 // ValidateReferralTicket validates a referral ticket JWT.
 // This is a stateless validation per RFD 049 using JWKS.
@@ -49,38 +38,8 @@ func (p *PolicyEnforcer) ValidateReferralTicket(tokenString string) (*ReferralCl
 		return nil, fmt.Errorf("JWKS client not initialized")
 	}
 
-	// Parse and validate JWT using JWKS keyfunc.
-	// The Keyfunc in jwks.Client enforces EdDSA whitelist.
-	token, err := jwt.ParseWithClaims(tokenString, &ReferralClaims{}, p.jwksClient.GetKeyFunc())
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
-	}
-
-	claims, ok := token.Claims.(*ReferralClaims)
-	if !ok || !token.Valid {
-		return nil, fmt.Errorf("invalid token")
-	}
-
-	// Verify audience.
-	// We accept both "colony-step-ca" (legacy) and "coral-colony" (RFD 049).
-	validAudience := false
-	for _, aud := range claims.Audience {
-		if aud == "colony-step-ca" || aud == "coral-colony" {
-			validAudience = true
-			break
-		}
-	}
-	if !validAudience {
-		return nil, fmt.Errorf("invalid audience: %v", claims.Audience)
-	}
-
-	// Verify issuer.
-	// We accept both "reef-control" (legacy) and "coral-discovery" (RFD 049).
-	if claims.Issuer != "reef-control" && claims.Issuer != "coral-discovery" {
-		return nil, fmt.Errorf("invalid issuer: %s", claims.Issuer)
-	}
-
-	return claims, nil
+	// Use the JWKS client's validator which uses coral-crypto.
+	return p.jwksClient.ValidateReferralTicket(tokenString)
 }
 
 // ValidateAgentCSR validates a CSR for agent certificate issuance.

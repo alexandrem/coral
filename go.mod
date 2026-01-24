@@ -6,6 +6,7 @@ require (
 	connectrpc.com/connect v1.19.1
 	github.com/chzyer/readline v1.5.1
 	github.com/cilium/ebpf v0.16.0
+	github.com/coral-mesh/coral-crypto v0.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/uuid v1.6.0
@@ -13,7 +14,6 @@ require (
 	github.com/kr/pty v1.1.8
 	github.com/marcboeker/go-duckdb v1.8.5
 	github.com/mark3labs/mcp-go v0.29.0
-	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pion/stun v0.6.1
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v4 v4.25.11
@@ -70,6 +70,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
+	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
 	github.com/pion/logging v0.2.2 // indirect
@@ -105,3 +106,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 )
+
+replace github.com/coral-mesh/coral-crypto => ../coral-crypto

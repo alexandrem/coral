@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -21,8 +21,8 @@ import (
 type NetworkResult struct {
 	WireGuardDevice       *wireguard.Device
 	AgentKeys             *auth.WireGuardKeyPair
-	ColonyInfo            *discoverypb.LookupColonyResponse
-	AgentObservedEndpoint *discoverypb.Endpoint
+	ColonyInfo            *discoveryclient.LookupColonyResponse
+	AgentObservedEndpoint *discoveryclient.Endpoint
 	STUNServers           []string
 	MeshIP                string
 	MeshSubnet            string
@@ -139,7 +139,7 @@ func (n *NetworkInitializer) Initialize() (*NetworkResult, error) {
 	if agentObservedEndpoint != nil {
 		n.logger.Info().
 			Str("agent_id", n.agentID).
-			Str("public_ip", agentObservedEndpoint.Ip).
+			Str("public_ip", agentObservedEndpoint.IP).
 			Uint32("public_port", agentObservedEndpoint.Port).
 			Msg("Registering agent with discovery service")
 
@@ -193,7 +193,7 @@ func (n *NetworkInitializer) ConfigureMesh(
 		if connectPort == 0 {
 			connectPort = constants.DefaultColonyPort
 		}
-		meshAddr := net.JoinHostPort(result.ColonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
+		meshAddr := net.JoinHostPort(result.ColonyInfo.MeshIPv4, fmt.Sprintf("%d", connectPort))
 		n.logger.Info().
 			Str("mesh_addr", meshAddr).
 			Msg("Testing connectivity to colony via mesh to establish WireGuard handshake")
@@ -217,7 +217,7 @@ func (n *NetworkInitializer) ConfigureMesh(
 
 // getSTUNServers determines which STUN servers to use for NAT traversal.
 // Priority: env variable > agent config > discovery response > default.
-func (n *NetworkInitializer) getSTUNServers(_ *discoverypb.LookupColonyResponse) []string {
+func (n *NetworkInitializer) getSTUNServers(_ *discoveryclient.LookupColonyResponse) []string {
 	// Check environment variable first.
 	envSTUN := os.Getenv("CORAL_STUN_SERVERS")
 	if envSTUN != "" {

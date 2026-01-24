@@ -15,7 +15,6 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
-	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/collector"
 	"github.com/coral-mesh/coral/internal/agent/profiler"
@@ -23,6 +22,7 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
@@ -53,7 +53,7 @@ type ServiceRegistry struct {
 	functionCache *agent.FunctionCache
 	agentInstance *agent.Agent
 	wgDevice      *wireguard.Device
-	colonyInfo    *discoverypb.LookupColonyResponse
+	colonyInfo    *discoveryclient.LookupColonyResponse
 	meshIP        string // Deprecated: Use connectionManager.GetAssignedIP()
 	meshSubnet    string // Deprecated: Use connectionManager.GetAssignedIP()
 	connectionMgr *ConnectionManager
@@ -72,7 +72,7 @@ func NewServiceRegistry(
 	functionCache *agent.FunctionCache,
 	agentInstance *agent.Agent,
 	wgDevice *wireguard.Device,
-	colonyInfo *discoverypb.LookupColonyResponse,
+	colonyInfo *discoveryclient.LookupColonyResponse,
 	meshIP string,
 	meshSubnet string,
 	connectionMgr *ConnectionManager,
@@ -582,22 +582,20 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 	// Colony info.
 	if s.colonyInfo != nil {
 		colonyInfoMap := make(map[string]interface{})
-		colonyInfoMap["id"] = s.colonyInfo.MeshId
-		colonyInfoMap["mesh_ipv4"] = s.colonyInfo.MeshIpv4
-		colonyInfoMap["mesh_ipv6"] = s.colonyInfo.MeshIpv6
+		colonyInfoMap["id"] = s.colonyInfo.MeshID
+		colonyInfoMap["mesh_ipv4"] = s.colonyInfo.MeshIPv4
+		colonyInfoMap["mesh_ipv6"] = s.colonyInfo.MeshIPv6
 		colonyInfoMap["connect_port"] = s.colonyInfo.ConnectPort
 		colonyInfoMap["endpoints"] = s.colonyInfo.Endpoints
 
 		// Add observed endpoints.
 		observedEps := make([]map[string]interface{}, 0, len(s.colonyInfo.ObservedEndpoints))
 		for _, ep := range s.colonyInfo.ObservedEndpoints {
-			if ep != nil {
-				observedEps = append(observedEps, map[string]interface{}{
-					"ip":       ep.Ip,
-					"port":     ep.Port,
-					"protocol": ep.Protocol,
-				})
-			}
+			observedEps = append(observedEps, map[string]interface{}{
+				"ip":       ep.IP,
+				"port":     ep.Port,
+				"protocol": ep.Protocol,
+			})
 		}
 		colonyInfoMap["observed_endpoints"] = observedEps
 
@@ -622,12 +620,12 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 	}
 
 	// Connectivity test to colony mesh IP.
-	if s.colonyInfo != nil && s.colonyInfo.MeshIpv4 != "" {
+	if s.colonyInfo != nil && s.colonyInfo.MeshIPv4 != "" {
 		connectPort := s.colonyInfo.ConnectPort
 		if connectPort == 0 {
 			connectPort = constants.DefaultColonyPort
 		}
-		meshAddr := net.JoinHostPort(s.colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
+		meshAddr := net.JoinHostPort(s.colonyInfo.MeshIPv4, fmt.Sprintf("%d", connectPort))
 
 		connTest := make(map[string]interface{})
 		connTest["target"] = meshAddr
@@ -646,7 +644,7 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 
 		// Ping test (if available).
 		//nolint:gosec // G204: Diagnostic ping command with validated colony mesh IP.
-		if pingOut, err := exec.Command("ping", "-c", "1", "-W", "1", s.colonyInfo.MeshIpv4).CombinedOutput(); err == nil {
+		if pingOut, err := exec.Command("ping", "-c", "1", "-W", "1", s.colonyInfo.MeshIPv4).CombinedOutput(); err == nil {
 			info["ping_result"] = string(pingOut)
 		} else {
 			info["ping_error"] = err.Error()

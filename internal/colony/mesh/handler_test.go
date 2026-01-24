@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -20,7 +20,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		observedEndpoints []*discoverypb.Endpoint
+		observedEndpoints []*discoveryclient.Endpoint
 		peerHost          string
 		expectedIP        string
 		expectedPort      uint32
@@ -29,10 +29,10 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 	}{
 		{
 			name: "skip localhost and select matching endpoint",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "127.0.0.1", Port: 41580},   // Should be skipped (localhost)
-				{Ip: "192.168.5.2", Port: 41820}, // Should be selected (matches peer)
-				{Ip: "10.0.0.5", Port: 41820},    // Alternative endpoint
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "127.0.0.1", Port: 41580},   // Should be skipped (localhost)
+				{IP: "192.168.5.2", Port: 41820}, // Should be selected (matches peer)
+				{IP: "10.0.0.5", Port: 41820},    // Alternative endpoint
 			},
 			peerHost:          "192.168.5.2",
 			expectedIP:        "192.168.5.2",
@@ -42,10 +42,10 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "skip localhost when it's first in list",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "127.0.0.1", Port: 41580},    // Should be skipped (localhost)
-				{Ip: "203.0.113.10", Port: 41820}, // Should be selected (first non-localhost)
-				{Ip: "198.51.100.5", Port: 41820}, // Alternative endpoint
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "127.0.0.1", Port: 41580},    // Should be skipped (localhost)
+				{IP: "203.0.113.10", Port: 41820}, // Should be selected (first non-localhost)
+				{IP: "198.51.100.5", Port: 41820}, // Alternative endpoint
 			},
 			peerHost:          "172.16.0.1", // Different IP (no match)
 			expectedIP:        "203.0.113.10",
@@ -55,10 +55,10 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "skip multiple localhost variants",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "127.0.0.1", Port: 41580}, // Should be skipped (localhost IPv4)
-				{Ip: "::1", Port: 41580},       // Should be skipped (localhost IPv6)
-				{Ip: "10.42.0.5", Port: 41820}, // Should be selected
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "127.0.0.1", Port: 41580}, // Should be skipped (localhost IPv4)
+				{IP: "::1", Port: 41580},       // Should be skipped (localhost IPv6)
+				{IP: "10.42.0.5", Port: 41820}, // Should be selected
 			},
 			peerHost:          "10.42.0.5",
 			expectedIP:        "10.42.0.5",
@@ -68,9 +68,9 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "skip localhost keyword",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "localhost", Port: 41580}, // Should be skipped
-				{Ip: "192.168.1.5", Port: 41820},
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "localhost", Port: 41580}, // Should be skipped
+				{IP: "192.168.1.5", Port: 41820},
 			},
 			peerHost:          "10.0.0.1",
 			expectedIP:        "192.168.1.5",
@@ -80,10 +80,10 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "prefer matching endpoint over first when both non-localhost",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "198.51.100.1", Port: 41820},  // First but doesn't match
-				{Ip: "192.168.1.100", Port: 41820}, // Matches peer address
-				{Ip: "10.0.0.1", Port: 41820},      // Alternative
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "198.51.100.1", Port: 41820},  // First but doesn't match
+				{IP: "192.168.1.100", Port: 41820}, // Matches peer address
+				{IP: "10.0.0.1", Port: 41820},      // Alternative
 			},
 			peerHost:          "192.168.1.100",
 			expectedIP:        "192.168.1.100",
@@ -93,10 +93,10 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "handle all localhost endpoints gracefully",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "127.0.0.1", Port: 41580},
-				{Ip: "::1", Port: 41580},
-				{Ip: "localhost", Port: 41580},
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "127.0.0.1", Port: 41580},
+				{IP: "::1", Port: 41580},
+				{IP: "localhost", Port: 41580},
 			},
 			peerHost:          "192.168.1.1",
 			expectedIP:        "", // No valid endpoint available
@@ -106,10 +106,10 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "no peer host - use first non-localhost",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "127.0.0.1", Port: 41580},
-				{Ip: "10.0.0.5", Port: 41820},
-				{Ip: "192.168.1.5", Port: 41820},
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "127.0.0.1", Port: 41580},
+				{IP: "10.0.0.5", Port: 41820},
+				{IP: "192.168.1.5", Port: 41820},
 			},
 			peerHost:          "", // No peer host available
 			expectedIP:        "10.0.0.5",
@@ -119,7 +119,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name:              "empty endpoint list",
-			observedEndpoints: []*discoverypb.Endpoint{},
+			observedEndpoints: []*discoveryclient.Endpoint{},
 			peerHost:          "192.168.1.1",
 			expectedIP:        "",
 			expectedPort:      0,
@@ -128,9 +128,9 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "nil endpoints in list",
-			observedEndpoints: []*discoverypb.Endpoint{
+			observedEndpoints: []*discoveryclient.Endpoint{
 				nil,
-				{Ip: "192.168.1.5", Port: 41820},
+				{IP: "192.168.1.5", Port: 41820},
 				nil,
 			},
 			peerHost:          "10.0.0.1",
@@ -141,9 +141,9 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "endpoints with empty IP",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "", Port: 41820},
-				{Ip: "192.168.1.5", Port: 41820},
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "", Port: 41820},
+				{IP: "192.168.1.5", Port: 41820},
 			},
 			peerHost:          "10.0.0.1",
 			expectedIP:        "192.168.1.5",
@@ -153,10 +153,10 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "multiple matching endpoints - use first match",
-			observedEndpoints: []*discoverypb.Endpoint{
-				{Ip: "192.168.1.5", Port: 41820},
-				{Ip: "192.168.1.5", Port: 41821}, // Same IP, different port
-				{Ip: "10.0.0.1", Port: 41820},
+			observedEndpoints: []*discoveryclient.Endpoint{
+				{IP: "192.168.1.5", Port: 41820},
+				{IP: "192.168.1.5", Port: 41821}, // Same IP, different port
+				{IP: "10.0.0.1", Port: 41820},
 			},
 			peerHost:          "192.168.1.5",
 			expectedIP:        "192.168.1.5",
@@ -182,7 +182,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 			} else {
 				// Expecting a valid endpoint
 				require.NotNil(t, selectedEp, tt.description)
-				assert.Equal(t, tt.expectedIP, selectedEp.Ip, tt.description)
+				assert.Equal(t, tt.expectedIP, selectedEp.IP, tt.description)
 				assert.Equal(t, tt.expectedPort, selectedEp.Port, tt.description)
 				assert.Equal(t, tt.expectedMatchType, matchType, tt.description)
 			}
@@ -205,10 +205,10 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 		// - Colony registered with endpoints: [127.0.0.1:41580, <public-ip>:9000, ...]
 		// - Agent connected via the port 9000 endpoint
 		// - Colony should NOT use 127.0.0.1 for WireGuard peer
-		observedEndpoints := []*discoverypb.Endpoint{
-			{Ip: "127.0.0.1", Port: 41580},   // This was being incorrectly selected
-			{Ip: "192.168.5.2", Port: 41820}, // Agent's actual public IP
-			{Ip: "10.0.0.5", Port: 41820},    // Alternative public endpoint
+		observedEndpoints := []*discoveryclient.Endpoint{
+			{IP: "127.0.0.1", Port: 41580},   // This was being incorrectly selected
+			{IP: "192.168.5.2", Port: 41820}, // Agent's actual public IP
+			{IP: "10.0.0.5", Port: 41820},    // Alternative public endpoint
 		}
 
 		// Agent connected from 192.168.5.2
@@ -222,22 +222,23 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 		)
 
 		require.NotNil(t, selectedEp, "Should select a valid endpoint")
-		assert.NotEqual(t, "127.0.0.1", selectedEp.Ip, "Should NOT select localhost")
-		assert.Equal(t, "192.168.5.2", selectedEp.Ip, "Should select endpoint matching how agent connected")
+		assert.NotEqual(t, "127.0.0.1", selectedEp.IP, "Should NOT select localhost")
+		assert.Equal(t, "192.168.5.2", selectedEp.IP,
+			"Should select endpoint matching how agent connected")
 		assert.Equal(t, uint32(41820), selectedEp.Port)
 		assert.Equal(t, "matching", matchType, "Should indicate this is a matching endpoint")
 
 		t.Logf("✓ Original bug fixed: skipped localhost (127.0.0.1:41580), selected matching endpoint (%s:%d)",
-			selectedEp.Ip, selectedEp.Port)
+			selectedEp.IP, selectedEp.Port)
 	})
 
 	t.Run("production scenario - multiple public endpoints", func(t *testing.T) {
 		// Production scenario with multiple public IPs/hostnames
-		observedEndpoints := []*discoverypb.Endpoint{
-			{Ip: "127.0.0.1", Port: 41580},     // Local testing endpoint - should be skipped
-			{Ip: "203.0.113.10", Port: 41820},  // Primary public IP
-			{Ip: "198.51.100.50", Port: 41820}, // Secondary public IP
-			{Ip: "192.0.2.100", Port: 41820},   // Tertiary public IP
+		observedEndpoints := []*discoveryclient.Endpoint{
+			{IP: "127.0.0.1", Port: 41580},     // Local testing endpoint - should be skipped
+			{IP: "203.0.113.10", Port: 41820},  // Primary public IP
+			{IP: "198.51.100.50", Port: 41820}, // Secondary public IP
+			{IP: "192.0.2.100", Port: 41820},   // Tertiary public IP
 		}
 
 		// Agent connected via secondary IP
@@ -251,7 +252,8 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 		)
 
 		require.NotNil(t, selectedEp)
-		assert.Equal(t, "198.51.100.50", selectedEp.Ip, "Should select endpoint matching connection source")
+		assert.Equal(t, "198.51.100.50", selectedEp.IP,
+			"Should select endpoint matching connection source")
 		assert.Equal(t, "matching", matchType)
 
 		t.Logf("✓ Production scenario: correctly selected matching endpoint from multiple options")
@@ -259,10 +261,10 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 
 	t.Run("docker-compose scenario - agent from different network", func(t *testing.T) {
 		// Docker Compose scenario where agent is on different Docker network
-		observedEndpoints := []*discoverypb.Endpoint{
-			{Ip: "127.0.0.1", Port: 41580},     // Should be skipped
-			{Ip: "172.18.0.10", Port: 41820},   // Docker network IP
-			{Ip: "192.168.1.100", Port: 41820}, // Host network IP
+		observedEndpoints := []*discoveryclient.Endpoint{
+			{IP: "127.0.0.1", Port: 41580},     // Should be skipped
+			{IP: "172.18.0.10", Port: 41820},   // Docker network IP
+			{IP: "192.168.1.100", Port: 41820}, // Host network IP
 		}
 
 		// Agent connected via Docker network
@@ -276,7 +278,7 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 		)
 
 		require.NotNil(t, selectedEp)
-		assert.Equal(t, "172.18.0.10", selectedEp.Ip, "Should select Docker network endpoint")
+		assert.Equal(t, "172.18.0.10", selectedEp.IP, "Should select Docker network endpoint")
 		assert.Equal(t, "matching", matchType)
 
 		t.Logf("✓ Docker Compose scenario: correctly selected Docker network endpoint")
@@ -291,14 +293,14 @@ func BenchmarkSelectBestAgentEndpoint(b *testing.B) {
 	}, "bench")
 
 	// Create a realistic list of endpoints
-	endpoints := []*discoverypb.Endpoint{
-		{Ip: "127.0.0.1", Port: 41580},
-		{Ip: "::1", Port: 41580},
-		{Ip: "192.168.1.10", Port: 41820},
-		{Ip: "192.168.1.20", Port: 41820},
-		{Ip: "10.0.0.5", Port: 41820},
-		{Ip: "203.0.113.10", Port: 41820},
-		{Ip: "198.51.100.50", Port: 41820},
+	endpoints := []*discoveryclient.Endpoint{
+		{IP: "127.0.0.1", Port: 41580},
+		{IP: "::1", Port: 41580},
+		{IP: "192.168.1.10", Port: 41820},
+		{IP: "192.168.1.20", Port: 41820},
+		{IP: "10.0.0.5", Port: 41820},
+		{IP: "203.0.113.10", Port: 41820},
+		{IP: "198.51.100.50", Port: 41820},
 	}
 
 	peerHost := "192.168.1.20"

@@ -11,11 +11,10 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
-	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/config"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -26,7 +25,7 @@ type Handler struct {
 	wgDevice        *wireguard.Device
 	registry        *registry.Registry
 	logger          logging.Logger
-	discoveryClient discoveryv1connect.DiscoveryServiceClient
+	discoveryClient *discoveryclient.Client
 }
 
 // NewHandler creates a new mesh service handler.
@@ -34,7 +33,7 @@ func NewHandler(
 	cfg *config.ResolvedConfig,
 	wgDevice *wireguard.Device,
 	registry *registry.Registry,
-	discoveryClient discoveryv1connect.DiscoveryServiceClient,
+	discoveryClient *discoveryclient.Client,
 	logger logging.Logger,
 ) *Handler {
 	return &Handler{
@@ -116,11 +115,10 @@ func (h *Handler) Register(
 
 	// Query discovery service for agent's observed endpoint
 	if h.discoveryClient != nil {
-		agentInfo, err := h.discoveryClient.LookupAgent(ctx, connect.NewRequest(&discoverypb.LookupAgentRequest{
-			AgentId: req.Msg.AgentId,
-		}))
+		// Required for Workers-based discovery service.
+		agentInfo, err := h.discoveryClient.LookupAgent(ctx, req.Msg.AgentId, h.cfg.ColonyID)
 
-		if err == nil && agentInfo.Msg != nil && len(agentInfo.Msg.ObservedEndpoints) > 0 {
+		if err == nil && len(agentInfo.ObservedEndpoints) > 0 {
 			// Extract the peer's source IP from the HTTP connection to help select the right endpoint.
 			var peerHost string
 			if peerAddr != "" {
@@ -130,11 +128,11 @@ func (h *Handler) Register(
 			}
 
 			// Select the best observed endpoint from the list.
-			selectedEp, matchType := selectBestAgentEndpoint(agentInfo.Msg.ObservedEndpoints, peerHost, h.logger, req.Msg.AgentId)
+			selectedEp, matchType := selectBestAgentEndpoint(agentInfo.ObservedEndpoints, peerHost, h.logger, req.Msg.AgentId)
 
 			// Build endpoint string and log selection.
 			if selectedEp != nil {
-				agentEndpoint = net.JoinHostPort(selectedEp.Ip, fmt.Sprintf("%d", selectedEp.Port))
+				agentEndpoint = net.JoinHostPort(selectedEp.IP, fmt.Sprintf("%d", selectedEp.Port))
 				if matchType == "matching" {
 					h.logger.Info().
 						Str("agent_id", req.Msg.AgentId).
@@ -160,19 +158,14 @@ func (h *Handler) Register(
 		}
 	}
 
-	// Fallback: extract agent's source address from HTTP connection.
-	// This works for same-host testing but not for NAT traversal.
-	// Note: peerAddr includes the HTTP port, not the WireGuard port.
-	if agentEndpoint == "" && peerAddr != "" {
-		if host, _, err := net.SplitHostPort(peerAddr); err == nil {
-			// Use a default WireGuard port (this is just a guess and likely wrong for agents)
-			// WireGuard will learn the correct endpoint from incoming packets
-			h.logger.Debug().
-				Str("agent_id", req.Msg.AgentId).
-				Str("peer_addr", peerAddr).
-				Msg("No discovery endpoint available, WireGuard will learn endpoint from incoming packets")
-			_ = host
-		}
+	// Log warning when no endpoint is available - this may cause connectivity issues.
+	// WireGuard can work in "roaming" mode where it learns the endpoint from incoming
+	// packets, but this requires the agent to initiate the connection first.
+	if agentEndpoint == "" {
+		h.logger.Warn().
+			Str("agent_id", req.Msg.AgentId).
+			Str("peer_addr", peerAddr).
+			Msg("No endpoint available for agent (discovery lookup failed, agent did not register with STUN endpoint). WireGuard roaming mode enabled - agent must initiate connection.")
 	}
 
 	// Add agent as WireGuard peer
@@ -297,29 +290,30 @@ func (h *Handler) Heartbeat(
 //
 // Returns the selected endpoint and a match type ("matching" or "first"), or (nil, "") if no valid endpoint found.
 func selectBestAgentEndpoint(
-	observedEndpoints []*discoverypb.Endpoint,
+	observedEndpoints []*discoveryclient.Endpoint,
 	peerHost string,
 	logger logging.Logger,
 	agentID string,
-) (*discoverypb.Endpoint, string) {
-	var selectedEp *discoverypb.Endpoint
-	var matchingEp *discoverypb.Endpoint
+) (*discoveryclient.Endpoint, string) {
+	var (
+		selectedEp, matchingEp *discoveryclient.Endpoint
+	)
 
 	for _, ep := range observedEndpoints {
-		if ep == nil || ep.Ip == "" {
+		if ep == nil || ep.IP == "" {
 			continue
 		}
 
-		isLocalhost := ep.Ip == "127.0.0.1" || ep.Ip == "::1" || ep.Ip == "localhost"
+		isLocalhost := ep.IP == "127.0.0.1" || ep.IP == "::1" || ep.IP == "localhost"
 
 		// If this endpoint's IP matches how the agent connected to us, prefer it.
 		// This handles same-host deployments where agent connects from 127.0.0.1.
-		if peerHost != "" && ep.Ip == peerHost && matchingEp == nil {
+		if peerHost != "" && ep.IP == peerHost && matchingEp == nil {
 			matchingEp = ep
 			if isLocalhost {
 				logger.Debug().
 					Str("agent_id", agentID).
-					Str("endpoint", net.JoinHostPort(ep.Ip, fmt.Sprintf("%d", ep.Port))).
+					Str("endpoint", net.JoinHostPort(ep.IP, fmt.Sprintf("%d", ep.Port))).
 					Msg("Using localhost endpoint (agent connected from same host)")
 			}
 		}
@@ -329,7 +323,7 @@ func selectBestAgentEndpoint(
 		if isLocalhost && matchingEp == nil {
 			logger.Debug().
 				Str("agent_id", agentID).
-				Str("endpoint", net.JoinHostPort(ep.Ip, fmt.Sprintf("%d", ep.Port))).
+				Str("endpoint", net.JoinHostPort(ep.IP, fmt.Sprintf("%d", ep.Port))).
 				Msg("Skipping localhost endpoint (agent connected from different host)")
 			continue
 		}

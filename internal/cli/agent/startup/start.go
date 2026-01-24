@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -148,7 +148,7 @@ Examples:
 
 			// Start background loops.
 			ctx := server.ServicesResult.Context
-			go server.ConnectionManager.StartDiscoveryLoop(ctx, func(discoveredColonyInfo *discoverypb.LookupColonyResponse) {
+			go server.ConnectionManager.StartDiscoveryLoop(ctx, func(discoveredColonyInfo *discoveryclient.LookupColonyResponse) {
 				logger.Info().
 					Str("colony_pubkey", discoveredColonyInfo.Pubkey).
 					Msg("Discovery succeeded - configuring mesh and attempting registration")

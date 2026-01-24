@@ -8,22 +8,21 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
-	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 )
 
 // LookupColony queries the discovery service for colony information.
-func LookupColony(ctx context.Context, client discoveryv1connect.DiscoveryServiceClient, meshID string) (*discoveryv1.LookupColonyResponse, error) {
-	req := connect.NewRequest(&discoveryv1.LookupColonyRequest{
-		MeshId: meshID,
-	})
-
-	resp, err := client.LookupColony(ctx, req)
+func LookupColony(
+	ctx context.Context,
+	client *discoveryclient.Client,
+	meshID string,
+) (*discoveryclient.LookupColonyResponse, error) {
+	resp, err := client.LookupColony(ctx, meshID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup colony: %w", err)
 	}
 
-	return resp.Msg, nil
+	return resp, nil
 }
 
 // GetColonyStatus queries the colony for its status.

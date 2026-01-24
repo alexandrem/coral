@@ -6,7 +6,7 @@ import (
 	"time"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
@@ -57,7 +57,7 @@ func (s *MeshSuite) TestColonyRegistration() {
 	// Query discovery service for the colony.
 	s.T().Logf("Looking up colony with mesh_id: %s", s.fixture.ColonyID)
 
-	var lookupResp *discoveryv1.LookupColonyResponse
+	var lookupResp *discoveryclient.LookupColonyResponse
 	err = helpers.WaitForCondition(s.ctx, func() bool {
 		resp, lookupErr := helpers.LookupColony(s.ctx, client, s.fixture.ColonyID)
 		if lookupErr != nil {
@@ -72,15 +72,15 @@ func (s *MeshSuite) TestColonyRegistration() {
 	s.Require().NotNil(lookupResp, "Lookup response should not be nil")
 
 	// Verify colony information.
-	s.Require().Equal(s.fixture.ColonyID, lookupResp.MeshId, "Mesh ID should match")
+	s.Require().Equal(s.fixture.ColonyID, lookupResp.MeshID, "Mesh ID should match")
 	s.Require().NotEmpty(lookupResp.Pubkey, "Colony public key should be set")
 	s.Require().NotEmpty(lookupResp.Endpoints, "Colony should have at least one endpoint")
-	s.Require().NotEmpty(lookupResp.MeshIpv4, "Colony mesh IPv4 should be set")
+	s.Require().NotEmpty(lookupResp.MeshIPv4, "Colony mesh IPv4 should be set")
 
 	s.T().Logf("Colony registered successfully:")
 	s.T().Logf("  - Public Key: %s", lookupResp.Pubkey[:16]+"...")
 	s.T().Logf("  - Endpoints: %v", lookupResp.Endpoints)
-	s.T().Logf("  - Mesh IPv4: %s", lookupResp.MeshIpv4)
+	s.T().Logf("  - Mesh IPv4: %s", lookupResp.MeshIPv4)
 }
 
 // TestColonyStatus verifies that we can query the colony for its status.

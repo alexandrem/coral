@@ -1204,7 +1204,11 @@ func (x *RegisterAgentResponse) GetStunServers() []string {
 type LookupAgentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Agent ID to look up
-	AgentId       string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	AgentId string `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// Mesh ID hint for routing (required for Workers implementation).
+	// The original Go server maintains a global index, but partitioned
+	// implementations need this to route to the correct shard.
+	MeshId        string `protobuf:"bytes,2,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1242,6 +1246,13 @@ func (*LookupAgentRequest) Descriptor() ([]byte, []int) {
 func (x *LookupAgentRequest) GetAgentId() string {
 	if x != nil {
 		return x.AgentId
+	}
+	return ""
+}
+
+func (x *LookupAgentRequest) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
 	}
 	return ""
 }
@@ -1720,9 +1731,10 @@ const file_coral_discovery_v1_discovery_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12I\n" +
 	"\x11observed_endpoint\x18\x04 \x01(\v2\x1c.coral.discovery.v1.EndpointR\x10observedEndpoint\x12!\n" +
-	"\fstun_servers\x18\x05 \x03(\tR\vstunServers\"/\n" +
+	"\fstun_servers\x18\x05 \x03(\tR\vstunServers\"H\n" +
 	"\x12LookupAgentRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\xc4\x03\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x17\n" +
+	"\amesh_id\x18\x02 \x01(\tR\x06meshId\"\xc4\x03\n" +
 	"\x13LookupAgentResponse\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x17\n" +
 	"\amesh_id\x18\x02 \x01(\tR\x06meshId\x12\x16\n" +
