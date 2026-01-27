@@ -6,7 +6,7 @@ require (
 	connectrpc.com/connect v1.19.1
 	github.com/chzyer/readline v1.5.1
 	github.com/cilium/ebpf v0.16.0
-	github.com/coral-mesh/coral-crypto v0.0.0
+	github.com/coral-mesh/coral-crypto v0.1.1
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/uuid v1.6.0
@@ -106,5 +106,3 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 )
-
-replace github.com/coral-mesh/coral-crypto => ../coral-crypto

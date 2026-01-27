@@ -1,0 +1,86 @@
+# Coral E2E Dev Dockerfile
+# Builds from workspace root to include sibling dependencies (coral-crypto)
+# Workspace root layout:
+#  .
+#  ├── coral
+#  ├── coral-crypto
+#  ├── coral-discovery-workers
+#  ├── go.work
+#  ├── go.work.sum
+#  └── website
+
+FROM golang:1.25-bookworm AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /build
+
+# Build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang \
+    g++ \
+    gcc \
+    git \
+    llvm \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace repos
+COPY coral coral
+COPY coral-crypto coral-crypto
+
+# Work in coral repo for build
+WORKDIR /build/coral
+
+# Init tooling
+RUN make init
+
+ENV PATH="${PATH}:/go/bin"
+
+# Dependencies
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+# Build
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make build BUILD_DIR=/build/bin
+
+# Final stage
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wireguard-tools \
+    iptables \
+    iproute2 \
+    bash \
+    curl \
+    tcpdump \
+    dnsutils \
+    netcat-openbsd \
+    net-tools \
+    procps \
+    vim-tiny \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g 1000 coral && \
+    useradd -m -u 1000 -g coral coral
+
+RUN mkdir -p /var/lib/coral /var/log/coral && \
+    chown -R coral:coral /var/lib/coral /var/log/coral
+
+COPY --from=builder /build/bin/coral /usr/local/bin/coral
+
+USER root
+WORKDIR /root
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD coral agent status || exit 1
+
+ENTRYPOINT ["/usr/local/bin/coral"]
+CMD ["agent", "start"]
