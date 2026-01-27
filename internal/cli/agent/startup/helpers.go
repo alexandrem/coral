@@ -588,6 +588,8 @@ func buildMeshServiceURLs(
 }
 
 // requestRelayAllocation requests a relay allocation from the discovery service.
+//
+// nolint:unused // keeping for upcoming relay implementation
 func requestRelayAllocation(
 	colonyInfo *discoverypb.LookupColonyResponse,
 	agentPubKey string,

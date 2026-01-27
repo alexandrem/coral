@@ -303,9 +303,10 @@ func runUseContext(colonyID string) error {
 		fmt.Println()
 		fmt.Printf("⚠ Note: %s overrides the global default.\n", source.Description())
 		fmt.Printf("  Current effective colony: %s\n", effectiveID)
-		if source.Type == "env" {
+		switch source.Type {
+		case "env":
 			fmt.Printf("  To use global default, unset %s\n", source.Path)
-		} else if source.Type == "project" {
+		case "project":
 			fmt.Printf("  To use global default, remove or update %s\n", source.Path)
 		}
 	}

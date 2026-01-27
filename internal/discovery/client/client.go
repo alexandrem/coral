@@ -27,8 +27,8 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithHttpClient allows users to override the http client.
-func WithHttpClient(httpClient *http.Client) Option {
+// WithHTTPClient allows users to override the http client.
+func WithHTTPClient(httpClient *http.Client) Option {
 	return func(c *Client) {
 		c.httpClient = httpClient
 	}
