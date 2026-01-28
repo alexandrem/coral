@@ -148,7 +148,7 @@ func parseTimeRange(timeRange string) (time.Time, time.Time, error) {
 func (s *Server) registerUnifiedSummaryTool() {
 	s.registerToolWithSchema(
 		"coral_query_summary",
-		"Get a high-level health summary for services, combining eBPF and OTLP data.",
+		"Get an enriched health summary for a service including system metrics, CPU profiling hotspots, deployment context, and regression indicators. Use this as the FIRST tool when diagnosing performance issues.",
 		UnifiedSummaryInput{},
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var input UnifiedSummaryInput
@@ -189,7 +189,19 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 		serviceName = *input.Service
 	}
 
-	ebpfService := colony.NewEbpfQueryService(s.db)
+	profilingConfig := colony.ProfilingEnrichmentConfig{
+		Enabled:      s.config.ProfilingEnrichmentEnabled,
+		TopKHotspots: s.config.ProfilingTopKHotspots,
+	}
+	// Override with per-request parameters.
+	if input.IncludeProfiling != nil && !*input.IncludeProfiling {
+		profilingConfig.Enabled = false
+	}
+	if input.TopK != nil && *input.TopK > 0 {
+		profilingConfig.TopKHotspots = int(*input.TopK)
+	}
+
+	ebpfService := colony.NewEbpfQueryServiceWithConfig(s.db, profilingConfig)
 	results, err := ebpfService.QueryUnifiedSummary(ctx, serviceName, startTime, endTime)
 	if err != nil {
 		return "", fmt.Errorf("failed to query summary: %w", err)
@@ -230,10 +242,181 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 			}
 		}
 
+		// Display profiling summary if available (RFD 074).
+		if r.ProfilingSummary != nil && len(r.ProfilingSummary.Hotspots) > 0 {
+			text += fmt.Sprintf("   CPU Profiling (%s, %d samples):\n",
+				r.ProfilingSummary.SamplingPeriod,
+				r.ProfilingSummary.TotalSamples)
+
+			for _, h := range r.ProfilingSummary.Hotspots {
+				// Show leaf frame as the hotspot name.
+				name := "unknown"
+				if len(h.Frames) > 0 {
+					name = h.Frames[len(h.Frames)-1]
+				}
+				text += fmt.Sprintf("     #%d %.1f%% (%d samples) %s\n",
+					h.Rank, h.Percentage, h.SampleCount, name)
+
+				// Show full stack trace (truncated).
+				if len(h.Frames) > 1 {
+					text += "         "
+					for i, frame := range h.Frames {
+						if i > 0 {
+							text += " → "
+						}
+						text += frame
+					}
+					text += "\n"
+				}
+			}
+		}
+
+		// Display deployment context (RFD 074).
+		if r.Deployment != nil {
+			text += fmt.Sprintf("   Deployment: %s (deployed %s ago)\n",
+				r.Deployment.BuildID, r.Deployment.Age)
+		}
+
+		// Display regression indicators (RFD 074).
+		if len(r.RegressionIndicators) > 0 {
+			text += "   Regressions:\n"
+			for _, ind := range r.RegressionIndicators {
+				text += fmt.Sprintf("     ⚠️  %s\n", ind.Message)
+			}
+		}
+
 		text += "\n"
 	}
 
 	return text, nil
+}
+
+// registerDebugCPUProfileTool registers the coral_debug_cpu_profile tool (RFD 074).
+func (s *Server) registerDebugCPUProfileTool() {
+	s.registerToolWithSchema(
+		"coral_debug_cpu_profile",
+		"Collect a high-frequency CPU profile (99Hz) for detailed analysis of specific functions. Use this AFTER coral_query_summary identifies a CPU hotspot that needs line-level investigation. Returns top stacks with sample counts.",
+		DebugCPUProfileInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var input DebugCPUProfileInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
+			s.auditToolCall("coral_debug_cpu_profile", input)
+
+			text, err := s.generateDebugCPUProfileOutput(ctx, input)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to collect CPU profile: %v", err)), nil
+			}
+
+			return mcp.NewToolResultText(text), nil
+		})
+}
+
+// generateDebugCPUProfileOutput generates the text output for coral_debug_cpu_profile (RFD 074).
+// This queries stored profiling data rather than triggering a live profile (live profiling via RFD 070).
+func (s *Server) generateDebugCPUProfileOutput(ctx context.Context, input DebugCPUProfileInput) (string, error) {
+	durationSeconds := int32(30)
+	if input.DurationSeconds != nil {
+		durationSeconds = *input.DurationSeconds
+		if durationSeconds > 300 {
+			durationSeconds = 300
+		}
+		if durationSeconds < 10 {
+			durationSeconds = 10
+		}
+	}
+
+	// Query stored profiling data for the requested duration.
+	endTime := time.Now()
+	startTime := endTime.Add(-time.Duration(durationSeconds) * time.Second)
+
+	topK := 10 // More detail for debug tool.
+	result, err := s.db.GetTopKHotspots(ctx, input.Service, startTime, endTime, topK)
+	if err != nil {
+		return "", fmt.Errorf("failed to query CPU profile: %w", err)
+	}
+
+	if result == nil || result.TotalSamples == 0 {
+		return fmt.Sprintf("No CPU profiling data available for service '%s' in the last %ds.\n"+
+			"Ensure the service is running and the agent is collecting CPU profiles (RFD 072).\n",
+			input.Service, durationSeconds), nil
+	}
+
+	format := "json"
+	if input.Format != nil {
+		format = *input.Format
+	}
+
+	if format == "folded" {
+		// Folded stack format for flame graphs.
+		text := ""
+		for _, h := range result.Hotspots {
+			line := ""
+			for i, frame := range h.Frames {
+				if i > 0 {
+					line += ";"
+				}
+				line += frame
+			}
+			text += fmt.Sprintf("%s %d\n", line, h.SampleCount)
+		}
+		return text, nil
+	}
+
+	// JSON-like text format for LLM consumption.
+	text := fmt.Sprintf("CPU Profile for %s (last %ds, %d total samples):\n\n",
+		input.Service, durationSeconds, result.TotalSamples)
+
+	for _, h := range result.Hotspots {
+		name := "unknown"
+		if len(h.Frames) > 0 {
+			name = h.Frames[len(h.Frames)-1]
+		}
+		text += fmt.Sprintf("#%d %.1f%% (%d samples) %s\n", h.Rank, h.Percentage, h.SampleCount, name)
+
+		// Full stack.
+		text += "  Stack: "
+		for i, frame := range h.Frames {
+			if i > 0 {
+				text += " → "
+			}
+			text += frame
+		}
+		text += "\n\n"
+	}
+
+	// Insights.
+	if len(result.Hotspots) > 0 {
+		text += "Insights:\n"
+		h := result.Hotspots[0]
+		name := "unknown"
+		if len(h.Frames) > 0 {
+			name = h.Frames[len(h.Frames)-1]
+		}
+		text += fmt.Sprintf("  Hottest function: %s (%.1f%%)\n", name, h.Percentage)
+		text += fmt.Sprintf("  Total unique stacks: %d\n", len(result.Hotspots))
+	}
+
+	return text, nil
+}
+
+// executeDebugCPUProfileTool executes the coral_debug_cpu_profile tool (RFD 074).
+func (s *Server) executeDebugCPUProfileTool(ctx context.Context, argsJSON string) (string, error) {
+	var input DebugCPUProfileInput
+	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	s.auditToolCall("coral_debug_cpu_profile", input)
+	return s.generateDebugCPUProfileOutput(ctx, input)
 }
 
 // registerUnifiedTracesTool registers the coral_query_traces tool.

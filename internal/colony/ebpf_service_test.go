@@ -96,6 +96,24 @@ func (m *mockDatabase) QueryAllServiceNames(ctx context.Context) ([]string, erro
 	return names, nil
 }
 
+// RFD 074: Profiling-enriched summary mock methods.
+
+func (m *mockDatabase) GetTopKHotspots(_ context.Context, _ string, _, _ time.Time, _ int) (*database.ProfilingSummaryResult, error) {
+	return &database.ProfilingSummaryResult{}, nil
+}
+
+func (m *mockDatabase) GetLatestBinaryMetadata(_ context.Context, _ string) (*database.BinaryMetadata, error) {
+	return nil, fmt.Errorf("no binary metadata")
+}
+
+func (m *mockDatabase) GetPreviousBinaryMetadata(_ context.Context, _, _ string) (*database.BinaryMetadata, error) {
+	return nil, fmt.Errorf("no previous binary metadata")
+}
+
+func (m *mockDatabase) CompareHotspotsWithBaseline(_ context.Context, _, _, _ string, _, _ time.Time, _ int) ([]database.RegressionIndicatorResult, error) {
+	return nil, nil
+}
+
 // TestQueryMetrics_TimeRangeValidation tests time range validation.
 func TestQueryMetrics_TimeRangeValidation(t *testing.T) {
 	mockDB := &mockDatabase{}
