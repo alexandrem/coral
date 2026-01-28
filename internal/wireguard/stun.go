@@ -8,12 +8,17 @@ import (
 	"github.com/pion/stun"
 
 	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
 // DiscoverPublicEndpoint uses STUN to discover the public IP and port.
 // Returns nil if discovery fails (not behind NAT or STUN servers unavailable).
-func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.Logger) *discoveryv1.Endpoint {
+func DiscoverPublicEndpoint(
+	stunServers []string,
+	localPort int,
+	logger logging.Logger,
+) *discoveryclient.Endpoint {
 	if len(stunServers) == 0 {
 		logger.Debug().Msg("No STUN servers configured, skipping public endpoint discovery")
 		return nil
@@ -57,7 +62,7 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 		if endpoint != nil {
 			logger.Info().
 				Str("stun_server", stunServer).
-				Str("public_ip", endpoint.Ip).
+				Str("public_ip", endpoint.IP).
 				Uint32("public_port", endpoint.Port).
 				Msg("Discovered public endpoint via STUN")
 			return endpoint
@@ -69,7 +74,7 @@ func DiscoverPublicEndpoint(stunServers []string, localPort int, logger logging.
 }
 
 // querySTUNServer sends a STUN binding request to the specified server.
-func querySTUNServer(conn *net.UDPConn, stunServer string, logger logging.Logger) (*discoveryv1.Endpoint, error) {
+func querySTUNServer(conn *net.UDPConn, stunServer string, logger logging.Logger) (*discoveryclient.Endpoint, error) {
 	// Resolve STUN server address
 	logger.Debug().Str("stun_server", stunServer).Msg("Resolving STUN server address")
 	serverAddr, err := net.ResolveUDPAddr("udp4", stunServer)
@@ -115,8 +120,8 @@ func querySTUNServer(conn *net.UDPConn, stunServer string, logger logging.Logger
 		return nil, fmt.Errorf("failed to get XOR-MAPPED-ADDRESS: %w", err)
 	}
 
-	return &discoveryv1.Endpoint{
-		Ip:       xorAddr.IP.String(),
+	return &discoveryclient.Endpoint{
+		IP:       xorAddr.IP.String(),
 		Port:     uint32(xorAddr.Port),
 		Protocol: "udp",
 		ViaRelay: false,

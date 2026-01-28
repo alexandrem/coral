@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/discovery/client"
 )
 
 // ColonyInfo holds colony connection information.
@@ -27,7 +28,7 @@ func LookupColony(ctx context.Context, discoveryEndpoint string, meshID string, 
 		Msg("Looking up colony in discovery service")
 
 	// Create discovery client.
-	discoveryClient := client.NewDiscoveryClient(discoveryEndpoint)
+	discoveryClient := client.New(discoveryEndpoint)
 
 	// Lookup colony.
 	resp, err := discoveryClient.LookupColony(ctx, meshID)

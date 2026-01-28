@@ -1,11 +1,11 @@
 package agent
 
 import (
-	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/cli/agent/startup"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -17,7 +17,7 @@ type ConnectionManager = startup.ConnectionManager
 // This is a re-export from the startup package for backwards compatibility.
 func NewConnectionManager(
 	agentID string,
-	colonyInfo *discoverypb.LookupColonyResponse,
+	colonyInfo *discoveryclient.LookupColonyResponse,
 	cfg *config.ResolvedConfig,
 	serviceSpecs []*types.ServiceSpec,
 	agentPubKey string,

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"testing"
 )
 
 // CLIResult contains the output and exit code from a CLI command.
@@ -519,18 +520,16 @@ func (r *CLIResult) HasError() bool {
 }
 
 // MustSucceed panics if the CLI command failed (useful in tests).
-func (r *CLIResult) MustSucceed(t interface {
-	Fatalf(format string, args ...interface{})
-}) {
+func (r *CLIResult) MustSucceed(t *testing.T) {
+	t.Helper()
 	if r.HasError() {
 		t.Fatalf("CLI command failed (exit code %d): %v\nOutput: %s", r.ExitCode, r.Err, r.Output)
 	}
 }
 
 // MustFail panics if the CLI command succeeded (useful for testing error cases).
-func (r *CLIResult) MustFail(t interface {
-	Fatalf(format string, args ...interface{})
-}) {
+func (r *CLIResult) MustFail(t *testing.T) {
+	t.Helper()
 	if !r.HasError() {
 		t.Fatalf("CLI command should have failed but succeeded\nOutput: %s", r.Output)
 	}

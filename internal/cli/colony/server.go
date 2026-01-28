@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/colony"
@@ -25,6 +24,7 @@ import (
 	colonywg "github.com/coral-mesh/coral/internal/colony/wireguard"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
@@ -60,12 +60,9 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}
 
 	// Create discovery client for agent endpoint lookup
-	var discoveryClient discoveryv1connect.DiscoveryServiceClient
+	var discoveryClient *discoveryclient.Client
 	if globalConfig.Discovery.Endpoint != "" {
-		discoveryClient = discoveryv1connect.NewDiscoveryServiceClient(
-			http.DefaultClient,
-			globalConfig.Discovery.Endpoint,
-		)
+		discoveryClient = discoveryclient.New(globalConfig.Discovery.Endpoint)
 		logger.Debug().
 			Str("discovery_endpoint", globalConfig.Discovery.Endpoint).
 			Msg("Discovery client configured for agent endpoint lookup")

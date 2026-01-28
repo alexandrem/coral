@@ -328,13 +328,14 @@ func fetchFromDiscovery(colonyID, caFingerprint, discoveryEndpoint, colonyDir st
 	}
 
 	fmt.Println("Fetching colony info from Discovery Service...")
+	fmt.Printf("  Discovery: %s\n", discoveryEndpoint)
 	fmt.Printf("  Colony ID: %s\n", colonyID)
 
 	// Create Discovery client and lookup colony.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	discoveryClient := client.NewDiscoveryClient(discoveryEndpoint)
+	discoveryClient := client.New(discoveryEndpoint)
 	resp, err := discoveryClient.LookupColony(ctx, colonyID)
 	if err != nil {
 		return config.RemoteConfig{}, "", fmt.Errorf("failed to lookup colony from Discovery: %w", err)

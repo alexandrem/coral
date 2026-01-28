@@ -85,7 +85,7 @@ type Manager struct {
 func NewManager(cfg Config, logger zerolog.Logger) *Manager {
 	return &Manager{
 		config: cfg,
-		client: client.New(cfg.DiscoveryEndpoint, cfg.DiscoveryTimeout),
+		client: client.New(cfg.DiscoveryEndpoint, client.WithTimeout(cfg.DiscoveryTimeout)),
 		logger: logger,
 		stopCh: make(chan struct{}),
 		doneCh: make(chan struct{}),
@@ -216,7 +216,7 @@ func (m *Manager) register(ctx context.Context) error {
 	healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := m.client.Health(healthCtx); err != nil {
+	if _, err := m.client.Health(healthCtx); err != nil {
 		m.mu.Lock()
 		m.lastRegisterErr = fmt.Errorf("health check failed: %w", err)
 		m.mu.Unlock()

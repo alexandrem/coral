@@ -19,9 +19,8 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
-	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 	"github.com/coral-mesh/coral/internal/constants"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/retry"
 	"github.com/coral-mesh/coral/internal/safe"
 )
@@ -131,24 +130,21 @@ func (c *Client) Renew(ctx context.Context, certPath, keyPath, rootCAPath string
 
 // requestBootstrapToken requests a bootstrap token from Discovery.
 func (c *Client) requestBootstrapToken(ctx context.Context) (string, error) {
-	client := discoveryv1connect.NewDiscoveryServiceClient(
-		http.DefaultClient,
-		c.cfg.DiscoveryEndpoint,
-	)
+	client := discoveryclient.New(c.cfg.DiscoveryEndpoint)
 
-	req := &discoverypb.CreateBootstrapTokenRequest{
-		ReefId:   c.cfg.ReefID,
-		ColonyId: c.cfg.ColonyID,
-		AgentId:  c.cfg.AgentID,
+	req := &discoveryclient.CreateBootstrapTokenRequest{
+		ReefID:   c.cfg.ReefID,
+		ColonyID: c.cfg.ColonyID,
+		AgentID:  c.cfg.AgentID,
 		Intent:   "register",
 	}
 
-	resp, err := client.CreateBootstrapToken(ctx, connect.NewRequest(req))
+	resp, err := client.CreateBootstrapToken(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("discovery token request failed: %w", err)
 	}
 
-	return resp.Msg.Jwt, nil
+	return resp.JWT, nil
 }
 
 func (c *Client) executeFlow(ctx context.Context, httpClient *http.Client, colonyURL, token string) (*Result, error) {
@@ -204,7 +200,7 @@ func (c *Client) findValidColonyEndpoint(ctx context.Context) (string, error) {
 
 // lookupAndValidateFromDiscovery lookups endpoints and validates the TLS handshake/fingerprint.
 func (c *Client) lookupAndValidateFromDiscovery(ctx context.Context) (string, error) {
-	var colonyInfo *discoverypb.LookupColonyResponse
+	var colonyInfo *discoveryclient.LookupColonyResponse
 
 	retryCfg := retry.Config{
 		MaxRetries:     30,
@@ -215,17 +211,15 @@ func (c *Client) lookupAndValidateFromDiscovery(ctx context.Context) (string, er
 
 	// 1. Lookup with Retry
 	err := retry.Do(ctx, retryCfg, func() error {
-		client := discoveryv1connect.NewDiscoveryServiceClient(http.DefaultClient, c.cfg.DiscoveryEndpoint)
-		resp, err := client.LookupColony(ctx, connect.NewRequest(&discoverypb.LookupColonyRequest{
-			MeshId: c.cfg.ColonyID,
-		}))
+		client := discoveryclient.New(c.cfg.DiscoveryEndpoint)
+		resp, err := client.LookupColony(ctx, c.cfg.ColonyID)
 		if err != nil {
 			return err
 		}
-		if len(resp.Msg.Endpoints) == 0 {
+		if len(resp.Endpoints) == 0 {
 			return fmt.Errorf("no colony endpoints found")
 		}
-		colonyInfo = resp.Msg
+		colonyInfo = resp
 		return nil
 	}, func(err error) bool {
 		// Retry if not found (colony still spinning up)

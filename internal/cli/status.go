@@ -47,9 +47,9 @@ Use 'coral colony status <id>' for detailed information about a specific colony.
 
 			// Check discovery service health
 			discoveryHealthy := false
-			discoveryClient := client.New(globalConfig.Discovery.Endpoint, 2*time.Second)
+			discoveryClient := client.New(globalConfig.Discovery.Endpoint, client.WithTimeout(2*time.Second))
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if err := discoveryClient.Health(ctx); err == nil {
+			if _, err := discoveryClient.Health(ctx); err == nil {
 				discoveryHealthy = true
 			}
 			cancel()

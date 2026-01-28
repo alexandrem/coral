@@ -8,19 +8,21 @@ version: "3.8"
 # - Test apps (CPU, OTEL, SDK)
 
 services:
-  # Discovery Service - NAT traversal and service registry
+  # Discovery Service - Cloudflare Workers via Wrangler Dev
   discovery:
     build:
-      context: ../../..
-      dockerfile: cmd/discovery/Dockerfile
-    # No shared secret needed for Discovery (uses Ed25519 keys)
-    command:
-      - -log-level=debug
-      - --key-storage=/tmp/discovery-keys.json
+      context: ../../../../
+      dockerfile: coral-discovery-workers/Dockerfile
+    environment:
+      - DISCOVERY_SIGNING_KEY={"id":"01H7X0X7X0X7X0X7X0X7X0X7X0","privateKey":"hXIqNNX5M2H9WuNmTPcAYgwRSWpJMqONpL3HPPoxsdoitbpmLL7H2ArTXJV0YXj89bxfbePj0GTKqEB+N9g8SA=="}
+      - ENVIRONMENT=test
+      - SERVICE_VERSION=0.1.0-e2e
+      - DEFAULT_TTL_SECONDS=10
+      - CLEANUP_INTERVAL_MS=5000
     ports:
-      - "18080:8080" # Use non-standard port to avoid conflicts with local dev
+      - "18080:8080"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 5s
       timeout: 3s
       retries: 3

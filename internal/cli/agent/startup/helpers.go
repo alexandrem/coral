@@ -14,7 +14,6 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
-	"github.com/coral-mesh/coral/coral/discovery/v1/discoveryv1connect"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent/ebpf"
@@ -23,32 +22,26 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
+	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // QueryDiscoveryForColony queries the discovery service for colony information.
-func QueryDiscoveryForColony(cfg *config.ResolvedConfig, logger logging.Logger) (*discoverypb.LookupColonyResponse, error) {
+func QueryDiscoveryForColony(cfg *config.ResolvedConfig, _ logging.Logger) (*discoveryclient.LookupColonyResponse, error) {
 	// Create discovery client
-	client := discoveryv1connect.NewDiscoveryServiceClient(
-		http.DefaultClient,
-		cfg.DiscoveryURL,
-	)
+	client := discoveryclient.New(cfg.DiscoveryURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Lookup colony by mesh_id (which is the colony_id)
-	req := connect.NewRequest(&discoverypb.LookupColonyRequest{
-		MeshId: cfg.ColonyID,
-	})
-
-	resp, err := client.LookupColony(ctx, req)
+	resp, err := client.LookupColony(ctx, cfg.ColonyID)
 	if err != nil {
 		return nil, fmt.Errorf("discovery lookup failed: %w", err)
 	}
 
-	return resp.Msg, nil
+	return resp, nil
 }
 
 // RegisterAgentWithDiscovery registers the agent with the discovery service.
@@ -56,38 +49,33 @@ func RegisterAgentWithDiscovery(
 	cfg *config.ResolvedConfig,
 	agentID string,
 	agentPubKey string,
-	observedEndpoint *discoverypb.Endpoint,
+	observedEndpoint *discoveryclient.Endpoint,
 	logger logging.Logger,
 ) error {
 	// Create discovery client
-	client := discoveryv1connect.NewDiscoveryServiceClient(
-		http.DefaultClient,
-		cfg.DiscoveryURL,
-	)
+	client := discoveryclient.New(cfg.DiscoveryURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Register agent
-	req := connect.NewRequest(&discoverypb.RegisterAgentRequest{
-		AgentId:          agentID,
-		MeshId:           cfg.ColonyID,
+	resp, err := client.RegisterAgent(ctx, &discoveryclient.RegisterAgentRequest{
+		AgentID:          agentID,
+		MeshID:           cfg.ColonyID,
 		Pubkey:           agentPubKey,
 		Endpoints:        []string{}, // Agents typically don't have static endpoints
 		ObservedEndpoint: observedEndpoint,
 		Metadata:         make(map[string]string),
 	})
-
-	resp, err := client.RegisterAgent(ctx, req)
 	if err != nil {
 		return fmt.Errorf("agent registration with discovery failed: %w", err)
 	}
 
 	logger.Info().
 		Str("agent_id", agentID).
-		Bool("success", resp.Msg.Success).
-		Int32("ttl", resp.Msg.Ttl).
-		Interface("observed_endpoint", resp.Msg.ObservedEndpoint).
+		Bool("success", resp.Success).
+		Int32("ttl", resp.TTL).
+		Interface("observed_endpoint", resp.ObservedEndpoint).
 		Msg("Agent registered with discovery service")
 
 	return nil
@@ -100,19 +88,19 @@ func RegisterAgentWithDiscovery(
 // the device is created but colony endpoint selection is skipped.
 func SetupAgentWireGuard(
 	agentKeys *auth.WireGuardKeyPair,
-	colonyInfo *discoverypb.LookupColonyResponse,
+	colonyInfo *discoveryclient.LookupColonyResponse,
 	stunServers []string,
 	enableRelay bool,
 	wgPort int,
 	logger logging.Logger,
-) (*wireguard.Device, *discoverypb.Endpoint, string, error) {
+) (*wireguard.Device, *discoveryclient.Endpoint, string, error) {
 	logger.Info().
 		Int("port", wgPort).
 		Bool("has_colony_info", colonyInfo != nil).
 		Msg("Setting up WireGuard device for agent")
 
 	// Perform STUN discovery BEFORE starting WireGuard to avoid port conflicts.
-	var agentPublicEndpoint *discoverypb.Endpoint
+	var agentPublicEndpoint *discoveryclient.Endpoint
 	if len(stunServers) > 0 && wgPort > 0 {
 		// Only do STUN discovery if we have a configured port (not ephemeral).
 		// For ephemeral ports, we'd need to bind first to know the port.
@@ -123,7 +111,7 @@ func SetupAgentWireGuard(
 		agentPublicEndpoint = wireguard.DiscoverPublicEndpoint(stunServers, wgPort, logger)
 		if agentPublicEndpoint != nil {
 			logger.Info().
-				Str("public_ip", agentPublicEndpoint.Ip).
+				Str("public_ip", agentPublicEndpoint.IP).
 				Uint32("public_port", agentPublicEndpoint.Port).
 				Msg("Agent public endpoint discovered via STUN")
 		}
@@ -173,7 +161,15 @@ func SetupAgentWireGuard(
 	if colonyInfo != nil {
 		// Try observed endpoints first (these are the colony's public NAT addresses)
 		for _, observedEp := range colonyInfo.ObservedEndpoints {
-			if observedEp == nil || observedEp.Ip == "" {
+			if observedEp.IP == "" {
+				continue
+			}
+
+			// Skip invalid endpoints (port 0 means STUN failed or returned invalid data).
+			if observedEp.Port == 0 {
+				logger.Debug().
+					Str("ip", observedEp.IP).
+					Msg("Skipping observed endpoint with port 0 (invalid STUN result)")
 				continue
 			}
 
@@ -181,11 +177,11 @@ func SetupAgentWireGuard(
 			// IPv6 addresses are skipped in favor of IPv4 for NAT traversal.
 			// TODO: Add proper IPv6 support with dual-stack handling.
 			// For now, only IPv4 endpoints are used for agent-colony connectivity.
-			ip := net.ParseIP(observedEp.Ip)
+			ip := net.ParseIP(observedEp.IP)
 			if ip != nil && ip.To4() == nil {
 				// This is an IPv6 address - skip it for now as we only support IPv4.
 				logger.Debug().
-					Str("ipv6_endpoint", observedEp.Ip).
+					Str("ipv6_endpoint", observedEp.IP).
 					Msg("Skipping IPv6 observed endpoint (IPv4-only mode)")
 				continue
 			}
@@ -193,12 +189,12 @@ func SetupAgentWireGuard(
 			// Skip loopback addresses
 			if ip != nil && ip.IsLoopback() {
 				logger.Debug().
-					Str("loopback_endpoint", observedEp.Ip).
+					Str("loopback_endpoint", observedEp.IP).
 					Msg("Skipping loopback observed endpoint")
 				continue
 			}
 
-			colonyEndpoint = net.JoinHostPort(observedEp.Ip, fmt.Sprintf("%d", observedEp.Port))
+			colonyEndpoint = net.JoinHostPort(observedEp.IP, fmt.Sprintf("%d", observedEp.Port))
 			logger.Info().
 				Str("endpoint", colonyEndpoint).
 				Msg("Using colony's observed public endpoint for NAT traversal")
@@ -242,7 +238,7 @@ func SetupAgentWireGuard(
 				wgPort := uint32(51820) // Default WireGuard port
 				portSource := "default"
 
-				if len(colonyInfo.ObservedEndpoints) > 0 && colonyInfo.ObservedEndpoints[0] != nil && colonyInfo.ObservedEndpoints[0].Port > 0 {
+				if len(colonyInfo.ObservedEndpoints) > 0 && colonyInfo.ObservedEndpoints[0].Port > 0 {
 					// Use the port from the observed endpoint (STUN-discovered)
 					wgPort = colonyInfo.ObservedEndpoints[0].Port
 					portSource = "observed_endpoint"
@@ -270,20 +266,23 @@ func SetupAgentWireGuard(
 			}
 		}
 
-		// If still no endpoint and relay is enabled, request a relay.
-		if colonyEndpoint == "" && enableRelay && len(colonyInfo.Relays) > 0 {
-			logger.Info().Msg("No direct colony endpoint available, attempting relay allocation")
+		/*
+			// If still no endpoint and relay is enabled, request a relay.
+			if colonyEndpoint == "" && enableRelay && len(colonyInfo.Relays) > 0 {
+				logger.Info().Msg("No direct colony endpoint available, attempting relay allocation")
 
-			relayEndpoint, err := requestRelayAllocation(colonyInfo, agentKeys.PublicKey, logger)
-			if err != nil {
-				logger.Warn().Err(err).Msg("Failed to allocate relay")
-			} else if relayEndpoint != nil {
-				colonyEndpoint = net.JoinHostPort(relayEndpoint.Ip, fmt.Sprintf("%d", relayEndpoint.Port))
-				logger.Info().
-					Str("relay_endpoint", colonyEndpoint).
-					Msg("Using relay endpoint for NAT traversal")
+				relayEndpoint, err := requestRelayAllocation(colonyInfo, agentKeys.PublicKey, logger)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to allocate relay")
+				} else if relayEndpoint != nil {
+					colonyEndpoint = net.JoinHostPort(relayEndpoint.IP, fmt.Sprintf("%d", relayEndpoint.Port))
+					logger.Info().
+						Str("relay_endpoint", colonyEndpoint).
+						Msg("Using relay endpoint for NAT traversal")
+				}
 			}
-		}
+
+		*/
 
 		if colonyEndpoint == "" {
 			return nil, nil, "", fmt.Errorf("no usable colony endpoint available (tried: observed, direct, relay)")
@@ -312,7 +311,7 @@ func ConfigureAgentMesh(
 	wgDevice *wireguard.Device,
 	meshIP net.IP,
 	meshSubnet *net.IPNet,
-	colonyInfo *discoverypb.LookupColonyResponse,
+	colonyInfo *discoveryclient.LookupColonyResponse,
 	colonyEndpoint string,
 	logger logging.Logger,
 ) error {
@@ -338,11 +337,11 @@ func ConfigureAgentMesh(
 
 	// Build allowed IPs for colony peer.
 	allowedIPs := make([]string, 0, 2)
-	if colonyInfo.MeshIpv4 != "" {
-		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv4+"/32")
+	if colonyInfo.MeshIPv4 != "" {
+		allowedIPs = append(allowedIPs, colonyInfo.MeshIPv4+"/32")
 	}
-	if colonyInfo.MeshIpv6 != "" {
-		allowedIPs = append(allowedIPs, colonyInfo.MeshIpv6+"/128")
+	if colonyInfo.MeshIPv6 != "" {
+		allowedIPs = append(allowedIPs, colonyInfo.MeshIPv6+"/128")
 	}
 
 	// Add colony as WireGuard peer (RFD 019: AFTER IP assignment).
@@ -365,17 +364,17 @@ func ConfigureAgentMesh(
 
 	logger.Info().
 		Str("colony_endpoint", colonyEndpoint).
-		Str("colony_mesh_ip", colonyInfo.MeshIpv4).
+		Str("colony_mesh_ip", colonyInfo.MeshIPv4).
 		Msg("Colony peer added successfully")
 
 	// Verify mesh IP is reachable via TCP connection test.
-	if colonyInfo.MeshIpv4 != "" {
+	if colonyInfo.MeshIPv4 != "" {
 		connectPort := colonyInfo.ConnectPort
 		if connectPort == 0 {
 			connectPort = constants.DefaultColonyPort // Default connect port
 		}
 
-		meshAddr := net.JoinHostPort(colonyInfo.MeshIpv4, fmt.Sprintf("%d", connectPort))
+		meshAddr := net.JoinHostPort(colonyInfo.MeshIPv4, fmt.Sprintf("%d", connectPort))
 		logger.Info().
 			Str("mesh_addr", meshAddr).
 			Msg("Testing connectivity to colony via mesh")
@@ -406,7 +405,7 @@ func registerWithColony(
 	agentID string,
 	serviceSpecs []*types.ServiceSpec,
 	agentPubKey string,
-	colonyInfo *discoverypb.LookupColonyResponse,
+	colonyInfo *discoveryclient.LookupColonyResponse,
 	runtimeContext *agentv1.RuntimeContextResponse,
 	preferredURL string,
 	logger logging.Logger,
@@ -541,7 +540,11 @@ func registerWithColony(
 //   - But agent can't reach colony through mesh until it's a peer
 //   - Solution: Initial registration uses the discovery endpoint host,
 //     then after registration all communication goes through mesh IPs
-func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectPort uint32, preferredURL string) []string {
+func buildMeshServiceURLs(
+	colonyInfo *discoveryclient.LookupColonyResponse,
+	connectPort uint32,
+	preferredURL string,
+) []string {
 	seen := make(map[string]struct{})
 	var candidates []string
 
@@ -568,8 +571,8 @@ func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectP
 	}
 
 	// Also try mesh IPs in case this is a re-registration with tunnel already established.
-	add(colonyInfo.MeshIpv4)
-	add(colonyInfo.MeshIpv6)
+	add(colonyInfo.MeshIPv4)
+	add(colonyInfo.MeshIPv6)
 
 	// Reorder to prioritize the last successful URL if provided.
 	if preferredURL != "" {
@@ -585,11 +588,13 @@ func buildMeshServiceURLs(colonyInfo *discoverypb.LookupColonyResponse, connectP
 }
 
 // requestRelayAllocation requests a relay allocation from the discovery service.
+//
+// nolint:unused // keeping for upcoming relay implementation
 func requestRelayAllocation(
 	colonyInfo *discoverypb.LookupColonyResponse,
 	agentPubKey string,
 	logger logging.Logger,
-) (*discoverypb.Endpoint, error) {
+) (*discoveryclient.Endpoint, error) {
 	// Get discovery URL from environment or use default
 	discoveryURL := os.Getenv("CORAL_DISCOVERY_URL")
 	if discoveryURL == "" {
@@ -597,31 +602,25 @@ func requestRelayAllocation(
 	}
 
 	// Create discovery client
-	client := discoveryv1connect.NewDiscoveryServiceClient(
-		http.DefaultClient,
-		discoveryURL,
-	)
+	client := discoveryclient.New(discoveryURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Request relay allocation
-	req := connect.NewRequest(&discoverypb.RequestRelayRequest{
-		MeshId:       colonyInfo.MeshId,
+	resp, err := client.RequestRelay(ctx, &discoveryclient.RequestRelayRequest{
+		MeshID:       colonyInfo.MeshId,
 		AgentPubkey:  agentPubKey,
 		ColonyPubkey: colonyInfo.Pubkey,
 	})
-
-	resp, err := client.RequestRelay(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("relay request failed: %w", err)
 	}
 
 	logger.Info().
-		Str("session_id", resp.Msg.SessionId).
-		Str("relay_id", resp.Msg.RelayId).
-		Time("expires_at", resp.Msg.ExpiresAt.AsTime()).
+		Str("session_id", resp.SessionID).
+		Str("relay_id", resp.RelayID).
+		Time("expires_at", resp.ExpiresAt).
 		Msg("Relay allocated successfully")
 
-	return resp.Msg.RelayEndpoint, nil
+	return resp.RelayEndpoint, nil
 }

@@ -113,10 +113,10 @@ func (s *CLIMeshSuite) getColonyCAFingerprint(colonyID string) (string, []byte, 
 		if lookupErr != nil {
 			return false
 		}
-		if resp.PublicEndpoint == nil || resp.PublicEndpoint.CaCert == "" {
+		if resp.PublicEndpoint == nil || resp.PublicEndpoint.CACert == "" {
 			return false
 		}
-		caCertBase64 = resp.PublicEndpoint.CaCert
+		caCertBase64 = resp.PublicEndpoint.CACert
 		return true
 	}, 30*time.Second, 2*time.Second)
 

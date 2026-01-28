@@ -278,6 +278,11 @@ message RegisterAgentResponse {
 message LookupAgentRequest {
   // Agent ID to look up
   string agent_id = 1;
+
+  // Mesh ID hint for routing (required for Workers implementation).
+  // The original Go server maintains a global index, but partitioned
+  // implementations need this to route to the correct shard.
+  string mesh_id = 2;
 }
 
 // LookupAgentResponse returns agent information.

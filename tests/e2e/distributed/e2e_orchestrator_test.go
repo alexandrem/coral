@@ -29,7 +29,7 @@ type E2EOrchestratorSuite struct {
 	mcpTestsPassed       bool
 	mcpParityPassed      bool
 	publicEndpointPassed bool
-	discoveryAuthPassed  bool
+	discoveryPassed      bool
 }
 
 // TestE2EOrchestrator runs all E2E tests in dependency order with fail-fast.
@@ -68,7 +68,7 @@ func (s *E2EOrchestratorSuite) TearDownSuite() {
 	s.T().Logf("  6. MCP Server:               %s", status(s.mcpTestsPassed))
 	s.T().Logf("  7. MCP/CLI Parity:           %s", status(s.mcpParityPassed))
 	s.T().Logf("  8. Public Endpoint:          %s", status(s.publicEndpointPassed))
-	s.T().Logf("  9. Discovery Auth:           %s", status(s.discoveryAuthPassed))
+	s.T().Logf("  9. Discovery Service:        %s", status(s.discoveryPassed))
 	s.T().Log("==================================================")
 }
 
@@ -434,27 +434,41 @@ func (s *E2EOrchestratorSuite) Test8_PublicEndpoint() {
 	}
 }
 
-// Test9_DiscoveryAuth runs discovery service authentication and JWKS tests.
+// Test9_DiscoveryService runs discovery service tests (RPC, JWKS, auth flow).
 // Requires: Mesh Connectivity
-func (s *E2EOrchestratorSuite) Test9_DiscoveryAuth() {
+// Set CORAL_WORKERS_DISCOVERY_ENDPOINT to test against Workers deployment.
+func (s *E2EOrchestratorSuite) Test9_DiscoveryService() {
 	s.T().Log("")
 	s.T().Log("========================================")
-	s.T().Log("GROUP 9: Discovery Auth")
+	s.T().Log("GROUP 9: Discovery Service")
 	s.T().Log("========================================")
 
-	// Run DiscoveryAuthSuite tests with shared fixture.
-	discoveryAuthSuite := &DiscoveryAuthSuite{
+	// Run DiscoveryServiceSuite tests with shared fixture.
+	discoverySuite := &DiscoveryServiceSuite{
 		E2EDistributedSuite: s.E2EDistributedSuite,
 	}
-	discoveryAuthSuite.SetT(s.T())
-	defer discoveryAuthSuite.TearDownTest()
+	discoverySuite.SetT(s.T())
+	discoverySuite.SetupSuite()
+	defer discoverySuite.TearDownTest()
 
-	s.Run("JWKSEndpoint", discoveryAuthSuite.TestJWKSEndpoint)
-	s.Run("DiscoveryAuthorizationFlow", discoveryAuthSuite.TestDiscoveryAuthorizationFlow)
+	// Core RPC tests (work with both local and Workers).
+	s.Run("HealthEndpoint", discoverySuite.TestHealthEndpoint)
+	s.Run("JWKSEndpoint", discoverySuite.TestJWKSEndpoint)
+	s.Run("RegisterAndLookupColony", discoverySuite.TestRegisterAndLookupColony)
+	s.Run("RegisterAndLookupAgent", discoverySuite.TestRegisterAndLookupAgent)
+	s.Run("SplitBrainProtection", discoverySuite.TestSplitBrainProtection)
+	s.Run("ObservedEndpointCapture", discoverySuite.TestObservedEndpointCapture)
+
+	// Auth flow test (requires docker-compose environment).
+	s.Run("AuthorizationFlow", discoverySuite.TestAuthorizationFlow)
+
+	// Environment-specific tests.
+	// s.Run("RelayNotImplemented", discoverySuite.TestRelayNotImplemented)
+	s.Run("TTLExpiration", discoverySuite.TestTTLExpiration)
 
 	if !s.T().Failed() {
-		s.discoveryAuthPassed = true
-		s.T().Log("✓ GROUP 9 PASSED - Discovery auth working")
+		s.discoveryPassed = true
+		s.T().Log("✓ GROUP 9 PASSED - Discovery service tests completed")
 	} else {
 		s.T().Log("✗ GROUP 9 FAILED")
 	}
