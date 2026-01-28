@@ -366,7 +366,8 @@ func (s *DiscoveryServiceSuite) TestRelayNotImplemented() {
 }
 
 // TestTTLExpiration tests registration TTL expiration.
-// Skipped for Workers (TTL is typically 5 minutes, too long for test).
+// Requires a short DEFAULT_TTL_SECONDS (e.g. 10) in the e2e environment.
+// Skipped for deployed Workers where TTL is typically 5 minutes.
 func (s *DiscoveryServiceSuite) TestTTLExpiration() {
 	s.skipIfWorkers("TTL too long for Workers")
 
@@ -392,11 +393,10 @@ func (s *DiscoveryServiceSuite) TestTTLExpiration() {
 	_, err = client.LookupColony(ctx, meshID)
 	s.Require().NoError(err)
 
-	// Wait for TTL + cleanup.
-	waitTime := time.Duration(registerResp.TTL+5) * time.Second
-	if waitTime > 30*time.Second {
-		s.T().Skipf("TTL too long (%d seconds), skipping", registerResp.TTL)
-	}
+	// Wait for TTL + cleanup interval buffer.
+	waitTime := time.Duration(registerResp.TTL+10) * time.Second
+	s.Require().LessOrEqual(waitTime, 90*time.Second,
+		"TTL too long for e2e test; lower DEFAULT_TTL_SECONDS in docker-compose")
 
 	s.T().Logf("Waiting %v for TTL expiration...", waitTime)
 	time.Sleep(waitTime)
