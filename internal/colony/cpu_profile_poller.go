@@ -75,11 +75,6 @@ func NewCPUProfilePoller(
 
 // Start begins the CPU profile polling loop.
 func (p *CPUProfilePoller) Start() error {
-	p.logger.Info().
-		Dur("poll_interval", p.pollInterval).
-		Int("retention_days", p.retentionDays).
-		Msg("Starting CPU profile poller")
-
 	return p.BasePoller.Start(p)
 }
 
@@ -91,23 +86,8 @@ func (p *CPUProfilePoller) Stop() error {
 // PollOnce performs a single polling cycle.
 // Implements the poller.Poller interface.
 func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
-	// Get all registered agents.
-	agents := p.registry.ListAll()
-
-	if len(agents) == 0 {
-		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return nil
-	}
-
 	now := time.Now()
 
-	p.logger.Debug().
-		Int("agent_count", len(agents)).
-		Msg("Polling agents for CPU profile samples")
-
-	// Query each agent and aggregate results.
-	successCount := 0
-	errorCount := 0
 	totalSamples := 0
 	allSummaries := make([]database.CPUProfileSummary, 0)
 
@@ -115,13 +95,7 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 	// Only update checkpoints AFTER successful storage (like Kafka consumer commits).
 	queryEndTimes := make(map[string]time.Time)
 
-	for _, agent := range agents {
-		// Only query healthy or degraded agents.
-		status := registry.DetermineStatus(agent.LastSeen, now)
-		if status == registry.StatusUnhealthy {
-			continue
-		}
-
+	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
 		// Get last poll time for this agent.
 		p.lastPollTimesMu.RLock()
 		lastPoll, exists := p.lastPollTimes[agent.AgentID]
@@ -133,30 +107,22 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 		}
 
 		// Query agent for samples since last poll.
-		// Use 'now' as the end time for this query window.
 		queryEndTime := now
 		samples, err := p.queryAgent(ctx, agent, lastPoll, queryEndTime)
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("agent_id", agent.AgentID).
-				Str("mesh_ip", agent.MeshIPv4).
-				Msg("Failed to query agent for CPU profile samples")
-			errorCount++
-			continue
+			return err
 		}
 
 		// Aggregate samples into 1-minute buckets.
-		// Service names are now included in the samples from the agent.
 		summaries := p.aggregateSamples(ctx, agent.AgentID, samples)
 		allSummaries = append(allSummaries, summaries...)
 
 		// Track query end time for checkpoint update (only after successful storage).
 		queryEndTimes[agent.AgentID] = queryEndTime
 
-		successCount++
 		totalSamples += len(samples)
-	}
+		return nil
+	})
 
 	// Store summaries in database.
 	if len(allSummaries) > 0 {
