@@ -643,7 +643,7 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 		info["colony_connectivity"] = connTest
 
 		// Ping test (if available).
-		//nolint:gosec // G204: Diagnostic ping command with validated colony mesh IP.
+		// #nosec G204: Diagnostic ping command with validated colony mesh IP.
 		if pingOut, err := exec.Command("ping", "-c", "1", "-W", "1", s.colonyInfo.MeshIPv4).CombinedOutput(); err == nil {
 			info["ping_result"] = string(pingOut)
 		} else {
