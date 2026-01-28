@@ -23,6 +23,11 @@ type mockDatabase struct {
 	systemMetricsSummaries []database.SystemMetricsSummary
 	services               map[string]*database.Service
 	queryError             error
+	// RFD 074: Profiling-enriched summary fields.
+	profilingResult      *database.ProfilingSummaryResult
+	latestBinaryMetadata *database.BinaryMetadata
+	prevBinaryMetadata   *database.BinaryMetadata
+	regressionIndicators []database.RegressionIndicatorResult
 }
 
 func (m *mockDatabase) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaHTTPMetricResult, error) {
@@ -99,19 +104,28 @@ func (m *mockDatabase) QueryAllServiceNames(ctx context.Context) ([]string, erro
 // RFD 074: Profiling-enriched summary mock methods.
 
 func (m *mockDatabase) GetTopKHotspots(_ context.Context, _ string, _, _ time.Time, _ int) (*database.ProfilingSummaryResult, error) {
+	if m.profilingResult != nil {
+		return m.profilingResult, nil
+	}
 	return &database.ProfilingSummaryResult{}, nil
 }
 
 func (m *mockDatabase) GetLatestBinaryMetadata(_ context.Context, _ string) (*database.BinaryMetadata, error) {
+	if m.latestBinaryMetadata != nil {
+		return m.latestBinaryMetadata, nil
+	}
 	return nil, fmt.Errorf("no binary metadata")
 }
 
 func (m *mockDatabase) GetPreviousBinaryMetadata(_ context.Context, _, _ string) (*database.BinaryMetadata, error) {
+	if m.prevBinaryMetadata != nil {
+		return m.prevBinaryMetadata, nil
+	}
 	return nil, fmt.Errorf("no previous binary metadata")
 }
 
 func (m *mockDatabase) CompareHotspotsWithBaseline(_ context.Context, _, _, _ string, _, _ time.Time, _ int) ([]database.RegressionIndicatorResult, error) {
-	return nil, nil
+	return m.regressionIndicators, nil
 }
 
 // TestQueryMetrics_TimeRangeValidation tests time range validation.
@@ -1571,5 +1585,187 @@ func TestQueryUnifiedSummary_IdleService(t *testing.T) {
 		assert.Equal(t, "agent-1", results[0].AgentID)
 		// Check CPU utilization is populated
 		assert.Greater(t, results[0].HostCPUUtilizationAvg, 0.0)
+	}
+}
+
+// TestQueryUnifiedSummary_ProfilingEnrichment tests RFD 074 profiling data enrichment.
+func TestQueryUnifiedSummary_ProfilingEnrichment(t *testing.T) {
+	now := time.Now()
+
+	t.Run("enriches summary with profiling hotspots", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{ServiceName: "order-svc", HTTPMethod: "GET", HTTPRoute: "/orders", HTTPStatusCode: 200, Count: 1000, LatencyBucketMs: 50, LastSeen: now},
+			},
+			services: map[string]*database.Service{
+				"order-svc": {Name: "order-svc", AgentID: "agent-1"},
+			},
+			profilingResult: &database.ProfilingSummaryResult{
+				TotalSamples: 5000,
+				Hotspots: []database.ProfilingHotspot{
+					{Rank: 1, Frames: []string{"main", "processOrder", "validateSignature"}, Percentage: 40.0, SampleCount: 2000},
+					{Rank: 2, Frames: []string{"runtime", "gcBgMarkWorker"}, Percentage: 15.0, SampleCount: 750},
+				},
+			},
+			latestBinaryMetadata: &database.BinaryMetadata{
+				BuildID:     "build-abc",
+				ServiceName: "order-svc",
+				FirstSeen:   now.Add(-2 * time.Hour),
+				LastSeen:    now,
+			},
+		}
+
+		service := &EbpfQueryService{
+			db:              mockDB,
+			profilingConfig: ProfilingEnrichmentConfig{Enabled: true, TopKHotspots: 5},
+		}
+
+		results, err := service.QueryUnifiedSummary(context.Background(), "order-svc", now.Add(-5*time.Minute), now)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+
+		r := results[0]
+		assert.Equal(t, "order-svc", r.ServiceName)
+
+		// Verify profiling summary.
+		require.NotNil(t, r.ProfilingSummary)
+		assert.Equal(t, uint64(5000), r.ProfilingSummary.TotalSamples)
+		require.Len(t, r.ProfilingSummary.Hotspots, 2)
+		assert.Equal(t, int32(1), r.ProfilingSummary.Hotspots[0].Rank)
+		assert.Equal(t, "validateSignature", r.ProfilingSummary.Hotspots[0].Frames[2])
+		assert.InDelta(t, 40.0, r.ProfilingSummary.Hotspots[0].Percentage, 0.01)
+
+		// Verify deployment context.
+		require.NotNil(t, r.Deployment)
+		assert.Equal(t, "build-abc", r.Deployment.BuildID)
+		assert.Contains(t, r.Deployment.Age, "h")
+	})
+
+	t.Run("no profiling data returns nil", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{ServiceName: "api-svc", HTTPMethod: "GET", HTTPRoute: "/health", HTTPStatusCode: 200, Count: 100, LatencyBucketMs: 10, LastSeen: now},
+			},
+			services: map[string]*database.Service{
+				"api-svc": {Name: "api-svc", AgentID: "agent-1"},
+			},
+			// profilingResult is nil -> returns empty ProfilingSummaryResult.
+		}
+
+		service := &EbpfQueryService{
+			db:              mockDB,
+			profilingConfig: ProfilingEnrichmentConfig{Enabled: true, TopKHotspots: 5},
+		}
+
+		results, err := service.QueryUnifiedSummary(context.Background(), "api-svc", now.Add(-5*time.Minute), now)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+
+		// No profiling data -> nil summary.
+		assert.Nil(t, results[0].ProfilingSummary)
+	})
+
+	t.Run("profiling disabled skips enrichment", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{ServiceName: "api-svc", HTTPMethod: "GET", HTTPRoute: "/health", HTTPStatusCode: 200, Count: 100, LatencyBucketMs: 10, LastSeen: now},
+			},
+			services: map[string]*database.Service{
+				"api-svc": {Name: "api-svc", AgentID: "agent-1"},
+			},
+			profilingResult: &database.ProfilingSummaryResult{
+				TotalSamples: 1000,
+				Hotspots: []database.ProfilingHotspot{
+					{Rank: 1, Frames: []string{"main"}, Percentage: 100, SampleCount: 1000},
+				},
+			},
+		}
+
+		service := &EbpfQueryService{
+			db:              mockDB,
+			profilingConfig: ProfilingEnrichmentConfig{Enabled: false, TopKHotspots: 5},
+		}
+
+		results, err := service.QueryUnifiedSummary(context.Background(), "api-svc", now.Add(-5*time.Minute), now)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+
+		// Profiling disabled -> no enrichment.
+		assert.Nil(t, results[0].ProfilingSummary)
+	})
+
+	t.Run("regression detection with previous build", func(t *testing.T) {
+		mockDB := &mockDatabase{
+			httpMetrics: []*database.BeylaHTTPMetricResult{
+				{ServiceName: "order-svc", HTTPMethod: "POST", HTTPRoute: "/orders", HTTPStatusCode: 200, Count: 500, LatencyBucketMs: 100, LastSeen: now},
+			},
+			services: map[string]*database.Service{
+				"order-svc": {Name: "order-svc", AgentID: "agent-1"},
+			},
+			profilingResult: &database.ProfilingSummaryResult{
+				TotalSamples: 3000,
+				Hotspots: []database.ProfilingHotspot{
+					{Rank: 1, Frames: []string{"main", "newExpensiveFunc"}, Percentage: 55.0, SampleCount: 1650},
+				},
+			},
+			latestBinaryMetadata: &database.BinaryMetadata{
+				BuildID:     "build-new",
+				ServiceName: "order-svc",
+				FirstSeen:   now.Add(-30 * time.Minute),
+			},
+			prevBinaryMetadata: &database.BinaryMetadata{
+				BuildID:     "build-old",
+				ServiceName: "order-svc",
+				FirstSeen:   now.Add(-24 * time.Hour),
+			},
+			regressionIndicators: []database.RegressionIndicatorResult{
+				{
+					Type:               "new_hotspot",
+					Message:            "newExpensiveFunc (55.0%) was not in top-5 before this deployment",
+					BaselinePercentage: 0,
+					CurrentPercentage:  55.0,
+					Delta:              55.0,
+				},
+			},
+		}
+
+		service := &EbpfQueryService{
+			db:              mockDB,
+			profilingConfig: ProfilingEnrichmentConfig{Enabled: true, TopKHotspots: 5},
+		}
+
+		results, err := service.QueryUnifiedSummary(context.Background(), "order-svc", now.Add(-5*time.Minute), now)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+
+		r := results[0]
+		require.NotNil(t, r.ProfilingSummary)
+		require.NotNil(t, r.Deployment)
+		assert.Equal(t, "build-new", r.Deployment.BuildID)
+
+		// Verify regression indicators.
+		require.Len(t, r.RegressionIndicators, 1)
+		assert.Equal(t, "new_hotspot", r.RegressionIndicators[0].Type)
+		assert.Contains(t, r.RegressionIndicators[0].Message, "newExpensiveFunc")
+		assert.InDelta(t, 55.0, r.RegressionIndicators[0].CurrentPercentage, 0.01)
+	})
+}
+
+// TestFormatDurationShort tests the formatDurationShort helper (RFD 074).
+func TestFormatDurationShort(t *testing.T) {
+	tests := []struct {
+		d        time.Duration
+		expected string
+	}{
+		{30 * time.Second, "30s"},
+		{5 * time.Minute, "5m"},
+		{1 * time.Hour, "1h"},
+		{2*time.Hour + 15*time.Minute, "2h15m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			assert.Equal(t, tt.expected, formatDurationShort(tt.d))
+		})
 	}
 }
