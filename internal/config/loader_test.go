@@ -22,7 +22,7 @@ func TestLoader_SaveAndLoadGlobalConfig(t *testing.T) {
 		Version:       "1",
 		DefaultColony: "test-colony-123",
 		Discovery: DiscoveryGlobal{
-			Endpoint: "http://localhost:8080",
+			Endpoint: "https://discovery.coralmesh.dev",
 			Timeout:  10 * time.Second,
 		},
 		AI: AIConfig{
@@ -62,7 +62,7 @@ func TestLoader_LoadGlobalConfig_NotExists(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, config)
 	assert.Equal(t, SchemaVersion, config.Version)
-	assert.Equal(t, "http://localhost:8080", config.Discovery.Endpoint)
+	assert.Equal(t, "https://discovery.coralmesh.dev", config.Discovery.Endpoint)
 }
 
 func TestLoader_LoadGlobalConfig_DiscoveryEndpointEnvOverride(t *testing.T) {
@@ -74,7 +74,7 @@ func TestLoader_LoadGlobalConfig_DiscoveryEndpointEnvOverride(t *testing.T) {
 	config := &GlobalConfig{
 		Version: "1",
 		Discovery: DiscoveryGlobal{
-			Endpoint: "http://localhost:8080",
+			Endpoint: "https://discovery.coralmesh.dev",
 			Timeout:  10 * time.Second,
 		},
 	}

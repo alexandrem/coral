@@ -15,7 +15,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/discovery/client"
 	"github.com/coral-mesh/coral/internal/safe"
 )
@@ -268,7 +267,7 @@ Examples:
 	cmd.Flags().BoolVar(&fromDiscovery, "from-discovery", false, "Fetch endpoint and CA from Discovery Service")
 	cmd.Flags().StringVar(&colonyID, "colony-id", "", "Colony ID (required with --from-discovery)")
 	cmd.Flags().StringVar(&caFingerprint, "ca-fingerprint", "", "CA fingerprint for verification (required with --from-discovery, format: sha256:hex)")
-	cmd.Flags().StringVar(&discoveryEndpoint, "discovery-endpoint", constants.DefaultDiscoveryEndpoint, "Override Discovery Service URL")
+	cmd.Flags().StringVar(&discoveryEndpoint, "discovery-endpoint", "", "Override Discovery Service URL")
 
 	// Common flags.
 	cmd.Flags().BoolVar(&setDefault, "set-default", false, "Set this colony as the default")
@@ -316,16 +315,13 @@ func fetchFromDiscovery(colonyID, caFingerprint, discoveryEndpoint, colonyDir st
 		return config.RemoteConfig{}, "", fmt.Errorf("invalid --ca-fingerprint: %w", err)
 	}
 
-	// Determine Discovery endpoint.
+	// Determine Discovery endpoint from global config if not overridden.
 	if discoveryEndpoint == "" {
-		// Try to get from global config.
 		globalConfig, err := loader.LoadGlobalConfig()
-		if err == nil && globalConfig.Discovery.Endpoint != "" {
-			discoveryEndpoint = globalConfig.Discovery.Endpoint
-		} else {
-			// Use default public Discovery endpoint.
-			discoveryEndpoint = constants.DefaultDiscoveryEndpoint
+		if err != nil {
+			return config.RemoteConfig{}, "", fmt.Errorf("failed to load global config: %w", err)
 		}
+		discoveryEndpoint = globalConfig.Discovery.Endpoint
 	}
 
 	fmt.Println("Fetching colony info from Discovery Service...")
