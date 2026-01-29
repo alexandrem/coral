@@ -80,10 +80,6 @@ func NewBeylaPoller(
 
 // Start begins the Beyla metrics polling loop.
 func (p *BeylaPoller) Start() error {
-	p.logger.Info().
-		Dur("poll_interval", p.pollInterval).
-		Msg("Starting Beyla metrics poller")
-
 	return p.BasePoller.Start(p)
 }
 
@@ -95,14 +91,6 @@ func (p *BeylaPoller) Stop() error {
 // PollOnce performs a single polling cycle.
 // Implements the poller.Poller interface.
 func (p *BeylaPoller) PollOnce(ctx context.Context) error {
-	// Get all registered agents.
-	agents := p.registry.ListAll()
-
-	if len(agents) == 0 {
-		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return nil
-	}
-
 	// Calculate time range for this poll cycle.
 	// We use a safety delay to account for agent-side buffering (5s) and network latency.
 	// This ensures we don't query for data that hasn't been written to the agent's DB yet.
@@ -110,26 +98,12 @@ func (p *BeylaPoller) PollOnce(ctx context.Context) error {
 	now := time.Now()
 	endTime := now.Add(-safetyDelay)
 
-	p.logger.Debug().
-		Int("agent_count", len(agents)).
-		Time("end_time", endTime).
-		Msg("Polling agents for Beyla metrics")
-
-	// Query each agent.
-	successCount := 0
-	errorCount := 0
 	totalHTTPMetrics := 0
 	totalGRPCMetrics := 0
 	totalSQLMetrics := 0
 	totalTraces := 0
 
-	for _, agent := range agents {
-		// Only query healthy or degraded agents.
-		status := registry.DetermineStatus(agent.LastSeen, now)
-		if status == registry.StatusUnhealthy {
-			continue
-		}
-
+	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
 		// Determine start time for this agent.
 		p.lastPollTimeMu.Lock()
 		startTime, ok := p.lastPollTime[agent.AgentID]
@@ -141,13 +115,7 @@ func (p *BeylaPoller) PollOnce(ctx context.Context) error {
 
 		httpMetrics, grpcMetrics, sqlMetrics, traceSpans, err := p.queryAgent(ctx, agent, startTime, endTime)
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("agent_id", agent.AgentID).
-				Str("mesh_ip", agent.MeshIPv4).
-				Msg("Failed to query agent for Beyla metrics")
-			errorCount++
-			continue
+			return err
 		}
 
 		// Store metrics in database.
@@ -205,8 +173,8 @@ func (p *BeylaPoller) PollOnce(ctx context.Context) error {
 		p.lastPollTime[agent.AgentID] = endTime
 		p.lastPollTimeMu.Unlock()
 
-		successCount++
-	}
+		return nil
+	})
 
 	if totalHTTPMetrics > 0 || totalGRPCMetrics > 0 || totalSQLMetrics > 0 || totalTraces > 0 {
 		p.logger.Info().

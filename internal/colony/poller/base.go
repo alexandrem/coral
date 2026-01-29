@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
 // Poller defines the interface for specific poller implementations.
@@ -145,6 +147,41 @@ func (b *BasePoller) pollLoop(poller Poller) {
 			}
 		}
 	}
+}
+
+// AgentVisitor is called for each healthy agent.
+// Returning an error logs a warning but continues iteration.
+type AgentVisitor func(agent *registry.Entry) error
+
+// ForEachHealthyAgent iterates registered agents, skipping unhealthy ones,
+// and calls visitor for each. Returns (successCount, errorCount).
+func ForEachHealthyAgent(
+	reg *registry.Registry,
+	logger zerolog.Logger,
+	visitor AgentVisitor,
+) (success, errors int) {
+	agents := reg.ListAll()
+	if len(agents) == 0 {
+		logger.Debug().Msg("No agents registered, skipping poll")
+		return 0, 0
+	}
+	now := time.Now()
+	for _, agent := range agents {
+		status := registry.DetermineStatus(agent.LastSeen, now)
+		if status == registry.StatusUnhealthy {
+			continue
+		}
+		if err := visitor(agent); err != nil {
+			logger.Warn().Err(err).
+				Str("agent_id", agent.AgentID).
+				Str("mesh_ip", agent.MeshIPv4).
+				Msg("Failed to poll agent")
+			errors++
+			continue
+		}
+		success++
+	}
+	return success, errors
 }
 
 // cleanupLoop runs cleanup operations periodically.
