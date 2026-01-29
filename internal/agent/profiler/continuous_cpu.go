@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -25,6 +26,8 @@ type ContinuousCPUProfiler struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	kernelSymbolizer *debug.KernelSymbolizer
+	activeServices   map[string]struct{} // Tracks services with active profiling loops.
+	activeServicesMu sync.Mutex
 }
 
 // Config holds configuration for continuous CPU profiling.
@@ -97,6 +100,7 @@ func NewContinuousCPUProfiler(
 		ctx:              ctx,
 		cancel:           cancel,
 		kernelSymbolizer: kernelSymbolizer,
+		activeServices:   make(map[string]struct{}),
 	}
 
 	return profiler, nil
@@ -114,9 +118,12 @@ func (p *ContinuousCPUProfiler) Start(services []ServiceInfo) {
 	go p.storage.RunCleanupLoop(p.ctx, p.config.SampleRetention, p.config.MetadataRetention)
 
 	// Start profiling loop for each service.
+	p.activeServicesMu.Lock()
 	for _, service := range services {
+		p.activeServices[service.ServiceID] = struct{}{}
 		go p.profileServiceLoop(service)
 	}
+	p.activeServicesMu.Unlock()
 }
 
 // Stop stops the continuous profiling loop.
@@ -264,7 +271,20 @@ func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
 }
 
 // AddService adds a service to be profiled continuously.
+// It is safe to call multiple times for the same service; duplicates are ignored.
 func (p *ContinuousCPUProfiler) AddService(serviceID string, pid int, binaryPath string) {
+	p.activeServicesMu.Lock()
+	if _, exists := p.activeServices[serviceID]; exists {
+		p.activeServicesMu.Unlock()
+		p.logger.Debug().
+			Str("service_id", serviceID).
+			Int("pid", pid).
+			Msg("Service already being profiled, skipping")
+		return
+	}
+	p.activeServices[serviceID] = struct{}{}
+	p.activeServicesMu.Unlock()
+
 	service := ServiceInfo{
 		ServiceID:  serviceID,
 		PID:        pid,
