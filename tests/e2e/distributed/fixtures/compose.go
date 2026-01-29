@@ -11,6 +11,26 @@ import (
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
+const (
+	localDiscoveryEndpoint = "http://127.0.0.1:18080"
+	localColonyEndpoint    = "http://127.0.0.1:9000"
+	localAgent0Endpoint    = "http://127.0.0.1:9001"
+	localAgent1Endpoint    = "http://127.0.0.1:9002"
+	localCPUAppEndpoint    = "127.0.0.1:8081" // cpu-app on port 8080 in agent-0 namespace, exposed as 8081.
+	localOTELAppEndpoint   = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, // exposed as 8082.
+	localSDKAppEndpoint    = "127.0.0.1:3001"
+)
+
+// isDiscoveryContainerRunning checks whether a "discovery" docker container exists and is running.
+func isDiscoveryContainerRunning() bool {
+	cmd := exec.Command("docker", "ps", "--filter", "name=discovery", "--filter", "status=running", "--format", "{{.Names}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(output), "discovery")
+}
+
 // ComposeFixture provides access to services running in docker-compose.
 // Unlike ContainerFixture, this doesn't create/destroy containers - it just
 // connects to existing services started by docker-compose.
@@ -32,16 +52,26 @@ type ComposeFixture struct {
 // NewComposeFixture creates a fixture that connects to docker-compose services.
 // It doesn't start containers - they must already be running via docker-compose.
 func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
+	// Detect local discovery service. When running with local discovery
+	// (make local-up), port 18080 is exposed on the host. The fixture
+	// probes it to determine whether to use it for health checks and
+	// the CLI .env file. This keeps CORAL_DISCOVERY_ENDPOINT free for
+	// container-internal use (e.g. http://discovery:8080).
+	discoveryEndpoint := ""
+	if isDiscoveryContainerRunning() {
+		discoveryEndpoint = localDiscoveryEndpoint
+	}
+
 	fixture := &ComposeFixture{
-		ColonyID:          "",                       // Will be discovered
-		CAFingerprint:     "",                       // Will be discovered
-		DiscoveryEndpoint: "http://127.0.0.1:18080", // E2E uses non-standard port
-		ColonyEndpoint:    "http://127.0.0.1:9000",
-		Agent0Endpoint:    "http://127.0.0.1:9001",
-		Agent1Endpoint:    "http://127.0.0.1:9002",
-		CPUAppEndpoint:    "127.0.0.1:8081", // cpu-app on port 8080 in agent-0 namespace, exposed as 8081
-		OTELAppEndpoint:   "127.0.0.1:8082", // otel-app on port 8090 in agent-0 namespace, exposed as 8082
-		SDKAppEndpoint:    "127.0.0.1:3001",
+		ColonyID:          "", // Will be discovered.
+		CAFingerprint:     "", // Will be discovered.
+		DiscoveryEndpoint: discoveryEndpoint,
+		ColonyEndpoint:    localColonyEndpoint,
+		Agent0Endpoint:    localAgent0Endpoint,
+		Agent1Endpoint:    localAgent1Endpoint,
+		CPUAppEndpoint:    localCPUAppEndpoint,
+		OTELAppEndpoint:   localOTELAppEndpoint,
+		SDKAppEndpoint:    localSDKAppEndpoint,
 	}
 
 	// Wait for all services to be healthy
@@ -64,9 +94,11 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 
 // waitForServices waits for all docker-compose services to be healthy.
 func (f *ComposeFixture) waitForServices(ctx context.Context) error {
-	// Wait for discovery service
-	if err := helpers.WaitForHTTPEndpoint(ctx, f.DiscoveryEndpoint+"/health", 30*time.Second); err != nil {
-		return fmt.Errorf("discovery service not ready: %w (check for port conflicts with local dev services)", err)
+	// Wait for discovery service only when using a local endpoint.
+	if f.DiscoveryEndpoint != "" {
+		if err := helpers.WaitForHTTPEndpoint(ctx, f.DiscoveryEndpoint+"/health", 30*time.Second); err != nil {
+			return fmt.Errorf("discovery service not ready: %w (check for port conflicts with local dev services)", err)
+		}
 	}
 
 	// Wait for CPU app
@@ -102,7 +134,7 @@ func (f *ComposeFixture) waitForServices(ctx context.Context) error {
 // The colony writes its ID to /shared/colony_id after initialization.
 func (f *ComposeFixture) discoverColonyID(ctx context.Context) error {
 	// Use docker exec to read the colony ID from the shared volume
-	cmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "cat", "/shared/colony_id")
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-colony-1", "cat", "/shared/colony_id")
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to read colony ID from container: %w", err)
@@ -121,7 +153,7 @@ func (f *ComposeFixture) discoverColonyID(ctx context.Context) error {
 // The colony writes its CA fingerprint to /shared/ca_fingerprint after initialization.
 func (f *ComposeFixture) discoverCAFingerprint(ctx context.Context) error {
 	// Use docker exec to read the CA fingerprint from the shared volume
-	cmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "cat", "/shared/ca_fingerprint")
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-colony-1", "cat", "/shared/ca_fingerprint")
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to read CA fingerprint from container: %w", err)
@@ -198,7 +230,7 @@ func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string)
 // to talk to the colony endpoint hosted in the container.
 func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 	// Run coral colony export inside the colony container
-	cmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "/usr/local/bin/coral", "colony", "export", f.ColonyID)
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-colony-1", "/usr/local/bin/coral", "colony", "export", f.ColonyID)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to run coral colony export in container: %w\nOutput: %s", err, string(output))
@@ -212,9 +244,18 @@ func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "export ") {
-			// Override discovery endpoint with host-accessible one if it matches the container one
+			// The container exports a Docker-internal discovery endpoint
+			// (e.g. http://discovery:8080) which is unreachable from the
+			// host. Always replace it with the host-accessible endpoint:
+			// either the local discovery service or the public one from
+			// the container's own config.
 			if strings.Contains(line, "CORAL_DISCOVERY_ENDPOINT") {
-				envLines = append(envLines, fmt.Sprintf("export CORAL_DISCOVERY_ENDPOINT=\"%s\"", f.DiscoveryEndpoint))
+				if f.DiscoveryEndpoint != "" {
+					envLines = append(envLines, fmt.Sprintf("export CORAL_DISCOVERY_ENDPOINT=\"%s\"", f.DiscoveryEndpoint))
+				}
+				// When no local discovery endpoint is set, the containers
+				// use the public discovery service directly — skip the
+				// line so the CLI inherits the default.
 			} else {
 				envLines = append(envLines, line)
 			}
@@ -222,7 +263,7 @@ func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 	}
 
 	// Create an admin API token for the CLI
-	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "distributed-colony-1", "/usr/local/bin/coral", "colony", "token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
+	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "coral-colony-1", "/usr/local/bin/coral", "colony", "token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
 	tokenOutput, err := tokenCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to run token create in container: %w\nOutput: %s", err, string(tokenOutput))
