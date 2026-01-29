@@ -12,13 +12,14 @@ import (
 )
 
 const (
-	localDiscoveryEndpoint = "http://127.0.0.1:18080"
-	localColonyEndpoint    = "http://127.0.0.1:9000"
-	localAgent0Endpoint    = "http://127.0.0.1:9001"
-	localAgent1Endpoint    = "http://127.0.0.1:9002"
-	localCPUAppEndpoint    = "127.0.0.1:8081" // cpu-app on port 8080 in agent-0 namespace, exposed as 8081.
-	localOTELAppEndpoint   = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, // exposed as 8082.
-	localSDKAppEndpoint    = "127.0.0.1:3001"
+	publicDiscoveryEndpoint = "https://discovery.coralmesh.dev"
+	localDiscoveryEndpoint  = "http://127.0.0.1:18080"
+	localColonyEndpoint     = "http://127.0.0.1:9000"
+	localAgent0Endpoint     = "http://127.0.0.1:9001"
+	localAgent1Endpoint     = "http://127.0.0.1:9002"
+	localCPUAppEndpoint     = "127.0.0.1:8081" // cpu-app on port 8080 in agent-0 namespace, exposed as 8081.
+	localOTELAppEndpoint    = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, // exposed as 8082.
+	localSDKAppEndpoint     = "127.0.0.1:3001"
 )
 
 // isDiscoveryContainerRunning checks whether a "discovery" docker container exists and is running.
@@ -57,7 +58,7 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	// probes it to determine whether to use it for health checks and
 	// the CLI .env file. This keeps CORAL_DISCOVERY_ENDPOINT free for
 	// container-internal use (e.g. http://discovery:8080).
-	discoveryEndpoint := ""
+	discoveryEndpoint := publicDiscoveryEndpoint
 	if isDiscoveryContainerRunning() {
 		discoveryEndpoint = localDiscoveryEndpoint
 	}
@@ -134,7 +135,8 @@ func (f *ComposeFixture) waitForServices(ctx context.Context) error {
 // The colony writes its ID to /shared/colony_id after initialization.
 func (f *ComposeFixture) discoverColonyID(ctx context.Context) error {
 	// Use docker exec to read the colony ID from the shared volume
-	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-colony-1", "cat", "/shared/colony_id")
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1", "cat",
+		"/shared/colony_id")
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to read colony ID from container: %w", err)
@@ -153,7 +155,8 @@ func (f *ComposeFixture) discoverColonyID(ctx context.Context) error {
 // The colony writes its CA fingerprint to /shared/ca_fingerprint after initialization.
 func (f *ComposeFixture) discoverCAFingerprint(ctx context.Context) error {
 	// Use docker exec to read the CA fingerprint from the shared volume
-	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-colony-1", "cat", "/shared/ca_fingerprint")
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1", "cat",
+		"/shared/ca_fingerprint")
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to read CA fingerprint from container: %w", err)
@@ -230,7 +233,8 @@ func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string)
 // to talk to the colony endpoint hosted in the container.
 func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 	// Run coral colony export inside the colony container
-	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-colony-1", "/usr/local/bin/coral", "colony", "export", f.ColonyID)
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1", "/usr/local/bin/coral",
+		"colony", "export", f.ColonyID)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to run coral colony export in container: %w\nOutput: %s", err, string(output))
@@ -263,7 +267,8 @@ func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 	}
 
 	// Create an admin API token for the CLI
-	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "coral-colony-1", "/usr/local/bin/coral", "colony", "token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
+	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1",
+		"/usr/local/bin/coral", "colony", "token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
 	tokenOutput, err := tokenCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to run token create in container: %w\nOutput: %s", err, string(tokenOutput))
