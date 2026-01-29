@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -98,6 +99,32 @@ Examples:
 					}
 				}
 
+				// Display CPU profiling summary (RFD 074).
+				if ps := summary.ProfilingSummary; ps != nil && len(ps.TopCpuHotspots) > 0 {
+					fmt.Printf("   CPU Profiling (%s, %d samples):\n", ps.SamplingPeriod, ps.TotalSamples)
+					for _, h := range ps.TopCpuHotspots {
+						leaf := h.Frames[len(h.Frames)-1]
+						fmt.Printf("     #%d %.1f%% (%d samples) %s\n",
+							h.Rank, h.Percentage, h.SampleCount, leaf)
+						if len(h.Frames) > 1 {
+							fmt.Printf("         %s\n", formatFrames(h.Frames))
+						}
+					}
+				}
+
+				// Display deployment context (RFD 074).
+				if d := summary.Deployment; d != nil && d.BuildId != "" {
+					fmt.Printf("   Deployment: %s (deployed %s ago)\n", d.BuildId, d.Age)
+				}
+
+				// Display regression indicators (RFD 074).
+				if len(summary.Regressions) > 0 {
+					fmt.Println("   Regressions:")
+					for _, r := range summary.Regressions {
+						fmt.Printf("     ⚠️  %s\n", r.Message)
+					}
+				}
+
 				if len(summary.Issues) > 0 {
 					fmt.Println("   Issues:")
 					for _, issue := range summary.Issues {
@@ -112,4 +139,9 @@ Examples:
 
 	cmd.Flags().StringVar(&since, "since", "5m", "Time range (e.g., 5m, 1h, 24h)")
 	return cmd
+}
+
+// formatFrames joins stack frames with " → " arrows.
+func formatFrames(frames []string) string {
+	return strings.Join(frames, " → ")
 }

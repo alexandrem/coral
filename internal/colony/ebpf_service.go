@@ -29,8 +29,9 @@ type ebpfDatabase interface {
 
 // ProfilingEnrichmentConfig controls profiling enrichment in query summaries (RFD 074).
 type ProfilingEnrichmentConfig struct {
-	// Enabled controls whether profiling data is included in summaries.
-	Enabled bool
+	// Disabled controls whether profiling data is excluded from summaries.
+	// Zero value (false) means profiling is enabled by default.
+	Disabled bool
 	// TopKHotspots is the default number of top hotspots. Default: 5, max: 20.
 	TopKHotspots int
 }
@@ -46,7 +47,6 @@ func NewEbpfQueryService(db *database.Database) *EbpfQueryService {
 	return &EbpfQueryService{
 		db: db,
 		profilingConfig: ProfilingEnrichmentConfig{
-			Enabled:      true,
 			TopKHotspots: 5,
 		},
 	}
@@ -712,7 +712,7 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 	}
 
 	// 5. Enrich with CPU profiling data (RFD 074).
-	if !s.profilingConfig.Enabled {
+	if s.profilingConfig.Disabled {
 		return convertSummaryMapToSlice(summaryMap), nil
 	}
 

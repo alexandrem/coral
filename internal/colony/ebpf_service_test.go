@@ -1617,7 +1617,7 @@ func TestQueryUnifiedSummary_ProfilingEnrichment(t *testing.T) {
 
 		service := &EbpfQueryService{
 			db:              mockDB,
-			profilingConfig: ProfilingEnrichmentConfig{Enabled: true, TopKHotspots: 5},
+			profilingConfig: ProfilingEnrichmentConfig{TopKHotspots: 5},
 		}
 
 		results, err := service.QueryUnifiedSummary(context.Background(), "order-svc", now.Add(-5*time.Minute), now)
@@ -1654,7 +1654,7 @@ func TestQueryUnifiedSummary_ProfilingEnrichment(t *testing.T) {
 
 		service := &EbpfQueryService{
 			db:              mockDB,
-			profilingConfig: ProfilingEnrichmentConfig{Enabled: true, TopKHotspots: 5},
+			profilingConfig: ProfilingEnrichmentConfig{TopKHotspots: 5},
 		}
 
 		results, err := service.QueryUnifiedSummary(context.Background(), "api-svc", now.Add(-5*time.Minute), now)
@@ -1683,7 +1683,7 @@ func TestQueryUnifiedSummary_ProfilingEnrichment(t *testing.T) {
 
 		service := &EbpfQueryService{
 			db:              mockDB,
-			profilingConfig: ProfilingEnrichmentConfig{Enabled: false, TopKHotspots: 5},
+			profilingConfig: ProfilingEnrichmentConfig{Disabled: true, TopKHotspots: 5},
 		}
 
 		results, err := service.QueryUnifiedSummary(context.Background(), "api-svc", now.Add(-5*time.Minute), now)
@@ -1731,7 +1731,7 @@ func TestQueryUnifiedSummary_ProfilingEnrichment(t *testing.T) {
 
 		service := &EbpfQueryService{
 			db:              mockDB,
-			profilingConfig: ProfilingEnrichmentConfig{Enabled: true, TopKHotspots: 5},
+			profilingConfig: ProfilingEnrichmentConfig{TopKHotspots: 5},
 		}
 
 		results, err := service.QueryUnifiedSummary(context.Background(), "order-svc", now.Add(-5*time.Minute), now)

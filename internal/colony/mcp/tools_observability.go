@@ -190,12 +190,12 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 	}
 
 	profilingConfig := colony.ProfilingEnrichmentConfig{
-		Enabled:      s.config.ProfilingEnrichmentEnabled,
+		Disabled:     s.config.ProfilingEnrichmentDisabled,
 		TopKHotspots: s.config.ProfilingTopKHotspots,
 	}
 	// Override with per-request parameters.
 	if input.IncludeProfiling != nil && !*input.IncludeProfiling {
-		profilingConfig.Enabled = false
+		profilingConfig.Disabled = true
 	}
 	if input.TopK != nil && *input.TopK > 0 {
 		profilingConfig.TopKHotspots = int(*input.TopK)

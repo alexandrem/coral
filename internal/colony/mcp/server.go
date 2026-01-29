@@ -50,8 +50,8 @@ type Config struct {
 	AuditEnabled          bool
 
 	// Profiling enrichment settings (RFD 074).
-	ProfilingEnrichmentEnabled bool // Default: true.
-	ProfilingTopKHotspots      int  // Default: 5, max: 20.
+	ProfilingEnrichmentDisabled bool // When true, profiling data is excluded from summaries.
+	ProfilingTopKHotspots       int  // Default: 5, max: 20.
 }
 
 // New creates a new MCP server instance.
