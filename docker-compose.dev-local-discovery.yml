@@ -1,0 +1,42 @@
+# Dev overlay - local discovery service
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.dev-local-discovery.yml up -d
+
+services:
+  # Local Discovery Service - Cloudflare Workers compatible, running via wrangler
+  discovery:
+    build:
+      context: ../
+      dockerfile: coral-discovery-workers/Dockerfile
+    environment:
+      - DISCOVERY_SIGNING_KEY={"id":"01H7X0X7X0X7X0X7X0X7X0X7X0","privateKey":"hXIqNNX5M2H9WuNmTPcAYgwRSWpJMqONpL3HPPoxsdoitbpmLL7H2ArTXJV0YXj89bxfbePj0GTKqEB+N9g8SA=="}
+      - ENVIRONMENT=development
+      - SERVICE_VERSION=0.1.0-dev
+      - DEFAULT_TTL_SECONDS=300
+      - CLEANUP_INTERVAL_MS=60000
+    ports:
+      - "18080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - coral
+
+  # Override colony to use local discovery
+  colony:
+    environment:
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+    depends_on:
+      discovery:
+        condition: service_healthy
+
+  # Override agents to use local discovery
+  agent-0:
+    environment:
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
+
+  agent-1:
+    environment:
+      - CORAL_DISCOVERY_ENDPOINT=http://discovery:8080
