@@ -14,7 +14,7 @@ import (
 //
 // To test against a deployed Workers service, set:
 //
-//	CORAL_WORKERS_DISCOVERY_ENDPOINT=https://discovery.coralmesh.workers.dev
+//	CORAL_WORKERS_DISCOVERY_ENDPOINT=https://discovery.coralmesh.dev
 //
 // Without the environment variable, tests run against the local docker-compose discovery.
 func TestDiscoveryServiceSuite(t *testing.T) {
