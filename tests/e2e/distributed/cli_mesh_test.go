@@ -138,7 +138,7 @@ func (s *CLIMeshSuite) getColonyCAFingerprint(colonyID string) (string, []byte, 
 // copyTokensToColony copies the tokens file to the colony container.
 func (s *CLIMeshSuite) copyTokensToColony(colonyID string) {
 	tokensPath := filepath.Join(s.cliEnv.ColonyPath(colonyID), "tokens.yaml")
-	destPath := fmt.Sprintf("distributed-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
+	destPath := fmt.Sprintf("coral-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
 
 	cmd := exec.Command("docker", "cp", tokensPath, destPath)
 	if err := cmd.Run(); err != nil {
