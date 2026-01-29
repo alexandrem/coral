@@ -315,16 +315,13 @@ func fetchFromDiscovery(colonyID, caFingerprint, discoveryEndpoint, colonyDir st
 		return config.RemoteConfig{}, "", fmt.Errorf("invalid --ca-fingerprint: %w", err)
 	}
 
-	// Determine Discovery endpoint.
+	// Determine Discovery endpoint from global config if not overridden.
 	if discoveryEndpoint == "" {
-		// Try to get from global config.
 		globalConfig, err := loader.LoadGlobalConfig()
-		if err == nil && globalConfig.Discovery.Endpoint != "" {
-			discoveryEndpoint = globalConfig.Discovery.Endpoint
-		} else {
-			// Use default public Discovery endpoint.
-			discoveryEndpoint = "https://discovery.coral.dev:8080"
+		if err != nil {
+			return config.RemoteConfig{}, "", fmt.Errorf("failed to load global config: %w", err)
 		}
+		discoveryEndpoint = globalConfig.Discovery.Endpoint
 	}
 
 	fmt.Println("Fetching colony info from Discovery Service...")

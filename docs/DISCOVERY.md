@@ -21,7 +21,7 @@ multiple regions. Hardcoding endpoints doesn't scale.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Discovery Service (discovery.coral.io)                     │
+│  Discovery Service (discovery.coralmesh.dev)                │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  Colony Registry                                       │ │
 │  │  - colony_id → endpoint mapping                        │ │
@@ -60,7 +60,7 @@ $ coral colony start
 colony:
   id: prod-us-east              # Unique Colony identifier
   discovery:
-    url: https://discovery.coral.io
+    url: https://discovery.coralmesh.dev
     lease_ttl: 60s              # Lease duration
     heartbeat_interval: 30s     # Heartbeat frequency
 ```
@@ -68,7 +68,7 @@ colony:
 **Registration Request:**
 
 ```http
-POST https://discovery.coral.io/v1/colonies/register
+POST https://discovery.coralmesh.dev/v1/colonies/register
 Content-Type: application/json
 
 {
@@ -92,7 +92,7 @@ Content-Type: application/json
     "status": "registered",
     "lease_id": "lease-xyz789",
     "expires_at": "2025-11-01T12:01:00Z",
-    "discovery_endpoint": "discovery.coral.io:51821"
+    "discovery_endpoint": "discovery.coralmesh.dev:51821"
 }
 ```
 
@@ -117,7 +117,7 @@ Content-Type: application/json
 Colonies must send heartbeats to maintain their lease:
 
 ```http
-POST https://discovery.coral.io/v1/colonies/heartbeat
+POST https://discovery.coralmesh.dev/v1/colonies/heartbeat
 Content-Type: application/json
 
 {
@@ -147,7 +147,7 @@ marked unavailable and removed from the registry.
 Graceful shutdown:
 
 ```http
-DELETE https://discovery.coral.io/v1/colonies/{colony_id}
+DELETE https://discovery.coralmesh.dev/v1/colonies/{colony_id}
 Content-Type: application/json
 
 {
@@ -171,13 +171,13 @@ agent:
   colony:
     id: prod-us-east            # Which Colony to connect to
     auto_discover: true         # Use Discovery Service
-    discovery_url: https://discovery.coral.io
+    discovery_url: https://discovery.coralmesh.dev
 ```
 
 **Discovery Request:**
 
 ```http
-GET https://discovery.coral.io/v1/colonies/prod-us-east
+GET https://discovery.coralmesh.dev/v1/colonies/prod-us-east
 ```
 
 **Discovery Response (Success):**
@@ -275,7 +275,7 @@ agent:
     colony:
         id: prod-us-east
         auto_discover: true
-        discovery_url: https://discovery.coral.io
+        discovery_url: https://discovery.coralmesh.dev
 ```
 
 Agent queries Discovery Service, gets current endpoint. Handles Colony IP
@@ -456,7 +456,7 @@ Currently, single Colony per colony_id is supported.
 1. Colony starts, binds to 0.0.0.0:51820
 
 2. Colony sends UDP packet to Discovery Service
-   UDP to discovery.coral.io:51821
+   UDP to discovery.coralmesh.dev:51821
    Payload: "STUN-like-request"
 
 3. Discovery Service sees packet from 203.0.113.5:51820
@@ -498,13 +498,13 @@ Currently, symmetric NAT scenarios require:
 colony:
     id: prod-colony
     discovery:
-        endpoint: https://discovery.coral.io
+        endpoint: https://discovery.coralmesh.dev
 
 # Agent
 agent:
     colony_id: prod-colony
     discovery:
-        endpoint: https://discovery.coral.io
+        endpoint: https://discovery.coralmesh.dev
 ```
 
 **Implementation Details**: See RFD 001 for complete specification.
@@ -739,11 +739,11 @@ $ coral agent start
 Error: Colony 'prod-colony' not found
 
 # Check Discovery Service
-curl https://discovery.coral.io/v1/colonies/prod-colony
+curl https://discovery.coralmesh.dev/v1/colonies/prod-colony
 
 # If not found, check Colony is running and registered
 # On Colony machine:
-curl -X POST https://discovery.coral.io/v1/colonies/register -d '{...}'
+curl -X POST https://discovery.coralmesh.dev/v1/colonies/register -d '{...}'
 ```
 
 ### Split-Brain Error
@@ -751,9 +751,6 @@ curl -X POST https://discovery.coral.io/v1/colonies/register -d '{...}'
 ```bash
 $ coral colony start
 Error: Colony ID conflict. Another Colony with ID 'prod-colony' is running.
-
-# Check if other Colony is running
-curl https://discovery.coral.io/v1/colonies/prod-colony
 
 # If duplicate is accidental, use different ID
 colony:
@@ -771,7 +768,7 @@ Agent: WireGuard handshake timeout
 
 # Check if STUN endpoint detection worked
 # On Colony:
-curl -X POST https://discovery.coral.io/v1/stun/detect
+curl -X POST https://discovery.coralmesh.dev/v1/stun/detect
 
 # If symmetric NAT detected, may need relay (future)
 Agent: NAT type: symmetric

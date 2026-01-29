@@ -29,7 +29,8 @@ var (
 	// DefaultColonyMeshIPv6Subnet is the default IPv6 subnet for mesh network.
 	DefaultColonyMeshIPv6Subnet = "fd42::/48"
 
-	DefaultDiscoveryEndpoint = "http://localhost:8080"
+	// DefaultDiscoveryEndpoint is the public Discovery Service endpoint.
+	DefaultDiscoveryEndpoint = "https://discovery.coralmesh.dev"
 
 	// DefaultSTUNServer is the default STUN server for NAT traversal.
 	DefaultSTUNServer = "stun.cloudflare.com:3478"

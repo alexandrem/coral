@@ -158,6 +158,10 @@ func (c *Client) executeFlow(ctx context.Context, httpClient *http.Client, colon
 		return nil, err
 	}
 
+	c.logger.Info().
+		Str("token", token).
+		Str("colonyEndpoint", colonyURL).
+		Msg("Requesting certificate bootstrap")
 	client := colonyv1connect.NewColonyServiceClient(httpClient, colonyURL)
 	resp, err := client.RequestCertificate(ctx, connect.NewRequest(&colonyv1.RequestCertificateRequest{
 		Jwt: token,
