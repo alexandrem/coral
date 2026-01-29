@@ -11,6 +11,16 @@ import (
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
+const (
+	localDiscoveryEndpoint = "http://127.0.0.1:18080"
+	localColonyEndpoint    = "http://127.0.0.1:9000"
+	localAgent0Endpoint    = "http://127.0.0.1:9001"
+	localAgent1Endpoint    = "http://127.0.0.1:9002"
+	localCPUAppEndpoint    = "127.0.0.1:8081" // cpu-app on port 8080 in agent-0 namespace, exposed as 8081.
+	localOTELAppEndpoint   = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, // exposed as 8082.
+	localSDKAppEndpoint    = "127.0.0.1:3001"
+)
+
 // isDiscoveryContainerRunning checks whether a "discovery" docker container exists and is running.
 func isDiscoveryContainerRunning() bool {
 	cmd := exec.Command("docker", "ps", "--filter", "name=discovery", "--filter", "status=running", "--format", "{{.Names}}")
@@ -47,7 +57,6 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	// probes it to determine whether to use it for health checks and
 	// the CLI .env file. This keeps CORAL_DISCOVERY_ENDPOINT free for
 	// container-internal use (e.g. http://discovery:8080).
-	localDiscoveryEndpoint := "http://127.0.0.1:18080"
 	discoveryEndpoint := ""
 	if isDiscoveryContainerRunning() {
 		discoveryEndpoint = localDiscoveryEndpoint
@@ -57,12 +66,12 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 		ColonyID:          "", // Will be discovered.
 		CAFingerprint:     "", // Will be discovered.
 		DiscoveryEndpoint: discoveryEndpoint,
-		ColonyEndpoint:    "http://127.0.0.1:9000",
-		Agent0Endpoint:    "http://127.0.0.1:9001",
-		Agent1Endpoint:    "http://127.0.0.1:9002",
-		CPUAppEndpoint:    "127.0.0.1:8081", // cpu-app on port 8080 in agent-0 namespace, exposed as 8081.
-		OTELAppEndpoint:   "127.0.0.1:8082", // otel-app on port 8090 in agent-0 namespace, exposed as 8082.
-		SDKAppEndpoint:    "127.0.0.1:3001",
+		ColonyEndpoint:    localColonyEndpoint,
+		Agent0Endpoint:    localAgent0Endpoint,
+		Agent1Endpoint:    localAgent1Endpoint,
+		CPUAppEndpoint:    localCPUAppEndpoint,
+		OTELAppEndpoint:   localOTELAppEndpoint,
+		SDKAppEndpoint:    localSDKAppEndpoint,
 	}
 
 	// Wait for all services to be healthy
