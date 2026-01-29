@@ -123,10 +123,6 @@ Error: Colony ID mismatch - potential cross-colony impersonation
 
 2. **Verify DNS**: Ensure Discovery returns the correct colony endpoint:
 
-   ```bash
-   curl https://discovery.coral.:8080/v1/colonies/my-app-prod
-   ```
-
 3. **Check network**: Verify you're connecting to the intended colony server.
 
 ---

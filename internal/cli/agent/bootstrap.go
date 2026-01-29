@@ -12,6 +12,7 @@ import (
 	"github.com/coral-mesh/coral/internal/agent/certs"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -78,7 +79,11 @@ Examples:
 	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().StringVar(&agentID, "agent", os.Getenv("CORAL_AGENT_ID"), "Agent ID (default: auto-generated)")
 	cmd.Flags().StringVar(&caFingerprint, "fingerprint", os.Getenv("CORAL_CA_FINGERPRINT"), "Expected Root CA fingerprint (sha256:hex)")
-	cmd.Flags().StringVar(&discoveryURL, "discovery", os.Getenv("CORAL_DISCOVERY_ENDPOINT"), "Discovery service URL")
+	discoveryDefault := os.Getenv("CORAL_DISCOVERY_ENDPOINT")
+	if discoveryDefault == "" {
+		discoveryDefault = constants.DefaultDiscoveryEndpoint
+	}
+	cmd.Flags().StringVar(&discoveryURL, "discovery", discoveryDefault, "Discovery service URL")
 	cmd.Flags().StringVar(&certsDir, "certs-dir", os.Getenv("CORAL_CERTS_DIR"), "Directory for storing certificates")
 	cmd.Flags().BoolVar(&force, "force", false, "Force re-bootstrap even if certificate exists")
 

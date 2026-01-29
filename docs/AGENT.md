@@ -690,8 +690,7 @@ Trigger bootstrap manually using the CLI:
 # Bootstrap with explicit fingerprint
 coral agent bootstrap \
   --colony my-app-prod \
-  --fingerprint sha256:abc123... \
-  --discovery https://discovery.coral.io:8080
+  --fingerprint sha256:abc123...
 
 # Check bootstrap status
 coral agent cert status

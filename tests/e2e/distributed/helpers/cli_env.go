@@ -229,7 +229,7 @@ func (e *CLITestEnv) createGlobalConfig(defaultColony string) error {
 	config := map[string]interface{}{
 		"default_colony": defaultColony,
 		"discovery": map[string]interface{}{
-			"endpoint": "https://discovery.coral-mesh.dev",
+			"endpoint": "https://discovery.coralmesh.dev",
 		},
 	}
 

@@ -124,14 +124,14 @@ func TestStatusOutput(t *testing.T) {
 		Version: "v0.1.0",
 	}
 
-	output.Discovery.Endpoint = "https://discovery.coral.dev"
+	output.Discovery.Endpoint = "https://discovery.coralmesh.dev"
 	output.Discovery.Healthy = true
 	output.Summary.Total = 1
 	output.Summary.Running = 1
 	output.Summary.Stopped = 0
 
-	if output.Discovery.Endpoint != "https://discovery.coral.dev" {
-		t.Errorf("Discovery.Endpoint = %q, want %q", output.Discovery.Endpoint, "https://discovery.coral.dev")
+	if output.Discovery.Endpoint != "https://discovery.coralmesh.dev" {
+		t.Errorf("Discovery.Endpoint = %q, want %q", output.Discovery.Endpoint, "https://discovery.coralmesh.dev")
 	}
 
 	if !output.Discovery.Healthy {

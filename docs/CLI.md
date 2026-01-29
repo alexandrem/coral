@@ -83,8 +83,7 @@ Root CA fingerprint.
 # Obtain a certificate (replace with your actual fingerprint)
 coral agent bootstrap \
     --colony my-colony \
-    --fingerprint sha256:a3b2c1... \
-    --discovery http://discovery.coral.io:8080
+    --fingerprint sha256:a3b2c1...
 ```
 
 **Required Parameters:**
