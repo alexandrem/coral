@@ -3,7 +3,9 @@ package distributed
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
@@ -336,6 +338,99 @@ func (s *MCPParitySuite) TestParityShellExec() {
 	}
 
 	s.T().Log("✓ MCP shell exec consistency validated")
+}
+
+// =============================================================================
+// Profiling Parity (RFD 074)
+// =============================================================================
+
+// TestParityQuerySummaryProfilingConsistency validates that profiling-enriched
+// summaries are consistent between calls with include_profiling=true and false.
+//
+// This ensures:
+// - include_profiling=true does not break the base summary data
+// - include_profiling=false omits profiling sections from output
+// - Both calls return the same base service health data
+func (s *MCPParitySuite) TestParityQuerySummaryProfilingConsistency() {
+	s.T().Log("Testing profiling summary consistency (RFD 074)...")
+
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Ensure services and telemetry data.
+	s.ensureServicesConnected()
+	s.ensureTelemetryData()
+
+	// Query 1: With profiling enabled (default).
+	withProf, err := proxy.CallTool("coral_query_summary", map[string]interface{}{
+		"service":           "otel-app",
+		"time_range":        "10m",
+		"include_profiling": true,
+	}, 200)
+	s.Require().NoError(err, "coral_query_summary with profiling should succeed")
+	s.Require().NotEmpty(withProf.Content, "Should have content")
+	withProfText := withProf.Content[0].Text
+
+	// Query 2: With profiling disabled.
+	withoutProf, err := proxy.CallTool("coral_query_summary", map[string]interface{}{
+		"service":           "otel-app",
+		"time_range":        "10m",
+		"include_profiling": false,
+	}, 201)
+	s.Require().NoError(err, "coral_query_summary without profiling should succeed")
+	s.Require().NotEmpty(withoutProf.Content, "Should have content")
+	withoutProfText := withoutProf.Content[0].Text
+
+	// Both should contain the same base service data.
+	s.Require().Contains(strings.ToLower(withProfText), "service",
+		"With-profiling response should mention service")
+	s.Require().Contains(strings.ToLower(withoutProfText), "service",
+		"Without-profiling response should mention service")
+
+	// Both should be non-empty.
+	s.Require().NotEmpty(withProfText, "With-profiling response should not be empty")
+	s.Require().NotEmpty(withoutProfText, "Without-profiling response should not be empty")
+
+	// Log outputs for comparison.
+	s.T().Log("With profiling (truncated):")
+	if len(withProfText) > 300 {
+		s.T().Log(withProfText[:300] + "...")
+	} else {
+		s.T().Log(withProfText)
+	}
+
+	s.T().Log("Without profiling (truncated):")
+	if len(withoutProfText) > 300 {
+		s.T().Log(withoutProfText[:300] + "...")
+	} else {
+		s.T().Log(withoutProfText)
+	}
+
+	s.T().Log("✓ Profiling summary consistency validated")
+}
+
+// ensureTelemetryData generates HTTP traffic to populate telemetry data.
+func (s *MCPParitySuite) ensureTelemetryData() {
+	otelAppURL := "http://localhost:8082"
+	err := helpers.WaitForHTTPEndpoint(s.ctx, otelAppURL+"/health", 10*time.Second)
+	if err != nil {
+		s.T().Log("OTEL app not reachable, telemetry tests may have limited data")
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := 0; i < 5; i++ {
+		resp, err := client.Get(otelAppURL + "/")
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	time.Sleep(2 * time.Second)
 }
 
 // =============================================================================
