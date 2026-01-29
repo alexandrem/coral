@@ -1,6 +1,7 @@
 # E2E Test overlay - local discovery service
 # Usage: docker-compose --project-directory ../../.. -f ../../../docker-compose.yml -f docker-compose.e2e.yml -f docker-compose.e2e-local-discovery.yml up -d
 
+name: coral-e2e
 services:
   # Local Discovery Service - Cloudflare Workers compatible, running via wrangler
   discovery:

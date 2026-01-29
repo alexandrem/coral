@@ -53,7 +53,7 @@ func (s *PublicEndpointSuite) SetupSuite() {
 	// Copy tokens.yaml from CLI env to colony container
 	// The colony server looks for tokens at /root/.coral/colonies/<colony-id>/tokens.yaml
 	tokensPath := filepath.Join(s.cliEnv.ColonyPath(colonyID), "tokens.yaml")
-	destPath := fmt.Sprintf("coral-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
+	destPath := fmt.Sprintf("coral-e2e-colony-1:/root/.coral/colonies/%s/tokens.yaml", colonyID)
 	cmd := exec.Command("docker", "cp", tokensPath, destPath)
 	err = cmd.Run()
 	s.Require().NoError(err, "Failed to copy tokens.yaml to colony container")

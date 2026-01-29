@@ -1,6 +1,7 @@
 # E2E Test overlay - adds test apps and fast polling for quick test execution
 # Usage: docker-compose -f ../../../docker-compose.yml -f docker-compose.e2e.yml up -d
 
+name: coral-e2e
 services:
   # Colony overrides - fast polling for tests
   colony:

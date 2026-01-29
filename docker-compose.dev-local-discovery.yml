@@ -1,6 +1,7 @@
 # Dev overlay - local discovery service
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.dev-local-discovery.yml up -d
 
+name: coral
 services:
   # Local Discovery Service - Cloudflare Workers compatible, running via wrangler
   discovery:

@@ -1,6 +1,7 @@
 # Dev overlay - adds test applications
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
+name: coral
 services:
   # CPU App - CPU-intensive test application
   # Runs in agent-0's network AND PID namespace so Beyla can instrument it via eBPF
