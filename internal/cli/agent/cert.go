@@ -166,7 +166,7 @@ Examples:
   coral agent cert renew --colony-endpoint https://colony.example.com:9000
 
   # Renew via Discovery (fallback)
-  coral agent cert renew --discovery https://discovery.coral.io:8080
+  coral agent cert renew
 
   # Force renewal even if certificate is still valid
   coral agent cert renew --colony-endpoint https://colony:9000 --force`,

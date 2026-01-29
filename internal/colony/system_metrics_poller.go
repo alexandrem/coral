@@ -60,11 +60,6 @@ func NewSystemMetricsPoller(
 
 // Start begins the system metrics polling loop.
 func (p *SystemMetricsPoller) Start() error {
-	p.logger.Info().
-		Dur("poll_interval", p.pollInterval).
-		Int("retention_days", p.retentionDays).
-		Msg("Starting system metrics poller")
-
 	return p.BasePoller.Start(p)
 }
 
@@ -76,56 +71,26 @@ func (p *SystemMetricsPoller) Stop() error {
 // PollOnce performs a single polling cycle.
 // Implements the poller.Poller interface.
 func (p *SystemMetricsPoller) PollOnce(ctx context.Context) error {
-	// Get all registered agents.
-	agents := p.registry.ListAll()
-
-	if len(agents) == 0 {
-		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return nil
-	}
-
 	// Calculate time range for this poll cycle.
-	// Query from last poll interval to now.
 	now := time.Now()
 	startTime := now.Add(-p.pollInterval)
 
-	p.logger.Debug().
-		Int("agent_count", len(agents)).
-		Time("start_time", startTime).
-		Time("end_time", now).
-		Msg("Polling agents for system metrics")
-
-	// Query each agent and aggregate results.
-	successCount := 0
-	errorCount := 0
 	totalMetrics := 0
 	allSummaries := make([]database.SystemMetricsSummary, 0)
 
-	for _, agent := range agents {
-		// Only query healthy or degraded agents.
-		status := registry.DetermineStatus(agent.LastSeen, now)
-		if status == registry.StatusUnhealthy {
-			continue
-		}
-
+	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
 		metrics, err := p.queryAgent(ctx, agent, startTime, now)
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("agent_id", agent.AgentID).
-				Str("mesh_ip", agent.MeshIPv4).
-				Msg("Failed to query agent for system metrics")
-			errorCount++
-			continue
+			return err
 		}
 
 		// Aggregate metrics into 1-minute buckets.
 		summaries := p.aggregateMetrics(agent.AgentID, metrics, startTime, now)
 		allSummaries = append(allSummaries, summaries...)
 
-		successCount++
 		totalMetrics += len(metrics)
-	}
+		return nil
+	})
 
 	// Store summaries in database.
 	if len(allSummaries) > 0 {

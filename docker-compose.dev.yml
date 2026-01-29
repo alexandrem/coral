@@ -1,0 +1,61 @@
+# Dev overlay - adds test applications
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+name: coral
+services:
+  # CPU App - CPU-intensive test application
+  # Runs in agent-0's network AND PID namespace so Beyla can instrument it via eBPF
+  cpu-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/cpu-app/Dockerfile
+    network_mode: "service:agent-0"
+    pid: "service:agent-0"
+    depends_on:
+      agent-0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # OTEL App - OpenTelemetry instrumented application
+  # Runs in agent-0's network AND PID namespace so Beyla can instrument it via eBPF
+  # Tests the combination of Beyla (passive) + OTLP SDK (active) together
+  otel-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/otel-app/Dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - HTTP_PORT=8090
+    network_mode: "service:agent-0"
+    pid: "service:agent-0"
+    depends_on:
+      agent-0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # SDK App - Application with Coral SDK for uprobe testing
+  # Runs in agent-1's network AND PID namespace so agent can profile it
+  sdk-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/sdk-app/Dockerfile
+    network_mode: "service:agent-1"
+    pid: "service:agent-1"
+    depends_on:
+      - agent-1
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

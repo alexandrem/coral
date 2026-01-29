@@ -58,10 +58,6 @@ func NewTelemetryPoller(
 
 // Start begins the telemetry polling loop.
 func (p *TelemetryPoller) Start() error {
-	p.logger.Info().
-		Dur("poll_interval", p.pollInterval).
-		Msg("Starting telemetry poller")
-
 	return p.BasePoller.Start(p)
 }
 
@@ -73,56 +69,24 @@ func (p *TelemetryPoller) Stop() error {
 // PollOnce performs a single polling cycle.
 // Implements the poller.Poller interface.
 func (p *TelemetryPoller) PollOnce(ctx context.Context) error {
-	// Get all registered agents.
-	agents := p.registry.ListAll()
-
-	if len(agents) == 0 {
-		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return nil
-	}
-
 	// Calculate time range for this poll cycle.
-	// Query from last poll interval to now.
 	now := time.Now()
 	startTime := now.Add(-p.pollInterval)
 
-	p.logger.Debug().
-		Int("agent_count", len(agents)).
-		Time("start_time", startTime).
-		Time("end_time", now).
-		Msg("Polling agents for telemetry")
-
 	// Create aggregator for this polling cycle.
 	aggregator := NewTelemetryAggregator()
-
-	// Query each agent.
-	successCount := 0
-	errorCount := 0
 	totalSpans := 0
 
-	for _, agent := range agents {
-		// Only query healthy or degraded agents.
-		status := registry.DetermineStatus(agent.LastSeen, now)
-		if status == registry.StatusUnhealthy {
-			continue
-		}
-
+	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
 		spans, err := p.queryAgent(ctx, agent, startTime, now)
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("agent_id", agent.AgentID).
-				Str("mesh_ip", agent.MeshIPv4).
-				Msg("Failed to query agent for telemetry")
-			errorCount++
-			continue
+			return err
 		}
 
-		// Add spans to aggregator.
 		aggregator.AddSpans(agent.AgentID, spans)
-		successCount++
 		totalSpans += len(spans)
-	}
+		return nil
+	})
 
 	// Get aggregated summaries.
 	summaries := aggregator.GetSummaries()

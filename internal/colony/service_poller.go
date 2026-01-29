@@ -51,10 +51,6 @@ func NewServicePoller(
 
 // Start begins the service polling loop.
 func (p *ServicePoller) Start() error {
-	p.logger.Info().
-		Dur("poll_interval", p.pollInterval).
-		Msg("Starting service poller")
-
 	return p.BasePoller.Start(p)
 }
 
@@ -66,40 +62,12 @@ func (p *ServicePoller) Stop() error {
 // PollOnce performs a single polling cycle.
 // Implements the poller.Poller interface.
 func (p *ServicePoller) PollOnce(ctx context.Context) error {
-	// Get all registered agents.
-	agents := p.registry.ListAll()
-
-	if len(agents) == 0 {
-		p.logger.Debug().Msg("No agents registered, skipping poll")
-		return nil
-	}
-
-	now := time.Now()
-	p.logger.Debug().
-		Int("agent_count", len(agents)).
-		Msg("Polling agents for service list")
-
-	// Query each agent for its services.
-	successCount := 0
-	errorCount := 0
 	totalServices := 0
 
-	for _, agent := range agents {
-		// Only query healthy or degraded agents.
-		status := registry.DetermineStatus(agent.LastSeen, now)
-		if status == registry.StatusUnhealthy {
-			continue
-		}
-
+	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
 		services, err := p.queryAgent(ctx, agent)
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("agent_id", agent.AgentID).
-				Str("mesh_ip", agent.MeshIPv4).
-				Msg("Failed to query agent for services")
-			errorCount++
-			continue
+			return err
 		}
 
 		// Register/update each service in the colony database.
@@ -132,8 +100,8 @@ func (p *ServicePoller) PollOnce(ctx context.Context) error {
 			totalServices++
 		}
 
-		successCount++
-	}
+		return nil
+	})
 
 	p.logger.Info().
 		Int("agents_queried", successCount).

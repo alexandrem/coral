@@ -1,0 +1,113 @@
+# E2E Test overlay - adds test apps and fast polling for quick test execution
+# Usage: docker-compose -f ../../../docker-compose.yml -f docker-compose.e2e.yml up -d
+
+name: coral-e2e
+services:
+  # Colony overrides - fast polling for tests
+  colony:
+    environment:
+      - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
+      - CORAL_PUBLIC_ENDPOINT=colony:51820
+      - CORAL_STORAGE_PATH=/var/lib/coral
+      - CORAL_SERVICES_POLL_INTERVAL=1s
+      - CORAL_TELEMETRY_POLL_INTERVAL=1s
+      - CORAL_BEYLA_POLL_INTERVAL=1s
+      - CORAL_SYSTEM_METRICS_POLL_INTERVAL=1s
+      - CORAL_PROFILING_POLL_INTERVAL=1s
+      - CORAL_DISCOVERY_REGISTER_INTERVAL=1s
+    healthcheck:
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    volumes:
+      - colony-data:/var/lib/coral
+      - colony-shared:/shared
+      - colony-config:/root/.coral
+      - ./tests/e2e/distributed/fixtures:/fixtures:ro
+
+  # Agent 0 overrides - fast heartbeat
+  agent-0:
+    environment:
+      - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
+      - CORAL_AGENT_BIND_ALL=true
+      - CORAL_HEARTBEAT_INTERVAL=5s
+    healthcheck:
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # Agent 1 overrides - fast heartbeat
+  agent-1:
+    environment:
+      - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
+      - CORAL_AGENT_BIND_ALL=true
+      - CORAL_HEARTBEAT_INTERVAL=5s
+    healthcheck:
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # CPU App - CPU-intensive test application
+  # Runs in agent-0's network AND PID namespace so Beyla can instrument it via eBPF
+  cpu-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/cpu-app/Dockerfile
+    network_mode: "service:agent-0"
+    pid: "service:agent-0"
+    depends_on:
+      agent-0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # OTEL App - OpenTelemetry instrumented application
+  # Runs in agent-0's network AND PID namespace so Beyla can instrument it via eBPF
+  # Tests the combination of Beyla (passive) + OTLP SDK (active) together
+  otel-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/otel-app/Dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - HTTP_PORT=8090
+    network_mode: "service:agent-0"
+    pid: "service:agent-0"
+    depends_on:
+      agent-0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # SDK App - Application with Coral SDK for uprobe testing
+  # Runs in agent-1's network AND PID namespace so agent can profile it
+  sdk-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/sdk-app/Dockerfile
+    network_mode: "service:agent-1"
+    pid: "service:agent-1"
+    depends_on:
+      - agent-1
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  colony-data:
+  colony-shared:
+  colony-config:
