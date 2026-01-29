@@ -20,16 +20,44 @@ type ebpfDatabase interface {
 	QuerySystemMetricsSummaries(ctx context.Context, agentID string, startTime, endTime time.Time) ([]database.SystemMetricsSummary, error)
 	GetServiceByName(ctx context.Context, serviceName string) (*database.Service, error)
 	QueryAllServiceNames(ctx context.Context) ([]string, error)
+	// RFD 074: Profiling-enriched summary.
+	GetTopKHotspots(ctx context.Context, serviceName string, startTime, endTime time.Time, topK int) (*database.ProfilingSummaryResult, error)
+	GetLatestBinaryMetadata(ctx context.Context, serviceName string) (*database.BinaryMetadata, error)
+	GetPreviousBinaryMetadata(ctx context.Context, serviceName, currentBuildID string) (*database.BinaryMetadata, error)
+	CompareHotspotsWithBaseline(ctx context.Context, serviceName, currentBuildID, baselineBuildID string, startTime, endTime time.Time, topK int) ([]database.RegressionIndicatorResult, error)
+}
+
+// ProfilingEnrichmentConfig controls profiling enrichment in query summaries (RFD 074).
+type ProfilingEnrichmentConfig struct {
+	// Enabled controls whether profiling data is included in summaries.
+	Enabled bool
+	// TopKHotspots is the default number of top hotspots. Default: 5, max: 20.
+	TopKHotspots int
 }
 
 // EbpfQueryService provides eBPF metrics querying with validation.
 type EbpfQueryService struct {
-	db ebpfDatabase
+	db              ebpfDatabase
+	profilingConfig ProfilingEnrichmentConfig
 }
 
 // NewEbpfQueryService creates a new eBPF query service.
 func NewEbpfQueryService(db *database.Database) *EbpfQueryService {
-	return &EbpfQueryService{db: db}
+	return &EbpfQueryService{
+		db: db,
+		profilingConfig: ProfilingEnrichmentConfig{
+			Enabled:      true,
+			TopKHotspots: 5,
+		},
+	}
+}
+
+// NewEbpfQueryServiceWithConfig creates a new eBPF query service with profiling config (RFD 074).
+func NewEbpfQueryServiceWithConfig(db *database.Database, profilingConfig ProfilingEnrichmentConfig) *EbpfQueryService {
+	return &EbpfQueryService{
+		db:              db,
+		profilingConfig: profilingConfig,
+	}
 }
 
 // QueryMetrics queries eBPF metrics based on the request.
@@ -391,6 +419,42 @@ type UnifiedSummaryResult struct {
 	HostMemoryLimitGB     float64 // Memory limit in GB
 	HostMemoryUtilization float64 // Memory utilization percentage (max in time window)
 	AgentID               string  // Agent ID for correlation
+	// RFD 074: Profiling-enriched data.
+	ProfilingSummary     *ProfilingSummaryData
+	Deployment           *DeploymentData
+	RegressionIndicators []RegressionIndicatorData
+}
+
+// ProfilingSummaryData contains top-K CPU hotspots (RFD 074).
+type ProfilingSummaryData struct {
+	Hotspots       []HotspotData
+	TotalSamples   uint64
+	SamplingPeriod string
+	BuildID        string
+}
+
+// HotspotData represents a single CPU hotspot (RFD 074).
+type HotspotData struct {
+	Rank        int32
+	Frames      []string
+	Percentage  float64
+	SampleCount uint64
+}
+
+// DeploymentData contains deployment context (RFD 074).
+type DeploymentData struct {
+	BuildID    string
+	DeployedAt time.Time
+	Age        string
+}
+
+// RegressionIndicatorData contains a regression indicator (RFD 074).
+type RegressionIndicatorData struct {
+	Type               string
+	Message            string
+	BaselinePercentage float64
+	CurrentPercentage  float64
+	Delta              float64
 }
 
 // QueryUnifiedSummary provides a high-level health summary for services.
@@ -647,7 +711,89 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		}
 	}
 
+	// 5. Enrich with CPU profiling data (RFD 074).
+	if !s.profilingConfig.Enabled {
+		return convertSummaryMapToSlice(summaryMap), nil
+	}
+
+	topK := s.profilingConfig.TopKHotspots
+	if topK <= 0 {
+		topK = 5
+	}
+
+	for _, summary := range summaryMap {
+		if summary.ServiceName == "" {
+			continue
+		}
+
+		profilingResult, err := s.db.GetTopKHotspots(ctx, summary.ServiceName, startTime, endTime, topK)
+		if err != nil || profilingResult == nil || profilingResult.TotalSamples == 0 {
+			continue
+		}
+
+		hotspots := make([]HotspotData, len(profilingResult.Hotspots))
+		for i, h := range profilingResult.Hotspots {
+			hotspots[i] = HotspotData{
+				Rank:        h.Rank,
+				Frames:      h.Frames,
+				Percentage:  h.Percentage,
+				SampleCount: h.SampleCount,
+			}
+		}
+
+		summary.ProfilingSummary = &ProfilingSummaryData{
+			Hotspots:       hotspots,
+			TotalSamples:   profilingResult.TotalSamples,
+			SamplingPeriod: formatDurationShort(endTime.Sub(startTime)),
+		}
+
+		// Deployment context.
+		latestBuild, err := s.db.GetLatestBinaryMetadata(ctx, summary.ServiceName)
+		if err == nil && latestBuild != nil {
+			age := time.Since(latestBuild.FirstSeen)
+			summary.Deployment = &DeploymentData{
+				BuildID:    latestBuild.BuildID,
+				DeployedAt: latestBuild.FirstSeen,
+				Age:        formatDurationShort(age),
+			}
+			summary.ProfilingSummary.BuildID = latestBuild.BuildID
+
+			// Regression detection.
+			prevBuild, err := s.db.GetPreviousBinaryMetadata(ctx, summary.ServiceName, latestBuild.BuildID)
+			if err == nil && prevBuild != nil {
+				indicators, err := s.db.CompareHotspotsWithBaseline(ctx, summary.ServiceName, latestBuild.BuildID, prevBuild.BuildID, startTime, endTime, topK)
+				if err == nil {
+					for _, ind := range indicators {
+						summary.RegressionIndicators = append(summary.RegressionIndicators, RegressionIndicatorData{
+							Type:               ind.Type,
+							Message:            ind.Message,
+							BaselinePercentage: ind.BaselinePercentage,
+							CurrentPercentage:  ind.CurrentPercentage,
+							Delta:              ind.Delta,
+						})
+					}
+				}
+			}
+		}
+	}
+
 	return convertSummaryMapToSlice(summaryMap), nil
+}
+
+// formatDurationShort formats a duration in short human-readable form.
+func formatDurationShort(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+	if minutes > 0 {
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dh", hours)
 }
 
 // convertSummaryMapToSlice converts a map of summaries to a slice.

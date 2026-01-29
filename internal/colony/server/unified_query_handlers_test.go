@@ -173,6 +173,142 @@ func TestQueryUnifiedSummaryHandler(t *testing.T) {
 	})
 }
 
+// TestQueryUnifiedSummaryHandler_ProfilingEnrichment tests RFD 074 profiling data in summaries.
+func TestQueryUnifiedSummaryHandler_ProfilingEnrichment(t *testing.T) {
+	t.Run("summary with profiling data", func(t *testing.T) {
+		deployedAt := time.Now().Add(-2 * time.Hour)
+		mockSvc := &mockEbpfService{
+			summaryResults: []colony.UnifiedSummaryResult{
+				{
+					ServiceName:           "order-processor",
+					Status:                colony.ServiceStatusDegraded,
+					RequestCount:          5000,
+					ErrorRate:             2.8,
+					AvgLatencyMs:          450,
+					Source:                "eBPF",
+					HostCPUUtilization:    88.0,
+					HostCPUUtilizationAvg: 85.0,
+					ProfilingSummary: &colony.ProfilingSummaryData{
+						Hotspots: []colony.HotspotData{
+							{Rank: 1, Frames: []string{"main", "processOrder", "validateSignature"}, Percentage: 42.5, SampleCount: 2834},
+							{Rank: 2, Frames: []string{"runtime", "gcBgMarkWorker"}, Percentage: 12.0, SampleCount: 800},
+						},
+						TotalSamples:   6667,
+						SamplingPeriod: "5m",
+						BuildID:        "sha256:abc123",
+					},
+					Deployment: &colony.DeploymentData{
+						BuildID:    "sha256:abc123",
+						DeployedAt: deployedAt,
+						Age:        "2h0m",
+					},
+					RegressionIndicators: []colony.RegressionIndicatorData{
+						{
+							Type:               "new_hotspot",
+							Message:            "validateSignature (42.5%) was not in top-5 before this deployment",
+							BaselinePercentage: 8.2,
+							CurrentPercentage:  42.5,
+							Delta:              34.3,
+						},
+					},
+				},
+			},
+		}
+
+		server := &Server{ebpfService: mockSvc}
+		req := connect.NewRequest(&colonyv1.QueryUnifiedSummaryRequest{
+			Service:   "order-processor",
+			TimeRange: "5m",
+		})
+
+		resp, err := server.QueryUnifiedSummary(context.Background(), req)
+		require.NoError(t, err)
+		require.Len(t, resp.Msg.Summaries, 1)
+
+		s := resp.Msg.Summaries[0]
+
+		// Verify profiling summary is populated.
+		require.NotNil(t, s.ProfilingSummary)
+		assert.Equal(t, uint64(6667), s.ProfilingSummary.TotalSamples)
+		assert.Equal(t, "5m", s.ProfilingSummary.SamplingPeriod)
+		assert.Equal(t, "sha256:abc123", s.ProfilingSummary.BuildId)
+		require.Len(t, s.ProfilingSummary.TopCpuHotspots, 2)
+
+		h0 := s.ProfilingSummary.TopCpuHotspots[0]
+		assert.Equal(t, int32(1), h0.Rank)
+		assert.Equal(t, []string{"main", "processOrder", "validateSignature"}, h0.Frames)
+		assert.InDelta(t, 42.5, h0.Percentage, 0.01)
+		assert.Equal(t, uint64(2834), h0.SampleCount)
+
+		h1 := s.ProfilingSummary.TopCpuHotspots[1]
+		assert.Equal(t, int32(2), h1.Rank)
+		assert.Equal(t, uint64(800), h1.SampleCount)
+
+		// Verify deployment context.
+		require.NotNil(t, s.Deployment)
+		assert.Equal(t, "sha256:abc123", s.Deployment.BuildId)
+		assert.Equal(t, "2h0m", s.Deployment.Age)
+		assert.False(t, s.Deployment.DeployedAt.AsTime().IsZero())
+
+		// Verify regression indicators.
+		require.Len(t, s.Regressions, 1)
+		assert.Equal(t, colonyv1.RegressionType_REGRESSION_TYPE_NEW_HOTSPOT, s.Regressions[0].Type)
+		assert.Contains(t, s.Regressions[0].Message, "validateSignature")
+		assert.InDelta(t, 8.2, s.Regressions[0].BaselinePercentage, 0.01)
+		assert.InDelta(t, 42.5, s.Regressions[0].CurrentPercentage, 0.01)
+		assert.InDelta(t, 34.3, s.Regressions[0].Delta, 0.01)
+	})
+
+	t.Run("summary without profiling data", func(t *testing.T) {
+		mockSvc := &mockEbpfService{
+			summaryResults: []colony.UnifiedSummaryResult{
+				{ServiceName: "api-service", Status: colony.ServiceStatusHealthy},
+			},
+		}
+
+		server := &Server{ebpfService: mockSvc}
+		req := connect.NewRequest(&colonyv1.QueryUnifiedSummaryRequest{
+			Service:   "api-service",
+			TimeRange: "5m",
+		})
+
+		resp, err := server.QueryUnifiedSummary(context.Background(), req)
+		require.NoError(t, err)
+		require.Len(t, resp.Msg.Summaries, 1)
+
+		s := resp.Msg.Summaries[0]
+		assert.Nil(t, s.ProfilingSummary)
+		assert.Nil(t, s.Deployment)
+		assert.Empty(t, s.Regressions)
+	})
+
+	t.Run("regression type mapping", func(t *testing.T) {
+		mockSvc := &mockEbpfService{
+			summaryResults: []colony.UnifiedSummaryResult{
+				{
+					ServiceName: "test-svc",
+					RegressionIndicators: []colony.RegressionIndicatorData{
+						{Type: "new_hotspot", Message: "new"},
+						{Type: "increased_hotspot", Message: "increased"},
+						{Type: "decreased_hotspot", Message: "decreased"},
+					},
+				},
+			},
+		}
+
+		server := &Server{ebpfService: mockSvc}
+		req := connect.NewRequest(&colonyv1.QueryUnifiedSummaryRequest{TimeRange: "5m"})
+
+		resp, err := server.QueryUnifiedSummary(context.Background(), req)
+		require.NoError(t, err)
+		require.Len(t, resp.Msg.Summaries[0].Regressions, 3)
+
+		assert.Equal(t, colonyv1.RegressionType_REGRESSION_TYPE_NEW_HOTSPOT, resp.Msg.Summaries[0].Regressions[0].Type)
+		assert.Equal(t, colonyv1.RegressionType_REGRESSION_TYPE_INCREASED_HOTSPOT, resp.Msg.Summaries[0].Regressions[1].Type)
+		assert.Equal(t, colonyv1.RegressionType_REGRESSION_TYPE_DECREASED_HOTSPOT, resp.Msg.Summaries[0].Regressions[2].Type)
+	})
+}
+
 // TestQueryUnifiedTracesHandler tests the QueryUnifiedTraces RPC handler.
 func TestQueryUnifiedTracesHandler(t *testing.T) {
 	t.Run("successful traces query", func(t *testing.T) {

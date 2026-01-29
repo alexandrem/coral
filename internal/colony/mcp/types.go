@@ -165,8 +165,19 @@ type ProfileFunctionsInput struct {
 
 // UnifiedSummaryInput is the input for coral_query_summary.
 type UnifiedSummaryInput struct {
-	Service   *string `json:"service,omitempty" jsonschema:"description=Optional: specific service or all services"`
-	TimeRange *string `json:"time_range,omitempty" jsonschema:"description=Time range (default: 5m)"`
+	Service          *string `json:"service,omitempty" jsonschema:"description=Optional: specific service or all services"`
+	TimeRange        *string `json:"time_range,omitempty" jsonschema:"description=Time range (default: 5m)"`
+	IncludeProfiling *bool   `json:"include_profiling,omitempty" jsonschema:"description=Include CPU profiling hotspots in summary (default: true)"`
+	TopK             *int32  `json:"top_k,omitempty" jsonschema:"description=Number of top CPU hotspots to include (default: 5, max: 20)"`
+}
+
+// DebugCPUProfileInput is the input for coral_debug_cpu_profile (RFD 074).
+type DebugCPUProfileInput struct {
+	Service         string  `json:"service" jsonschema:"description=Service name (required)"`
+	Pod             *string `json:"pod,omitempty" jsonschema:"description=Optional: Specific pod name if service has multiple instances"`
+	DurationSeconds *int32  `json:"duration_seconds,omitempty" jsonschema:"description=Profiling duration in seconds (default: 30, max: 300)"`
+	FrequencyHz     *int32  `json:"frequency_hz,omitempty" jsonschema:"description=Sampling frequency in Hz (default: 99, max: 999)"`
+	Format          *string `json:"format,omitempty" jsonschema:"description=Output format,enum=folded,enum=json,default=json"`
 }
 
 // UnifiedTracesInput is the input for coral_query_traces.

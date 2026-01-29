@@ -1,7 +1,7 @@
 ---
 rfd: "074"
 title: "Profiling-Enriched Query Summary for LLM-Driven RCA"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "colony", "mcp", "ai", "observability", "profiling" ]
 
 # RFD 074 - Profiling-Enriched Query Summary for LLM-Driven RCA
 
-**Status:** 🚧 Draft
+**Status:** ✅ Implemented
 
 ## Summary
 
@@ -239,70 +239,70 @@ containing:
 
 ### Phase 1: DuckDB Query Functions
 
-- [ ] Create `get_top_k_hotspots` DuckDB function
-    - [ ] Join `cpu_profile_summaries` with `profile_frame_dictionary`
-    - [ ] Aggregate by stack (sum sample_count across time range)
-    - [ ] Decode integer arrays to frame names
-    - [ ] ORDER BY sample_count DESC LIMIT k
-    - [ ] Return as JSON array
+- [x] Create `get_top_k_hotspots` DuckDB function
+    - [x] Join `cpu_profile_summaries` with `profile_frame_dictionary`
+    - [x] Aggregate by stack (sum sample_count across time range)
+    - [x] Decode integer arrays to frame names
+    - [x] ORDER BY sample_count DESC LIMIT k
+    - [x] Return as JSON array
 
-- [ ] Create `get_enriched_summary` DuckDB function
-    - [ ] Join system metrics + profiling + binary metadata
-    - [ ] Calculate avg/max/p95 for metrics
-    - [ ] Call `get_top_k_hotspots` for profiling data
-    - [ ] Include active build_id and deployment timestamp
-    - [ ] Return as structured JSON
+- [x] Create `get_enriched_summary` DuckDB function
+    - [x] Join system metrics + profiling + binary metadata
+    - [x] Calculate avg/max/p95 for metrics
+    - [x] Call `get_top_k_hotspots` for profiling data
+    - [x] Include active build_id and deployment timestamp
+    - [x] Return as structured JSON
 
-- [ ] Create `compare_hotspots_with_baseline` DuckDB function
-    - [ ] Query hotspots for current build_id
-    - [ ] Query hotspots for previous build_id
-    - [ ] Calculate deltas (percentage change)
-    - [ ] Detect new hotspots (not in baseline top-K)
-    - [ ] Return regression indicators as JSON
+- [x] Create `compare_hotspots_with_baseline` DuckDB function
+    - [x] Query hotspots for current build_id
+    - [x] Query hotspots for previous build_id
+    - [x] Calculate deltas (percentage change)
+    - [x] Detect new hotspots (not in baseline top-K)
+    - [x] Return regression indicators as JSON
 
 ### Phase 2: Protobuf & API Changes
 
-- [ ] Define `ProfilingSummary` message in
-  `proto/coral/colony/v1/colony.proto`
-- [ ] Define `CPUHotspot` message with rank, frames, percentage, category
-- [ ] Define `RegressionIndicator` message for deployment comparisons
-- [ ] Update `QueryUnifiedSummaryResponse` to include `ProfilingSummary`
-- [ ] Update `QueryUnifiedSummaryRequest` to include `include_profiling` flag
+- [x] Define `ProfilingSummary` message in
+  `proto/coral/colony/v1/queries.proto`
+- [x] Define `CPUHotspot` message with rank, frames, percentage, category
+- [x] Define `RegressionIndicator` message for deployment comparisons
+- [x] Update `QueryUnifiedSummaryResponse` to include `ProfilingSummary`
+- [x] Update `QueryUnifiedSummaryRequest` to include `include_profiling` flag
 
 ### Phase 3: Colony Integration
 
-- [ ] Implement `GetEnrichedSummary` in
+- [x] Implement `GetEnrichedSummary` in
   `internal/colony/database/profiling_summary.go`
-- [ ] Wire up to `QueryUnifiedSummary` RPC handler
-- [ ] Add configuration: `profiling.enable_summary_enrichment` (default: true)
-- [ ] Add configuration: `profiling.top_k_hotspots` (default: 5, max: 20)
+- [x] Wire up to `QueryUnifiedSummary` RPC handler
+- [x] Add configuration: `profiling.enable_summary_enrichment` (default: true)
+- [x] Add configuration: `profiling.top_k_hotspots` (default: 5, max: 20)
 - [ ] Add caching for baseline hotspots (avoid re-querying old build_ids)
 
 ### Phase 4: MCP Tool Enhancement
 
 **coral_query_summary (Enhanced):**
 
-- [ ] Update `coral_query_summary` tool definition in MCP server
-- [ ] Add `include_profiling` parameter (boolean, default: true)
-- [ ] Add `top_k` parameter (integer, default: 5)
-- [ ] Serialize `ProfilingSummary` into MCP tool response
-- [ ] Add examples to MCP tool description for LLM guidance
+- [x] Update `coral_query_summary` tool definition in MCP server
+- [x] Add `include_profiling` parameter (boolean, default: true)
+- [x] Add `top_k` parameter (integer, default: 5)
+- [x] Serialize `ProfilingSummary` into MCP tool response
+- [x] Add examples to MCP tool description for LLM guidance
 
 **coral_debug_cpu_profile (New):**
 
-- [ ] Create `coral_debug_cpu_profile` tool in MCP server
-- [ ] Wrap RFD 070's `ProfileCPU` RPC call
-- [ ] Add parameters: service, pod, duration_seconds, frequency_hz, format
-- [ ] Convert ProfileCPUResponse to JSON format for LLM
-- [ ] Add "insights" field: hottest_function, percentage, unique_stacks
-- [ ] Support both "json" and "folded" output formats
-- [ ] Add usage guidance in tool description for LLM
+- [x] Create `coral_debug_cpu_profile` tool in MCP server
+- [x] Wrap RFD 070's `ProfileCPU` RPC call
+- [x] Add parameters: service, pod, duration_seconds, frequency_hz, format
+- [x] Convert ProfileCPUResponse to JSON format for LLM
+- [x] Add "insights" field: hottest_function, percentage, unique_stacks
+- [x] Support both "json" and "folded" output formats
+- [x] Add usage guidance in tool description for LLM
 
 ### Phase 5: Testing & Validation
 
-- [ ] Unit tests for `get_top_k_hotspots` query
-- [ ] Unit tests for `compare_hotspots_with_baseline` query
-- [ ] Integration tests: Full enriched summary generation
+- [x] Unit tests for `get_top_k_hotspots` query
+- [x] Unit tests for `compare_hotspots_with_baseline` query
+- [x] Integration tests: Full enriched summary generation
 - [ ] E2E test: Deploy two versions, verify regression detection
 - [ ] MCP tool test: Call from Claude Desktop, verify LLM can interpret
 - [ ] Performance test: Measure query latency (target: <200ms for 5m time range)

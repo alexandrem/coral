@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
@@ -40,7 +41,7 @@ func (s *Server) QueryUnifiedSummary(
 	// Convert to protobuf structured results
 	summaries := make([]*colonyv1.UnifiedSummaryResult, 0, len(results))
 	for _, r := range results {
-		summaries = append(summaries, &colonyv1.UnifiedSummaryResult{
+		result := &colonyv1.UnifiedSummaryResult{
 			ServiceName:           r.ServiceName,
 			Status:                r.Status.String(),
 			RequestCount:          r.RequestCount,
@@ -54,7 +55,53 @@ func (s *Server) QueryUnifiedSummary(
 			HostMemoryLimitGb:     r.HostMemoryLimitGB,
 			HostMemoryUtilization: r.HostMemoryUtilization,
 			AgentId:               r.AgentID,
-		})
+		}
+
+		// RFD 074: Profiling-enriched data.
+		if r.ProfilingSummary != nil {
+			hotspots := make([]*colonyv1.CPUHotspot, len(r.ProfilingSummary.Hotspots))
+			for i, h := range r.ProfilingSummary.Hotspots {
+				hotspots[i] = &colonyv1.CPUHotspot{
+					Rank:        h.Rank,
+					Frames:      h.Frames,
+					Percentage:  h.Percentage,
+					SampleCount: h.SampleCount,
+				}
+			}
+			result.ProfilingSummary = &colonyv1.ProfilingSummary{
+				TopCpuHotspots: hotspots,
+				TotalSamples:   r.ProfilingSummary.TotalSamples,
+				SamplingPeriod: r.ProfilingSummary.SamplingPeriod,
+				BuildId:        r.ProfilingSummary.BuildID,
+			}
+		}
+
+		if r.Deployment != nil {
+			result.Deployment = &colonyv1.DeploymentContext{
+				BuildId:    r.Deployment.BuildID,
+				DeployedAt: timestamppb.New(r.Deployment.DeployedAt),
+				Age:        r.Deployment.Age,
+			}
+		}
+
+		for _, ind := range r.RegressionIndicators {
+			regType := colonyv1.RegressionType_REGRESSION_TYPE_NEW_HOTSPOT
+			switch ind.Type {
+			case "increased_hotspot":
+				regType = colonyv1.RegressionType_REGRESSION_TYPE_INCREASED_HOTSPOT
+			case "decreased_hotspot":
+				regType = colonyv1.RegressionType_REGRESSION_TYPE_DECREASED_HOTSPOT
+			}
+			result.Regressions = append(result.Regressions, &colonyv1.RegressionIndicator{
+				Type:               regType,
+				Message:            ind.Message,
+				BaselinePercentage: ind.BaselinePercentage,
+				CurrentPercentage:  ind.CurrentPercentage,
+				Delta:              ind.Delta,
+			})
+		}
+
+		summaries = append(summaries, result)
 	}
 
 	return connect.NewResponse(&colonyv1.QueryUnifiedSummaryResponse{
