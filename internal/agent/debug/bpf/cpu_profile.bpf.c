@@ -41,7 +41,11 @@ SEC("perf_event")
 int profile_cpu(void *ctx) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tgid >> 32;
-    __u32 tid = (__u32)pid_tgid;
+
+    // No PID filtering needed: perf events are attached to specific threads of
+    // the target process, so only those threads trigger this BPF program.
+    // Note: bpf_get_current_pid_tgid() returns init-namespace PIDs which differ
+    // from container-namespace PIDs, making PID filtering unreliable in containers.
 
     // Capture user and kernel stack traces.
     struct stack_key key = {};

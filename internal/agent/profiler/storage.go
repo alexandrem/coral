@@ -18,8 +18,8 @@ import (
 
 type binaryMetadataDB struct {
 	BuildID      string    `duckdb:"build_id,pk"`
-	ServiceID    string    `duckdb:"service_id"`
-	BinaryPath   string    `duckdb:"binary_path"`
+	ServiceID    string    `duckdb:"service_id,immutable"`
+	BinaryPath   string    `duckdb:"binary_path,immutable"`
 	FirstSeen    time.Time `duckdb:"first_seen,immutable"`
 	LastSeen     time.Time `duckdb:"last_seen"`
 	HasDebugInfo bool      `duckdb:"has_debug_info"`

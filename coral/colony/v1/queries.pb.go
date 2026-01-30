@@ -24,6 +24,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Type of performance regression detected (RFD 074).
+type RegressionType int32
+
+const (
+	// Function not in baseline top-K.
+	RegressionType_REGRESSION_TYPE_NEW_HOTSPOT RegressionType = 0
+	// Function increased >10 percentage points.
+	RegressionType_REGRESSION_TYPE_INCREASED_HOTSPOT RegressionType = 1
+	// Function decreased >10 percentage points (optimization).
+	RegressionType_REGRESSION_TYPE_DECREASED_HOTSPOT RegressionType = 2
+)
+
+// Enum value maps for RegressionType.
+var (
+	RegressionType_name = map[int32]string{
+		0: "REGRESSION_TYPE_NEW_HOTSPOT",
+		1: "REGRESSION_TYPE_INCREASED_HOTSPOT",
+		2: "REGRESSION_TYPE_DECREASED_HOTSPOT",
+	}
+	RegressionType_value = map[string]int32{
+		"REGRESSION_TYPE_NEW_HOTSPOT":       0,
+		"REGRESSION_TYPE_INCREASED_HOTSPOT": 1,
+		"REGRESSION_TYPE_DECREASED_HOTSPOT": 2,
+	}
+)
+
+func (x RegressionType) Enum() *RegressionType {
+	p := new(RegressionType)
+	*p = x
+	return p
+}
+
+func (x RegressionType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RegressionType) Descriptor() protoreflect.EnumDescriptor {
+	return file_coral_colony_v1_queries_proto_enumTypes[0].Descriptor()
+}
+
+func (RegressionType) Type() protoreflect.EnumType {
+	return &file_coral_colony_v1_queries_proto_enumTypes[0]
+}
+
+func (x RegressionType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RegressionType.Descriptor instead.
+func (RegressionType) EnumDescriptor() ([]byte, []int) {
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{0}
+}
+
 // ServiceSource indicates where service information originated (RFD 084).
 type ServiceSource int32
 
@@ -64,11 +117,11 @@ func (x ServiceSource) String() string {
 }
 
 func (ServiceSource) Descriptor() protoreflect.EnumDescriptor {
-	return file_coral_colony_v1_queries_proto_enumTypes[0].Descriptor()
+	return file_coral_colony_v1_queries_proto_enumTypes[1].Descriptor()
 }
 
 func (ServiceSource) Type() protoreflect.EnumType {
-	return &file_coral_colony_v1_queries_proto_enumTypes[0]
+	return &file_coral_colony_v1_queries_proto_enumTypes[1]
 }
 
 func (x ServiceSource) Number() protoreflect.EnumNumber {
@@ -77,7 +130,7 @@ func (x ServiceSource) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ServiceSource.Descriptor instead.
 func (ServiceSource) EnumDescriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{0}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{1}
 }
 
 // ServiceStatus indicates the current registration and health status (RFD 084).
@@ -124,11 +177,11 @@ func (x ServiceStatus) String() string {
 }
 
 func (ServiceStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_coral_colony_v1_queries_proto_enumTypes[1].Descriptor()
+	return file_coral_colony_v1_queries_proto_enumTypes[2].Descriptor()
 }
 
 func (ServiceStatus) Type() protoreflect.EnumType {
-	return &file_coral_colony_v1_queries_proto_enumTypes[1]
+	return &file_coral_colony_v1_queries_proto_enumTypes[2]
 }
 
 func (x ServiceStatus) Number() protoreflect.EnumNumber {
@@ -137,7 +190,7 @@ func (x ServiceStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ServiceStatus.Descriptor instead.
 func (ServiceStatus) EnumDescriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{1}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{2}
 }
 
 type QueryUnifiedSummaryRequest struct {
@@ -145,7 +198,11 @@ type QueryUnifiedSummaryRequest struct {
 	// Optional: specific service or all services.
 	Service string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
 	// Time range (e.g., "5m", "1h").
-	TimeRange     string `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	TimeRange string `protobuf:"bytes,2,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	// Include CPU profiling hotspots in summary (RFD 074). Default: true.
+	IncludeProfiling bool `protobuf:"varint,3,opt,name=include_profiling,json=includeProfiling,proto3" json:"include_profiling,omitempty"`
+	// Number of top CPU hotspots to include (RFD 074). Default: 5, max: 20.
+	TopKHotspots  int32 `protobuf:"varint,4,opt,name=top_k_hotspots,json=topKHotspots,proto3" json:"top_k_hotspots,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -194,6 +251,20 @@ func (x *QueryUnifiedSummaryRequest) GetTimeRange() string {
 	return ""
 }
 
+func (x *QueryUnifiedSummaryRequest) GetIncludeProfiling() bool {
+	if x != nil {
+		return x.IncludeProfiling
+	}
+	return false
+}
+
+func (x *QueryUnifiedSummaryRequest) GetTopKHotspots() int32 {
+	if x != nil {
+		return x.TopKHotspots
+	}
+	return 0
+}
+
 type UnifiedSummaryResult struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Service name.
@@ -217,8 +288,14 @@ type UnifiedSummaryResult struct {
 	HostMemoryLimitGb     float64 `protobuf:"fixed64,11,opt,name=host_memory_limit_gb,json=hostMemoryLimitGb,proto3" json:"host_memory_limit_gb,omitempty"`            // Memory limit in GB
 	HostMemoryUtilization float64 `protobuf:"fixed64,12,opt,name=host_memory_utilization,json=hostMemoryUtilization,proto3" json:"host_memory_utilization,omitempty"`  // Memory utilization percentage (max in time window)
 	AgentId               string  `protobuf:"bytes,13,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                                // Agent ID for correlation
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// CPU profiling summary (RFD 074).
+	ProfilingSummary *ProfilingSummary `protobuf:"bytes,14,opt,name=profiling_summary,json=profilingSummary,proto3" json:"profiling_summary,omitempty"`
+	// Deployment context (RFD 074).
+	Deployment *DeploymentContext `protobuf:"bytes,15,opt,name=deployment,proto3" json:"deployment,omitempty"`
+	// Regression indicators compared to previous deployment (RFD 074).
+	Regressions   []*RegressionIndicator `protobuf:"bytes,16,rep,name=regressions,proto3" json:"regressions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UnifiedSummaryResult) Reset() {
@@ -342,6 +419,27 @@ func (x *UnifiedSummaryResult) GetAgentId() string {
 	return ""
 }
 
+func (x *UnifiedSummaryResult) GetProfilingSummary() *ProfilingSummary {
+	if x != nil {
+		return x.ProfilingSummary
+	}
+	return nil
+}
+
+func (x *UnifiedSummaryResult) GetDeployment() *DeploymentContext {
+	if x != nil {
+		return x.Deployment
+	}
+	return nil
+}
+
+func (x *UnifiedSummaryResult) GetRegressions() []*RegressionIndicator {
+	if x != nil {
+		return x.Regressions
+	}
+	return nil
+}
+
 type QueryUnifiedSummaryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Structured summary results.
@@ -387,6 +485,308 @@ func (x *QueryUnifiedSummaryResponse) GetSummaries() []*UnifiedSummaryResult {
 	return nil
 }
 
+// CPU profiling summary with top-K hotspots (RFD 074).
+type ProfilingSummary struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Top CPU hotspots ordered by sample count.
+	TopCpuHotspots []*CPUHotspot `protobuf:"bytes,1,rep,name=top_cpu_hotspots,json=topCpuHotspots,proto3" json:"top_cpu_hotspots,omitempty"`
+	// Total samples across all stacks in the time range.
+	TotalSamples uint64 `protobuf:"varint,2,opt,name=total_samples,json=totalSamples,proto3" json:"total_samples,omitempty"`
+	// Human-readable sampling period (e.g., "5m").
+	SamplingPeriod string `protobuf:"bytes,3,opt,name=sampling_period,json=samplingPeriod,proto3" json:"sampling_period,omitempty"`
+	// Build ID of the profiled binary.
+	BuildId       string `protobuf:"bytes,4,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProfilingSummary) Reset() {
+	*x = ProfilingSummary{}
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfilingSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfilingSummary) ProtoMessage() {}
+
+func (x *ProfilingSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfilingSummary.ProtoReflect.Descriptor instead.
+func (*ProfilingSummary) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ProfilingSummary) GetTopCpuHotspots() []*CPUHotspot {
+	if x != nil {
+		return x.TopCpuHotspots
+	}
+	return nil
+}
+
+func (x *ProfilingSummary) GetTotalSamples() uint64 {
+	if x != nil {
+		return x.TotalSamples
+	}
+	return 0
+}
+
+func (x *ProfilingSummary) GetSamplingPeriod() string {
+	if x != nil {
+		return x.SamplingPeriod
+	}
+	return ""
+}
+
+func (x *ProfilingSummary) GetBuildId() string {
+	if x != nil {
+		return x.BuildId
+	}
+	return ""
+}
+
+// A single CPU hotspot from profiling data (RFD 074).
+type CPUHotspot struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 1-based rank (hottest first).
+	Rank int32 `protobuf:"varint,1,opt,name=rank,proto3" json:"rank,omitempty"`
+	// Stack frames from root to leaf.
+	Frames []string `protobuf:"bytes,2,rep,name=frames,proto3" json:"frames,omitempty"`
+	// Percentage of total CPU time.
+	Percentage float64 `protobuf:"fixed64,3,opt,name=percentage,proto3" json:"percentage,omitempty"`
+	// Raw sample count.
+	SampleCount uint64 `protobuf:"varint,4,opt,name=sample_count,json=sampleCount,proto3" json:"sample_count,omitempty"`
+	// Category hint for LLM interpretation (e.g., "business_logic", "gc", "crypto").
+	// Future: May become an enum once categorization is validated across languages.
+	Category      string `protobuf:"bytes,5,opt,name=category,proto3" json:"category,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CPUHotspot) Reset() {
+	*x = CPUHotspot{}
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CPUHotspot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CPUHotspot) ProtoMessage() {}
+
+func (x *CPUHotspot) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CPUHotspot.ProtoReflect.Descriptor instead.
+func (*CPUHotspot) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CPUHotspot) GetRank() int32 {
+	if x != nil {
+		return x.Rank
+	}
+	return 0
+}
+
+func (x *CPUHotspot) GetFrames() []string {
+	if x != nil {
+		return x.Frames
+	}
+	return nil
+}
+
+func (x *CPUHotspot) GetPercentage() float64 {
+	if x != nil {
+		return x.Percentage
+	}
+	return 0
+}
+
+func (x *CPUHotspot) GetSampleCount() uint64 {
+	if x != nil {
+		return x.SampleCount
+	}
+	return 0
+}
+
+func (x *CPUHotspot) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+// Deployment context for correlation with profiling data (RFD 074).
+type DeploymentContext struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Build ID of the currently deployed binary.
+	BuildId string `protobuf:"bytes,1,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
+	// When this build was first seen.
+	DeployedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=deployed_at,json=deployedAt,proto3" json:"deployed_at,omitempty"`
+	// Human-readable age (e.g., "2h15m").
+	Age           string `protobuf:"bytes,3,opt,name=age,proto3" json:"age,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeploymentContext) Reset() {
+	*x = DeploymentContext{}
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeploymentContext) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeploymentContext) ProtoMessage() {}
+
+func (x *DeploymentContext) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeploymentContext.ProtoReflect.Descriptor instead.
+func (*DeploymentContext) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DeploymentContext) GetBuildId() string {
+	if x != nil {
+		return x.BuildId
+	}
+	return ""
+}
+
+func (x *DeploymentContext) GetDeployedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.DeployedAt
+	}
+	return nil
+}
+
+func (x *DeploymentContext) GetAge() string {
+	if x != nil {
+		return x.Age
+	}
+	return ""
+}
+
+// Regression indicator comparing current vs baseline deployment (RFD 074).
+type RegressionIndicator struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Type of regression detected.
+	Type RegressionType `protobuf:"varint,1,opt,name=type,proto3,enum=coral.colony.v1.RegressionType" json:"type,omitempty"`
+	// Human-readable description of the regression.
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// Percentage in the baseline deployment.
+	BaselinePercentage float64 `protobuf:"fixed64,3,opt,name=baseline_percentage,json=baselinePercentage,proto3" json:"baseline_percentage,omitempty"`
+	// Percentage in the current deployment.
+	CurrentPercentage float64 `protobuf:"fixed64,4,opt,name=current_percentage,json=currentPercentage,proto3" json:"current_percentage,omitempty"`
+	// Percentage point change (current - baseline).
+	Delta         float64 `protobuf:"fixed64,5,opt,name=delta,proto3" json:"delta,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegressionIndicator) Reset() {
+	*x = RegressionIndicator{}
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegressionIndicator) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegressionIndicator) ProtoMessage() {}
+
+func (x *RegressionIndicator) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegressionIndicator.ProtoReflect.Descriptor instead.
+func (*RegressionIndicator) Descriptor() ([]byte, []int) {
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RegressionIndicator) GetType() RegressionType {
+	if x != nil {
+		return x.Type
+	}
+	return RegressionType_REGRESSION_TYPE_NEW_HOTSPOT
+}
+
+func (x *RegressionIndicator) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *RegressionIndicator) GetBaselinePercentage() float64 {
+	if x != nil {
+		return x.BaselinePercentage
+	}
+	return 0
+}
+
+func (x *RegressionIndicator) GetCurrentPercentage() float64 {
+	if x != nil {
+		return x.CurrentPercentage
+	}
+	return 0
+}
+
+func (x *RegressionIndicator) GetDelta() float64 {
+	if x != nil {
+		return x.Delta
+	}
+	return 0
+}
+
 type QueryUnifiedTracesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional: filter by service.
@@ -407,7 +807,7 @@ type QueryUnifiedTracesRequest struct {
 
 func (x *QueryUnifiedTracesRequest) Reset() {
 	*x = QueryUnifiedTracesRequest{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[3]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -419,7 +819,7 @@ func (x *QueryUnifiedTracesRequest) String() string {
 func (*QueryUnifiedTracesRequest) ProtoMessage() {}
 
 func (x *QueryUnifiedTracesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[3]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -432,7 +832,7 @@ func (x *QueryUnifiedTracesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUnifiedTracesRequest.ProtoReflect.Descriptor instead.
 func (*QueryUnifiedTracesRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{3}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *QueryUnifiedTracesRequest) GetService() string {
@@ -489,7 +889,7 @@ type QueryUnifiedTracesResponse struct {
 
 func (x *QueryUnifiedTracesResponse) Reset() {
 	*x = QueryUnifiedTracesResponse{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[4]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -501,7 +901,7 @@ func (x *QueryUnifiedTracesResponse) String() string {
 func (*QueryUnifiedTracesResponse) ProtoMessage() {}
 
 func (x *QueryUnifiedTracesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[4]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -514,7 +914,7 @@ func (x *QueryUnifiedTracesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUnifiedTracesResponse.ProtoReflect.Descriptor instead.
 func (*QueryUnifiedTracesResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{4}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *QueryUnifiedTracesResponse) GetSpans() []*v1.EbpfTraceSpan {
@@ -553,7 +953,7 @@ type QueryUnifiedMetricsRequest struct {
 
 func (x *QueryUnifiedMetricsRequest) Reset() {
 	*x = QueryUnifiedMetricsRequest{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[5]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -565,7 +965,7 @@ func (x *QueryUnifiedMetricsRequest) String() string {
 func (*QueryUnifiedMetricsRequest) ProtoMessage() {}
 
 func (x *QueryUnifiedMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[5]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -578,7 +978,7 @@ func (x *QueryUnifiedMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUnifiedMetricsRequest.ProtoReflect.Descriptor instead.
 func (*QueryUnifiedMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{5}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *QueryUnifiedMetricsRequest) GetService() string {
@@ -646,7 +1046,7 @@ type QueryUnifiedMetricsResponse struct {
 
 func (x *QueryUnifiedMetricsResponse) Reset() {
 	*x = QueryUnifiedMetricsResponse{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[6]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -658,7 +1058,7 @@ func (x *QueryUnifiedMetricsResponse) String() string {
 func (*QueryUnifiedMetricsResponse) ProtoMessage() {}
 
 func (x *QueryUnifiedMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[6]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -671,7 +1071,7 @@ func (x *QueryUnifiedMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUnifiedMetricsResponse.ProtoReflect.Descriptor instead.
 func (*QueryUnifiedMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{6}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *QueryUnifiedMetricsResponse) GetHttpMetrics() []*v1.EbpfHttpMetric {
@@ -720,7 +1120,7 @@ type QueryUnifiedLogsRequest struct {
 
 func (x *QueryUnifiedLogsRequest) Reset() {
 	*x = QueryUnifiedLogsRequest{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[7]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -732,7 +1132,7 @@ func (x *QueryUnifiedLogsRequest) String() string {
 func (*QueryUnifiedLogsRequest) ProtoMessage() {}
 
 func (x *QueryUnifiedLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[7]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -745,7 +1145,7 @@ func (x *QueryUnifiedLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUnifiedLogsRequest.ProtoReflect.Descriptor instead.
 func (*QueryUnifiedLogsRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{7}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *QueryUnifiedLogsRequest) GetService() string {
@@ -803,7 +1203,7 @@ type UnifiedLogEntry struct {
 
 func (x *UnifiedLogEntry) Reset() {
 	*x = UnifiedLogEntry{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[8]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -815,7 +1215,7 @@ func (x *UnifiedLogEntry) String() string {
 func (*UnifiedLogEntry) ProtoMessage() {}
 
 func (x *UnifiedLogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[8]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -828,7 +1228,7 @@ func (x *UnifiedLogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnifiedLogEntry.ProtoReflect.Descriptor instead.
 func (*UnifiedLogEntry) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{8}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UnifiedLogEntry) GetTimestamp() int64 {
@@ -885,7 +1285,7 @@ type QueryUnifiedLogsResponse struct {
 
 func (x *QueryUnifiedLogsResponse) Reset() {
 	*x = QueryUnifiedLogsResponse{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[9]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -897,7 +1297,7 @@ func (x *QueryUnifiedLogsResponse) String() string {
 func (*QueryUnifiedLogsResponse) ProtoMessage() {}
 
 func (x *QueryUnifiedLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[9]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -910,7 +1310,7 @@ func (x *QueryUnifiedLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUnifiedLogsResponse.ProtoReflect.Descriptor instead.
 func (*QueryUnifiedLogsResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{9}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *QueryUnifiedLogsResponse) GetLogs() []*UnifiedLogEntry {
@@ -944,7 +1344,7 @@ type ListServicesRequest struct {
 
 func (x *ListServicesRequest) Reset() {
 	*x = ListServicesRequest{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[10]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -956,7 +1356,7 @@ func (x *ListServicesRequest) String() string {
 func (*ListServicesRequest) ProtoMessage() {}
 
 func (x *ListServicesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[10]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -969,7 +1369,7 @@ func (x *ListServicesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListServicesRequest.ProtoReflect.Descriptor instead.
 func (*ListServicesRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{10}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListServicesRequest) GetNamespace() string {
@@ -1002,7 +1402,7 @@ type ListServicesResponse struct {
 
 func (x *ListServicesResponse) Reset() {
 	*x = ListServicesResponse{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[11]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1014,7 +1414,7 @@ func (x *ListServicesResponse) String() string {
 func (*ListServicesResponse) ProtoMessage() {}
 
 func (x *ListServicesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[11]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1027,7 +1427,7 @@ func (x *ListServicesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListServicesResponse.ProtoReflect.Descriptor instead.
 func (*ListServicesResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{11}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListServicesResponse) GetServices() []*ServiceSummary {
@@ -1057,7 +1457,7 @@ type ServiceSummary struct {
 
 func (x *ServiceSummary) Reset() {
 	*x = ServiceSummary{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[12]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1069,7 +1469,7 @@ func (x *ServiceSummary) String() string {
 func (*ServiceSummary) ProtoMessage() {}
 
 func (x *ServiceSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[12]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1082,7 +1482,7 @@ func (x *ServiceSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceSummary.ProtoReflect.Descriptor instead.
 func (*ServiceSummary) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{12}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ServiceSummary) GetName() string {
@@ -1150,7 +1550,7 @@ type GetMetricPercentileRequest struct {
 
 func (x *GetMetricPercentileRequest) Reset() {
 	*x = GetMetricPercentileRequest{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[13]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1162,7 +1562,7 @@ func (x *GetMetricPercentileRequest) String() string {
 func (*GetMetricPercentileRequest) ProtoMessage() {}
 
 func (x *GetMetricPercentileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[13]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1175,7 +1575,7 @@ func (x *GetMetricPercentileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMetricPercentileRequest.ProtoReflect.Descriptor instead.
 func (*GetMetricPercentileRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{13}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetMetricPercentileRequest) GetService() string {
@@ -1220,7 +1620,7 @@ type GetMetricPercentileResponse struct {
 
 func (x *GetMetricPercentileResponse) Reset() {
 	*x = GetMetricPercentileResponse{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[14]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1232,7 +1632,7 @@ func (x *GetMetricPercentileResponse) String() string {
 func (*GetMetricPercentileResponse) ProtoMessage() {}
 
 func (x *GetMetricPercentileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[14]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1245,7 +1645,7 @@ func (x *GetMetricPercentileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMetricPercentileResponse.ProtoReflect.Descriptor instead.
 func (*GetMetricPercentileResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{14}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GetMetricPercentileResponse) GetValue() float64 {
@@ -1281,7 +1681,7 @@ type GetServiceActivityRequest struct {
 
 func (x *GetServiceActivityRequest) Reset() {
 	*x = GetServiceActivityRequest{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[15]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1293,7 +1693,7 @@ func (x *GetServiceActivityRequest) String() string {
 func (*GetServiceActivityRequest) ProtoMessage() {}
 
 func (x *GetServiceActivityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[15]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1306,7 +1706,7 @@ func (x *GetServiceActivityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServiceActivityRequest.ProtoReflect.Descriptor instead.
 func (*GetServiceActivityRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{15}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetServiceActivityRequest) GetService() string {
@@ -1341,7 +1741,7 @@ type GetServiceActivityResponse struct {
 
 func (x *GetServiceActivityResponse) Reset() {
 	*x = GetServiceActivityResponse{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[16]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1353,7 +1753,7 @@ func (x *GetServiceActivityResponse) String() string {
 func (*GetServiceActivityResponse) ProtoMessage() {}
 
 func (x *GetServiceActivityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[16]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1366,7 +1766,7 @@ func (x *GetServiceActivityResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServiceActivityResponse.ProtoReflect.Descriptor instead.
 func (*GetServiceActivityResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{16}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetServiceActivityResponse) GetServiceName() string {
@@ -1414,7 +1814,7 @@ type ListServiceActivityRequest struct {
 
 func (x *ListServiceActivityRequest) Reset() {
 	*x = ListServiceActivityRequest{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[17]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1426,7 +1826,7 @@ func (x *ListServiceActivityRequest) String() string {
 func (*ListServiceActivityRequest) ProtoMessage() {}
 
 func (x *ListServiceActivityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[17]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1439,7 +1839,7 @@ func (x *ListServiceActivityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListServiceActivityRequest.ProtoReflect.Descriptor instead.
 func (*ListServiceActivityRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{17}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListServiceActivityRequest) GetTimeRangeMs() int64 {
@@ -1459,7 +1859,7 @@ type ListServiceActivityResponse struct {
 
 func (x *ListServiceActivityResponse) Reset() {
 	*x = ListServiceActivityResponse{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[18]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1471,7 +1871,7 @@ func (x *ListServiceActivityResponse) String() string {
 func (*ListServiceActivityResponse) ProtoMessage() {}
 
 func (x *ListServiceActivityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[18]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1484,7 +1884,7 @@ func (x *ListServiceActivityResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListServiceActivityResponse.ProtoReflect.Descriptor instead.
 func (*ListServiceActivityResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{18}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ListServiceActivityResponse) GetServices() []*ServiceActivity {
@@ -1510,7 +1910,7 @@ type ServiceActivity struct {
 
 func (x *ServiceActivity) Reset() {
 	*x = ServiceActivity{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[19]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1522,7 +1922,7 @@ func (x *ServiceActivity) String() string {
 func (*ServiceActivity) ProtoMessage() {}
 
 func (x *ServiceActivity) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[19]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1535,7 +1935,7 @@ func (x *ServiceActivity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceActivity.ProtoReflect.Descriptor instead.
 func (*ServiceActivity) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{19}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ServiceActivity) GetServiceName() string {
@@ -1578,7 +1978,7 @@ type ExecuteQueryRequest struct {
 
 func (x *ExecuteQueryRequest) Reset() {
 	*x = ExecuteQueryRequest{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[20]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1590,7 +1990,7 @@ func (x *ExecuteQueryRequest) String() string {
 func (*ExecuteQueryRequest) ProtoMessage() {}
 
 func (x *ExecuteQueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[20]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1603,7 +2003,7 @@ func (x *ExecuteQueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteQueryRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteQueryRequest) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{20}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ExecuteQueryRequest) GetSql() string {
@@ -1634,7 +2034,7 @@ type ExecuteQueryResponse struct {
 
 func (x *ExecuteQueryResponse) Reset() {
 	*x = ExecuteQueryResponse{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[21]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1646,7 +2046,7 @@ func (x *ExecuteQueryResponse) String() string {
 func (*ExecuteQueryResponse) ProtoMessage() {}
 
 func (x *ExecuteQueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[21]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1659,7 +2059,7 @@ func (x *ExecuteQueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteQueryResponse.ProtoReflect.Descriptor instead.
 func (*ExecuteQueryResponse) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{21}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ExecuteQueryResponse) GetRows() []*QueryRow {
@@ -1693,7 +2093,7 @@ type QueryRow struct {
 
 func (x *QueryRow) Reset() {
 	*x = QueryRow{}
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[22]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1705,7 +2105,7 @@ func (x *QueryRow) String() string {
 func (*QueryRow) ProtoMessage() {}
 
 func (x *QueryRow) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_colony_v1_queries_proto_msgTypes[22]
+	mi := &file_coral_colony_v1_queries_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1718,7 +2118,7 @@ func (x *QueryRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRow.ProtoReflect.Descriptor instead.
 func (*QueryRow) Descriptor() ([]byte, []int) {
-	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{22}
+	return file_coral_colony_v1_queries_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *QueryRow) GetValues() []string {
@@ -1732,11 +2132,13 @@ var File_coral_colony_v1_queries_proto protoreflect.FileDescriptor
 
 const file_coral_colony_v1_queries_proto_rawDesc = "" +
 	"\n" +
-	"\x1dcoral/colony/v1/queries.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"U\n" +
+	"\x1dcoral/colony/v1/queries.proto\x12\x0fcoral.colony.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\xa8\x01\n" +
 	"\x1aQueryUnifiedSummaryRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1d\n" +
 	"\n" +
-	"time_range\x18\x02 \x01(\tR\ttimeRange\"\x8b\x04\n" +
+	"time_range\x18\x02 \x01(\tR\ttimeRange\x12+\n" +
+	"\x11include_profiling\x18\x03 \x01(\bR\x10includeProfiling\x12$\n" +
+	"\x0etop_k_hotspots\x18\x04 \x01(\x05R\ftopKHotspots\"\xe7\x05\n" +
 	"\x14UnifiedSummaryResult\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12#\n" +
@@ -1752,9 +2154,39 @@ const file_coral_colony_v1_queries_proto_rawDesc = "" +
 	" \x01(\x01R\x11hostMemoryUsageGb\x12/\n" +
 	"\x14host_memory_limit_gb\x18\v \x01(\x01R\x11hostMemoryLimitGb\x126\n" +
 	"\x17host_memory_utilization\x18\f \x01(\x01R\x15hostMemoryUtilization\x12\x19\n" +
-	"\bagent_id\x18\r \x01(\tR\aagentId\"b\n" +
+	"\bagent_id\x18\r \x01(\tR\aagentId\x12N\n" +
+	"\x11profiling_summary\x18\x0e \x01(\v2!.coral.colony.v1.ProfilingSummaryR\x10profilingSummary\x12B\n" +
+	"\n" +
+	"deployment\x18\x0f \x01(\v2\".coral.colony.v1.DeploymentContextR\n" +
+	"deployment\x12F\n" +
+	"\vregressions\x18\x10 \x03(\v2$.coral.colony.v1.RegressionIndicatorR\vregressions\"b\n" +
 	"\x1bQueryUnifiedSummaryResponse\x12C\n" +
-	"\tsummaries\x18\x01 \x03(\v2%.coral.colony.v1.UnifiedSummaryResultR\tsummaries\"\xce\x01\n" +
+	"\tsummaries\x18\x01 \x03(\v2%.coral.colony.v1.UnifiedSummaryResultR\tsummaries\"\xc2\x01\n" +
+	"\x10ProfilingSummary\x12E\n" +
+	"\x10top_cpu_hotspots\x18\x01 \x03(\v2\x1b.coral.colony.v1.CPUHotspotR\x0etopCpuHotspots\x12#\n" +
+	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12'\n" +
+	"\x0fsampling_period\x18\x03 \x01(\tR\x0esamplingPeriod\x12\x19\n" +
+	"\bbuild_id\x18\x04 \x01(\tR\abuildId\"\x97\x01\n" +
+	"\n" +
+	"CPUHotspot\x12\x12\n" +
+	"\x04rank\x18\x01 \x01(\x05R\x04rank\x12\x16\n" +
+	"\x06frames\x18\x02 \x03(\tR\x06frames\x12\x1e\n" +
+	"\n" +
+	"percentage\x18\x03 \x01(\x01R\n" +
+	"percentage\x12!\n" +
+	"\fsample_count\x18\x04 \x01(\x04R\vsampleCount\x12\x1a\n" +
+	"\bcategory\x18\x05 \x01(\tR\bcategory\"}\n" +
+	"\x11DeploymentContext\x12\x19\n" +
+	"\bbuild_id\x18\x01 \x01(\tR\abuildId\x12;\n" +
+	"\vdeployed_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"deployedAt\x12\x10\n" +
+	"\x03age\x18\x03 \x01(\tR\x03age\"\xda\x01\n" +
+	"\x13RegressionIndicator\x123\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x1f.coral.colony.v1.RegressionTypeR\x04type\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12/\n" +
+	"\x13baseline_percentage\x18\x03 \x01(\x01R\x12baselinePercentage\x12-\n" +
+	"\x12current_percentage\x18\x04 \x01(\x01R\x11currentPercentage\x12\x14\n" +
+	"\x05delta\x18\x05 \x01(\x01R\x05delta\"\xce\x01\n" +
 	"\x19QueryUnifiedTracesRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1d\n" +
 	"\n" +
@@ -1866,7 +2298,11 @@ const file_coral_colony_v1_queries_proto_rawDesc = "" +
 	"\trow_count\x18\x02 \x01(\x05R\browCount\x12\x18\n" +
 	"\acolumns\x18\x03 \x03(\tR\acolumns\"\"\n" +
 	"\bQueryRow\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\tR\x06values*\x88\x01\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values*\x7f\n" +
+	"\x0eRegressionType\x12\x1f\n" +
+	"\x1bREGRESSION_TYPE_NEW_HOTSPOT\x10\x00\x12%\n" +
+	"!REGRESSION_TYPE_INCREASED_HOTSPOT\x10\x01\x12%\n" +
+	"!REGRESSION_TYPE_DECREASED_HOTSPOT\x10\x02*\x88\x01\n" +
 	"\rServiceSource\x12\x1e\n" +
 	"\x1aSERVICE_SOURCE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19SERVICE_SOURCE_REGISTERED\x10\x01\x12\x1b\n" +
@@ -1892,63 +2328,74 @@ func file_coral_colony_v1_queries_proto_rawDescGZIP() []byte {
 	return file_coral_colony_v1_queries_proto_rawDescData
 }
 
-var file_coral_colony_v1_queries_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_coral_colony_v1_queries_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_coral_colony_v1_queries_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_coral_colony_v1_queries_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_coral_colony_v1_queries_proto_goTypes = []any{
-	(ServiceSource)(0),                  // 0: coral.colony.v1.ServiceSource
-	(ServiceStatus)(0),                  // 1: coral.colony.v1.ServiceStatus
-	(*QueryUnifiedSummaryRequest)(nil),  // 2: coral.colony.v1.QueryUnifiedSummaryRequest
-	(*UnifiedSummaryResult)(nil),        // 3: coral.colony.v1.UnifiedSummaryResult
-	(*QueryUnifiedSummaryResponse)(nil), // 4: coral.colony.v1.QueryUnifiedSummaryResponse
-	(*QueryUnifiedTracesRequest)(nil),   // 5: coral.colony.v1.QueryUnifiedTracesRequest
-	(*QueryUnifiedTracesResponse)(nil),  // 6: coral.colony.v1.QueryUnifiedTracesResponse
-	(*QueryUnifiedMetricsRequest)(nil),  // 7: coral.colony.v1.QueryUnifiedMetricsRequest
-	(*QueryUnifiedMetricsResponse)(nil), // 8: coral.colony.v1.QueryUnifiedMetricsResponse
-	(*QueryUnifiedLogsRequest)(nil),     // 9: coral.colony.v1.QueryUnifiedLogsRequest
-	(*UnifiedLogEntry)(nil),             // 10: coral.colony.v1.UnifiedLogEntry
-	(*QueryUnifiedLogsResponse)(nil),    // 11: coral.colony.v1.QueryUnifiedLogsResponse
-	(*ListServicesRequest)(nil),         // 12: coral.colony.v1.ListServicesRequest
-	(*ListServicesResponse)(nil),        // 13: coral.colony.v1.ListServicesResponse
-	(*ServiceSummary)(nil),              // 14: coral.colony.v1.ServiceSummary
-	(*GetMetricPercentileRequest)(nil),  // 15: coral.colony.v1.GetMetricPercentileRequest
-	(*GetMetricPercentileResponse)(nil), // 16: coral.colony.v1.GetMetricPercentileResponse
-	(*GetServiceActivityRequest)(nil),   // 17: coral.colony.v1.GetServiceActivityRequest
-	(*GetServiceActivityResponse)(nil),  // 18: coral.colony.v1.GetServiceActivityResponse
-	(*ListServiceActivityRequest)(nil),  // 19: coral.colony.v1.ListServiceActivityRequest
-	(*ListServiceActivityResponse)(nil), // 20: coral.colony.v1.ListServiceActivityResponse
-	(*ServiceActivity)(nil),             // 21: coral.colony.v1.ServiceActivity
-	(*ExecuteQueryRequest)(nil),         // 22: coral.colony.v1.ExecuteQueryRequest
-	(*ExecuteQueryResponse)(nil),        // 23: coral.colony.v1.ExecuteQueryResponse
-	(*QueryRow)(nil),                    // 24: coral.colony.v1.QueryRow
-	nil,                                 // 25: coral.colony.v1.UnifiedLogEntry.AttributesEntry
-	(*v1.EbpfTraceSpan)(nil),            // 26: coral.agent.v1.EbpfTraceSpan
-	(*v1.EbpfHttpMetric)(nil),           // 27: coral.agent.v1.EbpfHttpMetric
-	(*v1.EbpfGrpcMetric)(nil),           // 28: coral.agent.v1.EbpfGrpcMetric
-	(*v1.EbpfSqlMetric)(nil),            // 29: coral.agent.v1.EbpfSqlMetric
-	(*timestamppb.Timestamp)(nil),       // 30: google.protobuf.Timestamp
+	(RegressionType)(0),                 // 0: coral.colony.v1.RegressionType
+	(ServiceSource)(0),                  // 1: coral.colony.v1.ServiceSource
+	(ServiceStatus)(0),                  // 2: coral.colony.v1.ServiceStatus
+	(*QueryUnifiedSummaryRequest)(nil),  // 3: coral.colony.v1.QueryUnifiedSummaryRequest
+	(*UnifiedSummaryResult)(nil),        // 4: coral.colony.v1.UnifiedSummaryResult
+	(*QueryUnifiedSummaryResponse)(nil), // 5: coral.colony.v1.QueryUnifiedSummaryResponse
+	(*ProfilingSummary)(nil),            // 6: coral.colony.v1.ProfilingSummary
+	(*CPUHotspot)(nil),                  // 7: coral.colony.v1.CPUHotspot
+	(*DeploymentContext)(nil),           // 8: coral.colony.v1.DeploymentContext
+	(*RegressionIndicator)(nil),         // 9: coral.colony.v1.RegressionIndicator
+	(*QueryUnifiedTracesRequest)(nil),   // 10: coral.colony.v1.QueryUnifiedTracesRequest
+	(*QueryUnifiedTracesResponse)(nil),  // 11: coral.colony.v1.QueryUnifiedTracesResponse
+	(*QueryUnifiedMetricsRequest)(nil),  // 12: coral.colony.v1.QueryUnifiedMetricsRequest
+	(*QueryUnifiedMetricsResponse)(nil), // 13: coral.colony.v1.QueryUnifiedMetricsResponse
+	(*QueryUnifiedLogsRequest)(nil),     // 14: coral.colony.v1.QueryUnifiedLogsRequest
+	(*UnifiedLogEntry)(nil),             // 15: coral.colony.v1.UnifiedLogEntry
+	(*QueryUnifiedLogsResponse)(nil),    // 16: coral.colony.v1.QueryUnifiedLogsResponse
+	(*ListServicesRequest)(nil),         // 17: coral.colony.v1.ListServicesRequest
+	(*ListServicesResponse)(nil),        // 18: coral.colony.v1.ListServicesResponse
+	(*ServiceSummary)(nil),              // 19: coral.colony.v1.ServiceSummary
+	(*GetMetricPercentileRequest)(nil),  // 20: coral.colony.v1.GetMetricPercentileRequest
+	(*GetMetricPercentileResponse)(nil), // 21: coral.colony.v1.GetMetricPercentileResponse
+	(*GetServiceActivityRequest)(nil),   // 22: coral.colony.v1.GetServiceActivityRequest
+	(*GetServiceActivityResponse)(nil),  // 23: coral.colony.v1.GetServiceActivityResponse
+	(*ListServiceActivityRequest)(nil),  // 24: coral.colony.v1.ListServiceActivityRequest
+	(*ListServiceActivityResponse)(nil), // 25: coral.colony.v1.ListServiceActivityResponse
+	(*ServiceActivity)(nil),             // 26: coral.colony.v1.ServiceActivity
+	(*ExecuteQueryRequest)(nil),         // 27: coral.colony.v1.ExecuteQueryRequest
+	(*ExecuteQueryResponse)(nil),        // 28: coral.colony.v1.ExecuteQueryResponse
+	(*QueryRow)(nil),                    // 29: coral.colony.v1.QueryRow
+	nil,                                 // 30: coral.colony.v1.UnifiedLogEntry.AttributesEntry
+	(*timestamppb.Timestamp)(nil),       // 31: google.protobuf.Timestamp
+	(*v1.EbpfTraceSpan)(nil),            // 32: coral.agent.v1.EbpfTraceSpan
+	(*v1.EbpfHttpMetric)(nil),           // 33: coral.agent.v1.EbpfHttpMetric
+	(*v1.EbpfGrpcMetric)(nil),           // 34: coral.agent.v1.EbpfGrpcMetric
+	(*v1.EbpfSqlMetric)(nil),            // 35: coral.agent.v1.EbpfSqlMetric
 }
 var file_coral_colony_v1_queries_proto_depIdxs = []int32{
-	3,  // 0: coral.colony.v1.QueryUnifiedSummaryResponse.summaries:type_name -> coral.colony.v1.UnifiedSummaryResult
-	26, // 1: coral.colony.v1.QueryUnifiedTracesResponse.spans:type_name -> coral.agent.v1.EbpfTraceSpan
-	27, // 2: coral.colony.v1.QueryUnifiedMetricsResponse.http_metrics:type_name -> coral.agent.v1.EbpfHttpMetric
-	28, // 3: coral.colony.v1.QueryUnifiedMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.EbpfGrpcMetric
-	29, // 4: coral.colony.v1.QueryUnifiedMetricsResponse.sql_metrics:type_name -> coral.agent.v1.EbpfSqlMetric
-	25, // 5: coral.colony.v1.UnifiedLogEntry.attributes:type_name -> coral.colony.v1.UnifiedLogEntry.AttributesEntry
-	10, // 6: coral.colony.v1.QueryUnifiedLogsResponse.logs:type_name -> coral.colony.v1.UnifiedLogEntry
-	0,  // 7: coral.colony.v1.ListServicesRequest.source_filter:type_name -> coral.colony.v1.ServiceSource
-	14, // 8: coral.colony.v1.ListServicesResponse.services:type_name -> coral.colony.v1.ServiceSummary
-	30, // 9: coral.colony.v1.ServiceSummary.last_seen:type_name -> google.protobuf.Timestamp
-	0,  // 10: coral.colony.v1.ServiceSummary.source:type_name -> coral.colony.v1.ServiceSource
-	1,  // 11: coral.colony.v1.ServiceSummary.status:type_name -> coral.colony.v1.ServiceStatus
-	30, // 12: coral.colony.v1.GetMetricPercentileResponse.timestamp:type_name -> google.protobuf.Timestamp
-	30, // 13: coral.colony.v1.GetServiceActivityResponse.timestamp:type_name -> google.protobuf.Timestamp
-	21, // 14: coral.colony.v1.ListServiceActivityResponse.services:type_name -> coral.colony.v1.ServiceActivity
-	24, // 15: coral.colony.v1.ExecuteQueryResponse.rows:type_name -> coral.colony.v1.QueryRow
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	6,  // 0: coral.colony.v1.UnifiedSummaryResult.profiling_summary:type_name -> coral.colony.v1.ProfilingSummary
+	8,  // 1: coral.colony.v1.UnifiedSummaryResult.deployment:type_name -> coral.colony.v1.DeploymentContext
+	9,  // 2: coral.colony.v1.UnifiedSummaryResult.regressions:type_name -> coral.colony.v1.RegressionIndicator
+	4,  // 3: coral.colony.v1.QueryUnifiedSummaryResponse.summaries:type_name -> coral.colony.v1.UnifiedSummaryResult
+	7,  // 4: coral.colony.v1.ProfilingSummary.top_cpu_hotspots:type_name -> coral.colony.v1.CPUHotspot
+	31, // 5: coral.colony.v1.DeploymentContext.deployed_at:type_name -> google.protobuf.Timestamp
+	0,  // 6: coral.colony.v1.RegressionIndicator.type:type_name -> coral.colony.v1.RegressionType
+	32, // 7: coral.colony.v1.QueryUnifiedTracesResponse.spans:type_name -> coral.agent.v1.EbpfTraceSpan
+	33, // 8: coral.colony.v1.QueryUnifiedMetricsResponse.http_metrics:type_name -> coral.agent.v1.EbpfHttpMetric
+	34, // 9: coral.colony.v1.QueryUnifiedMetricsResponse.grpc_metrics:type_name -> coral.agent.v1.EbpfGrpcMetric
+	35, // 10: coral.colony.v1.QueryUnifiedMetricsResponse.sql_metrics:type_name -> coral.agent.v1.EbpfSqlMetric
+	30, // 11: coral.colony.v1.UnifiedLogEntry.attributes:type_name -> coral.colony.v1.UnifiedLogEntry.AttributesEntry
+	15, // 12: coral.colony.v1.QueryUnifiedLogsResponse.logs:type_name -> coral.colony.v1.UnifiedLogEntry
+	1,  // 13: coral.colony.v1.ListServicesRequest.source_filter:type_name -> coral.colony.v1.ServiceSource
+	19, // 14: coral.colony.v1.ListServicesResponse.services:type_name -> coral.colony.v1.ServiceSummary
+	31, // 15: coral.colony.v1.ServiceSummary.last_seen:type_name -> google.protobuf.Timestamp
+	1,  // 16: coral.colony.v1.ServiceSummary.source:type_name -> coral.colony.v1.ServiceSource
+	2,  // 17: coral.colony.v1.ServiceSummary.status:type_name -> coral.colony.v1.ServiceStatus
+	31, // 18: coral.colony.v1.GetMetricPercentileResponse.timestamp:type_name -> google.protobuf.Timestamp
+	31, // 19: coral.colony.v1.GetServiceActivityResponse.timestamp:type_name -> google.protobuf.Timestamp
+	26, // 20: coral.colony.v1.ListServiceActivityResponse.services:type_name -> coral.colony.v1.ServiceActivity
+	29, // 21: coral.colony.v1.ExecuteQueryResponse.rows:type_name -> coral.colony.v1.QueryRow
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_coral_colony_v1_queries_proto_init() }
@@ -1956,15 +2403,15 @@ func file_coral_colony_v1_queries_proto_init() {
 	if File_coral_colony_v1_queries_proto != nil {
 		return
 	}
-	file_coral_colony_v1_queries_proto_msgTypes[10].OneofWrappers = []any{}
-	file_coral_colony_v1_queries_proto_msgTypes[12].OneofWrappers = []any{}
+	file_coral_colony_v1_queries_proto_msgTypes[14].OneofWrappers = []any{}
+	file_coral_colony_v1_queries_proto_msgTypes[16].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_colony_v1_queries_proto_rawDesc), len(file_coral_colony_v1_queries_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   24,
+			NumEnums:      3,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

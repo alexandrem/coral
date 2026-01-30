@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/coral-mesh/coral/internal/sys/proc"
 	"github.com/rs/zerolog"
 )
 
@@ -264,14 +265,17 @@ func getRuntimeLoadAddress(pid int, binaryPath string) (uint64, error) {
 		return 0, fmt.Errorf("failed to read maps: %w", err)
 	}
 
-	// Resolve the actual binary path from /proc/PID/exe if needed
-	// This handles the case where binaryPath is "/proc/PID/exe"
+	// Resolve the actual binary path as it appears inside the target process.
+	// The maps file uses in-namespace paths (e.g., /app/cpu-app), but
+	// binaryPath may be a /proc/PID/root/... path or /proc/PID/exe.
 	actualPath := binaryPath
 	if strings.Contains(binaryPath, "/proc/") && strings.HasSuffix(binaryPath, "/exe") {
 		resolved, err := os.Readlink(binaryPath)
 		if err == nil {
 			actualPath = resolved
 		}
+	} else {
+		actualPath = proc.InNamespacePath(pid, binaryPath)
 	}
 
 	// Parse maps file to find the first executable mapping for the binary

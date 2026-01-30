@@ -328,6 +328,14 @@ type ContinuousProfilingPollerConfig struct {
 	// RetentionDays is how long to keep aggregated CPU profile summaries (days).
 	// Default: 30 days.
 	RetentionDays int `yaml:"retention_days,omitempty"`
+
+	// EnableSummaryEnrichment controls whether query summaries include profiling hotspots (RFD 074).
+	// Default: true.
+	EnableSummaryEnrichment *bool `yaml:"enable_summary_enrichment,omitempty"`
+
+	// TopKHotspots is the default number of top CPU hotspots to include in enriched summaries (RFD 074).
+	// Default: 5, max: 20.
+	TopKHotspots int `yaml:"top_k_hotspots,omitempty"`
 }
 
 // TelemetryPollerConfig contains telemetry collection configuration (RFD 025).

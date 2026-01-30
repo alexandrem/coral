@@ -31,6 +31,11 @@ func (s *CPUProfileSession) CollectProfile() (*CPUProfileResult, error) {
 	return nil, fmt.Errorf("CPU profiling is only supported on Linux")
 }
 
+// DrainStackCounts returns an error on non-Linux systems.
+func (s *CPUProfileSession) DrainStackCounts() (*CPUProfileResult, error) {
+	return nil, fmt.Errorf("CPU profiling is only supported on Linux")
+}
+
 // Close returns an error on non-Linux systems.
 func (s *CPUProfileSession) Close() error {
 	return nil

@@ -292,7 +292,7 @@ func (s *ServiceSuite) TestServiceConnectionAtStartup() {
 		healthEndpoint string
 	}{
 		"cpu-app":  {port: 8080, healthEndpoint: "/health"},
-		"otel-app": {port: 8080, healthEndpoint: "/health"},
+		"otel-app": {port: 8090, healthEndpoint: "/health"},
 	}
 
 	foundServices := make(map[string]bool)
@@ -442,7 +442,7 @@ func (s *ServiceSuite) TestMultiServiceRegistration() {
 func (s *ServiceSuite) ensureServicesConnected() {
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
 		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
-		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
 	})
 }
 

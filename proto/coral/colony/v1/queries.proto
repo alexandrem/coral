@@ -15,6 +15,12 @@ message QueryUnifiedSummaryRequest {
 
   // Time range (e.g., "5m", "1h").
   string time_range = 2;
+
+  // Include CPU profiling hotspots in summary (RFD 074). Default: true.
+  bool include_profiling = 3;
+
+  // Number of top CPU hotspots to include (RFD 074). Default: 5, max: 20.
+  int32 top_k_hotspots = 4;
 }
 
 message UnifiedSummaryResult {
@@ -46,11 +52,96 @@ message UnifiedSummaryResult {
   double host_memory_limit_gb = 11;     // Memory limit in GB
   double host_memory_utilization = 12;  // Memory utilization percentage (max in time window)
   string agent_id = 13;                 // Agent ID for correlation
+
+  // CPU profiling summary (RFD 074).
+  ProfilingSummary profiling_summary = 14;
+
+  // Deployment context (RFD 074).
+  DeploymentContext deployment = 15;
+
+  // Regression indicators compared to previous deployment (RFD 074).
+  repeated RegressionIndicator regressions = 16;
 }
 
 message QueryUnifiedSummaryResponse {
   // Structured summary results.
   repeated UnifiedSummaryResult summaries = 1;
+}
+
+// CPU profiling summary with top-K hotspots (RFD 074).
+message ProfilingSummary {
+  // Top CPU hotspots ordered by sample count.
+  repeated CPUHotspot top_cpu_hotspots = 1;
+
+  // Total samples across all stacks in the time range.
+  uint64 total_samples = 2;
+
+  // Human-readable sampling period (e.g., "5m").
+  string sampling_period = 3;
+
+  // Build ID of the profiled binary.
+  string build_id = 4;
+}
+
+// A single CPU hotspot from profiling data (RFD 074).
+message CPUHotspot {
+  // 1-based rank (hottest first).
+  int32 rank = 1;
+
+  // Stack frames from root to leaf.
+  repeated string frames = 2;
+
+  // Percentage of total CPU time.
+  double percentage = 3;
+
+  // Raw sample count.
+  uint64 sample_count = 4;
+
+  // Category hint for LLM interpretation (e.g., "business_logic", "gc", "crypto").
+  // Future: May become an enum once categorization is validated across languages.
+  string category = 5;
+}
+
+// Deployment context for correlation with profiling data (RFD 074).
+message DeploymentContext {
+  // Build ID of the currently deployed binary.
+  string build_id = 1;
+
+  // When this build was first seen.
+  google.protobuf.Timestamp deployed_at = 2;
+
+  // Human-readable age (e.g., "2h15m").
+  string age = 3;
+}
+
+// Regression indicator comparing current vs baseline deployment (RFD 074).
+message RegressionIndicator {
+  // Type of regression detected.
+  RegressionType type = 1;
+
+  // Human-readable description of the regression.
+  string message = 2;
+
+  // Percentage in the baseline deployment.
+  double baseline_percentage = 3;
+
+  // Percentage in the current deployment.
+  double current_percentage = 4;
+
+  // Percentage point change (current - baseline).
+  double delta = 5;
+}
+
+// Type of performance regression detected (RFD 074).
+enum RegressionType {
+  // Function not in baseline top-K.
+  REGRESSION_TYPE_NEW_HOTSPOT = 0;
+
+  // Function increased >10 percentage points.
+  REGRESSION_TYPE_INCREASED_HOTSPOT = 1;
+
+  // Function decreased >10 percentage points (optimization).
+  REGRESSION_TYPE_DECREASED_HOTSPOT = 2;
 }
 
 message QueryUnifiedTracesRequest {

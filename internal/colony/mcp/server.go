@@ -48,6 +48,10 @@ type Config struct {
 	// Security settings.
 	RequireRBACForActions bool
 	AuditEnabled          bool
+
+	// Profiling enrichment settings (RFD 074).
+	ProfilingEnrichmentDisabled bool // When true, profiling data is excluded from summaries.
+	ProfilingTopKHotspots       int  // Default: 5, max: 20.
 }
 
 // New creates a new MCP server instance.
@@ -162,6 +166,10 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 	case "coral_profile_functions":
 		return s.executeProfileFunctionsTool(ctx, argumentsJSON)
 
+	// Profiling-enriched debugging tools (RFD 074)
+	case "coral_debug_cpu_profile":
+		return s.executeDebugCPUProfileTool(ctx, argumentsJSON)
+
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -241,6 +249,8 @@ func (s *Server) getToolSchemas() map[string]string {
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions": DiscoverFunctionsInput{},
 		"coral_profile_functions":  ProfileFunctionsInput{},
+		// RFD 074: Profiling-enriched debugging
+		"coral_debug_cpu_profile": DebugCPUProfileInput{},
 	}
 
 	for toolName, inputType := range toolInputTypes {
@@ -276,7 +286,7 @@ func (s *Server) getToolSchemas() map[string]string {
 // These descriptions are used when serving tools via both MCP and RPC APIs.
 func (s *Server) getToolDescriptions() map[string]string {
 	return map[string]string{
-		"coral_query_summary":       "Get a high-level health summary for services, combining eBPF and OTLP data.",
+		"coral_query_summary":       "Get an enriched health summary for a service including system metrics, CPU profiling hotspots, deployment context, and regression indicators. Use this as the FIRST tool when diagnosing performance issues.",
 		"coral_query_traces":        "Query distributed traces from all sources (eBPF + OTLP).",
 		"coral_query_metrics":       "Query metrics from all sources (eBPF + OTLP).",
 		"coral_query_logs":          "Query logs from OTLP.",
@@ -291,6 +301,8 @@ func (s *Server) getToolDescriptions() map[string]string {
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions": "Unified function discovery with semantic search. Returns functions with embedded metrics, instrumentation info, and actionable suggestions. Use this for all function discovery needs.",
 		"coral_profile_functions":  "Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Use this for performance investigation.",
+		// RFD 074: Profiling-enriched debugging
+		"coral_debug_cpu_profile": "Collect a high-frequency CPU profile (99Hz) for detailed analysis of specific functions. Use this AFTER coral_query_summary identifies a CPU hotspot that needs line-level investigation. Returns top stacks with sample counts.",
 	}
 }
 
@@ -318,6 +330,9 @@ func (s *Server) registerTools() error {
 	// These replace coral_search_functions, coral_get_function_context, and coral_list_probeable_functions.
 	s.registerDiscoverFunctionsTool()
 	s.registerProfileFunctionsTool()
+
+	// Register profiling-enriched debugging tools (RFD 074).
+	s.registerDebugCPUProfileTool()
 
 	// TODO: Register analysis tools.
 	// s.registerCorrelateEventsTool()
@@ -351,6 +366,8 @@ func (s *Server) listToolNames() []string {
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions",
 		"coral_profile_functions",
+		// RFD 074: Profiling-enriched debugging
+		"coral_debug_cpu_profile",
 	}
 }
 
