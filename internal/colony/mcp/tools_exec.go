@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/mark3labs/mcp-go/mcp"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
@@ -262,6 +263,61 @@ func formatShellExecResponse(agent *registry.Entry, resp *agentv1.ShellExecRespo
 	}
 
 	return text
+}
+
+// registerShellExecTool registers the coral_shell_exec tool (RFD 045).
+func (s *Server) registerShellExecTool() {
+	if !s.isToolEnabled("coral_shell_exec") {
+		return
+	}
+
+	inputSchema, err := generateInputSchema(ShellExecInput{})
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to generate input schema for coral_shell_exec")
+		return
+	}
+
+	// Marshal schema to JSON bytes for MCP tool.
+	schemaBytes, err := json.Marshal(inputSchema)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to marshal schema for coral_shell_exec")
+		return
+	}
+
+	// Create MCP tool with raw schema.
+	tool := mcp.NewToolWithRawSchema(
+		"coral_shell_exec",
+		"Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
+		schemaBytes,
+	)
+
+	// Register tool handler with MCP server.
+	s.mcpServer.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse arguments from MCP request.
+		var input ShellExecInput
+		if request.Params.Arguments != nil {
+			argBytes, err := json.Marshal(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+			}
+			if err := json.Unmarshal(argBytes, &input); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+			}
+		}
+
+		// Convert to JSON and call execute method.
+		argumentsJSON, err := json.Marshal(input)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to marshal input: %v", err)), nil
+		}
+
+		result, err := s.executeShellExecTool(ctx, string(argumentsJSON))
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		return mcp.NewToolResultText(result), nil
+	})
 }
 
 // formatContainerExecResponse formats the response for coral_container_exec tool (RFD 056).
