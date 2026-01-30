@@ -431,6 +431,12 @@ type ProfilingSummaryData struct {
 	TotalSamples   uint64
 	SamplingPeriod string
 	BuildID        string
+
+	// Compact representation computed from Hotspots for client consumption.
+	// HotPath is the call chain from the hottest stack in caller→callee order.
+	HotPath []string
+	// SamplesByFunction maps each unique leaf function to its aggregated percentage.
+	SamplesByFunction []FunctionSample
 }
 
 // HotspotData represents a single CPU hotspot (RFD 074).
@@ -439,6 +445,12 @@ type HotspotData struct {
 	Frames      []string
 	Percentage  float64
 	SampleCount uint64
+}
+
+// FunctionSample pairs a function name with its CPU percentage.
+type FunctionSample struct {
+	Function   string
+	Percentage float64
 }
 
 // DeploymentData contains deployment context (RFD 074).
@@ -727,7 +739,7 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		}
 
 		profilingResult, err := s.db.GetTopKHotspots(ctx, summary.ServiceName, startTime, endTime, topK)
-		if err != nil || profilingResult == nil || profilingResult.TotalSamples == 0 {
+		if err != nil || profilingResult == nil || profilingResult.TotalSamples < database.MinSamplesForSummary {
 			continue
 		}
 
@@ -735,17 +747,50 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		for i, h := range profilingResult.Hotspots {
 			hotspots[i] = HotspotData{
 				Rank:        h.Rank,
-				Frames:      h.Frames,
+				Frames:      database.CleanFrames(h.Frames),
 				Percentage:  h.Percentage,
 				SampleCount: h.SampleCount,
 			}
 		}
 
-		summary.ProfilingSummary = &ProfilingSummaryData{
+		ps := &ProfilingSummaryData{
 			Hotspots:       hotspots,
 			TotalSamples:   profilingResult.TotalSamples,
 			SamplingPeriod: formatDurationShort(endTime.Sub(startTime)),
 		}
+
+		// Compute compact representation from hotspots.
+		if len(hotspots) > 0 {
+			// Hot path: reverse the hottest stack to caller→callee order.
+			frames := hotspots[0].Frames
+			reversed := make([]string, len(frames))
+			for i, f := range frames {
+				reversed[len(frames)-1-i] = f
+			}
+			ps.HotPath = reversed
+
+			// Samples by function: deduplicated leaf function → percentage.
+			seen := make(map[string]float64)
+			var order []string
+			for _, h := range hotspots {
+				if len(h.Frames) == 0 {
+					continue
+				}
+				name := database.ShortFunctionName(h.Frames[0])
+				if _, ok := seen[name]; !ok {
+					order = append(order, name)
+				}
+				seen[name] += h.Percentage
+			}
+			for _, name := range order {
+				ps.SamplesByFunction = append(ps.SamplesByFunction, FunctionSample{
+					Function:   name,
+					Percentage: seen[name],
+				})
+			}
+		}
+
+		summary.ProfilingSummary = ps
 
 		// Deployment context.
 		latestBuild, err := s.db.GetLatestBinaryMetadata(ctx, summary.ServiceName)

@@ -61,6 +61,8 @@ func TestIsBoilerplateFrame(t *testing.T) {
 		"net/http.(*conn).serve",
 		"net/http.(*Server).Serve.gowrap3",
 		"net/http.serverHandler.ServeHTTP",
+		"net/http.HandlerFunc.ServeHTTP",
+		"net/http.(*ServeMux).ServeHTTP",
 	}
 	for _, frame := range boilerplate {
 		assert.True(t, isBoilerplateFrame(frame), "expected %q to be boilerplate", frame)
@@ -70,8 +72,6 @@ func TestIsBoilerplateFrame(t *testing.T) {
 		"main.handler",
 		"runtime.duffzero",
 		"crypto/sha256.Sum256",
-		"net/http.HandlerFunc.ServeHTTP",
-		"net/http.(*ServeMux).ServeHTTP",
 	}
 	for _, frame := range notBoilerplate {
 		assert.False(t, isBoilerplateFrame(frame), "expected %q to not be boilerplate", frame)
@@ -92,7 +92,49 @@ func TestShortFunctionName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, shortFunctionName(tt.input))
+			assert.Equal(t, tt.want, ShortFunctionName(tt.input))
+		})
+	}
+}
+
+func TestCleanFrames(t *testing.T) {
+	tests := []struct {
+		name   string
+		frames []string // leaf-to-root order.
+		want   []string // leaf-to-root order, cleaned.
+	}{
+		{
+			name: "removes boilerplate and simplifies",
+			frames: []string{
+				"crypto/internal/fips140/sha256.blockSHA2",
+				"main.handler",
+				"net/http.(*conn).serve",
+				"runtime.goexit",
+			},
+			want: []string{"crypto/sha256.blockSHA2", "main.handler"},
+		},
+		{
+			name: "preserves leaf-to-root order",
+			frames: []string{
+				"crypto/sha256.Sum256",
+				"main.cpuWork",
+				"main.handler",
+			},
+			want: []string{"crypto/sha256.Sum256", "main.cpuWork", "main.handler"},
+		},
+		{
+			name: "all boilerplate returns simplified originals",
+			frames: []string{
+				"runtime.goexit",
+				"runtime.main",
+			},
+			want: []string{"runtime.goexit", "runtime.main"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, CleanFrames(tt.frames))
 		})
 	}
 }

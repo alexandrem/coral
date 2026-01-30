@@ -349,13 +349,37 @@ func isBoilerplateFrame(frame string) bool {
 			return true
 		}
 	}
-	// net/http server internals are rarely actionable.
+	// net/http server internals and routing scaffolding are rarely actionable.
 	if strings.HasPrefix(frame, "net/http.(*conn).") ||
 		strings.HasPrefix(frame, "net/http.(*Server).") ||
-		strings.HasPrefix(frame, "net/http.serverHandler.") {
+		strings.HasPrefix(frame, "net/http.serverHandler.") ||
+		frame == "net/http.HandlerFunc.ServeHTTP" ||
+		frame == "net/http.(*ServeMux).ServeHTTP" {
 		return true
 	}
 	return false
+}
+
+// CleanFrames simplifies package names and removes boilerplate frames from a
+// leaf-to-root frame list. The result preserves the original leaf-to-root order
+// for storage and API responses. Display-layer code can reverse for rendering.
+func CleanFrames(frames []string) []string {
+	var cleaned []string
+	for _, f := range frames {
+		simplified := SimplifyFrame(f)
+		if !isBoilerplateFrame(simplified) {
+			cleaned = append(cleaned, simplified)
+		}
+	}
+	if len(cleaned) == 0 {
+		// All frames were boilerplate — keep originals simplified.
+		result := make([]string, len(frames))
+		for i, f := range frames {
+			result[i] = SimplifyFrame(f)
+		}
+		return result
+	}
+	return cleaned
 }
 
 // simplifyAndTrimFrames simplifies package names and removes boilerplate frames
@@ -386,26 +410,26 @@ func simplifyAndTrimFrames(frames []string) []string {
 	return reversed[start:end]
 }
 
-// shortFunctionName extracts just the function name from a fully-qualified
+// ShortFunctionName extracts just the function name from a fully-qualified
 // frame (e.g., "crypto/sha256.blockSHA2" → "blockSHA2").
-func shortFunctionName(frame string) string {
+func ShortFunctionName(frame string) string {
 	if dot := strings.LastIndex(frame, "."); dot >= 0 {
 		return frame[dot+1:]
 	}
 	return frame
 }
 
-// minSamplesForSummary is the minimum number of total samples required to
-// display profiling data. Below this threshold the data is too sparse to be
+// MinSamplesForSummary is the minimum number of total samples required to
+// include profiling data. Below this threshold the data is too sparse to be
 // actionable and would just add noise.
-const minSamplesForSummary = 20
+const MinSamplesForSummary = 20
 
 // FormatCompactSummary formats the profiling summary in a compact,
 // LLM-friendly format. It shows the hottest call path once and lists
 // per-function sample percentages on a single line.
 // Returns empty string when sample count is too low to be meaningful.
 func FormatCompactSummary(period string, totalSamples uint64, hotspots []ProfilingHotspot) string {
-	if len(hotspots) == 0 || totalSamples < minSamplesForSummary {
+	if len(hotspots) == 0 || totalSamples < MinSamplesForSummary {
 		return ""
 	}
 
@@ -428,7 +452,7 @@ func FormatCompactSummary(period string, totalSamples uint64, hotspots []Profili
 		}
 		name := "unknown"
 		if len(h.Frames) > 0 {
-			name = shortFunctionName(SimplifyFrame(h.Frames[0]))
+			name = ShortFunctionName(SimplifyFrame(h.Frames[0]))
 		}
 		b.WriteString(fmt.Sprintf("%s (%.1f%%)", name, h.Percentage))
 	}

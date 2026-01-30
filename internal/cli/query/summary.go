@@ -2,8 +2,10 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -14,8 +16,58 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
+// summaryJSON is the JSON-serializable representation of a service summary.
+type summaryJSON struct {
+	ServiceName   string             `json:"service_name"`
+	Source        string             `json:"source,omitempty"`
+	Status        string             `json:"status"`
+	RequestCount  int64              `json:"request_count"`
+	ErrorRate     float64            `json:"error_rate"`
+	AvgLatencyMs  float64            `json:"avg_latency_ms"`
+	HostResources *hostResourcesJSON `json:"host_resources,omitempty"`
+	Profiling     *profilingJSON     `json:"profiling_summary,omitempty"`
+	Deployment    *deploymentJSON    `json:"deployment,omitempty"`
+	Regressions   []regressionJSON   `json:"regression_indicators,omitempty"`
+	Issues        []string           `json:"issues,omitempty"`
+}
+
+type hostResourcesJSON struct {
+	CPUUtilization    float64 `json:"cpu_utilization_pct"`
+	CPUUtilizationAvg float64 `json:"cpu_utilization_avg_pct"`
+	MemoryUsageGB     float64 `json:"memory_usage_gb"`
+	MemoryLimitGB     float64 `json:"memory_limit_gb"`
+	MemoryUtilization float64 `json:"memory_utilization_pct"`
+}
+
+type profilingJSON struct {
+	SamplingPeriod    string               `json:"sampling_period"`
+	TotalSamples      uint64               `json:"total_samples"`
+	BuildID           string               `json:"build_id,omitempty"`
+	HotPath           []string             `json:"hot_path"`
+	SamplesByFunction []functionSampleJSON `json:"samples_by_function"`
+}
+
+type functionSampleJSON struct {
+	Function   string  `json:"function"`
+	Percentage float64 `json:"percentage"`
+}
+
+type deploymentJSON struct {
+	BuildID string `json:"build_id"`
+	Age     string `json:"age"`
+}
+
+type regressionJSON struct {
+	Type               string  `json:"type"`
+	Message            string  `json:"message"`
+	BaselinePercentage float64 `json:"baseline_percentage"`
+	CurrentPercentage  float64 `json:"current_percentage"`
+	Delta              float64 `json:"delta"`
+}
+
 func NewSummaryCmd() *cobra.Command {
 	var since string
+	var format string
 
 	cmd := &cobra.Command{
 		Use:   "summary [service]",
@@ -29,6 +81,7 @@ Examples:
   coral query summary                    # All services
   coral query summary api                # Specific service
   coral query summary api --since 10m    # Custom time range
+  coral query summary --format json      # JSON output
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			service := ""
@@ -38,19 +91,19 @@ Examples:
 
 			ctx := context.Background()
 
-			// Resolve colony URL
+			// Resolve colony URL.
 			colonyAddr, err := helpers.GetColonyURL("")
 			if err != nil {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
 
-			// Create colony client
+			// Create colony client.
 			client := colonyv1connect.NewColonyServiceClient(
 				http.DefaultClient,
 				colonyAddr,
 			)
 
-			// Execute RPC
+			// Execute RPC.
 			req := &colonypb.QueryUnifiedSummaryRequest{
 				Service:   service,
 				TimeRange: since,
@@ -61,83 +114,181 @@ Examples:
 				return fmt.Errorf("failed to query summary: %w", err)
 			}
 
-			// Print result
 			if len(resp.Msg.Summaries) == 0 {
-				fmt.Println("No data found for the specified service and time range")
+				if format == "json" {
+					fmt.Println("[]")
+				} else {
+					fmt.Println("No data found for the specified service and time range")
+				}
 				return nil
 			}
 
-			fmt.Println("Service Health Summary:")
-			for _, summary := range resp.Msg.Summaries {
-				statusIcon := "✅"
-				switch summary.Status {
-				case "degraded":
-					statusIcon = "⚠️"
-				case "critical":
-					statusIcon = "❌"
-				}
-
-				fmt.Printf("%s %s (%s)\n", statusIcon, summary.ServiceName, summary.Source)
-				fmt.Printf("   Status: %s\n", summary.Status)
-				fmt.Printf("   Requests: %d\n", summary.RequestCount)
-				fmt.Printf("   Error Rate: %.2f%%\n", summary.ErrorRate)
-				fmt.Printf("   Avg Latency: %.2fms\n", summary.AvgLatencyMs)
-
-				// Display host resources if available (RFD 071).
-				if summary.HostCpuUtilization > 0 || summary.HostMemoryUtilization > 0 {
-					fmt.Println("   Host Resources:")
-					if summary.HostCpuUtilization > 0 {
-						fmt.Printf("     CPU: %.0f%% (avg: %.0f%%)\n",
-							summary.HostCpuUtilization,
-							summary.HostCpuUtilizationAvg)
-					}
-					if summary.HostMemoryUtilization > 0 {
-						fmt.Printf("     Memory: %.1fGB/%.1fGB (%.0f%%)\n",
-							summary.HostMemoryUsageGb,
-							summary.HostMemoryLimitGb,
-							summary.HostMemoryUtilization)
-					}
-				}
-
-				// Display CPU profiling summary (RFD 074).
-				if ps := summary.ProfilingSummary; ps != nil && len(ps.TopCpuHotspots) > 0 {
-					hotspots := make([]database.ProfilingHotspot, len(ps.TopCpuHotspots))
-					for i, h := range ps.TopCpuHotspots {
-						hotspots[i] = database.ProfilingHotspot{
-							Rank:        h.Rank,
-							Frames:      h.Frames,
-							Percentage:  h.Percentage,
-							SampleCount: h.SampleCount,
-						}
-					}
-					fmt.Print(database.FormatCompactSummary(ps.SamplingPeriod, ps.TotalSamples, hotspots))
-				}
-
-				// Display deployment context (RFD 074).
-				if d := summary.Deployment; d != nil && d.BuildId != "" {
-					fmt.Printf("   Deployment: %s (deployed %s ago)\n", d.BuildId, d.Age)
-				}
-
-				// Display regression indicators (RFD 074).
-				if len(summary.Regressions) > 0 {
-					fmt.Println("   Regressions:")
-					for _, r := range summary.Regressions {
-						fmt.Printf("     ⚠️  %s\n", r.Message)
-					}
-				}
-
-				if len(summary.Issues) > 0 {
-					fmt.Println("   Issues:")
-					for _, issue := range summary.Issues {
-						fmt.Printf("     - %s\n", issue)
-					}
-				}
-				fmt.Println()
+			if format == "json" {
+				return printSummaryJSON(resp.Msg.Summaries)
 			}
-			return nil
+			return printSummaryText(resp.Msg.Summaries)
 		},
 	}
 
 	cmd.Flags().StringVar(&since, "since", "5m", "Time range (e.g., 5m, 1h, 24h)")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json)")
 	return cmd
+}
+
+func printSummaryJSON(summaries []*colonypb.UnifiedSummaryResult) error {
+	out := make([]summaryJSON, 0, len(summaries))
+
+	for _, s := range summaries {
+		entry := summaryJSON{
+			ServiceName:  s.ServiceName,
+			Source:       s.Source,
+			Status:       s.Status,
+			RequestCount: s.RequestCount,
+			ErrorRate:    s.ErrorRate,
+			AvgLatencyMs: s.AvgLatencyMs,
+			Issues:       s.Issues,
+		}
+
+		if s.HostCpuUtilization > 0 || s.HostMemoryUtilization > 0 {
+			entry.HostResources = &hostResourcesJSON{
+				CPUUtilization:    s.HostCpuUtilization,
+				CPUUtilizationAvg: s.HostCpuUtilizationAvg,
+				MemoryUsageGB:     s.HostMemoryUsageGb,
+				MemoryLimitGB:     s.HostMemoryLimitGb,
+				MemoryUtilization: s.HostMemoryUtilization,
+			}
+		}
+
+		if ps := s.ProfilingSummary; ps != nil && len(ps.TopCpuHotspots) > 0 && ps.TotalSamples >= database.MinSamplesForSummary {
+			profiling := &profilingJSON{
+				SamplingPeriod: ps.SamplingPeriod,
+				TotalSamples:   ps.TotalSamples,
+				BuildID:        ps.BuildId,
+			}
+
+			// Build hot path from the hottest stack (reverse to caller→callee).
+			frames := ps.TopCpuHotspots[0].Frames
+			hotPath := make([]string, len(frames))
+			for i, f := range frames {
+				hotPath[len(frames)-1-i] = f
+			}
+			profiling.HotPath = hotPath
+
+			// Build samples by function (deduped leaf names).
+			seen := make(map[string]float64)
+			var order []string
+			for _, h := range ps.TopCpuHotspots {
+				if len(h.Frames) == 0 {
+					continue
+				}
+				name := database.ShortFunctionName(h.Frames[0])
+				if _, ok := seen[name]; !ok {
+					order = append(order, name)
+				}
+				seen[name] += h.Percentage
+			}
+			for _, name := range order {
+				profiling.SamplesByFunction = append(profiling.SamplesByFunction, functionSampleJSON{
+					Function:   name,
+					Percentage: seen[name],
+				})
+			}
+
+			entry.Profiling = profiling
+		}
+
+		if d := s.Deployment; d != nil && d.BuildId != "" {
+			entry.Deployment = &deploymentJSON{
+				BuildID: d.BuildId,
+				Age:     d.Age,
+			}
+		}
+
+		for _, r := range s.Regressions {
+			entry.Regressions = append(entry.Regressions, regressionJSON{
+				Type:               r.Type.String(),
+				Message:            r.Message,
+				BaselinePercentage: r.BaselinePercentage,
+				CurrentPercentage:  r.CurrentPercentage,
+				Delta:              r.Delta,
+			})
+		}
+
+		out = append(out, entry)
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+func printSummaryText(summaries []*colonypb.UnifiedSummaryResult) error {
+	fmt.Println("Service Health Summary:")
+	for _, summary := range summaries {
+		statusIcon := "✅"
+		switch summary.Status {
+		case "degraded":
+			statusIcon = "⚠️"
+		case "critical":
+			statusIcon = "❌"
+		}
+
+		fmt.Printf("%s %s (%s)\n", statusIcon, summary.ServiceName, summary.Source)
+		fmt.Printf("   Status: %s\n", summary.Status)
+		fmt.Printf("   Requests: %d\n", summary.RequestCount)
+		fmt.Printf("   Error Rate: %.2f%%\n", summary.ErrorRate)
+		fmt.Printf("   Avg Latency: %.2fms\n", summary.AvgLatencyMs)
+
+		// Display host resources if available (RFD 071).
+		if summary.HostCpuUtilization > 0 || summary.HostMemoryUtilization > 0 {
+			fmt.Println("   Host Resources:")
+			if summary.HostCpuUtilization > 0 {
+				fmt.Printf("     CPU: %.0f%% (avg: %.0f%%)\n",
+					summary.HostCpuUtilization,
+					summary.HostCpuUtilizationAvg)
+			}
+			if summary.HostMemoryUtilization > 0 {
+				fmt.Printf("     Memory: %.1fGB/%.1fGB (%.0f%%)\n",
+					summary.HostMemoryUsageGb,
+					summary.HostMemoryLimitGb,
+					summary.HostMemoryUtilization)
+			}
+		}
+
+		// Display CPU profiling summary (RFD 074).
+		if ps := summary.ProfilingSummary; ps != nil && len(ps.TopCpuHotspots) > 0 {
+			hotspots := make([]database.ProfilingHotspot, len(ps.TopCpuHotspots))
+			for i, h := range ps.TopCpuHotspots {
+				hotspots[i] = database.ProfilingHotspot{
+					Rank:        h.Rank,
+					Frames:      h.Frames,
+					Percentage:  h.Percentage,
+					SampleCount: h.SampleCount,
+				}
+			}
+			fmt.Print(database.FormatCompactSummary(ps.SamplingPeriod, ps.TotalSamples, hotspots))
+		}
+
+		// Display deployment context (RFD 074).
+		if d := summary.Deployment; d != nil && d.BuildId != "" {
+			fmt.Printf("   Deployment: %s (deployed %s ago)\n", d.BuildId, d.Age)
+		}
+
+		// Display regression indicators (RFD 074).
+		if len(summary.Regressions) > 0 {
+			fmt.Println("   Regressions:")
+			for _, r := range summary.Regressions {
+				fmt.Printf("     ⚠️  %s\n", r.Message)
+			}
+		}
+
+		if len(summary.Issues) > 0 {
+			fmt.Println("   Issues:")
+			for _, issue := range summary.Issues {
+				fmt.Printf("     - %s\n", issue)
+			}
+		}
+		fmt.Println()
+	}
+	return nil
 }
