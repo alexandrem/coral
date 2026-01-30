@@ -163,7 +163,7 @@ func (p *FunctionPoller) queryAgentServices(ctx context.Context, agent *registry
 	client := GetAgentClient(agent)
 
 	// Query for services with short timeout.
-	queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, serviceQueryTimeout)
 	defer cancel()
 
 	resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
@@ -211,7 +211,7 @@ func (p *FunctionPoller) pollService(ctx context.Context, agent *registry.Entry,
 	client := GetAgentClient(agent)
 
 	// Call GetFunctions RPC.
-	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
 	defer cancel()
 
 	resp, err := client.GetFunctions(queryCtx, connect.NewRequest(&agentv1.GetFunctionsRequest{

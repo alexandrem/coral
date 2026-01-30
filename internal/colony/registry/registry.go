@@ -18,6 +18,12 @@ const (
 	// Status thresholds based on last_seen timestamp.
 	StatusHealthyThreshold  = 30 * time.Second
 	StatusDegradedThreshold = 2 * time.Minute
+
+	// registryProcessTimeout is the timeout for processing service info updates.
+	registryProcessTimeout = 10 * time.Second
+
+	// registryCleanupTimeout is the timeout for database cleanup operations.
+	registryCleanupTimeout = 5 * time.Second
 )
 
 // AgentStatus represents the health status of an agent.
@@ -205,7 +211,7 @@ func (r *Registry) Register(
 		copy(servicesCopy, services)
 
 		go func(agentID, agentName string, services []*meshv1.ServiceInfo, lastSeen time.Time) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), registryProcessTimeout)
 			defer cancel()
 
 			// Handle legacy agents that only provide ComponentName (name)
@@ -287,7 +293,7 @@ func (r *Registry) UpdateHeartbeat(agentID string) error {
 	// Update persistence.
 	if r.db != nil {
 		go func(agentID string, lastSeen time.Time) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), registryCleanupTimeout)
 			defer cancel()
 
 			if err := r.db.UpdateServiceLastSeen(ctx, agentID, lastSeen); err != nil {

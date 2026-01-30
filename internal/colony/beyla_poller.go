@@ -215,7 +215,7 @@ func (p *BeylaPoller) queryAgent(
 	})
 
 	// Set timeout for the request.
-	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, agentQueryTimeout)
 	defer cancel()
 
 	// Call agent's QueryBeylaMetrics RPC.

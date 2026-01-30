@@ -15,6 +15,9 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
+// eventPersistTimeout is the timeout for event persistence operations.
+const eventPersistTimeout = 30 * time.Second
+
 // EventPersister handles background event persistence for debug sessions.
 type EventPersister struct {
 	ctx                     context.Context
@@ -69,7 +72,7 @@ func (ep *EventPersister) runBackgroundEventPersistence() {
 
 // persistEventsFromActiveSessions queries and persists events from all active sessions.
 func (ep *EventPersister) persistEventsFromActiveSessions() {
-	ctx, cancel := context.WithTimeout(ep.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ep.ctx, eventPersistTimeout)
 	defer cancel()
 
 	// Get all active sessions from database.
