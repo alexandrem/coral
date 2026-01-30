@@ -1183,7 +1183,7 @@ func (s *MCPSuite) TestMCPToolListIncludesProfilingTools() {
 func (s *MCPSuite) ensureServicesConnected() {
 	// MCP tests only need otel-app (OTLP-instrumented)
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
-		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
 	})
 }
 

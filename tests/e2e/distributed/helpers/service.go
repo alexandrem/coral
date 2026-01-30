@@ -96,7 +96,7 @@ func DisconnectService(
 //
 // Example:
 //
-//	helpers.ConnectServiceToAgent(t, ctx, fixture, 0, "otel-app", 8080, "/health")
+//	helpers.ConnectServiceToAgent(t, ctx, fixture, 0, "otel-app", 8090, "/health")
 func ConnectServiceToAgent(
 	t T,
 	ctx context.Context,
@@ -150,7 +150,7 @@ type ServiceConfig struct {
 //
 //	helpers.EnsureServicesConnected(t, ctx, fixture, 0, []ServiceConfig{
 //	    {Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
-//	    {Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+//	    {Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
 //	})
 func EnsureServicesConnected(
 	t T,
