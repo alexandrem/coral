@@ -3,6 +3,7 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
@@ -168,20 +169,17 @@ func EnsureServicesConnected(
 
 	agentClient := NewAgentClient(agentEndpoint)
 
-	// Check if services are already connected.
-	listResp, err := agentClient.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
-	if err == nil && len(listResp.Msg.Services) >= len(services) {
-		t.Logf("Services already connected: %d", len(listResp.Msg.Services))
-		return
-	}
-
 	// Connect services if not already connected.
 	t.Log("Connecting test services...")
 
 	for _, svc := range services {
+		t.Logf("Connecting service %s on port %d with health %s", svc.Name, svc.Port, svc.HealthEndpoint)
 		_, err = ConnectService(ctx, agentClient, svc.Name, svc.Port, svc.HealthEndpoint)
 		if err != nil {
-			t.Logf("Failed to connect %s (may already be connected): %v", svc.Name, err)
+			if !isAlreadyConnected(err) {
+				t.Errorf("Failed to connect %s:%v", svc.Name, err)
+				t.FailNow()
+			}
 		}
 	}
 
@@ -246,4 +244,8 @@ func DisconnectAllServices(
 	}
 
 	t.Log("✓ Services disconnected")
+}
+
+func isAlreadyConnected(err error) bool {
+	return strings.Contains(err.Error(), "already connected")
 }
