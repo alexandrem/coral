@@ -22,6 +22,9 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/storage"
 )
 
+// realtimeQueryTimeout is for low-latency agent queries.
+const realtimeQueryTimeout = 500 * time.Millisecond
+
 // Config contains configuration for the colony server.
 type Config struct {
 	ColonyID           string
@@ -186,7 +189,7 @@ func (s *Server) ListAgents(
 				client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
 
 				// Short timeout for real-time query.
-				queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+				queryCtx, cancel := context.WithTimeout(ctx, realtimeQueryTimeout)
 				defer cancel()
 
 				resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))

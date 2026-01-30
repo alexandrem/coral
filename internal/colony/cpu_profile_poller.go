@@ -171,7 +171,7 @@ func (p *CPUProfilePoller) queryAgent(ctx context.Context,
 	})
 
 	// Set timeout for the request.
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, agentQueryTimeout)
 	defer cancel()
 
 	// Call agent's QueryCPUProfileSamples RPC.
