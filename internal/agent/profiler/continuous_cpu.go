@@ -132,15 +132,42 @@ func (p *ContinuousCPUProfiler) Stop() {
 	p.cancel()
 }
 
-// profileServiceLoop continuously profiles a single service.
+// profileServiceLoop starts a persistent BPF session and periodically drains
+// accumulated samples from the BPF maps. The BPF program runs continuously in
+// the kernel, so no samples are lost between collection ticks.
 func (p *ContinuousCPUProfiler) profileServiceLoop(service ServiceInfo) {
-	ticker := time.NewTicker(p.config.Interval)
-	defer ticker.Stop()
-
 	p.logger.Info().
 		Str("service_id", service.ServiceID).
 		Int("pid", service.PID).
 		Msg("Starting continuous profiling for service")
+
+	// Start a persistent BPF session. The duration is irrelevant here since we
+	// never call CollectProfile (which sleeps); we drain maps manually.
+	session, err := debug.StartCPUProfile(
+		service.PID,
+		0, // Duration unused — we drain maps on our own schedule.
+		p.config.FrequencyHz,
+		p.kernelSymbolizer,
+		p.logger,
+	)
+	if err != nil {
+		p.logger.Error().
+			Err(err).
+			Str("service_id", service.ServiceID).
+			Int("pid", service.PID).
+			Msg("Failed to start persistent CPU profile session")
+		return
+	}
+	defer func() { _ = session.Close() }()
+
+	p.logger.Info().
+		Str("service_id", service.ServiceID).
+		Int("pid", service.PID).
+		Int("frequency_hz", p.config.FrequencyHz).
+		Msg("Persistent BPF session started, draining maps on interval")
+
+	ticker := time.NewTicker(p.config.Interval)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -150,52 +177,39 @@ func (p *ContinuousCPUProfiler) profileServiceLoop(service ServiceInfo) {
 				Msg("Stopping continuous profiling for service")
 			return
 		case <-ticker.C:
-			if err := p.collectAndStore(service); err != nil {
+			if err := p.drainAndStore(session, service); err != nil {
 				p.logger.Error().
 					Err(err).
 					Str("service_id", service.ServiceID).
 					Int("pid", service.PID).
-					Msg("Failed to collect and store profile sample")
+					Msg("Failed to drain and store profile samples")
 			}
 		}
 	}
 }
 
-// collectAndStore collects a single profile sample and stores it.
-func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
+// drainAndStore reads accumulated samples from the persistent BPF session's maps,
+// clears them, and stores the results. This is non-blocking — the BPF program
+// continues to collect samples in the background.
+func (p *ContinuousCPUProfiler) drainAndStore(session *debug.CPUProfileSession, service ServiceInfo) error {
 	startTime := time.Now()
 
-	// Calculate duration in seconds from interval.
-	durationSeconds := int(p.config.Interval.Seconds())
-	if durationSeconds < 1 {
-		durationSeconds = 1
-	}
-
-	// Start CPU profiling session (reuses RFD 070 infrastructure).
-	session, err := debug.StartCPUProfile(
-		service.PID,
-		durationSeconds,
-		p.config.FrequencyHz,
-		p.kernelSymbolizer,
-		p.logger,
-	)
+	// Read and clear BPF maps (non-blocking — no sleep).
+	result, err := session.DrainStackCounts()
 	if err != nil {
-		return fmt.Errorf("failed to start CPU profile: %w", err)
-	}
-	defer func() { _ = session.Close() }()
-
-	// Collect profile (blocks for the duration).
-	result, err := session.CollectProfile()
-	if err != nil {
-		return fmt.Errorf("failed to collect CPU profile: %w", err)
+		return fmt.Errorf("failed to drain stack counts: %w", err)
 	}
 
 	p.logger.Debug().
 		Str("service_id", service.ServiceID).
 		Uint64("total_samples", result.TotalSamples).
 		Int("unique_stacks", len(result.Samples)).
-		Dur("collection_time", time.Since(startTime)).
-		Msg("Collected CPU profile sample")
+		Dur("drain_time", time.Since(startTime)).
+		Msg("Drained CPU profile samples")
+
+	if result.TotalSamples == 0 {
+		return nil
+	}
 
 	// Extract build ID from the binary.
 	buildID, err := ExtractBuildIDFromPID(service.PID)
@@ -225,7 +239,14 @@ func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
 
 	// Convert and store samples.
 	samples := make([]ProfileSample, 0, len(result.Samples))
-	for _, sample := range result.Samples {
+	for i, sample := range result.Samples {
+		if i < 3 {
+			p.logger.Debug().
+				Str("service_id", service.ServiceID).
+				Int("frame_count", len(sample.FrameNames)).
+				Uint64("count", sample.Count).
+				Msg("Processing profile sample")
+		}
 		// Encode stack frames to integer IDs.
 		frameIDs, err := p.storage.encodeStackFrames(p.ctx, sample.FrameNames)
 		if err != nil {
@@ -243,7 +264,7 @@ func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
 				Uint64("original_count", sample.Count).
 				Uint32("clamped_count", sampleCount).
 				Str("service_id", service.ServiceID).
-				Msg("Sample count exceeded uint32 max, clamped to MaxUint32 - investigate eBPF map clearing")
+				Msg("Sample count exceeded uint32 max, clamped to MaxUint32")
 		}
 
 		samples = append(samples, ProfileSample{
@@ -265,7 +286,7 @@ func (p *ContinuousCPUProfiler) collectAndStore(service ServiceInfo) error {
 		Str("service_id", service.ServiceID).
 		Str("build_id", buildID).
 		Int("samples_stored", len(samples)).
-		Msg("Stored continuous CPU profile sample")
+		Msg("Stored continuous CPU profile samples")
 
 	return nil
 }

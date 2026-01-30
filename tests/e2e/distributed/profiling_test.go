@@ -68,6 +68,16 @@ func (s *ProfilingSuite) TestContinuousProfiling() {
 
 	s.T().Logf("CPU app listening at: %s", cpuAppEndpoint)
 
+	// Connect cpu-app to agent-0 so it gets a ServiceMonitor and PID discovery,
+	// which triggers continuous profiling via onProcessDiscovered.
+	helpers.EnsureServicesConnected(s.T(), s.ctx, fixture, 0, []helpers.ServiceConfig{
+		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
+	})
+	s.T().Log("cpu-app connected to agent-0")
+
+	// Wait for PID discovery and profiler to start.
+	time.Sleep(3 * time.Second)
+
 	// Verify CPU app is responsive.
 	client := &http.Client{Timeout: 10 * time.Second}
 
@@ -96,9 +106,10 @@ func (s *ProfilingSuite) TestContinuousProfiling() {
 
 	s.T().Log("CPU load generation complete")
 
-	// Wait for at least one profiling collection cycle.
-	s.T().Log("Waiting for continuous profiler to collect samples...")
-	time.Sleep(3 * time.Second) // Poll interval is 1s in E2E.
+	// Wait for the profiler to drain accumulated samples from the persistent BPF session.
+	// The BPF program collects samples continuously; we just need to wait for a drain tick.
+	s.T().Log("Waiting for continuous profiler to drain samples...")
+	time.Sleep(20 * time.Second)
 
 	// Query agent's profiling database for samples.
 	// The continuous profiler stores samples in cpu_profile_samples_local table.

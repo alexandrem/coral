@@ -34,7 +34,7 @@ type CPUProfileSession struct {
 	Frequency        int
 	Logger           zerolog.Logger
 	BPFObjects       *cpu_profileObjects
-	PerfEventFD      int
+	PerfEventFDs     []int
 	StackTraces      *ebpf.Map         // Reference to stack_traces map
 	StackCounts      *ebpf.Map         // Reference to stack_counts map
 	Symbolizer       *Symbolizer       // Symbol resolver for address -> function name
@@ -76,37 +76,63 @@ func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, kernelSymbol
 
 	sample, clamp := safe.IntToUint64(frequencyHz)
 	if clamp {
+		objs.Close() // nolint:errcheck
 		return nil, fmt.Errorf("invalid frequency %dHz being clamped", frequencyHz)
 	}
 
-	// Open perf event using unix syscall.
+	// Open perf events for all threads in the target process.
+	// Use PERF_COUNT_SW_TASK_CLOCK for per-task CPU profiling. This measures CPU time
+	// consumed by each task and works reliably across environments including
+	// Docker Desktop VMs where PERF_COUNT_SW_CPU_CLOCK may not fire.
+	// PerfBitInherit ensures new threads spawned after we start are also profiled.
 	attr := &unix.PerfEventAttr{
 		Type:   unix.PERF_TYPE_SOFTWARE,
-		Config: unix.PERF_COUNT_SW_CPU_CLOCK,
+		Config: unix.PERF_COUNT_SW_TASK_CLOCK,
 		Size:   uint32(unsafe.Sizeof(unix.PerfEventAttr{})),
-		Sample: sample,           // Sample frequency in Hz
-		Bits:   unix.PerfBitFreq, // Interpret Sample as frequency, not period
+		Sample: sample,                                 // Sample frequency in Hz
+		Bits:   unix.PerfBitFreq | unix.PerfBitInherit, // Frequency mode + inherit to child threads
 	}
 
-	perfEventFD, err := unix.PerfEventOpen(attr, pid, -1, -1, unix.PERF_FLAG_FD_CLOEXEC)
+	// Enumerate all threads to attach perf events to each one.
+	// This is necessary because Go programs run goroutines across multiple OS threads,
+	// and a single perf event only monitors one thread.
+	tids, err := proc.ListThreads(pid)
 	if err != nil {
+		logger.Warn().Err(err).Int("pid", pid).Msg("Failed to list threads, falling back to main PID only")
+		tids = []int{pid}
+	}
+
+	var perfEventFDs []int
+	for _, tid := range tids {
+		fd, err := unix.PerfEventOpen(attr, tid, -1, -1, unix.PERF_FLAG_FD_CLOEXEC)
+		if err != nil {
+			logger.Warn().Err(err).Int("tid", tid).Msg("Failed to open perf event for thread, skipping")
+			continue
+		}
+
+		// Attach BPF program to perf event.
+		if err := unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_SET_BPF, objs.ProfileCpu.FD()); err != nil {
+			unix.Close(fd) // nolint:errcheck
+			logger.Warn().Err(err).Int("tid", tid).Msg("Failed to attach BPF to perf event, skipping")
+			continue
+		}
+
+		// Enable the perf event.
+		if err := unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_ENABLE, 0); err != nil {
+			unix.Close(fd) // nolint:errcheck
+			logger.Warn().Err(err).Int("tid", tid).Msg("Failed to enable perf event, skipping")
+			continue
+		}
+
+		perfEventFDs = append(perfEventFDs, fd)
+	}
+
+	if len(perfEventFDs) == 0 {
 		objs.Close() // nolint:errcheck
-		return nil, fmt.Errorf("open perf event: %w", err)
+		return nil, fmt.Errorf("failed to open perf events for any thread of pid %d", pid)
 	}
 
-	// Attach BPF program to perf event using ioctl.
-	if err := unix.IoctlSetInt(perfEventFD, unix.PERF_EVENT_IOC_SET_BPF, objs.ProfileCpu.FD()); err != nil {
-		unix.Close(perfEventFD) // nolint:errcheck
-		objs.Close()            // nolint:errcheck
-		return nil, fmt.Errorf("attach BPF program to perf event: %w", err)
-	}
-
-	// Enable the perf event.
-	if err := unix.IoctlSetInt(perfEventFD, unix.PERF_EVENT_IOC_ENABLE, 0); err != nil {
-		unix.Close(perfEventFD) // nolint:errcheck
-		objs.Close()            // nolint:errcheck
-		return nil, fmt.Errorf("enable perf event: %w", err)
-	}
+	logger.Info().Int("thread_count", len(perfEventFDs)).Int("total_threads", len(tids)).Msg("Perf events attached to threads")
 
 	// Create symbolizer for address resolution
 	// Use /proc/PID/exe directly - it works across container boundaries in shared PID namespace
@@ -129,7 +155,7 @@ func StartCPUProfile(pid int, durationSeconds int, frequencyHz int, kernelSymbol
 		Frequency:        frequencyHz,
 		Logger:           logger,
 		BPFObjects:       objs,
-		PerfEventFD:      perfEventFD,
+		PerfEventFDs:     perfEventFDs,
 		StackTraces:      objs.StackTraces,
 		StackCounts:      objs.StackCounts,
 		Symbolizer:       symbolizer,
@@ -170,6 +196,20 @@ func (s *CPUProfileSession) CollectProfile() (*CPUProfileResult, error) {
 	return result, nil
 }
 
+// DrainStackCounts reads and clears accumulated samples from the BPF maps without
+// sleeping. Used by the continuous profiler which keeps a persistent BPF session.
+func (s *CPUProfileSession) DrainStackCounts() (*CPUProfileResult, error) {
+	samples, totalSamples, err := s.readStackCounts()
+	if err != nil {
+		return nil, fmt.Errorf("read stack counts: %w", err)
+	}
+
+	return &CPUProfileResult{
+		Samples:      samples,
+		TotalSamples: totalSamples,
+	}, nil
+}
+
 // readStackCounts reads and symbolizes stack traces from the BPF maps.
 func (s *CPUProfileSession) readStackCounts() ([]*agentv1.StackSample, uint64, error) {
 	var samples []*agentv1.StackSample
@@ -207,6 +247,15 @@ func (s *CPUProfileSession) readStackCounts() ([]*agentv1.StackSample, uint64, e
 
 	if err := iter.Err(); err != nil {
 		return nil, 0, fmt.Errorf("iterate stack counts: %w", err)
+	}
+
+	// Clear maps after reading to prevent unbounded accumulation across collection windows.
+	var delKey stackKey
+	delIter := s.StackCounts.Iterate()
+	for delIter.Next(&delKey, &value) {
+		if err := s.StackCounts.Delete(&delKey); err != nil {
+			s.Logger.Warn().Err(err).Msg("Failed to delete stack count entry")
+		}
 	}
 
 	return samples, totalSamples, nil
@@ -321,12 +370,12 @@ func FormatFoldedStacks(samples []*agentv1.StackSample) string {
 func (s *CPUProfileSession) Close() error {
 	var errs []error
 
-	if s.PerfEventFD > 0 {
-		// Disable the perf event before closing.
-		_ = unix.IoctlSetInt(s.PerfEventFD, unix.PERF_EVENT_IOC_DISABLE, 0)
-
-		if err := unix.Close(s.PerfEventFD); err != nil {
-			errs = append(errs, fmt.Errorf("close perf event: %w", err))
+	for _, fd := range s.PerfEventFDs {
+		if fd > 0 {
+			_ = unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_DISABLE, 0)
+			if err := unix.Close(fd); err != nil {
+				errs = append(errs, fmt.Errorf("close perf event fd %d: %w", fd, err))
+			}
 		}
 	}
 

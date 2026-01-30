@@ -181,6 +181,32 @@ func ListPids() ([]int, error) {
 	return pids, nil
 }
 
+// ListThreads returns the thread IDs (TIDs) for all threads in the given process.
+// It reads /proc/<pid>/task/ to enumerate threads.
+func ListThreads(pid int) ([]int, error) {
+	taskDir := fmt.Sprintf("/proc/%d/task", pid)
+	entries, err := os.ReadDir(taskDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", taskDir, err)
+	}
+
+	tids := make([]int, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		tid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		if tid > 0 {
+			tids = append(tids, tid)
+		}
+	}
+	sort.Ints(tids)
+	return tids, nil
+}
+
 // KernelSymbol represents a kernel symbol from /proc/kallsyms.
 type KernelSymbol struct {
 	Address uint64
