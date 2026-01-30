@@ -16,6 +16,9 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
+// realtimeQueryTimeout is for low-latency agent queries.
+const realtimeQueryTimeout = 500 * time.Millisecond
+
 // AgentCoordinator handles agent discovery and routing.
 type AgentCoordinator struct {
 	logger             zerolog.Logger
@@ -54,7 +57,7 @@ func (ac *AgentCoordinator) FindAgentForService(ctx context.Context, serviceName
 		agentURL := fmt.Sprintf("http://%s:9001", entry.MeshIPv4)
 		client := ac.agentClientFactory(http.DefaultClient, agentURL)
 
-		queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		queryCtx, cancel := context.WithTimeout(ctx, realtimeQueryTimeout)
 		resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
 		cancel()
 

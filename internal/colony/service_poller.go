@@ -129,7 +129,7 @@ func (p *ServicePoller) queryAgent(
 	client := GetAgentClient(agent)
 
 	// Query agent for services with timeout.
-	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, serviceQueryTimeout)
 	defer cancel()
 
 	resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
