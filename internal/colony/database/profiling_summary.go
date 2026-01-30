@@ -386,28 +386,47 @@ func simplifyAndTrimFrames(frames []string) []string {
 	return reversed[start:end]
 }
 
+// shortFunctionName extracts just the function name from a fully-qualified
+// frame (e.g., "crypto/sha256.blockSHA2" → "blockSHA2").
+func shortFunctionName(frame string) string {
+	if dot := strings.LastIndex(frame, "."); dot >= 0 {
+		return frame[dot+1:]
+	}
+	return frame
+}
+
 // FormatCompactSummary formats the profiling summary in a compact,
-// LLM-friendly format with per-hotspot entries showing simplified stack traces.
+// LLM-friendly format. It shows the hottest call path once and lists
+// per-function sample percentages on a single line.
 func FormatCompactSummary(period string, totalSamples uint64, hotspots []ProfilingHotspot) string {
+	if len(hotspots) == 0 {
+		return ""
+	}
+
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("   CPU Profiling (%s, %d samples):\n", period, totalSamples))
 
-	for _, h := range hotspots {
-		// Use leaf frame (Frames[0]) as the hotspot label.
-		leaf := "unknown"
-		if len(h.Frames) > 0 {
-			leaf = SimplifyFrame(h.Frames[0])
-		}
-		b.WriteString(fmt.Sprintf("     #%d %.1f%% (%d) %s\n",
-			h.Rank, h.Percentage, h.SampleCount, leaf))
-
-		if len(h.Frames) > 1 {
-			trimmed := simplifyAndTrimFrames(h.Frames)
-			b.WriteString("        ")
-			b.WriteString(strings.Join(trimmed, " → "))
-			b.WriteString("\n")
-		}
+	// Hot path: use the hottest stack (first hotspot).
+	hotPath := simplifyAndTrimFrames(hotspots[0].Frames)
+	if len(hotPath) > 0 {
+		b.WriteString("     Hot path: ")
+		b.WriteString(strings.Join(hotPath, " → "))
+		b.WriteString("\n")
 	}
+
+	// Samples by function: leaf frame from each hotspot with percentage.
+	b.WriteString("     Samples: ")
+	for i, h := range hotspots {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		name := "unknown"
+		if len(h.Frames) > 0 {
+			name = shortFunctionName(SimplifyFrame(h.Frames[0]))
+		}
+		b.WriteString(fmt.Sprintf("%s (%.1f%%)", name, h.Percentage))
+	}
+	b.WriteString("\n")
 
 	return b.String()
 }
