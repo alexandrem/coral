@@ -149,6 +149,14 @@ func TestFormatCompactSummary(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
+	t.Run("too few samples", func(t *testing.T) {
+		hotspots := []ProfilingHotspot{{
+			Rank: 1, Frames: []string{"main.work"}, Percentage: 100.0, SampleCount: 16,
+		}}
+		result := FormatCompactSummary("20m", 16, hotspots)
+		assert.Empty(t, result, "should suppress profiling with fewer than 20 samples")
+	})
+
 	t.Run("single hotspot single frame", func(t *testing.T) {
 		hotspots := []ProfilingHotspot{{
 			Rank: 1, Frames: []string{"main.work"}, Percentage: 100.0, SampleCount: 50,

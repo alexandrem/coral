@@ -395,11 +395,17 @@ func shortFunctionName(frame string) string {
 	return frame
 }
 
+// minSamplesForSummary is the minimum number of total samples required to
+// display profiling data. Below this threshold the data is too sparse to be
+// actionable and would just add noise.
+const minSamplesForSummary = 20
+
 // FormatCompactSummary formats the profiling summary in a compact,
 // LLM-friendly format. It shows the hottest call path once and lists
 // per-function sample percentages on a single line.
+// Returns empty string when sample count is too low to be meaningful.
 func FormatCompactSummary(period string, totalSamples uint64, hotspots []ProfilingHotspot) string {
-	if len(hotspots) == 0 {
+	if len(hotspots) == 0 || totalSamples < minSamplesForSummary {
 		return ""
 	}
 
