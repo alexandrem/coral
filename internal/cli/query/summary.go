@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -12,6 +11,7 @@ import (
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
 func NewSummaryCmd() *cobra.Command {
@@ -101,15 +101,16 @@ Examples:
 
 				// Display CPU profiling summary (RFD 074).
 				if ps := summary.ProfilingSummary; ps != nil && len(ps.TopCpuHotspots) > 0 {
-					fmt.Printf("   CPU Profiling (%s, %d samples):\n", ps.SamplingPeriod, ps.TotalSamples)
-					for _, h := range ps.TopCpuHotspots {
-						leaf := h.Frames[len(h.Frames)-1]
-						fmt.Printf("     #%d %.1f%% (%d samples) %s\n",
-							h.Rank, h.Percentage, h.SampleCount, leaf)
-						if len(h.Frames) > 1 {
-							fmt.Printf("         %s\n", formatFrames(h.Frames))
+					hotspots := make([]database.ProfilingHotspot, len(ps.TopCpuHotspots))
+					for i, h := range ps.TopCpuHotspots {
+						hotspots[i] = database.ProfilingHotspot{
+							Rank:        h.Rank,
+							Frames:      h.Frames,
+							Percentage:  h.Percentage,
+							SampleCount: h.SampleCount,
 						}
 					}
+					fmt.Print(database.FormatCompactSummary(ps.SamplingPeriod, ps.TotalSamples, hotspots))
 				}
 
 				// Display deployment context (RFD 074).
@@ -139,9 +140,4 @@ Examples:
 
 	cmd.Flags().StringVar(&since, "since", "5m", "Time range (e.g., 5m, 1h, 24h)")
 	return cmd
-}
-
-// formatFrames joins stack frames with " → " arrows.
-func formatFrames(frames []string) string {
-	return strings.Join(frames, " → ")
 }

@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -291,12 +292,12 @@ func (d *Database) getHotspotsByBuild(ctx context.Context, serviceName, buildID 
 			return nil, err
 		}
 
-		// Get the leaf frame (last in stack) as representative name.
+		// Get the leaf frame (first in stack, leaf-to-root order) as representative name.
 		topFrame := "unknown"
 		if len(frameIDs) > 0 {
 			frames, err := d.DecodeStackFrames(ctx, frameIDs)
 			if err == nil && len(frames) > 0 {
-				topFrame = frames[len(frames)-1]
+				topFrame = SimplifyFrame(frames[0])
 			}
 		}
 
@@ -308,4 +309,152 @@ func (d *Database) getHotspotsByBuild(ctx context.Context, serviceName, buildID 
 	}
 
 	return entries, nil
+}
+
+// SimplifyFrame strips internal package segments from a fully-qualified Go
+// frame name (e.g., "crypto/internal/fips140/sha256.blockSHA2" becomes
+// "crypto/sha256.blockSHA2"). This reduces noise for LLM consumers.
+func SimplifyFrame(frame string) string {
+	for {
+		idx := strings.Index(frame, "/internal/")
+		if idx < 0 {
+			break
+		}
+		// Find the next "/" after "/internal/" to locate the resumed public path.
+		rest := frame[idx+len("/internal/"):]
+		slash := strings.Index(rest, "/")
+		if slash < 0 {
+			// No further slash: the internal segment leads directly to the
+			// symbol (e.g., "runtime/internal/math.MulUintptr"). Remove only
+			// the "/internal" part.
+			frame = frame[:idx] + "/" + rest
+		} else {
+			frame = frame[:idx] + "/" + rest[slash+1:]
+		}
+	}
+	return frame
+}
+
+// isBoilerplateFrame returns true for runtime and stdlib frames that add noise
+// without actionable insight (goroutine entry, HTTP serving scaffolding, etc.).
+func isBoilerplateFrame(frame string) bool {
+	boilerplate := []string{
+		"runtime.goexit",
+		"runtime.main",
+		"runtime.mcall",
+		"runtime.mstart",
+	}
+	for _, b := range boilerplate {
+		if frame == b {
+			return true
+		}
+	}
+	// net/http server internals are rarely actionable.
+	if strings.HasPrefix(frame, "net/http.(*conn).") ||
+		strings.HasPrefix(frame, "net/http.(*Server).") ||
+		strings.HasPrefix(frame, "net/http.serverHandler.") {
+		return true
+	}
+	return false
+}
+
+// TopFunctionEntry pairs a simplified function name with its aggregated percentage.
+type TopFunctionEntry struct {
+	Name       string
+	Percentage float64
+}
+
+// TopFunctions aggregates hotspots by their leaf function (Frames[0]),
+// deduplicates, and returns them ordered by percentage descending.
+func TopFunctions(hotspots []ProfilingHotspot) []TopFunctionEntry {
+	// Aggregate by simplified leaf frame.
+	agg := make(map[string]float64)
+	for _, h := range hotspots {
+		if len(h.Frames) == 0 {
+			continue
+		}
+		name := SimplifyFrame(h.Frames[0])
+		agg[name] += h.Percentage
+	}
+
+	// Sort by percentage descending.
+	entries := make([]TopFunctionEntry, 0, len(agg))
+	for name, pct := range agg {
+		entries = append(entries, TopFunctionEntry{Name: name, Percentage: pct})
+	}
+	for i := 0; i < len(entries); i++ {
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].Percentage > entries[i].Percentage {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+		}
+	}
+	return entries
+}
+
+// HotPath extracts the call path from the hottest stack (highest sample count),
+// trimming boilerplate frames from both ends and simplifying package names.
+func HotPath(hotspots []ProfilingHotspot) []string {
+	if len(hotspots) == 0 {
+		return nil
+	}
+
+	// Use the hottest stack (first hotspot, already sorted by sample count).
+	frames := hotspots[0].Frames
+	if len(frames) == 0 {
+		return nil
+	}
+
+	// Frames are ordered leaf-to-root. Reverse to get caller→callee order for display.
+	reversed := make([]string, len(frames))
+	for i, f := range frames {
+		reversed[len(frames)-1-i] = SimplifyFrame(f)
+	}
+
+	// Trim boilerplate from the start (root side).
+	start := 0
+	for start < len(reversed) && isBoilerplateFrame(reversed[start]) {
+		start++
+	}
+
+	// Trim boilerplate from the end (leaf side) — unlikely but defensive.
+	end := len(reversed)
+	for end > start && isBoilerplateFrame(reversed[end-1]) {
+		end--
+	}
+
+	if start >= end {
+		return reversed // All boilerplate — return as-is.
+	}
+	return reversed[start:end]
+}
+
+// FormatCompactSummary formats the profiling summary in a compact,
+// LLM-friendly format with top functions and hot path.
+func FormatCompactSummary(period string, totalSamples uint64, hotspots []ProfilingHotspot) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("   CPU Profiling (%s, %d samples):\n", period, totalSamples))
+
+	// Top functions line.
+	topFuncs := TopFunctions(hotspots)
+	if len(topFuncs) > 0 {
+		b.WriteString("     Top functions: ")
+		for i, f := range topFuncs {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(fmt.Sprintf("%s (%.1f%%)", f.Name, f.Percentage))
+		}
+		b.WriteString("\n")
+	}
+
+	// Hot path line.
+	hotPath := HotPath(hotspots)
+	if len(hotPath) > 0 {
+		b.WriteString("     Hot path: ")
+		b.WriteString(strings.Join(hotPath, " → "))
+		b.WriteString("\n")
+	}
+
+	return b.String()
 }

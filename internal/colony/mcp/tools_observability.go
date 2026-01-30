@@ -11,6 +11,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/colony"
+	"github.com/coral-mesh/coral/internal/colony/database"
 )
 
 // generateInputSchema generates a JSON schema from a Go type.
@@ -244,31 +245,20 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 
 		// Display profiling summary if available (RFD 074).
 		if r.ProfilingSummary != nil && len(r.ProfilingSummary.Hotspots) > 0 {
-			text += fmt.Sprintf("   CPU Profiling (%s, %d samples):\n",
-				r.ProfilingSummary.SamplingPeriod,
-				r.ProfilingSummary.TotalSamples)
-
-			for _, h := range r.ProfilingSummary.Hotspots {
-				// Show leaf frame as the hotspot name.
-				name := "unknown"
-				if len(h.Frames) > 0 {
-					name = h.Frames[len(h.Frames)-1]
-				}
-				text += fmt.Sprintf("     #%d %.1f%% (%d samples) %s\n",
-					h.Rank, h.Percentage, h.SampleCount, name)
-
-				// Show full stack trace (truncated).
-				if len(h.Frames) > 1 {
-					text += "         "
-					for i, frame := range h.Frames {
-						if i > 0 {
-							text += " → "
-						}
-						text += frame
-					}
-					text += "\n"
+			hotspots := make([]database.ProfilingHotspot, len(r.ProfilingSummary.Hotspots))
+			for i, h := range r.ProfilingSummary.Hotspots {
+				hotspots[i] = database.ProfilingHotspot{
+					Rank:        h.Rank,
+					Frames:      h.Frames,
+					Percentage:  h.Percentage,
+					SampleCount: h.SampleCount,
 				}
 			}
+			text += database.FormatCompactSummary(
+				r.ProfilingSummary.SamplingPeriod,
+				r.ProfilingSummary.TotalSamples,
+				hotspots,
+			)
 		}
 
 		// Display deployment context (RFD 074).
