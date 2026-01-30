@@ -3,6 +3,7 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
@@ -96,7 +97,7 @@ func DisconnectService(
 //
 // Example:
 //
-//	helpers.ConnectServiceToAgent(t, ctx, fixture, 0, "otel-app", 8080, "/health")
+//	helpers.ConnectServiceToAgent(t, ctx, fixture, 0, "otel-app", 8090, "/health")
 func ConnectServiceToAgent(
 	t T,
 	ctx context.Context,
@@ -150,7 +151,7 @@ type ServiceConfig struct {
 //
 //	helpers.EnsureServicesConnected(t, ctx, fixture, 0, []ServiceConfig{
 //	    {Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
-//	    {Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+//	    {Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
 //	})
 func EnsureServicesConnected(
 	t T,
@@ -168,20 +169,17 @@ func EnsureServicesConnected(
 
 	agentClient := NewAgentClient(agentEndpoint)
 
-	// Check if services are already connected.
-	listResp, err := agentClient.ListServices(ctx, connect.NewRequest(&agentv1.ListServicesRequest{}))
-	if err == nil && len(listResp.Msg.Services) >= len(services) {
-		t.Logf("Services already connected: %d", len(listResp.Msg.Services))
-		return
-	}
-
 	// Connect services if not already connected.
 	t.Log("Connecting test services...")
 
 	for _, svc := range services {
+		t.Logf("Connecting service %s on port %d with health %s", svc.Name, svc.Port, svc.HealthEndpoint)
 		_, err = ConnectService(ctx, agentClient, svc.Name, svc.Port, svc.HealthEndpoint)
 		if err != nil {
-			t.Logf("Failed to connect %s (may already be connected): %v", svc.Name, err)
+			if !isAlreadyConnected(err) {
+				t.Errorf("Failed to connect %s:%v", svc.Name, err)
+				t.FailNow()
+			}
 		}
 	}
 
@@ -246,4 +244,8 @@ func DisconnectAllServices(
 	}
 
 	t.Log("✓ Services disconnected")
+}
+
+func isAlreadyConnected(err error) bool {
+	return strings.Contains(err.Error(), "already connected")
 }

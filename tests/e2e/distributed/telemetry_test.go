@@ -37,7 +37,7 @@ func (s *TelemetrySuite) SetupSuite() {
 	s.T().Log("Setting up TelemetrySuite - connecting otel-app for OTLP tests...")
 
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
-		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
 	})
 
 	s.T().Log("TelemetrySuite setup complete - otel-app connected")

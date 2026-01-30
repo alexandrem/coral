@@ -24,9 +24,9 @@ func cpuIntensiveWork(iterations int) string {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	// Do CPU-intensive work
-	// Increased from 10k to 100k iterations to ensure meaningful CPU profiling samples
-	result := cpuIntensiveWork(100000)
+	// Do CPU-intensive work.
+	// 5M iterations ≈ ~1s of CPU time, ensuring reliable capture at 19Hz sampling.
+	result := cpuIntensiveWork(5000000)
 	fmt.Fprintf(w, "Hash: %s\n", result)
 }
 

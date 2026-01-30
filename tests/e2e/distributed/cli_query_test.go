@@ -357,7 +357,7 @@ func (s *CLIQuerySuite) ensureServicesConnected() {
 	// CLI query tests need otel-app for testing queries.
 	// This populates the services registry table via ConnectService API.
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
-		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
 	})
 }
 

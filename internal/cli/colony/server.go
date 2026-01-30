@@ -139,14 +139,26 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	// Create MCP server if not disabled.
 	var mcpServer *mcp.Server
 	if !colonyConfig.MCP.Disabled {
+		// Resolve profiling enrichment config (RFD 074).
+		profilingEnrichmentDisabled := false
+		if colonyConfig.ContinuousProfiling.EnableSummaryEnrichment != nil {
+			profilingEnrichmentDisabled = !*colonyConfig.ContinuousProfiling.EnableSummaryEnrichment
+		}
+		profilingTopK := 5
+		if colonyConfig.ContinuousProfiling.TopKHotspots > 0 {
+			profilingTopK = colonyConfig.ContinuousProfiling.TopKHotspots
+		}
+
 		mcpConfig := mcp.Config{
-			ColonyID:              cfg.ColonyID,
-			ApplicationName:       cfg.ApplicationName,
-			Environment:           cfg.Environment,
-			Disabled:              colonyConfig.MCP.Disabled,
-			EnabledTools:          colonyConfig.MCP.EnabledTools,
-			RequireRBACForActions: colonyConfig.MCP.Security.RequireRBACForActions,
-			AuditEnabled:          colonyConfig.MCP.Security.AuditEnabled,
+			ColonyID:                    cfg.ColonyID,
+			ApplicationName:             cfg.ApplicationName,
+			Environment:                 cfg.Environment,
+			Disabled:                    colonyConfig.MCP.Disabled,
+			EnabledTools:                colonyConfig.MCP.EnabledTools,
+			RequireRBACForActions:       colonyConfig.MCP.Security.RequireRBACForActions,
+			AuditEnabled:                colonyConfig.MCP.Security.AuditEnabled,
+			ProfilingEnrichmentDisabled: profilingEnrichmentDisabled,
+			ProfilingTopKHotspots:       profilingTopK,
 		}
 
 		var err error

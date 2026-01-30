@@ -20,7 +20,7 @@ type CPUProfileSummary struct {
 	ServiceName   string    `duckdb:"service_name,pk,immutable"` // Immutable: PRIMARY KEY, cannot be updated.
 	BuildID       string    `duckdb:"build_id,pk,immutable"`     // Immutable: PRIMARY KEY, cannot be updated.
 	StackHash     string    `duckdb:"stack_hash,pk,immutable"`   // Immutable: PRIMARY KEY, cannot be updated.
-	StackFrameIDs []int64   `duckdb:"stack_frame_ids"`           // Mutable: stack frame IDs.
+	StackFrameIDs []int64   `duckdb:"stack_frame_ids,immutable"` // Immutable: determined by stack_hash (part of PK).
 	SampleCount   uint32    `duckdb:"sample_count"`              // Mutable: updated when aggregating samples.
 }
 

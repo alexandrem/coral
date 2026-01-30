@@ -101,9 +101,17 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 		lastPoll, exists := p.lastPollTimes[agent.AgentID]
 		p.lastPollTimesMu.RUnlock()
 
-		// If first poll for this agent, query last poll interval.
+		// If first poll for this agent, look back far enough to catch samples.
 		if !exists {
-			lastPoll = now.Add(-p.pollInterval)
+			lastPoll = now.Add(-2 * time.Minute)
+		}
+
+		// Ensure we always look back at least 30 seconds to catch samples whose
+		// timestamps predate their storage time. The profiler collects for 15s then
+		// stores; the sample timestamp is the collection start, not storage time.
+		maxLookback := now.Add(-30 * time.Second)
+		if lastPoll.After(maxLookback) {
+			lastPoll = maxLookback
 		}
 
 		// Query agent for samples since last poll.

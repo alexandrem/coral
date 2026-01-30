@@ -79,6 +79,18 @@ func NewTable[T any](db Execer, tableName string) *Table[T] {
 	}
 }
 
+// convertFieldValue converts a Go value to a DuckDB-compatible parameter.
+// The DuckDB Go driver doesn't support Go slices as query parameters,
+// so slice types must be converted to DuckDB array literal strings.
+func convertFieldValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case []int64:
+		return Int64ArrayToString(val)
+	default:
+		return v
+	}
+}
+
 // Upsert inserts or updates an item in the database.
 // It generates an INSERT ... ON CONFLICT statement.
 func (t *Table[T]) Upsert(ctx context.Context, item *T) error {
@@ -94,7 +106,7 @@ func (t *Table[T]) Upsert(ctx context.Context, item *T) error {
 	for i, col := range t.columns {
 		placeholders[i] = "?"
 		fieldIdx := t.fieldMap[col]
-		values[i] = val.Field(fieldIdx).Interface()
+		values[i] = convertFieldValue(val.Field(fieldIdx).Interface())
 
 		// Exclude PKs and immutable fields from update set
 		isPK := false
@@ -157,7 +169,7 @@ func (t *Table[T]) Insert(ctx context.Context, item *T) error {
 	for i, col := range t.columns {
 		placeholders[i] = "?"
 		fieldIdx := t.fieldMap[col]
-		values[i] = val.Field(fieldIdx).Interface()
+		values[i] = convertFieldValue(val.Field(fieldIdx).Interface())
 	}
 
 	// #nosec G201 - table and column names are not user input, they come from struct tags
@@ -268,7 +280,7 @@ func (t *Table[T]) BatchUpsert(ctx context.Context, items []*T) error {
 
 		for i, col := range t.columns {
 			fieldIdx := t.fieldMap[col]
-			values[i] = val.Field(fieldIdx).Interface()
+			values[i] = convertFieldValue(val.Field(fieldIdx).Interface())
 		}
 
 		_, err = stmt.ExecContext(ctx, values...)

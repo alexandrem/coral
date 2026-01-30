@@ -147,8 +147,43 @@ func GetKernelVersion() string {
 }
 
 // GetBinaryPath returns the path to the executable for the given PID.
+// When the resolved path doesn't exist locally (e.g., the target runs in a
+// different mount namespace), the function falls back to accessing the binary
+// through /proc/PID/root which crosses namespace boundaries.
 func GetBinaryPath(pid int) (string, error) {
-	return os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	exeLink := fmt.Sprintf("/proc/%d/exe", pid)
+	target, err := os.Readlink(exeLink)
+	if err != nil {
+		return "", fmt.Errorf("failed to readlink %s: %w", exeLink, err)
+	}
+
+	// If the resolved path exists locally, use it directly.
+	if _, err := os.Stat(target); err == nil {
+		return target, nil
+	}
+
+	// Fall back to /proc/PID/root/<path> to access the binary across
+	// mount namespace boundaries (e.g., agent profiling a container).
+	namespacedPath := fmt.Sprintf("/proc/%d/root%s", pid, target)
+	if _, err := os.Stat(namespacedPath); err == nil {
+		return namespacedPath, nil
+	}
+
+	// Last resort: return /proc/PID/exe itself which is always a valid
+	// file descriptor to the binary.
+	return exeLink, nil
+}
+
+// InNamespacePath strips the /proc/PID/root prefix from a path returned by
+// GetBinaryPath, recovering the original in-namespace path as seen by the
+// target process. This is useful when matching against /proc/PID/maps entries
+// which use in-namespace paths.
+func InNamespacePath(pid int, path string) string {
+	prefix := fmt.Sprintf("/proc/%d/root", pid)
+	if strings.HasPrefix(path, prefix) {
+		return strings.TrimPrefix(path, prefix)
+	}
+	return path
 }
 
 // ListPids returns a list of all running process IDs from /proc.
@@ -179,6 +214,32 @@ func ListPids() ([]int, error) {
 	sort.Ints(pids)
 
 	return pids, nil
+}
+
+// ListThreads returns the thread IDs (TIDs) for all threads in the given process.
+// It reads /proc/<pid>/task/ to enumerate threads.
+func ListThreads(pid int) ([]int, error) {
+	taskDir := fmt.Sprintf("/proc/%d/task", pid)
+	entries, err := os.ReadDir(taskDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", taskDir, err)
+	}
+
+	tids := make([]int, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		tid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		if tid > 0 {
+			tids = append(tids, tid)
+		}
+	}
+	sort.Ints(tids)
+	return tids, nil
 }
 
 // KernelSymbol represents a kernel symbol from /proc/kallsyms.

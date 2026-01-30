@@ -997,6 +997,184 @@ func (s *MCPSuite) TestMCPToolInputValidation() {
 }
 
 // =============================================================================
+// Group H: Profiling-Enriched Summary (RFD 074)
+// =============================================================================
+
+// TestMCPToolQuerySummaryProfilingFields tests that coral_query_summary includes
+// profiling enrichment parameters and accepts the new include_profiling and top_k fields.
+//
+// Validates:
+// - coral_query_summary accepts include_profiling parameter
+// - coral_query_summary accepts top_k parameter
+// - Output format is valid with or without profiling data
+func (s *MCPSuite) TestMCPToolQuerySummaryProfilingFields() {
+	s.T().Log("Testing MCP profiling-enriched query summary (RFD 074)...")
+
+	s.ensureTelemetryData()
+
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Test 1: Query with include_profiling=true (default behavior).
+	summaryResp, err := proxy.CallTool("coral_query_summary", map[string]interface{}{
+		"service":           "otel-app",
+		"time_range":        "10m",
+		"include_profiling": true,
+		"top_k":             5,
+	}, 110)
+	s.Require().NoError(err, "coral_query_summary with profiling params should succeed")
+	s.Require().NotEmpty(summaryResp.Content, "Summary should have content")
+
+	summaryText := summaryResp.Content[0].Text
+	s.T().Log("Profiling-enriched summary (truncated):")
+	if len(summaryText) > 500 {
+		s.T().Log(summaryText[:500] + "...")
+	} else {
+		s.T().Log(summaryText)
+	}
+
+	// The response should at minimum contain service information.
+	s.Require().Contains(strings.ToLower(summaryText), "service",
+		"Summary should mention service even with profiling params")
+
+	// Test 2: Query with include_profiling=false.
+	noProfResp, err := proxy.CallTool("coral_query_summary", map[string]interface{}{
+		"service":           "otel-app",
+		"time_range":        "10m",
+		"include_profiling": false,
+	}, 111)
+	s.Require().NoError(err, "coral_query_summary with profiling disabled should succeed")
+	s.Require().NotEmpty(noProfResp.Content, "Summary should have content")
+
+	noProfText := noProfResp.Content[0].Text
+	s.T().Log("Summary without profiling (truncated):")
+	if len(noProfText) > 300 {
+		s.T().Log(noProfText[:300] + "...")
+	} else {
+		s.T().Log(noProfText)
+	}
+
+	// Test 3: Query with top_k parameter (edge case: top_k=1).
+	topKResp, err := proxy.CallTool("coral_query_summary", map[string]interface{}{
+		"service":    "otel-app",
+		"time_range": "10m",
+		"top_k":      1,
+	}, 112)
+	s.Require().NoError(err, "coral_query_summary with top_k=1 should succeed")
+	s.Require().NotEmpty(topKResp.Content, "Summary should have content")
+
+	s.T().Log("✓ MCP profiling-enriched query summary validated")
+}
+
+// TestMCPToolDebugCPUProfile tests the coral_debug_cpu_profile tool (RFD 074).
+//
+// Validates:
+// - Tool accepts service, duration_seconds, and format parameters
+// - Tool returns data or a helpful "no data" message
+// - Tool handles nonexistent services gracefully
+func (s *MCPSuite) TestMCPToolDebugCPUProfile() {
+	s.T().Log("Testing MCP debug CPU profile tool (RFD 074)...")
+
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Test 1: Query CPU profile for otel-app (may or may not have data).
+	profileResp, err := proxy.CallTool("coral_debug_cpu_profile", map[string]interface{}{
+		"service":          "otel-app",
+		"duration_seconds": 30,
+		"format":           "json",
+	}, 120)
+	s.Require().NoError(err, "coral_debug_cpu_profile should succeed")
+	s.Require().NotEmpty(profileResp.Content, "Profile should have content")
+
+	profileText := profileResp.Content[0].Text
+	s.T().Log("CPU profile result (truncated):")
+	if len(profileText) > 500 {
+		s.T().Log(profileText[:500] + "...")
+	} else {
+		s.T().Log(profileText)
+	}
+
+	// Response should mention the service name or indicate no data.
+	hasServiceName := strings.Contains(strings.ToLower(profileText), "otel-app")
+	hasNoData := strings.Contains(strings.ToLower(profileText), "no cpu profiling data")
+	s.Require().True(hasServiceName || hasNoData,
+		"Response should mention service name or indicate no data available")
+
+	// Test 2: Query with folded format.
+	foldedResp, err := proxy.CallTool("coral_debug_cpu_profile", map[string]interface{}{
+		"service":          "otel-app",
+		"duration_seconds": 30,
+		"format":           "folded",
+	}, 121)
+	s.Require().NoError(err, "coral_debug_cpu_profile with folded format should succeed")
+	s.Require().NotEmpty(foldedResp.Content, "Folded profile should have content")
+
+	// Test 3: Non-existent service (should return no data message, not error).
+	noDataResp, err := proxy.CallTool("coral_debug_cpu_profile", map[string]interface{}{
+		"service":          "nonexistent-service-xyz",
+		"duration_seconds": 10,
+	}, 122)
+	s.Require().NoError(err, "coral_debug_cpu_profile for missing service should succeed")
+	s.Require().NotEmpty(noDataResp.Content, "Should have content")
+
+	noDataText := noDataResp.Content[0].Text
+	s.Require().Contains(strings.ToLower(noDataText), "no cpu profiling data",
+		"Should indicate no profiling data available")
+
+	s.T().Log("✓ MCP debug CPU profile tool validated")
+}
+
+// TestMCPToolListIncludesProfilingTools validates that tool listing includes RFD 074 tools.
+func (s *MCPSuite) TestMCPToolListIncludesProfilingTools() {
+	s.T().Log("Testing MCP tool list includes profiling tools (RFD 074)...")
+
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// List all tools.
+	listResp, err := proxy.ListTools()
+	s.Require().NoError(err, "tools/list should succeed")
+
+	// Find coral_debug_cpu_profile in the tool list.
+	foundDebugProfile := false
+	for _, tool := range listResp.Tools {
+		if tool.Name == "coral_debug_cpu_profile" {
+			foundDebugProfile = true
+			s.T().Logf("Found tool: %s - %s", tool.Name, tool.Description)
+
+			// Verify the tool has an input schema with expected properties.
+			if len(tool.InputSchema) > 0 {
+				if props, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+					_, hasService := props["service"]
+					_, hasDuration := props["duration_seconds"]
+					_, hasFormat := props["format"]
+					s.Assert().True(hasService, "Schema should have service property")
+					s.Assert().True(hasDuration, "Schema should have duration_seconds property")
+					s.Assert().True(hasFormat, "Schema should have format property")
+				}
+			}
+			break
+		}
+	}
+	s.Require().True(foundDebugProfile, "coral_debug_cpu_profile should be in tool list")
+
+	s.T().Log("✓ Profiling tools found in tool list")
+}
+
+// =============================================================================
 // Helper Methods
 // =============================================================================
 
@@ -1005,7 +1183,7 @@ func (s *MCPSuite) TestMCPToolInputValidation() {
 func (s *MCPSuite) ensureServicesConnected() {
 	// MCP tests only need otel-app (OTLP-instrumented)
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
-		{Name: "otel-app", Port: 8080, HealthEndpoint: "/health"},
+		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
 	})
 }
 
