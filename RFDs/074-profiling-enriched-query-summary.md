@@ -36,7 +36,8 @@ correlation.
     3. Generate flame graph
     4. Manually correlate timestamps and build_ids
     5. Interpret flame graph to identify hot functions
-- **Why this matters**: LLMs excel at pattern recognition and decision trees, but
+- **Why this matters**: LLMs excel at pattern recognition and decision trees,
+  but
   they need structured, pre-correlated data. Raw flame graphs or separate tool
   invocations waste context window tokens and require multi-step reasoning.
 - **Use cases affected**: Automated incident response, LLM-driven root cause
@@ -62,8 +63,9 @@ containing:
   stacks to keep LLM context windows clean. Full flame graphs available
   on-demand via RFD 070/072 tools.
 - **Multi-Dimensional Join**: Use DuckDB to join `cpu_profile_summaries` (RFD
-  072) + `system_metrics_summaries` (RFD 071) + `binary_metadata_registry` (RFD
-  072) in a single query.
+    072)
+        + `system_metrics_summaries` (RFD 071) + `binary_metadata_registry` (RFD
+    072) in a single query.
 - **Agentic Decision Tree**: Structure data to guide LLM reasoning:
     - High CPU + Business Logic Hotspot → Drill down with `debug_cpu_profile`
       (99Hz)
@@ -89,9 +91,9 @@ containing:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  LLM (Claude Desktop / API)                                     │
-│                                                                  │
+│                                                                 │
 │  User: "Why is order-processor slow?"                           │
-│                                                                  │
+│                                                                 │
 │  LLM calls MCP tool: coral_query_summary({                      │
 │      service: "order-processor",                                │
 │      since: "5m",                                               │
@@ -103,22 +105,22 @@ containing:
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │  Colony: Enriched Query Engine                                  │
-│                                                                  │
+│                                                                 │
 │  [Multi-Dimensional Join in DuckDB]                             │
-│                                                                  │
+│                                                                 │
 │  SELECT                                                         │
 │      -- System metrics (RFD 071)                                │
 │      avg(sm.cpu_utilization) as avg_cpu,                        │
 │      max(sm.cpu_utilization) as max_cpu,                        │
-│                                                                  │
+│                                                                 │
 │      -- Top-K CPU hotspots (RFD 072)                            │
 │      (SELECT top_stacks FROM get_top_k_hotspots(...)) as        │
 │        profiling_summary,                                       │
-│                                                                  │
+│                                                                 │
 │      -- Deployment context (RFD 072)                            │
 │      bm.build_id,                                               │
 │      bm.first_seen as deployed_at                               │
-│                                                                  │
+│                                                                 │
 │  FROM system_metrics_summaries sm                               │
 │  JOIN cpu_profile_summaries ps ON ...                           │
 │  JOIN binary_metadata_registry bm ON ...                        │
@@ -130,12 +132,12 @@ containing:
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │  MCP Tool Response (JSON)                                       │
-│                                                                  │
+│                                                                 │
 │  {                                                              │
 │    "service": "order-processor",                                │
 │    "status": "degraded",                                        │
 │    "metrics": {                                                 │
-│      "cpu_utilization": { "avg": 0.88, "max": 0.94 },          │
+│      "cpu_utilization": { "avg": 0.88, "max": 0.94 },           │
 │      "p99_latency_ms": 450,                                     │
 │      "error_rate": 0.028                                        │
 │    },                                                           │
@@ -143,18 +145,16 @@ containing:
 │      "top_cpu_hotspots": [                                      │
 │        {                                                        │
 │          "rank": 1,                                             │
-│          "frames": ["main", "processOrder",                     │
-│                     "validateSignature", "rsa.Verify"],         │
+│          "frames": ["rsa.Verify", "validateSignature",          │
+│                     "processOrder", "main"],                    │
 │          "percentage": 42.5,                                    │
-│          "sample_count": 2834,                                  │
-│          "category": "business_logic"                           │
+│          "sample_count": 2834                                   │
 │        },                                                       │
 │        {                                                        │
 │          "rank": 2,                                             │
-│          "frames": ["runtime", "gcBgMarkWorker"],               │
+│          "frames": ["gcBgMarkWorker", "runtime"],               │
 │          "percentage": 12.0,                                    │
-│          "sample_count": 800,                                   │
-│          "category": "gc"                                       │
+│          "sample_count": 800                                    │
 │        }                                                        │
 │      ],                                                         │
 │      "total_samples": 6667,                                     │
@@ -168,7 +168,7 @@ containing:
 │    "regression_indicators": [                                   │
 │      {                                                          │
 │        "type": "new_hotspot",                                   │
-│        "message": "validateSignature (42.5%) was not in top-5  │
+│        "message": "validateSignature (42.5%) was not in top-5   │
 │                    before this deployment",                     │
 │        "baseline_percentage": 8.2,                              │
 │        "current_percentage": 42.5,                              │
@@ -182,23 +182,23 @@ containing:
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │  LLM Reasoning (Agentic Decision Tree)                          │
-│                                                                  │
+│                                                                 │
 │  Analysis:                                                      │
-│  • High CPU (88% avg, 94% max) → CPU-bound workload            │
+│  • High CPU (88% avg, 94% max) → CPU-bound workload             │
 │  • Top hotspot: validateSignature (42.5%)                       │
-│  • Category: business_logic → Not GC or I/O issue              │
-│  • Regression indicator: +34.3% increase since deployment      │
-│                                                                  │
+│  • Frames: crypto/rsa.* → Crypto-related, not GC or I/O         │
+│  • Regression indicator: +34.3% increase since deployment       │
+│                                                                 │
 │  Decision:                                                      │
 │  "The service is CPU-bound due to excessive signature           │
-│   validation (42.5% of CPU time). This is a NEW hotspot        │
-│   (+34.3%) since build abc123 was deployed 2h ago.             │
-│                                                                  │
+│   validation (42.5% of CPU time). This is a NEW hotspot         │
+│   (+34.3%) since build abc123 was deployed 2h ago.              │
+│                                                                 │
 │   Root Cause: Recent deployment introduced performance          │
 │   regression in validateSignature function.                     │
-│                                                                  │
+│                                                                 │
 │   Next Steps:                                                   │
-│   1. Run high-frequency profiling on validateSignature:        │
+│   1. Run high-frequency profiling on validateSignature:         │
 │      coral debug cpu-profile --service order-processor \        │
 │             --duration 30s --frequency 99                       │
 │   2. Compare implementation with previous build                 │
@@ -264,7 +264,7 @@ containing:
 
 - [x] Define `ProfilingSummary` message in
   `proto/coral/colony/v1/queries.proto`
-- [x] Define `CPUHotspot` message with rank, frames, percentage, category
+- [x] Define `CPUHotspot` message with rank, frames, percentage
 - [x] Define `RegressionIndicator` message for deployment comparisons
 - [x] Update `QueryUnifiedSummaryResponse` to include `ProfilingSummary`
 - [x] Update `QueryUnifiedSummaryRequest` to include `include_profiling` flag
@@ -302,10 +302,9 @@ containing:
 
 - [x] Unit tests for `get_top_k_hotspots` query
 - [x] Unit tests for `compare_hotspots_with_baseline` query
+- [x] Unit tests for text rendering (`profiling_format_test.go`)
 - [x] Integration tests: Full enriched summary generation
-- [ ] E2E test: Deploy two versions, verify regression detection
-- [ ] MCP tool test: Call from Claude Desktop, verify LLM can interpret
-- [ ] Performance test: Measure query latency (target: <200ms for 5m time range)
+- [x] E2E test: Continuous profiling with symbolization
 
 ## API Changes
 
@@ -336,21 +335,10 @@ message ProfilingSummary {
 
 message CPUHotspot {
     int32 rank = 1;                 // 1-based rank (hottest first)
-    repeated string frames = 2;     // Stack frames (root to leaf)
+    repeated string frames = 2;     // Stack frames (leaf to root, i.e., hottest function first)
     double percentage = 3;          // Percentage of total CPU time
     uint64 sample_count = 4;        // Raw sample count
-    HotspotCategory category = 5;   // Categorized for LLM interpretation
-}
-
-enum HotspotCategory {
-    UNKNOWN = 0;
-    BUSINESS_LOGIC = 1;
-    GC = 2;
-    SERIALIZATION = 3;
-    NETWORK = 4;
-    DISK_IO = 5;
-    LOCKS = 6;
-    CRYPTO = 7;
+    string category = 5;           // Reserved for future categorization (see Future Work)
 }
 
 message DeploymentContext {
@@ -380,35 +368,37 @@ enum RegressionType {
 
 ```json
 {
-  "name": "coral_query_summary",
-  "description": "Get an enriched health summary for a service including system metrics, CPU profiling hotspots, and deployment context. Use this as the FIRST tool when diagnosing performance issues to get a complete picture before drilling down with specialized tools.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "service": {
-        "type": "string",
-        "description": "Service name (e.g., 'order-processor')"
-      },
-      "since": {
-        "type": "string",
-        "description": "Time range (e.g., '5m', '1h', '24h')",
-        "default": "5m"
-      },
-      "include_profiling": {
-        "type": "boolean",
-        "description": "Include CPU profiling hotspots in summary (default: true)",
-        "default": true
-      },
-      "top_k": {
-        "type": "integer",
-        "description": "Number of top CPU hotspots to include (default: 5, max: 20)",
-        "default": 5,
-        "minimum": 1,
-        "maximum": 20
-      }
-    },
-    "required": ["service"]
-  }
+    "name": "coral_query_summary",
+    "description": "Get an enriched health summary for a service including system metrics, CPU profiling hotspots, and deployment context. Use this as the FIRST tool when diagnosing performance issues to get a complete picture before drilling down with specialized tools.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "service": {
+                "type": "string",
+                "description": "Service name (e.g., 'order-processor')"
+            },
+            "since": {
+                "type": "string",
+                "description": "Time range (e.g., '5m', '1h', '24h')",
+                "default": "5m"
+            },
+            "include_profiling": {
+                "type": "boolean",
+                "description": "Include CPU profiling hotspots in summary (default: true)",
+                "default": true
+            },
+            "top_k": {
+                "type": "integer",
+                "description": "Number of top CPU hotspots to include (default: 5, max: 20)",
+                "default": 5,
+                "minimum": 1,
+                "maximum": 20
+            }
+        },
+        "required": [
+            "service"
+        ]
+    }
 }
 ```
 
@@ -419,42 +409,47 @@ analysis.
 
 ```json
 {
-  "name": "coral_debug_cpu_profile",
-  "description": "Collect a high-frequency CPU profile (99Hz) for detailed analysis of specific functions. Use this AFTER coral_query_summary identifies a CPU hotspot that needs line-level investigation. Returns flame graph in collapsed stack format.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "service": {
-        "type": "string",
-        "description": "Service name (e.g., 'order-processor')"
-      },
-      "pod": {
-        "type": "string",
-        "description": "Optional: Specific pod name if service has multiple instances"
-      },
-      "duration_seconds": {
-        "type": "integer",
-        "description": "Profiling duration in seconds (default: 30, max: 300)",
-        "default": 30,
-        "minimum": 10,
-        "maximum": 300
-      },
-      "frequency_hz": {
-        "type": "integer",
-        "description": "Sampling frequency in Hz (default: 99, max: 999)",
-        "default": 99,
-        "minimum": 10,
-        "maximum": 999
-      },
-      "format": {
-        "type": "string",
-        "enum": ["folded", "json"],
-        "description": "Output format: 'folded' for flame graphs, 'json' for programmatic access",
-        "default": "json"
-      }
-    },
-    "required": ["service"]
-  }
+    "name": "coral_debug_cpu_profile",
+    "description": "Collect a high-frequency CPU profile (99Hz) for detailed analysis of specific functions. Use this AFTER coral_query_summary identifies a CPU hotspot that needs line-level investigation. Returns flame graph in collapsed stack format.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "service": {
+                "type": "string",
+                "description": "Service name (e.g., 'order-processor')"
+            },
+            "pod": {
+                "type": "string",
+                "description": "Optional: Specific pod name if service has multiple instances"
+            },
+            "duration_seconds": {
+                "type": "integer",
+                "description": "Profiling duration in seconds (default: 30, max: 300)",
+                "default": 30,
+                "minimum": 10,
+                "maximum": 300
+            },
+            "frequency_hz": {
+                "type": "integer",
+                "description": "Sampling frequency in Hz (default: 99, max: 999)",
+                "default": 99,
+                "minimum": 10,
+                "maximum": 999
+            },
+            "format": {
+                "type": "string",
+                "enum": [
+                    "folded",
+                    "json"
+                ],
+                "description": "Output format: 'folded' for flame graphs, 'json' for programmatic access",
+                "default": "json"
+            }
+        },
+        "required": [
+            "service"
+        ]
+    }
 }
 ```
 
@@ -462,37 +457,41 @@ analysis.
 
 ```json
 {
-  "service": "order-processor",
-  "pod": "order-processor-7d8f9c",
-  "duration_seconds": 30,
-  "frequency_hz": 99,
-  "total_samples": 2970,
-  "lost_samples": 0,
-  "build_id": "sha256:abc123def456...",
-  "stacks": [
-    {
-      "frames": [
-        "main",
-        "processOrder",
-        "validateSignature",
-        "crypto/rsa.VerifyPKCS1v15",
-        "crypto/rsa.decrypt",
-        "crypto/internal/bigmod.(*Nat).Mul"
-      ],
-      "sample_count": 1263,
-      "percentage": 42.5
-    },
-    {
-      "frames": ["runtime", "gcBgMarkWorker", "runtime.gcDrain"],
-      "sample_count": 356,
-      "percentage": 12.0
+    "service": "order-processor",
+    "pod": "order-processor-7d8f9c",
+    "duration_seconds": 30,
+    "frequency_hz": 99,
+    "total_samples": 2970,
+    "lost_samples": 0,
+    "build_id": "sha256:abc123def456...",
+    "stacks": [
+        {
+            "frames": [
+                "main",
+                "processOrder",
+                "validateSignature",
+                "crypto/rsa.VerifyPKCS1v15",
+                "crypto/rsa.decrypt",
+                "crypto/internal/bigmod.(*Nat).Mul"
+            ],
+            "sample_count": 1263,
+            "percentage": 42.5
+        },
+        {
+            "frames": [
+                "runtime",
+                "gcBgMarkWorker",
+                "runtime.gcDrain"
+            ],
+            "sample_count": 356,
+            "percentage": 12.0
+        }
+    ],
+    "insights": {
+        "hottest_function": "crypto/internal/bigmod.(*Nat).Mul",
+        "hottest_function_percentage": 42.5,
+        "total_unique_stacks": 247
     }
-  ],
-  "insights": {
-    "hottest_function": "crypto/internal/bigmod.(*Nat).Mul",
-    "hottest_function_percentage": 42.5,
-    "total_unique_stacks": 247
-  }
 }
 ```
 
@@ -509,124 +508,153 @@ main;processOrder;saveOrder;proto.Marshal;proto.(*Buffer).EncodeVarint 178
 
 ```
 When coral_query_summary shows:
-  - top_hotspot.category == BUSINESS_LOGIC
   - top_hotspot.percentage > 30%
+  - top_hotspot frames contain application code (e.g., main.*, not runtime.*)
 
 → Call coral_debug_cpu_profile to get detailed stack traces
 → Analyze returned stacks to identify specific expensive operations
 → Recommend code optimization or configuration changes
 ```
 
+### Text Rendering (MCP and CLI)
+
+Both the MCP tool response and `coral query summary` CLI render profiling data
+in a compact text format optimized for LLM token efficiency:
+
+```
+CPU Profiling (5m, 58 samples):
+  Hot path: main.handler → main.cpuIntensiveWork → crypto/sha256.Sum256 → sha256.blockSHA2
+  Samples: blockSHA2 (34.5%), Sum256 (19.0%), checkSum (13.8%), Write (8.6%), Sum (6.9%)
+```
+
+**Rendering rules:**
+
+- **Hot path**: Taken from the hottest stack (rank #1). Frames are reversed to
+  caller→callee order and joined with ` → `.
+- **Samples**: Each hotspot's leaf function (short name only) with its
+  percentage.
+- **Frame simplification**: Internal package segments are stripped
+  (e.g., `crypto/internal/fips140/sha256.blockSHA2` →`crypto/sha256.blockSHA2`).
+- **Boilerplate trimming**: Runtime entry frames (`runtime.goexit`,
+  `runtime.main`)
+  and HTTP server scaffolding (`net/http.(*conn).serve`,
+  `net/http.(*Server).Serve`,
+  `net/http.serverHandler.ServeHTTP`) are removed from both ends.
+- **Minimum sample threshold**: Profiling data is suppressed when total samples
+  are below 20 (`minSamplesForSummary`). Below this threshold the data is too
+  sparse to be actionable.
+
+Implementation: `FormatCompactSummary()` in
+`internal/colony/database/profiling_summary.go`.
+
 ### coral_query_summary Response Example (Enhanced)
 
 ```json
 {
-  "service": "order-processor",
-  "status": "degraded",
-  "metrics": {
-    "cpu_utilization": {
-      "avg": 0.88,
-      "max": 0.94,
-      "p95": 0.91
+    "service": "order-processor",
+    "status": "degraded",
+    "metrics": {
+        "cpu_utilization": {
+            "avg": 0.88,
+            "max": 0.94,
+            "p95": 0.91
+        },
+        "memory_utilization": {
+            "avg": 0.72,
+            "max": 0.78
+        },
+        "p50_latency_ms": 125,
+        "p95_latency_ms": 380,
+        "p99_latency_ms": 450,
+        "request_rate": 1250.5,
+        "error_rate": 0.028
     },
-    "memory_utilization": {
-      "avg": 0.72,
-      "max": 0.78
+    "profiling_summary": {
+        "top_cpu_hotspots": [
+            {
+                "rank": 1,
+                "frames": [
+                    "crypto/rsa.VerifyPKCS1v15",
+                    "validateSignature",
+                    "processOrder",
+                    "main"
+                ],
+                "percentage": 42.5,
+                "sample_count": 2834
+            },
+            {
+                "rank": 2,
+                "frames": [
+                    "gcBgMarkWorker",
+                    "runtime"
+                ],
+                "percentage": 12.0,
+                "sample_count": 800
+            },
+            {
+                "rank": 3,
+                "frames": [
+                    "proto.Marshal",
+                    "saveOrder",
+                    "processOrder",
+                    "main"
+                ],
+                "percentage": 8.5,
+                "sample_count": 567
+            },
+            {
+                "rank": 4,
+                "frames": [
+                    "net/http.readRequest",
+                    "httpHandler",
+                    "main"
+                ],
+                "percentage": 6.2,
+                "sample_count": 413
+            },
+            {
+                "rank": 5,
+                "frames": [
+                    "regexp.Match",
+                    "validateInput",
+                    "processOrder",
+                    "main"
+                ],
+                "percentage": 4.8,
+                "sample_count": 320
+            }
+        ],
+        "total_samples": 6667,
+        "sampling_period": "5m",
+        "build_id": "sha256:abc123def456..."
     },
-    "p50_latency_ms": 125,
-    "p95_latency_ms": 380,
-    "p99_latency_ms": 450,
-    "request_rate": 1250.5,
-    "error_rate": 0.028
-  },
-  "profiling_summary": {
-    "top_cpu_hotspots": [
-      {
-        "rank": 1,
-        "frames": [
-          "main",
-          "processOrder",
-          "validateSignature",
-          "crypto/rsa.VerifyPKCS1v15"
-        ],
-        "percentage": 42.5,
-        "sample_count": 2834,
-        "category": "CRYPTO"
-      },
-      {
-        "rank": 2,
-        "frames": ["runtime", "gcBgMarkWorker"],
-        "percentage": 12.0,
-        "sample_count": 800,
-        "category": "GC"
-      },
-      {
-        "rank": 3,
-        "frames": [
-          "main",
-          "processOrder",
-          "saveOrder",
-          "proto.Marshal"
-        ],
-        "percentage": 8.5,
-        "sample_count": 567,
-        "category": "SERIALIZATION"
-      },
-      {
-        "rank": 4,
-        "frames": [
-          "main",
-          "httpHandler",
-          "net/http.readRequest"
-        ],
-        "percentage": 6.2,
-        "sample_count": 413,
-        "category": "NETWORK"
-      },
-      {
-        "rank": 5,
-        "frames": [
-          "main",
-          "processOrder",
-          "validateInput",
-          "regexp.Match"
-        ],
-        "percentage": 4.8,
-        "sample_count": 320,
-        "category": "BUSINESS_LOGIC"
-      }
+    "deployment": {
+        "build_id": "sha256:abc123def456...",
+        "deployed_at": "2025-12-16T10:00:00Z",
+        "age": "2h15m"
+    },
+    "regression_indicators": [
+        {
+            "type": "NEW_HOTSPOT",
+            "message": "crypto/rsa.VerifyPKCS1v15 (42.5%) was not in top-5 before this deployment",
+            "baseline_percentage": 8.2,
+            "current_percentage": 42.5,
+            "delta": 34.3
+        },
+        {
+            "type": "INCREASED_HOTSPOT",
+            "message": "runtime.gcBgMarkWorker increased from 4.5% to 12.0%",
+            "baseline_percentage": 4.5,
+            "current_percentage": 12.0,
+            "delta": 7.5
+        }
     ],
-    "total_samples": 6667,
-    "sampling_period": "5m",
-    "build_id": "sha256:abc123def456..."
-  },
-  "deployment": {
-    "build_id": "sha256:abc123def456...",
-    "deployed_at": "2025-12-16T10:00:00Z",
-    "age": "2h15m"
-  },
-  "regression_indicators": [
-    {
-      "type": "NEW_HOTSPOT",
-      "message": "crypto/rsa.VerifyPKCS1v15 (42.5%) was not in top-5 before this deployment",
-      "baseline_percentage": 8.2,
-      "current_percentage": 42.5,
-      "delta": 34.3
-    },
-    {
-      "type": "INCREASED_HOTSPOT",
-      "message": "runtime.gcBgMarkWorker increased from 4.5% to 12.0%",
-      "baseline_percentage": 4.5,
-      "current_percentage": 12.0,
-      "delta": 7.5
-    }
-  ],
-  "issues_detected": [
-    "⚠️  High CPU utilization: 88% avg, 94% max (threshold: 80%)",
-    "⚠️  P99 latency spike: 450ms (baseline: 89ms)",
-    "⚠️  Performance regression: validateSignature consuming 42.5% CPU (was 8.2%)"
-  ],
-  "root_cause_hypothesis": "Recent deployment (build abc123, 2h15m ago) introduced CPU-bound performance regression in signature validation. The validateSignature function now consumes 42.5% of CPU time (up from 8.2% baseline), likely due to increased RSA key size or more frequent validation calls."
+    "issues_detected": [
+        "⚠️  High CPU utilization: 88% avg, 94% max (threshold: 80%)",
+        "⚠️  P99 latency spike: 450ms (baseline: 89ms)",
+        "⚠️  Performance regression: validateSignature consuming 42.5% CPU (was 8.2%)"
+    ],
+    "root_cause_hypothesis": "Recent deployment (build abc123, 2h15m ago) introduced CPU-bound performance regression in signature validation. The validateSignature function now consumes 42.5% of CPU time (up from 8.2% baseline), likely due to increased RSA key size or more frequent validation calls."
 }
 ```
 
@@ -636,7 +664,8 @@ When coral_query_summary shows:
 
 ```sql
 -- Function: get_top_k_hotspots(service_id, time_range, k)
-CREATE OR REPLACE FUNCTION get_top_k_hotspots(
+CREATE
+OR REPLACE FUNCTION get_top_k_hotspots(
     p_service_id TEXT,
     p_since INTERVAL,
     p_top_k INTEGER DEFAULT 5
@@ -672,54 +701,14 @@ ranked_stacks AS (
     LIMIT p_top_k
 )
 SELECT json_group_array(
-    json_object(
-        'rank', rank,
-        'frames', json_array_elements(frames),
-        'percentage', ROUND(percentage, 1),
-        'sample_count', sample_count,
-        'category', categorize_hotspot(frames)
-    )
-) FROM ranked_stacks;
-$$;
-
--- Function: categorize_hotspot(frames)
--- Pattern matching to categorize stack traces
-CREATE OR REPLACE FUNCTION categorize_hotspot(frames TEXT[])
-RETURNS TEXT AS $$
-    CASE
-        WHEN frames::TEXT LIKE '%runtime.gc%'
-          OR frames::TEXT LIKE '%runtime.scan%'
-          OR frames::TEXT LIKE '%runtime.mark%'
-        THEN 'GC'
-
-        WHEN frames::TEXT LIKE '%proto.Marshal%'
-          OR frames::TEXT LIKE '%proto.Unmarshal%'
-          OR frames::TEXT LIKE '%json.Marshal%'
-          OR frames::TEXT LIKE '%json.Unmarshal%'
-        THEN 'SERIALIZATION'
-
-        WHEN frames::TEXT LIKE '%kernel%tcp%'
-          OR frames::TEXT LIKE '%kernel%ip%'
-          OR frames::TEXT LIKE '%kernel%net%'
-          OR frames::TEXT LIKE '%net/http%'
-        THEN 'NETWORK'
-
-        WHEN frames::TEXT LIKE '%kernel%read%'
-          OR frames::TEXT LIKE '%kernel%write%'
-          OR frames::TEXT LIKE '%kernel%block%'
-        THEN 'DISK_IO'
-
-        WHEN frames::TEXT LIKE '%sync.Mutex%'
-          OR frames::TEXT LIKE '%sync.RWMutex%'
-        THEN 'LOCKS'
-
-        WHEN frames::TEXT LIKE '%crypto/%'
-          OR frames::TEXT LIKE '%rsa.%'
-          OR frames::TEXT LIKE '%aes.%'
-        THEN 'CRYPTO'
-
-        ELSE 'BUSINESS_LOGIC'
-    END
+           json_object(
+               'rank', rank,
+               'frames', json_array_elements(frames),
+               'percentage', ROUND(percentage, 1),
+               'sample_count', sample_count
+           )
+       )
+FROM ranked_stacks;
 $$;
 ```
 
@@ -727,7 +716,8 @@ $$;
 
 ```sql
 -- Function: compare_hotspots_with_baseline(current_build_id, previous_build_id)
-CREATE OR REPLACE FUNCTION compare_hotspots_with_baseline(
+CREATE
+OR REPLACE FUNCTION compare_hotspots_with_baseline(
     p_current_build_id TEXT,
     p_previous_build_id TEXT,
     p_top_k INTEGER DEFAULT 5
@@ -769,15 +759,17 @@ regression_analysis AS (
     WHERE regression_type IS NOT NULL
 )
 SELECT json_group_array(
-    json_object(
-        'type', regression_type,
-        'message', format_regression_message(regression_type, stack_frame_ids,
-baseline_pct, current_pct),
-        'baseline_percentage', ROUND(baseline_pct, 1),
-        'current_percentage', ROUND(current_pct, 1),
-        'delta', ROUND(delta, 1)
-    )
-) FROM regression_analysis;
+           json_object(
+               'type', regression_type,
+               'message',
+               format_regression_message(regression_type, stack_frame_ids,
+                                         baseline_pct, current_pct),
+               'baseline_percentage', ROUND(baseline_pct, 1),
+               'current_percentage', ROUND(current_pct, 1),
+               'delta', ROUND(delta, 1)
+           )
+       )
+FROM regression_analysis;
 $$;
 ```
 
@@ -785,7 +777,8 @@ $$;
 
 ```sql
 -- Function: get_enriched_summary(service_id, time_range)
-CREATE OR REPLACE FUNCTION get_enriched_summary(
+CREATE
+OR REPLACE FUNCTION get_enriched_summary(
     p_service_id TEXT,
     p_since INTERVAL
 ) RETURNS JSON AS $$
@@ -817,36 +810,34 @@ previous_deployment AS (
     LIMIT 1 OFFSET 1
 )
 SELECT json_object(
-    'service', p_service_id,
-    'metrics', (
-        SELECT json_object(
-            'cpu_utilization', json_object(
-                'avg', ROUND(avg_cpu, 2),
-                'max', ROUND(max_cpu, 2),
-                'p95', ROUND(p95_cpu, 2)
-            ),
-            'memory_utilization', json_object(
-                'avg', ROUND(avg_memory / max_memory, 2)
-            )
-        ) FROM system_metrics
-    ),
-    'profiling_summary', json_object(
-        'top_cpu_hotspots', get_top_k_hotspots(p_service_id, p_since, 5),
-        'build_id', (SELECT build_id FROM current_deployment)
-    ),
-    'deployment', (
-        SELECT json_object(
-            'build_id', build_id,
-            'deployed_at', deployed_at,
-            'age', format_age(NOW() - deployed_at)
-        ) FROM current_deployment
-    ),
-    'regression_indicators', compare_hotspots_with_baseline(
-        (SELECT build_id FROM current_deployment),
-        (SELECT build_id FROM previous_deployment),
-        5
-    )
-);
+           'service', p_service_id,
+           'metrics', (SELECT json_object(
+                                  'cpu_utilization', json_object(
+            'avg', ROUND(avg_cpu, 2),
+            'max', ROUND(max_cpu, 2),
+            'p95', ROUND(p95_cpu, 2)
+                                                     ),
+                                  'memory_utilization', json_object(
+                                      'avg', ROUND(avg_memory / max_memory, 2)
+                                                        )
+                              )
+                       FROM system_metrics),
+           'profiling_summary', json_object(
+               'top_cpu_hotspots', get_top_k_hotspots(p_service_id, p_since, 5),
+               'build_id', (SELECT build_id FROM current_deployment)
+                                ),
+           'deployment', (SELECT json_object(
+                                     'build_id', build_id,
+                                     'deployed_at', deployed_at,
+                                     'age', format_age(NOW() - deployed_at)
+                                 )
+                          FROM current_deployment),
+           'regression_indicators', compare_hotspots_with_baseline(
+               (SELECT build_id FROM current_deployment),
+               (SELECT build_id FROM previous_deployment),
+               5
+                                    )
+       );
 $$;
 ```
 
@@ -857,18 +848,17 @@ $$;
 ### Decision Tree Logic
 
 ```
-IF high_cpu (>80%) AND top_hotspot.category == BUSINESS_LOGIC:
+IF high_cpu (>80%) AND top_hotspot frames contain application code:
     → Root Cause: CPU-bound application code
     → Action: Use debug_cpu_profile (99Hz) to get line-level detail
     → Command: coral debug cpu-profile --service X --duration 30s --frequency 99
 
-ELSE IF high_cpu AND top_hotspot.category == GC:
+ELSE IF high_cpu AND top_hotspot frames contain runtime.gc*:
     → Root Cause: Garbage collection pressure
     → Action: Check memory allocation patterns
-    → Command: coral query summary --service X --metrics memory
     → Hypothesis: Memory leak or excessive allocations
 
-ELSE IF high_cpu AND top_hotspot.category == CRYPTO:
+ELSE IF high_cpu AND top_hotspot frames contain crypto/*:
     → Root Cause: Cryptographic operations consuming CPU
     → Action: Investigate algorithm choice, key size, or call frequency
     → Hypothesis: Recent change to crypto library or key size
@@ -878,10 +868,9 @@ ELSE IF high_latency AND low_cpu (<30%):
     → Action: Use uprobe tracing to measure database/API call durations
     → Command: coral debug uprobe --service X --function saveOrder
 
-ELSE IF top_hotspot.category == NETWORK:
+ELSE IF top_hotspot frames contain net/* or kernel:
     → Root Cause: Network stack bottleneck
     → Action: Check system metrics for packet drops, connection churn
-    → Command: coral query summary --service X --metrics network
 
 ELSE IF regression_indicators.length > 0:
     → Root Cause: Recent deployment introduced regression
@@ -901,12 +890,12 @@ tool (include_profiling: true). Interpret the response as follows:
    - >80%: CPU-bound workload
    - <30% with high latency: I/O or locking bottleneck
 
-2. Analyze profiling_summary.top_cpu_hotspots:
-   - BUSINESS_LOGIC: Application code issue → Use debug_cpu_profile (99Hz)
-   - GC: Memory pressure → Check allocation patterns
-   - CRYPTO: Expensive cryptography → Review algorithm/key size
-   - NETWORK/DISK_IO: Kernel bottleneck → Check system metrics
-   - LOCKS: Contention → Use uprobe tracing on mutex operations
+2. Analyze profiling_summary.top_cpu_hotspots (inspect frame names):
+   - Application code (main.*, your packages): Use debug_cpu_profile (99Hz)
+   - runtime.gc*: Memory pressure → Check allocation patterns
+   - crypto/*: Expensive cryptography → Review algorithm/key size
+   - net/*, kernel: Network bottleneck → Check system metrics
+   - sync.Mutex/RWMutex: Contention → Use uprobe tracing on mutex operations
 
 3. Check regression_indicators:
    - NEW_HOTSPOT or INCREASED_HOTSPOT → Recent deployment caused regression
@@ -953,8 +942,11 @@ tool (include_profiling: true). Interpret the response as follows:
 ### Unit Tests
 
 - Test `get_top_k_hotspots` query with mock profiling data
-- Test `categorize_hotspot` function with various frame patterns
 - Test `compare_hotspots_with_baseline` with regression scenarios
+- Test text rendering: `SimplifyFrame`, `isBoilerplateFrame`,
+  `simplifyAndTrimFrames`, `shortFunctionName`, `FormatCompactSummary`
+  (`internal/colony/database/profiling_format_test.go`)
+- Test minimum sample threshold suppression
 
 ### Integration Tests
 
@@ -979,16 +971,18 @@ tool (include_profiling: true). Interpret the response as follows:
 The following features are out of scope for this RFD and may be addressed in
 future enhancements:
 
-**Automatic Hotspot Categorization** (Future - RFD TBD)
+**Automatic Hotspot Categorization** (Deferred)
 
 - Pattern-based categorization of stack traces into semantic categories
 - Categories: BUSINESS_LOGIC, GC, SERIALIZATION, CRYPTO, NETWORK, DISK_IO,
   LOCKS
+- The `CPUHotspot.category` proto field (string) is reserved for this feature
 - Regex rules on frame names (e.g., `runtime\.(gc|scan|mark)` → GC category)
-- Benefits: Simplify LLM decision tree, reduce manual frame inspection
-- Blocked by: Need to validate categorization accuracy across multiple languages
-  (Go, Python, Java, Rust, etc.)
-- Initial version: LLMs manually inspect frame names to determine hotspot type
+- SQL implementation (`categorize_hotspot` function) was designed but deferred
+  to validate categorization accuracy across multiple languages (Go, Python,
+  Java, Rust, etc.)
+- Current approach: LLMs inspect frame names directly, which works well with
+  the compact text rendering that simplifies and denoises frame names
 
 **Anomaly Detection** (Future - RFD TBD)
 
@@ -1029,6 +1023,7 @@ future enhancements:
 "Why is order-processor slow?"
 
 **LLM Action 1: Get Enriched Summary**
+
 ```
 Tool: coral_query_summary
 Input: { "service": "order-processor", "since": "5m", "include_profiling": true
@@ -1036,28 +1031,38 @@ Input: { "service": "order-processor", "since": "5m", "include_profiling": true
 ```
 
 **Tool Response:**
+
 ```json
 {
-  "service": "order-processor",
-  "metrics": { "cpu_utilization": { "avg": 0.88 }, "p99_latency_ms": 450 },
-  "profiling_summary": {
-    "top_cpu_hotspots": [
-      {
-        "rank": 1,
-        "frames": ["main", "processOrder", "validateSignature",
-"crypto/rsa.VerifyPKCS1v15"],
-        "percentage": 42.5,
-        "category": "CRYPTO"
-      }
+    "service": "order-processor",
+    "metrics": {
+        "cpu_utilization": {
+            "avg": 0.88
+        },
+        "p99_latency_ms": 450
+    },
+    "profiling_summary": {
+        "top_cpu_hotspots": [
+            {
+                "rank": 1,
+                "frames": [
+                    "crypto/rsa.VerifyPKCS1v15",
+                    "validateSignature",
+                    "processOrder",
+                    "main"
+                ],
+                "percentage": 42.5,
+                "sample_count": 2834
+            }
+        ]
+    },
+    "regression_indicators": [
+        {
+            "type": "NEW_HOTSPOT",
+            "message": "validateSignature (42.5%) was not in top-5 before deployment",
+            "delta": 34.3
+        }
     ]
-  },
-  "regression_indicators": [
-    {
-      "type": "NEW_HOTSPOT",
-      "message": "validateSignature (42.5%) was not in top-5 before deployment",
-      "delta": 34.3
-    }
-  ]
 }
 ```
 
@@ -1068,6 +1073,7 @@ elevated latency (450ms P99). The root cause is excessive CPU time spent in
 signature validation:
 
 **Root Cause:**
+
 - The `validateSignature` function (via `crypto/rsa.VerifyPKCS1v15`) is
   consuming 42.5% of CPU time
 - This is a NEW hotspot that appeared after the recent deployment (build abc123,
@@ -1077,14 +1083,17 @@ signature validation:
 
 **Hypothesis:**
 The recent deployment likely introduced:
+
 1. Increased RSA key size (e.g., 2048 → 4096 bits), or
 2. More frequent signature validation calls, or
 3. A change in the signature validation logic
 
 **Recommended Next Steps:**
+
 1. Collect detailed CPU profile to get line-level detail on validateSignature"
 
 **LLM Action 2: Detailed Profiling**
+
 ```
 Tool: coral_debug_cpu_profile
 Input: {
@@ -1096,28 +1105,29 @@ Input: {
 ```
 
 **Tool Response:**
+
 ```json
 {
-  "service": "order-processor",
-  "total_samples": 2970,
-  "stacks": [
-    {
-      "frames": [
-        "main",
-        "processOrder",
-        "validateSignature",
-        "crypto/rsa.VerifyPKCS1v15",
-        "crypto/rsa.decrypt",
-        "crypto/internal/bigmod.(*Nat).Mul"
-      ],
-      "sample_count": 1263,
-      "percentage": 42.5
+    "service": "order-processor",
+    "total_samples": 2970,
+    "stacks": [
+        {
+            "frames": [
+                "main",
+                "processOrder",
+                "validateSignature",
+                "crypto/rsa.VerifyPKCS1v15",
+                "crypto/rsa.decrypt",
+                "crypto/internal/bigmod.(*Nat).Mul"
+            ],
+            "sample_count": 1263,
+            "percentage": 42.5
+        }
+    ],
+    "insights": {
+        "hottest_function": "crypto/internal/bigmod.(*Nat).Mul",
+        "hottest_function_percentage": 42.5
     }
-  ],
-  "insights": {
-    "hottest_function": "crypto/internal/bigmod.(*Nat).Mul",
-    "hottest_function_percentage": 42.5
-  }
 }
 ```
 
@@ -1133,6 +1143,7 @@ significantly increased the cost of signature verification (big integer
 operations scale with O(n²) for key size).
 
 **Recommendations:**
+
 1. If 4096-bit keys are not required, revert to 2048-bit keys (industry standard
    for most use cases)
 2. Cache signature verification results to reduce redundant validations
@@ -1141,8 +1152,9 @@ operations scale with O(n²) for key size).
 4. Profile the previous build to confirm 2048-bit key hypothesis:
    ```
    coral debug cpu-profile --service order-processor --build-id
-<previous_build_id> --since 1h
-   ```"
+
+    <previous_build_id> --since 1h
+   ```
 
 **Why This Works:**
 - **One Tool Call**: LLM got system metrics + profiling context in a single call
