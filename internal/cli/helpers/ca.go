@@ -52,11 +52,10 @@ func GetCAManager(colonyID string) (*ca.Manager, *sql.DB, *config.ResolvedConfig
 	})
 
 	// Initialize CA manager.
-	manager, err := ca.NewManager(db, ca.Config{
+	manager, err := ca.NewManager(db, logger, ca.Config{
 		ColonyID:   cfg.ColonyID,
 		CADir:      caDir,
 		JWKSClient: nil, // CLI helpers don't validate tickets
-		Logger:     logger,
 	})
 	if err != nil {
 		_ = db.Close()

@@ -14,11 +14,10 @@ import (
 // InitializeCA initializes the CA manager for the colony.
 // This is a helper function for colony startup (RFD 047).
 func InitializeCA(db *sql.DB, colonyID, caDir string, jwksClient *jwks.Client, logger zerolog.Logger) (*ca.Manager, error) {
-	caManager, err := ca.NewManager(db, ca.Config{
+	caManager, err := ca.NewManager(db, logger, ca.Config{
 		ColonyID:   colonyID,
 		CADir:      caDir,
 		JWKSClient: jwksClient,
-		Logger:     logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CA manager: %w", err)

@@ -22,6 +22,7 @@ import (
 
 	"github.com/coral-mesh/coral/internal/colony/jwks"
 	"github.com/coral-mesh/coral/internal/privilege"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // IssuedCertificate represents a certificate issued to an agent (RFD 047).
@@ -56,6 +57,7 @@ type Manager struct {
 	policy    *PolicyEnforcer
 	colonyID  string
 	caDir     string // Filesystem path for CA storage.
+	logger    zerolog.Logger
 }
 
 // Config contains CA manager configuration.
@@ -63,19 +65,19 @@ type Config struct {
 	ColonyID   string
 	CADir      string // Filesystem path for CA storage (~/.coral/colonies/<id>/ca/).
 	JWKSClient *jwks.Client
-	KMSKeyID   string         // Optional KMS key for envelope encryption.
-	Logger     zerolog.Logger // Logger for storage operations.
+	KMSKeyID   string // Optional KMS key for envelope encryption.
 }
 
 // NewManager creates a new CA manager instance.
-func NewManager(db *sql.DB, cfg Config) (*Manager, error) {
+func NewManager(db *sql.DB, logger zerolog.Logger, cfg Config) (*Manager, error) {
 	m := &Manager{
 		db:        db,
 		colonyID:  cfg.ColonyID,
 		caDir:     cfg.CADir,
 		fsStorage: NewFilesystemStorage(cfg.CADir),
-		dbStorage: NewDatabaseStorage(db, cfg.Logger),
+		dbStorage: NewDatabaseStorage(db, logger),
 		policy:    NewPolicyEnforcer(cfg.JWKSClient, cfg.ColonyID),
+		logger:    logger.With().Str("component", "ca_manager").Logger(),
 	}
 
 	// Initialize or load CA state from filesystem.
@@ -840,7 +842,7 @@ func (m *Manager) ValidateBootstrapPSK(ctx context.Context, psk string) error {
 	if err != nil {
 		return fmt.Errorf("failed to query PSKs: %w", err)
 	}
-	defer rows.Close()
+	defer safe.Close(rows, m.logger, "failed to close rows")
 
 	rootKey, err := m.fsStorage.LoadKey("root-ca")
 	if err != nil {

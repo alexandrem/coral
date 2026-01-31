@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // NewPSKCmd creates the PSK management command (RFD 088).
@@ -41,7 +43,7 @@ colony database using the Root CA private key.`,
 			if err != nil {
 				return err
 			}
-			defer db.Close()
+			defer safe.Close(db, zerolog.Nop(), "failed to close database")
 
 			// Import PSK from file if needed.
 			if err := manager.ImportPSKFromFile(context.Background()); err != nil {
@@ -81,7 +83,7 @@ Existing agents with valid certificates are unaffected (renewals use mTLS).`,
 			if err != nil {
 				return err
 			}
-			defer db.Close()
+			defer safe.Close(db, zerolog.Nop(), "failed to close database")
 
 			// Import PSK from file if needed.
 			if err := manager.ImportPSKFromFile(context.Background()); err != nil {
