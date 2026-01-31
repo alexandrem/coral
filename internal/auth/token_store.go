@@ -102,22 +102,29 @@ func (ts *TokenStore) ValidateToken(token string) (*APIToken, error) {
 	}
 
 	ts.mu.RLock()
-	defer ts.mu.RUnlock()
 
 	// Check all tokens (O(n) but typically small number of tokens).
+	var matched *APIToken
 	for _, stored := range ts.tokens {
 		if stored.Revoked {
 			continue
 		}
 
 		if err := bcrypt.CompareHashAndPassword([]byte(stored.TokenHash), []byte(plainToken)); err == nil {
-			// Update last used time asynchronously.
-			go ts.updateLastUsed(stored.TokenID)
-			return stored, nil
+			matched = stored
+			break
 		}
 	}
 
-	return nil, fmt.Errorf("invalid token")
+	ts.mu.RUnlock()
+
+	if matched == nil {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	// Update last used time synchronously now that the read lock is released.
+	ts.updateLastUsed(matched.TokenID)
+	return matched, nil
 }
 
 // GetToken returns a token by ID (without validation).
