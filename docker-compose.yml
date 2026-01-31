@@ -21,7 +21,8 @@ services:
         # Initialize colony if config doesn't exist
         if [ ! -f /var/lib/coral/.colony_id ] || [ ! -d /root/.coral/colonies/coral-dev-* ]; then
           echo "Initializing colony..."
-          /usr/local/bin/coral init coral-dev --env dev --storage /var/lib/coral --discovery $${CORAL_DISCOVERY_ENDPOINT}
+          INIT_OUTPUT=$$(/usr/local/bin/coral init coral-dev --env dev --storage /var/lib/coral --discovery $${CORAL_DISCOVERY_ENDPOINT} 2>&1)
+          echo "$$INIT_OUTPUT"
           # Find the generated colony directory
           COLONY_DIR=$$(ls -1d /root/.coral/colonies/coral-dev-* 2>/dev/null | head -1)
           if [ -n "$$COLONY_DIR" ]; then
@@ -39,6 +40,13 @@ services:
               echo "sha256:$$FINGERPRINT" > /shared/ca_fingerprint
               echo "CA fingerprint saved: sha256:$$FINGERPRINT"
             fi
+
+            # Share Bootstrap PSK with agents (RFD 088)
+            PSK=$$(echo "$$INIT_OUTPUT" | grep -o 'coral-psk:[a-f0-9]*' | head -1)
+            if [ -n "$$PSK" ]; then
+              echo "$$PSK" > /shared/bootstrap_psk
+              echo "Bootstrap PSK saved to shared volume"
+            fi
           fi
         else
           echo "Colony already initialized, using existing config"
@@ -54,6 +62,8 @@ services:
               echo "sha256:$$FINGERPRINT" > /shared/ca_fingerprint
               echo "CA fingerprint saved: sha256:$$FINGERPRINT"
             fi
+            # Note: Bootstrap PSK was shared during initial colony init (RFD 088).
+            # On re-use of existing volumes, the PSK file should already be in /shared/.
           fi
         fi
         # Read the actual colony ID and configure settings
@@ -115,12 +125,18 @@ services:
           echo "  Waiting for CA fingerprint..."
           sleep 2
         done
+        while [ ! -f /shared/bootstrap_psk ]; do
+          echo "  Waiting for bootstrap PSK..."
+          sleep 2
+        done
         COLONY_ID=$$(cat /shared/colony_id)
         CA_FINGERPRINT=$$(cat /shared/ca_fingerprint)
+        BOOTSTRAP_PSK=$$(cat /shared/bootstrap_psk)
         echo "Starting agent with colony ID: $$COLONY_ID"
         echo "Using CA fingerprint: $$CA_FINGERPRINT"
         export CORAL_COLONY_ID="$$COLONY_ID"
         export CORAL_CA_FINGERPRINT="$$CA_FINGERPRINT"
+        export CORAL_BOOTSTRAP_PSK="$$BOOTSTRAP_PSK"
         exec /usr/local/bin/coral agent start --monitor-all
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
@@ -168,12 +184,18 @@ services:
           echo "  Waiting for CA fingerprint..."
           sleep 2
         done
+        while [ ! -f /shared/bootstrap_psk ]; do
+          echo "  Waiting for bootstrap PSK..."
+          sleep 2
+        done
         COLONY_ID=$$(cat /shared/colony_id)
         CA_FINGERPRINT=$$(cat /shared/ca_fingerprint)
+        BOOTSTRAP_PSK=$$(cat /shared/bootstrap_psk)
         echo "Starting agent with colony ID: $$COLONY_ID"
         echo "Using CA fingerprint: $$CA_FINGERPRINT"
         export CORAL_COLONY_ID="$$COLONY_ID"
         export CORAL_CA_FINGERPRINT="$$CA_FINGERPRINT"
+        export CORAL_BOOTSTRAP_PSK="$$BOOTSTRAP_PSK"
         exec /usr/local/bin/coral agent start --monitor-all
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev

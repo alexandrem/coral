@@ -38,7 +38,8 @@ func isDiscoveryContainerRunning() bool {
 type ComposeFixture struct {
 	// Configuration
 	ColonyID      string
-	CAFingerprint string // Root CA fingerprint for agent bootstrap (RFD 048)
+	CAFingerprint string // Root CA fingerprint for agent bootstrap (RFD 048).
+	BootstrapPSK  string // Bootstrap pre-shared key (RFD 088).
 
 	// Service endpoints (set by docker-compose port mappings)
 	DiscoveryEndpoint string
@@ -88,6 +89,11 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 	// Discover the CA fingerprint for agent bootstrap
 	if err := fixture.discoverCAFingerprint(ctx); err != nil {
 		return nil, fmt.Errorf("failed to discover CA fingerprint: %w", err)
+	}
+
+	// Discover the bootstrap PSK (RFD 088).
+	if err := fixture.discoverBootstrapPSK(ctx); err != nil {
+		return nil, fmt.Errorf("failed to discover bootstrap PSK: %w", err)
 	}
 
 	return fixture, nil
@@ -174,6 +180,29 @@ func (f *ComposeFixture) discoverCAFingerprint(ctx context.Context) error {
 // GetCAFingerprint returns the Root CA fingerprint for agent bootstrap.
 func (f *ComposeFixture) GetCAFingerprint() string {
 	return f.CAFingerprint
+}
+
+// discoverBootstrapPSK reads the bootstrap PSK from the shared volume (RFD 088).
+func (f *ComposeFixture) discoverBootstrapPSK(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1", "cat",
+		"/shared/bootstrap_psk")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to read bootstrap PSK from container: %w", err)
+	}
+
+	psk := strings.TrimSpace(string(output))
+	if psk == "" {
+		return fmt.Errorf("bootstrap PSK is empty")
+	}
+
+	f.BootstrapPSK = psk
+	return nil
+}
+
+// GetBootstrapPSK returns the bootstrap pre-shared key (RFD 088).
+func (f *ComposeFixture) GetBootstrapPSK() string {
+	return f.BootstrapPSK
 }
 
 // Cleanup is a no-op for compose fixtures since we don't manage container lifecycle.

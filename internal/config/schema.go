@@ -541,6 +541,9 @@ type BootstrapConfig struct {
 	// This is used to validate the colony's identity during bootstrap.
 	CAFingerprint string `yaml:"ca_fingerprint,omitempty" env:"CORAL_CA_FINGERPRINT"`
 
+	// BootstrapPSK is the pre-shared key for bootstrap authorization (RFD 088).
+	BootstrapPSK string `yaml:"bootstrap_psk,omitempty" env:"CORAL_BOOTSTRAP_PSK"`
+
 	// CertsDir is the directory for storing certificates.
 	// Default: ~/.coral/certs/
 	CertsDir string `yaml:"certs_dir,omitempty" env:"CORAL_CERTS_DIR"`

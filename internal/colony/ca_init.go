@@ -1,6 +1,7 @@
 package colony
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -21,6 +22,11 @@ func InitializeCA(db *sql.DB, colonyID, caDir string, jwksClient *jwks.Client, l
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CA manager: %w", err)
+	}
+
+	// Import bootstrap PSK from filesystem if not yet in database (RFD 088).
+	if err := caManager.ImportPSKFromFile(context.Background()); err != nil {
+		logger.Warn().Err(err).Msg("Failed to import bootstrap PSK from file")
 	}
 
 	return caManager, nil

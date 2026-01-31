@@ -410,6 +410,23 @@ func (s *Server) RequestCertificate(
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("colony ID mismatch"))
 	}
 
+	// Validate Bootstrap PSK for non-renewal requests (RFD 088).
+	if claims.Intent != "renew" {
+		if req.Msg.BootstrapPsk == "" {
+			s.logger.Warn().
+				Str("agent_id", claims.AgentID).
+				Msg("Certificate request rejected: bootstrap PSK required")
+			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("bootstrap PSK is required"))
+		}
+		if err := s.caManager.ValidateBootstrapPSK(ctx, req.Msg.BootstrapPsk); err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("agent_id", claims.AgentID).
+				Msg("Certificate request rejected: invalid bootstrap PSK")
+			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("invalid bootstrap PSK"))
+		}
+	}
+
 	// Issue certificate.
 	certPEM, caChain, expiresAt, err := s.caManager.IssueCertificate(claims.AgentID, claims.ColonyID, req.Msg.Csr)
 	if err != nil {
@@ -426,8 +443,13 @@ func (s *Server) RequestCertificate(
 		ExpiresAt:   expiresAt.Unix(),
 	}
 
+	authMethod := "psk"
+	if claims.Intent == "renew" {
+		authMethod = "mtls"
+	}
 	s.logger.Info().
 		Str("agent_id", claims.AgentID).
+		Str("auth_method", authMethod).
 		Time("expires_at", expiresAt).
 		Msg("Certificate issued successfully")
 

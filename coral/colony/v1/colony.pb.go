@@ -621,7 +621,10 @@ type RequestCertificateRequest struct {
 	// Bootstrap token (JWT).
 	Jwt string `protobuf:"bytes,1,opt,name=jwt,proto3" json:"jwt,omitempty"`
 	// Certificate signing request (PEM-encoded).
-	Csr           []byte `protobuf:"bytes,2,opt,name=csr,proto3" json:"csr,omitempty"`
+	Csr []byte `protobuf:"bytes,2,opt,name=csr,proto3" json:"csr,omitempty"`
+	// Bootstrap pre-shared key (RFD 088). Required for first-time bootstrap,
+	// ignored for mTLS-authenticated renewals.
+	BootstrapPsk  string `protobuf:"bytes,3,opt,name=bootstrap_psk,json=bootstrapPsk,proto3" json:"bootstrap_psk,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -668,6 +671,13 @@ func (x *RequestCertificateRequest) GetCsr() []byte {
 		return x.Csr
 	}
 	return nil
+}
+
+func (x *RequestCertificateRequest) GetBootstrapPsk() string {
+	if x != nil {
+		return x.BootstrapPsk
+	}
+	return ""
 }
 
 // RequestCertificateResponse returns the issued certificate.
@@ -1132,10 +1142,11 @@ const file_coral_colony_v1_colony_proto_rawDesc = "" +
 	"Connection\x12\x1b\n" +
 	"\tsource_id\x18\x01 \x01(\tR\bsourceId\x12\x1b\n" +
 	"\ttarget_id\x18\x02 \x01(\tR\btargetId\x12'\n" +
-	"\x0fconnection_type\x18\x03 \x01(\tR\x0econnectionType\"?\n" +
+	"\x0fconnection_type\x18\x03 \x01(\tR\x0econnectionType\"d\n" +
 	"\x19RequestCertificateRequest\x12\x10\n" +
 	"\x03jwt\x18\x01 \x01(\tR\x03jwt\x12\x10\n" +
-	"\x03csr\x18\x02 \x01(\fR\x03csr\"x\n" +
+	"\x03csr\x18\x02 \x01(\fR\x03csr\x12#\n" +
+	"\rbootstrap_psk\x18\x03 \x01(\tR\fbootstrapPsk\"x\n" +
 	"\x1aRequestCertificateResponse\x12 \n" +
 	"\vcertificate\x18\x01 \x01(\fR\vcertificate\x12\x19\n" +
 	"\bca_chain\x18\x02 \x01(\fR\acaChain\x12\x1d\n" +

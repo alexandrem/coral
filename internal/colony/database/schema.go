@@ -256,6 +256,17 @@ var schemaDDL = []string{
 
 	`CREATE INDEX IF NOT EXISTS idx_certificate_revocations_serial ON certificate_revocations(serial_number)`,
 
+	// Bootstrap PSKs - pre-shared keys for agent certificate issuance (RFD 088).
+	`CREATE TABLE IF NOT EXISTS bootstrap_psks (
+		id TEXT PRIMARY KEY,
+		encrypted_psk BLOB NOT NULL,
+		encryption_nonce BLOB NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at TIMESTAMP NOT NULL,
+		grace_expires_at TIMESTAMP,
+		revoked_at TIMESTAMP
+	)`,
+
 	// Debug sessions - active and past debug sessions.
 	`CREATE TABLE IF NOT EXISTS debug_sessions (
 		session_id VARCHAR PRIMARY KEY,

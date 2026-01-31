@@ -141,6 +141,7 @@ func newCertRenewCmd() *cobra.Command {
 	var (
 		colonyID       string
 		caFingerprint  string
+		bootstrapPSK   string
 		discoveryURL   string
 		colonyEndpoint string
 		certsDir       string
@@ -174,6 +175,7 @@ Examples:
 			return runCertRenew(cmd.Context(), certRenewOptions{
 				ColonyID:       colonyID,
 				CAFingerprint:  caFingerprint,
+				BootstrapPSK:   bootstrapPSK,
 				DiscoveryURL:   discoveryURL,
 				ColonyEndpoint: colonyEndpoint,
 				CertsDir:       certsDir,
@@ -184,6 +186,7 @@ Examples:
 
 	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().StringVar(&caFingerprint, "fingerprint", os.Getenv("CORAL_CA_FINGERPRINT"), "Expected Root CA fingerprint")
+	cmd.Flags().StringVar(&bootstrapPSK, "psk", os.Getenv("CORAL_BOOTSTRAP_PSK"), "Bootstrap pre-shared key (fallback to bootstrap)")
 	cmd.Flags().StringVar(&discoveryURL, "discovery", os.Getenv("CORAL_DISCOVERY_ENDPOINT"), "Discovery service URL (fallback)")
 	cmd.Flags().StringVar(&colonyEndpoint, "colony-endpoint", os.Getenv("CORAL_COLONY_ENDPOINT"), "Colony HTTPS endpoint for direct mTLS renewal")
 	cmd.Flags().StringVar(&certsDir, "certs-dir", os.Getenv("CORAL_CERTS_DIR"), "Directory containing certificates")
@@ -195,6 +198,7 @@ Examples:
 type certRenewOptions struct {
 	ColonyID       string
 	CAFingerprint  string
+	BootstrapPSK   string
 	DiscoveryURL   string
 	ColonyEndpoint string
 	CertsDir       string
@@ -249,6 +253,7 @@ func runCertRenew(ctx context.Context, opts certRenewOptions) error {
 		AgentID:           agentID,
 		ColonyID:          opts.ColonyID,
 		CAFingerprint:     opts.CAFingerprint,
+		BootstrapPSK:      opts.BootstrapPSK,
 		DiscoveryEndpoint: opts.DiscoveryURL,
 		Logger:            logger,
 	})

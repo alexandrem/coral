@@ -1,7 +1,7 @@
 ---
 rfd: "088"
 title: "Bootstrap Pre-Shared Key"
-state: "draft"
+state: "in-progress"
 breaking_changes: true
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "security", "colony", "agent", "discovery" ]
 
 # RFD 088 - Bootstrap Pre-Shared Key
 
-**Status:** 🚧 Draft
+**Status:** 🔄 In Progress
 
 ## Summary
 
@@ -356,37 +356,48 @@ during migration.
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🔄 In Progress
+
+PSK generation, encrypted storage, colony-side validation, agent-side integration,
+CLI commands, and unit/integration tests are implemented. E2E testing pending.
+
+**Operational Components:**
+- ✅ PSK generation (32-byte entropy, `coral-psk:` prefix)
+- ✅ PSK encrypted storage (AES-256-GCM, HKDF-SHA256 from Root CA key)
+- ✅ Colony-side validation in `RequestCertificate`
+- ✅ Agent-side PSK inclusion in bootstrap flow
+- ✅ CLI commands (`coral colony psk show`, `coral colony psk rotate`)
+- ✅ Grace period support for PSK rotation
+- ✅ E2E test: docker-compose agents receive PSK, CLI test helpers pass PSK
 
 ## Implementation Plan
 
 ### Phase 1: PSK Generation and Storage
 
-- [ ] Add PSK generation to `coral colony init`
-- [ ] Store PSK in colony configuration (hashed)
-- [ ] Add `coral colony psk show` and `coral colony psk rotate` commands
-- [ ] Add `bootstrap.psk_required` configuration flag
+- [x] Add PSK generation to `coral colony init`
+- [x] Store PSK encrypted in DuckDB (AES-256-GCM, key from Root CA via HKDF)
+- [x] Add `coral colony psk show` and `coral colony psk rotate` commands
+- [ ] Add `bootstrap.psk_required` configuration flag (enforcement toggle)
 
 ### Phase 2: Colony-Side Validation
 
-- [ ] Add `bootstrap_psk` field to `RequestCertificateRequest` protobuf
-- [ ] Validate PSK in certificate issuance flow (bootstrap requests only)
-- [ ] Support grace period for PSK rotation (accept old + new)
-- [ ] Add audit logging for PSK validation failures
+- [x] Add `bootstrap_psk` field to `RequestCertificateRequest` protobuf
+- [x] Validate PSK in certificate issuance flow (bootstrap requests only)
+- [x] Support grace period for PSK rotation (accept old + new)
+- [x] Add audit logging for PSK validation failures
 
 ### Phase 3: Agent-Side Integration
 
-- [ ] Add `CORAL_BOOTSTRAP_PSK` environment variable support
-- [ ] Add `security.bootstrap.psk` configuration field
-- [ ] Include PSK in `RequestCertificate` call during bootstrap
-- [ ] Update `coral agent bootstrap` command
+- [x] Add `CORAL_BOOTSTRAP_PSK` environment variable support
+- [x] Add `bootstrap_psk` configuration field in BootstrapConfig
+- [x] Include PSK in `RequestCertificate` call during bootstrap
+- [x] Update `coral agent bootstrap` command with `--psk` flag
 
 ### Phase 4: Testing
 
-- [ ] Unit tests for PSK generation, hashing, and validation
-- [ ] Unit tests for PSK rotation with grace period
-- [ ] Integration test: bootstrap with valid PSK succeeds
-- [ ] Integration test: bootstrap without PSK is rejected (when enforced)
-- [ ] Integration test: renewal without PSK succeeds (mTLS auth)
-- [ ] Integration test: PSK rotation grace period
-- [ ] E2E test: full bootstrap flow with PSK
+- [x] Unit tests for PSK generation, encryption, and format validation
+- [x] Unit tests for PSK rotation with grace period
+- [x] Integration test: PSK store, validate, and rotate via Manager
+- [x] Integration test: bootstrap PSK import from filesystem
+- [x] Integration test: PSK rotation grace period expiry
+- [x] E2E test: docker-compose PSK sharing, CLI helpers pass `--psk`

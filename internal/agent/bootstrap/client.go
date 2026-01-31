@@ -35,6 +35,9 @@ type Config struct {
 	// If provided, discovery lookup is bypassed.
 	ColonyEndpoint string
 
+	// BootstrapPSK is the pre-shared key for bootstrap authorization (RFD 088).
+	BootstrapPSK string
+
 	ReefID string
 	Logger zerolog.Logger
 }
@@ -161,11 +164,13 @@ func (c *Client) executeFlow(ctx context.Context, httpClient *http.Client, colon
 	c.logger.Info().
 		Str("token", token).
 		Str("colonyEndpoint", colonyURL).
+		Bool("psk_provided", c.cfg.BootstrapPSK != "").
 		Msg("Requesting certificate bootstrap")
 	client := colonyv1connect.NewColonyServiceClient(httpClient, colonyURL)
 	resp, err := client.RequestCertificate(ctx, connect.NewRequest(&colonyv1.RequestCertificateRequest{
-		Jwt: token,
-		Csr: csr,
+		Jwt:          token,
+		Csr:          csr,
+		BootstrapPsk: c.cfg.BootstrapPSK,
 	}))
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)

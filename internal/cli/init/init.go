@@ -152,6 +152,9 @@ func runInit(appName, environment, storagePath, discoveryURL string) error {
 	fmt.Println("\nColony Server Identity:")
 	fmt.Printf("  SPIFFE ID: %s\n", caResult.ColonySPIFFEID)
 
+	fmt.Println("\nBootstrap PSK (distribute to agents securely):")
+	fmt.Printf("  %s\n", caResult.BootstrapPSK)
+
 	fmt.Println("\n⚠️  IMPORTANT: Keep root-ca.key secure (offline storage or HSM recommended)")
 
 	// Create project-local config
@@ -163,6 +166,7 @@ func runInit(appName, environment, storagePath, discoveryURL string) error {
 	fmt.Println("\nDeploy agents with:")
 	fmt.Printf("  export CORAL_COLONY_ID=%s\n", colonyID)
 	fmt.Printf("  export CORAL_CA_FINGERPRINT=sha256:%s\n", caResult.RootFingerprint)
+	fmt.Printf("  export CORAL_BOOTSTRAP_PSK=%s\n", caResult.BootstrapPSK)
 	fmt.Println("  coral agent start")
 
 	fmt.Println("\n✓ Colony initialized successfully")
