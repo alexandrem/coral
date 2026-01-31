@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"time"
@@ -26,6 +27,44 @@ func WaitForHTTPEndpoint(ctx context.Context, url string, timeout time.Duration)
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for HTTP endpoint %s: %w", url, ctx.Err())
+		case <-ticker.C:
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+			if err != nil {
+				continue
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+	}
+}
+
+// WaitForHTTPSEndpoint waits for an HTTPS endpoint with a self-signed certificate to respond with 200 OK.
+func WaitForHTTPSEndpoint(ctx context.Context, url string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for HTTPS endpoint %s: %w", url, ctx.Err())
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 			if err != nil {

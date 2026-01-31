@@ -69,11 +69,13 @@ func (s *PublicEndpointSuite) SetupSuite() {
 	// The fixture doesn't have a direct "waitForColony" but waitForServices checks dependencies.
 	// Let's use written helper logic or just sleep briefly + wait for endpoint.
 
-	// Wait for the public endpoint to be up.
-	err = helpers.WaitForHTTPEndpoint(s.ctx, "https://localhost:8443/health", 30*time.Second)
-	// Look for /status handler.
+	// Wait for the internal endpoint to be up.
 	err = helpers.WaitForHTTPEndpoint(s.ctx, s.fixture.ColonyEndpoint+"/status", 30*time.Second)
 	s.Require().NoError(err, "Colony service failed to become healthy after restart")
+
+	// Wait for the public endpoint (self-signed TLS, so use InsecureSkipVerify).
+	err = helpers.WaitForHTTPSEndpoint(s.ctx, "https://localhost:8443/health", 30*time.Second)
+	s.Require().NoError(err, "Public endpoint failed to become healthy after restart")
 }
 
 func (s *PublicEndpointSuite) TearDownSuite() {

@@ -222,9 +222,13 @@ func (f *ComposeFixture) GetSDKAppEndpoint(ctx context.Context) (string, error) 
 
 // RestartService restarts a specific service using docker-compose.
 func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string) error {
-	cmd := exec.CommandContext(ctx, "docker-compose", "restart", serviceName)
+	// Use docker restart directly with the container name rather than
+	// docker-compose restart, which requires compose file context that
+	// may not be available in the test runner's working directory.
+	containerName := fmt.Sprintf("coral-e2e-%s-1", serviceName)
+	cmd := exec.CommandContext(ctx, "docker", "restart", containerName)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to restart service %s: %w\nOutput: %s", serviceName, err, string(output))
+		return fmt.Errorf("failed to restart container %s: %w\nOutput: %s", containerName, err, string(output))
 	}
 	return nil
 }
