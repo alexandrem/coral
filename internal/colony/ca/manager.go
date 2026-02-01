@@ -85,6 +85,11 @@ func NewManager(db *sql.DB, logger zerolog.Logger, cfg Config) (*Manager, error)
 		return nil, fmt.Errorf("failed to initialize CA: %w", err)
 	}
 
+	// Ensure bootstrap_psks table exists (RFD 088).
+	if err := m.ensurePSKTable(); err != nil {
+		return nil, fmt.Errorf("failed to ensure PSK table: %w", err)
+	}
+
 	return m, nil
 }
 
@@ -752,6 +757,23 @@ func Initialize(caDir, colonyID string) (*InitResult, error) {
 		PolicySignPath:  filepath.Join(caDir, "policy-signing.crt"),
 		BootstrapPSK:    psk,
 	}, nil
+}
+
+// ensurePSKTable creates the bootstrap_psks table if it does not exist.
+func (m *Manager) ensurePSKTable() error {
+	_, err := m.db.Exec(`CREATE TABLE IF NOT EXISTS bootstrap_psks (
+		id TEXT PRIMARY KEY,
+		encrypted_psk BLOB NOT NULL,
+		encryption_nonce BLOB NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at TIMESTAMP NOT NULL,
+		grace_expires_at TIMESTAMP,
+		revoked_at TIMESTAMP
+	)`)
+	if err != nil {
+		return fmt.Errorf("failed to create bootstrap_psks table: %w", err)
+	}
+	return nil
 }
 
 // BootstrapPSK represents a stored bootstrap PSK record (RFD 088).
