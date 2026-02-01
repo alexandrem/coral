@@ -1,19 +1,20 @@
 ---
 rfd: "088"
 title: "Bootstrap Pre-Shared Key"
-state: "in-progress"
+state: "implemented"
 breaking_changes: true
 testing_required: true
 database_changes: true
 api_changes: true
 dependencies: [ "047", "048", "049" ]
+database_migrations: [ ]
 related_rfds: [ "085", "086", "087" ]
 areas: [ "security", "colony", "agent", "discovery" ]
 ---
 
 # RFD 088 - Bootstrap Pre-Shared Key
 
-**Status:** 🔄 In Progress
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -336,30 +337,12 @@ provides authorization at the Colony layer. They are complementary:
 Both can be implemented independently. The PSK alone is sufficient to prevent
 unauthorized agent enrollment.
 
-## Migration Strategy
-
-1. **Colony upgrade**: Colony generates a PSK during the first startup after
-   upgrade. PSK is stored in colony configuration. A flag
-   `bootstrap.psk_required` defaults to `false` during migration.
-
-2. **Operator enables PSK**: Operator sets `bootstrap.psk_required=true` and
-   distributes the PSK to agent deployments.
-
-3. **Agent upgrade**: Agents include `CORAL_BOOTSTRAP_PSK` in configuration.
-   Agents without the PSK fail bootstrap when enforcement is enabled.
-
-4. **Enforcement**: After all agents are configured with the PSK, enforcement
-   is mandatory.
-
-**Rollback**: Set `bootstrap.psk_required=false` to allow PSK-less bootstrap
-during migration.
-
 ## Implementation Status
 
-**Core Capability:** 🔄 In Progress
+**Core Capability:** ✅ Complete
 
 PSK generation, encrypted storage, colony-side validation, agent-side integration,
-CLI commands, and unit/integration tests are implemented. E2E testing pending.
+CLI commands, unit/integration tests, and E2E tests are implemented.
 
 **Operational Components:**
 - ✅ PSK generation (32-byte entropy, `coral-psk:` prefix)
@@ -377,8 +360,6 @@ CLI commands, and unit/integration tests are implemented. E2E testing pending.
 - [x] Add PSK generation to `coral colony init`
 - [x] Store PSK encrypted in DuckDB (AES-256-GCM, key from Root CA via HKDF)
 - [x] Add `coral colony psk show` and `coral colony psk rotate` commands
-- [ ] Add `bootstrap.psk_required` configuration flag (enforcement toggle)
-
 ### Phase 2: Colony-Side Validation
 
 - [x] Add `bootstrap_psk` field to `RequestCertificateRequest` protobuf
