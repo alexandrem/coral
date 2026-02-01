@@ -481,10 +481,11 @@ agent:
         id: "my-colony"      # Colony ID to connect to
         auto_discover: true   # Auto-discover colony via Discovery Service
 
-    # Bootstrap settings (RFD 048)
+    # Bootstrap settings (RFD 048, RFD 088)
     bootstrap:
         enabled: true
         ca_fingerprint: "sha256:7f...a0"  # Required for first bootstrap
+        psk: "coral-psk:f1e2d3c4b5a6..."  # Required for enrollment authorization
         certs_dir: "~/.coral/certs"
         retry_attempts: 10
         retry_delay: 1s
@@ -520,6 +521,7 @@ services:
 | `agent.nat.enable_relay`                      | bool              | `false`                      | Enable relay fallback (future)                                |
 | `agent.bootstrap.enabled`                     | bool              | `true`                       | Enable automatic certificate bootstrap                        |
 | `agent.bootstrap.ca_fingerprint`              | string            | -                            | Root CA fingerprint (sha256:hex) for trust                    |
+| `agent.bootstrap.psk`                         | string            | -                            | Bootstrap PSK for enrollment authorization (RFD 088)          |
 | `agent.bootstrap.certs_dir`                   | string            | `~/.coral/certs`             | Directory for storing certificates                            |
 | `agent.bootstrap.retry_attempts`              | int               | `10`                         | Max bootstrap retry attempts                                  |
 | `agent.bootstrap.retry_delay`                 | duration          | `1s`                         | Initial retry delay (exponential)                             |
@@ -897,6 +899,7 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 | `CORAL_COLONY_ID`          | Colony ID to connect to                             |
 | `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL                               |
 | `CORAL_CA_FINGERPRINT`     | Root CA fingerprint for bootstrap (sha256:hex)      |
+| `CORAL_BOOTSTRAP_PSK`     | Bootstrap PSK for enrollment authorization           |
 | `CORAL_BOOTSTRAP_ENABLED`  | Enable/disable automatic bootstrap (`true`/`false`) |
 | `CORAL_CERTS_DIR`          | Directory for storing certificates                  |
 | `CORAL_SERVICES`           | Services to monitor (name:port[:health][:type],...) |

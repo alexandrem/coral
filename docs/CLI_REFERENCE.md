@@ -84,14 +84,14 @@ coral colony stop
 
 # Agent (local observer)
 coral agent start [--config <file>] [--colony <id>] [--connect <service>...] [--monitor-all]
-coral agent bootstrap --colony <id> --fingerprint <sha256:hex> [--agent <id>] [--discovery <url>] [--force]
+coral agent bootstrap --colony <id> --fingerprint <sha256:hex> --psk <coral-psk:...> [--agent <id>] [--discovery <url>] [--force]
 coral agent cert status [--certs-dir <path>]
 coral agent cert renew --colony-endpoint <url> [--fingerprint <sha256:hex>] [--force]
 coral agent status [--format <format>]
 coral agent stop
 
 # Agent identity commands:
-#   Bootstrap identity:   coral agent bootstrap --colony my-colony --fingerprint sha256:a3b2c1...
+#   Bootstrap identity:   coral agent bootstrap --colony my-colony --fingerprint sha256:a3b2c1... --psk coral-psk:f1e2...
 #   Show cert status:     coral agent cert status
 #   Manual renewal:       coral agent cert renew --colony-endpoint https://colony:9000
 
@@ -580,6 +580,7 @@ coral exec web --container nginx cat /etc/nginx/nginx.conf
 | `CORAL_API_TOKEN`          | API token for authenticating to the public endpoint                    |
 | `CORAL_COLONY_ID`          | Override active colony ID                                              |
 | `CORAL_CA_FINGERPRINT`     | Root CA fingerprint for agent bootstrap (sha256:hex)                   |
+| `CORAL_BOOTSTRAP_PSK`     | Bootstrap PSK for enrollment authorization                             |
 | `CORAL_CONFIG`             | Override config directory (default: `~/.coral`)                        |
 | `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL override                                         |
 
