@@ -205,19 +205,6 @@ func PSKFileExists(caDir string) bool {
 	return err == nil
 }
 
-// loadRootKeyFromPEM parses an ECDSA private key from PEM bytes.
-func loadRootKeyFromPEM(keyPEM []byte) (*ecdsa.PrivateKey, error) {
-	block, _ := pem.Decode(keyPEM)
-	if block == nil {
-		return nil, fmt.Errorf("failed to decode PEM block")
-	}
-	key, err := x509.ParseECPrivateKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse EC private key: %w", err)
-	}
-	return key, nil
-}
-
 // generateECDSAKey generates a new P-256 ECDSA key for testing.
 func generateECDSAKey() (*ecdsa.PrivateKey, error) {
 	return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
