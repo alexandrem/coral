@@ -117,6 +117,16 @@ func printMemoryProfileFolded(resp *debugpb.ProfileMemoryResponse) {
 		fmt.Fprintln(os.Stderr)
 	}
 
+	// Print top allocation types to stderr.
+	if len(resp.TopTypes) > 0 {
+		fmt.Fprintf(os.Stderr, "Top Allocation Types:\n")
+		for _, tt := range resp.TopTypes {
+			fmt.Fprintf(os.Stderr, "  %5.1f%%  %s  %s\n",
+				tt.Pct, formatBytes(tt.Bytes), tt.TypeName)
+		}
+		fmt.Fprintln(os.Stderr)
+	}
+
 	// Print heap stats to stderr.
 	if resp.Stats != nil {
 		fmt.Fprintf(os.Stderr, "Heap Stats:\n")

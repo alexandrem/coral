@@ -320,3 +320,75 @@ func TestParseProfile_TruncatesTop20(t *testing.T) {
 	result := parseProfile(prof, nil)
 	assert.Len(t, result.TopFunctions, 20)
 }
+
+func TestParseProfile_TopTypes(t *testing.T) {
+	prof := &profile.Profile{
+		SampleType: []*profile.ValueType{
+			{Type: "alloc_objects", Unit: "count"},
+			{Type: "alloc_space", Unit: "bytes"},
+		},
+	}
+
+	// Create samples with runtime allocator functions as leaf frames.
+	runtimeFuncs := []*profile.Function{
+		{ID: 1, Name: "runtime.makeslice"},
+		{ID: 2, Name: "runtime.makemap_small"},
+		{ID: 3, Name: "runtime.newobject"},
+		{ID: 4, Name: "runtime.concatstrings"},
+	}
+	prof.Function = runtimeFuncs
+
+	for i, fn := range runtimeFuncs {
+		loc := &profile.Location{
+			ID:   uint64(i + 1),
+			Line: []profile.Line{{Function: fn}},
+		}
+		prof.Location = append(prof.Location, loc)
+		prof.Sample = append(prof.Sample, &profile.Sample{
+			Location: []*profile.Location{loc},
+			Value:    []int64{int64((4 - i) * 100), int64((4 - i) * 1000000)},
+		})
+	}
+
+	result := parseProfile(prof, nil)
+
+	require.NotEmpty(t, result.TopTypes)
+
+	// Verify type classification.
+	typeMap := make(map[string]bool)
+	for _, tt := range result.TopTypes {
+		typeMap[tt.TypeName] = true
+	}
+	assert.True(t, typeMap["slice"], "expected 'slice' type from runtime.makeslice")
+	assert.True(t, typeMap["map"], "expected 'map' type from runtime.makemap_small")
+	assert.True(t, typeMap["object"], "expected 'object' type from runtime.newobject")
+	assert.True(t, typeMap["string"], "expected 'string' type from runtime.concatstrings")
+
+	// Sorted by bytes descending.
+	assert.Equal(t, "slice", result.TopTypes[0].TypeName)
+}
+
+func TestClassifyAllocType(t *testing.T) {
+	tests := []struct {
+		funcName string
+		expected string
+	}{
+		{"runtime.makeslice", "slice"},
+		{"runtime.growslice", "slice"},
+		{"runtime.makemap", "map"},
+		{"runtime.makemap_small", "map"},
+		{"runtime.mapassign_faststr", "map"},
+		{"runtime.newobject", "object"},
+		{"runtime.mallocgc", "object"},
+		{"runtime.concatstrings", "string"},
+		{"runtime.slicebytetostring", "string"},
+		{"runtime.makechan", "channel"},
+		{"myapp.ProcessOrder", "myapp.ProcessOrder"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.funcName, func(t *testing.T) {
+			assert.Equal(t, tt.expected, classifyAllocType(tt.funcName))
+		})
+	}
+}

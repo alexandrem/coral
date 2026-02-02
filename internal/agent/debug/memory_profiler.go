@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/pprof/profile"
@@ -257,10 +258,63 @@ func parseProfile(prof *profile.Profile, stats *MemoryStatsResult) *MemoryProfil
 		topFunctions = topFunctions[:20]
 	}
 
+	// Compute top types by mapping leaf functions to allocation categories.
+	typeBytes := make(map[string]int64)
+	typeObjects := make(map[string]int64)
+	for _, s := range samples {
+		if len(s.FrameNames) == 0 {
+			continue
+		}
+		// Leaf function is the first frame (innermost allocation site).
+		typeName := classifyAllocType(s.FrameNames[0])
+		typeBytes[typeName] += s.AllocBytes
+		typeObjects[typeName] += s.AllocObjects
+	}
+
+	var topTypes []TopAllocTypeResult
+	for tn, bytes := range typeBytes {
+		pct := 0.0
+		if totalBytes > 0 {
+			pct = float64(bytes) / float64(totalBytes) * 100
+		}
+		topTypes = append(topTypes, TopAllocTypeResult{
+			TypeName: tn,
+			Bytes:    bytes,
+			Objects:  typeObjects[tn],
+			Pct:      pct,
+		})
+	}
+	sort.Slice(topTypes, func(i, j int) bool {
+		return topTypes[i].Bytes > topTypes[j].Bytes
+	})
+	if len(topTypes) > 10 {
+		topTypes = topTypes[:10]
+	}
+
 	return &MemoryProfileResult{
 		Samples:      samples,
 		Stats:        *stats,
 		TopFunctions: topFunctions,
-		TopTypes:     nil, // Type attribution requires deeper pprof analysis.
+		TopTypes:     topTypes,
+	}
+}
+
+// classifyAllocType maps a leaf function name to an allocation type category.
+func classifyAllocType(funcName string) string {
+	switch {
+	case strings.Contains(funcName, "makeslice") || strings.Contains(funcName, "growslice"):
+		return "slice"
+	case strings.Contains(funcName, "makemap") || strings.Contains(funcName, "mapassign"):
+		return "map"
+	case strings.Contains(funcName, "newobject") || strings.Contains(funcName, "mallocgc"):
+		return "object"
+	case strings.Contains(funcName, "concatstrings") || strings.Contains(funcName, "slicebytetostring") || strings.Contains(funcName, "stringtoslicebyte"):
+		return "string"
+	case strings.Contains(funcName, "makechan"):
+		return "channel"
+	case strings.Contains(funcName, "newproc") || strings.Contains(funcName, "mstart"):
+		return "goroutine"
+	default:
+		return funcName
 	}
 }

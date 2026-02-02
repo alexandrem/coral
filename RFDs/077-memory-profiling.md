@@ -258,7 +258,7 @@ sequenceDiagram
 - [x] Implement `coral profile memory` command
 - [x] Implement `coral query memory-profile` command
 - [x] Add text-based flame graph rendering
-- [ ] Add allocation type breakdown display
+- [x] Add allocation type breakdown display
 
 ### Phase 5: LLM Integration
 
