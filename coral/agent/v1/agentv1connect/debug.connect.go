@@ -49,6 +49,12 @@ const (
 	// AgentDebugServiceQueryCPUProfileSamplesProcedure is the fully-qualified name of the
 	// AgentDebugService's QueryCPUProfileSamples RPC.
 	AgentDebugServiceQueryCPUProfileSamplesProcedure = "/coral.agent.v1.AgentDebugService/QueryCPUProfileSamples"
+	// AgentDebugServiceProfileMemoryProcedure is the fully-qualified name of the AgentDebugService's
+	// ProfileMemory RPC.
+	AgentDebugServiceProfileMemoryProcedure = "/coral.agent.v1.AgentDebugService/ProfileMemory"
+	// AgentDebugServiceQueryMemoryProfileSamplesProcedure is the fully-qualified name of the
+	// AgentDebugService's QueryMemoryProfileSamples RPC.
+	AgentDebugServiceQueryMemoryProfileSamplesProcedure = "/coral.agent.v1.AgentDebugService/QueryMemoryProfileSamples"
 )
 
 // AgentDebugServiceClient is a client for the coral.agent.v1.AgentDebugService service.
@@ -63,6 +69,10 @@ type AgentDebugServiceClient interface {
 	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error)
 	// Query historical CPU profile samples from continuous profiling (RFD 072).
 	QueryCPUProfileSamples(context.Context, *connect.Request[v1.QueryCPUProfileSamplesRequest]) (*connect.Response[v1.QueryCPUProfileSamplesResponse], error)
+	// Collect memory profile for a target process (RFD 077).
+	ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryAgentRequest]) (*connect.Response[v1.ProfileMemoryAgentResponse], error)
+	// Query historical memory profile samples from continuous profiling (RFD 077).
+	QueryMemoryProfileSamples(context.Context, *connect.Request[v1.QueryMemoryProfileSamplesRequest]) (*connect.Response[v1.QueryMemoryProfileSamplesResponse], error)
 }
 
 // NewAgentDebugServiceClient constructs a client for the coral.agent.v1.AgentDebugService service.
@@ -106,16 +116,30 @@ func NewAgentDebugServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(agentDebugServiceMethods.ByName("QueryCPUProfileSamples")),
 			connect.WithClientOptions(opts...),
 		),
+		profileMemory: connect.NewClient[v1.ProfileMemoryAgentRequest, v1.ProfileMemoryAgentResponse](
+			httpClient,
+			baseURL+AgentDebugServiceProfileMemoryProcedure,
+			connect.WithSchema(agentDebugServiceMethods.ByName("ProfileMemory")),
+			connect.WithClientOptions(opts...),
+		),
+		queryMemoryProfileSamples: connect.NewClient[v1.QueryMemoryProfileSamplesRequest, v1.QueryMemoryProfileSamplesResponse](
+			httpClient,
+			baseURL+AgentDebugServiceQueryMemoryProfileSamplesProcedure,
+			connect.WithSchema(agentDebugServiceMethods.ByName("QueryMemoryProfileSamples")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // agentDebugServiceClient implements AgentDebugServiceClient.
 type agentDebugServiceClient struct {
-	startUprobeCollector   *connect.Client[v1.StartUprobeCollectorRequest, v1.StartUprobeCollectorResponse]
-	stopUprobeCollector    *connect.Client[v1.StopUprobeCollectorRequest, v1.StopUprobeCollectorResponse]
-	queryUprobeEvents      *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
-	profileCPU             *connect.Client[v1.ProfileCPUAgentRequest, v1.ProfileCPUAgentResponse]
-	queryCPUProfileSamples *connect.Client[v1.QueryCPUProfileSamplesRequest, v1.QueryCPUProfileSamplesResponse]
+	startUprobeCollector      *connect.Client[v1.StartUprobeCollectorRequest, v1.StartUprobeCollectorResponse]
+	stopUprobeCollector       *connect.Client[v1.StopUprobeCollectorRequest, v1.StopUprobeCollectorResponse]
+	queryUprobeEvents         *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
+	profileCPU                *connect.Client[v1.ProfileCPUAgentRequest, v1.ProfileCPUAgentResponse]
+	queryCPUProfileSamples    *connect.Client[v1.QueryCPUProfileSamplesRequest, v1.QueryCPUProfileSamplesResponse]
+	profileMemory             *connect.Client[v1.ProfileMemoryAgentRequest, v1.ProfileMemoryAgentResponse]
+	queryMemoryProfileSamples *connect.Client[v1.QueryMemoryProfileSamplesRequest, v1.QueryMemoryProfileSamplesResponse]
 }
 
 // StartUprobeCollector calls coral.agent.v1.AgentDebugService.StartUprobeCollector.
@@ -143,6 +167,16 @@ func (c *agentDebugServiceClient) QueryCPUProfileSamples(ctx context.Context, re
 	return c.queryCPUProfileSamples.CallUnary(ctx, req)
 }
 
+// ProfileMemory calls coral.agent.v1.AgentDebugService.ProfileMemory.
+func (c *agentDebugServiceClient) ProfileMemory(ctx context.Context, req *connect.Request[v1.ProfileMemoryAgentRequest]) (*connect.Response[v1.ProfileMemoryAgentResponse], error) {
+	return c.profileMemory.CallUnary(ctx, req)
+}
+
+// QueryMemoryProfileSamples calls coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples.
+func (c *agentDebugServiceClient) QueryMemoryProfileSamples(ctx context.Context, req *connect.Request[v1.QueryMemoryProfileSamplesRequest]) (*connect.Response[v1.QueryMemoryProfileSamplesResponse], error) {
+	return c.queryMemoryProfileSamples.CallUnary(ctx, req)
+}
+
 // AgentDebugServiceHandler is an implementation of the coral.agent.v1.AgentDebugService service.
 type AgentDebugServiceHandler interface {
 	// Start a uprobe collector on an agent.
@@ -155,6 +189,10 @@ type AgentDebugServiceHandler interface {
 	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error)
 	// Query historical CPU profile samples from continuous profiling (RFD 072).
 	QueryCPUProfileSamples(context.Context, *connect.Request[v1.QueryCPUProfileSamplesRequest]) (*connect.Response[v1.QueryCPUProfileSamplesResponse], error)
+	// Collect memory profile for a target process (RFD 077).
+	ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryAgentRequest]) (*connect.Response[v1.ProfileMemoryAgentResponse], error)
+	// Query historical memory profile samples from continuous profiling (RFD 077).
+	QueryMemoryProfileSamples(context.Context, *connect.Request[v1.QueryMemoryProfileSamplesRequest]) (*connect.Response[v1.QueryMemoryProfileSamplesResponse], error)
 }
 
 // NewAgentDebugServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -194,6 +232,18 @@ func NewAgentDebugServiceHandler(svc AgentDebugServiceHandler, opts ...connect.H
 		connect.WithSchema(agentDebugServiceMethods.ByName("QueryCPUProfileSamples")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentDebugServiceProfileMemoryHandler := connect.NewUnaryHandler(
+		AgentDebugServiceProfileMemoryProcedure,
+		svc.ProfileMemory,
+		connect.WithSchema(agentDebugServiceMethods.ByName("ProfileMemory")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentDebugServiceQueryMemoryProfileSamplesHandler := connect.NewUnaryHandler(
+		AgentDebugServiceQueryMemoryProfileSamplesProcedure,
+		svc.QueryMemoryProfileSamples,
+		connect.WithSchema(agentDebugServiceMethods.ByName("QueryMemoryProfileSamples")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.agent.v1.AgentDebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentDebugServiceStartUprobeCollectorProcedure:
@@ -206,6 +256,10 @@ func NewAgentDebugServiceHandler(svc AgentDebugServiceHandler, opts ...connect.H
 			agentDebugServiceProfileCPUHandler.ServeHTTP(w, r)
 		case AgentDebugServiceQueryCPUProfileSamplesProcedure:
 			agentDebugServiceQueryCPUProfileSamplesHandler.ServeHTTP(w, r)
+		case AgentDebugServiceProfileMemoryProcedure:
+			agentDebugServiceProfileMemoryHandler.ServeHTTP(w, r)
+		case AgentDebugServiceQueryMemoryProfileSamplesProcedure:
+			agentDebugServiceQueryMemoryProfileSamplesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -233,4 +287,12 @@ func (UnimplementedAgentDebugServiceHandler) ProfileCPU(context.Context, *connec
 
 func (UnimplementedAgentDebugServiceHandler) QueryCPUProfileSamples(context.Context, *connect.Request[v1.QueryCPUProfileSamplesRequest]) (*connect.Response[v1.QueryCPUProfileSamplesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.QueryCPUProfileSamples is not implemented"))
+}
+
+func (UnimplementedAgentDebugServiceHandler) ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryAgentRequest]) (*connect.Response[v1.ProfileMemoryAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.ProfileMemory is not implemented"))
+}
+
+func (UnimplementedAgentDebugServiceHandler) QueryMemoryProfileSamples(context.Context, *connect.Request[v1.QueryMemoryProfileSamplesRequest]) (*connect.Response[v1.QueryMemoryProfileSamplesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples is not implemented"))
 }

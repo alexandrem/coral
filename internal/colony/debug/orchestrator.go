@@ -1004,3 +1004,171 @@ func (o *Orchestrator) QueryHistoricalCPUProfile(
 		Success:      true,
 	}), nil
 }
+
+// ProfileMemory collects memory profile for a target service/pod (RFD 077).
+func (o *Orchestrator) ProfileMemory(
+	ctx context.Context,
+	req *connect.Request[debugpb.ProfileMemoryRequest],
+) (*connect.Response[debugpb.ProfileMemoryResponse], error) {
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Int32("duration", req.Msg.DurationSeconds).
+		Msg("Starting memory profiling")
+
+	durationSeconds := req.Msg.DurationSeconds
+	if durationSeconds <= 0 {
+		durationSeconds = 30
+	}
+	if durationSeconds > 300 {
+		durationSeconds = 300
+	}
+
+	// Find agent for service.
+	agentID := req.Msg.AgentId
+	if agentID == "" {
+		var err error
+		agentID, err = o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
+		if err != nil {
+			return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
+			}), nil
+		}
+	}
+
+	if agentID == "" {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   "agent_id is required (could not resolve from service)",
+		}), nil
+	}
+
+	entry, err := o.registry.Get(agentID)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("agent not found: %v", err),
+		}), nil
+	}
+
+	targetPID, err := o.agentCoordinator.GetServicePID(ctx, agentID, req.Msg.ServiceName)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to get service PID: %v", err),
+		}), nil
+	}
+
+	debugClient := o.clientFactory(
+		http.DefaultClient,
+		fmt.Sprintf("http://%s", buildAgentAddress(entry.MeshIPv4)),
+	)
+
+	profileReq := connect.NewRequest(&agentv1.ProfileMemoryAgentRequest{
+		AgentId:         agentID,
+		ServiceName:     req.Msg.ServiceName,
+		Pid:             targetPID,
+		DurationSeconds: durationSeconds,
+		SampleRateBytes: req.Msg.SampleRateBytes,
+	})
+
+	profileResp, err := debugClient.ProfileMemory(ctx, profileReq)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to collect memory profile: %v", err),
+		}), nil
+	}
+
+	if !profileResp.Msg.Success {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   profileResp.Msg.Error,
+		}), nil
+	}
+
+	return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+		Samples:      profileResp.Msg.Samples,
+		Stats:        profileResp.Msg.Stats,
+		TopFunctions: profileResp.Msg.TopFunctions,
+		TopTypes:     profileResp.Msg.TopTypes,
+		Success:      true,
+	}), nil
+}
+
+// QueryHistoricalMemoryProfile queries historical memory profiles from continuous profiling (RFD 077).
+func (o *Orchestrator) QueryHistoricalMemoryProfile(
+	ctx context.Context,
+	req *connect.Request[debugpb.QueryHistoricalMemoryProfileRequest],
+) (*connect.Response[debugpb.QueryHistoricalMemoryProfileResponse], error) {
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Msg("Querying historical memory profiles")
+
+	summaries, err := o.db.QueryMemoryProfileSummaries(
+		ctx,
+		req.Msg.ServiceName,
+		req.Msg.StartTime.AsTime(),
+		req.Msg.EndTime.AsTime(),
+	)
+	if err != nil {
+		return connect.NewResponse(&debugpb.QueryHistoricalMemoryProfileResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to query historical memory profiles: %v", err),
+		}), nil
+	}
+
+	if len(summaries) == 0 {
+		return connect.NewResponse(&debugpb.QueryHistoricalMemoryProfileResponse{
+			Success:         true,
+			Samples:         nil,
+			TotalAllocBytes: 0,
+		}), nil
+	}
+
+	// Aggregate by stack hash.
+	type stackAgg struct {
+		frameIDs     []int64
+		allocBytes   int64
+		allocObjects int64
+	}
+
+	aggregated := make(map[string]*stackAgg)
+	for _, summary := range summaries {
+		if existing, exists := aggregated[summary.StackHash]; exists {
+			existing.allocBytes += summary.AllocBytes
+			existing.allocObjects += summary.AllocObjects
+		} else {
+			aggregated[summary.StackHash] = &stackAgg{
+				frameIDs:     summary.StackFrameIDs,
+				allocBytes:   summary.AllocBytes,
+				allocObjects: summary.AllocObjects,
+			}
+		}
+	}
+
+	var samples []*agentv1.MemoryStackSample
+	var totalAllocBytes int64
+
+	for _, agg := range aggregated {
+		totalAllocBytes += agg.allocBytes
+
+		frameNames, err := o.db.DecodeStackFrames(ctx, agg.frameIDs)
+		if err != nil {
+			o.logger.Warn().Err(err).Msg("Failed to decode stack frames, skipping memory sample")
+			continue
+		}
+
+		samples = append(samples, &agentv1.MemoryStackSample{
+			FrameNames:   frameNames,
+			AllocBytes:   agg.allocBytes,
+			AllocObjects: agg.allocObjects,
+		})
+	}
+
+	return connect.NewResponse(&debugpb.QueryHistoricalMemoryProfileResponse{
+		Samples:         samples,
+		TotalAllocBytes: totalAllocBytes,
+		Success:         true,
+	}), nil
+}

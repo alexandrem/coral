@@ -64,6 +64,12 @@ const (
 	// ColonyDebugServiceQueryHistoricalCPUProfileProcedure is the fully-qualified name of the
 	// ColonyDebugService's QueryHistoricalCPUProfile RPC.
 	ColonyDebugServiceQueryHistoricalCPUProfileProcedure = "/coral.colony.v1.ColonyDebugService/QueryHistoricalCPUProfile"
+	// ColonyDebugServiceProfileMemoryProcedure is the fully-qualified name of the ColonyDebugService's
+	// ProfileMemory RPC.
+	ColonyDebugServiceProfileMemoryProcedure = "/coral.colony.v1.ColonyDebugService/ProfileMemory"
+	// ColonyDebugServiceQueryHistoricalMemoryProfileProcedure is the fully-qualified name of the
+	// ColonyDebugService's QueryHistoricalMemoryProfile RPC.
+	ColonyDebugServiceQueryHistoricalMemoryProfileProcedure = "/coral.colony.v1.ColonyDebugService/QueryHistoricalMemoryProfile"
 )
 
 // ColonyDebugServiceClient is a client for the coral.colony.v1.ColonyDebugService service.
@@ -88,6 +94,10 @@ type ColonyDebugServiceClient interface {
 	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error)
 	// Query historical CPU profiles from continuous profiling (RFD 072).
 	QueryHistoricalCPUProfile(context.Context, *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error)
+	// Collect memory profile for a target service/pod (RFD 077).
+	ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryRequest]) (*connect.Response[v1.ProfileMemoryResponse], error)
+	// Query historical memory profiles from continuous profiling (RFD 077).
+	QueryHistoricalMemoryProfile(context.Context, *connect.Request[v1.QueryHistoricalMemoryProfileRequest]) (*connect.Response[v1.QueryHistoricalMemoryProfileResponse], error)
 }
 
 // NewColonyDebugServiceClient constructs a client for the coral.colony.v1.ColonyDebugService
@@ -161,21 +171,35 @@ func NewColonyDebugServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(colonyDebugServiceMethods.ByName("QueryHistoricalCPUProfile")),
 			connect.WithClientOptions(opts...),
 		),
+		profileMemory: connect.NewClient[v1.ProfileMemoryRequest, v1.ProfileMemoryResponse](
+			httpClient,
+			baseURL+ColonyDebugServiceProfileMemoryProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("ProfileMemory")),
+			connect.WithClientOptions(opts...),
+		),
+		queryHistoricalMemoryProfile: connect.NewClient[v1.QueryHistoricalMemoryProfileRequest, v1.QueryHistoricalMemoryProfileResponse](
+			httpClient,
+			baseURL+ColonyDebugServiceQueryHistoricalMemoryProfileProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("QueryHistoricalMemoryProfile")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // colonyDebugServiceClient implements ColonyDebugServiceClient.
 type colonyDebugServiceClient struct {
-	attachUprobe              *connect.Client[v1.AttachUprobeRequest, v1.AttachUprobeResponse]
-	detachUprobe              *connect.Client[v1.DetachUprobeRequest, v1.DetachUprobeResponse]
-	queryUprobeEvents         *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
-	listDebugSessions         *connect.Client[v1.ListDebugSessionsRequest, v1.ListDebugSessionsResponse]
-	traceRequestPath          *connect.Client[v1.TraceRequestPathRequest, v1.TraceRequestPathResponse]
-	getDebugResults           *connect.Client[v1.GetDebugResultsRequest, v1.GetDebugResultsResponse]
-	queryFunctions            *connect.Client[v1.QueryFunctionsRequest, v1.QueryFunctionsResponse]
-	profileFunctions          *connect.Client[v1.ProfileFunctionsRequest, v1.ProfileFunctionsResponse]
-	profileCPU                *connect.Client[v1.ProfileCPURequest, v1.ProfileCPUResponse]
-	queryHistoricalCPUProfile *connect.Client[v1.QueryHistoricalCPUProfileRequest, v1.QueryHistoricalCPUProfileResponse]
+	attachUprobe                 *connect.Client[v1.AttachUprobeRequest, v1.AttachUprobeResponse]
+	detachUprobe                 *connect.Client[v1.DetachUprobeRequest, v1.DetachUprobeResponse]
+	queryUprobeEvents            *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
+	listDebugSessions            *connect.Client[v1.ListDebugSessionsRequest, v1.ListDebugSessionsResponse]
+	traceRequestPath             *connect.Client[v1.TraceRequestPathRequest, v1.TraceRequestPathResponse]
+	getDebugResults              *connect.Client[v1.GetDebugResultsRequest, v1.GetDebugResultsResponse]
+	queryFunctions               *connect.Client[v1.QueryFunctionsRequest, v1.QueryFunctionsResponse]
+	profileFunctions             *connect.Client[v1.ProfileFunctionsRequest, v1.ProfileFunctionsResponse]
+	profileCPU                   *connect.Client[v1.ProfileCPURequest, v1.ProfileCPUResponse]
+	queryHistoricalCPUProfile    *connect.Client[v1.QueryHistoricalCPUProfileRequest, v1.QueryHistoricalCPUProfileResponse]
+	profileMemory                *connect.Client[v1.ProfileMemoryRequest, v1.ProfileMemoryResponse]
+	queryHistoricalMemoryProfile *connect.Client[v1.QueryHistoricalMemoryProfileRequest, v1.QueryHistoricalMemoryProfileResponse]
 }
 
 // AttachUprobe calls coral.colony.v1.ColonyDebugService.AttachUprobe.
@@ -228,6 +252,17 @@ func (c *colonyDebugServiceClient) QueryHistoricalCPUProfile(ctx context.Context
 	return c.queryHistoricalCPUProfile.CallUnary(ctx, req)
 }
 
+// ProfileMemory calls coral.colony.v1.ColonyDebugService.ProfileMemory.
+func (c *colonyDebugServiceClient) ProfileMemory(ctx context.Context, req *connect.Request[v1.ProfileMemoryRequest]) (*connect.Response[v1.ProfileMemoryResponse], error) {
+	return c.profileMemory.CallUnary(ctx, req)
+}
+
+// QueryHistoricalMemoryProfile calls
+// coral.colony.v1.ColonyDebugService.QueryHistoricalMemoryProfile.
+func (c *colonyDebugServiceClient) QueryHistoricalMemoryProfile(ctx context.Context, req *connect.Request[v1.QueryHistoricalMemoryProfileRequest]) (*connect.Response[v1.QueryHistoricalMemoryProfileResponse], error) {
+	return c.queryHistoricalMemoryProfile.CallUnary(ctx, req)
+}
+
 // ColonyDebugServiceHandler is an implementation of the coral.colony.v1.ColonyDebugService service.
 type ColonyDebugServiceHandler interface {
 	// Start uprobe debug session.
@@ -250,6 +285,10 @@ type ColonyDebugServiceHandler interface {
 	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPURequest]) (*connect.Response[v1.ProfileCPUResponse], error)
 	// Query historical CPU profiles from continuous profiling (RFD 072).
 	QueryHistoricalCPUProfile(context.Context, *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error)
+	// Collect memory profile for a target service/pod (RFD 077).
+	ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryRequest]) (*connect.Response[v1.ProfileMemoryResponse], error)
+	// Query historical memory profiles from continuous profiling (RFD 077).
+	QueryHistoricalMemoryProfile(context.Context, *connect.Request[v1.QueryHistoricalMemoryProfileRequest]) (*connect.Response[v1.QueryHistoricalMemoryProfileResponse], error)
 }
 
 // NewColonyDebugServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -319,6 +358,18 @@ func NewColonyDebugServiceHandler(svc ColonyDebugServiceHandler, opts ...connect
 		connect.WithSchema(colonyDebugServiceMethods.ByName("QueryHistoricalCPUProfile")),
 		connect.WithHandlerOptions(opts...),
 	)
+	colonyDebugServiceProfileMemoryHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceProfileMemoryProcedure,
+		svc.ProfileMemory,
+		connect.WithSchema(colonyDebugServiceMethods.ByName("ProfileMemory")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyDebugServiceQueryHistoricalMemoryProfileHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceQueryHistoricalMemoryProfileProcedure,
+		svc.QueryHistoricalMemoryProfile,
+		connect.WithSchema(colonyDebugServiceMethods.ByName("QueryHistoricalMemoryProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/coral.colony.v1.ColonyDebugService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ColonyDebugServiceAttachUprobeProcedure:
@@ -341,6 +392,10 @@ func NewColonyDebugServiceHandler(svc ColonyDebugServiceHandler, opts ...connect
 			colonyDebugServiceProfileCPUHandler.ServeHTTP(w, r)
 		case ColonyDebugServiceQueryHistoricalCPUProfileProcedure:
 			colonyDebugServiceQueryHistoricalCPUProfileHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceProfileMemoryProcedure:
+			colonyDebugServiceProfileMemoryHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceQueryHistoricalMemoryProfileProcedure:
+			colonyDebugServiceQueryHistoricalMemoryProfileHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -388,4 +443,12 @@ func (UnimplementedColonyDebugServiceHandler) ProfileCPU(context.Context, *conne
 
 func (UnimplementedColonyDebugServiceHandler) QueryHistoricalCPUProfile(context.Context, *connect.Request[v1.QueryHistoricalCPUProfileRequest]) (*connect.Response[v1.QueryHistoricalCPUProfileResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.QueryHistoricalCPUProfile is not implemented"))
+}
+
+func (UnimplementedColonyDebugServiceHandler) ProfileMemory(context.Context, *connect.Request[v1.ProfileMemoryRequest]) (*connect.Response[v1.ProfileMemoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.ProfileMemory is not implemented"))
+}
+
+func (UnimplementedColonyDebugServiceHandler) QueryHistoricalMemoryProfile(context.Context, *connect.Request[v1.QueryHistoricalMemoryProfileRequest]) (*connect.Response[v1.QueryHistoricalMemoryProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.QueryHistoricalMemoryProfile is not implemented"))
 }

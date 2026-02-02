@@ -26,17 +26,18 @@ const (
 
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
-	id                 string
-	monitors           map[string]*ServiceMonitor
-	ebpfManager        *ebpf.Manager
-	beylaManager       *beyla.Manager
-	debugManager       *debug.SessionManager
-	continuousProfiler interface{}    // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds)
-	functionCache      *FunctionCache // RFD 063: Function discovery cache
-	logger             zerolog.Logger
-	mu                 sync.RWMutex
-	ctx                context.Context
-	cancel             context.CancelFunc
+	id                       string
+	monitors                 map[string]*ServiceMonitor
+	ebpfManager              *ebpf.Manager
+	beylaManager             *beyla.Manager
+	debugManager             *debug.SessionManager
+	continuousProfiler       interface{}    // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds).
+	continuousMemoryProfiler interface{}    // RFD 077: Continuous memory profiler.
+	functionCache            *FunctionCache // RFD 063: Function discovery cache
+	logger                   zerolog.Logger
+	mu                       sync.RWMutex
+	ctx                      context.Context
+	cancel                   context.CancelFunc
 }
 
 // Config contains agent configuration.
@@ -152,8 +153,14 @@ func (a *Agent) Stop() error {
 
 	// Stop continuous profiler (RFD 072).
 	if a.continuousProfiler != nil {
-		// Type assert to get the Stop method
 		if profiler, ok := a.continuousProfiler.(interface{ Stop() }); ok {
+			profiler.Stop()
+		}
+	}
+
+	// Stop continuous memory profiler (RFD 077).
+	if a.continuousMemoryProfiler != nil {
+		if profiler, ok := a.continuousMemoryProfiler.(interface{ Stop() }); ok {
 			profiler.Stop()
 		}
 	}
@@ -167,6 +174,13 @@ func (a *Agent) SetContinuousProfiler(profiler interface{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.continuousProfiler = profiler
+}
+
+// SetContinuousMemoryProfiler sets the continuous memory profiler (RFD 077).
+func (a *Agent) SetContinuousMemoryProfiler(profiler interface{}) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.continuousMemoryProfiler = profiler
 }
 
 // onProcessDiscovered is called when a service's PID is discovered by a monitor.

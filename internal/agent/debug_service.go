@@ -9,6 +9,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/debug"
 	"github.com/coral-mesh/coral/internal/agent/profiler"
 	"github.com/rs/zerolog"
 )
@@ -285,6 +286,152 @@ func (s *DebugService) QueryCPUProfileSamples(
 	}, nil
 }
 
+// ProfileMemory handles requests to collect memory profile samples (RFD 077).
+func (s *DebugService) ProfileMemory(
+	ctx context.Context,
+	req *agentv1.ProfileMemoryAgentRequest,
+) (*agentv1.ProfileMemoryAgentResponse, error) {
+	s.logger.Info().
+		Str("service", req.ServiceName).
+		Int32("pid", req.Pid).
+		Int32("duration_seconds", req.DurationSeconds).
+		Msg("Starting memory profiling")
+
+	sdkAddr := req.SdkAddr
+	if sdkAddr == "" {
+		resolved, err := s.agent.ResolveSDK(req.ServiceName)
+		if err != nil {
+			return &agentv1.ProfileMemoryAgentResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to resolve sdk_addr: %v", err),
+			}, nil
+		}
+		sdkAddr = resolved
+	}
+
+	duration := int(req.DurationSeconds)
+	if duration <= 0 {
+		duration = 30
+	}
+
+	result, err := debug.CollectMemoryProfile(sdkAddr, duration, s.logger)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to collect memory profile")
+		return &agentv1.ProfileMemoryAgentResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to profile memory: %v", err),
+		}, nil
+	}
+
+	// Convert to protobuf response.
+	var samples []*agentv1.MemoryStackSample
+	for _, sample := range result.Samples {
+		samples = append(samples, &agentv1.MemoryStackSample{
+			FrameNames:   sample.FrameNames,
+			AllocBytes:   sample.AllocBytes,
+			AllocObjects: sample.AllocObjects,
+		})
+	}
+
+	var topFunctions []*agentv1.TopAllocFunction
+	for _, tf := range result.TopFunctions {
+		topFunctions = append(topFunctions, &agentv1.TopAllocFunction{
+			Function: tf.Function,
+			Bytes:    tf.Bytes,
+			Objects:  tf.Objects,
+			Pct:      tf.Pct,
+		})
+	}
+
+	var topTypes []*agentv1.TopAllocType
+	for _, tt := range result.TopTypes {
+		topTypes = append(topTypes, &agentv1.TopAllocType{
+			TypeName: tt.TypeName,
+			Bytes:    tt.Bytes,
+			Objects:  tt.Objects,
+			Pct:      tt.Pct,
+		})
+	}
+
+	return &agentv1.ProfileMemoryAgentResponse{
+		Samples: samples,
+		Stats: &agentv1.MemoryStats{
+			AllocBytes:            result.Stats.AllocBytes,
+			TotalAllocBytes:       result.Stats.TotalAllocBytes,
+			SysBytes:              result.Stats.SysBytes,
+			NumGc:                 result.Stats.NumGC,
+			HeapGrowthBytesPerSec: result.Stats.HeapGrowthBytesPerSec,
+		},
+		TopFunctions: topFunctions,
+		TopTypes:     topTypes,
+		Success:      true,
+	}, nil
+}
+
+// QueryMemoryProfileSamples handles requests to query historical memory profile samples (RFD 077).
+func (s *DebugService) QueryMemoryProfileSamples(
+	ctx context.Context,
+	req *agentv1.QueryMemoryProfileSamplesRequest,
+) (*agentv1.QueryMemoryProfileSamplesResponse, error) {
+	s.logger.Debug().
+		Str("service", req.ServiceName).
+		Msg("Querying memory profile samples")
+
+	// Get the continuous memory profiler from the agent.
+	memProfiler, ok := s.agent.continuousMemoryProfiler.(*profiler.ContinuousMemoryProfiler)
+	if !ok || memProfiler == nil {
+		return &agentv1.QueryMemoryProfileSamplesResponse{
+			Error: "continuous memory profiling not enabled",
+		}, nil
+	}
+
+	storageIface := memProfiler.GetStorage()
+	storage, ok := storageIface.(*profiler.Storage)
+	if !ok {
+		return &agentv1.QueryMemoryProfileSamplesResponse{
+			Error: "invalid storage type",
+		}, nil
+	}
+
+	startTime := req.StartTime.AsTime()
+	endTime := req.EndTime.AsTime()
+
+	samples, err := storage.QueryMemorySamples(ctx, startTime, endTime, req.ServiceName)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to query memory profile samples")
+		return &agentv1.QueryMemoryProfileSamplesResponse{
+			Error: fmt.Sprintf("failed to query samples: %v", err),
+		}, nil
+	}
+
+	var pbSamples []*agentv1.MemoryProfileSample
+	var totalAllocBytes int64
+
+	for _, sample := range samples {
+		frameNames, err := storage.DecodeStackFrames(ctx, sample.StackFrameIDs)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to decode stack frames")
+			continue
+		}
+
+		pbSamples = append(pbSamples, &agentv1.MemoryProfileSample{
+			Timestamp:    timestamppb.New(sample.Timestamp),
+			BuildId:      sample.BuildID,
+			StackFrames:  frameNames,
+			AllocBytes:   sample.AllocBytes,
+			AllocObjects: sample.AllocObjects,
+			ServiceName:  sample.ServiceID,
+		})
+
+		totalAllocBytes += sample.AllocBytes
+	}
+
+	return &agentv1.QueryMemoryProfileSamplesResponse{
+		Samples:         pbSamples,
+		TotalAllocBytes: totalAllocBytes,
+	}, nil
+}
+
 // DebugServiceAdapter adapts DebugService to the Connect RPC handler interface.
 type DebugServiceAdapter struct {
 	service *DebugService
@@ -349,6 +496,30 @@ func (a *DebugServiceAdapter) QueryCPUProfileSamples(
 	req *connect.Request[agentv1.QueryCPUProfileSamplesRequest],
 ) (*connect.Response[agentv1.QueryCPUProfileSamplesResponse], error) {
 	resp, err := a.service.QueryCPUProfileSamples(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// ProfileMemory implements the Connect RPC handler interface (RFD 077).
+func (a *DebugServiceAdapter) ProfileMemory(
+	ctx context.Context,
+	req *connect.Request[agentv1.ProfileMemoryAgentRequest],
+) (*connect.Response[agentv1.ProfileMemoryAgentResponse], error) {
+	resp, err := a.service.ProfileMemory(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// QueryMemoryProfileSamples implements the Connect RPC handler interface (RFD 077).
+func (a *DebugServiceAdapter) QueryMemoryProfileSamples(
+	ctx context.Context,
+	req *connect.Request[agentv1.QueryMemoryProfileSamplesRequest],
+) (*connect.Response[agentv1.QueryMemoryProfileSamplesResponse], error) {
+	resp, err := a.service.QueryMemoryProfileSamples(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

@@ -228,45 +228,44 @@ sequenceDiagram
 
 ### Phase 1: SDK Memory Profile Collection
 
-- [ ] Verify `/debug/pprof/heap` and `/debug/pprof/allocs` endpoints work
+- [x] Verify `/debug/pprof/heap` and `/debug/pprof/allocs` endpoints work
   correctly
-- [ ] Add `POST /debug/config/memory-profile` for runtime sampling rate
+- [x] Add `POST /debug/config/memory-profile` for runtime sampling rate
   adjustment
-- [ ] Add unit tests for memory profile generation with various allocation
+- [x] Add unit tests for memory profile generation with various allocation
   patterns
 
 ### Phase 2: Agent Collection & Parsing
 
-- [ ] Extend `ProfileCollector` to support `MEMORY` profile type
-- [ ] Implement `pprof` heap profile parser (convert to flame graph format)
-- [ ] Add continuous memory profiling with 60s snapshot interval
-- [ ] Implement heap growth tracking (compare snapshots over time)
-- [ ] Add functional tests with mock Go applications allocating memory
+- [x] Extend `ProfileCollector` to support `MEMORY` profile type
+- [x] Implement `pprof` heap profile parser (convert to flame graph format)
+- [x] Add continuous memory profiling with 60s snapshot interval
+- [x] Implement heap growth tracking (compare snapshots over time)
+- [x] Add functional tests with mock Go applications allocating memory
 
 ### Phase 3: Colony Storage & Query
 
-- [ ] Create `MemoryProfilePoller` to poll agents for memory snapshots
-- [ ] Implement stack merging logic (combine identical stacks across time windows)
-- [ ] Add `memory_profiles` table to DuckDB schema with frame dictionary support
-- [ ] Add `profile_frame_dictionary` table for compression
-- [ ] Implement `memory_hotspots` aggregation view
-- [ ] Add retention policy (1hr agent, 30 days colony with cleanup)
-- [ ] Implement frame dictionary encoding (85% compression)
-- [ ] Create migration scripts for existing deployments
+- [x] Create `MemoryProfilePoller` to poll agents for memory snapshots
+- [x] Implement stack merging logic (combine identical stacks across time windows)
+- [x] Add `memory_profiles` table to DuckDB schema with frame dictionary support
+- [x] Add `profile_frame_dictionary` table for compression
+- [x] Implement `memory_hotspots` aggregation view
+- [x] Add retention policy (1hr agent, 30 days colony with cleanup)
+- [x] Implement frame dictionary encoding (85% compression)
 
 ### Phase 4: CLI Integration
 
-- [ ] Implement `coral profile memory` command
-- [ ] Implement `coral query memory-profile` command
-- [ ] Add text-based flame graph rendering
+- [x] Implement `coral profile memory` command
+- [x] Implement `coral query memory-profile` command
+- [x] Add text-based flame graph rendering
 - [ ] Add allocation type breakdown display
 
 ### Phase 5: LLM Integration
 
-- [ ] Extend `coral_query_summary` with `memory_hotspots` field
-- [ ] Add `heap_growth` and `gc_correlation` fields
+- [x] Extend `coral_query_summary` with `memory_hotspots` field
+- [x] Add `heap_growth` and `gc_correlation` fields
 - [ ] Update LLM prompt templates to interpret memory diagnostics
-- [ ] Add integration tests for memory leak scenario detection
+- [x] Add integration tests for memory leak scenario detection
 
 ### Phase 6: Documentation & E2E Testing
 
@@ -697,7 +696,7 @@ efficiency.
 
 ## Implementation Status
 
-**Status:** ⏳ Not Started
+**Status:** 🚧 In Progress (Phases 1-5 implemented, Phase 6 pending)
 
 ## Future Work
 
