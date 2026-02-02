@@ -1,19 +1,20 @@
 ---
 rfd: "088"
 title: "Bootstrap Pre-Shared Key"
-state: "draft"
+state: "implemented"
 breaking_changes: true
 testing_required: true
 database_changes: true
 api_changes: true
 dependencies: [ "047", "048", "049" ]
+database_migrations: [ ]
 related_rfds: [ "085", "086", "087" ]
 areas: [ "security", "colony", "agent", "discovery" ]
 ---
 
 # RFD 088 - Bootstrap Pre-Shared Key
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -336,57 +337,48 @@ provides authorization at the Colony layer. They are complementary:
 Both can be implemented independently. The PSK alone is sufficient to prevent
 unauthorized agent enrollment.
 
-## Migration Strategy
-
-1. **Colony upgrade**: Colony generates a PSK during the first startup after
-   upgrade. PSK is stored in colony configuration. A flag
-   `bootstrap.psk_required` defaults to `false` during migration.
-
-2. **Operator enables PSK**: Operator sets `bootstrap.psk_required=true` and
-   distributes the PSK to agent deployments.
-
-3. **Agent upgrade**: Agents include `CORAL_BOOTSTRAP_PSK` in configuration.
-   Agents without the PSK fail bootstrap when enforcement is enabled.
-
-4. **Enforcement**: After all agents are configured with the PSK, enforcement
-   is mandatory.
-
-**Rollback**: Set `bootstrap.psk_required=false` to allow PSK-less bootstrap
-during migration.
-
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** ✅ Complete
+
+PSK generation, encrypted storage, colony-side validation, agent-side integration,
+CLI commands, unit/integration tests, and E2E tests are implemented.
+
+**Operational Components:**
+- ✅ PSK generation (32-byte entropy, `coral-psk:` prefix)
+- ✅ PSK encrypted storage (AES-256-GCM, HKDF-SHA256 from Root CA key)
+- ✅ Colony-side validation in `RequestCertificate`
+- ✅ Agent-side PSK inclusion in bootstrap flow
+- ✅ CLI commands (`coral colony psk show`, `coral colony psk rotate`)
+- ✅ Grace period support for PSK rotation
+- ✅ E2E test: docker-compose agents receive PSK, CLI test helpers pass PSK
 
 ## Implementation Plan
 
 ### Phase 1: PSK Generation and Storage
 
-- [ ] Add PSK generation to `coral colony init`
-- [ ] Store PSK in colony configuration (hashed)
-- [ ] Add `coral colony psk show` and `coral colony psk rotate` commands
-- [ ] Add `bootstrap.psk_required` configuration flag
-
+- [x] Add PSK generation to `coral colony init`
+- [x] Store PSK encrypted in DuckDB (AES-256-GCM, key from Root CA via HKDF)
+- [x] Add `coral colony psk show` and `coral colony psk rotate` commands
 ### Phase 2: Colony-Side Validation
 
-- [ ] Add `bootstrap_psk` field to `RequestCertificateRequest` protobuf
-- [ ] Validate PSK in certificate issuance flow (bootstrap requests only)
-- [ ] Support grace period for PSK rotation (accept old + new)
-- [ ] Add audit logging for PSK validation failures
+- [x] Add `bootstrap_psk` field to `RequestCertificateRequest` protobuf
+- [x] Validate PSK in certificate issuance flow (bootstrap requests only)
+- [x] Support grace period for PSK rotation (accept old + new)
+- [x] Add audit logging for PSK validation failures
 
 ### Phase 3: Agent-Side Integration
 
-- [ ] Add `CORAL_BOOTSTRAP_PSK` environment variable support
-- [ ] Add `security.bootstrap.psk` configuration field
-- [ ] Include PSK in `RequestCertificate` call during bootstrap
-- [ ] Update `coral agent bootstrap` command
+- [x] Add `CORAL_BOOTSTRAP_PSK` environment variable support
+- [x] Add `bootstrap_psk` configuration field in BootstrapConfig
+- [x] Include PSK in `RequestCertificate` call during bootstrap
+- [x] Update `coral agent bootstrap` command with `--psk` flag
 
 ### Phase 4: Testing
 
-- [ ] Unit tests for PSK generation, hashing, and validation
-- [ ] Unit tests for PSK rotation with grace period
-- [ ] Integration test: bootstrap with valid PSK succeeds
-- [ ] Integration test: bootstrap without PSK is rejected (when enforced)
-- [ ] Integration test: renewal without PSK succeeds (mTLS auth)
-- [ ] Integration test: PSK rotation grace period
-- [ ] E2E test: full bootstrap flow with PSK
+- [x] Unit tests for PSK generation, encryption, and format validation
+- [x] Unit tests for PSK rotation with grace period
+- [x] Integration test: PSK store, validate, and rotate via Manager
+- [x] Integration test: bootstrap PSK import from filesystem
+- [x] Integration test: PSK rotation grace period expiry
+- [x] E2E test: docker-compose PSK sharing, CLI helpers pass `--psk`

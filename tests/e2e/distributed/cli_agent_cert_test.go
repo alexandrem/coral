@@ -25,12 +25,13 @@ import (
 type CLIAgentCertSuite struct {
 	suite.Suite
 
-	ctx         context.Context
-	tempDir     string // Temporary directory for test
-	colonyID    string
-	colonyDir   string
-	cliEnv      *helpers.CLITestEnv
-	fingerprint string
+	ctx          context.Context
+	tempDir      string // Temporary directory for test
+	colonyID     string
+	colonyDir    string
+	cliEnv       *helpers.CLITestEnv
+	fingerprint  string
+	bootstrapPSK string // Bootstrap PSK from colony init (RFD 088).
 }
 
 // SetupSuite runs once before all tests in the suite.
@@ -67,17 +68,19 @@ func (s *CLIAgentCertSuite) initializeTestColony() {
 	s.T().Setenv("HOME", testHome)
 
 	// Run coral init to create a colony with CA certificates.
-	colonyID, err := helpers.RunCoralInit(s.ctx, "cert-test-colony", "e2e",
-		filepath.Join(s.tempDir, "storage"))
+	initResult, err := helpers.RunCoralInitFull(s.ctx, "cert-test-colony", "e2e",
+		filepath.Join(s.tempDir, "storage"), "")
 	s.Require().NoError(err, "coral init should succeed")
-	s.colonyID = colonyID
+	s.colonyID = initResult.ColonyID
+	s.bootstrapPSK = initResult.BootstrapPSK
 
-	s.T().Logf("Initialized test colony: %s", colonyID)
+	s.T().Logf("Initialized test colony: %s", initResult.ColonyID)
+	s.T().Logf("Bootstrap PSK available: %v", s.bootstrapPSK != "")
 
 	// Get colony directory path.
 	loader, err := config.NewLoader()
 	s.Require().NoError(err)
-	s.colonyDir = loader.ColonyDir(colonyID)
+	s.colonyDir = loader.ColonyDir(s.colonyID)
 
 	// Get CA fingerprint for bootstrap.
 	fingerprint, err := helpers.GetColonyCAFingerprint(s.colonyDir)
@@ -87,7 +90,7 @@ func (s *CLIAgentCertSuite) initializeTestColony() {
 	s.T().Logf("CA fingerprint: %s", fingerprint)
 
 	// Setup CLI test environment.
-	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, colonyID, "http://localhost:9000")
+	s.cliEnv, err = helpers.SetupCLIEnv(s.ctx, s.colonyID, "http://localhost:9000")
 	s.Require().NoError(err, "Failed to setup CLI environment")
 }
 
@@ -146,8 +149,9 @@ func (s *CLIAgentCertSuite) TestBootstrapInvalidFingerprint() {
 	s.Require().NoError(err)
 
 	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
-		"HOME":            s.cliEnv.HomeDir,
+		"CORAL_CERTS_DIR":     certsDir,
+		"HOME":                s.cliEnv.HomeDir,
+		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
 	})
 
 	// Use a fake fingerprint.
@@ -174,8 +178,9 @@ func (s *CLIAgentCertSuite) TestBootstrapRequiresDiscovery() {
 
 	// Create environment without discovery endpoint.
 	env := map[string]string{
-		"HOME":            filepath.Join(s.tempDir, "isolated-home"),
-		"CORAL_CERTS_DIR": certsDir,
+		"HOME":                filepath.Join(s.tempDir, "isolated-home"),
+		"CORAL_CERTS_DIR":     certsDir,
+		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
 	}
 
 	// Create isolated home without any config.
@@ -248,7 +253,8 @@ func (s *CLIAgentCertSuite) TestCAFingerprintFormat() {
 	s.Require().NoError(err)
 
 	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
+		"CORAL_CERTS_DIR":     certsDir,
+		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
 	})
 
 	// Test invalid fingerprint format.
@@ -296,7 +302,8 @@ func (s *CLIAgentCertSuite) TestBootstrapWithCustomAgentID() {
 	s.Require().NoError(err)
 
 	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
+		"CORAL_CERTS_DIR":     certsDir,
+		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
 	})
 
 	customAgentID := "custom-test-agent-123"
@@ -343,7 +350,8 @@ func (s *CLIAgentCertSuite) TestBootstrapForceFlag() {
 	s.Require().NoError(err)
 
 	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
+		"CORAL_CERTS_DIR":     certsDir,
+		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
 	})
 
 	// Run with --force flag (will fail due to no discovery, but should accept the flag).
@@ -417,6 +425,7 @@ func (s *CLIAgentCertSuite) TestHelpOutput() {
 	result := helpers.RunCLI(s.ctx, "agent", "bootstrap", "--help")
 	s.Contains(result.Output, "fingerprint", "Bootstrap help should mention fingerprint")
 	s.Contains(result.Output, "colony", "Bootstrap help should mention colony")
+	s.Contains(result.Output, "psk", "Bootstrap help should mention psk")
 
 	// Test cert status help.
 	result = helpers.RunCLI(s.ctx, "agent", "cert", "status", "--help")

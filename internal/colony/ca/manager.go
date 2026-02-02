@@ -22,6 +22,7 @@ import (
 
 	"github.com/coral-mesh/coral/internal/colony/jwks"
 	"github.com/coral-mesh/coral/internal/privilege"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // IssuedCertificate represents a certificate issued to an agent (RFD 047).
@@ -56,6 +57,7 @@ type Manager struct {
 	policy    *PolicyEnforcer
 	colonyID  string
 	caDir     string // Filesystem path for CA storage.
+	logger    zerolog.Logger
 }
 
 // Config contains CA manager configuration.
@@ -63,24 +65,29 @@ type Config struct {
 	ColonyID   string
 	CADir      string // Filesystem path for CA storage (~/.coral/colonies/<id>/ca/).
 	JWKSClient *jwks.Client
-	KMSKeyID   string         // Optional KMS key for envelope encryption.
-	Logger     zerolog.Logger // Logger for storage operations.
+	KMSKeyID   string // Optional KMS key for envelope encryption.
 }
 
 // NewManager creates a new CA manager instance.
-func NewManager(db *sql.DB, cfg Config) (*Manager, error) {
+func NewManager(db *sql.DB, logger zerolog.Logger, cfg Config) (*Manager, error) {
 	m := &Manager{
 		db:        db,
 		colonyID:  cfg.ColonyID,
 		caDir:     cfg.CADir,
 		fsStorage: NewFilesystemStorage(cfg.CADir),
-		dbStorage: NewDatabaseStorage(db, cfg.Logger),
+		dbStorage: NewDatabaseStorage(db, logger),
 		policy:    NewPolicyEnforcer(cfg.JWKSClient, cfg.ColonyID),
+		logger:    logger.With().Str("component", "ca_manager").Logger(),
 	}
 
 	// Initialize or load CA state from filesystem.
 	if err := m.initializeCA(cfg.KMSKeyID); err != nil {
 		return nil, fmt.Errorf("failed to initialize CA: %w", err)
+	}
+
+	// Ensure bootstrap_psks table exists (RFD 088).
+	if err := m.ensurePSKTable(); err != nil {
+		return nil, fmt.Errorf("failed to ensure PSK table: %w", err)
 	}
 
 	return m, nil
@@ -578,6 +585,7 @@ type InitResult struct {
 	ServerIntPath   string
 	AgentIntPath    string
 	PolicySignPath  string
+	BootstrapPSK    string // Plaintext PSK for display (RFD 088).
 }
 
 // Initialize generates a new CA hierarchy on the filesystem.
@@ -728,6 +736,17 @@ func Initialize(caDir, colonyID string) (*InitResult, error) {
 	// Compute fingerprint.
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256(rootCertDER))
 
+	// Generate Bootstrap PSK (RFD 088).
+	psk, err := GeneratePSK()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate bootstrap PSK: %w", err)
+	}
+
+	// Store encrypted PSK to filesystem (imported into DB on colony start).
+	if err := SavePSKToFile(caDir, psk, rootKey); err != nil {
+		return nil, fmt.Errorf("failed to save bootstrap PSK: %w", err)
+	}
+
 	return &InitResult{
 		CADir:           caDir,
 		RootFingerprint: fingerprint,
@@ -736,7 +755,239 @@ func Initialize(caDir, colonyID string) (*InitResult, error) {
 		ServerIntPath:   filepath.Join(caDir, "server-intermediate.crt"),
 		AgentIntPath:    filepath.Join(caDir, "agent-intermediate.crt"),
 		PolicySignPath:  filepath.Join(caDir, "policy-signing.crt"),
+		BootstrapPSK:    psk,
 	}, nil
+}
+
+// ensurePSKTable creates the bootstrap_psks table if it does not exist.
+func (m *Manager) ensurePSKTable() error {
+	_, err := m.db.Exec(`CREATE TABLE IF NOT EXISTS bootstrap_psks (
+		id TEXT PRIMARY KEY,
+		encrypted_psk BLOB NOT NULL,
+		encryption_nonce BLOB NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at TIMESTAMP NOT NULL,
+		grace_expires_at TIMESTAMP,
+		revoked_at TIMESTAMP
+	)`)
+	if err != nil {
+		return fmt.Errorf("failed to create bootstrap_psks table: %w", err)
+	}
+	return nil
+}
+
+// BootstrapPSK represents a stored bootstrap PSK record (RFD 088).
+type BootstrapPSK struct {
+	ID              string     `duckdb:"id,pk,immutable"`
+	EncryptedPSK    []byte     `duckdb:"encrypted_psk,immutable"`
+	EncryptionNonce []byte     `duckdb:"encryption_nonce,immutable"`
+	Status          string     `duckdb:"status"`
+	CreatedAt       time.Time  `duckdb:"created_at,immutable"`
+	GraceExpiresAt  *time.Time `duckdb:"grace_expires_at"`
+	RevokedAt       *time.Time `duckdb:"revoked_at"`
+}
+
+// ImportPSKFromFile imports a PSK from the filesystem into the database.
+// Called during colony startup if a PSK file exists but the DB has no active PSK.
+func (m *Manager) ImportPSKFromFile(ctx context.Context) error {
+	if !PSKFileExists(m.caDir) {
+		return nil
+	}
+
+	// Check if DB already has an active PSK.
+	var count int
+	err := m.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM bootstrap_psks WHERE status IN ('active', 'grace')").Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check existing PSKs: %w", err)
+	}
+	if count > 0 {
+		return nil // Already imported.
+	}
+
+	rootKey, err := m.fsStorage.LoadKey("root-ca")
+	if err != nil {
+		return fmt.Errorf("failed to load root CA key: %w", err)
+	}
+
+	psk, err := LoadPSKFromFile(m.caDir, rootKey)
+	if err != nil {
+		return fmt.Errorf("failed to load PSK from file: %w", err)
+	}
+
+	return m.StorePSK(ctx, psk)
+}
+
+// StorePSK encrypts and stores a new active PSK in the database.
+func (m *Manager) StorePSK(ctx context.Context, psk string) error {
+	rootKey, err := m.fsStorage.LoadKey("root-ca")
+	if err != nil {
+		return fmt.Errorf("failed to load root CA key: %w", err)
+	}
+
+	encKey, err := DeriveEncryptionKey(rootKey)
+	if err != nil {
+		return fmt.Errorf("failed to derive encryption key: %w", err)
+	}
+
+	ciphertext, nonce, err := EncryptPSK(psk, encKey)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt PSK: %w", err)
+	}
+
+	id := fmt.Sprintf("%d", time.Now().UnixNano())
+	_, err = m.db.ExecContext(ctx,
+		`INSERT INTO bootstrap_psks (id, encrypted_psk, encryption_nonce, status, created_at)
+		 VALUES (?, ?, ?, 'active', ?)`,
+		id, ciphertext, nonce, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to store PSK: %w", err)
+	}
+
+	return nil
+}
+
+// ValidateBootstrapPSK checks a PSK against active and grace-period PSKs.
+// Returns nil if valid, error if invalid.
+func (m *Manager) ValidateBootstrapPSK(ctx context.Context, psk string) error {
+	// Lazy cleanup of expired grace PSKs.
+	_, _ = m.db.ExecContext(ctx,
+		`UPDATE bootstrap_psks SET status = 'revoked', revoked_at = ?
+		 WHERE status = 'grace' AND grace_expires_at IS NOT NULL AND grace_expires_at < ?`,
+		time.Now(), time.Now())
+
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT encrypted_psk, encryption_nonce FROM bootstrap_psks
+		 WHERE status IN ('active', 'grace')
+		 AND (grace_expires_at IS NULL OR grace_expires_at > ?)`,
+		time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to query PSKs: %w", err)
+	}
+	defer safe.Close(rows, m.logger, "failed to close rows")
+
+	rootKey, err := m.fsStorage.LoadKey("root-ca")
+	if err != nil {
+		return fmt.Errorf("failed to load root CA key: %w", err)
+	}
+
+	encKey, err := DeriveEncryptionKey(rootKey)
+	if err != nil {
+		return fmt.Errorf("failed to derive encryption key: %w", err)
+	}
+
+	found := false
+	for rows.Next() {
+		var ciphertext, nonce []byte
+		if err := rows.Scan(&ciphertext, &nonce); err != nil {
+			return fmt.Errorf("failed to scan PSK row: %w", err)
+		}
+
+		stored, err := DecryptPSK(ciphertext, nonce, encKey)
+		if err != nil {
+			continue // Skip corrupted entries.
+		}
+
+		if PSKConstantTimeEqual(stored, psk) {
+			found = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating PSK rows: %w", err)
+	}
+
+	if !found {
+		return fmt.Errorf("invalid bootstrap PSK")
+	}
+	return nil
+}
+
+// RotatePSK generates a new PSK and moves the current active PSK to grace status.
+func (m *Manager) RotatePSK(ctx context.Context, gracePeriod time.Duration) (string, error) {
+	newPSK, err := GeneratePSK()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate new PSK: %w", err)
+	}
+
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // Rollback is best-effort.
+
+	graceExpiry := time.Now().Add(gracePeriod)
+
+	// Move current active to grace.
+	_, err = tx.ExecContext(ctx,
+		`UPDATE bootstrap_psks SET status = 'grace', grace_expires_at = ?
+		 WHERE status = 'active'`,
+		graceExpiry)
+	if err != nil {
+		return "", fmt.Errorf("failed to update existing PSK: %w", err)
+	}
+
+	// Insert new active PSK.
+	rootKey, err := m.fsStorage.LoadKey("root-ca")
+	if err != nil {
+		return "", fmt.Errorf("failed to load root CA key: %w", err)
+	}
+
+	encKey, err := DeriveEncryptionKey(rootKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to derive encryption key: %w", err)
+	}
+
+	ciphertext, nonce, err := EncryptPSK(newPSK, encKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt new PSK: %w", err)
+	}
+
+	id := fmt.Sprintf("%d", time.Now().UnixNano())
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO bootstrap_psks (id, encrypted_psk, encryption_nonce, status, created_at)
+		 VALUES (?, ?, ?, 'active', ?)`,
+		id, ciphertext, nonce, time.Now())
+	if err != nil {
+		return "", fmt.Errorf("failed to insert new PSK: %w", err)
+	}
+
+	// Update the filesystem PSK file.
+	if err := SavePSKToFile(m.caDir, newPSK, rootKey); err != nil {
+		return "", fmt.Errorf("failed to update PSK file: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("failed to commit PSK rotation: %w", err)
+	}
+
+	return newPSK, nil
+}
+
+// GetActivePSK returns the current active PSK (decrypted).
+func (m *Manager) GetActivePSK(ctx context.Context) (string, error) {
+	var ciphertext, nonce []byte
+	err := m.db.QueryRowContext(ctx,
+		`SELECT encrypted_psk, encryption_nonce FROM bootstrap_psks
+		 WHERE status = 'active' LIMIT 1`).Scan(&ciphertext, &nonce)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("no active PSK found")
+		}
+		return "", fmt.Errorf("failed to query active PSK: %w", err)
+	}
+
+	rootKey, err := m.fsStorage.LoadKey("root-ca")
+	if err != nil {
+		return "", fmt.Errorf("failed to load root CA key: %w", err)
+	}
+
+	encKey, err := DeriveEncryptionKey(rootKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to derive encryption key: %w", err)
+	}
+
+	return DecryptPSK(ciphertext, nonce, encKey)
 }
 
 // loadInitResult loads CA info from existing files.

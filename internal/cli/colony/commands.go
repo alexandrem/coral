@@ -25,6 +25,7 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(newMCPCmd())
 	cmd.AddCommand(newServiceCmd())   // RFD 052 - Service-centric CLI.
 	cmd.AddCommand(NewCACmd())        // RFD 047 - CA management commands.
+	cmd.AddCommand(NewPSKCmd())       // RFD 088 - Bootstrap PSK management.
 	cmd.AddCommand(newTokenCmd())     // RFD 031 - API token management for public endpoint.
 	cmd.AddCommand(newAddRemoteCmd()) // RFD 031 - Add remote colony connection.
 

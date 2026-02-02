@@ -22,6 +22,7 @@ func NewBootstrapCmd() *cobra.Command {
 		colonyID      string
 		agentID       string
 		caFingerprint string
+		bootstrapPSK  string
 		discoveryURL  string
 		certsDir      string
 		force         bool
@@ -69,6 +70,7 @@ Examples:
 				ColonyID:      colonyID,
 				AgentID:       agentID,
 				CAFingerprint: caFingerprint,
+				BootstrapPSK:  bootstrapPSK,
 				DiscoveryURL:  discoveryURL,
 				CertsDir:      certsDir,
 				Force:         force,
@@ -79,6 +81,7 @@ Examples:
 	helpers.AddColonyFlag(cmd, &colonyID)
 	cmd.Flags().StringVar(&agentID, "agent", os.Getenv("CORAL_AGENT_ID"), "Agent ID (default: auto-generated)")
 	cmd.Flags().StringVar(&caFingerprint, "fingerprint", os.Getenv("CORAL_CA_FINGERPRINT"), "Expected Root CA fingerprint (sha256:hex)")
+	cmd.Flags().StringVar(&bootstrapPSK, "psk", os.Getenv("CORAL_BOOTSTRAP_PSK"), "Bootstrap pre-shared key (coral-psk:hex)")
 	discoveryDefault := os.Getenv("CORAL_DISCOVERY_ENDPOINT")
 	if discoveryDefault == "" {
 		discoveryDefault = constants.DefaultDiscoveryEndpoint
@@ -94,6 +97,7 @@ type bootstrapOptions struct {
 	ColonyID      string
 	AgentID       string
 	CAFingerprint string
+	BootstrapPSK  string
 	DiscoveryURL  string
 	CertsDir      string
 	Force         bool
@@ -178,6 +182,7 @@ func runBootstrap(ctx context.Context, opts bootstrapOptions) error {
 		AgentID:           opts.AgentID,
 		ColonyID:          opts.ColonyID,
 		CAFingerprint:     opts.CAFingerprint,
+		BootstrapPSK:      opts.BootstrapPSK,
 		DiscoveryEndpoint: opts.DiscoveryURL,
 		Logger:            logger,
 	})

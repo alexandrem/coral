@@ -54,6 +54,11 @@ func AgentBootstrap(ctx context.Context, env map[string]string, colonyID, finger
 		"--fingerprint", fingerprint,
 	}
 
+	// Include bootstrap PSK from environment if available (RFD 088).
+	if psk, ok := env["CORAL_BOOTSTRAP_PSK"]; ok && psk != "" {
+		args = append(args, "--psk", psk)
+	}
+
 	if discoveryURL != "" {
 		args = append(args, "--discovery", discoveryURL)
 	}
@@ -188,6 +193,11 @@ func AgentCertRenew(ctx context.Context, env map[string]string, colonyID, finger
 
 	if fingerprint != "" {
 		args = append(args, "--fingerprint", fingerprint)
+	}
+
+	// Include bootstrap PSK from environment if available (RFD 088).
+	if psk, ok := env["CORAL_BOOTSTRAP_PSK"]; ok && psk != "" {
+		args = append(args, "--psk", psk)
 	}
 
 	if colonyEndpoint != "" {

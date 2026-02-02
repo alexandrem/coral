@@ -183,6 +183,10 @@ message RequestCertificateRequest {
 
   // Certificate signing request (PEM-encoded).
   bytes csr = 2;
+
+  // Bootstrap pre-shared key (RFD 088). Required for first-time bootstrap,
+  // ignored for mTLS-authenticated renewals.
+  string bootstrap_psk = 3;
 }
 
 // RequestCertificateResponse returns the issued certificate.

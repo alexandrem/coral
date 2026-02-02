@@ -618,6 +618,7 @@ or can be triggered manually.
 
 - **SPIFFE IDs**: Each agent gets a unique identity: `spiffe://coral/colony/<colony-id>/agent/<agent-id>`
 - **CA Fingerprint Validation**: Prevents MITM attacks by validating the colony's Root CA
+- **Bootstrap PSK**: Pre-shared key authorization prevents unauthorized enrollment (RFD 088)
 - **Automatic Renewal**: Certificates are renewed before expiry without Discovery
 
 ### Bootstrap Flow
@@ -640,7 +641,7 @@ or can be triggered manually.
 │  3. Connect to Colony                                       │
 │     • Validate Root CA fingerprint (MITM protection)        │
 │     • Validate colony ID in server certificate SAN          │
-│     • Submit CSR with referral ticket                       │
+│     • Submit CSR with referral ticket and Bootstrap PSK     │
 └─────────────────┬───────────────────────────────────────────┘
                   │
                   ▼
@@ -665,6 +666,9 @@ agent:
     # Root CA fingerprint for MITM protection (required)
     ca_fingerprint: "sha256:abc123..."
 
+    # Bootstrap PSK for enrollment authorization (required)
+    psk: "coral-psk:f1e2d3c4b5a6..."
+
     # Directory for storing certificates (default: ~/.coral/certs/)
     certs_dir: "/etc/coral/certs"
 
@@ -679,6 +683,7 @@ agent:
 | Variable | Description |
 |----------|-------------|
 | `CORAL_CA_FINGERPRINT` | Root CA fingerprint (sha256:hex) |
+| `CORAL_BOOTSTRAP_PSK` | Bootstrap PSK for enrollment authorization |
 | `CORAL_CERTS_DIR` | Certificate storage directory |
 | `CORAL_BOOTSTRAP_ENABLED` | Enable/disable bootstrap |
 
@@ -687,10 +692,11 @@ agent:
 Trigger bootstrap manually using the CLI:
 
 ```bash
-# Bootstrap with explicit fingerprint
+# Bootstrap with explicit fingerprint and PSK
 coral agent bootstrap \
   --colony my-app-prod \
-  --fingerprint sha256:abc123...
+  --fingerprint sha256:abc123... \
+  --psk coral-psk:f1e2d3c4b5a6...
 
 # Check bootstrap status
 coral agent cert status

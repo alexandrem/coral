@@ -43,7 +43,7 @@ coral version
 1. **Initialize** - `coral init <colony-name>` creates `~/.coral/config.yaml`
    and WireGuard keypair
 2. **Start Colony** - `coral colony start` launches the central coordinator
-3. **Bootstrap Agent** - `coral agent bootstrap --colony <id> --fingerprint <sha256:hex>`
+3. **Bootstrap Agent** - `coral agent bootstrap --colony <id> --fingerprint <sha256:hex> --psk <coral-psk:...>`
    initializes agent identity
 4. **Start Agents** - `coral agent start` (now uses mTLS identity)
 5. **Connect Services** - `coral connect frontend:3000 api:8080` or use
@@ -80,10 +80,11 @@ The bootstrap process uses a "trust-on-first-use" model validated by the Colony'
 Root CA fingerprint.
 
 ```bash
-# Obtain a certificate (replace with your actual fingerprint)
+# Obtain a certificate (replace with your actual fingerprint and PSK)
 coral agent bootstrap \
     --colony my-colony \
-    --fingerprint sha256:a3b2c1...
+    --fingerprint sha256:a3b2c1... \
+    --psk coral-psk:f1e2d3c4b5a6...
 ```
 
 **Required Parameters:**
@@ -92,6 +93,9 @@ coral agent bootstrap \
 - `--fingerprint`: The SHA256 hash of the Colony's Root CA. This is obtained from
   the colony administrator or by running `coral colony ca status` on the colony
   server.
+- `--psk`: The Bootstrap PSK for enrollment authorization. Obtained from the colony
+  administrator or from `coral colony psk show`. Can also be set via
+  `CORAL_BOOTSTRAP_PSK` environment variable.
 - `--discovery`: (Optional if configured) The URL of the Discovery service.
 
 **What happens during bootstrap:**
@@ -101,7 +105,8 @@ coral agent bootstrap \
 3. Agent connects to Colony and verifies its TLS certificate against the
    provided `--fingerprint`.
 4. Agent generates an **Ed25519 keypair** locally.
-5. Agent submits a Certificate Signing Request (CSR) to the Colony.
+5. Agent submits a Certificate Signing Request (CSR) with the **Bootstrap PSK**
+   to the Colony. Colony validates the PSK before issuing a certificate.
 6. Colony issues a signed certificate with a **SPIFFE ID** (e.g.,
    `spiffe://coral.io/colony/my-colony/agent/my-agent-id`).
 7. Agent stores the certificate and private key in `~/.coral/certs/`.

@@ -12,6 +12,7 @@ This guide covers common issues and solutions for agent certificate bootstrap.
     - [Certificate Expired](#certificate-expired)
     - [Permission Denied](#permission-denied)
     - [Timeout During Bootstrap](#timeout-during-bootstrap)
+    - [Invalid Bootstrap PSK](#invalid-bootstrap-psk)
 - [Advanced Diagnostics](#advanced-diagnostics)
 - [Recovery Procedures](#recovery-procedures)
 
@@ -210,7 +211,8 @@ coral agent cert status
    # Re-bootstrap
    coral agent bootstrap \
      --colony my-app-prod \
-     --fingerprint sha256:abc123...
+     --fingerprint sha256:abc123... \
+     --psk coral-psk:f1e2d3c4b5a6...
    ```
 
 2. **Prevent future expiry**: Ensure the agent can reach the colony for renewal.
@@ -260,6 +262,54 @@ Error: failed to save certificate: permission denied
 
 4. **Check SELinux/AppArmor**: If using custom paths, you may need to update
    security policies.
+
+---
+
+### Invalid Bootstrap PSK
+
+**Symptom:**
+
+```
+Error: bootstrap failed: invalid bootstrap PSK
+```
+
+or
+
+```
+Error: bootstrap failed: missing bootstrap PSK
+```
+
+**Causes:**
+
+1. Wrong PSK configured
+2. PSK was rotated and grace period expired
+3. PSK not provided
+
+**Solutions:**
+
+1. **Get the current PSK** from your colony admin:
+
+   ```bash
+   # On colony server
+   coral colony psk show
+   ```
+
+2. **Update agent configuration**:
+
+   ```yaml
+   agent:
+     bootstrap:
+       psk: "coral-psk:<correct-psk>"
+   ```
+
+   Or via environment variable:
+
+   ```bash
+   export CORAL_BOOTSTRAP_PSK="coral-psk:<correct-psk>"
+   ```
+
+3. **If PSK was rotated**: Obtain the new PSK from the colony admin. During the
+   grace period (default 24h), both old and new PSKs are accepted.
 
 ---
 

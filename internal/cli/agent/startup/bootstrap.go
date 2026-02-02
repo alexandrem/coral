@@ -143,10 +143,17 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		Str("agent_id", bp.agentID).
 		Msg("Starting certificate bootstrap")
 
+	// Get bootstrap PSK (RFD 088).
+	bootstrapPSK := bootstrapCfg.BootstrapPSK
+	if bootstrapPSK == "" {
+		bootstrapPSK = os.Getenv("CORAL_BOOTSTRAP_PSK")
+	}
+
 	client := bootstrap.NewClient(bootstrap.Config{
 		AgentID:           bp.agentID,
 		ColonyID:          bp.colonyID,
 		CAFingerprint:     fingerprint,
+		BootstrapPSK:      bootstrapPSK,
 		DiscoveryEndpoint: discoveryURL,
 		Logger:            bp.logger,
 	})
