@@ -57,12 +57,15 @@ type TopAllocTypeResult struct {
 
 // CollectMemoryProfile fetches a heap profile from the SDK and parses it.
 func CollectMemoryProfile(sdkAddr string, durationSec int, logger zerolog.Logger) (*MemoryProfileResult, error) {
-	// Fetch allocation profile from SDK pprof endpoint.
-	url := fmt.Sprintf("http://%s/debug/pprof/allocs?seconds=%d", sdkAddr, durationSec)
+	// Fetch cumulative allocation profile from SDK pprof endpoint.
+	// Use /debug/pprof/allocs without ?seconds= to get a cumulative snapshot.
+	// The ?seconds=N variant returns a delta profile (allocations during that window only),
+	// which can miss activity if the caller cannot control when allocations occur.
+	url := fmt.Sprintf("http://%s/debug/pprof/allocs", sdkAddr)
 	logger.Debug().Str("url", url).Int("duration", durationSec).Msg("Fetching memory profile from SDK")
 
 	client := &http.Client{
-		Timeout: time.Duration(durationSec+30) * time.Second,
+		Timeout: 30 * time.Second,
 	}
 
 	resp, err := client.Get(url) //nolint:noctx // Internal SDK call, no user-controlled URL.

@@ -271,7 +271,7 @@ sequenceDiagram
 
 - [ ] Update Coral documentation with memory profiling examples
 - [ ] Create runbook for common memory issues (leaks, high allocation)
-- [ ] E2E tests with realistic Go applications (web servers, data processors)
+- [x] E2E tests with realistic Go applications (web servers, data processors)
 - [ ] Performance benchmarking: verify <1% overhead for continuous mode
 
 ## API Changes

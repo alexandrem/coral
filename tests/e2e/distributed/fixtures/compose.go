@@ -18,8 +18,9 @@ const (
 	localAgent0Endpoint     = "http://127.0.0.1:9001"
 	localAgent1Endpoint     = "http://127.0.0.1:9002"
 	localCPUAppEndpoint     = "127.0.0.1:8081" // cpu-app on port 8080 in agent-0 namespace, exposed as 8081.
-	localOTELAppEndpoint    = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, // exposed as 8082.
+	localOTELAppEndpoint    = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, exposed as 8082.
 	localSDKAppEndpoint     = "127.0.0.1:3001"
+	localMemoryAppEndpoint  = "127.0.0.1:8083" // memory-app on port 8080 in agent-1 namespace, exposed as 8083.
 )
 
 // isDiscoveryContainerRunning checks whether a "discovery" docker container exists and is running.
@@ -49,6 +50,7 @@ type ComposeFixture struct {
 	CPUAppEndpoint    string
 	OTELAppEndpoint   string
 	SDKAppEndpoint    string
+	MemoryAppEndpoint string
 }
 
 // NewComposeFixture creates a fixture that connects to docker-compose services.
@@ -74,6 +76,7 @@ func NewComposeFixture(ctx context.Context) (*ComposeFixture, error) {
 		CPUAppEndpoint:    localCPUAppEndpoint,
 		OTELAppEndpoint:   localOTELAppEndpoint,
 		SDKAppEndpoint:    localSDKAppEndpoint,
+		MemoryAppEndpoint: localMemoryAppEndpoint,
 	}
 
 	// Wait for all services to be healthy
@@ -121,6 +124,11 @@ func (f *ComposeFixture) waitForServices(ctx context.Context) error {
 	// Wait for SDK app
 	if err := helpers.WaitForHTTPEndpoint(ctx, "http://"+f.SDKAppEndpoint+"/health", 30*time.Second); err != nil {
 		return fmt.Errorf("sdk-app not ready: %w", err)
+	}
+
+	// Wait for memory app
+	if err := helpers.WaitForHTTPEndpoint(ctx, "http://"+f.MemoryAppEndpoint+"/health", 30*time.Second); err != nil {
+		return fmt.Errorf("memory-app not ready: %w", err)
 	}
 
 	// Wait for colony and agents via their /status endpoints
@@ -247,6 +255,11 @@ func (f *ComposeFixture) GetOTELAppEndpoint(ctx context.Context) (string, error)
 // GetSDKAppEndpoint returns the SDK app HTTP endpoint.
 func (f *ComposeFixture) GetSDKAppEndpoint(ctx context.Context) (string, error) {
 	return f.SDKAppEndpoint, nil
+}
+
+// GetMemoryAppEndpoint returns the memory app HTTP endpoint.
+func (f *ComposeFixture) GetMemoryAppEndpoint(ctx context.Context) (string, error) {
+	return f.MemoryAppEndpoint, nil
 }
 
 // RestartService restarts a specific service using docker-compose.

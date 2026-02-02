@@ -204,6 +204,7 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 	profilingSuite.SetT(s.T())
 
 	s.Run("OnDemandProfiling", profilingSuite.TestOnDemandProfiling)
+	s.Run("OnDemandMemoryProfiling", profilingSuite.TestOnDemandMemoryProfiling)
 
 	// Run DebugSuite tests (uprobe tracing, debug sessions) with shared fixture.
 	debugSuite := &DebugSuite{

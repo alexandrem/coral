@@ -71,6 +71,28 @@ func GetDebugResults(
 	return resp.Msg, nil
 }
 
+// ProfileMemory performs on-demand memory profiling (RFD 077).
+func ProfileMemory(
+	ctx context.Context,
+	client colonyv1connect.ColonyDebugServiceClient,
+	agentID string,
+	serviceName string,
+	durationSeconds int32,
+) (*colonyv1.ProfileMemoryResponse, error) {
+	req := connect.NewRequest(&colonyv1.ProfileMemoryRequest{
+		AgentId:         agentID,
+		ServiceName:     serviceName,
+		DurationSeconds: durationSeconds,
+	})
+
+	resp, err := client.ProfileMemory(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to profile memory: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
 // ProfileCPU performs on-demand CPU profiling.
 func ProfileCPU(
 	ctx context.Context,

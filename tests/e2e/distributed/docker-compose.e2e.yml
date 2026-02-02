@@ -38,12 +38,15 @@ services:
       retries: 3
       start_period: 5s
 
-  # Agent 1 overrides - fast heartbeat
+  # Agent 1 overrides - fast heartbeat + memory-app ports
   agent-1:
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true
       - CORAL_HEARTBEAT_INTERVAL=5s
+    ports:
+      - "8083:8080"   # memory-app HTTP (in agent-1 namespace)
+      - "9005:9004"   # memory-app SDK debug (in agent-1 namespace)
     healthcheck:
       interval: 30s
       timeout: 10s
@@ -102,6 +105,24 @@ services:
       - agent-1
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Memory App - Memory-intensive test application with Coral SDK (RFD 077)
+  # Runs in agent-1's network AND PID namespace for memory profiling via SDK
+  memory-app:
+    build:
+      context: .
+      dockerfile: tests/e2e/distributed/fixtures/apps/memory-app/Dockerfile
+    network_mode: "service:agent-1"
+    pid: "service:agent-1"
+    depends_on:
+      agent-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
       timeout: 3s
       retries: 3
