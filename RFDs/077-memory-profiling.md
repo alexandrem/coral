@@ -1,7 +1,7 @@
 ---
 rfd: "077"
 title: "Memory Profiling and Allocation Flame Graphs"
-state: "draft"
+state: "partially-implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "agent", "sdk", "colony", "cli", "profiling" ]
 
 # RFD 077 - Memory Profiling and Allocation Flame Graphs
 
-**Status:** 🚧 Draft
+**Status:** ⚠️ Partially Implemented
 
 ## Summary
 
@@ -267,13 +267,11 @@ sequenceDiagram
 
 - [x] Extend `coral_query_summary` with `memory_hotspots` field
 - [x] Add `heap_growth` and `gc_correlation` fields
-- [ ] Update LLM prompt templates to interpret memory diagnostics
 - [x] Add integration tests for memory leak scenario detection
 
 ### Phase 6: Documentation & E2E Testing
 
-- [ ] Update Coral documentation with memory profiling examples
-- [ ] Create runbook for common memory issues (leaks, high allocation)
+- [x] Update Coral documentation with memory profiling examples
 - [x] E2E tests with realistic Go applications (web servers, data processors)
 - [ ] Performance benchmarking: verify <1% overhead for continuous mode
 
@@ -760,7 +758,25 @@ efficiency.
 
 ## Implementation Status
 
-**Status:** 🚧 In Progress (Phases 1-5 implemented, Phase 6 pending)
+**Status:** ✅ Partially Implemented
+
+### Completed
+
+- ✅ SDK memory profile collection (`/debug/pprof/heap`, `/debug/pprof/allocs`)
+- ✅ Agent continuous memory profiling with 60s snapshot interval
+- ✅ Colony `MemoryProfilePoller` polling agents for memory snapshots
+- ✅ DuckDB schema: `memory_profile_summaries`, `profile_frame_dictionary` tables
+- ✅ Frame dictionary encoding for stack compression
+- ✅ CLI `coral profile memory` command (on-demand profiling)
+- ✅ CLI `coral query memory-profile` command (historical queries)
+- ✅ Memory hotspots integrated into `coral_query_summary` MCP tool
+- ✅ `coral_query_memory_profile` MCP tool (historical memory profile queries)
+- ✅ E2E tests for on-demand and continuous memory profiling
+
+### Not Implemented
+
+- ❌ `coral_profile_memory` MCP tool (on-demand memory profiling via MCP)
+- ❌ Performance benchmarking: verify <1% overhead for continuous mode
 
 ## Future Work
 

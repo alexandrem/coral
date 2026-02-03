@@ -457,20 +457,20 @@ func (s *Server) executeDebugCPUProfileTool(ctx context.Context, argsJSON string
 	return s.generateDebugCPUProfileOutput(ctx, input)
 }
 
-// DebugMemoryProfileInput defines input for coral_debug_memory_profile (RFD 077).
-type DebugMemoryProfileInput struct {
+// QueryMemoryProfileInput defines input for coral_query_memory_profile (RFD 077).
+type QueryMemoryProfileInput struct {
 	Service         string `json:"service" jsonschema:"description=Service name to profile"`
 	DurationSeconds *int32 `json:"duration_seconds,omitempty" jsonschema:"description=Duration in seconds (default 30)"`
 }
 
-// registerDebugMemoryProfileTool registers the coral_debug_memory_profile tool (RFD 077).
-func (s *Server) registerDebugMemoryProfileTool() {
+// registerQueryMemoryProfileTool registers the coral_query_memory_profile tool (RFD 077).
+func (s *Server) registerQueryMemoryProfileTool() {
 	s.registerToolWithSchema(
-		"coral_debug_memory_profile",
+		"coral_query_memory_profile",
 		"Query historical memory allocation profiles for a service. Shows top allocating functions and stack traces. Use this AFTER coral_query_summary identifies memory issues.",
-		DebugMemoryProfileInput{},
+		QueryMemoryProfileInput{},
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			var input DebugMemoryProfileInput
+			var input QueryMemoryProfileInput
 			if request.Params.Arguments != nil {
 				argBytes, err := json.Marshal(request.Params.Arguments)
 				if err != nil {
@@ -481,9 +481,9 @@ func (s *Server) registerDebugMemoryProfileTool() {
 				}
 			}
 
-			s.auditToolCall("coral_debug_memory_profile", input)
+			s.auditToolCall("coral_query_memory_profile", input)
 
-			text, err := s.generateDebugMemoryProfileOutput(ctx, input)
+			text, err := s.generateQueryMemoryProfileOutput(ctx, input)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to query memory profile: %v", err)), nil
 			}
@@ -492,8 +492,8 @@ func (s *Server) registerDebugMemoryProfileTool() {
 		})
 }
 
-// generateDebugMemoryProfileOutput generates the text output for coral_debug_memory_profile (RFD 077).
-func (s *Server) generateDebugMemoryProfileOutput(ctx context.Context, input DebugMemoryProfileInput) (string, error) {
+// generateQueryMemoryProfileOutput generates the text output for coral_query_memory_profile (RFD 077).
+func (s *Server) generateQueryMemoryProfileOutput(ctx context.Context, input QueryMemoryProfileInput) (string, error) {
 	durationSeconds := int32(300) // Default to last 5 minutes for memory.
 	if input.DurationSeconds != nil {
 		durationSeconds = *input.DurationSeconds
