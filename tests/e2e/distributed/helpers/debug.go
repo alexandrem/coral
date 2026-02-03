@@ -3,10 +3,14 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
@@ -112,6 +116,28 @@ func ProfileCPU(
 	resp, err := client.ProfileCPU(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to profile CPU: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// QueryMemoryProfileSamples queries the agent's continuous memory profile storage (RFD 077).
+func QueryMemoryProfileSamples(
+	ctx context.Context,
+	client agentv1connect.AgentDebugServiceClient,
+	serviceName string,
+	since time.Duration,
+) (*agentv1.QueryMemoryProfileSamplesResponse, error) {
+	now := time.Now()
+	req := connect.NewRequest(&agentv1.QueryMemoryProfileSamplesRequest{
+		ServiceName: serviceName,
+		StartTime:   timestamppb.New(now.Add(-since)),
+		EndTime:     timestamppb.New(now),
+	})
+
+	resp, err := client.QueryMemoryProfileSamples(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query memory profile samples: %w", err)
 	}
 
 	return resp.Msg, nil

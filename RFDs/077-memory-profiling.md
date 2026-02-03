@@ -259,6 +259,9 @@ sequenceDiagram
 - [x] Implement `coral query memory-profile` command
 - [x] Add text-based flame graph rendering
 - [x] Add allocation type breakdown display
+- [x] Add `--format` flag with `summary` (default) and `folded` options
+- [x] Server-side computed `top_functions` and `top_types` for human/LLM readability
+- [x] Automatic function name shortening (strip package paths)
 
 ### Phase 5: LLM Integration
 
@@ -421,6 +424,50 @@ service ProfileService {
 }
 ```
 
+### Colony gRPC API (Historical Query)
+
+**Historical Memory Profile Query** (parallel to `QueryHistoricalCPUProfile`):
+
+```protobuf
+message QueryHistoricalMemoryProfileRequest {
+    string service_name = 1;
+    google.protobuf.Timestamp start_time = 2;
+    google.protobuf.Timestamp end_time = 3;
+}
+
+message QueryHistoricalMemoryProfileResponse {
+    repeated MemoryStackSample samples = 1;    // Raw stacks (for flamegraphs)
+    int64 total_alloc_bytes = 2;               // Total allocation bytes
+    string error = 3;
+    bool success = 4;
+    repeated TopAllocFunction top_functions = 5; // Pre-computed top allocators (shortened names)
+    repeated TopAllocType top_types = 6;         // Pre-computed type breakdown
+    int32 unique_stacks = 7;                     // Number of unique stack traces
+}
+
+// TopAllocFunction with shortened function names for human/LLM consumption.
+// e.g., "github.com/myapp/orders.ProcessOrder" → "orders.ProcessOrder"
+message TopAllocFunction {
+    string function = 1;   // Shortened function name
+    int64 bytes = 2;
+    int64 objects = 3;
+    double pct = 4;        // Percentage of total allocations
+}
+
+// TopAllocType categorizes allocations by runtime type.
+message TopAllocType {
+    string type_name = 1;  // e.g., "slice", "map", "object", "string"
+    int64 bytes = 2;
+    int64 objects = 3;
+    double pct = 4;
+}
+```
+
+The `top_functions` and `top_types` fields are computed server-side during query
+execution, enabling all clients (CLI, SDK, MCP) to display human-readable
+summaries without client-side processing. Function names are automatically
+shortened by stripping the package path prefix (keeping only `pkg.Function`).
+
 ### Colony MCP Tool Extensions
 
 **Extend** `coral_query_summary` (RFD 074):
@@ -498,30 +545,47 @@ Flags:
   --build-id string     Filter by specific build ID
   --show-growth         Show heap growth trends
   --show-types          Show allocation breakdown by type
+  --format string       Output format: 'summary' (human/LLM readable) or 'folded' (flamegraph compatible) (default "summary")
 ```
 
-**Example**:
+**Example (summary format - default)**:
 
 ```bash
-$ coral query memory-profile --service order-processor --since 1h --show-growth
+$ coral query memory-profile --service order-processor --since 1h --show-types
 
-Memory Profile (last 1 hour):
+Querying historical memory profiles for service 'order-processor'
+Time range: 2026-02-03T18:53:10Z to 2026-02-03T19:53:10Z
+Total unique stacks: 42
+Total alloc bytes: 2.4 GB
 
-Heap Growth:
-  Current:  2048 MB
-  1h ago:   1024 MB
-  Growth:   +150 MB/hour (⚠️  potential leak detected)
+Top Memory Allocators:
+  45.2%  1.1 GB   orders.ProcessOrder
+  22.1%  530.4 MB json.Marshal
+  12.5%  300.0 MB cache.Store
+   8.3%  199.2 MB http.(*conn).serve
+   5.2%  124.8 MB dwarf.(*buf).string
 
-Top Allocators (avg over 1h):
-  ProcessOrder:     425 MB/s
-  json.Marshal:     210 MB/s
-  cache.Store:      120 MB/s
-
-Top Types:
-  []byte:                    55.2%
-  map[string]interface{}:    22.8%
-  *github.com/myapp/Order:   12.1%
+Top Allocation Types:
+  55.2%  1.3 GB   slice
+  22.8%  547.2 MB object
+  12.1%  290.4 MB string
+   6.5%  156.0 MB map
+   3.4%   81.6 MB goroutine
 ```
+
+**Example (folded format - for flamegraphs)**:
+
+```bash
+$ coral query memory-profile --service order-processor --since 1h --format folded | flamegraph.pl > memory.svg
+
+# Raw folded stack output:
+runtime.main;main.main;orders.ProcessOrder;json.Marshal 530400000
+runtime.main;main.main;orders.ProcessOrder;cache.Store 300000000
+```
+
+Function names in summary format are automatically shortened for readability:
+- `github.com/myapp/orders.ProcessOrder` → `orders.ProcessOrder`
+- `encoding/json.Marshal` → `json.Marshal`
 
 ## Testing Strategy
 

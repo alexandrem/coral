@@ -30,6 +30,14 @@ func NewAgentClient(endpoint string) agentv1connect.AgentServiceClient {
 	)
 }
 
+// NewAgentDebugClient creates a new agent debug service client.
+func NewAgentDebugClient(endpoint string) agentv1connect.AgentDebugServiceClient {
+	return agentv1connect.NewAgentDebugServiceClient(
+		http.DefaultClient,
+		endpoint,
+	)
+}
+
 // NewDebugClient creates a new debug service client.
 func NewDebugClient(endpoint string) colonyv1connect.ColonyDebugServiceClient {
 	return colonyv1connect.NewColonyDebugServiceClient(

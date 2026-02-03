@@ -26,24 +26,26 @@ services:
       - colony-config:/root/.coral
       - ./tests/e2e/distributed/fixtures:/fixtures:ro
 
-  # Agent 0 overrides - fast heartbeat
+  # Agent 0 overrides - fast heartbeat + fast memory profiling
   agent-0:
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true
       - CORAL_HEARTBEAT_INTERVAL=5s
+      - CORAL_MEMORY_PROFILING_INTERVAL=5s
     healthcheck:
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 5s
 
-  # Agent 1 overrides - fast heartbeat + memory-app ports
+  # Agent 1 overrides - fast heartbeat + memory-app ports + fast memory profiling
   agent-1:
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true
       - CORAL_HEARTBEAT_INTERVAL=5s
+      - CORAL_MEMORY_PROFILING_INTERVAL=5s
     ports:
       - "8083:8080"   # memory-app HTTP (in agent-1 namespace)
       - "9005:9004"   # memory-app SDK debug (in agent-1 namespace)

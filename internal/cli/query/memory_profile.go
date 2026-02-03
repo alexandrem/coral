@@ -5,15 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
@@ -28,6 +25,7 @@ func NewMemoryProfileCmd() *cobra.Command {
 		buildID     string
 		showGrowth  bool
 		showTypes   bool
+		format      string
 	)
 
 	cmd := &cobra.Command{
@@ -110,26 +108,44 @@ Examples:
 				return nil
 			}
 
-			fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", len(resp.Msg.Samples))
+			fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", resp.Msg.UniqueStacks)
 			fmt.Fprintf(os.Stderr, "Total alloc bytes: %s\n\n", formatQueryBytes(resp.Msg.TotalAllocBytes))
 
-			// Show type breakdown if requested.
-			if showTypes {
-				printTypeBreakdown(resp.Msg.Samples, resp.Msg.TotalAllocBytes)
-			}
-
-			// Output folded stack format to stdout (alloc_bytes as count).
-			for _, sample := range resp.Msg.Samples {
-				if len(sample.FrameNames) == 0 {
-					continue
-				}
-				for i := len(sample.FrameNames) - 1; i >= 0; i-- {
-					fmt.Print(sample.FrameNames[i])
-					if i > 0 {
-						fmt.Print(";")
+			switch format {
+			case "folded":
+				// Output folded stack format to stdout (alloc_bytes as count).
+				for _, sample := range resp.Msg.Samples {
+					if len(sample.FrameNames) == 0 {
+						continue
 					}
+					for i := len(sample.FrameNames) - 1; i >= 0; i-- {
+						fmt.Print(sample.FrameNames[i])
+						if i > 0 {
+							fmt.Print(";")
+						}
+					}
+					fmt.Printf(" %d\n", sample.AllocBytes)
 				}
-				fmt.Printf(" %d\n", sample.AllocBytes)
+			case "summary":
+				// Print top allocating functions (server-side computed).
+				if len(resp.Msg.TopFunctions) > 0 {
+					fmt.Println("Top Memory Allocators:")
+					for _, tf := range resp.Msg.TopFunctions {
+						fmt.Printf("  %5.1f%%  %s  %s\n", tf.Pct, formatQueryBytes(tf.Bytes), tf.Function)
+					}
+					fmt.Println()
+				}
+
+				// Print top allocation types if requested.
+				if showTypes && len(resp.Msg.TopTypes) > 0 {
+					fmt.Println("Top Allocation Types:")
+					for _, tt := range resp.Msg.TopTypes {
+						fmt.Printf("  %5.1f%%  %s  %s\n", tt.Pct, formatQueryBytes(tt.Bytes), tt.TypeName)
+					}
+					fmt.Println()
+				}
+			default:
+				return fmt.Errorf("unknown format: %s (use 'summary' or 'folded')", format)
 			}
 
 			return nil
@@ -142,75 +158,11 @@ Examples:
 	cmd.Flags().StringVar(&buildID, "build-id", "", "Filter by specific build ID")
 	cmd.Flags().BoolVar(&showGrowth, "show-growth", false, "Show heap growth trends")
 	cmd.Flags().BoolVar(&showTypes, "show-types", false, "Show allocation breakdown by type")
+	cmd.Flags().StringVarP(&format, "format", "f", "summary", "Output format: 'summary' (human/LLM readable) or 'folded' (flamegraph compatible)")
 
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 
 	return cmd
-}
-
-// printTypeBreakdown computes and displays allocation type breakdown from samples.
-func printTypeBreakdown(samples []*agentv1.MemoryStackSample, totalBytes int64) {
-	type typeAgg struct {
-		bytes   int64
-		objects int64
-	}
-	types := make(map[string]*typeAgg)
-	for _, sample := range samples {
-		if len(sample.FrameNames) == 0 {
-			continue
-		}
-		// Leaf function is the first frame (innermost allocation site).
-		typeName := classifyQueryAllocType(sample.FrameNames[0])
-		if agg, ok := types[typeName]; ok {
-			agg.bytes += sample.AllocBytes
-			agg.objects += sample.AllocObjects
-		} else {
-			types[typeName] = &typeAgg{bytes: sample.AllocBytes, objects: sample.AllocObjects}
-		}
-	}
-
-	type typeEntry struct {
-		name    string
-		bytes   int64
-		objects int64
-		pct     float64
-	}
-	var entries []typeEntry
-	for name, agg := range types {
-		pct := 0.0
-		if totalBytes > 0 {
-			pct = float64(agg.bytes) / float64(totalBytes) * 100
-		}
-		entries = append(entries, typeEntry{name: name, bytes: agg.bytes, objects: agg.objects, pct: pct})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
-	if len(entries) > 10 {
-		entries = entries[:10]
-	}
-
-	fmt.Fprintf(os.Stderr, "Top Allocation Types:\n")
-	for _, e := range entries {
-		fmt.Fprintf(os.Stderr, "  %5.1f%%  %s  %s\n", e.pct, formatQueryBytes(e.bytes), e.name)
-	}
-	fmt.Fprintln(os.Stderr)
-}
-
-// classifyQueryAllocType maps a leaf function name to an allocation type category.
-func classifyQueryAllocType(funcName string) string {
-	switch {
-	case strings.Contains(funcName, "makeslice") || strings.Contains(funcName, "growslice"):
-		return "slice"
-	case strings.Contains(funcName, "makemap") || strings.Contains(funcName, "mapassign"):
-		return "map"
-	case strings.Contains(funcName, "newobject") || strings.Contains(funcName, "mallocgc"):
-		return "object"
-	case strings.Contains(funcName, "concatstrings") || strings.Contains(funcName, "slicebytetostring") || strings.Contains(funcName, "stringtoslicebyte"):
-		return "string"
-	case strings.Contains(funcName, "makechan"):
-		return "channel"
-	default:
-		return funcName
-	}
 }
 
 // formatQueryBytes formats bytes into human-readable form.

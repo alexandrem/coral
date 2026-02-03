@@ -367,8 +367,11 @@ message QueryHistoricalMemoryProfileRequest {
 
 // QueryHistoricalMemoryProfileResponse returns aggregated historical memory profiles (RFD 077).
 message QueryHistoricalMemoryProfileResponse {
-  repeated coral.agent.v1.MemoryStackSample samples = 1; // Aggregated allocation samples.
+  repeated coral.agent.v1.MemoryStackSample samples = 1; // Raw aggregated allocation samples (for flamegraphs).
   int64 total_alloc_bytes = 2;      // Total allocation bytes across time range.
   string error = 3;                 // Error message if query failed.
   bool success = 4;                 // Whether query succeeded.
+  repeated coral.agent.v1.TopAllocFunction top_functions = 5; // Top allocating functions (summarized).
+  repeated coral.agent.v1.TopAllocType top_types = 6;         // Top allocation types (summarized).
+  int32 unique_stacks = 7;          // Number of unique stack traces.
 }

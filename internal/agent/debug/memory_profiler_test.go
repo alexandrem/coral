@@ -65,11 +65,11 @@ func buildTestProfile(t *testing.T, samples []struct {
 func mockSDKServer(t *testing.T, pprofData []byte, memstats map[string]interface{}) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/debug/pprof/allocs" || r.URL.Path == "/debug/pprof/heap":
+		switch r.URL.Path {
+		case "/debug/pprof/allocs", "/debug/pprof/heap":
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(pprofData)
-		case r.URL.Path == "/debug/memstats":
+		case "/debug/memstats":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(memstats)
 		default:

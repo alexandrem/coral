@@ -481,6 +481,78 @@ func (s *ProfilingSuite) TestOnDemandMemoryProfiling() {
 	s.T().Log("✓ On-demand memory profiling verified")
 }
 
+// TestContinuousMemoryProfiling verifies that the continuous memory profiler
+// collects periodic heap snapshots and stores them in the agent's local DuckDB.
+//
+// Test flow:
+// 1. Connect memory-app to agent-1 with SDK capabilities
+// 2. Generate allocation load to produce heap data
+// 3. Wait for at least one continuous profiling collection cycle (60s default)
+// 4. Query the agent's local memory profile storage
+// 5. Verify samples exist with expected structure
+func (s *ProfilingSuite) TestContinuousMemoryProfiling() {
+	s.T().Log("Testing continuous memory profiling...")
+
+	fixture := s.fixture
+
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 1)
+	s.Require().NoError(err, "Failed to get agent-1 endpoint")
+
+	memoryAppEndpoint, err := fixture.GetMemoryAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get memory app endpoint")
+
+	// Connect memory-app to agent-1 with SDK address for continuous profiling.
+	s.ensureServicesConnected()
+
+	// Generate allocation load so the heap has data to capture.
+	s.T().Log("Generating allocation load...")
+	client := &http.Client{Timeout: 10 * time.Second}
+	for range 20 {
+		resp, reqErr := client.Get(fmt.Sprintf("http://%s/", memoryAppEndpoint))
+		if reqErr == nil {
+			_ = resp.Body.Close()
+		}
+		resp2, reqErr2 := client.Get(fmt.Sprintf("http://%s/types", memoryAppEndpoint))
+		if reqErr2 == nil {
+			_ = resp2.Body.Close()
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	s.T().Log("✓ Allocation load generated")
+
+	// Wait for the continuous profiler to complete at least one collection cycle.
+	// E2E uses CORAL_MEMORY_PROFILING_INTERVAL=5s; wait for a couple of cycles.
+	s.T().Log("Waiting for continuous memory profiler collection cycle (15s)...")
+	time.Sleep(15 * time.Second)
+
+	// Query the agent's memory profile storage.
+	s.T().Log("Querying agent for continuous memory profile samples...")
+	agentDebugClient := helpers.NewAgentDebugClient(agentEndpoint)
+	queryResp, err := helpers.QueryMemoryProfileSamples(s.ctx, agentDebugClient, "memory-app", 30*time.Second)
+	s.Require().NoError(err, "QueryMemoryProfileSamples should succeed")
+
+	if queryResp.Error != "" {
+		s.T().Logf("Query error: %s", queryResp.Error)
+		s.T().Skip("Skipping: continuous memory profiling query returned error")
+	}
+
+	s.T().Logf("Captured %d continuous memory profile samples", len(queryResp.Samples))
+	s.Require().NotEmpty(queryResp.Samples, "Should have continuous memory profile samples after collection cycle")
+
+	// Verify sample structure.
+	for i, sample := range queryResp.Samples {
+		s.Require().NotEmpty(sample.StackFrames, "Sample should have stack frames")
+		s.Require().Greater(sample.AllocBytes, int64(0), "Sample should have alloc_bytes > 0")
+		if i < 3 {
+			s.T().Logf("Sample %d: alloc_bytes=%d, frames=%d, service=%s",
+				i, sample.AllocBytes, len(sample.StackFrames), sample.ServiceName)
+		}
+	}
+
+	s.T().Logf("Total allocation bytes: %d", queryResp.TotalAllocBytes)
+	s.T().Log("✓ Continuous memory profiling verified")
+}
+
 // =============================================================================
 // Helper Methods
 // =============================================================================

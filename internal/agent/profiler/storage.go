@@ -659,7 +659,7 @@ func (s *Storage) encodeStackFrames(ctx context.Context, frameNames []string) ([
 		s.nextFrameID++
 
 		_, err := s.db.ExecContext(ctx, `
-			INSERT INTO profile_frame_dictionary_local (frame_id, frame_name, frame_count)
+			INSERT OR IGNORE INTO profile_frame_dictionary_local (frame_id, frame_name, frame_count)
 			VALUES (?, ?, 1)
 		`, frameID, frameName)
 		if err != nil {

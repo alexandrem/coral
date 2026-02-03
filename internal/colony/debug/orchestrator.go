@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -1150,6 +1151,12 @@ func (o *Orchestrator) QueryHistoricalMemoryProfile(
 	var samples []*agentv1.MemoryStackSample
 	var totalAllocBytes int64
 
+	// Track function and type aggregations for summaries.
+	funcBytes := make(map[string]int64)
+	funcObjects := make(map[string]int64)
+	typeBytes := make(map[string]int64)
+	typeObjects := make(map[string]int64)
+
 	for _, agg := range aggregated {
 		totalAllocBytes += agg.allocBytes
 
@@ -1164,11 +1171,127 @@ func (o *Orchestrator) QueryHistoricalMemoryProfile(
 			AllocBytes:   agg.allocBytes,
 			AllocObjects: agg.allocObjects,
 		})
+
+		// Aggregate by function for top functions summary.
+		for _, fn := range frameNames {
+			funcBytes[fn] += agg.allocBytes
+			funcObjects[fn] += agg.allocObjects
+		}
+
+		// Aggregate by allocation type (from leaf function).
+		if len(frameNames) > 0 {
+			typeName := classifyMemoryAllocType(frameNames[0])
+			typeBytes[typeName] += agg.allocBytes
+			typeObjects[typeName] += agg.allocObjects
+		}
 	}
+
+	// Compute top functions (sorted by bytes, limited to top 20).
+	topFunctions := computeTopFunctions(funcBytes, funcObjects, totalAllocBytes, 20)
+
+	// Compute top types (sorted by bytes, limited to top 10).
+	topTypes := computeTopTypes(typeBytes, typeObjects, totalAllocBytes, 10)
 
 	return connect.NewResponse(&debugpb.QueryHistoricalMemoryProfileResponse{
 		Samples:         samples,
 		TotalAllocBytes: totalAllocBytes,
+		TopFunctions:    topFunctions,
+		TopTypes:        topTypes,
+		UniqueStacks:    int32(len(samples)),
 		Success:         true,
 	}), nil
+}
+
+// computeTopFunctions builds a sorted list of top allocating functions.
+func computeTopFunctions(funcBytes, funcObjects map[string]int64, totalBytes int64, limit int) []*agentv1.TopAllocFunction {
+	type funcEntry struct {
+		name    string
+		bytes   int64
+		objects int64
+	}
+	var entries []funcEntry
+	for fn, bytes := range funcBytes {
+		entries = append(entries, funcEntry{name: fn, bytes: bytes, objects: funcObjects[fn]})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+
+	result := make([]*agentv1.TopAllocFunction, 0, len(entries))
+	for _, e := range entries {
+		pct := 0.0
+		if totalBytes > 0 {
+			pct = float64(e.bytes) / float64(totalBytes) * 100
+		}
+		result = append(result, &agentv1.TopAllocFunction{
+			Function: shortenFuncName(e.name),
+			Bytes:    e.bytes,
+			Objects:  e.objects,
+			Pct:      pct,
+		})
+	}
+	return result
+}
+
+// computeTopTypes builds a sorted list of top allocation types.
+func computeTopTypes(typeBytes, typeObjects map[string]int64, totalBytes int64, limit int) []*agentv1.TopAllocType {
+	type typeEntry struct {
+		name    string
+		bytes   int64
+		objects int64
+	}
+	var entries []typeEntry
+	for tn, bytes := range typeBytes {
+		entries = append(entries, typeEntry{name: tn, bytes: bytes, objects: typeObjects[tn]})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+
+	result := make([]*agentv1.TopAllocType, 0, len(entries))
+	for _, e := range entries {
+		pct := 0.0
+		if totalBytes > 0 {
+			pct = float64(e.bytes) / float64(totalBytes) * 100
+		}
+		result = append(result, &agentv1.TopAllocType{
+			TypeName: e.name,
+			Bytes:    e.bytes,
+			Objects:  e.objects,
+			Pct:      pct,
+		})
+	}
+	return result
+}
+
+// classifyMemoryAllocType maps a leaf function name to an allocation type category.
+func classifyMemoryAllocType(funcName string) string {
+	switch {
+	case strings.Contains(funcName, "makeslice") || strings.Contains(funcName, "growslice"):
+		return "slice"
+	case strings.Contains(funcName, "makemap") || strings.Contains(funcName, "mapassign"):
+		return "map"
+	case strings.Contains(funcName, "newobject") || strings.Contains(funcName, "mallocgc"):
+		return "object"
+	case strings.Contains(funcName, "concatstrings") || strings.Contains(funcName, "slicebytetostring") || strings.Contains(funcName, "stringtoslicebyte"):
+		return "string"
+	case strings.Contains(funcName, "makechan"):
+		return "channel"
+	case strings.Contains(funcName, "newproc") || strings.Contains(funcName, "mstart"):
+		return "goroutine"
+	default:
+		return shortenFuncName(funcName)
+	}
+}
+
+// shortenFuncName shortens a fully qualified function name for readability.
+// github.com/coral-mesh/coral/pkg/sdk.(*SDK).initializeDebugServer -> sdk.(*SDK).initializeDebugServer.
+func shortenFuncName(fullName string) string {
+	lastSlash := strings.LastIndex(fullName, "/")
+	if lastSlash >= 0 {
+		return fullName[lastSlash+1:]
+	}
+	return fullName
 }
