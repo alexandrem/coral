@@ -382,41 +382,26 @@ func (s *ProfilingSuite) TestOnDemandMemoryProfiling() {
 	s.T().Logf("Agent-1 endpoint: %s", agentEndpoint)
 	s.T().Logf("Memory app endpoint: %s", memoryAppEndpoint)
 
-	// Connect memory-app to agent-1.
-	agentClient := helpers.NewAgentClient(agentEndpoint)
+	// Connect memory-app to agent-1 (with SDK capabilities).
 	s.ensureServicesConnected()
 
-	// Wait for service registration.
-	err = helpers.WaitForServiceRegistration(s.ctx, agentClient, "memory-app", 10*time.Second)
-	s.Require().NoError(err, "Timeout waiting for service registration")
-	s.T().Log("✓ Memory app verified in agent's service registry")
-
-	// Find the agent hosting memory-app. The colony may not see the service
-	// immediately after agent-level registration, so poll until it propagates.
+	// Find the agent hosting memory-app via the colony.
 	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
 
 	var agentID string
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-		s.Require().NoError(err, "Failed to list agents")
-
-		for _, agent := range listAgentsResp.Agents {
-			for _, svc := range agent.Services {
-				if svc.Name == "memory-app" {
-					agentID = agent.AgentId
-					s.T().Logf("Found memory-app on agent: %s", agentID)
-					break
-				}
-			}
-			if agentID != "" {
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "memory-app" {
+				agentID = agent.AgentId
+				s.T().Logf("Found memory-app on agent: %s", agentID)
 				break
 			}
 		}
 		if agentID != "" {
 			break
 		}
-		time.Sleep(1 * time.Second)
 	}
 	s.Require().NotEmpty(agentID, "Failed to find agent hosting memory-app service")
 
@@ -514,7 +499,7 @@ func (s *ProfilingSuite) disconnectMemoryApp() {
 // ensureServicesConnected ensures that test services are connected.
 // This uses the shared helper for idempotent service connection.
 func (s *ProfilingSuite) ensureServicesConnected() {
-	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 1, []helpers.ServiceConfig{
 		{Name: "memory-app", Port: 8080, HealthEndpoint: "/health", SdkAddr: "localhost:9004"},
 	})
 }
