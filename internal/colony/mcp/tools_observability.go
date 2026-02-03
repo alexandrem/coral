@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/invopop/jsonschema"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 )
@@ -598,6 +600,127 @@ func (s *Server) generateQueryMemoryProfileOutput(ctx context.Context, input Que
 			text += frame
 		}
 		text += "\n\n"
+	}
+
+	return text, nil
+}
+
+// registerProfileMemoryTool registers the coral_profile_memory tool (RFD 077).
+// This triggers on-demand memory profiling on a target service.
+func (s *Server) registerProfileMemoryTool() {
+	s.registerToolWithSchema(
+		"coral_profile_memory",
+		"Trigger on-demand memory profiling for a service. Collects heap allocation data for the specified duration. Use this for live memory investigation when you need fresh profiling data. For historical data, use coral_query_memory_profile instead.",
+		ProfileMemoryInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if s.debugService == nil {
+				return mcp.NewToolResultError("debug service not available"), nil
+			}
+
+			var input ProfileMemoryInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
+			s.auditToolCall("coral_profile_memory", input)
+
+			text, err := s.generateProfileMemoryOutput(ctx, input)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to profile memory: %v", err)), nil
+			}
+
+			return mcp.NewToolResultText(text), nil
+		})
+}
+
+// generateProfileMemoryOutput triggers on-demand memory profiling and formats the result.
+func (s *Server) generateProfileMemoryOutput(ctx context.Context, input ProfileMemoryInput) (string, error) {
+	// Set defaults.
+	durationSeconds := int32(30)
+	if input.DurationSeconds != nil {
+		durationSeconds = *input.DurationSeconds
+		if durationSeconds > 300 {
+			durationSeconds = 300
+		}
+		if durationSeconds < 5 {
+			durationSeconds = 5
+		}
+	}
+
+	sampleRateBytes := int32(524288) // 512KB default.
+	if input.SampleRateBytes != nil {
+		sampleRateBytes = *input.SampleRateBytes
+	}
+
+	agentID := ""
+	if input.AgentID != nil {
+		agentID = *input.AgentID
+	}
+
+	// Call the debug service to trigger on-demand memory profiling.
+	req := connect.NewRequest(&debugpb.ProfileMemoryRequest{
+		ServiceName:     input.Service,
+		DurationSeconds: durationSeconds,
+		SampleRateBytes: sampleRateBytes,
+		AgentId:         agentID,
+	})
+
+	resp, err := s.debugService.ProfileMemory(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to profile memory: %w", err)
+	}
+
+	if !resp.Msg.Success {
+		return "", fmt.Errorf("profiling failed: %s", resp.Msg.Error)
+	}
+
+	// Format response.
+	text := fmt.Sprintf("Memory Profile for %s (collected over %ds):\n\n", input.Service, durationSeconds)
+
+	// Heap statistics.
+	if resp.Msg.Stats != nil {
+		text += "Heap Statistics:\n"
+		text += fmt.Sprintf("  Alloc bytes:       %d\n", resp.Msg.Stats.AllocBytes)
+		text += fmt.Sprintf("  Total alloc bytes: %d\n", resp.Msg.Stats.TotalAllocBytes)
+		text += fmt.Sprintf("  Sys bytes:         %d\n", resp.Msg.Stats.SysBytes)
+		text += fmt.Sprintf("  Num GC:            %d\n", resp.Msg.Stats.NumGc)
+		text += "\n"
+	}
+
+	// Top allocating functions.
+	if len(resp.Msg.TopFunctions) > 0 {
+		text += "Top Memory Allocators:\n"
+		for i, f := range resp.Msg.TopFunctions {
+			if i >= 10 {
+				break
+			}
+			text += fmt.Sprintf("#%d %.1f%% (%d bytes, %d objects) %s\n",
+				i+1, f.Pct, f.Bytes, f.Objects, f.Function)
+		}
+		text += "\n"
+	}
+
+	// Top allocation types.
+	if len(resp.Msg.TopTypes) > 0 {
+		text += "Top Allocation Types:\n"
+		for i, t := range resp.Msg.TopTypes {
+			if i >= 5 {
+				break
+			}
+			text += fmt.Sprintf("  %.1f%% (%d bytes) %s\n", t.Pct, t.Bytes, t.TypeName)
+		}
+		text += "\n"
+	}
+
+	// Sample count.
+	if len(resp.Msg.Samples) > 0 {
+		text += fmt.Sprintf("Collected %d allocation samples.\n", len(resp.Msg.Samples))
 	}
 
 	return text, nil

@@ -1,7 +1,7 @@
 ---
 rfd: "077"
 title: "Memory Profiling and Allocation Flame Graphs"
-state: "partially-implemented"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "agent", "sdk", "colony", "cli", "profiling" ]
 
 # RFD 077 - Memory Profiling and Allocation Flame Graphs
 
-**Status:** ⚠️ Partially Implemented
+**Status:** ✅ Implemented
 
 ## Summary
 
@@ -758,7 +758,7 @@ efficiency.
 
 ## Implementation Status
 
-**Status:** ✅ Partially Implemented
+**Status:** ✅ Implemented
 
 ### Completed
 
@@ -771,11 +771,11 @@ efficiency.
 - ✅ CLI `coral query memory-profile` command (historical queries)
 - ✅ Memory hotspots integrated into `coral_query_summary` MCP tool
 - ✅ `coral_query_memory_profile` MCP tool (historical memory profile queries)
+- ✅ `coral_profile_memory` MCP tool (on-demand memory profiling)
 - ✅ E2E tests for on-demand and continuous memory profiling
 
 ### Not Implemented
 
-- ❌ `coral_profile_memory` MCP tool (on-demand memory profiling via MCP)
 - ❌ Performance benchmarking: verify <1% overhead for continuous mode
 
 ## Future Work

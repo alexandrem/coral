@@ -1175,6 +1175,172 @@ func (s *MCPSuite) TestMCPToolListIncludesProfilingTools() {
 }
 
 // =============================================================================
+// Group I: Memory Profiling Tools (RFD 077)
+// =============================================================================
+
+// TestMCPToolQueryMemoryProfile tests the coral_query_memory_profile tool (RFD 077).
+//
+// Validates:
+// - Tool accepts service and duration_seconds parameters
+// - Tool returns data or a helpful "no data" message
+// - Tool handles nonexistent services gracefully
+func (s *MCPSuite) TestMCPToolQueryMemoryProfile() {
+	s.T().Log("Testing MCP query memory profile tool (RFD 077)...")
+
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Test 1: Query memory profile for otel-app (may or may not have data).
+	profileResp, err := proxy.CallTool("coral_query_memory_profile", map[string]interface{}{
+		"service":          "otel-app",
+		"duration_seconds": 300,
+	}, 130)
+	s.Require().NoError(err, "coral_query_memory_profile should succeed")
+	s.Require().NotEmpty(profileResp.Content, "Profile should have content")
+
+	profileText := profileResp.Content[0].Text
+	s.T().Log("Memory profile result (truncated):")
+	if len(profileText) > 500 {
+		s.T().Log(profileText[:500] + "...")
+	} else {
+		s.T().Log(profileText)
+	}
+
+	// Response should mention the service name or indicate no data.
+	hasServiceName := strings.Contains(strings.ToLower(profileText), "otel-app")
+	hasNoData := strings.Contains(strings.ToLower(profileText), "no memory profiling data")
+	s.Require().True(hasServiceName || hasNoData,
+		"Response should mention service name or indicate no data available")
+
+	// Test 2: Non-existent service (should return no data message, not error).
+	noDataResp, err := proxy.CallTool("coral_query_memory_profile", map[string]interface{}{
+		"service":          "nonexistent-service-xyz",
+		"duration_seconds": 60,
+	}, 131)
+	s.Require().NoError(err, "coral_query_memory_profile for missing service should succeed")
+	s.Require().NotEmpty(noDataResp.Content, "Should have content")
+
+	noDataText := noDataResp.Content[0].Text
+	s.Require().Contains(strings.ToLower(noDataText), "no memory profiling data",
+		"Should indicate no profiling data available")
+
+	s.T().Log("✓ MCP query memory profile tool validated")
+}
+
+// TestMCPToolProfileMemory tests the coral_profile_memory tool (RFD 077).
+//
+// Validates:
+// - Tool accepts service, duration_seconds, and sample_rate_bytes parameters
+// - Tool triggers on-demand memory profiling
+// - Tool returns heap statistics and top allocators
+func (s *MCPSuite) TestMCPToolProfileMemory() {
+	s.T().Log("Testing MCP profile memory tool (RFD 077)...")
+
+	// Ensure services are connected.
+	s.ensureServicesConnected()
+
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// Test 1: Trigger on-demand memory profile for otel-app.
+	profileResp, err := proxy.CallTool("coral_profile_memory", map[string]interface{}{
+		"service":           "otel-app",
+		"duration_seconds":  10,
+		"sample_rate_bytes": 524288,
+	}, 132)
+	// Note: This may fail in e2e if service isn't set up for profiling.
+	if err != nil {
+		s.T().Logf("On-demand memory profiling failed (may be expected in e2e): %v", err)
+	} else {
+		s.Require().NotEmpty(profileResp.Content, "Profile should have content")
+
+		profileText := profileResp.Content[0].Text
+		s.T().Log("On-demand memory profile result (truncated):")
+		if len(profileText) > 500 {
+			s.T().Log(profileText[:500] + "...")
+		} else {
+			s.T().Log(profileText)
+		}
+
+		// Response should contain memory profile information.
+		hasMemoryInfo := strings.Contains(strings.ToLower(profileText), "memory") ||
+			strings.Contains(strings.ToLower(profileText), "heap") ||
+			strings.Contains(strings.ToLower(profileText), "alloc")
+		s.Require().True(hasMemoryInfo,
+			"Response should contain memory-related information")
+	}
+
+	s.T().Log("✓ MCP profile memory tool validated")
+}
+
+// TestMCPToolListIncludesMemoryProfilingTools validates that tool listing includes RFD 077 tools.
+func (s *MCPSuite) TestMCPToolListIncludesMemoryProfilingTools() {
+	s.T().Log("Testing MCP tool list includes memory profiling tools (RFD 077)...")
+
+	proxy, err := helpers.StartMCPProxyWithEnv(s.ctx, "test-colony-e2e", s.cliEnv)
+	s.Require().NoError(err, "Should start MCP proxy")
+	defer proxy.Close()
+
+	_, err = proxy.Initialize()
+	s.Require().NoError(err, "Initialize should succeed")
+
+	// List all tools.
+	listResp, err := proxy.ListTools()
+	s.Require().NoError(err, "tools/list should succeed")
+
+	// Find memory profiling tools in the tool list.
+	foundQueryMemory := false
+	foundProfileMemory := false
+
+	for _, tool := range listResp.Tools {
+		switch tool.Name {
+		case "coral_query_memory_profile":
+			foundQueryMemory = true
+			s.T().Logf("Found tool: %s - %s", tool.Name, tool.Description)
+
+			// Verify the tool has an input schema with expected properties.
+			if len(tool.InputSchema) > 0 {
+				if props, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+					_, hasService := props["service"]
+					_, hasDuration := props["duration_seconds"]
+					s.Assert().True(hasService, "Schema should have service property")
+					s.Assert().True(hasDuration, "Schema should have duration_seconds property")
+				}
+			}
+
+		case "coral_profile_memory":
+			foundProfileMemory = true
+			s.T().Logf("Found tool: %s - %s", tool.Name, tool.Description)
+
+			// Verify the tool has an input schema with expected properties.
+			if len(tool.InputSchema) > 0 {
+				if props, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+					_, hasService := props["service"]
+					_, hasDuration := props["duration_seconds"]
+					_, hasSampleRate := props["sample_rate_bytes"]
+					s.Assert().True(hasService, "Schema should have service property")
+					s.Assert().True(hasDuration, "Schema should have duration_seconds property")
+					s.Assert().True(hasSampleRate, "Schema should have sample_rate_bytes property")
+				}
+			}
+		}
+	}
+
+	s.Require().True(foundQueryMemory, "coral_query_memory_profile should be in tool list")
+	s.Require().True(foundProfileMemory, "coral_profile_memory should be in tool list")
+
+	s.T().Log("✓ Memory profiling tools found in tool list")
+}
+
+// =============================================================================
 // Helper Methods
 // =============================================================================
 

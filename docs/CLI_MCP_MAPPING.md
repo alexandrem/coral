@@ -15,7 +15,7 @@ integration.
 | CLI Category              | MCP Tool(s)                                                                     | Status                            |
 |---------------------------|---------------------------------------------------------------------------------|-----------------------------------|
 | eBPF Metrics & Traces     | `coral_query_summary`, `coral_query_traces`, `coral_query_metrics`              | ✅ Available                       |
-| Memory Profiling          | `coral_query_memory_profile`, `coral_profile_memory`                            | ⚠️ Partial (query only)            |
+| Memory Profiling          | `coral_query_memory_profile`, `coral_profile_memory`                            | ✅ Available                       |
 | Live Debugging            | `coral_attach_uprobe`, `coral_detach_uprobe`, `coral_list_debug_sessions`, etc. | ✅ Available                       |
 | Container Execution       | `coral_container_exec`                                                          | ✅ Available                       |
 | Agent Shell Access        | `coral_shell_exec`                                                              | ✅ Available                       |
@@ -343,18 +343,34 @@ Top Memory Allocators:
 coral profile memory --service <name> [--duration <seconds>] [--sample-rate <kb>] [--format folded|json]
 ```
 
-**MCP Equivalent:** `coral_profile_memory` ⚠️ *Not yet implemented*
+**MCP Equivalent:** `coral_profile_memory`
 
 | CLI Parameter           | MCP Parameter       | Example          |
 |-------------------------|---------------------|------------------|
 | `--service <name>`      | `service`           | `"payments-api"` |
 | `--duration <seconds>`  | `duration_seconds`  | `30`             |
 | `--sample-rate <kb>`    | `sample_rate_bytes` | `524288` (512KB) |
-| `--format <type>`       | `format`            | `"folded"`, `"json"` |
+| `--agent <agent-id>`    | `agent_id`          | `"agent-abc123"` |
 
-**Note:** On-demand memory profiling via MCP is not yet implemented. Use the CLI
-command `coral profile memory` directly, or use `coral_query_memory_profile` to
-query historical continuous profiling data
+**Example:**
+
+```json
+{
+    "name": "coral_profile_memory",
+    "arguments": {
+        "service": "payments-api",
+        "duration_seconds": 30,
+        "sample_rate_bytes": 524288
+    }
+}
+```
+
+**Response includes:**
+
+- Heap statistics (alloc bytes, sys bytes, GC count)
+- Top allocating functions with percentages
+- Top allocation types
+- Sample count
 
 ---
 
@@ -663,7 +679,7 @@ coral exec <service> <command> [args...] [flags]
 | `coral_query_metrics`        | HTTP/gRPC/SQL metrics (eBPF + OTLP)  | `service`, `time_range`                     |
 | `coral_query_logs`           | Logs (OTLP)                          | `service`, `time_range`, `level`            |
 | `coral_query_memory_profile` | Historical memory profiles           | `service`, `duration_seconds`               |
-| `coral_profile_memory`       | On-demand memory profiling           | ⚠️ Not yet implemented                       |
+| `coral_profile_memory`       | On-demand memory profiling           | `service`, `duration_seconds`, `sample_rate_bytes` |
 
 ### Service Discovery
 

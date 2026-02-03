@@ -334,6 +334,7 @@ func (s *Server) registerTools() error {
 	// Register profiling-enriched debugging tools (RFD 074, RFD 077).
 	s.registerDebugCPUProfileTool()
 	s.registerQueryMemoryProfileTool()
+	s.registerProfileMemoryTool()
 
 	// TODO: Register analysis tools.
 	// s.registerCorrelateEventsTool()
