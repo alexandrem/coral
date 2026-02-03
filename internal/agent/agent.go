@@ -95,8 +95,9 @@ func New(config Config) (*Agent, error) {
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
 		monitor := NewServiceMonitor(ctx, service, config.FunctionCache, config.Logger)
-		// Set callback for continuous profiling (RFD 072).
+		// Set callbacks for continuous profiling (RFD 072, RFD 077).
 		monitor.onProcessDiscovered = agent.onProcessDiscovered
+		monitor.onSDKDiscovered = agent.onSDKDiscovered
 		agent.monitors[service.Name] = monitor
 	}
 
@@ -210,6 +211,33 @@ func (a *Agent) onProcessDiscovered(serviceName string, pid int32, binaryPath st
 	}
 }
 
+// onSDKDiscovered is called when a service's SDK capabilities are set (RFD 077).
+// It adds the service to continuous memory profiling if enabled.
+func (a *Agent) onSDKDiscovered(serviceName string, pid int32, sdkAddr string) {
+	a.mu.RLock()
+	memProfiler := a.continuousMemoryProfiler
+	a.mu.RUnlock()
+
+	if memProfiler == nil {
+		return
+	}
+
+	// Type assert to get the AddService method.
+	type memProfilerWithAddService interface {
+		AddService(serviceID string, pid int, binaryPath string, sdkAddr string)
+	}
+
+	if p, ok := memProfiler.(memProfilerWithAddService); ok {
+		a.logger.Info().
+			Str("service", serviceName).
+			Int32("pid", pid).
+			Str("sdk_addr", sdkAddr).
+			Msg("Adding service to continuous memory profiling")
+
+		p.AddService(serviceName, int(pid), fmt.Sprintf("/proc/%d/exe", pid), sdkAddr)
+	}
+}
+
 // GetContext returns the agent's context.
 func (a *Agent) GetContext() context.Context {
 	return a.ctx
@@ -292,8 +320,9 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 
 	// Create and start new monitor.
 	monitor := NewServiceMonitor(a.ctx, service, a.functionCache, a.logger)
-	// Set callback for continuous profiling (RFD 072).
+	// Set callbacks for continuous profiling (RFD 072, RFD 077).
 	monitor.onProcessDiscovered = a.onProcessDiscovered
+	monitor.onSDKDiscovered = a.onSDKDiscovered
 	monitor.Start()
 
 	a.monitors[service.Name] = monitor

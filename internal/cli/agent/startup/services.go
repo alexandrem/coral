@@ -171,6 +171,15 @@ func (s *ServiceRegistry) Register(runtimeService *agent.RuntimeService) (*Servi
 		s.logger.Warn().Msg("Continuous profiling disabled - shared database not available")
 	}
 
+	// Initialize continuous memory profiling (RFD 077).
+	if s.sharedDB != nil && !s.agentCfg.ContinuousProfiling.Disabled && !s.agentCfg.ContinuousProfiling.Memory.Disabled {
+		if err := s.startContinuousMemoryProfiler(); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to start continuous memory profiler")
+		}
+	} else if !s.agentCfg.ContinuousProfiling.Disabled && s.agentCfg.ContinuousProfiling.Memory.Disabled {
+		s.logger.Info().Msg("Continuous memory profiling is disabled via configuration")
+	}
+
 	// Create and register HTTP servers.
 	meshServer, localhostServer, err := s.createHTTPServers(runtimeService, otlpReceiver, result.SystemMetricsHandler)
 	if err != nil {
@@ -344,6 +353,39 @@ func (s *ServiceRegistry) startContinuousCPUProfiler() error {
 	} else {
 		s.logger.Info().Msg("No services with PIDs to profile - continuous profiling ready for new services")
 	}
+
+	return nil
+}
+
+// startContinuousMemoryProfiler initializes and starts continuous memory profiling (RFD 077).
+// Services are added dynamically when SDK capabilities are discovered via SetSdkCapabilities.
+func (s *ServiceRegistry) startContinuousMemoryProfiler() error {
+	s.logger.Info().Msg("Initializing continuous memory profiling")
+
+	memConfig := profiler.MemoryConfig{
+		Enabled:         true,
+		Interval:        s.agentCfg.ContinuousProfiling.Memory.Interval,
+		SampleRetention: s.agentCfg.ContinuousProfiling.Memory.Retention,
+	}
+
+	memProfiler, err := profiler.NewContinuousMemoryProfiler(
+		s.parentCtx,
+		s.sharedDB,
+		s.logger,
+		memConfig,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create continuous memory profiler: %w", err)
+	}
+
+	// Set profiler on agent for RPC access and dynamic service registration.
+	s.agentInstance.SetContinuousMemoryProfiler(memProfiler)
+
+	// Start with empty service list; services added when SDK capabilities are discovered.
+	memProfiler.Start(nil)
+	s.logger.Info().
+		Dur("interval", memConfig.Interval).
+		Msg("Continuous memory profiling started (awaiting SDK-enabled services)")
 
 	return nil
 }
