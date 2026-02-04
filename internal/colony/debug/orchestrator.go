@@ -18,11 +18,11 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // Orchestrator manages debug sessions across agents.
@@ -1184,12 +1184,19 @@ func (o *Orchestrator) QueryHistoricalMemoryProfile(
 	// Compute top types (sorted by bytes, limited to top 10).
 	topTypes := computeTopTypes(typeBytes, typeObjects, totalAllocBytes, 10)
 
+	numSamples, clamped := safe.IntToInt32(len(samples))
+	if clamped {
+		o.logger.Warn().
+			Int32("num_samples", numSamples).
+			Msg("Abnormal samples size, clamped to int32")
+	}
+
 	return connect.NewResponse(&debugpb.QueryHistoricalMemoryProfileResponse{
 		Samples:         samples,
 		TotalAllocBytes: totalAllocBytes,
 		TopFunctions:    topFunctions,
 		TopTypes:        topTypes,
-		UniqueStacks:    int32(len(samples)),
+		UniqueStacks:    numSamples,
 		Success:         true,
 	}), nil
 }
