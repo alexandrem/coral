@@ -460,3 +460,65 @@ func FormatCompactSummary(period string, totalSamples uint64, hotspots []Profili
 
 	return b.String()
 }
+
+// MinAllocBytesForSummary is the minimum total allocation bytes required to
+// include memory profiling data. Below this threshold the data is too sparse
+// to be actionable.
+const MinAllocBytesForSummary = 1024 * 1024 // 1MB
+
+// FormatCompactMemorySummary formats the memory profiling summary in a compact,
+// LLM-friendly format. It shows the hottest allocation path once and lists
+// per-function allocation percentages on a single line.
+// Returns empty string when allocation bytes are too low to be meaningful.
+func FormatCompactMemorySummary(period string, totalAllocBytes int64, hotspots []MemoryProfilingHotspot) string {
+	if len(hotspots) == 0 || totalAllocBytes < MinAllocBytesForSummary {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("   Memory Profiling (%s, %s allocated):\n", period, formatBytes(totalAllocBytes)))
+
+	// Hot path: use the hottest stack (first hotspot).
+	hotPath := simplifyAndTrimFrames(hotspots[0].Frames)
+	if len(hotPath) > 0 {
+		b.WriteString("     Hot path: ")
+		b.WriteString(strings.Join(hotPath, " → "))
+		b.WriteString("\n")
+	}
+
+	// Allocations by function: leaf frame from each hotspot with percentage and bytes.
+	b.WriteString("     Allocations: ")
+	for i, h := range hotspots {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		name := "unknown"
+		if len(h.Frames) > 0 {
+			name = ShortFunctionName(SimplifyFrame(h.Frames[0]))
+		}
+		b.WriteString(fmt.Sprintf("%s (%.1f%%, %s)", name, h.Percentage, formatBytes(h.AllocBytes)))
+	}
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// formatBytes formats bytes into a human-readable string.
+func formatBytes(bytes int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1fGB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.1fMB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.1fKB", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
+}

@@ -68,11 +68,27 @@ func (s *Server) QueryUnifiedSummary(
 					SampleCount: h.SampleCount,
 				}
 			}
+
+			// RFD 077: Memory profiling hotspots.
+			memHotspots := make([]*colonyv1.MemoryHotspot, len(r.ProfilingSummary.MemoryHotspots))
+			for i, h := range r.ProfilingSummary.MemoryHotspots {
+				memHotspots[i] = &colonyv1.MemoryHotspot{
+					Rank:         h.Rank,
+					Frames:       h.Frames,
+					Percentage:   h.Percentage,
+					AllocBytes:   h.AllocBytes,
+					AllocObjects: h.AllocObjects,
+				}
+			}
+
 			result.ProfilingSummary = &colonyv1.ProfilingSummary{
-				TopCpuHotspots: hotspots,
-				TotalSamples:   r.ProfilingSummary.TotalSamples,
-				SamplingPeriod: r.ProfilingSummary.SamplingPeriod,
-				BuildId:        r.ProfilingSummary.BuildID,
+				TopCpuHotspots:    hotspots,
+				TotalSamples:      r.ProfilingSummary.TotalSamples,
+				SamplingPeriod:    r.ProfilingSummary.SamplingPeriod,
+				BuildId:           r.ProfilingSummary.BuildID,
+				TopMemoryHotspots: memHotspots,
+				TotalAllocBytes:   r.ProfilingSummary.TotalAllocBytes,
+				TotalAllocObjects: r.ProfilingSummary.TotalAllocObjects,
 			}
 		}
 

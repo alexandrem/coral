@@ -245,7 +245,7 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 			}
 		}
 
-		// Display profiling summary if available (RFD 074).
+		// Display CPU profiling summary if available (RFD 074).
 		if r.ProfilingSummary != nil && len(r.ProfilingSummary.Hotspots) > 0 {
 			hotspots := make([]database.ProfilingHotspot, len(r.ProfilingSummary.Hotspots))
 			for i, h := range r.ProfilingSummary.Hotspots {
@@ -264,51 +264,22 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 		}
 
 		// Display memory profiling summary if available (RFD 077).
-		memSummaries, memErr := s.db.QueryMemoryProfileSummaries(ctx, r.ServiceName, startTime, endTime)
-		if memErr == nil && len(memSummaries) > 0 {
-			// Aggregate memory hotspots.
-			var totalMemBytes int64
-			funcBytes := make(map[string]int64)
-			for _, ms := range memSummaries {
-				totalMemBytes += ms.AllocBytes
-				// Use stack hash as key for now; decode frames for top entries.
-				if len(ms.StackFrameIDs) > 0 {
-					frameNames, err := s.db.DecodeStackFrames(ctx, ms.StackFrameIDs)
-					if err == nil && len(frameNames) > 0 {
-						leaf := frameNames[len(frameNames)-1]
-						funcBytes[leaf] += ms.AllocBytes
-					}
+		if r.ProfilingSummary != nil && len(r.ProfilingSummary.MemoryHotspots) > 0 {
+			memHotspots := make([]database.MemoryProfilingHotspot, len(r.ProfilingSummary.MemoryHotspots))
+			for i, h := range r.ProfilingSummary.MemoryHotspots {
+				memHotspots[i] = database.MemoryProfilingHotspot{
+					Rank:         h.Rank,
+					Frames:       h.Frames,
+					Percentage:   h.Percentage,
+					AllocBytes:   h.AllocBytes,
+					AllocObjects: h.AllocObjects,
 				}
 			}
-
-			if totalMemBytes > 0 {
-				text += "   Memory Profiling (RFD 077):\n"
-				text += fmt.Sprintf("     Total alloc: %d bytes\n", totalMemBytes)
-
-				// Show top 3 memory allocators.
-				type memEntry struct {
-					name  string
-					bytes int64
-				}
-				var memEntries []memEntry
-				for name, bytes := range funcBytes {
-					memEntries = append(memEntries, memEntry{name, bytes})
-				}
-				for i := range memEntries {
-					for j := i + 1; j < len(memEntries); j++ {
-						if memEntries[j].bytes > memEntries[i].bytes {
-							memEntries[i], memEntries[j] = memEntries[j], memEntries[i]
-						}
-					}
-				}
-				if len(memEntries) > 3 {
-					memEntries = memEntries[:3]
-				}
-				for _, me := range memEntries {
-					pct := float64(me.bytes) / float64(totalMemBytes) * 100
-					text += fmt.Sprintf("     %.1f%% %s\n", pct, me.name)
-				}
-			}
+			text += database.FormatCompactMemorySummary(
+				r.ProfilingSummary.SamplingPeriod,
+				r.ProfilingSummary.TotalAllocBytes,
+				memHotspots,
+			)
 		}
 
 		// Display deployment context (RFD 074).

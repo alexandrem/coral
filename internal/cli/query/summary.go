@@ -45,11 +45,22 @@ type profilingJSON struct {
 	BuildID           string               `json:"build_id,omitempty"`
 	HotPath           []string             `json:"hot_path"`
 	SamplesByFunction []functionSampleJSON `json:"samples_by_function"`
+	// Memory profiling (RFD 077).
+	MemoryHotPath     []string                   `json:"memory_hot_path,omitempty"`
+	MemoryByFunction  []memoryFunctionSampleJSON `json:"memory_by_function,omitempty"`
+	TotalAllocBytes   int64                      `json:"total_alloc_bytes,omitempty"`
+	TotalAllocObjects int64                      `json:"total_alloc_objects,omitempty"`
 }
 
 type functionSampleJSON struct {
 	Function   string  `json:"function"`
 	Percentage float64 `json:"percentage"`
+}
+
+type memoryFunctionSampleJSON struct {
+	Function   string  `json:"function"`
+	Percentage float64 `json:"percentage"`
+	AllocBytes int64   `json:"alloc_bytes"`
 }
 
 type deploymentJSON struct {
@@ -159,42 +170,91 @@ func printSummaryJSON(summaries []*colonypb.UnifiedSummaryResult) error {
 			}
 		}
 
-		if ps := s.ProfilingSummary; ps != nil && len(ps.TopCpuHotspots) > 0 && ps.TotalSamples >= database.MinSamplesForSummary {
-			profiling := &profilingJSON{
-				SamplingPeriod: ps.SamplingPeriod,
-				TotalSamples:   ps.TotalSamples,
-				BuildID:        ps.BuildId,
-			}
+		if ps := s.ProfilingSummary; ps != nil {
+			hasCPU := len(ps.TopCpuHotspots) > 0 && ps.TotalSamples >= database.MinSamplesForSummary
+			hasMemory := len(ps.TopMemoryHotspots) > 0 && ps.TotalAllocBytes >= database.MinAllocBytesForSummary
 
-			// Build hot path from the hottest stack (reverse to caller→callee).
-			frames := ps.TopCpuHotspots[0].Frames
-			hotPath := make([]string, len(frames))
-			for i, f := range frames {
-				hotPath[len(frames)-1-i] = f
-			}
-			profiling.HotPath = hotPath
-
-			// Build samples by function (deduped leaf names).
-			seen := make(map[string]float64)
-			var order []string
-			for _, h := range ps.TopCpuHotspots {
-				if len(h.Frames) == 0 {
-					continue
+			if hasCPU || hasMemory {
+				profiling := &profilingJSON{
+					SamplingPeriod: ps.SamplingPeriod,
+					TotalSamples:   ps.TotalSamples,
+					BuildID:        ps.BuildId,
 				}
-				name := database.ShortFunctionName(h.Frames[0])
-				if _, ok := seen[name]; !ok {
-					order = append(order, name)
-				}
-				seen[name] += h.Percentage
-			}
-			for _, name := range order {
-				profiling.SamplesByFunction = append(profiling.SamplesByFunction, functionSampleJSON{
-					Function:   name,
-					Percentage: seen[name],
-				})
-			}
 
-			entry.Profiling = profiling
+				// CPU profiling.
+				if hasCPU {
+					// Build hot path from the hottest stack (reverse to caller→callee).
+					frames := ps.TopCpuHotspots[0].Frames
+					hotPath := make([]string, len(frames))
+					for i, f := range frames {
+						hotPath[len(frames)-1-i] = f
+					}
+					profiling.HotPath = hotPath
+
+					// Build samples by function (deduped leaf names).
+					seen := make(map[string]float64)
+					var order []string
+					for _, h := range ps.TopCpuHotspots {
+						if len(h.Frames) == 0 {
+							continue
+						}
+						name := database.ShortFunctionName(h.Frames[0])
+						if _, ok := seen[name]; !ok {
+							order = append(order, name)
+						}
+						seen[name] += h.Percentage
+					}
+					for _, name := range order {
+						profiling.SamplesByFunction = append(profiling.SamplesByFunction, functionSampleJSON{
+							Function:   name,
+							Percentage: seen[name],
+						})
+					}
+				}
+
+				// Memory profiling (RFD 077).
+				if hasMemory {
+					profiling.TotalAllocBytes = ps.TotalAllocBytes
+					profiling.TotalAllocObjects = ps.TotalAllocObjects
+
+					// Build memory hot path from the hottest stack (reverse to caller→callee).
+					memFrames := ps.TopMemoryHotspots[0].Frames
+					memHotPath := make([]string, len(memFrames))
+					for i, f := range memFrames {
+						memHotPath[len(memFrames)-1-i] = f
+					}
+					profiling.MemoryHotPath = memHotPath
+
+					// Build memory allocations by function (deduped leaf names).
+					type memEntry struct {
+						percentage float64
+						bytes      int64
+					}
+					memSeen := make(map[string]*memEntry)
+					var memOrder []string
+					for _, h := range ps.TopMemoryHotspots {
+						if len(h.Frames) == 0 {
+							continue
+						}
+						name := database.ShortFunctionName(h.Frames[0])
+						if _, ok := memSeen[name]; !ok {
+							memOrder = append(memOrder, name)
+							memSeen[name] = &memEntry{}
+						}
+						memSeen[name].percentage += h.Percentage
+						memSeen[name].bytes += h.AllocBytes
+					}
+					for _, name := range memOrder {
+						profiling.MemoryByFunction = append(profiling.MemoryByFunction, memoryFunctionSampleJSON{
+							Function:   name,
+							Percentage: memSeen[name].percentage,
+							AllocBytes: memSeen[name].bytes,
+						})
+					}
+				}
+
+				entry.Profiling = profiling
+			}
 		}
 
 		if d := s.Deployment; d != nil && d.BuildId != "" {
@@ -267,6 +327,21 @@ func printSummaryText(summaries []*colonypb.UnifiedSummaryResult) error {
 				}
 			}
 			fmt.Print(database.FormatCompactSummary(ps.SamplingPeriod, ps.TotalSamples, hotspots))
+		}
+
+		// Display memory profiling summary (RFD 077).
+		if ps := summary.ProfilingSummary; ps != nil && len(ps.TopMemoryHotspots) > 0 {
+			hotspots := make([]database.MemoryProfilingHotspot, len(ps.TopMemoryHotspots))
+			for i, h := range ps.TopMemoryHotspots {
+				hotspots[i] = database.MemoryProfilingHotspot{
+					Rank:         h.Rank,
+					Frames:       h.Frames,
+					Percentage:   h.Percentage,
+					AllocBytes:   h.AllocBytes,
+					AllocObjects: h.AllocObjects,
+				}
+			}
+			fmt.Print(database.FormatCompactMemorySummary(ps.SamplingPeriod, ps.TotalAllocBytes, hotspots))
 		}
 
 		// Display deployment context (RFD 074).
