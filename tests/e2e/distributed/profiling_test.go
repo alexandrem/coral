@@ -233,7 +233,7 @@ func (s *ProfilingSuite) TestOnDemandProfiling() {
 	profileChan := make(chan profileResult, 1)
 
 	go func() {
-		resp, err := helpers.ProfileCPU(s.ctx, debugClient, agentID, "cpu-app", 10, 99)
+		resp, err := helpers.ProfileCPU(s.ctx, debugClient, "cpu-app", 10, 99)
 		profileChan <- profileResult{resp, err}
 	}()
 
@@ -427,7 +427,7 @@ func (s *ProfilingSuite) TestOnDemandMemoryProfiling() {
 
 	// Now collect the memory profile.
 	s.T().Log("Starting on-demand memory profiling (10s)...")
-	result, err := helpers.ProfileMemory(s.ctx, debugClient, agentID, "memory-app", 10)
+	result, err := helpers.ProfileMemory(s.ctx, debugClient, "memory-app", 10)
 	s.Require().NoError(err, "ProfileMemory should succeed")
 	s.Require().NotNil(result, "ProfileMemory response should not be nil")
 

@@ -433,7 +433,7 @@ coral duckdb shell --agents <agent-1>,<agent-2>,... [-d <database>]
 
 ```bash
 # CPU profiling - Statistical sampling
-coral profile cpu --service <name> [--duration <seconds>] [--frequency <hz>] [--format folded|json] [--pod <name>] [--agent-id <id>]
+coral profile cpu --service <name> [--duration <seconds>] [--frequency <hz>] [--format folded|json] [--pod <name>]
 
 # Memory profiling - Heap allocation tracking
 coral profile memory --service <name> [--duration <seconds>] [--sample-rate <kb>] [--format folded|json]
@@ -456,8 +456,6 @@ coral profile memory --service api --format folded | flamegraph.pl > memory.svg 
 #   --frequency <hz>       CPU sampling frequency in Hz (default: 99, max: 1000)
 #   --sample-rate <kb>     Memory sampling rate in KB (default: 512)
 #   --format <type>        Output format: folded (default), json
-#   --pod <name>           Specific pod/instance name (optional)
-#   --agent-id <id>        Target specific agent (optional, auto-discovered if not provided)
 ```
 
 **What you get:**

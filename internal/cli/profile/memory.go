@@ -22,7 +22,6 @@ func NewMemoryCmd() *cobra.Command {
 		duration    int32
 		sampleRate  int32
 		format      string
-		agentID     string
 	)
 
 	cmd := &cobra.Command{
@@ -68,7 +67,6 @@ Examples:
 				ServiceName:     serviceName,
 				DurationSeconds: duration,
 				SampleRateBytes: sampleRate,
-				AgentId:         agentID,
 			})
 
 			ctx, cancel := context.WithTimeout(context.Background(),
@@ -98,7 +96,6 @@ Examples:
 	cmd.Flags().Int32VarP(&duration, "duration", "d", 30, "Profiling duration in seconds")
 	cmd.Flags().Int32Var(&sampleRate, "sample-rate", 512, "Sampling rate in KB (default: 512KB)")
 	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded, json")
-	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (optional, auto-discovered)")
 
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 

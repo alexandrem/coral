@@ -212,8 +212,7 @@ type UnifiedLogsInput struct {
 
 // ProfileMemoryInput is the input for coral_profile_memory (RFD 077).
 type ProfileMemoryInput struct {
-	Service         string  `json:"service" jsonschema:"description=Service name (required)"`
-	DurationSeconds *int32  `json:"duration_seconds,omitempty" jsonschema:"description=Profiling duration in seconds (default: 30, max: 300)"`
-	SampleRateBytes *int32  `json:"sample_rate_bytes,omitempty" jsonschema:"description=Allocation sampling rate in bytes (default: 524288 = 512KB)"`
-	AgentID         *string `json:"agent_id,omitempty" jsonschema:"description=Target agent ID (optional, for direct targeting)"`
+	Service         string `json:"service" jsonschema:"description=Service name (required)"`
+	DurationSeconds *int32 `json:"duration_seconds,omitempty" jsonschema:"description=Profiling duration in seconds (default: 30, max: 300)"`
+	SampleRateBytes *int32 `json:"sample_rate_bytes,omitempty" jsonschema:"description=Allocation sampling rate in bytes (default: 524288 = 512KB)"`
 }

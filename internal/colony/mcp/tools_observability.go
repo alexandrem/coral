@@ -658,17 +658,11 @@ func (s *Server) generateProfileMemoryOutput(ctx context.Context, input ProfileM
 		sampleRateBytes = *input.SampleRateBytes
 	}
 
-	agentID := ""
-	if input.AgentID != nil {
-		agentID = *input.AgentID
-	}
-
 	// Call the debug service to trigger on-demand memory profiling.
 	req := connect.NewRequest(&debugpb.ProfileMemoryRequest{
 		ServiceName:     input.Service,
 		DurationSeconds: durationSeconds,
 		SampleRateBytes: sampleRateBytes,
-		AgentId:         agentID,
 	})
 
 	resp, err := s.debugService.ProfileMemory(ctx, req)

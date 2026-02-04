@@ -818,22 +818,18 @@ func (o *Orchestrator) ProfileCPU(
 	}
 
 	// Service Discovery: Find agent for service.
-	agentID := req.Msg.AgentId
-	if agentID == "" {
-		var err error
-		agentID, err = o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
-		if err != nil {
-			return connect.NewResponse(&debugpb.ProfileCPUResponse{
-				Success: false,
-				Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
-			}), nil
-		}
+	agentID, err := o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileCPUResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
+		}), nil
 	}
 
 	if agentID == "" {
 		return connect.NewResponse(&debugpb.ProfileCPUResponse{
 			Success: false,
-			Error:   "agent_id is required (could not resolve from service)",
+			Error:   fmt.Sprintf("no agent found for service %s", req.Msg.ServiceName),
 		}), nil
 	}
 
@@ -1024,23 +1020,19 @@ func (o *Orchestrator) ProfileMemory(
 		durationSeconds = 300
 	}
 
-	// Find agent for service.
-	agentID := req.Msg.AgentId
-	if agentID == "" {
-		var err error
-		agentID, err = o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
-		if err != nil {
-			return connect.NewResponse(&debugpb.ProfileMemoryResponse{
-				Success: false,
-				Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
-			}), nil
-		}
+	// Service Discovery: Find agent for service.
+	agentID, err := o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
+		}), nil
 	}
 
 	if agentID == "" {
 		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
 			Success: false,
-			Error:   "agent_id is required (could not resolve from service)",
+			Error:   fmt.Sprintf("no agent found for service %s", req.Msg.ServiceName),
 		}), nil
 	}
 

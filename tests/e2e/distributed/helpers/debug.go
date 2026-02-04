@@ -79,12 +79,10 @@ func GetDebugResults(
 func ProfileMemory(
 	ctx context.Context,
 	client colonyv1connect.ColonyDebugServiceClient,
-	agentID string,
 	serviceName string,
 	durationSeconds int32,
 ) (*colonyv1.ProfileMemoryResponse, error) {
 	req := connect.NewRequest(&colonyv1.ProfileMemoryRequest{
-		AgentId:         agentID,
 		ServiceName:     serviceName,
 		DurationSeconds: durationSeconds,
 	})
@@ -101,13 +99,11 @@ func ProfileMemory(
 func ProfileCPU(
 	ctx context.Context,
 	client colonyv1connect.ColonyDebugServiceClient,
-	agentID string,
 	serviceName string,
 	durationSeconds int32,
 	frequencyHz int32,
 ) (*colonyv1.ProfileCPUResponse, error) {
 	req := connect.NewRequest(&colonyv1.ProfileCPURequest{
-		AgentId:         agentID,
 		ServiceName:     serviceName,
 		DurationSeconds: durationSeconds,
 		FrequencyHz:     frequencyHz,

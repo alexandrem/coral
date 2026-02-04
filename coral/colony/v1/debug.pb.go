@@ -2236,11 +2236,10 @@ func (x *Bottleneck) GetRecommendation() string {
 // ProfileCPURequest initiates CPU profile collection (RFD 070).
 type ProfileCPURequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	ServiceName     string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`              // Target service name
-	PodName         string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`                          // Optional, specific pod instance
-	DurationSeconds int32                  `protobuf:"varint,3,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"` // Profiling duration (default: 30s, max: 300s)
-	FrequencyHz     int32                  `protobuf:"varint,4,opt,name=frequency_hz,json=frequencyHz,proto3" json:"frequency_hz,omitempty"`             // Sampling frequency (default: 99Hz, max: 1000Hz)
-	AgentId         string                 `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                          // Manual override (until service discovery integration)
+	ServiceName     string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`              // Target service name.
+	PodName         string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`                          // Optional, specific pod instance.
+	DurationSeconds int32                  `protobuf:"varint,3,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"` // Profiling duration (default: 30s, max: 300s).
+	FrequencyHz     int32                  `protobuf:"varint,4,opt,name=frequency_hz,json=frequencyHz,proto3" json:"frequency_hz,omitempty"`             // Sampling frequency (default: 99Hz, max: 1000Hz).
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2301,13 +2300,6 @@ func (x *ProfileCPURequest) GetFrequencyHz() int32 {
 		return x.FrequencyHz
 	}
 	return 0
-}
-
-func (x *ProfileCPURequest) GetAgentId() string {
-	if x != nil {
-		return x.AgentId
-	}
-	return ""
 }
 
 // ProfileCPUResponse returns CPU profile samples (RFD 070).
@@ -2524,7 +2516,6 @@ type ProfileMemoryRequest struct {
 	PodName         string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`                            // Optional, specific pod instance.
 	DurationSeconds int32                  `protobuf:"varint,3,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`   // Profiling duration (default: 30s, max: 300s).
 	SampleRateBytes int32                  `protobuf:"varint,4,opt,name=sample_rate_bytes,json=sampleRateBytes,proto3" json:"sample_rate_bytes,omitempty"` // Allocation sampling rate in bytes (default: 512KB).
-	AgentId         string                 `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                            // Manual override (until service discovery integration).
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2585,13 +2576,6 @@ func (x *ProfileMemoryRequest) GetSampleRateBytes() int32 {
 		return x.SampleRateBytes
 	}
 	return 0
-}
-
-func (x *ProfileMemoryRequest) GetAgentId() string {
-	if x != nil {
-		return x.AgentId
-	}
-	return ""
 }
 
 // ProfileMemoryResponse returns memory profile results (RFD 077).
@@ -3040,13 +3024,12 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\x10contribution_pct\x18\x03 \x01(\x05R\x0fcontributionPct\x12\x1a\n" +
 	"\bseverity\x18\x04 \x01(\tR\bseverity\x12\x16\n" +
 	"\x06impact\x18\x05 \x01(\tR\x06impact\x12&\n" +
-	"\x0erecommendation\x18\x06 \x01(\tR\x0erecommendation\"\xba\x01\n" +
+	"\x0erecommendation\x18\x06 \x01(\tR\x0erecommendation\"\x9f\x01\n" +
 	"\x11ProfileCPURequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x19\n" +
 	"\bpod_name\x18\x02 \x01(\tR\apodName\x12)\n" +
 	"\x10duration_seconds\x18\x03 \x01(\x05R\x0fdurationSeconds\x12!\n" +
-	"\ffrequency_hz\x18\x04 \x01(\x05R\vfrequencyHz\x12\x19\n" +
-	"\bagent_id\x18\x05 \x01(\tR\aagentId\"\xc3\x01\n" +
+	"\ffrequency_hz\x18\x04 \x01(\x05R\vfrequencyHz\"\xc3\x01\n" +
 	"\x12ProfileCPUResponse\x125\n" +
 	"\asamples\x18\x01 \x03(\v2\x1b.coral.agent.v1.StackSampleR\asamples\x12#\n" +
 	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12!\n" +
@@ -3062,13 +3045,12 @@ const file_coral_colony_v1_debug_proto_rawDesc = "" +
 	"\asamples\x18\x01 \x03(\v2\x1b.coral.agent.v1.StackSampleR\asamples\x12#\n" +
 	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
-	"\asuccess\x18\x04 \x01(\bR\asuccess\"\xc6\x01\n" +
+	"\asuccess\x18\x04 \x01(\bR\asuccess\"\xab\x01\n" +
 	"\x14ProfileMemoryRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x19\n" +
 	"\bpod_name\x18\x02 \x01(\tR\apodName\x12)\n" +
 	"\x10duration_seconds\x18\x03 \x01(\x05R\x0fdurationSeconds\x12*\n" +
-	"\x11sample_rate_bytes\x18\x04 \x01(\x05R\x0fsampleRateBytes\x12\x19\n" +
-	"\bagent_id\x18\x05 \x01(\tR\aagentId\"\xb9\x02\n" +
+	"\x11sample_rate_bytes\x18\x04 \x01(\x05R\x0fsampleRateBytes\"\xb9\x02\n" +
 	"\x15ProfileMemoryResponse\x12;\n" +
 	"\asamples\x18\x01 \x03(\v2!.coral.agent.v1.MemoryStackSampleR\asamples\x121\n" +
 	"\x05stats\x18\x02 \x01(\v2\x1b.coral.agent.v1.MemoryStatsR\x05stats\x12E\n" +

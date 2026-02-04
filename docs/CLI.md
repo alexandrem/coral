@@ -499,9 +499,6 @@ coral profile cpu --service api --duration 30 --frequency 49
 
 # Profile specific pod instance
 coral profile cpu --service api --pod api-7d8f9c --duration 10
-
-# Profile with specific agent
-coral profile cpu --service api --agent-id hostname-api-1 --duration 30
 ```
 
 **Output Format:**
@@ -2136,8 +2133,6 @@ coral exec <service> --agent <agent-id> <command> [args...]
 ```bash
 coral exec <service> --timeout 60 <command> [args...]
 ```
-
-See docs/CLI_REFERENCE.md:180 for command syntax.
 
 ---
 

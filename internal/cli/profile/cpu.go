@@ -22,7 +22,6 @@ func NewCPUCmd() *cobra.Command {
 		durationSeconds int32
 		frequencyHz     int32
 		format          string
-		agentID         string
 	)
 
 	cmd := &cobra.Command{
@@ -91,7 +90,6 @@ Examples:
 				PodName:         podName,
 				DurationSeconds: durationSeconds,
 				FrequencyHz:     frequencyHz,
-				AgentId:         agentID,
 			})
 
 			// Call ProfileCPU RPC with extended timeout.
@@ -125,7 +123,6 @@ Examples:
 	cmd.Flags().Int32VarP(&durationSeconds, "duration", "d", 30, "Profiling duration in seconds (default: 30s, max: 300s)")
 	cmd.Flags().Int32Var(&frequencyHz, "frequency", 99, "Sampling frequency in Hz (default: 99Hz, max: 1000Hz)")
 	cmd.Flags().StringVar(&format, "format", "folded", "Output format: folded (default), json")
-	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (optional, auto-discovered if not provided)")
 
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 

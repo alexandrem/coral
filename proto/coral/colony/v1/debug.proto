@@ -308,11 +308,10 @@ message Bottleneck {
 
 // ProfileCPURequest initiates CPU profile collection (RFD 070).
 message ProfileCPURequest {
-  string service_name = 1;          // Target service name
-  string pod_name = 2;              // Optional, specific pod instance
-  int32 duration_seconds = 3;       // Profiling duration (default: 30s, max: 300s)
-  int32 frequency_hz = 4;           // Sampling frequency (default: 99Hz, max: 1000Hz)
-  string agent_id = 5;              // Manual override (until service discovery integration)
+  string service_name = 1;          // Target service name.
+  string pod_name = 2;              // Optional, specific pod instance.
+  int32 duration_seconds = 3;       // Profiling duration (default: 30s, max: 300s).
+  int32 frequency_hz = 4;           // Sampling frequency (default: 99Hz, max: 1000Hz).
 }
 
 // ProfileCPUResponse returns CPU profile samples (RFD 070).
@@ -345,7 +344,6 @@ message ProfileMemoryRequest {
   string pod_name = 2;              // Optional, specific pod instance.
   int32 duration_seconds = 3;       // Profiling duration (default: 30s, max: 300s).
   int32 sample_rate_bytes = 4;      // Allocation sampling rate in bytes (default: 512KB).
-  string agent_id = 5;              // Manual override (until service discovery integration).
 }
 
 // ProfileMemoryResponse returns memory profile results (RFD 077).
