@@ -119,6 +119,7 @@ type MemoryProfilingSummaryResult struct {
 
 // GetTopKMemoryHotspots returns the top-K memory allocation hotspots for a service in the given time range (RFD 077).
 // It aggregates memory_profile_summaries by stack_hash, sums allocation bytes/objects, and decodes frame IDs.
+// Profiling infrastructure overhead stacks are filtered out to avoid Heisenberg effect.
 func (d *Database) GetTopKMemoryHotspots(ctx context.Context, serviceName string, startTime, endTime time.Time, topK int) (*MemoryProfilingSummaryResult, error) {
 	if topK <= 0 {
 		topK = 5
@@ -143,7 +144,13 @@ func (d *Database) GetTopKMemoryHotspots(ctx context.Context, serviceName string
 		return &MemoryProfilingSummaryResult{}, nil
 	}
 
-	// Aggregate by stack_hash (which groups identical stacks), get top-K by alloc_bytes.
+	// Fetch more rows than topK to allow filtering out profiling overhead.
+	fetchLimit := topK * 3
+	if fetchLimit < 15 {
+		fetchLimit = 15
+	}
+
+	// Aggregate by stack_hash (which groups identical stacks), get candidates.
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT stack_frame_ids, SUM(alloc_bytes) as total_bytes, SUM(alloc_objects) as total_objects
 		FROM memory_profile_summaries
@@ -152,7 +159,7 @@ func (d *Database) GetTopKMemoryHotspots(ctx context.Context, serviceName string
 		GROUP BY stack_hash, stack_frame_ids
 		ORDER BY total_bytes DESC
 		LIMIT ?
-	`, serviceName, startTime, endTime, topK)
+	`, serviceName, startTime, endTime, fetchLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query top-K memory hotspots: %w", err)
 	}
@@ -179,6 +186,11 @@ func (d *Database) GetTopKMemoryHotspots(ctx context.Context, serviceName string
 			return nil, fmt.Errorf("failed to decode stack frames: %w", err)
 		}
 
+		// Skip profiling infrastructure overhead to avoid Heisenberg effect.
+		if IsProfilingOverheadStack(frameNames) {
+			continue
+		}
+
 		hotspots = append(hotspots, MemoryProfilingHotspot{
 			Rank:         rank,
 			Frames:       frameNames,
@@ -187,6 +199,11 @@ func (d *Database) GetTopKMemoryHotspots(ctx context.Context, serviceName string
 			AllocObjects: allocObjects,
 		})
 		rank++
+
+		// Stop once we have enough.
+		if len(hotspots) >= topK {
+			break
+		}
 	}
 
 	if err := rows.Err(); err != nil {
