@@ -52,8 +52,10 @@ func NewContinuousMemoryProfiler(
 	}
 
 	// Set defaults.
+	// Default to 5 minutes to minimize pprof serialization overhead on production hosts.
+	// pprof heap collection triggers gzip compression which allocates heavily.
 	if config.Interval == 0 {
-		config.Interval = 60 * time.Second
+		config.Interval = 5 * time.Minute
 	}
 	if config.SampleRetention == 0 {
 		config.SampleRetention = 1 * time.Hour
