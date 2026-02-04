@@ -613,7 +613,6 @@ func TestDebugFlow_CPUProfile(t *testing.T) {
 			ServiceName:     serviceName,
 			DurationSeconds: 5,
 			FrequencyHz:     99,
-			AgentId:         agentID,
 		})
 
 		resp, err := orch.ProfileCPU(ctx, req)
@@ -739,7 +738,6 @@ func TestDebugFlow_MemoryProfile(t *testing.T) {
 		req := connect.NewRequest(&debugpb.ProfileMemoryRequest{
 			ServiceName:     serviceName,
 			DurationSeconds: 30,
-			AgentId:         agentID,
 		})
 
 		resp, err := orch.ProfileMemory(ctx, req)
@@ -770,7 +768,6 @@ func TestDebugFlow_MemoryProfile(t *testing.T) {
 		req := connect.NewRequest(&debugpb.ProfileMemoryRequest{
 			ServiceName:     serviceName,
 			DurationSeconds: 30,
-			AgentId:         agentID,
 		})
 
 		resp, err := orch.ProfileMemory(ctx, req)
