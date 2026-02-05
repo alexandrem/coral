@@ -45,8 +45,9 @@ func loadFromEnv(v reflect.Value, prefix string) error {
 		// Get env tag
 		envTag := fieldType.Tag.Get("env")
 
-		// Handle nested structs
-		if field.Kind() == reflect.Struct {
+		// Handle nested structs or pointers
+		// We verify if it really is a struct inside loadFromEnv
+		if (field.Kind() == reflect.Struct || field.Kind() == reflect.Ptr) && envTag == "" {
 			if err := loadFromEnv(field, prefix); err != nil {
 				return err
 			}

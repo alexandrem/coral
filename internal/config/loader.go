@@ -84,8 +84,8 @@ func (l *Loader) LoadGlobalConfig() (*GlobalConfig, error) {
 	}
 
 	// Apply environment variable overrides (layered configuration).
-	if discoveryEndpoint := os.Getenv("CORAL_DISCOVERY_ENDPOINT"); discoveryEndpoint != "" {
-		config.Discovery.Endpoint = discoveryEndpoint
+	if err := MergeFromEnv(config); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %w", err)
 	}
 
 	return config, nil
@@ -169,6 +169,10 @@ func loadColonyConfigFromFile(path string) (*ColonyConfig, error) {
 	var config ColonyConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse colony config from %s: %w", path, err)
+	}
+
+	if err := MergeFromEnv(&config); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables for colony config: %w", err)
 	}
 
 	return &config, nil

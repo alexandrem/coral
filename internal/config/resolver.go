@@ -156,18 +156,6 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 	resolved.WireGuard.MeshNetworkIPv4 = meshSubnet
 	resolved.WireGuard.MeshIPv4 = colonyIP
 
-	if discoveryURL := os.Getenv("CORAL_DISCOVERY_ENDPOINT"); discoveryURL != "" {
-		resolved.DiscoveryURL = discoveryURL
-	}
-
-	if storagePath := os.Getenv("CORAL_STORAGE_PATH"); storagePath != "" {
-		resolved.StoragePath = storagePath
-	}
-
-	if storagePath := os.Getenv("CORAL_STORAGE_PATH"); storagePath != "" {
-		resolved.StoragePath = storagePath
-	}
-
 	// Apply project config overrides
 	if projectConfig != nil {
 		if projectConfig.Dashboard.Port > 0 {
