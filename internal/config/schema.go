@@ -117,7 +117,7 @@ type WireGuardConfig struct {
 	PrivateKey          string   `yaml:"private_key"`
 	PublicKey           string   `yaml:"public_key"`
 	Port                int      `yaml:"port"`                                                    // WireGuard UDP listen port
-	PublicEndpoints     []string `yaml:"public_endpoints,omitempty"`                              // Public endpoints for agent connections
+	PublicEndpoints     []string `yaml:"public_endpoints,omitempty" env:"CORAL_PUBLIC_ENDPOINT"`  // Public endpoints for agent connections
 	InterfaceName       string   `yaml:"interface_name,omitempty"`                                // Interface name (e.g., wg0)
 	MeshIPv4            string   `yaml:"mesh_ipv4,omitempty"`                                     // IPv4 address inside tunnel
 	MeshIPv6            string   `yaml:"mesh_ipv6,omitempty"`                                     // IPv6 address inside tunnel
@@ -174,7 +174,7 @@ type RemoteConfig struct {
 
 	// CertificateAuthorityData is the base64-encoded CA certificate for TLS verification.
 	// Takes precedence over CertificateAuthority if both are set.
-	CertificateAuthorityData string `yaml:"certificate_authority_data,omitempty"`
+	CertificateAuthorityData string `yaml:"certificate_authority_data,omitempty" env:"CORAL_CA_DATA"`
 
 	// InsecureSkipTLSVerify disables TLS certificate verification.
 	// WARNING: Only use for testing. Never use in production.
@@ -547,6 +547,10 @@ type BootstrapConfig struct {
 	// CAFingerprint is the expected Root CA fingerprint (sha256:hex format).
 	// This is used to validate the colony's identity during bootstrap.
 	CAFingerprint string `yaml:"ca_fingerprint,omitempty" env:"CORAL_CA_FINGERPRINT"`
+
+	// ColonyEndpoint is an optional direct URL to the colony.
+	// If provided, discovery lookup is bypassed.
+	ColonyEndpoint string `yaml:"colony_endpoint,omitempty" env:"CORAL_COLONY_ENDPOINT"`
 
 	// BootstrapPSK is the pre-shared key for bootstrap authorization (RFD 088).
 	BootstrapPSK string `yaml:"bootstrap_psk,omitempty" env:"CORAL_BOOTSTRAP_PSK"`

@@ -155,6 +155,7 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		CAFingerprint:     fingerprint,
 		BootstrapPSK:      bootstrapPSK,
 		DiscoveryEndpoint: discoveryURL,
+		ColonyEndpoint:    bootstrapCfg.ColonyEndpoint,
 		Logger:            bp.logger,
 	})
 
