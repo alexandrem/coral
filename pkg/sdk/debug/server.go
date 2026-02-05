@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net"
 	"net/http"
+	"net/http/pprof"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -92,6 +95,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleExportFunctions(w, r)
 	case strings.HasPrefix(r.URL.Path, "/debug/functions/"):
 		s.handleGetFunction(w, r)
+	case r.URL.Path == "/debug/pprof/heap":
+		pprof.Handler("heap").ServeHTTP(w, r)
+	case r.URL.Path == "/debug/pprof/allocs":
+		pprof.Handler("allocs").ServeHTTP(w, r)
+	case r.URL.Path == "/debug/pprof/profile":
+		pprof.Profile(w, r)
+	case r.URL.Path == "/debug/pprof/goroutine":
+		pprof.Handler("goroutine").ServeHTTP(w, r)
+	case r.URL.Path == "/debug/config/memory-profile":
+		s.handleMemoryProfileConfig(w, r)
+	case r.URL.Path == "/debug/memstats":
+		s.handleMemStats(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -217,6 +232,78 @@ func (s *Server) handleExportFunctions(w http.ResponseWriter, r *http.Request) {
 		// Standard JSON array
 		_ = json.NewEncoder(gzWriter).Encode(functions)
 	}
+}
+
+// memoryProfileConfigRequest defines the request body for POST /debug/config/memory-profile.
+type memoryProfileConfigRequest struct {
+	SampleRateBytes int `json:"sample_rate_bytes"`
+}
+
+// memoryProfileConfigResponse defines the response for POST /debug/config/memory-profile.
+type memoryProfileConfigResponse struct {
+	PreviousRate int `json:"previous_rate"`
+	CurrentRate  int `json:"current_rate"`
+}
+
+// handleMemoryProfileConfig adjusts the runtime memory profile sampling rate (RFD 077).
+func (s *Server) handleMemoryProfileConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
+	if err != nil {
+		http.Error(w, "failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	var req memoryProfileConfigRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.SampleRateBytes <= 0 {
+		http.Error(w, "sample_rate_bytes must be positive", http.StatusBadRequest)
+		return
+	}
+
+	previousRate := runtime.MemProfileRate
+	runtime.MemProfileRate = req.SampleRateBytes
+
+	s.logger.Info("Memory profile rate adjusted",
+		"previous_rate", previousRate,
+		"current_rate", req.SampleRateBytes)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(memoryProfileConfigResponse{
+		PreviousRate: previousRate,
+		CurrentRate:  req.SampleRateBytes,
+	})
+}
+
+// handleMemStats returns current runtime memory statistics (RFD 077).
+func (s *Server) handleMemStats(w http.ResponseWriter, _ *http.Request) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	stats := map[string]interface{}{
+		"alloc_bytes":       m.Alloc,
+		"total_alloc_bytes": m.TotalAlloc,
+		"sys_bytes":         m.Sys,
+		"num_gc":            m.NumGC,
+		"gc_cpu_fraction":   m.GCCPUFraction,
+		"heap_objects":      m.HeapObjects,
+		"heap_alloc":        m.HeapAlloc,
+		"heap_sys":          m.HeapSys,
+		"heap_idle":         m.HeapIdle,
+		"heap_inuse":        m.HeapInuse,
+		"heap_released":     m.HeapReleased,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(stats)
 }
 
 func parseInt(value string, defaultVal, maxVal int) int {

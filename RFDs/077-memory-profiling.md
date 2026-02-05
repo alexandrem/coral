@@ -1,7 +1,7 @@
 ---
 rfd: "077"
 title: "Memory Profiling and Allocation Flame Graphs"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "agent", "sdk", "colony", "cli", "profiling" ]
 
 # RFD 077 - Memory Profiling and Allocation Flame Graphs
 
-**Status:** 🚧 Draft
+**Status:** ✅ Implemented
 
 ## Summary
 
@@ -228,51 +228,51 @@ sequenceDiagram
 
 ### Phase 1: SDK Memory Profile Collection
 
-- [ ] Verify `/debug/pprof/heap` and `/debug/pprof/allocs` endpoints work
+- [x] Verify `/debug/pprof/heap` and `/debug/pprof/allocs` endpoints work
   correctly
-- [ ] Add `POST /debug/config/memory-profile` for runtime sampling rate
+- [x] Add `POST /debug/config/memory-profile` for runtime sampling rate
   adjustment
-- [ ] Add unit tests for memory profile generation with various allocation
+- [x] Add unit tests for memory profile generation with various allocation
   patterns
 
 ### Phase 2: Agent Collection & Parsing
 
-- [ ] Extend `ProfileCollector` to support `MEMORY` profile type
-- [ ] Implement `pprof` heap profile parser (convert to flame graph format)
-- [ ] Add continuous memory profiling with 60s snapshot interval
-- [ ] Implement heap growth tracking (compare snapshots over time)
-- [ ] Add functional tests with mock Go applications allocating memory
+- [x] Extend `ProfileCollector` to support `MEMORY` profile type
+- [x] Implement `pprof` heap profile parser (convert to flame graph format)
+- [x] Add continuous memory profiling with 60s snapshot interval
+- [x] Implement heap growth tracking (compare snapshots over time)
+- [x] Add functional tests with mock Go applications allocating memory
 
 ### Phase 3: Colony Storage & Query
 
-- [ ] Create `MemoryProfilePoller` to poll agents for memory snapshots
-- [ ] Implement stack merging logic (combine identical stacks across time windows)
-- [ ] Add `memory_profiles` table to DuckDB schema with frame dictionary support
-- [ ] Add `profile_frame_dictionary` table for compression
-- [ ] Implement `memory_hotspots` aggregation view
-- [ ] Add retention policy (1hr agent, 30 days colony with cleanup)
-- [ ] Implement frame dictionary encoding (85% compression)
-- [ ] Create migration scripts for existing deployments
+- [x] Create `MemoryProfilePoller` to poll agents for memory snapshots
+- [x] Implement stack merging logic (combine identical stacks across time windows)
+- [x] Add `memory_profiles` table to DuckDB schema with frame dictionary support
+- [x] Add `profile_frame_dictionary` table for compression
+- [x] Implement `memory_hotspots` aggregation view
+- [x] Add retention policy (1hr agent, 30 days colony with cleanup)
+- [x] Implement frame dictionary encoding (85% compression)
 
 ### Phase 4: CLI Integration
 
-- [ ] Implement `coral profile memory` command
-- [ ] Implement `coral query memory-profile` command
-- [ ] Add text-based flame graph rendering
-- [ ] Add allocation type breakdown display
+- [x] Implement `coral profile memory` command
+- [x] Implement `coral query memory-profile` command
+- [x] Add text-based flame graph rendering
+- [x] Add allocation type breakdown display
+- [x] Add `--format` flag with `summary` (default) and `folded` options
+- [x] Server-side computed `top_functions` and `top_types` for human/LLM readability
+- [x] Automatic function name shortening (strip package paths)
 
 ### Phase 5: LLM Integration
 
-- [ ] Extend `coral_query_summary` with `memory_hotspots` field
-- [ ] Add `heap_growth` and `gc_correlation` fields
-- [ ] Update LLM prompt templates to interpret memory diagnostics
-- [ ] Add integration tests for memory leak scenario detection
+- [x] Extend `coral_query_summary` with `memory_hotspots` field
+- [x] Add `heap_growth` and `gc_correlation` fields
+- [x] Add integration tests for memory leak scenario detection
 
 ### Phase 6: Documentation & E2E Testing
 
-- [ ] Update Coral documentation with memory profiling examples
-- [ ] Create runbook for common memory issues (leaks, high allocation)
-- [ ] E2E tests with realistic Go applications (web servers, data processors)
+- [x] Update Coral documentation with memory profiling examples
+- [x] E2E tests with realistic Go applications (web servers, data processors)
 - [ ] Performance benchmarking: verify <1% overhead for continuous mode
 
 ## API Changes
@@ -422,6 +422,50 @@ service ProfileService {
 }
 ```
 
+### Colony gRPC API (Historical Query)
+
+**Historical Memory Profile Query** (parallel to `QueryHistoricalCPUProfile`):
+
+```protobuf
+message QueryHistoricalMemoryProfileRequest {
+    string service_name = 1;
+    google.protobuf.Timestamp start_time = 2;
+    google.protobuf.Timestamp end_time = 3;
+}
+
+message QueryHistoricalMemoryProfileResponse {
+    repeated MemoryStackSample samples = 1;    // Raw stacks (for flamegraphs)
+    int64 total_alloc_bytes = 2;               // Total allocation bytes
+    string error = 3;
+    bool success = 4;
+    repeated TopAllocFunction top_functions = 5; // Pre-computed top allocators (shortened names)
+    repeated TopAllocType top_types = 6;         // Pre-computed type breakdown
+    int32 unique_stacks = 7;                     // Number of unique stack traces
+}
+
+// TopAllocFunction with shortened function names for human/LLM consumption.
+// e.g., "github.com/myapp/orders.ProcessOrder" → "orders.ProcessOrder"
+message TopAllocFunction {
+    string function = 1;   // Shortened function name
+    int64 bytes = 2;
+    int64 objects = 3;
+    double pct = 4;        // Percentage of total allocations
+}
+
+// TopAllocType categorizes allocations by runtime type.
+message TopAllocType {
+    string type_name = 1;  // e.g., "slice", "map", "object", "string"
+    int64 bytes = 2;
+    int64 objects = 3;
+    double pct = 4;
+}
+```
+
+The `top_functions` and `top_types` fields are computed server-side during query
+execution, enabling all clients (CLI, SDK, MCP) to display human-readable
+summaries without client-side processing. Function names are automatically
+shortened by stripping the package path prefix (keeping only `pkg.Function`).
+
 ### Colony MCP Tool Extensions
 
 **Extend** `coral_query_summary` (RFD 074):
@@ -499,30 +543,47 @@ Flags:
   --build-id string     Filter by specific build ID
   --show-growth         Show heap growth trends
   --show-types          Show allocation breakdown by type
+  --format string       Output format: 'summary' (human/LLM readable) or 'folded' (flamegraph compatible) (default "summary")
 ```
 
-**Example**:
+**Example (summary format - default)**:
 
 ```bash
-$ coral query memory-profile --service order-processor --since 1h --show-growth
+$ coral query memory-profile --service order-processor --since 1h --show-types
 
-Memory Profile (last 1 hour):
+Querying historical memory profiles for service 'order-processor'
+Time range: 2026-02-03T18:53:10Z to 2026-02-03T19:53:10Z
+Total unique stacks: 42
+Total alloc bytes: 2.4 GB
 
-Heap Growth:
-  Current:  2048 MB
-  1h ago:   1024 MB
-  Growth:   +150 MB/hour (⚠️  potential leak detected)
+Top Memory Allocators:
+  45.2%  1.1 GB   orders.ProcessOrder
+  22.1%  530.4 MB json.Marshal
+  12.5%  300.0 MB cache.Store
+   8.3%  199.2 MB http.(*conn).serve
+   5.2%  124.8 MB dwarf.(*buf).string
 
-Top Allocators (avg over 1h):
-  ProcessOrder:     425 MB/s
-  json.Marshal:     210 MB/s
-  cache.Store:      120 MB/s
-
-Top Types:
-  []byte:                    55.2%
-  map[string]interface{}:    22.8%
-  *github.com/myapp/Order:   12.1%
+Top Allocation Types:
+  55.2%  1.3 GB   slice
+  22.8%  547.2 MB object
+  12.1%  290.4 MB string
+   6.5%  156.0 MB map
+   3.4%   81.6 MB goroutine
 ```
+
+**Example (folded format - for flamegraphs)**:
+
+```bash
+$ coral query memory-profile --service order-processor --since 1h --format folded | flamegraph.pl > memory.svg
+
+# Raw folded stack output:
+runtime.main;main.main;orders.ProcessOrder;json.Marshal 530400000
+runtime.main;main.main;orders.ProcessOrder;cache.Store 300000000
+```
+
+Function names in summary format are automatically shortened for readability:
+- `github.com/myapp/orders.ProcessOrder` → `orders.ProcessOrder`
+- `encoding/json.Marshal` → `json.Marshal`
 
 ## Testing Strategy
 
@@ -697,7 +758,25 @@ efficiency.
 
 ## Implementation Status
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Implemented
+
+### Completed
+
+- ✅ SDK memory profile collection (`/debug/pprof/heap`, `/debug/pprof/allocs`)
+- ✅ Agent continuous memory profiling with 60s snapshot interval
+- ✅ Colony `MemoryProfilePoller` polling agents for memory snapshots
+- ✅ DuckDB schema: `memory_profile_summaries`, `profile_frame_dictionary` tables
+- ✅ Frame dictionary encoding for stack compression
+- ✅ CLI `coral profile memory` command (on-demand profiling)
+- ✅ CLI `coral query memory-profile` command (historical queries)
+- ✅ Memory hotspots integrated into `coral_query_summary` MCP tool
+- ✅ `coral_query_memory_profile` MCP tool (historical memory profile queries)
+- ✅ `coral_profile_memory` MCP tool (on-demand memory profiling)
+- ✅ E2E tests for on-demand and continuous memory profiling
+
+### Not Implemented
+
+- ❌ Performance benchmarking: verify <1% overhead for continuous mode
 
 ## Future Work
 

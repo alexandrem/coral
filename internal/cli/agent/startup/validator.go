@@ -288,6 +288,16 @@ func (v *ConfigValidator) loadAgentConfig() (*config.ResolvedConfig, []*types.Se
 		}
 		agentCfg.Agent.HeartbeatInterval = interval
 	}
+	if memInterval := os.Getenv("CORAL_MEMORY_PROFILING_INTERVAL"); memInterval != "" {
+		interval, err := time.ParseDuration(memInterval)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to parse CORAL_MEMORY_PROFILING_INTERVAL: %w", err)
+		}
+		agentCfg.ContinuousProfiling.Memory.Interval = interval
+	}
+	if memDisabled := os.Getenv("CORAL_MEMORY_PROFILING_DISABLED"); memDisabled != "" {
+		agentCfg.ContinuousProfiling.Memory.Disabled = memDisabled == "true" || memDisabled == "1"
+	}
 
 	// Apply colony ID override from flag.
 	if v.colonyIDOverride != "" {

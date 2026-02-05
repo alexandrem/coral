@@ -363,6 +363,8 @@ func (d *Database) CleanupOrphanedFrames(ctx context.Context) (int64, error) {
 		DELETE FROM profile_frame_dictionary
 		WHERE frame_id NOT IN (
 			SELECT UNNEST(stack_frame_ids) FROM cpu_profile_summaries
+			UNION
+			SELECT UNNEST(stack_frame_ids) FROM memory_profile_summaries
 		)
 	`)
 

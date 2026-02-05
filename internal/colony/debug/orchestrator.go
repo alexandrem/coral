@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,11 +18,11 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // Orchestrator manages debug sessions across agents.
@@ -817,22 +818,18 @@ func (o *Orchestrator) ProfileCPU(
 	}
 
 	// Service Discovery: Find agent for service.
-	agentID := req.Msg.AgentId
-	if agentID == "" {
-		var err error
-		agentID, err = o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
-		if err != nil {
-			return connect.NewResponse(&debugpb.ProfileCPUResponse{
-				Success: false,
-				Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
-			}), nil
-		}
+	agentID, err := o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileCPUResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
+		}), nil
 	}
 
 	if agentID == "" {
 		return connect.NewResponse(&debugpb.ProfileCPUResponse{
 			Success: false,
-			Error:   "agent_id is required (could not resolve from service)",
+			Error:   fmt.Sprintf("no agent found for service %s", req.Msg.ServiceName),
 		}), nil
 	}
 
@@ -1003,4 +1000,297 @@ func (o *Orchestrator) QueryHistoricalCPUProfile(
 		TotalSamples: totalSamples,
 		Success:      true,
 	}), nil
+}
+
+// ProfileMemory collects memory profile for a target service/pod (RFD 077).
+func (o *Orchestrator) ProfileMemory(
+	ctx context.Context,
+	req *connect.Request[debugpb.ProfileMemoryRequest],
+) (*connect.Response[debugpb.ProfileMemoryResponse], error) {
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Int32("duration", req.Msg.DurationSeconds).
+		Msg("Starting memory profiling")
+
+	durationSeconds := req.Msg.DurationSeconds
+	if durationSeconds <= 0 {
+		durationSeconds = 30
+	}
+	if durationSeconds > 300 {
+		durationSeconds = 300
+	}
+
+	// Service Discovery: Find agent for service.
+	agentID, err := o.agentCoordinator.FindAgentForService(ctx, req.Msg.ServiceName)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to find agent for service %s: %v", req.Msg.ServiceName, err),
+		}), nil
+	}
+
+	if agentID == "" {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("no agent found for service %s", req.Msg.ServiceName),
+		}), nil
+	}
+
+	entry, err := o.registry.Get(agentID)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("agent not found: %v", err),
+		}), nil
+	}
+
+	targetPID, err := o.agentCoordinator.GetServicePID(ctx, agentID, req.Msg.ServiceName)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to get service PID: %v", err),
+		}), nil
+	}
+
+	debugClient := o.clientFactory(
+		http.DefaultClient,
+		fmt.Sprintf("http://%s", buildAgentAddress(entry.MeshIPv4)),
+	)
+
+	profileReq := connect.NewRequest(&agentv1.ProfileMemoryAgentRequest{
+		AgentId:         agentID,
+		ServiceName:     req.Msg.ServiceName,
+		Pid:             targetPID,
+		DurationSeconds: durationSeconds,
+		SampleRateBytes: req.Msg.SampleRateBytes,
+	})
+
+	profileResp, err := debugClient.ProfileMemory(ctx, profileReq)
+	if err != nil {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to collect memory profile: %v", err),
+		}), nil
+	}
+
+	if !profileResp.Msg.Success {
+		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+			Success: false,
+			Error:   profileResp.Msg.Error,
+		}), nil
+	}
+
+	return connect.NewResponse(&debugpb.ProfileMemoryResponse{
+		Samples:      profileResp.Msg.Samples,
+		Stats:        profileResp.Msg.Stats,
+		TopFunctions: profileResp.Msg.TopFunctions,
+		TopTypes:     profileResp.Msg.TopTypes,
+		Success:      true,
+	}), nil
+}
+
+// QueryHistoricalMemoryProfile queries historical memory profiles from continuous profiling (RFD 077).
+func (o *Orchestrator) QueryHistoricalMemoryProfile(
+	ctx context.Context,
+	req *connect.Request[debugpb.QueryHistoricalMemoryProfileRequest],
+) (*connect.Response[debugpb.QueryHistoricalMemoryProfileResponse], error) {
+	o.logger.Info().
+		Str("service", req.Msg.ServiceName).
+		Msg("Querying historical memory profiles")
+
+	summaries, err := o.db.QueryMemoryProfileSummaries(
+		ctx,
+		req.Msg.ServiceName,
+		req.Msg.StartTime.AsTime(),
+		req.Msg.EndTime.AsTime(),
+	)
+	if err != nil {
+		return connect.NewResponse(&debugpb.QueryHistoricalMemoryProfileResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to query historical memory profiles: %v", err),
+		}), nil
+	}
+
+	if len(summaries) == 0 {
+		return connect.NewResponse(&debugpb.QueryHistoricalMemoryProfileResponse{
+			Success:         true,
+			Samples:         nil,
+			TotalAllocBytes: 0,
+		}), nil
+	}
+
+	// Aggregate by stack hash.
+	type stackAgg struct {
+		frameIDs     []int64
+		allocBytes   int64
+		allocObjects int64
+	}
+
+	aggregated := make(map[string]*stackAgg)
+	for _, summary := range summaries {
+		if existing, exists := aggregated[summary.StackHash]; exists {
+			existing.allocBytes += summary.AllocBytes
+			existing.allocObjects += summary.AllocObjects
+		} else {
+			aggregated[summary.StackHash] = &stackAgg{
+				frameIDs:     summary.StackFrameIDs,
+				allocBytes:   summary.AllocBytes,
+				allocObjects: summary.AllocObjects,
+			}
+		}
+	}
+
+	var samples []*agentv1.MemoryStackSample
+	var totalAllocBytes int64
+
+	// Track function and type aggregations for summaries.
+	funcBytes := make(map[string]int64)
+	funcObjects := make(map[string]int64)
+	typeBytes := make(map[string]int64)
+	typeObjects := make(map[string]int64)
+
+	for _, agg := range aggregated {
+		totalAllocBytes += agg.allocBytes
+
+		frameNames, err := o.db.DecodeStackFrames(ctx, agg.frameIDs)
+		if err != nil {
+			o.logger.Warn().Err(err).Msg("Failed to decode stack frames, skipping memory sample")
+			continue
+		}
+
+		samples = append(samples, &agentv1.MemoryStackSample{
+			FrameNames:   frameNames,
+			AllocBytes:   agg.allocBytes,
+			AllocObjects: agg.allocObjects,
+		})
+
+		// Aggregate by function for top functions summary.
+		for _, fn := range frameNames {
+			funcBytes[fn] += agg.allocBytes
+			funcObjects[fn] += agg.allocObjects
+		}
+
+		// Aggregate by allocation type (from leaf function).
+		if len(frameNames) > 0 {
+			typeName := classifyMemoryAllocType(frameNames[0])
+			typeBytes[typeName] += agg.allocBytes
+			typeObjects[typeName] += agg.allocObjects
+		}
+	}
+
+	// Compute top functions (sorted by bytes, limited to top 20).
+	topFunctions := computeTopFunctions(funcBytes, funcObjects, totalAllocBytes, 20)
+
+	// Compute top types (sorted by bytes, limited to top 10).
+	topTypes := computeTopTypes(typeBytes, typeObjects, totalAllocBytes, 10)
+
+	numSamples, clamped := safe.IntToInt32(len(samples))
+	if clamped {
+		o.logger.Warn().
+			Int32("num_samples", numSamples).
+			Msg("Abnormal samples size, clamped to int32")
+	}
+
+	return connect.NewResponse(&debugpb.QueryHistoricalMemoryProfileResponse{
+		Samples:         samples,
+		TotalAllocBytes: totalAllocBytes,
+		TopFunctions:    topFunctions,
+		TopTypes:        topTypes,
+		UniqueStacks:    numSamples,
+		Success:         true,
+	}), nil
+}
+
+// computeTopFunctions builds a sorted list of top allocating functions.
+func computeTopFunctions(funcBytes, funcObjects map[string]int64, totalBytes int64, limit int) []*agentv1.TopAllocFunction {
+	type funcEntry struct {
+		name    string
+		bytes   int64
+		objects int64
+	}
+	var entries []funcEntry
+	for fn, bytes := range funcBytes {
+		entries = append(entries, funcEntry{name: fn, bytes: bytes, objects: funcObjects[fn]})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+
+	result := make([]*agentv1.TopAllocFunction, 0, len(entries))
+	for _, e := range entries {
+		pct := 0.0
+		if totalBytes > 0 {
+			pct = float64(e.bytes) / float64(totalBytes) * 100
+		}
+		result = append(result, &agentv1.TopAllocFunction{
+			Function: shortenFuncName(e.name),
+			Bytes:    e.bytes,
+			Objects:  e.objects,
+			Pct:      pct,
+		})
+	}
+	return result
+}
+
+// computeTopTypes builds a sorted list of top allocation types.
+func computeTopTypes(typeBytes, typeObjects map[string]int64, totalBytes int64, limit int) []*agentv1.TopAllocType {
+	type typeEntry struct {
+		name    string
+		bytes   int64
+		objects int64
+	}
+	var entries []typeEntry
+	for tn, bytes := range typeBytes {
+		entries = append(entries, typeEntry{name: tn, bytes: bytes, objects: typeObjects[tn]})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+
+	result := make([]*agentv1.TopAllocType, 0, len(entries))
+	for _, e := range entries {
+		pct := 0.0
+		if totalBytes > 0 {
+			pct = float64(e.bytes) / float64(totalBytes) * 100
+		}
+		result = append(result, &agentv1.TopAllocType{
+			TypeName: e.name,
+			Bytes:    e.bytes,
+			Objects:  e.objects,
+			Pct:      pct,
+		})
+	}
+	return result
+}
+
+// classifyMemoryAllocType maps a leaf function name to an allocation type category.
+func classifyMemoryAllocType(funcName string) string {
+	switch {
+	case strings.Contains(funcName, "makeslice") || strings.Contains(funcName, "growslice"):
+		return "slice"
+	case strings.Contains(funcName, "makemap") || strings.Contains(funcName, "mapassign"):
+		return "map"
+	case strings.Contains(funcName, "newobject") || strings.Contains(funcName, "mallocgc"):
+		return "object"
+	case strings.Contains(funcName, "concatstrings") || strings.Contains(funcName, "slicebytetostring") || strings.Contains(funcName, "stringtoslicebyte"):
+		return "string"
+	case strings.Contains(funcName, "makechan"):
+		return "channel"
+	case strings.Contains(funcName, "newproc") || strings.Contains(funcName, "mstart"):
+		return "goroutine"
+	default:
+		return shortenFuncName(funcName)
+	}
+}
+
+// shortenFuncName shortens a fully qualified function name for readability.
+// github.com/coral-mesh/coral/pkg/sdk.(*SDK).initializeDebugServer -> sdk.(*SDK).initializeDebugServer.
+func shortenFuncName(fullName string) string {
+	lastSlash := strings.LastIndex(fullName, "/")
+	if lastSlash >= 0 {
+		return fullName[lastSlash+1:]
+	}
+	return fullName
 }

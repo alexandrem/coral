@@ -32,6 +32,7 @@ type RegressionIndicatorResult struct {
 
 // GetTopKHotspots returns the top-K CPU hotspots for a service in the given time range (RFD 074).
 // It aggregates cpu_profile_summaries by stack_hash, sums sample counts, and decodes frame IDs.
+// Profiling infrastructure overhead stacks are filtered out to avoid Heisenberg effect.
 func (d *Database) GetTopKHotspots(ctx context.Context, serviceName string, startTime, endTime time.Time, topK int) (*ProfilingSummaryResult, error) {
 	if topK <= 0 {
 		topK = 5
@@ -56,7 +57,13 @@ func (d *Database) GetTopKHotspots(ctx context.Context, serviceName string, star
 		return &ProfilingSummaryResult{}, nil
 	}
 
-	// Aggregate by stack_hash (which groups identical stacks), get top-K.
+	// Fetch more rows than topK to allow filtering out profiling overhead.
+	fetchLimit := topK * 3
+	if fetchLimit < 15 {
+		fetchLimit = 15
+	}
+
+	// Aggregate by stack_hash (which groups identical stacks), get candidates.
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT stack_frame_ids, SUM(sample_count) as total_samples
 		FROM cpu_profile_summaries
@@ -65,7 +72,7 @@ func (d *Database) GetTopKHotspots(ctx context.Context, serviceName string, star
 		GROUP BY stack_hash, stack_frame_ids
 		ORDER BY total_samples DESC
 		LIMIT ?
-	`, serviceName, startTime, endTime, topK)
+	`, serviceName, startTime, endTime, fetchLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query top-K hotspots: %w", err)
 	}
@@ -92,6 +99,11 @@ func (d *Database) GetTopKHotspots(ctx context.Context, serviceName string, star
 			return nil, fmt.Errorf("failed to decode stack frames: %w", err)
 		}
 
+		// Skip profiling infrastructure overhead to avoid Heisenberg effect.
+		if IsProfilingOverheadStack(frameNames) {
+			continue
+		}
+
 		hotspots = append(hotspots, ProfilingHotspot{
 			Rank:        rank,
 			Frames:      frameNames,
@@ -99,6 +111,11 @@ func (d *Database) GetTopKHotspots(ctx context.Context, serviceName string, star
 			SampleCount: sampleCount,
 		})
 		rank++
+
+		// Stop once we have enough.
+		if len(hotspots) >= topK {
+			break
+		}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -360,6 +377,37 @@ func isBoilerplateFrame(frame string) bool {
 	return false
 }
 
+// IsProfilingOverheadStack returns true if the stack contains frames from the
+// profiling infrastructure itself. These stacks represent observer overhead
+// (Heisenberg effect) rather than actual application behavior.
+// We specifically target pprof serialization paths, not general SDK usage.
+func IsProfilingOverheadStack(frames []string) bool {
+	for _, frame := range frames {
+		// pprof write/serialization operations - the main source of overhead.
+		if strings.HasPrefix(frame, "runtime/pprof.write") ||
+			strings.HasPrefix(frame, "runtime/pprof.(*Profile).WriteTo") ||
+			strings.HasPrefix(frame, "runtime/pprof.(*profileBuilder)") {
+			return true
+		}
+		// net/http/pprof handlers serving profile requests.
+		if strings.HasPrefix(frame, "net/http/pprof.") {
+			return true
+		}
+		// compress/flate and compress/gzip when used by pprof serialization.
+		// Only filter these if pprof frames are also present in the stack.
+		if strings.HasPrefix(frame, "compress/flate.(*compressor)") ||
+			strings.HasPrefix(frame, "compress/gzip.(*Writer)") {
+			// Check if this is in a pprof context.
+			for _, f := range frames {
+				if strings.Contains(f, "runtime/pprof") || strings.Contains(f, "net/http/pprof") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // CleanFrames simplifies package names and removes boilerplate frames from a
 // leaf-to-root frame list. The result preserves the original leaf-to-root order
 // for storage and API responses. Display-layer code can reverse for rendering.
@@ -459,4 +507,66 @@ func FormatCompactSummary(period string, totalSamples uint64, hotspots []Profili
 	b.WriteString("\n")
 
 	return b.String()
+}
+
+// MinAllocBytesForSummary is the minimum total allocation bytes required to
+// include memory profiling data. Below this threshold the data is too sparse
+// to be actionable.
+const MinAllocBytesForSummary = 1024 * 1024 // 1MB
+
+// FormatCompactMemorySummary formats the memory profiling summary in a compact,
+// LLM-friendly format. It shows the hottest allocation path once and lists
+// per-function allocation percentages on a single line.
+// Returns empty string when allocation bytes are too low to be meaningful.
+func FormatCompactMemorySummary(period string, totalAllocBytes int64, hotspots []MemoryProfilingHotspot) string {
+	if len(hotspots) == 0 || totalAllocBytes < MinAllocBytesForSummary {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("   Memory Profiling (%s, %s allocated):\n", period, formatBytes(totalAllocBytes)))
+
+	// Hot path: use the hottest stack (first hotspot).
+	hotPath := simplifyAndTrimFrames(hotspots[0].Frames)
+	if len(hotPath) > 0 {
+		b.WriteString("     Hot path: ")
+		b.WriteString(strings.Join(hotPath, " → "))
+		b.WriteString("\n")
+	}
+
+	// Allocations by function: leaf frame from each hotspot with percentage and bytes.
+	b.WriteString("     Allocations: ")
+	for i, h := range hotspots {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		name := "unknown"
+		if len(h.Frames) > 0 {
+			name = ShortFunctionName(SimplifyFrame(h.Frames[0]))
+		}
+		b.WriteString(fmt.Sprintf("%s (%.1f%%, %s)", name, h.Percentage, formatBytes(h.AllocBytes)))
+	}
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// formatBytes formats bytes into a human-readable string.
+func formatBytes(bytes int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1fGB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.1fMB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.1fKB", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
 }

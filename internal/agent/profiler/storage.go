@@ -39,7 +39,7 @@ type Storage struct {
 	binaryMetadataTable *duckdb.Table[binaryMetadataDB]
 }
 
-// ProfileSample represents a single aggregated profile sample.
+// ProfileSample represents a single aggregated CPU profile sample.
 type ProfileSample struct {
 	Timestamp     time.Time
 	ServiceID     string
@@ -47,6 +47,17 @@ type ProfileSample struct {
 	StackHash     string  // Hash of stack for deduplication
 	StackFrameIDs []int64 // Integer-encoded stack frames
 	SampleCount   uint32  // Number of samples (matches protobuf)
+}
+
+// MemoryProfileSample represents a single aggregated memory profile sample (RFD 077).
+type MemoryProfileSample struct {
+	Timestamp     time.Time
+	ServiceID     string
+	BuildID       string
+	StackHash     string  // Hash of stack for deduplication.
+	StackFrameIDs []int64 // Integer-encoded stack frames.
+	AllocBytes    int64   // Bytes allocated at this stack.
+	AllocObjects  int64   // Objects allocated at this stack.
 }
 
 // BinaryMetadata represents metadata about a profiled binary.
@@ -121,6 +132,22 @@ func (s *Storage) initSchema() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_binary_metadata_service
 			ON binary_metadata_local (service_id);
+
+		-- Memory profile samples with integer-encoded stacks (RFD 077).
+		CREATE TABLE IF NOT EXISTS memory_profile_samples_local (
+			timestamp        TIMESTAMP  NOT NULL,
+			service_id       TEXT       NOT NULL,
+			build_id         TEXT       NOT NULL,
+			stack_hash       TEXT       NOT NULL,
+			stack_frame_ids  INTEGER[]  NOT NULL,
+			alloc_bytes      BIGINT     NOT NULL,
+			alloc_objects    BIGINT     NOT NULL,
+			PRIMARY KEY (timestamp, service_id, build_id, stack_hash)
+		);
+		CREATE INDEX IF NOT EXISTS idx_memory_profile_samples_timestamp
+			ON memory_profile_samples_local (timestamp);
+		CREATE INDEX IF NOT EXISTS idx_memory_profile_samples_service
+			ON memory_profile_samples_local (service_id);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -387,6 +414,137 @@ func (s *Storage) DecodeStackFrames(ctx context.Context, frameIDs []int64) ([]st
 	return frameNames, nil
 }
 
+// StoreMemorySamples stores multiple memory profile samples in a single transaction (RFD 077).
+func (s *Storage) StoreMemorySamples(ctx context.Context, samples []MemoryProfileSample) error {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, sample := range samples {
+		frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
+
+		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
+		query := `
+			INSERT INTO memory_profile_samples_local (
+				timestamp, service_id, build_id, stack_hash, stack_frame_ids, alloc_bytes, alloc_objects
+			) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?, ?)
+			ON CONFLICT (timestamp, service_id, build_id, stack_hash)
+			DO UPDATE SET
+				alloc_bytes = memory_profile_samples_local.alloc_bytes + EXCLUDED.alloc_bytes,
+				alloc_objects = memory_profile_samples_local.alloc_objects + EXCLUDED.alloc_objects
+		`
+
+		_, err := tx.ExecContext(ctx, query,
+			sample.Timestamp,
+			sample.ServiceID,
+			sample.BuildID,
+			sample.StackHash,
+			sample.AllocBytes,
+			sample.AllocObjects,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to store memory sample: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// QueryMemorySamples retrieves memory profile samples for a given time range (RFD 077).
+func (s *Storage) QueryMemorySamples(ctx context.Context, startTime, endTime time.Time, serviceID string) ([]MemoryProfileSample, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	query := `
+		SELECT timestamp, service_id, build_id, stack_frame_ids, alloc_bytes, alloc_objects
+		FROM memory_profile_samples_local
+		WHERE timestamp >= ? AND timestamp <= ?
+	`
+	args := []interface{}{startTime, endTime}
+
+	if serviceID != "" {
+		query += " AND service_id = ?"
+		args = append(args, serviceID)
+	}
+
+	query += " ORDER BY timestamp ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query memory samples: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var samples []MemoryProfileSample
+	for rows.Next() {
+		var sample MemoryProfileSample
+		var frameIDsInterface interface{}
+
+		err := rows.Scan(
+			&sample.Timestamp,
+			&sample.ServiceID,
+			&sample.BuildID,
+			&frameIDsInterface,
+			&sample.AllocBytes,
+			&sample.AllocObjects,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		sample.StackFrameIDs, err = s.convertArrayToInt64(frameIDsInterface)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to convert memory stack frame IDs")
+			continue
+		}
+
+		samples = append(samples, sample)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return samples, nil
+}
+
+// CleanupOldMemorySamples removes memory profile samples older than the retention period (RFD 077).
+func (s *Storage) CleanupOldMemorySamples(ctx context.Context, retention time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cutoff := time.Now().Add(-retention)
+	query := `DELETE FROM memory_profile_samples_local WHERE timestamp < ?`
+
+	result, err := s.db.ExecContext(ctx, query, cutoff)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup old memory samples: %w", err)
+	}
+
+	rowsDeleted, _ := result.RowsAffected()
+	if rowsDeleted > 0 {
+		s.logger.Debug().
+			Int64("rows_deleted", rowsDeleted).
+			Time("cutoff", cutoff).
+			Msg("Cleaned up old memory profile samples")
+	}
+
+	return nil
+}
+
 // CleanupOldSamples removes profile samples older than the retention period.
 func (s *Storage) CleanupOldSamples(ctx context.Context, retention time.Duration) error {
 	s.mu.Lock()
@@ -456,12 +614,75 @@ func (s *Storage) RunCleanupLoop(ctx context.Context, sampleRetention, metadataR
 			if err := s.CleanupOldSamples(ctx, sampleRetention); err != nil {
 				s.logger.Error().Err(err).Msg("Failed to cleanup old profile samples")
 			}
+			if err := s.CleanupOldMemorySamples(ctx, sampleRetention); err != nil {
+				s.logger.Error().Err(err).Msg("Failed to cleanup old memory profile samples")
+			}
 		case <-metadataTicker.C:
 			if err := s.CleanupOldBinaryMetadata(ctx, metadataRetention); err != nil {
 				s.logger.Error().Err(err).Msg("Failed to cleanup old binary metadata")
 			}
 		}
 	}
+}
+
+// encodeStackFrames converts frame names to integer-encoded frame IDs.
+func (s *Storage) encodeStackFrames(ctx context.Context, frameNames []string) ([]int64, error) {
+	if len(frameNames) == 0 {
+		return nil, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	frameIDs := make([]int64, len(frameNames))
+
+	// Process each frame name.
+	for i, frameName := range frameNames {
+		// Check cache first.
+		if frameID, exists := s.frameDictCache[frameName]; exists {
+			frameIDs[i] = frameID
+
+			// Increment frame count.
+			_, err := s.db.ExecContext(ctx, `
+				UPDATE profile_frame_dictionary_local
+				SET frame_count = frame_count + 1
+				WHERE frame_id = ?
+			`, frameID)
+			if err != nil {
+				s.logger.Warn().Err(err).Int64("frame_id", frameID).Msg("Failed to increment frame count")
+			}
+			continue
+		}
+
+		// Not in cache - assign new ID and insert.
+		frameID := s.nextFrameID
+		s.nextFrameID++
+
+		_, err := s.db.ExecContext(ctx, `
+			INSERT OR IGNORE INTO profile_frame_dictionary_local (frame_id, frame_name, frame_count)
+			VALUES (?, ?, 1)
+		`, frameID, frameName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert frame %q: %w", frameName, err)
+		}
+
+		// Add to cache.
+		s.frameDictCache[frameName] = frameID
+		frameIDs[i] = frameID
+	}
+
+	return frameIDs, nil
+}
+
+// computeStackHash computes a hash for a stack trace for deduplication.
+func computeStackHash(frameIDs []int64) string {
+	// Simple hash: join frame IDs with semicolons.
+	// This matches what the colony database uses.
+	parts := make([]string, len(frameIDs))
+	for i, id := range frameIDs {
+		parts[i] = fmt.Sprintf("%d", id)
+	}
+	return strings.Join(parts, ";")
 }
 
 // convertArrayToInt64 converts a DuckDB array ([]interface{}) to []int64.

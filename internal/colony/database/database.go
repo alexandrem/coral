@@ -31,6 +31,7 @@ type Database struct {
 	telemetryTable      *duckdb.Table[otelSummary]
 	systemMetricsTable  *duckdb.Table[SystemMetricsSummary]
 	cpuProfilesTable    *duckdb.Table[CPUProfileSummary]
+	memoryProfilesTable *duckdb.Table[MemoryProfileSummary]
 	binaryMetadataTable *duckdb.Table[BinaryMetadata]
 	beylaHTTPTable      *duckdb.Table[beylaHTTPMetricDB]
 	beylaGRPCTable      *duckdb.Table[beylaGRPCMetricDB]
@@ -119,6 +120,7 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 		telemetryTable:      duckdb.NewTable[otelSummary](db, "otel_summaries"),
 		systemMetricsTable:  duckdb.NewTable[SystemMetricsSummary](db, "system_metrics_summaries"),
 		cpuProfilesTable:    duckdb.NewTable[CPUProfileSummary](db, "cpu_profile_summaries"),
+		memoryProfilesTable: duckdb.NewTable[MemoryProfileSummary](db, "memory_profile_summaries"),
 		binaryMetadataTable: duckdb.NewTable[BinaryMetadata](db, "binary_metadata_registry"),
 		beylaHTTPTable:      duckdb.NewTable[beylaHTTPMetricDB](db, "beyla_http_metrics"),
 		beylaGRPCTable:      duckdb.NewTable[beylaGRPCMetricDB](db, "beyla_grpc_metrics"),

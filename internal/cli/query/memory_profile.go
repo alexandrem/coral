@@ -1,9 +1,19 @@
 package query
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"time"
 
+	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
+	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 // NewMemoryProfileCmd creates the memory-profile query command.
@@ -15,6 +25,7 @@ func NewMemoryProfileCmd() *cobra.Command {
 		buildID     string
 		showGrowth  bool
 		showTypes   bool
+		format      string
 	)
 
 	cmd := &cobra.Command{
@@ -30,27 +41,145 @@ For on-demand memory profiling, use 'coral profile memory --duration 30'.
 Examples:
   coral query memory-profile --service api --since 1h
   coral query memory-profile --service api --since 1h --show-growth --show-types
-  coral query memory-profile --service api --build-id abc123 --since 24h
-
-Note: Memory profiling is planned for RFD 077 and not yet implemented.`,
+  coral query memory-profile --service api --build-id abc123 --since 24h`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if serviceName == "" {
 				return fmt.Errorf("--service is required")
 			}
 
-			// TODO: Implement historical memory profiling query (RFD 077).
-			return fmt.Errorf("historical memory profiling not yet implemented (RFD 077)")
+			now := time.Now()
+			var startTime, endTime time.Time
+
+			if since != "" {
+				duration, err := time.ParseDuration(since)
+				if err != nil {
+					return fmt.Errorf("invalid --since duration: %w", err)
+				}
+				startTime = now.Add(-duration)
+			} else {
+				startTime = now.Add(-1 * time.Hour)
+			}
+
+			if until != "" {
+				duration, err := time.ParseDuration(until)
+				if err != nil {
+					return fmt.Errorf("invalid --until duration: %w", err)
+				}
+				endTime = now.Add(-duration)
+			} else {
+				endTime = now
+			}
+
+			if startTime.After(endTime) {
+				return fmt.Errorf("--since time must be before --until time")
+			}
+
+			fmt.Fprintf(os.Stderr, "Querying historical memory profiles for service '%s'\n", serviceName)
+			fmt.Fprintf(os.Stderr, "Time range: %s to %s\n", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+
+			colonyURL, err := helpers.GetColonyURL("")
+			if err != nil {
+				return fmt.Errorf("failed to get colony URL: %w", err)
+			}
+
+			client := colonyv1connect.NewColonyDebugServiceClient(
+				http.DefaultClient,
+				colonyURL,
+			)
+
+			req := connect.NewRequest(&colonypb.QueryHistoricalMemoryProfileRequest{
+				ServiceName: serviceName,
+				StartTime:   timestamppb.New(startTime),
+				EndTime:     timestamppb.New(endTime),
+			})
+
+			ctx := context.Background()
+			resp, err := client.QueryHistoricalMemoryProfile(ctx, req)
+			if err != nil {
+				return fmt.Errorf("failed to query colony: %w", err)
+			}
+
+			if !resp.Msg.Success {
+				return fmt.Errorf("historical memory profile query failed: %s", resp.Msg.Error)
+			}
+
+			if len(resp.Msg.Samples) == 0 {
+				fmt.Fprintf(os.Stderr, "No historical memory profile data found for service '%s' in the specified time range.\n", serviceName)
+				return nil
+			}
+
+			fmt.Fprintf(os.Stderr, "Total unique stacks: %d\n", resp.Msg.UniqueStacks)
+			fmt.Fprintf(os.Stderr, "Total alloc bytes: %s\n\n", formatQueryBytes(resp.Msg.TotalAllocBytes))
+
+			switch format {
+			case "folded":
+				// Output folded stack format to stdout (alloc_bytes as count).
+				for _, sample := range resp.Msg.Samples {
+					if len(sample.FrameNames) == 0 {
+						continue
+					}
+					for i := len(sample.FrameNames) - 1; i >= 0; i-- {
+						fmt.Print(sample.FrameNames[i])
+						if i > 0 {
+							fmt.Print(";")
+						}
+					}
+					fmt.Printf(" %d\n", sample.AllocBytes)
+				}
+			case "summary":
+				// Print top allocating functions (server-side computed).
+				if len(resp.Msg.TopFunctions) > 0 {
+					fmt.Println("Top Memory Allocators:")
+					for _, tf := range resp.Msg.TopFunctions {
+						fmt.Printf("  %5.1f%%  %s  %s\n", tf.Pct, formatQueryBytes(tf.Bytes), tf.Function)
+					}
+					fmt.Println()
+				}
+
+				// Print top allocation types if requested.
+				if showTypes && len(resp.Msg.TopTypes) > 0 {
+					fmt.Println("Top Allocation Types:")
+					for _, tt := range resp.Msg.TopTypes {
+						fmt.Printf("  %5.1f%%  %s  %s\n", tt.Pct, formatQueryBytes(tt.Bytes), tt.TypeName)
+					}
+					fmt.Println()
+				}
+			default:
+				return fmt.Errorf("unknown format: %s (use 'summary' or 'folded')", format)
+			}
+
+			return nil
 		},
 	}
 
 	cmd.Flags().StringVarP(&serviceName, "service", "s", "", "Service name (required)")
-	cmd.Flags().StringVar(&since, "since", "1h", "Query from this time ago")
-	cmd.Flags().StringVar(&until, "until", "", "Query until this time ago")
+	cmd.Flags().StringVar(&since, "since", "1h", "Query from this time ago (e.g., '1h', '30m', '24h')")
+	cmd.Flags().StringVar(&until, "until", "", "Query until this time ago (default: now)")
 	cmd.Flags().StringVar(&buildID, "build-id", "", "Filter by specific build ID")
 	cmd.Flags().BoolVar(&showGrowth, "show-growth", false, "Show heap growth trends")
 	cmd.Flags().BoolVar(&showTypes, "show-types", false, "Show allocation breakdown by type")
+	cmd.Flags().StringVarP(&format, "format", "f", "summary", "Output format: 'summary' (human/LLM readable) or 'folded' (flamegraph compatible)")
 
 	cmd.MarkFlagRequired("service") //nolint:errcheck
 
 	return cmd
+}
+
+// formatQueryBytes formats bytes into human-readable form.
+func formatQueryBytes(b int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case b >= gb:
+		return fmt.Sprintf("%.1f GB", float64(b)/float64(gb))
+	case b >= mb:
+		return fmt.Sprintf("%.1f MB", float64(b)/float64(mb))
+	case b >= kb:
+		return fmt.Sprintf("%.1f KB", float64(b)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
 }

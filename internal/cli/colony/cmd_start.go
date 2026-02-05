@@ -479,6 +479,24 @@ Examples:
 					Msg("CPU profile poller started")
 			}
 
+			// Create and start Memory profile poller (RFD 077).
+			memoryProfilePoller := colony.NewMemoryProfilePoller(
+				ctx,
+				agentRegistry,
+				db,
+				time.Duration(cpuProfilePollIntervalSecs)*time.Second, // Reuse same poll interval config.
+				cpuProfileRetentionDays,                               // Reuse same retention config.
+				logger,
+			)
+
+			if err := memoryProfilePoller.Start(); err != nil {
+				logger.Warn().
+					Err(err).
+					Msg("Failed to start memory profile poller")
+			} else {
+				logger.Info().Msg("Memory profile poller started")
+			}
+
 			// Create and start Service poller to sync agent services to colony.
 			// This ensures ListServices API shows all connected services.
 			servicePollIntervalSecs := 10 // Poll every 10 seconds (services change frequently).

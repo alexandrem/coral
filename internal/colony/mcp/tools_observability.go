@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/invopop/jsonschema"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 )
@@ -243,7 +245,7 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 			}
 		}
 
-		// Display profiling summary if available (RFD 074).
+		// Display CPU profiling summary if available (RFD 074).
 		if r.ProfilingSummary != nil && len(r.ProfilingSummary.Hotspots) > 0 {
 			hotspots := make([]database.ProfilingHotspot, len(r.ProfilingSummary.Hotspots))
 			for i, h := range r.ProfilingSummary.Hotspots {
@@ -258,6 +260,25 @@ func (s *Server) generateSummaryOutput(ctx context.Context, input UnifiedSummary
 				r.ProfilingSummary.SamplingPeriod,
 				r.ProfilingSummary.TotalSamples,
 				hotspots,
+			)
+		}
+
+		// Display memory profiling summary if available (RFD 077).
+		if r.ProfilingSummary != nil && len(r.ProfilingSummary.MemoryHotspots) > 0 {
+			memHotspots := make([]database.MemoryProfilingHotspot, len(r.ProfilingSummary.MemoryHotspots))
+			for i, h := range r.ProfilingSummary.MemoryHotspots {
+				memHotspots[i] = database.MemoryProfilingHotspot{
+					Rank:         h.Rank,
+					Frames:       h.Frames,
+					Percentage:   h.Percentage,
+					AllocBytes:   h.AllocBytes,
+					AllocObjects: h.AllocObjects,
+				}
+			}
+			text += database.FormatCompactMemorySummary(
+				r.ProfilingSummary.SamplingPeriod,
+				r.ProfilingSummary.TotalAllocBytes,
+				memHotspots,
 			)
 		}
 
@@ -407,6 +428,267 @@ func (s *Server) executeDebugCPUProfileTool(ctx context.Context, argsJSON string
 
 	s.auditToolCall("coral_debug_cpu_profile", input)
 	return s.generateDebugCPUProfileOutput(ctx, input)
+}
+
+// QueryMemoryProfileInput defines input for coral_query_memory_profile (RFD 077).
+type QueryMemoryProfileInput struct {
+	Service         string `json:"service" jsonschema:"description=Service name to profile"`
+	DurationSeconds *int32 `json:"duration_seconds,omitempty" jsonschema:"description=Duration in seconds (default 30)"`
+}
+
+// registerQueryMemoryProfileTool registers the coral_query_memory_profile tool (RFD 077).
+func (s *Server) registerQueryMemoryProfileTool() {
+	s.registerToolWithSchema(
+		"coral_query_memory_profile",
+		"Query historical memory allocation profiles for a service. Shows top allocating functions and stack traces. Use this AFTER coral_query_summary identifies memory issues.",
+		QueryMemoryProfileInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var input QueryMemoryProfileInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
+			s.auditToolCall("coral_query_memory_profile", input)
+
+			text, err := s.generateQueryMemoryProfileOutput(ctx, input)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to query memory profile: %v", err)), nil
+			}
+
+			return mcp.NewToolResultText(text), nil
+		})
+}
+
+// generateQueryMemoryProfileOutput generates the text output for coral_query_memory_profile (RFD 077).
+func (s *Server) generateQueryMemoryProfileOutput(ctx context.Context, input QueryMemoryProfileInput) (string, error) {
+	durationSeconds := int32(300) // Default to last 5 minutes for memory.
+	if input.DurationSeconds != nil {
+		durationSeconds = *input.DurationSeconds
+	}
+
+	endTime := time.Now()
+	startTime := endTime.Add(-time.Duration(durationSeconds) * time.Second)
+
+	summaries, err := s.db.QueryMemoryProfileSummaries(ctx, input.Service, startTime, endTime)
+	if err != nil {
+		return "", fmt.Errorf("failed to query memory profiles: %w", err)
+	}
+
+	if len(summaries) == 0 {
+		return fmt.Sprintf("No memory profiling data available for service '%s' in the last %ds.\n"+
+			"Ensure the service is running and the agent is collecting memory profiles (RFD 077).\n",
+			input.Service, durationSeconds), nil
+	}
+
+	// Aggregate by stack hash.
+	type stackAgg struct {
+		stackHash    string
+		frameIDs     []int64
+		allocBytes   int64
+		allocObjects int64
+	}
+
+	aggregated := make(map[string]*stackAgg)
+	var totalBytes int64
+	for _, s := range summaries {
+		totalBytes += s.AllocBytes
+		if existing, exists := aggregated[s.StackHash]; exists {
+			existing.allocBytes += s.AllocBytes
+			existing.allocObjects += s.AllocObjects
+		} else {
+			aggregated[s.StackHash] = &stackAgg{
+				stackHash:    s.StackHash,
+				frameIDs:     s.StackFrameIDs,
+				allocBytes:   s.AllocBytes,
+				allocObjects: s.AllocObjects,
+			}
+		}
+	}
+
+	// Sort by alloc bytes descending and take top 10.
+	type sortedEntry struct {
+		frames       []string
+		allocBytes   int64
+		allocObjects int64
+		pct          float64
+	}
+
+	var entries []sortedEntry
+	for _, agg := range aggregated {
+		frameNames, err := s.db.DecodeStackFrames(ctx, agg.frameIDs)
+		if err != nil {
+			continue
+		}
+		pct := 0.0
+		if totalBytes > 0 {
+			pct = float64(agg.allocBytes) / float64(totalBytes) * 100
+		}
+		entries = append(entries, sortedEntry{
+			frames:       frameNames,
+			allocBytes:   agg.allocBytes,
+			allocObjects: agg.allocObjects,
+			pct:          pct,
+		})
+	}
+
+	// Simple sort by allocBytes descending.
+	for i := range entries {
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].allocBytes > entries[i].allocBytes {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+		}
+	}
+
+	if len(entries) > 10 {
+		entries = entries[:10]
+	}
+
+	text := fmt.Sprintf("Memory Profile for %s (last %ds):\n\n", input.Service, durationSeconds)
+	text += fmt.Sprintf("Total allocation bytes: %d\n", totalBytes)
+	text += fmt.Sprintf("Unique stacks: %d\n\n", len(aggregated))
+
+	text += "Top Memory Allocators:\n"
+	for i, e := range entries {
+		name := "unknown"
+		if len(e.frames) > 0 {
+			name = e.frames[len(e.frames)-1]
+		}
+		text += fmt.Sprintf("#%d %.1f%% (%d bytes, %d objects) %s\n",
+			i+1, e.pct, e.allocBytes, e.allocObjects, name)
+
+		text += "  Stack: "
+		for j, frame := range e.frames {
+			if j > 0 {
+				text += " → "
+			}
+			text += frame
+		}
+		text += "\n\n"
+	}
+
+	return text, nil
+}
+
+// registerProfileMemoryTool registers the coral_profile_memory tool (RFD 077).
+// This triggers on-demand memory profiling on a target service.
+func (s *Server) registerProfileMemoryTool() {
+	s.registerToolWithSchema(
+		"coral_profile_memory",
+		"Trigger on-demand memory profiling for a service. Collects heap allocation data for the specified duration. Use this for live memory investigation when you need fresh profiling data. For historical data, use coral_query_memory_profile instead.",
+		ProfileMemoryInput{},
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if s.debugService == nil {
+				return mcp.NewToolResultError("debug service not available"), nil
+			}
+
+			var input ProfileMemoryInput
+			if request.Params.Arguments != nil {
+				argBytes, err := json.Marshal(request.Params.Arguments)
+				if err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to marshal arguments: %v", err)), nil
+				}
+				if err := json.Unmarshal(argBytes, &input); err != nil {
+					return mcp.NewToolResultError(fmt.Sprintf("failed to parse arguments: %v", err)), nil
+				}
+			}
+
+			s.auditToolCall("coral_profile_memory", input)
+
+			text, err := s.generateProfileMemoryOutput(ctx, input)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to profile memory: %v", err)), nil
+			}
+
+			return mcp.NewToolResultText(text), nil
+		})
+}
+
+// generateProfileMemoryOutput triggers on-demand memory profiling and formats the result.
+func (s *Server) generateProfileMemoryOutput(ctx context.Context, input ProfileMemoryInput) (string, error) {
+	// Set defaults.
+	durationSeconds := int32(30)
+	if input.DurationSeconds != nil {
+		durationSeconds = *input.DurationSeconds
+		if durationSeconds > 300 {
+			durationSeconds = 300
+		}
+		if durationSeconds < 5 {
+			durationSeconds = 5
+		}
+	}
+
+	sampleRateBytes := int32(524288) // 512KB default.
+	if input.SampleRateBytes != nil {
+		sampleRateBytes = *input.SampleRateBytes
+	}
+
+	// Call the debug service to trigger on-demand memory profiling.
+	req := connect.NewRequest(&debugpb.ProfileMemoryRequest{
+		ServiceName:     input.Service,
+		DurationSeconds: durationSeconds,
+		SampleRateBytes: sampleRateBytes,
+	})
+
+	resp, err := s.debugService.ProfileMemory(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to profile memory: %w", err)
+	}
+
+	if !resp.Msg.Success {
+		return "", fmt.Errorf("profiling failed: %s", resp.Msg.Error)
+	}
+
+	// Format response.
+	text := fmt.Sprintf("Memory Profile for %s (collected over %ds):\n\n", input.Service, durationSeconds)
+
+	// Heap statistics.
+	if resp.Msg.Stats != nil {
+		text += "Heap Statistics:\n"
+		text += fmt.Sprintf("  Alloc bytes:       %d\n", resp.Msg.Stats.AllocBytes)
+		text += fmt.Sprintf("  Total alloc bytes: %d\n", resp.Msg.Stats.TotalAllocBytes)
+		text += fmt.Sprintf("  Sys bytes:         %d\n", resp.Msg.Stats.SysBytes)
+		text += fmt.Sprintf("  Num GC:            %d\n", resp.Msg.Stats.NumGc)
+		text += "\n"
+	}
+
+	// Top allocating functions.
+	if len(resp.Msg.TopFunctions) > 0 {
+		text += "Top Memory Allocators:\n"
+		for i, f := range resp.Msg.TopFunctions {
+			if i >= 10 {
+				break
+			}
+			text += fmt.Sprintf("#%d %.1f%% (%d bytes, %d objects) %s\n",
+				i+1, f.Pct, f.Bytes, f.Objects, f.Function)
+		}
+		text += "\n"
+	}
+
+	// Top allocation types.
+	if len(resp.Msg.TopTypes) > 0 {
+		text += "Top Allocation Types:\n"
+		for i, t := range resp.Msg.TopTypes {
+			if i >= 5 {
+				break
+			}
+			text += fmt.Sprintf("  %.1f%% (%d bytes) %s\n", t.Pct, t.Bytes, t.TypeName)
+		}
+		text += "\n"
+	}
+
+	// Sample count.
+	if len(resp.Msg.Samples) > 0 {
+		text += fmt.Sprintf("Collected %d allocation samples.\n", len(resp.Msg.Samples))
+	}
+
+	return text, nil
 }
 
 // registerUnifiedTracesTool registers the coral_query_traces tool.

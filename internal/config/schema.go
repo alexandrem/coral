@@ -464,10 +464,18 @@ type SystemMetricsConfig struct {
 	NetworkEnabled bool          `yaml:"network_enabled,omitempty" env:"CORAL_SYSTEM_METRICS_NETWORK_ENABLED"` // Collect network metrics
 }
 
-// ContinuousProfilingConfig configures continuous CPU profiling (RFD 072).
+// ContinuousProfilingConfig configures continuous profiling (RFD 072, RFD 077).
 type ContinuousProfilingConfig struct {
-	Disabled bool               `yaml:"disabled,omitempty" env:"CORAL_CPU_PROFILING_DISABLED"` // Master disable switch (default: false, meaning enabled)
-	CPU      CPUProfilingConfig `yaml:"cpu,omitempty"`                                         // CPU profiling configuration
+	Disabled bool                  `yaml:"disabled,omitempty" env:"CORAL_PROFILING_DISABLED"` // Master disable switch (default: false, meaning enabled)
+	CPU      CPUProfilingConfig    `yaml:"cpu,omitempty"`                                     // CPU profiling configuration
+	Memory   MemoryProfilingConfig `yaml:"memory,omitempty"`                                  // Memory profiling configuration (RFD 077)
+}
+
+// MemoryProfilingConfig contains memory profiling specific settings (RFD 077).
+type MemoryProfilingConfig struct {
+	Disabled  bool          `yaml:"disabled,omitempty" env:"CORAL_MEMORY_PROFILING_DISABLED"`   // Memory profiling disabled (default: false, meaning enabled)
+	Interval  time.Duration `yaml:"interval,omitempty" env:"CORAL_MEMORY_PROFILING_INTERVAL"`   // Collection interval (default: 60s)
+	Retention time.Duration `yaml:"retention,omitempty" env:"CORAL_MEMORY_PROFILING_RETENTION"` // Local sample retention (default: 1h)
 }
 
 // CPUProfilingConfig contains CPU profiling specific settings.

@@ -3,10 +3,14 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
@@ -71,17 +75,35 @@ func GetDebugResults(
 	return resp.Msg, nil
 }
 
+// ProfileMemory performs on-demand memory profiling (RFD 077).
+func ProfileMemory(
+	ctx context.Context,
+	client colonyv1connect.ColonyDebugServiceClient,
+	serviceName string,
+	durationSeconds int32,
+) (*colonyv1.ProfileMemoryResponse, error) {
+	req := connect.NewRequest(&colonyv1.ProfileMemoryRequest{
+		ServiceName:     serviceName,
+		DurationSeconds: durationSeconds,
+	})
+
+	resp, err := client.ProfileMemory(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to profile memory: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
 // ProfileCPU performs on-demand CPU profiling.
 func ProfileCPU(
 	ctx context.Context,
 	client colonyv1connect.ColonyDebugServiceClient,
-	agentID string,
 	serviceName string,
 	durationSeconds int32,
 	frequencyHz int32,
 ) (*colonyv1.ProfileCPUResponse, error) {
 	req := connect.NewRequest(&colonyv1.ProfileCPURequest{
-		AgentId:         agentID,
 		ServiceName:     serviceName,
 		DurationSeconds: durationSeconds,
 		FrequencyHz:     frequencyHz,
@@ -90,6 +112,28 @@ func ProfileCPU(
 	resp, err := client.ProfileCPU(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to profile CPU: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// QueryMemoryProfileSamples queries the agent's continuous memory profile storage (RFD 077).
+func QueryMemoryProfileSamples(
+	ctx context.Context,
+	client agentv1connect.AgentDebugServiceClient,
+	serviceName string,
+	since time.Duration,
+) (*agentv1.QueryMemoryProfileSamplesResponse, error) {
+	now := time.Now()
+	req := connect.NewRequest(&agentv1.QueryMemoryProfileSamplesRequest{
+		ServiceName: serviceName,
+		StartTime:   timestamppb.New(now.Add(-since)),
+		EndTime:     timestamppb.New(now),
+	})
+
+	resp, err := client.QueryMemoryProfileSamples(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query memory profile samples: %w", err)
 	}
 
 	return resp.Msg, nil

@@ -138,6 +138,7 @@ type ServiceConfig struct {
 	Name           string
 	Port           int32
 	HealthEndpoint string
+	SdkAddr        string // Optional SDK debug address for capabilities discovery.
 }
 
 // EnsureServicesConnected ensures that test services are connected to an agent.
@@ -174,11 +175,39 @@ func EnsureServicesConnected(
 
 	for _, svc := range services {
 		t.Logf("Connecting service %s on port %d with health %s", svc.Name, svc.Port, svc.HealthEndpoint)
-		_, err = ConnectService(ctx, agentClient, svc.Name, svc.Port, svc.HealthEndpoint)
-		if err != nil {
-			if !isAlreadyConnected(err) {
-				t.Errorf("Failed to connect %s:%v", svc.Name, err)
-				t.FailNow()
+
+		if svc.SdkAddr != "" {
+			// Pass SDK capabilities explicitly so the agent can resolve the SDK address.
+			req := connect.NewRequest(&agentv1.ConnectServiceRequest{
+				Name:           svc.Name,
+				Port:           svc.Port,
+				HealthEndpoint: svc.HealthEndpoint,
+				ServiceType:    "http",
+				SdkCapabilities: &agentv1.ServiceSdkCapabilities{
+					ServiceName: svc.Name,
+					SdkEnabled:  true,
+					SdkAddr:     svc.SdkAddr,
+				},
+			})
+			resp, connectErr := agentClient.ConnectService(ctx, req)
+			if connectErr != nil {
+				if !isAlreadyConnected(connectErr) {
+					t.Errorf("Failed to connect %s: %v", svc.Name, connectErr)
+					t.FailNow()
+				}
+			} else if !resp.Msg.Success {
+				if !isAlreadyConnected(fmt.Errorf(resp.Msg.Error)) {
+					t.Errorf("Failed to connect %s: %s", svc.Name, resp.Msg.Error)
+					t.FailNow()
+				}
+			}
+		} else {
+			_, err = ConnectService(ctx, agentClient, svc.Name, svc.Port, svc.HealthEndpoint)
+			if err != nil {
+				if !isAlreadyConnected(err) {
+					t.Errorf("Failed to connect %s: %v", svc.Name, err)
+					t.FailNow()
+				}
 			}
 		}
 	}

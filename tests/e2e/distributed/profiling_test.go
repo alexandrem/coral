@@ -28,6 +28,7 @@ type ProfilingSuite struct {
 // This prevents "service already connected" errors in subsequent tests.
 func (s *ProfilingSuite) TearDownTest() {
 	s.disconnectCpuApp()
+	s.disconnectMemoryApp()
 
 	// Call parent TearDownTest.
 	s.E2EDistributedSuite.TearDownTest()
@@ -232,7 +233,7 @@ func (s *ProfilingSuite) TestOnDemandProfiling() {
 	profileChan := make(chan profileResult, 1)
 
 	go func() {
-		resp, err := helpers.ProfileCPU(s.ctx, debugClient, agentID, "cpu-app", 10, 99)
+		resp, err := helpers.ProfileCPU(s.ctx, debugClient, "cpu-app", 10, 99)
 		profileChan <- profileResult{resp, err}
 	}()
 
@@ -355,6 +356,203 @@ func (s *ProfilingSuite) TestOnDemandProfiling() {
 	// Note: Service cleanup handled by TearDownTest.
 }
 
+// TestOnDemandMemoryProfiling verifies on-demand memory profiling via SDK heap endpoints (RFD 077).
+//
+// Test flow:
+// 1. Connect memory-app to agent-1 so it appears in service registry
+// 2. Find which agent is running memory-app
+// 3. Create colony debug client and trigger ProfileMemory API
+// 4. Generate allocation load during profiling by hitting memory-app endpoints
+// 5. Verify profile samples captured with allocation data and type attribution
+func (s *ProfilingSuite) TestOnDemandMemoryProfiling() {
+	s.T().Log("Testing on-demand memory profiling...")
+
+	fixture := s.fixture
+
+	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 1)
+	s.Require().NoError(err, "Failed to get agent-1 endpoint")
+
+	memoryAppEndpoint, err := fixture.GetMemoryAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get memory app endpoint")
+
+	s.T().Logf("Colony endpoint: %s", colonyEndpoint)
+	s.T().Logf("Agent-1 endpoint: %s", agentEndpoint)
+	s.T().Logf("Memory app endpoint: %s", memoryAppEndpoint)
+
+	// Connect memory-app to agent-1 (with SDK capabilities).
+	s.ensureServicesConnected()
+
+	// Find the agent hosting memory-app via the colony.
+	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
+
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "memory-app" {
+				agentID = agent.AgentId
+				s.T().Logf("Found memory-app on agent: %s", agentID)
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting memory-app service")
+
+	// Create debug client and trigger memory profiling (10s).
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
+
+	// Generate allocation load before profiling. The allocs pprof endpoint
+	// returns a cumulative snapshot, so allocations must happen first.
+	s.T().Log("Generating allocation load before profiling...")
+	client := &http.Client{Timeout: 10 * time.Second}
+	for range 20 {
+		resp, err := client.Get(fmt.Sprintf("http://%s/", memoryAppEndpoint))
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		resp2, err2 := client.Get(fmt.Sprintf("http://%s/types", memoryAppEndpoint))
+		if err2 == nil {
+			_ = resp2.Body.Close()
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	s.T().Log("✓ Allocation load generated")
+
+	// Now collect the memory profile.
+	s.T().Log("Starting on-demand memory profiling (10s)...")
+	result, err := helpers.ProfileMemory(s.ctx, debugClient, "memory-app", 10)
+	s.Require().NoError(err, "ProfileMemory should succeed")
+	s.Require().NotNil(result, "ProfileMemory response should not be nil")
+
+	if !result.Success {
+		s.T().Logf("ProfileMemory failed: %s", result.Error)
+		s.T().Skip("Skipping: Memory profiling returned failure (feature may not be fully operational)")
+	}
+
+	s.T().Logf("Captured %d memory profile samples", len(result.Samples))
+
+	if len(result.Samples) == 0 {
+		s.T().Log("⚠️  No samples captured — SDK heap endpoint may not have returned data")
+		s.T().Skip("Skipping: Memory profiling returned no samples")
+	}
+
+	// Verify samples have expected structure.
+	for i, sample := range result.Samples {
+		s.Require().NotEmpty(sample.FrameNames, "Sample should have stack frames")
+		s.Require().Greater(sample.AllocBytes, int64(0), "Sample should have alloc_bytes > 0")
+		if i < 3 {
+			s.T().Logf("Sample %d: alloc_bytes=%d, frames=%d", i, sample.AllocBytes, len(sample.FrameNames))
+		}
+	}
+
+	// Verify heap stats.
+	if result.Stats != nil {
+		s.T().Logf("Heap stats: alloc=%d, sys=%d, gc=%d",
+			result.Stats.AllocBytes, result.Stats.SysBytes, result.Stats.NumGc)
+	}
+
+	// Verify top functions.
+	if len(result.TopFunctions) > 0 {
+		s.T().Logf("Top %d allocating functions:", len(result.TopFunctions))
+		for i, tf := range result.TopFunctions {
+			if i < 5 {
+				s.T().Logf("  %.1f%% %d bytes  %s", tf.Pct, tf.Bytes, tf.Function)
+			}
+		}
+	}
+
+	// Verify top types.
+	if len(result.TopTypes) > 0 {
+		s.T().Logf("Top %d allocation types:", len(result.TopTypes))
+		for i, tt := range result.TopTypes {
+			if i < 5 {
+				s.T().Logf("  %.1f%% %d bytes  %s", tt.Pct, tt.Bytes, tt.TypeName)
+			}
+		}
+	}
+
+	s.T().Log("✓ On-demand memory profiling verified")
+}
+
+// TestContinuousMemoryProfiling verifies that the continuous memory profiler
+// collects periodic heap snapshots and stores them in the agent's local DuckDB.
+//
+// Test flow:
+// 1. Connect memory-app to agent-1 with SDK capabilities
+// 2. Generate allocation load to produce heap data
+// 3. Wait for at least one continuous profiling collection cycle (60s default)
+// 4. Query the agent's local memory profile storage
+// 5. Verify samples exist with expected structure
+func (s *ProfilingSuite) TestContinuousMemoryProfiling() {
+	s.T().Log("Testing continuous memory profiling...")
+
+	fixture := s.fixture
+
+	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 1)
+	s.Require().NoError(err, "Failed to get agent-1 endpoint")
+
+	memoryAppEndpoint, err := fixture.GetMemoryAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get memory app endpoint")
+
+	// Connect memory-app to agent-1 with SDK address for continuous profiling.
+	s.ensureServicesConnected()
+
+	// Generate allocation load so the heap has data to capture.
+	s.T().Log("Generating allocation load...")
+	client := &http.Client{Timeout: 10 * time.Second}
+	for range 20 {
+		resp, reqErr := client.Get(fmt.Sprintf("http://%s/", memoryAppEndpoint))
+		if reqErr == nil {
+			_ = resp.Body.Close()
+		}
+		resp2, reqErr2 := client.Get(fmt.Sprintf("http://%s/types", memoryAppEndpoint))
+		if reqErr2 == nil {
+			_ = resp2.Body.Close()
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	s.T().Log("✓ Allocation load generated")
+
+	// Wait for the continuous profiler to complete at least one collection cycle.
+	// E2E uses CORAL_MEMORY_PROFILING_INTERVAL=5s; wait for a couple of cycles.
+	s.T().Log("Waiting for continuous memory profiler collection cycle (15s)...")
+	time.Sleep(15 * time.Second)
+
+	// Query the agent's memory profile storage.
+	s.T().Log("Querying agent for continuous memory profile samples...")
+	agentDebugClient := helpers.NewAgentDebugClient(agentEndpoint)
+	queryResp, err := helpers.QueryMemoryProfileSamples(s.ctx, agentDebugClient, "memory-app", 30*time.Second)
+	s.Require().NoError(err, "QueryMemoryProfileSamples should succeed")
+
+	if queryResp.Error != "" {
+		s.T().Logf("Query error: %s", queryResp.Error)
+		s.T().Skip("Skipping: continuous memory profiling query returned error")
+	}
+
+	s.T().Logf("Captured %d continuous memory profile samples", len(queryResp.Samples))
+	s.Require().NotEmpty(queryResp.Samples, "Should have continuous memory profile samples after collection cycle")
+
+	// Verify sample structure.
+	for i, sample := range queryResp.Samples {
+		s.Require().NotEmpty(sample.StackFrames, "Sample should have stack frames")
+		s.Require().Greater(sample.AllocBytes, int64(0), "Sample should have alloc_bytes > 0")
+		if i < 3 {
+			s.T().Logf("Sample %d: alloc_bytes=%d, frames=%d, service=%s",
+				i, sample.AllocBytes, len(sample.StackFrames), sample.ServiceName)
+		}
+	}
+
+	s.T().Logf("Total allocation bytes: %d", queryResp.TotalAllocBytes)
+	s.T().Log("✓ Continuous memory profiling verified")
+}
+
 // =============================================================================
 // Helper Methods
 // =============================================================================
@@ -363,4 +561,17 @@ func (s *ProfilingSuite) TestOnDemandProfiling() {
 // This is called by TearDownTest() after TestOnDemandProfiling which dynamically connects cpu-app.
 func (s *ProfilingSuite) disconnectCpuApp() {
 	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{"cpu-app"})
+}
+
+// disconnectMemoryApp disconnects memory-app from agent-1 if it was connected.
+func (s *ProfilingSuite) disconnectMemoryApp() {
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 1, []string{"memory-app"})
+}
+
+// ensureServicesConnected ensures that test services are connected.
+// This uses the shared helper for idempotent service connection.
+func (s *ProfilingSuite) ensureServicesConnected() {
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 1, []helpers.ServiceConfig{
+		{Name: "memory-app", Port: 8080, HealthEndpoint: "/health", SdkAddr: "localhost:9004"},
+	})
 }

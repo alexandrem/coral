@@ -52,6 +52,7 @@ type ServiceMonitor struct {
 	checkTimeout        time.Duration
 	functionCache       *FunctionCache                                         // RFD 063: Function discovery cache
 	onProcessDiscovered func(serviceName string, pid int32, binaryPath string) // RFD 072: Callback when PID is discovered
+	onSDKDiscovered     func(serviceName string, pid int32, sdkAddr string)    // RFD 077: Callback when SDK capabilities are set
 	logger              zerolog.Logger
 	mu                  sync.RWMutex
 	ctx                 context.Context
@@ -331,6 +332,7 @@ func (m *ServiceMonitor) SetSdkCapabilities(caps *agentv1.ServiceSdkCapabilities
 	}
 
 	var shouldTriggerDiscovery bool
+	var shouldNotifySDK bool
 	var binaryPath, sdkAddr, serviceName, binaryHash string
 
 	if caps.BinaryPath != "" {
@@ -347,7 +349,19 @@ func (m *ServiceMonitor) SetSdkCapabilities(caps *agentv1.ServiceSdkCapabilities
 			serviceName = m.service.Name
 		}
 	}
+
+	// Notify memory profiler when SDK is available (RFD 077).
+	if caps.SdkEnabled && caps.SdkAddr != "" && m.onSDKDiscovered != nil {
+		shouldNotifySDK = true
+		sdkAddr = caps.SdkAddr
+		serviceName = m.service.Name
+	}
 	m.mu.Unlock()
+
+	// Notify continuous memory profiler of SDK-enabled service (RFD 077).
+	if shouldNotifySDK {
+		m.onSDKDiscovered(serviceName, m.processID, sdkAddr)
+	}
 
 	// Trigger discovery outside the lock to avoid blocking.
 	if shouldTriggerDiscovery {

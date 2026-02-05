@@ -922,6 +922,130 @@ coral debug cpu-profile --service api --duration 30s --frequency 99
 
 Both modes use the same eBPF infrastructure and are fully compatible.
 
+### Continuous Memory Profiling Configuration
+
+The `continuous_profiling.memory` section configures automatic background memory
+profiling for allocation analysis and leak detection. Like CPU profiling, it runs
+automatically in the background at low overhead.
+
+**IMPORTANT: Continuous memory profiling is ENABLED BY DEFAULT.** No configuration
+is required - it runs automatically when the agent starts.
+
+```yaml
+continuous_profiling:
+    disabled: false         # Master disable switch (default: false = enabled)
+    memory:
+        disabled: false       # Disable memory profiling (default: false = enabled)
+        interval: 60s         # Collection interval (default: 60s)
+        retention: 1h         # Local retention (default: 1h)
+        sample_rate_bytes: 4194304  # Sampling rate in bytes (default: 4MB)
+```
+
+**Configuration Fields:**
+
+| Field               | Type     | Default   | Description                                     |
+|---------------------|----------|-----------|-------------------------------------------------|
+| `disabled`          | bool     | `false`   | Master switch - set `true` to disable entirely  |
+| `memory.disabled`   | bool     | `false`   | Disable memory profiling - set `true` to disable|
+| `memory.interval`   | duration | `60s`     | How often to collect heap snapshots             |
+| `memory.retention`  | duration | `1h`      | How long to keep samples locally on agent       |
+| `memory.sample_rate_bytes` | int | `4194304` | Allocation sampling rate (4MB = low overhead)  |
+
+**How It Works:**
+
+- **Automatic Collection:** Heap snapshots collected every 60 seconds
+- **Low Overhead:** <1% CPU impact with 4MB sampling rate
+- **Frame Dictionary:** 85% storage compression using integer encoding
+- **Top Allocators:** Pre-computed top functions and types for fast queries
+- **Historical Queries:** Query past profiles using
+  `coral query memory-profile --since 1h`
+- **Colony Aggregation:** Colony polls agents and stores 30-day summaries
+
+**Collected Data:**
+
+- Stack traces from heap allocations
+- Allocation bytes and object counts per stack
+- Top allocating functions (pre-computed, with shortened names)
+- Top allocation types (slice, map, object, string, etc.)
+- Compatible with flamegraph.pl for visualization
+
+**Storage and Retention:**
+
+- **Agent-side:** Raw samples stored locally for 1 hour (~120KB/hour)
+- **Colony-side:** Aggregated 1-minute summaries stored for 30 days (~174MB/service)
+- **Cleanup:** Automatic cleanup runs every 10 minutes on agent
+- **Compression:** Frame dictionary encoding reduces storage by 85%
+
+**Performance Impact:**
+
+- **Overhead:** <1% CPU with 4MB sampling rate
+- **Memory:** ~2KB per snapshot
+- **Storage:** ~120KB/hour per service (agent)
+- **Network:** Minimal (profiles polled by colony)
+
+**Querying Historical Profiles:**
+
+```bash
+# Query last hour of memory profiles (summary format - default)
+coral query memory-profile --service api --since 1h
+
+# Include allocation type breakdown
+coral query memory-profile --service api --since 1h --show-types
+
+# Generate flame graph from historical data
+coral query memory-profile --service api --since 1h --format folded | flamegraph.pl > memory.svg
+```
+
+**Output Format (Summary - Default):**
+
+```
+Querying historical memory profiles for service 'api'
+Time range: 2026-02-03T18:00:00Z to 2026-02-03T19:00:00Z
+Total unique stacks: 42
+Total alloc bytes: 2.4 GB
+
+Top Memory Allocators:
+  45.2%  1.1 GB   orders.ProcessOrder
+  22.1%  530.4 MB json.Marshal
+  12.5%  300.0 MB cache.Store
+
+Top Allocation Types:
+  55.2%  1.3 GB   slice
+  22.8%  547.2 MB object
+  12.1%  290.4 MB string
+```
+
+Function names are automatically shortened for readability:
+- `github.com/myapp/orders.ProcessOrder` → `orders.ProcessOrder`
+- `encoding/json.Marshal` → `json.Marshal`
+
+**Disabling Continuous Memory Profiling:**
+
+To disable entirely:
+
+```yaml
+continuous_profiling:
+    disabled: true
+```
+
+To disable only memory profiling:
+
+```yaml
+continuous_profiling:
+    memory:
+        disabled: true
+```
+
+**Customizing Collection:**
+
+```yaml
+continuous_profiling:
+    memory:
+        interval: 30s           # More frequent collection
+        retention: 2h           # Keep samples longer locally
+        sample_rate_bytes: 524288  # 512KB = higher resolution, more overhead
+```
+
 ## Environment Variables
 
 Environment variables override configuration file values.

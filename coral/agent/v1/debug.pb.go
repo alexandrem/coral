@@ -1147,6 +1147,667 @@ func (x *QueryCPUProfileSamplesResponse) GetError() string {
 	return ""
 }
 
+// ProfileMemoryAgentRequest initiates memory profiling on an agent (RFD 077).
+type ProfileMemoryAgentRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AgentId         string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                            // Target agent ID.
+	ServiceName     string                 `protobuf:"bytes,2,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`                // Service name.
+	Pid             int32                  `protobuf:"varint,3,opt,name=pid,proto3" json:"pid,omitempty"`                                                  // Target process ID.
+	DurationSeconds int32                  `protobuf:"varint,4,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`   // Profiling duration (default: 30s, max: 300s).
+	SampleRateBytes int32                  `protobuf:"varint,5,opt,name=sample_rate_bytes,json=sampleRateBytes,proto3" json:"sample_rate_bytes,omitempty"` // Allocation sampling rate in bytes (default: 512KB).
+	SdkAddr         string                 `protobuf:"bytes,6,opt,name=sdk_addr,json=sdkAddr,proto3" json:"sdk_addr,omitempty"`                            // SDK debug service address.
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ProfileMemoryAgentRequest) Reset() {
+	*x = ProfileMemoryAgentRequest{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileMemoryAgentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileMemoryAgentRequest) ProtoMessage() {}
+
+func (x *ProfileMemoryAgentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileMemoryAgentRequest.ProtoReflect.Descriptor instead.
+func (*ProfileMemoryAgentRequest) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ProfileMemoryAgentRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *ProfileMemoryAgentRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *ProfileMemoryAgentRequest) GetPid() int32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *ProfileMemoryAgentRequest) GetDurationSeconds() int32 {
+	if x != nil {
+		return x.DurationSeconds
+	}
+	return 0
+}
+
+func (x *ProfileMemoryAgentRequest) GetSampleRateBytes() int32 {
+	if x != nil {
+		return x.SampleRateBytes
+	}
+	return 0
+}
+
+func (x *ProfileMemoryAgentRequest) GetSdkAddr() string {
+	if x != nil {
+		return x.SdkAddr
+	}
+	return ""
+}
+
+// MemoryStats contains heap statistics from runtime.ReadMemStats (RFD 077).
+type MemoryStats struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	AllocBytes            int64                  `protobuf:"varint,1,opt,name=alloc_bytes,json=allocBytes,proto3" json:"alloc_bytes,omitempty"`                                         // Bytes currently allocated on heap.
+	TotalAllocBytes       int64                  `protobuf:"varint,2,opt,name=total_alloc_bytes,json=totalAllocBytes,proto3" json:"total_alloc_bytes,omitempty"`                        // Cumulative bytes allocated.
+	SysBytes              int64                  `protobuf:"varint,3,opt,name=sys_bytes,json=sysBytes,proto3" json:"sys_bytes,omitempty"`                                               // Bytes obtained from OS.
+	NumGc                 int64                  `protobuf:"varint,4,opt,name=num_gc,json=numGc,proto3" json:"num_gc,omitempty"`                                                        // Number of completed GC cycles.
+	HeapGrowthBytesPerSec float64                `protobuf:"fixed64,5,opt,name=heap_growth_bytes_per_sec,json=heapGrowthBytesPerSec,proto3" json:"heap_growth_bytes_per_sec,omitempty"` // Heap growth rate.
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *MemoryStats) Reset() {
+	*x = MemoryStats{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryStats) ProtoMessage() {}
+
+func (x *MemoryStats) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryStats.ProtoReflect.Descriptor instead.
+func (*MemoryStats) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *MemoryStats) GetAllocBytes() int64 {
+	if x != nil {
+		return x.AllocBytes
+	}
+	return 0
+}
+
+func (x *MemoryStats) GetTotalAllocBytes() int64 {
+	if x != nil {
+		return x.TotalAllocBytes
+	}
+	return 0
+}
+
+func (x *MemoryStats) GetSysBytes() int64 {
+	if x != nil {
+		return x.SysBytes
+	}
+	return 0
+}
+
+func (x *MemoryStats) GetNumGc() int64 {
+	if x != nil {
+		return x.NumGc
+	}
+	return 0
+}
+
+func (x *MemoryStats) GetHeapGrowthBytesPerSec() float64 {
+	if x != nil {
+		return x.HeapGrowthBytesPerSec
+	}
+	return 0
+}
+
+// MemoryStackSample represents a unique stack trace with allocation counts (RFD 077).
+type MemoryStackSample struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FrameNames    []string               `protobuf:"bytes,1,rep,name=frame_names,json=frameNames,proto3" json:"frame_names,omitempty"`        // Stack frames from innermost to outermost.
+	AllocBytes    int64                  `protobuf:"varint,2,opt,name=alloc_bytes,json=allocBytes,proto3" json:"alloc_bytes,omitempty"`       // Bytes allocated at this stack.
+	AllocObjects  int64                  `protobuf:"varint,3,opt,name=alloc_objects,json=allocObjects,proto3" json:"alloc_objects,omitempty"` // Objects allocated at this stack.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryStackSample) Reset() {
+	*x = MemoryStackSample{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryStackSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryStackSample) ProtoMessage() {}
+
+func (x *MemoryStackSample) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryStackSample.ProtoReflect.Descriptor instead.
+func (*MemoryStackSample) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *MemoryStackSample) GetFrameNames() []string {
+	if x != nil {
+		return x.FrameNames
+	}
+	return nil
+}
+
+func (x *MemoryStackSample) GetAllocBytes() int64 {
+	if x != nil {
+		return x.AllocBytes
+	}
+	return 0
+}
+
+func (x *MemoryStackSample) GetAllocObjects() int64 {
+	if x != nil {
+		return x.AllocObjects
+	}
+	return 0
+}
+
+// TopAllocFunction represents a top allocating function (RFD 077).
+type TopAllocFunction struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Function      string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"` // Fully qualified function name.
+	Bytes         int64                  `protobuf:"varint,2,opt,name=bytes,proto3" json:"bytes,omitempty"`      // Total bytes allocated.
+	Objects       int64                  `protobuf:"varint,3,opt,name=objects,proto3" json:"objects,omitempty"`  // Total objects allocated.
+	Pct           float64                `protobuf:"fixed64,4,opt,name=pct,proto3" json:"pct,omitempty"`         // Percentage of total allocations.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TopAllocFunction) Reset() {
+	*x = TopAllocFunction{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TopAllocFunction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TopAllocFunction) ProtoMessage() {}
+
+func (x *TopAllocFunction) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TopAllocFunction.ProtoReflect.Descriptor instead.
+func (*TopAllocFunction) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *TopAllocFunction) GetFunction() string {
+	if x != nil {
+		return x.Function
+	}
+	return ""
+}
+
+func (x *TopAllocFunction) GetBytes() int64 {
+	if x != nil {
+		return x.Bytes
+	}
+	return 0
+}
+
+func (x *TopAllocFunction) GetObjects() int64 {
+	if x != nil {
+		return x.Objects
+	}
+	return 0
+}
+
+func (x *TopAllocFunction) GetPct() float64 {
+	if x != nil {
+		return x.Pct
+	}
+	return 0
+}
+
+// TopAllocType represents a top allocated type (RFD 077).
+type TopAllocType struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TypeName      string                 `protobuf:"bytes,1,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"` // Go type name (e.g., "[]byte").
+	Bytes         int64                  `protobuf:"varint,2,opt,name=bytes,proto3" json:"bytes,omitempty"`                      // Total bytes allocated.
+	Objects       int64                  `protobuf:"varint,3,opt,name=objects,proto3" json:"objects,omitempty"`                  // Total objects allocated.
+	Pct           float64                `protobuf:"fixed64,4,opt,name=pct,proto3" json:"pct,omitempty"`                         // Percentage of total allocations.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TopAllocType) Reset() {
+	*x = TopAllocType{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TopAllocType) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TopAllocType) ProtoMessage() {}
+
+func (x *TopAllocType) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TopAllocType.ProtoReflect.Descriptor instead.
+func (*TopAllocType) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *TopAllocType) GetTypeName() string {
+	if x != nil {
+		return x.TypeName
+	}
+	return ""
+}
+
+func (x *TopAllocType) GetBytes() int64 {
+	if x != nil {
+		return x.Bytes
+	}
+	return 0
+}
+
+func (x *TopAllocType) GetObjects() int64 {
+	if x != nil {
+		return x.Objects
+	}
+	return 0
+}
+
+func (x *TopAllocType) GetPct() float64 {
+	if x != nil {
+		return x.Pct
+	}
+	return 0
+}
+
+// ProfileMemoryAgentResponse returns memory profile results (RFD 077).
+type ProfileMemoryAgentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Samples       []*MemoryStackSample   `protobuf:"bytes,1,rep,name=samples,proto3" json:"samples,omitempty"`                               // Collected allocation samples.
+	Stats         *MemoryStats           `protobuf:"bytes,2,opt,name=stats,proto3" json:"stats,omitempty"`                                   // Heap statistics.
+	TopFunctions  []*TopAllocFunction    `protobuf:"bytes,3,rep,name=top_functions,json=topFunctions,proto3" json:"top_functions,omitempty"` // Top allocating functions.
+	TopTypes      []*TopAllocType        `protobuf:"bytes,4,rep,name=top_types,json=topTypes,proto3" json:"top_types,omitempty"`             // Top allocated types.
+	Error         string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`                                   // Error message if collection failed.
+	Success       bool                   `protobuf:"varint,6,opt,name=success,proto3" json:"success,omitempty"`                              // Whether profiling succeeded.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProfileMemoryAgentResponse) Reset() {
+	*x = ProfileMemoryAgentResponse{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileMemoryAgentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileMemoryAgentResponse) ProtoMessage() {}
+
+func (x *ProfileMemoryAgentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileMemoryAgentResponse.ProtoReflect.Descriptor instead.
+func (*ProfileMemoryAgentResponse) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ProfileMemoryAgentResponse) GetSamples() []*MemoryStackSample {
+	if x != nil {
+		return x.Samples
+	}
+	return nil
+}
+
+func (x *ProfileMemoryAgentResponse) GetStats() *MemoryStats {
+	if x != nil {
+		return x.Stats
+	}
+	return nil
+}
+
+func (x *ProfileMemoryAgentResponse) GetTopFunctions() []*TopAllocFunction {
+	if x != nil {
+		return x.TopFunctions
+	}
+	return nil
+}
+
+func (x *ProfileMemoryAgentResponse) GetTopTypes() []*TopAllocType {
+	if x != nil {
+		return x.TopTypes
+	}
+	return nil
+}
+
+func (x *ProfileMemoryAgentResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *ProfileMemoryAgentResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+// QueryMemoryProfileSamplesRequest retrieves historical memory profile samples from agent's local storage (RFD 077).
+type QueryMemoryProfileSamplesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Service name filter (optional).
+	PodName       string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`             // Pod name filter (optional).
+	StartTime     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`       // Start of time range.
+	EndTime       *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`             // End of time range.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryMemoryProfileSamplesRequest) Reset() {
+	*x = QueryMemoryProfileSamplesRequest{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryMemoryProfileSamplesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryMemoryProfileSamplesRequest) ProtoMessage() {}
+
+func (x *QueryMemoryProfileSamplesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryMemoryProfileSamplesRequest.ProtoReflect.Descriptor instead.
+func (*QueryMemoryProfileSamplesRequest) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *QueryMemoryProfileSamplesRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *QueryMemoryProfileSamplesRequest) GetPodName() string {
+	if x != nil {
+		return x.PodName
+	}
+	return ""
+}
+
+func (x *QueryMemoryProfileSamplesRequest) GetStartTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartTime
+	}
+	return nil
+}
+
+func (x *QueryMemoryProfileSamplesRequest) GetEndTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EndTime
+	}
+	return nil
+}
+
+// MemoryProfileSample represents a single aggregated memory profile sample (RFD 077).
+type MemoryProfileSample struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                            // Sample timestamp.
+	BuildId       string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`                 // Binary build ID.
+	StackFrames   []string               `protobuf:"bytes,3,rep,name=stack_frames,json=stackFrames,proto3" json:"stack_frames,omitempty"`     // Decoded stack frames.
+	AllocBytes    int64                  `protobuf:"varint,4,opt,name=alloc_bytes,json=allocBytes,proto3" json:"alloc_bytes,omitempty"`       // Bytes allocated at this stack.
+	AllocObjects  int64                  `protobuf:"varint,5,opt,name=alloc_objects,json=allocObjects,proto3" json:"alloc_objects,omitempty"` // Objects allocated at this stack.
+	ServiceName   string                 `protobuf:"bytes,6,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`     // Service name.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryProfileSample) Reset() {
+	*x = MemoryProfileSample{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryProfileSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryProfileSample) ProtoMessage() {}
+
+func (x *MemoryProfileSample) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryProfileSample.ProtoReflect.Descriptor instead.
+func (*MemoryProfileSample) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *MemoryProfileSample) GetTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Timestamp
+	}
+	return nil
+}
+
+func (x *MemoryProfileSample) GetBuildId() string {
+	if x != nil {
+		return x.BuildId
+	}
+	return ""
+}
+
+func (x *MemoryProfileSample) GetStackFrames() []string {
+	if x != nil {
+		return x.StackFrames
+	}
+	return nil
+}
+
+func (x *MemoryProfileSample) GetAllocBytes() int64 {
+	if x != nil {
+		return x.AllocBytes
+	}
+	return 0
+}
+
+func (x *MemoryProfileSample) GetAllocObjects() int64 {
+	if x != nil {
+		return x.AllocObjects
+	}
+	return 0
+}
+
+func (x *MemoryProfileSample) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+// QueryMemoryProfileSamplesResponse returns historical memory profile samples (RFD 077).
+type QueryMemoryProfileSamplesResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Samples         []*MemoryProfileSample `protobuf:"bytes,1,rep,name=samples,proto3" json:"samples,omitempty"`                                           // Historical profile samples.
+	TotalAllocBytes int64                  `protobuf:"varint,2,opt,name=total_alloc_bytes,json=totalAllocBytes,proto3" json:"total_alloc_bytes,omitempty"` // Total allocation bytes in response.
+	Error           string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`                                               // Error message if query failed.
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *QueryMemoryProfileSamplesResponse) Reset() {
+	*x = QueryMemoryProfileSamplesResponse{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryMemoryProfileSamplesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryMemoryProfileSamplesResponse) ProtoMessage() {}
+
+func (x *QueryMemoryProfileSamplesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryMemoryProfileSamplesResponse.ProtoReflect.Descriptor instead.
+func (*QueryMemoryProfileSamplesResponse) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *QueryMemoryProfileSamplesResponse) GetSamples() []*MemoryProfileSample {
+	if x != nil {
+		return x.Samples
+	}
+	return nil
+}
+
+func (x *QueryMemoryProfileSamplesResponse) GetTotalAllocBytes() int64 {
+	if x != nil {
+		return x.TotalAllocBytes
+	}
+	return 0
+}
+
+func (x *QueryMemoryProfileSamplesResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_coral_agent_v1_debug_proto protoreflect.FileDescriptor
 
 const file_coral_agent_v1_debug_proto_rawDesc = "" +
@@ -1246,14 +1907,71 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\x1eQueryCPUProfileSamplesResponse\x12:\n" +
 	"\asamples\x18\x01 \x03(\v2 .coral.agent.v1.CPUProfileSampleR\asamples\x12#\n" +
 	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error2\xb8\x04\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\xdd\x01\n" +
+	"\x19ProfileMemoryAgentRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12!\n" +
+	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12\x10\n" +
+	"\x03pid\x18\x03 \x01(\x05R\x03pid\x12)\n" +
+	"\x10duration_seconds\x18\x04 \x01(\x05R\x0fdurationSeconds\x12*\n" +
+	"\x11sample_rate_bytes\x18\x05 \x01(\x05R\x0fsampleRateBytes\x12\x19\n" +
+	"\bsdk_addr\x18\x06 \x01(\tR\asdkAddr\"\xc8\x01\n" +
+	"\vMemoryStats\x12\x1f\n" +
+	"\valloc_bytes\x18\x01 \x01(\x03R\n" +
+	"allocBytes\x12*\n" +
+	"\x11total_alloc_bytes\x18\x02 \x01(\x03R\x0ftotalAllocBytes\x12\x1b\n" +
+	"\tsys_bytes\x18\x03 \x01(\x03R\bsysBytes\x12\x15\n" +
+	"\x06num_gc\x18\x04 \x01(\x03R\x05numGc\x128\n" +
+	"\x19heap_growth_bytes_per_sec\x18\x05 \x01(\x01R\x15heapGrowthBytesPerSec\"z\n" +
+	"\x11MemoryStackSample\x12\x1f\n" +
+	"\vframe_names\x18\x01 \x03(\tR\n" +
+	"frameNames\x12\x1f\n" +
+	"\valloc_bytes\x18\x02 \x01(\x03R\n" +
+	"allocBytes\x12#\n" +
+	"\ralloc_objects\x18\x03 \x01(\x03R\fallocObjects\"p\n" +
+	"\x10TopAllocFunction\x12\x1a\n" +
+	"\bfunction\x18\x01 \x01(\tR\bfunction\x12\x14\n" +
+	"\x05bytes\x18\x02 \x01(\x03R\x05bytes\x12\x18\n" +
+	"\aobjects\x18\x03 \x01(\x03R\aobjects\x12\x10\n" +
+	"\x03pct\x18\x04 \x01(\x01R\x03pct\"m\n" +
+	"\fTopAllocType\x12\x1b\n" +
+	"\ttype_name\x18\x01 \x01(\tR\btypeName\x12\x14\n" +
+	"\x05bytes\x18\x02 \x01(\x03R\x05bytes\x12\x18\n" +
+	"\aobjects\x18\x03 \x01(\x03R\aobjects\x12\x10\n" +
+	"\x03pct\x18\x04 \x01(\x01R\x03pct\"\xbe\x02\n" +
+	"\x1aProfileMemoryAgentResponse\x12;\n" +
+	"\asamples\x18\x01 \x03(\v2!.coral.agent.v1.MemoryStackSampleR\asamples\x121\n" +
+	"\x05stats\x18\x02 \x01(\v2\x1b.coral.agent.v1.MemoryStatsR\x05stats\x12E\n" +
+	"\rtop_functions\x18\x03 \x03(\v2 .coral.agent.v1.TopAllocFunctionR\ftopFunctions\x129\n" +
+	"\ttop_types\x18\x04 \x03(\v2\x1c.coral.agent.v1.TopAllocTypeR\btopTypes\x12\x14\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\x12\x18\n" +
+	"\asuccess\x18\x06 \x01(\bR\asuccess\"\xd2\x01\n" +
+	" QueryMemoryProfileSamplesRequest\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x19\n" +
+	"\bpod_name\x18\x02 \x01(\tR\apodName\x129\n" +
+	"\n" +
+	"start_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
+	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\"\xf6\x01\n" +
+	"\x13MemoryProfileSample\x128\n" +
+	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x19\n" +
+	"\bbuild_id\x18\x02 \x01(\tR\abuildId\x12!\n" +
+	"\fstack_frames\x18\x03 \x03(\tR\vstackFrames\x12\x1f\n" +
+	"\valloc_bytes\x18\x04 \x01(\x03R\n" +
+	"allocBytes\x12#\n" +
+	"\ralloc_objects\x18\x05 \x01(\x03R\fallocObjects\x12!\n" +
+	"\fservice_name\x18\x06 \x01(\tR\vserviceName\"\xa4\x01\n" +
+	"!QueryMemoryProfileSamplesResponse\x12=\n" +
+	"\asamples\x18\x01 \x03(\v2#.coral.agent.v1.MemoryProfileSampleR\asamples\x12*\n" +
+	"\x11total_alloc_bytes\x18\x02 \x01(\x03R\x0ftotalAllocBytes\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error2\xa3\x06\n" +
 	"\x11AgentDebugService\x12q\n" +
 	"\x14StartUprobeCollector\x12+.coral.agent.v1.StartUprobeCollectorRequest\x1a,.coral.agent.v1.StartUprobeCollectorResponse\x12n\n" +
 	"\x13StopUprobeCollector\x12*.coral.agent.v1.StopUprobeCollectorRequest\x1a+.coral.agent.v1.StopUprobeCollectorResponse\x12h\n" +
 	"\x11QueryUprobeEvents\x12(.coral.agent.v1.QueryUprobeEventsRequest\x1a).coral.agent.v1.QueryUprobeEventsResponse\x12]\n" +
 	"\n" +
 	"ProfileCPU\x12&.coral.agent.v1.ProfileCPUAgentRequest\x1a'.coral.agent.v1.ProfileCPUAgentResponse\x12w\n" +
-	"\x16QueryCPUProfileSamples\x12-.coral.agent.v1.QueryCPUProfileSamplesRequest\x1a..coral.agent.v1.QueryCPUProfileSamplesResponseB\xae\x01\n" +
+	"\x16QueryCPUProfileSamples\x12-.coral.agent.v1.QueryCPUProfileSamplesRequest\x1a..coral.agent.v1.QueryCPUProfileSamplesResponse\x12f\n" +
+	"\rProfileMemory\x12).coral.agent.v1.ProfileMemoryAgentRequest\x1a*.coral.agent.v1.ProfileMemoryAgentResponse\x12\x80\x01\n" +
+	"\x19QueryMemoryProfileSamples\x120.coral.agent.v1.QueryMemoryProfileSamplesRequest\x1a1.coral.agent.v1.QueryMemoryProfileSamplesResponseB\xae\x01\n" +
 	"\x12com.coral.agent.v1B\n" +
 	"DebugProtoP\x01Z2github.com/coral-mesh/coral/coral/agent/v1;agentv1\xa2\x02\x03CAX\xaa\x02\x0eCoral.Agent.V1\xca\x02\x0eCoral\\Agent\\V1\xe2\x02\x1aCoral\\Agent\\V1\\GPBMetadata\xea\x02\x10Coral::Agent::V1b\x06proto3"
 
@@ -1269,59 +1987,80 @@ func file_coral_agent_v1_debug_proto_rawDescGZIP() []byte {
 	return file_coral_agent_v1_debug_proto_rawDescData
 }
 
-var file_coral_agent_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_coral_agent_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_coral_agent_v1_debug_proto_goTypes = []any{
-	(*StartUprobeCollectorRequest)(nil),    // 0: coral.agent.v1.StartUprobeCollectorRequest
-	(*UprobeConfig)(nil),                   // 1: coral.agent.v1.UprobeConfig
-	(*StartUprobeCollectorResponse)(nil),   // 2: coral.agent.v1.StartUprobeCollectorResponse
-	(*StopUprobeCollectorRequest)(nil),     // 3: coral.agent.v1.StopUprobeCollectorRequest
-	(*StopUprobeCollectorResponse)(nil),    // 4: coral.agent.v1.StopUprobeCollectorResponse
-	(*QueryUprobeEventsRequest)(nil),       // 5: coral.agent.v1.QueryUprobeEventsRequest
-	(*FunctionArgument)(nil),               // 6: coral.agent.v1.FunctionArgument
-	(*FunctionReturnValue)(nil),            // 7: coral.agent.v1.FunctionReturnValue
-	(*UprobeEvent)(nil),                    // 8: coral.agent.v1.UprobeEvent
-	(*QueryUprobeEventsResponse)(nil),      // 9: coral.agent.v1.QueryUprobeEventsResponse
-	(*ProfileCPUAgentRequest)(nil),         // 10: coral.agent.v1.ProfileCPUAgentRequest
-	(*StackSample)(nil),                    // 11: coral.agent.v1.StackSample
-	(*ProfileCPUAgentResponse)(nil),        // 12: coral.agent.v1.ProfileCPUAgentResponse
-	(*QueryCPUProfileSamplesRequest)(nil),  // 13: coral.agent.v1.QueryCPUProfileSamplesRequest
-	(*CPUProfileSample)(nil),               // 14: coral.agent.v1.CPUProfileSample
-	(*QueryCPUProfileSamplesResponse)(nil), // 15: coral.agent.v1.QueryCPUProfileSamplesResponse
-	nil,                                    // 16: coral.agent.v1.UprobeEvent.LabelsEntry
-	(*durationpb.Duration)(nil),            // 17: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),          // 18: google.protobuf.Timestamp
+	(*StartUprobeCollectorRequest)(nil),       // 0: coral.agent.v1.StartUprobeCollectorRequest
+	(*UprobeConfig)(nil),                      // 1: coral.agent.v1.UprobeConfig
+	(*StartUprobeCollectorResponse)(nil),      // 2: coral.agent.v1.StartUprobeCollectorResponse
+	(*StopUprobeCollectorRequest)(nil),        // 3: coral.agent.v1.StopUprobeCollectorRequest
+	(*StopUprobeCollectorResponse)(nil),       // 4: coral.agent.v1.StopUprobeCollectorResponse
+	(*QueryUprobeEventsRequest)(nil),          // 5: coral.agent.v1.QueryUprobeEventsRequest
+	(*FunctionArgument)(nil),                  // 6: coral.agent.v1.FunctionArgument
+	(*FunctionReturnValue)(nil),               // 7: coral.agent.v1.FunctionReturnValue
+	(*UprobeEvent)(nil),                       // 8: coral.agent.v1.UprobeEvent
+	(*QueryUprobeEventsResponse)(nil),         // 9: coral.agent.v1.QueryUprobeEventsResponse
+	(*ProfileCPUAgentRequest)(nil),            // 10: coral.agent.v1.ProfileCPUAgentRequest
+	(*StackSample)(nil),                       // 11: coral.agent.v1.StackSample
+	(*ProfileCPUAgentResponse)(nil),           // 12: coral.agent.v1.ProfileCPUAgentResponse
+	(*QueryCPUProfileSamplesRequest)(nil),     // 13: coral.agent.v1.QueryCPUProfileSamplesRequest
+	(*CPUProfileSample)(nil),                  // 14: coral.agent.v1.CPUProfileSample
+	(*QueryCPUProfileSamplesResponse)(nil),    // 15: coral.agent.v1.QueryCPUProfileSamplesResponse
+	(*ProfileMemoryAgentRequest)(nil),         // 16: coral.agent.v1.ProfileMemoryAgentRequest
+	(*MemoryStats)(nil),                       // 17: coral.agent.v1.MemoryStats
+	(*MemoryStackSample)(nil),                 // 18: coral.agent.v1.MemoryStackSample
+	(*TopAllocFunction)(nil),                  // 19: coral.agent.v1.TopAllocFunction
+	(*TopAllocType)(nil),                      // 20: coral.agent.v1.TopAllocType
+	(*ProfileMemoryAgentResponse)(nil),        // 21: coral.agent.v1.ProfileMemoryAgentResponse
+	(*QueryMemoryProfileSamplesRequest)(nil),  // 22: coral.agent.v1.QueryMemoryProfileSamplesRequest
+	(*MemoryProfileSample)(nil),               // 23: coral.agent.v1.MemoryProfileSample
+	(*QueryMemoryProfileSamplesResponse)(nil), // 24: coral.agent.v1.QueryMemoryProfileSamplesResponse
+	nil,                           // 25: coral.agent.v1.UprobeEvent.LabelsEntry
+	(*durationpb.Duration)(nil),   // 26: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil), // 27: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_debug_proto_depIdxs = []int32{
-	17, // 0: coral.agent.v1.StartUprobeCollectorRequest.duration:type_name -> google.protobuf.Duration
+	26, // 0: coral.agent.v1.StartUprobeCollectorRequest.duration:type_name -> google.protobuf.Duration
 	1,  // 1: coral.agent.v1.StartUprobeCollectorRequest.config:type_name -> coral.agent.v1.UprobeConfig
-	18, // 2: coral.agent.v1.StartUprobeCollectorResponse.expires_at:type_name -> google.protobuf.Timestamp
-	18, // 3: coral.agent.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
-	18, // 4: coral.agent.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
-	18, // 5: coral.agent.v1.UprobeEvent.timestamp:type_name -> google.protobuf.Timestamp
+	27, // 2: coral.agent.v1.StartUprobeCollectorResponse.expires_at:type_name -> google.protobuf.Timestamp
+	27, // 3: coral.agent.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
+	27, // 4: coral.agent.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
+	27, // 5: coral.agent.v1.UprobeEvent.timestamp:type_name -> google.protobuf.Timestamp
 	6,  // 6: coral.agent.v1.UprobeEvent.args:type_name -> coral.agent.v1.FunctionArgument
 	7,  // 7: coral.agent.v1.UprobeEvent.return_value:type_name -> coral.agent.v1.FunctionReturnValue
-	16, // 8: coral.agent.v1.UprobeEvent.labels:type_name -> coral.agent.v1.UprobeEvent.LabelsEntry
+	25, // 8: coral.agent.v1.UprobeEvent.labels:type_name -> coral.agent.v1.UprobeEvent.LabelsEntry
 	8,  // 9: coral.agent.v1.QueryUprobeEventsResponse.events:type_name -> coral.agent.v1.UprobeEvent
 	11, // 10: coral.agent.v1.ProfileCPUAgentResponse.samples:type_name -> coral.agent.v1.StackSample
-	18, // 11: coral.agent.v1.QueryCPUProfileSamplesRequest.start_time:type_name -> google.protobuf.Timestamp
-	18, // 12: coral.agent.v1.QueryCPUProfileSamplesRequest.end_time:type_name -> google.protobuf.Timestamp
-	18, // 13: coral.agent.v1.CPUProfileSample.timestamp:type_name -> google.protobuf.Timestamp
+	27, // 11: coral.agent.v1.QueryCPUProfileSamplesRequest.start_time:type_name -> google.protobuf.Timestamp
+	27, // 12: coral.agent.v1.QueryCPUProfileSamplesRequest.end_time:type_name -> google.protobuf.Timestamp
+	27, // 13: coral.agent.v1.CPUProfileSample.timestamp:type_name -> google.protobuf.Timestamp
 	14, // 14: coral.agent.v1.QueryCPUProfileSamplesResponse.samples:type_name -> coral.agent.v1.CPUProfileSample
-	0,  // 15: coral.agent.v1.AgentDebugService.StartUprobeCollector:input_type -> coral.agent.v1.StartUprobeCollectorRequest
-	3,  // 16: coral.agent.v1.AgentDebugService.StopUprobeCollector:input_type -> coral.agent.v1.StopUprobeCollectorRequest
-	5,  // 17: coral.agent.v1.AgentDebugService.QueryUprobeEvents:input_type -> coral.agent.v1.QueryUprobeEventsRequest
-	10, // 18: coral.agent.v1.AgentDebugService.ProfileCPU:input_type -> coral.agent.v1.ProfileCPUAgentRequest
-	13, // 19: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:input_type -> coral.agent.v1.QueryCPUProfileSamplesRequest
-	2,  // 20: coral.agent.v1.AgentDebugService.StartUprobeCollector:output_type -> coral.agent.v1.StartUprobeCollectorResponse
-	4,  // 21: coral.agent.v1.AgentDebugService.StopUprobeCollector:output_type -> coral.agent.v1.StopUprobeCollectorResponse
-	9,  // 22: coral.agent.v1.AgentDebugService.QueryUprobeEvents:output_type -> coral.agent.v1.QueryUprobeEventsResponse
-	12, // 23: coral.agent.v1.AgentDebugService.ProfileCPU:output_type -> coral.agent.v1.ProfileCPUAgentResponse
-	15, // 24: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:output_type -> coral.agent.v1.QueryCPUProfileSamplesResponse
-	20, // [20:25] is the sub-list for method output_type
-	15, // [15:20] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	18, // 15: coral.agent.v1.ProfileMemoryAgentResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
+	17, // 16: coral.agent.v1.ProfileMemoryAgentResponse.stats:type_name -> coral.agent.v1.MemoryStats
+	19, // 17: coral.agent.v1.ProfileMemoryAgentResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
+	20, // 18: coral.agent.v1.ProfileMemoryAgentResponse.top_types:type_name -> coral.agent.v1.TopAllocType
+	27, // 19: coral.agent.v1.QueryMemoryProfileSamplesRequest.start_time:type_name -> google.protobuf.Timestamp
+	27, // 20: coral.agent.v1.QueryMemoryProfileSamplesRequest.end_time:type_name -> google.protobuf.Timestamp
+	27, // 21: coral.agent.v1.MemoryProfileSample.timestamp:type_name -> google.protobuf.Timestamp
+	23, // 22: coral.agent.v1.QueryMemoryProfileSamplesResponse.samples:type_name -> coral.agent.v1.MemoryProfileSample
+	0,  // 23: coral.agent.v1.AgentDebugService.StartUprobeCollector:input_type -> coral.agent.v1.StartUprobeCollectorRequest
+	3,  // 24: coral.agent.v1.AgentDebugService.StopUprobeCollector:input_type -> coral.agent.v1.StopUprobeCollectorRequest
+	5,  // 25: coral.agent.v1.AgentDebugService.QueryUprobeEvents:input_type -> coral.agent.v1.QueryUprobeEventsRequest
+	10, // 26: coral.agent.v1.AgentDebugService.ProfileCPU:input_type -> coral.agent.v1.ProfileCPUAgentRequest
+	13, // 27: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:input_type -> coral.agent.v1.QueryCPUProfileSamplesRequest
+	16, // 28: coral.agent.v1.AgentDebugService.ProfileMemory:input_type -> coral.agent.v1.ProfileMemoryAgentRequest
+	22, // 29: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:input_type -> coral.agent.v1.QueryMemoryProfileSamplesRequest
+	2,  // 30: coral.agent.v1.AgentDebugService.StartUprobeCollector:output_type -> coral.agent.v1.StartUprobeCollectorResponse
+	4,  // 31: coral.agent.v1.AgentDebugService.StopUprobeCollector:output_type -> coral.agent.v1.StopUprobeCollectorResponse
+	9,  // 32: coral.agent.v1.AgentDebugService.QueryUprobeEvents:output_type -> coral.agent.v1.QueryUprobeEventsResponse
+	12, // 33: coral.agent.v1.AgentDebugService.ProfileCPU:output_type -> coral.agent.v1.ProfileCPUAgentResponse
+	15, // 34: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:output_type -> coral.agent.v1.QueryCPUProfileSamplesResponse
+	21, // 35: coral.agent.v1.AgentDebugService.ProfileMemory:output_type -> coral.agent.v1.ProfileMemoryAgentResponse
+	24, // 36: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:output_type -> coral.agent.v1.QueryMemoryProfileSamplesResponse
+	30, // [30:37] is the sub-list for method output_type
+	23, // [23:30] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_debug_proto_init() }
@@ -1336,7 +2075,7 @@ func file_coral_agent_v1_debug_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_debug_proto_rawDesc), len(file_coral_agent_v1_debug_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
