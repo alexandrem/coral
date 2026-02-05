@@ -15,6 +15,7 @@ integration.
 | CLI Category              | MCP Tool(s)                                                                     | Status                            |
 |---------------------------|---------------------------------------------------------------------------------|-----------------------------------|
 | eBPF Metrics & Traces     | `coral_query_summary`, `coral_query_traces`, `coral_query_metrics`              | ✅ Available                       |
+| Memory Profiling          | `coral_query_memory_profile`, `coral_profile_memory`                            | ✅ Available                       |
 | Live Debugging            | `coral_attach_uprobe`, `coral_detach_uprobe`, `coral_list_debug_sessions`, etc. | ✅ Available                       |
 | Container Execution       | `coral_container_exec`                                                          | ✅ Available                       |
 | Agent Shell Access        | `coral_shell_exec`                                                              | ✅ Available                       |
@@ -282,6 +283,94 @@ coral query logs [service] [--since <duration>] [--level debug|info|warn|error] 
 - Log entries from OTLP
 - Timestamp, level, message
 - Filtered by search terms and level
+
+---
+
+## Memory Profiling
+
+### Historical Memory Profiles
+
+```bash
+coral query memory-profile --service <name> [--since <duration>] [--format summary|folded] [--show-types]
+```
+
+**MCP Equivalent:** `coral_query_memory_profile`
+
+| CLI Parameter          | MCP Parameter      | Example          |
+|------------------------|--------------------|------------------|
+| `--service <name>`     | `service`          | `"payments-api"` |
+| `--since <duration>`   | `duration_seconds` | `300` (5 min)    |
+
+**Example:**
+
+```json
+{
+    "name": "coral_query_memory_profile",
+    "arguments": {
+        "service": "payments-api",
+        "duration_seconds": 300
+    }
+}
+```
+
+**Response includes:**
+
+- Total unique stacks and allocation bytes
+- Top allocating functions with stack traces
+- Allocation breakdown by bytes and objects
+
+**Example Response:**
+
+```
+Memory Profile for payments-api (last 300s):
+
+Total allocation bytes: 2400000000
+Unique stacks: 42
+
+Top Memory Allocators:
+#1 45.2% (1100000000 bytes, 2000000 objects) orders.ProcessOrder
+  Stack: runtime.main → main.main → orders.ProcessOrder
+
+#2 22.1% (530400000 bytes, 1000000 objects) json.Marshal
+  Stack: runtime.main → main.main → json.Marshal
+```
+
+---
+
+### On-Demand Memory Profiling
+
+```bash
+coral profile memory --service <name> [--duration <seconds>] [--sample-rate <kb>] [--format folded|json]
+```
+
+**MCP Equivalent:** `coral_profile_memory`
+
+| CLI Parameter           | MCP Parameter       | Example          |
+|-------------------------|---------------------|------------------|
+| `--service <name>`      | `service`           | `"payments-api"` |
+| `--duration <seconds>`  | `duration_seconds`  | `30`             |
+| `--sample-rate <kb>`    | `sample_rate_bytes` | `524288` (512KB) |
+| `--agent <agent-id>`    | `agent_id`          | `"agent-abc123"` |
+
+**Example:**
+
+```json
+{
+    "name": "coral_profile_memory",
+    "arguments": {
+        "service": "payments-api",
+        "duration_seconds": 30,
+        "sample_rate_bytes": 524288
+    }
+}
+```
+
+**Response includes:**
+
+- Heap statistics (alloc bytes, sys bytes, GC count)
+- Top allocating functions with percentages
+- Top allocation types
+- Sample count
 
 ---
 
@@ -583,12 +672,14 @@ coral exec <service> <command> [args...] [flags]
 
 ### Unified Query Tools
 
-| Tool Name             | Description                          | Key Parameters                      |
-|-----------------------|--------------------------------------|-------------------------------------|
-| `coral_query_summary` | Service health summary (eBPF + OTLP) | `service`, `time_range`             |
-| `coral_query_traces`  | Distributed traces (eBPF + OTLP)     | `trace_id`, `service`, `time_range` |
-| `coral_query_metrics` | HTTP/gRPC/SQL metrics (eBPF + OTLP)  | `service`, `time_range`             |
-| `coral_query_logs`    | Logs (OTLP)                          | `service`, `time_range`, `level`    |
+| Tool Name                    | Description                          | Key Parameters                              |
+|------------------------------|--------------------------------------|---------------------------------------------|
+| `coral_query_summary`        | Service health summary (eBPF + OTLP) | `service`, `time_range`                     |
+| `coral_query_traces`         | Distributed traces (eBPF + OTLP)     | `trace_id`, `service`, `time_range`         |
+| `coral_query_metrics`        | HTTP/gRPC/SQL metrics (eBPF + OTLP)  | `service`, `time_range`                     |
+| `coral_query_logs`           | Logs (OTLP)                          | `service`, `time_range`, `level`            |
+| `coral_query_memory_profile` | Historical memory profiles           | `service`, `duration_seconds`               |
+| `coral_profile_memory`       | On-demand memory profiling           | `service`, `duration_seconds`, `sample_rate_bytes` |
 
 ### Service Discovery
 

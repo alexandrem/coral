@@ -25,6 +25,8 @@ type ebpfDatabase interface {
 	GetLatestBinaryMetadata(ctx context.Context, serviceName string) (*database.BinaryMetadata, error)
 	GetPreviousBinaryMetadata(ctx context.Context, serviceName, currentBuildID string) (*database.BinaryMetadata, error)
 	CompareHotspotsWithBaseline(ctx context.Context, serviceName, currentBuildID, baselineBuildID string, startTime, endTime time.Time, topK int) ([]database.RegressionIndicatorResult, error)
+	// RFD 077: Memory profiling.
+	GetTopKMemoryHotspots(ctx context.Context, serviceName string, startTime, endTime time.Time, topK int) (*database.MemoryProfilingSummaryResult, error)
 }
 
 // ProfilingEnrichmentConfig controls profiling enrichment in query summaries (RFD 074).
@@ -425,7 +427,7 @@ type UnifiedSummaryResult struct {
 	RegressionIndicators []RegressionIndicatorData
 }
 
-// ProfilingSummaryData contains top-K CPU hotspots (RFD 074).
+// ProfilingSummaryData contains top-K CPU and memory hotspots (RFD 074, RFD 077).
 type ProfilingSummaryData struct {
 	Hotspots       []HotspotData
 	TotalSamples   uint64
@@ -437,6 +439,13 @@ type ProfilingSummaryData struct {
 	HotPath []string
 	// SamplesByFunction maps each unique leaf function to its aggregated percentage.
 	SamplesByFunction []FunctionSample
+
+	// Memory profiling data (RFD 077).
+	MemoryHotspots    []MemoryHotspotData
+	TotalAllocBytes   int64
+	TotalAllocObjects int64
+	MemoryHotPath     []string
+	MemoryByFunction  []FunctionMemorySample
 }
 
 // HotspotData represents a single CPU hotspot (RFD 074).
@@ -451,6 +460,22 @@ type HotspotData struct {
 type FunctionSample struct {
 	Function   string
 	Percentage float64
+}
+
+// MemoryHotspotData represents a single memory allocation hotspot (RFD 077).
+type MemoryHotspotData struct {
+	Rank         int32
+	Frames       []string
+	Percentage   float64
+	AllocBytes   int64
+	AllocObjects int64
+}
+
+// FunctionMemorySample pairs a function name with its memory allocation data.
+type FunctionMemorySample struct {
+	Function   string
+	Percentage float64
+	AllocBytes int64
 }
 
 // DeploymentData contains deployment context (RFD 074).
@@ -791,6 +816,63 @@ func (s *EbpfQueryService) QueryUnifiedSummary(ctx context.Context, serviceName 
 		}
 
 		summary.ProfilingSummary = ps
+
+		// 6. Enrich with memory profiling data (RFD 077).
+		memProfilingResult, err := s.db.GetTopKMemoryHotspots(ctx, summary.ServiceName, startTime, endTime, topK)
+		if err == nil && memProfilingResult != nil && memProfilingResult.TotalAllocBytes >= database.MinAllocBytesForSummary {
+			memHotspots := make([]MemoryHotspotData, len(memProfilingResult.Hotspots))
+			for i, h := range memProfilingResult.Hotspots {
+				memHotspots[i] = MemoryHotspotData{
+					Rank:         h.Rank,
+					Frames:       database.CleanFrames(h.Frames),
+					Percentage:   h.Percentage,
+					AllocBytes:   h.AllocBytes,
+					AllocObjects: h.AllocObjects,
+				}
+			}
+
+			ps.MemoryHotspots = memHotspots
+			ps.TotalAllocBytes = memProfilingResult.TotalAllocBytes
+			ps.TotalAllocObjects = memProfilingResult.TotalAllocObjs
+
+			// Compute memory hot path from hotspots.
+			if len(memHotspots) > 0 {
+				// Hot path: reverse the hottest stack to caller→callee order.
+				frames := memHotspots[0].Frames
+				reversed := make([]string, len(frames))
+				for i, f := range frames {
+					reversed[len(frames)-1-i] = f
+				}
+				ps.MemoryHotPath = reversed
+
+				// Allocations by function: deduplicated leaf function → percentage and bytes.
+				type memEntry struct {
+					percentage float64
+					bytes      int64
+				}
+				seen := make(map[string]*memEntry)
+				var order []string
+				for _, h := range memHotspots {
+					if len(h.Frames) == 0 {
+						continue
+					}
+					name := database.ShortFunctionName(h.Frames[0])
+					if _, ok := seen[name]; !ok {
+						order = append(order, name)
+						seen[name] = &memEntry{}
+					}
+					seen[name].percentage += h.Percentage
+					seen[name].bytes += h.AllocBytes
+				}
+				for _, name := range order {
+					ps.MemoryByFunction = append(ps.MemoryByFunction, FunctionMemorySample{
+						Function:   name,
+						Percentage: seen[name].percentage,
+						AllocBytes: seen[name].bytes,
+					})
+				}
+			}
+		}
 
 		// Deployment context.
 		latestBuild, err := s.db.GetLatestBinaryMetadata(ctx, summary.ServiceName)

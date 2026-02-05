@@ -144,7 +144,84 @@ message QueryCPUProfileSamplesResponse {
   string error = 3;                           // Error message if query failed
 }
 
-// AgentDebugService handles uprobe-based debugging operations (RFD 059) and CPU profiling (RFD 070, RFD 072).
+// ProfileMemoryAgentRequest initiates memory profiling on an agent (RFD 077).
+message ProfileMemoryAgentRequest {
+  string agent_id = 1;              // Target agent ID.
+  string service_name = 2;          // Service name.
+  int32 pid = 3;                    // Target process ID.
+  int32 duration_seconds = 4;       // Profiling duration (default: 30s, max: 300s).
+  int32 sample_rate_bytes = 5;      // Allocation sampling rate in bytes (default: 512KB).
+  string sdk_addr = 6;              // SDK debug service address.
+}
+
+// MemoryStats contains heap statistics from runtime.ReadMemStats (RFD 077).
+message MemoryStats {
+  int64 alloc_bytes = 1;            // Bytes currently allocated on heap.
+  int64 total_alloc_bytes = 2;      // Cumulative bytes allocated.
+  int64 sys_bytes = 3;              // Bytes obtained from OS.
+  int64 num_gc = 4;                 // Number of completed GC cycles.
+  double heap_growth_bytes_per_sec = 5; // Heap growth rate.
+}
+
+// MemoryStackSample represents a unique stack trace with allocation counts (RFD 077).
+message MemoryStackSample {
+  repeated string frame_names = 1;  // Stack frames from innermost to outermost.
+  int64 alloc_bytes = 2;            // Bytes allocated at this stack.
+  int64 alloc_objects = 3;          // Objects allocated at this stack.
+}
+
+// TopAllocFunction represents a top allocating function (RFD 077).
+message TopAllocFunction {
+  string function = 1;              // Fully qualified function name.
+  int64 bytes = 2;                  // Total bytes allocated.
+  int64 objects = 3;                // Total objects allocated.
+  double pct = 4;                   // Percentage of total allocations.
+}
+
+// TopAllocType represents a top allocated type (RFD 077).
+message TopAllocType {
+  string type_name = 1;             // Go type name (e.g., "[]byte").
+  int64 bytes = 2;                  // Total bytes allocated.
+  int64 objects = 3;                // Total objects allocated.
+  double pct = 4;                   // Percentage of total allocations.
+}
+
+// ProfileMemoryAgentResponse returns memory profile results (RFD 077).
+message ProfileMemoryAgentResponse {
+  repeated MemoryStackSample samples = 1; // Collected allocation samples.
+  MemoryStats stats = 2;            // Heap statistics.
+  repeated TopAllocFunction top_functions = 3; // Top allocating functions.
+  repeated TopAllocType top_types = 4;     // Top allocated types.
+  string error = 5;                 // Error message if collection failed.
+  bool success = 6;                 // Whether profiling succeeded.
+}
+
+// QueryMemoryProfileSamplesRequest retrieves historical memory profile samples from agent's local storage (RFD 077).
+message QueryMemoryProfileSamplesRequest {
+  string service_name = 1;                    // Service name filter (optional).
+  string pod_name = 2;                        // Pod name filter (optional).
+  google.protobuf.Timestamp start_time = 3;   // Start of time range.
+  google.protobuf.Timestamp end_time = 4;     // End of time range.
+}
+
+// MemoryProfileSample represents a single aggregated memory profile sample (RFD 077).
+message MemoryProfileSample {
+  google.protobuf.Timestamp timestamp = 1;    // Sample timestamp.
+  string build_id = 2;                        // Binary build ID.
+  repeated string stack_frames = 3;           // Decoded stack frames.
+  int64 alloc_bytes = 4;                      // Bytes allocated at this stack.
+  int64 alloc_objects = 5;                    // Objects allocated at this stack.
+  string service_name = 6;                    // Service name.
+}
+
+// QueryMemoryProfileSamplesResponse returns historical memory profile samples (RFD 077).
+message QueryMemoryProfileSamplesResponse {
+  repeated MemoryProfileSample samples = 1;   // Historical profile samples.
+  int64 total_alloc_bytes = 2;                // Total allocation bytes in response.
+  string error = 3;                           // Error message if query failed.
+}
+
+// AgentDebugService handles uprobe-based debugging operations (RFD 059), CPU profiling (RFD 070, RFD 072), and memory profiling (RFD 077).
 service AgentDebugService {
   // Start a uprobe collector on an agent.
   rpc StartUprobeCollector(StartUprobeCollectorRequest) returns (StartUprobeCollectorResponse);
@@ -160,4 +237,10 @@ service AgentDebugService {
 
   // Query historical CPU profile samples from continuous profiling (RFD 072).
   rpc QueryCPUProfileSamples(QueryCPUProfileSamplesRequest) returns (QueryCPUProfileSamplesResponse);
+
+  // Collect memory profile for a target process (RFD 077).
+  rpc ProfileMemory(ProfileMemoryAgentRequest) returns (ProfileMemoryAgentResponse);
+
+  // Query historical memory profile samples from continuous profiling (RFD 077).
+  rpc QueryMemoryProfileSamples(QueryMemoryProfileSamplesRequest) returns (QueryMemoryProfileSamplesResponse);
 }

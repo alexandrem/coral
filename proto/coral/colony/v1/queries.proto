@@ -81,6 +81,33 @@ message ProfilingSummary {
 
   // Build ID of the profiled binary.
   string build_id = 4;
+
+  // Memory profiling hotspots (RFD 077).
+  repeated MemoryHotspot top_memory_hotspots = 5;
+
+  // Total allocation bytes in the time range.
+  int64 total_alloc_bytes = 6;
+
+  // Total allocation objects in the time range.
+  int64 total_alloc_objects = 7;
+}
+
+// A single memory allocation hotspot from profiling data (RFD 077).
+message MemoryHotspot {
+  // 1-based rank (most allocations first).
+  int32 rank = 1;
+
+  // Stack frames from root to leaf.
+  repeated string frames = 2;
+
+  // Percentage of total allocation bytes.
+  double percentage = 3;
+
+  // Allocation bytes for this stack.
+  int64 alloc_bytes = 4;
+
+  // Allocation object count for this stack.
+  int64 alloc_objects = 5;
 }
 
 // A single CPU hotspot from profiling data (RFD 074).

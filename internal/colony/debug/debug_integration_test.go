@@ -57,6 +57,14 @@ func (m *mockDebugClient) QueryCPUProfileSamples(ctx context.Context, req *conne
 	return connect.NewResponse(&agentv1.QueryCPUProfileSamplesResponse{Samples: []*agentv1.CPUProfileSample{}, TotalSamples: 0}), nil
 }
 
+func (m *mockDebugClient) ProfileMemory(ctx context.Context, req *connect.Request[agentv1.ProfileMemoryAgentRequest]) (*connect.Response[agentv1.ProfileMemoryAgentResponse], error) {
+	return connect.NewResponse(&agentv1.ProfileMemoryAgentResponse{Success: true}), nil
+}
+
+func (m *mockDebugClient) QueryMemoryProfileSamples(ctx context.Context, req *connect.Request[agentv1.QueryMemoryProfileSamplesRequest]) (*connect.Response[agentv1.QueryMemoryProfileSamplesResponse], error) {
+	return connect.NewResponse(&agentv1.QueryMemoryProfileSamplesResponse{}), nil
+}
+
 // mockAgentClient implements agentv1connect.AgentServiceClient for testing.
 type mockAgentClient struct {
 	listServicesFunc func(context.Context, *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error)
@@ -605,7 +613,6 @@ func TestDebugFlow_CPUProfile(t *testing.T) {
 			ServiceName:     serviceName,
 			DurationSeconds: 5,
 			FrequencyHz:     99,
-			AgentId:         agentID,
 		})
 
 		resp, err := orch.ProfileCPU(ctx, req)
@@ -634,4 +641,138 @@ func (m *mockDebugClientWithCPUProfile) ProfileCPU(ctx context.Context, req *con
 		return m.profileCPUFunc(ctx, req)
 	}
 	return connect.NewResponse(&agentv1.ProfileCPUAgentResponse{Success: true, TotalSamples: 100}), nil
+}
+
+// mockDebugClientWithMemoryProfile extends mockDebugClient with ProfileMemory support.
+type mockDebugClientWithMemoryProfile struct {
+	*mockDebugClient
+	profileMemoryFunc func(context.Context, *connect.Request[agentv1.ProfileMemoryAgentRequest]) (*connect.Response[agentv1.ProfileMemoryAgentResponse], error)
+}
+
+func (m *mockDebugClientWithMemoryProfile) ProfileMemory(ctx context.Context, req *connect.Request[agentv1.ProfileMemoryAgentRequest]) (*connect.Response[agentv1.ProfileMemoryAgentResponse], error) {
+	if m.profileMemoryFunc != nil {
+		return m.profileMemoryFunc(ctx, req)
+	}
+	return connect.NewResponse(&agentv1.ProfileMemoryAgentResponse{Success: true}), nil
+}
+
+func TestDebugFlow_MemoryProfile(t *testing.T) {
+	logger := zerolog.Nop()
+	db := setupTestDB(t)
+	reg := registry.New(db)
+	defer db.Close()
+
+	agentID := "agent-1"
+	serviceName := "order-service"
+	services := []*meshv1.ServiceInfo{
+		{
+			Name:      serviceName,
+			Port:      8080,
+			ProcessId: 5678,
+		},
+	}
+	_, err := reg.Register(agentID, agentID, "10.0.0.1", "", services, nil, "v1")
+	require.NoError(t, err)
+
+	orch := NewOrchestrator(logger, reg, db, nil)
+
+	// Setup mock agent client to return service list with PID.
+	mockAgentCli := &mockAgentClient{
+		listServicesFunc: func(ctx context.Context, req *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error) {
+			return connect.NewResponse(&agentv1.ListServicesResponse{
+				Services: []*agentv1.ServiceStatus{
+					{
+						Name:      serviceName,
+						ProcessId: 5678,
+					},
+				},
+			}), nil
+		},
+	}
+	orch.agentClientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentServiceClient {
+		return mockAgentCli
+	}
+
+	mockProfileMemory := func(ctx context.Context, req *connect.Request[agentv1.ProfileMemoryAgentRequest]) (*connect.Response[agentv1.ProfileMemoryAgentResponse], error) {
+		assert.Equal(t, int32(5678), req.Msg.Pid)
+		assert.Equal(t, serviceName, req.Msg.ServiceName)
+		assert.Equal(t, int32(30), req.Msg.DurationSeconds)
+
+		return connect.NewResponse(&agentv1.ProfileMemoryAgentResponse{
+			Success: true,
+			Samples: []*agentv1.MemoryStackSample{
+				{
+					FrameNames:   []string{"main.ProcessOrder", "json.Marshal"},
+					AllocBytes:   1024000,
+					AllocObjects: 500,
+				},
+				{
+					FrameNames:   []string{"main.HandleRequest", "cache.Store"},
+					AllocBytes:   512000,
+					AllocObjects: 200,
+				},
+			},
+			Stats: &agentv1.MemoryStats{
+				AllocBytes:      2048000,
+				TotalAllocBytes: 10000000,
+				SysBytes:        50000000,
+				NumGc:           42,
+			},
+			TopFunctions: []*agentv1.TopAllocFunction{
+				{Function: "main.ProcessOrder", Bytes: 1024000, Objects: 500, Pct: 66.7},
+				{Function: "main.HandleRequest", Bytes: 512000, Objects: 200, Pct: 33.3},
+			},
+		}), nil
+	}
+
+	orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
+		return &mockDebugClientWithMemoryProfile{
+			mockDebugClient:   &mockDebugClient{},
+			profileMemoryFunc: mockProfileMemory,
+		}
+	}
+
+	ctx := context.Background()
+
+	t.Run("ProfileMemory_Success", func(t *testing.T) {
+		req := connect.NewRequest(&debugpb.ProfileMemoryRequest{
+			ServiceName:     serviceName,
+			DurationSeconds: 30,
+		})
+
+		resp, err := orch.ProfileMemory(ctx, req)
+		require.NoError(t, err)
+		assert.True(t, resp.Msg.Success)
+		assert.Len(t, resp.Msg.Samples, 2)
+		assert.Equal(t, int64(2048000), resp.Msg.Stats.AllocBytes)
+		assert.Len(t, resp.Msg.TopFunctions, 2)
+
+		// Verify sample data.
+		assert.Equal(t, []string{"main.ProcessOrder", "json.Marshal"}, resp.Msg.Samples[0].FrameNames)
+		assert.Equal(t, int64(1024000), resp.Msg.Samples[0].AllocBytes)
+	})
+
+	t.Run("ProfileMemory_AgentError", func(t *testing.T) {
+		orch.clientFactory = func(client connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
+			return &mockDebugClientWithMemoryProfile{
+				mockDebugClient: &mockDebugClient{},
+				profileMemoryFunc: func(ctx context.Context, req *connect.Request[agentv1.ProfileMemoryAgentRequest]) (*connect.Response[agentv1.ProfileMemoryAgentResponse], error) {
+					return connect.NewResponse(&agentv1.ProfileMemoryAgentResponse{
+						Success: false,
+						Error:   "SDK unreachable",
+					}), nil
+				},
+			}
+		}
+
+		req := connect.NewRequest(&debugpb.ProfileMemoryRequest{
+			ServiceName:     serviceName,
+			DurationSeconds: 30,
+		})
+
+		resp, err := orch.ProfileMemory(ctx, req)
+		require.NoError(t, err)
+		assert.False(t, resp.Msg.Success)
+		assert.Contains(t, resp.Msg.Error, "SDK unreachable")
+	})
 }

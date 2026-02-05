@@ -26,17 +26,18 @@ const (
 
 // Agent represents a Coral agent that monitors multiple services.
 type Agent struct {
-	id                 string
-	monitors           map[string]*ServiceMonitor
-	ebpfManager        *ebpf.Manager
-	beylaManager       *beyla.Manager
-	debugManager       *debug.SessionManager
-	continuousProfiler interface{}    // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds)
-	functionCache      *FunctionCache // RFD 063: Function discovery cache
-	logger             zerolog.Logger
-	mu                 sync.RWMutex
-	ctx                context.Context
-	cancel             context.CancelFunc
+	id                       string
+	monitors                 map[string]*ServiceMonitor
+	ebpfManager              *ebpf.Manager
+	beylaManager             *beyla.Manager
+	debugManager             *debug.SessionManager
+	continuousProfiler       interface{}    // RFD 072: Continuous CPU profiler (uses interface to support Linux/non-Linux builds).
+	continuousMemoryProfiler interface{}    // RFD 077: Continuous memory profiler.
+	functionCache            *FunctionCache // RFD 063: Function discovery cache
+	logger                   zerolog.Logger
+	mu                       sync.RWMutex
+	ctx                      context.Context
+	cancel                   context.CancelFunc
 }
 
 // Config contains agent configuration.
@@ -94,8 +95,9 @@ func New(config Config) (*Agent, error) {
 	// Create monitors for each service (if any provided).
 	for _, service := range config.Services {
 		monitor := NewServiceMonitor(ctx, service, config.FunctionCache, config.Logger)
-		// Set callback for continuous profiling (RFD 072).
+		// Set callbacks for continuous profiling (RFD 072, RFD 077).
 		monitor.onProcessDiscovered = agent.onProcessDiscovered
+		monitor.onSDKDiscovered = agent.onSDKDiscovered
 		agent.monitors[service.Name] = monitor
 	}
 
@@ -152,8 +154,14 @@ func (a *Agent) Stop() error {
 
 	// Stop continuous profiler (RFD 072).
 	if a.continuousProfiler != nil {
-		// Type assert to get the Stop method
 		if profiler, ok := a.continuousProfiler.(interface{ Stop() }); ok {
+			profiler.Stop()
+		}
+	}
+
+	// Stop continuous memory profiler (RFD 077).
+	if a.continuousMemoryProfiler != nil {
+		if profiler, ok := a.continuousMemoryProfiler.(interface{ Stop() }); ok {
 			profiler.Stop()
 		}
 	}
@@ -167,6 +175,13 @@ func (a *Agent) SetContinuousProfiler(profiler interface{}) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.continuousProfiler = profiler
+}
+
+// SetContinuousMemoryProfiler sets the continuous memory profiler (RFD 077).
+func (a *Agent) SetContinuousMemoryProfiler(profiler interface{}) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.continuousMemoryProfiler = profiler
 }
 
 // onProcessDiscovered is called when a service's PID is discovered by a monitor.
@@ -193,6 +208,33 @@ func (a *Agent) onProcessDiscovered(serviceName string, pid int32, binaryPath st
 			Msg("Adding service to continuous CPU profiling")
 
 		p.AddService(serviceName, int(pid), binaryPath)
+	}
+}
+
+// onSDKDiscovered is called when a service's SDK capabilities are set (RFD 077).
+// It adds the service to continuous memory profiling if enabled.
+func (a *Agent) onSDKDiscovered(serviceName string, pid int32, sdkAddr string) {
+	a.mu.RLock()
+	memProfiler := a.continuousMemoryProfiler
+	a.mu.RUnlock()
+
+	if memProfiler == nil {
+		return
+	}
+
+	// Type assert to get the AddService method.
+	type memProfilerWithAddService interface {
+		AddService(serviceID string, pid int, binaryPath string, sdkAddr string)
+	}
+
+	if p, ok := memProfiler.(memProfilerWithAddService); ok {
+		a.logger.Info().
+			Str("service", serviceName).
+			Int32("pid", pid).
+			Str("sdk_addr", sdkAddr).
+			Msg("Adding service to continuous memory profiling")
+
+		p.AddService(serviceName, int(pid), fmt.Sprintf("/proc/%d/exe", pid), sdkAddr)
 	}
 }
 
@@ -278,8 +320,9 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 
 	// Create and start new monitor.
 	monitor := NewServiceMonitor(a.ctx, service, a.functionCache, a.logger)
-	// Set callback for continuous profiling (RFD 072).
+	// Set callbacks for continuous profiling (RFD 072, RFD 077).
 	monitor.onProcessDiscovered = a.onProcessDiscovered
+	monitor.onSDKDiscovered = a.onSDKDiscovered
 	monitor.Start()
 
 	a.monitors[service.Name] = monitor

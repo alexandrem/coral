@@ -406,4 +406,21 @@ var schemaDDL = []string{
 	)`,
 
 	`CREATE INDEX IF NOT EXISTS idx_profile_frame_name ON profile_frame_dictionary(frame_name)`,
+
+	// Memory profile summaries - 1-minute aggregated memory profiling samples (RFD 077).
+	`CREATE TABLE IF NOT EXISTS memory_profile_summaries (
+		timestamp TIMESTAMPTZ NOT NULL,
+		agent_id TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		build_id TEXT NOT NULL,
+		stack_hash VARCHAR(64) NOT NULL,
+		stack_frame_ids BIGINT[] NOT NULL,
+		alloc_bytes BIGINT NOT NULL,
+		alloc_objects BIGINT NOT NULL,
+		PRIMARY KEY (timestamp, agent_id, service_name, build_id, stack_hash)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_memory_profiles_service_time ON memory_profile_summaries(service_name, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_memory_profiles_agent ON memory_profile_summaries(agent_id, timestamp DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_memory_profiles_build_id ON memory_profile_summaries(build_id)`,
 }

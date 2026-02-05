@@ -28,6 +28,8 @@ type mockDatabase struct {
 	latestBinaryMetadata *database.BinaryMetadata
 	prevBinaryMetadata   *database.BinaryMetadata
 	regressionIndicators []database.RegressionIndicatorResult
+	// RFD 077: Memory profiling fields.
+	memoryProfilingResult *database.MemoryProfilingSummaryResult
 }
 
 func (m *mockDatabase) QueryBeylaHTTPMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time, filters map[string]string) ([]*database.BeylaHTTPMetricResult, error) {
@@ -126,6 +128,15 @@ func (m *mockDatabase) GetPreviousBinaryMetadata(_ context.Context, _, _ string)
 
 func (m *mockDatabase) CompareHotspotsWithBaseline(_ context.Context, _, _, _ string, _, _ time.Time, _ int) ([]database.RegressionIndicatorResult, error) {
 	return m.regressionIndicators, nil
+}
+
+// RFD 077: Memory profiling mock method.
+
+func (m *mockDatabase) GetTopKMemoryHotspots(_ context.Context, _ string, _, _ time.Time, _ int) (*database.MemoryProfilingSummaryResult, error) {
+	if m.memoryProfilingResult != nil {
+		return m.memoryProfilingResult, nil
+	}
+	return &database.MemoryProfilingSummaryResult{}, nil
 }
 
 // TestQueryMetrics_TimeRangeValidation tests time range validation.

@@ -35,12 +35,16 @@ func (s *TelemetrySuite) SetupSuite() {
 	// OTLP tests require otel-app to be connected for telemetry ingestion.
 	// Connect it once at suite level since all OTLP tests can share the same connection.
 	s.T().Log("Setting up TelemetrySuite - connecting otel-app for OTLP tests...")
-
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
 		{Name: "otel-app", Port: 8090, HealthEndpoint: "/health"},
+		{Name: "memory-app", Port: 8080, HealthEndpoint: "/health"},
+	})
+	s.T().Log("Setting up TelemetrySuite - connecting memory-app for continuous tests...")
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 1, []helpers.ServiceConfig{
+		{Name: "memory-app", Port: 8080, HealthEndpoint: "/health"},
 	})
 
-	s.T().Log("TelemetrySuite setup complete - otel-app connected")
+	s.T().Log("TelemetrySuite setup complete")
 }
 
 // TearDownTest cleans up cpu-app if it was connected during a test.
@@ -51,7 +55,7 @@ func (s *TelemetrySuite) SetupSuite() {
 //
 // This prevents "service already connected" errors in subsequent Beyla tests.
 func (s *TelemetrySuite) TearDownTest() {
-	s.disconnectCpuApp()
+	s.disconnectApps()
 
 	// Call parent TearDownTest.
 	s.E2EDistributedSuite.TearDownTest()
@@ -977,8 +981,9 @@ func (s *TelemetrySuite) TestSystemMetricsPolling() {
 // Helper Methods
 // =============================================================================
 
-// disconnectCpuApp disconnects cpu-app from agent-0 if it was connected.
-// This is called by TearDownTest() after Beyla tests that dynamically connect cpu-app.
-func (s *TelemetrySuite) disconnectCpuApp() {
+// disconnectApps disconnects apps from agents
+// This is called by TearDownTest().
+func (s *TelemetrySuite) disconnectApps() {
 	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{"cpu-app"})
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 1, []string{"memory-app"})
 }

@@ -361,9 +361,6 @@ func (s *DebugSuite) TestMultiAgentDebugSession() {
 	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents for multi-agent test")
 
 	agent0ID := listAgentsResp.Agents[0].AgentId
-	agent1ID := listAgentsResp.Agents[1].AgentId
-	s.T().Logf("Agent 0 ID: %s", agent0ID)
-	s.T().Logf("Agent 1 ID: %s", agent1ID)
 
 	// Connect CPU app to agent-0.
 	agent0Endpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
@@ -394,7 +391,7 @@ func (s *DebugSuite) TestMultiAgentDebugSession() {
 
 	// Start profiling on agent-0 in background.
 	go func() {
-		resp, err := helpers.ProfileCPU(s.ctx, debugClient, agent0ID, "cpu-app", 5, 99)
+		resp, err := helpers.ProfileCPU(s.ctx, debugClient, "cpu-app", 5, 99)
 		profileChan <- profileResult{agent0ID, resp, err}
 	}()
 

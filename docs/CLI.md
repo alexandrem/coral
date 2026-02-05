@@ -499,9 +499,6 @@ coral profile cpu --service api --duration 30 --frequency 49
 
 # Profile specific pod instance
 coral profile cpu --service api --pod api-7d8f9c --duration 10
-
-# Profile with specific agent
-coral profile cpu --service api --agent-id hostname-api-1 --duration 30
 ```
 
 **Output Format:**
@@ -571,6 +568,114 @@ open cpu.svg
 
 6. **Deep dive with uprobes:**
    `coral debug attach api --function processData --duration 60s`
+
+---
+
+### Memory Profiling
+
+Coral provides on-demand and continuous memory profiling to identify allocation
+hotspots, memory leaks, and GC pressure. This complements CPU profiling by
+showing exactly where memory is allocated.
+
+**Key Features:**
+
+- **On-demand profiling** - Capture profiles on command with `coral profile memory`
+- **Historical queries** - Query continuous profiling data with `coral query memory-profile`
+- **Low overhead** - <1% CPU overhead for continuous mode
+- **Production safe** - No code modifications required
+- **Flame graph compatible** - Output in folded stack format for flamegraph.pl
+- **Summary format** - Human/LLM readable output with top allocators
+- **Type breakdown** - Categorize allocations by type (slice, map, object, etc.)
+
+**On-Demand Profiling:**
+
+```bash
+# Capture 30s memory profile
+coral profile memory --service api --duration 30
+
+# Generate flamegraph SVG (requires flamegraph.pl)
+coral profile memory --service api --duration 30 --format folded | scripts/flamegraph.pl > memory.svg
+
+# Profile with JSON output
+coral profile memory --service api --duration 10 --format json
+```
+
+**Historical Profiling (Summary Format - Default):**
+
+```bash
+# Query last hour of continuous profiling data (summary format)
+coral query memory-profile --service api --since 1h
+
+# Output:
+# Querying historical memory profiles for service 'api'
+# Time range: 2026-02-03T18:00:00Z to 2026-02-03T19:00:00Z
+# Total unique stacks: 42
+# Total alloc bytes: 2.4 GB
+#
+# Top Memory Allocators:
+#   45.2%  1.1 GB   orders.ProcessOrder
+#   22.1%  530.4 MB json.Marshal
+#   12.5%  300.0 MB cache.Store
+#    8.3%  199.2 MB http.(*conn).serve
+
+# Include allocation type breakdown
+coral query memory-profile --service api --since 1h --show-types
+
+# Output also includes:
+# Top Allocation Types:
+#   55.2%  1.3 GB   slice
+#   22.8%  547.2 MB object
+#   12.1%  290.4 MB string
+```
+
+**Historical Profiling (Folded Format - For Flamegraphs):**
+
+```bash
+# Generate flame graph from historical data
+coral query memory-profile --service api --since 1h --format folded | flamegraph.pl > memory-historical.svg
+```
+
+**Advanced Options:**
+
+```bash
+# Custom sampling rate for on-demand (default 512KB)
+coral profile memory --service api --duration 30 --sample-rate 4096
+
+# Query specific time range
+coral query memory-profile --service api --since 2h --until 1h
+```
+
+**Output Formats:**
+
+- **summary** (default) - Human/LLM readable format with top allocators and
+  percentages. Function names are shortened (e.g., `github.com/myapp/orders.ProcessOrder`
+  becomes `orders.ProcessOrder`).
+- **folded** - Flamegraph-compatible format for visualization tools.
+
+**When to Use Memory Profiling:**
+
+- ✅ Identify memory allocation hotspots
+- ✅ Debug memory leaks (heap growth over time)
+- ✅ Understand allocation patterns by type
+- ✅ Correlate GC pressure with allocation sources
+- ✅ Compare memory usage before/after optimization
+
+**Workflow Example:**
+
+1. **Identify high memory usage:**
+   `coral ask "Why is the API using so much memory?"`
+
+2. **Collect on-demand memory profile:**
+   `coral profile memory --service api --duration 30`
+
+3. **Or query historical data:**
+   `coral query memory-profile --service api --since 1h --show-types`
+
+4. **Generate flame graph:**
+   `coral query memory-profile --service api --since 1h --format folded | scripts/flamegraph.pl > memory.svg`
+
+5. **Analyze results:**
+   Open `memory.svg` in browser to identify allocation hotspots
 
 ---
 
@@ -2028,8 +2133,6 @@ coral exec <service> --agent <agent-id> <command> [args...]
 ```bash
 coral exec <service> --timeout 60 <command> [args...]
 ```
-
-See docs/CLI_REFERENCE.md:180 for command syntax.
 
 ---
 

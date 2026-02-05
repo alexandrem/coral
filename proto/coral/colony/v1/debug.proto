@@ -39,6 +39,12 @@ service ColonyDebugService {
 
   // Query historical CPU profiles from continuous profiling (RFD 072).
   rpc QueryHistoricalCPUProfile(QueryHistoricalCPUProfileRequest) returns (QueryHistoricalCPUProfileResponse);
+
+  // Collect memory profile for a target service/pod (RFD 077).
+  rpc ProfileMemory(ProfileMemoryRequest) returns (ProfileMemoryResponse);
+
+  // Query historical memory profiles from continuous profiling (RFD 077).
+  rpc QueryHistoricalMemoryProfile(QueryHistoricalMemoryProfileRequest) returns (QueryHistoricalMemoryProfileResponse);
 }
 
 // AttachUprobeRequest initiates a debug session on a specific function.
@@ -302,11 +308,10 @@ message Bottleneck {
 
 // ProfileCPURequest initiates CPU profile collection (RFD 070).
 message ProfileCPURequest {
-  string service_name = 1;          // Target service name
-  string pod_name = 2;              // Optional, specific pod instance
-  int32 duration_seconds = 3;       // Profiling duration (default: 30s, max: 300s)
-  int32 frequency_hz = 4;           // Sampling frequency (default: 99Hz, max: 1000Hz)
-  string agent_id = 5;              // Manual override (until service discovery integration)
+  string service_name = 1;          // Target service name.
+  string pod_name = 2;              // Optional, specific pod instance.
+  int32 duration_seconds = 3;       // Profiling duration (default: 30s, max: 300s).
+  int32 frequency_hz = 4;           // Sampling frequency (default: 99Hz, max: 1000Hz).
 }
 
 // ProfileCPUResponse returns CPU profile samples (RFD 070).
@@ -331,4 +336,40 @@ message QueryHistoricalCPUProfileResponse {
   uint64 total_samples = 2;         // Total samples across time range
   string error = 3;                 // Error message if query failed
   bool success = 4;                 // Whether query succeeded
+}
+
+// ProfileMemoryRequest initiates memory profile collection (RFD 077).
+message ProfileMemoryRequest {
+  string service_name = 1;          // Target service name.
+  string pod_name = 2;              // Optional, specific pod instance.
+  int32 duration_seconds = 3;       // Profiling duration (default: 30s, max: 300s).
+  int32 sample_rate_bytes = 4;      // Allocation sampling rate in bytes (default: 512KB).
+}
+
+// ProfileMemoryResponse returns memory profile results (RFD 077).
+message ProfileMemoryResponse {
+  repeated coral.agent.v1.MemoryStackSample samples = 1; // Collected allocation samples.
+  coral.agent.v1.MemoryStats stats = 2;                  // Heap statistics.
+  repeated coral.agent.v1.TopAllocFunction top_functions = 3; // Top allocating functions.
+  repeated coral.agent.v1.TopAllocType top_types = 4;     // Top allocated types.
+  string error = 5;                 // Error message if collection failed.
+  bool success = 6;                 // Whether profiling succeeded.
+}
+
+// QueryHistoricalMemoryProfileRequest queries historical memory profiles (RFD 077).
+message QueryHistoricalMemoryProfileRequest {
+  string service_name = 1;                // Target service name.
+  google.protobuf.Timestamp start_time = 2;  // Query start time.
+  google.protobuf.Timestamp end_time = 3;    // Query end time.
+}
+
+// QueryHistoricalMemoryProfileResponse returns aggregated historical memory profiles (RFD 077).
+message QueryHistoricalMemoryProfileResponse {
+  repeated coral.agent.v1.MemoryStackSample samples = 1; // Raw aggregated allocation samples (for flamegraphs).
+  int64 total_alloc_bytes = 2;      // Total allocation bytes across time range.
+  string error = 3;                 // Error message if query failed.
+  bool success = 4;                 // Whether query succeeded.
+  repeated coral.agent.v1.TopAllocFunction top_functions = 5; // Top allocating functions (summarized).
+  repeated coral.agent.v1.TopAllocType top_types = 6;         // Top allocation types (summarized).
+  int32 unique_stacks = 7;          // Number of unique stack traces.
 }

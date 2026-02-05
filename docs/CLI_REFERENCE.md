@@ -175,7 +175,7 @@ coral query logs [service] [--since <duration>] [--level debug|info|warn|error] 
 coral query cpu-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--format folded|json]
 
 # Historical memory profiles
-coral query memory-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--show-growth] [--show-types]
+coral query memory-profile --service <name> [--since <duration>] [--until <duration>] [--build-id <id>] [--show-growth] [--show-types] [--format summary|folded]
 
 # Time range options (all commands):
 #   --since <duration>     # Relative (5m, 1h, 30m, 24h, 1d, 1w)
@@ -213,8 +213,10 @@ coral query cpu-profile --service api --since 2h --until 1h         # Specific t
 coral query cpu-profile --service api --build-id abc123 --since 24h # Filter by build ID
 coral query cpu-profile --service api --since 1h | flamegraph.pl > cpu.svg  # Generate flame graph
 
-# Examples - Memory Profiles (RFD 077 - coming soon):
-coral query memory-profile --service api --since 1h --show-growth --show-types
+# Examples - Memory Profiles:
+coral query memory-profile --service api --since 1h                          # Summary format (default, human/LLM readable)
+coral query memory-profile --service api --since 1h --show-types             # Include allocation type breakdown
+coral query memory-profile --service api --since 1h --format folded | flamegraph.pl > memory.svg  # Flamegraph format
 ```
 
 **What you get:**
@@ -227,7 +229,7 @@ coral query memory-profile --service api --since 1h --show-growth --show-types
   annotations (eBPF/OTLP)
 - **Logs**: Application logs from OTLP with filtering and search
 - **CPU Profiles**: Historical CPU profile data from continuous profiling
-- **Memory Profiles**: Historical memory allocation data (RFD 077 - coming soon)
+- **Memory Profiles**: Historical memory allocation data with top allocators and type breakdown
 - **Automatic merging**: eBPF and OTLP data combined by default with source
   annotations
 - **No SQL needed**: High-level commands for common observability patterns
@@ -431,9 +433,9 @@ coral duckdb shell --agents <agent-1>,<agent-2>,... [-d <database>]
 
 ```bash
 # CPU profiling - Statistical sampling
-coral profile cpu --service <name> [--duration <seconds>] [--frequency <hz>] [--format folded|json] [--pod <name>] [--agent-id <id>]
+coral profile cpu --service <name> [--duration <seconds>] [--frequency <hz>] [--format folded|json] [--pod <name>]
 
-# Memory profiling - Heap allocation tracking (RFD 077 - coming soon)
+# Memory profiling - Heap allocation tracking
 coral profile memory --service <name> [--duration <seconds>] [--sample-rate <kb>] [--format folded|json]
 
 # Examples - CPU profiling:
@@ -443,9 +445,10 @@ coral profile cpu --service api --frequency 99                # Custom sampling 
 coral profile cpu --service api --format folded | flamegraph.pl > cpu.svg  # Generate flame graph
 coral profile cpu --service api --pod api-7d8f9c              # Target specific pod
 
-# Examples - Memory profiling (RFD 077 - coming soon):
+# Examples - Memory profiling:
 coral profile memory --service api                            # Basic 30s memory profile
 coral profile memory --service api --sample-rate 4096         # Custom sampling rate (4MB)
+coral profile memory --service api --format folded | flamegraph.pl > memory.svg  # Generate flame graph
 
 # Flags:
 #   --service <name>       Service name (required)
@@ -453,8 +456,6 @@ coral profile memory --service api --sample-rate 4096         # Custom sampling 
 #   --frequency <hz>       CPU sampling frequency in Hz (default: 99, max: 1000)
 #   --sample-rate <kb>     Memory sampling rate in KB (default: 512)
 #   --format <type>        Output format: folded (default), json
-#   --pod <name>           Specific pod/instance name (optional)
-#   --agent-id <id>        Target specific agent (optional, auto-discovered if not provided)
 ```
 
 **What you get:**
