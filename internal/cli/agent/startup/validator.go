@@ -5,7 +5,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -277,27 +276,8 @@ func (v *ConfigValidator) loadAgentConfig() (*config.ResolvedConfig, []*types.Se
 		}
 	}
 
-	// Check environment variables (they take precedence).
-	if envColonyID := os.Getenv("CORAL_COLONY_ID"); envColonyID != "" {
-		agentCfg.Agent.Colony.ID = envColonyID
-	}
-	if heartbeat := os.Getenv("CORAL_HEARTBEAT_INTERVAL"); heartbeat != "" {
-		interval, err := time.ParseDuration(heartbeat)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to parse CORAL_HEARTBEAT_INTERVAL: %w", err)
-		}
-		agentCfg.Agent.HeartbeatInterval = interval
-	}
-	if memInterval := os.Getenv("CORAL_MEMORY_PROFILING_INTERVAL"); memInterval != "" {
-		interval, err := time.ParseDuration(memInterval)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to parse CORAL_MEMORY_PROFILING_INTERVAL: %w", err)
-		}
-		agentCfg.ContinuousProfiling.Memory.Interval = interval
-	}
-	if memDisabled := os.Getenv("CORAL_MEMORY_PROFILING_DISABLED"); memDisabled != "" {
-		agentCfg.ContinuousProfiling.Memory.Disabled = memDisabled == "true" || memDisabled == "1"
-	}
+	// Environment variables are merged via config.MergeFromEnv in loadAgentConfig
+	// No manual os.Getenv checks needed here
 
 	// Apply colony ID override from flag.
 	if v.colonyIDOverride != "" {
