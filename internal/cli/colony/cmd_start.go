@@ -581,15 +581,26 @@ func buildPublicEndpointInfo(colonyConfig *config.ColonyConfig, colonyDir string
 	// Use advertise URL if configured, otherwise construct from host:port.
 	url := colonyConfig.PublicEndpoint.Discovery.AdvertiseURL
 	if url == "" {
+		// Determine advertise host and scheme.
+		advertiseHost := host
+
+		// When binding to all interfaces (0.0.0.0 or ::), use localhost for the advertised URL
+		// since these are bind addresses, not connectable addresses.
+		if host == "0.0.0.0" {
+			advertiseHost = "localhost"
+		} else if host == "::" {
+			advertiseHost = "::1"
+		}
+
 		// Determine scheme based on host.
 		scheme := "https"
-		if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+		if advertiseHost == "127.0.0.1" || advertiseHost == "localhost" || advertiseHost == "::1" {
 			// Local development without TLS.
 			if colonyConfig.PublicEndpoint.TLS.CertFile == "" {
 				scheme = "http"
 			}
 		}
-		url = fmt.Sprintf("%s://%s:%d", scheme, host, port)
+		url = fmt.Sprintf("%s://%s:%d", scheme, advertiseHost, port)
 	}
 
 	// Read the root CA certificate from the colony's ca directory.
