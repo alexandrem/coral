@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/coral-mesh/coral/internal/agent/bootstrap"
@@ -55,9 +54,8 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 
 	// Check if bootstrap is enabled.
 	// Default is enabled unless explicitly disabled.
-	// Also check environment variable for containerized agents.
-	envFingerprint := os.Getenv("CORAL_CA_FINGERPRINT")
-	if !bootstrapCfg.Enabled && bootstrapCfg.CAFingerprint == "" && envFingerprint == "" {
+	// Environment variables are loaded via config.MergeFromEnv
+	if !bootstrapCfg.Enabled && bootstrapCfg.CAFingerprint == "" {
 		return nil, fmt.Errorf("certificate bootstrap required: set ca_fingerprint or CORAL_CA_FINGERPRINT")
 	}
 

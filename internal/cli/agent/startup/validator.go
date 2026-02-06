@@ -276,8 +276,10 @@ func (v *ConfigValidator) loadAgentConfig() (*config.ResolvedConfig, []*types.Se
 		}
 	}
 
-	// Environment variables are merged via config.MergeFromEnv in loadAgentConfig
-	// No manual os.Getenv checks needed here
+	// Merge environment variables into config (handles all CORAL_* env vars with struct tags)
+	if err := config.MergeFromEnv(agentCfg); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to merge environment variables: %w", err)
+	}
 
 	// Apply colony ID override from flag.
 	if v.colonyIDOverride != "" {
