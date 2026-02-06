@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -87,20 +88,10 @@ func (h *ShellHandler) ShellExec(
 	}
 
 	// Create buffers for stdout and stderr.
-	var stdout, stderr []byte
-	var stdoutBuf, stderrBuf []byte
-
-	// Capture stdout.
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create stdout pipe: %w", err))
-	}
-
-	// Capture stderr.
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create stderr pipe: %w", err))
-	}
+	// Use bytes.Buffer directly instead of pipes to avoid race conditions.
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 
 	// Start command.
 	if err := cmd.Start(); err != nil {
@@ -111,26 +102,12 @@ func (h *ShellHandler) ShellExec(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start command: %w", err))
 	}
 
-	// Read stdout and stderr concurrently.
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		stdoutBuf, _ = io.ReadAll(stdoutPipe)
-	}()
-
-	go func() {
-		defer wg.Done()
-		stderrBuf, _ = io.ReadAll(stderrPipe)
-	}()
-
 	// Wait for command to complete.
 	execErr := cmd.Wait()
-	wg.Wait()
 
-	stdout = stdoutBuf
-	stderr = stderrBuf
+	// Get output from buffers.
+	stdout := stdoutBuf.Bytes()
+	stderr := stderrBuf.Bytes()
 
 	duration := time.Since(startTime)
 	exitCode := int32(0)
