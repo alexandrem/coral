@@ -46,34 +46,22 @@ This command is useful for troubleshooting connectivity issues.`,
 				}
 			}
 
-			// Check if we're in remote-only mode
-			remoteEndpoint := os.Getenv("CORAL_COLONY_ENDPOINT")
-
-			// Load colony configuration
+			// Load colony configuration (CORAL_COLONY_ENDPOINT env var merged into remote.endpoint)
 			loader := resolver.GetLoader()
 			colonyConfig, err := loader.LoadColonyConfig(colonyID)
 			if err != nil {
-				// If we have a remote endpoint, we can proceed without local config
-				if remoteEndpoint == "" {
-					return fmt.Errorf("failed to load colony config: %w", err)
-				}
-				// Proceed with nil config - we rely on remote connection
+				return fmt.Errorf("failed to load colony config: %w", err)
 			}
 
-			// Load global config (optional in remote mode)
+			// Load global config
 			globalConfig, err := loader.LoadGlobalConfig()
-			if err != nil && remoteEndpoint == "" {
+			if err != nil {
 				return fmt.Errorf("failed to load global config: %w", err)
-			}
-			if globalConfig == nil {
-				// Create empty config to avoid nil panics
-				globalConfig = &config.GlobalConfig{}
-				globalConfig.Discovery.Endpoint = "unknown"
 			}
 
 			// Get connect port
 			connectPort := constants.DefaultColonyPort
-			if colonyConfig != nil && colonyConfig.Services.ConnectPort != 0 {
+			if colonyConfig.Services.ConnectPort != 0 {
 				connectPort = colonyConfig.Services.ConnectPort
 			}
 
@@ -95,28 +83,20 @@ This command is useful for troubleshooting connectivity issues.`,
 
 			// Prepare output data.
 			output := map[string]interface{}{}
-
-			if colonyConfig != nil {
-				output["colony_id"] = colonyConfig.ColonyID
-				output["application"] = colonyConfig.ApplicationName
-				output["environment"] = colonyConfig.Environment
-				output["storage_path"] = colonyConfig.StoragePath
-				output["wireguard"] = map[string]interface{}{
-					"public_key":        colonyConfig.WireGuard.PublicKey,
-					"port":              colonyConfig.WireGuard.Port,
-					"mesh_ipv4":         colonyConfig.WireGuard.MeshIPv4,
-					"mesh_ipv6":         colonyConfig.WireGuard.MeshIPv6,
-					"mesh_network_ipv4": colonyConfig.WireGuard.MeshNetworkIPv4,
-					"mesh_network_ipv6": colonyConfig.WireGuard.MeshNetworkIPv6,
-					"mtu":               colonyConfig.WireGuard.MTU,
-				}
-				output["connect_port"] = connectPort
-			} else {
-				// Remote only mode
-				output["colony_id"] = colonyID
-				output["mode"] = "remote-only"
-				output["endpoint"] = remoteEndpoint
+			output["colony_id"] = colonyConfig.ColonyID
+			output["application"] = colonyConfig.ApplicationName
+			output["environment"] = colonyConfig.Environment
+			output["storage_path"] = colonyConfig.StoragePath
+			output["wireguard"] = map[string]interface{}{
+				"public_key":        colonyConfig.WireGuard.PublicKey,
+				"port":              colonyConfig.WireGuard.Port,
+				"mesh_ipv4":         colonyConfig.WireGuard.MeshIPv4,
+				"mesh_ipv6":         colonyConfig.WireGuard.MeshIPv6,
+				"mesh_network_ipv4": colonyConfig.WireGuard.MeshNetworkIPv4,
+				"mesh_network_ipv6": colonyConfig.WireGuard.MeshNetworkIPv6,
+				"mtu":               colonyConfig.WireGuard.MTU,
 			}
+			output["connect_port"] = connectPort
 
 			output["discovery_endpoint"] = globalConfig.Discovery.Endpoint
 
@@ -161,14 +141,9 @@ This command is useful for troubleshooting connectivity issues.`,
 			fmt.Println("=============")
 			fmt.Println()
 			fmt.Printf("Colony ID:     %s\n", colonyID)
-
-			if colonyConfig != nil {
-				fmt.Printf("Application:   %s\n", colonyConfig.ApplicationName)
-				fmt.Printf("Environment:   %s\n", colonyConfig.Environment)
-				fmt.Printf("Storage:       %s\n", colonyConfig.StoragePath)
-			} else {
-				fmt.Printf("Endpoint:      %s (Remote)\n", remoteEndpoint)
-			}
+			fmt.Printf("Application:   %s\n", colonyConfig.ApplicationName)
+			fmt.Printf("Environment:   %s\n", colonyConfig.Environment)
+			fmt.Printf("Storage:       %s\n", colonyConfig.StoragePath)
 
 			// Show runtime status if colony is running
 			if runtimeStatus != nil {

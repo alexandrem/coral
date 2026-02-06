@@ -123,14 +123,14 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 
 	colonyConfig, err := r.loader.LoadColonyConfig(colonyID)
 	if err != nil {
-		// Config-less mode: if colony config file doesn't exist but we have
-		// CORAL_CA_FINGERPRINT env var, create a synthetic config for agents.
-		// This supports containerized agents that bootstrap via Discovery (RFD 048).
-		if os.Getenv("CORAL_CA_FINGERPRINT") != "" {
-			colonyConfig = DefaultColonyConfig(colonyID, colonyID, "container")
-		} else {
-			return nil, fmt.Errorf("failed to load colony config: %w", err)
+		// Config-less mode: if colony config file doesn't exist, create a synthetic
+		// default config and merge env vars. If CORAL_CA_FINGERPRINT is set, this
+		// enables containerized agents to bootstrap via Discovery (RFD 048).
+		colonyConfig = DefaultColonyConfig(colonyID, colonyID, "container")
+		if err := MergeFromEnv(colonyConfig); err != nil {
+			return nil, fmt.Errorf("failed to merge env vars into default config: %w", err)
 		}
+		// If no CA fingerprint is set, agent bootstrap will fail later with a clear error.
 	}
 
 	projectConfig, err := LoadProjectConfig(r.projectDir)

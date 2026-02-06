@@ -111,6 +111,13 @@ Examples:
 				return fmt.Errorf("failed to load colony config: %w", err)
 			}
 
+			// Load full colony config for additional settings (pollers, etc.)
+			// ResolvedConfig only contains a subset of fields.
+			colonyConfigForEndpoints, err := resolver.GetLoader().LoadColonyConfig(cfg.ColonyID)
+			if err != nil {
+				return fmt.Errorf("failed to load full colony config: %w", err)
+			}
+
 			// Apply port override if specified
 			if port > 0 {
 				cfg.Dashboard.Port = port
@@ -188,17 +195,8 @@ Examples:
 			// Build endpoints advertised to discovery using public/reachable addresses.
 			// For local development, use empty host (":port") to let agents discover via local network.
 			// For production, configure CORAL_PUBLIC_ENDPOINT environment variable or config file.
-			//
-			// Load colony config to get public endpoints configuration
-			colonyConfigForEndpoints, err := resolver.GetLoader().LoadColonyConfig(cfg.ColonyID)
-			if err != nil {
-				logger.Warn().
-					Err(err).
-					Msg("Failed to load colony config for endpoints; using environment variable only")
-				colonyConfigForEndpoints = nil
-			}
-
-			endpoints := colonywg.BuildEndpoints(cfg.WireGuard.Port, colonyConfigForEndpoints)
+			// CORAL_PUBLIC_ENDPOINT is already merged into colonyConfig.WireGuard.PublicEndpoints.
+			endpoints := colonywg.BuildEndpoints(cfg.WireGuard.Port, colonyConfigForEndpoints.WireGuard)
 			if len(endpoints) == 0 {
 				logger.Warn().Msg("No WireGuard endpoints could be constructed; discovery registration will fail")
 			} else {
