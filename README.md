@@ -50,12 +50,12 @@ with the **reasoning of an AI**, unified into a single intelligence mesh.
 
 Coral integrates four layers of data collection to provide complete visibility:
 
-| Level | Feature                 | Description                                                                     |
-| ----- | ----------------------- | ------------------------------------------------------------------------------- |
-| **0** | **Passive RED Metrics** | Zero-config service metrics (Rate, Errors, Duration) via eBPF. No code changes. |
-| **1** | **External Telemetry**  | Ingests traces/metrics from apps already using OpenTelemetry/OTLP.              |
-| **2** | **Continuous Intel**    | Always-on host metrics (CPU/Mem/Disk) and low-overhead continuous profiling.    |
-| **3** | **Deep Introspection**  | On-demand profiling, function-level tracing, and active investigation.          |
+| Level | Feature                 | Description                                                                           |
+| ----- | ----------------------- | ------------------------------------------------------------------------------------- |
+| **0** | **Passive RED Metrics** | Zero-config service metrics (Rate, Errors, Duration) via eBPF. No code changes.       |
+| **1** | **External Telemetry**  | Ingests traces/metrics from apps already using OpenTelemetry/OTLP.                    |
+| **2** | **Continuous Intel**    | Always-on host metrics (CPU/Mem/Disk) and low-overhead continuous CPU/memory profiling. |
+| **3** | **Deep Introspection**  | On-demand CPU/memory profiling, function-level tracing, and active investigation.     |
 
 ### 👁️ Observe
 
@@ -66,8 +66,8 @@ without any configuration.
 
 - **Zero-config eBPF**: Metrics for every service, instantly.
 - **Host Health**: Continuous monitoring of CPU, memory, disk, and network.
-- **Continuous Profiling**: Low-overhead background CPU profiling to identify
-  hot paths over time.
+- **Continuous Profiling**: Low-overhead background CPU and memory profiling to identify
+  hot paths and allocation hotspots over time (<1% overhead).
 - **Dependency Mapping**: Automatically discovers how services connect.
 
 ### 🔍 Explore
@@ -80,8 +80,8 @@ or automate the discovery of hotspots.
 - **Remote Execution**: Run standard tools like `netstat`, `curl`, and `grep` on
   any agent.
 - **Remote Shell**: Jump into any agent's shell.
-- **On-Demand Profiling**: High-frequency CPU profiling with Flame Graphs for
-  line-level analysis.
+- **On-Demand Profiling**: High-frequency CPU and memory profiling with Flame Graphs for
+  line-level analysis. Track allocation hotspots, memory leaks, and GC pressure.
 - **Live Debugging**: Attach eBPF uprobes (SDK) to specific functions to capture
   args and return values.
 - **Traffic Capture**: Sample live requests to understand payload structures.
@@ -175,13 +175,15 @@ Coral is designed for **complete data sovereignty**.
 **Coral can debug your running code without redeploying.**
 
 Unlike traditional observability (metrics, logs, traces), Coral can **actively
-instrument** your code on-demand using eBPF uprobes and high-frequency CPU
-profiling.
+instrument** your code on-demand using eBPF uprobes, high-frequency CPU
+profiling, and memory allocation tracking.
 
 > [!NOTE]
 > Detailed function-level tracing requires integrating the **Coral Language
-> Runtime SDK**, while CPU profiling and system metrics work
+> Runtime SDK**, while CPU/memory profiling and system metrics work
 > **agentlessly** on any binary.
+
+### CPU Profiling Example
 
 ```bash
 $ coral ask "Why is the payment API slow?"
@@ -201,24 +203,50 @@ $ coral ask "Why is the payment API slow?"
    Root Cause: Synchronous logging to a slow disk volume is blocking the main execution thread.
 ```
 
+### Memory Profiling Example
+
+```bash
+$ coral ask "Why is the order-processor using 10GB of RAM?"
+
+🤖 Analyzing host metrics and continuous memory profiles...
+   Host: worker-node-5 (CPU: 18%, Mem: 85% - 10.2GB)
+   Service: order-processor (Heap growth: +200MB/hour)
+
+   Memory leak detected. Analyzing allocation patterns...
+   Executing coral_profile_memory...
+
+   Top Memory Allocators (30s sample):
+     • cache.Store:       45.2% (523 MB/s)
+       └─ Allocation type: map[string]interface{}
+       └─ No TTL-based eviction detected
+     • json.Marshal:      22.1% (256 MB/s)
+     • http.(*conn).serve: 12.3% (143 MB/s)
+
+   GC Correlation: High GC CPU overhead (28%) caused by cache allocation rate.
+
+   Root Cause: cache.Store retains entries indefinitely, causing unbounded memory growth.
+   Recommendation: Add TTL-based eviction or size-based LRU policy.
+```
+
 ## What Makes Coral Different?
 
-| Feature          | Coral                                                 | Traditional Tools             |
-| ---------------- | ----------------------------------------------------- | ----------------------------- |
-| **Network**      | **Unified WireGuard Mesh** (Laptop ↔ Cloud ↔ On-prem) | VPNs, Firewalls, Fragmented   |
-| **Debugging**    | **Continuous & On-demand eBPF** (Profiling & Probes)  | Logs, Metrics, Profiling.     |
-| **AI Model**     | **Bring Your Own LLM** (You own the data)             | Vendor-hosted, Privacy risks  |
-| **Architecture** | **Decentralized** (No central SaaS)                   | Centralized SaaS / Data Silos |
-| **Analysis**     | **LLM-Driven RCA** (Pre-correlated hotspots)          | Manual Dashboard Diving       |
+| Feature          | Coral                                                        | Traditional Tools             |
+| ---------------- | ------------------------------------------------------------ | ----------------------------- |
+| **Network**      | **Unified WireGuard Mesh** (Laptop ↔ Cloud ↔ On-prem)        | VPNs, Firewalls, Fragmented   |
+| **Debugging**    | **Continuous & On-demand eBPF** (CPU/Memory Profiling & Probes) | Logs, Metrics, Profiling.     |
+| **AI Model**     | **Bring Your Own LLM** (You own the data)                    | Vendor-hosted, Privacy risks  |
+| **Architecture** | **Decentralized** (No central SaaS)                          | Centralized SaaS / Data Silos |
+| **Analysis**     | **LLM-Driven RCA** (Pre-correlated hotspots)                 | Manual Dashboard Diving       |
 
 **Nothing else does this yet.**
 
 Coral is the first tool that combines:
 
-- LLM-driven analysis
+- LLM-driven analysis with pre-correlated CPU and memory hotspots
 - On-demand eBPF instrumentation
-- Distributed debugging
-- Zero standing overhead
+- Continuous CPU and memory profiling with <1% overhead
+- Distributed debugging across any environment
+- Zero standing overhead with intelligent sampling
 
 ## Quick Start
 
