@@ -44,22 +44,6 @@ func (d *Database) initSchema() error {
 	return nil
 }
 
-// ensureVSSExtension attempts to install and load the VSS extension.
-// Returns an error if installation fails, but this should not block database initialization.
-func (d *Database) ensureVSSExtension() error {
-	// Try to install the extension (will be skipped if already installed).
-	if _, err := d.db.Exec("INSTALL vss FROM core"); err != nil {
-		return fmt.Errorf("failed to install VSS extension: %w", err)
-	}
-
-	// Try to load the extension.
-	if _, err := d.db.Exec("LOAD vss"); err != nil {
-		return fmt.Errorf("failed to load VSS extension: %w", err)
-	}
-
-	return nil
-}
-
 // createHNSWIndex creates the HNSW index for vector similarity search.
 // This requires the VSS extension to be loaded.
 func (d *Database) createHNSWIndex() error {
