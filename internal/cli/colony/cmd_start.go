@@ -586,9 +586,10 @@ func buildPublicEndpointInfo(colonyConfig *config.ColonyConfig, colonyDir string
 
 		// When binding to all interfaces (0.0.0.0 or ::), use localhost for the advertised URL
 		// since these are bind addresses, not connectable addresses.
-		if host == "0.0.0.0" {
+		switch host {
+		case "0.0.0.0":
 			advertiseHost = "localhost"
-		} else if host == "::" {
+		case "::":
 			advertiseHost = "::1"
 		}
 
