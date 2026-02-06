@@ -314,6 +314,10 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 		if err == nil {
 			return client, remoteURL, nil
 		}
+
+		// When a remote endpoint is explicitly configured, fail immediately without fallback.
+		// This ensures certificate errors and other issues are surfaced to the user.
+		return nil, "", fmt.Errorf("failed to connect to remote endpoint %s: %w", remoteURL, err)
 	}
 
 	// Try localhost.

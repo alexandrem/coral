@@ -82,8 +82,6 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 	pathVar := "PATH"
 	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", pathVar, coralDir))
 
-	// fmt.Println(cmd.Env)
-
 	output, err := cmd.CombinedOutput()
 
 	result := &CLIResult{
