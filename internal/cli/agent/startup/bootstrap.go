@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/coral-mesh/coral/internal/agent/bootstrap"
@@ -115,21 +114,16 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		return nil, fmt.Errorf("certificate bootstrap required but no CA fingerprint configured")
 	}
 
-	// Discovery endpoint is loaded from config (env var override via MergeFromEnv)
+	// Load discovery endpoint from global config (defaults + env var overrides via MergeFromEnv).
+	// NewLoader always succeeds, even in containerized environments without a home directory,
+	// so CORAL_DISCOVERY_ENDPOINT is always picked up via the env struct tag.
 	discoveryURL := ""
-	// Try to load from global config (which will merge CORAL_DISCOVERY_ENDPOINT if set).
 	loader, err := config.NewLoader()
 	if err == nil {
 		globalCfg, err := loader.LoadGlobalConfig()
 		if err == nil && globalCfg.Discovery.Endpoint != "" {
 			discoveryURL = globalCfg.Discovery.Endpoint
 		}
-	}
-
-	// Fallback: In containerized environments without global config file,
-	// check CORAL_DISCOVERY_ENDPOINT directly
-	if discoveryURL == "" {
-		discoveryURL = os.Getenv("CORAL_DISCOVERY_ENDPOINT")
 	}
 
 	if discoveryURL == "" {
