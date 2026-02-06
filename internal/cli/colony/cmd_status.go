@@ -187,53 +187,46 @@ This command is useful for troubleshooting connectivity issues.`,
 
 			fmt.Println()
 
-			if colonyConfig != nil {
-				fmt.Println("WireGuard Mesh Configuration:")
-				fmt.Printf("  Public Key:     %s\n", colonyConfig.WireGuard.PublicKey)
-				fmt.Printf("  Listen Port:    %d (UDP)\n", colonyConfig.WireGuard.Port)
+			fmt.Println("WireGuard Mesh Configuration:")
+			fmt.Printf("  Public Key:     %s\n", colonyConfig.WireGuard.PublicKey)
+			fmt.Printf("  Listen Port:    %d (UDP)\n", colonyConfig.WireGuard.Port)
 
-				// Show interface name - use stored name if available, otherwise predict
-				if colonyConfig.WireGuard.InterfaceName != "" {
-					fmt.Printf("  Interface:      %s (last used)\n", colonyConfig.WireGuard.InterfaceName)
-				} else {
-					interfaceInfo := getInterfaceInfo()
-					fmt.Printf("  Interface:      %s\n", interfaceInfo)
-				}
-
-				fmt.Printf("  Mesh IPv4:      %s\n", colonyConfig.WireGuard.MeshIPv4)
-				if colonyConfig.WireGuard.MeshIPv6 != "" {
-					fmt.Printf("  Mesh IPv6:      %s\n", colonyConfig.WireGuard.MeshIPv6)
-				}
-				fmt.Printf("  Mesh Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv4)
-				if colonyConfig.WireGuard.MeshNetworkIPv6 != "" {
-					fmt.Printf("  IPv6 Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv6)
-				}
-				fmt.Printf("  MTU:            %d\n", colonyConfig.WireGuard.MTU)
-				fmt.Println()
-
-				fmt.Println("Services:")
-				fmt.Printf("  Discovery:      %s\n", globalConfig.Discovery.Endpoint)
-				fmt.Printf("  Agent Connect:  %s:%d (gRPC/Connect)\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
-				fmt.Printf("  Dashboard:      http://localhost:%d (planned)\n", constants.DefaultDashboardPort)
-				fmt.Println()
+			// Show interface name - use stored name if available, otherwise predict
+			if colonyConfig.WireGuard.InterfaceName != "" {
+				fmt.Printf("  Interface:      %s (last used)\n", colonyConfig.WireGuard.InterfaceName)
 			} else {
-				fmt.Println("Local Configuration: Not detected (Running in remote-only mode)")
-				fmt.Println()
+				interfaceInfo := getInterfaceInfo()
+				fmt.Printf("  Interface:      %s\n", interfaceInfo)
 			}
 
-			if colonyConfig != nil {
-				fmt.Println("Agent Connection Info:")
-				fmt.Println("  1. Agents query discovery service:")
-				fmt.Printf("     Mesh ID: %s\n", colonyConfig.ColonyID)
-				fmt.Println()
-				fmt.Println("  2. Discovery returns WireGuard endpoint:")
-				fmt.Printf("     Public Key: %s\n", colonyConfig.WireGuard.PublicKey)
-				fmt.Printf("     UDP Port:   %d\n", colonyConfig.WireGuard.Port)
-				fmt.Println()
-				fmt.Println("  3. Agents establish WireGuard tunnel, then register:")
-				fmt.Printf("     Colony Mesh IP: %s:%d\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
-				fmt.Println()
+			fmt.Printf("  Mesh IPv4:      %s\n", colonyConfig.WireGuard.MeshIPv4)
+			if colonyConfig.WireGuard.MeshIPv6 != "" {
+				fmt.Printf("  Mesh IPv6:      %s\n", colonyConfig.WireGuard.MeshIPv6)
 			}
+			fmt.Printf("  Mesh Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv4)
+			if colonyConfig.WireGuard.MeshNetworkIPv6 != "" {
+				fmt.Printf("  IPv6 Subnet:    %s\n", colonyConfig.WireGuard.MeshNetworkIPv6)
+			}
+			fmt.Printf("  MTU:            %d\n", colonyConfig.WireGuard.MTU)
+			fmt.Println()
+
+			fmt.Println("Services:")
+			fmt.Printf("  Discovery:      %s\n", globalConfig.Discovery.Endpoint)
+			fmt.Printf("  Agent Connect:  %s:%d (gRPC/Connect)\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
+			fmt.Printf("  Dashboard:      http://localhost:%d (planned)\n", constants.DefaultDashboardPort)
+			fmt.Println()
+
+			fmt.Println("Agent Connection Info:")
+			fmt.Println("  1. Agents query discovery service:")
+			fmt.Printf("     Mesh ID: %s\n", colonyConfig.ColonyID)
+			fmt.Println()
+			fmt.Println("  2. Discovery returns WireGuard endpoint:")
+			fmt.Printf("     Public Key: %s\n", colonyConfig.WireGuard.PublicKey)
+			fmt.Printf("     UDP Port:   %d\n", colonyConfig.WireGuard.Port)
+			fmt.Println()
+			fmt.Println("  3. Agents establish WireGuard tunnel, then register:")
+			fmt.Printf("     Colony Mesh IP: %s:%d\n", colonyConfig.WireGuard.MeshIPv4, connectPort)
+			fmt.Println()
 
 			if runtimeStatus != nil {
 				fmt.Printf("Status: Colony is running (%s)\n", runtimeStatus.Status)
