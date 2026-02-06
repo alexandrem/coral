@@ -95,7 +95,7 @@ func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *dat
 	o.eventPersister = eventPersister
 	o.agentCoordinator = agentCoordinator
 	o.queryRouter = queryRouter
-	o.functionProfiler = NewFunctionProfiler(logger, functionRegistry, o, db)
+	o.functionProfiler = NewFunctionProfiler(logger, o, o, db)
 
 	// Start background event persistence for all sessions.
 	eventPersister.Start()
@@ -106,6 +106,11 @@ func NewOrchestrator(logger zerolog.Logger, registry *registry.Registry, db *dat
 // Stop gracefully stops the orchestrator's background tasks.
 func (o *Orchestrator) Stop() {
 	o.eventPersister.Stop()
+}
+
+// getFunctionRegistry returns the orchestrator's function registry.
+func (o *Orchestrator) getFunctionRegistry() *colony.FunctionRegistry {
+	return o.functionRegistry
 }
 
 // AttachUprobe starts a new debug session by attaching a uprobe to a function.

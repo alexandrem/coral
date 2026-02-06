@@ -25,26 +25,31 @@ type probeAttacher interface {
 	QueryUprobeEvents(ctx context.Context, req *connect.Request[debugpb.QueryUprobeEventsRequest]) (*connect.Response[debugpb.QueryUprobeEventsResponse], error)
 }
 
+// functionRegistryGetter provides access to the function registry.
+type functionRegistryGetter interface {
+	getFunctionRegistry() *colony.FunctionRegistry
+}
+
 // FunctionProfiler handles batch function profiling with automatic analysis.
 type FunctionProfiler struct {
-	logger           zerolog.Logger
-	functionRegistry *colony.FunctionRegistry
-	probeAttacher    probeAttacher
-	db               *database.Database
+	logger         zerolog.Logger
+	registryGetter functionRegistryGetter
+	probeAttacher  probeAttacher
+	db             *database.Database
 }
 
 // NewFunctionProfiler creates a new function profiler.
 func NewFunctionProfiler(
 	logger zerolog.Logger,
-	functionRegistry *colony.FunctionRegistry,
+	registryGetter functionRegistryGetter,
 	probeAttacher probeAttacher,
 	db *database.Database,
 ) *FunctionProfiler {
 	return &FunctionProfiler{
-		logger:           logger.With().Str("component", "function_profiler").Logger(),
-		functionRegistry: functionRegistry,
-		probeAttacher:    probeAttacher,
-		db:               db,
+		logger:         logger.With().Str("component", "function_profiler").Logger(),
+		registryGetter: registryGetter,
+		probeAttacher:  probeAttacher,
+		db:             db,
 	}
 }
 
@@ -62,7 +67,8 @@ func (fp *FunctionProfiler) Profile(
 	cfg := parseProfileConfig(req.Msg)
 
 	// Validate function registry is available.
-	if fp.functionRegistry == nil {
+	functionRegistry := fp.registryGetter.getFunctionRegistry()
+	if functionRegistry == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented,
 			fmt.Errorf("function registry not available"))
 	}
@@ -94,7 +100,8 @@ func (fp *FunctionProfiler) Profile(
 
 // discoverFunctions queries the function registry and applies the selection strategy.
 func (fp *FunctionProfiler) discoverFunctions(ctx context.Context, cfg *profileConfig) ([]*colony.FunctionInfo, error) {
-	functions, err := fp.functionRegistry.QueryFunctions(ctx, cfg.ServiceName, cfg.Query, cfg.MaxFunctions)
+	functionRegistry := fp.registryGetter.getFunctionRegistry()
+	functions, err := functionRegistry.QueryFunctions(ctx, cfg.ServiceName, cfg.Query, cfg.MaxFunctions)
 	if err != nil {
 		fp.logger.Error().Err(err).
 			Str("service", cfg.ServiceName).
