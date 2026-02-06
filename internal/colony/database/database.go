@@ -102,7 +102,24 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
 
-	// Test connection.
+	// Load VSS extension BEFORE ping (read-write mode only).
+	// This is critical: db.Ping() triggers WAL replay, which may contain HNSW indexes.
+	// The VSS extension must be loaded before WAL replay to recognize HNSW index types.
+	if !readOnly {
+		// Try to install and load VSS extension.
+		if _, err := db.Exec("INSTALL vss FROM core"); err != nil {
+			logger.Warn().Err(err).Msg("Failed to install VSS extension, vector search features may be unavailable")
+		} else if _, err := db.Exec("LOAD vss"); err != nil {
+			logger.Warn().Err(err).Msg("Failed to load VSS extension, vector search features may be unavailable")
+		} else {
+			// Enable HNSW experimental persistence for vector indexes.
+			if _, err := db.Exec("SET hnsw_enable_experimental_persistence = true"); err != nil {
+				logger.Warn().Err(err).Msg("Failed to enable HNSW persistence, vector indexes may not work")
+			}
+		}
+	}
+
+	// Test connection (this triggers WAL replay).
 	if err := db.Ping(); err != nil {
 		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to ping database: %w", err)
@@ -134,16 +151,6 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 
 	// Initialize schema (only in read-write mode).
 	if !readOnly {
-		// Load VSS extension first, then enable HNSW persistence.
-		if err := database.ensureVSSExtension(); err != nil {
-			logger.Warn().Err(err).Msg("Failed to load VSS extension, vector search features may be unavailable")
-		} else {
-			// Enable HNSW experimental persistence for vector indexes.
-			if _, err := db.Exec("SET hnsw_enable_experimental_persistence = true"); err != nil {
-				logger.Warn().Err(err).Msg("Failed to enable HNSW persistence, vector indexes may not work")
-			}
-		}
-
 		if err := database.initSchema(); err != nil {
 			_ = db.Close() // TODO: errcheck
 			return nil, fmt.Errorf("failed to initialize schema: %w", err)

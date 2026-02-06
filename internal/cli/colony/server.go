@@ -199,7 +199,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		// Configure poll interval from config.
 		pollInterval := constants.DefaultColonyFunctionsPollInterval
 		if colonyConfig.FunctionRegistry.PollInterval > 0 {
-			pollInterval = time.Duration(colonyConfig.FunctionRegistry.PollInterval) * time.Second
+			pollInterval = colonyConfig.FunctionRegistry.PollInterval
 		}
 
 		functionPoller := colony.NewFunctionPoller(ctx, colony.FunctionPollerConfig{

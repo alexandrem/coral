@@ -7,8 +7,6 @@ package wireguard
 import (
 	"fmt"
 	"net"
-	"os"
-	"strings"
 
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/config"
@@ -138,22 +136,14 @@ func InitializePersistentIPAllocator(wgDevice *wireguard.Device, db *database.Da
 }
 
 // BuildEndpoints builds the list of WireGuard endpoints to be advertised.
-func BuildEndpoints(port int, colonyConfig *config.ColonyConfig) []string {
+// CORAL_PUBLIC_ENDPOINT env var is merged into wireguardConfig.PublicEndpoints via struct tags.
+func BuildEndpoints(port int, wireguardConfig config.WireGuardConfig) []string {
 	var endpoints []string
 	var rawEndpoints []string
 
-	// Priority 1: Check for explicit public endpoint configuration via environment variable.
-	// CORAL_PUBLIC_ENDPOINT can contain comma-separated list of hostnames/IPs (optionally with ports).
-	// Example: CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
-	if publicEndpoint := os.Getenv("CORAL_PUBLIC_ENDPOINT"); publicEndpoint != "" {
-		// Parse comma-separated endpoints
-		rawEndpoints = strings.Split(publicEndpoint, ",")
-		for i := range rawEndpoints {
-			rawEndpoints[i] = strings.TrimSpace(rawEndpoints[i])
-		}
-	} else if colonyConfig != nil && len(colonyConfig.WireGuard.PublicEndpoints) > 0 {
-		// Priority 2: Use endpoints from config file
-		rawEndpoints = colonyConfig.WireGuard.PublicEndpoints
+	// Get endpoints from config (CORAL_PUBLIC_ENDPOINT env var already merged).
+	if len(wireguardConfig.PublicEndpoints) > 0 {
+		rawEndpoints = wireguardConfig.PublicEndpoints
 	}
 
 	// Process raw endpoints: extract host and ALWAYS use the WireGuard port.

@@ -19,8 +19,14 @@ type Loader struct {
 }
 
 // NewLoader creates a new config loader.
-// The base directory can be overridden via CORAL_CONFIG environment variable.
-// For containerized agents in config-less mode, falls back to /tmp if home dir unavailable.
+// The base directory is resolved in this order:
+//  1. CORAL_CONFIG environment variable (RFD 050).
+//  2. User home directory (~/).
+//  3. /tmp/coral-fallback (containerized environments without a home dir).
+//
+// The loader never returns an error. In minimal containers (e.g., scratch, distroless)
+// where no home directory exists, the fallback ensures LoadGlobalConfig still returns
+// defaults with env var overrides applied.
 func NewLoader() (*Loader, error) {
 	// Check for CORAL_CONFIG env var override (RFD 050).
 	if baseDir := os.Getenv("CORAL_CONFIG"); baseDir != "" {
@@ -30,12 +36,16 @@ func NewLoader() (*Loader, error) {
 	}
 
 	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+	if err == nil {
+		return &Loader{
+			homeDir: homeDir,
+		}, nil
 	}
 
+	// Fallback for containerized environments without a home directory.
+	// Config files won't exist here, so Load* methods return defaults + env overrides.
 	return &Loader{
-		homeDir: homeDir,
+		homeDir: "/tmp/coral-fallback",
 	}, nil
 }
 
@@ -84,8 +94,8 @@ func (l *Loader) LoadGlobalConfig() (*GlobalConfig, error) {
 	}
 
 	// Apply environment variable overrides (layered configuration).
-	if discoveryEndpoint := os.Getenv("CORAL_DISCOVERY_ENDPOINT"); discoveryEndpoint != "" {
-		config.Discovery.Endpoint = discoveryEndpoint
+	if err := MergeFromEnv(config); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables: %w", err)
 	}
 
 	return config, nil
@@ -169,6 +179,10 @@ func loadColonyConfigFromFile(path string) (*ColonyConfig, error) {
 	var config ColonyConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse colony config from %s: %w", path, err)
+	}
+
+	if err := MergeFromEnv(&config); err != nil {
+		return nil, fmt.Errorf("failed to load environment variables for colony config: %w", err)
 	}
 
 	return &config, nil

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/coral-mesh/coral/internal/agent/bootstrap"
@@ -55,9 +54,8 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 
 	// Check if bootstrap is enabled.
 	// Default is enabled unless explicitly disabled.
-	// Also check environment variable for containerized agents.
-	envFingerprint := os.Getenv("CORAL_CA_FINGERPRINT")
-	if !bootstrapCfg.Enabled && bootstrapCfg.CAFingerprint == "" && envFingerprint == "" {
+	// Environment variables are loaded via config.MergeFromEnv
+	if !bootstrapCfg.Enabled && bootstrapCfg.CAFingerprint == "" {
 		return nil, fmt.Errorf("certificate bootstrap required: set ca_fingerprint or CORAL_CA_FINGERPRINT")
 	}
 
@@ -109,27 +107,22 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		}
 	}
 
-	// Need to bootstrap (or renew).
-	// Check if we have the required configuration.
+	// CA fingerprint is loaded from config (env var override via MergeFromEnv)
 	fingerprint := bootstrapCfg.CAFingerprint
-	if fingerprint == "" {
-		fingerprint = os.Getenv("CORAL_CA_FINGERPRINT")
-	}
 
 	if fingerprint == "" {
 		return nil, fmt.Errorf("certificate bootstrap required but no CA fingerprint configured")
 	}
 
-	// Get discovery endpoint.
-	discoveryURL := os.Getenv("CORAL_DISCOVERY_ENDPOINT")
-	if discoveryURL == "" {
-		// Try to load from global config.
-		loader, err := config.NewLoader()
-		if err == nil {
-			globalCfg, err := loader.LoadGlobalConfig()
-			if err == nil && globalCfg.Discovery.Endpoint != "" {
-				discoveryURL = globalCfg.Discovery.Endpoint
-			}
+	// Load discovery endpoint from global config (defaults + env var overrides via MergeFromEnv).
+	// NewLoader always succeeds, even in containerized environments without a home directory,
+	// so CORAL_DISCOVERY_ENDPOINT is always picked up via the env struct tag.
+	discoveryURL := ""
+	loader, err := config.NewLoader()
+	if err == nil {
+		globalCfg, err := loader.LoadGlobalConfig()
+		if err == nil && globalCfg.Discovery.Endpoint != "" {
+			discoveryURL = globalCfg.Discovery.Endpoint
 		}
 	}
 
@@ -143,11 +136,8 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		Str("agent_id", bp.agentID).
 		Msg("Starting certificate bootstrap")
 
-	// Get bootstrap PSK (RFD 088).
+	// Bootstrap PSK is loaded from config (env var override via MergeFromEnv)
 	bootstrapPSK := bootstrapCfg.BootstrapPSK
-	if bootstrapPSK == "" {
-		bootstrapPSK = os.Getenv("CORAL_BOOTSTRAP_PSK")
-	}
 
 	client := bootstrap.NewClient(bootstrap.Config{
 		AgentID:           bp.agentID,
@@ -155,6 +145,7 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 		CAFingerprint:     fingerprint,
 		BootstrapPSK:      bootstrapPSK,
 		DiscoveryEndpoint: discoveryURL,
+		ColonyEndpoint:    bootstrapCfg.ColonyEndpoint,
 		Logger:            bp.logger,
 	})
 
@@ -229,11 +220,8 @@ func (bp *BootstrapPhase) ShouldBootstrap() bool {
 		return true
 	}
 
+	// CA fingerprint check handled by config loader
 	if bootstrapCfg.CAFingerprint != "" {
-		return true
-	}
-
-	if os.Getenv("CORAL_CA_FINGERPRINT") != "" {
 		return true
 	}
 

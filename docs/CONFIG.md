@@ -19,11 +19,64 @@ global settings.
 Coral uses YAML configuration files stored in different locations:
 
 | Config Type | Location                             | Purpose                             |
-|-------------|--------------------------------------|-------------------------------------|
+| ----------- | ------------------------------------ | ----------------------------------- |
 | **Global**  | `~/.coral/config.yaml`               | User-level settings and preferences |
 | **Colony**  | `~/.coral/colonies/<colony-id>.yaml` | Per-colony identity and credentials |
 | **Project** | `<project>/.coral/config.yaml`       | Project-local settings              |
 | **Agent**   | `~/.coral/agents/<agent-id>.yaml`    | Agent-specific settings (future)    |
+
+## Default Values
+
+All default values are centralized in `internal/constants/defaults.go`.
+
+### Ports
+
+| Constant               | Value | Description                    |
+| ---------------------- | ----- | ------------------------------ |
+| `DefaultAgentPort`     | 9001  | Agent gRPC/Connect server port |
+| `DefaultOTLPGRPCPort`  | 4317  | OTLP gRPC endpoint port        |
+| `DefaultOTLPHTTPPort`  | 4318  | OTLP HTTP endpoint port        |
+| `DefaultBeylaGRPCPort` | 4319  | Beyla gRPC endpoint port       |
+| `DefaultBeylaHTTPPort` | 4320  | Beyla HTTP endpoint port       |
+
+### Timeouts
+
+| Constant                  | Value | Description               |
+| ------------------------- | ----- | ------------------------- |
+| `DefaultRPCTimeout`       | 10s   | RPC call timeout          |
+| `DefaultQueryTimeout`     | 30s   | Database query timeout    |
+| `DefaultHealthTimeout`    | 500ms | Health check timeout      |
+| `DefaultSDKAPITimeout`    | 5s    | SDK API call timeout      |
+| `DefaultDiscoveryTimeout` | 10s   | Discovery service timeout |
+
+### Intervals
+
+| Constant                       | Value | Description                        |
+| ------------------------------ | ----- | ---------------------------------- |
+| `DefaultPollInterval`          | 30s   | General polling interval           |
+| `DefaultCleanupInterval`       | 1h    | Cleanup task interval              |
+| `DefaultRegisterInterval`      | 60s   | Discovery registration interval    |
+| `DefaultSystemMetricsInterval` | 15s   | System metrics collection interval |
+| `DefaultCPUProfilingInterval`  | 15s   | CPU profiling collection interval  |
+| `DefaultServicesPollInterval`  | 5m    | Services polling interval          |
+| `DefaultBeylaPollInterval`     | 60s   | Beyla polling interval             |
+
+### Retention Periods
+
+| Constant                               | Value | Description                    |
+| -------------------------------------- | ----- | ------------------------------ |
+| `DefaultTelemetryRetention`            | 1h    | Telemetry data local retention |
+| `DefaultSystemMetricsRetention`        | 1h    | System metrics local retention |
+| `DefaultCPUProfilingRetention`         | 1h    | CPU profile sample retention   |
+| `DefaultCPUProfilingMetadataRetention` | 7d    | Binary metadata retention      |
+
+### Sampling and Filtering
+
+| Constant                        | Value | Description                  |
+| ------------------------------- | ----- | ---------------------------- |
+| `DefaultSampleRate`             | 0.10  | Telemetry sample rate (10%)  |
+| `DefaultBeylaSampleRate`        | 1.0   | Beyla sample rate (100%)     |
+| `DefaultHighLatencyThresholdMs` | 500.0 | High latency threshold in ms |
 
 ## Global Configuration
 
@@ -63,7 +116,7 @@ preferences:
 ### Global Configuration Fields
 
 | Field                           | Type     | Default                      | Description                                  |
-|---------------------------------|----------|------------------------------|----------------------------------------------|
+| ------------------------------- | -------- | ---------------------------- | -------------------------------------------- |
 | `version`                       | string   | `"1"`                        | Configuration schema version                 |
 | `default_colony`                | string   | -                            | Default colony ID to use when not specified  |
 | `discovery.endpoint`            | string   | `http://localhost:8080`      | Discovery service URL                        |
@@ -82,13 +135,13 @@ observability data.
 
 #### Supported Providers for `coral ask`
 
-| Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status      |
-|---------------|--------------------------------------------------------------|------------------|-------------|------------------|-------------|
-| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full           | ✅ Supported |
-| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
-| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
-| **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned  |
-| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned  |
+| Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status       |
+| ------------- | ------------------------------------------------------------ | ---------------- | ----------- | ---------------- | ------------ |
+| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full          | ✅ Supported |
+| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
+| **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
 
 > **Important:** `coral ask` requires MCP tool calling to access observability
 > data from your colony.
@@ -117,7 +170,7 @@ observability data.
 #### AI Ask Configuration Fields
 
 | Field                                | Type     | Default    | Description                                      |
-|--------------------------------------|----------|------------|--------------------------------------------------|
+| ------------------------------------ | -------- | ---------- | ------------------------------------------------ |
 | `ai.ask.default_model`               | string   | -          | Default model (format: `provider:model-id`)      |
 | `ai.ask.fallback_models`             | []string | `[]`       | Fallback models if primary fails                 |
 | `ai.ask.api_keys`                    | map      | `{}`       | API keys (use `env://VAR_NAME` format)           |
@@ -266,7 +319,7 @@ last_used: "2025-01-15T14:22:00Z"
 #### Core Identity
 
 | Field              | Type      | Required | Description                                        |
-|--------------------|-----------|----------|----------------------------------------------------|
+| ------------------ | --------- | -------- | -------------------------------------------------- |
 | `version`          | string    | Yes      | Configuration schema version                       |
 | `colony_id`        | string    | Yes      | Unique identifier for this colony                  |
 | `application_name` | string    | Yes      | Application name                                   |
@@ -280,7 +333,7 @@ last_used: "2025-01-15T14:22:00Z"
 #### WireGuard Mesh Network
 
 | Field                            | Type     | Default         | Description                                        |
-|----------------------------------|----------|-----------------|----------------------------------------------------|
+| -------------------------------- | -------- | --------------- | -------------------------------------------------- |
 | `wireguard.private_key`          | string   | Auto-generated  | WireGuard private key (base64)                     |
 | `wireguard.public_key`           | string   | Auto-generated  | WireGuard public key (base64)                      |
 | `wireguard.port`                 | int      | `41580`         | WireGuard UDP listen port                          |
@@ -296,14 +349,14 @@ last_used: "2025-01-15T14:22:00Z"
 #### Services
 
 | Field                     | Type | Default | Description                      |
-|---------------------------|------|---------|----------------------------------|
+| ------------------------- | ---- | ------- | -------------------------------- |
 | `services.connect_port`   | int  | `9000`  | Colony Connect/gRPC service port |
 | `services.dashboard_port` | int  | `3000`  | Dashboard web UI port            |
 
 #### Discovery
 
 | Field                         | Type     | Default                      | Description                           |
-|-------------------------------|----------|------------------------------|---------------------------------------|
+| ----------------------------- | -------- | ---------------------------- | ------------------------------------- |
 | `discovery.enabled`           | bool     | `true`                       | Enable discovery service registration |
 | `discovery.mesh_id`           | string   | Same as `colony_id`          | Mesh identifier for discovery         |
 | `discovery.auto_register`     | bool     | `true`                       | Auto-register with discovery service  |
@@ -313,7 +366,7 @@ last_used: "2025-01-15T14:22:00Z"
 #### MCP Server (Model Context Protocol)
 
 | Field                                   | Type     | Default    | Description                      |
-|-----------------------------------------|----------|------------|----------------------------------|
+| --------------------------------------- | -------- | ---------- | -------------------------------- |
 | `mcp.disabled`                          | bool     | `false`    | Disable MCP server               |
 | `mcp.enabled_tools`                     | []string | `[]` (all) | Restrict available tools         |
 | `mcp.security.require_rbac_for_actions` | bool     | `false`    | Require RBAC for exec/shell/eBPF |
@@ -324,13 +377,13 @@ last_used: "2025-01-15T14:22:00Z"
 For connecting to remote colonies from the CLI without WireGuard mesh access.
 Similar to kubectl's cluster configuration in kubeconfig.
 
-| Field                               | Type   | Default | Description                                         |
-|-------------------------------------|--------|---------|-----------------------------------------------------|
-| `remote.endpoint`                   | string | -       | Remote colony's public HTTPS endpoint URL           |
-| `remote.certificate_authority`      | string | -       | Path to CA certificate file for TLS verification    |
-| `remote.certificate_authority_data` | string | -       | Base64-encoded CA certificate (takes precedence)    |
-| `remote.insecure_skip_tls_verify`   | bool   | `false` | Skip TLS verification (testing only, never in prod) |
-| `remote.ca_fingerprint.algorithm`   | string | -       | CA fingerprint hash algorithm (e.g., `sha256`)      |
+| Field                               | Type   | Default | Description                                                      |
+| ----------------------------------- | ------ | ------- | ---------------------------------------------------------------- |
+| `remote.endpoint`                   | string | -       | Remote colony's public HTTPS endpoint URL                        |
+| `remote.certificate_authority`      | string | -       | Path to CA certificate file for TLS verification                 |
+| `remote.certificate_authority_data` | string | -       | Base64-encoded CA certificate (takes precedence)                 |
+| `remote.insecure_skip_tls_verify`   | bool   | `false` | Skip TLS verification (testing only, never in prod)              |
+| `remote.ca_fingerprint.algorithm`   | string | -       | CA fingerprint hash algorithm (e.g., `sha256`)                   |
 | `remote.ca_fingerprint.value`       | string | -       | Hex-encoded CA fingerprint for continuous verification (RFD 085) |
 
 **Example - Remote Colony with CA Certificate:**
@@ -369,7 +422,7 @@ Beyla metrics and traces are collected from agents and stored in the colony's
 DuckDB. Retention policies control how long data is kept.
 
 | Field                         | Type | Default | Description                                              |
-|-------------------------------|------|---------|----------------------------------------------------------|
+| ----------------------------- | ---- | ------- | -------------------------------------------------------- |
 | `beyla.poll_interval`         | int  | `60`    | Interval (seconds) to poll agents for Beyla data         |
 | `beyla.retention.http_days`   | int  | `30`    | Retention period for HTTP metrics (days)                 |
 | `beyla.retention.grpc_days`   | int  | `30`    | Retention period for gRPC metrics (days)                 |
@@ -412,7 +465,7 @@ infrastructure observability. The colony polls agents for host-level metrics
 (CPU, memory, disk, network) and stores aggregated summaries.
 
 | Field                           | Type | Default | Description                                      |
-|---------------------------------|------|---------|--------------------------------------------------|
+| ------------------------------- | ---- | ------- | ------------------------------------------------ |
 | `system_metrics.poll_interval`  | int  | `60`    | Interval (seconds) to poll agents for metrics    |
 | `system_metrics.retention_days` | int  | `30`    | Retention period for aggregated summaries (days) |
 
@@ -457,7 +510,7 @@ storage:
 ### Project Configuration Fields
 
 | Field               | Type   | Default  | Description                       |
-|---------------------|--------|----------|-----------------------------------|
+| ------------------- | ------ | -------- | --------------------------------- |
 | `version`           | string | `"1"`    | Configuration schema version      |
 | `colony_id`         | string | Required | Links project to specific colony  |
 | `dashboard.port`    | int    | `3000`   | Dashboard port override           |
@@ -512,7 +565,7 @@ services:
 ### Agent Configuration Fields
 
 | Field                                         | Type              | Default                      | Description                                                   |
-|-----------------------------------------------|-------------------|------------------------------|---------------------------------------------------------------|
+| --------------------------------------------- | ----------------- | ---------------------------- | ------------------------------------------------------------- |
 | `version`                                     | string            | `"1"`                        | Configuration schema version                                  |
 | `agent.runtime`                               | string            | `auto`                       | Runtime environment: `auto`, `native`, `docker`, `kubernetes` |
 | `agent.colony.id`                             | string            | -                            | Colony ID to connect to                                       |
@@ -679,7 +732,7 @@ system_metrics:
 **Configuration Fields:**
 
 | Field             | Type     | Default | Description                              |
-|-------------------|----------|---------|------------------------------------------|
+| ----------------- | -------- | ------- | ---------------------------------------- |
 | `disabled`        | bool     | `false` | Master switch for system metrics         |
 | `interval`        | duration | `15s`   | How often to sample system metrics       |
 | `retention`       | duration | `1h`    | How long to keep raw samples locally     |
@@ -691,21 +744,21 @@ system_metrics:
 **Collected Metrics:**
 
 - **CPU:**
-    - `system.cpu.utilization` - CPU usage percentage (0-100)
-    - `system.cpu.time` - Cumulative CPU time (seconds)
+  - `system.cpu.utilization` - CPU usage percentage (0-100)
+  - `system.cpu.time` - Cumulative CPU time (seconds)
 
 - **Memory:**
-    - `system.memory.usage` - Memory used (bytes)
-    - `system.memory.limit` - Total memory available (bytes)
-    - `system.memory.utilization` - Memory usage percentage (0-100)
+  - `system.memory.usage` - Memory used (bytes)
+  - `system.memory.limit` - Total memory available (bytes)
+  - `system.memory.utilization` - Memory usage percentage (0-100)
 
 - **Disk:**
-    - `system.disk.io` - Disk I/O operations (reads/writes)
-    - `system.disk.usage` - Disk space used (bytes)
+  - `system.disk.io` - Disk I/O operations (reads/writes)
+  - `system.disk.usage` - Disk space used (bytes)
 
 - **Network:**
-    - `system.network.io` - Network I/O (bytes sent/received)
-    - `system.network.errors` - Network errors (packet loss, errors)
+  - `system.network.io` - Network I/O (bytes sent/received)
+  - `system.network.errors` - Network errors (packet loss, errors)
 
 **Storage and Retention:**
 
@@ -762,7 +815,7 @@ continuous_profiling:
 **Configuration Fields:**
 
 | Field                    | Type     | Default | Description                                    |
-|--------------------------|----------|---------|------------------------------------------------|
+| ------------------------ | -------- | ------- | ---------------------------------------------- |
 | `disabled`               | bool     | `false` | Master switch - set `true` to disable entirely |
 | `cpu.disabled`           | bool     | `false` | Disable CPU profiling - set `true` to disable  |
 | `cpu.frequency_hz`       | int      | `19`    | Sampling frequency (19Hz = low overhead)       |
@@ -999,15 +1052,33 @@ Environment variables override configuration file values.
 
 ### Colony Environment Variables
 
-| Variable                   | Overrides                     | Example                    | Description                                                            |
-|----------------------------|-------------------------------|----------------------------|------------------------------------------------------------------------|
-| `CORAL_COLONY_ID`          | -                             | `my-app-prod`              | Colony to start                                                        |
-| `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`          | `http://discovery:8080`    | Discovery service URL                                                  |
-| `CORAL_STORAGE_PATH`       | `storage_path`                | `/var/lib/coral`           | Storage directory path                                                 |
-| `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`  | `colony.example.com:41580` | **Production required:** Public WireGuard endpoint(s), comma-separated |
-| `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4` | `100.64.0.0/10`            | Mesh network subnet                                                    |
-| `CORAL_COLONY_ENDPOINT`    | -                             | `https://colony:8443`      | **Public API:** Public HTTPS endpoint for CLI/SDK access (RFD 031)     |
-| `CORAL_API_TOKEN`          | -                             | `cpt_abc123...`            | API token for authenticating to the public endpoint (RFD 031)          |
+| Variable                   | Overrides                        | Example                    | Description                                                            |
+| -------------------------- | -------------------------------- | -------------------------- | ---------------------------------------------------------------------- |
+| `CORAL_COLONY_ID`          | -                                | `my-app-prod`              | Colony to start                                                        |
+| `CORAL_DISCOVERY_ENDPOINT` | `discovery.endpoint`             | `http://discovery:8080`    | Discovery service URL                                                  |
+| `CORAL_STORAGE_PATH`       | `storage_path`                   | `/var/lib/coral`           | Storage directory path                                                 |
+| `CORAL_PUBLIC_ENDPOINT`    | `wireguard.public_endpoints`     | `colony.example.com:41580` | **Production required:** Public WireGuard endpoint(s), comma-separated |
+| `CORAL_MESH_SUBNET`        | `wireguard.mesh_network_ipv4`    | `100.64.0.0/10`            | Mesh network subnet                                                    |
+| `CORAL_WG_KEEPALIVE`       | `wireguard.persistent_keepalive` | `25`                       | WireGuard keepalive interval (seconds)                                 |
+| `CORAL_COLONY_ENDPOINT`    | -                                | `https://colony:8443`      | **Public API:** Public HTTPS endpoint for CLI/SDK access (RFD 031)     |
+| `CORAL_API_TOKEN`          | -                                | `cpt_abc123...`            | API token for authenticating to the public endpoint (RFD 031)          |
+| `CORAL_DEFAULT_COLONY`     | `default_colony` (Global)        | `my-default-colony`        | Default colony for global config                                       |
+| `CORAL_ASK_MODEL`          | `ask.default_model`              | `google:gemini-1.5-pro`    | Default model for Coral Ask                                            |
+| `CORAL_ASK_MAX_TURNS`      | `ask.conversation.max_turns`     | `20`                       | Max conversation turns for Coral Ask                                   |
+
+### Polling Interval Environment Variables
+
+Overrides for various polling intervals (Duration strings, e.g., "30s", "5m"):
+
+| Variable                               | Config Field                         | Default |
+| -------------------------------------- | ------------------------------------ | ------- |
+| `CORAL_SERVICES_POLL_INTERVAL`         | `services.poll_interval`             | `5m`    |
+| `CORAL_DISCOVERY_REGISTER_INTERVAL`    | `discovery.register_interval`        | `60s`   |
+| `CORAL_BEYLA_POLL_INTERVAL`            | `beyla.poll_interval`                | `60s`   |
+| `CORAL_FUNCTIONS_POLL_INTERVAL`        | `function_registry.poll_interval`    | `5m`    |
+| `CORAL_SYSTEM_METRICS_POLLER_INTERVAL` | `system_metrics.poll_interval`       | `60s`   |
+| `CORAL_PROFILING_POLLER_INTERVAL`      | `continuous_profiling.poll_interval` | `60s`   |
+| `CORAL_TELEMETRY_POLL_INTERVAL`        | `telemetry.poll_interval`            | `60s`   |
 
 **Multiple Endpoints Example:**
 
@@ -1017,22 +1088,27 @@ CORAL_PUBLIC_ENDPOINT=192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000
 
 ### Agent Environment Variables
 
-| Variable                   | Description                                         |
-|----------------------------|-----------------------------------------------------|
-| `CORAL_AGENT_ID`           | Unique agent identifier (overrides auto-generation) |
-| `CORAL_COLONY_ID`          | Colony ID to connect to                             |
-| `CORAL_DISCOVERY_ENDPOINT` | Discovery service URL                               |
-| `CORAL_CA_FINGERPRINT`     | Root CA fingerprint for bootstrap (sha256:hex)      |
-| `CORAL_BOOTSTRAP_PSK`     | Bootstrap PSK for enrollment authorization           |
-| `CORAL_BOOTSTRAP_ENABLED`  | Enable/disable automatic bootstrap (`true`/`false`) |
-| `CORAL_CERTS_DIR`          | Directory for storing certificates                  |
-| `CORAL_SERVICES`           | Services to monitor (name:port[:health][:type],...) |
-| `CORAL_AGENT_RUNTIME`      | Agent runtime (auto, native, docker, kubernetes)    |
+| Variable                        | Description                                         |
+| ------------------------------- | --------------------------------------------------- |
+| `CORAL_AGENT_ID`                | Unique agent identifier (overrides auto-generation) |
+| `CORAL_COLONY_ID`               | Colony ID to connect to                             |
+| `CORAL_DISCOVERY_ENDPOINT`      | Discovery service URL                               |
+| `CORAL_CA_FINGERPRINT`          | Root CA fingerprint for bootstrap (sha256:hex)      |
+| `CORAL_BOOTSTRAP_PSK`           | Bootstrap PSK for enrollment authorization          |
+| `CORAL_BOOTSTRAP_ENABLED`       | Enable/disable automatic bootstrap (`true`/`false`) |
+| `CORAL_CERTS_DIR`               | Directory for storing certificates                  |
+| `CORAL_SERVICES`                | Services to monitor (name:port[:health][:type],...) |
+| `CORAL_AGENT_RUNTIME`           | Agent runtime (auto, native, docker, kubernetes)    |
+| `CORAL_TELEMETRY_DISABLED`      | Disable telemetry (`true`/`false`)                  |
+| `CORAL_OTLP_GRPC_ENDPOINT`      | OTLP gRPC endpoint address                          |
+| `CORAL_OTLP_HTTP_ENDPOINT`      | OTLP HTTP endpoint address                          |
+| `CORAL_SYSTEM_METRICS_DISABLED` | Disable system metrics collection (`true`/`false`)  |
+| `CORAL_CPU_PROFILING_DISABLED`  | Disable CPU profiling (`true`/`false`)              |
 
 ### CLI Environment Variables
 
 | Variable                | Description                                                            |
-|-------------------------|------------------------------------------------------------------------|
+| ----------------------- | ---------------------------------------------------------------------- |
 | `CORAL_COLONY_ENDPOINT` | Explicit colony endpoint URL (e.g., `https://colony.example.com:8443`) |
 | `CORAL_API_TOKEN`       | API token for authenticating to the public endpoint (RFD 031)          |
 | `CORAL_CA_FILE`         | Path to CA certificate file for TLS verification                       |
@@ -1099,7 +1175,7 @@ wireguard:
 #### IP Allocation
 
 | Address     | Purpose                                  |
-|-------------|------------------------------------------|
+| ----------- | ---------------------------------------- |
 | `.0`        | Network address (reserved)               |
 | `.1`        | Colony address                           |
 | `.2` - `.N` | Agent addresses (allocated sequentially) |
@@ -1109,7 +1185,7 @@ wireguard:
 #### Common Conflicts
 
 | Network          | Used By                          | Conflict Risk |
-|------------------|----------------------------------|---------------|
+| ---------------- | -------------------------------- | ------------- |
 | `10.0.0.0/8`     | Corporate networks, VPNs, Docker | **High**      |
 | `172.16.0.0/12`  | Docker, cloud providers          | **Medium**    |
 | `192.168.0.0/16` | Home routers                     | **Medium**    |
@@ -1216,15 +1292,15 @@ coral colony start  # Uses 127.0.0.1:<port>
 Understanding the difference:
 
 - **Mesh IP** (`mesh_ipv4`): Address **inside** the WireGuard tunnel
-    - Used for service-to-service communication
-    - Example: `100.64.0.1`
+  - Used for service-to-service communication
+  - Example: `100.64.0.1`
 
 - **Public Endpoint(s)**: Address(es) **outside** the tunnel
-    - Used to establish WireGuard connection
-    - Can specify multiple for redundancy
-    - Examples:
-        - Single: `colony.example.com:41580`
-        - Multiple: `192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000`
+  - Used to establish WireGuard connection
+  - Can specify multiple for redundancy
+  - Examples:
+    - Single: `colony.example.com:41580`
+    - Multiple: `192.168.5.2:9000,10.0.0.5:9000,colony.example.com:9000`
 
 The public endpoints are registered to the discovery service when Colony starts
 up.
@@ -1647,37 +1723,34 @@ coral ask "deep analysis" --model google:gemini-1.5-pro  # More capable
 **Future Support:** OpenAI, Anthropic, and Ollama providers are planned but not
 yet implemented. See `docs/PROVIDERS.md` for implementation status.
 
-## Configuration Validation
-
-Coral validates configuration on startup and provides clear error messages:
-
-```bash
-$ coral colony start
-Error: failed to resolve mesh subnet: invalid mesh_network_ipv4 in config:
-mesh subnet "10.42.0.0/25" is too small (/25), minimum is /24
-```
-
 ### Validation Rules
 
 - **Mesh subnet:** Minimum `/24`, valid CIDR, IPv4 only
 - **Ports:** Valid port numbers (1-65535)
-- **Timeouts:** Positive duration values
+- **Timeouts and Intervals:** Positive duration values
 - **Colony ID:** Non-empty, valid identifier
+- **Sample Rates:** Between 0.0 and 1.0
 - **API keys:** Required when `ai.api_key_source` is `env`
+- **Discovery:** Mesh IDs must match colony IDs
+
+### Example Validation Errors
+
+```
+validation failed with 3 errors:
+  1. agent.colony.id: colony ID is required when auto_discover is false
+  2. telemetry.filters.sample_rate: sample rate must be between 0.0 and 1.0
+  3. debug.limits.max_concurrent_sessions: max concurrent sessions must be positive
+```
 
 ## Troubleshooting
 
 ### Common Issues
 
-**Issue:** Agents can't connect to colony
+**Issue:** Configuration not loading from environment
+**Solution:** Ensure you're using the correct environment variable names (prefixed with `CORAL_`). Note that precedence is Env > Config File > Defaults.
 
-```yaml
-# Solution: Check public endpoint
-```
-
-```bash
-CORAL_PUBLIC_ENDPOINT=your-public-ip:41580 coral colony start
-```
+**Issue:** Duration parsing errors
+**Solution:** Go's `time.ParseDuration` doesn't support days (`d`). Use hours instead (e.g., `168h` for 7 days).
 
 **Issue:** IP address conflicts
 

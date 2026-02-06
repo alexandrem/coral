@@ -218,6 +218,11 @@ func (c *Client) lookupAndValidateFromDiscovery(ctx context.Context) (string, er
 		Jitter:         0.1,
 	}
 
+	c.logger.Info().
+		Str("endpoint", c.cfg.DiscoveryEndpoint).
+		Str("colony_id", c.cfg.ColonyID).
+		Msg("Performing discovery lookup for bootstrap")
+
 	// 1. Lookup with Retry
 	err := retry.Do(ctx, retryCfg, func() error {
 		client := discoveryclient.New(c.cfg.DiscoveryEndpoint)

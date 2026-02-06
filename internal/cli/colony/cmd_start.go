@@ -111,6 +111,13 @@ Examples:
 				return fmt.Errorf("failed to load colony config: %w", err)
 			}
 
+			// Load full colony config for additional settings (pollers, etc.)
+			// ResolvedConfig only contains a subset of fields.
+			colonyConfigForEndpoints, err := resolver.GetLoader().LoadColonyConfig(cfg.ColonyID)
+			if err != nil {
+				return fmt.Errorf("failed to load full colony config: %w", err)
+			}
+
 			// Apply port override if specified
 			if port > 0 {
 				cfg.Dashboard.Port = port
@@ -188,17 +195,8 @@ Examples:
 			// Build endpoints advertised to discovery using public/reachable addresses.
 			// For local development, use empty host (":port") to let agents discover via local network.
 			// For production, configure CORAL_PUBLIC_ENDPOINT environment variable or config file.
-			//
-			// Load colony config to get public endpoints configuration
-			colonyConfigForEndpoints, err := resolver.GetLoader().LoadColonyConfig(cfg.ColonyID)
-			if err != nil {
-				logger.Warn().
-					Err(err).
-					Msg("Failed to load colony config for endpoints; using environment variable only")
-				colonyConfigForEndpoints = nil
-			}
-
-			endpoints := colonywg.BuildEndpoints(cfg.WireGuard.Port, colonyConfigForEndpoints)
+			// CORAL_PUBLIC_ENDPOINT is already merged into colonyConfig.WireGuard.PublicEndpoints.
+			endpoints := colonywg.BuildEndpoints(cfg.WireGuard.Port, colonyConfigForEndpoints.WireGuard)
 			if len(endpoints) == 0 {
 				logger.Warn().Msg("No WireGuard endpoints could be constructed; discovery registration will fail")
 			} else {
@@ -264,13 +262,8 @@ Examples:
 			// See RFD 029 for planned colony-based STUN enhancement.
 			var colonyObservedEndpoint *discoverypb.Endpoint
 
-			// Set default register interval if not configured
+			// Register interval is loaded from config (env var override via MergeFromEnv)
 			registerInterval := colonyConfig.Discovery.RegisterInterval
-			if envInterval := os.Getenv("CORAL_DISCOVERY_REGISTER_INTERVAL"); envInterval != "" {
-				if d, err := time.ParseDuration(envInterval); err == nil {
-					registerInterval = d
-				}
-			}
 
 			// Build public endpoint info for Discovery registration (RFD 085).
 			var publicEndpoint *discoverypb.PublicEndpointInfo
@@ -322,12 +315,7 @@ Examples:
 			telemetryRetentionHours := 24
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Telemetry.PollInterval > 0 {
-				telemetryPollInterval = time.Duration(colonyConfigForEndpoints.Telemetry.PollInterval) * time.Second
-			}
-			if envInterval := os.Getenv("CORAL_TELEMETRY_POLL_INTERVAL"); envInterval != "" {
-				if d, err := time.ParseDuration(envInterval); err == nil {
-					telemetryPollInterval = d
-				}
+				telemetryPollInterval = colonyConfigForEndpoints.Telemetry.PollInterval
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Telemetry.RetentionHours > 0 {
 				telemetryRetentionHours = colonyConfigForEndpoints.Telemetry.RetentionHours
@@ -352,19 +340,14 @@ Examples:
 
 			// Create and start Beyla metrics poller for RFD 032.
 			// Read Beyla configuration from colony config, with sensible defaults.
-			pollIntervalSecs := 60 // Default: poll every 60 seconds
+			beylaPollerInterval := 60 * time.Second // Default: poll every 60 seconds
 			httpRetentionDays := 30
 			grpcRetentionDays := 30
 			sqlRetentionDays := 14
 			traceRetentionDays := 7
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.PollInterval > 0 {
-				pollIntervalSecs = colonyConfigForEndpoints.Beyla.PollInterval
-			}
-			if envInterval := os.Getenv("CORAL_BEYLA_POLL_INTERVAL"); envInterval != "" {
-				if d, err := time.ParseDuration(envInterval); err == nil {
-					pollIntervalSecs = int(d.Seconds())
-				}
+				beylaPollerInterval = colonyConfigForEndpoints.Beyla.PollInterval
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.HTTPDays > 0 {
 				httpRetentionDays = colonyConfigForEndpoints.Beyla.Retention.HTTPDays
@@ -383,7 +366,7 @@ Examples:
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(pollIntervalSecs)*time.Second,
+				beylaPollerInterval,
 				httpRetentionDays,
 				grpcRetentionDays,
 				sqlRetentionDays,
@@ -397,7 +380,7 @@ Examples:
 					Msg("Failed to start Beyla metrics poller")
 			} else {
 				logger.Info().
-					Int("poll_interval_secs", pollIntervalSecs).
+					Dur("poll_interval", beylaPollerInterval).
 					Int("http_retention_days", httpRetentionDays).
 					Int("grpc_retention_days", grpcRetentionDays).
 					Int("sql_retention_days", sqlRetentionDays).
@@ -407,16 +390,11 @@ Examples:
 
 			// Create and start System Metrics poller for RFD 071.
 			// Read system metrics configuration from colony config, with sensible defaults.
-			systemMetricsPollIntervalSecs := 60 // Default: poll every 60 seconds
-			systemMetricsRetentionDays := 30    // Default: 30 days retention
+			systemMetricsPollInterval := 60 * time.Second // Default: poll every 60 seconds
+			systemMetricsRetentionDays := 30              // Default: 30 days retention
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.SystemMetrics.PollInterval > 0 {
-				systemMetricsPollIntervalSecs = colonyConfigForEndpoints.SystemMetrics.PollInterval
-			}
-			if envInterval := os.Getenv("CORAL_SYSTEM_METRICS_POLL_INTERVAL"); envInterval != "" {
-				if d, err := time.ParseDuration(envInterval); err == nil {
-					systemMetricsPollIntervalSecs = int(d.Seconds())
-				}
+				systemMetricsPollInterval = colonyConfigForEndpoints.SystemMetrics.PollInterval
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.SystemMetrics.RetentionDays > 0 {
 				systemMetricsRetentionDays = colonyConfigForEndpoints.SystemMetrics.RetentionDays
@@ -426,7 +404,7 @@ Examples:
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(systemMetricsPollIntervalSecs)*time.Second,
+				systemMetricsPollInterval,
 				systemMetricsRetentionDays,
 				logger,
 			)
@@ -437,23 +415,18 @@ Examples:
 					Msg("Failed to start system metrics poller")
 			} else {
 				logger.Info().
-					Int("poll_interval_secs", systemMetricsPollIntervalSecs).
+					Dur("poll_interval", systemMetricsPollInterval).
 					Int("retention_days", systemMetricsRetentionDays).
 					Msg("System metrics poller started")
 			}
 
 			// Create and start CPU Profile poller for RFD 072.
 			// Read CPU profiling configuration from colony config, with sensible defaults.
-			cpuProfilePollIntervalSecs := 30 // Default: poll every 30 seconds
-			cpuProfileRetentionDays := 30    // Default: 30 days retention
+			cpuProfilePollInterval := 30 * time.Second // Default: poll every 30 seconds
+			cpuProfileRetentionDays := 30              // Default: 30 days retention
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.ContinuousProfiling.PollInterval > 0 {
-				cpuProfilePollIntervalSecs = colonyConfigForEndpoints.ContinuousProfiling.PollInterval
-			}
-			if envInterval := os.Getenv("CORAL_PROFILING_POLL_INTERVAL"); envInterval != "" {
-				if d, err := time.ParseDuration(envInterval); err == nil {
-					cpuProfilePollIntervalSecs = int(d.Seconds())
-				}
+				cpuProfilePollInterval = colonyConfigForEndpoints.ContinuousProfiling.PollInterval
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.ContinuousProfiling.RetentionDays > 0 {
 				cpuProfileRetentionDays = colonyConfigForEndpoints.ContinuousProfiling.RetentionDays
@@ -463,7 +436,7 @@ Examples:
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(cpuProfilePollIntervalSecs)*time.Second,
+				cpuProfilePollInterval,
 				cpuProfileRetentionDays,
 				logger,
 			)
@@ -474,7 +447,7 @@ Examples:
 					Msg("Failed to start CPU profile poller")
 			} else {
 				logger.Info().
-					Int("poll_interval_secs", cpuProfilePollIntervalSecs).
+					Dur("poll_interval", cpuProfilePollInterval).
 					Int("retention_days", cpuProfileRetentionDays).
 					Msg("CPU profile poller started")
 			}
@@ -484,8 +457,8 @@ Examples:
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(cpuProfilePollIntervalSecs)*time.Second, // Reuse same poll interval config.
-				cpuProfileRetentionDays,                               // Reuse same retention config.
+				cpuProfilePollInterval,  // Reuse same poll interval config.
+				cpuProfileRetentionDays, // Reuse same retention config.
 				logger,
 			)
 
@@ -499,22 +472,17 @@ Examples:
 
 			// Create and start Service poller to sync agent services to colony.
 			// This ensures ListServices API shows all connected services.
-			servicePollIntervalSecs := 10 // Poll every 10 seconds (services change frequently).
+			servicePollInterval := 10 * time.Second // Poll every 10 seconds (services change frequently).
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Services.PollInterval > 0 {
-				servicePollIntervalSecs = colonyConfigForEndpoints.Services.PollInterval
-			}
-			if envInterval := os.Getenv("CORAL_SERVICES_POLL_INTERVAL"); envInterval != "" {
-				if d, err := time.ParseDuration(envInterval); err == nil {
-					servicePollIntervalSecs = int(d.Seconds())
-				}
+				servicePollInterval = colonyConfigForEndpoints.Services.PollInterval
 			}
 
 			servicePoller := colony.NewServicePoller(
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(servicePollIntervalSecs)*time.Second,
+				servicePollInterval,
 				logger,
 			)
 
@@ -524,7 +492,7 @@ Examples:
 					Msg("Failed to start service poller")
 			} else {
 				logger.Info().
-					Int("poll_interval_secs", servicePollIntervalSecs).
+					Dur("poll_interval", servicePollInterval).
 					Msg("Service poller started")
 			}
 
