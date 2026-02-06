@@ -202,22 +202,22 @@ func TestRateLimiter_ResetTime(t *testing.T) {
 
 func TestRateLimiter_SlidingWindow(t *testing.T) {
 	rl := NewRateLimiter()
-	limit := &RateLimit{Requests: 3, Window: 100 * time.Millisecond}
+	limit := &RateLimit{Requests: 3, Window: 200 * time.Millisecond}
 
 	// Make requests spread over time.
 	rl.Allow("token1", limit) // t=0
-	time.Sleep(40 * time.Millisecond)
-	rl.Allow("token1", limit) // t=40ms
-	time.Sleep(40 * time.Millisecond)
+	time.Sleep(80 * time.Millisecond)
 	rl.Allow("token1", limit) // t=80ms
+	time.Sleep(80 * time.Millisecond)
+	rl.Allow("token1", limit) // t=160ms
 
 	// Should be denied now.
 	if rl.Allow("token1", limit) {
-		t.Error("Should be denied at t=80ms")
+		t.Error("Should be denied at t=160ms")
 	}
 
-	// Wait until first request expires (t=100ms).
-	time.Sleep(30 * time.Millisecond)
+	// Wait until first request expires (t=200ms).
+	time.Sleep(60 * time.Millisecond)
 
 	// Should be allowed now (first request expired).
 	if !rl.Allow("token1", limit) {
