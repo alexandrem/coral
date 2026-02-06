@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/coral-mesh/coral/internal/auth"
@@ -97,11 +96,8 @@ func (n *NetworkInitializer) Initialize() (*NetworkResult, error) {
 	}
 	result.STUNServers = stunServers
 
-	// Step 4: Check if relay is enabled.
+	// Relay setting is loaded from config (env var override via MergeFromEnv)
 	enableRelay := n.agentCfg.Agent.NAT.EnableRelay
-	if envRelay := os.Getenv("CORAL_ENABLE_RELAY"); envRelay != "" {
-		enableRelay = envRelay == "true" || envRelay == "1"
-	}
 
 	// Step 5: Get WireGuard port from environment or use ephemeral (-1).
 	wgPort := -1 // Default: ephemeral port
@@ -216,19 +212,9 @@ func (n *NetworkInitializer) ConfigureMesh(
 }
 
 // getSTUNServers determines which STUN servers to use for NAT traversal.
-// Priority: env variable > agent config > discovery response > default.
+// Priority: agent config (with env override via MergeFromEnv) > discovery response > default.
 func (n *NetworkInitializer) getSTUNServers(_ *discoveryclient.LookupColonyResponse) []string {
-	// Check environment variable first.
-	envSTUN := os.Getenv("CORAL_STUN_SERVERS")
-	if envSTUN != "" {
-		servers := strings.Split(envSTUN, ",")
-		for i := range servers {
-			servers[i] = strings.TrimSpace(servers[i])
-		}
-		return servers
-	}
-
-	// Check agent config.
+	// Check agent config (env var CORAL_STUN_SERVERS is merged via MergeFromEnv).
 	if len(n.agentCfg.Agent.NAT.STUNServers) > 0 {
 		return n.agentCfg.Agent.NAT.STUNServers
 	}

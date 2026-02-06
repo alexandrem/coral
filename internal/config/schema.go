@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"net"
-	"os"
 	"time"
 
 	"github.com/coral-mesh/coral/internal/constants"
@@ -38,18 +37,18 @@ type AIConfig struct {
 
 // AskConfig contains configuration for the coral ask command (RFD 030).
 type AskConfig struct {
-	DefaultModel   string                `yaml:"default_model,omitempty"`   // Primary model (e.g., "openai:gpt-4o-mini")
-	FallbackModels []string              `yaml:"fallback_models,omitempty"` // Fallback models in order
-	APIKeys        map[string]string     `yaml:"api_keys,omitempty"`        // Provider API keys (env:// references)
-	Conversation   AskConversationConfig `yaml:"conversation,omitempty"`    // Conversation settings
-	Agent          AskAgentConfig        `yaml:"agent,omitempty"`           // Agent deployment settings
+	DefaultModel   string                `yaml:"default_model,omitempty" env:"CORAL_ASK_MODEL"` // Primary model (e.g., "openai:gpt-4o-mini")
+	FallbackModels []string              `yaml:"fallback_models,omitempty"`                     // Fallback models in order
+	APIKeys        map[string]string     `yaml:"api_keys,omitempty"`                            // Provider API keys (env:// references)
+	Conversation   AskConversationConfig `yaml:"conversation,omitempty"`                        // Conversation settings
+	Agent          AskAgentConfig        `yaml:"agent,omitempty"`                               // Agent deployment settings
 }
 
 // AskConversationConfig contains conversation management settings.
 type AskConversationConfig struct {
-	MaxTurns      int  `yaml:"max_turns,omitempty"`      // Maximum conversation history turns
-	ContextWindow int  `yaml:"context_window,omitempty"` // Max tokens for context
-	AutoPrune     bool `yaml:"auto_prune,omitempty"`     // Auto-prune old messages
+	MaxTurns      int  `yaml:"max_turns,omitempty" env:"CORAL_ASK_MAX_TURNS"` // Maximum conversation history turns
+	ContextWindow int  `yaml:"context_window,omitempty"`                      // Max tokens for context
+	AutoPrune     bool `yaml:"auto_prune,omitempty"`                          // Auto-prune old messages
 }
 
 // AskAgentConfig contains agent deployment mode settings.
@@ -75,7 +74,7 @@ type ColonyConfig struct {
 	ColonySecret        string                          `yaml:"colony_secret"`
 	WireGuard           WireGuardConfig                 `yaml:"wireguard"`
 	Services            ServicesConfig                  `yaml:"services"`
-	StoragePath         string                          `yaml:"storage_path"`
+	StoragePath         string                          `yaml:"storage_path" env:"CORAL_STORAGE_PATH"`
 	Discovery           DiscoveryColony                 `yaml:"discovery"`
 	MCP                 MCPConfig                       `yaml:"mcp,omitempty"`
 	PublicEndpoint      PublicEndpointConfig            `yaml:"public_endpoint,omitempty"` // RFD 031
@@ -93,9 +92,9 @@ type ColonyConfig struct {
 
 // ServicesConfig contains service port configuration.
 type ServicesConfig struct {
-	ConnectPort   int `yaml:"connect_port"`
-	DashboardPort int `yaml:"dashboard_port"`
-	PollInterval  int `yaml:"poll_interval,omitempty"` // How often to poll agents for service list (seconds)
+	ConnectPort   int           `yaml:"connect_port"`
+	DashboardPort int           `yaml:"dashboard_port"`
+	PollInterval  time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_SERVICES_POLL_INTERVAL"` // How often to poll agents for service list.
 }
 
 // WireGuardConfig contains WireGuard mesh configuration.
@@ -117,15 +116,15 @@ type ServicesConfig struct {
 type WireGuardConfig struct {
 	PrivateKey          string   `yaml:"private_key"`
 	PublicKey           string   `yaml:"public_key"`
-	Port                int      `yaml:"port"`                           // WireGuard UDP listen port
-	PublicEndpoints     []string `yaml:"public_endpoints,omitempty"`     // Public endpoints for agent connections
-	InterfaceName       string   `yaml:"interface_name,omitempty"`       // Interface name (e.g., wg0)
-	MeshIPv4            string   `yaml:"mesh_ipv4,omitempty"`            // IPv4 address inside tunnel
-	MeshIPv6            string   `yaml:"mesh_ipv6,omitempty"`            // IPv6 address inside tunnel
-	MeshNetworkIPv4     string   `yaml:"mesh_network_ipv4,omitempty"`    // IPv4 network CIDR
-	MeshNetworkIPv6     string   `yaml:"mesh_network_ipv6,omitempty"`    // IPv6 network CIDR
-	MTU                 int      `yaml:"mtu,omitempty"`                  // Interface MTU
-	PersistentKeepalive int      `yaml:"persistent_keepalive,omitempty"` // Keepalive interval (seconds)
+	Port                int      `yaml:"port"`                                                    // WireGuard UDP listen port
+	PublicEndpoints     []string `yaml:"public_endpoints,omitempty" env:"CORAL_PUBLIC_ENDPOINT"`  // Public endpoints for agent connections
+	InterfaceName       string   `yaml:"interface_name,omitempty"`                                // Interface name (e.g., wg0)
+	MeshIPv4            string   `yaml:"mesh_ipv4,omitempty"`                                     // IPv4 address inside tunnel
+	MeshIPv6            string   `yaml:"mesh_ipv6,omitempty"`                                     // IPv6 address inside tunnel
+	MeshNetworkIPv4     string   `yaml:"mesh_network_ipv4,omitempty" env:"CORAL_MESH_SUBNET"`     // IPv4 network CIDR
+	MeshNetworkIPv6     string   `yaml:"mesh_network_ipv6,omitempty"`                             // IPv6 network CIDR
+	MTU                 int      `yaml:"mtu,omitempty"`                                           // Interface MTU
+	PersistentKeepalive int      `yaml:"persistent_keepalive,omitempty" env:"CORAL_WG_KEEPALIVE"` // Keepalive interval (seconds)
 }
 
 // DiscoveryColony contains colony-specific discovery settings.
@@ -133,7 +132,7 @@ type DiscoveryColony struct {
 	Disabled         bool          `yaml:"disabled,omitempty"`
 	MeshID           string        `yaml:"mesh_id"` // Should match colony_id
 	AutoRegister     bool          `yaml:"auto_register"`
-	RegisterInterval time.Duration `yaml:"register_interval"`
+	RegisterInterval time.Duration `yaml:"register_interval" env:"CORAL_DISCOVERY_REGISTER_INTERVAL"`
 	STUNServers      []string      `yaml:"stun_servers,omitempty"` // STUN servers for NAT traversal
 }
 
@@ -175,7 +174,7 @@ type RemoteConfig struct {
 
 	// CertificateAuthorityData is the base64-encoded CA certificate for TLS verification.
 	// Takes precedence over CertificateAuthority if both are set.
-	CertificateAuthorityData string `yaml:"certificate_authority_data,omitempty"`
+	CertificateAuthorityData string `yaml:"certificate_authority_data,omitempty" env:"CORAL_CA_DATA"`
 
 	// InsecureSkipTLSVerify disables TLS certificate verification.
 	// WARNING: Only use for testing. Never use in production.
@@ -274,8 +273,8 @@ type PublicAuthConfig struct {
 
 // BeylaPollerConfig contains Beyla metrics/traces collection configuration (RFD 032, RFD 036).
 type BeylaPollerConfig struct {
-	// PollInterval is how often to poll agents for Beyla data (seconds).
-	PollInterval int `yaml:"poll_interval,omitempty"`
+	// PollInterval is how often to poll agents for Beyla data.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_BEYLA_POLL_INTERVAL"`
 
 	// Retention settings for different data types.
 	Retention BeylaRetentionConfig `yaml:"retention,omitempty"`
@@ -283,9 +282,9 @@ type BeylaPollerConfig struct {
 
 // FunctionRegistryConfig contains function discovery configuration (RFD 063).
 type FunctionRegistryConfig struct {
-	// PollInterval is how often to poll agents for function metadata (seconds).
-	// Default: 300 (5 minutes).
-	PollInterval int `yaml:"poll_interval,omitempty"`
+	// PollInterval is how often to poll agents for function metadata.
+	// Default: 5 minutes.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_FUNCTIONS_POLL_INTERVAL"`
 
 	// Disabled controls whether function discovery is enabled.
 	// Default: false (function discovery is enabled).
@@ -310,9 +309,9 @@ type BeylaRetentionConfig struct {
 // SystemMetricsPollerConfig contains system metrics poller configuration (RFD 071).
 // This is for colony-side aggregation, distinct from agent-side SystemMetricsConfig.
 type SystemMetricsPollerConfig struct {
-	// PollInterval is how often to poll agents for system metrics (seconds).
-	// Default: 60 (1 minute).
-	PollInterval int `yaml:"poll_interval,omitempty"`
+	// PollInterval is how often to poll agents for system metrics.
+	// Default: 1 minute.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_SYSTEM_METRICS_POLLER_INTERVAL"`
 
 	// RetentionDays is how long to keep aggregated system metrics summaries (days).
 	// Default: 30 days.
@@ -321,9 +320,9 @@ type SystemMetricsPollerConfig struct {
 
 // ContinuousProfilingPollerConfig contains continuous CPU profiling configuration (RFD 072).
 type ContinuousProfilingPollerConfig struct {
-	// PollInterval is how often to poll agents for CPU profile samples (seconds).
+	// PollInterval is how often to poll agents for CPU profile samples.
 	// Default: 30 seconds.
-	PollInterval int `yaml:"poll_interval,omitempty"`
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_PROFILING_POLLER_INTERVAL"`
 
 	// RetentionDays is how long to keep aggregated CPU profile summaries (days).
 	// Default: 30 days.
@@ -340,9 +339,9 @@ type ContinuousProfilingPollerConfig struct {
 
 // TelemetryPollerConfig contains telemetry collection configuration (RFD 025).
 type TelemetryPollerConfig struct {
-	// PollInterval is how often to poll agents for telemetry data (seconds).
-	// Default: 60 (1 minute).
-	PollInterval int `yaml:"poll_interval,omitempty"`
+	// PollInterval is how often to poll agents for telemetry data.
+	// Default: 1 minute.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_TELEMETRY_POLL_INTERVAL"`
 
 	// RetentionHours is how long to keep telemetry summaries (hours).
 	// Default: 24.
@@ -549,6 +548,10 @@ type BootstrapConfig struct {
 	// This is used to validate the colony's identity during bootstrap.
 	CAFingerprint string `yaml:"ca_fingerprint,omitempty" env:"CORAL_CA_FINGERPRINT"`
 
+	// ColonyEndpoint is an optional direct URL to the colony.
+	// If provided, discovery lookup is bypassed.
+	ColonyEndpoint string `yaml:"colony_endpoint,omitempty" env:"CORAL_COLONY_ENDPOINT"`
+
 	// BootstrapPSK is the pre-shared key for bootstrap authorization (RFD 088).
 	BootstrapPSK string `yaml:"bootstrap_psk,omitempty" env:"CORAL_BOOTSTRAP_PSK"`
 
@@ -633,20 +636,7 @@ type DebugConfig struct {
 //
 // Returns the resolved subnet and the colony's IP address within that subnet.
 func ResolveMeshSubnet(cfg *ColonyConfig) (subnet string, colonyIP string, err error) {
-	// Check environment variable first
-	if envSubnet := os.Getenv("CORAL_MESH_SUBNET"); envSubnet != "" {
-		ipNet, err := ValidateMeshSubnet(envSubnet)
-		if err != nil {
-			return "", "", fmt.Errorf("invalid CORAL_MESH_SUBNET environment variable: %w", err)
-		}
-
-		// Calculate colony IP (.1 in the subnet)
-		colonyIP := calculateColonyIP(ipNet)
-
-		return envSubnet, colonyIP, nil
-	}
-
-	// Use config value if set
+	// Use config value if set (env var override is handled by loader)
 	if cfg.WireGuard.MeshNetworkIPv4 != "" {
 		ipNet, err := ValidateMeshSubnet(cfg.WireGuard.MeshNetworkIPv4)
 		if err != nil {

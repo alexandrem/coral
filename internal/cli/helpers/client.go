@@ -28,23 +28,22 @@ import (
 // duplication across CLI commands (debug, agent, status, duckdb, etc.).
 //
 // Connection priority:
-//  1. CORAL_COLONY_ENDPOINT env var (highest)
-//  2. Colony config remote.endpoint
-//  3. localhost:{connectPort} (default)
+//  1. Colony config remote.endpoint (env var CORAL_COLONY_ENDPOINT merged via struct tag)
+//  2. localhost:{connectPort} (default)
 //
-// TLS configuration priority:
-//  1. CORAL_INSECURE=true env var (skip TLS verification)
-//  2. CORAL_CA_FILE env var (path to CA certificate)
-//  3. CORAL_CA_DATA env var (base64-encoded CA certificate)
-//  4. Colony config remote.insecure_skip_tls_verify
-//  5. Colony config remote.certificate_authority_data (base64)
-//  6. Colony config remote.certificate_authority (file path)
-//  7. System CA pool (default)
+// TLS configuration priority (env vars merged into config via struct tags):
+//  1. Colony config remote.insecure_skip_tls_verify (env: CORAL_INSECURE)
+//  2. Colony config remote.certificate_authority_data (env: CORAL_CA_DATA)
+//  3. Colony config remote.certificate_authority (env: CORAL_CA_FILE)
+//  4. System CA pool (default)
 
 // GetColonyURL returns the colony URL using config resolution.
-// Priority: CORAL_COLONY_ENDPOINT env var > remote.endpoint config > localhost:{connectPort}.
+// Special case: If CORAL_COLONY_ENDPOINT is set, it can be used standalone without colony config.
+// Otherwise, env vars are merged into config via struct tags (CORAL_COLONY_ENDPOINT -> remote.endpoint).
+// Priority: CORAL_COLONY_ENDPOINT standalone > remote.endpoint config > localhost:{connectPort}.
 func GetColonyURL(colonyID string) (string, error) {
-	// 1. Check environment variable override (RFD 031).
+	// Special case: CORAL_COLONY_ENDPOINT can be used without colony config (remote-only mode).
+	// This allows connecting to remote colonies without local config files.
 	if endpoint := os.Getenv("CORAL_COLONY_ENDPOINT"); endpoint != "" {
 		return endpoint, nil
 	}
@@ -71,19 +70,20 @@ func GetColonyURL(colonyID string) (string, error) {
 		}
 	}
 
-	// Load colony configuration.
+	// Load colony configuration (env vars merged via MergeFromEnv).
 	loader := resolver.GetLoader()
 	colonyConfig, err := loader.LoadColonyConfig(colonyID)
 	if err != nil {
 		return "", fmt.Errorf("failed to load colony config: %w", err)
 	}
 
-	// 2. Check remote endpoint in config.
+	// Check remote endpoint in config (CORAL_COLONY_ENDPOINT would also be merged here,
+	// but we already handled it above for the remote-only use case).
 	if colonyConfig.Remote.Endpoint != "" {
 		return colonyConfig.Remote.Endpoint, nil
 	}
 
-	// 3. Fall back to localhost URL (CLI commands run on same host as colony).
+	// Fall back to localhost URL (CLI commands run on same host as colony).
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
 		connectPort = constants.DefaultColonyPort
@@ -130,22 +130,25 @@ func GetColonyClient(colonyID string) (colonyv1connect.ColonyServiceClient, erro
 }
 
 // buildHTTPClient creates an HTTP client with appropriate TLS configuration.
-// For HTTPS endpoints, it configures TLS based on env vars and colony config.
+// For HTTPS endpoints, it configures TLS based on colony config (with env vars merged).
 func buildHTTPClient(colonyID string, url string) (*http.Client, error) {
 	// For non-HTTPS URLs, use default client.
 	if !strings.HasPrefix(url, "https://") {
 		return http.DefaultClient, nil
 	}
 
-	// Load colony config to check for TLS settings.
-	var colonyConfig *config.ColonyConfig
-	if colonyID != "" || os.Getenv("CORAL_COLONY_ENDPOINT") == "" {
-		// Only load config if we might need TLS settings from it.
-		cfg, _, err := ResolveColonyConfig(colonyID)
-		if err == nil {
-			colonyConfig = cfg
-		}
-		// If config load fails, continue with env vars only.
+	// Load colony config to get TLS settings (env vars merged via MergeFromEnv).
+	colonyConfig, _, err := ResolveColonyConfig(colonyID)
+	if err != nil {
+		// If config load fails, use system CA pool.
+		return &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+				},
+			},
+			Timeout: 30 * time.Second,
+		}, nil
 	}
 
 	tlsConfig, err := buildTLSConfig(colonyConfig)
@@ -161,122 +164,70 @@ func buildHTTPClient(colonyID string, url string) (*http.Client, error) {
 	}, nil
 }
 
-// buildTLSConfig creates TLS configuration based on env vars and colony config.
+// buildTLSConfig creates TLS configuration from colony config.
+// Env vars (CORAL_INSECURE, CORAL_CA_FILE, CORAL_CA_DATA) are merged into colonyConfig.Remote
+// via struct tags by LoadColonyConfig's MergeFromEnv call.
 func buildTLSConfig(colonyConfig *config.ColonyConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
 
-	// 1. Check CORAL_INSECURE env var (highest priority).
-	if insecure := os.Getenv("CORAL_INSECURE"); insecure == "true" || insecure == "1" {
+	if colonyConfig == nil {
+		// Use system CA pool (default).
+		return tlsConfig, nil
+	}
+
+	remote := colonyConfig.Remote
+
+	// Check insecure flag (CORAL_INSECURE env var merged here).
+	if remote.InsecureSkipTLSVerify {
 		tlsConfig.InsecureSkipVerify = true
 		return tlsConfig, nil
 	}
 
-	// 2. Check CORAL_CA_FILE env var.
-	if caFile := os.Getenv("CORAL_CA_FILE"); caFile != "" {
-		certPool, err := loadCACertFromFile(caFile)
+	// Check for CA data (CORAL_CA_DATA env var merged here, takes precedence).
+	if remote.CertificateAuthorityData != "" {
+		caCert, err := base64.StdEncoding.DecodeString(remote.CertificateAuthorityData)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load CA from CORAL_CA_FILE: %w", err)
+			return nil, fmt.Errorf("failed to decode CA from certificate_authority_data: %w", err)
+		}
+
+		// Verify fingerprint if configured (RFD 085).
+		if err := verifyCAFingerprint(caCert, remote.CAFingerprint); err != nil {
+			return nil, fmt.Errorf("CA certificate verification failed: %w\n\nThe local CA certificate may have been tampered with.\nRe-run 'coral colony add-remote' with the correct --ca-fingerprint", err)
+		}
+
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate from certificate_authority_data")
 		}
 		tlsConfig.RootCAs = certPool
 		return tlsConfig, nil
 	}
 
-	// 3. Check CORAL_CA_DATA env var (base64-encoded).
-	if caData := os.Getenv("CORAL_CA_DATA"); caData != "" {
-		certPool, err := loadCACertFromData(caData)
+	// Check for CA file path (CORAL_CA_FILE env var merged here).
+	if remote.CertificateAuthority != "" {
+		caPath := expandPath(remote.CertificateAuthority)
+		caCert, err := os.ReadFile(caPath) // #nosec G304 - path from config
 		if err != nil {
-			return nil, fmt.Errorf("failed to load CA from CORAL_CA_DATA: %w", err)
+			return nil, fmt.Errorf("failed to read CA certificate from %s: %w", caPath, err)
+		}
+
+		// Verify fingerprint if configured (RFD 085).
+		if err := verifyCAFingerprint(caCert, remote.CAFingerprint); err != nil {
+			return nil, fmt.Errorf("CA certificate verification failed: %w\n\nThe local CA certificate may have been tampered with.\nRe-run 'coral colony add-remote' with the correct --ca-fingerprint", err)
+		}
+
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate from %s", caPath)
 		}
 		tlsConfig.RootCAs = certPool
 		return tlsConfig, nil
 	}
 
-	// 4-6. Check colony config for TLS settings.
-	if colonyConfig != nil {
-		remote := colonyConfig.Remote
-
-		// 4. Check insecure flag in config.
-		if remote.InsecureSkipTLSVerify {
-			tlsConfig.InsecureSkipVerify = true
-			return tlsConfig, nil
-		}
-
-		// 5. Check for CA data (base64-encoded, takes precedence).
-		if remote.CertificateAuthorityData != "" {
-			caCert, err := base64.StdEncoding.DecodeString(remote.CertificateAuthorityData)
-			if err != nil {
-				return nil, fmt.Errorf("failed to decode CA from certificate_authority_data: %w", err)
-			}
-
-			// Verify fingerprint if configured (RFD 085).
-			if err := verifyCAFingerprint(caCert, remote.CAFingerprint); err != nil {
-				return nil, fmt.Errorf("CA certificate verification failed: %w\n\nThe local CA certificate may have been tampered with.\nRe-run 'coral colony add-remote' with the correct --ca-fingerprint", err)
-			}
-
-			certPool := x509.NewCertPool()
-			if !certPool.AppendCertsFromPEM(caCert) {
-				return nil, fmt.Errorf("failed to parse CA certificate from certificate_authority_data")
-			}
-			tlsConfig.RootCAs = certPool
-			return tlsConfig, nil
-		}
-
-		// 6. Check for CA file path in config.
-		if remote.CertificateAuthority != "" {
-			caPath := expandPath(remote.CertificateAuthority)
-			caCert, err := os.ReadFile(caPath) // #nosec G304 - path from config
-			if err != nil {
-				return nil, fmt.Errorf("failed to read CA certificate from %s: %w", caPath, err)
-			}
-
-			// Verify fingerprint if configured (RFD 085).
-			if err := verifyCAFingerprint(caCert, remote.CAFingerprint); err != nil {
-				return nil, fmt.Errorf("CA certificate verification failed: %w\n\nThe local CA certificate may have been tampered with.\nRe-run 'coral colony add-remote' with the correct --ca-fingerprint", err)
-			}
-
-			certPool := x509.NewCertPool()
-			if !certPool.AppendCertsFromPEM(caCert) {
-				return nil, fmt.Errorf("failed to parse CA certificate from %s", caPath)
-			}
-			tlsConfig.RootCAs = certPool
-			return tlsConfig, nil
-		}
-	}
-
-	// 7. Use system CA pool (default).
+	// Use system CA pool (default).
 	return tlsConfig, nil
-}
-
-// loadCACertFromFile loads a CA certificate from a file path.
-func loadCACertFromFile(path string) (*x509.CertPool, error) {
-	caCert, err := os.ReadFile(path) // #nosec G304 - validated prior
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CA certificate file %s: %w", path, err)
-	}
-
-	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to parse CA certificate from %s", path)
-	}
-
-	return certPool, nil
-}
-
-// loadCACertFromData loads a CA certificate from base64-encoded data.
-func loadCACertFromData(data string) (*x509.CertPool, error) {
-	caCert, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64 CA data: %w", err)
-	}
-
-	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to parse CA certificate from data")
-	}
-
-	return certPool, nil
 }
 
 // expandPath expands ~ to home directory.
@@ -314,24 +265,9 @@ func verifyCAFingerprint(caCert []byte, fpConfig *config.CAFingerprintConfig) er
 }
 
 // GetColonyClientWithFallback creates a colony service client with automatic fallback.
-// Tries localhost first, then falls back to mesh IP if localhost fails.
+// Tries remote endpoint (with env override), then localhost, then mesh IP.
 // Returns the client and the successful URL.
 func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1connect.ColonyServiceClient, string, error) {
-	// 0. Check environment variable override (RFD 031) - HIGHEST PRIORITY.
-	// If CORAL_COLONY_ENDPOINT is set, we use it directly and skip all other resolution logic.
-	if endpoint := os.Getenv("CORAL_COLONY_ENDPOINT"); endpoint != "" {
-		client, err := GetColonyClient(colonyID) // This already uses the env var
-		if err != nil {
-			return nil, "", err
-		}
-		// Verify connection
-		_, err = client.GetStatus(ctx, connect.NewRequest(&colonyv1.GetStatusRequest{}))
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to connect to CORAL_COLONY_ENDPOINT=%s: %w", endpoint, err)
-		}
-		return client, endpoint, nil
-	}
-
 	// Create resolver.
 	resolver, err := config.NewResolver()
 	if err != nil {
@@ -346,7 +282,7 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 		}
 	}
 
-	// Load colony configuration.
+	// Load colony configuration (CORAL_COLONY_ENDPOINT env var merged into remote.endpoint).
 	loader := resolver.GetLoader()
 	colonyConfig, err := loader.LoadColonyConfig(colonyID)
 	if err != nil {
@@ -366,32 +302,31 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 		connectPort = constants.DefaultColonyPort
 	}
 
-	// Try localhost first.
-	localhostURL := fmt.Sprintf("http://localhost:%d", connectPort)
-	client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, localhostURL)
-
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	req := connect.NewRequest(&colonyv1.GetStatusRequest{}) // Changed to GetStatus for lighter check
-	_, err = client.GetStatus(ctxWithTimeout, req)
-	if err == nil {
-		// Localhost worked.
-		return client, localhostURL, nil
-	}
-
-	// Try remote endpoint if configured in YAML.
+	// Try remote endpoint first if configured (CORAL_COLONY_ENDPOINT env var merged here).
 	if colonyConfig.Remote.Endpoint != "" {
 		remoteURL := colonyConfig.Remote.Endpoint
-		client = colonyv1connect.NewColonyServiceClient(httpClient, remoteURL)
+		client := colonyv1connect.NewColonyServiceClient(httpClient, remoteURL)
 
-		ctxWithTimeout2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel2()
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 
-		_, err = client.GetStatus(ctxWithTimeout2, connect.NewRequest(&colonyv1.GetStatusRequest{}))
+		_, err = client.GetStatus(ctxWithTimeout, connect.NewRequest(&colonyv1.GetStatusRequest{}))
 		if err == nil {
 			return client, remoteURL, nil
 		}
+	}
+
+	// Try localhost.
+	localhostURL := fmt.Sprintf("http://localhost:%d", connectPort)
+	client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, localhostURL)
+
+	ctxWithTimeout2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel2()
+
+	_, err = client.GetStatus(ctxWithTimeout2, connect.NewRequest(&colonyv1.GetStatusRequest{}))
+	if err == nil {
+		// Localhost worked.
+		return client, localhostURL, nil
 	}
 
 	// Fallback to mesh IP.

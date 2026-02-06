@@ -48,17 +48,6 @@ func ResolveAskConfig(globalCfg *GlobalConfig, colonyCfg *ColonyConfig) (*AskCon
 		}
 	}
 
-	// Apply environment variable overrides.
-	if envModel := os.Getenv("CORAL_ASK_MODEL"); envModel != "" {
-		resolved.DefaultModel = envModel
-	}
-	if envMaxTurns := os.Getenv("CORAL_ASK_MAX_TURNS"); envMaxTurns != "" {
-		var maxTurns int
-		if _, err := fmt.Sscanf(envMaxTurns, "%d", &maxTurns); err == nil && maxTurns > 0 {
-			resolved.Conversation.MaxTurns = maxTurns
-		}
-	}
-
 	// Resolve API key references (env:// prefix).
 	if err := resolveAPIKeyReferences(&resolved); err != nil {
 		return nil, fmt.Errorf("failed to resolve API keys: %w", err)
