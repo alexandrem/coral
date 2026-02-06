@@ -317,7 +317,7 @@ Examples:
 			telemetryRetentionHours := 24
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Telemetry.PollInterval > 0 {
-				telemetryPollInterval = time.Duration(colonyConfigForEndpoints.Telemetry.PollInterval) * time.Second
+				telemetryPollInterval = colonyConfigForEndpoints.Telemetry.PollInterval
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Telemetry.RetentionHours > 0 {
 				telemetryRetentionHours = colonyConfigForEndpoints.Telemetry.RetentionHours
@@ -342,14 +342,14 @@ Examples:
 
 			// Create and start Beyla metrics poller for RFD 032.
 			// Read Beyla configuration from colony config, with sensible defaults.
-			pollIntervalSecs := 60 // Default: poll every 60 seconds
+			beylaPollerInterval := 60 * time.Second // Default: poll every 60 seconds
 			httpRetentionDays := 30
 			grpcRetentionDays := 30
 			sqlRetentionDays := 14
 			traceRetentionDays := 7
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.PollInterval > 0 {
-				pollIntervalSecs = colonyConfigForEndpoints.Beyla.PollInterval
+				beylaPollerInterval = colonyConfigForEndpoints.Beyla.PollInterval
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.Retention.HTTPDays > 0 {
 				httpRetentionDays = colonyConfigForEndpoints.Beyla.Retention.HTTPDays
@@ -368,7 +368,7 @@ Examples:
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(pollIntervalSecs)*time.Second,
+				beylaPollerInterval,
 				httpRetentionDays,
 				grpcRetentionDays,
 				sqlRetentionDays,
@@ -382,7 +382,7 @@ Examples:
 					Msg("Failed to start Beyla metrics poller")
 			} else {
 				logger.Info().
-					Int("poll_interval_secs", pollIntervalSecs).
+					Dur("poll_interval", beylaPollerInterval).
 					Int("http_retention_days", httpRetentionDays).
 					Int("grpc_retention_days", grpcRetentionDays).
 					Int("sql_retention_days", sqlRetentionDays).
@@ -392,11 +392,11 @@ Examples:
 
 			// Create and start System Metrics poller for RFD 071.
 			// Read system metrics configuration from colony config, with sensible defaults.
-			systemMetricsPollIntervalSecs := 60 // Default: poll every 60 seconds
-			systemMetricsRetentionDays := 30    // Default: 30 days retention
+			systemMetricsPollInterval := 60 * time.Second // Default: poll every 60 seconds
+			systemMetricsRetentionDays := 30              // Default: 30 days retention
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.SystemMetrics.PollInterval > 0 {
-				systemMetricsPollIntervalSecs = colonyConfigForEndpoints.SystemMetrics.PollInterval
+				systemMetricsPollInterval = colonyConfigForEndpoints.SystemMetrics.PollInterval
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.SystemMetrics.RetentionDays > 0 {
 				systemMetricsRetentionDays = colonyConfigForEndpoints.SystemMetrics.RetentionDays
@@ -406,7 +406,7 @@ Examples:
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(systemMetricsPollIntervalSecs)*time.Second,
+				systemMetricsPollInterval,
 				systemMetricsRetentionDays,
 				logger,
 			)
@@ -417,18 +417,18 @@ Examples:
 					Msg("Failed to start system metrics poller")
 			} else {
 				logger.Info().
-					Int("poll_interval_secs", systemMetricsPollIntervalSecs).
+					Dur("poll_interval", systemMetricsPollInterval).
 					Int("retention_days", systemMetricsRetentionDays).
 					Msg("System metrics poller started")
 			}
 
 			// Create and start CPU Profile poller for RFD 072.
 			// Read CPU profiling configuration from colony config, with sensible defaults.
-			cpuProfilePollIntervalSecs := 30 // Default: poll every 30 seconds
-			cpuProfileRetentionDays := 30    // Default: 30 days retention
+			cpuProfilePollInterval := 30 * time.Second // Default: poll every 30 seconds
+			cpuProfileRetentionDays := 30              // Default: 30 days retention
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.ContinuousProfiling.PollInterval > 0 {
-				cpuProfilePollIntervalSecs = colonyConfigForEndpoints.ContinuousProfiling.PollInterval
+				cpuProfilePollInterval = colonyConfigForEndpoints.ContinuousProfiling.PollInterval
 			}
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.ContinuousProfiling.RetentionDays > 0 {
 				cpuProfileRetentionDays = colonyConfigForEndpoints.ContinuousProfiling.RetentionDays
@@ -438,7 +438,7 @@ Examples:
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(cpuProfilePollIntervalSecs)*time.Second,
+				cpuProfilePollInterval,
 				cpuProfileRetentionDays,
 				logger,
 			)
@@ -449,7 +449,7 @@ Examples:
 					Msg("Failed to start CPU profile poller")
 			} else {
 				logger.Info().
-					Int("poll_interval_secs", cpuProfilePollIntervalSecs).
+					Dur("poll_interval", cpuProfilePollInterval).
 					Int("retention_days", cpuProfileRetentionDays).
 					Msg("CPU profile poller started")
 			}
@@ -459,8 +459,8 @@ Examples:
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(cpuProfilePollIntervalSecs)*time.Second, // Reuse same poll interval config.
-				cpuProfileRetentionDays,                               // Reuse same retention config.
+				cpuProfilePollInterval,  // Reuse same poll interval config.
+				cpuProfileRetentionDays, // Reuse same retention config.
 				logger,
 			)
 
@@ -474,17 +474,17 @@ Examples:
 
 			// Create and start Service poller to sync agent services to colony.
 			// This ensures ListServices API shows all connected services.
-			servicePollIntervalSecs := 10 // Poll every 10 seconds (services change frequently).
+			servicePollInterval := 10 * time.Second // Poll every 10 seconds (services change frequently).
 
 			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Services.PollInterval > 0 {
-				servicePollIntervalSecs = colonyConfigForEndpoints.Services.PollInterval
+				servicePollInterval = colonyConfigForEndpoints.Services.PollInterval
 			}
 
 			servicePoller := colony.NewServicePoller(
 				ctx,
 				agentRegistry,
 				db,
-				time.Duration(servicePollIntervalSecs)*time.Second,
+				servicePollInterval,
 				logger,
 			)
 
@@ -494,7 +494,7 @@ Examples:
 					Msg("Failed to start service poller")
 			} else {
 				logger.Info().
-					Int("poll_interval_secs", servicePollIntervalSecs).
+					Dur("poll_interval", servicePollInterval).
 					Msg("Service poller started")
 			}
 

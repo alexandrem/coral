@@ -92,9 +92,9 @@ type ColonyConfig struct {
 
 // ServicesConfig contains service port configuration.
 type ServicesConfig struct {
-	ConnectPort   int `yaml:"connect_port"`
-	DashboardPort int `yaml:"dashboard_port"`
-	PollInterval  int `yaml:"poll_interval,omitempty" env:"CORAL_SERVICES_POLL_INTERVAL"` // How often to poll agents for service list (seconds)
+	ConnectPort   int           `yaml:"connect_port"`
+	DashboardPort int           `yaml:"dashboard_port"`
+	PollInterval  time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_SERVICES_POLL_INTERVAL"` // How often to poll agents for service list.
 }
 
 // WireGuardConfig contains WireGuard mesh configuration.
@@ -273,8 +273,8 @@ type PublicAuthConfig struct {
 
 // BeylaPollerConfig contains Beyla metrics/traces collection configuration (RFD 032, RFD 036).
 type BeylaPollerConfig struct {
-	// PollInterval is how often to poll agents for Beyla data (seconds).
-	PollInterval int `yaml:"poll_interval,omitempty" env:"CORAL_BEYLA_POLL_INTERVAL"`
+	// PollInterval is how often to poll agents for Beyla data.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_BEYLA_POLL_INTERVAL"`
 
 	// Retention settings for different data types.
 	Retention BeylaRetentionConfig `yaml:"retention,omitempty"`
@@ -282,9 +282,9 @@ type BeylaPollerConfig struct {
 
 // FunctionRegistryConfig contains function discovery configuration (RFD 063).
 type FunctionRegistryConfig struct {
-	// PollInterval is how often to poll agents for function metadata (seconds).
-	// Default: 300 (5 minutes).
-	PollInterval int `yaml:"poll_interval,omitempty" env:"CORAL_FUNCTIONS_POLL_INTERVAL"`
+	// PollInterval is how often to poll agents for function metadata.
+	// Default: 5 minutes.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_FUNCTIONS_POLL_INTERVAL"`
 
 	// Disabled controls whether function discovery is enabled.
 	// Default: false (function discovery is enabled).
@@ -309,9 +309,9 @@ type BeylaRetentionConfig struct {
 // SystemMetricsPollerConfig contains system metrics poller configuration (RFD 071).
 // This is for colony-side aggregation, distinct from agent-side SystemMetricsConfig.
 type SystemMetricsPollerConfig struct {
-	// PollInterval is how often to poll agents for system metrics (seconds).
-	// Default: 60 (1 minute).
-	PollInterval int `yaml:"poll_interval,omitempty" env:"CORAL_SYSTEM_METRICS_POLLER_INTERVAL"`
+	// PollInterval is how often to poll agents for system metrics.
+	// Default: 1 minute.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_SYSTEM_METRICS_POLLER_INTERVAL"`
 
 	// RetentionDays is how long to keep aggregated system metrics summaries (days).
 	// Default: 30 days.
@@ -320,9 +320,9 @@ type SystemMetricsPollerConfig struct {
 
 // ContinuousProfilingPollerConfig contains continuous CPU profiling configuration (RFD 072).
 type ContinuousProfilingPollerConfig struct {
-	// PollInterval is how often to poll agents for CPU profile samples (seconds).
+	// PollInterval is how often to poll agents for CPU profile samples.
 	// Default: 30 seconds.
-	PollInterval int `yaml:"poll_interval,omitempty" env:"CORAL_PROFILING_POLLER_INTERVAL"`
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_PROFILING_POLLER_INTERVAL"`
 
 	// RetentionDays is how long to keep aggregated CPU profile summaries (days).
 	// Default: 30 days.
@@ -339,9 +339,9 @@ type ContinuousProfilingPollerConfig struct {
 
 // TelemetryPollerConfig contains telemetry collection configuration (RFD 025).
 type TelemetryPollerConfig struct {
-	// PollInterval is how often to poll agents for telemetry data (seconds).
-	// Default: 60 (1 minute).
-	PollInterval int `yaml:"poll_interval,omitempty" env:"CORAL_TELEMETRY_POLL_INTERVAL"`
+	// PollInterval is how often to poll agents for telemetry data.
+	// Default: 1 minute.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty" env:"CORAL_TELEMETRY_POLL_INTERVAL"`
 
 	// RetentionHours is how long to keep telemetry summaries (hours).
 	// Default: 24.

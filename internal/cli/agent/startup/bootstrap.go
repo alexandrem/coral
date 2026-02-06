@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/coral-mesh/coral/internal/agent/bootstrap"
@@ -116,13 +117,19 @@ func (bp *BootstrapPhase) Execute(ctx context.Context) (*BootstrapResult, error)
 
 	// Discovery endpoint is loaded from config (env var override via MergeFromEnv)
 	discoveryURL := ""
-	// Try to load from global config.
+	// Try to load from global config (which will merge CORAL_DISCOVERY_ENDPOINT if set).
 	loader, err := config.NewLoader()
 	if err == nil {
 		globalCfg, err := loader.LoadGlobalConfig()
 		if err == nil && globalCfg.Discovery.Endpoint != "" {
 			discoveryURL = globalCfg.Discovery.Endpoint
 		}
+	}
+
+	// Fallback: In containerized environments without global config file,
+	// check CORAL_DISCOVERY_ENDPOINT directly
+	if discoveryURL == "" {
+		discoveryURL = os.Getenv("CORAL_DISCOVERY_ENDPOINT")
 	}
 
 	if discoveryURL == "" {
