@@ -16,6 +16,7 @@ import (
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/safe"
 )
 
 // probeAttacher defines the interface for attaching and detaching probes.
@@ -383,17 +384,12 @@ func (fp *FunctionProfiler) buildAsyncResponse(cfg *profileConfig, state *profil
 	}
 
 	return &debugpb.ProfileFunctionsResponse{
-		SessionId:   primarySessionID,
-		Status:      "in_progress",
-		ServiceName: cfg.ServiceName,
-		Query:       cfg.Query,
-		Strategy:    cfg.Strategy,
-		Summary: &debugpb.ProfileSummary{
-			FunctionsSelected: int32(state.SuccessCount + state.FailCount),
-			FunctionsProbed:   int32(state.SuccessCount),
-			ProbesFailed:      int32(state.FailCount),
-			Duration:          durationpb.New(cfg.Duration),
-		},
+		SessionId:      primarySessionID,
+		Status:         "in_progress",
+		ServiceName:    cfg.ServiceName,
+		Query:          cfg.Query,
+		Strategy:       cfg.Strategy,
+		Summary:        fp.getProfileSummary(cfg, state),
 		Results:        state.Results,
 		Recommendation: fmt.Sprintf("Profiling in progress. Created %d session(s).", len(state.SessionIDs)),
 		NextSteps:      nextSteps,
@@ -416,23 +412,54 @@ func (fp *FunctionProfiler) buildSyncResponse(
 	recommendation := fp.buildRecommendation(state, bottlenecks, totalEvents)
 	nextSteps := fp.buildNextSteps(state.SessionIDs, bottlenecks, totalEvents)
 
+	summary := fp.getProfileSummary(cfg, state)
+	summary.TotalEventsCaptured = totalEvents
+
 	return &debugpb.ProfileFunctionsResponse{
-		SessionId:   primarySessionID,
-		Status:      status,
-		ServiceName: cfg.ServiceName,
-		Query:       cfg.Query,
-		Strategy:    cfg.Strategy,
-		Summary: &debugpb.ProfileSummary{
-			FunctionsSelected:   int32(state.SuccessCount + state.FailCount),
-			FunctionsProbed:     int32(state.SuccessCount),
-			ProbesFailed:        int32(state.FailCount),
-			TotalEventsCaptured: totalEvents,
-			Duration:            durationpb.New(cfg.Duration),
-		},
+		SessionId:      primarySessionID,
+		Status:         status,
+		ServiceName:    cfg.ServiceName,
+		Query:          cfg.Query,
+		Strategy:       cfg.Strategy,
+		Summary:        summary,
 		Results:        state.Results,
 		Bottlenecks:    bottlenecks,
 		Recommendation: recommendation,
 		NextSteps:      nextSteps,
+	}
+}
+
+func (fp *FunctionProfiler) getProfileSummary(
+	cfg *profileConfig,
+	state *profileState,
+) *debugpb.ProfileSummary {
+	selected, clamped := safe.IntToInt32(state.SuccessCount + state.FailCount)
+	if clamped {
+		fp.logger.Warn().
+			Int32("clamped", selected).
+			Int("original", state.SuccessCount+state.FailCount).
+			Msg("Number of functions selected clamped")
+	}
+	probed, clamped := safe.IntToInt32(state.SuccessCount)
+	if clamped {
+		fp.logger.Warn().
+			Int32("clamped", probed).
+			Int("original", state.SuccessCount).
+			Msg("Number of functions probed clamped")
+	}
+	failed, clamped := safe.IntToInt32(state.FailCount)
+	if clamped {
+		fp.logger.Warn().
+			Int32("clamped", failed).
+			Int("original", state.FailCount).
+			Msg("Number of functions failed clamped")
+	}
+
+	return &debugpb.ProfileSummary{
+		FunctionsSelected: selected,
+		FunctionsProbed:   probed,
+		ProbesFailed:      failed,
+		Duration:          durationpb.New(cfg.Duration),
 	}
 }
 
