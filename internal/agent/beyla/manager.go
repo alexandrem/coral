@@ -357,6 +357,38 @@ func (m *Manager) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb
 	return m.beylaStorage.QueryTraceByID(ctx, traceID)
 }
 
+// QueryHTTPMetricsBySeqID queries HTTP metrics with seq_id > startSeqID (RFD 089).
+func (m *Manager) QueryHTTPMetricsBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, uint64, error) {
+	if m.beylaStorage == nil {
+		return nil, 0, fmt.Errorf("beyla storage not initialized")
+	}
+	return m.beylaStorage.QueryHTTPMetricsBySeqID(ctx, startSeqID, maxRecords, serviceNames)
+}
+
+// QueryGRPCMetricsBySeqID queries gRPC metrics with seq_id > startSeqID (RFD 089).
+func (m *Manager) QueryGRPCMetricsBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, uint64, error) {
+	if m.beylaStorage == nil {
+		return nil, 0, fmt.Errorf("beyla storage not initialized")
+	}
+	return m.beylaStorage.QueryGRPCMetricsBySeqID(ctx, startSeqID, maxRecords, serviceNames)
+}
+
+// QuerySQLMetricsBySeqID queries SQL metrics with seq_id > startSeqID (RFD 089).
+func (m *Manager) QuerySQLMetricsBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, uint64, error) {
+	if m.beylaStorage == nil {
+		return nil, 0, fmt.Errorf("beyla storage not initialized")
+	}
+	return m.beylaStorage.QuerySQLMetricsBySeqID(ctx, startSeqID, maxRecords, serviceNames)
+}
+
+// QueryTracesBySeqID queries traces with seq_id > startSeqID (RFD 089).
+func (m *Manager) QueryTracesBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaTraceSpan, uint64, error) {
+	if m.beylaStorage == nil {
+		return nil, 0, fmt.Errorf("beyla storage not initialized")
+	}
+	return m.beylaStorage.QueryTracesBySeqID(ctx, startSeqID, maxRecords, serviceNames)
+}
+
 // IsRunning returns whether Beyla is currently running.
 func (m *Manager) IsRunning() bool {
 	m.mu.RLock()

@@ -407,4 +407,37 @@ var schemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_memory_profiles_service_time ON memory_profile_summaries(service_name, timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_memory_profiles_agent ON memory_profile_summaries(agent_id, timestamp DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_memory_profiles_build_id ON memory_profile_summaries(build_id)`,
+
+	// Polling checkpoints - sequence-based checkpoint tracking per agent per data type (RFD 089).
+	`CREATE TABLE IF NOT EXISTS polling_checkpoints (
+		agent_id TEXT NOT NULL,
+		data_type TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		last_seq_id UBIGINT NOT NULL,
+		last_poll_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (agent_id, data_type)
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_polling_checkpoints_agent ON polling_checkpoints(agent_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_polling_checkpoints_updated ON polling_checkpoints(updated_at DESC)`,
+
+	// Sequence gaps - tracks detected gaps in polling sequences for recovery (RFD 089).
+	`CREATE SEQUENCE IF NOT EXISTS seq_sequence_gaps_id START 1`,
+	`CREATE TABLE IF NOT EXISTS sequence_gaps (
+		id INTEGER PRIMARY KEY DEFAULT nextval('seq_sequence_gaps_id'),
+		agent_id TEXT NOT NULL,
+		data_type TEXT NOT NULL,
+		start_seq_id UBIGINT NOT NULL,
+		end_seq_id UBIGINT NOT NULL,
+		detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		recovered_at TIMESTAMP,
+		status TEXT NOT NULL DEFAULT 'detected',
+		recovery_attempts INTEGER DEFAULT 0,
+		last_recovery_attempt TIMESTAMP
+	)`,
+
+	`CREATE INDEX IF NOT EXISTS idx_sequence_gaps_agent ON sequence_gaps(agent_id, data_type)`,
+	`CREATE INDEX IF NOT EXISTS idx_sequence_gaps_status ON sequence_gaps(status)`,
 }

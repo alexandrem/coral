@@ -105,9 +105,21 @@ func NewBeylaStorage(db *sql.DB, dbPath string, logger zerolog.Logger) (*BeylaSt
 
 // initSchema creates the Beyla metrics tables in agent's local DuckDB.
 func (s *BeylaStorage) initSchema() error {
+	// Sequences for checkpoint-based polling (RFD 089).
+	seqSchema := `
+		CREATE SEQUENCE IF NOT EXISTS seq_beyla_http_metrics START 1;
+		CREATE SEQUENCE IF NOT EXISTS seq_beyla_grpc_metrics START 1;
+		CREATE SEQUENCE IF NOT EXISTS seq_beyla_sql_metrics START 1;
+		CREATE SEQUENCE IF NOT EXISTS seq_beyla_traces START 1;
+	`
+	if _, err := s.db.Exec(seqSchema); err != nil {
+		return fmt.Errorf("failed to create Beyla sequences: %w", err)
+	}
+
 	// Beyla HTTP metrics (RED: Rate, Errors, Duration).
 	httpMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_http_metrics_local (
+			seq_id           UBIGINT DEFAULT nextval('seq_beyla_http_metrics'),
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
 			http_method      VARCHAR(10),
@@ -124,6 +136,9 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_http_service
 		ON beyla_http_metrics_local(service_name, timestamp DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_http_seq_id
+		ON beyla_http_metrics_local(seq_id);
 	`
 	if _, err := s.db.Exec(httpMetricsSchema); err != nil {
 		return fmt.Errorf("failed to create HTTP metrics schema: %w", err)
@@ -132,6 +147,7 @@ func (s *BeylaStorage) initSchema() error {
 	// Beyla gRPC metrics.
 	grpcMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_grpc_metrics_local (
+			seq_id           UBIGINT DEFAULT nextval('seq_beyla_grpc_metrics'),
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
 			grpc_method      VARCHAR(255),
@@ -147,6 +163,9 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_grpc_service
 		ON beyla_grpc_metrics_local(service_name, timestamp DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_grpc_seq_id
+		ON beyla_grpc_metrics_local(seq_id);
 	`
 	if _, err := s.db.Exec(grpcMetricsSchema); err != nil {
 		return fmt.Errorf("failed to create gRPC metrics schema: %w", err)
@@ -155,6 +174,7 @@ func (s *BeylaStorage) initSchema() error {
 	// Beyla SQL metrics.
 	sqlMetricsSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_sql_metrics_local (
+			seq_id           UBIGINT DEFAULT nextval('seq_beyla_sql_metrics'),
 			timestamp        TIMESTAMP NOT NULL,
 			service_name     VARCHAR NOT NULL,
 			sql_operation    VARCHAR(50),
@@ -170,6 +190,9 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_sql_service
 		ON beyla_sql_metrics_local(service_name, timestamp DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_sql_seq_id
+		ON beyla_sql_metrics_local(seq_id);
 	`
 	if _, err := s.db.Exec(sqlMetricsSchema); err != nil {
 		return fmt.Errorf("failed to create SQL metrics schema: %w", err)
@@ -178,6 +201,7 @@ func (s *BeylaStorage) initSchema() error {
 	// Beyla distributed traces (RFD 036).
 	tracesSchema := `
 		CREATE TABLE IF NOT EXISTS beyla_traces_local (
+			seq_id         UBIGINT DEFAULT nextval('seq_beyla_traces'),
 			trace_id       VARCHAR(32) NOT NULL,
 			span_id        VARCHAR(16) NOT NULL,
 			parent_span_id VARCHAR(16),
@@ -204,6 +228,9 @@ func (s *BeylaStorage) initSchema() error {
 
 		CREATE INDEX IF NOT EXISTS idx_beyla_traces_agent_id
 		ON beyla_traces_local(agent_id, start_time DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_beyla_traces_seq_id
+		ON beyla_traces_local(seq_id);
 	`
 	if _, err := s.db.Exec(tracesSchema); err != nil {
 		return fmt.Errorf("failed to create traces schema: %w", err)
@@ -898,6 +925,369 @@ func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.
 	}
 
 	return spans, nil
+}
+
+// QueryHTTPMetricsBySeqID queries HTTP metrics with seq_id > startSeqID (RFD 089).
+// Returns aggregated metrics, the maximum seq_id, and any error.
+func (s *BeylaStorage) QueryHTTPMetricsBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if maxRecords <= 0 {
+		maxRecords = 10000
+	} else if maxRecords > 50000 {
+		maxRecords = 50000
+	}
+
+	query := `
+		SELECT seq_id, timestamp, service_name, http_method, http_route, http_status_code,
+		       latency_bucket_ms, count, attributes::VARCHAR as attributes
+		FROM beyla_http_metrics_local
+		WHERE seq_id > ?
+	`
+	args := []interface{}{startSeqID}
+
+	if len(serviceNames) > 0 {
+		placeholders := make([]string, len(serviceNames))
+		for i := range serviceNames {
+			placeholders[i] = "?"
+			args = append(args, serviceNames[i])
+		}
+		query += " AND service_name IN (" + placeholders[0]
+		for i := 1; i < len(placeholders); i++ {
+			query += ", " + placeholders[i]
+		}
+		query += ")"
+	}
+
+	query += " ORDER BY seq_id ASC LIMIT ?"
+	args = append(args, maxRecords)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query HTTP metrics by seq_id: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	metricsMap := make(map[string]*ebpfpb.BeylaHttpMetrics)
+	var maxSeqID uint64
+
+	for rows.Next() {
+		var seqID uint64
+		var timestamp time.Time
+		var serviceName, httpMethod, httpRoute string
+		var httpStatusCode int32
+		var bucket float64
+		var count uint64
+		var attributesJSON string
+
+		err := rows.Scan(&seqID, &timestamp, &serviceName, &httpMethod, &httpRoute,
+			&httpStatusCode, &bucket, &count, &attributesJSON)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if seqID > maxSeqID {
+			maxSeqID = seqID
+		}
+
+		key := fmt.Sprintf("%d_%s_%s_%s_%d", timestamp.Unix(), serviceName, httpMethod, httpRoute, httpStatusCode)
+		metric, exists := metricsMap[key]
+		if !exists {
+			var attrs map[string]string
+			if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
+				attrs = make(map[string]string)
+			}
+			metric = &ebpfpb.BeylaHttpMetrics{
+				Timestamp:      timestamppb.New(timestamp),
+				ServiceName:    serviceName,
+				HttpMethod:     httpMethod,
+				HttpRoute:      httpRoute,
+				HttpStatusCode: uint32(httpStatusCode), //nolint:gosec // G115
+				LatencyBuckets: []float64{},
+				LatencyCounts:  []uint64{},
+				Attributes:     attrs,
+			}
+			metricsMap[key] = metric
+		}
+		metric.LatencyBuckets = append(metric.LatencyBuckets, bucket)
+		metric.LatencyCounts = append(metric.LatencyCounts, count)
+	}
+
+	metrics := make([]*ebpfpb.BeylaHttpMetrics, 0, len(metricsMap))
+	for _, metric := range metricsMap {
+		metrics = append(metrics, metric)
+	}
+	return metrics, maxSeqID, nil
+}
+
+// QueryGRPCMetricsBySeqID queries gRPC metrics with seq_id > startSeqID (RFD 089).
+func (s *BeylaStorage) QueryGRPCMetricsBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if maxRecords <= 0 {
+		maxRecords = 10000
+	} else if maxRecords > 50000 {
+		maxRecords = 50000
+	}
+
+	query := `
+		SELECT seq_id, timestamp, service_name, grpc_method, grpc_status_code,
+		       latency_bucket_ms, count, attributes::VARCHAR as attributes
+		FROM beyla_grpc_metrics_local
+		WHERE seq_id > ?
+	`
+	args := []interface{}{startSeqID}
+
+	if len(serviceNames) > 0 {
+		placeholders := make([]string, len(serviceNames))
+		for i := range serviceNames {
+			placeholders[i] = "?"
+			args = append(args, serviceNames[i])
+		}
+		query += " AND service_name IN (" + placeholders[0]
+		for i := 1; i < len(placeholders); i++ {
+			query += ", " + placeholders[i]
+		}
+		query += ")"
+	}
+
+	query += " ORDER BY seq_id ASC LIMIT ?"
+	args = append(args, maxRecords)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query gRPC metrics by seq_id: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	metricsMap := make(map[string]*ebpfpb.BeylaGrpcMetrics)
+	var maxSeqID uint64
+
+	for rows.Next() {
+		var seqID uint64
+		var timestamp time.Time
+		var serviceName, grpcMethod string
+		var grpcStatusCode int32
+		var bucket float64
+		var count uint64
+		var attributesJSON string
+
+		err := rows.Scan(&seqID, &timestamp, &serviceName, &grpcMethod,
+			&grpcStatusCode, &bucket, &count, &attributesJSON)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if seqID > maxSeqID {
+			maxSeqID = seqID
+		}
+
+		key := fmt.Sprintf("%d_%s_%s_%d", timestamp.Unix(), serviceName, grpcMethod, grpcStatusCode)
+		metric, exists := metricsMap[key]
+		if !exists {
+			var attrs map[string]string
+			if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
+				attrs = make(map[string]string)
+			}
+			metric = &ebpfpb.BeylaGrpcMetrics{
+				Timestamp:      timestamppb.New(timestamp),
+				ServiceName:    serviceName,
+				GrpcMethod:     grpcMethod,
+				GrpcStatusCode: uint32(grpcStatusCode), //nolint:gosec // G115
+				LatencyBuckets: []float64{},
+				LatencyCounts:  []uint64{},
+				Attributes:     attrs,
+			}
+			metricsMap[key] = metric
+		}
+		metric.LatencyBuckets = append(metric.LatencyBuckets, bucket)
+		metric.LatencyCounts = append(metric.LatencyCounts, count)
+	}
+
+	metrics := make([]*ebpfpb.BeylaGrpcMetrics, 0, len(metricsMap))
+	for _, metric := range metricsMap {
+		metrics = append(metrics, metric)
+	}
+	return metrics, maxSeqID, nil
+}
+
+// QuerySQLMetricsBySeqID queries SQL metrics with seq_id > startSeqID (RFD 089).
+func (s *BeylaStorage) QuerySQLMetricsBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if maxRecords <= 0 {
+		maxRecords = 5000
+	} else if maxRecords > 50000 {
+		maxRecords = 50000
+	}
+
+	query := `
+		SELECT seq_id, timestamp, service_name, sql_operation, table_name,
+		       latency_bucket_ms, count, attributes::VARCHAR as attributes
+		FROM beyla_sql_metrics_local
+		WHERE seq_id > ?
+	`
+	args := []interface{}{startSeqID}
+
+	if len(serviceNames) > 0 {
+		placeholders := make([]string, len(serviceNames))
+		for i := range serviceNames {
+			placeholders[i] = "?"
+			args = append(args, serviceNames[i])
+		}
+		query += " AND service_name IN (" + placeholders[0]
+		for i := 1; i < len(placeholders); i++ {
+			query += ", " + placeholders[i]
+		}
+		query += ")"
+	}
+
+	query += " ORDER BY seq_id ASC LIMIT ?"
+	args = append(args, maxRecords)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query SQL metrics by seq_id: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	metricsMap := make(map[string]*ebpfpb.BeylaSqlMetrics)
+	var maxSeqID uint64
+
+	for rows.Next() {
+		var seqID uint64
+		var timestamp time.Time
+		var serviceName, sqlOperation, tableName string
+		var bucket float64
+		var count uint64
+		var attributesJSON string
+
+		err := rows.Scan(&seqID, &timestamp, &serviceName, &sqlOperation, &tableName,
+			&bucket, &count, &attributesJSON)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if seqID > maxSeqID {
+			maxSeqID = seqID
+		}
+
+		key := fmt.Sprintf("%d_%s_%s_%s", timestamp.Unix(), serviceName, sqlOperation, tableName)
+		metric, exists := metricsMap[key]
+		if !exists {
+			var attrs map[string]string
+			if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
+				attrs = make(map[string]string)
+			}
+			metric = &ebpfpb.BeylaSqlMetrics{
+				Timestamp:      timestamppb.New(timestamp),
+				ServiceName:    serviceName,
+				SqlOperation:   sqlOperation,
+				TableName:      tableName,
+				LatencyBuckets: []float64{},
+				LatencyCounts:  []uint64{},
+				Attributes:     attrs,
+			}
+			metricsMap[key] = metric
+		}
+		metric.LatencyBuckets = append(metric.LatencyBuckets, bucket)
+		metric.LatencyCounts = append(metric.LatencyCounts, count)
+	}
+
+	metrics := make([]*ebpfpb.BeylaSqlMetrics, 0, len(metricsMap))
+	for _, metric := range metricsMap {
+		metrics = append(metrics, metric)
+	}
+	return metrics, maxSeqID, nil
+}
+
+// QueryTracesBySeqID queries trace spans with seq_id > startSeqID (RFD 089).
+func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaTraceSpan, uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if maxRecords <= 0 {
+		maxRecords = 1000
+	} else if maxRecords > 50000 {
+		maxRecords = 50000
+	}
+
+	query := `
+		SELECT seq_id, trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
+		       start_time, duration_us, status_code, attributes::VARCHAR as attributes
+		FROM beyla_traces_local
+		WHERE seq_id > ?
+	`
+	args := []interface{}{startSeqID}
+
+	if len(serviceNames) > 0 {
+		placeholders := make([]string, len(serviceNames))
+		for i := range serviceNames {
+			placeholders[i] = "?"
+			args = append(args, serviceNames[i])
+		}
+		query += " AND service_name IN (" + placeholders[0]
+		for i := 1; i < len(placeholders); i++ {
+			query += ", " + placeholders[i]
+		}
+		query += ")"
+	}
+
+	query += " ORDER BY seq_id ASC LIMIT ?"
+	args = append(args, maxRecords)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query traces by seq_id: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
+	var maxSeqID uint64
+
+	for rows.Next() {
+		var seqID uint64
+		var traceID, spanID, parentSpanID, serviceName, spanName, spanKind string
+		var startTime time.Time
+		var durationUs int64
+		var statusCode int32
+		var attributesJSON string
+
+		err := rows.Scan(&seqID, &traceID, &spanID, &parentSpanID, &serviceName, &spanName,
+			&spanKind, &startTime, &durationUs, &statusCode, &attributesJSON)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if seqID > maxSeqID {
+			maxSeqID = seqID
+		}
+
+		var attrs map[string]string
+		if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
+			attrs = make(map[string]string)
+		}
+
+		duration := time.Duration(durationUs) * time.Microsecond
+		span := &ebpfpb.BeylaTraceSpan{
+			TraceId:      traceID,
+			SpanId:       spanID,
+			ParentSpanId: parentSpanID,
+			ServiceName:  serviceName,
+			SpanName:     spanName,
+			SpanKind:     spanKind,
+			StartTime:    timestamppb.New(startTime),
+			Duration:     durationpb.New(duration),
+			StatusCode:   uint32(statusCode), //nolint:gosec // G115
+			Attributes:   attrs,
+		}
+		spans = append(spans, span)
+	}
+
+	return spans, maxSeqID, nil
 }
 
 // QueryTraceByID queries all spans for a specific trace ID (RFD 036).

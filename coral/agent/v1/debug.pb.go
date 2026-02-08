@@ -942,11 +942,15 @@ func (x *ProfileCPUAgentResponse) GetSuccess() bool {
 
 // QueryCPUProfileSamplesRequest retrieves historical CPU profile samples from agent's local storage (RFD 072).
 type QueryCPUProfileSamplesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Service name filter (optional)
-	PodName       string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`             // Pod name filter (optional)
-	StartTime     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`       // Start of time range
-	EndTime       *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`             // End of time range
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Service name filter (optional)
+	PodName     string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`             // Pod name filter (optional)
+	StartTime   *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`       // Start of time range
+	EndTime     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`             // End of time range
+	// Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
+	StartSeqId uint64 `protobuf:"varint,5,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
+	// Maximum number of records to return (RFD 089). Default: 5000.
+	MaxRecords    int32 `protobuf:"varint,6,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1009,14 +1013,30 @@ func (x *QueryCPUProfileSamplesRequest) GetEndTime() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *QueryCPUProfileSamplesRequest) GetStartSeqId() uint64 {
+	if x != nil {
+		return x.StartSeqId
+	}
+	return 0
+}
+
+func (x *QueryCPUProfileSamplesRequest) GetMaxRecords() int32 {
+	if x != nil {
+		return x.MaxRecords
+	}
+	return 0
+}
+
 // CPUProfileSample represents a single aggregated profile sample with build ID (RFD 072).
 type CPUProfileSample struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                         // Sample timestamp
-	BuildId       string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`              // Binary build ID (for version tracking)
-	StackFrames   []string               `protobuf:"bytes,3,rep,name=stack_frames,json=stackFrames,proto3" json:"stack_frames,omitempty"`  // Decoded stack frames
-	SampleCount   uint32                 `protobuf:"varint,4,opt,name=sample_count,json=sampleCount,proto3" json:"sample_count,omitempty"` // Number of samples for this stack
-	ServiceName   string                 `protobuf:"bytes,5,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`  // Service name (RFD 072 fix)
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp   *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                         // Sample timestamp
+	BuildId     string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`              // Binary build ID (for version tracking)
+	StackFrames []string               `protobuf:"bytes,3,rep,name=stack_frames,json=stackFrames,proto3" json:"stack_frames,omitempty"`  // Decoded stack frames
+	SampleCount uint32                 `protobuf:"varint,4,opt,name=sample_count,json=sampleCount,proto3" json:"sample_count,omitempty"` // Number of samples for this stack
+	ServiceName string                 `protobuf:"bytes,5,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`  // Service name (RFD 072 fix)
+	// Sequence ID for checkpoint-based polling (RFD 089).
+	SeqId         uint64 `protobuf:"varint,6,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1086,12 +1106,23 @@ func (x *CPUProfileSample) GetServiceName() string {
 	return ""
 }
 
+func (x *CPUProfileSample) GetSeqId() uint64 {
+	if x != nil {
+		return x.SeqId
+	}
+	return 0
+}
+
 // QueryCPUProfileSamplesResponse returns historical CPU profile samples (RFD 072).
 type QueryCPUProfileSamplesResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Samples       []*CPUProfileSample    `protobuf:"bytes,1,rep,name=samples,proto3" json:"samples,omitempty"`                                // Historical profile samples
-	TotalSamples  uint64                 `protobuf:"varint,2,opt,name=total_samples,json=totalSamples,proto3" json:"total_samples,omitempty"` // Total samples in response
-	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`                                    // Error message if query failed
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Samples      []*CPUProfileSample    `protobuf:"bytes,1,rep,name=samples,proto3" json:"samples,omitempty"`                                // Historical profile samples
+	TotalSamples uint64                 `protobuf:"varint,2,opt,name=total_samples,json=totalSamples,proto3" json:"total_samples,omitempty"` // Total samples in response
+	Error        string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`                                    // Error message if query failed
+	// Highest seq_id in this batch (RFD 089).
+	MaxSeqId uint64 `protobuf:"varint,4,opt,name=max_seq_id,json=maxSeqId,proto3" json:"max_seq_id,omitempty"`
+	// Agent database session UUID (RFD 089).
+	SessionId     string `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1143,6 +1174,20 @@ func (x *QueryCPUProfileSamplesResponse) GetTotalSamples() uint64 {
 func (x *QueryCPUProfileSamplesResponse) GetError() string {
 	if x != nil {
 		return x.Error
+	}
+	return ""
+}
+
+func (x *QueryCPUProfileSamplesResponse) GetMaxSeqId() uint64 {
+	if x != nil {
+		return x.MaxSeqId
+	}
+	return 0
+}
+
+func (x *QueryCPUProfileSamplesResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
 	}
 	return ""
 }
@@ -1595,11 +1640,15 @@ func (x *ProfileMemoryAgentResponse) GetSuccess() bool {
 
 // QueryMemoryProfileSamplesRequest retrieves historical memory profile samples from agent's local storage (RFD 077).
 type QueryMemoryProfileSamplesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Service name filter (optional).
-	PodName       string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`             // Pod name filter (optional).
-	StartTime     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`       // Start of time range.
-	EndTime       *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`             // End of time range.
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Service name filter (optional).
+	PodName     string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`             // Pod name filter (optional).
+	StartTime   *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`       // Start of time range.
+	EndTime     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`             // End of time range.
+	// Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
+	StartSeqId uint64 `protobuf:"varint,5,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
+	// Maximum number of records to return (RFD 089). Default: 5000.
+	MaxRecords    int32 `protobuf:"varint,6,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1662,15 +1711,31 @@ func (x *QueryMemoryProfileSamplesRequest) GetEndTime() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *QueryMemoryProfileSamplesRequest) GetStartSeqId() uint64 {
+	if x != nil {
+		return x.StartSeqId
+	}
+	return 0
+}
+
+func (x *QueryMemoryProfileSamplesRequest) GetMaxRecords() int32 {
+	if x != nil {
+		return x.MaxRecords
+	}
+	return 0
+}
+
 // MemoryProfileSample represents a single aggregated memory profile sample (RFD 077).
 type MemoryProfileSample struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                            // Sample timestamp.
-	BuildId       string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`                 // Binary build ID.
-	StackFrames   []string               `protobuf:"bytes,3,rep,name=stack_frames,json=stackFrames,proto3" json:"stack_frames,omitempty"`     // Decoded stack frames.
-	AllocBytes    int64                  `protobuf:"varint,4,opt,name=alloc_bytes,json=allocBytes,proto3" json:"alloc_bytes,omitempty"`       // Bytes allocated at this stack.
-	AllocObjects  int64                  `protobuf:"varint,5,opt,name=alloc_objects,json=allocObjects,proto3" json:"alloc_objects,omitempty"` // Objects allocated at this stack.
-	ServiceName   string                 `protobuf:"bytes,6,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`     // Service name.
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp    *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                            // Sample timestamp.
+	BuildId      string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`                 // Binary build ID.
+	StackFrames  []string               `protobuf:"bytes,3,rep,name=stack_frames,json=stackFrames,proto3" json:"stack_frames,omitempty"`     // Decoded stack frames.
+	AllocBytes   int64                  `protobuf:"varint,4,opt,name=alloc_bytes,json=allocBytes,proto3" json:"alloc_bytes,omitempty"`       // Bytes allocated at this stack.
+	AllocObjects int64                  `protobuf:"varint,5,opt,name=alloc_objects,json=allocObjects,proto3" json:"alloc_objects,omitempty"` // Objects allocated at this stack.
+	ServiceName  string                 `protobuf:"bytes,6,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`     // Service name.
+	// Sequence ID for checkpoint-based polling (RFD 089).
+	SeqId         uint64 `protobuf:"varint,7,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1747,14 +1812,25 @@ func (x *MemoryProfileSample) GetServiceName() string {
 	return ""
 }
 
+func (x *MemoryProfileSample) GetSeqId() uint64 {
+	if x != nil {
+		return x.SeqId
+	}
+	return 0
+}
+
 // QueryMemoryProfileSamplesResponse returns historical memory profile samples (RFD 077).
 type QueryMemoryProfileSamplesResponse struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Samples         []*MemoryProfileSample `protobuf:"bytes,1,rep,name=samples,proto3" json:"samples,omitempty"`                                           // Historical profile samples.
 	TotalAllocBytes int64                  `protobuf:"varint,2,opt,name=total_alloc_bytes,json=totalAllocBytes,proto3" json:"total_alloc_bytes,omitempty"` // Total allocation bytes in response.
 	Error           string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`                                               // Error message if query failed.
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Highest seq_id in this batch (RFD 089).
+	MaxSeqId uint64 `protobuf:"varint,4,opt,name=max_seq_id,json=maxSeqId,proto3" json:"max_seq_id,omitempty"`
+	// Agent database session UUID (RFD 089).
+	SessionId     string `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QueryMemoryProfileSamplesResponse) Reset() {
@@ -1804,6 +1880,20 @@ func (x *QueryMemoryProfileSamplesResponse) GetTotalAllocBytes() int64 {
 func (x *QueryMemoryProfileSamplesResponse) GetError() string {
 	if x != nil {
 		return x.Error
+	}
+	return ""
+}
+
+func (x *QueryMemoryProfileSamplesResponse) GetMaxSeqId() uint64 {
+	if x != nil {
+		return x.MaxSeqId
+	}
+	return 0
+}
+
+func (x *QueryMemoryProfileSamplesResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
 	}
 	return ""
 }
@@ -1891,23 +1981,32 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12!\n" +
 	"\flost_samples\x18\x03 \x01(\rR\vlostSamples\x12\x14\n" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x12\x18\n" +
-	"\asuccess\x18\x05 \x01(\bR\asuccess\"\xcf\x01\n" +
+	"\asuccess\x18\x05 \x01(\bR\asuccess\"\x92\x02\n" +
 	"\x1dQueryCPUProfileSamplesRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x19\n" +
 	"\bpod_name\x18\x02 \x01(\tR\apodName\x129\n" +
 	"\n" +
 	"start_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
-	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\"\xd0\x01\n" +
+	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\x12 \n" +
+	"\fstart_seq_id\x18\x05 \x01(\x04R\n" +
+	"startSeqId\x12\x1f\n" +
+	"\vmax_records\x18\x06 \x01(\x05R\n" +
+	"maxRecords\"\xe7\x01\n" +
 	"\x10CPUProfileSample\x128\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x19\n" +
 	"\bbuild_id\x18\x02 \x01(\tR\abuildId\x12!\n" +
 	"\fstack_frames\x18\x03 \x03(\tR\vstackFrames\x12!\n" +
 	"\fsample_count\x18\x04 \x01(\rR\vsampleCount\x12!\n" +
-	"\fservice_name\x18\x05 \x01(\tR\vserviceName\"\x97\x01\n" +
+	"\fservice_name\x18\x05 \x01(\tR\vserviceName\x12\x15\n" +
+	"\x06seq_id\x18\x06 \x01(\x04R\x05seqId\"\xd4\x01\n" +
 	"\x1eQueryCPUProfileSamplesResponse\x12:\n" +
 	"\asamples\x18\x01 \x03(\v2 .coral.agent.v1.CPUProfileSampleR\asamples\x12#\n" +
 	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\xdd\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1c\n" +
+	"\n" +
+	"max_seq_id\x18\x04 \x01(\x04R\bmaxSeqId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x05 \x01(\tR\tsessionId\"\xdd\x01\n" +
 	"\x19ProfileMemoryAgentRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12\x10\n" +
@@ -1944,13 +2043,17 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\rtop_functions\x18\x03 \x03(\v2 .coral.agent.v1.TopAllocFunctionR\ftopFunctions\x129\n" +
 	"\ttop_types\x18\x04 \x03(\v2\x1c.coral.agent.v1.TopAllocTypeR\btopTypes\x12\x14\n" +
 	"\x05error\x18\x05 \x01(\tR\x05error\x12\x18\n" +
-	"\asuccess\x18\x06 \x01(\bR\asuccess\"\xd2\x01\n" +
+	"\asuccess\x18\x06 \x01(\bR\asuccess\"\x95\x02\n" +
 	" QueryMemoryProfileSamplesRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x19\n" +
 	"\bpod_name\x18\x02 \x01(\tR\apodName\x129\n" +
 	"\n" +
 	"start_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
-	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\"\xf6\x01\n" +
+	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\x12 \n" +
+	"\fstart_seq_id\x18\x05 \x01(\x04R\n" +
+	"startSeqId\x12\x1f\n" +
+	"\vmax_records\x18\x06 \x01(\x05R\n" +
+	"maxRecords\"\x8d\x02\n" +
 	"\x13MemoryProfileSample\x128\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x19\n" +
 	"\bbuild_id\x18\x02 \x01(\tR\abuildId\x12!\n" +
@@ -1958,11 +2061,16 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\valloc_bytes\x18\x04 \x01(\x03R\n" +
 	"allocBytes\x12#\n" +
 	"\ralloc_objects\x18\x05 \x01(\x03R\fallocObjects\x12!\n" +
-	"\fservice_name\x18\x06 \x01(\tR\vserviceName\"\xa4\x01\n" +
+	"\fservice_name\x18\x06 \x01(\tR\vserviceName\x12\x15\n" +
+	"\x06seq_id\x18\a \x01(\x04R\x05seqId\"\xe1\x01\n" +
 	"!QueryMemoryProfileSamplesResponse\x12=\n" +
 	"\asamples\x18\x01 \x03(\v2#.coral.agent.v1.MemoryProfileSampleR\asamples\x12*\n" +
 	"\x11total_alloc_bytes\x18\x02 \x01(\x03R\x0ftotalAllocBytes\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error2\xa3\x06\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1c\n" +
+	"\n" +
+	"max_seq_id\x18\x04 \x01(\x04R\bmaxSeqId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x05 \x01(\tR\tsessionId2\xa3\x06\n" +
 	"\x11AgentDebugService\x12q\n" +
 	"\x14StartUprobeCollector\x12+.coral.agent.v1.StartUprobeCollectorRequest\x1a,.coral.agent.v1.StartUprobeCollectorResponse\x12n\n" +
 	"\x13StopUprobeCollector\x12*.coral.agent.v1.StopUprobeCollectorRequest\x1a+.coral.agent.v1.StopUprobeCollectorResponse\x12h\n" +

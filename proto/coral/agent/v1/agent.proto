@@ -412,6 +412,9 @@ message TelemetrySpan {
 
   // Additional span attributes (key-value pairs).
   map<string, string> attributes = 11;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 12;
 }
 
 // QueryTelemetryRequest is sent from colony to agent to query recent telemetry.
@@ -424,6 +427,13 @@ message QueryTelemetryRequest {
 
   // Filter by service names (empty = all services).
   repeated string service_names = 3;
+
+  // Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
+  // When 0 (default), falls back to time-based querying for backward compatibility.
+  uint64 start_seq_id = 4;
+
+  // Maximum number of records to return (RFD 089). Default: 10000, max: 50000.
+  int32 max_records = 5;
 }
 
 // QueryTelemetryResponse contains filtered spans from agent's local storage.
@@ -433,6 +443,12 @@ message QueryTelemetryResponse {
 
   // Total number of spans returned.
   int32 total_spans = 2;
+
+  // Highest seq_id in this batch, 0 if no data (RFD 089).
+  uint64 max_seq_id = 3;
+
+  // Agent database session UUID; changes on DB recreation (RFD 089).
+  string session_id = 4;
 }
 
 // QueryEbpfMetrics RPC messages (RFD 032 Phase 4 - pull-based).
@@ -459,6 +475,16 @@ message QueryEbpfMetricsRequest {
 
   // Include traces in response (default: false for backward compatibility) (RFD 036).
   bool include_traces = 7;
+
+  // Sequence-based querying per metric type (RFD 089).
+  // When > 0, queries records with seq_id > start_seq_id for that type.
+  uint64 http_start_seq_id = 8;
+  uint64 grpc_start_seq_id = 9;
+  uint64 sql_start_seq_id = 10;
+  uint64 traces_start_seq_id = 11;
+
+  // Maximum number of records to return per metric type (RFD 089). Default: 10000.
+  int32 max_records = 12;
 }
 
 // EbpfMetricType specifies which eBPF metrics to query.
@@ -488,6 +514,15 @@ message QueryEbpfMetricsResponse {
 
   // Total traces returned (RFD 036).
   int32 total_traces = 6;
+
+  // Highest seq_id per metric type in this batch (RFD 089).
+  uint64 http_max_seq_id = 7;
+  uint64 grpc_max_seq_id = 8;
+  uint64 sql_max_seq_id = 9;
+  uint64 traces_max_seq_id = 10;
+
+  // Agent database session UUID (RFD 089).
+  string session_id = 11;
 }
 
 // EbpfHttpMetric represents aggregated HTTP RED metrics.
@@ -518,6 +553,9 @@ message EbpfHttpMetric {
 
   // Additional attributes.
   map<string, string> attributes = 9;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 10;
 }
 
 // EbpfGrpcMetric represents aggregated gRPC RED metrics.
@@ -545,6 +583,9 @@ message EbpfGrpcMetric {
 
   // Additional attributes.
   map<string, string> attributes = 8;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 9;
 }
 
 // EbpfSqlMetric represents aggregated SQL query metrics.
@@ -572,6 +613,9 @@ message EbpfSqlMetric {
 
   // Additional attributes.
   map<string, string> attributes = 8;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 9;
 }
 
 // EbpfTraceSpan represents a distributed trace span (RFD 036).
@@ -605,6 +649,9 @@ message EbpfTraceSpan {
 
   // Additional attributes.
   map<string, string> attributes = 10;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 11;
 }
 
 // Shell RPC messages (RFD 026).
@@ -856,6 +903,9 @@ message SystemMetric {
 
   // Additional attributes as JSON string.
   string attributes = 6;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 7;
 }
 
 // QuerySystemMetricsRequest is sent from colony to agent to query recent system metrics.
@@ -868,6 +918,12 @@ message QuerySystemMetricsRequest {
 
   // Filter by metric names (empty = all metrics).
   repeated string metric_names = 3;
+
+  // Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
+  uint64 start_seq_id = 4;
+
+  // Maximum number of records to return (RFD 089). Default: 10000, max: 50000.
+  int32 max_records = 5;
 }
 
 // QuerySystemMetricsResponse contains system metrics from agent's local storage.
@@ -877,4 +933,10 @@ message QuerySystemMetricsResponse {
 
   // Total number of metrics returned.
   int32 total_metrics = 2;
+
+  // Highest seq_id in this batch (RFD 089).
+  uint64 max_seq_id = 3;
+
+  // Agent database session UUID (RFD 089).
+  string session_id = 4;
 }

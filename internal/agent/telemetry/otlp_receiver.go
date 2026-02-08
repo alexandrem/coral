@@ -427,6 +427,11 @@ func (r *OTLPReceiver) QuerySpans(ctx context.Context, startTime, endTime time.T
 	return r.storage.QuerySpans(ctx, startTime, endTime, serviceNames)
 }
 
+// QuerySpansBySeqID queries spans with seq_id > startSeqID (RFD 089).
+func (r *OTLPReceiver) QuerySpansBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]Span, uint64, error) {
+	return r.storage.QuerySpansBySeqID(ctx, startSeqID, maxRecords, serviceNames)
+}
+
 // Export implements the OTLP gRPC MetricsService.Export method.
 func (w *metricsServiceWrapper) Export(
 	ctx context.Context,

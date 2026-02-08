@@ -44,6 +44,7 @@ type Metric struct {
 	Unit       string
 	MetricType string // gauge, counter, delta
 	Attributes map[string]string
+	SeqID      uint64 // Sequence ID for checkpoint-based polling (RFD 089).
 }
 
 // NewStorage creates a new system metrics storage.
@@ -65,7 +66,11 @@ func NewStorage(db *sql.DB, logger zerolog.Logger) (*Storage, error) {
 // initSchema creates the local system metrics table.
 func (s *Storage) initSchema() error {
 	schema := `
+		-- Sequence for checkpoint-based polling (RFD 089).
+		CREATE SEQUENCE IF NOT EXISTS seq_system_metrics START 1;
+
 		CREATE TABLE IF NOT EXISTS system_metrics_local (
+			seq_id           UBIGINT DEFAULT nextval('seq_system_metrics'),
 			timestamp        TIMESTAMP NOT NULL,
 			metric_name      VARCHAR(50) NOT NULL,
 			value            DOUBLE PRECISION NOT NULL,
@@ -82,6 +87,10 @@ func (s *Storage) initSchema() error {
 		-- Index for metric name and time filtering.
 		CREATE INDEX IF NOT EXISTS idx_system_metrics_name_time
 		ON system_metrics_local(metric_name, timestamp DESC);
+
+		-- Index for sequence-based polling (RFD 089).
+		CREATE INDEX IF NOT EXISTS idx_system_metrics_seq_id
+		ON system_metrics_local(seq_id);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -259,6 +268,87 @@ func (s *Storage) QueryMetrics(ctx context.Context, startTime, endTime time.Time
 	}
 
 	return metrics, nil
+}
+
+// QueryMetricsBySeqID queries metrics with seq_id > startSeqID, ordered by seq_id ascending (RFD 089).
+// Returns metrics and the maximum seq_id in the result set.
+func (s *Storage) QueryMetricsBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, metricNames []string) ([]Metric, uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if maxRecords <= 0 {
+		maxRecords = 10000
+	} else if maxRecords > 50000 {
+		maxRecords = 50000
+	}
+
+	query := `
+		SELECT seq_id, timestamp, metric_name, value, unit, metric_type, CAST(attributes AS TEXT)
+		FROM system_metrics_local
+		WHERE seq_id > ?
+	`
+
+	args := []interface{}{startSeqID}
+
+	if len(metricNames) > 0 {
+		inPlaceholders := strings.Repeat("?,", len(metricNames))
+		inPlaceholders = inPlaceholders[:len(inPlaceholders)-1]
+		query += " AND metric_name IN (" + inPlaceholders + ")"
+		for _, name := range metricNames {
+			args = append(args, name)
+		}
+	}
+
+	query += " ORDER BY seq_id ASC LIMIT ?"
+	args = append(args, maxRecords)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query metrics by seq_id: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var metrics []Metric
+	var maxSeqID uint64
+
+	for rows.Next() {
+		var m Metric
+		var attributesJSON string
+
+		err := rows.Scan(
+			&m.SeqID,
+			&m.Timestamp,
+			&m.Name,
+			&m.Value,
+			&m.Unit,
+			&m.MetricType,
+			&attributesJSON,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if attributesJSON != "" {
+			if err := json.Unmarshal([]byte(attributesJSON), &m.Attributes); err != nil {
+				s.logger.Warn().Err(err).Str("metric", m.Name).Msg("Failed to unmarshal attributes")
+				m.Attributes = make(map[string]string)
+			}
+		} else {
+			m.Attributes = make(map[string]string)
+		}
+
+		if m.SeqID > maxSeqID {
+			maxSeqID = m.SeqID
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return metrics, maxSeqID, nil
 }
 
 // CleanupOldMetrics removes metrics older than the retention period.

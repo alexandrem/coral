@@ -57,6 +57,7 @@ type ServiceRegistry struct {
 	meshIP        string // Deprecated: Use connectionManager.GetAssignedIP()
 	meshSubnet    string // Deprecated: Use connectionManager.GetAssignedIP()
 	connectionMgr *ConnectionManager
+	sessionID     string // Database session UUID for checkpoint tracking (RFD 089).
 }
 
 // NewServiceRegistry creates a new service registry.
@@ -76,6 +77,7 @@ func NewServiceRegistry(
 	meshIP string,
 	meshSubnet string,
 	connectionMgr *ConnectionManager,
+	sessionID string,
 ) *ServiceRegistry {
 	return &ServiceRegistry{
 		parentCtx:     parentCtx,
@@ -93,6 +95,7 @@ func NewServiceRegistry(
 		meshIP:        meshIP,
 		meshSubnet:    meshSubnet,
 		connectionMgr: connectionMgr,
+		sessionID:     sessionID,
 	}
 }
 
@@ -404,10 +407,13 @@ func (s *ServiceRegistry) createHTTPServers(
 
 	// Create service handler and HTTP server for gRPC API.
 	serviceHandler := agent.NewServiceHandler(s.agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, s.functionCache, systemMetricsHandler)
+	serviceHandler.SetSessionID(s.sessionID)
+	systemMetricsHandler.SetSessionID(s.sessionID)
 	path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
 	// Create debug service handler (RFD 059).
 	debugService := agent.NewDebugService(s.agentInstance, s.logger)
+	debugService.SetSessionID(s.sessionID)
 	debugAdapter := agent.NewDebugServiceAdapter(debugService)
 	debugPath, debugHandler := agentv1connect.NewAgentDebugServiceHandler(debugAdapter)
 

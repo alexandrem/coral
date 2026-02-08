@@ -1763,7 +1763,9 @@ type TelemetrySpan struct {
 	// HTTP route (if applicable).
 	HttpRoute string `protobuf:"bytes,10,opt,name=http_route,json=httpRoute,proto3" json:"http_route,omitempty"`
 	// Additional span attributes (key-value pairs).
-	Attributes    map[string]string `protobuf:"bytes,11,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Attributes map[string]string `protobuf:"bytes,11,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Sequence ID for checkpoint-based polling (RFD 089).
+	SeqId         uint64 `protobuf:"varint,12,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1875,6 +1877,13 @@ func (x *TelemetrySpan) GetAttributes() map[string]string {
 	return nil
 }
 
+func (x *TelemetrySpan) GetSeqId() uint64 {
+	if x != nil {
+		return x.SeqId
+	}
+	return 0
+}
+
 // QueryTelemetryRequest is sent from colony to agent to query recent telemetry.
 type QueryTelemetryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1883,7 +1892,12 @@ type QueryTelemetryRequest struct {
 	// End time for query range (Unix seconds).
 	EndTime int64 `protobuf:"varint,2,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
 	// Filter by service names (empty = all services).
-	ServiceNames  []string `protobuf:"bytes,3,rep,name=service_names,json=serviceNames,proto3" json:"service_names,omitempty"`
+	ServiceNames []string `protobuf:"bytes,3,rep,name=service_names,json=serviceNames,proto3" json:"service_names,omitempty"`
+	// Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
+	// When 0 (default), falls back to time-based querying for backward compatibility.
+	StartSeqId uint64 `protobuf:"varint,4,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
+	// Maximum number of records to return (RFD 089). Default: 10000, max: 50000.
+	MaxRecords    int32 `protobuf:"varint,5,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1939,13 +1953,31 @@ func (x *QueryTelemetryRequest) GetServiceNames() []string {
 	return nil
 }
 
+func (x *QueryTelemetryRequest) GetStartSeqId() uint64 {
+	if x != nil {
+		return x.StartSeqId
+	}
+	return 0
+}
+
+func (x *QueryTelemetryRequest) GetMaxRecords() int32 {
+	if x != nil {
+		return x.MaxRecords
+	}
+	return 0
+}
+
 // QueryTelemetryResponse contains filtered spans from agent's local storage.
 type QueryTelemetryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Filtered spans matching the query.
 	Spans []*TelemetrySpan `protobuf:"bytes,1,rep,name=spans,proto3" json:"spans,omitempty"`
 	// Total number of spans returned.
-	TotalSpans    int32 `protobuf:"varint,2,opt,name=total_spans,json=totalSpans,proto3" json:"total_spans,omitempty"`
+	TotalSpans int32 `protobuf:"varint,2,opt,name=total_spans,json=totalSpans,proto3" json:"total_spans,omitempty"`
+	// Highest seq_id in this batch, 0 if no data (RFD 089).
+	MaxSeqId uint64 `protobuf:"varint,3,opt,name=max_seq_id,json=maxSeqId,proto3" json:"max_seq_id,omitempty"`
+	// Agent database session UUID; changes on DB recreation (RFD 089).
+	SessionId     string `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1994,6 +2026,20 @@ func (x *QueryTelemetryResponse) GetTotalSpans() int32 {
 	return 0
 }
 
+func (x *QueryTelemetryResponse) GetMaxSeqId() uint64 {
+	if x != nil {
+		return x.MaxSeqId
+	}
+	return 0
+}
+
+func (x *QueryTelemetryResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
 // QueryEbpfMetricsRequest is sent from colony to agent to query eBPF metrics.
 type QueryEbpfMetricsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2011,6 +2057,14 @@ type QueryEbpfMetricsRequest struct {
 	MaxTraces int32 `protobuf:"varint,6,opt,name=max_traces,json=maxTraces,proto3" json:"max_traces,omitempty"`
 	// Include traces in response (default: false for backward compatibility) (RFD 036).
 	IncludeTraces bool `protobuf:"varint,7,opt,name=include_traces,json=includeTraces,proto3" json:"include_traces,omitempty"`
+	// Sequence-based querying per metric type (RFD 089).
+	// When > 0, queries records with seq_id > start_seq_id for that type.
+	HttpStartSeqId   uint64 `protobuf:"varint,8,opt,name=http_start_seq_id,json=httpStartSeqId,proto3" json:"http_start_seq_id,omitempty"`
+	GrpcStartSeqId   uint64 `protobuf:"varint,9,opt,name=grpc_start_seq_id,json=grpcStartSeqId,proto3" json:"grpc_start_seq_id,omitempty"`
+	SqlStartSeqId    uint64 `protobuf:"varint,10,opt,name=sql_start_seq_id,json=sqlStartSeqId,proto3" json:"sql_start_seq_id,omitempty"`
+	TracesStartSeqId uint64 `protobuf:"varint,11,opt,name=traces_start_seq_id,json=tracesStartSeqId,proto3" json:"traces_start_seq_id,omitempty"`
+	// Maximum number of records to return per metric type (RFD 089). Default: 10000.
+	MaxRecords    int32 `protobuf:"varint,12,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2094,6 +2148,41 @@ func (x *QueryEbpfMetricsRequest) GetIncludeTraces() bool {
 	return false
 }
 
+func (x *QueryEbpfMetricsRequest) GetHttpStartSeqId() uint64 {
+	if x != nil {
+		return x.HttpStartSeqId
+	}
+	return 0
+}
+
+func (x *QueryEbpfMetricsRequest) GetGrpcStartSeqId() uint64 {
+	if x != nil {
+		return x.GrpcStartSeqId
+	}
+	return 0
+}
+
+func (x *QueryEbpfMetricsRequest) GetSqlStartSeqId() uint64 {
+	if x != nil {
+		return x.SqlStartSeqId
+	}
+	return 0
+}
+
+func (x *QueryEbpfMetricsRequest) GetTracesStartSeqId() uint64 {
+	if x != nil {
+		return x.TracesStartSeqId
+	}
+	return 0
+}
+
+func (x *QueryEbpfMetricsRequest) GetMaxRecords() int32 {
+	if x != nil {
+		return x.MaxRecords
+	}
+	return 0
+}
+
 // QueryEbpfMetricsResponse contains eBPF metrics from agent's local storage.
 type QueryEbpfMetricsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2108,7 +2197,14 @@ type QueryEbpfMetricsResponse struct {
 	// Trace spans (RFD 036).
 	TraceSpans []*EbpfTraceSpan `protobuf:"bytes,5,rep,name=trace_spans,json=traceSpans,proto3" json:"trace_spans,omitempty"`
 	// Total traces returned (RFD 036).
-	TotalTraces   int32 `protobuf:"varint,6,opt,name=total_traces,json=totalTraces,proto3" json:"total_traces,omitempty"`
+	TotalTraces int32 `protobuf:"varint,6,opt,name=total_traces,json=totalTraces,proto3" json:"total_traces,omitempty"`
+	// Highest seq_id per metric type in this batch (RFD 089).
+	HttpMaxSeqId   uint64 `protobuf:"varint,7,opt,name=http_max_seq_id,json=httpMaxSeqId,proto3" json:"http_max_seq_id,omitempty"`
+	GrpcMaxSeqId   uint64 `protobuf:"varint,8,opt,name=grpc_max_seq_id,json=grpcMaxSeqId,proto3" json:"grpc_max_seq_id,omitempty"`
+	SqlMaxSeqId    uint64 `protobuf:"varint,9,opt,name=sql_max_seq_id,json=sqlMaxSeqId,proto3" json:"sql_max_seq_id,omitempty"`
+	TracesMaxSeqId uint64 `protobuf:"varint,10,opt,name=traces_max_seq_id,json=tracesMaxSeqId,proto3" json:"traces_max_seq_id,omitempty"`
+	// Agent database session UUID (RFD 089).
+	SessionId     string `protobuf:"bytes,11,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2185,6 +2281,41 @@ func (x *QueryEbpfMetricsResponse) GetTotalTraces() int32 {
 	return 0
 }
 
+func (x *QueryEbpfMetricsResponse) GetHttpMaxSeqId() uint64 {
+	if x != nil {
+		return x.HttpMaxSeqId
+	}
+	return 0
+}
+
+func (x *QueryEbpfMetricsResponse) GetGrpcMaxSeqId() uint64 {
+	if x != nil {
+		return x.GrpcMaxSeqId
+	}
+	return 0
+}
+
+func (x *QueryEbpfMetricsResponse) GetSqlMaxSeqId() uint64 {
+	if x != nil {
+		return x.SqlMaxSeqId
+	}
+	return 0
+}
+
+func (x *QueryEbpfMetricsResponse) GetTracesMaxSeqId() uint64 {
+	if x != nil {
+		return x.TracesMaxSeqId
+	}
+	return 0
+}
+
+func (x *QueryEbpfMetricsResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
 // EbpfHttpMetric represents aggregated HTTP RED metrics.
 type EbpfHttpMetric struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2205,7 +2336,9 @@ type EbpfHttpMetric struct {
 	// Request count.
 	RequestCount uint64 `protobuf:"varint,8,opt,name=request_count,json=requestCount,proto3" json:"request_count,omitempty"`
 	// Additional attributes.
-	Attributes    map[string]string `protobuf:"bytes,9,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Attributes map[string]string `protobuf:"bytes,9,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Sequence ID for checkpoint-based polling (RFD 089).
+	SeqId         uint64 `protobuf:"varint,10,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2303,6 +2436,13 @@ func (x *EbpfHttpMetric) GetAttributes() map[string]string {
 	return nil
 }
 
+func (x *EbpfHttpMetric) GetSeqId() uint64 {
+	if x != nil {
+		return x.SeqId
+	}
+	return 0
+}
+
 // EbpfGrpcMetric represents aggregated gRPC RED metrics.
 type EbpfGrpcMetric struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2321,7 +2461,9 @@ type EbpfGrpcMetric struct {
 	// Request count.
 	RequestCount uint64 `protobuf:"varint,7,opt,name=request_count,json=requestCount,proto3" json:"request_count,omitempty"`
 	// Additional attributes.
-	Attributes    map[string]string `protobuf:"bytes,8,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Attributes map[string]string `protobuf:"bytes,8,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Sequence ID for checkpoint-based polling (RFD 089).
+	SeqId         uint64 `protobuf:"varint,9,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2412,6 +2554,13 @@ func (x *EbpfGrpcMetric) GetAttributes() map[string]string {
 	return nil
 }
 
+func (x *EbpfGrpcMetric) GetSeqId() uint64 {
+	if x != nil {
+		return x.SeqId
+	}
+	return 0
+}
+
 // EbpfSqlMetric represents aggregated SQL query metrics.
 type EbpfSqlMetric struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2430,7 +2579,9 @@ type EbpfSqlMetric struct {
 	// Query count.
 	QueryCount uint64 `protobuf:"varint,7,opt,name=query_count,json=queryCount,proto3" json:"query_count,omitempty"`
 	// Additional attributes.
-	Attributes    map[string]string `protobuf:"bytes,8,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Attributes map[string]string `protobuf:"bytes,8,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Sequence ID for checkpoint-based polling (RFD 089).
+	SeqId         uint64 `protobuf:"varint,9,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2521,6 +2672,13 @@ func (x *EbpfSqlMetric) GetAttributes() map[string]string {
 	return nil
 }
 
+func (x *EbpfSqlMetric) GetSeqId() uint64 {
+	if x != nil {
+		return x.SeqId
+	}
+	return 0
+}
+
 // EbpfTraceSpan represents a distributed trace span (RFD 036).
 type EbpfTraceSpan struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2543,7 +2701,9 @@ type EbpfTraceSpan struct {
 	// HTTP/gRPC status code.
 	StatusCode uint32 `protobuf:"varint,9,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
 	// Additional attributes.
-	Attributes    map[string]string `protobuf:"bytes,10,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Attributes map[string]string `protobuf:"bytes,10,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Sequence ID for checkpoint-based polling (RFD 089).
+	SeqId         uint64 `protobuf:"varint,11,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2646,6 +2806,13 @@ func (x *EbpfTraceSpan) GetAttributes() map[string]string {
 		return x.Attributes
 	}
 	return nil
+}
+
+func (x *EbpfTraceSpan) GetSeqId() uint64 {
+	if x != nil {
+		return x.SeqId
+	}
+	return 0
 }
 
 type ShellRequest struct {
@@ -4163,7 +4330,9 @@ type SystemMetric struct {
 	// Metric type (e.g., "gauge", "counter", "delta").
 	MetricType string `protobuf:"bytes,5,opt,name=metric_type,json=metricType,proto3" json:"metric_type,omitempty"`
 	// Additional attributes as JSON string.
-	Attributes    string `protobuf:"bytes,6,opt,name=attributes,proto3" json:"attributes,omitempty"`
+	Attributes string `protobuf:"bytes,6,opt,name=attributes,proto3" json:"attributes,omitempty"`
+	// Sequence ID for checkpoint-based polling (RFD 089).
+	SeqId         uint64 `protobuf:"varint,7,opt,name=seq_id,json=seqId,proto3" json:"seq_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4240,6 +4409,13 @@ func (x *SystemMetric) GetAttributes() string {
 	return ""
 }
 
+func (x *SystemMetric) GetSeqId() uint64 {
+	if x != nil {
+		return x.SeqId
+	}
+	return 0
+}
+
 // QuerySystemMetricsRequest is sent from colony to agent to query recent system metrics.
 type QuerySystemMetricsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -4248,7 +4424,11 @@ type QuerySystemMetricsRequest struct {
 	// End time for query range (Unix seconds).
 	EndTime int64 `protobuf:"varint,2,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
 	// Filter by metric names (empty = all metrics).
-	MetricNames   []string `protobuf:"bytes,3,rep,name=metric_names,json=metricNames,proto3" json:"metric_names,omitempty"`
+	MetricNames []string `protobuf:"bytes,3,rep,name=metric_names,json=metricNames,proto3" json:"metric_names,omitempty"`
+	// Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
+	StartSeqId uint64 `protobuf:"varint,4,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
+	// Maximum number of records to return (RFD 089). Default: 10000, max: 50000.
+	MaxRecords    int32 `protobuf:"varint,5,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4304,13 +4484,31 @@ func (x *QuerySystemMetricsRequest) GetMetricNames() []string {
 	return nil
 }
 
+func (x *QuerySystemMetricsRequest) GetStartSeqId() uint64 {
+	if x != nil {
+		return x.StartSeqId
+	}
+	return 0
+}
+
+func (x *QuerySystemMetricsRequest) GetMaxRecords() int32 {
+	if x != nil {
+		return x.MaxRecords
+	}
+	return 0
+}
+
 // QuerySystemMetricsResponse contains system metrics from agent's local storage.
 type QuerySystemMetricsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// System metrics matching the query.
 	Metrics []*SystemMetric `protobuf:"bytes,1,rep,name=metrics,proto3" json:"metrics,omitempty"`
 	// Total number of metrics returned.
-	TotalMetrics  int32 `protobuf:"varint,2,opt,name=total_metrics,json=totalMetrics,proto3" json:"total_metrics,omitempty"`
+	TotalMetrics int32 `protobuf:"varint,2,opt,name=total_metrics,json=totalMetrics,proto3" json:"total_metrics,omitempty"`
+	// Highest seq_id in this batch (RFD 089).
+	MaxSeqId uint64 `protobuf:"varint,3,opt,name=max_seq_id,json=maxSeqId,proto3" json:"max_seq_id,omitempty"`
+	// Agent database session UUID (RFD 089).
+	SessionId     string `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4357,6 +4555,20 @@ func (x *QuerySystemMetricsResponse) GetTotalMetrics() int32 {
 		return x.TotalMetrics
 	}
 	return 0
+}
+
+func (x *QuerySystemMetricsResponse) GetMaxSeqId() uint64 {
+	if x != nil {
+		return x.MaxSeqId
+	}
+	return 0
+}
+
+func (x *QuerySystemMetricsResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
 }
 
 var File_coral_agent_v1_agent_proto protoreflect.FileDescriptor
@@ -4499,7 +4711,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12/\n" +
 	"\x13supported_protocols\x18\x03 \x03(\tR\x12supportedProtocols\x12-\n" +
 	"\x12supported_runtimes\x18\x04 \x03(\tR\x11supportedRuntimes\x12'\n" +
-	"\x0ftracing_enabled\x18\x05 \x01(\bR\x0etracingEnabled\"\xcc\x03\n" +
+	"\x0ftracing_enabled\x18\x05 \x01(\bR\x0etracingEnabled\"\xe3\x03\n" +
 	"\rTelemetrySpan\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12\x19\n" +
 	"\btrace_id\x18\x02 \x01(\tR\atraceId\x12\x17\n" +
@@ -4518,19 +4730,28 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	" \x01(\tR\thttpRoute\x12M\n" +
 	"\n" +
 	"attributes\x18\v \x03(\v2-.coral.agent.v1.TelemetrySpan.AttributesEntryR\n" +
-	"attributes\x1a=\n" +
+	"attributes\x12\x15\n" +
+	"\x06seq_id\x18\f \x01(\x04R\x05seqId\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"v\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb9\x01\n" +
 	"\x15QueryTelemetryRequest\x12\x1d\n" +
 	"\n" +
 	"start_time\x18\x01 \x01(\x03R\tstartTime\x12\x19\n" +
 	"\bend_time\x18\x02 \x01(\x03R\aendTime\x12#\n" +
-	"\rservice_names\x18\x03 \x03(\tR\fserviceNames\"n\n" +
+	"\rservice_names\x18\x03 \x03(\tR\fserviceNames\x12 \n" +
+	"\fstart_seq_id\x18\x04 \x01(\x04R\n" +
+	"startSeqId\x12\x1f\n" +
+	"\vmax_records\x18\x05 \x01(\x05R\n" +
+	"maxRecords\"\xab\x01\n" +
 	"\x16QueryTelemetryResponse\x123\n" +
 	"\x05spans\x18\x01 \x03(\v2\x1d.coral.agent.v1.TelemetrySpanR\x05spans\x12\x1f\n" +
 	"\vtotal_spans\x18\x02 \x01(\x05R\n" +
-	"totalSpans\"\x9c\x02\n" +
+	"totalSpans\x12\x1c\n" +
+	"\n" +
+	"max_seq_id\x18\x03 \x01(\x04R\bmaxSeqId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x04 \x01(\tR\tsessionId\"\xeb\x03\n" +
 	"\x17QueryEbpfMetricsRequest\x12\x1d\n" +
 	"\n" +
 	"start_time\x18\x01 \x01(\x03R\tstartTime\x12\x19\n" +
@@ -4540,7 +4761,14 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\btrace_id\x18\x05 \x01(\tR\atraceId\x12\x1d\n" +
 	"\n" +
 	"max_traces\x18\x06 \x01(\x05R\tmaxTraces\x12%\n" +
-	"\x0einclude_traces\x18\a \x01(\bR\rincludeTraces\"\xe8\x02\n" +
+	"\x0einclude_traces\x18\a \x01(\bR\rincludeTraces\x12)\n" +
+	"\x11http_start_seq_id\x18\b \x01(\x04R\x0ehttpStartSeqId\x12)\n" +
+	"\x11grpc_start_seq_id\x18\t \x01(\x04R\x0egrpcStartSeqId\x12'\n" +
+	"\x10sql_start_seq_id\x18\n" +
+	" \x01(\x04R\rsqlStartSeqId\x12-\n" +
+	"\x13traces_start_seq_id\x18\v \x01(\x04R\x10tracesStartSeqId\x12\x1f\n" +
+	"\vmax_records\x18\f \x01(\x05R\n" +
+	"maxRecords\"\xa5\x04\n" +
 	"\x18QueryEbpfMetricsResponse\x12A\n" +
 	"\fhttp_metrics\x18\x01 \x03(\v2\x1e.coral.agent.v1.EbpfHttpMetricR\vhttpMetrics\x12A\n" +
 	"\fgrpc_metrics\x18\x02 \x03(\v2\x1e.coral.agent.v1.EbpfGrpcMetricR\vgrpcMetrics\x12>\n" +
@@ -4549,7 +4777,14 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rtotal_metrics\x18\x04 \x01(\x05R\ftotalMetrics\x12>\n" +
 	"\vtrace_spans\x18\x05 \x03(\v2\x1d.coral.agent.v1.EbpfTraceSpanR\n" +
 	"traceSpans\x12!\n" +
-	"\ftotal_traces\x18\x06 \x01(\x05R\vtotalTraces\"\xbf\x03\n" +
+	"\ftotal_traces\x18\x06 \x01(\x05R\vtotalTraces\x12%\n" +
+	"\x0fhttp_max_seq_id\x18\a \x01(\x04R\fhttpMaxSeqId\x12%\n" +
+	"\x0fgrpc_max_seq_id\x18\b \x01(\x04R\fgrpcMaxSeqId\x12#\n" +
+	"\x0esql_max_seq_id\x18\t \x01(\x04R\vsqlMaxSeqId\x12)\n" +
+	"\x11traces_max_seq_id\x18\n" +
+	" \x01(\x04R\x0etracesMaxSeqId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\v \x01(\tR\tsessionId\"\xd6\x03\n" +
 	"\x0eEbpfHttpMetric\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12\x1f\n" +
@@ -4563,10 +4798,12 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rrequest_count\x18\b \x01(\x04R\frequestCount\x12N\n" +
 	"\n" +
 	"attributes\x18\t \x03(\v2..coral.agent.v1.EbpfHttpMetric.AttributesEntryR\n" +
-	"attributes\x1a=\n" +
+	"attributes\x12\x15\n" +
+	"\x06seq_id\x18\n" +
+	" \x01(\x04R\x05seqId\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb7\x03\n" +
 	"\x0eEbpfGrpcMetric\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12\x1f\n" +
@@ -4578,10 +4815,11 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\rrequest_count\x18\a \x01(\x04R\frequestCount\x12N\n" +
 	"\n" +
 	"attributes\x18\b \x03(\v2..coral.agent.v1.EbpfGrpcMetric.AttributesEntryR\n" +
-	"attributes\x1a=\n" +
+	"attributes\x12\x15\n" +
+	"\x06seq_id\x18\t \x01(\x04R\x05seqId\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x93\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xaa\x03\n" +
 	"\rEbpfSqlMetric\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12#\n" +
@@ -4594,10 +4832,11 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"queryCount\x12M\n" +
 	"\n" +
 	"attributes\x18\b \x03(\v2-.coral.agent.v1.EbpfSqlMetric.AttributesEntryR\n" +
-	"attributes\x1a=\n" +
+	"attributes\x12\x15\n" +
+	"\x06seq_id\x18\t \x01(\x04R\x05seqId\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb5\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcc\x03\n" +
 	"\rEbpfTraceSpan\x12\x19\n" +
 	"\btrace_id\x18\x01 \x01(\tR\atraceId\x12\x17\n" +
 	"\aspan_id\x18\x02 \x01(\tR\x06spanId\x12$\n" +
@@ -4614,7 +4853,8 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"attributes\x18\n" +
 	" \x03(\v2-.coral.agent.v1.EbpfTraceSpan.AttributesEntryR\n" +
-	"attributes\x1a=\n" +
+	"attributes\x12\x15\n" +
+	"\x06seq_id\x18\v \x01(\x04R\x05seqId\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd3\x01\n" +
@@ -4743,7 +4983,7 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"\x06offset\x18\x05 \x01(\x03R\x06offset\x12\x1b\n" +
 	"\thas_dwarf\x18\x06 \x01(\bR\bhasDwarf\x12!\n" +
 	"\fservice_name\x18\a \x01(\tR\vserviceName\x12\x1c\n" +
-	"\tembedding\x18\b \x03(\x02R\tembedding\"\xab\x01\n" +
+	"\tembedding\x18\b \x03(\x02R\tembedding\"\xc2\x01\n" +
 	"\fSystemMetric\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
@@ -4753,15 +4993,24 @@ const file_coral_agent_v1_agent_proto_rawDesc = "" +
 	"metricType\x12\x1e\n" +
 	"\n" +
 	"attributes\x18\x06 \x01(\tR\n" +
-	"attributes\"x\n" +
+	"attributes\x12\x15\n" +
+	"\x06seq_id\x18\a \x01(\x04R\x05seqId\"\xbb\x01\n" +
 	"\x19QuerySystemMetricsRequest\x12\x1d\n" +
 	"\n" +
 	"start_time\x18\x01 \x01(\x03R\tstartTime\x12\x19\n" +
 	"\bend_time\x18\x02 \x01(\x03R\aendTime\x12!\n" +
-	"\fmetric_names\x18\x03 \x03(\tR\vmetricNames\"y\n" +
+	"\fmetric_names\x18\x03 \x03(\tR\vmetricNames\x12 \n" +
+	"\fstart_seq_id\x18\x04 \x01(\x04R\n" +
+	"startSeqId\x12\x1f\n" +
+	"\vmax_records\x18\x05 \x01(\x05R\n" +
+	"maxRecords\"\xb6\x01\n" +
 	"\x1aQuerySystemMetricsResponse\x126\n" +
 	"\ametrics\x18\x01 \x03(\v2\x1c.coral.agent.v1.SystemMetricR\ametrics\x12#\n" +
-	"\rtotal_metrics\x18\x02 \x01(\x05R\ftotalMetrics*_\n" +
+	"\rtotal_metrics\x18\x02 \x01(\x05R\ftotalMetrics\x12\x1c\n" +
+	"\n" +
+	"max_seq_id\x18\x03 \x01(\x04R\bmaxSeqId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x04 \x01(\tR\tsessionId*_\n" +
 	"\bExecMode\x12\x15\n" +
 	"\x11EXEC_MODE_UNKNOWN\x10\x00\x12\x12\n" +
 	"\x0eEXEC_MODE_NONE\x10\x01\x12\x11\n" +

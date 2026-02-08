@@ -132,6 +132,11 @@ func (r *TelemetryReceiver) QuerySpans(ctx context.Context, startTime, endTime t
 	return r.receiver.QuerySpans(ctx, startTime, endTime, serviceNames)
 }
 
+// QuerySpansBySeqID queries spans with seq_id > startSeqID (RFD 089).
+func (r *TelemetryReceiver) QuerySpansBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]telemetry.Span, uint64, error) {
+	return r.receiver.QuerySpansBySeqID(ctx, startSeqID, maxRecords, serviceNames)
+}
+
 // GetDatabasePath returns the file path to the telemetry DuckDB database (RFD 039).
 // Returns empty string if database is in-memory.
 func (r *TelemetryReceiver) GetDatabasePath() string {

@@ -126,6 +126,12 @@ message QueryCPUProfileSamplesRequest {
   string pod_name = 2;                        // Pod name filter (optional)
   google.protobuf.Timestamp start_time = 3;   // Start of time range
   google.protobuf.Timestamp end_time = 4;     // End of time range
+
+  // Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
+  uint64 start_seq_id = 5;
+
+  // Maximum number of records to return (RFD 089). Default: 5000.
+  int32 max_records = 6;
 }
 
 // CPUProfileSample represents a single aggregated profile sample with build ID (RFD 072).
@@ -135,6 +141,9 @@ message CPUProfileSample {
   repeated string stack_frames = 3;           // Decoded stack frames
   uint32 sample_count = 4;                    // Number of samples for this stack
   string service_name = 5;                    // Service name (RFD 072 fix)
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 6;
 }
 
 // QueryCPUProfileSamplesResponse returns historical CPU profile samples (RFD 072).
@@ -142,6 +151,12 @@ message QueryCPUProfileSamplesResponse {
   repeated CPUProfileSample samples = 1;      // Historical profile samples
   uint64 total_samples = 2;                   // Total samples in response
   string error = 3;                           // Error message if query failed
+
+  // Highest seq_id in this batch (RFD 089).
+  uint64 max_seq_id = 4;
+
+  // Agent database session UUID (RFD 089).
+  string session_id = 5;
 }
 
 // ProfileMemoryAgentRequest initiates memory profiling on an agent (RFD 077).
@@ -202,6 +217,12 @@ message QueryMemoryProfileSamplesRequest {
   string pod_name = 2;                        // Pod name filter (optional).
   google.protobuf.Timestamp start_time = 3;   // Start of time range.
   google.protobuf.Timestamp end_time = 4;     // End of time range.
+
+  // Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
+  uint64 start_seq_id = 5;
+
+  // Maximum number of records to return (RFD 089). Default: 5000.
+  int32 max_records = 6;
 }
 
 // MemoryProfileSample represents a single aggregated memory profile sample (RFD 077).
@@ -212,6 +233,9 @@ message MemoryProfileSample {
   int64 alloc_bytes = 4;                      // Bytes allocated at this stack.
   int64 alloc_objects = 5;                    // Objects allocated at this stack.
   string service_name = 6;                    // Service name.
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 7;
 }
 
 // QueryMemoryProfileSamplesResponse returns historical memory profile samples (RFD 077).
@@ -219,6 +243,12 @@ message QueryMemoryProfileSamplesResponse {
   repeated MemoryProfileSample samples = 1;   // Historical profile samples.
   int64 total_alloc_bytes = 2;                // Total allocation bytes in response.
   string error = 3;                           // Error message if query failed.
+
+  // Highest seq_id in this batch (RFD 089).
+  uint64 max_seq_id = 4;
+
+  // Agent database session UUID (RFD 089).
+  string session_id = 5;
 }
 
 // AgentDebugService handles uprobe-based debugging operations (RFD 059), CPU profiling (RFD 070, RFD 072), and memory profiling (RFD 077).

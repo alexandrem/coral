@@ -10,6 +10,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/telemetry"
 )
 
 // ServiceHandler implements the AgentService gRPC interface for managing service connections.
@@ -21,6 +22,7 @@ type ServiceHandler struct {
 	containerHandler     *ContainerHandler
 	functionCache        *FunctionCache
 	systemMetricsHandler *SystemMetricsHandler
+	sessionID            string // Database session UUID for checkpoint tracking (RFD 089).
 }
 
 // NewServiceHandler creates a new service handler.
@@ -34,6 +36,11 @@ func NewServiceHandler(agent *Agent, runtimeService *RuntimeService, telemetryRe
 		functionCache:        functionCache,
 		systemMetricsHandler: systemMetricsHandler,
 	}
+}
+
+// SetSessionID sets the database session UUID for checkpoint tracking (RFD 089).
+func (h *ServiceHandler) SetSessionID(sessionID string) {
+	h.sessionID = sessionID
 }
 
 // GetRuntimeContext implements the GetRuntimeContext RPC.
@@ -177,6 +184,7 @@ func (h *ServiceHandler) ListServices(
 // QueryTelemetry retrieves filtered telemetry spans from the agent's local storage.
 // This is part of RFD 025 pull-based telemetry model.
 // Colony calls this to query filtered spans from agent's local storage.
+// Supports both time-based (backward compat) and sequence-based querying (RFD 089).
 func (h *ServiceHandler) QueryTelemetry(
 	ctx context.Context,
 	req *connect.Request[agentv1.QueryTelemetryRequest],
@@ -186,15 +194,23 @@ func (h *ServiceHandler) QueryTelemetry(
 		return connect.NewResponse(&agentv1.QueryTelemetryResponse{
 			Spans:      []*agentv1.TelemetrySpan{},
 			TotalSpans: 0,
+			SessionId:  h.sessionID,
 		}), nil
 	}
 
-	// Convert Unix seconds to time.Time.
-	startTime := time.Unix(req.Msg.StartTime, 0)
-	endTime := time.Unix(req.Msg.EndTime, 0)
+	var spans []telemetry.Span
+	var maxSeqID uint64
+	var err error
 
-	// Query spans from local storage.
-	spans, err := h.telemetryReceiver.QuerySpans(ctx, startTime, endTime, req.Msg.ServiceNames)
+	// Use sequence-based query if start_seq_id is provided (RFD 089).
+	if req.Msg.StartSeqId > 0 || req.Msg.MaxRecords > 0 {
+		spans, maxSeqID, err = h.telemetryReceiver.QuerySpansBySeqID(ctx, req.Msg.StartSeqId, req.Msg.MaxRecords, req.Msg.ServiceNames)
+	} else {
+		// Fallback to time-based query for backward compatibility.
+		startTime := time.Unix(req.Msg.StartTime, 0)
+		endTime := time.Unix(req.Msg.EndTime, 0)
+		spans, err = h.telemetryReceiver.QuerySpans(ctx, startTime, endTime, req.Msg.ServiceNames)
+	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -214,6 +230,7 @@ func (h *ServiceHandler) QueryTelemetry(
 			HttpMethod:  span.HTTPMethod,
 			HttpRoute:   span.HTTPRoute,
 			Attributes:  span.Attributes,
+			SeqId:       span.SeqID,
 		}
 		pbSpans = append(pbSpans, pbSpan)
 	}
@@ -221,11 +238,14 @@ func (h *ServiceHandler) QueryTelemetry(
 	return connect.NewResponse(&agentv1.QueryTelemetryResponse{
 		Spans:      pbSpans,
 		TotalSpans: int32(len(pbSpans)),
+		MaxSeqId:   maxSeqID,
+		SessionId:  h.sessionID,
 	}), nil
 }
 
 // QueryEbpfMetrics retrieves eBPF metrics from the agent's local storage (RFD 032).
 // Colony calls this to query filtered eBPF metrics from agent's local DuckDB.
+// Supports both time-based (backward compat) and sequence-based querying (RFD 089).
 func (h *ServiceHandler) QueryEbpfMetrics(
 	ctx context.Context,
 	req *connect.Request[agentv1.QueryEbpfMetricsRequest],
@@ -237,17 +257,19 @@ func (h *ServiceHandler) QueryEbpfMetrics(
 			GrpcMetrics:  []*agentv1.EbpfGrpcMetric{},
 			SqlMetrics:   []*agentv1.EbpfSqlMetric{},
 			TotalMetrics: 0,
+			SessionId:    h.sessionID,
 		}), nil
 	}
 
-	// Convert Unix seconds to time.Time.
-	startTime := time.Unix(req.Msg.StartTime, 0)
-	endTime := time.Unix(req.Msg.EndTime, 0)
+	// Check if this is a sequence-based query (RFD 089).
+	useSeqID := req.Msg.HttpStartSeqId > 0 || req.Msg.GrpcStartSeqId > 0 ||
+		req.Msg.SqlStartSeqId > 0 || req.Msg.TracesStartSeqId > 0 || req.Msg.MaxRecords > 0
 
 	response := &agentv1.QueryEbpfMetricsResponse{
 		HttpMetrics: []*agentv1.EbpfHttpMetric{},
 		GrpcMetrics: []*agentv1.EbpfGrpcMetric{},
 		SqlMetrics:  []*agentv1.EbpfSqlMetric{},
+		SessionId:   h.sessionID,
 	}
 
 	// Determine which metric types to query.
@@ -269,109 +291,188 @@ func (h *ServiceHandler) QueryEbpfMetrics(
 		}
 	}
 
-	// Query HTTP metrics if requested.
-	if queryHTTP {
-		httpMetrics, err := h.agent.beylaManager.QueryHTTPMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+	if useSeqID {
+		// Sequence-based queries (RFD 089).
+		if queryHTTP {
+			httpMetrics, maxSeqID, err := h.agent.beylaManager.QueryHTTPMetricsBySeqID(ctx, req.Msg.HttpStartSeqId, req.Msg.MaxRecords, req.Msg.ServiceNames)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			for _, metric := range httpMetrics {
+				response.HttpMetrics = append(response.HttpMetrics, &agentv1.EbpfHttpMetric{
+					Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+					ServiceName:    metric.ServiceName,
+					HttpMethod:     metric.HttpMethod,
+					HttpRoute:      metric.HttpRoute,
+					HttpStatusCode: metric.HttpStatusCode,
+					LatencyBuckets: metric.LatencyBuckets,
+					LatencyCounts:  metric.LatencyCounts,
+					RequestCount:   metric.RequestCount,
+					Attributes:     metric.Attributes,
+				})
+			}
+			response.HttpMaxSeqId = maxSeqID
 		}
 
-		// Convert internal protobuf format to API format.
-		for _, metric := range httpMetrics {
-			response.HttpMetrics = append(response.HttpMetrics, &agentv1.EbpfHttpMetric{
-				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
-				ServiceName:    metric.ServiceName,
-				HttpMethod:     metric.HttpMethod,
-				HttpRoute:      metric.HttpRoute,
-				HttpStatusCode: metric.HttpStatusCode,
-				LatencyBuckets: metric.LatencyBuckets,
-				LatencyCounts:  metric.LatencyCounts,
-				RequestCount:   metric.RequestCount,
-				Attributes:     metric.Attributes,
-			})
-		}
-	}
-
-	// Query gRPC metrics if requested.
-	if queryGRPC {
-		grpcMetrics, err := h.agent.beylaManager.QueryGRPCMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+		if queryGRPC {
+			grpcMetrics, maxSeqID, err := h.agent.beylaManager.QueryGRPCMetricsBySeqID(ctx, req.Msg.GrpcStartSeqId, req.Msg.MaxRecords, req.Msg.ServiceNames)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			for _, metric := range grpcMetrics {
+				response.GrpcMetrics = append(response.GrpcMetrics, &agentv1.EbpfGrpcMetric{
+					Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+					ServiceName:    metric.ServiceName,
+					GrpcMethod:     metric.GrpcMethod,
+					GrpcStatusCode: metric.GrpcStatusCode,
+					LatencyBuckets: metric.LatencyBuckets,
+					LatencyCounts:  metric.LatencyCounts,
+					RequestCount:   metric.RequestCount,
+					Attributes:     metric.Attributes,
+				})
+			}
+			response.GrpcMaxSeqId = maxSeqID
 		}
 
-		// Convert internal protobuf format to API format.
-		for _, metric := range grpcMetrics {
-			response.GrpcMetrics = append(response.GrpcMetrics, &agentv1.EbpfGrpcMetric{
-				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
-				ServiceName:    metric.ServiceName,
-				GrpcMethod:     metric.GrpcMethod,
-				GrpcStatusCode: metric.GrpcStatusCode,
-				LatencyBuckets: metric.LatencyBuckets,
-				LatencyCounts:  metric.LatencyCounts,
-				RequestCount:   metric.RequestCount,
-				Attributes:     metric.Attributes,
-			})
-		}
-	}
-
-	// Query SQL metrics if requested.
-	if querySQL {
-		sqlMetrics, err := h.agent.beylaManager.QuerySQLMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+		if querySQL {
+			sqlMetrics, maxSeqID, err := h.agent.beylaManager.QuerySQLMetricsBySeqID(ctx, req.Msg.SqlStartSeqId, req.Msg.MaxRecords, req.Msg.ServiceNames)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			for _, metric := range sqlMetrics {
+				response.SqlMetrics = append(response.SqlMetrics, &agentv1.EbpfSqlMetric{
+					Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+					ServiceName:    metric.ServiceName,
+					SqlOperation:   metric.SqlOperation,
+					TableName:      metric.TableName,
+					LatencyBuckets: metric.LatencyBuckets,
+					LatencyCounts:  metric.LatencyCounts,
+					QueryCount:     metric.QueryCount,
+					Attributes:     metric.Attributes,
+				})
+			}
+			response.SqlMaxSeqId = maxSeqID
 		}
 
-		// Convert internal protobuf format to API format.
-		for _, metric := range sqlMetrics {
-			response.SqlMetrics = append(response.SqlMetrics, &agentv1.EbpfSqlMetric{
-				Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
-				ServiceName:    metric.ServiceName,
-				SqlOperation:   metric.SqlOperation,
-				TableName:      metric.TableName,
-				LatencyBuckets: metric.LatencyBuckets,
-				LatencyCounts:  metric.LatencyCounts,
-				QueryCount:     metric.QueryCount,
-				Attributes:     metric.Attributes,
-			})
+		// Query traces by seq_id if requested.
+		if req.Msg.IncludeTraces {
+			traceSpans, maxSeqID, err := h.agent.beylaManager.QueryTracesBySeqID(ctx, req.Msg.TracesStartSeqId, req.Msg.MaxRecords, req.Msg.ServiceNames)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			for _, span := range traceSpans {
+				response.TraceSpans = append(response.TraceSpans, &agentv1.EbpfTraceSpan{
+					TraceId:      span.TraceId,
+					SpanId:       span.SpanId,
+					ParentSpanId: span.ParentSpanId,
+					ServiceName:  span.ServiceName,
+					SpanName:     span.SpanName,
+					SpanKind:     span.SpanKind,
+					StartTime:    span.StartTime.AsTime().UnixMilli(),
+					DurationUs:   span.Duration.AsDuration().Microseconds(),
+					StatusCode:   span.StatusCode,
+					Attributes:   span.Attributes,
+				})
+			}
+			response.TotalTraces = int32(len(response.TraceSpans))
+			response.TracesMaxSeqId = maxSeqID
+		}
+	} else {
+		// Time-based queries (backward compatibility).
+		startTime := time.Unix(req.Msg.StartTime, 0)
+		endTime := time.Unix(req.Msg.EndTime, 0)
+
+		if queryHTTP {
+			httpMetrics, err := h.agent.beylaManager.QueryHTTPMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			for _, metric := range httpMetrics {
+				response.HttpMetrics = append(response.HttpMetrics, &agentv1.EbpfHttpMetric{
+					Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+					ServiceName:    metric.ServiceName,
+					HttpMethod:     metric.HttpMethod,
+					HttpRoute:      metric.HttpRoute,
+					HttpStatusCode: metric.HttpStatusCode,
+					LatencyBuckets: metric.LatencyBuckets,
+					LatencyCounts:  metric.LatencyCounts,
+					RequestCount:   metric.RequestCount,
+					Attributes:     metric.Attributes,
+				})
+			}
+		}
+
+		if queryGRPC {
+			grpcMetrics, err := h.agent.beylaManager.QueryGRPCMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			for _, metric := range grpcMetrics {
+				response.GrpcMetrics = append(response.GrpcMetrics, &agentv1.EbpfGrpcMetric{
+					Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+					ServiceName:    metric.ServiceName,
+					GrpcMethod:     metric.GrpcMethod,
+					GrpcStatusCode: metric.GrpcStatusCode,
+					LatencyBuckets: metric.LatencyBuckets,
+					LatencyCounts:  metric.LatencyCounts,
+					RequestCount:   metric.RequestCount,
+					Attributes:     metric.Attributes,
+				})
+			}
+		}
+
+		if querySQL {
+			sqlMetrics, err := h.agent.beylaManager.QuerySQLMetrics(ctx, startTime, endTime, req.Msg.ServiceNames)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			for _, metric := range sqlMetrics {
+				response.SqlMetrics = append(response.SqlMetrics, &agentv1.EbpfSqlMetric{
+					Timestamp:      metric.Timestamp.AsTime().UnixMilli(),
+					ServiceName:    metric.ServiceName,
+					SqlOperation:   metric.SqlOperation,
+					TableName:      metric.TableName,
+					LatencyBuckets: metric.LatencyBuckets,
+					LatencyCounts:  metric.LatencyCounts,
+					QueryCount:     metric.QueryCount,
+					Attributes:     metric.Attributes,
+				})
+			}
+		}
+
+		// Query traces if requested (RFD 036).
+		if req.Msg.IncludeTraces {
+			maxTraces := req.Msg.MaxTraces
+			if maxTraces == 0 {
+				maxTraces = 100
+			} else if maxTraces > 1000 {
+				maxTraces = 1000
+			}
+
+			traceSpans, err := h.agent.beylaManager.QueryTraces(ctx, startTime, endTime, req.Msg.ServiceNames, req.Msg.TraceId, maxTraces)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			for _, span := range traceSpans {
+				response.TraceSpans = append(response.TraceSpans, &agentv1.EbpfTraceSpan{
+					TraceId:      span.TraceId,
+					SpanId:       span.SpanId,
+					ParentSpanId: span.ParentSpanId,
+					ServiceName:  span.ServiceName,
+					SpanName:     span.SpanName,
+					SpanKind:     span.SpanKind,
+					StartTime:    span.StartTime.AsTime().UnixMilli(),
+					DurationUs:   span.Duration.AsDuration().Microseconds(),
+					StatusCode:   span.StatusCode,
+					Attributes:   span.Attributes,
+				})
+			}
+			response.TotalTraces = int32(len(response.TraceSpans))
 		}
 	}
 
 	// Calculate total metrics.
 	response.TotalMetrics = int32(len(response.HttpMetrics) + len(response.GrpcMetrics) + len(response.SqlMetrics))
-
-	// Query traces if requested (RFD 036).
-	if req.Msg.IncludeTraces {
-		// Apply default max_traces if not specified.
-		maxTraces := req.Msg.MaxTraces
-		if maxTraces == 0 {
-			maxTraces = 100 // Default limit.
-		} else if maxTraces > 1000 {
-			maxTraces = 1000 // Max limit.
-		}
-
-		traceSpans, err := h.agent.beylaManager.QueryTraces(ctx, startTime, endTime, req.Msg.ServiceNames, req.Msg.TraceId, maxTraces)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-
-		// Convert internal protobuf format (mesh.v1) to API format (agent.v1).
-		for _, span := range traceSpans {
-			response.TraceSpans = append(response.TraceSpans, &agentv1.EbpfTraceSpan{
-				TraceId:      span.TraceId,
-				SpanId:       span.SpanId,
-				ParentSpanId: span.ParentSpanId,
-				ServiceName:  span.ServiceName,
-				SpanName:     span.SpanName,
-				SpanKind:     span.SpanKind,
-				StartTime:    span.StartTime.AsTime().UnixMilli(),
-				DurationUs:   span.Duration.AsDuration().Microseconds(),
-				StatusCode:   span.StatusCode,
-				Attributes:   span.Attributes,
-			})
-		}
-
-		response.TotalTraces = int32(len(response.TraceSpans))
-	}
 
 	return connect.NewResponse(response), nil
 }
