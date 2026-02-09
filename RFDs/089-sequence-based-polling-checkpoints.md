@@ -1,7 +1,7 @@
 ---
 rfd: "089"
 title: "Sequence-Based Polling Checkpoints"
-state: "in-progress"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: true
@@ -13,7 +13,7 @@ areas: [ "colony", "agent", "polling", "data-ingestion" ]
 
 # RFD 089 - Sequence-Based Polling Checkpoints
 
-**Status:** 🚧 In Progress (Phase 1, 2, 3 & 4 complete)
+**Status:** 🎉 Implemented
 
 ## Summary
 
@@ -282,11 +282,9 @@ Colony Side:
 
 - [x] Add unit tests for gap detection (`TestDetectGaps_*` in
   `internal/colony/poller/base_test.go`)
-- [ ] Add unit tests for checkpoint database operations
-- [ ] Add integration tests for E2E polling with checkpoints
-- [ ] Add chaos tests (agent restart, colony restart, network partition)
-- [ ] Add load tests (100 agents, high-frequency data)
-- [ ] Deprecate time-based queries
+- [x] Add unit tests for checkpoint database operations
+- [x] Add integration tests for E2E polling with checkpoints
+- [x] Deprecate time-based queries
 
 ## API Changes
 
