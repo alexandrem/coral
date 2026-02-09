@@ -184,6 +184,52 @@ func ForEachHealthyAgent(
 	return success, errors
 }
 
+// Gap represents a detected sequence gap between two seq_ids (RFD 089).
+type Gap struct {
+	// StartSeqID is the first missing seq_id in the gap (inclusive).
+	StartSeqID uint64
+	// EndSeqID is the last missing seq_id in the gap (inclusive).
+	EndSeqID uint64
+}
+
+// DetectGaps finds non-consecutive sequence IDs in a batch of records (RFD 089).
+// It compares each record's seq_id against the expected next seq_id (starting from
+// lastCheckpointSeqID + 1). To avoid false gaps from concurrent DuckDB transactions
+// that commit out of order, gaps are only reported if the record after the gap has a
+// timestamp older than the grace period (10 seconds).
+//
+// seqIDs must be sorted in ascending order (as returned by ORDER BY seq_id ASC).
+// timestampsMs are the corresponding timestamps in Unix milliseconds, aligned by index.
+func DetectGaps(lastCheckpointSeqID uint64, seqIDs []uint64, timestampsMs []int64) []Gap {
+	if len(seqIDs) == 0 || len(seqIDs) != len(timestampsMs) {
+		return nil
+	}
+
+	const gracePeriodMs = 10_000 // 10 seconds in milliseconds.
+	nowMs := time.Now().UnixMilli()
+
+	var gaps []Gap
+	expected := lastCheckpointSeqID + 1
+
+	for i, seqID := range seqIDs {
+		if seqID > expected {
+			// Potential gap: check grace period on the record after the gap.
+			recordAgeMs := nowMs - timestampsMs[i]
+			if recordAgeMs >= gracePeriodMs {
+				gaps = append(gaps, Gap{
+					StartSeqID: expected,
+					EndSeqID:   seqID - 1,
+				})
+			}
+		}
+		if seqID >= expected {
+			expected = seqID + 1
+		}
+	}
+
+	return gaps
+}
+
 // cleanupLoop runs cleanup operations periodically.
 func (b *BasePoller) cleanupLoop(poller Poller) {
 	defer b.wg.Done()

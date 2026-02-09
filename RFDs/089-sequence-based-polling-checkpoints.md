@@ -13,7 +13,7 @@ areas: [ "colony", "agent", "polling", "data-ingestion" ]
 
 # RFD 089 - Sequence-Based Polling Checkpoints
 
-**Status:** 🚧 In Progress (Phase 1 & 2 complete)
+**Status:** 🚧 In Progress (Phase 1, 2 & 3 complete)
 
 ## Summary
 
@@ -254,27 +254,31 @@ Colony Side:
 - [x] Wire `sessionID` from `StorageResult` through `ServiceRegistry` to all
   handlers via `SetSessionID()`
 
-### Phase 3: Poller Implementation
+### Phase 3: Poller Implementation ✅
 
-- [ ] Update TelemetryPoller to use checkpoint-based polling
-- [ ] Update BeylaPoller to use 4 separate checkpoints (HTTP/gRPC/SQL/traces)
-- [ ] Update SystemMetricsPoller to use checkpoint-based polling
-- [ ] Update CPUProfilePoller to replace in-memory tracking with DB checkpoints
-- [ ] Update MemoryProfilePoller to replace in-memory tracking with DB
+- [x] Update TelemetryPoller to use checkpoint-based polling
+- [x] Update BeylaPoller to use 4 separate checkpoints (HTTP/gRPC/SQL/traces)
+- [x] Update SystemMetricsPoller to use checkpoint-based polling
+- [x] Update CPUProfilePoller to replace in-memory tracking with DB checkpoints
+- [x] Update MemoryProfilePoller to replace in-memory tracking with DB
   checkpoints
-- [ ] Add gap detection logic to all pollers
+- [x] Add gap detection logic to all pollers
 
 ### Phase 4: Gap Recovery
 
-- [ ] Implement gap detection logic
-- [ ] Implement gap recovery background service
-- [ ] Add gap tracking database methods
+- [x] Implement gap detection logic (done in Phase 3: `poller.DetectGaps()`)
+- [ ] Implement gap recovery background service (`internal/colony/gap_recovery.go`)
+- [x] Add gap tracking database methods (`RecordSequenceGap`,
+  `GetPendingSequenceGaps`, `MarkGapRecovered`, `MarkGapPermanent`,
+  `IncrementGapRecoveryAttempt`, `CleanupOldSequenceGaps`)
 - [ ] Add metrics for gap detection/recovery
 - [ ] Add logging and alerting for permanent data loss
 
 ### Phase 5: Testing & Rollout
 
-- [ ] Add unit tests for sequence generation and checkpoint operations
+- [x] Add unit tests for gap detection (`TestDetectGaps_*` in
+  `internal/colony/poller/base_test.go`)
+- [ ] Add unit tests for checkpoint database operations
 - [ ] Add integration tests for E2E polling with checkpoints
 - [ ] Add chaos tests (agent restart, colony restart, network partition)
 - [ ] Add load tests (100 agents, high-frequency data)

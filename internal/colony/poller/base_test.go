@@ -183,6 +183,104 @@ func TestBasePoller_DefaultCleanupInterval(t *testing.T) {
 	}
 }
 
+func TestDetectGaps_NoGaps(t *testing.T) {
+	// Continuous seq IDs from checkpoint 0.
+	seqIDs := []uint64{1, 2, 3, 4, 5}
+	oldTimestamp := time.Now().Add(-30 * time.Second).UnixMilli()
+	timestamps := []int64{oldTimestamp, oldTimestamp, oldTimestamp, oldTimestamp, oldTimestamp}
+
+	gaps := DetectGaps(0, seqIDs, timestamps)
+	if len(gaps) != 0 {
+		t.Errorf("Expected no gaps, got %d: %+v", len(gaps), gaps)
+	}
+}
+
+func TestDetectGaps_GapInMiddle(t *testing.T) {
+	// Missing seq_id 4.
+	seqIDs := []uint64{1, 2, 3, 5, 6}
+	oldTimestamp := time.Now().Add(-30 * time.Second).UnixMilli()
+	timestamps := []int64{oldTimestamp, oldTimestamp, oldTimestamp, oldTimestamp, oldTimestamp}
+
+	gaps := DetectGaps(0, seqIDs, timestamps)
+	if len(gaps) != 1 {
+		t.Fatalf("Expected 1 gap, got %d: %+v", len(gaps), gaps)
+	}
+	if gaps[0].StartSeqID != 4 || gaps[0].EndSeqID != 4 {
+		t.Errorf("Expected gap [4,4], got [%d,%d]", gaps[0].StartSeqID, gaps[0].EndSeqID)
+	}
+}
+
+func TestDetectGaps_GapFromCheckpoint(t *testing.T) {
+	// Checkpoint at 5, next batch starts at 8 (missing 6, 7).
+	seqIDs := []uint64{8, 9, 10}
+	oldTimestamp := time.Now().Add(-30 * time.Second).UnixMilli()
+	timestamps := []int64{oldTimestamp, oldTimestamp, oldTimestamp}
+
+	gaps := DetectGaps(5, seqIDs, timestamps)
+	if len(gaps) != 1 {
+		t.Fatalf("Expected 1 gap, got %d: %+v", len(gaps), gaps)
+	}
+	if gaps[0].StartSeqID != 6 || gaps[0].EndSeqID != 7 {
+		t.Errorf("Expected gap [6,7], got [%d,%d]", gaps[0].StartSeqID, gaps[0].EndSeqID)
+	}
+}
+
+func TestDetectGaps_MultipleGaps(t *testing.T) {
+	// Missing 2, 5-6.
+	seqIDs := []uint64{1, 3, 4, 7, 8}
+	oldTimestamp := time.Now().Add(-30 * time.Second).UnixMilli()
+	timestamps := []int64{oldTimestamp, oldTimestamp, oldTimestamp, oldTimestamp, oldTimestamp}
+
+	gaps := DetectGaps(0, seqIDs, timestamps)
+	if len(gaps) != 2 {
+		t.Fatalf("Expected 2 gaps, got %d: %+v", len(gaps), gaps)
+	}
+	if gaps[0].StartSeqID != 2 || gaps[0].EndSeqID != 2 {
+		t.Errorf("Expected first gap [2,2], got [%d,%d]", gaps[0].StartSeqID, gaps[0].EndSeqID)
+	}
+	if gaps[1].StartSeqID != 5 || gaps[1].EndSeqID != 6 {
+		t.Errorf("Expected second gap [5,6], got [%d,%d]", gaps[1].StartSeqID, gaps[1].EndSeqID)
+	}
+}
+
+func TestDetectGaps_GracePeriod(t *testing.T) {
+	// Records are very recent (< 10s), so gaps should NOT be reported.
+	seqIDs := []uint64{1, 2, 3, 5, 6}
+	recentTimestamp := time.Now().UnixMilli() // Now, within grace period.
+	timestamps := []int64{recentTimestamp, recentTimestamp, recentTimestamp, recentTimestamp, recentTimestamp}
+
+	gaps := DetectGaps(0, seqIDs, timestamps)
+	if len(gaps) != 0 {
+		t.Errorf("Expected no gaps within grace period, got %d: %+v", len(gaps), gaps)
+	}
+}
+
+func TestDetectGaps_EmptyInput(t *testing.T) {
+	gaps := DetectGaps(0, nil, nil)
+	if len(gaps) != 0 {
+		t.Errorf("Expected no gaps for empty input, got %d", len(gaps))
+	}
+}
+
+func TestDetectGaps_MismatchedLengths(t *testing.T) {
+	gaps := DetectGaps(0, []uint64{1, 2}, []int64{100})
+	if len(gaps) != 0 {
+		t.Errorf("Expected no gaps for mismatched lengths, got %d", len(gaps))
+	}
+}
+
+func TestDetectGaps_FirstPoll(t *testing.T) {
+	// First poll from checkpoint 0, data starts at 1. No gap.
+	seqIDs := []uint64{1, 2, 3}
+	oldTimestamp := time.Now().Add(-30 * time.Second).UnixMilli()
+	timestamps := []int64{oldTimestamp, oldTimestamp, oldTimestamp}
+
+	gaps := DetectGaps(0, seqIDs, timestamps)
+	if len(gaps) != 0 {
+		t.Errorf("Expected no gaps on first poll, got %d: %+v", len(gaps), gaps)
+	}
+}
+
 func TestBasePoller_ContextCancellation(t *testing.T) {
 	// Create a mock that signals on a channel when polled
 	pollChan := make(chan struct{}, 10)
