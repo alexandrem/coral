@@ -357,6 +357,7 @@ func (h *ServiceHandler) QueryEbpfMetrics(
 	}
 
 	// Calculate total metrics.
+	// #nosec G115
 	response.TotalMetrics = int32(len(response.HttpMetrics) + len(response.GrpcMetrics) + len(response.SqlMetrics))
 
 	return connect.NewResponse(response), nil

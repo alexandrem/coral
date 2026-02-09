@@ -24,7 +24,22 @@ const (
 
 	// gapRetention is how long to keep resolved gaps for auditing.
 	gapRetention = 7 * 24 * time.Hour
+
+	// gapMaxSize is maximum size for batch of records to process.
+	gapMaxSize = 10000
 )
+
+// At the top of your file or inside your struct initializer
+var recoveryRegistry = map[string]func(*GapRecoveryService, context.Context, *registry.Entry, *database.SequenceGap, int32) error{
+	telemetryDataType:     (*GapRecoveryService).recoverTelemetry,
+	systemMetricsDataType: (*GapRecoveryService).recoverSystemMetrics,
+	beylaHTTPDataType:     (*GapRecoveryService).recoverBeylaHTTP,
+	beylaGRPCDataType:     (*GapRecoveryService).recoverBeylaGRPC,
+	beylaSQLDataType:      (*GapRecoveryService).recoverBeylaSQL,
+	beylaTracesDataType:   (*GapRecoveryService).recoverBeylaTraces,
+	cpuProfileDataType:    (*GapRecoveryService).recoverCPUProfile,
+	memoryProfileDataType: (*GapRecoveryService).recoverMemoryProfile,
+}
 
 // GapRecoveryService periodically attempts to recover detected sequence gaps
 // by re-querying agents for missing data (RFD 089).
@@ -177,32 +192,24 @@ func (s *GapRecoveryService) recoverGap(ctx context.Context, agent *registry.Ent
 	queryCtx, cancel := context.WithTimeout(ctx, agentQueryTimeout)
 	defer cancel()
 
-	maxRecords := int32(gap.EndSeqID - gap.StartSeqID + 1)
-	if maxRecords > 10000 {
-		maxRecords = 10000
+	gapSize := gap.EndSeqID - gap.StartSeqID + 1
+	maxRecords := int32(gapMaxSize)
+
+	if gapSize < gapMaxSize {
+		maxRecords = int32(gapSize) // #nosec G115 - gapSize fits in int32 safely
+	} else {
+		s.logger.Warn().
+			Uint64("actual_gap", gapSize).
+			Msgf("Gap size limited to %d", gapMaxSize)
 	}
 
-	switch gap.DataType {
-	case telemetryDataType:
-		return s.recoverTelemetry(queryCtx, agent, gap, maxRecords)
-	case systemMetricsDataType:
-		return s.recoverSystemMetrics(queryCtx, agent, gap, maxRecords)
-	case beylaHTTPDataType:
-		return s.recoverBeylaHTTP(queryCtx, agent, gap, maxRecords)
-	case beylaGRPCDataType:
-		return s.recoverBeylaGRPC(queryCtx, agent, gap, maxRecords)
-	case beylaSQLDataType:
-		return s.recoverBeylaSQL(queryCtx, agent, gap, maxRecords)
-	case beylaTracesDataType:
-		return s.recoverBeylaTraces(queryCtx, agent, gap, maxRecords)
-	case cpuProfileDataType:
-		return s.recoverCPUProfile(queryCtx, agent, gap, maxRecords)
-	case memoryProfileDataType:
-		return s.recoverMemoryProfile(queryCtx, agent, gap, maxRecords)
-	default:
-		s.logger.Warn().Str("data_type", gap.DataType).Msg("Unknown data type for gap recovery")
-		return nil
+	// Dispatch via Registry
+	if recoverFn, exists := recoveryRegistry[gap.DataType]; exists {
+		return recoverFn(s, queryCtx, agent, gap, maxRecords)
 	}
+
+	s.logger.Warn().Str("type", gap.DataType).Msg("Unsupported data type")
+	return nil
 }
 
 // recoverTelemetry recovers missing telemetry spans.
