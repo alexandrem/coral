@@ -125,14 +125,14 @@ message QueryCPUProfileSamplesRequest {
   // Service name filter (optional).
   string service_name = 1;
 
-  // Pod name filter (optional).
-  string pod_name = 2;
-
   // Queries records with seq_id > start_seq_id. Use 0 for initial poll.
-  uint64 start_seq_id = 3;
+  uint64 start_seq_id = 2;
 
   // Maximum number of records to return. Default: 5000.
-  int32 max_records = 4;
+  int32 max_records = 3;
+
+  // Pod name filter (optional).
+  string pod_name = 4;
 }
 
 // CPUProfileSample represents a single aggregated profile sample with build ID (RFD 072).

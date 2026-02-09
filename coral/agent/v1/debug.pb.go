@@ -945,12 +945,12 @@ type QueryCPUProfileSamplesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Service name filter (optional).
 	ServiceName string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
-	// Pod name filter (optional).
-	PodName string `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`
 	// Queries records with seq_id > start_seq_id. Use 0 for initial poll.
-	StartSeqId uint64 `protobuf:"varint,3,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
+	StartSeqId uint64 `protobuf:"varint,2,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
 	// Maximum number of records to return. Default: 5000.
-	MaxRecords    int32 `protobuf:"varint,4,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
+	MaxRecords int32 `protobuf:"varint,3,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
+	// Pod name filter (optional).
+	PodName       string `protobuf:"bytes,4,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -992,13 +992,6 @@ func (x *QueryCPUProfileSamplesRequest) GetServiceName() string {
 	return ""
 }
 
-func (x *QueryCPUProfileSamplesRequest) GetPodName() string {
-	if x != nil {
-		return x.PodName
-	}
-	return ""
-}
-
 func (x *QueryCPUProfileSamplesRequest) GetStartSeqId() uint64 {
 	if x != nil {
 		return x.StartSeqId
@@ -1011,6 +1004,13 @@ func (x *QueryCPUProfileSamplesRequest) GetMaxRecords() int32 {
 		return x.MaxRecords
 	}
 	return 0
+}
+
+func (x *QueryCPUProfileSamplesRequest) GetPodName() string {
+	if x != nil {
+		return x.PodName
+	}
+	return ""
 }
 
 // CPUProfileSample represents a single aggregated profile sample with build ID (RFD 072).
@@ -1955,12 +1955,12 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\"\xa0\x01\n" +
 	"\x1dQueryCPUProfileSamplesRequest\x12!\n" +
-	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x19\n" +
-	"\bpod_name\x18\x02 \x01(\tR\apodName\x12 \n" +
-	"\fstart_seq_id\x18\x03 \x01(\x04R\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12 \n" +
+	"\fstart_seq_id\x18\x02 \x01(\x04R\n" +
 	"startSeqId\x12\x1f\n" +
-	"\vmax_records\x18\x04 \x01(\x05R\n" +
-	"maxRecords\"\xe7\x01\n" +
+	"\vmax_records\x18\x03 \x01(\x05R\n" +
+	"maxRecords\x12\x19\n" +
+	"\bpod_name\x18\x04 \x01(\tR\apodName\"\xe7\x01\n" +
 	"\x10CPUProfileSample\x128\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x19\n" +
 	"\bbuild_id\x18\x02 \x01(\tR\abuildId\x12!\n" +
