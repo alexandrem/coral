@@ -591,7 +591,7 @@ func (s *BeylaStorage) QueryHTTPMetricsBySeqID(ctx context.Context, startSeqID u
 				ServiceName:    serviceName,
 				HttpMethod:     httpMethod,
 				HttpRoute:      httpRoute,
-				HttpStatusCode: uint32(httpStatusCode), //nolint:gosec // G115
+				HttpStatusCode: uint32(httpStatusCode), // #nosec G115
 				LatencyBuckets: []float64{},
 				LatencyCounts:  []uint64{},
 				Attributes:     attrs,
@@ -683,7 +683,7 @@ func (s *BeylaStorage) QueryGRPCMetricsBySeqID(ctx context.Context, startSeqID u
 				Timestamp:      timestamppb.New(timestamp),
 				ServiceName:    serviceName,
 				GrpcMethod:     grpcMethod,
-				GrpcStatusCode: uint32(grpcStatusCode), //nolint:gosec // G115
+				GrpcStatusCode: uint32(grpcStatusCode), // #nosec G115
 				LatencyBuckets: []float64{},
 				LatencyCounts:  []uint64{},
 				Attributes:     attrs,
@@ -869,7 +869,7 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 			SpanKind:     spanKind,
 			StartTime:    timestamppb.New(startTime),
 			Duration:     durationpb.New(duration),
-			StatusCode:   uint32(statusCode), //nolint:gosec // G115
+			StatusCode:   uint32(statusCode), // #nosec G115
 			Attributes:   attrs,
 		}
 		spans = append(spans, span)
@@ -939,7 +939,7 @@ func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*e
 			SpanKind:     spanKind,
 			StartTime:    timestamppb.New(startTime),
 			Duration:     durationpb.New(duration),
-			StatusCode:   uint32(statusCode), //nolint:gosec // G115: Status codes are always positive
+			StatusCode:   uint32(statusCode), // #nosec G115 - Status codes are always positive
 			Attributes:   attrs,
 		}
 
