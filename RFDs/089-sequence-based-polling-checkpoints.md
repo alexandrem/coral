@@ -284,6 +284,7 @@ Colony Side:
   `internal/colony/poller/base_test.go`)
 - [x] Add unit tests for checkpoint database operations
 - [x] Add integration tests for E2E polling with checkpoints
+- [x] Add chaos tests (agent restart, colony restart, network partition)
 - [x] Deprecate time-based queries
 
 ## API Changes

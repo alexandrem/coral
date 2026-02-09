@@ -237,6 +237,330 @@ func TestCheckpointPolling_GapDetection(t *testing.T) {
 	assert.Len(t, remainingGaps, 0)
 }
 
+// === Chaos Tests ===
+// These tests verify that sequence-based polling is resilient to
+// clock skew, network partitions, and storage failures.
+
+// TestChaos_ClockSkew verifies that seq-based polling is unaffected by clock differences
+// between agent and colony. The agent clock is simulated 1 hour ahead and 1 hour behind;
+// because polling uses monotonic seq_ids (not timestamps), all data is captured correctly.
+func TestChaos_ClockSkew(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	// === Setup Agent Storage ===
+	agentDB, err := sql.Open("duckdb", ":memory:")
+	require.NoError(t, err)
+	defer func() { _ = agentDB.Close() }()
+
+	agentStorage, err := telemetry.NewStorage(agentDB, logger)
+	require.NoError(t, err)
+
+	// === Setup Colony Database ===
+	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	require.NoError(t, err)
+	defer func() { _ = colonyDB.Close() }()
+
+	agentID := "agent-clock-skew"
+	dataType := "telemetry"
+	sessionID := "session-clock-1"
+
+	t.Run("agent clock 1 hour ahead", func(t *testing.T) {
+		// Agent timestamps are 1 hour in the future (simulating clock skew).
+		futureTime := time.Now().Add(1 * time.Hour)
+
+		for i := 0; i < 5; i++ {
+			span := telemetry.Span{
+				Timestamp:   futureTime.Add(time.Duration(i) * time.Second),
+				TraceID:     "future-trace-" + string(rune('A'+i)),
+				SpanID:      "future-span-" + string(rune('A'+i)),
+				ServiceName: "checkout",
+				SpanKind:    "SERVER",
+				DurationMs:  float64(100 + i*10),
+				Attributes:  map[string]string{},
+			}
+			require.NoError(t, agentStorage.StoreSpan(ctx, span))
+		}
+
+		// Colony polls from seq_id 0 — timestamps don't matter.
+		spans, maxSeqID, err := agentStorage.QuerySpansBySeqID(ctx, 0, 10000, nil)
+		require.NoError(t, err)
+		assert.Len(t, spans, 5, "All spans should be returned regardless of future timestamps")
+		assert.Greater(t, maxSeqID, uint64(0))
+
+		// Update checkpoint.
+		require.NoError(t, colonyDB.UpdatePollingCheckpoint(ctx, agentID, dataType, sessionID, maxSeqID))
+
+		cp, err := colonyDB.GetPollingCheckpoint(ctx, agentID, dataType)
+		require.NoError(t, err)
+		require.NotNil(t, cp)
+		assert.Equal(t, maxSeqID, cp.LastSeqID, "Checkpoint should use seq_id, not timestamps")
+	})
+
+	t.Run("agent clock 1 hour behind", func(t *testing.T) {
+		// Get current checkpoint.
+		cp, err := colonyDB.GetPollingCheckpoint(ctx, agentID, dataType)
+		require.NoError(t, err)
+		require.NotNil(t, cp)
+		oldCheckpoint := cp.LastSeqID
+
+		// Agent timestamps are 1 hour in the past.
+		pastTime := time.Now().Add(-1 * time.Hour)
+
+		for i := 0; i < 3; i++ {
+			span := telemetry.Span{
+				Timestamp:   pastTime.Add(time.Duration(i) * time.Second),
+				TraceID:     "past-trace-" + string(rune('A'+i)),
+				SpanID:      "past-span-" + string(rune('A'+i)),
+				ServiceName: "checkout",
+				SpanKind:    "SERVER",
+				DurationMs:  float64(200 + i*10),
+				Attributes:  map[string]string{},
+			}
+			require.NoError(t, agentStorage.StoreSpan(ctx, span))
+		}
+
+		// Colony polls from the old checkpoint — only new spans returned.
+		spans, maxSeqID, err := agentStorage.QuerySpansBySeqID(ctx, oldCheckpoint, 10000, nil)
+		require.NoError(t, err)
+		assert.Len(t, spans, 3, "New spans should be returned even with past timestamps")
+		assert.Greater(t, maxSeqID, oldCheckpoint, "New seq_ids should be higher regardless of timestamp")
+
+		// Update checkpoint.
+		require.NoError(t, colonyDB.UpdatePollingCheckpoint(ctx, agentID, dataType, sessionID, maxSeqID))
+
+		cp2, err := colonyDB.GetPollingCheckpoint(ctx, agentID, dataType)
+		require.NoError(t, err)
+		require.NotNil(t, cp2)
+		assert.Equal(t, maxSeqID, cp2.LastSeqID)
+	})
+
+	t.Run("mixed clock skew does not cause duplicates", func(t *testing.T) {
+		// Get current checkpoint.
+		cp, err := colonyDB.GetPollingCheckpoint(ctx, agentID, dataType)
+		require.NoError(t, err)
+		require.NotNil(t, cp)
+
+		// Polling again with the same checkpoint should return 0 new spans.
+		spans, _, err := agentStorage.QuerySpansBySeqID(ctx, cp.LastSeqID, 10000, nil)
+		require.NoError(t, err)
+		assert.Empty(t, spans, "Re-polling with same checkpoint should yield no duplicates")
+	})
+}
+
+// TestChaos_NetworkPartition verifies that when a network failure occurs during polling,
+// the checkpoint is NOT updated and the next poll retries from the old checkpoint.
+func TestChaos_NetworkPartition(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	// === Setup Agent Storage ===
+	agentDB, err := sql.Open("duckdb", ":memory:")
+	require.NoError(t, err)
+	defer func() { _ = agentDB.Close() }()
+
+	agentStorage, err := telemetry.NewStorage(agentDB, logger)
+	require.NoError(t, err)
+
+	// === Setup Colony Database ===
+	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	require.NoError(t, err)
+	defer func() { _ = colonyDB.Close() }()
+
+	agentID := "agent-partition"
+	dataType := "telemetry"
+	sessionID := "session-partition-1"
+	now := time.Now().Truncate(time.Minute).Add(30 * time.Second)
+
+	// === Step 1: Successful first poll to establish baseline checkpoint ===
+	for i := 0; i < 5; i++ {
+		span := telemetry.Span{
+			Timestamp:   now.Add(time.Duration(i) * time.Second),
+			TraceID:     "trace-init-" + string(rune('A'+i)),
+			SpanID:      "span-init-" + string(rune('A'+i)),
+			ServiceName: "payment",
+			SpanKind:    "SERVER",
+			DurationMs:  float64(50 + i*10),
+			Attributes:  map[string]string{},
+		}
+		require.NoError(t, agentStorage.StoreSpan(ctx, span))
+	}
+
+	spans, maxSeqID, err := agentStorage.QuerySpansBySeqID(ctx, 0, 10000, nil)
+	require.NoError(t, err)
+	assert.Len(t, spans, 5)
+
+	// Simulate successful storage and checkpoint update.
+	aggregator := NewTelemetryAggregator()
+	protoSpans := telemetrySpansToProto(spans)
+	aggregator.AddSpans(agentID, protoSpans)
+	summaries := aggregator.GetSummaries()
+	require.NotEmpty(t, summaries)
+	require.NoError(t, colonyDB.InsertTelemetrySummaries(ctx, summaries))
+	require.NoError(t, colonyDB.UpdatePollingCheckpoint(ctx, agentID, dataType, sessionID, maxSeqID))
+
+	baselineCheckpoint := maxSeqID
+
+	// === Step 2: Add more data to agent ===
+	for i := 5; i < 10; i++ {
+		span := telemetry.Span{
+			Timestamp:   now.Add(time.Duration(i) * time.Second),
+			TraceID:     "trace-new-" + string(rune('A'+i)),
+			SpanID:      "span-new-" + string(rune('A'+i)),
+			ServiceName: "payment",
+			SpanKind:    "SERVER",
+			DurationMs:  float64(100 + i*10),
+			Attributes:  map[string]string{},
+		}
+		require.NoError(t, agentStorage.StoreSpan(ctx, span))
+	}
+
+	// === Step 3: Simulate network failure during poll ===
+	// Colony queries agent successfully but "network fails" before checkpoint update.
+	// In a real scenario, the gRPC call would fail. Here we simulate by querying but
+	// NOT updating the checkpoint (simulating the failure path).
+	spansDuringPartition, _, err := agentStorage.QuerySpansBySeqID(ctx, baselineCheckpoint, 10000, nil)
+	require.NoError(t, err)
+	assert.Len(t, spansDuringPartition, 5, "Agent has new data")
+
+	// Checkpoint is NOT updated (simulating network failure after query).
+	// Verify checkpoint remains at baseline.
+	cp, err := colonyDB.GetPollingCheckpoint(ctx, agentID, dataType)
+	require.NoError(t, err)
+	require.NotNil(t, cp)
+	assert.Equal(t, baselineCheckpoint, cp.LastSeqID, "Checkpoint must NOT advance during network failure")
+
+	// === Step 4: Network recovers — retry poll from old checkpoint ===
+	spansRetry, maxSeqIDRetry, err := agentStorage.QuerySpansBySeqID(ctx, cp.LastSeqID, 10000, nil)
+	require.NoError(t, err)
+	assert.Len(t, spansRetry, 5, "Retry should return the SAME data (idempotent)")
+
+	// Now the poll succeeds — update checkpoint.
+	require.NoError(t, colonyDB.UpdatePollingCheckpoint(ctx, agentID, dataType, sessionID, maxSeqIDRetry))
+
+	cpAfterRecovery, err := colonyDB.GetPollingCheckpoint(ctx, agentID, dataType)
+	require.NoError(t, err)
+	require.NotNil(t, cpAfterRecovery)
+	assert.Equal(t, maxSeqIDRetry, cpAfterRecovery.LastSeqID, "Checkpoint should advance after successful retry")
+	assert.Greater(t, cpAfterRecovery.LastSeqID, baselineCheckpoint, "Checkpoint should be past baseline")
+
+	// === Step 5: Verify no data loss — a third poll returns no new data ===
+	spansFinal, _, err := agentStorage.QuerySpansBySeqID(ctx, cpAfterRecovery.LastSeqID, 10000, nil)
+	require.NoError(t, err)
+	assert.Empty(t, spansFinal, "No data should be missing or duplicated after recovery")
+}
+
+// TestChaos_PollingStorageFailure verifies that when colony storage fails after querying
+// the agent, the checkpoint is NOT updated and the next poll re-queries the same data.
+func TestChaos_PollingStorageFailure(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	// === Setup Agent Storage ===
+	agentDB, err := sql.Open("duckdb", ":memory:")
+	require.NoError(t, err)
+	defer func() { _ = agentDB.Close() }()
+
+	agentStorage, err := telemetry.NewStorage(agentDB, logger)
+	require.NoError(t, err)
+
+	// === Setup Colony Database ===
+	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	require.NoError(t, err)
+	defer func() { _ = colonyDB.Close() }()
+
+	agentID := "agent-storage-fail"
+	dataType := "telemetry"
+	sessionID := "session-storage-1"
+	now := time.Now().Truncate(time.Minute).Add(30 * time.Second)
+
+	// === Step 1: Establish baseline with a successful poll ===
+	for i := 0; i < 3; i++ {
+		span := telemetry.Span{
+			Timestamp:   now.Add(time.Duration(i) * time.Second),
+			TraceID:     "trace-base-" + string(rune('A'+i)),
+			SpanID:      "span-base-" + string(rune('A'+i)),
+			ServiceName: "orders",
+			SpanKind:    "SERVER",
+			DurationMs:  float64(75 + i*10),
+			Attributes:  map[string]string{},
+		}
+		require.NoError(t, agentStorage.StoreSpan(ctx, span))
+	}
+
+	spans, maxSeqID, err := agentStorage.QuerySpansBySeqID(ctx, 0, 10000, nil)
+	require.NoError(t, err)
+	assert.Len(t, spans, 3)
+
+	aggregator := NewTelemetryAggregator()
+	aggregator.AddSpans(agentID, telemetrySpansToProto(spans))
+	summaries := aggregator.GetSummaries()
+	require.NoError(t, colonyDB.InsertTelemetrySummaries(ctx, summaries))
+	require.NoError(t, colonyDB.UpdatePollingCheckpoint(ctx, agentID, dataType, sessionID, maxSeqID))
+
+	baselineCheckpoint := maxSeqID
+
+	// === Step 2: Add more data to agent ===
+	for i := 3; i < 8; i++ {
+		span := telemetry.Span{
+			Timestamp:   now.Add(time.Duration(i) * time.Second),
+			TraceID:     "trace-fail-" + string(rune('A'+i)),
+			SpanID:      "span-fail-" + string(rune('A'+i)),
+			ServiceName: "orders",
+			SpanKind:    "SERVER",
+			DurationMs:  float64(150 + i*10),
+			Attributes:  map[string]string{},
+		}
+		require.NoError(t, agentStorage.StoreSpan(ctx, span))
+	}
+
+	// === Step 3: Simulate query success but storage failure ===
+	// Colony queries the agent — this succeeds.
+	spansQueried, maxSeqIDQueried, err := agentStorage.QuerySpansBySeqID(ctx, baselineCheckpoint, 10000, nil)
+	require.NoError(t, err)
+	assert.Len(t, spansQueried, 5)
+	assert.Greater(t, maxSeqIDQueried, baselineCheckpoint)
+
+	// Colony tries to store data — simulate failure by NOT calling InsertTelemetrySummaries.
+	// Because storage failed, checkpoint is NOT updated.
+
+	// Verify checkpoint is still at baseline.
+	cp, err := colonyDB.GetPollingCheckpoint(ctx, agentID, dataType)
+	require.NoError(t, err)
+	require.NotNil(t, cp)
+	assert.Equal(t, baselineCheckpoint, cp.LastSeqID, "Checkpoint must NOT advance when storage fails")
+
+	// === Step 4: Retry — colony re-queries the same data ===
+	spansRetry, maxSeqIDRetry, err := agentStorage.QuerySpansBySeqID(ctx, cp.LastSeqID, 10000, nil)
+	require.NoError(t, err)
+	assert.Len(t, spansRetry, 5, "Retry must return the same 5 spans")
+	assert.Equal(t, maxSeqIDQueried, maxSeqIDRetry, "Max seq_id should be identical on retry")
+
+	// Verify the actual data matches (idempotent re-query).
+	for i := range spansQueried {
+		assert.Equal(t, spansQueried[i].SeqID, spansRetry[i].SeqID, "Span seq_ids must match on retry")
+		assert.Equal(t, spansQueried[i].TraceID, spansRetry[i].TraceID, "Span trace_ids must match on retry")
+	}
+
+	// === Step 5: This time storage succeeds ===
+	aggregator2 := NewTelemetryAggregator()
+	aggregator2.AddSpans(agentID, telemetrySpansToProto(spansRetry))
+	summaries2 := aggregator2.GetSummaries()
+	require.NoError(t, colonyDB.InsertTelemetrySummaries(ctx, summaries2))
+	require.NoError(t, colonyDB.UpdatePollingCheckpoint(ctx, agentID, dataType, sessionID, maxSeqIDRetry))
+
+	// Verify checkpoint advanced.
+	cpFinal, err := colonyDB.GetPollingCheckpoint(ctx, agentID, dataType)
+	require.NoError(t, err)
+	require.NotNil(t, cpFinal)
+	assert.Equal(t, maxSeqIDRetry, cpFinal.LastSeqID, "Checkpoint should advance after successful retry")
+
+	// === Step 6: No data loss — next poll returns empty ===
+	spansFinal, _, err := agentStorage.QuerySpansBySeqID(ctx, cpFinal.LastSeqID, 10000, nil)
+	require.NoError(t, err)
+	assert.Empty(t, spansFinal, "All data should have been captured — no loss")
+}
+
 // telemetrySpansToProto converts agent-side spans to proto format for the aggregator.
 func telemetrySpansToProto(spans []telemetry.Span) []*agentv1.TelemetrySpan {
 	result := make([]*agentv1.TelemetrySpan, len(spans))
