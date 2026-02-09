@@ -642,6 +642,48 @@ checkpoint_update_failures_total{poller_type, agent_id}
 - `sequence_gaps_detected_total rate > 10/hour` - Frequent gaps
 - `poll_query_duration_seconds > 5` - Slow queries
 
+## Implementation Status
+
+**Core Capability:** ✅ Complete
+
+Sequence-based polling replaces all time-based queries across every data type.
+Agents assign monotonic seq_ids via DuckDB sequences and return a session_id for
+database identity tracking. Colony pollers use checkpoint-commit for atomic data
+ingestion with automatic gap detection and recovery.
+
+**Agent Side:**
+
+- ✅ DuckDB sequences and `seq_id` columns on all 8 data tables
+- ✅ `db_metadata` table with persistent `session_id` UUID
+- ✅ `QueryBySeqID` methods on all storage layers (telemetry, beyla, system
+  metrics, CPU/memory profiles)
+- ✅ All RPC handlers support seq-based queries with backward compatibility
+
+**Colony Side:**
+
+- ✅ `polling_checkpoints` and `sequence_gaps` tables with full CRUD
+- ✅ All 5 pollers migrated to checkpoint-based polling (telemetry, beyla, system
+  metrics, CPU profiles, memory profiles)
+- ✅ Gap detection with 10-second grace period for concurrent transaction ordering
+- ✅ Gap recovery background service (every 5 min, max 3 retries per gap)
+- ✅ Session mismatch detection triggers automatic checkpoint reset
+
+**Testing:**
+
+- ✅ Unit tests: gap detection (9 scenarios), checkpoint CRUD, gap lifecycle
+- ✅ Integration tests: E2E polling flow, session reset, gap detection & recovery
+- ✅ Chaos tests: clock skew (1h ahead/behind), network partition, storage failure
+- ✅ Load tests: 100 agents × 60K spans (6M total, 500K+ spans/sec), catch-up
+  scenario (30K spans/agent, full catch-up in <1s)
+
+**What Works Now:**
+
+- Reliable data ingestion immune to clock skew, network delays, and polling
+  failures
+- Automatic gap detection and recovery across all data types
+- Idempotent polling: failed polls safely retry from the last checkpoint
+- Colony catch-up after downtime via batched sequential polling
+
 ## Future Work
 
 **Advanced Gap Recovery** (Future - RFD XXX)
