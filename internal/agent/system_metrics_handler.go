@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -13,7 +12,8 @@ import (
 
 // SystemMetricsHandler implements the QuerySystemMetrics RPC for agents (RFD 071).
 type SystemMetricsHandler struct {
-	storage *collector.Storage
+	storage   *collector.Storage
+	sessionID string // Database session UUID for checkpoint tracking (RFD 089).
 }
 
 // NewSystemMetricsHandler creates a new system metrics handler.
@@ -23,18 +23,18 @@ func NewSystemMetricsHandler(storage *collector.Storage) *SystemMetricsHandler {
 	}
 }
 
+// SetSessionID sets the database session UUID for checkpoint tracking (RFD 089).
+func (h *SystemMetricsHandler) SetSessionID(sessionID string) {
+	h.sessionID = sessionID
+}
+
 // QuerySystemMetrics implements the QuerySystemMetrics RPC.
-// Colony calls this to query system metrics from agent's local storage.
+// Colony calls this to query system metrics from agent's local storage using sequence-based polling.
 func (h *SystemMetricsHandler) QuerySystemMetrics(
 	ctx context.Context,
 	req *connect.Request[agentv1.QuerySystemMetricsRequest],
 ) (*connect.Response[agentv1.QuerySystemMetricsResponse], error) {
-	// Convert Unix seconds to time.Time.
-	startTime := time.Unix(req.Msg.StartTime, 0)
-	endTime := time.Unix(req.Msg.EndTime, 0)
-
-	// Query metrics from local storage.
-	metrics, err := h.storage.QueryMetrics(ctx, startTime, endTime, req.Msg.MetricNames)
+	metrics, maxSeqID, err := h.storage.QueryMetricsBySeqID(ctx, req.Msg.StartSeqId, req.Msg.MaxRecords, req.Msg.MetricNames)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -59,6 +59,7 @@ func (h *SystemMetricsHandler) QuerySystemMetrics(
 			Unit:       metric.Unit,
 			MetricType: metric.MetricType,
 			Attributes: attributesJSON,
+			SeqId:      metric.SeqID,
 		}
 		pbMetrics = append(pbMetrics, pbMetric)
 	}
@@ -66,5 +67,7 @@ func (h *SystemMetricsHandler) QuerySystemMetrics(
 	return connect.NewResponse(&agentv1.QuerySystemMetricsResponse{
 		Metrics:      pbMetrics,
 		TotalMetrics: int32(len(pbMetrics)), // #nosec G115
+		MaxSeqId:     maxSeqID,
+		SessionId:    h.sessionID,
 	}), nil
 }

@@ -13,8 +13,11 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
+const telemetryDataType = "telemetry"
+
 // TelemetryPoller periodically queries agents for telemetry data.
 // This implements the pull-based telemetry architecture from RFD 025.
+// Uses sequence-based checkpoints for reliable polling (RFD 089).
 type TelemetryPoller struct {
 	*poller.BasePoller
 	registry       *registry.Registry
@@ -69,16 +72,12 @@ func (p *TelemetryPoller) Stop() error {
 // PollOnce performs a single polling cycle.
 // Implements the poller.Poller interface.
 func (p *TelemetryPoller) PollOnce(ctx context.Context) error {
-	// Calculate time range for this poll cycle.
-	now := time.Now()
-	startTime := now.Add(-p.pollInterval)
-
 	// Create aggregator for this polling cycle.
 	aggregator := NewTelemetryAggregator()
 	totalSpans := 0
 
 	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
-		spans, err := p.queryAgent(ctx, agent, startTime, now)
+		spans, err := p.pollAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
@@ -116,30 +115,83 @@ func (p *TelemetryPoller) PollOnce(ctx context.Context) error {
 	return nil
 }
 
-// queryAgent queries a single agent for telemetry spans.
-func (p *TelemetryPoller) queryAgent(
-	ctx context.Context,
-	agent *registry.Entry,
-	startTime, endTime time.Time,
-) ([]*agentv1.TelemetrySpan, error) {
-	// Create gRPC client for this agent.
-	client := GetAgentClient(agent)
+// pollAgent queries a single agent using checkpoint-based polling (RFD 089).
+func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) ([]*agentv1.TelemetrySpan, error) {
+	// Get checkpoint for this agent.
+	checkpoint, err := p.db.GetPollingCheckpoint(ctx, agent.AgentID, telemetryDataType)
+	if err != nil {
+		p.logger.Warn().Err(err).Str("agent", agent.AgentID).Msg("Failed to get checkpoint, polling from beginning")
+	}
 
-	// Create query request.
+	var startSeqID uint64
+	var storedSessionID string
+	if checkpoint != nil {
+		startSeqID = checkpoint.LastSeqID
+		storedSessionID = checkpoint.SessionID
+	}
+
+	// Query agent with sequence-based request.
+	client := GetAgentClient(agent)
 	req := connect.NewRequest(&agentv1.QueryTelemetryRequest{
-		StartTime:    startTime.Unix(),
-		EndTime:      endTime.Unix(),
+		StartSeqId:   startSeqID,
+		MaxRecords:   10000,
 		ServiceNames: nil, // Query all services.
 	})
 
-	// Set timeout for the request.
 	queryCtx, cancel := context.WithTimeout(ctx, agentQueryTimeout)
 	defer cancel()
 
-	// Call agent's QueryTelemetry RPC.
 	resp, err := client.QueryTelemetry(queryCtx, req)
 	if err != nil {
 		return nil, err
+	}
+
+	// Handle session_id mismatch (agent database was recreated).
+	if storedSessionID != "" && resp.Msg.SessionId != "" && storedSessionID != resp.Msg.SessionId {
+		p.logger.Warn().
+			Str("agent", agent.AgentID).
+			Str("stored_session", storedSessionID).
+			Str("agent_session", resp.Msg.SessionId).
+			Msg("Agent session changed (database recreated), resetting checkpoint")
+
+		if err := p.db.ResetPollingCheckpoint(ctx, agent.AgentID, telemetryDataType); err != nil {
+			p.logger.Error().Err(err).Str("agent", agent.AgentID).Msg("Failed to reset checkpoint")
+		}
+
+		// Re-query from the beginning with the new session.
+		req.Msg.StartSeqId = 0
+		queryCtx2, cancel2 := context.WithTimeout(ctx, agentQueryTimeout)
+		defer cancel2()
+
+		resp, err = client.QueryTelemetry(queryCtx2, req)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Detect gaps in sequence IDs (RFD 089).
+	if len(resp.Msg.Spans) > 0 {
+		seqIDs := make([]uint64, len(resp.Msg.Spans))
+		timestamps := make([]int64, len(resp.Msg.Spans))
+		for i, span := range resp.Msg.Spans {
+			seqIDs[i] = span.SeqId
+			timestamps[i] = span.Timestamp
+		}
+		for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
+			p.logger.Warn().
+				Str("agent", agent.AgentID).
+				Uint64("gap_start", gap.StartSeqID).
+				Uint64("gap_end", gap.EndSeqID).
+				Msg("Detected telemetry sequence gap")
+			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, telemetryDataType, gap.StartSeqID, gap.EndSeqID)
+		}
+	}
+
+	// Update checkpoint if we got data.
+	if resp.Msg.MaxSeqId > 0 {
+		if err := p.db.UpdatePollingCheckpoint(ctx, agent.AgentID, telemetryDataType, resp.Msg.SessionId, resp.Msg.MaxSeqId); err != nil {
+			p.logger.Error().Err(err).Str("agent", agent.AgentID).Msg("Failed to update checkpoint")
+		}
 	}
 
 	return resp.Msg.Spans, nil

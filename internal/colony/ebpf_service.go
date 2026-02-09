@@ -62,18 +62,15 @@ func NewEbpfQueryServiceWithConfig(db *database.Database, profilingConfig Profil
 	}
 }
 
-// QueryMetrics queries eBPF metrics based on the request.
-func (s *EbpfQueryService) QueryMetrics(ctx context.Context, req *agentv1.QueryEbpfMetricsRequest) (*agentv1.QueryEbpfMetricsResponse, error) {
+// QueryMetrics queries eBPF metrics from the colony's summary database for a given time range.
+func (s *EbpfQueryService) QueryMetrics(ctx context.Context, startTime, endTime time.Time, req *agentv1.QueryEbpfMetricsRequest) (*agentv1.QueryEbpfMetricsResponse, error) {
 	// Validate time range.
-	if req.StartTime <= 0 || req.EndTime <= 0 {
+	if startTime.IsZero() || endTime.IsZero() {
 		return nil, fmt.Errorf("start_time and end_time are required")
 	}
-	if req.StartTime >= req.EndTime {
+	if !startTime.Before(endTime) {
 		return nil, fmt.Errorf("start_time must be before end_time")
 	}
-
-	startTime := time.Unix(req.StartTime, 0)
-	endTime := time.Unix(req.EndTime, 0)
 
 	// Validate time range is reasonable (not too far in past, not in future).
 	now := time.Now()
@@ -1040,10 +1037,8 @@ func (s *EbpfQueryService) QueryUnifiedTraces(ctx context.Context, traceID, serv
 // QueryUnifiedMetrics queries metrics from both eBPF and OTLP sources.
 func (s *EbpfQueryService) QueryUnifiedMetrics(ctx context.Context, serviceName string, startTime, endTime time.Time) (*agentv1.QueryEbpfMetricsResponse, error) {
 	// 1. Query eBPF metrics.
-	ebpfMetrics, err := s.QueryMetrics(ctx, &agentv1.QueryEbpfMetricsRequest{
+	ebpfMetrics, err := s.QueryMetrics(ctx, startTime, endTime, &agentv1.QueryEbpfMetricsRequest{
 		ServiceNames: []string{serviceName},
-		StartTime:    startTime.Unix(),
-		EndTime:      endTime.Unix(),
 		MetricTypes: []agentv1.EbpfMetricType{
 			agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP,
 			agentv1.EbpfMetricType_EBPF_METRIC_TYPE_GRPC,

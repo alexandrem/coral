@@ -404,14 +404,11 @@ func (s *ServiceSuite) TestMultiServiceRegistration() {
 
 	// Step 4: Verify telemetry attribution (if services have generated traffic).
 	s.T().Log("Verifying telemetry attribution...")
-	now := time.Now()
 
 	// Query telemetry for otel-app (which should have OTLP spans).
 	telemetryResp, err := helpers.QueryAgentTelemetry(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		[]string{"otel-app"},
 	)
 	s.Require().NoError(err, "Failed to query telemetry for otel-app")

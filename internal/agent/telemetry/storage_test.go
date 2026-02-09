@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -118,110 +119,6 @@ func TestStorage_StoreSpan(t *testing.T) {
 	}
 }
 
-func TestStorage_QuerySpans(t *testing.T) {
-	storage, cleanup := setupTestTelemetryStorage(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	now := time.Now()
-
-	// Insert test data.
-	testSpans := []Span{
-		{
-			Timestamp:   now.Add(-10 * time.Minute),
-			TraceID:     "trace-1",
-			SpanID:      "span-1",
-			ServiceName: "service-a",
-			SpanKind:    "SERVER",
-			DurationMs:  100.0,
-			IsError:     false,
-			Attributes:  map[string]string{},
-		},
-		{
-			Timestamp:   now.Add(-5 * time.Minute),
-			TraceID:     "trace-2",
-			SpanID:      "span-2",
-			ServiceName: "service-a",
-			SpanKind:    "SERVER",
-			DurationMs:  200.0,
-			IsError:     true,
-			Attributes:  map[string]string{},
-		},
-		{
-			Timestamp:   now.Add(-5 * time.Minute),
-			TraceID:     "trace-3",
-			SpanID:      "span-3",
-			ServiceName: "service-b",
-			SpanKind:    "CLIENT",
-			DurationMs:  50.0,
-			IsError:     false,
-			Attributes:  map[string]string{},
-		},
-	}
-
-	for _, span := range testSpans {
-		if err := storage.StoreSpan(ctx, span); err != nil {
-			t.Fatalf("Failed to store test span: %v", err)
-		}
-	}
-
-	tests := []struct {
-		name         string
-		startTime    time.Time
-		endTime      time.Time
-		serviceNames []string
-		wantCount    int
-		wantErr      bool
-	}{
-		{
-			name:         "query all spans",
-			startTime:    now.Add(-15 * time.Minute),
-			endTime:      now,
-			serviceNames: nil,
-			wantCount:    3,
-			wantErr:      false,
-		},
-		{
-			name:         "query specific service",
-			startTime:    now.Add(-15 * time.Minute),
-			endTime:      now,
-			serviceNames: []string{"service-a"},
-			wantCount:    2,
-			wantErr:      false,
-		},
-		{
-			name:         "query with narrow time range",
-			startTime:    now.Add(-6 * time.Minute),
-			endTime:      now,
-			serviceNames: nil,
-			wantCount:    2,
-			wantErr:      false,
-		},
-		{
-			name:         "query non-existent service",
-			startTime:    now.Add(-15 * time.Minute),
-			endTime:      now,
-			serviceNames: []string{"non-existent"},
-			wantCount:    0,
-			wantErr:      false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results, err := storage.QuerySpans(ctx, tt.startTime, tt.endTime, tt.serviceNames)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("QuerySpans() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if len(results) != tt.wantCount {
-				t.Errorf("QuerySpans() returned %d spans, want %d", len(results), tt.wantCount)
-			}
-		})
-	}
-}
-
 func TestStorage_CleanupOldSpans(t *testing.T) {
 	storage, cleanup := setupTestTelemetryStorage(t)
 	defer cleanup()
@@ -273,10 +170,10 @@ func TestStorage_CleanupOldSpans(t *testing.T) {
 		return
 	}
 
-	// Query all remaining spans.
-	results, err := storage.QuerySpans(ctx, now.Add(-3*time.Hour), now.Add(1*time.Minute), nil)
+	// Query all remaining spans using seq_id-based query.
+	results, _, err := storage.QuerySpansBySeqID(ctx, 0, 10000, nil)
 	if err != nil {
-		t.Errorf("QuerySpans() after cleanup failed: %v", err)
+		t.Errorf("QuerySpansBySeqID() after cleanup failed: %v", err)
 		return
 	}
 
@@ -319,6 +216,119 @@ func TestStorage_GetSpanCount(t *testing.T) {
 
 	if count != 5 {
 		t.Errorf("GetSpanCount() = %d, want 5", count)
+	}
+}
+
+func TestStorage_QuerySpansBySeqID(t *testing.T) {
+	storage, cleanup := setupTestTelemetryStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert 5 spans.
+	for i := 0; i < 5; i++ {
+		span := Span{
+			Timestamp:   now.Add(-time.Duration(5-i) * time.Minute),
+			TraceID:     fmt.Sprintf("trace-%d", i),
+			SpanID:      fmt.Sprintf("span-%d", i),
+			ServiceName: "test-service",
+			SpanKind:    "SERVER",
+			DurationMs:  100.0,
+			Attributes:  map[string]string{},
+		}
+		if err := storage.StoreSpan(ctx, span); err != nil {
+			t.Fatalf("Failed to store span: %v", err)
+		}
+	}
+
+	// Query all spans (seq_id > 0).
+	spans, maxSeqID, err := storage.QuerySpansBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QuerySpansBySeqID() error: %v", err)
+	}
+	if len(spans) != 5 {
+		t.Errorf("Expected 5 spans, got %d", len(spans))
+	}
+	if maxSeqID == 0 {
+		t.Error("Expected maxSeqID > 0")
+	}
+
+	// Query with seq_id > maxSeqID should return nothing.
+	spans2, maxSeqID2, err := storage.QuerySpansBySeqID(ctx, maxSeqID, 100, nil)
+	if err != nil {
+		t.Fatalf("QuerySpansBySeqID() error: %v", err)
+	}
+	if len(spans2) != 0 {
+		t.Errorf("Expected 0 spans after last seq_id, got %d", len(spans2))
+	}
+	if maxSeqID2 != 0 {
+		t.Errorf("Expected maxSeqID 0 for empty result, got %d", maxSeqID2)
+	}
+
+	// Insert 2 more spans and query from the previous max.
+	for i := 5; i < 7; i++ {
+		span := Span{
+			Timestamp:   now,
+			TraceID:     fmt.Sprintf("trace-%d", i),
+			SpanID:      fmt.Sprintf("span-%d", i),
+			ServiceName: "test-service",
+			SpanKind:    "SERVER",
+			DurationMs:  50.0,
+			Attributes:  map[string]string{},
+		}
+		if err := storage.StoreSpan(ctx, span); err != nil {
+			t.Fatalf("Failed to store span: %v", err)
+		}
+	}
+
+	spans3, maxSeqID3, err := storage.QuerySpansBySeqID(ctx, maxSeqID, 100, nil)
+	if err != nil {
+		t.Fatalf("QuerySpansBySeqID() error: %v", err)
+	}
+	if len(spans3) != 2 {
+		t.Errorf("Expected 2 new spans, got %d", len(spans3))
+	}
+	if maxSeqID3 <= maxSeqID {
+		t.Errorf("Expected maxSeqID3 > %d, got %d", maxSeqID, maxSeqID3)
+	}
+}
+
+func TestStorage_SeqIDMonotonicallyIncreasing(t *testing.T) {
+	storage, cleanup := setupTestTelemetryStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert 10 spans.
+	for i := 0; i < 10; i++ {
+		span := Span{
+			Timestamp:   now.Add(-time.Duration(10-i) * time.Minute),
+			TraceID:     fmt.Sprintf("trace-%d", i),
+			SpanID:      fmt.Sprintf("span-%d", i),
+			ServiceName: "test-service",
+			SpanKind:    "SERVER",
+			DurationMs:  100.0,
+			Attributes:  map[string]string{},
+		}
+		if err := storage.StoreSpan(ctx, span); err != nil {
+			t.Fatalf("Failed to store span: %v", err)
+		}
+	}
+
+	// Query all and verify seq_ids are monotonically increasing.
+	spans, _, err := storage.QuerySpansBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QuerySpansBySeqID() error: %v", err)
+	}
+
+	var prevSeqID uint64
+	for _, span := range spans {
+		if span.SeqID <= prevSeqID {
+			t.Errorf("SeqID %d is not greater than previous %d", span.SeqID, prevSeqID)
+		}
+		prevSeqID = span.SeqID
 	}
 }
 

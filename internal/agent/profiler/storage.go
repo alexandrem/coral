@@ -47,6 +47,7 @@ type ProfileSample struct {
 	StackHash     string  // Hash of stack for deduplication
 	StackFrameIDs []int64 // Integer-encoded stack frames
 	SampleCount   uint32  // Number of samples (matches protobuf)
+	SeqID         uint64  // Sequence ID for checkpoint-based polling (RFD 089).
 }
 
 // MemoryProfileSample represents a single aggregated memory profile sample (RFD 077).
@@ -58,6 +59,7 @@ type MemoryProfileSample struct {
 	StackFrameIDs []int64 // Integer-encoded stack frames.
 	AllocBytes    int64   // Bytes allocated at this stack.
 	AllocObjects  int64   // Objects allocated at this stack.
+	SeqID         uint64  // Sequence ID for checkpoint-based polling (RFD 089).
 }
 
 // BinaryMetadata represents metadata about a profiled binary.
@@ -95,6 +97,10 @@ func NewStorage(db *sql.DB, logger zerolog.Logger) (*Storage, error) {
 // initSchema creates the local continuous profiling tables.
 func (s *Storage) initSchema() error {
 	schema := `
+		-- Sequences for checkpoint-based polling (RFD 089).
+		CREATE SEQUENCE IF NOT EXISTS seq_cpu_profile_samples START 1;
+		CREATE SEQUENCE IF NOT EXISTS seq_memory_profile_samples START 1;
+
 		-- Frame dictionary for compression (shared across all profiles).
 		CREATE TABLE IF NOT EXISTS profile_frame_dictionary_local (
 			frame_id    INTEGER PRIMARY KEY,
@@ -106,6 +112,7 @@ func (s *Storage) initSchema() error {
 
 		-- Raw 15-second profile samples with integer-encoded stacks.
 		CREATE TABLE IF NOT EXISTS cpu_profile_samples_local (
+			seq_id           UBIGINT DEFAULT nextval('seq_cpu_profile_samples'),
 			timestamp        TIMESTAMP  NOT NULL,
 			service_id       TEXT       NOT NULL,
 			build_id         TEXT       NOT NULL,
@@ -120,6 +127,8 @@ func (s *Storage) initSchema() error {
 			ON cpu_profile_samples_local (service_id);
 		CREATE INDEX IF NOT EXISTS idx_cpu_profile_samples_build_id
 			ON cpu_profile_samples_local (build_id);
+		CREATE INDEX IF NOT EXISTS idx_cpu_profile_samples_seq_id
+			ON cpu_profile_samples_local (seq_id);
 
 		-- Binary metadata for symbol resolution.
 		CREATE TABLE IF NOT EXISTS binary_metadata_local (
@@ -135,6 +144,7 @@ func (s *Storage) initSchema() error {
 
 		-- Memory profile samples with integer-encoded stacks (RFD 077).
 		CREATE TABLE IF NOT EXISTS memory_profile_samples_local (
+			seq_id           UBIGINT DEFAULT nextval('seq_memory_profile_samples'),
 			timestamp        TIMESTAMP  NOT NULL,
 			service_id       TEXT       NOT NULL,
 			build_id         TEXT       NOT NULL,
@@ -148,6 +158,8 @@ func (s *Storage) initSchema() error {
 			ON memory_profile_samples_local (timestamp);
 		CREATE INDEX IF NOT EXISTS idx_memory_profile_samples_service
 			ON memory_profile_samples_local (service_id);
+		CREATE INDEX IF NOT EXISTS idx_memory_profile_samples_seq_id
+			ON memory_profile_samples_local (seq_id);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -297,37 +309,48 @@ func (s *Storage) UpsertBinaryMetadata(ctx context.Context, metadata BinaryMetad
 	return nil
 }
 
-// QuerySamples retrieves profile samples for a given time range.
-func (s *Storage) QuerySamples(ctx context.Context, startTime, endTime time.Time, serviceID string) ([]ProfileSample, error) {
+// QuerySamplesBySeqID queries CPU profile samples with seq_id > startSeqID (RFD 089).
+// Returns samples and the maximum seq_id in the result set.
+func (s *Storage) QuerySamplesBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceID string) ([]ProfileSample, uint64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	if maxRecords <= 0 {
+		maxRecords = 5000
+	} else if maxRecords > 50000 {
+		maxRecords = 50000
+	}
+
 	query := `
-		SELECT timestamp, service_id, build_id, stack_frame_ids, sample_count
+		SELECT seq_id, timestamp, service_id, build_id, stack_frame_ids, sample_count
 		FROM cpu_profile_samples_local
-		WHERE timestamp >= ? AND timestamp <= ?
+		WHERE seq_id > ?
 	`
-	args := []interface{}{startTime, endTime}
+	args := []interface{}{startSeqID}
 
 	if serviceID != "" {
 		query += " AND service_id = ?"
 		args = append(args, serviceID)
 	}
 
-	query += " ORDER BY timestamp ASC"
+	query += " ORDER BY seq_id ASC LIMIT ?"
+	args = append(args, maxRecords)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query samples: %w", err)
+		return nil, 0, fmt.Errorf("failed to query samples by seq_id: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	var samples []ProfileSample
+	var maxSeqID uint64
+
 	for rows.Next() {
 		var sample ProfileSample
 		var frameIDsInterface interface{}
 
 		err := rows.Scan(
+			&sample.SeqID,
 			&sample.Timestamp,
 			&sample.ServiceID,
 			&sample.BuildID,
@@ -335,24 +358,26 @@ func (s *Storage) QuerySamples(ctx context.Context, startTime, endTime time.Time
 			&sample.SampleCount,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		// Convert DuckDB array to []int64.
 		sample.StackFrameIDs, err = s.convertArrayToInt64(frameIDsInterface)
 		if err != nil {
 			s.logger.Warn().Err(err).Msg("Failed to convert stack frame IDs")
 			continue
 		}
 
+		if sample.SeqID > maxSeqID {
+			maxSeqID = sample.SeqID
+		}
 		samples = append(samples, sample)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
+		return nil, 0, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	return samples, nil
+	return samples, maxSeqID, nil
 }
 
 // DecodeStackFrames converts integer-encoded frame IDs back to frame names.
@@ -463,37 +488,48 @@ func (s *Storage) StoreMemorySamples(ctx context.Context, samples []MemoryProfil
 	return nil
 }
 
-// QueryMemorySamples retrieves memory profile samples for a given time range (RFD 077).
-func (s *Storage) QueryMemorySamples(ctx context.Context, startTime, endTime time.Time, serviceID string) ([]MemoryProfileSample, error) {
+// QueryMemorySamplesBySeqID queries memory profile samples with seq_id > startSeqID (RFD 089).
+// Returns samples and the maximum seq_id in the result set.
+func (s *Storage) QueryMemorySamplesBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceID string) ([]MemoryProfileSample, uint64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	if maxRecords <= 0 {
+		maxRecords = 5000
+	} else if maxRecords > 50000 {
+		maxRecords = 50000
+	}
+
 	query := `
-		SELECT timestamp, service_id, build_id, stack_frame_ids, alloc_bytes, alloc_objects
+		SELECT seq_id, timestamp, service_id, build_id, stack_frame_ids, alloc_bytes, alloc_objects
 		FROM memory_profile_samples_local
-		WHERE timestamp >= ? AND timestamp <= ?
+		WHERE seq_id > ?
 	`
-	args := []interface{}{startTime, endTime}
+	args := []interface{}{startSeqID}
 
 	if serviceID != "" {
 		query += " AND service_id = ?"
 		args = append(args, serviceID)
 	}
 
-	query += " ORDER BY timestamp ASC"
+	query += " ORDER BY seq_id ASC LIMIT ?"
+	args = append(args, maxRecords)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query memory samples: %w", err)
+		return nil, 0, fmt.Errorf("failed to query memory samples by seq_id: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	var samples []MemoryProfileSample
+	var maxSeqID uint64
+
 	for rows.Next() {
 		var sample MemoryProfileSample
 		var frameIDsInterface interface{}
 
 		err := rows.Scan(
+			&sample.SeqID,
 			&sample.Timestamp,
 			&sample.ServiceID,
 			&sample.BuildID,
@@ -502,7 +538,7 @@ func (s *Storage) QueryMemorySamples(ctx context.Context, startTime, endTime tim
 			&sample.AllocObjects,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		sample.StackFrameIDs, err = s.convertArrayToInt64(frameIDsInterface)
@@ -511,14 +547,17 @@ func (s *Storage) QueryMemorySamples(ctx context.Context, startTime, endTime tim
 			continue
 		}
 
+		if sample.SeqID > maxSeqID {
+			maxSeqID = sample.SeqID
+		}
 		samples = append(samples, sample)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
+		return nil, 0, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	return samples, nil
+	return samples, maxSeqID, nil
 }
 
 // CleanupOldMemorySamples removes memory profile samples older than the retention period (RFD 077).

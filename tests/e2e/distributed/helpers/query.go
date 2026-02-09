@@ -34,17 +34,16 @@ func QueryColonyMetrics(
 	return resp.Msg, nil
 }
 
-// QueryAgentSystemMetrics queries an agent for system metrics.
+// QueryAgentSystemMetrics queries an agent for system metrics using sequence-based polling.
 func QueryAgentSystemMetrics(
 	ctx context.Context,
 	client agentv1connect.AgentServiceClient,
-	startTime, endTime int64,
 	metricNames []string,
 ) (*agentv1.QuerySystemMetricsResponse, error) {
 	req := connect.NewRequest(&agentv1.QuerySystemMetricsRequest{
-		StartTime:   startTime,
-		EndTime:     endTime,
 		MetricNames: metricNames,
+		StartSeqId:  0,
+		MaxRecords:  10000,
 	})
 
 	resp, err := client.QuerySystemMetrics(ctx, req)
@@ -55,18 +54,16 @@ func QueryAgentSystemMetrics(
 	return resp.Msg, nil
 }
 
-// QueryAgentEbpfMetrics queries an agent for eBPF metrics (Beyla).
+// QueryAgentEbpfMetrics queries an agent for eBPF metrics (Beyla) using sequence-based polling.
 func QueryAgentEbpfMetrics(
 	ctx context.Context,
 	client agentv1connect.AgentServiceClient,
-	startTime, endTime int64,
 	serviceNames []string,
 ) (*agentv1.QueryEbpfMetricsResponse, error) {
 	req := connect.NewRequest(&agentv1.QueryEbpfMetricsRequest{
-		StartTime:    startTime,
-		EndTime:      endTime,
 		ServiceNames: serviceNames,
-		MetricTypes:  nil, // Query all metric types
+		MetricTypes:  nil, // Query all metric types.
+		MaxRecords:   10000,
 	})
 
 	resp, err := client.QueryEbpfMetrics(ctx, req)
@@ -97,17 +94,16 @@ func QueryUprobeEvents(
 	return resp.Msg, nil
 }
 
-// QueryAgentTelemetry queries an agent for telemetry spans.
+// QueryAgentTelemetry queries an agent for telemetry spans using sequence-based polling.
 func QueryAgentTelemetry(
 	ctx context.Context,
 	client agentv1connect.AgentServiceClient,
-	startTime, endTime int64,
 	serviceNames []string,
 ) (*agentv1.QueryTelemetryResponse, error) {
 	req := connect.NewRequest(&agentv1.QueryTelemetryRequest{
-		StartTime:    startTime,
-		EndTime:      endTime,
 		ServiceNames: serviceNames,
+		StartSeqId:   0,
+		MaxRecords:   10000,
 	})
 
 	resp, err := client.QueryTelemetry(ctx, req)

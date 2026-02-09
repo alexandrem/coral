@@ -42,7 +42,7 @@ func TestStorage_QueryMetrics_Attributes(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Query it back
-	results, err := storage.QueryMetrics(ctx, timestamp.Add(-1*time.Minute), timestamp.Add(1*time.Minute), nil)
+	results, _, err := storage.QueryMetricsBySeqID(ctx, 0, 10000, nil)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -183,39 +183,16 @@ func TestQueryMetrics_TimeRange(t *testing.T) {
 	err = storage.StoreMetrics(ctx, metrics)
 	require.NoError(t, err)
 
-	tests := []struct {
-		name      string
-		startTime time.Time
-		endTime   time.Time
-		wantCount int
-	}{
-		{
-			name:      "query all",
-			startTime: now.Add(-30 * time.Minute),
-			endTime:   now.Add(1 * time.Minute),
-			wantCount: 3,
-		},
-		{
-			name:      "query recent",
-			startTime: now.Add(-15 * time.Minute),
-			endTime:   now.Add(1 * time.Minute),
-			wantCount: 2,
-		},
-		{
-			name:      "query old only",
-			startTime: now.Add(-30 * time.Minute),
-			endTime:   now.Add(-15 * time.Minute),
-			wantCount: 1,
-		},
-	}
+	// Query all from beginning.
+	results, maxSeqID, err := storage.QueryMetricsBySeqID(ctx, 0, 10000, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 3, len(results))
+	assert.Greater(t, maxSeqID, uint64(0))
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results, err := storage.QueryMetrics(ctx, tt.startTime, tt.endTime, nil)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantCount, len(results))
-		})
-	}
+	// Query with startSeqID to get only newer records.
+	results2, _, err := storage.QueryMetricsBySeqID(ctx, results[0].SeqID, 10000, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(results2))
 }
 
 func TestQueryMetrics_FilterByName(t *testing.T) {
@@ -290,7 +267,7 @@ func TestQueryMetrics_FilterByName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results, err := storage.QueryMetrics(ctx, now.Add(-1*time.Minute), now.Add(1*time.Minute), tt.metricNames)
+			results, _, err := storage.QueryMetricsBySeqID(ctx, 0, 10000, tt.metricNames)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCount, len(results))
 		})
@@ -345,11 +322,108 @@ func TestCleanupOldMetrics(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query remaining metrics.
-	results, err := storage.QueryMetrics(ctx, now.Add(-3*time.Hour), now.Add(1*time.Minute), nil)
+	results, _, err := storage.QueryMetricsBySeqID(ctx, 0, 10000, nil)
 	require.NoError(t, err)
 
 	// Should only have the recent and medium.old metrics.
 	assert.LessOrEqual(t, len(results), 2, "Cleanup should remove old metrics")
+}
+
+func TestQueryMetricsBySeqID(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert 5 metrics.
+	metrics := make([]Metric, 5)
+	for i := range metrics {
+		metrics[i] = Metric{
+			Timestamp:  now.Add(-time.Duration(5-i) * time.Minute),
+			Name:       "cpu.usage",
+			Value:      float64(i * 10),
+			Unit:       "percent",
+			MetricType: "gauge",
+			Attributes: map[string]string{},
+		}
+	}
+	require.NoError(t, storage.StoreMetrics(ctx, metrics))
+
+	// Query all (seq_id > 0).
+	results, maxSeqID, err := storage.QueryMetricsBySeqID(ctx, 0, 100, nil)
+	require.NoError(t, err)
+	assert.Len(t, results, 5)
+	assert.Greater(t, maxSeqID, uint64(0))
+
+	// Query from max should return empty.
+	results2, maxSeqID2, err := storage.QueryMetricsBySeqID(ctx, maxSeqID, 100, nil)
+	require.NoError(t, err)
+	assert.Len(t, results2, 0)
+	assert.Equal(t, uint64(0), maxSeqID2)
+
+	// Insert 3 more and query from previous max.
+	more := make([]Metric, 3)
+	for i := range more {
+		more[i] = Metric{
+			Timestamp:  now,
+			Name:       "mem.usage",
+			Value:      float64(i * 100),
+			Unit:       "bytes",
+			MetricType: "gauge",
+			Attributes: map[string]string{},
+		}
+	}
+	require.NoError(t, storage.StoreMetrics(ctx, more))
+
+	results3, maxSeqID3, err := storage.QueryMetricsBySeqID(ctx, maxSeqID, 100, nil)
+	require.NoError(t, err)
+	assert.Len(t, results3, 3)
+	assert.Greater(t, maxSeqID3, maxSeqID)
+}
+
+func TestSeqID_MetricsMonotonicallyIncreasing(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert metrics in multiple batches.
+	for batch := 0; batch < 3; batch++ {
+		metrics := make([]Metric, 5)
+		for i := range metrics {
+			metrics[i] = Metric{
+				Timestamp:  now.Add(-time.Duration(batch*5+i) * time.Second),
+				Name:       "cpu.usage",
+				Value:      float64(batch*5 + i),
+				Unit:       "percent",
+				MetricType: "gauge",
+				Attributes: map[string]string{},
+			}
+		}
+		require.NoError(t, storage.StoreMetrics(ctx, metrics))
+	}
+
+	results, _, err := storage.QueryMetricsBySeqID(ctx, 0, 100, nil)
+	require.NoError(t, err)
+	assert.Len(t, results, 15)
+
+	var prevSeqID uint64
+	for _, m := range results {
+		assert.Greater(t, m.SeqID, prevSeqID, "seq_ids must be monotonically increasing")
+		prevSeqID = m.SeqID
+	}
 }
 
 func TestDefaultConfig(t *testing.T) {

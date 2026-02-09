@@ -21,6 +21,7 @@ type Span struct {
 	HTTPMethod  string
 	HTTPRoute   string
 	Attributes  map[string]string
+	SeqID       uint64 // Sequence ID for checkpoint-based polling (RFD 089).
 }
 
 // Bucket represents a 1-minute aggregated telemetry bucket.

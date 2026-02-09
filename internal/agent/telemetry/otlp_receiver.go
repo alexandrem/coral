@@ -421,10 +421,9 @@ func spanKindToString(kind otlptrace.Span_SpanKind) string {
 	}
 }
 
-// QuerySpans queries filtered spans from local storage.
-// This is called by the QueryTelemetry RPC handler (colony → agent).
-func (r *OTLPReceiver) QuerySpans(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]Span, error) {
-	return r.storage.QuerySpans(ctx, startTime, endTime, serviceNames)
+// QuerySpansBySeqID queries spans with seq_id > startSeqID (RFD 089).
+func (r *OTLPReceiver) QuerySpansBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]Span, uint64, error) {
+	return r.storage.QuerySpansBySeqID(ctx, startSeqID, maxRecords, serviceNames)
 }
 
 // Export implements the OTLP gRPC MetricsService.Export method.

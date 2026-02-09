@@ -119,154 +119,6 @@ func TestStoreTrace(t *testing.T) {
 	}
 }
 
-func TestQueryTraces(t *testing.T) {
-	storage, cleanup := setupTestStorage(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	now := time.Now()
-
-	// Insert test traces.
-	traces := []*ebpfpb.EbpfEvent{
-		{
-			Timestamp:   timestamppb.New(now.Add(-10 * time.Minute)),
-			CollectorId: "test-collector",
-			AgentId:     "test-agent",
-			ServiceName: "payments-api",
-			Payload: &ebpfpb.EbpfEvent_BeylaTrace{
-				BeylaTrace: &ebpfpb.BeylaTraceSpan{
-					TraceId:      "trace1abc000000000000000000000001",
-					SpanId:       "span00000000001",
-					ParentSpanId: "",
-					ServiceName:  "payments-api",
-					SpanName:     "POST /api/v1/payments",
-					SpanKind:     "server",
-					StartTime:    timestamppb.New(now.Add(-10 * time.Minute)),
-					Duration:     durationpb.New(450 * time.Millisecond),
-					StatusCode:   200,
-					Attributes:   map[string]string{"http.method": "POST"},
-				},
-			},
-		},
-		{
-			Timestamp:   timestamppb.New(now.Add(-5 * time.Minute)),
-			CollectorId: "test-collector",
-			AgentId:     "test-agent",
-			ServiceName: "frontend-api",
-			Payload: &ebpfpb.EbpfEvent_BeylaTrace{
-				BeylaTrace: &ebpfpb.BeylaTraceSpan{
-					TraceId:      "trace2abc000000000000000000000002",
-					SpanId:       "span00000000002",
-					ParentSpanId: "",
-					ServiceName:  "frontend-api",
-					SpanName:     "GET /checkout",
-					SpanKind:     "server",
-					StartTime:    timestamppb.New(now.Add(-5 * time.Minute)),
-					Duration:     durationpb.New(1200 * time.Millisecond),
-					StatusCode:   200,
-					Attributes:   map[string]string{"http.method": "GET"},
-				},
-			},
-		},
-		{
-			Timestamp:   timestamppb.New(now.Add(-5 * time.Minute)),
-			CollectorId: "test-collector",
-			AgentId:     "test-agent",
-			ServiceName: "payments-api",
-			Payload: &ebpfpb.EbpfEvent_BeylaTrace{
-				BeylaTrace: &ebpfpb.BeylaTraceSpan{
-					TraceId:      "trace2abc000000000000000000000002",
-					SpanId:       "span00000000003",
-					ParentSpanId: "span00000000002",
-					ServiceName:  "payments-api",
-					SpanName:     "POST /api/v1/payments",
-					SpanKind:     "client",
-					StartTime:    timestamppb.New(now.Add(-5 * time.Minute)),
-					Duration:     durationpb.New(450 * time.Millisecond),
-					StatusCode:   200,
-					Attributes:   map[string]string{"http.method": "POST"},
-				},
-			},
-		},
-	}
-
-	for _, trace := range traces {
-		if err := storage.StoreTrace(ctx, trace); err != nil {
-			t.Fatalf("Failed to store test trace: %v", err)
-		}
-	}
-
-	tests := []struct {
-		name         string
-		startTime    time.Time
-		endTime      time.Time
-		serviceNames []string
-		traceID      string
-		maxSpans     int32
-		wantCount    int
-	}{
-		{
-			name:      "all traces",
-			startTime: now.Add(-1 * time.Hour),
-			endTime:   now,
-			wantCount: 3,
-		},
-		{
-			name:         "filter by service",
-			startTime:    now.Add(-1 * time.Hour),
-			endTime:      now,
-			serviceNames: []string{"payments-api"},
-			wantCount:    2,
-		},
-		{
-			name:      "filter by trace ID",
-			startTime: now.Add(-1 * time.Hour),
-			endTime:   now,
-			traceID:   "trace2abc000000000000000000000002",
-			wantCount: 2,
-		},
-		{
-			name:      "limit results",
-			startTime: now.Add(-1 * time.Hour),
-			endTime:   now,
-			maxSpans:  1,
-			wantCount: 1,
-		},
-		{
-			name:      "time range filter",
-			startTime: now.Add(-7 * time.Minute),
-			endTime:   now,
-			wantCount: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			spans, err := storage.QueryTraces(ctx, tt.startTime, tt.endTime, tt.serviceNames, tt.traceID, tt.maxSpans)
-			if err != nil {
-				t.Fatalf("QueryTraces() error = %v", err)
-			}
-
-			if len(spans) != tt.wantCount {
-				t.Errorf("QueryTraces() returned %d spans, want %d", len(spans), tt.wantCount)
-			}
-
-			// Verify spans are valid.
-			for _, span := range spans {
-				if span.TraceId == "" {
-					t.Error("Span has empty TraceId")
-				}
-				if span.SpanId == "" {
-					t.Error("Span has empty SpanId")
-				}
-				if span.ServiceName == "" {
-					t.Error("Span has empty ServiceName")
-				}
-			}
-		})
-	}
-}
-
 func TestQueryTraceByID(t *testing.T) {
 	storage, cleanup := setupTestStorage(t)
 	defer cleanup()
@@ -351,6 +203,116 @@ func TestQueryTraceByID(t *testing.T) {
 
 	if len(result) != 0 {
 		t.Errorf("QueryTraceByID() returned %d spans for non-existent trace, want 0", len(result))
+	}
+}
+
+func TestQueryHTTPMetricsBySeqID(t *testing.T) {
+	storage, cleanup := setupTestStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert HTTP metrics via EbpfEvents.
+	for i := 0; i < 5; i++ {
+		event := &ebpfpb.EbpfEvent{
+			Timestamp:   timestamppb.New(now.Add(-time.Duration(5-i) * time.Minute)),
+			CollectorId: "test-collector",
+			AgentId:     "test-agent",
+			ServiceName: "api-service",
+			Payload: &ebpfpb.EbpfEvent_BeylaHttp{
+				BeylaHttp: &ebpfpb.BeylaHttpMetrics{
+					Timestamp:      timestamppb.New(now.Add(-time.Duration(5-i) * time.Minute)),
+					ServiceName:    "api-service",
+					HttpMethod:     "GET",
+					HttpRoute:      "/api/v1/users",
+					HttpStatusCode: 200,
+					LatencyBuckets: []float64{10.0},
+					LatencyCounts:  []uint64{1},
+					Attributes:     map[string]string{},
+				},
+			},
+		}
+		if err := storage.StoreHTTPMetric(ctx, event); err != nil {
+			t.Fatalf("StoreHTTPMetric() error: %v", err)
+		}
+	}
+
+	// Query all (seq_id > 0).
+	metrics, maxSeqID, err := storage.QueryHTTPMetricsBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryHTTPMetricsBySeqID() error: %v", err)
+	}
+	if len(metrics) != 5 {
+		t.Errorf("Expected 5 metrics, got %d", len(metrics))
+	}
+	if maxSeqID == 0 {
+		t.Error("Expected maxSeqID > 0")
+	}
+
+	// Query after max should return empty.
+	metrics2, _, err := storage.QueryHTTPMetricsBySeqID(ctx, maxSeqID, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryHTTPMetricsBySeqID() error: %v", err)
+	}
+	if len(metrics2) != 0 {
+		t.Errorf("Expected 0 metrics after max seq_id, got %d", len(metrics2))
+	}
+}
+
+func TestQueryTracesBySeqID(t *testing.T) {
+	storage, cleanup := setupTestStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert 3 trace spans.
+	for i := 0; i < 3; i++ {
+		event := &ebpfpb.EbpfEvent{
+			Timestamp:   timestamppb.New(now.Add(-time.Duration(3-i) * time.Minute)),
+			CollectorId: "test-collector",
+			AgentId:     "test-agent",
+			ServiceName: "api-service",
+			Payload: &ebpfpb.EbpfEvent_BeylaTrace{
+				BeylaTrace: &ebpfpb.BeylaTraceSpan{
+					TraceId:      "traceabc000000000000000000000001",
+					SpanId:       "span0000000000" + string(rune('1'+i)),
+					ParentSpanId: "",
+					ServiceName:  "api-service",
+					SpanName:     "GET /test",
+					SpanKind:     "server",
+					StartTime:    timestamppb.New(now.Add(-time.Duration(3-i) * time.Minute)),
+					Duration:     durationpb.New(100 * time.Millisecond),
+					StatusCode:   200,
+					Attributes:   map[string]string{},
+				},
+			},
+		}
+		if err := storage.StoreTrace(ctx, event); err != nil {
+			t.Fatalf("StoreTrace() error: %v", err)
+		}
+	}
+
+	// Query all (seq_id > 0).
+	spans, maxSeqID, err := storage.QueryTracesBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryTracesBySeqID() error: %v", err)
+	}
+	if len(spans) != 3 {
+		t.Errorf("Expected 3 spans, got %d", len(spans))
+	}
+	if maxSeqID == 0 {
+		t.Error("Expected maxSeqID > 0")
+	}
+
+	// Query after max should return empty.
+	spans2, _, err := storage.QueryTracesBySeqID(ctx, maxSeqID, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryTracesBySeqID() error: %v", err)
+	}
+	if len(spans2) != 0 {
+		t.Errorf("Expected 0 spans after max seq_id, got %d", len(spans2))
 	}
 }
 

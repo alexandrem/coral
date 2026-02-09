@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/google/uuid"
 	_ "github.com/marcboeker/go-duckdb"
 
 	"github.com/coral-mesh/coral/internal/agent"
@@ -18,6 +19,7 @@ import (
 type StorageResult struct {
 	SharedDB      *sql.DB
 	SharedDBPath  string
+	SessionID     string // Unique ID for this database instance (RFD 089).
 	BeylaConfig   *beyla.Config
 	FunctionCache *agent.FunctionCache
 }
@@ -80,6 +82,17 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 
 	result.SharedDB = sharedDB
 	result.SharedDBPath = sharedDBPath
+
+	// Initialize db_metadata table with session_id for checkpoint tracking (RFD 089).
+	if sharedDB != nil {
+		sessionID, err := initDBMetadata(sharedDB)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to initialize db_metadata - checkpoint tracking may not work")
+		} else {
+			result.SessionID = sessionID
+			s.logger.Info().Str("session_id", sessionID).Msg("Database session initialized")
+		}
+	}
 
 	// Initialize Beyla configuration (RFD 032 + RFD 053).
 	var beylaConfig *beyla.Config
@@ -145,4 +158,40 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 	}
 
 	return result, nil
+}
+
+// initDBMetadata creates the db_metadata table and ensures a session_id exists (RFD 089).
+// The session_id is a UUID generated once when the database is first created.
+// It persists across agent restarts but changes if the database is recreated,
+// allowing the colony to detect database resets and reset its polling checkpoints.
+func initDBMetadata(db *sql.DB) (string, error) {
+	// Create metadata table if not exists.
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS db_metadata (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		return "", fmt.Errorf("failed to create db_metadata table: %w", err)
+	}
+
+	// Try to read existing session_id.
+	var sessionID string
+	err = db.QueryRow("SELECT value FROM db_metadata WHERE key = 'session_id'").Scan(&sessionID)
+	if err == nil {
+		return sessionID, nil
+	}
+
+	// Generate and store a new session_id.
+	sessionID = uuid.New().String()
+	_, err = db.Exec(
+		"INSERT INTO db_metadata (key, value) VALUES ('session_id', ?)",
+		sessionID,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to store session_id: %w", err)
+	}
+
+	return sessionID, nil
 }

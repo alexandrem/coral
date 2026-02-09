@@ -16,8 +16,9 @@ import (
 
 // DebugService implements debug-related RPC handlers for the agent.
 type DebugService struct {
-	agent  *Agent
-	logger zerolog.Logger
+	agent     *Agent
+	logger    zerolog.Logger
+	sessionID string // Database session UUID for checkpoint tracking (RFD 089).
 }
 
 // NewDebugService creates a new debug service.
@@ -26,6 +27,11 @@ func NewDebugService(agent *Agent, logger zerolog.Logger) *DebugService {
 		agent:  agent,
 		logger: logger.With().Str("component", "debug_service").Logger(),
 	}
+}
+
+// SetSessionID sets the database session UUID for checkpoint tracking (RFD 089).
+func (s *DebugService) SetSessionID(sessionID string) {
+	s.sessionID = sessionID
 }
 
 // StartUprobeCollector handles requests to start uprobe collectors.
@@ -219,7 +225,7 @@ func (s *DebugService) ProfileCPU(
 	}, nil
 }
 
-// QueryCPUProfileSamples handles requests to query historical CPU profile samples (RFD 072).
+// QueryCPUProfileSamples handles requests to query historical CPU profile samples using sequence-based polling.
 func (s *DebugService) QueryCPUProfileSamples(
 	ctx context.Context,
 	req *agentv1.QueryCPUProfileSamplesRequest,
@@ -229,11 +235,12 @@ func (s *DebugService) QueryCPUProfileSamples(
 		Str("pod", req.PodName).
 		Msg("Querying CPU profile samples")
 
-	// Get the continuous profiler from the agent
+	// Get the continuous profiler from the agent.
 	cpuProfiler, ok := s.agent.continuousProfiler.(*profiler.ContinuousCPUProfiler)
 	if !ok || cpuProfiler == nil {
 		return &agentv1.QueryCPUProfileSamplesResponse{
-			Error: "continuous profiling not enabled",
+			Error:     "continuous profiling not enabled",
+			SessionId: s.sessionID,
 		}, nil
 	}
 
@@ -241,28 +248,26 @@ func (s *DebugService) QueryCPUProfileSamples(
 	storage, ok := storageIface.(*profiler.Storage)
 	if !ok {
 		return &agentv1.QueryCPUProfileSamplesResponse{
-			Error: "invalid storage type",
+			Error:     "invalid storage type",
+			SessionId: s.sessionID,
 		}, nil
 	}
 
-	// Query samples from storage
-	startTime := req.StartTime.AsTime()
-	endTime := req.EndTime.AsTime()
-
-	samples, err := storage.QuerySamples(ctx, startTime, endTime, req.ServiceName)
+	samples, maxSeqID, err := storage.QuerySamplesBySeqID(ctx, req.StartSeqId, req.MaxRecords, req.ServiceName)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query CPU profile samples")
 		return &agentv1.QueryCPUProfileSamplesResponse{
-			Error: fmt.Sprintf("failed to query samples: %v", err),
+			Error:     fmt.Sprintf("failed to query samples: %v", err),
+			SessionId: s.sessionID,
 		}, nil
 	}
 
-	// Convert samples to protobuf response
+	// Convert samples to protobuf response.
 	var pbSamples []*agentv1.CPUProfileSample
 	totalSamples := uint64(0)
 
 	for _, sample := range samples {
-		// Decode stack frame IDs to frame names
+		// Decode stack frame IDs to frame names.
 		frameNames, err := storage.DecodeStackFrames(ctx, sample.StackFrameIDs)
 		if err != nil {
 			s.logger.Warn().Err(err).Msg("Failed to decode stack frames")
@@ -273,8 +278,9 @@ func (s *DebugService) QueryCPUProfileSamples(
 			Timestamp:   timestamppb.New(sample.Timestamp),
 			BuildId:     sample.BuildID,
 			StackFrames: frameNames,
-			SampleCount: sample.SampleCount, // uint32 -> uint32
-			ServiceName: sample.ServiceID,   // RFD 072: Include service name
+			SampleCount: sample.SampleCount,
+			ServiceName: sample.ServiceID,
+			SeqId:       sample.SeqID,
 		})
 
 		totalSamples += uint64(sample.SampleCount)
@@ -283,6 +289,8 @@ func (s *DebugService) QueryCPUProfileSamples(
 	return &agentv1.QueryCPUProfileSamplesResponse{
 		Samples:      pbSamples,
 		TotalSamples: totalSamples,
+		MaxSeqId:     maxSeqID,
+		SessionId:    s.sessionID,
 	}, nil
 }
 
@@ -368,7 +376,7 @@ func (s *DebugService) ProfileMemory(
 	}, nil
 }
 
-// QueryMemoryProfileSamples handles requests to query historical memory profile samples (RFD 077).
+// QueryMemoryProfileSamples handles requests to query historical memory profile samples using sequence-based polling.
 func (s *DebugService) QueryMemoryProfileSamples(
 	ctx context.Context,
 	req *agentv1.QueryMemoryProfileSamplesRequest,
@@ -381,7 +389,8 @@ func (s *DebugService) QueryMemoryProfileSamples(
 	memProfiler, ok := s.agent.continuousMemoryProfiler.(*profiler.ContinuousMemoryProfiler)
 	if !ok || memProfiler == nil {
 		return &agentv1.QueryMemoryProfileSamplesResponse{
-			Error: "continuous memory profiling not enabled",
+			Error:     "continuous memory profiling not enabled",
+			SessionId: s.sessionID,
 		}, nil
 	}
 
@@ -389,18 +398,17 @@ func (s *DebugService) QueryMemoryProfileSamples(
 	storage, ok := storageIface.(*profiler.Storage)
 	if !ok {
 		return &agentv1.QueryMemoryProfileSamplesResponse{
-			Error: "invalid storage type",
+			Error:     "invalid storage type",
+			SessionId: s.sessionID,
 		}, nil
 	}
 
-	startTime := req.StartTime.AsTime()
-	endTime := req.EndTime.AsTime()
-
-	samples, err := storage.QueryMemorySamples(ctx, startTime, endTime, req.ServiceName)
+	samples, maxSeqID, err := storage.QueryMemorySamplesBySeqID(ctx, req.StartSeqId, req.MaxRecords, req.ServiceName)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query memory profile samples")
 		return &agentv1.QueryMemoryProfileSamplesResponse{
-			Error: fmt.Sprintf("failed to query samples: %v", err),
+			Error:     fmt.Sprintf("failed to query samples: %v", err),
+			SessionId: s.sessionID,
 		}, nil
 	}
 
@@ -421,6 +429,7 @@ func (s *DebugService) QueryMemoryProfileSamples(
 			AllocBytes:   sample.AllocBytes,
 			AllocObjects: sample.AllocObjects,
 			ServiceName:  sample.ServiceID,
+			SeqId:        sample.SeqID,
 		})
 
 		totalAllocBytes += sample.AllocBytes
@@ -429,6 +438,8 @@ func (s *DebugService) QueryMemoryProfileSamples(
 	return &agentv1.QueryMemoryProfileSamplesResponse{
 		Samples:         pbSamples,
 		TotalAllocBytes: totalAllocBytes,
+		MaxSeqId:        maxSeqID,
+		SessionId:       s.sessionID,
 	}, nil
 }
 

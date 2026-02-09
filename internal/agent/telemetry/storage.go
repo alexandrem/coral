@@ -58,7 +58,11 @@ func NewStorage(db *sql.DB, logger zerolog.Logger) (*Storage, error) {
 // initSchema creates the local telemetry spans table.
 func (s *Storage) initSchema() error {
 	schema := `
+		-- Sequence for checkpoint-based polling (RFD 089).
+		CREATE SEQUENCE IF NOT EXISTS seq_otel_spans START 1;
+
 		CREATE TABLE IF NOT EXISTS otel_spans_local (
+			seq_id        UBIGINT DEFAULT nextval('seq_otel_spans'),
 			timestamp     TIMESTAMP NOT NULL,
 			trace_id      TEXT NOT NULL,
 			span_id       TEXT NOT NULL,
@@ -81,6 +85,10 @@ func (s *Storage) initSchema() error {
 		-- Index for service filtering.
 		CREATE INDEX IF NOT EXISTS idx_otel_spans_local_service
 		ON otel_spans_local(service_name, timestamp DESC);
+
+		-- Index for sequence-based polling (RFD 089).
+		CREATE INDEX IF NOT EXISTS idx_otel_spans_local_seq_id
+		ON otel_spans_local(seq_id);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -161,19 +169,26 @@ func (s *Storage) StoreSpan(ctx context.Context, span Span) error {
 	return nil
 }
 
-// QuerySpans queries spans within a time range, optionally filtered by service names.
-func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]Span, error) {
+// QuerySpansBySeqID queries spans with seq_id > startSeqID, ordered by seq_id ascending (RFD 089).
+// Returns spans and the maximum seq_id in the result set.
+func (s *Storage) QuerySpansBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]Span, uint64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	if maxRecords <= 0 {
+		maxRecords = 10000
+	} else if maxRecords > 50000 {
+		maxRecords = 50000
+	}
+
 	query := `
-		SELECT timestamp, trace_id, span_id, service_name, span_kind,
+		SELECT seq_id, timestamp, trace_id, span_id, service_name, span_kind,
 		       duration_ms, is_error, http_status, http_method, http_route, CAST(attributes AS TEXT) as attributes
 		FROM otel_spans_local
-		WHERE timestamp >= ? AND timestamp < ?
+		WHERE seq_id > ?
 	`
 
-	args := []interface{}{startTime, endTime}
+	args := []interface{}{startSeqID}
 
 	// Add service name filter if provided.
 	if len(serviceNames) > 0 {
@@ -188,15 +203,17 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 		query += " AND service_name IN (" + placeholders + ")"
 	}
 
-	query += " ORDER BY timestamp DESC LIMIT 10000"
+	query += " ORDER BY seq_id ASC LIMIT ?"
+	args = append(args, maxRecords)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query spans: %w", err)
+		return nil, 0, fmt.Errorf("failed to query spans by seq_id: %w", err)
 	}
-	defer func() { _ = rows.Close() }() // TODO: errcheck
+	defer func() { _ = rows.Close() }()
 
 	spans := make([]Span, 0)
+	var maxSeqID uint64
 
 	for rows.Next() {
 		var span Span
@@ -206,6 +223,7 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 		var attributesJSON []byte
 
 		err := rows.Scan(
+			&span.SeqID,
 			&span.Timestamp,
 			&span.TraceID,
 			&span.SpanID,
@@ -219,7 +237,7 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 			&attributesJSON,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan span: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan span: %w", err)
 		}
 
 		if httpStatus.Valid {
@@ -235,24 +253,28 @@ func (s *Storage) QuerySpans(ctx context.Context, startTime, endTime time.Time, 
 		// Unmarshal attributes.
 		if len(attributesJSON) > 0 {
 			if err := json.Unmarshal(attributesJSON, &span.Attributes); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal attributes: %w", err)
+				return nil, 0, fmt.Errorf("failed to unmarshal attributes: %w", err)
 			}
+		}
+
+		if span.SeqID > maxSeqID {
+			maxSeqID = span.SeqID
 		}
 
 		spans = append(spans, span)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating spans: %w", err)
+		return nil, 0, fmt.Errorf("error iterating spans: %w", err)
 	}
 
 	s.logger.Debug().
+		Uint64("start_seq_id", startSeqID).
+		Uint64("max_seq_id", maxSeqID).
 		Int("span_count", len(spans)).
-		Time("start_time", startTime).
-		Time("end_time", endTime).
-		Msg("Queried telemetry spans")
+		Msg("Queried telemetry spans by seq_id")
 
-	return spans, nil
+	return spans, maxSeqID, nil
 }
 
 // CleanupOldSpans removes spans older than the retention period (~1 hour).

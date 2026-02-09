@@ -412,18 +412,21 @@ message TelemetrySpan {
 
   // Additional span attributes (key-value pairs).
   map<string, string> attributes = 11;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 12;
 }
 
 // QueryTelemetryRequest is sent from colony to agent to query recent telemetry.
 message QueryTelemetryRequest {
-  // Start time for query range (Unix seconds).
-  int64 start_time = 1;
-
-  // End time for query range (Unix seconds).
-  int64 end_time = 2;
-
   // Filter by service names (empty = all services).
-  repeated string service_names = 3;
+  repeated string service_names = 1;
+
+  // Queries records with seq_id > start_seq_id. Use 0 for initial poll.
+  uint64 start_seq_id = 2;
+
+  // Maximum number of records to return. Default: 10000, max: 50000.
+  int32 max_records = 3;
 }
 
 // QueryTelemetryResponse contains filtered spans from agent's local storage.
@@ -433,32 +436,41 @@ message QueryTelemetryResponse {
 
   // Total number of spans returned.
   int32 total_spans = 2;
+
+  // Highest seq_id in this batch, 0 if no data (RFD 089).
+  uint64 max_seq_id = 3;
+
+  // Agent database session UUID; changes on DB recreation (RFD 089).
+  string session_id = 4;
 }
 
 // QueryEbpfMetrics RPC messages (RFD 032 Phase 4 - pull-based).
 
 // QueryEbpfMetricsRequest is sent from colony to agent to query eBPF metrics.
 message QueryEbpfMetricsRequest {
-  // Start time for query range (Unix seconds).
-  int64 start_time = 1;
-
-  // End time for query range (Unix seconds).
-  int64 end_time = 2;
-
   // Filter by service names (empty = all services).
-  repeated string service_names = 3;
+  repeated string service_names = 1;
 
   // Metric types to query (empty = all types).
-  repeated EbpfMetricType metric_types = 4;
+  repeated EbpfMetricType metric_types = 2;
 
   // Filter by specific trace ID (RFD 036).
-  string trace_id = 5;
+  string trace_id = 3;
 
-  // Limit number of traces returned (default: 100, max: 1000) (RFD 036).
-  int32 max_traces = 6;
+  // Limit number of traces returned (default: 100, max: 1000).
+  int32 max_traces = 4;
 
-  // Include traces in response (default: false for backward compatibility) (RFD 036).
-  bool include_traces = 7;
+  // Include traces in response (default: false).
+  bool include_traces = 5;
+
+  // Sequence-based querying per metric type. Queries records with seq_id > start_seq_id.
+  uint64 http_start_seq_id = 6;
+  uint64 grpc_start_seq_id = 7;
+  uint64 sql_start_seq_id = 8;
+  uint64 traces_start_seq_id = 9;
+
+  // Maximum number of records to return per metric type. Default: 10000.
+  int32 max_records = 10;
 }
 
 // EbpfMetricType specifies which eBPF metrics to query.
@@ -488,6 +500,15 @@ message QueryEbpfMetricsResponse {
 
   // Total traces returned (RFD 036).
   int32 total_traces = 6;
+
+  // Highest seq_id per metric type in this batch (RFD 089).
+  uint64 http_max_seq_id = 7;
+  uint64 grpc_max_seq_id = 8;
+  uint64 sql_max_seq_id = 9;
+  uint64 traces_max_seq_id = 10;
+
+  // Agent database session UUID (RFD 089).
+  string session_id = 11;
 }
 
 // EbpfHttpMetric represents aggregated HTTP RED metrics.
@@ -518,6 +539,9 @@ message EbpfHttpMetric {
 
   // Additional attributes.
   map<string, string> attributes = 9;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 10;
 }
 
 // EbpfGrpcMetric represents aggregated gRPC RED metrics.
@@ -545,6 +569,9 @@ message EbpfGrpcMetric {
 
   // Additional attributes.
   map<string, string> attributes = 8;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 9;
 }
 
 // EbpfSqlMetric represents aggregated SQL query metrics.
@@ -572,6 +599,9 @@ message EbpfSqlMetric {
 
   // Additional attributes.
   map<string, string> attributes = 8;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 9;
 }
 
 // EbpfTraceSpan represents a distributed trace span (RFD 036).
@@ -605,6 +635,9 @@ message EbpfTraceSpan {
 
   // Additional attributes.
   map<string, string> attributes = 10;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 11;
 }
 
 // Shell RPC messages (RFD 026).
@@ -856,18 +889,21 @@ message SystemMetric {
 
   // Additional attributes as JSON string.
   string attributes = 6;
+
+  // Sequence ID for checkpoint-based polling (RFD 089).
+  uint64 seq_id = 7;
 }
 
 // QuerySystemMetricsRequest is sent from colony to agent to query recent system metrics.
 message QuerySystemMetricsRequest {
-  // Start time for query range (Unix seconds).
-  int64 start_time = 1;
-
-  // End time for query range (Unix seconds).
-  int64 end_time = 2;
-
   // Filter by metric names (empty = all metrics).
-  repeated string metric_names = 3;
+  repeated string metric_names = 1;
+
+  // Queries records with seq_id > start_seq_id. Use 0 for initial poll.
+  uint64 start_seq_id = 2;
+
+  // Maximum number of records to return. Default: 10000, max: 50000.
+  int32 max_records = 3;
 }
 
 // QuerySystemMetricsResponse contains system metrics from agent's local storage.
@@ -877,4 +913,10 @@ message QuerySystemMetricsResponse {
 
   // Total number of metrics returned.
   int32 total_metrics = 2;
+
+  // Highest seq_id in this batch (RFD 089).
+  uint64 max_seq_id = 3;
+
+  // Agent database session UUID (RFD 089).
+  string session_id = 4;
 }

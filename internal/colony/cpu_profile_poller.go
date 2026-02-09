@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
@@ -20,18 +18,19 @@ import (
 	"github.com/coral-mesh/coral/internal/constants"
 )
 
+const cpuProfileDataType = "cpu_profile"
+
 // CPUProfilePoller periodically queries agents for continuous CPU profile samples.
 // This implements the colony-side aggregation from RFD 072.
+// Uses sequence-based checkpoints for reliable polling (RFD 089).
 type CPUProfilePoller struct {
 	*poller.BasePoller
-	registry        *registry.Registry
-	db              *database.Database
-	pollInterval    time.Duration
-	retentionDays   int // How long to keep CPU profile summaries (default: 30 days).
-	clientFactory   func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient
-	logger          zerolog.Logger
-	lastPollTimes   map[string]time.Time // Track last poll time per agent.
-	lastPollTimesMu sync.RWMutex
+	registry      *registry.Registry
+	db            *database.Database
+	pollInterval  time.Duration
+	retentionDays int // How long to keep CPU profile summaries (default: 30 days).
+	clientFactory func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient
+	logger        zerolog.Logger
 }
 
 // NewCPUProfilePoller creates a new CPU profile poller.
@@ -69,7 +68,6 @@ func NewCPUProfilePoller(
 		retentionDays: retentionDays,
 		clientFactory: GetDebugClient, // Default to production client.
 		logger:        componentLogger,
-		lastPollTimes: make(map[string]time.Time),
 	}
 }
 
@@ -86,37 +84,18 @@ func (p *CPUProfilePoller) Stop() error {
 // PollOnce performs a single polling cycle.
 // Implements the poller.Poller interface.
 func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
-	now := time.Now()
-
 	totalSamples := 0
 	allSummaries := make([]database.CPUProfileSummary, 0)
 
-	// Track successful query times per agent for checkpoint updates.
-	// Only update checkpoints AFTER successful storage (like Kafka consumer commits).
-	queryEndTimes := make(map[string]time.Time)
+	// Track checkpoint updates per agent. Only commit after successful storage.
+	type checkpointUpdate struct {
+		sessionID string
+		maxSeqID  uint64
+	}
+	pendingCheckpoints := make(map[string]checkpointUpdate)
 
 	successCount, errorCount := poller.ForEachHealthyAgent(p.registry, p.logger, func(agent *registry.Entry) error {
-		// Get last poll time for this agent.
-		p.lastPollTimesMu.RLock()
-		lastPoll, exists := p.lastPollTimes[agent.AgentID]
-		p.lastPollTimesMu.RUnlock()
-
-		// If first poll for this agent, look back far enough to catch samples.
-		if !exists {
-			lastPoll = now.Add(-2 * time.Minute)
-		}
-
-		// Ensure we always look back at least 30 seconds to catch samples whose
-		// timestamps predate their storage time. The profiler collects for 15s then
-		// stores; the sample timestamp is the collection start, not storage time.
-		maxLookback := now.Add(-30 * time.Second)
-		if lastPoll.After(maxLookback) {
-			lastPoll = maxLookback
-		}
-
-		// Query agent for samples since last poll.
-		queryEndTime := now
-		samples, err := p.queryAgent(ctx, agent, lastPoll, queryEndTime)
+		samples, sessionID, maxSeqID, err := p.pollAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
@@ -125,8 +104,10 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 		summaries := p.aggregateSamples(ctx, agent.AgentID, samples)
 		allSummaries = append(allSummaries, summaries...)
 
-		// Track query end time for checkpoint update (only after successful storage).
-		queryEndTimes[agent.AgentID] = queryEndTime
+		// Track checkpoint for commit after storage.
+		if maxSeqID > 0 {
+			pendingCheckpoints[agent.AgentID] = checkpointUpdate{sessionID: sessionID, maxSeqID: maxSeqID}
+		}
 
 		totalSamples += len(samples)
 		return nil
@@ -141,12 +122,12 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 				Msg("Failed to store CPU profile summaries")
 			// DO NOT update checkpoints on storage failure - retry on next poll.
 		} else {
-			// Storage succeeded - commit checkpoints (like Kafka consumer offset commit).
-			p.lastPollTimesMu.Lock()
-			for agentID, endTime := range queryEndTimes {
-				p.lastPollTimes[agentID] = endTime
+			// Storage succeeded - commit checkpoints (RFD 089).
+			for agentID, cp := range pendingCheckpoints {
+				if err := p.db.UpdatePollingCheckpoint(ctx, agentID, cpuProfileDataType, cp.sessionID, cp.maxSeqID); err != nil {
+					p.logger.Error().Err(err).Str("agent", agentID).Msg("Failed to update checkpoint")
+				}
 			}
-			p.lastPollTimesMu.Unlock()
 
 			p.logger.Info().
 				Int("agents_queried", successCount).
@@ -164,28 +145,32 @@ func (p *CPUProfilePoller) PollOnce(ctx context.Context) error {
 	return nil
 }
 
-// queryAgent queries a single agent for CPU profile samples.
-func (p *CPUProfilePoller) queryAgent(ctx context.Context,
-	agent *registry.Entry,
-	startTime, endTime time.Time,
-) ([]*agentv1.CPUProfileSample, error) {
-	// Create gRPC client for this agent.
-	client := p.clientFactory(nil, buildAgentURL(agent), connect.WithGRPC())
+// pollAgent queries a single agent using checkpoint-based polling (RFD 089).
+// Returns samples, session_id, max_seq_id, and any error.
+func (p *CPUProfilePoller) pollAgent(ctx context.Context, agent *registry.Entry) ([]*agentv1.CPUProfileSample, string, uint64, error) {
+	// Get checkpoint for this agent.
+	checkpoint, _ := p.db.GetPollingCheckpoint(ctx, agent.AgentID, cpuProfileDataType)
 
-	// Create query request (service_name is optional - query all services on agent).
+	var startSeqID uint64
+	var storedSessionID string
+	if checkpoint != nil {
+		startSeqID = checkpoint.LastSeqID
+		storedSessionID = checkpoint.SessionID
+	}
+
+	// Query agent with sequence-based request.
+	client := p.clientFactory(nil, buildAgentURL(agent), connect.WithGRPC())
 	req := connect.NewRequest(&agentv1.QueryCPUProfileSamplesRequest{
-		StartTime: timestamppb.New(startTime),
-		EndTime:   timestamppb.New(endTime),
+		StartSeqId: startSeqID,
+		MaxRecords: 5000,
 	})
 
-	// Set timeout for the request.
-	ctx, cancel := context.WithTimeout(ctx, agentQueryTimeout)
+	queryCtx, cancel := context.WithTimeout(ctx, agentQueryTimeout)
 	defer cancel()
 
-	// Call agent's QueryCPUProfileSamples RPC.
-	resp, err := client.QueryCPUProfileSamples(ctx, req)
+	resp, err := client.QueryCPUProfileSamples(queryCtx, req)
 	if err != nil {
-		return nil, err
+		return nil, "", 0, err
 	}
 
 	if resp.Msg.Error != "" {
@@ -193,10 +178,51 @@ func (p *CPUProfilePoller) queryAgent(ctx context.Context,
 			Str("agent_id", agent.AgentID).
 			Str("error", resp.Msg.Error).
 			Msg("Agent returned error when querying CPU profile samples")
-		return nil, nil
+		return nil, "", 0, nil
 	}
 
-	return resp.Msg.Samples, nil
+	// Handle session_id mismatch (agent database was recreated).
+	if storedSessionID != "" && resp.Msg.SessionId != "" && storedSessionID != resp.Msg.SessionId {
+		p.logger.Warn().
+			Str("agent", agent.AgentID).
+			Str("stored_session", storedSessionID).
+			Str("agent_session", resp.Msg.SessionId).
+			Msg("Agent session changed (database recreated), resetting checkpoint")
+
+		_ = p.db.ResetPollingCheckpoint(ctx, agent.AgentID, cpuProfileDataType)
+
+		// Re-query from the beginning.
+		req.Msg.StartSeqId = 0
+		queryCtx2, cancel2 := context.WithTimeout(ctx, agentQueryTimeout)
+		defer cancel2()
+
+		resp, err = client.QueryCPUProfileSamples(queryCtx2, req)
+		if err != nil {
+			return nil, "", 0, err
+		}
+	}
+
+	// Detect gaps in sequence IDs (RFD 089).
+	if len(resp.Msg.Samples) > 0 {
+		seqIDs := make([]uint64, len(resp.Msg.Samples))
+		timestamps := make([]int64, len(resp.Msg.Samples))
+		for i, s := range resp.Msg.Samples {
+			seqIDs[i] = s.SeqId
+			if s.Timestamp != nil {
+				timestamps[i] = s.Timestamp.AsTime().UnixMilli()
+			}
+		}
+		for _, gap := range poller.DetectGaps(startSeqID, seqIDs, timestamps) {
+			p.logger.Warn().
+				Str("agent", agent.AgentID).
+				Uint64("gap_start", gap.StartSeqID).
+				Uint64("gap_end", gap.EndSeqID).
+				Msg("Detected CPU profile sequence gap")
+			_ = p.db.RecordSequenceGap(ctx, agent.AgentID, cpuProfileDataType, gap.StartSeqID, gap.EndSeqID)
+		}
+	}
+
+	return resp.Msg.Samples, resp.Msg.SessionId, resp.Msg.MaxSeqId, nil
 }
 
 // aggregateSamples aggregates CPU profile samples into 1-minute buckets.
@@ -210,7 +236,6 @@ func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 	}
 
 	// Group samples by (bucket_time, build_id, stack_frames).
-	// Key format: "bucket_time_unix|build_id|stack_hash"
 	type sampleKey struct {
 		bucketTime time.Time
 		buildID    string
@@ -220,7 +245,7 @@ func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 	type sampleGroup struct {
 		serviceName   string
 		stackFrameIDs []int64
-		sampleCount   uint32 // Number of samples (matches protobuf)
+		sampleCount   uint32 // Number of samples (matches protobuf).
 	}
 
 	grouped := make(map[sampleKey]*sampleGroup)
@@ -252,7 +277,6 @@ func (p *CPUProfilePoller) aggregateSamples(ctx context.Context,
 			// Merge: sum sample counts.
 			existing.sampleCount += sample.SampleCount
 		} else {
-			// New group - use service_name from sample (RFD 072 fix).
 			grouped[key] = &sampleGroup{
 				serviceName:   sample.ServiceName,
 				stackFrameIDs: frameIDs,

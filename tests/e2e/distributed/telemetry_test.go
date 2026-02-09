@@ -140,12 +140,9 @@ func (s *TelemetrySuite) TestBeylaPassiveInstrumentation() {
 	time.Sleep(3 * time.Second)
 
 	// Query agent for eBPF metrics (agentClient already created above).
-	now := time.Now()
 	ebpfResp, err := helpers.QueryAgentEbpfMetrics(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		[]string{"cpu-app"}, // Filter by service name
 	)
 	s.Require().NoError(err, "Failed to query eBPF metrics from agent")
@@ -234,12 +231,9 @@ func (s *TelemetrySuite) TestBeylaColonyPolling() {
 	time.Sleep(3 * time.Second)
 
 	// Verify agent has eBPF metrics first (agentClient already created above).
-	now := time.Now()
 	agentResp, err := helpers.QueryAgentEbpfMetrics(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		nil,
 	)
 	s.Require().NoError(err, "Failed to query agent eBPF metrics")
@@ -350,14 +344,11 @@ func (s *TelemetrySuite) TestBeylaVsOTLPComparison() {
 	time.Sleep(3 * time.Second)
 
 	// Query agent (agentClient already created above).
-	now := time.Now()
 
 	// Check for eBPF metrics (Beyla - should exist).
 	ebpfResp, err := helpers.QueryAgentEbpfMetrics(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		[]string{"cpu-app"},
 	)
 	s.Require().NoError(err, "Failed to query eBPF metrics")
@@ -366,8 +357,6 @@ func (s *TelemetrySuite) TestBeylaVsOTLPComparison() {
 	telemetryResp, err := helpers.QueryAgentTelemetry(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		[]string{"cpu-app"},
 	)
 	s.Require().NoError(err, "Failed to query telemetry")
@@ -475,12 +464,9 @@ func (s *TelemetrySuite) TestOTLPIngestion() {
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
 	// Query spans from the last 5 minutes.
-	now := time.Now()
 	telemetryResp, err := helpers.QueryAgentTelemetry(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		[]string{"otel-app"}, // Filter by our test app service name
 	)
 	s.Require().NoError(err, "Failed to query telemetry from agent")
@@ -594,12 +580,9 @@ func (s *TelemetrySuite) TestOTLPMetricsIngestion() {
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
 	// Query metrics from the last 5 minutes.
-	now := time.Now()
 	metricsResp, err := helpers.QueryAgentEbpfMetrics(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		[]string{"otel-app"}, // Filter by our test app service name
 	)
 	s.Require().NoError(err, "Failed to query eBPF metrics from agent")
@@ -741,12 +724,9 @@ func (s *TelemetrySuite) TestTelemetryAggregation() {
 
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
-	now := time.Now()
 	agentResp, err := helpers.QueryAgentTelemetry(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		[]string{"otel-app"},
 	)
 	s.Require().NoError(err, "Failed to query agent telemetry")
@@ -842,12 +822,9 @@ func (s *TelemetrySuite) TestSystemMetricsCollection() {
 
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
-	now := time.Now()
 	metricsResp, err := helpers.QueryAgentSystemMetrics(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		nil, // Query all metrics
 	)
 	s.Require().NoError(err, "Failed to query system metrics from agent")
@@ -905,12 +882,9 @@ func (s *TelemetrySuite) TestSystemMetricsPolling() {
 
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 
-	now := time.Now()
 	agentResp, err := helpers.QueryAgentSystemMetrics(
 		s.ctx,
 		agentClient,
-		now.Add(-5*time.Minute).Unix(),
-		now.Unix(),
 		nil,
 	)
 	s.Require().NoError(err, "Failed to query agent system metrics")

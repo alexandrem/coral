@@ -386,6 +386,7 @@ func (b *AgentServerBuilder) RegisterServices() error {
 		meshIP,
 		meshSubnet,
 		b.connectionManager,
+		b.storageResult.SessionID,
 	)
 
 	servicesResult, err := serviceRegistry.Register(b.runtimeService)

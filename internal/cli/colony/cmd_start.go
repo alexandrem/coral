@@ -496,6 +496,14 @@ Examples:
 					Msg("Service poller started")
 			}
 
+			// Create and start gap recovery service (RFD 089).
+			gapRecovery := colony.NewGapRecoveryService(ctx, agentRegistry, db, logger)
+			if err := gapRecovery.Start(); err != nil {
+				logger.Warn().Err(err).Msg("Failed to start gap recovery service")
+			} else {
+				logger.Info().Msg("Gap recovery service started - will check for sequence gaps every 5 minutes")
+			}
+
 			logger.Info().
 				Str("dashboard_url", fmt.Sprintf("http://localhost:%d", cfg.Dashboard.Port)).
 				Str("colony_id", cfg.ColonyID).
@@ -544,6 +552,13 @@ Examples:
 					logger.Warn().
 						Err(err).
 						Msg("Error stopping service poller")
+				}
+
+				// Stop gap recovery service.
+				if err := gapRecovery.Stop(); err != nil {
+					logger.Warn().
+						Err(err).
+						Msg("Error stopping gap recovery service")
 				}
 
 				// Stop registration manager
