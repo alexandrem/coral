@@ -13,7 +13,7 @@ areas: [ "colony", "agent", "polling", "data-ingestion" ]
 
 # RFD 089 - Sequence-Based Polling Checkpoints
 
-**Status:** 🚧 In Progress (Phase 1, 2 & 3 complete)
+**Status:** 🚧 In Progress (Phase 1, 2, 3 & 4 complete)
 
 ## Summary
 
@@ -264,15 +264,19 @@ Colony Side:
   checkpoints
 - [x] Add gap detection logic to all pollers
 
-### Phase 4: Gap Recovery
+### Phase 4: Gap Recovery ✅
 
 - [x] Implement gap detection logic (done in Phase 3: `poller.DetectGaps()`)
-- [ ] Implement gap recovery background service (`internal/colony/gap_recovery.go`)
+- [x] Implement gap recovery background service
+  (`internal/colony/gap_recovery.go`)
 - [x] Add gap tracking database methods (`RecordSequenceGap`,
   `GetPendingSequenceGaps`, `MarkGapRecovered`, `MarkGapPermanent`,
   `IncrementGapRecoveryAttempt`, `CleanupOldSequenceGaps`)
-- [ ] Add metrics for gap detection/recovery
-- [ ] Add logging and alerting for permanent data loss
+- [x] Add structured logging for gap recovery lifecycle (recovery succeeded,
+  failed/will retry, permanent data loss) — metrics deferred until OTLP
+  infrastructure is set up
+- [x] Add logging for permanent data loss (`PERMANENT DATA LOSS` error-level
+  log when gap recovery exhausts all attempts)
 
 ### Phase 5: Testing & Rollout
 
