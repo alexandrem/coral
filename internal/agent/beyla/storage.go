@@ -515,418 +515,6 @@ func (s *BeylaStorage) StoreOTLPSpan(ctx context.Context, agentID string, traceI
 	return nil
 }
 
-// QueryHTTPMetrics queries HTTP metrics from local storage.
-func (s *BeylaStorage) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	query := `
-		SELECT timestamp, service_name, http_method, http_route, http_status_code,
-		       latency_bucket_ms, count, attributes::VARCHAR as attributes
-		FROM beyla_http_metrics_local
-		WHERE timestamp >= ? AND timestamp < ?
-	`
-
-	args := []interface{}{startTime, endTime}
-
-	if len(serviceNames) > 0 {
-		placeholders := make([]string, len(serviceNames))
-		for i := range serviceNames {
-			placeholders[i] = "?"
-			args = append(args, serviceNames[i])
-		}
-		query += " AND service_name IN (" + placeholders[0]
-		for i := 1; i < len(placeholders); i++ {
-			query += ", " + placeholders[i]
-		}
-		query += ")"
-	}
-
-	query += " ORDER BY timestamp DESC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query HTTP metrics: %w", err)
-	}
-	defer func() { _ = rows.Close() }() // TODO: errcheck
-
-	// Aggregate metrics by (timestamp, service, method, route, status).
-	metricsMap := make(map[string]*ebpfpb.BeylaHttpMetrics)
-
-	for rows.Next() {
-		var timestamp time.Time
-		var serviceName, httpMethod, httpRoute string
-		var httpStatusCode int32
-		var bucket float64
-		var count uint64
-		var attributesJSON string
-
-		err := rows.Scan(
-			&timestamp,
-			&serviceName,
-			&httpMethod,
-			&httpRoute,
-			&httpStatusCode,
-			&bucket,
-			&count,
-			&attributesJSON,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Create key for aggregation.
-		key := fmt.Sprintf("%d_%s_%s_%s_%d",
-			timestamp.Unix(),
-			serviceName,
-			httpMethod,
-			httpRoute,
-			httpStatusCode,
-		)
-
-		// Get or create metric.
-		metric, exists := metricsMap[key]
-		if !exists {
-			var attrs map[string]string
-			if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to unmarshal attributes")
-				attrs = make(map[string]string)
-			}
-
-			metric = &ebpfpb.BeylaHttpMetrics{
-				Timestamp:      timestamppb.New(timestamp),
-				ServiceName:    serviceName,
-				HttpMethod:     httpMethod,
-				HttpRoute:      httpRoute,
-				HttpStatusCode: uint32(httpStatusCode), //nolint:gosec // G115: Status codes are always positive
-				LatencyBuckets: []float64{},
-				LatencyCounts:  []uint64{},
-				Attributes:     attrs,
-			}
-			metricsMap[key] = metric
-		}
-
-		// Add bucket and count.
-		metric.LatencyBuckets = append(metric.LatencyBuckets, bucket)
-		metric.LatencyCounts = append(metric.LatencyCounts, count)
-	}
-
-	// Convert map to slice.
-	metrics := make([]*ebpfpb.BeylaHttpMetrics, 0, len(metricsMap))
-	for _, metric := range metricsMap {
-		metrics = append(metrics, metric)
-	}
-
-	return metrics, nil
-}
-
-// QueryGRPCMetrics queries gRPC metrics from local storage.
-func (s *BeylaStorage) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	query := `
-		SELECT timestamp, service_name, grpc_method, grpc_status_code,
-		       latency_bucket_ms, count, attributes::VARCHAR as attributes
-		FROM beyla_grpc_metrics_local
-		WHERE timestamp >= ? AND timestamp < ?
-	`
-
-	args := []interface{}{startTime, endTime}
-
-	if len(serviceNames) > 0 {
-		placeholders := make([]string, len(serviceNames))
-		for i := range serviceNames {
-			placeholders[i] = "?"
-			args = append(args, serviceNames[i])
-		}
-		query += " AND service_name IN (" + placeholders[0]
-		for i := 1; i < len(placeholders); i++ {
-			query += ", " + placeholders[i]
-		}
-		query += ")"
-	}
-
-	query += " ORDER BY timestamp DESC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query gRPC metrics: %w", err)
-	}
-	defer func() { _ = rows.Close() }() // TODO: errcheck
-
-	// Aggregate metrics by (timestamp, service, method, status).
-	metricsMap := make(map[string]*ebpfpb.BeylaGrpcMetrics)
-
-	for rows.Next() {
-		var timestamp time.Time
-		var serviceName, grpcMethod string
-		var grpcStatusCode int32
-		var bucket float64
-		var count uint64
-		var attributesJSON string
-
-		err := rows.Scan(
-			&timestamp,
-			&serviceName,
-			&grpcMethod,
-			&grpcStatusCode,
-			&bucket,
-			&count,
-			&attributesJSON,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Create key for aggregation.
-		key := fmt.Sprintf("%d_%s_%s_%d",
-			timestamp.Unix(),
-			serviceName,
-			grpcMethod,
-			grpcStatusCode,
-		)
-
-		// Get or create metric.
-		metric, exists := metricsMap[key]
-		if !exists {
-			var attrs map[string]string
-			if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to unmarshal attributes")
-				attrs = make(map[string]string)
-			}
-
-			metric = &ebpfpb.BeylaGrpcMetrics{
-				Timestamp:      timestamppb.New(timestamp),
-				ServiceName:    serviceName,
-				GrpcMethod:     grpcMethod,
-				GrpcStatusCode: uint32(grpcStatusCode), //nolint:gosec // G115: Status codes are always positive
-				LatencyBuckets: []float64{},
-				LatencyCounts:  []uint64{},
-				Attributes:     attrs,
-			}
-			metricsMap[key] = metric
-		}
-
-		// Add bucket and count.
-		metric.LatencyBuckets = append(metric.LatencyBuckets, bucket)
-		metric.LatencyCounts = append(metric.LatencyCounts, count)
-	}
-
-	// Convert map to slice.
-	metrics := make([]*ebpfpb.BeylaGrpcMetrics, 0, len(metricsMap))
-	for _, metric := range metricsMap {
-		metrics = append(metrics, metric)
-	}
-
-	return metrics, nil
-}
-
-// QuerySQLMetrics queries SQL metrics from local storage.
-func (s *BeylaStorage) QuerySQLMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	query := `
-		SELECT timestamp, service_name, sql_operation, table_name,
-		       latency_bucket_ms, count, attributes::VARCHAR as attributes
-		FROM beyla_sql_metrics_local
-		WHERE timestamp >= ? AND timestamp < ?
-	`
-
-	args := []interface{}{startTime, endTime}
-
-	if len(serviceNames) > 0 {
-		placeholders := make([]string, len(serviceNames))
-		for i := range serviceNames {
-			placeholders[i] = "?"
-			args = append(args, serviceNames[i])
-		}
-		query += " AND service_name IN (" + placeholders[0]
-		for i := 1; i < len(placeholders); i++ {
-			query += ", " + placeholders[i]
-		}
-		query += ")"
-	}
-
-	query += " ORDER BY timestamp DESC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query SQL metrics: %w", err)
-	}
-	defer func() { _ = rows.Close() }() // TODO: errcheck
-
-	// Aggregate metrics by (timestamp, service, operation, table).
-	metricsMap := make(map[string]*ebpfpb.BeylaSqlMetrics)
-
-	for rows.Next() {
-		var timestamp time.Time
-		var serviceName, sqlOperation, tableName string
-		var bucket float64
-		var count uint64
-		var attributesJSON string
-
-		err := rows.Scan(
-			&timestamp,
-			&serviceName,
-			&sqlOperation,
-			&tableName,
-			&bucket,
-			&count,
-			&attributesJSON,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Create key for aggregation.
-		key := fmt.Sprintf("%d_%s_%s_%s",
-			timestamp.Unix(),
-			serviceName,
-			sqlOperation,
-			tableName,
-		)
-
-		// Get or create metric.
-		metric, exists := metricsMap[key]
-		if !exists {
-			var attrs map[string]string
-			if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to unmarshal attributes")
-				attrs = make(map[string]string)
-			}
-
-			metric = &ebpfpb.BeylaSqlMetrics{
-				Timestamp:      timestamppb.New(timestamp),
-				ServiceName:    serviceName,
-				SqlOperation:   sqlOperation,
-				TableName:      tableName,
-				LatencyBuckets: []float64{},
-				LatencyCounts:  []uint64{},
-				Attributes:     attrs,
-			}
-			metricsMap[key] = metric
-		}
-
-		// Add bucket and count.
-		metric.LatencyBuckets = append(metric.LatencyBuckets, bucket)
-		metric.LatencyCounts = append(metric.LatencyCounts, count)
-	}
-
-	// Convert map to slice.
-	metrics := make([]*ebpfpb.BeylaSqlMetrics, 0, len(metricsMap))
-	for _, metric := range metricsMap {
-		metrics = append(metrics, metric)
-	}
-
-	return metrics, nil
-}
-
-// QueryTraces queries trace spans from local storage (RFD 036).
-func (s *BeylaStorage) QueryTraces(ctx context.Context, startTime, endTime time.Time, serviceNames []string, traceID string, maxSpans int32) ([]*ebpfpb.BeylaTraceSpan, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	query := `
-		SELECT trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
-		       start_time, duration_us, status_code, attributes::VARCHAR as attributes
-		FROM beyla_traces_local
-		WHERE start_time >= ? AND start_time < ?
-	`
-
-	args := []interface{}{startTime, endTime}
-
-	// Filter by trace ID if provided.
-	if traceID != "" {
-		query += " AND trace_id = ?"
-		args = append(args, traceID)
-	}
-
-	// Filter by service names if provided.
-	if len(serviceNames) > 0 {
-		placeholders := make([]string, len(serviceNames))
-		for i := range serviceNames {
-			placeholders[i] = "?"
-			args = append(args, serviceNames[i])
-		}
-		query += " AND service_name IN (" + placeholders[0]
-		for i := 1; i < len(placeholders); i++ {
-			query += ", " + placeholders[i]
-		}
-		query += ")"
-	}
-
-	query += " ORDER BY start_time DESC"
-
-	// Apply limit if specified.
-	if maxSpans > 0 {
-		query += " LIMIT ?"
-		args = append(args, maxSpans)
-	}
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query traces: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		_ = rows.Close() // TODO: errcheck
-	}(rows)
-
-	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
-
-	for rows.Next() {
-		var traceID, spanID, parentSpanID, serviceName, spanName, spanKind string
-		var startTime time.Time
-		var durationUs int64
-		var statusCode int32
-		var attributesJSON string
-
-		err := rows.Scan(
-			&traceID,
-			&spanID,
-			&parentSpanID,
-			&serviceName,
-			&spanName,
-			&spanKind,
-			&startTime,
-			&durationUs,
-			&statusCode,
-			&attributesJSON,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Unmarshal attributes.
-		var attrs map[string]string
-		if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to unmarshal trace attributes")
-			attrs = make(map[string]string)
-		}
-
-		// Convert duration from microseconds to Duration.
-		duration := time.Duration(durationUs) * time.Microsecond
-
-		span := &ebpfpb.BeylaTraceSpan{
-			TraceId:      traceID,
-			SpanId:       spanID,
-			ParentSpanId: parentSpanID,
-			ServiceName:  serviceName,
-			SpanName:     spanName,
-			SpanKind:     spanKind,
-			StartTime:    timestamppb.New(startTime),
-			Duration:     durationpb.New(duration),
-			StatusCode:   uint32(statusCode), //nolint:gosec // G115: Status codes are always positive
-			Attributes:   attrs,
-		}
-
-		spans = append(spans, span)
-	}
-
-	return spans, nil
-}
-
 // QueryHTTPMetricsBySeqID queries HTTP metrics with seq_id > startSeqID (RFD 089).
 // Returns aggregated metrics, the maximum seq_id, and any error.
 func (s *BeylaStorage) QueryHTTPMetricsBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, uint64, error) {
@@ -1292,10 +880,73 @@ func (s *BeylaStorage) QueryTracesBySeqID(ctx context.Context, startSeqID uint64
 
 // QueryTraceByID queries all spans for a specific trace ID (RFD 036).
 func (s *BeylaStorage) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {
-	// Use QueryTraces with specific trace ID and no time bounds (use a wide range).
-	startTime := time.Now().Add(-24 * time.Hour) // Last 24 hours.
-	endTime := time.Now()
-	return s.QueryTraces(ctx, startTime, endTime, nil, traceID, 0)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	query := `
+		SELECT trace_id, span_id, parent_span_id, service_name, span_name, span_kind,
+		       start_time, duration_us, status_code, attributes::VARCHAR as attributes
+		FROM beyla_traces_local
+		WHERE trace_id = ?
+		ORDER BY start_time DESC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, traceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query trace by ID: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	spans := make([]*ebpfpb.BeylaTraceSpan, 0)
+
+	for rows.Next() {
+		var tid, spanID, parentSpanID, serviceName, spanName, spanKind string
+		var startTime time.Time
+		var durationUs int64
+		var statusCode int32
+		var attributesJSON string
+
+		err := rows.Scan(
+			&tid,
+			&spanID,
+			&parentSpanID,
+			&serviceName,
+			&spanName,
+			&spanKind,
+			&startTime,
+			&durationUs,
+			&statusCode,
+			&attributesJSON,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		var attrs map[string]string
+		if err := json.Unmarshal([]byte(attributesJSON), &attrs); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to unmarshal trace attributes")
+			attrs = make(map[string]string)
+		}
+
+		duration := time.Duration(durationUs) * time.Microsecond
+
+		span := &ebpfpb.BeylaTraceSpan{
+			TraceId:      tid,
+			SpanId:       spanID,
+			ParentSpanId: parentSpanID,
+			ServiceName:  serviceName,
+			SpanName:     spanName,
+			SpanKind:     spanKind,
+			StartTime:    timestamppb.New(startTime),
+			Duration:     durationpb.New(duration),
+			StatusCode:   uint32(statusCode), //nolint:gosec // G115: Status codes are always positive
+			Attributes:   attrs,
+		}
+
+		spans = append(spans, span)
+	}
+
+	return spans, nil
 }
 
 // RunCleanupLoop periodically removes old metrics (default: 1 hour retention).

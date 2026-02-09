@@ -309,64 +309,6 @@ func (s *Storage) UpsertBinaryMetadata(ctx context.Context, metadata BinaryMetad
 	return nil
 }
 
-// QuerySamples retrieves profile samples for a given time range.
-func (s *Storage) QuerySamples(ctx context.Context, startTime, endTime time.Time, serviceID string) ([]ProfileSample, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	query := `
-		SELECT timestamp, service_id, build_id, stack_frame_ids, sample_count
-		FROM cpu_profile_samples_local
-		WHERE timestamp >= ? AND timestamp <= ?
-	`
-	args := []interface{}{startTime, endTime}
-
-	if serviceID != "" {
-		query += " AND service_id = ?"
-		args = append(args, serviceID)
-	}
-
-	query += " ORDER BY timestamp ASC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query samples: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var samples []ProfileSample
-	for rows.Next() {
-		var sample ProfileSample
-		var frameIDsInterface interface{}
-
-		err := rows.Scan(
-			&sample.Timestamp,
-			&sample.ServiceID,
-			&sample.BuildID,
-			&frameIDsInterface,
-			&sample.SampleCount,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Convert DuckDB array to []int64.
-		sample.StackFrameIDs, err = s.convertArrayToInt64(frameIDsInterface)
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to convert stack frame IDs")
-			continue
-		}
-
-		samples = append(samples, sample)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	return samples, nil
-}
-
 // QuerySamplesBySeqID queries CPU profile samples with seq_id > startSeqID (RFD 089).
 // Returns samples and the maximum seq_id in the result set.
 func (s *Storage) QuerySamplesBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceID string) ([]ProfileSample, uint64, error) {
@@ -544,64 +486,6 @@ func (s *Storage) StoreMemorySamples(ctx context.Context, samples []MemoryProfil
 	}
 
 	return nil
-}
-
-// QueryMemorySamples retrieves memory profile samples for a given time range (RFD 077).
-func (s *Storage) QueryMemorySamples(ctx context.Context, startTime, endTime time.Time, serviceID string) ([]MemoryProfileSample, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	query := `
-		SELECT timestamp, service_id, build_id, stack_frame_ids, alloc_bytes, alloc_objects
-		FROM memory_profile_samples_local
-		WHERE timestamp >= ? AND timestamp <= ?
-	`
-	args := []interface{}{startTime, endTime}
-
-	if serviceID != "" {
-		query += " AND service_id = ?"
-		args = append(args, serviceID)
-	}
-
-	query += " ORDER BY timestamp ASC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query memory samples: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var samples []MemoryProfileSample
-	for rows.Next() {
-		var sample MemoryProfileSample
-		var frameIDsInterface interface{}
-
-		err := rows.Scan(
-			&sample.Timestamp,
-			&sample.ServiceID,
-			&sample.BuildID,
-			&frameIDsInterface,
-			&sample.AllocBytes,
-			&sample.AllocObjects,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		sample.StackFrameIDs, err = s.convertArrayToInt64(frameIDsInterface)
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to convert memory stack frame IDs")
-			continue
-		}
-
-		samples = append(samples, sample)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	return samples, nil
 }
 
 // QueryMemorySamplesBySeqID queries memory profile samples with seq_id > startSeqID (RFD 089).

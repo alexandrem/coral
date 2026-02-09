@@ -120,18 +120,19 @@ message ProfileCPUAgentResponse {
   bool success = 5;                 // Whether profiling succeeded
 }
 
-// QueryCPUProfileSamplesRequest retrieves historical CPU profile samples from agent's local storage (RFD 072).
+// QueryCPUProfileSamplesRequest retrieves historical CPU profile samples from agent's local storage.
 message QueryCPUProfileSamplesRequest {
-  string service_name = 1;                    // Service name filter (optional)
-  string pod_name = 2;                        // Pod name filter (optional)
-  google.protobuf.Timestamp start_time = 3;   // Start of time range
-  google.protobuf.Timestamp end_time = 4;     // End of time range
+  // Service name filter (optional).
+  string service_name = 1;
 
-  // Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
-  uint64 start_seq_id = 5;
+  // Pod name filter (optional).
+  string pod_name = 2;
 
-  // Maximum number of records to return (RFD 089). Default: 5000.
-  int32 max_records = 6;
+  // Queries records with seq_id > start_seq_id. Use 0 for initial poll.
+  uint64 start_seq_id = 3;
+
+  // Maximum number of records to return. Default: 5000.
+  int32 max_records = 4;
 }
 
 // CPUProfileSample represents a single aggregated profile sample with build ID (RFD 072).
@@ -211,18 +212,19 @@ message ProfileMemoryAgentResponse {
   bool success = 6;                 // Whether profiling succeeded.
 }
 
-// QueryMemoryProfileSamplesRequest retrieves historical memory profile samples from agent's local storage (RFD 077).
+// QueryMemoryProfileSamplesRequest retrieves historical memory profile samples from agent's local storage.
 message QueryMemoryProfileSamplesRequest {
-  string service_name = 1;                    // Service name filter (optional).
-  string pod_name = 2;                        // Pod name filter (optional).
-  google.protobuf.Timestamp start_time = 3;   // Start of time range.
-  google.protobuf.Timestamp end_time = 4;     // End of time range.
+  // Service name filter (optional).
+  string service_name = 1;
 
-  // Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
-  uint64 start_seq_id = 5;
+  // Pod name filter (optional).
+  string pod_name = 2;
 
-  // Maximum number of records to return (RFD 089). Default: 5000.
-  int32 max_records = 6;
+  // Queries records with seq_id > start_seq_id. Use 0 for initial poll.
+  uint64 start_seq_id = 3;
+
+  // Maximum number of records to return. Default: 5000.
+  int32 max_records = 4;
 }
 
 // MemoryProfileSample represents a single aggregated memory profile sample (RFD 077).

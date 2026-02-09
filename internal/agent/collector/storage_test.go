@@ -42,7 +42,7 @@ func TestStorage_QueryMetrics_Attributes(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Query it back
-	results, err := storage.QueryMetrics(ctx, timestamp.Add(-1*time.Minute), timestamp.Add(1*time.Minute), nil)
+	results, _, err := storage.QueryMetricsBySeqID(ctx, 0, 10000, nil)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -183,39 +183,16 @@ func TestQueryMetrics_TimeRange(t *testing.T) {
 	err = storage.StoreMetrics(ctx, metrics)
 	require.NoError(t, err)
 
-	tests := []struct {
-		name      string
-		startTime time.Time
-		endTime   time.Time
-		wantCount int
-	}{
-		{
-			name:      "query all",
-			startTime: now.Add(-30 * time.Minute),
-			endTime:   now.Add(1 * time.Minute),
-			wantCount: 3,
-		},
-		{
-			name:      "query recent",
-			startTime: now.Add(-15 * time.Minute),
-			endTime:   now.Add(1 * time.Minute),
-			wantCount: 2,
-		},
-		{
-			name:      "query old only",
-			startTime: now.Add(-30 * time.Minute),
-			endTime:   now.Add(-15 * time.Minute),
-			wantCount: 1,
-		},
-	}
+	// Query all from beginning.
+	results, maxSeqID, err := storage.QueryMetricsBySeqID(ctx, 0, 10000, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 3, len(results))
+	assert.Greater(t, maxSeqID, uint64(0))
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results, err := storage.QueryMetrics(ctx, tt.startTime, tt.endTime, nil)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantCount, len(results))
-		})
-	}
+	// Query with startSeqID to get only newer records.
+	results2, _, err := storage.QueryMetricsBySeqID(ctx, results[0].SeqID, 10000, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(results2))
 }
 
 func TestQueryMetrics_FilterByName(t *testing.T) {
@@ -290,7 +267,7 @@ func TestQueryMetrics_FilterByName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results, err := storage.QueryMetrics(ctx, now.Add(-1*time.Minute), now.Add(1*time.Minute), tt.metricNames)
+			results, _, err := storage.QueryMetricsBySeqID(ctx, 0, 10000, tt.metricNames)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCount, len(results))
 		})
@@ -345,7 +322,7 @@ func TestCleanupOldMetrics(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query remaining metrics.
-	results, err := storage.QueryMetrics(ctx, now.Add(-3*time.Hour), now.Add(1*time.Minute), nil)
+	results, _, err := storage.QueryMetricsBySeqID(ctx, 0, 10000, nil)
 	require.NoError(t, err)
 
 	// Should only have the recent and medium.old metrics.

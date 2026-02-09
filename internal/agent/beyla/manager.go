@@ -312,42 +312,6 @@ func (m *Manager) SetSharedOTLPReceiver(receiver *telemetry.OTLPReceiver) {
 	m.logger.Info().Msg("Shared OTLP receiver configured for user application metrics")
 }
 
-// QueryHTTPMetrics queries Beyla HTTP metrics from local storage (RFD 032).
-// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
-func (m *Manager) QueryHTTPMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaHttpMetrics, error) {
-	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("beyla storage not initialized")
-	}
-	return m.beylaStorage.QueryHTTPMetrics(ctx, startTime, endTime, serviceNames)
-}
-
-// QueryGRPCMetrics queries Beyla gRPC metrics from local storage (RFD 032).
-// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
-func (m *Manager) QueryGRPCMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaGrpcMetrics, error) {
-	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("beyla storage not initialized")
-	}
-	return m.beylaStorage.QueryGRPCMetrics(ctx, startTime, endTime, serviceNames)
-}
-
-// QuerySQLMetrics queries Beyla SQL metrics from local storage (RFD 032).
-// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
-func (m *Manager) QuerySQLMetrics(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]*ebpfpb.BeylaSqlMetrics, error) {
-	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("beyla storage not initialized")
-	}
-	return m.beylaStorage.QuerySQLMetrics(ctx, startTime, endTime, serviceNames)
-}
-
-// QueryTraces queries Beyla trace spans from local storage (RFD 036).
-// This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
-func (m *Manager) QueryTraces(ctx context.Context, startTime, endTime time.Time, serviceNames []string, traceID string, maxSpans int32) ([]*ebpfpb.BeylaTraceSpan, error) {
-	if m.beylaStorage == nil {
-		return nil, fmt.Errorf("beyla storage not initialized")
-	}
-	return m.beylaStorage.QueryTraces(ctx, startTime, endTime, serviceNames, traceID, maxSpans)
-}
-
 // QueryTraceByID queries all spans for a specific trace ID (RFD 036).
 // This is called by the QueryBeylaMetrics RPC handler (colony → agent pull-based).
 func (m *Manager) QueryTraceByID(ctx context.Context, traceID string) ([]*ebpfpb.BeylaTraceSpan, error) {

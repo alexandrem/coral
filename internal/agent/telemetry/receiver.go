@@ -108,8 +108,7 @@ func (r *Receiver) ProcessSpan(ctx context.Context, span Span) error {
 	return nil
 }
 
-// QuerySpans queries filtered spans from local storage.
-// This is called by the QueryTelemetry RPC handler (colony → agent).
-func (r *Receiver) QuerySpans(ctx context.Context, startTime, endTime time.Time, serviceNames []string) ([]Span, error) {
-	return r.storage.QuerySpans(ctx, startTime, endTime, serviceNames)
+// QuerySpansBySeqID queries spans with seq_id > startSeqID from local storage.
+func (r *Receiver) QuerySpansBySeqID(ctx context.Context, startSeqID uint64, maxRecords int32, serviceNames []string) ([]Span, uint64, error) {
+	return r.storage.QuerySpansBySeqID(ctx, startSeqID, maxRecords, serviceNames)
 }

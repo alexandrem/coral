@@ -180,11 +180,11 @@ func TestTelemetryE2E(t *testing.T) {
 		"http://"+agentAddr,
 	)
 
-	// Query agent for telemetry
+	// Query agent for telemetry using sequence-based polling.
 	queryReq := connect.NewRequest(&agentv1.QueryTelemetryRequest{
-		StartTime:    now.Add(-5 * time.Minute).Unix(),
-		EndTime:      now.Add(1 * time.Minute).Unix(),
-		ServiceNames: nil, // Query all services
+		StartSeqId:   0,    // Query from beginning.
+		MaxRecords:   1000, // Fetch up to 1000 records.
+		ServiceNames: nil,  // Query all services.
 	})
 
 	queryResp, err := agentClient.QueryTelemetry(ctx, queryReq)
@@ -307,12 +307,8 @@ func (h *testAgentHandler) QueryTelemetry(
 	ctx context.Context,
 	req *connect.Request[agentv1.QueryTelemetryRequest],
 ) (*connect.Response[agentv1.QueryTelemetryResponse], error) {
-	// Convert Unix seconds to time.Time
-	startTime := time.Unix(req.Msg.StartTime, 0)
-	endTime := time.Unix(req.Msg.EndTime, 0)
-
-	// Query spans from storage
-	spans, err := h.receiver.QuerySpans(ctx, startTime, endTime, req.Msg.ServiceNames)
+	// Query spans from storage using sequence-based polling.
+	spans, maxSeqID, err := h.receiver.QuerySpansBySeqID(ctx, req.Msg.StartSeqId, req.Msg.MaxRecords, req.Msg.ServiceNames)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -338,6 +334,7 @@ func (h *testAgentHandler) QueryTelemetry(
 	return connect.NewResponse(&agentv1.QueryTelemetryResponse{
 		Spans:      pbSpans,
 		TotalSpans: int32(len(pbSpans)),
+		MaxSeqId:   maxSeqID,
 	}), nil
 }
 

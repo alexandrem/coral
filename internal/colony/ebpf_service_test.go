@@ -147,50 +147,50 @@ func TestQueryMetrics_TimeRangeValidation(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		startTime   int64
-		endTime     int64
+		startTime   time.Time
+		endTime     time.Time
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name:        "missing start time",
-			startTime:   0,
-			endTime:     time.Now().Unix(),
+			startTime:   time.Time{},
+			endTime:     time.Now(),
 			wantErr:     true,
 			errContains: "start_time and end_time are required",
 		},
 		{
 			name:        "missing end time",
-			startTime:   time.Now().Unix(),
-			endTime:     0,
+			startTime:   time.Now(),
+			endTime:     time.Time{},
 			wantErr:     true,
 			errContains: "start_time and end_time are required",
 		},
 		{
 			name:        "start after end",
-			startTime:   time.Now().Unix(),
-			endTime:     time.Now().Add(-1 * time.Hour).Unix(),
+			startTime:   time.Now(),
+			endTime:     time.Now().Add(-1 * time.Hour),
 			wantErr:     true,
 			errContains: "start_time must be before end_time",
 		},
 		{
 			name:        "end time in future",
-			startTime:   time.Now().Unix(),
-			endTime:     time.Now().Add(2 * time.Hour).Unix(),
+			startTime:   time.Now(),
+			endTime:     time.Now().Add(2 * time.Hour),
 			wantErr:     true,
 			errContains: "end_time cannot be more than 1 hour in the future",
 		},
 		{
 			name:        "start time too far in past",
-			startTime:   time.Now().Add(-31 * 24 * time.Hour).Unix(),
-			endTime:     time.Now().Unix(),
+			startTime:   time.Now().Add(-31 * 24 * time.Hour),
+			endTime:     time.Now(),
 			wantErr:     true,
 			errContains: "start_time cannot be more than 30 days in the past",
 		},
 		{
 			name:      "valid time range",
-			startTime: time.Now().Add(-1 * time.Hour).Unix(),
-			endTime:   time.Now().Unix(),
+			startTime: time.Now().Add(-1 * time.Hour),
+			endTime:   time.Now(),
 			wantErr:   false,
 		},
 	}
@@ -198,12 +198,10 @@ func TestQueryMetrics_TimeRangeValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &agentv1.QueryEbpfMetricsRequest{
-				StartTime:   tt.startTime,
-				EndTime:     tt.endTime,
 				MetricTypes: []agentv1.EbpfMetricType{agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP},
 			}
 
-			_, err := service.QueryMetrics(ctx, req)
+			_, err := service.QueryMetrics(ctx, tt.startTime, tt.endTime, req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -273,13 +271,11 @@ func TestQueryHTTPMetrics_Aggregation(t *testing.T) {
 	ctx := context.Background()
 
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:    startTime.Unix(),
-		EndTime:      endTime.Unix(),
 		ServiceNames: []string{"api-server"},
 		MetricTypes:  []agentv1.EbpfMetricType{agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP},
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -347,13 +343,11 @@ func TestQueryHTTPMetrics_EmptyServiceNames(t *testing.T) {
 
 	// Empty service names should query all services.
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:    startTime.Unix(),
-		EndTime:      endTime.Unix(),
 		ServiceNames: []string{}, // Empty
 		MetricTypes:  []agentv1.EbpfMetricType{agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP},
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Len(t, resp.HttpMetrics, 1)
@@ -393,13 +387,11 @@ func TestQueryGRPCMetrics_Aggregation(t *testing.T) {
 	ctx := context.Background()
 
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:    startTime.Unix(),
-		EndTime:      endTime.Unix(),
 		ServiceNames: []string{"payment-service"},
 		MetricTypes:  []agentv1.EbpfMetricType{agentv1.EbpfMetricType_EBPF_METRIC_TYPE_GRPC},
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -447,13 +439,11 @@ func TestQuerySQLMetrics_Aggregation(t *testing.T) {
 	ctx := context.Background()
 
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:    startTime.Unix(),
-		EndTime:      endTime.Unix(),
 		ServiceNames: []string{"api-server"},
 		MetricTypes:  []agentv1.EbpfMetricType{agentv1.EbpfMetricType_EBPF_METRIC_TYPE_SQL},
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -506,14 +496,12 @@ func TestQueryTraceSpans_TraceIDFilter(t *testing.T) {
 
 	// Query by trace ID.
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:     startTime.Unix(),
-		EndTime:       endTime.Unix(),
 		TraceId:       "abc123",
 		IncludeTraces: true,
 		MaxTraces:     100,
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -562,14 +550,12 @@ func TestQueryTraceSpans_ServiceFilter(t *testing.T) {
 
 	// Query by service name (no trace ID).
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:     startTime.Unix(),
-		EndTime:       endTime.Unix(),
 		ServiceNames:  []string{"specific-service"},
 		IncludeTraces: true,
 		MaxTraces:     100,
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -625,8 +611,6 @@ func TestQueryMetrics_MultipleMetricTypes(t *testing.T) {
 
 	// Query all metric types.
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:    startTime.Unix(),
-		EndTime:      endTime.Unix(),
 		ServiceNames: []string{"api"},
 		MetricTypes: []agentv1.EbpfMetricType{
 			agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP,
@@ -635,7 +619,7 @@ func TestQueryMetrics_MultipleMetricTypes(t *testing.T) {
 		},
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -664,13 +648,11 @@ func TestQueryMetrics_EmptyResults(t *testing.T) {
 	ctx := context.Background()
 
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:    startTime.Unix(),
-		EndTime:      endTime.Unix(),
 		ServiceNames: []string{"nonexistent"},
 		MetricTypes:  []agentv1.EbpfMetricType{agentv1.EbpfMetricType_EBPF_METRIC_TYPE_HTTP},
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -705,13 +687,11 @@ func TestQueryMetrics_MaxTracesDefault(t *testing.T) {
 
 	// Don't set MaxTraces - should default to 100.
 	req := &agentv1.QueryEbpfMetricsRequest{
-		StartTime:     startTime.Unix(),
-		EndTime:       endTime.Unix(),
 		IncludeTraces: true,
 		MaxTraces:     0, // Should use default
 	}
 
-	resp, err := service.QueryMetrics(ctx, req)
+	resp, err := service.QueryMetrics(ctx, startTime, endTime, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Len(t, resp.TraceSpans, 1)

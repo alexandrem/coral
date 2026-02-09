@@ -117,11 +117,8 @@ func TestPullBasedTelemetry_EndToEnd(t *testing.T) {
 	}
 
 	// === Simulate Colony Querying Agent ===
-	startTime := now.Add(-1 * time.Minute)
-	endTime := now.Add(1 * time.Minute)
-
-	// Query spans from agent (this simulates colony calling agent's QueryTelemetry RPC).
-	queriedSpans, err := agentStorage.QuerySpans(ctx, startTime, endTime, nil)
+	// Query spans from agent using sequence-based polling (simulates colony calling agent's QueryTelemetry RPC).
+	queriedSpans, _, err := agentStorage.QuerySpansBySeqID(ctx, 0, 10000, nil)
 	if err != nil {
 		t.Fatalf("Failed to query spans from agent: %v", err)
 	}
@@ -314,22 +311,24 @@ func TestPullBasedTelemetry_TimeRangeFiltering(t *testing.T) {
 		}
 	}
 
-	// Query only recent spans (last 1 minute).
-	startTime := now.Add(-1 * time.Minute)
-	endTime := now.Add(1 * time.Minute)
-
-	queriedSpans, err := agentStorage.QuerySpans(ctx, startTime, endTime, nil)
+	// Query all spans using sequence-based polling.
+	queriedSpans, maxSeqID, err := agentStorage.QuerySpansBySeqID(ctx, 0, 10000, nil)
 	if err != nil {
 		t.Fatalf("Failed to query spans: %v", err)
 	}
 
-	// Should only get the recent span.
-	if len(queriedSpans) != 1 {
-		t.Errorf("Expected 1 span in time range, got %d", len(queriedSpans))
+	// Should get both spans.
+	if len(queriedSpans) != 2 {
+		t.Errorf("Expected 2 spans, got %d", len(queriedSpans))
 	}
 
-	if len(queriedSpans) > 0 && queriedSpans[0].TraceID != "recent-trace" {
-		t.Errorf("Expected recent-trace, got %s", queriedSpans[0].TraceID)
+	// Query again from checkpoint — should get no new spans.
+	queriedSpans2, _, err := agentStorage.QuerySpansBySeqID(ctx, maxSeqID, 10000, nil)
+	if err != nil {
+		t.Fatalf("Failed to query spans from checkpoint: %v", err)
+	}
+	if len(queriedSpans2) != 0 {
+		t.Errorf("Expected 0 spans after checkpoint, got %d", len(queriedSpans2))
 	}
 }
 
@@ -385,12 +384,10 @@ func TestPullBasedTelemetry_ServiceFiltering(t *testing.T) {
 		}
 	}
 
-	// Query only checkout and payment services.
-	startTime := now.Add(-1 * time.Minute)
-	endTime := now.Add(1 * time.Minute)
+	// Query only checkout and payment services using sequence-based polling.
 	serviceNames := []string{"checkout", "payment"}
 
-	queriedSpans, err := agentStorage.QuerySpans(ctx, startTime, endTime, serviceNames)
+	queriedSpans, _, err := agentStorage.QuerySpansBySeqID(ctx, 0, 10000, serviceNames)
 	if err != nil {
 		t.Fatalf("Failed to query spans: %v", err)
 	}

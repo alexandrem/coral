@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -30,25 +29,12 @@ func (h *SystemMetricsHandler) SetSessionID(sessionID string) {
 }
 
 // QuerySystemMetrics implements the QuerySystemMetrics RPC.
-// Colony calls this to query system metrics from agent's local storage.
-// Supports both time-based (backward compat) and sequence-based querying (RFD 089).
+// Colony calls this to query system metrics from agent's local storage using sequence-based polling.
 func (h *SystemMetricsHandler) QuerySystemMetrics(
 	ctx context.Context,
 	req *connect.Request[agentv1.QuerySystemMetricsRequest],
 ) (*connect.Response[agentv1.QuerySystemMetricsResponse], error) {
-	var metrics []collector.Metric
-	var maxSeqID uint64
-	var err error
-
-	// Use sequence-based query if start_seq_id is provided (RFD 089).
-	if req.Msg.StartSeqId > 0 || req.Msg.MaxRecords > 0 {
-		metrics, maxSeqID, err = h.storage.QueryMetricsBySeqID(ctx, req.Msg.StartSeqId, req.Msg.MaxRecords, req.Msg.MetricNames)
-	} else {
-		// Fallback to time-based query for backward compatibility.
-		startTime := time.Unix(req.Msg.StartTime, 0)
-		endTime := time.Unix(req.Msg.EndTime, 0)
-		metrics, err = h.storage.QueryMetrics(ctx, startTime, endTime, req.Msg.MetricNames)
-	}
+	metrics, maxSeqID, err := h.storage.QueryMetricsBySeqID(ctx, req.Msg.StartSeqId, req.Msg.MaxRecords, req.Msg.MetricNames)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

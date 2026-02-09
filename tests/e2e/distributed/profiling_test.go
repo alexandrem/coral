@@ -528,7 +528,7 @@ func (s *ProfilingSuite) TestContinuousMemoryProfiling() {
 	// Query the agent's memory profile storage.
 	s.T().Log("Querying agent for continuous memory profile samples...")
 	agentDebugClient := helpers.NewAgentDebugClient(agentEndpoint)
-	queryResp, err := helpers.QueryMemoryProfileSamples(s.ctx, agentDebugClient, "memory-app", 30*time.Second)
+	queryResp, err := helpers.QueryMemoryProfileSamples(s.ctx, agentDebugClient, "memory-app")
 	s.Require().NoError(err, "QueryMemoryProfileSamples should succeed")
 
 	if queryResp.Error != "" {

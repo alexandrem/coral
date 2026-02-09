@@ -225,8 +225,7 @@ func (s *DebugService) ProfileCPU(
 	}, nil
 }
 
-// QueryCPUProfileSamples handles requests to query historical CPU profile samples (RFD 072).
-// Supports both time-based (backward compat) and sequence-based querying (RFD 089).
+// QueryCPUProfileSamples handles requests to query historical CPU profile samples using sequence-based polling.
 func (s *DebugService) QueryCPUProfileSamples(
 	ctx context.Context,
 	req *agentv1.QueryCPUProfileSamplesRequest,
@@ -254,19 +253,7 @@ func (s *DebugService) QueryCPUProfileSamples(
 		}, nil
 	}
 
-	var samples []profiler.ProfileSample
-	var maxSeqID uint64
-	var err error
-
-	// Use sequence-based query if start_seq_id is provided (RFD 089).
-	if req.StartSeqId > 0 || req.MaxRecords > 0 {
-		samples, maxSeqID, err = storage.QuerySamplesBySeqID(ctx, req.StartSeqId, req.MaxRecords, req.ServiceName)
-	} else {
-		// Fallback to time-based query for backward compatibility.
-		startTime := req.StartTime.AsTime()
-		endTime := req.EndTime.AsTime()
-		samples, err = storage.QuerySamples(ctx, startTime, endTime, req.ServiceName)
-	}
+	samples, maxSeqID, err := storage.QuerySamplesBySeqID(ctx, req.StartSeqId, req.MaxRecords, req.ServiceName)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query CPU profile samples")
 		return &agentv1.QueryCPUProfileSamplesResponse{
@@ -389,8 +376,7 @@ func (s *DebugService) ProfileMemory(
 	}, nil
 }
 
-// QueryMemoryProfileSamples handles requests to query historical memory profile samples (RFD 077).
-// Supports both time-based (backward compat) and sequence-based querying (RFD 089).
+// QueryMemoryProfileSamples handles requests to query historical memory profile samples using sequence-based polling.
 func (s *DebugService) QueryMemoryProfileSamples(
 	ctx context.Context,
 	req *agentv1.QueryMemoryProfileSamplesRequest,
@@ -417,19 +403,7 @@ func (s *DebugService) QueryMemoryProfileSamples(
 		}, nil
 	}
 
-	var samples []profiler.MemoryProfileSample
-	var maxSeqID uint64
-	var err error
-
-	// Use sequence-based query if start_seq_id is provided (RFD 089).
-	if req.StartSeqId > 0 || req.MaxRecords > 0 {
-		samples, maxSeqID, err = storage.QueryMemorySamplesBySeqID(ctx, req.StartSeqId, req.MaxRecords, req.ServiceName)
-	} else {
-		// Fallback to time-based query for backward compatibility.
-		startTime := req.StartTime.AsTime()
-		endTime := req.EndTime.AsTime()
-		samples, err = storage.QueryMemorySamples(ctx, startTime, endTime, req.ServiceName)
-	}
+	samples, maxSeqID, err := storage.QueryMemorySamplesBySeqID(ctx, req.StartSeqId, req.MaxRecords, req.ServiceName)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query memory profile samples")
 		return &agentv1.QueryMemoryProfileSamplesResponse{

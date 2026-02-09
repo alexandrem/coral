@@ -419,21 +419,14 @@ message TelemetrySpan {
 
 // QueryTelemetryRequest is sent from colony to agent to query recent telemetry.
 message QueryTelemetryRequest {
-  // Start time for query range (Unix seconds).
-  int64 start_time = 1;
-
-  // End time for query range (Unix seconds).
-  int64 end_time = 2;
-
   // Filter by service names (empty = all services).
-  repeated string service_names = 3;
+  repeated string service_names = 1;
 
-  // Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
-  // When 0 (default), falls back to time-based querying for backward compatibility.
-  uint64 start_seq_id = 4;
+  // Queries records with seq_id > start_seq_id. Use 0 for initial poll.
+  uint64 start_seq_id = 2;
 
-  // Maximum number of records to return (RFD 089). Default: 10000, max: 50000.
-  int32 max_records = 5;
+  // Maximum number of records to return. Default: 10000, max: 50000.
+  int32 max_records = 3;
 }
 
 // QueryTelemetryResponse contains filtered spans from agent's local storage.
@@ -455,36 +448,29 @@ message QueryTelemetryResponse {
 
 // QueryEbpfMetricsRequest is sent from colony to agent to query eBPF metrics.
 message QueryEbpfMetricsRequest {
-  // Start time for query range (Unix seconds).
-  int64 start_time = 1;
-
-  // End time for query range (Unix seconds).
-  int64 end_time = 2;
-
   // Filter by service names (empty = all services).
-  repeated string service_names = 3;
+  repeated string service_names = 1;
 
   // Metric types to query (empty = all types).
-  repeated EbpfMetricType metric_types = 4;
+  repeated EbpfMetricType metric_types = 2;
 
   // Filter by specific trace ID (RFD 036).
-  string trace_id = 5;
+  string trace_id = 3;
 
-  // Limit number of traces returned (default: 100, max: 1000) (RFD 036).
-  int32 max_traces = 6;
+  // Limit number of traces returned (default: 100, max: 1000).
+  int32 max_traces = 4;
 
-  // Include traces in response (default: false for backward compatibility) (RFD 036).
-  bool include_traces = 7;
+  // Include traces in response (default: false).
+  bool include_traces = 5;
 
-  // Sequence-based querying per metric type (RFD 089).
-  // When > 0, queries records with seq_id > start_seq_id for that type.
-  uint64 http_start_seq_id = 8;
-  uint64 grpc_start_seq_id = 9;
-  uint64 sql_start_seq_id = 10;
-  uint64 traces_start_seq_id = 11;
+  // Sequence-based querying per metric type. Queries records with seq_id > start_seq_id.
+  uint64 http_start_seq_id = 6;
+  uint64 grpc_start_seq_id = 7;
+  uint64 sql_start_seq_id = 8;
+  uint64 traces_start_seq_id = 9;
 
-  // Maximum number of records to return per metric type (RFD 089). Default: 10000.
-  int32 max_records = 12;
+  // Maximum number of records to return per metric type. Default: 10000.
+  int32 max_records = 10;
 }
 
 // EbpfMetricType specifies which eBPF metrics to query.
@@ -910,20 +896,14 @@ message SystemMetric {
 
 // QuerySystemMetricsRequest is sent from colony to agent to query recent system metrics.
 message QuerySystemMetricsRequest {
-  // Start time for query range (Unix seconds).
-  int64 start_time = 1;
-
-  // End time for query range (Unix seconds).
-  int64 end_time = 2;
-
   // Filter by metric names (empty = all metrics).
-  repeated string metric_names = 3;
+  repeated string metric_names = 1;
 
-  // Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
-  uint64 start_seq_id = 4;
+  // Queries records with seq_id > start_seq_id. Use 0 for initial poll.
+  uint64 start_seq_id = 2;
 
-  // Maximum number of records to return (RFD 089). Default: 10000, max: 50000.
-  int32 max_records = 5;
+  // Maximum number of records to return. Default: 10000, max: 50000.
+  int32 max_records = 3;
 }
 
 // QuerySystemMetricsResponse contains system metrics from agent's local storage.

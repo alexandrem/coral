@@ -119,110 +119,6 @@ func TestStorage_StoreSpan(t *testing.T) {
 	}
 }
 
-func TestStorage_QuerySpans(t *testing.T) {
-	storage, cleanup := setupTestTelemetryStorage(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	now := time.Now()
-
-	// Insert test data.
-	testSpans := []Span{
-		{
-			Timestamp:   now.Add(-10 * time.Minute),
-			TraceID:     "trace-1",
-			SpanID:      "span-1",
-			ServiceName: "service-a",
-			SpanKind:    "SERVER",
-			DurationMs:  100.0,
-			IsError:     false,
-			Attributes:  map[string]string{},
-		},
-		{
-			Timestamp:   now.Add(-5 * time.Minute),
-			TraceID:     "trace-2",
-			SpanID:      "span-2",
-			ServiceName: "service-a",
-			SpanKind:    "SERVER",
-			DurationMs:  200.0,
-			IsError:     true,
-			Attributes:  map[string]string{},
-		},
-		{
-			Timestamp:   now.Add(-5 * time.Minute),
-			TraceID:     "trace-3",
-			SpanID:      "span-3",
-			ServiceName: "service-b",
-			SpanKind:    "CLIENT",
-			DurationMs:  50.0,
-			IsError:     false,
-			Attributes:  map[string]string{},
-		},
-	}
-
-	for _, span := range testSpans {
-		if err := storage.StoreSpan(ctx, span); err != nil {
-			t.Fatalf("Failed to store test span: %v", err)
-		}
-	}
-
-	tests := []struct {
-		name         string
-		startTime    time.Time
-		endTime      time.Time
-		serviceNames []string
-		wantCount    int
-		wantErr      bool
-	}{
-		{
-			name:         "query all spans",
-			startTime:    now.Add(-15 * time.Minute),
-			endTime:      now,
-			serviceNames: nil,
-			wantCount:    3,
-			wantErr:      false,
-		},
-		{
-			name:         "query specific service",
-			startTime:    now.Add(-15 * time.Minute),
-			endTime:      now,
-			serviceNames: []string{"service-a"},
-			wantCount:    2,
-			wantErr:      false,
-		},
-		{
-			name:         "query with narrow time range",
-			startTime:    now.Add(-6 * time.Minute),
-			endTime:      now,
-			serviceNames: nil,
-			wantCount:    2,
-			wantErr:      false,
-		},
-		{
-			name:         "query non-existent service",
-			startTime:    now.Add(-15 * time.Minute),
-			endTime:      now,
-			serviceNames: []string{"non-existent"},
-			wantCount:    0,
-			wantErr:      false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results, err := storage.QuerySpans(ctx, tt.startTime, tt.endTime, tt.serviceNames)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("QuerySpans() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if len(results) != tt.wantCount {
-				t.Errorf("QuerySpans() returned %d spans, want %d", len(results), tt.wantCount)
-			}
-		})
-	}
-}
-
 func TestStorage_CleanupOldSpans(t *testing.T) {
 	storage, cleanup := setupTestTelemetryStorage(t)
 	defer cleanup()
@@ -274,10 +170,10 @@ func TestStorage_CleanupOldSpans(t *testing.T) {
 		return
 	}
 
-	// Query all remaining spans.
-	results, err := storage.QuerySpans(ctx, now.Add(-3*time.Hour), now.Add(1*time.Minute), nil)
+	// Query all remaining spans using seq_id-based query.
+	results, _, err := storage.QuerySpansBySeqID(ctx, 0, 10000, nil)
 	if err != nil {
-		t.Errorf("QuerySpans() after cleanup failed: %v", err)
+		t.Errorf("QuerySpansBySeqID() after cleanup failed: %v", err)
 		return
 	}
 

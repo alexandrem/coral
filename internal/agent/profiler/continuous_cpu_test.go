@@ -79,11 +79,8 @@ func TestContinuousProfilingEndToEnd(t *testing.T) {
 	storage := profiler.GetStorage().(*Storage)
 	ctx := context.Background()
 
-	// Query samples from the last 10 seconds.
-	endTime := time.Now()
-	startTime := endTime.Add(-10 * time.Second)
-
-	samples, err := storage.QuerySamples(ctx, startTime, endTime, "test-service")
+	// Query all samples using sequence-based polling.
+	samples, _, err := storage.QuerySamplesBySeqID(ctx, 0, 10000, "test-service")
 	require.NoError(t, err, "Failed to query samples")
 
 	// Verify we got samples.

@@ -3,11 +3,9 @@ package helpers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
@@ -117,18 +115,16 @@ func ProfileCPU(
 	return resp.Msg, nil
 }
 
-// QueryMemoryProfileSamples queries the agent's continuous memory profile storage (RFD 077).
+// QueryMemoryProfileSamples queries the agent's continuous memory profile storage.
 func QueryMemoryProfileSamples(
 	ctx context.Context,
 	client agentv1connect.AgentDebugServiceClient,
 	serviceName string,
-	since time.Duration,
 ) (*agentv1.QueryMemoryProfileSamplesResponse, error) {
-	now := time.Now()
 	req := connect.NewRequest(&agentv1.QueryMemoryProfileSamplesRequest{
 		ServiceName: serviceName,
-		StartTime:   timestamppb.New(now.Add(-since)),
-		EndTime:     timestamppb.New(now),
+		StartSeqId:  0,
+		MaxRecords:  5000,
 	})
 
 	resp, err := client.QueryMemoryProfileSamples(ctx, req)

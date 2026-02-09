@@ -940,17 +940,17 @@ func (x *ProfileCPUAgentResponse) GetSuccess() bool {
 	return false
 }
 
-// QueryCPUProfileSamplesRequest retrieves historical CPU profile samples from agent's local storage (RFD 072).
+// QueryCPUProfileSamplesRequest retrieves historical CPU profile samples from agent's local storage.
 type QueryCPUProfileSamplesRequest struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	ServiceName string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Service name filter (optional)
-	PodName     string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`             // Pod name filter (optional)
-	StartTime   *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`       // Start of time range
-	EndTime     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`             // End of time range
-	// Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
-	StartSeqId uint64 `protobuf:"varint,5,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
-	// Maximum number of records to return (RFD 089). Default: 5000.
-	MaxRecords    int32 `protobuf:"varint,6,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Service name filter (optional).
+	ServiceName string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	// Pod name filter (optional).
+	PodName string `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`
+	// Queries records with seq_id > start_seq_id. Use 0 for initial poll.
+	StartSeqId uint64 `protobuf:"varint,3,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
+	// Maximum number of records to return. Default: 5000.
+	MaxRecords    int32 `protobuf:"varint,4,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -997,20 +997,6 @@ func (x *QueryCPUProfileSamplesRequest) GetPodName() string {
 		return x.PodName
 	}
 	return ""
-}
-
-func (x *QueryCPUProfileSamplesRequest) GetStartTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.StartTime
-	}
-	return nil
-}
-
-func (x *QueryCPUProfileSamplesRequest) GetEndTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.EndTime
-	}
-	return nil
 }
 
 func (x *QueryCPUProfileSamplesRequest) GetStartSeqId() uint64 {
@@ -1638,17 +1624,17 @@ func (x *ProfileMemoryAgentResponse) GetSuccess() bool {
 	return false
 }
 
-// QueryMemoryProfileSamplesRequest retrieves historical memory profile samples from agent's local storage (RFD 077).
+// QueryMemoryProfileSamplesRequest retrieves historical memory profile samples from agent's local storage.
 type QueryMemoryProfileSamplesRequest struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	ServiceName string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Service name filter (optional).
-	PodName     string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`             // Pod name filter (optional).
-	StartTime   *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`       // Start of time range.
-	EndTime     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`             // End of time range.
-	// Sequence-based querying (RFD 089). When > 0, queries records with seq_id > start_seq_id.
-	StartSeqId uint64 `protobuf:"varint,5,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
-	// Maximum number of records to return (RFD 089). Default: 5000.
-	MaxRecords    int32 `protobuf:"varint,6,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Service name filter (optional).
+	ServiceName string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	// Pod name filter (optional).
+	PodName string `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`
+	// Queries records with seq_id > start_seq_id. Use 0 for initial poll.
+	StartSeqId uint64 `protobuf:"varint,3,opt,name=start_seq_id,json=startSeqId,proto3" json:"start_seq_id,omitempty"`
+	// Maximum number of records to return. Default: 5000.
+	MaxRecords    int32 `protobuf:"varint,4,opt,name=max_records,json=maxRecords,proto3" json:"max_records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1695,20 +1681,6 @@ func (x *QueryMemoryProfileSamplesRequest) GetPodName() string {
 		return x.PodName
 	}
 	return ""
-}
-
-func (x *QueryMemoryProfileSamplesRequest) GetStartTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.StartTime
-	}
-	return nil
-}
-
-func (x *QueryMemoryProfileSamplesRequest) GetEndTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.EndTime
-	}
-	return nil
 }
 
 func (x *QueryMemoryProfileSamplesRequest) GetStartSeqId() uint64 {
@@ -1981,16 +1953,13 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\rtotal_samples\x18\x02 \x01(\x04R\ftotalSamples\x12!\n" +
 	"\flost_samples\x18\x03 \x01(\rR\vlostSamples\x12\x14\n" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x12\x18\n" +
-	"\asuccess\x18\x05 \x01(\bR\asuccess\"\x92\x02\n" +
+	"\asuccess\x18\x05 \x01(\bR\asuccess\"\xa0\x01\n" +
 	"\x1dQueryCPUProfileSamplesRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x19\n" +
-	"\bpod_name\x18\x02 \x01(\tR\apodName\x129\n" +
-	"\n" +
-	"start_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
-	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\x12 \n" +
-	"\fstart_seq_id\x18\x05 \x01(\x04R\n" +
+	"\bpod_name\x18\x02 \x01(\tR\apodName\x12 \n" +
+	"\fstart_seq_id\x18\x03 \x01(\x04R\n" +
 	"startSeqId\x12\x1f\n" +
-	"\vmax_records\x18\x06 \x01(\x05R\n" +
+	"\vmax_records\x18\x04 \x01(\x05R\n" +
 	"maxRecords\"\xe7\x01\n" +
 	"\x10CPUProfileSample\x128\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x19\n" +
@@ -2043,16 +2012,13 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\rtop_functions\x18\x03 \x03(\v2 .coral.agent.v1.TopAllocFunctionR\ftopFunctions\x129\n" +
 	"\ttop_types\x18\x04 \x03(\v2\x1c.coral.agent.v1.TopAllocTypeR\btopTypes\x12\x14\n" +
 	"\x05error\x18\x05 \x01(\tR\x05error\x12\x18\n" +
-	"\asuccess\x18\x06 \x01(\bR\asuccess\"\x95\x02\n" +
+	"\asuccess\x18\x06 \x01(\bR\asuccess\"\xa3\x01\n" +
 	" QueryMemoryProfileSamplesRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x19\n" +
-	"\bpod_name\x18\x02 \x01(\tR\apodName\x129\n" +
-	"\n" +
-	"start_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
-	"\bend_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\x12 \n" +
-	"\fstart_seq_id\x18\x05 \x01(\x04R\n" +
+	"\bpod_name\x18\x02 \x01(\tR\apodName\x12 \n" +
+	"\fstart_seq_id\x18\x03 \x01(\x04R\n" +
 	"startSeqId\x12\x1f\n" +
-	"\vmax_records\x18\x06 \x01(\x05R\n" +
+	"\vmax_records\x18\x04 \x01(\x05R\n" +
 	"maxRecords\"\x8d\x02\n" +
 	"\x13MemoryProfileSample\x128\n" +
 	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x19\n" +
@@ -2138,37 +2104,33 @@ var file_coral_agent_v1_debug_proto_depIdxs = []int32{
 	25, // 8: coral.agent.v1.UprobeEvent.labels:type_name -> coral.agent.v1.UprobeEvent.LabelsEntry
 	8,  // 9: coral.agent.v1.QueryUprobeEventsResponse.events:type_name -> coral.agent.v1.UprobeEvent
 	11, // 10: coral.agent.v1.ProfileCPUAgentResponse.samples:type_name -> coral.agent.v1.StackSample
-	27, // 11: coral.agent.v1.QueryCPUProfileSamplesRequest.start_time:type_name -> google.protobuf.Timestamp
-	27, // 12: coral.agent.v1.QueryCPUProfileSamplesRequest.end_time:type_name -> google.protobuf.Timestamp
-	27, // 13: coral.agent.v1.CPUProfileSample.timestamp:type_name -> google.protobuf.Timestamp
-	14, // 14: coral.agent.v1.QueryCPUProfileSamplesResponse.samples:type_name -> coral.agent.v1.CPUProfileSample
-	18, // 15: coral.agent.v1.ProfileMemoryAgentResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
-	17, // 16: coral.agent.v1.ProfileMemoryAgentResponse.stats:type_name -> coral.agent.v1.MemoryStats
-	19, // 17: coral.agent.v1.ProfileMemoryAgentResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
-	20, // 18: coral.agent.v1.ProfileMemoryAgentResponse.top_types:type_name -> coral.agent.v1.TopAllocType
-	27, // 19: coral.agent.v1.QueryMemoryProfileSamplesRequest.start_time:type_name -> google.protobuf.Timestamp
-	27, // 20: coral.agent.v1.QueryMemoryProfileSamplesRequest.end_time:type_name -> google.protobuf.Timestamp
-	27, // 21: coral.agent.v1.MemoryProfileSample.timestamp:type_name -> google.protobuf.Timestamp
-	23, // 22: coral.agent.v1.QueryMemoryProfileSamplesResponse.samples:type_name -> coral.agent.v1.MemoryProfileSample
-	0,  // 23: coral.agent.v1.AgentDebugService.StartUprobeCollector:input_type -> coral.agent.v1.StartUprobeCollectorRequest
-	3,  // 24: coral.agent.v1.AgentDebugService.StopUprobeCollector:input_type -> coral.agent.v1.StopUprobeCollectorRequest
-	5,  // 25: coral.agent.v1.AgentDebugService.QueryUprobeEvents:input_type -> coral.agent.v1.QueryUprobeEventsRequest
-	10, // 26: coral.agent.v1.AgentDebugService.ProfileCPU:input_type -> coral.agent.v1.ProfileCPUAgentRequest
-	13, // 27: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:input_type -> coral.agent.v1.QueryCPUProfileSamplesRequest
-	16, // 28: coral.agent.v1.AgentDebugService.ProfileMemory:input_type -> coral.agent.v1.ProfileMemoryAgentRequest
-	22, // 29: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:input_type -> coral.agent.v1.QueryMemoryProfileSamplesRequest
-	2,  // 30: coral.agent.v1.AgentDebugService.StartUprobeCollector:output_type -> coral.agent.v1.StartUprobeCollectorResponse
-	4,  // 31: coral.agent.v1.AgentDebugService.StopUprobeCollector:output_type -> coral.agent.v1.StopUprobeCollectorResponse
-	9,  // 32: coral.agent.v1.AgentDebugService.QueryUprobeEvents:output_type -> coral.agent.v1.QueryUprobeEventsResponse
-	12, // 33: coral.agent.v1.AgentDebugService.ProfileCPU:output_type -> coral.agent.v1.ProfileCPUAgentResponse
-	15, // 34: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:output_type -> coral.agent.v1.QueryCPUProfileSamplesResponse
-	21, // 35: coral.agent.v1.AgentDebugService.ProfileMemory:output_type -> coral.agent.v1.ProfileMemoryAgentResponse
-	24, // 36: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:output_type -> coral.agent.v1.QueryMemoryProfileSamplesResponse
-	30, // [30:37] is the sub-list for method output_type
-	23, // [23:30] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	27, // 11: coral.agent.v1.CPUProfileSample.timestamp:type_name -> google.protobuf.Timestamp
+	14, // 12: coral.agent.v1.QueryCPUProfileSamplesResponse.samples:type_name -> coral.agent.v1.CPUProfileSample
+	18, // 13: coral.agent.v1.ProfileMemoryAgentResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
+	17, // 14: coral.agent.v1.ProfileMemoryAgentResponse.stats:type_name -> coral.agent.v1.MemoryStats
+	19, // 15: coral.agent.v1.ProfileMemoryAgentResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
+	20, // 16: coral.agent.v1.ProfileMemoryAgentResponse.top_types:type_name -> coral.agent.v1.TopAllocType
+	27, // 17: coral.agent.v1.MemoryProfileSample.timestamp:type_name -> google.protobuf.Timestamp
+	23, // 18: coral.agent.v1.QueryMemoryProfileSamplesResponse.samples:type_name -> coral.agent.v1.MemoryProfileSample
+	0,  // 19: coral.agent.v1.AgentDebugService.StartUprobeCollector:input_type -> coral.agent.v1.StartUprobeCollectorRequest
+	3,  // 20: coral.agent.v1.AgentDebugService.StopUprobeCollector:input_type -> coral.agent.v1.StopUprobeCollectorRequest
+	5,  // 21: coral.agent.v1.AgentDebugService.QueryUprobeEvents:input_type -> coral.agent.v1.QueryUprobeEventsRequest
+	10, // 22: coral.agent.v1.AgentDebugService.ProfileCPU:input_type -> coral.agent.v1.ProfileCPUAgentRequest
+	13, // 23: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:input_type -> coral.agent.v1.QueryCPUProfileSamplesRequest
+	16, // 24: coral.agent.v1.AgentDebugService.ProfileMemory:input_type -> coral.agent.v1.ProfileMemoryAgentRequest
+	22, // 25: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:input_type -> coral.agent.v1.QueryMemoryProfileSamplesRequest
+	2,  // 26: coral.agent.v1.AgentDebugService.StartUprobeCollector:output_type -> coral.agent.v1.StartUprobeCollectorResponse
+	4,  // 27: coral.agent.v1.AgentDebugService.StopUprobeCollector:output_type -> coral.agent.v1.StopUprobeCollectorResponse
+	9,  // 28: coral.agent.v1.AgentDebugService.QueryUprobeEvents:output_type -> coral.agent.v1.QueryUprobeEventsResponse
+	12, // 29: coral.agent.v1.AgentDebugService.ProfileCPU:output_type -> coral.agent.v1.ProfileCPUAgentResponse
+	15, // 30: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:output_type -> coral.agent.v1.QueryCPUProfileSamplesResponse
+	21, // 31: coral.agent.v1.AgentDebugService.ProfileMemory:output_type -> coral.agent.v1.ProfileMemoryAgentResponse
+	24, // 32: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:output_type -> coral.agent.v1.QueryMemoryProfileSamplesResponse
+	26, // [26:33] is the sub-list for method output_type
+	19, // [19:26] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_debug_proto_init() }
