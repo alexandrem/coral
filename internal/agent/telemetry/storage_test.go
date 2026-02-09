@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -319,6 +320,119 @@ func TestStorage_GetSpanCount(t *testing.T) {
 
 	if count != 5 {
 		t.Errorf("GetSpanCount() = %d, want 5", count)
+	}
+}
+
+func TestStorage_QuerySpansBySeqID(t *testing.T) {
+	storage, cleanup := setupTestTelemetryStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert 5 spans.
+	for i := 0; i < 5; i++ {
+		span := Span{
+			Timestamp:   now.Add(-time.Duration(5-i) * time.Minute),
+			TraceID:     fmt.Sprintf("trace-%d", i),
+			SpanID:      fmt.Sprintf("span-%d", i),
+			ServiceName: "test-service",
+			SpanKind:    "SERVER",
+			DurationMs:  100.0,
+			Attributes:  map[string]string{},
+		}
+		if err := storage.StoreSpan(ctx, span); err != nil {
+			t.Fatalf("Failed to store span: %v", err)
+		}
+	}
+
+	// Query all spans (seq_id > 0).
+	spans, maxSeqID, err := storage.QuerySpansBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QuerySpansBySeqID() error: %v", err)
+	}
+	if len(spans) != 5 {
+		t.Errorf("Expected 5 spans, got %d", len(spans))
+	}
+	if maxSeqID == 0 {
+		t.Error("Expected maxSeqID > 0")
+	}
+
+	// Query with seq_id > maxSeqID should return nothing.
+	spans2, maxSeqID2, err := storage.QuerySpansBySeqID(ctx, maxSeqID, 100, nil)
+	if err != nil {
+		t.Fatalf("QuerySpansBySeqID() error: %v", err)
+	}
+	if len(spans2) != 0 {
+		t.Errorf("Expected 0 spans after last seq_id, got %d", len(spans2))
+	}
+	if maxSeqID2 != 0 {
+		t.Errorf("Expected maxSeqID 0 for empty result, got %d", maxSeqID2)
+	}
+
+	// Insert 2 more spans and query from the previous max.
+	for i := 5; i < 7; i++ {
+		span := Span{
+			Timestamp:   now,
+			TraceID:     fmt.Sprintf("trace-%d", i),
+			SpanID:      fmt.Sprintf("span-%d", i),
+			ServiceName: "test-service",
+			SpanKind:    "SERVER",
+			DurationMs:  50.0,
+			Attributes:  map[string]string{},
+		}
+		if err := storage.StoreSpan(ctx, span); err != nil {
+			t.Fatalf("Failed to store span: %v", err)
+		}
+	}
+
+	spans3, maxSeqID3, err := storage.QuerySpansBySeqID(ctx, maxSeqID, 100, nil)
+	if err != nil {
+		t.Fatalf("QuerySpansBySeqID() error: %v", err)
+	}
+	if len(spans3) != 2 {
+		t.Errorf("Expected 2 new spans, got %d", len(spans3))
+	}
+	if maxSeqID3 <= maxSeqID {
+		t.Errorf("Expected maxSeqID3 > %d, got %d", maxSeqID, maxSeqID3)
+	}
+}
+
+func TestStorage_SeqIDMonotonicallyIncreasing(t *testing.T) {
+	storage, cleanup := setupTestTelemetryStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert 10 spans.
+	for i := 0; i < 10; i++ {
+		span := Span{
+			Timestamp:   now.Add(-time.Duration(10-i) * time.Minute),
+			TraceID:     fmt.Sprintf("trace-%d", i),
+			SpanID:      fmt.Sprintf("span-%d", i),
+			ServiceName: "test-service",
+			SpanKind:    "SERVER",
+			DurationMs:  100.0,
+			Attributes:  map[string]string{},
+		}
+		if err := storage.StoreSpan(ctx, span); err != nil {
+			t.Fatalf("Failed to store span: %v", err)
+		}
+	}
+
+	// Query all and verify seq_ids are monotonically increasing.
+	spans, _, err := storage.QuerySpansBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QuerySpansBySeqID() error: %v", err)
+	}
+
+	var prevSeqID uint64
+	for _, span := range spans {
+		if span.SeqID <= prevSeqID {
+			t.Errorf("SeqID %d is not greater than previous %d", span.SeqID, prevSeqID)
+		}
+		prevSeqID = span.SeqID
 	}
 }
 

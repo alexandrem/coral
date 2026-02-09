@@ -354,6 +354,116 @@ func TestQueryTraceByID(t *testing.T) {
 	}
 }
 
+func TestQueryHTTPMetricsBySeqID(t *testing.T) {
+	storage, cleanup := setupTestStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert HTTP metrics via EbpfEvents.
+	for i := 0; i < 5; i++ {
+		event := &ebpfpb.EbpfEvent{
+			Timestamp:   timestamppb.New(now.Add(-time.Duration(5-i) * time.Minute)),
+			CollectorId: "test-collector",
+			AgentId:     "test-agent",
+			ServiceName: "api-service",
+			Payload: &ebpfpb.EbpfEvent_BeylaHttp{
+				BeylaHttp: &ebpfpb.BeylaHttpMetrics{
+					Timestamp:      timestamppb.New(now.Add(-time.Duration(5-i) * time.Minute)),
+					ServiceName:    "api-service",
+					HttpMethod:     "GET",
+					HttpRoute:      "/api/v1/users",
+					HttpStatusCode: 200,
+					LatencyBuckets: []float64{10.0},
+					LatencyCounts:  []uint64{1},
+					Attributes:     map[string]string{},
+				},
+			},
+		}
+		if err := storage.StoreHTTPMetric(ctx, event); err != nil {
+			t.Fatalf("StoreHTTPMetric() error: %v", err)
+		}
+	}
+
+	// Query all (seq_id > 0).
+	metrics, maxSeqID, err := storage.QueryHTTPMetricsBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryHTTPMetricsBySeqID() error: %v", err)
+	}
+	if len(metrics) != 5 {
+		t.Errorf("Expected 5 metrics, got %d", len(metrics))
+	}
+	if maxSeqID == 0 {
+		t.Error("Expected maxSeqID > 0")
+	}
+
+	// Query after max should return empty.
+	metrics2, _, err := storage.QueryHTTPMetricsBySeqID(ctx, maxSeqID, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryHTTPMetricsBySeqID() error: %v", err)
+	}
+	if len(metrics2) != 0 {
+		t.Errorf("Expected 0 metrics after max seq_id, got %d", len(metrics2))
+	}
+}
+
+func TestQueryTracesBySeqID(t *testing.T) {
+	storage, cleanup := setupTestStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert 3 trace spans.
+	for i := 0; i < 3; i++ {
+		event := &ebpfpb.EbpfEvent{
+			Timestamp:   timestamppb.New(now.Add(-time.Duration(3-i) * time.Minute)),
+			CollectorId: "test-collector",
+			AgentId:     "test-agent",
+			ServiceName: "api-service",
+			Payload: &ebpfpb.EbpfEvent_BeylaTrace{
+				BeylaTrace: &ebpfpb.BeylaTraceSpan{
+					TraceId:      "traceabc000000000000000000000001",
+					SpanId:       "span0000000000" + string(rune('1'+i)),
+					ParentSpanId: "",
+					ServiceName:  "api-service",
+					SpanName:     "GET /test",
+					SpanKind:     "server",
+					StartTime:    timestamppb.New(now.Add(-time.Duration(3-i) * time.Minute)),
+					Duration:     durationpb.New(100 * time.Millisecond),
+					StatusCode:   200,
+					Attributes:   map[string]string{},
+				},
+			},
+		}
+		if err := storage.StoreTrace(ctx, event); err != nil {
+			t.Fatalf("StoreTrace() error: %v", err)
+		}
+	}
+
+	// Query all (seq_id > 0).
+	spans, maxSeqID, err := storage.QueryTracesBySeqID(ctx, 0, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryTracesBySeqID() error: %v", err)
+	}
+	if len(spans) != 3 {
+		t.Errorf("Expected 3 spans, got %d", len(spans))
+	}
+	if maxSeqID == 0 {
+		t.Error("Expected maxSeqID > 0")
+	}
+
+	// Query after max should return empty.
+	spans2, _, err := storage.QueryTracesBySeqID(ctx, maxSeqID, 100, nil)
+	if err != nil {
+		t.Fatalf("QueryTracesBySeqID() error: %v", err)
+	}
+	if len(spans2) != 0 {
+		t.Errorf("Expected 0 spans after max seq_id, got %d", len(spans2))
+	}
+}
+
 func TestTraceCleanup(t *testing.T) {
 	storage, cleanup := setupTestStorage(t)
 	defer cleanup()

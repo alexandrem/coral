@@ -63,8 +63,8 @@ func (d *Database) UpdatePollingCheckpoint(ctx context.Context, agentID, dataTyp
 		DO UPDATE SET
 			session_id = EXCLUDED.session_id,
 			last_seq_id = EXCLUDED.last_seq_id,
-			last_poll_time = CURRENT_TIMESTAMP,
-			updated_at = CURRENT_TIMESTAMP
+			last_poll_time = now(),
+			updated_at = now()
 	`, agentID, dataType, sessionID, lastSeqID)
 
 	if err != nil {
@@ -83,8 +83,8 @@ func (d *Database) UpdatePollingCheckpointTx(ctx context.Context, tx *sql.Tx, ag
 		DO UPDATE SET
 			session_id = EXCLUDED.session_id,
 			last_seq_id = EXCLUDED.last_seq_id,
-			last_poll_time = CURRENT_TIMESTAMP,
-			updated_at = CURRENT_TIMESTAMP
+			last_poll_time = now(),
+			updated_at = now()
 	`, agentID, dataType, sessionID, lastSeqID)
 
 	if err != nil {
@@ -173,8 +173,8 @@ func (d *Database) MarkGapRecovered(ctx context.Context, gapID int) error {
 	_, err := d.db.ExecContext(ctx, `
 		UPDATE sequence_gaps
 		SET status = 'recovered',
-		    recovered_at = CURRENT_TIMESTAMP,
-		    last_recovery_attempt = CURRENT_TIMESTAMP
+		    recovered_at = now(),
+		    last_recovery_attempt = now()
 		WHERE id = ?
 	`, gapID)
 	if err != nil {
@@ -188,7 +188,7 @@ func (d *Database) MarkGapPermanent(ctx context.Context, gapID int) error {
 	_, err := d.db.ExecContext(ctx, `
 		UPDATE sequence_gaps
 		SET status = 'permanent',
-		    last_recovery_attempt = CURRENT_TIMESTAMP
+		    last_recovery_attempt = now()
 		WHERE id = ?
 	`, gapID)
 	if err != nil {
@@ -203,7 +203,7 @@ func (d *Database) IncrementGapRecoveryAttempt(ctx context.Context, gapID int) e
 		UPDATE sequence_gaps
 		SET recovery_attempts = recovery_attempts + 1,
 		    status = 'recovering',
-		    last_recovery_attempt = CURRENT_TIMESTAMP
+		    last_recovery_attempt = now()
 		WHERE id = ?
 	`, gapID)
 	if err != nil {

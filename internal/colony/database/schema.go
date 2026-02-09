@@ -421,12 +421,11 @@ var schemaDDL = []string{
 	)`,
 
 	`CREATE INDEX IF NOT EXISTS idx_polling_checkpoints_agent ON polling_checkpoints(agent_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_polling_checkpoints_updated ON polling_checkpoints(updated_at DESC)`,
 
 	// Sequence gaps - tracks detected gaps in polling sequences for recovery (RFD 089).
 	`CREATE SEQUENCE IF NOT EXISTS seq_sequence_gaps_id START 1`,
 	`CREATE TABLE IF NOT EXISTS sequence_gaps (
-		id INTEGER PRIMARY KEY DEFAULT nextval('seq_sequence_gaps_id'),
+		id INTEGER DEFAULT nextval('seq_sequence_gaps_id'),
 		agent_id TEXT NOT NULL,
 		data_type TEXT NOT NULL,
 		start_seq_id UBIGINT NOT NULL,

@@ -286,8 +286,6 @@ Colony Side:
 - [ ] Add integration tests for E2E polling with checkpoints
 - [ ] Add chaos tests (agent restart, colony restart, network partition)
 - [ ] Add load tests (100 agents, high-frequency data)
-- [ ] Deploy with feature flag for gradual rollout (10% → 50% → 100%)
-- [ ] Monitor for 2 weeks with both systems running
 - [ ] Deprecate time-based queries
 
 ## API Changes

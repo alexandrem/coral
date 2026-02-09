@@ -388,10 +388,10 @@ func aggregateSystemMetricsForRecovery(agentID string, metrics []*agentv1.System
 	grouped := make(map[metricKey]*metricGroup)
 
 	// Use earliest metric timestamp as bucket time.
-	var earliestTs int64 = math.MaxInt64
+	var earliestTS int64 = math.MaxInt64
 	for _, m := range metrics {
-		if m.Timestamp < earliestTs {
-			earliestTs = m.Timestamp
+		if m.Timestamp < earliestTS {
+			earliestTS = m.Timestamp
 		}
 
 		key := metricKey{name: m.Name, attributes: m.Attributes}
@@ -405,7 +405,7 @@ func aggregateSystemMetricsForRecovery(agentID string, metrics []*agentv1.System
 		grouped[key].values = append(grouped[key].values, m.Value)
 	}
 
-	bucketTime := time.UnixMilli(earliestTs).Truncate(time.Minute)
+	bucketTime := time.UnixMilli(earliestTS).Truncate(time.Minute)
 	summaries := make([]database.SystemMetricsSummary, 0, len(grouped))
 
 	for key, group := range grouped {

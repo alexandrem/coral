@@ -352,6 +352,103 @@ func TestCleanupOldMetrics(t *testing.T) {
 	assert.LessOrEqual(t, len(results), 2, "Cleanup should remove old metrics")
 }
 
+func TestQueryMetricsBySeqID(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert 5 metrics.
+	metrics := make([]Metric, 5)
+	for i := range metrics {
+		metrics[i] = Metric{
+			Timestamp:  now.Add(-time.Duration(5-i) * time.Minute),
+			Name:       "cpu.usage",
+			Value:      float64(i * 10),
+			Unit:       "percent",
+			MetricType: "gauge",
+			Attributes: map[string]string{},
+		}
+	}
+	require.NoError(t, storage.StoreMetrics(ctx, metrics))
+
+	// Query all (seq_id > 0).
+	results, maxSeqID, err := storage.QueryMetricsBySeqID(ctx, 0, 100, nil)
+	require.NoError(t, err)
+	assert.Len(t, results, 5)
+	assert.Greater(t, maxSeqID, uint64(0))
+
+	// Query from max should return empty.
+	results2, maxSeqID2, err := storage.QueryMetricsBySeqID(ctx, maxSeqID, 100, nil)
+	require.NoError(t, err)
+	assert.Len(t, results2, 0)
+	assert.Equal(t, uint64(0), maxSeqID2)
+
+	// Insert 3 more and query from previous max.
+	more := make([]Metric, 3)
+	for i := range more {
+		more[i] = Metric{
+			Timestamp:  now,
+			Name:       "mem.usage",
+			Value:      float64(i * 100),
+			Unit:       "bytes",
+			MetricType: "gauge",
+			Attributes: map[string]string{},
+		}
+	}
+	require.NoError(t, storage.StoreMetrics(ctx, more))
+
+	results3, maxSeqID3, err := storage.QueryMetricsBySeqID(ctx, maxSeqID, 100, nil)
+	require.NoError(t, err)
+	assert.Len(t, results3, 3)
+	assert.Greater(t, maxSeqID3, maxSeqID)
+}
+
+func TestSeqID_MetricsMonotonicallyIncreasing(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zerolog.Nop()
+	storage, err := NewStorage(db, logger)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert metrics in multiple batches.
+	for batch := 0; batch < 3; batch++ {
+		metrics := make([]Metric, 5)
+		for i := range metrics {
+			metrics[i] = Metric{
+				Timestamp:  now.Add(-time.Duration(batch*5+i) * time.Second),
+				Name:       "cpu.usage",
+				Value:      float64(batch*5 + i),
+				Unit:       "percent",
+				MetricType: "gauge",
+				Attributes: map[string]string{},
+			}
+		}
+		require.NoError(t, storage.StoreMetrics(ctx, metrics))
+	}
+
+	results, _, err := storage.QueryMetricsBySeqID(ctx, 0, 100, nil)
+	require.NoError(t, err)
+	assert.Len(t, results, 15)
+
+	var prevSeqID uint64
+	for _, m := range results {
+		assert.Greater(t, m.SeqID, prevSeqID, "seq_ids must be monotonically increasing")
+		prevSeqID = m.SeqID
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	config := DefaultConfig()
 
