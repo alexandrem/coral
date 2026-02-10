@@ -92,6 +92,8 @@ func getDefaultAPIKey(provider string) string {
 		return os.Getenv("ANTHROPIC_API_KEY")
 	case "google":
 		return os.Getenv("GOOGLE_API_KEY")
+	case "coral":
+		return os.Getenv("CORAL_AI_TOKEN")
 	default:
 		return ""
 	}
@@ -103,10 +105,12 @@ func ValidateAskConfig(cfg *AskConfig) error {
 		return fmt.Errorf("default_model is required")
 	}
 
-	// Validate model format (provider:model-id).
-	parts := strings.SplitN(cfg.DefaultModel, ":", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid model format %q, expected provider:model-id (e.g., openai:gpt-4o-mini)", cfg.DefaultModel)
+	// Validate model format (provider:model-id, or bare "coral").
+	if cfg.DefaultModel != "coral" {
+		parts := strings.SplitN(cfg.DefaultModel, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid model format %q, expected provider:model-id (e.g., google:gemini-2.0-flash) or \"coral\"", cfg.DefaultModel)
+		}
 	}
 
 	// Validate conversation settings.

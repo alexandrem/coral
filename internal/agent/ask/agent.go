@@ -59,14 +59,18 @@ func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bo
 		fmt.Fprintf(os.Stderr, "[DEBUG] Model configuration: %s\n", askCfg.DefaultModel)
 	}
 
-	// Parse model string (format: "provider:model-id").
-	parts := strings.SplitN(askCfg.DefaultModel, ":", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid model format %q, expected provider:model-id", askCfg.DefaultModel)
+	// Parse model string (format: "provider:model-id" or bare "coral").
+	var providerName, modelID string
+	if askCfg.DefaultModel == "coral" {
+		providerName = "coral"
+	} else {
+		parts := strings.SplitN(askCfg.DefaultModel, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid model format %q, expected provider:model-id (or bare \"coral\")", askCfg.DefaultModel)
+		}
+		providerName = parts[0]
+		modelID = parts[1]
 	}
-
-	providerName := parts[0]
-	modelID := parts[1]
 
 	// Initialize the LLM provider.
 	provider, err := createProvider(ctx, providerName, modelID, askCfg, debug)
@@ -136,13 +140,28 @@ func createProvider(ctx context.Context, providerName string, modelID string, cf
 		// For mock provider, the modelID is the path to the replay script
 		return llm.NewMockProvider(ctx, modelID)
 
+	case "coral":
+		endpoint := cfg.APIKeys["coral_endpoint"]
+		if endpoint == "" {
+			endpoint = os.Getenv("CORAL_AI_ENDPOINT")
+		}
+		if endpoint == "" {
+			return nil, fmt.Errorf("Coral AI endpoint not configured (set coral_endpoint in api_keys or CORAL_AI_ENDPOINT)") //nolint:staticcheck
+		}
+		apiToken := cfg.APIKeys["coral"]
+		if apiToken == "" {
+			// Coral's free tier allows anonymous access, so token is optional.
+			apiToken = os.Getenv("CORAL_AI_TOKEN")
+		}
+		return llm.NewCoralProvider(ctx, endpoint, apiToken)
+
 	// TODO: Add other providers
 	// case "openai":
 	// case "anthropic":
 	// case "grok", "xai":
 
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s (supported: google, mock)", providerName)
+		return nil, fmt.Errorf("unsupported provider: %s (supported: google, coral, mock)", providerName)
 	}
 }
 
