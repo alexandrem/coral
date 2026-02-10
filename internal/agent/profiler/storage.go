@@ -215,28 +215,46 @@ func (s *Storage) StoreSample(ctx context.Context, sample ProfileSample) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Convert integer array to DuckDB LIST format.
-	frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
-
-	// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
-	query := `
-		INSERT INTO cpu_profile_samples_local (
-			timestamp, service_id, build_id, stack_hash, stack_frame_ids, sample_count
-		) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?)
-		ON CONFLICT (timestamp, service_id, build_id, stack_hash)
-		DO UPDATE SET sample_count = cpu_profile_samples_local.sample_count + EXCLUDED.sample_count
+	// Use UPDATE-then-INSERT to avoid consuming sequence values on conflicts.
+	// ON CONFLICT DO UPDATE calls nextval() even when the row already exists,
+	// creating phantom sequence gaps that trigger false warnings on the colony.
+	updateQuery := `
+		UPDATE cpu_profile_samples_local
+		SET sample_count = sample_count + ?
+		WHERE timestamp = ? AND service_id = ? AND build_id = ? AND stack_hash = ?
 	`
-
-	_, err := s.db.ExecContext(ctx, query,
+	result, err := s.db.ExecContext(ctx, updateQuery,
+		sample.SampleCount,
 		sample.Timestamp,
 		sample.ServiceID,
 		sample.BuildID,
 		sample.StackHash,
-		sample.SampleCount,
 	)
-
 	if err != nil {
-		return fmt.Errorf("failed to store sample: %w", err)
+		return fmt.Errorf("failed to update sample: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// No existing row — insert a new one (this is the only path that consumes a seq_id).
+		frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
+
+		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
+		insertQuery := `
+			INSERT INTO cpu_profile_samples_local (
+				timestamp, service_id, build_id, stack_hash, stack_frame_ids, sample_count
+			) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?)
+		`
+		_, err = s.db.ExecContext(ctx, insertQuery,
+			sample.Timestamp,
+			sample.ServiceID,
+			sample.BuildID,
+			sample.StackHash,
+			sample.SampleCount,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert sample: %w", err)
+		}
 	}
 
 	return nil
@@ -258,26 +276,43 @@ func (s *Storage) StoreSamples(ctx context.Context, samples []ProfileSample) err
 	defer func() { _ = tx.Rollback() }()
 
 	for _, sample := range samples {
-		frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
-
-		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
-		query := `
-			INSERT INTO cpu_profile_samples_local (
-				timestamp, service_id, build_id, stack_hash, stack_frame_ids, sample_count
-			) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?)
-			ON CONFLICT (timestamp, service_id, build_id, stack_hash)
-			DO UPDATE SET sample_count = cpu_profile_samples_local.sample_count + EXCLUDED.sample_count
+		// Use UPDATE-then-INSERT to avoid consuming sequence values on conflicts.
+		updateQuery := `
+			UPDATE cpu_profile_samples_local
+			SET sample_count = sample_count + ?
+			WHERE timestamp = ? AND service_id = ? AND build_id = ? AND stack_hash = ?
 		`
-
-		_, err := tx.ExecContext(ctx, query,
+		result, err := tx.ExecContext(ctx, updateQuery,
+			sample.SampleCount,
 			sample.Timestamp,
 			sample.ServiceID,
 			sample.BuildID,
 			sample.StackHash,
-			sample.SampleCount,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to store sample: %w", err)
+			return fmt.Errorf("failed to update sample: %w", err)
+		}
+
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
+
+			// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
+			insertQuery := `
+				INSERT INTO cpu_profile_samples_local (
+					timestamp, service_id, build_id, stack_hash, stack_frame_ids, sample_count
+				) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?)
+			`
+			_, err = tx.ExecContext(ctx, insertQuery,
+				sample.Timestamp,
+				sample.ServiceID,
+				sample.BuildID,
+				sample.StackHash,
+				sample.SampleCount,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert sample: %w", err)
+			}
 		}
 	}
 
@@ -455,29 +490,46 @@ func (s *Storage) StoreMemorySamples(ctx context.Context, samples []MemoryProfil
 	defer func() { _ = tx.Rollback() }()
 
 	for _, sample := range samples {
-		frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
-
-		// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
-		query := `
-			INSERT INTO memory_profile_samples_local (
-				timestamp, service_id, build_id, stack_hash, stack_frame_ids, alloc_bytes, alloc_objects
-			) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?, ?)
-			ON CONFLICT (timestamp, service_id, build_id, stack_hash)
-			DO UPDATE SET
-				alloc_bytes = memory_profile_samples_local.alloc_bytes + EXCLUDED.alloc_bytes,
-				alloc_objects = memory_profile_samples_local.alloc_objects + EXCLUDED.alloc_objects
+		// Use UPDATE-then-INSERT to avoid consuming sequence values on conflicts.
+		updateQuery := `
+			UPDATE memory_profile_samples_local
+			SET alloc_bytes = alloc_bytes + ?,
+				alloc_objects = alloc_objects + ?
+			WHERE timestamp = ? AND service_id = ? AND build_id = ? AND stack_hash = ?
 		`
-
-		_, err := tx.ExecContext(ctx, query,
+		result, err := tx.ExecContext(ctx, updateQuery,
+			sample.AllocBytes,
+			sample.AllocObjects,
 			sample.Timestamp,
 			sample.ServiceID,
 			sample.BuildID,
 			sample.StackHash,
-			sample.AllocBytes,
-			sample.AllocObjects,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to store memory sample: %w", err)
+			return fmt.Errorf("failed to update memory sample: %w", err)
+		}
+
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			frameIDsStr := duckdb.Int64ArrayToString(sample.StackFrameIDs)
+
+			// #nosec G202 - frameIDsStr is a formatted integer array, not user input.
+			insertQuery := `
+				INSERT INTO memory_profile_samples_local (
+					timestamp, service_id, build_id, stack_hash, stack_frame_ids, alloc_bytes, alloc_objects
+				) VALUES (?, ?, ?, ?, ` + frameIDsStr + `, ?, ?)
+			`
+			_, err = tx.ExecContext(ctx, insertQuery,
+				sample.Timestamp,
+				sample.ServiceID,
+				sample.BuildID,
+				sample.StackHash,
+				sample.AllocBytes,
+				sample.AllocObjects,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert memory sample: %w", err)
+			}
 		}
 	}
 
