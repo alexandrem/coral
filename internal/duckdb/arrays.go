@@ -82,6 +82,26 @@ func Float32ArrayToBytes(arr []float32) []byte {
 	return data
 }
 
+// InterfaceToFloat32Array converts a DuckDB FLOAT[N] fixed-size array returned
+// as []interface{} by go-duckdb into []float32. Each element is expected to be
+// float64 (the default Go numeric type from database/sql) or float32.
+func InterfaceToFloat32Array(data []interface{}) []float32 {
+	if len(data) == 0 {
+		return nil
+	}
+
+	result := make([]float32, 0, len(data))
+	for _, elem := range data {
+		switch f := elem.(type) {
+		case float64:
+			result = append(result, float32(f))
+		case float32:
+			result = append(result, f)
+		}
+	}
+	return result
+}
+
 // Int64ArrayToString converts []int64 to DuckDB BIGINT[] array string format.
 // Example: [1, 2, 3] -> "[1,2,3]"
 // This format is required for DuckDB LIST/ARRAY literal syntax.
