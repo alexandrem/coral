@@ -10,11 +10,11 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
-	_ "github.com/marcboeker/go-duckdb" // Import DuckDB driver.
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
 // AgentInfo contains information about an agent with available databases.
@@ -105,7 +105,7 @@ func resolveAgentAddress(ctx context.Context, agentID string) (string, error) {
 
 // createDuckDBConnection creates a DuckDB connection with httpfs extension loaded.
 func createDuckDBConnection(ctx context.Context) (*sql.DB, error) {
-	db, err := sql.Open("duckdb", "")
+	db, err := duckdb.OpenDB("")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open DuckDB connection: %w", err)
 	}

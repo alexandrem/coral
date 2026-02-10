@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	_ "github.com/marcboeker/go-duckdb"
-
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -36,7 +35,7 @@ func GetCAManager(colonyID string) (*ca.Manager, *sql.DB, *config.ResolvedConfig
 
 	// Open database.
 	dbPath := fmt.Sprintf("%s/colony.db", cfg.StoragePath)
-	db, err := sql.Open("duckdb", dbPath)
+	db, err := duckdb.OpenDB(dbPath)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to open database: %w", err)
 	}

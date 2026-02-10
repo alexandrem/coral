@@ -6,12 +6,12 @@ import (
 	"os"
 
 	"github.com/google/uuid"
-	_ "github.com/marcboeker/go-duckdb"
 
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -65,7 +65,7 @@ func (s *StorageManager) Initialize() (*StorageResult, error) {
 			s.logger.Warn().Err(err).Msg("Failed to create agent directory - using in-memory storage")
 		} else {
 			sharedDBPath = dbDir + "/metrics.duckdb"
-			sharedDB, err = sql.Open("duckdb", sharedDBPath)
+			sharedDB, err = duckdb.OpenDB(sharedDBPath)
 			if err != nil {
 				s.logger.Warn().Err(err).Msg("Failed to create shared metrics database - using in-memory storage")
 				sharedDB = nil

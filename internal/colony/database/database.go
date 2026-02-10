@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 
 	"github.com/coral-mesh/coral/internal/duckdb"
@@ -72,8 +71,8 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 		connStr = dbPath + "?access_mode=READ_ONLY"
 	}
 
-	// Open DuckDB connection.
-	db, err := sql.Open("duckdb", connStr)
+	// Open DuckDB connection with VSS extension loaded on every pooled connection.
+	db, err := duckdb.OpenDB(connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -102,24 +101,7 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
 
-	// Load VSS extension BEFORE ping (read-write mode only).
-	// This is critical: db.Ping() triggers WAL replay, which may contain HNSW indexes.
-	// The VSS extension must be loaded before WAL replay to recognize HNSW index types.
-	if !readOnly {
-		// Try to install and load VSS extension.
-		if _, err := db.Exec("INSTALL vss FROM core"); err != nil {
-			logger.Warn().Err(err).Msg("Failed to install VSS extension, vector search features may be unavailable")
-		} else if _, err := db.Exec("LOAD vss"); err != nil {
-			logger.Warn().Err(err).Msg("Failed to load VSS extension, vector search features may be unavailable")
-		} else {
-			// Enable HNSW experimental persistence for vector indexes.
-			if _, err := db.Exec("SET hnsw_enable_experimental_persistence = true"); err != nil {
-				logger.Warn().Err(err).Msg("Failed to enable HNSW persistence, vector indexes may not work")
-			}
-		}
-	}
-
-	// Test connection (this triggers WAL replay).
+	// Test connection (this triggers WAL replay, with VSS already loaded via connInitFn).
 	if err := db.Ping(); err != nil {
 		_ = db.Close() // TODO: errcheck
 		return nil, fmt.Errorf("failed to ping database: %w", err)

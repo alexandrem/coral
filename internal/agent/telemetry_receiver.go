@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/marcboeker/go-duckdb"
 	"github.com/rs/zerolog"
 
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
+	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
 // TelemetryReceiver wraps the OTLP receiver for external use.
@@ -37,7 +37,7 @@ func NewTelemetryReceiver(config telemetry.Config, logger zerolog.Logger) (*Tele
 	}
 
 	// Create DuckDB database.
-	db, err := sql.Open("duckdb", dbPath)
+	db, err := duckdb.OpenDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telemetry database: %w", err)
 	}
