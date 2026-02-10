@@ -166,6 +166,20 @@ func (l *Loader) LoadColonyConfig(colonyID string) (*ColonyConfig, error) {
 		// and fall through to "not found" error.
 	}
 
+	// 4. Config-less mode: if no config file exists but env vars provide the
+	// necessary configuration, create a synthetic config and merge env vars.
+	// This enables CLI usage with only CORAL_* env vars set (e.g. e2e tests).
+	synthetic := DefaultColonyConfig(colonyID, colonyID, "remote")
+	if err := MergeFromEnv(synthetic); err != nil {
+		return nil, fmt.Errorf("colony %q not found and failed to merge env vars: %w", colonyID, err)
+	}
+
+	// Only use config-less mode if env vars actually provided useful config
+	// (at minimum, an endpoint to connect to).
+	if synthetic.Remote.Endpoint != "" {
+		return synthetic, nil
+	}
+
 	return nil, fmt.Errorf("colony %q not found", colonyID)
 }
 

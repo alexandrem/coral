@@ -163,10 +163,37 @@ func TestLoader_LoadColonyConfig_NotExists(t *testing.T) {
 	tmpHome := t.TempDir()
 	loader := &Loader{homeDir: tmpHome}
 
-	// Load non-existent colony should fail
+	// Ensure no env vars trigger config-less fallback.
+	t.Setenv("CORAL_COLONY_ENDPOINT", "")
+
+	// Load non-existent colony should fail.
 	_, err := loader.LoadColonyConfig("nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestLoader_LoadColonyConfig_ConfigLessMode(t *testing.T) {
+	tmpHome := t.TempDir()
+	loader := &Loader{homeDir: tmpHome}
+
+	t.Run("returns synthetic config when endpoint env var is set", func(t *testing.T) {
+		t.Setenv("CORAL_COLONY_ENDPOINT", "https://localhost:8443")
+		t.Setenv("CORAL_INSECURE", "true")
+
+		cfg, err := loader.LoadColonyConfig("my-colony-abc123")
+		require.NoError(t, err)
+		assert.Equal(t, "my-colony-abc123", cfg.ColonyID)
+		assert.Equal(t, "https://localhost:8443", cfg.Remote.Endpoint)
+		assert.True(t, cfg.Remote.InsecureSkipTLSVerify)
+	})
+
+	t.Run("returns not found when no endpoint env var is set", func(t *testing.T) {
+		t.Setenv("CORAL_COLONY_ENDPOINT", "")
+
+		_, err := loader.LoadColonyConfig("my-colony-abc123")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
 }
 
 func TestLoader_ListColonies(t *testing.T) {

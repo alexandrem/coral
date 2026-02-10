@@ -353,6 +353,7 @@ func TestRunUseContext_NonExistentColony(t *testing.T) {
 		}
 	}()
 	os.Setenv("CORAL_CONFIG", tmpDir)
+	t.Setenv("CORAL_COLONY_ENDPOINT", "")
 
 	// Try to use a non-existent colony
 	err := runUseContext("nonexistent-colony-id")
