@@ -11,6 +11,20 @@ import (
 	"github.com/coral-mesh/coral/internal/config"
 )
 
+// isolateCoralEnv sets CORAL_CONFIG, CORAL_COLONY_ID, and HOME to temp dirs
+// so tests don't pick up real colony configs or running colonies from the host.
+// isolateCoralEnv clears all CORAL_* env vars and HOME so tests don't pick up
+// real colony configs or running colonies from the host environment.
+func isolateCoralEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CORAL_CONFIG", t.TempDir())
+	t.Setenv("CORAL_COLONY_ID", "")
+	t.Setenv("CORAL_COLONY_ENDPOINT", "")
+	t.Setenv("CORAL_DEFAULT_COLONY", "")
+	t.Setenv("CORAL_STORAGE_PATH", "")
+}
+
 func TestNewConfigCmd(t *testing.T) {
 	cmd := NewConfigCmd()
 
@@ -319,21 +333,9 @@ func TestCheckProjectConfig(t *testing.T) {
 }
 
 func TestRunGetContexts_NoColonies(t *testing.T) {
-	// Create temporary config directory
-	tmpDir := t.TempDir()
+	isolateCoralEnv(t)
 
-	// Set CORAL_CONFIG to temp dir
-	originalConfig := os.Getenv("CORAL_CONFIG")
-	defer func() {
-		if originalConfig != "" {
-			os.Setenv("CORAL_CONFIG", originalConfig)
-		} else {
-			os.Unsetenv("CORAL_CONFIG")
-		}
-	}()
-	os.Setenv("CORAL_CONFIG", tmpDir)
-
-	// This should not error, just print a message
+	// This should not error, just print a message.
 	err := runGetContexts("table")
 	if err != nil {
 		t.Errorf("runGetContexts() with no colonies should not error, got: %v", err)
@@ -341,21 +343,9 @@ func TestRunGetContexts_NoColonies(t *testing.T) {
 }
 
 func TestRunUseContext_NonExistentColony(t *testing.T) {
-	// Create temporary config directory
-	tmpDir := t.TempDir()
+	isolateCoralEnv(t)
 
-	originalConfig := os.Getenv("CORAL_CONFIG")
-	defer func() {
-		if originalConfig != "" {
-			os.Setenv("CORAL_CONFIG", originalConfig)
-		} else {
-			os.Unsetenv("CORAL_CONFIG")
-		}
-	}()
-	os.Setenv("CORAL_CONFIG", tmpDir)
-	t.Setenv("CORAL_COLONY_ENDPOINT", "")
-
-	// Try to use a non-existent colony
+	// Try to use a non-existent colony.
 	err := runUseContext("nonexistent-colony-id")
 	if err == nil {
 		t.Error("runUseContext() with non-existent colony should error")
@@ -363,19 +353,9 @@ func TestRunUseContext_NonExistentColony(t *testing.T) {
 }
 
 func TestRunValidate_NoColonies(t *testing.T) {
-	tmpDir := t.TempDir()
+	isolateCoralEnv(t)
 
-	originalConfig := os.Getenv("CORAL_CONFIG")
-	defer func() {
-		if originalConfig != "" {
-			os.Setenv("CORAL_CONFIG", originalConfig)
-		} else {
-			os.Unsetenv("CORAL_CONFIG")
-		}
-	}()
-	os.Setenv("CORAL_CONFIG", tmpDir)
-
-	// Should not error with no colonies
+	// Should not error with no colonies.
 	err := runValidate("table")
 	if err != nil {
 		t.Errorf("runValidate() with no colonies should not error, got: %v", err)
@@ -384,18 +364,10 @@ func TestRunValidate_NoColonies(t *testing.T) {
 
 func TestIsColonyRunning(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateCoralEnv(t)
+	t.Setenv("CORAL_CONFIG", tmpDir) // Override with specific tmpDir for colony config.
 
-	originalConfig := os.Getenv("CORAL_CONFIG")
-	defer func() {
-		if originalConfig != "" {
-			os.Setenv("CORAL_CONFIG", originalConfig)
-		} else {
-			os.Unsetenv("CORAL_CONFIG")
-		}
-	}()
-	os.Setenv("CORAL_CONFIG", tmpDir)
-
-	// Create a test colony
+	// Create a test colony.
 	colonyID := "test-colony-running"
 	coloniesDir := filepath.Join(tmpDir, ".coral", "colonies", colonyID)
 	err := os.MkdirAll(coloniesDir, 0700)
@@ -443,24 +415,14 @@ func TestIsColonyRunning(t *testing.T) {
 }
 
 func TestIsColonyRunning_NonExistentColony(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	originalConfig := os.Getenv("CORAL_CONFIG")
-	defer func() {
-		if originalConfig != "" {
-			os.Setenv("CORAL_CONFIG", originalConfig)
-		} else {
-			os.Unsetenv("CORAL_CONFIG")
-		}
-	}()
-	os.Setenv("CORAL_CONFIG", tmpDir)
+	isolateCoralEnv(t)
 
 	loader, err := config.NewLoader()
 	if err != nil {
 		t.Fatalf("Failed to create loader: %v", err)
 	}
 
-	// Non-existent colony should return false
+	// Non-existent colony should return false.
 	running := isColonyRunning("nonexistent", loader)
 	if running {
 		t.Error("isColonyRunning() should return false for non-existent colony")
