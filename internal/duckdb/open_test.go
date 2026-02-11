@@ -8,12 +8,27 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 )
 
+// requireVSS skips the test if the DuckDB VSS extension (providing HNSW
+// indexes) is not available, e.g. in CI without network access.
+func requireVSS(t *testing.T) {
+	t.Helper()
+	db, err := OpenDB(filepath.Join(t.TempDir(), "vss_check.duckdb"))
+	if err != nil {
+		t.Skipf("Skipping: cannot open DuckDB with autoload: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec("LOAD vss"); err != nil {
+		t.Skipf("Skipping: VSS extension not available: %v", err)
+	}
+}
+
 // TestOpenDB_WALReplayWithHNSW verifies that OpenDB can reopen a database
 // whose WAL contains HNSW index operations.
 //
 // Without autoload_known_extensions in the DSN, DuckDB fails during WAL replay
 // with: "Cannot bind index 'functions', unknown index type 'HNSW'".
 func TestOpenDB_WALReplayWithHNSW(t *testing.T) {
+	requireVSS(t)
 	dbPath := filepath.Join(t.TempDir(), "test.duckdb")
 
 	// Step 1: Create a database with an HNSW index and leave WAL un-checkpointed.
@@ -60,6 +75,7 @@ func TestOpenDB_WALReplayWithHNSW(t *testing.T) {
 // autoload config) fails when replaying a WAL containing HNSW indexes.
 // This validates that our OpenDB fix is actually necessary.
 func TestOpenDB_WALReplayFailsWithoutAutoload(t *testing.T) {
+	requireVSS(t)
 	dbPath := filepath.Join(t.TempDir(), "test.duckdb")
 
 	// Step 1: Create a database with an HNSW index via OpenDB.
