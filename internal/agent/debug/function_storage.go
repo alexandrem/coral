@@ -247,23 +247,17 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 		return fmt.Errorf("failed to clear old functions: %w", err)
 	}
 
-	// Insert new functions.
-	// Use ON CONFLICT to handle duplicate function names that can occur in Go binaries
-	// (e.g., from generics, cgo, or multiple compilation units with identical names).
+	// Insert new functions. Duplicates are mostly filtered by
+	// enrichAndDeduplicateFunctions, but ON CONFLICT DO NOTHING provides a
+	// safety net for edge cases (e.g., case-insensitive collisions).
+	// ON CONFLICT DO UPDATE is not used because DuckDB does not support
+	// updating fixed-size array columns (FLOAT[384]).
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO functions_cache (
 			service_name, binary_path, binary_hash, function_name,
 			package_name, file_path, line_number, func_offset, has_dwarf, embedding
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::FLOAT[384])
-		ON CONFLICT (service_name, function_name) DO UPDATE SET
-			binary_path = EXCLUDED.binary_path,
-			binary_hash = EXCLUDED.binary_hash,
-			package_name = EXCLUDED.package_name,
-			file_path = EXCLUDED.file_path,
-			line_number = EXCLUDED.line_number,
-			func_offset = EXCLUDED.func_offset,
-			has_dwarf = EXCLUDED.has_dwarf,
-			embedding = EXCLUDED.embedding
+		ON CONFLICT (service_name, function_name) DO NOTHING
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
