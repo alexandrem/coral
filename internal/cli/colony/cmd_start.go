@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
+	"github.com/coral-mesh/coral/internal/auth"
 	"github.com/coral-mesh/coral/internal/colony"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
@@ -207,7 +208,7 @@ Examples:
 			}
 
 			// Start gRPC/Connect server for agent registration and colony management.
-			meshServer, err := startServers(cfg, wgDevice, agentRegistry, db, endpoints, logger)
+			meshServer, tokenStore, err := startServers(cfg, wgDevice, agentRegistry, db, endpoints, logger)
 			if err != nil {
 				return fmt.Errorf("failed to start servers: %w", err)
 			}
@@ -512,10 +513,17 @@ Examples:
 			if !daemon {
 				fmt.Println("\nPress Ctrl+C to stop")
 
-				// Wait for interrupt signal
+				// Wait for interrupt or reload signal.
 				sigChan := make(chan os.Signal, 1)
-				signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-				<-sigChan
+				signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+				for sig := range sigChan {
+					if sig == syscall.SIGHUP {
+						logger.Info().Msg("Received SIGHUP, reloading configuration")
+						reloadConfig(cfg.ColonyID, tokenStore, logger)
+						continue
+					}
+					break // SIGINT/SIGTERM → shutdown.
+				}
 
 				fmt.Println("\n\nShutting down colony...")
 
@@ -578,6 +586,33 @@ Examples:
 	cmd.Flags().IntVar(&port, "port", 0, "Dashboard port (overrides config)")
 
 	return cmd
+}
+
+// reloadConfig reloads colony configuration and API tokens from disk.
+// Called on SIGHUP to pick up changes without restarting the process.
+func reloadConfig(colonyID string, tokenStore *auth.TokenStore, logger logging.Logger) {
+	// Reload colony config to validate it parses correctly.
+	loader, err := config.NewLoader()
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to create config loader during reload")
+		return
+	}
+
+	_, err = loader.LoadColonyConfig(colonyID)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to reload colony config")
+	} else {
+		logger.Info().Msg("Colony configuration reloaded successfully")
+	}
+
+	// Reload API tokens from disk.
+	if tokenStore != nil {
+		if err := tokenStore.Reload(); err != nil {
+			logger.Error().Err(err).Msg("Failed to reload API tokens")
+		} else {
+			logger.Info().Msg("API tokens reloaded successfully")
+		}
+	}
 }
 
 // buildPublicEndpointInfo constructs the PublicEndpointInfo for Discovery registration (RFD 085).

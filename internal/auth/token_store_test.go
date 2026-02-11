@@ -300,6 +300,91 @@ func TestTokenStore_Persistence(t *testing.T) {
 	}
 }
 
+func TestTokenStore_Reload(t *testing.T) {
+	// Create a temp file for tokens.
+	tmpDir := t.TempDir()
+	tokensFile := filepath.Join(tmpDir, "tokens.yaml")
+
+	// Create a token store and generate a token.
+	ts := NewTokenStore(tokensFile)
+	info, err := ts.GenerateToken("original-token", []Permission{PermissionStatus}, "")
+	if err != nil {
+		t.Fatalf("GenerateToken() failed: %v", err)
+	}
+
+	// Write a new tokens file with a different token (simulating external edit).
+	newTokensContent := `version: "1"
+tokens:
+  - token_id: "new-token"
+    token_hash: "` + ts.tokens["original-token"].TokenHash + `"
+    permissions:
+      - admin
+    created_at: "2024-01-01T00:00:00Z"
+`
+	if err := os.WriteFile(tokensFile, []byte(newTokensContent), 0600); err != nil {
+		t.Fatalf("Failed to write new tokens file: %v", err)
+	}
+
+	// Reload the token store.
+	if err := ts.Reload(); err != nil {
+		t.Fatalf("Reload() failed: %v", err)
+	}
+
+	// The original token ID should be gone.
+	_, exists := ts.GetToken("original-token")
+	if exists {
+		t.Error("Original token should not exist after reload")
+	}
+
+	// The new token should be present.
+	newToken, exists := ts.GetToken("new-token")
+	if !exists {
+		t.Fatal("New token should exist after reload")
+	}
+
+	if !HasPermission(newToken, PermissionAdmin) {
+		t.Error("New token should have admin permission")
+	}
+
+	// The old plaintext token should still validate against the new token
+	// (since we reused the hash).
+	validated, err := ts.ValidateToken(info.Token)
+	if err != nil {
+		t.Errorf("ValidateToken() with reused hash failed: %v", err)
+	}
+	if validated != nil && validated.TokenID != "new-token" {
+		t.Errorf("Validated token ID = %v, want new-token", validated.TokenID)
+	}
+}
+
+func TestTokenStore_Reload_EmptyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	tokensFile := filepath.Join(tmpDir, "tokens.yaml")
+
+	// Create a store with a token.
+	ts := NewTokenStore(tokensFile)
+	_, err := ts.GenerateToken("test-token", []Permission{PermissionStatus}, "")
+	if err != nil {
+		t.Fatalf("GenerateToken() failed: %v", err)
+	}
+
+	// Delete the file to simulate missing file.
+	if err := os.Remove(tokensFile); err != nil {
+		t.Fatalf("Failed to remove tokens file: %v", err)
+	}
+
+	// Reload should succeed (no file = empty store).
+	if err := ts.Reload(); err != nil {
+		t.Fatalf("Reload() failed: %v", err)
+	}
+
+	// Store should be empty.
+	tokens := ts.ListTokens()
+	if len(tokens) != 0 {
+		t.Errorf("Expected 0 tokens after reload with missing file, got %d", len(tokens))
+	}
+}
+
 func TestHasPermission(t *testing.T) {
 	tests := []struct {
 		name       string

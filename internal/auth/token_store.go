@@ -35,6 +35,16 @@ func NewTokenStore(filePath string) *TokenStore {
 	return ts
 }
 
+// Reload clears the in-memory token cache and re-reads tokens from disk.
+// This is used by the SIGHUP handler to pick up changes to tokens.yaml.
+func (ts *TokenStore) Reload() error {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	ts.tokens = make(map[string]*APIToken)
+	return ts.loadFromFile()
+}
+
 // GenerateToken creates a new API token with the given ID and permissions.
 // Returns the token info including the plaintext token (shown only once).
 func (ts *TokenStore) GenerateToken(
