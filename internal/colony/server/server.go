@@ -23,7 +23,8 @@ import (
 )
 
 // realtimeQueryTimeout is for low-latency agent queries.
-const realtimeQueryTimeout = 500 * time.Millisecond
+// Must be generous enough to handle WireGuard mesh latency under load.
+const realtimeQueryTimeout = 3 * time.Second
 
 // Config contains configuration for the colony server.
 type Config struct {

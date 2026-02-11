@@ -26,7 +26,7 @@ type DebugSuite struct {
 // SetupSuite runs once before all tests in the suite.
 // Connects services needed for debug tests.
 func (s *DebugSuite) SetupSuite() {
-	s.T().Log("Setting up DebugSuite - connecting test services...")
+	s.T().Log("Setting up DebugSuite...")
 
 	// Connect sdk-app to agent-1 for uprobe tracing tests
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 1, []helpers.ServiceConfig{
@@ -92,12 +92,25 @@ func (s *DebugSuite) TestUprobeTracing() {
 	s.Require().NoError(err, "Failed to list agents")
 	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
 
-	// Use agent-1 since SDK app runs in its namespace.
-	agentID := listAgentsResp.Agents[1].AgentId
-	s.T().Logf("Agent-1 ID: %s", agentID)
+	// Find the agent that has sdk-app in its services.
+	// We can't assume index [1] is agent-1 because registry iteration order is non-deterministic.
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	s.T().Logf("Agent hosting sdk-app: %s", agentID)
 	s.T().Log("Note: SDK app already connected in SetupSuite()")
 
-	// Verify service is registered with agent-1.
+	// Verify service is registered with the agent.
 	agentClient := helpers.NewAgentClient(agentEndpoint)
 	s.T().Log("Verifying service registration...")
 	err = helpers.WaitForServiceRegistration(s.ctx, agentClient, "sdk-app", 10*time.Second)
@@ -231,9 +244,22 @@ func (s *DebugSuite) TestUprobeCallTree() {
 	s.Require().NoError(err, "Failed to list agents")
 	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
 
-	// Use agent-1 since SDK app runs in its namespace.
-	agentID := listAgentsResp.Agents[1].AgentId
-	s.T().Logf("Agent-1 ID: %s", agentID)
+	// Find the agent that has sdk-app in its services.
+	// We can't assume index [1] is agent-1 because registry iteration order is non-deterministic.
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+	s.T().Logf("Agent hosting sdk-app: %s", agentID)
 
 	// Connect SDK app to agent-1.
 	agentClient := helpers.NewAgentClient(agentEndpoint)
