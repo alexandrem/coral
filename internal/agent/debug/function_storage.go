@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -31,6 +32,9 @@ type FunctionCache struct {
 	db         *sql.DB
 	discoverer *FunctionDiscoverer
 	logger     zerolog.Logger
+	// mu serializes store operations per service to avoid DuckDB transaction
+	// conflicts when multiple goroutines discover the same service concurrently.
+	mu sync.Mutex
 }
 
 // NewFunctionCache creates a new function cache.
@@ -236,6 +240,9 @@ func (c *FunctionCache) DiscoverAndCacheWithPID(ctx context.Context, serviceName
 
 // storeFunctions stores discovered functions in the cache.
 func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryPath, binaryHash string, functions []*agentv1.FunctionInfo) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
