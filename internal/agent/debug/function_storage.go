@@ -77,11 +77,11 @@ func (c *FunctionCache) initSchema() error {
 			function_count INTEGER DEFAULT 0
 		);
 
+		-- Drop binary_hash index that conflicts with DuckDB prepared statements.
+		DROP INDEX IF EXISTS idx_functions_cache_binary;
+
 		CREATE INDEX IF NOT EXISTS idx_functions_cache_service
 		ON functions_cache(service_name);
-
-		CREATE INDEX IF NOT EXISTS idx_functions_cache_binary
-		ON functions_cache(binary_hash);
 	`
 
 	if _, err := c.db.Exec(schema); err != nil {
