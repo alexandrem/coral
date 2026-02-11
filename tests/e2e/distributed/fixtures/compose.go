@@ -275,6 +275,17 @@ func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string)
 	return nil
 }
 
+// ReloadColonyConfig sends SIGHUP to the colony process to reload configuration
+// and API tokens from disk without restarting the container.
+func (f *ComposeFixture) ReloadColonyConfig(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1",
+		"sh", "-c", "kill -HUP $(pidof coral)")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to send SIGHUP to colony: %w\nOutput: %s", err, string(output))
+	}
+	return nil
+}
+
 // CreateDotEnvFile creates a .env file with the environment variables needed for the CLI
 // to talk to the colony endpoint hosted in the container.
 func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
@@ -339,15 +350,9 @@ func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 		return fmt.Errorf("failed to write .env file: %w", err)
 	}
 
-	// Restart colony to reload tokens (TokenStore loads from file only on startup).
-	// This ensures the token is immediately usable by the CLI.
-	if err := f.RestartService(ctx, "colony"); err != nil {
-		return fmt.Errorf("failed to restart colony to reload tokens: %w", err)
-	}
-
-	// Wait for colony to be healthy after restart
-	if err := helpers.WaitForHTTPEndpoint(ctx, f.ColonyEndpoint+"/status", 30*time.Second); err != nil {
-		return fmt.Errorf("colony failed to become healthy after token reload restart: %w", err)
+	// Signal colony to reload tokens from disk (SIGHUP).
+	if err := f.ReloadColonyConfig(ctx); err != nil {
+		return fmt.Errorf("failed to reload colony config: %w", err)
 	}
 
 	return nil
