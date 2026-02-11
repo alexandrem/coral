@@ -44,7 +44,6 @@ type Manager struct {
 	beylaCmd        *exec.Cmd
 	beylaBinaryPath string // Path to extracted binary (cleanup on stop)
 	beylaConfigPath string // Path to generated config file (cleanup on stop)
-	restarting      bool   // Flag to indicate restart in progress (RFD 053)
 
 	// Channels for processed Beyla data.
 	tracesCh  chan *BeylaTrace       // Beyla traces ready for Colony
@@ -734,17 +733,20 @@ func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	err := cmd.Wait()
 
 	// Check if this was an expected exit (restart or shutdown).
+	// Use beylaCmd comparison to detect restarts: if m.beylaCmd has changed,
+	// this process was replaced by a new one (restartBeyla holds mu.Lock
+	// throughout, so m.restarting may already be cleared by the time we read it).
 	m.mu.RLock()
-	isRestarting := m.restarting
+	wasReplaced := m.beylaCmd != cmd
 	m.mu.RUnlock()
 
-	if err != nil && m.ctx.Err() == nil && !isRestarting {
+	if err != nil && m.ctx.Err() == nil && !wasReplaced {
 		// Process exited unexpectedly (not due to restart or context cancellation).
 		m.logger.Error().
 			Err(err).
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process exited unexpectedly")
-	} else if isRestarting {
+	} else if wasReplaced {
 		// Expected exit during restart.
 		m.logger.Debug().
 			Int("pid", cmd.Process.Pid).
@@ -858,20 +860,14 @@ func (m *Manager) restartBeyla() error {
 			Int("pid", m.beylaCmd.Process.Pid).
 			Msg("Stopping existing Beyla process for restart")
 
-		// Set restarting flag so monitor goroutine knows this is expected.
-		m.restarting = true
-
 		if err := m.beylaCmd.Process.Kill(); err != nil {
 			m.logger.Error().Err(err).Msg("Failed to kill Beyla process during restart")
 		}
 		// Don't call Wait() here - the monitorBeylaProcess goroutine will handle it.
 		// Calling Wait() from multiple goroutines causes "no child processes" error.
 
-		// Give the process a moment to fully terminate and the monitor goroutine to exit.
+		// Give the process a moment to fully terminate.
 		time.Sleep(200 * time.Millisecond)
-
-		// Clear restarting flag.
-		m.restarting = false
 	}
 
 	// Cleanup old config file.
