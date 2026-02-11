@@ -4,6 +4,7 @@ package poller
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -133,19 +134,31 @@ func (b *BasePoller) pollLoop(poller Poller) {
 	go b.cleanupLoop(poller)
 
 	// Run an initial poll immediately.
-	if err := poller.PollOnce(b.ctx); err != nil {
-		b.logger.Error().Err(err).Msg("Initial poll failed")
-	}
+	b.safePollOnce(poller)
 
 	for {
 		select {
 		case <-b.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := poller.PollOnce(b.ctx); err != nil {
-				b.logger.Error().Err(err).Msg("Poll failed")
-			}
+			b.safePollOnce(poller)
 		}
+	}
+}
+
+// safePollOnce calls PollOnce with panic recovery to prevent a single
+// bad poll cycle from crashing the entire colony process.
+func (b *BasePoller) safePollOnce(poller Poller) {
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Error().
+				Str("panic", fmt.Sprintf("%v", r)).
+				Msg("Panic recovered in poll cycle")
+		}
+	}()
+
+	if err := poller.PollOnce(b.ctx); err != nil {
+		b.logger.Error().Err(err).Msg("Poll failed")
 	}
 }
 
@@ -242,9 +255,22 @@ func (b *BasePoller) cleanupLoop(poller Poller) {
 		case <-b.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := poller.RunCleanup(b.ctx); err != nil {
-				b.logger.Error().Err(err).Msg("Cleanup failed")
-			}
+			b.safeRunCleanup(poller)
 		}
+	}
+}
+
+// safeRunCleanup calls RunCleanup with panic recovery.
+func (b *BasePoller) safeRunCleanup(poller Poller) {
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Error().
+				Str("panic", fmt.Sprintf("%v", r)).
+				Msg("Panic recovered in cleanup cycle")
+		}
+	}()
+
+	if err := poller.RunCleanup(b.ctx); err != nil {
+		b.logger.Error().Err(err).Msg("Cleanup failed")
 	}
 }

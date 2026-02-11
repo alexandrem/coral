@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
@@ -171,8 +172,6 @@ func EnsureServicesConnected(
 	agentClient := NewAgentClient(agentEndpoint)
 
 	// Connect services if not already connected.
-	t.Log("Connecting test services...")
-
 	for _, svc := range services {
 		t.Logf("Connecting service %s on port %d with health %s", svc.Name, svc.Port, svc.HealthEndpoint)
 
@@ -231,7 +230,7 @@ func EnsureServicesConnected(
 				return false
 			}
 			return len(resp.Services) >= len(services)
-		}, 60000, 2000) // 60s timeout, 2s interval
+		}, 60*time.Second, 2*time.Second)
 
 		if err != nil {
 			t.Logf("Warning: Services may not be registered in colony yet: %v", err)

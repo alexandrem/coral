@@ -20,18 +20,10 @@ type ProfilingSuite struct {
 	E2EDistributedSuite
 }
 
-// TearDownTest cleans up cpu-app if it was connected during a test.
-//
-// IMPORTANT: Only TestOnDemandProfiling connects cpu-app (to test on-demand profiling).
-// TestContinuousProfiling does not connect services, it just uses cpu-app directly.
-//
-// This prevents "service already connected" errors in subsequent tests.
-func (s *ProfilingSuite) TearDownTest() {
-	s.disconnectCpuApp()
-	s.disconnectMemoryApp()
-
-	// Call parent TearDownTest.
-	s.E2EDistributedSuite.TearDownTest()
+func (s *ProfilingSuite) SetupSuite() {
+	s.T().Log("Setting up ProfilingSuite..")
+	s.ensureServicesConnected()
+	s.T().Log("ProfilingSuite setup complete")
 }
 
 // TearDownSuite cleans up the colony database after all tests in the suite.
@@ -43,6 +35,9 @@ func (s *ProfilingSuite) TearDownSuite() {
 		_ = helpers.CleanupColonyDatabase(s.ctx, colonyClient)
 		// Ignore errors - cleanup is best-effort.
 	}
+
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{"cpu-app"})
+	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 1, []string{"memory-app"})
 
 	// Call parent TearDownSuite.
 	s.E2EDistributedSuite.TearDownSuite()
@@ -68,16 +63,6 @@ func (s *ProfilingSuite) TestContinuousProfiling() {
 	s.Require().NoError(err, "Failed to get CPU app endpoint")
 
 	s.T().Logf("CPU app listening at: %s", cpuAppEndpoint)
-
-	// Connect cpu-app to agent-0 so it gets a ServiceMonitor and PID discovery,
-	// which triggers continuous profiling via onProcessDiscovered.
-	helpers.EnsureServicesConnected(s.T(), s.ctx, fixture, 0, []helpers.ServiceConfig{
-		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
-	})
-	s.T().Log("cpu-app connected to agent-0")
-
-	// Wait for PID discovery and profiler to start.
-	time.Sleep(3 * time.Second)
 
 	// Verify CPU app is responsive.
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -170,53 +155,12 @@ func (s *ProfilingSuite) TestOnDemandProfiling() {
 	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get colony endpoint")
 
-	// Get agent-0 endpoint (CPU app runs in agent-0's namespace).
-	agentEndpoint, err := fixture.GetAgentGRPCEndpoint(s.ctx, 0)
-	s.Require().NoError(err, "Failed to get agent-0 endpoint")
-
 	// Get CPU app endpoint.
 	cpuAppEndpoint, err := fixture.GetCPUAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get CPU app endpoint")
 
 	s.T().Logf("Colony endpoint: %s", colonyEndpoint)
-	s.T().Logf("Agent-0 endpoint: %s", agentEndpoint)
 	s.T().Logf("CPU app endpoint: %s", cpuAppEndpoint)
-
-	// Connect cpu-app to agent-0 so it appears in the service registry.
-	agentClient := helpers.NewAgentClient(agentEndpoint)
-	connectResp, err := helpers.ConnectService(s.ctx, agentClient, "cpu-app", 8080, "/health")
-	s.Require().NoError(err, "Failed to connect cpu-app")
-	s.Require().True(connectResp.Success, "Service connection should succeed")
-	s.T().Log("CPU app connected to agent-0")
-
-	// Wait for service registration to be fully processed.
-	s.T().Log("Waiting for service registration to be fully processed...")
-	err = helpers.WaitForServiceRegistration(s.ctx, agentClient, "cpu-app", 10*time.Second)
-	s.Require().NoError(err, "Timeout waiting for service registration")
-	s.T().Log("✓ CPU app verified in agent's service registry")
-
-	// Query colony to find which agent has the cpu-app service.
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
-
-	// Find the agent that has the cpu-app service.
-	// We can't assume index [0] is agent-0 because registry iteration order is non-deterministic.
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "cpu-app" {
-				agentID = agent.AgentId
-				s.T().Logf("Found cpu-app on agent: %s", agentID)
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting cpu-app service")
 
 	// Create debug client.
 	debugClient := helpers.NewDebugClient(colonyEndpoint)
@@ -382,32 +326,6 @@ func (s *ProfilingSuite) TestOnDemandMemoryProfiling() {
 	s.T().Logf("Agent-1 endpoint: %s", agentEndpoint)
 	s.T().Logf("Memory app endpoint: %s", memoryAppEndpoint)
 
-	// Connect memory-app to agent-1 (with SDK capabilities).
-	s.ensureServicesConnected()
-
-	// Find the agent hosting memory-app via the colony.
-	colonyClient := helpers.NewColonyClient(colonyEndpoint)
-	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
-	s.Require().NoError(err, "Failed to list agents")
-
-	var agentID string
-	for _, agent := range listAgentsResp.Agents {
-		for _, svc := range agent.Services {
-			if svc.Name == "memory-app" {
-				agentID = agent.AgentId
-				s.T().Logf("Found memory-app on agent: %s", agentID)
-				break
-			}
-		}
-		if agentID != "" {
-			break
-		}
-	}
-	s.Require().NotEmpty(agentID, "Failed to find agent hosting memory-app service")
-
-	// Create debug client and trigger memory profiling (10s).
-	debugClient := helpers.NewDebugClient(colonyEndpoint)
-
 	// Generate allocation load before profiling. The allocs pprof endpoint
 	// returns a cumulative snapshot, so allocations must happen first.
 	s.T().Log("Generating allocation load before profiling...")
@@ -426,6 +344,7 @@ func (s *ProfilingSuite) TestOnDemandMemoryProfiling() {
 	s.T().Log("✓ Allocation load generated")
 
 	// Now collect the memory profile.
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
 	s.T().Log("Starting on-demand memory profiling (10s)...")
 	result, err := helpers.ProfileMemory(s.ctx, debugClient, "memory-app", 10)
 	s.Require().NoError(err, "ProfileMemory should succeed")
@@ -501,9 +420,6 @@ func (s *ProfilingSuite) TestContinuousMemoryProfiling() {
 	memoryAppEndpoint, err := fixture.GetMemoryAppEndpoint(s.ctx)
 	s.Require().NoError(err, "Failed to get memory app endpoint")
 
-	// Connect memory-app to agent-1 with SDK address for continuous profiling.
-	s.ensureServicesConnected()
-
 	// Generate allocation load so the heap has data to capture.
 	s.T().Log("Generating allocation load...")
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -557,20 +473,12 @@ func (s *ProfilingSuite) TestContinuousMemoryProfiling() {
 // Helper Methods
 // =============================================================================
 
-// disconnectCpuApp disconnects cpu-app from agent-0 if it was connected.
-// This is called by TearDownTest() after TestOnDemandProfiling which dynamically connects cpu-app.
-func (s *ProfilingSuite) disconnectCpuApp() {
-	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 0, []string{"cpu-app"})
-}
-
-// disconnectMemoryApp disconnects memory-app from agent-1 if it was connected.
-func (s *ProfilingSuite) disconnectMemoryApp() {
-	helpers.DisconnectAllServices(s.T(), s.ctx, s.fixture, 1, []string{"memory-app"})
-}
-
 // ensureServicesConnected ensures that test services are connected.
 // This uses the shared helper for idempotent service connection.
 func (s *ProfilingSuite) ensureServicesConnected() {
+	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
+		{Name: "cpu-app", Port: 8081, HealthEndpoint: "/health"},
+	})
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 1, []helpers.ServiceConfig{
 		{Name: "memory-app", Port: 8080, HealthEndpoint: "/health", SdkAddr: "localhost:9004"},
 	})
