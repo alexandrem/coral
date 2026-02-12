@@ -132,17 +132,26 @@ func createProvider(ctx context.Context, providerName string, modelID string, cf
 		}
 		return llm.NewGoogleProvider(ctx, apiKey, modelID)
 
+	case "openai":
+		apiKey := cfg.APIKeys["openai"]
+		if apiKey == "" {
+			return nil, fmt.Errorf("OpenAI API key not configured (set OPENAI_API_KEY)") // nolint: staticcheck
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI API key found (length: %d)\n", len(apiKey))
+		}
+		return llm.NewOpenAIProvider(apiKey, modelID, "")
+
 	case "mock":
-		// For mock provider, the modelID is the path to the replay script
+		// For mock provider, the modelID is the path to the replay script.
 		return llm.NewMockProvider(ctx, modelID)
 
-	// TODO: Add other providers
-	// case "openai":
+	// TODO: Add other providers.
 	// case "anthropic":
 	// case "grok", "xai":
 
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s (supported: google, mock)", providerName)
+		return nil, fmt.Errorf("unsupported provider: %s (supported: google, openai, mock)", providerName)
 	}
 }
 
@@ -489,8 +498,9 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 
 		// Add assistant's tool call response to conversation.
 		conv.AddMessage(Message{
-			Role:    "assistant",
-			Content: resp.Content,
+			Role:      "assistant",
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
 		})
 
 		// Add tool results to conversation.
@@ -510,6 +520,7 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 			llmMessages = append(llmMessages, llm.Message{
 				Role:          msg.Role,
 				Content:       msg.Content,
+				ToolCalls:     msg.ToolCalls,
 				ToolResponses: msg.ToolResponses,
 			})
 		}

@@ -138,15 +138,31 @@ coral ask "what are the slowest endpoints?" --continue
 coral ask "analyze error rates" --debug
 ```
 
+### Testing OpenAI Provider
+
+```bash
+# Set API key
+export OPENAI_API_KEY=your-key-here
+
+# Test with a simple query
+coral ask "list all services" --model openai:gpt-4o-mini
+
+# Test with high quality model
+coral ask "analyze error rates" --model openai:gpt-4o
+
+# Test with debug output
+coral ask "what is the current status?" --model openai:gpt-4o-mini --debug
+```
+
 ### Troubleshooting
 
 If queries fail, check:
 
-1. **API Key**: Ensure `GOOGLE_API_KEY` is set correctly
+1. **API Key**: Ensure `GOOGLE_API_KEY` or `OPENAI_API_KEY` is set correctly
 2. **Model Format**: Use format `provider:model-id` (e.g.,
-   `google:gemini-3-fast`)
+   `google:gemini-3-fast`, `openai:gpt-4o-mini`)
 3. **Colony Running**: Colony MCP server must be running (`coral colony list`)
-4. **Network**: Ensure you can reach Google AI API endpoints
+4. **Network**: Ensure you can reach the provider's API endpoints
 5. **Debug Mode**: Use `--debug` flag to see detailed error messages
 
 ### Common Errors
@@ -155,9 +171,9 @@ If queries fail, check:
 
 - Solution: Set `GOOGLE_API_KEY` environment variable
 
-**"unsupported provider: openai"**
+**"OpenAI API key not configured"**
 
-- Solution: Provider not yet implemented, use `google:` models for now
+- Solution: Set `OPENAI_API_KEY` environment variable
 
 **"failed to connect to colony MCP server"**
 
