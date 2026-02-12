@@ -125,10 +125,10 @@ coral ask "test question" --model openai:gpt-4o-mini
 export GOOGLE_API_KEY=your-key-here
 
 # Test with a simple query
-coral ask "list all services" --model google:gemini-2.0-flash-exp
+coral ask "list all services" --model google:gemini-3-fast
 
 # Test streaming
-coral ask "what is the current status?" --model google:gemini-1.5-flash
+coral ask "what is the current status?" --model google:gemini-3-fast
 
 # Test multi-turn conversation
 coral ask "show me HTTP latency"
@@ -144,7 +144,7 @@ If queries fail, check:
 
 1. **API Key**: Ensure `GOOGLE_API_KEY` is set correctly
 2. **Model Format**: Use format `provider:model-id` (e.g.,
-   `google:gemini-2.0-flash-exp`)
+   `google:gemini-3-fast`)
 3. **Colony Running**: Colony MCP server must be running (`coral colony list`)
 4. **Network**: Ensure you can reach Google AI API endpoints
 5. **Debug Mode**: Use `--debug` flag to see detailed error messages

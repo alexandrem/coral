@@ -297,7 +297,7 @@ Developer's Machine:
 # ~/.coral/config.yaml (local machine only)
 ai:
     ask:
-        default_model: "google:gemini-2.0-flash-exp"
+        default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"  # Environment variable reference
 ```

@@ -175,7 +175,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	// Currently only Google is supported, other providers are planned.
 	providerName := strings.SplitN(askCfg.DefaultModel, ":", 2)[0]
 	if providerName != "google" && providerName != "mock" {
-		return fmt.Errorf("provider %q is not yet implemented\n\nCurrently supported:\n  - google:gemini-2.0-flash-exp (fast, experimental)\n  - google:gemini-1.5-pro (high quality, stable)\n  - google:gemini-1.5-flash (balanced)\n\nPlanned providers:\n  - openai (gpt-4o, gpt-4o-mini)\n  - anthropic (claude-3-5-sonnet)\n  - ollama (local models)\n\nSee docs/PROVIDERS.md for implementation status", providerName)
+		return fmt.Errorf("provider %q is not yet implemented\n\nCurrently supported:\n  - google:gemini-3-fast (fast, recommended)\n\nPlanned providers:\n  - openai (gpt-4o, gpt-4o-mini)\n  - anthropic (claude-3-5-sonnet)\n  - ollama (local models)\n\nSee docs/PROVIDERS.md for implementation status", providerName)
 	}
 
 	// Execute query.

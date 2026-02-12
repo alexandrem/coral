@@ -17,10 +17,7 @@ This document provides technical details about LLM provider support for the
 
 **Currently Supported (Google only):**
 
-- **Fast/Cost-effective**: `google:gemini-2.0-flash-exp` - Experimental, fast
-  responses
-- **Production Quality**: `google:gemini-1.5-pro` - Stable, long context window
-- **Balanced**: `google:gemini-1.5-flash` - Good balance of speed and quality
+- **Recommended**: `google:gemini-3-fast` - Fast responses
 
 **Coming Soon:**
 
@@ -41,7 +38,7 @@ The Google provider uses the official Gemini SDK and supports:
 - Full MCP tool calling integration
 - Streaming responses
 - Multi-turn conversations
-- All Gemini models (1.5 Flash, 1.5 Pro, 2.0 Flash Exp)
+- Gemini 3 Fast
 
 **Tool Integration**: MCP tools are converted to Gemini `FunctionDeclaration`
 format using JSON schema transformation.
@@ -104,16 +101,14 @@ limitations may have been resolved
 
 ### Supported Models
 
-- `google:gemini-2.0-flash-exp` - Gemini 2.0 Flash (experimental, fastest)
-- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context, most capable)
-- `google:gemini-1.5-flash` - Gemini 1.5 Flash (balanced)
+- `google:gemini-3-fast` - Gemini 3 Fast (recommended)
 
 ### Configuration
 
 ```yaml
 ai:
     ask:
-        default_model: "google:gemini-2.0-flash-exp"
+        default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"
 ```
@@ -143,17 +138,4 @@ The Google provider (`internal/agent/llm/google.go`) implements:
 
 ### Current (Google Only)
 
-**For Production:**
-
-- Use `google:gemini-1.5-pro` for best quality and stability
-- Use `google:gemini-1.5-flash` for faster responses at lower cost
-
-**For Development/Testing:**
-
-- Use `google:gemini-2.0-flash-exp` for fastest iteration
-- Experimental models may have occasional issues
-
-**For Complex Analysis:**
-
-- Use `google:gemini-1.5-pro` for its long context window (up to 2M tokens)
-- Helpful for analyzing large traces or log files
+- Use `google:gemini-3-fast` for all use cases (fast, recommended)
