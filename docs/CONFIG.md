@@ -98,7 +98,7 @@ ai:
 
     # Coral Ask configuration (RFD 030)
     ask:
-        default_model: "google:gemini-2.0-flash-exp"
+        default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"
         conversation:
@@ -137,7 +137,7 @@ observability data.
 
 | Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status       |
 | ------------- | ------------------------------------------------------------ | ---------------- | ----------- | ---------------- | ------------ |
-| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full          | ✅ Supported |
+| **Google**    | `gemini-3-fast`                                              | Yes              | Cloud       | ✅ Full          | ✅ Supported |
 | **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
 | **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
 | **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
@@ -161,9 +161,7 @@ observability data.
 >
 > **Recommendation:** Use Google models for `coral ask`:
 >
-> - Production: `google:gemini-1.5-pro` (stable, long context)
-> - Development: `google:gemini-2.0-flash-exp` (fast, experimental)
-> - Cost-effective: `google:gemini-1.5-flash` (balanced)
+> - `google:gemini-3-fast` (fast, recommended)
 >
 > See `docs/PROVIDERS.md` for detailed implementation status and roadmap.
 
@@ -185,9 +183,7 @@ Models are specified as `provider:model-id`:
 
 **Google (Currently Supported):**
 
-- `google:gemini-2.0-flash-exp` - Gemini 2.0 Flash (fast, experimental)
-- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context window, most capable)
-- `google:gemini-1.5-flash` - Gemini 1.5 Flash (balanced, cost-effective)
+- `google:gemini-3-fast` - Gemini 3 Fast (fast, recommended)
 
 **Planned Providers (Not Yet Implemented):**
 
@@ -205,9 +201,7 @@ If you specify a non-Google provider, you'll receive an error:
 provider "openai" is not yet implemented
 
 Currently supported:
-  - google:gemini-2.0-flash-exp (fast, experimental)
-  - google:gemini-1.5-pro (high quality, stable)
-  - google:gemini-1.5-flash (balanced)
+  - google:gemini-3-fast (fast, recommended)
 ```
 
 #### API Key Configuration
@@ -254,7 +248,7 @@ colony_id: "my-app-prod"
 ask:
     default_model: "openai:gpt-4o"  # Use better model for production
     fallback_models:
-        - "google:gemini-2.0-flash-exp"
+        - "google:gemini-3-fast"
 ```
 
 ## Colony Configuration
@@ -1063,7 +1057,7 @@ Environment variables override configuration file values.
 | `CORAL_COLONY_ENDPOINT`    | -                                | `https://colony:8443`      | **Public API:** Public HTTPS endpoint for CLI/SDK access (RFD 031)     |
 | `CORAL_API_TOKEN`          | -                                | `cpt_abc123...`            | API token for authenticating to the public endpoint (RFD 031)          |
 | `CORAL_DEFAULT_COLONY`     | `default_colony` (Global)        | `my-default-colony`        | Default colony for global config                                       |
-| `CORAL_ASK_MODEL`          | `ask.default_model`              | `google:gemini-1.5-pro`    | Default model for Coral Ask                                            |
+| `CORAL_ASK_MODEL`          | `ask.default_model`              | `google:gemini-3-fast`     | Default model for Coral Ask                                            |
 | `CORAL_ASK_MAX_TURNS`      | `ask.conversation.max_turns`     | `20`                       | Max conversation turns for Coral Ask                                   |
 
 ### Polling Interval Environment Variables
@@ -1338,7 +1332,7 @@ ai:
     provider: "google"
     api_key_source: "env"
     ask:
-        default_model: "google:gemini-2.0-flash-exp"
+        default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"
 ```
@@ -1649,7 +1643,7 @@ ai:
 
     # Configure coral ask (RFD 030)
     ask:
-        default_model: "google:gemini-2.0-flash-exp"
+        default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"
         conversation:
@@ -1670,7 +1664,7 @@ environment: "production"
 
 # Use more stable model for production troubleshooting
 ask:
-    default_model: "google:gemini-1.5-pro"  # More capable, stable model
+    default_model: "google:gemini-3-fast"
 
 wireguard:
     mesh_network_ipv4: "100.64.0.0/10"
@@ -1700,14 +1694,10 @@ coral ask "what's the p95 latency?"
 coral ask "show me the slowest endpoints" --continue
 
 # 5. Override model for specific queries
-coral ask "complex root cause analysis" --model google:gemini-1.5-pro
+coral ask "complex root cause analysis" --model google:gemini-3-fast
 
 # 6. JSON output for scripting
 coral ask "list unhealthy services" --json
-
-# 7. Use different Gemini models
-coral ask "quick status check" --model google:gemini-1.5-flash  # Faster
-coral ask "deep analysis" --model google:gemini-1.5-pro  # More capable
 ```
 
 **Key Features:**
