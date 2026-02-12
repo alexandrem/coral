@@ -69,9 +69,9 @@ type Preferences struct {
 type ColonyConfig struct {
 	Version             string                          `yaml:"version"`
 	ColonyID            string                          `yaml:"colony_id"`
-	ApplicationName     string                          `yaml:"application_name"`
-	Environment         string                          `yaml:"environment"`
-	ColonySecret        string                          `yaml:"colony_secret"`
+	ApplicationName     string                          `yaml:"application_name" env:"CORAL_APPLICATION_NAME"`
+	Environment         string                          `yaml:"environment" env:"CORAL_ENVIRONMENT"`
+	ColonySecret        string                          `yaml:"colony_secret" env:"CORAL_COLONY_SECRET"`
 	WireGuard           WireGuardConfig                 `yaml:"wireguard"`
 	Services            ServicesConfig                  `yaml:"services"`
 	StoragePath         string                          `yaml:"storage_path" env:"CORAL_STORAGE_PATH"`
