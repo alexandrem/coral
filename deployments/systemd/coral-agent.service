@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/coral agent start --config /etc/coral/agent.yaml
+ExecStart=/usr/local/bin/coral-agent start --config /etc/coral/agent.yaml
 Restart=on-failure
 RestartSec=10s
 

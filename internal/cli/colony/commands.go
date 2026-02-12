@@ -4,7 +4,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewColonyCmd creates the colony command and its subcommands
+// NewColonyCmd creates the colony command and its subcommands.
 func NewColonyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "colony",
@@ -13,6 +13,19 @@ func NewColonyCmd() *cobra.Command {
 It aggregates observations from agents, runs AI analysis, and provides insights.`,
 	}
 
+	addColonyCommands(cmd)
+
+	return cmd
+}
+
+// RegisterCommands adds all colony subcommands directly to the given parent
+// command. This is used by the coral-colony server binary to flatten the
+// command hierarchy (e.g. "coral-colony start" instead of "coral-colony colony start").
+func RegisterCommands(parent *cobra.Command) {
+	addColonyCommands(parent)
+}
+
+func addColonyCommands(cmd *cobra.Command) {
 	cmd.AddCommand(newStartCmd())
 	cmd.AddCommand(newStopCmd())
 	cmd.AddCommand(newStatusCmd())
@@ -28,6 +41,4 @@ It aggregates observations from agents, runs AI analysis, and provides insights.
 	cmd.AddCommand(NewPSKCmd())       // RFD 088 - Bootstrap PSK management.
 	cmd.AddCommand(newTokenCmd())     // RFD 031 - API token management for public endpoint.
 	cmd.AddCommand(newAddRemoteCmd()) // RFD 031 - Add remote colony connection.
-
-	return cmd
 }

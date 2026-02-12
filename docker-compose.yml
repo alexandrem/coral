@@ -13,7 +13,7 @@ services:
   colony:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: build/Dockerfile.colony
     entrypoint: /bin/sh
     command:
       - -c
@@ -21,7 +21,7 @@ services:
         # Initialize colony if config doesn't exist
         if [ ! -f /var/lib/coral/.colony_id ] || [ ! -d /root/.coral/colonies/coral-dev-* ]; then
           echo "Initializing colony..."
-          INIT_OUTPUT=$$(/usr/local/bin/coral init coral-dev --env dev --storage /var/lib/coral --discovery $${CORAL_DISCOVERY_ENDPOINT} 2>&1)
+          INIT_OUTPUT=$$(/usr/local/bin/coral-colony init coral-dev --env dev --storage /var/lib/coral --discovery $${CORAL_DISCOVERY_ENDPOINT} 2>&1)
           echo "$$INIT_OUTPUT"
           # Find the generated colony directory
           COLONY_DIR=$$(ls -1d /root/.coral/colonies/coral-dev-* 2>/dev/null | head -1)
@@ -79,10 +79,10 @@ services:
             touch "$$CONFIG_FILE.public_applied"
           fi
 
-          exec /usr/local/bin/coral colony start --colony "$$COLONY_ID"
+          exec /usr/local/bin/coral-colony start --colony "$$COLONY_ID"
         else
           # Fallback to auto-detection
-          exec /usr/local/bin/coral colony start
+          exec /usr/local/bin/coral-colony start
         fi
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
@@ -94,7 +94,7 @@ services:
       - "51820:51820/udp" # WireGuard
     privileged: true # Required for WireGuard
     healthcheck:
-      test: ["CMD", "coral", "colony", "status"]
+      test: ["CMD", "coral-colony", "status"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -110,7 +110,7 @@ services:
   agent-0:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: build/Dockerfile.agent
     entrypoint: /bin/sh
     command:
       - -c
@@ -137,7 +137,7 @@ services:
         export CORAL_COLONY_ID="$$COLONY_ID"
         export CORAL_CA_FINGERPRINT="$$CA_FINGERPRINT"
         export CORAL_BOOTSTRAP_PSK="$$BOOTSTRAP_PSK"
-        exec /usr/local/bin/coral agent start --monitor-all
+        exec /usr/local/bin/coral-agent start --monitor-all
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true
@@ -151,7 +151,7 @@ services:
     depends_on:
       - colony
     healthcheck:
-      test: ["CMD", "coral", "agent", "status"]
+      test: ["CMD", "coral-agent", "status"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -169,7 +169,7 @@ services:
   agent-1:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: build/Dockerfile.agent
     entrypoint: /bin/sh
     command:
       - -c
@@ -196,7 +196,7 @@ services:
         export CORAL_COLONY_ID="$$COLONY_ID"
         export CORAL_CA_FINGERPRINT="$$CA_FINGERPRINT"
         export CORAL_BOOTSTRAP_PSK="$$BOOTSTRAP_PSK"
-        exec /usr/local/bin/coral agent start --monitor-all
+        exec /usr/local/bin/coral-agent start --monitor-all
     environment:
       - CORAL_DISCOVERY_ENDPOINT=https://coral-discovery.alexandre-mclean.workers.dev
       - CORAL_AGENT_BIND_ALL=true
@@ -210,7 +210,7 @@ services:
     depends_on:
       - colony
     healthcheck:
-      test: ["CMD", "coral", "agent", "status"]
+      test: ["CMD", "coral-agent", "status"]
       interval: 30s
       timeout: 10s
       retries: 3

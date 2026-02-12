@@ -1,0 +1,80 @@
+# Coral Colony Docker Image
+FROM golang:1.25-bookworm AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /build
+
+# Install build dependencies including C compiler for CGO (required by go-duckdb).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang \
+    g++ \
+    gcc \
+    git \
+    llvm \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Init project tooling.
+COPY Makefile .
+RUN make init
+
+# Ensure Go bin directory is in PATH.
+ENV PATH="${PATH}:/go/bin"
+
+# Copy go mod files (skip go.work - not needed for container builds).
+COPY go.mod go.sum ./
+
+# Download dependencies with cache mount for faster builds.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+# Copy source code.
+COPY . .
+
+# Build the colony binary for the target platform.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make build-colony BUILD_DIR=/build/bin
+
+# Final stage - minimal runtime image.
+FROM debian:bookworm-slim
+
+# Install runtime dependencies including WireGuard and networking tools.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wireguard-tools \
+    iptables \
+    iproute2 \
+    bash \
+    curl \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create coral user.
+RUN groupadd -g 1000 coral && \
+    useradd -m -u 1000 -g coral coral
+
+# Create necessary directories.
+RUN mkdir -p /var/lib/coral /var/log/coral && \
+    chown -R coral:coral /var/lib/coral /var/log/coral
+
+# Copy binary from builder.
+COPY --from=builder /build/bin/coral-colony /usr/local/bin/coral-colony
+
+# Run as root for TUN device creation (required for WireGuard mesh).
+USER root
+
+WORKDIR /root
+
+# Health check.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD coral-colony status || exit 1
+
+# Default entrypoint.
+ENTRYPOINT ["/usr/local/bin/coral-colony"]
+
+# Default command.
+CMD ["start"]
