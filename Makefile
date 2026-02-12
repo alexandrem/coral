@@ -1,4 +1,4 @@
-.PHONY: build build-dev clean init install install-tools test run help generate proto docker-build docker-buildx test-e2e test-e2e-up test-e2e-down dev-up dev-up-local dev-down dev-logs dev-status dev-env
+.PHONY: build build-colony build-agent build-all build-dev clean init install install-tools test run help generate proto docker-build docker-build-colony docker-build-agent docker-buildx test-e2e test-e2e-up test-e2e-down dev-up dev-up-local dev-down dev-logs dev-status dev-env
 
 # Build variables
 BINARY_NAME=coral
@@ -61,15 +61,45 @@ proto: ## Generate protobuf files using buf
 	fi
 	@$(MAKE) -s fmt
 
-build: generate ## Build the coral binary
+build: generate ## Build the full coral CLI binary
 	@echo "Building for $(GOOS)/$(GOARCH) → $(BUILD_DIR)"
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral
 	@echo "✓ Built $(BUILD_DIR)/$(BINARY_NAME)"
-	@echo "Building coral-discovery..."
-	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-discovery ./cmd/discovery
-	@echo "✓ Built $(BUILD_DIR)/coral-discovery"
-	@# Copy Deno binary for current platform
+	@# Copy Deno binary for current platform.
+	@DENO_SRC="internal/cli/run/binaries/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
+	DENO_DST="$(BUILD_DIR)/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
+	if [ -f "$$DENO_SRC" ]; then \
+		cp "$$DENO_SRC" "$$DENO_DST"; \
+		chmod +x "$$DENO_DST"; \
+		echo "✓ Copied Deno binary to $(BUILD_DIR)"; \
+	else \
+		echo "⚠️  Deno binary not found at $$DENO_SRC"; \
+		echo "   Run 'make generate' to download Deno binaries"; \
+	fi
+
+build-colony: generate ## Build the coral-colony server binary
+	@echo "Building coral-colony for $(GOOS)/$(GOARCH) → $(BUILD_DIR)"
+	@mkdir -p $(BUILD_DIR)
+	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-colony ./cmd/coral-colony
+	@echo "✓ Built $(BUILD_DIR)/coral-colony"
+
+build-agent: generate ## Build the coral-agent server binary
+	@echo "Building coral-agent for $(GOOS)/$(GOARCH) → $(BUILD_DIR)"
+	@mkdir -p $(BUILD_DIR)
+	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-agent ./cmd/coral-agent
+	@echo "✓ Built $(BUILD_DIR)/coral-agent"
+
+build-all: generate ## Build all binaries (coral, coral-colony, coral-agent)
+	@echo "Building all binaries for $(GOOS)/$(GOARCH) → $(BUILD_DIR)"
+	@mkdir -p $(BUILD_DIR)
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral
+	@echo "✓ Built $(BUILD_DIR)/$(BINARY_NAME)"
+	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-colony ./cmd/coral-colony
+	@echo "✓ Built $(BUILD_DIR)/coral-colony"
+	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-agent ./cmd/coral-agent
+	@echo "✓ Built $(BUILD_DIR)/coral-agent"
+	@# Copy Deno binary for current platform (full CLI only).
 	@DENO_SRC="internal/cli/run/binaries/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
 	DENO_DST="$(BUILD_DIR)/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
 	if [ -f "$$DENO_SRC" ]; then \
@@ -238,16 +268,27 @@ lint-linux: ## Run linter in Linux Docker (tests platform-specific code)
 		golangci/golangci-lint:latest \
 		golangci-lint run --config .golangci.yml ./...
 
-docker-build: ## Build Docker image for current platform
+docker-build: ## Build unified Docker image for current platform
 	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
-	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) -f build/Dockerfile .
 	@echo "✓ Built $(DOCKER_IMAGE):$(DOCKER_TAG)"
+
+docker-build-colony: ## Build colony Docker image for current platform
+	@echo "Building Docker image $(DOCKER_IMAGE)-colony:$(DOCKER_TAG)..."
+	docker build -t $(DOCKER_IMAGE)-colony:$(DOCKER_TAG) -f build/Dockerfile.colony .
+	@echo "✓ Built $(DOCKER_IMAGE)-colony:$(DOCKER_TAG)"
+
+docker-build-agent: ## Build agent Docker image for current platform
+	@echo "Building Docker image $(DOCKER_IMAGE)-agent:$(DOCKER_TAG)..."
+	docker build -t $(DOCKER_IMAGE)-agent:$(DOCKER_TAG) -f build/Dockerfile.agent .
+	@echo "✓ Built $(DOCKER_IMAGE)-agent:$(DOCKER_TAG)"
 
 docker-buildx: ## Build multi-platform Docker image (requires buildx)
 	@echo "Building multi-platform Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
 	docker buildx build \
 		--platform linux/amd64,linux/arm64 \
 		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
+		-f build/Dockerfile \
 		--load \
 		.
 	@echo "✓ Built $(DOCKER_IMAGE):$(DOCKER_TAG) for linux/amd64,linux/arm64"
@@ -326,7 +367,7 @@ dev-env: ## Print env vars and commands to connect CLI to dev stack
     fi
 	@COLONY_ID=$$(docker exec coral-colony-1 cat /shared/colony_id); \
 	echo "Creating admin API token..."; \
-	TOKEN=$$(docker exec coral-colony-1 coral colony token create dev-admin --permissions admin --recreate 2>/dev/null | grep "^Token: " | sed 's/Token: //'); \
+	TOKEN=$$(docker exec coral-colony-1 coral-colony token create dev-admin --permissions admin --recreate 2>/dev/null | grep "^Token: " | sed 's/Token: //'); \
 	if [ -n "$$TOKEN" ]; then \
 	   echo ""; \
 	   echo "To connect CLI to dev stack:"; \

@@ -16,11 +16,21 @@ Agents are local observers that monitor services and report to the colony.
 Use these commands to start, stop, and check agent status.`,
 	}
 
-	// Add subcommands.
+	addAgentCommands(cmd)
+
+	return cmd
+}
+
+// RegisterCommands adds all agent subcommands directly to the given parent
+// command. This is used by the coral-agent server binary to flatten the
+// command hierarchy (e.g. "coral-agent start" instead of "coral-agent agent start").
+func RegisterCommands(parent *cobra.Command) {
+	addAgentCommands(parent)
+}
+
+func addAgentCommands(cmd *cobra.Command) {
 	cmd.AddCommand(NewStartCmd())
 	cmd.AddCommand(NewStatusCmd())
 	cmd.AddCommand(NewBootstrapCmd()) // RFD 048
 	cmd.AddCommand(NewCertCmd())      // RFD 048
-
-	return cmd
 }

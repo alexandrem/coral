@@ -5,6 +5,8 @@ applications to collect telemetry data and respond to colony queries.
 
 ## Table of Contents
 
+- [Binaries](#binaries)
+- [Command Reference](#command-reference)
 - [Architecture Overview](#architecture-overview)
 - [How It Works](#how-it-works)
 - [Port Overview](#port-overview)
@@ -17,6 +19,91 @@ applications to collect telemetry data and respond to colony queries.
 - [Data Flow](#data-flow)
 - [Performance Characteristics](#performance-characteristics)
 - [Security Model](#security-model)
+
+---
+
+## Binaries
+
+Coral provides two ways to run an agent:
+
+| Binary | Description | Use case |
+|--------|-------------|----------|
+| `coral` | Full CLI with all commands (colony, agent, ask, etc.) | Development, testing |
+| `coral-agent` | Agent-only server binary with ops tools | Server deployments |
+
+The `coral-agent` binary has a **flat command hierarchy** -- commands are
+registered directly at the root level:
+
+```bash
+# Server binary (flat)
+coral-agent start --monitor-all
+coral-agent status
+coral-agent bootstrap --colony my-app --fingerprint sha256:abc123...
+
+# Full CLI (nested under 'agent' subcommand)
+coral agent start --monitor-all
+coral agent status
+coral agent bootstrap --colony my-app --fingerprint sha256:abc123...
+```
+
+---
+
+## Command Reference
+
+### Lifecycle
+
+```bash
+# Start the agent daemon
+coral-agent start [--monitor-all]
+
+# Show agent status and runtime context
+coral-agent status
+```
+
+### Certificate Bootstrap (mTLS)
+
+```bash
+# Bootstrap agent certificate for colony authentication
+coral-agent bootstrap \
+  --colony my-app-prod \
+  --fingerprint sha256:abc123... \
+  --psk coral-psk:f1e2d3c4b5a6...
+
+# Check certificate status
+coral-agent cert status
+
+# Renew certificate
+coral-agent cert renew --colony-endpoint https://colony:9000
+
+# Force renewal even if not near expiry
+coral-agent cert renew --colony-endpoint https://colony:9000 --force
+```
+
+### DuckDB SQL Access
+
+Direct SQL access to the agent's local DuckDB databases. Useful for inspecting
+raw telemetry data stored locally.
+
+```bash
+# List available databases
+coral-agent duckdb list
+
+# Interactive SQL shell against local agent database
+coral-agent duckdb shell
+
+# One-shot query
+coral-agent duckdb query agent-local \
+  "SELECT service_name, COUNT(*) FROM otel_spans_local GROUP BY service_name"
+```
+
+### Configuration
+
+```bash
+# View and manage Coral configuration
+coral-agent config --help
+```
+
+See [CONFIG.md](CONFIG.md) for detailed configuration options.
 
 ---
 
