@@ -13,6 +13,7 @@ import (
 
 	"github.com/coral-mesh/coral/internal/cli/agent"
 	"github.com/coral-mesh/coral/internal/cli/config"
+	"github.com/coral-mesh/coral/internal/cli/duckdb"
 	"github.com/coral-mesh/coral/internal/cli/tunhelper"
 	"github.com/coral-mesh/coral/pkg/version"
 )
@@ -28,6 +29,10 @@ func main() {
 	// Register agent subcommands directly on root for a flat hierarchy
 	// (e.g. "coral-agent start" instead of "coral-agent agent start").
 	agent.RegisterCommands(rootCmd)
+
+	// Ops command for querying the local agent database.
+	rootCmd.AddCommand(duckdb.NewDuckDBCmd())
+
 	rootCmd.AddCommand(config.NewConfigCmd())
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(tunhelper.New())

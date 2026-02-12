@@ -13,7 +13,11 @@ import (
 
 	"github.com/coral-mesh/coral/internal/cli/colony"
 	"github.com/coral-mesh/coral/internal/cli/config"
+	"github.com/coral-mesh/coral/internal/cli/debug"
+	"github.com/coral-mesh/coral/internal/cli/duckdb"
 	initcmd "github.com/coral-mesh/coral/internal/cli/init"
+	"github.com/coral-mesh/coral/internal/cli/profile"
+	"github.com/coral-mesh/coral/internal/cli/query"
 	"github.com/coral-mesh/coral/internal/cli/tunhelper"
 	"github.com/coral-mesh/coral/pkg/version"
 )
@@ -29,6 +33,13 @@ func main() {
 	// Register colony subcommands directly on root for a flat hierarchy
 	// (e.g. "coral-colony start" instead of "coral-colony colony start").
 	colony.RegisterCommands(rootCmd)
+
+	// Ops commands for querying and debugging from the colony host.
+	rootCmd.AddCommand(query.NewQueryCmd())
+	rootCmd.AddCommand(duckdb.NewDuckDBCmd())
+	rootCmd.AddCommand(debug.NewDebugCmd())
+	rootCmd.AddCommand(profile.NewProfileCmd())
+
 	rootCmd.AddCommand(initcmd.NewInitCmd())
 	rootCmd.AddCommand(config.NewConfigCmd())
 	rootCmd.AddCommand(newVersionCmd())
