@@ -507,7 +507,6 @@ func runListProviders(format string, showModels bool) error {
 
 	// Table output using tabwriter.
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	defer w.Flush()
 
 	if showModels {
 		fmt.Fprintln(w, "PROVIDER\tDISPLAY NAME\tSTATUS\tMODELS")
@@ -534,6 +533,9 @@ func runListProviders(format string, showModels bool) error {
 			)
 		}
 	}
+
+	// Flush table before printing configuration hints.
+	w.Flush()
 
 	// Show configuration hints for not-configured providers.
 	hasUnconfigured := false
