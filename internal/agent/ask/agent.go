@@ -233,7 +233,7 @@ func connectToColonyMCP(ctx context.Context, colonyCfg *config.ColonyConfig, deb
 		defer initCancel()
 
 		if _, err := res.client.Initialize(initCtx, initReq); err != nil {
-			res.client.Close()
+			res.client.Close() // nolint:errcheck // cli command will exit anyway
 			return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
 		}
 
