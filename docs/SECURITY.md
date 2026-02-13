@@ -300,6 +300,7 @@ ai:
         default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"  # Environment variable reference
+            openai: "env://OPENAI_API_KEY"  # Environment variable reference
 ```
 
 **Threat Model:**

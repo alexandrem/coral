@@ -10,6 +10,7 @@ import (
 type Message struct {
 	Role          string
 	Content       string
+	ToolCalls     []llm.ToolCall
 	ToolResponses []llm.ToolResponse
 }
 

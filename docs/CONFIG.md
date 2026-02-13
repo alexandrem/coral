@@ -138,7 +138,7 @@ observability data.
 | Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status       |
 | ------------- | ------------------------------------------------------------ | ---------------- | ----------- | ---------------- | ------------ |
 | **Google**    | `gemini-3-fast`                                              | Yes              | Cloud       | ✅ Full          | ✅ Supported |
-| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`                                      | Yes              | Cloud       | ✅ Full          | ✅ Supported |
 | **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
 | **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
 | **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
@@ -148,20 +148,21 @@ observability data.
 >
 > **Currently Supported:**
 >
-> - **Google Gemini**: Only provider currently implemented. Uses direct SDK
-
-    integration with full MCP tool calling support.
-
+> - **Google Gemini**: Uses direct SDK integration with full MCP tool calling support.
+> - **OpenAI**: Uses official SDK with full MCP tool calling support. Compatible
+>   with any OpenAI-compatible API.
+>
 > **Planned Providers:**
 >
-> - **OpenAI**: Implementation needed for GPT-4o and GPT-4o-mini support
 > - **Anthropic**: Native tool calling support available, implementation planned
 > - **Ollama**: For air-gapped/offline deployments
 > - **Grok**: Evaluate tool calling support and implement if viable
 >
-> **Recommendation:** Use Google models for `coral ask`:
+> **Recommendation:**
 >
 > - `google:gemini-3-fast` (fast, recommended)
+> - `openai:gpt-4o` (high quality)
+> - `openai:gpt-4o-mini` (fast, cost-effective)
 >
 > See `docs/PROVIDERS.md` for detailed implementation status and roadmap.
 
@@ -181,28 +182,20 @@ observability data.
 
 Models are specified as `provider:model-id`:
 
-**Google (Currently Supported):**
+**Google:**
 
 - `google:gemini-3-fast` - Gemini 3 Fast (fast, recommended)
 
+**OpenAI:**
+
+- `openai:gpt-4o` - GPT-4o (high quality)
+- `openai:gpt-4o-mini` - GPT-4o-mini (fast, cost-effective)
+
 **Planned Providers (Not Yet Implemented):**
 
-- `openai:gpt-4o` - Latest GPT-4 Omni (planned)
-- `openai:gpt-4o-mini` - Faster, cheaper GPT-4 Omni (planned)
 - `anthropic:claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet (planned)
 - `ollama:llama3.2` - Local Llama 3.2 (planned for air-gapped deployments)
 - `ollama:mistral` - Local Mistral (planned)
-
-**Current Limitation:**
-
-If you specify a non-Google provider, you'll receive an error:
-
-```
-provider "openai" is not yet implemented
-
-Currently supported:
-  - google:gemini-3-fast (fast, recommended)
-```
 
 #### API Key Configuration
 
@@ -1704,14 +1697,15 @@ coral ask "list unhealthy services" --json
 
 - **MCP Integration:** LLM accesses all Colony MCP tools (service health,
   traces, metrics, logs)
-- **Google Gemini:** Currently supported provider with full tool calling
+- **Google Gemini:** Supported provider with full tool calling
+- **OpenAI:** Supported provider with full tool calling, compatible with any
+  OpenAI-compatible API
 - **Conversation Context:** Multi-turn conversations with automatic context
   pruning
 - **Per-Colony Models:** Use faster models for dev, more capable for production
-- **Model Selection:** Choose between speed (Flash) and quality (Pro)
 
-**Future Support:** OpenAI, Anthropic, and Ollama providers are planned but not
-yet implemented. See `docs/PROVIDERS.md` for implementation status.
+**Future Support:** Anthropic and Ollama providers are planned but not yet
+implemented. See `docs/PROVIDERS.md` for implementation status.
 
 ### Validation Rules
 
