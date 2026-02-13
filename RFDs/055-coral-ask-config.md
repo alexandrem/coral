@@ -154,7 +154,7 @@ User runs: coral ask config
    - Verify model availability
    - Check configuration completeness
 
-3. **Provider Registry** (`internal/agent/llm/registry.go` - new file):
+3. **Provider Registry** (`internal/llm/registry.go` - new file):
 
    - Central registry of supported providers
    - Provider metadata (available models, features, costs)
@@ -208,7 +208,7 @@ colonies:
 
 - [ ] Create `internal/cli/ask/config.go` for command implementation
 - [ ] Add `github.com/AlecAivazis/survey/v2` dependency for interactive prompts
-- [ ] Define provider registry structure (`internal/agent/llm/registry.go`)
+- [ ] Define provider registry structure (`internal/llm/registry.go`)
 - [ ] Create configuration validator (`internal/config/ask_validator.go`)
 
 ### Phase 2: Core Implementation

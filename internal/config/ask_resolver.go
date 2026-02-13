@@ -84,6 +84,8 @@ func resolveAPIKeyReferences(cfg *AskConfig) error {
 }
 
 // getDefaultAPIKey attempts to get API key from common environment variables.
+// Note: This uses hardcoded env var names to avoid import cycles.
+// Provider metadata (including env var names) is managed in internal/llm.
 func getDefaultAPIKey(provider string) string {
 	switch provider {
 	case "openai":
@@ -100,6 +102,8 @@ func getDefaultAPIKey(provider string) string {
 }
 
 // ValidateAskConfig validates the ask configuration.
+// Note: This performs basic format validation only. Provider/model validation
+// happens in the CLI layer to avoid import cycles.
 func ValidateAskConfig(cfg *AskConfig) error {
 	if cfg.DefaultModel == "" {
 		return fmt.Errorf("default_model is required")

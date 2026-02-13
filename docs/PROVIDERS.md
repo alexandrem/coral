@@ -30,7 +30,7 @@ This document provides technical details about LLM provider support for the
 
 ### Google (Gemini) - ✅ Fully Supported
 
-**Implementation**: `internal/agent/llm/google.go`
+**Implementation**: `internal/llm/google.go`
 **SDK**: `github.com/google/generative-ai-go/genai`
 **Status**: ✅ Production-ready
 
@@ -46,7 +46,7 @@ format using JSON schema transformation.
 
 ### OpenAI - ✅ Fully Supported
 
-**Implementation**: `internal/agent/llm/openai.go`
+**Implementation**: `internal/llm/openai.go`
 **SDK**: `github.com/openai/openai-go`
 **Status**: ✅ Production-ready
 
@@ -132,7 +132,7 @@ export GOOGLE_API_KEY=your-api-key-here
 
 ### Implementation Notes
 
-The Google provider (`internal/agent/llm/google.go`) implements:
+The Google provider (`internal/llm/google.go`) implements:
 
 - **Tool Conversion**: JSON Schema → Gemini `FunctionDeclaration`
 - **Streaming**: Chunks are streamed via callback as they arrive
@@ -172,7 +172,7 @@ export OPENAI_API_KEY=your-api-key-here
 
 ### Implementation Notes
 
-The OpenAI provider (`internal/agent/llm/openai.go`) implements:
+The OpenAI provider (`internal/llm/openai.go`) implements:
 
 - **Tool Conversion**: MCP JSON Schema → OpenAI `FunctionParameters` (direct passthrough)
 - **Streaming**: Uses `ChatCompletionAccumulator` for reliable stream aggregation
