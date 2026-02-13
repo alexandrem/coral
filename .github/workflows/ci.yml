@@ -199,9 +199,10 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────────────────
-  # E2E Tests
+  # E2E: Build Binary
   # ──────────────────────────────────────────────────────────────
-  e2e:
+  build-e2e-binary:
+    name: Build binary for E2E
     needs: [go-env, test, static-analysis]
     runs-on: ubuntu-latest
     steps:
@@ -236,26 +237,92 @@ jobs:
       - name: Build coral binary
         run: make build
 
-      - name: Add coral binary to PATH
-        run: echo "${{ github.workspace }}/bin/linux_amd64" >> $GITHUB_PATH
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Run E2E tests
-        run: make test-e2e
-        timeout-minutes: 30
-        env:
-          DOCKER_BUILDKIT: 1
-          COMPOSE_DOCKER_CLI_BUILD: 1
-
-      - name: Upload Linux binary for build job
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-amd64-binaries
           path: bin/
           retention-days: 30
           if-no-files-found: error
+
+  # ──────────────────────────────────────────────────────────────
+  # Build Production Container Images (colony, agents)
+  # Later: will push to ghcr.io
+  # ──────────────────────────────────────────────────────────────
+  build-containers:
+    name: Build production containers
+    needs: [build-e2e-binary]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download coral binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: bin/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production images (colony, agents)
+        run: docker compose build colony agent-0 agent-1
+        timeout-minutes: 15
+        env:
+          DOCKER_BUILDKIT: 1
+
+      # TODO: Add ghcr.io push here when ready
+      # - name: Push to GitHub Container Registry
+      #   run: docker compose push colony agent-0 agent-1
+
+  # ──────────────────────────────────────────────────────────────
+  # E2E: Build Test Containers & Run Tests
+  # ──────────────────────────────────────────────────────────────
+  e2e:
+    name: Build E2E test apps & run tests
+    needs: [build-e2e-binary, build-containers]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Download coral binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: bin/
+
+      - name: Add coral binary to PATH
+        run: |
+          chmod +x bin/linux_amd64/coral
+          echo "${{ github.workspace }}/bin/linux_amd64" >> $GITHUB_PATH
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production images (from cache)
+        run: docker compose build colony agent-0 agent-1
+        timeout-minutes: 5
+        env:
+          DOCKER_BUILDKIT: 1
+
+      - name: Build E2E test apps (cpu-app, otel-app, sdk-app, memory-app)
+        run: cd tests/e2e/distributed && make build
+        timeout-minutes: 15
+        env:
+          DOCKER_BUILDKIT: 1
+
+      - name: Start E2E services
+        run: cd tests/e2e/distributed && make up
+
+      - name: Run E2E tests
+        run: cd tests/e2e/distributed && make test
+        timeout-minutes: 30
 
       - name: Collect logs on failure
         if: failure()
