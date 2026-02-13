@@ -233,6 +233,12 @@ jobs:
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
+      - name: Build coral binary
+        run: make build
+
+      - name: Add coral binary to PATH
+        run: echo "${{ github.workspace }}/bin/linux_amd64" >> $GITHUB_PATH
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -242,6 +248,14 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           COMPOSE_DOCKER_CLI_BUILD: 1
+
+      - name: Upload Linux binary for build job
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: bin/
+          retention-days: 30
+          if-no-files-found: error
 
       - name: Collect logs on failure
         if: failure()
@@ -324,7 +338,16 @@ jobs:
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
+      # Reuse Linux binary from e2e job, build for other platforms
+      - name: Download Linux binary from e2e
+        if: runner.os == 'Linux'
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: bin/
+
       - name: Build
+        if: runner.os != 'Linux'
         run: make build
 
       # Unique, predictable artifact name
