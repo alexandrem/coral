@@ -6,7 +6,7 @@
 // conversations, multiple AI providers (OpenAI, Google, Ollama), and both streaming and
 // JSON output modes.
 //
-// See RFD 030 for the complete design and implementation details.
+// nolint:errcheck
 package ask
 
 import (
@@ -565,18 +565,6 @@ func runListProviders(format string, showModels bool) error {
 	}
 
 	return nil
-}
-
-// colorizeStatus adds color to status strings for terminal output.
-func colorizeStatus(status string) string {
-	switch status {
-	case "configured", "available":
-		return fmt.Sprintf("\033[32m%s\033[0m", status) // Green
-	case "not-configured":
-		return fmt.Sprintf("\033[33m%s\033[0m", status) // Yellow
-	default:
-		return status
-	}
 }
 
 // truncate truncates a string to the specified maximum length.
