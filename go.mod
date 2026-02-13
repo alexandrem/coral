@@ -15,6 +15,7 @@ require (
 	github.com/kr/pty v1.1.8
 	github.com/marcboeker/go-duckdb v1.8.5
 	github.com/mark3labs/mcp-go v0.29.0
+	github.com/openai/openai-go v1.12.0
 	github.com/pion/stun v0.6.1
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v4 v4.25.11
@@ -79,6 +80,10 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect

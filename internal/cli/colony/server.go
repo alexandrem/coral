@@ -31,22 +31,23 @@ import (
 )
 
 // startServers starts the HTTP/Connect servers for agent registration and colony management.
-func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, db *database.Database, endpoints []string, logger logging.Logger) (*http.Server, error) {
+// Returns the HTTP server, the token store (nil if public endpoint is disabled), and any error.
+func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentRegistry *registry.Registry, db *database.Database, endpoints []string, logger logging.Logger) (*http.Server, *auth.TokenStore, error) {
 	ctx := context.Background()
 	// Get connect port from config or use default
 	loader, err := config.NewLoader()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create config loader: %w", err)
+		return nil, nil, fmt.Errorf("failed to create config loader: %w", err)
 	}
 
 	colonyConfig, err := loader.LoadColonyConfig(cfg.ColonyID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load colony config: %w", err)
+		return nil, nil, fmt.Errorf("failed to load colony config: %w", err)
 	}
 
 	globalConfig, err := loader.LoadGlobalConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load global config: %w", err)
+		return nil, nil, fmt.Errorf("failed to load global config: %w", err)
 	}
 
 	connectPort := colonyConfig.Services.ConnectPort
@@ -78,7 +79,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	caDir := filepath.Join(loader.ColonyDir(cfg.ColonyID), "ca")
 	caManager, err := colony.InitializeCA(db.DB(), cfg.ColonyID, caDir, jwksClient, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize CA manager: %w", err)
+		return nil, nil, fmt.Errorf("failed to initialize CA manager: %w", err)
 	}
 
 	// Compute public endpoint URL if enabled (RFD 031).
@@ -120,11 +121,11 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	// Load colony config early (needed by function registry, MCP, and other components).
 	mcpLoader, mcpErr := config.NewLoader()
 	if mcpErr != nil {
-		return nil, fmt.Errorf("failed to create config loader: %w", mcpErr)
+		return nil, nil, fmt.Errorf("failed to create config loader: %w", mcpErr)
 	}
 	colonyConfig, mcpErr = mcpLoader.LoadColonyConfig(cfg.ColonyID)
 	if mcpErr != nil {
-		return nil, fmt.Errorf("failed to load colony config: %w", mcpErr)
+		return nil, nil, fmt.Errorf("failed to load colony config: %w", mcpErr)
 	}
 
 	// Initialize function registry early (needed by debug orchestrator).
@@ -312,6 +313,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 	}()
 
 	// Start public endpoint server if enabled (RFD 031).
+	var tokenStore *auth.TokenStore
 	if colonyConfig.PublicEndpoint.Enabled {
 		// Initialize token store with tokens from colony config directory.
 		colonyDir := loader.ColonyDir(cfg.ColonyID)
@@ -319,7 +321,7 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		if tokensFile == "" {
 			tokensFile = filepath.Join(colonyDir, "tokens.yaml")
 		}
-		tokenStore := auth.NewTokenStore(tokensFile)
+		tokenStore = auth.NewTokenStore(tokensFile)
 
 		// Issue server certificate from internal CA if no cert provided.
 		var tlsCert *tls.Certificate
@@ -381,5 +383,5 @@ func startServers(cfg *config.ResolvedConfig, wgDevice *wireguard.Device, agentR
 		}
 	}
 
-	return httpServer, nil
+	return httpServer, tokenStore, nil
 }

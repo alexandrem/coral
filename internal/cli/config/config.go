@@ -118,6 +118,18 @@ func runGetContexts(format string) error {
 	// Get current colony and resolution source.
 	currentColonyID, source, _ := resolver.ResolveWithSource()
 
+	// If current colony is valid but not in the list (e.g. from env), add it.
+	found := false
+	for _, id := range colonyIDs {
+		if id == currentColonyID {
+			found = true
+			break
+		}
+	}
+	if !found && currentColonyID != "" {
+		colonyIDs = append(colonyIDs, currentColonyID)
+	}
+
 	if format != string(helpers.FormatTable) {
 		return outputGetContextsFormatted(loader, colonyIDs, currentColonyID, source, format)
 	}

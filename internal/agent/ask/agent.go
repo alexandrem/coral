@@ -127,17 +127,27 @@ func (a *Agent) GetConversationHistory(conversationID string) []Message {
 func createProvider(ctx context.Context, providerName string, modelID string, cfg *config.AskConfig, debug bool) (llm.Provider, error) {
 	switch providerName {
 	case "google":
-		apiKey := cfg.APIKeys["google"]
-		if apiKey == "" {
-			return nil, fmt.Errorf("Google AI API key not configured (set GOOGLE_API_KEY)") // nolint: staticcheck
+		apiKey, err := resolveProviderAPIKey(cfg, "google", "GOOGLE_API_KEY")
+		if err != nil {
+			return nil, err
 		}
 		if debug {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Google AI API key found (length: %d)\n", len(apiKey))
 		}
 		return llm.NewGoogleProvider(ctx, apiKey, modelID)
 
+	case "openai":
+		apiKey, err := resolveProviderAPIKey(cfg, "openai", "OPENAI_API_KEY")
+		if err != nil {
+			return nil, err
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI API key found (length: %d)\n", len(apiKey))
+		}
+		return llm.NewOpenAIProvider(apiKey, modelID, "")
+
 	case "mock":
-		// For mock provider, the modelID is the path to the replay script
+		// For mock provider, the modelID is the path to the replay script.
 		return llm.NewMockProvider(ctx, modelID)
 
 	case "coral":
@@ -157,12 +167,39 @@ func createProvider(ctx context.Context, providerName string, modelID string, cf
 
 	// TODO: Add other providers
 	// case "openai":
+	// TODO: Add other providers.
 	// case "anthropic":
 	// case "grok", "xai":
 
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s (supported: google, coral, mock)", providerName)
+		return nil, fmt.Errorf("unsupported provider: %s (supported: google, openai, coral, mock)",
+			providerName)
 	}
+}
+
+// resolveProviderAPIKey resolves the API key for a provider. It checks the
+// config map first, falling back to the given default environment variable.
+// It returns an error if the key is missing or still contains an unresolved
+// env:// reference.
+func resolveProviderAPIKey(cfg *config.AskConfig, provider string, defaultEnvVar string) (string, error) {
+	apiKey := cfg.APIKeys[provider]
+
+	// Detect unresolved env:// references (env var was not set).
+	if strings.HasPrefix(apiKey, "env://") {
+		envVar := strings.TrimPrefix(apiKey, "env://")
+		return "", fmt.Errorf("%s API key not configured: environment variable %s is not set", provider, envVar) // nolint: staticcheck
+	}
+
+	// Fall back to the default env var if no key was configured.
+	if apiKey == "" {
+		apiKey = os.Getenv(defaultEnvVar)
+	}
+
+	if apiKey == "" {
+		return "", fmt.Errorf("%s API key not configured (set %s)", provider, defaultEnvVar) // nolint: staticcheck
+	}
+
+	return apiKey, nil
 }
 
 // connectToColonyMCP connects to the Colony's MCP server via stdio subprocess.
@@ -214,7 +251,11 @@ func connectToColonyMCP(ctx context.Context, colonyCfg *config.ColonyConfig, deb
 			Experimental: map[string]interface{}{},
 		}
 
-		if _, err := res.client.Initialize(ctx, initReq); err != nil {
+		initCtx, initCancel := context.WithTimeout(ctx, connectionTimeout)
+		defer initCancel()
+
+		if _, err := res.client.Initialize(initCtx, initReq); err != nil {
+			res.client.Close() // nolint:errcheck // cli command will exit anyway
 			return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
 		}
 

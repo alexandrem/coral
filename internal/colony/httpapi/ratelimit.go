@@ -19,6 +19,7 @@ type RateLimit struct {
 type RateLimiter struct {
 	mu       sync.RWMutex
 	counters map[string]*slidingWindow // tokenID -> window
+	stopCh   chan struct{}
 }
 
 type slidingWindow struct {
@@ -30,6 +31,7 @@ type slidingWindow struct {
 func NewRateLimiter() *RateLimiter {
 	rl := &RateLimiter{
 		counters: make(map[string]*slidingWindow),
+		stopCh:   make(chan struct{}),
 	}
 
 	// Start background cleanup goroutine.
@@ -142,28 +144,38 @@ func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		rl.mu.Lock()
-		now := time.Now()
-		for tokenID, window := range rl.counters {
-			if window.limit == nil {
-				continue
-			}
-			cutoff := now.Add(-window.limit.Window)
-			// Remove entries with no recent requests.
-			hasRecent := false
-			for _, t := range window.requests {
-				if t.After(cutoff) {
-					hasRecent = true
-					break
+	for {
+		select {
+		case <-rl.stopCh:
+			return
+		case <-ticker.C:
+			rl.mu.Lock()
+			now := time.Now()
+			for tokenID, window := range rl.counters {
+				if window.limit == nil {
+					continue
+				}
+				cutoff := now.Add(-window.limit.Window)
+				// Remove entries with no recent requests.
+				hasRecent := false
+				for _, t := range window.requests {
+					if t.After(cutoff) {
+						hasRecent = true
+						break
+					}
+				}
+				if !hasRecent {
+					delete(rl.counters, tokenID)
 				}
 			}
-			if !hasRecent {
-				delete(rl.counters, tokenID)
-			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
+}
+
+// Stop stops the background cleanup goroutine.
+func (rl *RateLimiter) Stop() {
+	close(rl.stopCh)
 }
 
 // rateLimitPattern matches rate limit strings like "100/hour", "50/minute", "10/second".

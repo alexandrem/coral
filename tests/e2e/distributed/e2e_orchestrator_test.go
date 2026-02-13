@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
-
-	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
 // E2EOrchestratorSuite orchestrates all E2E tests in dependency order.
@@ -193,18 +191,15 @@ func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
 	s.T().Log("GROUP 4: On-Demand Probes")
 	s.T().Log("========================================")
 
-	s.T().Skip("Skipping until we fix the colony crash")
-
-	// Clean up all services from previous phases to prevent "already connected" errors.
-	s.T().Log("Cleaning up services from previous test phases...")
-	_ = helpers.CleanupAllServices(s.ctx, s.fixture.GetAgentGRPCEndpoint)
-	s.T().Log("  ✓ All services disconnected from all agents")
-
 	// Run ProfilingSuite tests (on-demand profiling) with shared fixture.
+	// NOTE: Each subtest must forward s.T() (the subtest's T) to the suite.
+	// Without this, calling s.Require() or s.T().Skip() inside the subtest
+	// would call FailNow/Goexit on the parent T, causing a test crash.
 	profilingSuite := &ProfilingSuite{
 		E2EDistributedSuite: s.E2EDistributedSuite,
 	}
 	profilingSuite.SetT(s.T())
+	profilingSuite.SetupSuite()
 
 	s.Run("OnDemandProfiling", profilingSuite.TestOnDemandProfiling)
 	s.Run("OnDemandMemoryProfiling", profilingSuite.TestOnDemandMemoryProfiling)

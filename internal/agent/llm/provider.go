@@ -11,6 +11,7 @@ import (
 type Message struct {
 	Role          string         // "user", "assistant", "system", "tool"
 	Content       string         // Text content (for user/assistant messages)
+	ToolCalls     []ToolCall     // Tool calls made by the assistant (for assistant role)
 	ToolResponses []ToolResponse // Tool responses (for tool role)
 }
 

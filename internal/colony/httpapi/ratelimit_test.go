@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -78,6 +79,7 @@ func TestFormatRateLimit(t *testing.T) {
 
 func TestRateLimiter_Allow_NoLimit(t *testing.T) {
 	rl := NewRateLimiter()
+	defer rl.Stop()
 
 	// No limit should always allow.
 	for i := 0; i < 1000; i++ {
@@ -89,6 +91,7 @@ func TestRateLimiter_Allow_NoLimit(t *testing.T) {
 
 func TestRateLimiter_Allow_Basic(t *testing.T) {
 	rl := NewRateLimiter()
+	defer rl.Stop()
 	limit := &RateLimit{Requests: 3, Window: time.Minute}
 
 	// First 3 requests should be allowed.
@@ -110,32 +113,36 @@ func TestRateLimiter_Allow_Basic(t *testing.T) {
 }
 
 func TestRateLimiter_Allow_WindowExpiry(t *testing.T) {
-	rl := NewRateLimiter()
-	// Use a very short window for testing.
-	limit := &RateLimit{Requests: 2, Window: 50 * time.Millisecond}
+	synctest.Test(t, func(t *testing.T) {
+		rl := NewRateLimiter()
+		defer rl.Stop()
+		// Use a very short window for testing.
+		limit := &RateLimit{Requests: 2, Window: 50 * time.Millisecond}
 
-	// Use up the limit.
-	if !rl.Allow("token1", limit) {
-		t.Error("Request 1 should be allowed")
-	}
-	if !rl.Allow("token1", limit) {
-		t.Error("Request 2 should be allowed")
-	}
-	if rl.Allow("token1", limit) {
-		t.Error("Request 3 should be denied")
-	}
+		// Use up the limit.
+		if !rl.Allow("token1", limit) {
+			t.Error("Request 1 should be allowed")
+		}
+		if !rl.Allow("token1", limit) {
+			t.Error("Request 2 should be allowed")
+		}
+		if rl.Allow("token1", limit) {
+			t.Error("Request 3 should be denied")
+		}
 
-	// Wait for window to expire.
-	time.Sleep(60 * time.Millisecond)
+		// Wait for window to expire.
+		time.Sleep(60 * time.Millisecond)
 
-	// Should be allowed again.
-	if !rl.Allow("token1", limit) {
-		t.Error("Request after window expiry should be allowed")
-	}
+		// Should be allowed again.
+		if !rl.Allow("token1", limit) {
+			t.Error("Request after window expiry should be allowed")
+		}
+	})
 }
 
 func TestRateLimiter_Remaining(t *testing.T) {
 	rl := NewRateLimiter()
+	defer rl.Stop()
 	limit := &RateLimit{Requests: 5, Window: time.Minute}
 
 	// Initially all requests remaining.
@@ -172,6 +179,7 @@ func TestRateLimiter_Remaining(t *testing.T) {
 
 func TestRateLimiter_ResetTime(t *testing.T) {
 	rl := NewRateLimiter()
+	defer rl.Stop()
 	limit := &RateLimit{Requests: 3, Window: time.Minute}
 
 	// No requests yet - reset time should be ~now + window.
@@ -201,32 +209,36 @@ func TestRateLimiter_ResetTime(t *testing.T) {
 }
 
 func TestRateLimiter_SlidingWindow(t *testing.T) {
-	rl := NewRateLimiter()
-	limit := &RateLimit{Requests: 3, Window: 200 * time.Millisecond}
+	synctest.Test(t, func(t *testing.T) {
+		rl := NewRateLimiter()
+		defer rl.Stop()
+		limit := &RateLimit{Requests: 3, Window: 200 * time.Millisecond}
 
-	// Make requests spread over time.
-	rl.Allow("token1", limit) // t=0
-	time.Sleep(80 * time.Millisecond)
-	rl.Allow("token1", limit) // t=80ms
-	time.Sleep(80 * time.Millisecond)
-	rl.Allow("token1", limit) // t=160ms
+		// Make requests spread over time.
+		rl.Allow("token1", limit) // t=0
+		time.Sleep(80 * time.Millisecond)
+		rl.Allow("token1", limit) // t=80ms
+		time.Sleep(80 * time.Millisecond)
+		rl.Allow("token1", limit) // t=160ms
 
-	// Should be denied now.
-	if rl.Allow("token1", limit) {
-		t.Error("Should be denied at t=160ms")
-	}
+		// Should be denied now.
+		if rl.Allow("token1", limit) {
+			t.Error("Should be denied at t=160ms")
+		}
 
-	// Wait until first request expires (t=200ms).
-	time.Sleep(60 * time.Millisecond)
+		// Wait until first request expires (t=200ms).
+		time.Sleep(60 * time.Millisecond)
 
-	// Should be allowed now (first request expired).
-	if !rl.Allow("token1", limit) {
-		t.Error("Should be allowed after first request expires")
-	}
+		// Should be allowed now (first request expired).
+		if !rl.Allow("token1", limit) {
+			t.Error("Should be allowed after first request expires")
+		}
+	})
 }
 
 func TestRateLimiter_MultipleTokens(t *testing.T) {
 	rl := NewRateLimiter()
+	defer rl.Stop()
 	limit := &RateLimit{Requests: 2, Window: time.Minute}
 
 	// Token 1 uses its limit.
@@ -251,6 +263,7 @@ func TestRateLimiter_MultipleTokens(t *testing.T) {
 
 func TestRateLimiter_DifferentLimits(t *testing.T) {
 	rl := NewRateLimiter()
+	defer rl.Stop()
 	limit1 := &RateLimit{Requests: 2, Window: time.Minute}
 	limit2 := &RateLimit{Requests: 5, Window: time.Minute}
 

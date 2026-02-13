@@ -23,6 +23,12 @@ import (
 	"github.com/coral-mesh/coral/internal/safe"
 )
 
+const (
+	// Use a timeout that covers the profiling duration plus overhead for BPF setup,
+	// symbolization, and network transfer.
+	profilingTimeout = 10 * time.Second
+)
+
 // Orchestrator manages debug sessions across agents.
 type Orchestrator struct {
 	logger             zerolog.Logger
@@ -515,7 +521,11 @@ func (o *Orchestrator) ProfileCPU(
 		FrequencyHz:     frequencyHz,
 	})
 
-	profileResp, err := debugClient.ProfileCPU(ctx, profileReq)
+	agentTimeout := time.Duration(durationSeconds)*time.Second + profilingTimeout
+	agentCtx, agentCancel := context.WithTimeout(ctx, agentTimeout)
+	defer agentCancel()
+
+	profileResp, err := debugClient.ProfileCPU(agentCtx, profileReq)
 	if err != nil {
 		o.logger.Error().Err(err).
 			Str("agent_id", agentID).
@@ -712,7 +722,12 @@ func (o *Orchestrator) ProfileMemory(
 		SampleRateBytes: req.Msg.SampleRateBytes,
 	})
 
-	profileResp, err := debugClient.ProfileMemory(ctx, profileReq)
+	// Use a timeout that covers the profiling duration plus overhead.
+	agentTimeout := time.Duration(durationSeconds)*time.Second + profilingTimeout
+	agentCtx, agentCancel := context.WithTimeout(ctx, agentTimeout)
+	defer agentCancel()
+
+	profileResp, err := debugClient.ProfileMemory(agentCtx, profileReq)
 	if err != nil {
 		return connect.NewResponse(&debugpb.ProfileMemoryResponse{
 			Success: false,

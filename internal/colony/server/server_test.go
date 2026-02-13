@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"connectrpc.com/connect"
@@ -18,7 +19,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/registry"
 )
 
-func newTestServer(t *testing.T, config Config) *Server {
+func newTestServer(t *testing.T, config Config) (*Server, func()) {
 	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 
 	// Create temporary database for testing.
@@ -43,35 +44,42 @@ func newTestServer(t *testing.T, config Config) *Server {
 		t.Fatalf("Failed to create test CA manager: %v", err)
 	}
 
-	return New(reg, db, caManager, config, logger)
+	cleanup := func() {
+		_ = db.Close()
+	}
+
+	return New(reg, db, caManager, config, logger), cleanup
 }
 
 func TestServer_GetStatus(t *testing.T) {
 	t.Run("status with zero agents", func(t *testing.T) {
-		config := Config{
-			ColonyID:        "test-colony",
-			ApplicationName: "TestApp",
-			Environment:     "test",
-			DashboardPort:   3000,
-			StoragePath:     "",
-		}
-		server := newTestServer(t, config)
+		synctest.Test(t, func(t *testing.T) {
+			config := Config{
+				ColonyID:        "test-colony",
+				ApplicationName: "TestApp",
+				Environment:     "test",
+				DashboardPort:   3000,
+				StoragePath:     "",
+			}
+			server, cleanup := newTestServer(t, config)
+			defer cleanup()
 
-		// Sleep briefly to ensure non-zero uptime.
-		time.Sleep(10 * time.Millisecond)
+			// Sleep briefly to ensure non-zero uptime.
+			time.Sleep(10 * time.Millisecond)
 
-		req := connect.NewRequest(&colonyv1.GetStatusRequest{})
-		resp, err := server.GetStatus(context.Background(), req)
+			req := connect.NewRequest(&colonyv1.GetStatusRequest{})
+			resp, err := server.GetStatus(context.Background(), req)
 
-		require.NoError(t, err)
-		assert.Equal(t, "test-colony", resp.Msg.ColonyId)
-		assert.Equal(t, "TestApp", resp.Msg.AppName)
-		assert.Equal(t, "test", resp.Msg.Environment)
-		assert.Equal(t, "running", resp.Msg.Status) // Colony is running, just no agents yet.
-		assert.Equal(t, int32(0), resp.Msg.AgentCount)
-		assert.Equal(t, "http://localhost:3000", resp.Msg.DashboardUrl)
-		assert.NotNil(t, resp.Msg.StartedAt)
-		assert.GreaterOrEqual(t, resp.Msg.UptimeSeconds, int64(0))
+			require.NoError(t, err)
+			assert.Equal(t, "test-colony", resp.Msg.ColonyId)
+			assert.Equal(t, "TestApp", resp.Msg.AppName)
+			assert.Equal(t, "test", resp.Msg.Environment)
+			assert.Equal(t, "running", resp.Msg.Status) // Colony is running, just no agents yet.
+			assert.Equal(t, int32(0), resp.Msg.AgentCount)
+			assert.Equal(t, "http://localhost:3000", resp.Msg.DashboardUrl)
+			assert.NotNil(t, resp.Msg.StartedAt)
+			assert.GreaterOrEqual(t, resp.Msg.UptimeSeconds, int64(0))
+		})
 	})
 
 	t.Run("status with all healthy agents", func(t *testing.T) {
@@ -82,7 +90,8 @@ func TestServer_GetStatus(t *testing.T) {
 			DashboardPort:   3000,
 			StoragePath:     "",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		// Register healthy agents.
 		_, _ = server.registry.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -104,7 +113,8 @@ func TestServer_GetStatus(t *testing.T) {
 			DashboardPort:   3000,
 			StoragePath:     "",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		// Register agents and manipulate their LastSeen.
 		_, _ = server.registry.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -135,7 +145,8 @@ func TestServer_GetStatus(t *testing.T) {
 			DashboardPort:   3000,
 			StoragePath:     "",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		// Register agents and manipulate their LastSeen.
 		_, _ = server.registry.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -166,7 +177,8 @@ func TestServer_GetStatus(t *testing.T) {
 			DashboardPort:   0,
 			StoragePath:     "",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		req := connect.NewRequest(&colonyv1.GetStatusRequest{})
 		resp, err := server.GetStatus(context.Background(), req)
@@ -193,7 +205,8 @@ func TestServer_GetStatus(t *testing.T) {
 			DashboardPort:   3000,
 			StoragePath:     tmpDir,
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		req := connect.NewRequest(&colonyv1.GetStatusRequest{})
 		resp, err := server.GetStatus(context.Background(), req)
@@ -210,7 +223,8 @@ func TestServer_ListAgents(t *testing.T) {
 			ApplicationName: "TestApp",
 			Environment:     "test",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		req := connect.NewRequest(&colonyv1.ListAgentsRequest{})
 		resp, err := server.ListAgents(context.Background(), req)
@@ -225,7 +239,8 @@ func TestServer_ListAgents(t *testing.T) {
 			ApplicationName: "TestApp",
 			Environment:     "test",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		// Register multiple agents.
 		_, _ = server.registry.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -258,7 +273,8 @@ func TestServer_ListAgents(t *testing.T) {
 			ApplicationName: "TestApp",
 			Environment:     "test",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		// Register agents.
 		_, _ = server.registry.Register("agent-healthy", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -303,7 +319,8 @@ func TestServer_GetTopology(t *testing.T) {
 			ApplicationName: "TestApp",
 			Environment:     "test",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		req := connect.NewRequest(&colonyv1.GetTopologyRequest{})
 		resp, err := server.GetTopology(context.Background(), req)
@@ -320,7 +337,8 @@ func TestServer_GetTopology(t *testing.T) {
 			ApplicationName: "TestApp",
 			Environment:     "production",
 		}
-		server := newTestServer(t, config)
+		server, cleanup := newTestServer(t, config)
+		defer cleanup()
 
 		// Register agents.
 		_, _ = server.registry.Register("agent-1", "frontend", "100.64.0.2", "fd42::2", nil, nil, "")
@@ -408,7 +426,8 @@ func TestServer_determineColonyStatus(t *testing.T) {
 				ApplicationName: "TestApp",
 				Environment:     "test",
 			}
-			server := newTestServer(t, config)
+			server, cleanup := newTestServer(t, config)
+			defer cleanup()
 			tt.setupAgents(server.registry)
 
 			status := server.determineColonyStatus()

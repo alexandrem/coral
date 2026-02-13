@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -31,6 +32,9 @@ type FunctionCache struct {
 	db         *sql.DB
 	discoverer *FunctionDiscoverer
 	logger     zerolog.Logger
+	// mu serializes store operations per service to avoid DuckDB transaction
+	// conflicts when multiple goroutines discover the same service concurrently.
+	mu sync.Mutex
 }
 
 // NewFunctionCache creates a new function cache.
@@ -77,11 +81,11 @@ func (c *FunctionCache) initSchema() error {
 			function_count INTEGER DEFAULT 0
 		);
 
+		-- Drop binary_hash index that conflicts with DuckDB prepared statements.
+		DROP INDEX IF EXISTS idx_functions_cache_binary;
+
 		CREATE INDEX IF NOT EXISTS idx_functions_cache_service
 		ON functions_cache(service_name);
-
-		CREATE INDEX IF NOT EXISTS idx_functions_cache_binary
-		ON functions_cache(binary_hash);
 	`
 
 	if _, err := c.db.Exec(schema); err != nil {
@@ -236,6 +240,9 @@ func (c *FunctionCache) DiscoverAndCacheWithPID(ctx context.Context, serviceName
 
 // storeFunctions stores discovered functions in the cache.
 func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryPath, binaryHash string, functions []*agentv1.FunctionInfo) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -247,12 +254,17 @@ func (c *FunctionCache) storeFunctions(ctx context.Context, serviceName, binaryP
 		return fmt.Errorf("failed to clear old functions: %w", err)
 	}
 
-	// Insert new functions.
+	// Insert new functions. Duplicates are mostly filtered by
+	// enrichAndDeduplicateFunctions, but ON CONFLICT DO NOTHING provides a
+	// safety net for edge cases (e.g., case-insensitive collisions).
+	// ON CONFLICT DO UPDATE is not used because DuckDB does not support
+	// updating fixed-size array columns (FLOAT[384]).
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO functions_cache (
 			service_name, binary_path, binary_hash, function_name,
 			package_name, file_path, line_number, func_offset, has_dwarf, embedding
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::FLOAT[384])
+		ON CONFLICT (service_name, function_name) DO NOTHING
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
