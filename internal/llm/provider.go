@@ -14,6 +14,15 @@ import (
 	"github.com/coral-mesh/coral/internal/config"
 )
 
+type ProviderStatus string
+
+const (
+	ProviderStatusUnknown       ProviderStatus = "unknown"
+	ProviderStatusAvailable     ProviderStatus = "available"
+	ProviderStatusConfigured    ProviderStatus = "configured"
+	ProviderStatusNotConfigured ProviderStatus = "not-configured"
+)
+
 // Message represents a chat message.
 type Message struct {
 	Role          string         // "user", "assistant", "system", "tool"
@@ -140,6 +149,7 @@ func (r *Registry) GetProvider(ctx context.Context, providerName string, modelID
 }
 
 // ListProviders returns all registered provider metadata.
+// This hides the "mock" provider, which should only be used by tests.
 func (r *Registry) ListProviders() []ProviderMetadata {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -158,6 +168,12 @@ func (r *Registry) ListProviders() []ProviderMetadata {
 	})
 
 	return result
+}
+
+// IsValid returns whether the provider name is valid.
+func (r *Registry) IsValid(provider string) bool {
+	_, exists := r.providers[provider]
+	return exists
 }
 
 // ValidateModel validates a model ID for a specific provider.
@@ -196,31 +212,31 @@ func (r *Registry) ValidateModel(providerName string, modelID string) error {
 }
 
 // GetProviderStatus checks if a provider is configured with API keys.
-func (r *Registry) GetProviderStatus(providerName string, cfg *config.AskConfig) string {
+func (r *Registry) GetProviderStatus(providerName string, cfg *config.AskConfig) ProviderStatus {
 	r.mu.RLock()
 	provider, exists := r.providers[providerName]
 	r.mu.RUnlock()
 
 	if !exists {
-		return "unknown"
+		return ProviderStatusUnknown
 	}
 
 	if !provider.metadata.RequiresAPIKey {
-		return "available"
+		return ProviderStatusAvailable
 	}
 
 	// Check if API key is configured.
 	apiKey := cfg.APIKeys[providerName]
 	if apiKey != "" && !strings.HasPrefix(apiKey, "env://") {
-		return "configured"
+		return ProviderStatusConfigured
 	}
 
 	// Check default env var.
 	if provider.metadata.DefaultEnvVar != "" && os.Getenv(provider.metadata.DefaultEnvVar) != "" {
-		return "configured"
+		return ProviderStatusConfigured
 	}
 
-	return "not-configured"
+	return ProviderStatusNotConfigured
 }
 
 // resolveProviderAPIKey resolves the API key for a provider. It checks the

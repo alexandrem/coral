@@ -1,4 +1,3 @@
-// Package ask provides the LLM agent implementation for coral ask.
 package ask
 
 import (

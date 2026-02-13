@@ -23,7 +23,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	askagent "github.com/coral-mesh/coral/internal/agent/ask"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/llm"
@@ -145,15 +144,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	registry := llm.Get()
 
 	// Check if provider exists.
-	providers := registry.ListProviders()
-	providerExists := false
-	for _, p := range providers {
-		if p.Name == providerName {
-			providerExists = true
-			break
-		}
-	}
-	if !providerExists {
+	if !registry.IsValid(providerName) {
 		return fmt.Errorf("unknown provider %q. Run 'coral ask list-providers' to see available providers", providerName)
 	}
 
@@ -166,7 +157,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	}
 
 	// Create agent.
-	agent, err := askagent.NewAgent(askCfg, colonyCfg, debug)
+	agent, err := NewAgent(askCfg, colonyCfg, debug)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}
@@ -293,7 +284,7 @@ func saveConversationID(colonyID, conversationID string) error {
 }
 
 // loadConversationHistory loads the conversation history from disk.
-func loadConversationHistory(colonyID, conversationID string) ([]askagent.Message, error) {
+func loadConversationHistory(colonyID, conversationID string) ([]Message, error) {
 	path, err := getConversationHistoryPath(colonyID, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get conversation history: %w", err)
@@ -303,7 +294,7 @@ func loadConversationHistory(colonyID, conversationID string) ([]askagent.Messag
 		return nil, err
 	}
 
-	var messages []askagent.Message
+	var messages []Message
 	if err := json.Unmarshal(data, &messages); err != nil {
 		return nil, fmt.Errorf("failed to parse conversation history: %w", err)
 	}
@@ -312,7 +303,7 @@ func loadConversationHistory(colonyID, conversationID string) ([]askagent.Messag
 }
 
 // saveConversationHistory saves the conversation history to disk.
-func saveConversationHistory(colonyID, conversationID string, messages []askagent.Message) error {
+func saveConversationHistory(colonyID, conversationID string, messages []Message) error {
 	path, err := getConversationHistoryPath(colonyID, conversationID)
 	if err != nil {
 		return fmt.Errorf("failed to get conversation history: %w", err)
@@ -363,7 +354,7 @@ func getConversationHistoryPath(colonyID, conversationID string) (string, error)
 }
 
 // outputJSON outputs the response in JSON format.
-func outputJSON(resp *askagent.Response) error {
+func outputJSON(resp *Response) error {
 	output := map[string]interface{}{
 		"answer": resp.Answer,
 		"tool_calls": func() []map[string]interface{} {
@@ -389,7 +380,7 @@ func outputJSON(resp *askagent.Response) error {
 }
 
 // outputTerminal outputs the response to the terminal.
-func outputTerminal(resp *askagent.Response, stream bool) error {
+func outputTerminal(resp *Response, stream bool) error {
 	fmt.Println(resp.Answer)
 
 	// Show tool usage citations.
@@ -406,12 +397,12 @@ func outputTerminal(resp *askagent.Response, stream bool) error {
 
 // providerInfo represents provider information for display.
 type providerInfo struct {
-	Name          string   `json:"name"`
-	DisplayName   string   `json:"display_name"`
-	Description   string   `json:"description"`
-	Status        string   `json:"status"`
-	Models        []string `json:"models,omitempty"`
-	DefaultEnvVar string   `json:"default_env_var,omitempty"`
+	Name          string             `json:"name"`
+	DisplayName   string             `json:"display_name"`
+	Description   string             `json:"description"`
+	Status        llm.ProviderStatus `json:"status"`
+	Models        []string           `json:"models,omitempty"`
+	DefaultEnvVar string             `json:"default_env_var,omitempty"`
 }
 
 // newListProvidersCmd creates the list-providers subcommand.
