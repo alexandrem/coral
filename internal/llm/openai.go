@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
+	"github.com/coral-mesh/coral/internal/config"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -232,4 +234,50 @@ func mcpToolToFunctionParameters(tool mcp.Tool) (openai.FunctionParameters, erro
 	}
 
 	return params, nil
+}
+
+func init() {
+	Register(ProviderMetadata{
+		Name:           "openai",
+		DisplayName:    "OpenAI",
+		Description:    "OpenAI models and compatible APIs",
+		DefaultEnvVar:  "OPENAI_API_KEY",
+		RequiresAPIKey: true,
+		SupportedModels: []ModelMetadata{
+			{
+				ID:           "gpt-4o",
+				DisplayName:  "GPT-4o",
+				Description:  "Most capable GPT-4 model",
+				Capabilities: []string{"tools", "streaming", "vision"},
+			},
+			{
+				ID:           "gpt-4o-mini",
+				DisplayName:  "GPT-4o Mini",
+				Description:  "Fast, affordable model for most tasks",
+				Capabilities: []string{"tools", "streaming", "vision"},
+			},
+			{
+				ID:           "gpt-4-turbo",
+				DisplayName:  "GPT-4 Turbo",
+				Description:  "Previous generation advanced model",
+				Capabilities: []string{"tools", "streaming", "vision"},
+			},
+			{
+				ID:           "gpt-3.5-turbo",
+				DisplayName:  "GPT-3.5 Turbo",
+				Description:  "Legacy fast model",
+				Capabilities: []string{"tools", "streaming"},
+				Deprecated:   true,
+			},
+		},
+	}, func(ctx context.Context, modelID string, cfg *config.AskConfig, debug bool) (Provider, error) {
+		apiKey, err := resolveProviderAPIKey(cfg, "openai", "OPENAI_API_KEY")
+		if err != nil {
+			return nil, err
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI API key found (length: %d)\n", len(apiKey))
+		}
+		return NewOpenAIProvider(apiKey, modelID, "")
+	})
 }

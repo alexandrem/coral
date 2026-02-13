@@ -17,7 +17,7 @@ This provides:
 ### Provider Interface
 
 All providers implement a simple `Provider` interface defined in
-`internal/agent/llm/provider.go`:
+`internal/llm/provider.go`:
 
 ```go
 type Provider interface {
@@ -39,7 +39,7 @@ To implement a new provider, follow these steps:
 
 ### 1. Create Provider Implementation
 
-Create a new file in `internal/agent/llm/` (e.g., `openai.go`):
+Create a new file in `internal/llm/` (e.g., `openai.go`):
 
 ```go
 package llm
@@ -106,8 +106,8 @@ coral ask "test question" --model openai:gpt-4o-mini
 
 ## Related Files
 
-- **Provider interface:** `internal/agent/llm/provider.go`
-- **Google implementation:** `internal/agent/llm/google.go`
+- **Provider interface:** `internal/llm/provider.go`
+- **Google implementation:** `internal/llm/google.go`
 - **Agent initialization:** `internal/agent/ask/agent.go`
 - **CLI command:** `internal/cli/ask/ask.go`
 - **Configuration:** `internal/config/ask.go`

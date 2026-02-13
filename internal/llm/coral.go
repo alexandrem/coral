@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 
+	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/safe"
 )
 
@@ -267,4 +269,29 @@ func truncateBody(body []byte) string {
 		return string(body[:200]) + "..."
 	}
 	return string(body)
+}
+
+func init() {
+	Register(ProviderMetadata{
+		Name:            "coral",
+		DisplayName:     "Coral AI",
+		Description:     "Coral hosted AI diagnostics service",
+		DefaultEnvVar:   "CORAL_AI_TOKEN",
+		RequiresAPIKey:  false,             // Free tier allows anonymous access
+		SupportedModels: []ModelMetadata{}, // Model is server-side managed
+	}, func(ctx context.Context, modelID string, cfg *config.AskConfig, debug bool) (Provider, error) {
+		endpoint := cfg.APIKeys["coral_endpoint"]
+		if endpoint == "" {
+			endpoint = os.Getenv("CORAL_AI_ENDPOINT")
+		}
+		if endpoint == "" {
+			return nil, fmt.Errorf("Coral AI endpoint not configured (set coral_endpoint in api_keys or CORAL_AI_ENDPOINT)") //nolint:staticcheck
+		}
+		apiToken := cfg.APIKeys["coral"]
+		if apiToken == "" {
+			// Coral's free tier allows anonymous access, so token is optional.
+			apiToken = os.Getenv("CORAL_AI_TOKEN")
+		}
+		return NewCoralProvider(ctx, endpoint, apiToken)
+	})
 }

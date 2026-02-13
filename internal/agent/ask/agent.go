@@ -12,8 +12,8 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/coral-mesh/coral/internal/agent/llm"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/llm"
 )
 
 // Agent represents an LLM agent that connects to Colony MCP server.
@@ -123,83 +123,10 @@ func (a *Agent) GetConversationHistory(conversationID string) []Message {
 	return nil
 }
 
-// createProvider creates an LLM provider based on the provider name.
+// createProvider creates an LLM provider based on the provider name using the registry.
 func createProvider(ctx context.Context, providerName string, modelID string, cfg *config.AskConfig, debug bool) (llm.Provider, error) {
-	switch providerName {
-	case "google":
-		apiKey, err := resolveProviderAPIKey(cfg, "google", "GOOGLE_API_KEY")
-		if err != nil {
-			return nil, err
-		}
-		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Google AI API key found (length: %d)\n", len(apiKey))
-		}
-		return llm.NewGoogleProvider(ctx, apiKey, modelID)
-
-	case "openai":
-		apiKey, err := resolveProviderAPIKey(cfg, "openai", "OPENAI_API_KEY")
-		if err != nil {
-			return nil, err
-		}
-		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] OpenAI API key found (length: %d)\n", len(apiKey))
-		}
-		return llm.NewOpenAIProvider(apiKey, modelID, "")
-
-	case "mock":
-		// For mock provider, the modelID is the path to the replay script.
-		return llm.NewMockProvider(ctx, modelID)
-
-	case "coral":
-		endpoint := cfg.APIKeys["coral_endpoint"]
-		if endpoint == "" {
-			endpoint = os.Getenv("CORAL_AI_ENDPOINT")
-		}
-		if endpoint == "" {
-			return nil, fmt.Errorf("Coral AI endpoint not configured (set coral_endpoint in api_keys or CORAL_AI_ENDPOINT)") //nolint:staticcheck
-		}
-		apiToken := cfg.APIKeys["coral"]
-		if apiToken == "" {
-			// Coral's free tier allows anonymous access, so token is optional.
-			apiToken = os.Getenv("CORAL_AI_TOKEN")
-		}
-		return llm.NewCoralProvider(ctx, endpoint, apiToken)
-
-	// TODO: Add other providers
-	// case "openai":
-	// TODO: Add other providers.
-	// case "anthropic":
-	// case "grok", "xai":
-
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s (supported: google, openai, coral, mock)",
-			providerName)
-	}
-}
-
-// resolveProviderAPIKey resolves the API key for a provider. It checks the
-// config map first, falling back to the given default environment variable.
-// It returns an error if the key is missing or still contains an unresolved
-// env:// reference.
-func resolveProviderAPIKey(cfg *config.AskConfig, provider string, defaultEnvVar string) (string, error) {
-	apiKey := cfg.APIKeys[provider]
-
-	// Detect unresolved env:// references (env var was not set).
-	if strings.HasPrefix(apiKey, "env://") {
-		envVar := strings.TrimPrefix(apiKey, "env://")
-		return "", fmt.Errorf("%s API key not configured: environment variable %s is not set", provider, envVar) // nolint: staticcheck
-	}
-
-	// Fall back to the default env var if no key was configured.
-	if apiKey == "" {
-		apiKey = os.Getenv(defaultEnvVar)
-	}
-
-	if apiKey == "" {
-		return "", fmt.Errorf("%s API key not configured (set %s)", provider, defaultEnvVar) // nolint: staticcheck
-	}
-
-	return apiKey, nil
+	registry := llm.Get()
+	return registry.GetProvider(ctx, providerName, modelID, cfg, debug)
 }
 
 // connectToColonyMCP connects to the Colony's MCP server via stdio subprocess.

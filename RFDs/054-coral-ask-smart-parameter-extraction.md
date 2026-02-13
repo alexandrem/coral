@@ -104,11 +104,11 @@ Tool Call: coral_query_beyla_http_metrics(service="coral", time_range="1h")
 
 ### Component Changes
 
-1. **Provider Interface** (`internal/agent/llm/provider.go`):
+1. **Provider Interface** (`internal/llm/provider.go`):
     - Add `SystemPrompt` field to `GenerateRequest`
     - Enables all LLM providers to receive system instructions
 
-2. **Google Provider** (`internal/agent/llm/google.go`):
+2. **Google Provider** (`internal/llm/google.go`):
     - Use `SystemPrompt` from request to set model's system instruction
     - Applies before chat session starts
 
@@ -250,8 +250,8 @@ language queries without requiring users to repeat information.
 
 **Files Modified:**
 
-- `internal/agent/llm/provider.go` - Added `SystemPrompt` field
-- `internal/agent/llm/google.go` - System instruction support
+- `internal/llm/provider.go` - Added `SystemPrompt` field
+- `internal/llm/google.go` - System instruction support
 - `internal/agent/ask/agent.go` - System prompt builder and service list fetching
 - `internal/colony/mcp/server.go` - Registered `coral_list_services` tool
 - `internal/colony/mcp/tools_discovery.go` - New tool implementation
@@ -282,8 +282,8 @@ language queries without requiring users to repeat information.
 
 ### Files to Modify
 
-1. `internal/agent/llm/provider.go` - Provider interface
-2. `internal/agent/llm/google.go` - Google provider implementation
+1. `internal/llm/provider.go` - Provider interface
+2. `internal/llm/google.go` - Google provider implementation
 3. `internal/agent/ask/agent.go` - Ask agent core logic
 4. CLI initialization - Pass registry to agent
 

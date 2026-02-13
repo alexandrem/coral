@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
+	"github.com/coral-mesh/coral/internal/config"
 	"github.com/google/generative-ai-go/genai"
 	"github.com/mark3labs/mcp-go/mcp"
 	"google.golang.org/api/option"
@@ -323,4 +325,55 @@ func jsonSchemaTypeToGeminiType(typ string) genai.Type {
 	default:
 		return genai.TypeUnspecified
 	}
+}
+
+func init() {
+	Register(ProviderMetadata{
+		Name:           "google",
+		DisplayName:    "Google AI (Gemini)",
+		Description:    "Google's Gemini models via Google AI API",
+		DefaultEnvVar:  "GOOGLE_API_KEY",
+		RequiresAPIKey: true,
+		SupportedModels: []ModelMetadata{
+			{
+				ID:           "gemini-2.0-flash",
+				DisplayName:  "Gemini 2.0 Flash",
+				Description:  "Fast, versatile model for most tasks",
+				Capabilities: []string{"tools", "streaming", "vision"},
+			},
+			{
+				ID:           "gemini-2.0-flash-thinking-exp-01-21",
+				DisplayName:  "Gemini 2.0 Flash Thinking (Experimental)",
+				Description:  "Extended reasoning model",
+				Capabilities: []string{"tools", "streaming", "reasoning"},
+			},
+			{
+				ID:           "gemini-2.0-flash-thinking-exp",
+				DisplayName:  "Gemini 2.0 Flash Thinking (Experimental - Latest)",
+				Description:  "Latest extended reasoning model",
+				Capabilities: []string{"tools", "streaming", "reasoning"},
+			},
+			{
+				ID:           "gemini-1.5-pro",
+				DisplayName:  "Gemini 1.5 Pro",
+				Description:  "Advanced model with large context window",
+				Capabilities: []string{"tools", "streaming", "vision", "large-context"},
+			},
+			{
+				ID:           "gemini-1.5-flash",
+				DisplayName:  "Gemini 1.5 Flash",
+				Description:  "Previous generation fast model",
+				Capabilities: []string{"tools", "streaming", "vision"},
+			},
+		},
+	}, func(ctx context.Context, modelID string, cfg *config.AskConfig, debug bool) (Provider, error) {
+		apiKey, err := resolveProviderAPIKey(cfg, "google", "GOOGLE_API_KEY")
+		if err != nil {
+			return nil, err
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Google AI API key found (length: %d)\n", len(apiKey))
+		}
+		return NewGoogleProvider(ctx, apiKey, modelID)
+	})
 }

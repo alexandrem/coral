@@ -19,12 +19,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	askagent "github.com/coral-mesh/coral/internal/agent/ask"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/llm"
 )
 
 // NewAskCmd creates the ask command (RFD 030).
@@ -79,6 +81,9 @@ Examples:
 	cmd.Flags().BoolVar(&cont, "continue", false, "Continue previous conversation")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable debug logging to stderr")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show LLM payload and prompt before sending (saves tokens)")
+
+	// Add subcommands.
+	cmd.AddCommand(newListProvidersCmd())
 
 	return cmd
 }
@@ -135,6 +140,31 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		return fmt.Errorf("invalid ask config: %w", err)
 	}
 
+	// Validate provider and model using registry.
+	providerName, modelID := parseModelString(askCfg.DefaultModel)
+	registry := llm.Get()
+
+	// Check if provider exists.
+	providers := registry.ListProviders()
+	providerExists := false
+	for _, p := range providers {
+		if p.Name == providerName {
+			providerExists = true
+			break
+		}
+	}
+	if !providerExists {
+		return fmt.Errorf("unknown provider %q. Run 'coral ask list-providers' to see available providers", providerName)
+	}
+
+	// Validate model (warnings only).
+	if modelID != "" {
+		if err := registry.ValidateModel(providerName, modelID); err != nil {
+			// Print warning but don't fail.
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
+	}
+
 	// Create agent.
 	agent, err := askagent.NewAgent(askCfg, colonyCfg, debug)
 	if err != nil {
@@ -157,7 +187,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		// Load conversation history.
 		history, err := loadConversationHistory(colonyID, conversationID)
 		if err != nil {
-			// Warn but continue with empty history if load fails
+			// Warn but continue with empty history if load fails.
 			if debug {
 				fmt.Fprintf(os.Stderr, "[DEBUG] Failed to load conversation history: %v\n", err)
 			}
@@ -169,14 +199,6 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		}
 	} else {
 		conversationID = generateConversationID()
-	}
-
-	// Validate model provider is implemented.
-	providerName := strings.SplitN(askCfg.DefaultModel, ":", 2)[0]
-	switch providerName {
-	case "google", "openai", "coral", "mock":
-	default:
-		return fmt.Errorf("provider %q is not yet implemented", providerName)
 	}
 
 	// Execute query.
@@ -380,4 +402,197 @@ func outputTerminal(resp *askagent.Response, stream bool) error {
 	}
 
 	return nil
+}
+
+// providerInfo represents provider information for display.
+type providerInfo struct {
+	Name          string   `json:"name"`
+	DisplayName   string   `json:"display_name"`
+	Description   string   `json:"description"`
+	Status        string   `json:"status"`
+	Models        []string `json:"models,omitempty"`
+	DefaultEnvVar string   `json:"default_env_var,omitempty"`
+}
+
+// newListProvidersCmd creates the list-providers subcommand.
+func newListProvidersCmd() *cobra.Command {
+	var format string
+	var showModels bool
+
+	cmd := &cobra.Command{
+		Use:   "list-providers",
+		Short: "List available LLM providers and their status",
+		Long: `Display all available LLM providers, their configuration status, and supported models.
+
+Status values:
+  configured     - Provider has valid API key
+  not-configured - Provider requires API key but none is set
+  available      - Provider is ready to use (no API key required)
+
+Examples:
+  # List all providers
+  coral ask list-providers
+
+  # Show providers with their supported models
+  coral ask list-providers --models
+
+  # Output as JSON
+  coral ask list-providers --format json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runListProviders(format, showModels)
+		},
+	}
+
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+		helpers.FormatYAML,
+	})
+	cmd.Flags().BoolVar(&showModels, "models", false, "Show supported models for each provider")
+
+	return cmd
+}
+
+// runListProviders executes the list-providers command.
+func runListProviders(format string, showModels bool) error {
+	// Load configuration to check API key status.
+	loader, err := config.NewLoader()
+	if err != nil {
+		return fmt.Errorf("failed to create config loader: %w", err)
+	}
+
+	globalCfg, err := loader.LoadGlobalConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load global config: %w", err)
+	}
+
+	askCfg := &globalCfg.AI.Ask
+
+	// Get registry.
+	registry := llm.Get()
+	providers := registry.ListProviders()
+
+	// Build provider info list.
+	var providerInfos []providerInfo
+	for _, p := range providers {
+		info := providerInfo{
+			Name:          p.Name,
+			DisplayName:   p.DisplayName,
+			Description:   p.Description,
+			Status:        registry.GetProviderStatus(p.Name, askCfg),
+			DefaultEnvVar: p.DefaultEnvVar,
+		}
+
+		if showModels && len(p.SupportedModels) > 0 {
+			for _, model := range p.SupportedModels {
+				modelStr := model.ID
+				if model.Deprecated {
+					modelStr += " (deprecated)"
+				}
+				info.Models = append(info.Models, modelStr)
+			}
+		}
+
+		providerInfos = append(providerInfos, info)
+	}
+
+	// Use formatter for non-table output.
+	if format != string(helpers.FormatTable) {
+		formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
+		if err != nil {
+			return err
+		}
+		return formatter.Format(providerInfos, os.Stdout)
+	}
+
+	// Table output using tabwriter.
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	defer w.Flush()
+
+	if showModels {
+		fmt.Fprintln(w, "PROVIDER\tDISPLAY NAME\tSTATUS\tMODELS")
+		for _, info := range providerInfos {
+			modelList := "-"
+			if len(info.Models) > 0 {
+				modelList = strings.Join(info.Models, ", ")
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				info.Name,
+				info.DisplayName,
+				info.Status,
+				modelList,
+			)
+		}
+	} else {
+		fmt.Fprintln(w, "PROVIDER\tDISPLAY NAME\tSTATUS\tDESCRIPTION")
+		for _, info := range providerInfos {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				info.Name,
+				info.DisplayName,
+				info.Status,
+				truncate(info.Description, 50),
+			)
+		}
+	}
+
+	// Show configuration hints for not-configured providers.
+	hasUnconfigured := false
+	for _, info := range providerInfos {
+		if info.Status == "not-configured" && info.DefaultEnvVar != "" {
+			hasUnconfigured = true
+			break
+		}
+	}
+
+	if hasUnconfigured {
+		fmt.Println("\nTo configure a provider, set its API key:")
+		for _, info := range providerInfos {
+			if info.Status == "not-configured" && info.DefaultEnvVar != "" {
+				fmt.Printf("  export %s=your-api-key-here\n", info.DefaultEnvVar)
+			}
+		}
+		fmt.Println("\nOr add to ~/.coral/config.yaml:")
+		fmt.Println("  ai:")
+		fmt.Println("    ask:")
+		fmt.Println("      api_keys:")
+		for _, info := range providerInfos {
+			if info.Status == "not-configured" && info.DefaultEnvVar != "" {
+				fmt.Printf("        %s: env://%s\n", info.Name, info.DefaultEnvVar)
+			}
+		}
+	}
+
+	return nil
+}
+
+// colorizeStatus adds color to status strings for terminal output.
+func colorizeStatus(status string) string {
+	switch status {
+	case "configured", "available":
+		return fmt.Sprintf("\033[32m%s\033[0m", status) // Green
+	case "not-configured":
+		return fmt.Sprintf("\033[33m%s\033[0m", status) // Yellow
+	default:
+		return status
+	}
+}
+
+// truncate truncates a string to the specified maximum length.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// parseModelString parses a model string into provider and model ID.
+func parseModelString(model string) (providerName, modelID string) {
+	if model == "coral" {
+		return "coral", ""
+	}
+	parts := strings.SplitN(model, ":", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", ""
 }

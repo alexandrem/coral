@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/coral-mesh/coral/internal/agent/llm"
+	"github.com/coral-mesh/coral/internal/llm"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
