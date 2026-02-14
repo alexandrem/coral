@@ -364,13 +364,13 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 			connectPort)))
 		client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
 
-		// Use the composable HeartbeatAgent for the actual heartbeat call.
-		heartbeatAgent := heartbeat.NewAgent(cm.agentID, client)
+		// Use the composable Agent for the actual heartbeat call.
+		agent := heartbeat.NewAgent(cm.agentID, client)
 
 		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
-		resp, err := heartbeatAgent.SendHeartbeat(heartbeatCtx)
+		resp, err := agent.SendHeartbeat(heartbeatCtx)
 
 		if err != nil {
 			cm.consecutiveFailures++
