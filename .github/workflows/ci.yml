@@ -30,6 +30,7 @@ jobs:
     outputs:
       mod-cache-key: ${{ steps.mod.outputs.cache-key }}
       tools-cache-key: ${{ steps.tools.outputs.cache-key }}
+      generated-cache-key: ${{ steps.generated.outputs.cache-key }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,6 +71,28 @@ jobs:
           restore-keys: |
             go-tools-v4-${{ runner.os }}-
 
+      # ── Generated files cache (deno binaries + generated code) ──
+      - name: Generated files cache key
+        id: generated
+        run: |
+          # Cache key based on deno version and proto files
+          DENO_VERSION=$(grep "DENO_VERSION=" scripts/download-deno.sh | cut -d= -f2 | tr -d '"' || echo "2.0.6")
+          PROTO_HASH=${{ hashFiles('proto/**/*.proto', 'scripts/download-deno.sh') }}
+          echo "cache-key=generated-v2-${{ runner.os }}-${DENO_VERSION}-${PROTO_HASH}" >> $GITHUB_OUTPUT
+
+      - name: Cache generated files
+        id: cache-generated
+        uses: actions/cache@v4
+        with:
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          key: ${{ steps.generated.outputs.cache-key }}
+          restore-keys: |
+            generated-v2-${{ runner.os }}-
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -81,6 +104,11 @@ jobs:
 
       - name: Download modules
         run: go mod download
+
+      - name: Generate files (if not cached)
+        if: steps.cache-generated.outputs.cache-hit != 'true'
+        run: make generate
+        timeout-minutes: 10
 
   # ──────────────────────────────────────────────────────────────
   # Tests + Coverage
@@ -107,6 +135,16 @@ jobs:
         with:
           key: ${{ needs.go-env.outputs.tools-cache-key }}
           path: ~/go/bin
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -171,6 +209,16 @@ jobs:
           key: ${{ needs.go-env.outputs.tools-cache-key }}
           path: ~/go/bin
 
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -225,6 +273,16 @@ jobs:
           key: ${{ needs.go-env.outputs.tools-cache-key }}
           path: ~/go/bin
 
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -251,10 +309,20 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   build-containers:
     name: Build production containers
-    needs: [build-e2e-binary]
+    needs: [go-env, build-e2e-binary]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
 
       - name: Download coral binary
         uses: actions/download-artifact@v4
