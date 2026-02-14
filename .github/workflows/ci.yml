@@ -318,7 +318,7 @@ jobs:
           DOCKER_BUILDKIT: 1
 
       - name: Start E2E services
-        run: cd tests/e2e/distributed && make up
+        run: cd tests/e2e/distributed && make local-up
 
       - name: Run E2E tests
         run: cd tests/e2e/distributed && make test
