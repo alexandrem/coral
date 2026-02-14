@@ -348,10 +348,20 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   e2e:
     name: Build E2E test apps & run tests
-    needs: [build-e2e-binary, build-containers]
+    needs: [go-env, build-e2e-binary, build-containers]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
 
       - name: Setup Go
         uses: actions/setup-go@v5
