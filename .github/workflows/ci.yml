@@ -404,7 +404,10 @@ jobs:
 
       - name: Collect logs on failure
         if: failure()
-        run: make test-e2e-logs > /tmp/e2e-logs.txt 2>&1 || true
+        run: |
+          cd tests/e2e/distributed
+          docker compose --project-directory ../../.. -f ../../../docker-compose.yml -f docker-compose.e2e.yml logs --tail=500 --no-log-prefix > /tmp/e2e-logs.txt 2>&1 || true
+        timeout-minutes: 2
 
       - name: Upload logs on failure
         if: failure()
