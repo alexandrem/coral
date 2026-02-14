@@ -11,12 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
-
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/agent/heartbeat"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
@@ -366,13 +364,13 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 			connectPort)))
 		client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
 
+		// Use the composable HeartbeatAgent for the actual heartbeat call.
+		heartbeatAgent := heartbeat.NewAgent(cm.agentID, client)
+
 		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
-		resp, err := client.Heartbeat(heartbeatCtx, connect.NewRequest(&meshv1.HeartbeatRequest{
-			AgentId: cm.agentID,
-			Status:  "healthy",
-		}))
+		resp, err := heartbeatAgent.SendHeartbeat(heartbeatCtx)
 
 		if err != nil {
 			cm.consecutiveFailures++
@@ -384,7 +382,7 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 			return false
 		}
 
-		if !resp.Msg.Ok {
+		if !resp.Ok {
 			cm.consecutiveFailures++
 			cm.logger.Warn().
 				Str("agent_id", cm.agentID).
