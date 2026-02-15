@@ -1,3 +1,4 @@
+// Package ui manages the UI terminal rendering for coral ask interactive command.
 package ui
 
 import (
