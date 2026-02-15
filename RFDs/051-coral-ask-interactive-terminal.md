@@ -15,37 +15,45 @@ areas: [ "ai", "cli", "ux" ]
 
 **Status:** 🚧 Draft
 
+<!--
+Status progression:
+  🚧 Draft → 👀 Under Review → ✅ Approved → 🔄 In Progress → 🎉 Implemented
+-->
+
 ## Summary
 
-Extend `coral ask` (RFD 030) with an interactive terminal mode that provides a
-REPL-style conversational interface. Instead of single-shot queries, developers
-get a persistent session with rich terminal UI (markdown rendering, syntax
-highlighting, tables), streaming responses, and conversation context maintained
-during the active session. Advanced features like session persistence, dynamic
-prompts, and runtime configuration are deferred to future RFDs to keep the
-initial implementation focused and shippable.
+Extend `coral ask` (RFD 030) with an interactive terminal mode using
+`github.com/charmbracelet/bubbletea` to provide a REPL-style conversational
+interface. Developers enter a persistent session with rich terminal UI (markdown
+rendering, syntax highlighting, tables) and streaming responses instead of
+repeatedly running `coral ask "question" --continue` for each query.
 
 ## Problem
 
 **Current behavior/limitations:**
 
-- RFD 030 describes `coral ask "question"` as a single-shot command
-- Multi-turn conversations require `--continue` flag and re-running the command
-- No persistent session for iterative debugging workflows
-- Each invocation has startup overhead (agent connection, context loading)
-- No rich terminal UI (no syntax highlighting, tables, or interactive elements)
+- RFD 030 implemented `coral ask "question"` as a single-shot command
+- Multi-turn conversations exist via `--continue` flag, but require re-running
+  `coral ask` for each follow-up question
+- No persistent interactive session for iterative debugging workflows
+- Each invocation has startup overhead (agent initialization, colony connection)
+- Terminal output is basic text with no rich formatting (markdown, syntax
+  highlighting, tables)
+- Conversation history exists (`~/.coral/conversations/`) but no way to browse
+  or resume old sessions interactively
 
 **Why this matters:**
 
 - Real debugging sessions are iterative: "What's slow?" → "Show traces" → "
   Filter by errors" → "Compare to yesterday"
-- Single-shot commands break flow: re-typing `coral ask` and `--continue` is
-  tedious
+- Typing `coral ask "question" --continue` repeatedly breaks flow and feels
+  archaic compared to modern REPL interfaces
 - Developers expect REPL-like UX: type question, get answer, ask follow-up
-  immediately
+  immediately without re-running commands
 - Modern AI tools (Claude Code, Cursor, Copilot) use persistent interactive
-  sessions
-- Rich output (tables, code blocks, syntax highlighting) improves readability
+  sessions with rich terminal UI
+- Current plain text output makes it hard to read code blocks, tables, and
+  structured data
 
 **Use cases affected:**
 
@@ -75,30 +83,53 @@ initial implementation focused and shippable.
 ## Solution
 
 Add an interactive terminal mode to `coral ask` that spawns a persistent session
-with a conversational interface. When invoked without a question (`coral ask` or
-`coral ask --interactive`), the CLI enters a REPL-style loop with:
+with a conversational interface. When invoked without a question (`coral ask`),
+the CLI detects terminal mode and enters a REPL-style loop with:
 
 - **Persistent context**: Conversation history maintained across all queries in
-  the session
-- **Rich terminal UI**: Streaming responses, syntax highlighting, tables,
-  progress indicators
-- **Inline commands**: Session management commands (e.g., `/help`, `/clear`,
-  `/save`, `/exit`)
-- **Smart input handling**: Multiline prompts, history navigation, tab
-  completion
-- **Fast iteration**: No startup overhead between questions (agent process stays
-  warm)
+  the session, using existing `~/.coral/conversations/` storage
+- **Rich terminal UI**: Streaming responses with markdown rendering, syntax
+  highlighting, tables, and progress indicators using
+  `github.com/charmbracelet/bubbletea`
+- **Inline commands**: Session management commands (`/help`, `/clear`, `/exit`)
+- **Smart input handling**: Command history navigation, Ctrl+C to cancel queries
+- **Fast iteration**: No startup overhead between questions (agent stays warm,
+  colony connection persists)
+- **Session resumption**: Resume previous conversations with `coral ask --resume
+  <id>` or select from list in interactive mode
 
 **Key Design Decisions:**
 
-- **REPL-style interface**: Similar to `python`, `node`, or `psql` interactive
-  modes
-    - Prompt shows session context (current colony, model, token usage)
-    - Commands prefixed with `/` (e.g., `/help`, `/context`) to distinguish from
-      natural language
-    - Standard readline bindings (Ctrl+A/E, arrow keys, history search)
+- **Bubbletea TUI framework**: Use Elm architecture (model-update-view) for
+  unified state management
+    - Simplifies coordination between input, streaming responses, and UI updates
+    - Built-in terminal handling (resize, colors, alternate screen)
+    - Future-proof for visual mode (split panes, conversation browser)
+    - Integrates naturally with Charm ecosystem (glamour for markdown, lipgloss
+      for styling)
 
-- **Streaming output**: LLM responses stream to terminal character-by-character
+- **Reuse existing conversation storage**: Interactive sessions use same
+  `Message` types and `~/.coral/conversations/` storage as `--continue`
+    - No separate "session" concept - interactive mode is just a nicer interface
+      to conversations
+    - Conversations auto-save after each turn (crash-safe)
+    - Can resume any conversation interactively or via `--continue`
+
+- **Simplified v1 prompt**: Focus on usability over metrics
+    - Show: colony name, model name
+    - Defer: token count, cost tracking, context window % (future RFD)
+    - Example: `my-app-prod | gemini-1.5-flash >`
+
+- **Terminal detection**: Only enter interactive mode when stdin is a terminal
+    - Prevents hanging when piped/scripted
+    - Explicit `--interactive` flag can force mode (for testing)
+
+- **REPL-style interface**: Familiar UX similar to `python`, `node`, or `psql`
+    - Commands prefixed with `/` (e.g., `/help`, `/clear`, `/exit`)
+    - Natural language queries entered directly (no prefix)
+    - Standard keybindings (Ctrl+C cancel, Ctrl+D exit)
+
+- **Streaming output**: LLM responses stream to terminal in real-time
     - Visual feedback that processing is happening (not stuck)
     - Users can start reading before full response completes
     - Interruptible (Ctrl+C cancels current query, stays in session)
@@ -106,17 +137,19 @@ with a conversational interface. When invoked without a question (`coral ask` or
 - **Rich rendering**: Structured output formatted for readability
     - Markdown rendering (headers, lists, code blocks with syntax highlighting)
     - Tables for metrics/trace data (auto-formatted columns)
-    - Progress bars for long-running MCP tool calls
+    - Spinners for long-running MCP tool calls
     - Color-coded severity (errors in red, warnings in yellow)
 
-- **Session persistence**: Save/restore conversations
-    - Sessions auto-saved to `~/.coral/ask-sessions/<session-id>.json`
-    - Resume previous session with `coral ask --resume <session-id>`
-    - Export session for sharing: `coral ask --export session.md`
+- **Conversation persistence**: Reuses existing `~/.coral/conversations/`
+  storage
+    - Auto-saved after each turn (crash-safe, same as `--continue`)
+    - Datetime-based file naming for natural chronological ordering
+    - Resume any conversation with `coral ask --resume <id>`
+    - Easy cleanup: delete old conversations by date
 
-- **Context awareness**: Display current context in prompt
-    - Show active colony, model, token count, session duration
-    - Warning when approaching token limits (context window full)
+- **Simple context display**: Focus on essential information
+    - Show: colony name, model name
+    - Deferred to future RFD: token count, cost, session duration, warnings
 
 **Benefits:**
 
@@ -124,175 +157,226 @@ with a conversational interface. When invoked without a question (`coral ask` or
 - **Better UX**: Familiar REPL interface, rich output formatting
 - **Improved productivity**: Maintain flow during debugging, no context
   switching
-- **Session continuity**: Resume work after breaks, share debugging sessions
-  with team
+- **Session continuity**: Conversations auto-save and can be resumed
 - **Lower cognitive load**: Don't need to remember previous queries, history is
   visible
+
+**Design Philosophy:**
+
+- **Bubbletea-first**: Use Elm architecture for clean state management and
+  future extensibility
+- **Reuse existing infrastructure**: Conversations, storage, agent code from RFD
+  030
+- **Familiar UX**: Borrow from successful REPLs (`psql`, `python`, `node`)
+- **Graceful degradation**: Rich features when available, basic output when
+  NO_COLOR is set
 
 **Architecture Overview:**
 
 ```
-Terminal (Interactive Mode)
+Terminal (Interactive Mode - Bubbletea)
 ┌────────────────────────────────────────────────────────────┐
 │ coral ask (interactive session)                            │
-│                                                             │
-│ Colony: my-app-prod-xyz | Model: gpt-4o-mini | Tokens: 450│
-│ ──────────────────────────────────────────────────────────│
-│                                                             │
+│                                                            │
+│ my-app-prod | gemini-1.5-flash                             │
+│ ───────────────────────────────────────────────────────────│
+│                                                            │
 │ > what's causing high latency?                             │
-│                                                             │
-│ ✓ Analyzing traces (3 services)... 2.1s                   │
-│ ✓ Queried metrics (last 1h)... 0.8s                       │
-│                                                             │
+│                                                            │
+│ ✓ Analyzing traces (3 services)... 2.1s                    │
+│ ✓ Queried metrics (last 1h)... 0.8s                        │
+│                                                            │
 │ ## Root Cause Analysis                                     │
-│                                                             │
+│                                                            │
 │ The payment-api service shows elevated p95 latency:        │
-│                                                             │
+│                                                            │
 │ Service       | p50    | p95     | p99     | Change        │
-│ ──────────────┼────────┼─────────┼─────────┼───────────   │
-│ payment-api   | 120ms  | 1400ms  | 2800ms  | +85% (1h)    │
-│ checkout      | 80ms   | 200ms   | 350ms   | +12% (1h)    │
-│                                                             │
-│ Evidence:                                                   │
+│ ──────────────┼────────┼─────────┼─────────┼───────────    │
+│ payment-api   | 120ms  | 1400ms  | 2800ms  | +85% (1h)     │
+│ checkout      | 80ms   | 200ms   | 350ms   | +12% (1h)     │
+│                                                            │
+│ Evidence:                                                  │
 │ • DB connection pool at 94% utilization (threshold: 80%)   │
 │ • 127 slow query warnings in last hour                     │
-│                                                             │
+│                                                            │
 │ > show me the slow queries                                 │
-│                                                             │
+│                                                            │
 │ ⠋ Fetching logs... (payment-api)                           │
-│                                                             │
+│                                                            │
 │ [Ctrl+C to cancel, /help for commands, /exit to quit]      │
 └────────────────────────────────────────────────────────────┘
-         ↕ (readline, streaming, formatting)
+         ↕ (bubbletea Elm architecture)
 ┌────────────────────────────────────────────────────────────┐
-│ Genkit Agent (daemon mode from RFD 030)                    │
-│                                                             │
-│ • Maintains conversation history (all turns)               │
-│ • Executes MCP tool calls                                  │
-│ • Streams LLM responses back to terminal                   │
-│ • Tracks token usage for prompt display                    │
+│ Bubbletea Model (internal/cli/ask/ui/model.go)             │
+│                                                            │
+│ State:                                                     │
+│ • currentQuestion: string                                  │
+│ • conversation: []Message (from existing storage)          │
+│ • streamingResponse: string (accumulated chunks)           │
+│ • toolCalls: []ToolCall (for citations)                    │
+│ • state: idle | querying | streaming | error               │
+│                                                            │
+│ Update():                                                  │
+│ • UserInput → send to agent, transition to querying        │
+│ • StreamChunk → append to response, re-render              │
+│ • ToolStart → show spinner                                 │
+│ • ToolComplete → hide spinner, show checkmark              │
+│ • Error → show error, return to idle                       │
+│                                                            │
+│ View():                                                    │
+│ • Render prompt with colony/model                          │
+│ • Use glamour for markdown formatting                      │
+│ • Use lipgloss for styling                                 │
+│ • Use spinner component while querying                     │
 └────────────────────────────────────────────────────────────┘
-         ↕ MCP
+         ↕ (calls agent.Ask with streaming)
+┌────────────────────────────────────────────────────────────┐
+│ Ask Agent (internal/agent/ask - from RFD 030)              │
+│                                                            │
+│ • Maintains conversation history (reuse existing code)     │
+│ • Executes MCP tool calls                                  │
+│ • Streams LLM responses as bubbletea messages              │
+│ • Saves to ~/.coral/conversations/ after each turn         │
+└────────────────────────────────────────────────────────────┘
+         ↕ MCP (buf Connect RPC)
 ┌────────────────────────────────────────────────────────────┐
 │ Colony MCP Server (RFD 004)                                │
-│                                                             │
-│ • query_trace_data, query_metrics, search_logs, etc.       │
+│                                                            │
+│ • coral_query_beyla_*, coral_get_service_*, etc.           │
 └────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Changes
 
-1. **CLI (`internal/cli/ask`)** (extend existing):
-    - Detect interactive mode: no arguments OR `--interactive` flag
-    - Initialize interactive session with rich terminal UI library
-    - Implement REPL loop: read → send to agent → stream response → repeat
-    - Add inline command handlers (`/help`, `/clear`, `/save`, `/exit`, etc.)
-    - Implement session persistence (save/load conversation history)
+1. **CLI (`internal/cli/ask/ask.go`)** (extend existing):
+    - Update command args validation from `MinimumNArgs(1)` to `MaximumNArgs(1)`
+    - Detect interactive mode: no arguments + terminal detected (isatty check)
+    - Add `--interactive` flag to force interactive mode (useful for testing)
+    - Add `--resume <id>` flag to resume previous conversation (alternative to
+      `--continue`)
+    - Initialize bubbletea program when in interactive mode
+    - Reuse existing conversation storage (`~/.coral/conversations/`)
 
-2. **Terminal UI (`internal/cli/ask/ui`)** (new package):
-    - **Input handling**: Multiline prompt with readline support
-        - Use `github.com/chzyer/readline` or similar for line editing
-        - Command history (up/down arrows) persisted across sessions
-        - Tab completion for inline commands and service names
-    - **Output rendering**: Stream LLM responses with rich formatting
-        - Markdown rendering with syntax highlighting (
-          `github.com/charmbracelet/glamour`)
-        - Table formatting for structured data (
-          `github.com/olekukonko/tablewriter`)
-        - Progress indicators for tool calls (`github.com/briandowns/spinner`)
-        - Color support with fallback for no-color terminals
-    - **Context display**: Dynamic prompt showing session metadata
-        - Current colony, model, token count, cost estimate
-        - Warning indicators (high token usage, cost limits)
+2. **Bubbletea UI (`internal/cli/ask/ui`)** (new package):
+    - **Model** (`model.go`): State management using Elm architecture
+        - State: `idle | querying | streaming | error`
+        - Fields: `currentQuestion`, `conversation` (reuse existing `Message`
+          type), `streamingResponse`, `toolCalls`
+        - Manages conversation ID (new or resumed)
+    - **Update** (`update.go`): Message handling and state transitions
+        - `tea.KeyMsg`: Handle user input, inline commands (`/help`, `/clear`,
+          `/exit`)
+        - `StreamChunkMsg`: Append to streaming response, re-render
+        - `ToolStartMsg`: Show spinner for tool execution
+        - `ToolCompleteMsg`: Hide spinner, show checkmark
+        - `ErrorMsg`: Display error, return to idle
+        - `tea.Quit`: Save conversation and exit
+    - **View** (`view.go`): Rendering logic
+        - Render prompt: `<colony> | <model> >`
+        - Use `glamour` for markdown rendering (code blocks, tables, lists)
+        - Use `lipgloss` for styling and colors
+        - Use `spinner` component from `bubbles` library for tool calls
+        - Handle NO_COLOR environment variable for basic terminals
+    - **Commands** (`commands.go`): Side effects (async operations)
+        - `askQuestionCmd`: Call agent.Ask() and stream responses back as
+          messages
+        - `saveConversationCmd`: Save to `~/.coral/conversations/` (reuse
+          existing function)
 
-3. **Session Manager (`internal/cli/ask/session`)** (new package):
-    - Persist conversation history to local storage
-    - Auto-save after each turn (append-only for crash safety)
-    - Session listing: `coral ask --list-sessions`
-    - Resume session: `coral ask --resume <id>`
-    - Export session: `coral ask --export <id> --format markdown|json`
+3. **Agent Integration** (extend existing from RFD 030):
+    - Modify `agent.Ask()` to support bubbletea message channel for streaming
+    - Emit `StreamChunkMsg` as LLM generates response
+    - Emit `ToolStartMsg` / `ToolCompleteMsg` for MCP tool executions
+    - Emit `ErrorMsg` on failures
+    - Reuse existing conversation management (no changes needed)
 
-4. **Agent Integration** (extend existing from RFD 030):
-    - Streaming API: agent sends response chunks as they arrive
-    - Tool call progress: emit events when calling MCP tools (for progress bars)
-    - Interruptibility: support cancellation mid-response (Ctrl+C handling)
-    - Token usage reporting: include in response metadata for prompt display
+**Configuration:**
 
-**Configuration Example:**
+Interactive mode uses existing `coral ask` configuration from RFD 030. No new
+configuration required for v1.
 
-```yaml
-# ~/.coral/config.yaml
-ask:
-    # Existing config from RFD 030...
-    default_model: "openai:gpt-4o-mini"
+- Terminal detection is automatic (isatty check)
+- Rich output respects `NO_COLOR` environment variable
+- Conversations saved to existing `~/.coral/conversations/<colony>/<id>.json`
+- Model selection uses existing `ai.ask.default_model` setting
 
-    # Interactive mode settings (core features only)
-    interactive:
-        # Enable rich terminal features (disable for basic terminals)
-        rich_output: true
+**Deferred configuration (future RFD):**
 
-        # Markdown rendering in responses
-        render_markdown: true
+- Rendering options (table styles, syntax themes, color schemes)
+- Interactive-specific settings (auto-save intervals, history limits)
+- Visual mode preferences (split panes, conversation browser)
 
-        # Syntax highlighting for code blocks
-        syntax_highlighting: true
+## Implementation Plan (Optional)
 
-        # Show progress indicators for MCP tool calls
-        show_progress: true
+### Phase 1: Foundation & Bubbletea Setup
 
-        # Rendering options
-        render:
-            table_style: "rounded"        # "ascii" | "rounded" | "bold"
-            code_theme: "dracula"         # Syntax highlighting theme
-            max_table_width: 120          # Wrap tables at this width
-```
+- [ ] Add bubbletea dependencies:
+    - `github.com/charmbracelet/bubbletea` (TUI framework)
+    - `github.com/charmbracelet/bubbles` (UI components)
+    - `github.com/charmbracelet/glamour` (markdown rendering)
+    - `github.com/charmbracelet/lipgloss` (styling)
+- [ ] Update CLI args validation: `Args: cobra.MaximumNArgs(1)`
+- [ ] Add terminal detection function (isatty check)
+- [ ] Add `--interactive` flag for forcing interactive mode
+- [ ] Add `--resume <id>` flag for resuming conversations
+- [ ] Create `internal/cli/ask/ui` package structure
 
-**Note:** Advanced configuration (dynamic prompts, session persistence, etc.)
-deferred to future RFDs.
+### Phase 2: Bubbletea Model Implementation
 
-## Implementation Plan
+- [ ] Implement `Model` struct with state management:
+    - State: `idle | querying | streaming | error`
+    - Fields: conversation ID, messages, current input, streaming buffer
+- [ ] Implement `Init()`: Initialize with new or resumed conversation
+- [ ] Implement `Update()`: Handle messages and state transitions
+    - User input (text entry, Enter to submit)
+    - Inline commands: `/help`, `/clear`, `/exit`
+    - Ctrl+C (cancel query), Ctrl+D (exit)
+    - Stream chunks from agent
+    - Tool execution events (start/complete)
+    - Error handling
+- [ ] Implement `View()`: Render UI
+    - Simple prompt: `<colony> | <model> >`
+    - Input area with current question
+    - Conversation history (scrollable viewport)
+    - Loading spinner during queries
+    - Error display
 
-### Phase 1: Basic REPL Loop
+### Phase 3: Rich Rendering & Agent Integration
 
-- [ ] Implement interactive mode detection (no args or `--interactive`)
-- [ ] Add readline library dependency (`github.com/chzyer/readline`)
-- [ ] Create basic REPL loop: prompt → read → send to agent → display → repeat
-- [ ] Implement `/exit` and `/help` inline commands
-- [ ] Handle Ctrl+C gracefully (cancel query, stay in session)
-- [ ] Handle Ctrl+D (exit session)
-- [ ] Basic prompt display (static format showing current colony)
+- [ ] Integrate glamour for markdown rendering in View()
+- [ ] Add lipgloss styling for colors and formatting
+- [ ] Add spinner component from bubbles for tool calls
+- [ ] Implement NO_COLOR environment variable support
+- [ ] Modify agent.Ask() to emit bubbletea messages:
+    - Create `StreamChunkMsg`, `ToolStartMsg`, `ToolCompleteMsg`, `ErrorMsg`
+    - Run agent in goroutine, send messages via channel
+    - Convert channel messages to bubbletea messages
+- [ ] Integrate with existing conversation storage:
+    - Load conversation on resume
+    - Save after each turn (reuse existing functions)
 
-### Phase 2: Rich Output Rendering
+### Phase 4: Testing & Documentation
 
-- [ ] Add markdown rendering library (`github.com/charmbracelet/glamour`)
-- [ ] Implement streaming response display (character-by-character or chunked)
-- [ ] Add syntax highlighting for code blocks
-- [ ] Implement table formatting for structured data
-- [ ] Add progress indicators for MCP tool calls
-- [ ] Implement color support with NO_COLOR env variable fallback
-
-### Phase 3: Testing & Documentation
-
-- [ ] Unit tests: REPL loop, inline commands, streaming output
-- [ ] Integration tests: markdown rendering, table formatting
-- [ ] E2E tests: basic interactive session workflow
-- [ ] Terminal compatibility tests (basic vs rich terminals)
-- [ ] Documentation: interactive mode guide, basic commands reference
+- [ ] Unit tests: Model state transitions, command handling
+- [ ] Integration tests: Bubbletea message flow, markdown rendering
+- [ ] E2E tests: Full interactive session workflow
+- [ ] Terminal compatibility tests (NO_COLOR support)
+- [ ] Documentation: Interactive mode guide, keyboard shortcuts
 
 ## API Changes
 
 ### CLI Commands
 
 ```bash
-# Enter interactive mode (no question provided)
+# Enter interactive mode (no question provided, auto-detected terminal)
 coral ask
 
 # Expected output:
 Welcome to Coral Ask (interactive mode)
-Colony: my-app-prod-xyz
-Type /help for commands, /exit to quit
+Type /help for commands, Ctrl+D to exit
 
-my-app-prod-xyz> what services are running?
+my-app-prod | gemini-1.5-flash
+> what services are running?
 
 ✓ Querying service topology... 0.8s
 
@@ -305,18 +389,47 @@ payment-api     | healthy | 5         | 67%    | 1.2GB
 checkout        | healthy | 4         | 45%    | 890MB
 ...
 
-my-app-prod-xyz> show metrics for payment-api
+my-app-prod | gemini-1.5-flash
+> show metrics for payment-api
 
 ⠋ Fetching metrics... (payment-api, last 1h)
 
 ---
 
-# Explicit interactive flag (same as above)
+# Explicit interactive flag (force interactive mode, useful for testing)
 coral ask --interactive
+
+# Resume a previous conversation by full filename
+coral ask --resume 2026-02-15-143022-abc123
+
+# Or by datetime prefix (finds matching conversation)
+coral ask --resume 2026-02-15-143022
+
+# Or by random suffix only (for compatibility)
+coral ask --resume abc123
 
 # Single-shot mode still works (for scripting)
 coral ask "what's the current status?"
+
+# Cannot use interactive mode in non-terminal context
+echo "what services are running?" | coral ask
+# Error: interactive mode requires a terminal
 ```
+
+### New Flags
+
+- `--interactive`: Force interactive mode (auto-detected by default when no
+  args + terminal)
+- `--resume <conversation-id>`: Resume a previous conversation in interactive
+  mode
+    - Accepts full filename: `2026-02-15-143022-abc123`
+    - Or datetime prefix: `2026-02-15-143022` (must uniquely identify one
+      conversation)
+    - Or random suffix: `abc123` (for backward compatibility)
+
+**Note:** `--continue` flag still works for single-shot mode to continue the
+last conversation. `--resume` is specifically for interactive mode with explicit
+conversation ID selection.
 
 ### Inline Commands (Core)
 
@@ -324,11 +437,20 @@ Commands available within interactive session (prefixed with `/`):
 
 ```
 /help                   Show available commands and usage examples
+/clear                  Clear the screen
 /exit, /quit            Exit interactive session
 ```
 
-**Note:** Additional commands (session management, runtime config changes) are
-deferred to future RFDs. See "Deferred Features" section.
+**Keyboard Shortcuts:**
+
+```
+Ctrl+C                  Cancel current query (stay in session)
+Ctrl+D                  Exit interactive session
+Up/Down arrows          (Future) Navigate command history
+```
+
+**Note:** Additional commands (runtime model/colony switching, history search,
+session export) are deferred to future RFDs. See "Deferred Features" section.
 
 **Example usage:**
 
@@ -360,55 +482,44 @@ my-app-prod-xyz>
 
 ### Configuration Changes
 
-New `ask.interactive` section in `~/.coral/config.yaml`:
+**No configuration changes required.**
 
-```yaml
-# ~/.coral/config.yaml
-ask:
-    # Existing config from RFD 030...
-    default_model: "openai:gpt-4o-mini"
+Interactive mode reuses existing `ai.ask` configuration from RFD 030. Behavior
+is controlled by:
 
-    # Interactive mode settings (core features only)
-    interactive:
-        # Enable rich terminal features (disable for basic terminals)
-        rich_output: true
+- **Terminal detection**: Automatic (isatty check)
+- **Rich output**: Respects `NO_COLOR` environment variable
+- **Conversation storage**: Uses existing `~/.coral/conversations/` directory
+- **Model selection**: Uses existing `ai.ask.default_model` setting
 
-        # Markdown rendering in responses
-        render_markdown: true
+**Future configuration (deferred to separate RFD):**
 
-        # Syntax highlighting for code blocks
-        syntax_highlighting: true
+- Rendering preferences (table styles, syntax themes)
+- Interactive-specific behavior (auto-save intervals, scrollback limits)
+- Visual mode settings (layout, pane configuration)
 
-        # Show progress indicators for MCP tool calls
-        show_progress: true
-
-        # Rendering options
-        render:
-            table_style: "rounded"        # "ascii" | "rounded" | "bold"
-            code_theme: "dracula"         # Syntax highlighting theme
-            max_table_width: 120          # Wrap tables at this width
-```
-
-**Note:** Session persistence, dynamic prompts, and advanced configuration
-options are deferred. See "Deferred Features" section.
-
-## Testing Strategy
+## Testing Strategy (Optional)
 
 ### Unit Tests
 
-- **REPL loop**: Command parsing, inline command routing, exit handling
-- **Input handling**: Basic readline integration, history navigation (up/down
-  arrows)
-- **Output rendering**: Markdown parsing, syntax highlighting, table formatting
+- **Model state transitions**: Test Update() function with various message types
+  (`tea.KeyMsg`, `StreamChunkMsg`, `ToolStartMsg`, etc.)
+- **Inline command handling**: `/help`, `/clear`, `/exit` parse and execute
+  correctly
+- **View rendering**: Verify prompt format, markdown conversion, color
+  application
+- **Conversation integration**: Reuse existing Message types, save/load from
+  storage
 
 ### Integration Tests
 
-- **Streaming output**: Verify responses render progressively (not all at once)
-- **Markdown rendering**: Code blocks, tables, lists formatted correctly
-- **Session continuity**: Context maintained across multiple turns within active
-  session
-- **Terminal compatibility**: Graceful degradation in non-rich terminals (
-  NO_COLOR support)
+- **Bubbletea message flow**: Send messages to Update(), verify state changes
+  and commands returned
+- **Streaming accumulation**: Multiple `StreamChunkMsg` properly accumulate in
+  buffer
+- **Markdown rendering**: glamour correctly formats code blocks, tables, lists
+- **NO_COLOR support**: Output degrades gracefully when NO_COLOR=1
+- **Agent communication**: agent.Ask() emits correct message sequence
 
 ### E2E Tests
 
@@ -459,7 +570,7 @@ EOF
 # Verify: Output has no ANSI color codes, still readable
 ```
 
-## Security Considerations
+## Security Considerations (Optional)
 
 ### Terminal Escape Sequences
 
@@ -475,54 +586,56 @@ EOF
   this)
 - Strip unknown escape sequences from untrusted input
 
-## Deferred Features
+## Future Work
 
-The following features are deferred to keep the core implementation focused and
-shippable. These will be addressed in follow-up RFDs once the basic interactive
-mode is proven and stable.
-
-**Session Persistence & Management** (Future - RFD TBD)
-
-The core interactive mode maintains context only for the current session
-lifetime. Full session persistence requires additional complexity:
-
-- Session storage format and lifecycle management
-- Save/resume across CLI invocations (`coral ask --resume <id>`)
-- Session listing and cleanup (`coral ask --list-sessions`)
-- Export to markdown/JSON for sharing
-- Auto-save and crash recovery
-
-**Rationale:** Session persistence adds significant complexity (storage format,
-migrations, cleanup) and isn't required for basic iterative debugging.
-Developers can still use the interactive mode for active sessions; persistence
-is an enhancement.
+The following features are out of scope for this RFD to keep the core
+implementation focused and shippable. These will be addressed in follow-up RFDs
+once the basic interactive mode is proven and stable.
 
 **Enhanced Prompt & Context Display** (Future - RFD TBD)
 
-The core implementation uses a static prompt format. Dynamic context display
-requires:
+The v1 implementation uses a simplified prompt showing colony and model name.
+Dynamic context display requires:
 
 - Real-time token usage tracking and display
-- Cost estimation and warning thresholds
+- Cost estimation and warning thresholds (per query, per session)
 - Context window utilization indicators
 - Configurable prompt templates
-- Warning displays (cost limits, token limits)
+- Warning displays (cost limits, token limits approaching)
 
-**Rationale:** While helpful, these are UX enhancements that don't affect core
-functionality. The basic prompt shows colony name, which is sufficient for MVP.
+**Rationale:** While helpful for power users, these are UX enhancements that
+don't affect core functionality. The basic prompt shows essential information
+(where you're querying, which model) which is sufficient for MVP. Token/cost
+tracking requires LLM provider integration work across all providers.
 
 **Advanced Input Features** (Future - RFD TBD)
 
-Basic readline support is included, but advanced features are deferred:
+Bubbletea provides basic text input. Advanced features are deferred:
 
-- Persistent command history across sessions
-- Tab completion for service names and commands
-- Fuzzy history search (Ctrl+R)
-- Multiline input with continuation (`\` line endings)
-- Smart completion based on context
+- Persistent command history across sessions (up/down to navigate)
+- Tab completion for service names and inline commands
+- Fuzzy history search (Ctrl+R style)
+- Multiline input with continuation (`\` line endings or Shift+Enter)
+- Smart completion based on MCP tool schemas
 
-**Rationale:** readline provides basic history (up/down arrows) out of the box.
-Advanced features require custom completion logic and context awareness.
+**Rationale:** Basic text input is sufficient for v1. Advanced input features
+require significant bubbletea component development and careful UX design
+(multiline handling, completion UI).
+
+**Conversation Management UI** (Future - RFD TBD)
+
+v1 supports `--resume <id>` to resume conversations by explicit ID. Advanced
+management deferred:
+
+- Interactive conversation browser (list all, filter, search)
+- Session listing command (`coral ask --list-sessions`)
+- Export conversations to markdown/JSON for sharing
+- Conversation cleanup and archiving
+- Session metadata (tags, notes, timestamps in UI)
+
+**Rationale:** Conversations already persist via existing storage. Advanced
+management (browsing, searching, exporting) is useful but not critical for
+iterative debugging workflow.
 
 **Runtime Configuration Changes** (Future - RFD TBD)
 
@@ -550,80 +663,87 @@ Multi-user debugging sessions and sharing:
 and security consideration (data sanitization). Single-user sessions are
 sufficient for initial release.
 
-## Future Enhancements
-
-- **Collaborative sessions**: Multiple users in same session (shared debugging)
-- **Session replay**: Step through previous session turn-by-turn
-- **Visual mode**: TUI with split panes (conversation + context viewer)
-- **Voice input**: Dictate questions instead of typing (accessibility)
-- **Smart suggestions**: Auto-suggest next questions based on context
-- **Session branching**: Fork conversation to explore alternative debugging
-  paths
-- **Shortcuts/aliases**: User-defined shortcuts for common queries
-- **Plugin system**: Custom renderers for domain-specific data (e.g., Kubernetes
-  resources)
-
 ## Appendix
 
-### Terminal UI Libraries (Go)
+### Bubbletea Architecture & Dependencies
 
-**Input handling:**
+**Core Framework:**
 
-- [`github.com/chzyer/readline`](https://github.com/chzyer/readline): Full
-  readline implementation (history, editing, completion)
-- [`github.com/peterh/liner`](https://github.com/peterh/liner): Alternative with
-  simpler API
+- [`github.com/charmbracelet/bubbletea`](https://github.com/charmbracelet/bubbletea):
+  Elm-inspired TUI framework with model-update-view pattern
+    - Handles terminal events (keyboard, mouse, resize)
+    - Manages concurrent updates via message passing
+    - Provides clean separation of state, logic, and rendering
 
-**Output rendering:**
+**UI Components:**
 
-- [
-  `github.com/charmbracelet/glamour`](https://github.com/charmbracelet/glamour):
+- [`github.com/charmbracelet/bubbles`](https://github.com/charmbracelet/bubbles):
+  Reusable TUI components
+    - `spinner`: Loading indicators for tool calls
+    - `textinput`: User input field for questions
+    - `viewport`: Scrollable conversation history (future)
+
+**Rendering:**
+
+- [`github.com/charmbracelet/glamour`](https://github.com/charmbracelet/glamour):
   Markdown rendering with syntax highlighting
-- [
-  `github.com/charmbracelet/lipgloss`](https://github.com/charmbracelet/lipgloss):
-  Style definitions for terminal output
-- [
-  `github.com/olekukonko/tablewriter`](https://github.com/olekukonko/tablewriter):
-  ASCII table formatting
-- [`github.com/briandowns/spinner`](https://github.com/briandowns/spinner):
-  Progress spinners
+- [`github.com/charmbracelet/lipgloss`](https://github.com/charmbracelet/lipgloss):
+  Styling and layout (colors, borders, alignment)
 
-**Full TUI frameworks** (for future visual mode):
+**Why Bubbletea:**
 
-- [
-  `github.com/charmbracelet/bubbletea`](https://github.com/charmbracelet/bubbletea):
-  Elm-inspired TUI framework
-- [`github.com/rivo/tview`](https://github.com/rivo/tview): Rich TUI
-  components (tables, forms, etc.)
+- **Unified architecture**: Single framework instead of coordinating readline +
+  rendering + spinners
+- **Natural streaming**: Message-driven updates handle LLM streaming elegantly
+- **State management**: Elm architecture prevents race conditions and state bugs
+- **Future-proof**: Easy to extend to visual mode (split panes, conversation
+  browser) without rewriting
+- **Charm ecosystem**: Integrates seamlessly with glamour and lipgloss already
+  in use
 
 ### Prompt Design
 
-**Information hierarchy:**
+**v1 (Simplified):**
 
 ```
-<colony> | <model> | Tokens: <count> [| Cost: <usd>] [| ⚠ warnings]
+<colony> | <model>
 > <user input>
 ```
 
 **Examples:**
 
 ```
-# Basic prompt
-my-app-prod-xyz | gpt-4o-mini | Tokens: 0
+# Standard prompt
+my-app-prod | gemini-1.5-flash
 >
 
-# With cost tracking
-my-app-prod-xyz | gpt-4o-mini | Tokens: 2,450 | Cost: $0.04
+# Different model
+my-app-prod | claude-3-5-sonnet-20241022
 >
 
-# Warning: approaching token limit
-my-app-prod-xyz | gpt-4o-mini | Tokens: 7,890/8,192 | ⚠ Context 96% full
->
-
-# Warning: cost limit
-my-app-prod-xyz | claude-3-5-sonnet | Tokens: 4,200 | Cost: $1.89 | ⚠ $2.00 limit
+# Short colony name
+prod | gemini-1.5-pro
 >
 ```
+
+**Future enhancements (deferred):**
+
+```
+# With token and cost tracking (future RFD)
+my-app-prod | gemini-1.5-flash | Tokens: 2,450 | Cost: $0.04
+>
+
+# With warnings (future RFD)
+my-app-prod | gemini-1.5-flash | Tokens: 7,890/8,192 | ⚠ Context 96% full
+>
+```
+
+**Rationale for simplified v1:**
+
+- Focus on essential information: where (colony) and how (model)
+- Token/cost tracking requires provider-specific integration work
+- Warnings require thresholds and user configuration
+- Can add complexity later without breaking UX
 
 ### Streaming Response Format
 
@@ -647,113 +767,185 @@ Evidence:                               ← Markdown formatted as it arrives
 ```go
 // Simplified streaming implementation
 for chunk := range agent.StreamResponse(ctx, query) {
-switch chunk.Type {
-case "tool_start":
-ui.ShowSpinner(chunk.ToolName)
-case "tool_complete":
-ui.HideSpinner()
-ui.Printf("✓ %s (%.1fs)\n", chunk.ToolName, chunk.Duration)
-case "content":
-ui.WriteMarkdown(chunk.Content) // Renders incrementally
-case "error":
-ui.PrintError(chunk.Error)
+    switch chunk.Type {
+    case "tool_start":
+        ui.ShowSpinner(chunk.ToolName)
+    case "tool_complete":
+        ui.HideSpinner()
+        ui.Printf("✓ %s (%.1fs)\n", chunk.ToolName, chunk.Duration)
+    case "content":
+        ui.WriteMarkdown(chunk.Content) // Renders incrementally
+    case "error":
+        ui.PrintError(chunk.Error)
+    }
 }
-}
 ```
 
-### Session Storage Format
+### Conversation Storage Format
 
-**File structure:**
+**Reuses existing storage from RFD 030 with datetime-based naming:**
 
 ```
-~/.coral/ask-sessions/
-├── abc123.json          # Session data
-├── def456.json
-└── index.json           # Session metadata index (for fast listing)
+~/.coral/conversations/
+├── <colony-id>/
+│   ├── last.json                        # Metadata for --continue
+│   ├── 2026-02-15-143022-abc123.json   # YYYY-MM-DD-HHMMSS-<random>
+│   ├── 2026-02-15-150315-def456.json   # Naturally ordered by time
+│   └── 2026-02-14-091234-789abc.json   # Older conversation
+└── <another-colony>/
+    └── ...
 ```
 
-**index.json** (for fast session listing without reading all files):
+**File naming format:** `YYYY-MM-DD-HHMMSS-<random>.json`
+
+- **Timestamp prefix**: Natural chronological ordering when listing (`ls`, file browsers)
+- **Random suffix**: Handles same-second collisions, provides unique ID
+- **Benefits**: Easy to find recent conversations, simple cleanup by date, human-readable
+
+**Conversation file format** (existing `Message` type):
 
 ```json
-{
-    "sessions": [
-        {
-            "id": "abc123",
-            "started_at": "2024-01-15T14:30:00Z",
-            "last_activity": "2024-01-15T15:15:00Z",
-            "turns": 12,
-            "colony": "my-app-prod-xyz",
-            "model": "gpt-4o-mini"
-        }
-    ]
+[
+  {
+    "role": "user",
+    "content": "what services are running?",
+    "timestamp": "2024-01-15T14:30:00Z"
+  },
+  {
+    "role": "assistant",
+    "content": "Found 12 services...",
+    "timestamp": "2024-01-15T14:30:15Z",
+    "tool_calls": [...]
+  }
+]
+```
+
+**Key points:**
+
+- Interactive mode reuses existing conversation storage (no migration needed)
+- `--resume <id>` accepts either full filename or just the random suffix
+- Auto-saves after each turn (same as `--continue` behavior)
+- Datetime naming makes conversations easy to browse and manage
+- No separate session metadata index in v1 (deferred to future RFD)
+
+### Input Handling (v1)
+
+**v1 behavior:**
+
+- **Single-line input**: Enter key submits question to LLM
+- **No multiline support**: Users must phrase questions as single line (
+  sufficient for most queries)
+- **No tab completion**: Type inline commands and service names manually
+- **Basic bubbletea textinput**: Standard text entry with cursor, backspace, etc.
+
+**Deferred to future RFD:**
+
+- Multiline input (Shift+Enter for newline, Enter to submit)
+- Tab completion for inline commands and service names
+- Command history navigation (up/down arrows)
+- Fuzzy history search (Ctrl+R)
+
+**Rationale:**
+
+Single-line input is sufficient for 95% of queries ("show me errors in
+payment-api", "what services are slow?"). Advanced input features require
+significant bubbletea component work and careful UX design (completion UI,
+multiline handling). Can be added later without breaking changes.
+
+### Integration with Existing Code
+
+This section documents how interactive mode integrates with the existing RFD 030
+implementation.
+
+### Existing Code to Reuse
+
+1. **Conversation Storage** (`internal/cli/ask/ask.go`):
+    - `loadConversationHistory()` - Load previous messages
+    - `saveConversationHistory()` - Save after each turn
+    - `getConversationHistoryPath()` - Path construction (update for datetime naming)
+    - `generateConversationID()` - Update to generate datetime-based IDs
+    - `Message` type - Already defined, reuse as-is
+
+2. **Agent Interface** (`internal/agent/ask/agent.go`):
+    - `Agent.Ask()` - Main query function (extend for streaming)
+    - `Agent.GetConversationHistory()` - Retrieve messages
+    - `Agent.SetConversationHistory()` - Load previous conversation
+    - `Agent.Close()` - Cleanup resources
+
+3. **Configuration** (`internal/config/ask_resolver.go`):
+    - `ResolveAskConfig()` - Get merged config (global + colony)
+    - `ValidateAskConfig()` - Ensure valid config
+    - Existing `AskConfig` struct - No changes needed
+
+### Required Changes
+
+1. **CLI Command** (`internal/cli/ask/ask.go`):
+    - Change: `Args: cobra.MinimumNArgs(1)` → `cobra.MaximumNArgs(1)`
+    - Add: Terminal detection using `golang.org/x/term.IsTerminal()`
+    - Add: `--interactive` flag (force interactive mode)
+    - Add: `--resume <id>` flag (load conversation by ID or datetime prefix)
+    - Add: Route to `runInteractive()` when no args + terminal detected
+    - Update: `generateConversationID()` to use datetime format: `YYYY-MM-DD-HHMMSS-<random>`
+
+2. **Agent Streaming** (`internal/agent/ask/agent.go`):
+    - Add: Optional `chan tea.Msg` parameter to `Ask()` method
+    - Emit: `StreamChunkMsg` as LLM generates text
+    - Emit: `ToolStartMsg` / `ToolCompleteMsg` for MCP tool executions
+    - Emit: `ErrorMsg` on failures
+    - Backward compatible: Existing streaming to stdout still works
+
+### New Code to Write
+
+1. **Bubbletea UI** (`internal/cli/ask/ui/`):
+    - `model.go`: State struct and Init()
+    - `update.go`: Message handling and state transitions
+    - `view.go`: Rendering logic with glamour/lipgloss
+    - `commands.go`: Side effects (agent calls, save)
+    - `messages.go`: Custom message types
+
+2. **Interactive Entry Point** (`internal/cli/ask/interactive.go`):
+    - `runInteractive()`: Initialize bubbletea program
+    - Setup: Create or resume conversation
+    - Teardown: Save conversation on exit
+
+### Example Integration Flow
+
+```go
+// in internal/cli/ask/ask.go
+
+// generateConversationID creates datetime-based conversation ID
+func generateConversationID() string {
+    // Format: YYYY-MM-DD-HHMMSS-<random>
+    timestamp := time.Now().Format("2006-01-02-150405")
+
+    // Add random suffix for uniqueness
+    b := make([]byte, 6)
+    if _, err := rand.Read(b); err != nil {
+        return timestamp + "-" + fmt.Sprintf("%d", os.Getpid())
+    }
+    return timestamp + "-" + hex.EncodeToString(b)[:6]
+}
+
+func NewAskCmd() *cobra.Command {
+    cmd := &cobra.Command{
+        Args: cobra.MaximumNArgs(1), // Changed from MinimumNArgs(1)
+        RunE: func(cmd *cobra.Command, args []string) error {
+            // Detect interactive mode
+            if len(args) == 0 && !interactive && !resume {
+                if !term.IsTerminal(int(os.Stdin.Fd())) {
+                    return fmt.Errorf("interactive mode requires a terminal")
+                }
+                interactive = true // Auto-detect
+            }
+
+            if interactive || resume != "" {
+                return runInteractive(cmd.Context(), colonyID, resume)
+            }
+
+            question := strings.Join(args, " ")
+            return runAsk(cmd.Context(), question, ...)
+        },
+    }
+    // Add flags...
 }
 ```
-
-### Multiline Input Handling
-
-**Approach:**
-
-- Default: Single-line input (Enter submits)
-- Multiline trigger: Line ending with `\` continues to next line
-- Alternative: Detect incomplete markdown (e.g., opening code fence without
-  closing)
-
-**Example:**
-
-```
-> show me a query that \
-... finds slow traces \
-... from the last hour
-
-(submitted as single query: "show me a query that finds slow traces from the last hour")
-```
-
-### Tab Completion
-
-**Completion sources:**
-
-- Inline commands: `/help`, `/exit`, `/model`, `/colony`, etc.
-- Service names: `payment-api`, `checkout`, `frontend` (from Colony)
-- Model names: `gpt-4o-mini`, `claude-3-5-sonnet`, etc. (from config)
-
-**Example:**
-
-```
-> show metrics for pay<TAB>
-> show metrics for payment-api
-```
-
----
-
-## Notes
-
-**Design Philosophy:**
-
-- **Familiar UX**: Borrow from successful REPLs (`psql`, `python`, `node`)
-- **Non-intrusive**: Rich features when available, graceful degradation for
-  basic terminals
-- **Fast feedback**: Streaming output, progress indicators, immediate responses
-- **Session context**: Maintain conversation context during active session (no
-  persistence across restarts)
-- **Completable scope**: Focus on core REPL experience, defer advanced features
-  to follow-up RFDs
-
-**Relationship to RFD 030:**
-
-- RFD 030 defines the architecture (Genkit agent, MCP integration, model
-  selection)
-- RFD 051 focuses on core UX layer (interactive terminal REPL, rich output
-  rendering)
-- Both RFDs combine to deliver basic interactive `coral ask` experience
-- Single-shot mode (`coral ask "question"`) remains supported for
-  scripting/automation
-- Interactive mode is additive, no breaking changes to RFD 030
-- Advanced features (session persistence, dynamic prompts, etc.) deferred to
-  future RFDs
-
-**When to use interactive vs single-shot:**
-
-- **Interactive mode**: Active debugging, exploration, learning, iterative
-  analysis
-- **Single-shot mode**: Scripting, automation, CI/CD integration, simple status
-  checks
