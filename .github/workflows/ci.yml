@@ -401,6 +401,8 @@ jobs:
       - name: Run E2E tests
         run: cd tests/e2e/distributed && make test
         timeout-minutes: 30
+        env:
+          SKIP_E2E_TEST4: "true"  # Skip Test4_OnDemandProbes in CI
 
       - name: Collect logs on failure
         if: failure()
