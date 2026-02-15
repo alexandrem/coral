@@ -80,11 +80,16 @@ build: generate ## Build the coral binary
 		echo "⚠️  Deno binary not found at $$DENO_SRC"; \
 		echo "   Run 'make generate' to download Deno binaries"; \
 	fi
-	@# Create symlinks in bin/ for e2e tests (bin/coral -> bin/darwin_arm64/coral)
-	@rm -f bin/$(BINARY_NAME) bin/coral-discovery
-	@ln -s $(shell go env GOOS)_$(shell go env GOARCH)/$(BINARY_NAME) bin/$(BINARY_NAME)
-	@ln -s $(shell go env GOOS)_$(shell go env GOARCH)/coral-discovery bin/coral-discovery
-	@echo "✓ Created symlinks: bin/$(BINARY_NAME) → $(BUILD_DIR)/$(BINARY_NAME)"
+	@# Create symlinks in bin/ for e2e tests (only when using default platform-specific BUILD_DIR)
+	@# Skip if BUILD_DIR is overridden (e.g., in Docker builds)
+	@if [ "$(BUILD_DIR)" = "bin/$(shell go env GOOS)_$(shell go env GOARCH)" ]; then \
+		rm -f bin/$(BINARY_NAME) bin/coral-discovery; \
+		ln -s $(shell go env GOOS)_$(shell go env GOARCH)/$(BINARY_NAME) bin/$(BINARY_NAME); \
+		ln -s $(shell go env GOOS)_$(shell go env GOARCH)/coral-discovery bin/coral-discovery; \
+		echo "✓ Created symlinks: bin/$(BINARY_NAME) → $(BUILD_DIR)/$(BINARY_NAME)"; \
+	else \
+		echo "✓ Skipping symlink creation (BUILD_DIR override detected)"; \
+	fi
 
 build-dev: build ## Build and grant TUN creation privileges (Linux: capabilities, macOS: setuid)
 	@echo "Granting TUN device creation privileges..."
