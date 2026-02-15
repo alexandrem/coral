@@ -80,6 +80,11 @@ build: generate ## Build the coral binary
 		echo "⚠️  Deno binary not found at $$DENO_SRC"; \
 		echo "   Run 'make generate' to download Deno binaries"; \
 	fi
+	@# Create symlinks in bin/ for e2e tests (bin/coral -> bin/darwin_arm64/coral)
+	@rm -f bin/$(BINARY_NAME) bin/coral-discovery
+	@ln -s $(shell go env GOOS)_$(shell go env GOARCH)/$(BINARY_NAME) bin/$(BINARY_NAME)
+	@ln -s $(shell go env GOOS)_$(shell go env GOARCH)/coral-discovery bin/coral-discovery
+	@echo "✓ Created symlinks: bin/$(BINARY_NAME) → $(BUILD_DIR)/$(BINARY_NAME)"
 
 build-dev: build ## Build and grant TUN creation privileges (Linux: capabilities, macOS: setuid)
 	@echo "Granting TUN device creation privileges..."
@@ -102,6 +107,7 @@ build-dev: build ## Build and grant TUN creation privileges (Linux: capabilities
 clean: ## Remove build artifacts
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR)
+	@rm -f bin/$(BINARY_NAME) bin/coral-discovery
 	@echo "✓ Cleaned"
 
 install: build ## Install the binary to $GOPATH/bin
