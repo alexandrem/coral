@@ -1,7 +1,7 @@
 ---
 rfd: "051"
 title: "Coral Ask - Interactive Terminal Mode"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "ai", "cli", "ux" ]
 
 # RFD 051 - Coral Ask: Interactive Terminal Mode
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 <!--
 Status progression:
@@ -310,31 +310,31 @@ configuration required for v1.
 
 ### Phase 1: Foundation & Bubbletea Setup
 
-- [ ] Add bubbletea dependencies:
+- [x] Add bubbletea dependencies:
     - `github.com/charmbracelet/bubbletea` (TUI framework)
     - `github.com/charmbracelet/bubbles` (UI components)
     - `github.com/charmbracelet/glamour` (markdown rendering)
     - `github.com/charmbracelet/lipgloss` (styling)
-- [ ] Update CLI args validation: `Args: cobra.MaximumNArgs(1)`
-- [ ] Add terminal detection function (isatty check)
-- [ ] Add `--interactive` flag for forcing interactive mode
-- [ ] Add `--resume <id>` flag for resuming conversations
-- [ ] Create `internal/cli/ask/ui` package structure
+- [x] Update CLI args validation: `Args: cobra.MaximumNArgs(1)`
+- [x] Add terminal detection function (isatty check)
+- [x] Add `--interactive` flag for forcing interactive mode
+- [x] Add `--resume <id>` flag for resuming conversations
+- [x] Create `internal/cli/ask/ui` package structure
 
 ### Phase 2: Bubbletea Model Implementation
 
-- [ ] Implement `Model` struct with state management:
+- [x] Implement `Model` struct with state management:
     - State: `idle | querying | streaming | error`
     - Fields: conversation ID, messages, current input, streaming buffer
-- [ ] Implement `Init()`: Initialize with new or resumed conversation
-- [ ] Implement `Update()`: Handle messages and state transitions
+- [x] Implement `Init()`: Initialize with new or resumed conversation
+- [x] Implement `Update()`: Handle messages and state transitions
     - User input (text entry, Enter to submit)
     - Inline commands: `/help`, `/clear`, `/exit`
     - Ctrl+C (cancel query), Ctrl+D (exit)
     - Stream chunks from agent
     - Tool execution events (start/complete)
     - Error handling
-- [ ] Implement `View()`: Render UI
+- [x] Implement `View()`: Render UI
     - Simple prompt: `<colony> | <model> >`
     - Input area with current question
     - Conversation history (scrollable viewport)
@@ -343,25 +343,25 @@ configuration required for v1.
 
 ### Phase 3: Rich Rendering & Agent Integration
 
-- [ ] Integrate glamour for markdown rendering in View()
-- [ ] Add lipgloss styling for colors and formatting
-- [ ] Add spinner component from bubbles for tool calls
-- [ ] Implement NO_COLOR environment variable support
-- [ ] Modify agent.Ask() to emit bubbletea messages:
+- [x] Integrate glamour for markdown rendering in View()
+- [x] Add lipgloss styling for colors and formatting
+- [x] Add spinner component from bubbles for tool calls
+- [x] Implement NO_COLOR environment variable support
+- [x] Modify agent.Ask() to emit bubbletea messages:
     - Create `StreamChunkMsg`, `ToolStartMsg`, `ToolCompleteMsg`, `ErrorMsg`
     - Run agent in goroutine, send messages via channel
     - Convert channel messages to bubbletea messages
-- [ ] Integrate with existing conversation storage:
+- [x] Integrate with existing conversation storage:
     - Load conversation on resume
     - Save after each turn (reuse existing functions)
 
 ### Phase 4: Testing & Documentation
 
-- [ ] Unit tests: Model state transitions, command handling
-- [ ] Integration tests: Bubbletea message flow, markdown rendering
-- [ ] E2E tests: Full interactive session workflow
-- [ ] Terminal compatibility tests (NO_COLOR support)
-- [ ] Documentation: Interactive mode guide, keyboard shortcuts
+- [x] Unit tests: Model state transitions, command handling
+- [x] Integration tests: Bubbletea message flow, markdown rendering
+- [x] E2E tests: Full interactive session workflow
+- [x] Terminal compatibility tests (NO_COLOR support)
+- [x] Documentation: Interactive mode guide, keyboard shortcuts
 
 ## API Changes
 
