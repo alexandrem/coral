@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/coral-mesh/coral/tests/e2e/distributed/fixtures"
+	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
 // E2EDistributedSuite is the base test suite for distributed E2E tests.
@@ -22,6 +23,11 @@ type E2EDistributedSuite struct {
 // SetupSuite runs once before all tests in the suite.
 func (s *E2EDistributedSuite) SetupSuite() {
 	s.ctx = context.Background()
+
+	// Validate coral binary exists before running any tests.
+	err := helpers.EnsureCoralBinary()
+	s.Require().NoError(err, "coral binary validation failed")
+	s.T().Log("✓ coral binary found and accessible")
 
 	if s.fixture != nil {
 		s.T().Log("Using existing docker-compose services (reusing fixture)")

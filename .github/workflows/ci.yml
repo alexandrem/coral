@@ -30,6 +30,7 @@ jobs:
     outputs:
       mod-cache-key: ${{ steps.mod.outputs.cache-key }}
       tools-cache-key: ${{ steps.tools.outputs.cache-key }}
+      generated-cache-key: ${{ steps.generated.outputs.cache-key }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,6 +71,28 @@ jobs:
           restore-keys: |
             go-tools-v4-${{ runner.os }}-
 
+      # ── Generated files cache (deno binaries + generated code) ──
+      - name: Generated files cache key
+        id: generated
+        run: |
+          # Cache key based on deno version and proto files
+          DENO_VERSION=$(grep "DENO_VERSION=" scripts/download-deno.sh | cut -d= -f2 | tr -d '"' || echo "2.0.6")
+          PROTO_HASH=${{ hashFiles('proto/**/*.proto', 'scripts/download-deno.sh') }}
+          echo "cache-key=generated-v2-${{ runner.os }}-${DENO_VERSION}-${PROTO_HASH}" >> $GITHUB_OUTPUT
+
+      - name: Cache generated files
+        id: cache-generated
+        uses: actions/cache@v4
+        with:
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          key: ${{ steps.generated.outputs.cache-key }}
+          restore-keys: |
+            generated-v2-${{ runner.os }}-
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -81,6 +104,11 @@ jobs:
 
       - name: Download modules
         run: go mod download
+
+      - name: Generate files (if not cached)
+        if: steps.cache-generated.outputs.cache-hit != 'true'
+        run: make generate
+        timeout-minutes: 10
 
   # ──────────────────────────────────────────────────────────────
   # Tests + Coverage
@@ -107,6 +135,16 @@ jobs:
         with:
           key: ${{ needs.go-env.outputs.tools-cache-key }}
           path: ~/go/bin
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -171,6 +209,16 @@ jobs:
           key: ${{ needs.go-env.outputs.tools-cache-key }}
           path: ~/go/bin
 
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -199,10 +247,188 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────────────────
+  # E2E: Build Binary
+  # ──────────────────────────────────────────────────────────────
+  build-e2e-binary:
+    name: Build binary for E2E
+    needs: [go-env, test, static-analysis]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install APT packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.mod-cache-key }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.tools-cache-key }}
+          path: ~/go/bin
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Add tools to PATH
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Build coral binary
+        run: make build
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: bin/
+          retention-days: 30
+          if-no-files-found: error
+
+  # ──────────────────────────────────────────────────────────────
+  # Build Production Container Images (colony, agents)
+  # Later: will push to ghcr.io
+  # ──────────────────────────────────────────────────────────────
+  build-containers:
+    name: Build production containers
+    needs: [go-env, build-e2e-binary]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
+
+      - name: Download coral binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: bin/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production images (colony, agents)
+        run: docker compose build colony agent-0 agent-1
+        timeout-minutes: 15
+        env:
+          DOCKER_BUILDKIT: 1
+
+      # TODO: Add ghcr.io push here when ready
+      # - name: Push to GitHub Container Registry
+      #   run: docker compose push colony agent-0 agent-1
+
+  # ──────────────────────────────────────────────────────────────
+  # E2E: Build Test Containers & Run Tests
+  # ──────────────────────────────────────────────────────────────
+  e2e:
+    name: Build E2E test apps & run tests
+    needs: [go-env, build-e2e-binary, build-containers]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.go-env.outputs.generated-cache-key }}
+          path: |
+            internal/cli/run/binaries
+            internal/agent/ebpf/bpf_bpf*.go
+            internal/agent/ebpf/bpf_bpf*.o
+            pkg/api/proto/**/*.pb.go
+          fail-on-cache-miss: true
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Download coral binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: bin/
+
+      - name: Add coral binary to PATH
+        run: |
+          chmod +x bin/linux_amd64/coral
+          echo "${{ github.workspace }}/bin/linux_amd64" >> $GITHUB_PATH
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production images (from cache)
+        run: docker compose build colony agent-0 agent-1
+        timeout-minutes: 5
+        env:
+          DOCKER_BUILDKIT: 1
+
+      - name: Build E2E test apps (cpu-app, otel-app, sdk-app, memory-app)
+        run: cd tests/e2e/distributed && make build
+        timeout-minutes: 15
+        env:
+          DOCKER_BUILDKIT: 1
+
+      - name: Start E2E services
+        run: cd tests/e2e/distributed && make local-up
+
+      - name: Run E2E tests
+        run: cd tests/e2e/distributed && make test
+        timeout-minutes: 30
+        env:
+          SKIP_E2E_TEST4: "true"  # Skip Test4_OnDemandProbes in CI
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          cd tests/e2e/distributed
+          docker compose --project-directory ../../.. -f ../../../docker-compose.yml -f docker-compose.e2e.yml logs --tail=500 --no-log-prefix > /tmp/e2e-logs.txt 2>&1 || true
+        timeout-minutes: 2
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-logs
+          path: /tmp/e2e-logs.txt
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Cleanup Docker resources
+        if: always()
+        run: make test-e2e-down || true
+
+  # ──────────────────────────────────────────────────────────────
   # Build
   # ──────────────────────────────────────────────────────────────
   build:
-    needs: go-env
+    needs: [go-env, e2e]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -262,7 +488,16 @@ jobs:
       - name: Add tools to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
+      # Reuse Linux binary from e2e job, build for other platforms
+      - name: Download Linux binary from e2e
+        if: runner.os == 'Linux'
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: bin/
+
       - name: Build
+        if: runner.os != 'Linux'
         run: make build
 
       # Unique, predictable artifact name

@@ -1,6 +1,7 @@
 package distributed
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -186,6 +187,11 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 // Test4_OnDemandProbes runs deep introspection tests.
 // Requires: All previous groups
 func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
+	// Skip Test4 if SKIP_E2E_TEST4 env var is set (useful for CI)
+	if os.Getenv("SKIP_E2E_TEST4") == "true" {
+		s.T().Skip("Skipping Test4_OnDemandProbes (SKIP_E2E_TEST4=true)")
+	}
+
 	s.T().Log("")
 	s.T().Log("========================================")
 	s.T().Log("GROUP 4: On-Demand Probes")

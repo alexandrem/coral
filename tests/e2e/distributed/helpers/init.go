@@ -31,7 +31,8 @@ func RunCoralInitFull(ctx context.Context, appName, environment, storagePath, di
 		args = append(args, "--discovery", discoveryURL)
 	}
 
-	cmd := exec.CommandContext(ctx, "coral", args...)
+	coralBin := getCoralBinaryPath()
+	cmd := exec.CommandContext(ctx, coralBin, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("coral init failed: %w\nOutput: %s", err, string(output))

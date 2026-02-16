@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -27,14 +28,66 @@ func getCoralBinaryPath() string {
 	testDir, err := os.Getwd()
 	if err == nil {
 		projectRoot := filepath.Join(testDir, "../../..")
+
+		// Try generic bin/coral first (symlink created by make build).
 		localBinary := filepath.Join(projectRoot, "bin", "coral")
 		if _, err := os.Stat(localBinary); err == nil {
 			return localBinary
+		}
+
+		// Try architecture-specific binary (e.g., bin/darwin_arm64/coral).
+		archBinary := filepath.Join(projectRoot, "bin", fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH), "coral")
+		if _, err := os.Stat(archBinary); err == nil {
+			return archBinary
 		}
 	}
 
 	// Fall back to PATH
 	return "coral"
+}
+
+// EnsureCoralBinary validates that the coral binary exists and is accessible.
+// This should be called early in test setup to fail fast with a clear error message.
+// Returns an error if the binary cannot be found in either the project bin/ folder or PATH.
+func EnsureCoralBinary() error {
+	// Try project bin/ folder first (relative to test directory)
+	// tests/e2e/distributed -> ../../../bin/coral
+	testDir, err := os.Getwd()
+	var localBinaryPath, archBinaryPath string
+	if err == nil {
+		projectRoot := filepath.Join(testDir, "../../..")
+
+		// Try generic bin/coral first (symlink created by make build).
+		localBinaryPath = filepath.Join(projectRoot, "bin", "coral")
+		if _, err := os.Stat(localBinaryPath); err == nil {
+			return nil // Found in project bin/
+		}
+
+		// Try architecture-specific binary (e.g., bin/darwin_arm64/coral).
+		archBinaryPath = filepath.Join(projectRoot, "bin", fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH), "coral")
+		if _, err := os.Stat(archBinaryPath); err == nil {
+			return nil // Found in architecture-specific bin/
+		}
+	}
+
+	// Check if coral is in PATH
+	if path, err := exec.LookPath("coral"); err == nil && path != "" {
+		return nil // Found in PATH
+	}
+
+	// Binary not found - provide helpful error message
+	return fmt.Errorf(
+		"coral binary not found.\n"+
+			"Tried:\n"+
+			"  1. Project bin/: %s (not found)\n"+
+			"  2. Project bin/ (arch-specific): %s (not found)\n"+
+			"  3. System PATH: 'coral' (not found)\n\n"+
+			"Please build the binary first:\n"+
+			"  make build\n\n"+
+			"Or ensure 'coral' is in your PATH.",
+		localBinaryPath,
+		archBinaryPath,
+	)
 }
 
 // RunCLI executes a coral CLI command and returns the result.
