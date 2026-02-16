@@ -17,9 +17,14 @@ func (s *Server) executeTraceRequestPathTool(ctx context.Context, argumentsJSON 
 
 	s.auditToolCall("coral_trace_request_path", input)
 
-	// TODO: Call DebugService.TraceRequestPath
-	// Note: TraceRequestPath is not yet implemented in the orchestrator
-	return "", fmt.Errorf("coral_trace_request_path is not yet implemented")
+	// TODO(RFD-XXX): Implement automatic request path tracing.
+	// This feature is planned but not yet available.
+	return "", fmt.Errorf(
+		"coral_trace_request_path is not yet implemented. " +
+			"Use coral_query_traces to view distributed traces, or coral_profile_functions " +
+			"to profile specific functions during requests. " +
+			"Track implementation progress: https://github.com/coral-mesh/coral/issues",
+	)
 }
 
 // registerTraceRequestPathTool registers the coral_trace_request_path tool.
@@ -60,8 +65,12 @@ func (s *Server) registerTraceRequestPathTool() {
 
 		s.auditToolCall("coral_trace_request_path", input)
 
-		// TODO: Call DebugService.TraceRequestPath
-		// Note: TraceRequestPath is not yet implemented in the orchestrator
-		return mcp.NewToolResultError("coral_trace_request_path is not yet implemented"), nil
+		// TODO(RFD-XXX): Implement automatic request path tracing.
+		return mcp.NewToolResultError(
+			"coral_trace_request_path is not yet implemented. " +
+				"Use coral_query_traces to view distributed traces, or coral_profile_functions " +
+				"to profile specific functions during requests. " +
+				"Track implementation: https://github.com/coral-mesh/coral/issues",
+		), nil
 	})
 }

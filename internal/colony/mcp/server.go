@@ -315,6 +315,7 @@ func (s *Server) registerTools() error {
 	s.registerUnifiedLogsTool()
 
 	s.registerShellExecTool()
+	s.registerContainerExecTool()
 
 	// Register service discovery tools (RFD 054).
 	s.registerQueryServicesTool()
