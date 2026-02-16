@@ -364,6 +364,21 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 	s.Run("MCP_ToolErrorScenarios", mcpSuite.TestMCPToolErrorScenarios)
 	s.Run("MCP_ToolInputValidation", mcpSuite.TestMCPToolInputValidation)
 
+	// Group H: Response Validation (Sprint 1)
+	validationSuite := &ResponseValidationSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	validationSuite.SetT(s.T())
+	validationSuite.SetupSuite()
+	defer validationSuite.TearDownSuite()
+
+	s.Run("MCP_ResponseValidationListServices", validationSuite.TestResponseValidationListServices)
+	s.Run("MCP_ResponseValidationDiscoverFunctions", validationSuite.TestResponseValidationDiscoverFunctions)
+	s.Run("MCP_ResponseValidationQueryMetrics", validationSuite.TestResponseValidationQueryMetrics)
+	s.Run("MCP_ResponseValidationQueryTraces", validationSuite.TestResponseValidationQueryTraces)
+	s.Run("MCP_ResponseValidationQuerySummary", validationSuite.TestResponseValidationQuerySummary)
+	s.Run("MCP_ResponseValidationErrorFormat", validationSuite.TestResponseValidationErrorFormat)
+
 	if !s.T().Failed() {
 		s.mcpTestsPassed = true
 		s.T().Log("✓ GROUP 6 PASSED - MCP server working")
