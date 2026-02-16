@@ -65,9 +65,11 @@ build: generate ## Build the coral binary
 	@echo "Building for $(GOOS)/$(GOARCH) → $(BUILD_DIR)"
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral
+	@chmod +x $(BUILD_DIR)/$(BINARY_NAME)
 	@echo "✓ Built $(BUILD_DIR)/$(BINARY_NAME)"
 	@echo "Building coral-discovery..."
 	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-discovery ./cmd/discovery
+	@chmod +x $(BUILD_DIR)/coral-discovery
 	@echo "✓ Built $(BUILD_DIR)/coral-discovery"
 	@# Copy Deno binary for current platform
 	@DENO_SRC="internal/cli/run/binaries/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
