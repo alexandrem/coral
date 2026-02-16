@@ -142,31 +142,54 @@ func RunCLI(ctx context.Context, args ...string) *CLIResult {
 }
 
 // RunCLIWithEnv executes a coral CLI command with custom environment variables.
+// Only inherits specific safe environment variables for test isolation.
 func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *CLIResult {
 	coralBin := getCoralBinaryPath()
 	cmd := exec.CommandContext(ctx, coralBin, args...)
 
-	// Create a map of override keys for efficient lookup.
-	overrideKeys := make(map[string]bool)
-	for key := range env {
-		overrideKeys[key] = true
+	// Start with a clean environment map.
+	envMap := make(map[string]string)
+
+	// Inherit only specific safe variables needed for tests to work.
+	// This provides minimal environment while maintaining test isolation.
+	safeVars := []string{
+		"HOME",            // Required for config file resolution
+		"USER",            // May be needed by some commands
+		"TMPDIR",          // Temp directory
+		"PATH",            // System PATH (will be modified below)
+		"TERM",            // Terminal type for output formatting
+		"LANG",            // Locale settings
+		"LC_ALL",          // Locale settings
+		"TZ",              // Timezone
+		"CORAL_COLONY_ID", // Coral-specific vars
+		"CORAL_CONFIG",    // Coral-specific vars
 	}
 
-	// Add custom environment variables (these take precedence).
+	for _, varName := range safeVars {
+		if value := os.Getenv(varName); value != "" {
+			envMap[varName] = value
+		}
+	}
+
+	// Override with test-specific environment variables.
 	for key, value := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
-	}
-
-	// Add current HOME unless it's overridden.
-	if _, exists := overrideKeys["HOME"]; !exists {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("HOME=%s", os.Getenv("HOME")))
+		envMap[key] = value
 	}
 
 	// Ensure the directory containing the coral binary is in PATH.
 	// This is required for commands that spawn subprocesses using "coral" (e.g. ask).
 	coralDir := filepath.Dir(coralBin)
-	pathVar := "PATH"
-	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", pathVar, coralDir))
+	if currentPath, ok := envMap["PATH"]; ok {
+		envMap["PATH"] = coralDir + string(os.PathListSeparator) + currentPath
+	} else {
+		envMap["PATH"] = coralDir
+	}
+
+	// Convert map to []string for cmd.Env.
+	cmd.Env = make([]string, 0, len(envMap))
+	for key, value := range envMap {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
 
 	output, err := cmd.CombinedOutput()
 
