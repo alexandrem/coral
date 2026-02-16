@@ -22,6 +22,7 @@ type CLIResult struct {
 // getCoralBinaryPath returns the path to the coral binary.
 // Looks in project bin/ folder first (for locally built binaries),
 // then falls back to PATH.
+// Returns absolute path with symlinks resolved for better compatibility in CI.
 func getCoralBinaryPath() string {
 	// Try project bin/ folder first (relative to test directory)
 	// tests/e2e/distributed -> ../../../bin/coral
@@ -32,12 +33,23 @@ func getCoralBinaryPath() string {
 		// Try generic bin/coral first (symlink created by make build).
 		localBinary := filepath.Join(projectRoot, "bin", "coral")
 		if _, err := os.Stat(localBinary); err == nil {
+			// Resolve symlinks and convert to absolute path for CI compatibility.
+			if absPath, err := filepath.Abs(localBinary); err == nil {
+				if resolvedPath, err := filepath.EvalSymlinks(absPath); err == nil {
+					return resolvedPath
+				}
+				return absPath
+			}
 			return localBinary
 		}
 
 		// Try architecture-specific binary (e.g., bin/darwin_arm64/coral).
 		archBinary := filepath.Join(projectRoot, "bin", fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH), "coral")
 		if _, err := os.Stat(archBinary); err == nil {
+			// Resolve to absolute path.
+			if absPath, err := filepath.Abs(archBinary); err == nil {
+				return absPath
+			}
 			return archBinary
 		}
 	}
@@ -60,12 +72,33 @@ func EnsureCoralBinary() error {
 		// Try generic bin/coral first (symlink created by make build).
 		localBinaryPath = filepath.Join(projectRoot, "bin", "coral")
 		if _, err := os.Stat(localBinaryPath); err == nil {
+			// Resolve symlinks to check actual binary permissions.
+			if absPath, err := filepath.Abs(localBinaryPath); err == nil {
+				if resolvedPath, err := filepath.EvalSymlinks(absPath); err == nil {
+					// Check if the resolved binary is executable.
+					if resolvedInfo, err := os.Stat(resolvedPath); err == nil {
+						if resolvedInfo.Mode()&0111 == 0 {
+							// Binary exists but is not executable - try to fix it.
+							if err := os.Chmod(resolvedPath, resolvedInfo.Mode()|0111); err != nil {
+								return fmt.Errorf("binary found at %s but is not executable and chmod failed: %w", resolvedPath, err)
+							}
+						}
+					}
+				}
+			}
 			return nil // Found in project bin/
 		}
 
 		// Try architecture-specific binary (e.g., bin/darwin_arm64/coral).
 		archBinaryPath = filepath.Join(projectRoot, "bin", fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH), "coral")
-		if _, err := os.Stat(archBinaryPath); err == nil {
+		if info, err := os.Stat(archBinaryPath); err == nil {
+			// Check if binary is executable.
+			if info.Mode()&0111 == 0 {
+				// Binary exists but is not executable - try to fix it.
+				if err := os.Chmod(archBinaryPath, info.Mode()|0111); err != nil {
+					return fmt.Errorf("binary found at %s but is not executable and chmod failed: %w", archBinaryPath, err)
+				}
+			}
 			return nil // Found in architecture-specific bin/
 		}
 	}
