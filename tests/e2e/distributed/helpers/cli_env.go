@@ -79,6 +79,9 @@ func (e *CLITestEnv) Cleanup() error {
 func (e *CLITestEnv) EnvVars() map[string]string {
 	env := map[string]string{
 		"HOME": e.HomeDir,
+		// CORAL_CONFIG takes precedence over HOME for config directory resolution.
+		// This ensures tests use isolated config regardless of system HOME.
+		"CORAL_CONFIG": e.HomeDir,
 	}
 
 	// Add colony-specific vars if set
