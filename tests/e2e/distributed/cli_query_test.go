@@ -107,7 +107,7 @@ func (s *CLIQuerySuite) TestQueryServicesCommand() {
 	s.T().Log("Testing 'coral query services' command...")
 
 	// Test table format
-	result := helpers.QueryServices(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.QueryServices(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
@@ -120,7 +120,7 @@ func (s *CLIQuerySuite) TestQueryServicesCommand() {
 	// Test JSON format
 	// TODO: add format json
 	var services []map[string]interface{}
-	// services, err := helpers.QueryServicesJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	// services, err := helpers.QueryServicesJSON(s.ctx, s.cliEnv)
 	// s.Require().NoError(err, "JSON query should succeed")
 
 	s.T().Logf("✓ Query services listed %d services", len(services))
@@ -274,7 +274,7 @@ func (s *CLIQuerySuite) TestQueryJSONOutputValidity() {
 
 	// Test services JSON
 	// TODO: add format json
-	// _, err = helpers.QueryServicesJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	// _, err = helpers.QueryServicesJSON(s.ctx, s.cliEnv)
 	// s.Require().NoError(err, "Query services JSON should be valid")
 
 	// Test traces JSON
@@ -314,7 +314,7 @@ func (s *CLIQuerySuite) TestQueryTableOutputFormatting() {
 	}
 
 	// Test services table
-	result = helpers.QueryServices(s.ctx, s.cliEnv.ColonyEndpoint)
+	result = helpers.QueryServices(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 	rows := helpers.ParseTableOutput(result.Output)
 	s.T().Logf("Services table: %d rows", len(rows))

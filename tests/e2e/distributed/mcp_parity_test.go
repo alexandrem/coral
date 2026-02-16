@@ -143,7 +143,7 @@ func (s *MCPParitySuite) TestParityListServices() {
 	s.Require().NoError(err, "Should parse MCP JSON")
 
 	// 2. Query via CLI command
-	cliServices, err := helpers.ServiceListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	cliServices, err := helpers.ServiceListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "CLI list should succeed")
 
 	s.T().Logf("CLI services count: %d", len(cliServices))
@@ -301,7 +301,7 @@ func (s *MCPParitySuite) TestParityShellExec() {
 	s.T().Log("Testing MCP shell exec consistency...")
 
 	// Get agent ID
-	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Should list agents")
 	s.Require().NotEmpty(agents, "Should have at least one agent")
 	s.Require().Contains(agents[0], "agent_id", "Should have agent id")

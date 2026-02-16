@@ -209,7 +209,7 @@ func (s *CLIMeshSuite) TestColonyAgentsCommand() {
 	s.T().Log("Testing 'coral colony agents' command...")
 
 	// Test table format
-	result := helpers.ColonyAgents(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.ColonyAgents(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
@@ -219,7 +219,7 @@ func (s *CLIMeshSuite) TestColonyAgentsCommand() {
 	helpers.AssertContains(s.T(), result.Output, "agent")
 
 	// Test JSON format
-	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON query should succeed")
 	s.Require().GreaterOrEqual(len(agents), 1, "Should have at least 1 agent")
 
@@ -272,14 +272,14 @@ func (s *CLIMeshSuite) TestServiceListCommand() {
 	s.T().Log("Testing 'coral colony service list' command...")
 
 	// Test with table output
-	result := helpers.ServiceList(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.ServiceList(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
 	s.T().Log(result.Output)
 
 	// Test with JSON output (may be empty if no services registered yet)
-	services, err := helpers.ServiceListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	services, err := helpers.ServiceListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON query should succeed")
 
 	s.T().Logf("✓ Service list validated (%d services)", len(services))
@@ -348,7 +348,7 @@ func (s *CLIMeshSuite) TestJSONOutputValidity() {
 	s.Require().NoError(err, "Colony status JSON should be valid")
 
 	// Test colony agents JSON
-	_, err = helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	_, err = helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Colony agents JSON should be valid")
 
 	// Test agent list JSON
@@ -356,7 +356,7 @@ func (s *CLIMeshSuite) TestJSONOutputValidity() {
 	s.Require().NoError(err, "Agent list JSON should be valid")
 
 	// Test service list JSON
-	_, err = helpers.ServiceListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	_, err = helpers.ServiceListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Service list JSON should be valid")
 
 	s.T().Log("✓ All JSON outputs are valid")

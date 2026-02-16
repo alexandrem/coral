@@ -455,7 +455,7 @@ func (s *MCPSuite) TestMCPToolShellExec() {
 	s.Require().NoError(err, "Initialize should succeed")
 
 	// Get agent ID (use first available agent)
-	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Should list agents")
 	s.Require().NotEmpty(agents, "Should have at least one agent")
 	s.Require().Contains(agents[0], "agent_id", "Should have agent id")
@@ -748,7 +748,7 @@ func (s *MCPSuite) TestMCPToolContainerExec() {
 	s.Require().NoError(err, "Initialize should succeed")
 
 	// Get agent ID
-	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Should list agents")
 	s.Require().NotEmpty(agents, "Should have at least one agent")
 	s.Require().Contains(agents[0], "agent_id", "Should have agent id")

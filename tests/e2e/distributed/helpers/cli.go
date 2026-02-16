@@ -123,6 +123,24 @@ func EnsureCoralBinary() error {
 	)
 }
 
+// resolveEnvMap converts various input types to an environment variable map.
+// This centralizes the logic for accepting flexible parameter types in helper functions.
+func resolveEnvMap(envOrEndpoint interface{}) map[string]string {
+	switch v := envOrEndpoint.(type) {
+	case string:
+		// Backward compatibility: accept endpoint string
+		return map[string]string{"CORAL_COLONY_ENDPOINT": v}
+	case *CLITestEnv:
+		// Preferred: accept full test environment
+		return v.EnvVars()
+	case map[string]string:
+		// Also accept env map directly
+		return v
+	default:
+		return map[string]string{}
+	}
+}
+
 // RunCLI executes a coral CLI command and returns the result.
 func RunCLI(ctx context.Context, args ...string) *CLIResult {
 	coralBin := getCoralBinaryPath()
@@ -168,7 +186,8 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 	// For safe vars: test-specific values take precedence over parent env.
 	for _, varName := range safeVars {
 		// First check if test explicitly sets this variable.
-		if value, ok := env[varName]; ok {
+		if value, ok := env[varName]; ok && value != "" {
+			// Only add non-empty values - empty string means "unset" in tests.
 			envMap[varName] = value
 		} else if value := os.Getenv(varName); value != "" {
 			// Fall back to parent environment if not overridden.
@@ -178,7 +197,10 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 
 	// Add any additional test-specific environment variables not in safeVars.
 	for key, value := range env {
-		envMap[key] = value
+		// Only add non-empty values - empty string means "unset" in tests.
+		if value != "" {
+			envMap[key] = value
+		}
 	}
 
 	// Ensure the directory containing the coral binary is in PATH.
@@ -212,38 +234,12 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 
 // AgentList executes `coral agent list` and returns the output.
 func AgentList(ctx context.Context, colonyEndpointOrEnv interface{}) *CLIResult {
-	var env map[string]string
-	switch v := colonyEndpointOrEnv.(type) {
-	case string:
-		// Backward compatibility: accept endpoint string
-		env = map[string]string{"CORAL_COLONY_ENDPOINT": v}
-	case *CLITestEnv:
-		// Preferred: accept full test environment
-		env = v.EnvVars()
-	case map[string]string:
-		// Also accept env map directly
-		env = v
-	default:
-		env = map[string]string{}
-	}
-	return RunCLIWithEnv(ctx, env, "colony", "agents")
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "colony", "agents")
 }
 
 // AgentListJSON executes `coral agent list --format json` and parses the output.
 func AgentListJSON(ctx context.Context, colonyEndpointOrEnv interface{}) ([]map[string]interface{}, error) {
-	var env map[string]string
-	switch v := colonyEndpointOrEnv.(type) {
-	case string:
-		env = map[string]string{"CORAL_COLONY_ENDPOINT": v}
-	case *CLITestEnv:
-		env = v.EnvVars()
-	case map[string]string:
-		env = v
-	default:
-		env = map[string]string{}
-	}
-
-	result := RunCLIWithEnv(ctx, env, "colony", "agents", "-o", "json")
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "colony", "agents", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("agent list failed: %w\nOutput: %s", result.Err, result.Output)
@@ -258,17 +254,13 @@ func AgentListJSON(ctx context.Context, colonyEndpointOrEnv interface{}) ([]map[
 }
 
 // ServiceList executes `coral service list` and returns the output.
-func ServiceList(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "service", "list")
+func ServiceList(ctx context.Context, colonyEndpointOrEnv interface{}) *CLIResult {
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "colony", "service", "list")
 }
 
 // ServiceListJSON executes `coral service list --format json` and parses the output.
-func ServiceListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "service", "list", "-o", "json")
+func ServiceListJSON(ctx context.Context, colonyEndpointOrEnv interface{}) ([]map[string]interface{}, error) {
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "colony", "service", "list", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("service list failed: %w\nOutput: %s", result.Err, result.Output)
@@ -305,7 +297,7 @@ func ServiceListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]i
 }
 
 // QuerySummary executes `coral query summary` and returns the output.
-func QuerySummary(ctx context.Context, colonyEndpoint, service, timeRange string) *CLIResult {
+func QuerySummary(ctx context.Context, colonyEndpointOrEnv interface{}, service, timeRange string) *CLIResult {
 	args := []string{"query", "summary"}
 
 	if service != "" {
@@ -316,13 +308,11 @@ func QuerySummary(ctx context.Context, colonyEndpoint, service, timeRange string
 		args = append(args, "--since", timeRange)
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 }
 
 // QuerySummaryJSON executes `coral query summary --format json` and parses the output.
-func QuerySummaryJSON(ctx context.Context, colonyEndpoint, service, timeRange string) (map[string]interface{}, error) {
+func QuerySummaryJSON(ctx context.Context, colonyEndpointOrEnv interface{}, service, timeRange string) (map[string]interface{}, error) {
 	args := []string{"query", "summary", "--format", "json"}
 
 	if service != "" {
@@ -333,9 +323,7 @@ func QuerySummaryJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 		args = append(args, "--since", timeRange)
 	}
 
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("query summary failed: %w\nOutput: %s", result.Err, result.Output)
@@ -350,7 +338,7 @@ func QuerySummaryJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 }
 
 // QueryTraces executes `coral query traces` and returns the output.
-func QueryTraces(ctx context.Context, colonyEndpoint, service, timeRange string, limit int) *CLIResult {
+func QueryTraces(ctx context.Context, colonyEndpointOrEnv interface{}, service, timeRange string, limit int) *CLIResult {
 	args := []string{"query", "traces"}
 
 	if service != "" {
@@ -365,13 +353,11 @@ func QueryTraces(ctx context.Context, colonyEndpoint, service, timeRange string,
 		args = append(args, "--limit", fmt.Sprintf("%d", limit))
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 }
 
 // QueryTracesJSON executes `coral query traces --format json` and parses the output.
-func QueryTracesJSON(ctx context.Context, colonyEndpoint, service, timeRange string, limit int) (map[string]interface{}, error) {
+func QueryTracesJSON(ctx context.Context, colonyEndpointOrEnv interface{}, service, timeRange string, limit int) (map[string]interface{}, error) {
 	args := []string{"query", "traces", "--format", "json"}
 
 	if service != "" {
@@ -386,9 +372,7 @@ func QueryTracesJSON(ctx context.Context, colonyEndpoint, service, timeRange str
 		args = append(args, "--limit", fmt.Sprintf("%d", limit))
 	}
 
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("query traces failed: %w\nOutput: %s", result.Err, result.Output)
@@ -403,7 +387,7 @@ func QueryTracesJSON(ctx context.Context, colonyEndpoint, service, timeRange str
 }
 
 // QueryMetrics executes `coral query metrics` and returns the output.
-func QueryMetrics(ctx context.Context, colonyEndpoint, service, timeRange string) *CLIResult {
+func QueryMetrics(ctx context.Context, colonyEndpointOrEnv interface{}, service, timeRange string) *CLIResult {
 	args := []string{"query", "metrics"}
 
 	if service != "" {
@@ -414,13 +398,11 @@ func QueryMetrics(ctx context.Context, colonyEndpoint, service, timeRange string
 		args = append(args, "--since", timeRange)
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 }
 
 // QueryMetricsJSON executes `coral query metrics --format json` and parses the output.
-func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange string) (map[string]interface{}, error) {
+func QueryMetricsJSON(ctx context.Context, colonyEndpointOrEnv interface{}, service, timeRange string) (map[string]interface{}, error) {
 	args := []string{"query", "metrics", "--format", "json"}
 
 	if service != "" {
@@ -431,9 +413,7 @@ func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 		args = append(args, "--since", timeRange)
 	}
 
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("query metrics failed: %w\nOutput: %s", result.Err, result.Output)
@@ -448,7 +428,7 @@ func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 }
 
 // DebugCPUProfile executes `coral profile cpu` and returns the output.
-func DebugCPUProfile(ctx context.Context, colonyEndpoint, agentID, serviceName string, duration int) *CLIResult {
+func DebugCPUProfile(ctx context.Context, colonyEndpointOrEnv interface{}, agentID, serviceName string, duration int) *CLIResult {
 	args := []string{"profile", "cpu"}
 
 	if agentID != "" {
@@ -463,45 +443,17 @@ func DebugCPUProfile(ctx context.Context, colonyEndpoint, agentID, serviceName s
 		args = append(args, "--duration", fmt.Sprintf("%d", duration))
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 }
 
 // ColonyStatus executes `coral colony status` and returns the output.
 func ColonyStatus(ctx context.Context, colonyEndpointOrEnv interface{}) *CLIResult {
-	var env map[string]string
-	switch v := colonyEndpointOrEnv.(type) {
-	case string:
-		// Backward compatibility: accept endpoint string
-		env = map[string]string{"CORAL_COLONY_ENDPOINT": v}
-	case *CLITestEnv:
-		// Preferred: accept full test environment
-		env = v.EnvVars()
-	case map[string]string:
-		// Also accept env map directly
-		env = v
-	default:
-		env = map[string]string{}
-	}
-	return RunCLIWithEnv(ctx, env, "colony", "status")
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "colony", "status")
 }
 
 // ColonyStatusJSON executes `coral colony status --format json` and parses the output.
 func ColonyStatusJSON(ctx context.Context, colonyEndpointOrEnv interface{}) (map[string]interface{}, error) {
-	var env map[string]string
-	switch v := colonyEndpointOrEnv.(type) {
-	case string:
-		env = map[string]string{"CORAL_COLONY_ENDPOINT": v}
-	case *CLITestEnv:
-		env = v.EnvVars()
-	case map[string]string:
-		env = v
-	default:
-		env = map[string]string{}
-	}
-
-	result := RunCLIWithEnv(ctx, env, "colony", "status", "-o", "json")
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "colony", "status", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("colony status failed: %w\nOutput: %s", result.Err, result.Output)
@@ -516,17 +468,13 @@ func ColonyStatusJSON(ctx context.Context, colonyEndpointOrEnv interface{}) (map
 }
 
 // ColonyAgents executes `coral colony agents` and returns the output.
-func ColonyAgents(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents")
+func ColonyAgents(ctx context.Context, colonyEndpointOrEnv interface{}) *CLIResult {
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "colony", "agents")
 }
 
 // ColonyAgentsJSON executes `coral colony agents --format json` and parses the output.
-func ColonyAgentsJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents", "-o", "json")
+func ColonyAgentsJSON(ctx context.Context, colonyEndpointOrEnv interface{}) ([]map[string]interface{}, error) {
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "colony", "agents", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("colony agents failed: %w\nOutput: %s", result.Err, result.Output)
@@ -551,29 +499,25 @@ func ColonyTokenCreate(ctx context.Context, env map[string]string, tokenID, perm
 }
 
 // AgentStatus executes `coral agent status` for a specific agent and returns the output.
-func AgentStatus(ctx context.Context, colonyEndpoint, agentID string) *CLIResult {
+func AgentStatus(ctx context.Context, colonyEndpointOrEnv interface{}, agentID string) *CLIResult {
 	args := []string{"agent", "status"}
 
 	if agentID != "" {
 		args = append(args, "--agent", agentID)
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 }
 
 // AgentStatusJSON executes `coral agent status --format json` and parses the output.
-func AgentStatusJSON(ctx context.Context, colonyEndpoint, agentID string) (map[string]interface{}, error) {
+func AgentStatusJSON(ctx context.Context, colonyEndpointOrEnv interface{}, agentID string) (map[string]interface{}, error) {
 	args := []string{"agent", "status", "--format", "json"}
 
 	if agentID != "" {
 		args = append(args, "--agent", agentID)
 	}
 
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("agent status failed: %w\nOutput: %s", result.Err, result.Output)
@@ -588,17 +532,13 @@ func AgentStatusJSON(ctx context.Context, colonyEndpoint, agentID string) (map[s
 }
 
 // QueryServices executes `coral query services` and returns the output.
-func QueryServices(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "query", "services")
+func QueryServices(ctx context.Context, colonyEndpointOrEnv interface{}) *CLIResult {
+	return RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "query", "services")
 }
 
 // QueryServicesJSON executes `coral query services --format json` and parses the output.
-func QueryServicesJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "query", "services", "--format", "json")
+func QueryServicesJSON(ctx context.Context, colonyEndpointOrEnv interface{}) ([]map[string]interface{}, error) {
+	result := RunCLIWithEnv(ctx, resolveEnvMap(colonyEndpointOrEnv), "query", "services", "--format", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("query services failed: %w\nOutput: %s", result.Err, result.Output)
