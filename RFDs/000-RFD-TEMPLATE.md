@@ -56,19 +56,19 @@ High-level approach to solving the problem:
 
 ```
 [Optional: Include ASCII diagrams showing component interactions]
-User → Manager → Gateway → Agent → BMC
+User → Colony → Agent → SDK → App
 ```
 
 ### Component Changes
 
 Brief description of changes per component:
 
-1. **Component A** (e.g., Manager):
+1. **Component A** (e.g., Colony):
 
     - Key change and rationale
     - API/data flow updates
 
-2. **Component B** (e.g., Gateway):
+2. **Component B** (e.g., Agent):
 
     - Key change and rationale
     - Dependencies or impacts
@@ -173,7 +173,7 @@ Feature Result:
 ### Integration Tests
 
 - Cross-component test scenarios
-- Test against BMC simulators (VirtualBMC, Redfish mock)
+- Test against mock distributed apps and MCP servers
 - Verify data flow end-to-end
 
 ### E2E Tests
@@ -198,9 +198,9 @@ Feature Result:
 
 1. **Deployment Steps**:
 
-    - Deploy Manager changes
-    - Deploy Gateway changes
+    - Deploy Colony changes
     - Deploy Agent changes
+    - Update SDK (if applicable)
     - Enable feature flag
 
 2. **Rollback Plan**:
@@ -219,20 +219,19 @@ Example:
 ```
 **Core Capability:** ✅ Complete
 
-Agent BMC discovery implemented with IPMI and Redfish support. Agents can
-discover servers via DHCP and static configuration, and execute basic power
-operations.
+Agent trace collection implemented with OpenTelemetry support. Agents can
+discover apps via service registry and collect traces automatically.
 
 **Operational Components:**
-- ✅ IPMI discovery and power control
-- ✅ Redfish discovery and power control
+- ✅ OpenTelemetry trace collection
+- ✅ Service discovery via WireGuard mesh
 - ✅ Static configuration via YAML
-- ✅ CLI: `bmc-cli server list|power|status`
+- ✅ CLI: `coral agent list|status|traces`
 
 **What Works Now:**
-- Automatic server discovery on local networks
-- Remote power operations (on, off, reset, status)
-- Health monitoring via bmc dashboard
+- Automatic app discovery on local networks
+- Trace aggregation and storage
+- Health monitoring via colony dashboard
 ```
 
 **Integration Status:**
@@ -251,18 +250,18 @@ Example:
 
 ```
 **Advanced Discovery** (Future - RFD XXX)
-- IPv6 network discovery
-- Multi-subnet scanning
-- Cloud provider API integration
+- Multi-cluster mesh support
+- Cloud provider integration (AWS, GCP, Azure)
+- Kubernetes operator deployment
 
-**Enhanced Operations** (Blocked by Dependencies)
-- BIOS configuration - Requires RFD YYY (secure credential storage)
-- Firmware updates - Requires RFD ZZZ (update orchestration)
+**Enhanced AI Analysis** (Blocked by Dependencies)
+- Root cause correlation - Requires RFD YYY (graph database)
+- Predictive anomaly detection - Requires RFD ZZZ (ML pipeline)
 
 **Monitoring Enhancements** (Low Priority)
-- Temperature sensor trending
-- Fan speed alerts
-- Detailed inventory tracking
+- Custom metric collection
+- Real-time alerting integration
+- Historical trend analysis
 ```
 
 **When to Use This Section:**
@@ -376,7 +375,7 @@ Future Work: AI analysis (RFD 015), Alerting (RFD 020), Capacity planning (RFD 0
 - ✅ Show expected output for CLI commands
 - ✅ Use diagrams for complex architectures
 - ✅ Put protocol details in Appendix
-- ✅ Reference files by path only (e.g., `manager/pkg/database/database.go`)
+- ✅ Reference files by path only (e.g., `colony/pkg/storage/storage.go`)
 - ✅ Add Implementation Status section when RFD is implemented
 - ✅ Use Future Work section to manage scope
 
