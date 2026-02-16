@@ -165,13 +165,18 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 		"CORAL_CONFIG",    // Coral-specific vars
 	}
 
+	// For safe vars: test-specific values take precedence over parent env.
 	for _, varName := range safeVars {
-		if value := os.Getenv(varName); value != "" {
+		// First check if test explicitly sets this variable.
+		if value, ok := env[varName]; ok {
+			envMap[varName] = value
+		} else if value := os.Getenv(varName); value != "" {
+			// Fall back to parent environment if not overridden.
 			envMap[varName] = value
 		}
 	}
 
-	// Override with test-specific environment variables.
+	// Add any additional test-specific environment variables not in safeVars.
 	for key, value := range env {
 		envMap[key] = value
 	}
@@ -206,17 +211,39 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 }
 
 // AgentList executes `coral agent list` and returns the output.
-func AgentList(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents")
+func AgentList(ctx context.Context, colonyEndpointOrEnv interface{}) *CLIResult {
+	var env map[string]string
+	switch v := colonyEndpointOrEnv.(type) {
+	case string:
+		// Backward compatibility: accept endpoint string
+		env = map[string]string{"CORAL_COLONY_ENDPOINT": v}
+	case *CLITestEnv:
+		// Preferred: accept full test environment
+		env = v.EnvVars()
+	case map[string]string:
+		// Also accept env map directly
+		env = v
+	default:
+		env = map[string]string{}
+	}
+	return RunCLIWithEnv(ctx, env, "colony", "agents")
 }
 
 // AgentListJSON executes `coral agent list --format json` and parses the output.
-func AgentListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents", "-o", "json")
+func AgentListJSON(ctx context.Context, colonyEndpointOrEnv interface{}) ([]map[string]interface{}, error) {
+	var env map[string]string
+	switch v := colonyEndpointOrEnv.(type) {
+	case string:
+		env = map[string]string{"CORAL_COLONY_ENDPOINT": v}
+	case *CLITestEnv:
+		env = v.EnvVars()
+	case map[string]string:
+		env = v
+	default:
+		env = map[string]string{}
+	}
+
+	result := RunCLIWithEnv(ctx, env, "colony", "agents", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("agent list failed: %w\nOutput: %s", result.Err, result.Output)
@@ -442,17 +469,39 @@ func DebugCPUProfile(ctx context.Context, colonyEndpoint, agentID, serviceName s
 }
 
 // ColonyStatus executes `coral colony status` and returns the output.
-func ColonyStatus(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "status")
+func ColonyStatus(ctx context.Context, colonyEndpointOrEnv interface{}) *CLIResult {
+	var env map[string]string
+	switch v := colonyEndpointOrEnv.(type) {
+	case string:
+		// Backward compatibility: accept endpoint string
+		env = map[string]string{"CORAL_COLONY_ENDPOINT": v}
+	case *CLITestEnv:
+		// Preferred: accept full test environment
+		env = v.EnvVars()
+	case map[string]string:
+		// Also accept env map directly
+		env = v
+	default:
+		env = map[string]string{}
+	}
+	return RunCLIWithEnv(ctx, env, "colony", "status")
 }
 
 // ColonyStatusJSON executes `coral colony status --format json` and parses the output.
-func ColonyStatusJSON(ctx context.Context, colonyEndpoint string) (map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "status", "-o", "json")
+func ColonyStatusJSON(ctx context.Context, colonyEndpointOrEnv interface{}) (map[string]interface{}, error) {
+	var env map[string]string
+	switch v := colonyEndpointOrEnv.(type) {
+	case string:
+		env = map[string]string{"CORAL_COLONY_ENDPOINT": v}
+	case *CLITestEnv:
+		env = v.EnvVars()
+	case map[string]string:
+		env = v
+	default:
+		env = map[string]string{}
+	}
+
+	result := RunCLIWithEnv(ctx, env, "colony", "status", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("colony status failed: %w\nOutput: %s", result.Err, result.Output)

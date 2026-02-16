@@ -169,7 +169,7 @@ func (s *CLIMeshSuite) TestColonyStatusCommand() {
 	s.T().Log("Testing 'coral colony status' command...")
 
 	// Test table format (default)
-	result := helpers.ColonyStatus(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.ColonyStatus(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
@@ -186,7 +186,7 @@ func (s *CLIMeshSuite) TestColonyStatusCommand() {
 	s.Require().GreaterOrEqual(len(rows), 1, "Table should have at least 1 row")
 
 	// Test JSON format
-	status, err := helpers.ColonyStatusJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	status, err := helpers.ColonyStatusJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON query should succeed")
 
 	// Validate JSON structure
@@ -245,7 +245,7 @@ func (s *CLIMeshSuite) TestAgentListCommand() {
 	s.T().Log("Testing 'coral colony agents' command...")
 
 	// Test with table output
-	result := helpers.AgentList(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.AgentList(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
@@ -256,7 +256,7 @@ func (s *CLIMeshSuite) TestAgentListCommand() {
 	s.Require().GreaterOrEqual(len(rows), 1, "Should have at least headers")
 
 	// Test with JSON output
-	agents, err := helpers.AgentListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.AgentListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON query should succeed")
 	s.Require().GreaterOrEqual(len(agents), 1, "Should have at least 1 agent")
 
@@ -323,7 +323,7 @@ func (s *CLIMeshSuite) TestTableOutputFormatting() {
 	s.T().Log("Testing table output formatting...")
 
 	// Get colony status table
-	result := helpers.ColonyStatus(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.ColonyStatus(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	rows := helpers.ParseTableOutput(result.Output)
@@ -344,7 +344,7 @@ func (s *CLIMeshSuite) TestJSONOutputValidity() {
 	s.T().Log("Testing JSON output validity...")
 
 	// Test colony status JSON
-	_, err := helpers.ColonyStatusJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	_, err := helpers.ColonyStatusJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Colony status JSON should be valid")
 
 	// Test colony agents JSON
@@ -352,7 +352,7 @@ func (s *CLIMeshSuite) TestJSONOutputValidity() {
 	s.Require().NoError(err, "Colony agents JSON should be valid")
 
 	// Test agent list JSON
-	_, err = helpers.AgentListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	_, err = helpers.AgentListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Agent list JSON should be valid")
 
 	// Test service list JSON
