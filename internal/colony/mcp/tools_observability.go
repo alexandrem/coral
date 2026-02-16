@@ -884,9 +884,15 @@ func (s *Server) registerUnifiedLogsTool() {
 
 			s.auditToolCall("coral_query_logs", input)
 
-			// Format not implemented message for LLM consumption
-			text := "Log querying not yet implemented. Coral doesn't have log ingestion infrastructure yet.\n"
-			text += "See RFD 067 for future work.\n"
+			// TODO(RFD-067): Implement log ingestion and querying.
+			// Format not implemented message for LLM consumption.
+			text := "coral_query_logs is not yet implemented. " +
+				"Coral does not currently ingest or store logs (planned for RFD-067).\n\n" +
+				"Alternatives:\n" +
+				"- Use coral_shell_exec to view logs on the host (e.g., 'journalctl', 'tail /var/log/*')\n" +
+				"- Use coral_container_exec to view container logs (e.g., 'cat /app/logs/app.log')\n" +
+				"- Use coral_query_traces to correlate with distributed trace spans\n\n" +
+				"Track log support: https://github.com/coral-mesh/coral/issues\n"
 			return mcp.NewToolResultText(text), nil
 		})
 }
@@ -933,6 +939,13 @@ func (s *Server) executeUnifiedLogsTool(ctx context.Context, argsJSON string) (s
 
 	s.auditToolCall("coral_query_logs", input)
 
-	text := "Logs query not implemented yet."
+	// TODO(RFD-067): Implement log ingestion and querying.
+	text := "coral_query_logs is not yet implemented. " +
+		"Coral does not currently ingest or store logs (planned for RFD-067).\n\n" +
+		"Alternatives:\n" +
+		"- Use coral_shell_exec to view logs on the host (e.g., 'journalctl', 'tail /var/log/*')\n" +
+		"- Use coral_container_exec to view container logs (e.g., 'cat /app/logs/app.log')\n" +
+		"- Use coral_query_traces to correlate with distributed trace spans\n\n" +
+		"Track log support: https://github.com/coral-mesh/coral/issues\n"
 	return text, nil
 }
