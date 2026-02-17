@@ -305,6 +305,28 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_AskWithTools", cliAskSuite.TestAskWithTools)
 	s.Run("CLI_AskContinuation", cliAskSuite.TestAskContinuation)
 
+	// Run CLIAskConfigSuite (ask config wizard — RFD 055)
+	cliAskConfigSuite := &CLIAskConfigSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliAskConfigSuite.SetT(s.T())
+	cliAskConfigSuite.SetupSuite()
+	defer cliAskConfigSuite.TearDownSuite()
+
+	s.Run("CLI_AskConfigHelpText", cliAskConfigSuite.TestAskConfigHelpText)
+	s.Run("CLI_AskConfigDryRun", cliAskConfigSuite.TestAskConfigDryRun)
+	s.Run("CLI_AskConfigNonInteractiveGoogle", cliAskConfigSuite.TestAskConfigNonInteractiveGoogle)
+	s.Run("CLI_AskConfigNonInteractiveOpenAI", cliAskConfigSuite.TestAskConfigNonInteractiveOpenAI)
+	s.Run("CLI_AskConfigDoesNotWriteAIProvider", cliAskConfigSuite.TestAskConfigDoesNotWriteAIProvider)
+	s.Run("CLI_AskConfigCreatesBackup", cliAskConfigSuite.TestAskConfigCreatesBackup)
+	s.Run("CLI_AskConfigShow", cliAskConfigSuite.TestAskConfigShow)
+	s.Run("CLI_AskConfigShowUnconfigured", cliAskConfigSuite.TestAskConfigShowUnconfigured)
+	s.Run("CLI_AskConfigValidateWithEnvVar", cliAskConfigSuite.TestAskConfigValidateWithEnvVar)
+	s.Run("CLI_AskConfigValidateMissingModel", cliAskConfigSuite.TestAskConfigValidateMissingModel)
+	s.Run("CLI_AskConfigUnknownProvider", cliAskConfigSuite.TestAskConfigUnknownProvider)
+	s.Run("CLI_AskConfigListProvidersShowsModels", cliAskConfigSuite.TestAskConfigListProvidersShowsModels)
+	s.Run("CLI_AskConfigMissingAPIKeyEnvVar", cliAskConfigSuite.TestAskConfigMissingAPIKeyEnvVar)
+
 	// Discovery CA tests (RFD 085) - using CLIMeshSuite.
 	s.Run("CLI_AddRemoteConnectionFailsWithoutCA", cliMeshSuite.TestAddRemoteConnectionFailsWithoutCA)
 	s.Run("CLI_AddRemoteFromDiscoverySuccess", cliMeshSuite.TestAddRemoteFromDiscoverySuccess)

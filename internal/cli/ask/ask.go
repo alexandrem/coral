@@ -119,6 +119,7 @@ Interactive Mode (RFD 051):
 
 	// Add subcommands.
 	cmd.AddCommand(newListProvidersCmd())
+	cmd.AddCommand(newConfigCmd())
 
 	return cmd
 }
