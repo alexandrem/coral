@@ -113,6 +113,7 @@ const (
 	DefaultColonyRPCCallTimeout = 30 * time.Second
 
 	// DefaultColonyRealtimeQueryTimeout is for low-latency agent queries.
+	// Must be generous enough to handle WireGuard mesh latency under load.
 	DefaultColonyRealtimeQueryTimeout = 3 * time.Second
 )
 
@@ -222,8 +223,9 @@ const (
 	// DefaultHighLatencyThresholdMs is the default high latency threshold in milliseconds.
 	DefaultHighLatencyThresholdMs = 500.0 // 500ms
 
-	// Status thresholds based on last_seen timestamp.
-	DefaultAgentHealthyThreshold  = 30 * time.Second
+	// DefaultAgentHealthyThreshold is based on last_seen timestamp.
+	DefaultAgentHealthyThreshold = 30 * time.Second
+	// DefaultAgentDegradedThreshold is based on last_seen timestamp.
 	DefaultAgentDegradedThreshold = 2 * time.Minute
 )
 

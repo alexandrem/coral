@@ -23,10 +23,6 @@ import (
 	"github.com/coral-mesh/coral/internal/constants"
 )
 
-// realtimeQueryTimeout is for low-latency agent queries.
-// Must be generous enough to handle WireGuard mesh latency under load.
-const realtimeQueryTimeout = constants.DefaultColonyRealtimeQueryTimeout
-
 // Config contains configuration for the colony server.
 type Config struct {
 	ColonyID           string
@@ -191,7 +187,7 @@ func (s *Server) ListAgents(
 				client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
 
 				// Short timeout for real-time query.
-				queryCtx, cancel := context.WithTimeout(ctx, realtimeQueryTimeout)
+				queryCtx, cancel := context.WithTimeout(ctx, constants.DefaultColonyRealtimeQueryTimeout)
 				defer cancel()
 
 				resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))
