@@ -69,6 +69,12 @@ const (
 
 	// DefaultBeylaHTTPPort is the default port for Beyla HTTP endpoint.
 	DefaultBeylaHTTPPort = 4320
+
+	// DefaultSDKDiscoveryPort is the default port for SDK capability discovery.
+	DefaultSDKDiscoveryPort = 9002
+
+	// DefaultSDKDiscoveryAddress is the default address for SDK capability discovery.
+	DefaultSDKDiscoveryAddress = "localhost:9002"
 )
 
 // Timeouts.
@@ -90,6 +96,24 @@ const (
 
 	// DefaultAskIdleTimeout is the default idle timeout for ask daemon.
 	DefaultAskIdleTimeout = 10 * time.Minute
+
+	// DefaultHeartbeatTimeout is the default timeout for agent heartbeat RPCs.
+	DefaultHeartbeatTimeout = 5 * time.Second
+
+	// DefaultServiceCheckTimeout is the default timeout for agent health checks.
+	DefaultServiceCheckTimeout = 2 * time.Second
+
+	// DefaultColonyServiceQueryTimeout is for querying service metadata.
+	DefaultColonyServiceQueryTimeout = 5 * time.Second
+
+	// DefaultColonyAgentQueryTimeout is for polling agent data.
+	DefaultColonyAgentQueryTimeout = 10 * time.Second
+
+	// DefaultColonyRPCCallTimeout is for general colony RPC operations.
+	DefaultColonyRPCCallTimeout = 30 * time.Second
+
+	// DefaultColonyRealtimeQueryTimeout is for low-latency agent queries.
+	DefaultColonyRealtimeQueryTimeout = 3 * time.Second
 )
 
 // Polling Intervals.
@@ -128,6 +152,18 @@ const (
 
 	// DefaultCPUProfilingPollerInterval is the default CPU profiling aggregation polling interval.
 	DefaultCPUProfilingPollerInterval = 30 * time.Second
+
+	// DefaultMemoryProfilingPollerInterval is the default memory profiling aggregation polling interval.
+	DefaultMemoryProfilingPollerInterval = 60 * time.Second
+
+	// DefaultServiceCheckInterval is the default interval for agent health checks.
+	DefaultServiceCheckInterval = 10 * time.Second
+
+	// DefaultBeylaDebounceInterval is the time to wait before restarting Beyla after discovery updates.
+	DefaultBeylaDebounceInterval = 5 * time.Second
+
+	// DefaultBeylaMetricsPollInterval is how often the agent polls the local Beyla OTLP receiver.
+	DefaultBeylaMetricsPollInterval = 5 * time.Second
 )
 
 // Retention Periods.
@@ -147,14 +183,32 @@ const (
 	// DefaultBeylaRetentionDays is the default retention period for Beyla data (days).
 	DefaultBeylaRetentionDays = 30
 
+	// DefaultBeylaHTTPRetentionDays is the default retention period for Beyla HTTP metrics.
+	DefaultBeylaHTTPRetentionDays = 30
+
+	// DefaultBeylaGRPCRetentionDays is the default retention period for Beyla gRPC metrics.
+	DefaultBeylaGRPCRetentionDays = 30
+
 	// DefaultSystemMetricsRetentionDays is the default retention period for system metrics (days).
 	DefaultSystemMetricsRetentionDays = 30
 
 	// DefaultCPUProfilingRetentionDays is the default retention period for CPU profiles (days).
 	DefaultCPUProfilingRetentionDays = 30
 
+	// DefaultMemoryProfileRetentionDays is the default retention period for memory profiles (days).
+	DefaultMemoryProfileRetentionDays = 30
+
 	// DefaultBinaryCacheTTL is the default TTL for cached binary metadata.
 	DefaultBinaryCacheTTL = 1 * time.Hour
+
+	// DefaultTelemetryRetentionHours is the default retention period for telemetry.
+	DefaultTelemetryRetentionHours = 24
+
+	// DefaultBeylaSQLRetentionDays is the default retention period for Beyla SQL data.
+	DefaultBeylaSQLRetentionDays = 14
+
+	// DefaultBeylaTraceRetentionDays is the default retention period for Beyla traces.
+	DefaultBeylaTraceRetentionDays = 7
 )
 
 // Sampling and Filtering.
@@ -167,6 +221,10 @@ const (
 
 	// DefaultHighLatencyThresholdMs is the default high latency threshold in milliseconds.
 	DefaultHighLatencyThresholdMs = 500.0 // 500ms
+
+	// Status thresholds based on last_seen timestamp.
+	DefaultAgentHealthyThreshold  = 30 * time.Second
+	DefaultAgentDegradedThreshold = 2 * time.Minute
 )
 
 // CPU Profiling.
@@ -256,4 +314,16 @@ const (
 
 	// DefaultRateLimitRequests is the default requests allowed per window.
 	DefaultRateLimitRequests = 1000
+
+	// DefaultThunderingHerdJitterFactor is the jitter percentage for health checks.
+	DefaultThunderingHerdJitterFactor = 30
+
+	// DefaultDebugEventBufferSize is the buffer size for debug events.
+	DefaultDebugEventBufferSize = 1000
+
+	// DefaultColonyQueryMaxRecords is the default limit for data queries.
+	DefaultColonyQueryMaxRecords = 10000
+
+	// DefaultColonyDebugQueryMaxRecords is the default limit for debug queries.
+	DefaultColonyDebugQueryMaxRecords = 5000
 )

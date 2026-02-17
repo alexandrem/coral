@@ -1,15 +1,16 @@
 package colony
 
-import "time"
+import (
+	"github.com/coral-mesh/coral/internal/constants"
+)
 
 const (
+	// serviceQueryTimeout is for querying service metadata.
+	serviceQueryTimeout = constants.DefaultColonyServiceQueryTimeout
 
-	// serviceQueryTimeout is for standard service discovery queries.
-	serviceQueryTimeout = 5 * time.Second
+	// agentQueryTimeout is for polling agent data.
+	agentQueryTimeout = constants.DefaultColonyAgentQueryTimeout
 
-	// agentQueryTimeout is for agent data collection (telemetry, metrics, CPU profiles).
-	agentQueryTimeout = 10 * time.Second
-
-	// rpcCallTimeout is for longer RPC calls (GetFunctions, event persistence).
-	rpcCallTimeout = 30 * time.Second
+	// rpcCallTimeout is for general colony RPC operations.
+	rpcCallTimeout = constants.DefaultColonyRPCCallTimeout
 )

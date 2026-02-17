@@ -11,19 +11,20 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog/log"
 )
 
 const (
 	// Status thresholds based on last_seen timestamp.
-	StatusHealthyThreshold  = 30 * time.Second
-	StatusDegradedThreshold = 2 * time.Minute
+	StatusHealthyThreshold  = constants.DefaultAgentHealthyThreshold
+	StatusDegradedThreshold = constants.DefaultAgentDegradedThreshold
 
 	// registryProcessTimeout is the timeout for processing service info updates.
-	registryProcessTimeout = 10 * time.Second
+	registryProcessTimeout = constants.DefaultColonyAgentQueryTimeout
 
 	// registryCleanupTimeout is the timeout for database cleanup operations.
-	registryCleanupTimeout = 5 * time.Second
+	registryCleanupTimeout = constants.DefaultColonyServiceQueryTimeout
 )
 
 // AgentStatus represents the health status of an agent.

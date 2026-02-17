@@ -11,6 +11,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 const telemetryDataType = "telemetry"
@@ -38,7 +39,7 @@ func NewTelemetryPoller(
 ) *TelemetryPoller {
 	// Default to 24 hours if not specified.
 	if retentionHours <= 0 {
-		retentionHours = 24
+		retentionHours = constants.DefaultTelemetryRetentionHours
 	}
 
 	componentLogger := logger.With().Str("component", "telemetry_poller").Logger()
@@ -134,7 +135,7 @@ func (p *TelemetryPoller) pollAgent(ctx context.Context, agent *registry.Entry) 
 	client := GetAgentClient(agent)
 	req := connect.NewRequest(&agentv1.QueryTelemetryRequest{
 		StartSeqId:   startSeqID,
-		MaxRecords:   10000,
+		MaxRecords:   constants.DefaultColonyQueryMaxRecords,
 		ServiceNames: nil, // Query all services.
 	})
 

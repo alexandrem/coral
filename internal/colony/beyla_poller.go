@@ -11,6 +11,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // Beyla checkpoint data types (RFD 089).
@@ -50,16 +51,17 @@ func NewBeylaPoller(
 ) *BeylaPoller {
 	// Apply defaults if not specified.
 	if httpRetentionDays <= 0 {
-		httpRetentionDays = 30
+		httpRetentionDays = constants.DefaultBeylaHTTPRetentionDays
 	}
 	if grpcRetentionDays <= 0 {
-		grpcRetentionDays = 30
+		grpcRetentionDays = constants.DefaultBeylaGRPCRetentionDays
 	}
+	// Default to 14 days for SQL/HTTP and 7 days for traces as baseline.
 	if sqlRetentionDays <= 0 {
-		sqlRetentionDays = 14
+		sqlRetentionDays = constants.DefaultBeylaSQLRetentionDays
 	}
 	if traceRetentionDays <= 0 {
-		traceRetentionDays = 7 // Default: 7 days (RFD 036)
+		traceRetentionDays = constants.DefaultBeylaTraceRetentionDays
 	}
 
 	componentLogger := logger.With().Str("component", "beyla_poller").Logger()
@@ -167,7 +169,7 @@ func (p *BeylaPoller) pollAgent(ctx context.Context, agent *registry.Entry) (htt
 		GrpcStartSeqId:   grpcSeqID,
 		SqlStartSeqId:    sqlSeqID,
 		TracesStartSeqId: tracesSeqID,
-		MaxRecords:       10000,
+		MaxRecords:       constants.DefaultColonyQueryMaxRecords,
 		ServiceNames:     nil,  // Query all services.
 		MetricTypes:      nil,  // Query all metric types.
 		IncludeTraces:    true, // Request traces (RFD 036).
