@@ -96,26 +96,6 @@ func StartMCPProxyWithEnv(ctx context.Context, colonyID string, cliEnv *CLITestE
 	return startMCPProxyWithCmd(ctx, proxyCtx, cancel, cmd)
 }
 
-// StartMCPProxy starts the MCP proxy subprocess for the given colony.
-//
-// Deprecated: Use StartMCPProxyWithEnv instead for E2E tests.
-// This function is kept for backward compatibility.
-func StartMCPProxy(ctx context.Context, colonyEndpoint, colonyID string) (*MCPProxyClient, error) {
-	// Create cancellable context for subprocess
-	proxyCtx, cancel := context.WithCancel(ctx)
-
-	// Get coral binary path
-	coralBin := getCoralBinaryPath()
-
-	// Create command
-	cmd := exec.CommandContext(proxyCtx, coralBin, "colony", "mcp", "proxy", "--colony", colonyID)
-
-	// Set environment - start with parent env to inherit PATH, etc.
-	cmd.Env = append(os.Environ(), fmt.Sprintf("CORAL_COLONY_ENDPOINT=%s", colonyEndpoint))
-
-	return startMCPProxyWithCmd(ctx, proxyCtx, cancel, cmd)
-}
-
 // startMCPProxyWithCmd is the common implementation for starting the MCP proxy.
 func startMCPProxyWithCmd(
 	ctx context.Context,

@@ -7,17 +7,13 @@ import (
 )
 
 // MCPListTools executes `coral colony mcp list-tools` and returns the output.
-func MCPListTools(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "mcp", "list-tools")
+func MCPListTools(ctx context.Context, cliEnv *CLITestEnv) *CLIResult {
+	return RunCLIWithEnv(ctx, cliEnv.EnvVars(), "colony", "mcp", "list-tools")
 }
 
 // MCPListToolsJSON executes `coral colony mcp list-tools --format json` and parses the output.
-func MCPListToolsJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "mcp", "list-tools", "-o", "json")
+func MCPListToolsJSON(ctx context.Context, cliEnv *CLITestEnv) ([]map[string]interface{}, error) {
+	result := RunCLIWithEnv(ctx, cliEnv.EnvVars(), "colony", "mcp", "list-tools", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("mcp list-tools failed: %w\nOutput: %s", result.Err, result.Output)
@@ -32,20 +28,18 @@ func MCPListToolsJSON(ctx context.Context, colonyEndpoint string) ([]map[string]
 }
 
 // MCPTestTool executes `coral colony mcp test-tool <toolName>` and returns the output.
-func MCPTestTool(ctx context.Context, colonyEndpoint, toolName, argsJSON string) *CLIResult {
+func MCPTestTool(ctx context.Context, cliEnv *CLITestEnv, toolName, argsJSON string) *CLIResult {
 	args := []string{"colony", "mcp", "test-tool", toolName}
 
 	if argsJSON != "" {
 		args = append(args, "--args", argsJSON)
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return RunCLIWithEnv(ctx, cliEnv.EnvVars(), args...)
 }
 
 // MCPGenerateConfig executes `coral colony mcp generate-config` and returns the output.
-func MCPGenerateConfig(ctx context.Context, colonyEndpoint, colonyID string, allColonies bool) *CLIResult {
+func MCPGenerateConfig(ctx context.Context, cliEnv *CLITestEnv, colonyID string, allColonies bool) *CLIResult {
 	args := []string{"colony", "mcp", "generate-config"}
 
 	if allColonies {
@@ -54,7 +48,5 @@ func MCPGenerateConfig(ctx context.Context, colonyEndpoint, colonyID string, all
 		args = append(args, "--colony", colonyID)
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return RunCLIWithEnv(ctx, cliEnv.EnvVars(), args...)
 }
