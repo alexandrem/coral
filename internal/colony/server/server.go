@@ -20,11 +20,8 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/colony/storage"
+	"github.com/coral-mesh/coral/internal/constants"
 )
-
-// realtimeQueryTimeout is for low-latency agent queries.
-// Must be generous enough to handle WireGuard mesh latency under load.
-const realtimeQueryTimeout = 3 * time.Second
 
 // Config contains configuration for the colony server.
 type Config struct {
@@ -185,12 +182,12 @@ func (s *Server) ListAgents(
 			// If agent is healthy/degraded, try to query real-time services.
 			if status == registry.StatusHealthy || status == registry.StatusDegraded {
 				// Create agent client.
-				// Agent listens on port 9001 for mesh traffic (see internal/cli/agent/start.go).
-				agentURL := fmt.Sprintf("http://%s:9001", e.MeshIPv4)
+				// Agent listens on DefaultAgentPort for mesh traffic.
+				agentURL := fmt.Sprintf("http://%s:%d", e.MeshIPv4, constants.DefaultAgentPort)
 				client := agentv1connect.NewAgentServiceClient(http.DefaultClient, agentURL)
 
 				// Short timeout for real-time query.
-				queryCtx, cancel := context.WithTimeout(ctx, realtimeQueryTimeout)
+				queryCtx, cancel := context.WithTimeout(ctx, constants.DefaultColonyRealtimeQueryTimeout)
 				defer cancel()
 
 				resp, err := client.ListServices(queryCtx, connect.NewRequest(&agentv1.ListServicesRequest{}))

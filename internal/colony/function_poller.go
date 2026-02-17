@@ -17,6 +17,7 @@ import (
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // FunctionPoller periodically polls agents for function metadata.
@@ -46,7 +47,7 @@ type FunctionPollerConfig struct {
 // NewFunctionPoller creates a new function poller.
 func NewFunctionPoller(ctx context.Context, config FunctionPollerConfig) *FunctionPoller {
 	if config.PollInterval == 0 {
-		config.PollInterval = 5 * time.Minute // Default: 5 minutes
+		config.PollInterval = constants.DefaultFunctionPollerInterval
 	}
 
 	componentLogger := config.Logger.With().Str("component", "function_poller").Logger()
@@ -113,7 +114,7 @@ func (p *FunctionPoller) pollAllAgents(ctx context.Context) {
 	// Poll each agent.
 	for _, agent := range agents {
 		// Skip unhealthy agents.
-		if time.Since(agent.LastSeen) > 5*time.Minute {
+		if time.Since(agent.LastSeen) > constants.DefaultAgentDegradedThreshold {
 			p.logger.Debug().
 				Str("agent_id", agent.AgentID).
 				Msg("Skipping unhealthy agent")
