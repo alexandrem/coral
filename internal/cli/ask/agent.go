@@ -39,6 +39,67 @@ type ToolCall struct {
 	Output any
 }
 
+// AgentEvent represents an event during query execution (RFD 051).
+// Used for streaming updates to interactive UI.
+type AgentEvent struct {
+	Type     string    // "stream", "tool_start", "tool_complete", "error"
+	Content  string    // For stream chunks
+	ToolName string    // For tool events
+	Duration float64   // For tool_complete (seconds)
+	Error    error     // For error events
+	Response *Response // For complete event
+}
+
+// eventEmitter is an interface for emitting agent events (RFD 051).
+// Implementations:
+// - stdoutEmitter: prints to stdout (existing behavior for single-shot mode)
+// - channelEmitter: sends events to a channel (for interactive mode)
+type eventEmitter interface {
+	EmitStream(chunk string) error
+	EmitToolStart(toolName string)
+	EmitToolComplete(toolName string, duration float64)
+}
+
+// stdoutEmitter emits events to stdout (RFD 051).
+// Used for single-shot mode to maintain existing behavior.
+type stdoutEmitter struct {
+	stream bool
+}
+
+func (e *stdoutEmitter) EmitStream(chunk string) error {
+	if e.stream {
+		fmt.Print(chunk)
+	}
+	return nil
+}
+
+func (e *stdoutEmitter) EmitToolStart(toolName string) {
+	// No-op for stdout mode (could add spinner in future)
+}
+
+func (e *stdoutEmitter) EmitToolComplete(toolName string, duration float64) {
+	// No-op for stdout mode
+}
+
+// channelEmitter emits events to a channel (RFD 051).
+// Used for interactive mode to provide real-time updates to Bubbletea UI.
+type channelEmitter struct {
+	ch chan<- AgentEvent
+}
+
+func (e *channelEmitter) EmitStream(chunk string) error {
+	e.ch <- AgentEvent{Type: "stream", Content: chunk}
+	return nil
+}
+
+func (e *channelEmitter) EmitToolStart(toolName string) {
+	e.ch <- AgentEvent{Type: "tool_start", ToolName: toolName}
+}
+
+func (e *channelEmitter) EmitToolComplete(toolName string, duration float64) {
+	e.ch <- AgentEvent{Type: "tool_complete", ToolName: toolName, Duration: duration}
+}
+
 // NewAgent creates a new LLM agent with the given configuration.
 func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bool) (*Agent, error) {
 	if debug {
@@ -263,8 +324,9 @@ func (a *Agent) fetchServiceList(ctx context.Context) string {
 	return "(no services registered)"
 }
 
-// Ask sends a question to the agent and returns the response.
-func (a *Agent) Ask(ctx context.Context, question string, conversationID string, stream bool, dryRun bool) (*Response, error) {
+// ask is the internal implementation that sends a question to the agent (RFD 051).
+// Takes an eventEmitter to support both stdout (single-shot) and channel (interactive) modes.
+func (a *Agent) ask(ctx context.Context, question string, conversationID string, stream bool, dryRun bool, emitter eventEmitter) (*Response, error) {
 	if a.debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Processing question: %q\n", question)
 	}
@@ -344,11 +406,9 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 	}
 
 	// Call LLM with tools.
+	// Use emitter for streaming (supports both stdout and channel modes).
 	streamCallback := func(chunk string) error {
-		if stream {
-			fmt.Print(chunk)
-		}
-		return nil
+		return emitter.EmitStream(chunk)
 	}
 
 	generateReq := llm.GenerateRequest{
@@ -428,6 +488,9 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 				fmt.Fprintf(os.Stderr, "[DEBUG] Executing tool: %s\n", tc.Name)
 			}
 
+			// Emit tool start event (RFD 051).
+			emitter.EmitToolStart(tc.Name)
+
 			// Parse arguments.
 			var args map[string]interface{}
 			if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
@@ -439,10 +502,16 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 			req.Params.Name = tc.Name
 			req.Params.Arguments = args
 
+			toolStart := time.Now()
 			toolResult, err := a.mcpClient.CallTool(ctx, req)
+			toolDuration := time.Since(toolStart).Seconds()
+
 			if err != nil {
 				return nil, fmt.Errorf("tool call failed: %w", err)
 			}
+
+			// Emit tool complete event (RFD 051).
+			emitter.EmitToolComplete(tc.Name, toolDuration)
 
 			// Extract text content from tool result.
 			var resultContent string
@@ -585,4 +654,16 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 		Answer:    resp.Content,
 		ToolCalls: toolCallResults,
 	}, nil
+}
+
+// Ask sends a question to the agent and returns the response (RFD 030).
+// This is the public API for single-shot mode (prints to stdout).
+func (a *Agent) Ask(ctx context.Context, question string, conversationID string, stream bool, dryRun bool) (*Response, error) {
+	return a.ask(ctx, question, conversationID, stream, dryRun, &stdoutEmitter{stream: stream})
+}
+
+// AskWithChannel sends a question and streams events to a channel (RFD 051).
+// This is used by interactive mode for real-time updates to Bubbletea UI.
+func (a *Agent) AskWithChannel(ctx context.Context, question string, conversationID string, dryRun bool, ch chan<- AgentEvent) (*Response, error) {
+	return a.ask(ctx, question, conversationID, true, dryRun, &channelEmitter{ch: ch})
 }

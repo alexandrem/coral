@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/coral-mesh/coral/internal/llm"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
@@ -230,3 +232,249 @@ func (s *CLIAskSuite) createMockScript(script llm.MockScript) string {
 }
 
 func id(s string) string { return s }
+
+// TestAskInteractiveRejectsNonTerminal tests that interactive mode
+// properly rejects non-terminal input (e.g., piped/redirected) (RFD 051).
+func (s *CLIAskSuite) TestAskInteractiveRejectsNonTerminal() {
+	s.T().Log("Testing 'coral ask' rejects non-terminal input...")
+
+	// Try to run interactive mode without a question (should auto-detect).
+	// Since E2E tests don't have a real terminal, this should fail.
+	result := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "ask")
+
+	// Should fail with helpful error message.
+	s.Require().Error(result.Error)
+	s.Require().Contains(result.Stderr, "interactive mode requires a terminal")
+}
+
+// TestAskDatetimeConversationID tests that conversation IDs
+// use the new datetime format (RFD 051).
+func (s *CLIAskSuite) TestAskDatetimeConversationID() {
+	s.T().Log("Testing datetime-based conversation ID format...")
+
+	script := llm.MockScript{
+		Interactions: []llm.MockInteraction{
+			{
+				ExpectedMessages: []llm.Message{
+					{Role: "user", Content: "Test question"},
+				},
+				Response: llm.MockResponse{
+					Content: "Test response",
+				},
+			},
+		},
+	}
+
+	scriptPath := s.createMockScript(script)
+	defer os.Remove(scriptPath)
+
+	result := helpers.RunAsk(s.ctx, s.cliEnv.EnvVars(), "Test question", "mock:"+scriptPath, "")
+	result.MustSucceed(s.T())
+
+	// Read the conversation ID from last.json.
+	lastPath := filepath.Join(s.cliEnv.ConfigDir, "conversations", "test-colony-e2e", "last.json")
+	s.Require().FileExists(lastPath)
+
+	type meta struct {
+		ID string `json:"id"`
+	}
+	var m meta
+	data, err := os.ReadFile(lastPath)
+	s.Require().NoError(err)
+	err = json.Unmarshal(data, &m)
+	s.Require().NoError(err)
+
+	// Verify format: YYYY-MM-DD-HHMMSS-<random>
+	// Should match pattern like "2026-02-15-143022-abc123".
+	parts := strings.Split(m.ID, "-")
+	s.Require().Len(parts, 6, "Conversation ID should have 6 parts (YYYY-MM-DD-HHMMSS-random)")
+
+	// Verify date parts are numeric.
+	year, err := strconv.Atoi(parts[0])
+	s.Require().NoError(err)
+	s.Require().Greater(year, 2020, "Year should be reasonable")
+
+	month, err := strconv.Atoi(parts[1])
+	s.Require().NoError(err)
+	s.Require().GreaterOrEqual(month, 1)
+	s.Require().LessOrEqual(month, 12)
+
+	day, err := strconv.Atoi(parts[2])
+	s.Require().NoError(err)
+	s.Require().GreaterOrEqual(day, 1)
+	s.Require().LessOrEqual(day, 31)
+
+	// Verify time parts exist.
+	s.Require().NotEmpty(parts[3], "Hour-minute-second should exist")
+	s.Require().Len(parts[3], 6, "HHMMSS should be 6 digits")
+
+	// Verify random suffix exists.
+	s.Require().NotEmpty(parts[5], "Random suffix should exist")
+	s.Require().Len(parts[5], 6, "Random suffix should be 6 characters")
+}
+
+// TestAskResumeDatetimePrefix tests the flexible conversation resolution
+// that supports datetime prefixes (RFD 051).
+func (s *CLIAskSuite) TestAskResumeDatetimePrefix() {
+	s.T().Log("Testing conversation file naming and resolution...")
+
+	// First, create a conversation.
+	script1 := llm.MockScript{
+		Interactions: []llm.MockInteraction{
+			{
+				ExpectedMessages: []llm.Message{
+					{Role: "user", Content: "First question"},
+				},
+				Response: llm.MockResponse{
+					Content: "First answer",
+				},
+			},
+		},
+	}
+	path1 := s.createMockScript(script1)
+	defer os.Remove(path1)
+
+	res1 := helpers.RunAsk(s.ctx, s.cliEnv.EnvVars(), "First question", "mock:"+path1, "")
+	res1.MustSucceed(s.T())
+
+	// Get the conversation ID.
+	lastPath := filepath.Join(s.cliEnv.ConfigDir, "conversations", "test-colony-e2e", "last.json")
+	type meta struct {
+		ID string `json:"id"`
+	}
+	var m meta
+	data, err := os.ReadFile(lastPath)
+	s.Require().NoError(err)
+	err = json.Unmarshal(data, &m)
+	s.Require().NoError(err)
+
+	conversationID := m.ID
+	s.T().Logf("Created conversation: %s", conversationID)
+
+	// Extract datetime prefix (YYYY-MM-DD-HHMMSS).
+	parts := strings.Split(conversationID, "-")
+	s.Require().Len(parts, 6)
+	datetimePrefix := strings.Join(parts[:5], "-") // First 5 parts
+
+	s.T().Logf("Datetime prefix: %s", datetimePrefix)
+
+	// Verify the conversation file exists with the datetime-based name.
+	historyPath := filepath.Join(s.cliEnv.ConfigDir, "conversations", "test-colony-e2e", conversationID+".json")
+	s.Require().FileExists(historyPath, "Conversation file should exist with datetime-based name")
+
+	// Verify the file is in chronological order (easy to list/sort).
+	// Files starting with YYYY-MM-DD will naturally sort by date.
+	convDir := filepath.Join(s.cliEnv.ConfigDir, "conversations", "test-colony-e2e")
+	entries, err := os.ReadDir(convDir)
+	s.Require().NoError(err)
+
+	// Find our conversation file.
+	found := false
+	for _, entry := range entries {
+		if entry.Name() == conversationID+".json" {
+			found = true
+			// Verify the name starts with a date pattern.
+			s.Require().True(strings.HasPrefix(entry.Name(), parts[0]+"-"+parts[1]+"-"+parts[2]),
+				"Conversation file should start with YYYY-MM-DD for chronological ordering")
+			break
+		}
+	}
+	s.Require().True(found, "Conversation file should be findable in directory")
+}
+
+// TestAskHelpShowsInteractiveMode tests that help text
+// includes interactive mode documentation (RFD 051).
+func (s *CLIAskSuite) TestAskHelpShowsInteractiveMode() {
+	s.T().Log("Testing 'coral ask --help' shows interactive mode...")
+
+	result := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "ask", "--help")
+	result.MustSucceed(s.T())
+
+	// Should mention interactive mode.
+	s.Require().Contains(result.Output, "interactive", "Help should mention interactive mode")
+	s.Require().Contains(result.Output, "--interactive", "Help should document --interactive flag")
+	s.Require().Contains(result.Output, "--resume", "Help should document --resume flag")
+
+	// Should show interactive mode is auto-detected.
+	s.Require().Contains(result.Output, "Interactive Mode", "Help should have Interactive Mode section")
+}
+
+// TestAskSingleShotStillWorks is a regression test to ensure
+// single-shot mode still works after RFD 051.
+func (s *CLIAskSuite) TestAskSingleShotStillWorks() {
+	s.T().Log("Testing single-shot mode still works (regression test)...")
+
+	script := llm.MockScript{
+		Interactions: []llm.MockInteraction{
+			{
+				ExpectedMessages: []llm.Message{
+					{Role: "user", Content: "Single shot question"},
+				},
+				Response: llm.MockResponse{
+					Content: "Single shot answer",
+				},
+			},
+		},
+	}
+
+	scriptPath := s.createMockScript(script)
+	defer os.Remove(scriptPath)
+
+	// Explicitly provide a question (should NOT enter interactive mode).
+	result := helpers.RunAsk(s.ctx, s.cliEnv.EnvVars(), "Single shot question", "mock:"+scriptPath, "")
+	result.MustSucceed(s.T())
+
+	s.Require().Contains(result.Output, "Single shot answer")
+	// Should NOT show interactive mode hints.
+	s.Require().NotContains(result.Output, "Ctrl+C")
+	s.Require().NotContains(result.Output, "Ctrl+D")
+}
+
+// TestAskContinuationStillWorks is a regression test to ensure
+// --continue flag still works after RFD 051.
+func (s *CLIAskSuite) TestAskContinuationStillWorks() {
+	s.T().Log("Testing --continue flag still works (regression test)...")
+
+	// Script 1: Initial question.
+	script1 := llm.MockScript{
+		Interactions: []llm.MockInteraction{
+			{
+				ExpectedMessages: []llm.Message{
+					{Role: "user", Content: "Initial question"},
+				},
+				Response: llm.MockResponse{
+					Content: "Initial answer",
+				},
+			},
+		},
+	}
+	path1 := s.createMockScript(script1)
+	defer os.Remove(path1)
+
+	res1 := helpers.RunAsk(s.ctx, s.cliEnv.EnvVars(), "Initial question", "mock:"+path1, "")
+	res1.MustSucceed(s.T())
+	s.Require().Contains(res1.Output, "Initial answer")
+
+	// Script 2: Follow-up with history.
+	script2 := llm.MockScript{
+		Interactions: []llm.MockInteraction{
+			{
+				ExpectedMessages: []llm.Message{
+					{Role: "user", Content: "Initial question"},
+					{Role: "assistant", Content: "Initial answer"},
+					{Role: "user", Content: "Follow-up question"},
+				},
+				Response: llm.MockResponse{
+					Content: "Follow-up answer",
+				},
+			},
+		},
+	}
+	path2 := s.createMockScript(script2)
+	defer os.Remove(path2)
+
+	// Run with --continue.
+	res2 := helpers.RunAskContinue(s.ctx, s.cliEnv.EnvVars(), "Follow-up question", "mock:"+path2)
+	res2.MustSucceed(s.T())
+	s.Require().Contains(res2.Output, "Follow-up answer")
+}

@@ -20,28 +20,32 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/llm"
 )
 
-// NewAskCmd creates the ask command (RFD 030).
+// NewAskCmd creates the ask command (RFD 030, RFD 051).
 func NewAskCmd() *cobra.Command {
 	var (
-		colonyID string
-		model    string
-		stream   bool
-		format   string
-		cont     bool // --continue flag for multi-turn conversations
-		debug    bool // --debug flag for verbose logging
-		dryRun   bool // --dry-run flag to inspect payload without sending to LLM
+		colonyID    string
+		model       string
+		stream      bool
+		format      string
+		cont        bool   // --continue flag for multi-turn conversations
+		debug       bool   // --debug flag for verbose logging
+		dryRun      bool   // --dry-run flag to inspect payload without sending to LLM
+		interactive bool   // --interactive flag to force interactive mode (RFD 051)
+		resume      string // --resume flag to resume a conversation (RFD 051)
 	)
 
 	cmd := &cobra.Command{
-		Use:   "ask <question>",
+		Use:   "ask [question]",
 		Short: "Ask questions about your application using AI",
 		Long: `Ask questions about your application using AI-powered analysis.
 
@@ -62,9 +66,37 @@ Examples:
   coral ask "what's the current status?" --model ollama:llama3.2
 
   # JSON output for scripting
-  coral ask "list unhealthy services" --format json`,
-		Args: cobra.MinimumNArgs(1),
+  coral ask "list unhealthy services" --format json
+
+Interactive Mode (RFD 051):
+  # Enter interactive REPL mode (auto-detected when no question provided)
+  coral ask
+
+  # Resume a previous conversation interactively
+  coral ask --resume 2026-02-15-143022-abc123
+
+  # Force interactive mode (useful for testing)
+  coral ask --interactive`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Detect interactive mode.
+			if len(args) == 0 {
+				if !interactive && resume == "" {
+					// Auto-detect: no args + terminal = interactive
+					if !isTerminal() {
+						return fmt.Errorf("interactive mode requires a terminal (cannot use with pipes or redirects)")
+					}
+					interactive = true
+				}
+
+				if interactive || resume != "" {
+					return runInteractive(cmd.Context(), colonyID, model, resume, debug, dryRun)
+				}
+
+				return fmt.Errorf("question argument required in non-interactive mode")
+			}
+
+			// Single-shot mode.
 			question := strings.Join(args, " ")
 			return runAsk(cmd.Context(), question, colonyID, model, stream, format, cont, debug, dryRun)
 		},
@@ -80,6 +112,10 @@ Examples:
 	cmd.Flags().BoolVar(&cont, "continue", false, "Continue previous conversation")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable debug logging to stderr")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show LLM payload and prompt before sending (saves tokens)")
+
+	// Interactive mode flags (RFD 051).
+	cmd.Flags().BoolVar(&interactive, "interactive", false, "Force interactive mode (auto-detected when no question provided)")
+	cmd.Flags().StringVar(&resume, "resume", "", "Resume a previous conversation by ID or datetime prefix")
 
 	// Add subcommands.
 	cmd.AddCommand(newListProvidersCmd())
@@ -216,15 +252,80 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	return outputTerminal(resp, stream)
 }
 
-// generateConversationID generates a new conversation ID.
+// generateConversationID generates a new conversation ID with datetime format (RFD 051).
+// Format: YYYY-MM-DD-HHMMSS-<random>
+// This allows natural chronological ordering and easy identification of conversations.
 func generateConversationID() string {
-	// Generate random ID.
-	b := make([]byte, 8)
+	// Generate timestamp prefix
+	timestamp := time.Now().Format("2006-01-02-150405")
+
+	// Add random suffix for uniqueness (handles same-second collisions)
+	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback to simple ID if random fails.
-		return fmt.Sprintf("conv-%d", os.Getpid())
+		// Fallback to PID if random fails.
+		return timestamp + "-" + fmt.Sprintf("%d", os.Getpid())
 	}
-	return hex.EncodeToString(b)
+	return timestamp + "-" + hex.EncodeToString(b)[:6]
+}
+
+// isTerminal checks if stdin is a terminal (RFD 051).
+// Used to auto-detect interactive mode.
+func isTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// resolveConversationID resolves a conversation ID from various formats (RFD 051).
+// Supports:
+// - Full filename: "2026-02-15-143022-abc123"
+// - Datetime prefix: "2026-02-15-143022" (must uniquely identify one conversation)
+// - Random suffix: "abc123" (backward compatibility with old IDs)
+func resolveConversationID(colonyID, resumeArg string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not find home directory: %w", err)
+	}
+
+	convDir := filepath.Join(home, ".coral", "conversations", colonyID)
+
+	// List all conversation files.
+	entries, err := os.ReadDir(convDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read conversation directory: %w", err)
+	}
+
+	var matches []string
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == "last.json" {
+			continue
+		}
+
+		name := strings.TrimSuffix(entry.Name(), ".json")
+
+		// Check for exact match.
+		if name == resumeArg {
+			return name, nil
+		}
+
+		// Check for prefix match (datetime).
+		if strings.HasPrefix(name, resumeArg) {
+			matches = append(matches, name)
+		}
+
+		// Check for suffix match (random ID - backward compat).
+		if strings.HasSuffix(name, "-"+resumeArg) {
+			matches = append(matches, name)
+		}
+	}
+
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no conversation found matching %q", resumeArg)
+	}
+
+	if len(matches) > 1 {
+		return "", fmt.Errorf("ambiguous conversation ID %q matches multiple conversations: %v", resumeArg, matches)
+	}
+
+	return matches[0], nil
 }
 
 // conversationMetadata stores metadata about a conversation.
@@ -576,4 +677,16 @@ func parseModelString(model string) (providerName, modelID string) {
 		return parts[0], parts[1]
 	}
 	return "", ""
+}
+
+// SaveConversationHistory saves conversation history to disk (RFD 051).
+// Exported for use by interactive UI package.
+func SaveConversationHistory(colonyID, conversationID string, messages []Message) error {
+	return saveConversationHistory(colonyID, conversationID, messages)
+}
+
+// LoadConversationHistory loads conversation history from disk (RFD 051).
+// Exported for use by interactive UI package.
+func LoadConversationHistory(colonyID, conversationID string) ([]Message, error) {
+	return loadConversationHistory(colonyID, conversationID)
 }
