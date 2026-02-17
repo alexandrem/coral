@@ -18,6 +18,16 @@ func ResolveAskConfig(globalCfg *GlobalConfig, colonyCfg *ColonyConfig) (*AskCon
 	// Start with global config defaults.
 	resolved := globalCfg.AI.Ask
 
+	// Deep-copy APIKeys to avoid mutating the original globalCfg map when
+	// resolveAPIKeyReferences replaces env:// references with their values.
+	if resolved.APIKeys != nil {
+		copy := make(map[string]string, len(resolved.APIKeys))
+		for k, v := range resolved.APIKeys {
+			copy[k] = v
+		}
+		resolved.APIKeys = copy
+	}
+
 	// Apply colony-specific overrides if present.
 	if colonyCfg != nil && colonyCfg.Ask != nil {
 		if colonyCfg.Ask.DefaultModel != "" {
