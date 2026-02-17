@@ -500,13 +500,13 @@ jobs:
         if: runner.os != 'Linux'
         run: make build
 
-      # Unique, predictable artifact name
+      # Linux binary was already uploaded by build-e2e-binary; only upload for macOS.
       - name: Upload binaries
+        if: runner.os != 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-os }}-${{ matrix.artifact-arch }}-binaries
           path: bin/
-          # Or more precise: bin/${{ matrix.artifact-os }}_${{ matrix.artifact-arch }}/**
           retention-days: 30
           if-no-files-found: error
 
