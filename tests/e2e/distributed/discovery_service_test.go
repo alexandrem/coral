@@ -9,7 +9,7 @@ import (
 	"time"
 
 	discoverypb "github.com/coral-mesh/coral/coral/discovery/v1"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
@@ -190,7 +190,7 @@ func (s *DiscoveryServiceSuite) TestRegisterAndLookupColony() {
 
 	meshID := fmt.Sprintf("e2e-test-mesh-%d", time.Now().UnixNano())
 
-	registerResp, err := client.RegisterColony(ctx, &discoveryclient.RegisterColonyRequest{
+	registerResp, err := client.RegisterColony(ctx, &discovery.RegisterColonyRequest{
 		MeshID:      meshID,
 		PublicKey:   "dGVzdC1wdWJrZXktZTJlLWNvbG9ueQ==",
 		Endpoints:   []string{"192.0.2.1:51820", "192.0.2.2:51820"},
@@ -230,7 +230,7 @@ func (s *DiscoveryServiceSuite) TestRegisterAndLookupAgent() {
 	agentID := fmt.Sprintf("e2e-agent-%d", time.Now().UnixNano())
 
 	// Register colony first.
-	_, err := client.RegisterColony(ctx, &discoveryclient.RegisterColonyRequest{
+	_, err := client.RegisterColony(ctx, &discovery.RegisterColonyRequest{
 		MeshID:    meshID,
 		PublicKey: "Y29sb255LXB1YmtleQ==",
 		Endpoints: []string{"192.0.2.100:51820"},
@@ -238,7 +238,7 @@ func (s *DiscoveryServiceSuite) TestRegisterAndLookupAgent() {
 	s.Require().NoError(err)
 
 	// Register agent.
-	registerResp, err := client.RegisterAgent(ctx, &discoveryclient.RegisterAgentRequest{
+	registerResp, err := client.RegisterAgent(ctx, &discovery.RegisterAgentRequest{
 		AgentID:   agentID,
 		MeshID:    meshID,
 		Pubkey:    "YWdlbnQtcHVia2V5",
@@ -269,7 +269,7 @@ func (s *DiscoveryServiceSuite) TestSplitBrainProtection() {
 	meshID := fmt.Sprintf("e2e-split-brain-%d", time.Now().UnixNano())
 
 	// First registration.
-	resp1, err := client.RegisterColony(ctx, &discoveryclient.RegisterColonyRequest{
+	resp1, err := client.RegisterColony(ctx, &discovery.RegisterColonyRequest{
 		MeshID:    meshID,
 		PublicKey: "cHVia2V5LW9uZQ==",
 		Endpoints: []string{"192.0.2.1:51820"},
@@ -278,7 +278,7 @@ func (s *DiscoveryServiceSuite) TestSplitBrainProtection() {
 	s.True(resp1.Success)
 
 	// Second with DIFFERENT pubkey should fail.
-	_, err = client.RegisterColony(ctx, &discoveryclient.RegisterColonyRequest{
+	_, err = client.RegisterColony(ctx, &discovery.RegisterColonyRequest{
 		MeshID:    meshID,
 		PublicKey: "cHVia2V5LXR3bw==",
 		Endpoints: []string{"192.0.2.2:51820"},
@@ -288,7 +288,7 @@ func (s *DiscoveryServiceSuite) TestSplitBrainProtection() {
 	s.T().Log("Split-brain protection working")
 
 	// Third with SAME pubkey should succeed (renewal).
-	resp3, err := client.RegisterColony(ctx, &discoveryclient.RegisterColonyRequest{
+	resp3, err := client.RegisterColony(ctx, &discovery.RegisterColonyRequest{
 		MeshID:    meshID,
 		PublicKey: "cHVia2V5LW9uZQ==",
 		Endpoints: []string{"192.0.2.3:51820"},
@@ -310,7 +310,7 @@ func (s *DiscoveryServiceSuite) TestObservedEndpointCapture() {
 	meshID := fmt.Sprintf("e2e-observed-%d", time.Now().UnixNano())
 
 	// Register with observed endpoint.
-	registerResp, err := client.RegisterColony(ctx, &discoveryclient.RegisterColonyRequest{
+	registerResp, err := client.RegisterColony(ctx, &discovery.RegisterColonyRequest{
 		MeshID:    meshID,
 		PublicKey: "b2JzZXJ2ZWQtdGVzdA==",
 		Endpoints: []string{"10.0.0.1:51820"},
@@ -355,7 +355,7 @@ func (s *DiscoveryServiceSuite) TestRelayNotImplemented() {
 	client := helpers.NewDiscoveryClient(endpoint)
 
 	// Test RequestRelay.
-	_, err := client.RequestRelay(ctx, &discoveryclient.RequestRelayRequest{
+	_, err := client.RequestRelay(ctx, &discovery.RequestRelayRequest{
 		MeshID:       "test-mesh",
 		AgentPubkey:  "test-agent",
 		ColonyPubkey: "test-colony",
@@ -381,7 +381,7 @@ func (s *DiscoveryServiceSuite) TestTTLExpiration() {
 	meshID := fmt.Sprintf("e2e-ttl-%d", time.Now().UnixNano())
 
 	// Register.
-	registerResp, err := client.RegisterColony(ctx, &discoveryclient.RegisterColonyRequest{
+	registerResp, err := client.RegisterColony(ctx, &discovery.RegisterColonyRequest{
 		MeshID:    meshID,
 		PublicKey: "dHRsLXRlc3Q=",
 		Endpoints: []string{"192.0.2.99:51820"},

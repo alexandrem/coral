@@ -10,7 +10,7 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/cli/status"
 	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 )
 
 // newStatusCmd creates the global status command.
@@ -47,7 +47,7 @@ Use 'coral colony status <id>' for detailed information about a specific colony.
 
 			// Check discovery service health
 			discoveryHealthy := false
-			discoveryClient := client.New(globalConfig.Discovery.Endpoint, client.WithTimeout(2*time.Second))
+			discoveryClient := discovery.NewClient(globalConfig.Discovery.Endpoint, discovery.WithTimeout(2*time.Second))
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			if _, err := discoveryClient.Health(ctx); err == nil {
 				discoveryHealthy = true

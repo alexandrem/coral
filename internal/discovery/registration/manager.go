@@ -9,7 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/retry"
 )
 
@@ -65,7 +65,7 @@ type Config struct {
 // Manager handles continuous registration and reconnection.
 type Manager struct {
 	config Config
-	client *client.Client
+	client *discovery.Client
 	logger zerolog.Logger
 
 	// State tracking.
@@ -85,7 +85,7 @@ type Manager struct {
 func NewManager(cfg Config, logger zerolog.Logger) *Manager {
 	return &Manager{
 		config: cfg,
-		client: client.New(cfg.DiscoveryEndpoint, client.WithTimeout(cfg.DiscoveryTimeout)),
+		client: discovery.NewClient(cfg.DiscoveryEndpoint, discovery.WithTimeout(cfg.DiscoveryTimeout)),
 		logger: logger,
 		stopCh: make(chan struct{}),
 		doneCh: make(chan struct{}),
@@ -239,7 +239,7 @@ func (m *Manager) register(ctx context.Context) error {
 		publicEndpoint = m.config.PublicEndpoint
 	}
 
-	req := &client.RegisterColonyRequest{
+	req := &discovery.RegisterColonyRequest{
 		MeshID:           m.config.MeshID,
 		PublicKey:        m.config.PublicKey,
 		Endpoints:        m.config.Endpoints,

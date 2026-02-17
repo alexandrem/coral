@@ -22,15 +22,15 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
 
 // QueryDiscoveryForColony queries the discovery service for colony information.
-func QueryDiscoveryForColony(cfg *config.ResolvedConfig, _ logging.Logger) (*discoveryclient.LookupColonyResponse, error) {
+func QueryDiscoveryForColony(cfg *config.ResolvedConfig, _ logging.Logger) (*discovery.LookupColonyResponse, error) {
 	// Create discovery client
-	client := discoveryclient.New(cfg.DiscoveryURL)
+	client := discovery.NewClient(cfg.DiscoveryURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -49,17 +49,17 @@ func RegisterAgentWithDiscovery(
 	cfg *config.ResolvedConfig,
 	agentID string,
 	agentPubKey string,
-	observedEndpoint *discoveryclient.Endpoint,
+	observedEndpoint *discovery.Endpoint,
 	logger logging.Logger,
 ) error {
 	// Create discovery client
-	client := discoveryclient.New(cfg.DiscoveryURL)
+	client := discovery.NewClient(cfg.DiscoveryURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Register agent
-	resp, err := client.RegisterAgent(ctx, &discoveryclient.RegisterAgentRequest{
+	resp, err := client.RegisterAgent(ctx, &discovery.RegisterAgentRequest{
 		AgentID:          agentID,
 		MeshID:           cfg.ColonyID,
 		Pubkey:           agentPubKey,
@@ -88,19 +88,19 @@ func RegisterAgentWithDiscovery(
 // the device is created but colony endpoint selection is skipped.
 func SetupAgentWireGuard(
 	agentKeys *auth.WireGuardKeyPair,
-	colonyInfo *discoveryclient.LookupColonyResponse,
+	colonyInfo *discovery.LookupColonyResponse,
 	stunServers []string,
 	enableRelay bool,
 	wgPort int,
 	logger logging.Logger,
-) (*wireguard.Device, *discoveryclient.Endpoint, string, error) {
+) (*wireguard.Device, *discovery.Endpoint, string, error) {
 	logger.Info().
 		Int("port", wgPort).
 		Bool("has_colony_info", colonyInfo != nil).
 		Msg("Setting up WireGuard device for agent")
 
 	// Perform STUN discovery BEFORE starting WireGuard to avoid port conflicts.
-	var agentPublicEndpoint *discoveryclient.Endpoint
+	var agentPublicEndpoint *discovery.Endpoint
 	if len(stunServers) > 0 && wgPort > 0 {
 		// Only do STUN discovery if we have a configured port (not ephemeral).
 		// For ephemeral ports, we'd need to bind first to know the port.
@@ -311,7 +311,7 @@ func ConfigureAgentMesh(
 	wgDevice *wireguard.Device,
 	meshIP net.IP,
 	meshSubnet *net.IPNet,
-	colonyInfo *discoveryclient.LookupColonyResponse,
+	colonyInfo *discovery.LookupColonyResponse,
 	colonyEndpoint string,
 	logger logging.Logger,
 ) error {
@@ -405,7 +405,7 @@ func registerWithColony(
 	agentID string,
 	serviceSpecs []*types.ServiceSpec,
 	agentPubKey string,
-	colonyInfo *discoveryclient.LookupColonyResponse,
+	colonyInfo *discovery.LookupColonyResponse,
 	runtimeContext *agentv1.RuntimeContextResponse,
 	preferredURL string,
 	logger logging.Logger,
@@ -541,7 +541,7 @@ func registerWithColony(
 //   - Solution: Initial registration uses the discovery endpoint host,
 //     then after registration all communication goes through mesh IPs
 func buildMeshServiceURLs(
-	colonyInfo *discoveryclient.LookupColonyResponse,
+	colonyInfo *discovery.LookupColonyResponse,
 	connectPort uint32,
 	preferredURL string,
 ) []string {
@@ -594,7 +594,7 @@ func requestRelayAllocation(
 	colonyInfo *discoverypb.LookupColonyResponse,
 	agentPubKey string,
 	logger logging.Logger,
-) (*discoveryclient.Endpoint, error) {
+) (*discovery.Endpoint, error) {
 	// Get discovery URL from environment or use default
 	discoveryURL := os.Getenv("CORAL_DISCOVERY_URL")
 	if discoveryURL == "" {
@@ -602,12 +602,12 @@ func requestRelayAllocation(
 	}
 
 	// Create discovery client
-	client := discoveryclient.New(discoveryURL)
+	client := discovery.NewClient(discoveryURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	resp, err := client.RequestRelay(ctx, &discoveryclient.RequestRelayRequest{
+	resp, err := client.RequestRelay(ctx, &discovery.RequestRelayRequest{
 		MeshID:       colonyInfo.MeshId,
 		AgentPubkey:  agentPubKey,
 		ColonyPubkey: colonyInfo.Pubkey,

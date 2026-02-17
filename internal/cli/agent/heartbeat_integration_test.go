@@ -18,7 +18,7 @@ import (
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/cli/agent/startup"
 	"github.com/coral-mesh/coral/internal/config"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -115,7 +115,7 @@ func TestConnectionManager_StartHeartbeatLoop(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create colony info pointing to our test server.
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshIPv4:    host,
 			ConnectPort: port,
 			Endpoints:   []string{server.Listener.Addr().String()},
@@ -177,7 +177,7 @@ func TestConnectionManager_StartHeartbeatLoop(t *testing.T) {
 		_, err = fmt.Sscanf(portStr, "%d", &port)
 		require.NoError(t, err)
 
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshIPv4:    host,
 			ConnectPort: port,
 			Endpoints:   []string{server.Listener.Addr().String()},
@@ -227,7 +227,7 @@ func TestConnectionManager_StartHeartbeatLoop(t *testing.T) {
 		_, err = fmt.Sscanf(portStr, "%d", &port)
 		require.NoError(t, err)
 
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshIPv4:    host,
 			ConnectPort: port,
 			Endpoints:   []string{server.Listener.Addr().String()},
@@ -271,7 +271,7 @@ func TestConnectionManager_StartHeartbeatLoop(t *testing.T) {
 		_, err = fmt.Sscanf(portStr, "%d", &port)
 		require.NoError(t, err)
 
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshIPv4:    host,
 			ConnectPort: port,
 			Endpoints:   []string{server.Listener.Addr().String()},

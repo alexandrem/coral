@@ -1,5 +1,5 @@
-// Package client provides a client for the discovery service.
-package client
+// Package discovery provides a client for the discovery service.
+package discovery
 
 import (
 	"context"
@@ -41,9 +41,9 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// New creates a raw Connect client for the discovery service.
+// NewClient creates a raw Connect client for the discovery service.
 // Uses JSON encoding for compatibility with Cloudflare Workers.
-func New(endpoint string, opts ...Option) *Client {
+func NewClient(endpoint string, opts ...Option) *Client {
 	c := &Client{
 		timeout: defaultTimeout,
 	}
