@@ -1006,6 +1006,16 @@ func loadInitResult(caDir, colonyID string) (*InitResult, error) {
 
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256(block.Bytes))
 
+	// Load Bootstrap PSK from encrypted file if available.
+	var psk string
+	if PSKFileExists(caDir) {
+		fsStorage := NewFilesystemStorage(caDir)
+		rootKey, err := fsStorage.LoadKey("root-ca")
+		if err == nil {
+			psk, _ = LoadPSKFromFile(caDir, rootKey)
+		}
+	}
+
 	return &InitResult{
 		CADir:           caDir,
 		RootFingerprint: fingerprint,
@@ -1014,5 +1024,6 @@ func loadInitResult(caDir, colonyID string) (*InitResult, error) {
 		ServerIntPath:   filepath.Join(caDir, "server-intermediate.crt"),
 		AgentIntPath:    filepath.Join(caDir, "agent-intermediate.crt"),
 		PolicySignPath:  filepath.Join(caDir, "policy-signing.crt"),
+		BootstrapPSK:    psk,
 	}, nil
 }
