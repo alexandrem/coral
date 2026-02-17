@@ -243,8 +243,8 @@ func (s *CLIAskSuite) TestAskInteractiveRejectsNonTerminal() {
 	result := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "ask")
 
 	// Should fail with helpful error message.
-	s.Require().Error(result.Error)
-	s.Require().Contains(result.Stderr, "interactive mode requires a terminal")
+	s.Require().True(result.HasError())
+	s.Require().True(result.ContainsOutput("interactive mode requires a terminal"))
 }
 
 // TestAskDatetimeConversationID tests that conversation IDs
