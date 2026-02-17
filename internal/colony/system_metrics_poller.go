@@ -13,6 +13,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 const systemMetricsDataType = "system_metrics"
@@ -40,7 +41,7 @@ func NewSystemMetricsPoller(
 ) *SystemMetricsPoller {
 	// Default to 30 days if not specified.
 	if retentionDays <= 0 {
-		retentionDays = 30
+		retentionDays = constants.DefaultSystemMetricsRetentionDays
 	}
 
 	componentLogger := logger.With().Str("component", "system_metrics_poller").Logger()
@@ -138,7 +139,7 @@ func (p *SystemMetricsPoller) pollAgent(ctx context.Context, agent *registry.Ent
 	client := GetAgentClient(agent)
 	req := connect.NewRequest(&agentv1.QuerySystemMetricsRequest{
 		StartSeqId:  startSeqID,
-		MaxRecords:  10000,
+		MaxRecords:  int32(constants.DefaultColonyQueryMaxRecords),
 		MetricNames: nil, // Query all metrics.
 	})
 

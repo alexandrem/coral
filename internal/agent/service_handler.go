@@ -9,6 +9,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // ServiceHandler implements the AgentService gRPC interface for managing service connections.
@@ -86,10 +87,12 @@ func (h *ServiceHandler) ConnectService(
 		caps = req.Msg.SdkCapabilities
 	} else {
 		// Pull model (RFD 066): Attempt discovery
-		// Default to localhost:9002, but could be configurable or derived
-		discoveryAddr := "localhost:9002"
-		if discovered := h.discoverSDK(ctx, discoveryAddr); discovered != nil {
-			caps = discovered
+		// Default to localhost:9002, but could be configurable or derived.
+		discoveryAddr := constants.DefaultSDKDiscoveryAddress
+
+		sdkCaps := h.discoverSDK(ctx, discoveryAddr)
+		if sdkCaps != nil {
+			caps = sdkCaps
 			caps.ServiceName = req.Msg.Name
 			h.agent.logger.Info().
 				Str("service", req.Msg.Name).

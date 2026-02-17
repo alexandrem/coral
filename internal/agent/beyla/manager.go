@@ -18,6 +18,7 @@ import (
 
 	ebpfpb "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // Manager handles Beyla lifecycle within Coral agent (RFD 032).
@@ -152,7 +153,7 @@ func NewManager(ctx context.Context, config *Config, logger zerolog.Logger) (*Ma
 		tracesCh:         make(chan *BeylaTrace, 100),
 		metricsCh:        make(chan *ebpfpb.EbpfEvent, 100),
 		configuredPorts:  append([]int{}, config.Discovery.OpenPorts...), // Copy initial ports (RFD 053)
-		debounceInterval: 5 * time.Second,                                // Default debounce window (RFD 053)
+		debounceInterval: constants.DefaultBeylaDebounceInterval,         // Default debounce window (RFD 053)
 	}
 
 	// Initialize OTLP receiver storage (RFD 025).
@@ -434,8 +435,8 @@ func (m *Manager) startOTLPReceiver() error {
 	// which handles user application telemetry.
 	otlpConfig := telemetry.Config{
 		Disabled:              false,
-		GRPCEndpoint:          "127.0.0.1:4319", // Beyla-specific gRPC port (avoids 4317 conflict).
-		HTTPEndpoint:          "127.0.0.1:4320", // Beyla-specific HTTP port (avoids 4318 conflict).
+		GRPCEndpoint:          fmt.Sprintf("127.0.0.1:%d", constants.DefaultBeylaGRPCPort), // Beyla-specific gRPC port (avoids 4317 conflict).
+		HTTPEndpoint:          fmt.Sprintf("127.0.0.1:%d", constants.DefaultBeylaHTTPPort), // Beyla-specific HTTP port (avoids 4318 conflict).
 		StorageRetentionHours: 1,
 		Filters: telemetry.FilterConfig{
 			AlwaysCaptureErrors:    true,
@@ -685,7 +686,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	// OTLP export endpoint (gRPC).
 	// Beyla exports to the Beyla-specific OTLP receiver on port 4319 (not the shared 4317).
 	// This avoids conflict with the shared OTLP receiver that handles user application telemetry.
-	beylaOTLPEndpoint := "http://127.0.0.1:4319"
+	beylaOTLPEndpoint := fmt.Sprintf("http://127.0.0.1:%d", constants.DefaultBeylaGRPCPort)
 	cfg.OtelTracesExport = &struct {
 		Endpoint string `yaml:"endpoint,omitempty"`
 		Protocol string `yaml:"protocol,omitempty"`
