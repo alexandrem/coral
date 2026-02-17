@@ -72,7 +72,7 @@ func (s *CLIQuerySuite) TestQuerySummaryCommand() {
 	s.ensureTelemetryData()
 
 	// Test basic summary (table format, default time range)
-	result := helpers.QuerySummary(s.ctx, s.cliEnv.ColonyEndpoint, "", "5m")
+	result := helpers.QuerySummary(s.ctx, s.cliEnv, "", "5m")
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
@@ -92,7 +92,7 @@ func (s *CLIQuerySuite) TestQuerySummaryCommand() {
 	// s.T().Logf("✓ Query summary validated (table + JSON)")
 
 	// Test with service filter (if services exist)
-	resultWithService := helpers.QuerySummary(s.ctx, s.cliEnv.ColonyEndpoint, "otel-app", "5m")
+	resultWithService := helpers.QuerySummary(s.ctx, s.cliEnv, "otel-app", "5m")
 	// Don't require success - service might not have data yet, but shouldn't crash
 	s.T().Logf("Query with service filter exit code: %d", resultWithService.ExitCode)
 }
@@ -139,7 +139,7 @@ func (s *CLIQuerySuite) TestQueryTracesCommand() {
 	s.ensureTelemetryData()
 
 	// Test basic traces query
-	result := helpers.QueryTraces(s.ctx, s.cliEnv.ColonyEndpoint, "", "5m", 0)
+	result := helpers.QueryTraces(s.ctx, s.cliEnv, "", "5m", 0)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output (first 10 lines):")
@@ -158,7 +158,7 @@ func (s *CLIQuerySuite) TestQueryTracesCommand() {
 	s.T().Log("✓ Query traces validated")
 
 	// Test with service filter
-	resultFiltered := helpers.QueryTraces(s.ctx, s.cliEnv.ColonyEndpoint, "otel-app", "5m", 0)
+	resultFiltered := helpers.QueryTraces(s.ctx, s.cliEnv, "otel-app", "5m", 0)
 	// Service might not have traces yet, but command shouldn't crash
 	s.T().Logf("Query traces with service filter exit code: %d", resultFiltered.ExitCode)
 }
@@ -176,7 +176,7 @@ func (s *CLIQuerySuite) TestQueryMetricsCommand() {
 	s.ensureTelemetryData()
 
 	// Test basic metrics query
-	result := helpers.QueryMetrics(s.ctx, s.cliEnv.ColonyEndpoint, "", "5m")
+	result := helpers.QueryMetrics(s.ctx, s.cliEnv, "", "5m")
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output (truncated):")
@@ -210,7 +210,7 @@ func (s *CLIQuerySuite) TestQueryFlagCombinations() {
 	// Test different time ranges
 	timeRanges := []string{"1m", "5m", "10m"}
 	for _, tr := range timeRanges {
-		result := helpers.QuerySummary(s.ctx, s.cliEnv.ColonyEndpoint, "", tr)
+		result := helpers.QuerySummary(s.ctx, s.cliEnv, "", tr)
 		if result.HasError() {
 			s.T().Logf("Query with time range %s failed (acceptable if no data): %v", tr, result.Err)
 		} else {
@@ -244,7 +244,7 @@ func (s *CLIQuerySuite) TestQueryInvalidFlags() {
 	s.T().Log("Testing error handling for invalid flags...")
 
 	// Test invalid time range
-	result := helpers.QuerySummary(s.ctx, s.cliEnv.ColonyEndpoint, "", "invalid-time")
+	result := helpers.QuerySummary(s.ctx, s.cliEnv, "", "invalid-time")
 	// Should fail or handle gracefully
 	if result.HasError() {
 		s.T().Log("✓ Invalid time range rejected as expected")
@@ -302,7 +302,7 @@ func (s *CLIQuerySuite) TestQueryTableOutputFormatting() {
 	s.ensureTelemetryData()
 
 	// Test summary table
-	result := helpers.QuerySummary(s.ctx, s.cliEnv.ColonyEndpoint, "", "5m")
+	result := helpers.QuerySummary(s.ctx, s.cliEnv, "", "5m")
 	if result.HasError() {
 		s.T().Logf("Query summary failed (might be no data): %v", result.Err)
 	} else {

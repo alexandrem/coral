@@ -68,7 +68,7 @@ func (s *DiscoveryAuthSuite) TestDiscoveryAuthorizationFlow() {
 	defer cliEnv.Cleanup()
 
 	// List agents
-	agents, err := helpers.AgentListJSON(s.ctx, s.fixture.ColonyEndpoint)
+	agents, err := helpers.AgentListJSON(s.ctx, cliEnv)
 	s.Require().NoError(err, "Failed to list agents")
 
 	s.NotEmpty(agents, "Should have at least one agent registered")

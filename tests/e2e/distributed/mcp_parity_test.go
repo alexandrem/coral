@@ -88,7 +88,7 @@ func (s *MCPParitySuite) TestParityQuerySummary() {
 	s.T().Log(mcpText)
 
 	// 2. Query via CLI command
-	cliResult := helpers.QuerySummary(s.ctx, s.cliEnv.ColonyEndpoint, "otel-app", "10m")
+	cliResult := helpers.QuerySummary(s.ctx, s.cliEnv, "otel-app", "10m")
 	cliResult.MustSucceed(s.T())
 
 	s.T().Log("CLI summary result:")
@@ -216,7 +216,7 @@ func (s *MCPParitySuite) TestParityQueryTraces() {
 	}
 
 	// 2. Query via CLI command
-	cliResult := helpers.QueryTraces(s.ctx, s.cliEnv.ColonyEndpoint, "otel-app", "10m", 0)
+	cliResult := helpers.QueryTraces(s.ctx, s.cliEnv, "otel-app", "10m", 0)
 	cliResult.MustSucceed(s.T())
 
 	s.T().Log("CLI traces result (truncated):")
@@ -270,7 +270,7 @@ func (s *MCPParitySuite) TestParityQueryMetrics() {
 	}
 
 	// 2. Query via CLI command
-	cliResult := helpers.QueryMetrics(s.ctx, s.cliEnv.ColonyEndpoint, "otel-app", "10m")
+	cliResult := helpers.QueryMetrics(s.ctx, s.cliEnv, "otel-app", "10m")
 	cliResult.MustSucceed(s.T())
 
 	s.T().Log("CLI metrics result (truncated):")

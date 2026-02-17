@@ -148,14 +148,13 @@ func (s *PublicEndpointSuite) TestCLIUsingPublicEndpoint() {
 	// Run 'coral colony status' using the public endpoint and API token
 	// We override CORAL_COLONY_ENDPOINT to point to the public endpoint
 	publicEndpoint := "https://localhost:8443"
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_COLONY_ENDPOINT": publicEndpoint,
-		"CORAL_API_TOKEN":       token,
-	})
 
 	// Note: Connect-Go (which Coral uses) uses HTTP/2.
 	// The CLI will try to use the public endpoint if it starts with https://
-	result := helpers.RunCLIWithEnv(s.ctx, env, "colony", "status", "-o", "json")
+	result := s.cliEnv.Clone().
+		WithEndpoint(publicEndpoint).
+		WithEnv(map[string]string{"CORAL_API_TOKEN": token}).
+		Run(s.ctx, "colony", "status", "-o", "json")
 
 	// We expect this to fail if the CLI doesn't trust the Colony CA.
 	// However, for E2E purposes, we want to see if the wiring works.
