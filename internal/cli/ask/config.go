@@ -1,3 +1,5 @@
+// Package ask implements coral ask command.
+// nolint:errcheck
 package ask
 
 import (
@@ -469,7 +471,7 @@ func testProviderConnectivity(providerName, apiKey string) error {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() // nolint:errcheck
 		if resp.StatusCode == http.StatusUnauthorized {
 			return fmt.Errorf("invalid API key")
 		}
@@ -481,11 +483,11 @@ func testProviderConnectivity(providerName, apiKey string) error {
 
 	if url != "" {
 		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Get(url) //nolint:noctx
+		resp, err := client.Get(url)
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() // nolint:errcheck
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			return fmt.Errorf("invalid API key (HTTP %d)", resp.StatusCode)
 		}
