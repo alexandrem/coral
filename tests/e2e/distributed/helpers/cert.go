@@ -48,14 +48,13 @@ type CertRenewResult struct {
 }
 
 // AgentBootstrap executes `coral agent bootstrap` with the given parameters.
-func AgentBootstrap(ctx context.Context, env map[string]string, colonyID, fingerprint, discoveryURL string, opts ...string) *BootstrapResult {
+func AgentBootstrap(ctx context.Context, env *CLITestEnv, colonyID, fingerprint, psk, discoveryURL string, opts ...string) *BootstrapResult {
 	args := []string{"agent", "bootstrap",
 		"--colony", colonyID,
 		"--fingerprint", fingerprint,
 	}
 
-	// Include bootstrap PSK from environment if available (RFD 088).
-	if psk, ok := env["CORAL_BOOTSTRAP_PSK"]; ok && psk != "" {
+	if psk != "" {
 		args = append(args, "--psk", psk)
 	}
 
@@ -66,7 +65,7 @@ func AgentBootstrap(ctx context.Context, env map[string]string, colonyID, finger
 	// Add any additional options.
 	args = append(args, opts...)
 
-	result := RunCLIWithEnv(ctx, env, args...)
+	result := env.Run(ctx, args...)
 
 	br := &BootstrapResult{
 		Success:  result.ExitCode == 0 && result.Err == nil,
@@ -102,14 +101,14 @@ func (br *BootstrapResult) parseSuccessOutput() {
 }
 
 // AgentCertStatus executes `coral agent cert status` and returns parsed result.
-func AgentCertStatus(ctx context.Context, env map[string]string, certsDir string) *CertStatusResult {
+func AgentCertStatus(ctx context.Context, env *CLITestEnv, certsDir string) *CertStatusResult {
 	args := []string{"agent", "cert", "status"}
 
 	if certsDir != "" {
 		args = append(args, "--certs-dir", certsDir)
 	}
 
-	result := RunCLIWithEnv(ctx, env, args...)
+	result := env.Run(ctx, args...)
 
 	csr := &CertStatusResult{
 		Output: result.Output,
@@ -162,14 +161,14 @@ func (csr *CertStatusResult) parseOutput() {
 }
 
 // AgentCertStatusJSON executes `coral agent cert status --format json` and parses the output.
-func AgentCertStatusJSON(ctx context.Context, env map[string]string, certsDir string) (map[string]interface{}, error) {
+func AgentCertStatusJSON(ctx context.Context, env *CLITestEnv, certsDir string) (map[string]interface{}, error) {
 	args := []string{"agent", "cert", "status", "--format", "json"}
 
 	if certsDir != "" {
 		args = append(args, "--certs-dir", certsDir)
 	}
 
-	result := RunCLIWithEnv(ctx, env, args...)
+	result := env.Run(ctx, args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("cert status failed: %w\nOutput: %s", result.Err, result.Output)
@@ -184,7 +183,7 @@ func AgentCertStatusJSON(ctx context.Context, env map[string]string, certsDir st
 }
 
 // AgentCertRenew executes `coral agent cert renew` and returns parsed result.
-func AgentCertRenew(ctx context.Context, env map[string]string, colonyID, fingerprint, colonyEndpoint, discoveryURL string, force bool) *CertRenewResult {
+func AgentCertRenew(ctx context.Context, env *CLITestEnv, colonyID, fingerprint, colonyEndpoint, discoveryURL string, force bool) *CertRenewResult {
 	args := []string{"agent", "cert", "renew"}
 
 	if colonyID != "" {
@@ -196,7 +195,8 @@ func AgentCertRenew(ctx context.Context, env map[string]string, colonyID, finger
 	}
 
 	// Include bootstrap PSK from environment if available (RFD 088).
-	if psk, ok := env["CORAL_BOOTSTRAP_PSK"]; ok && psk != "" {
+	envVars := env.EnvVars()
+	if psk, ok := envVars["CORAL_BOOTSTRAP_PSK"]; ok && psk != "" {
 		args = append(args, "--psk", psk)
 	}
 
@@ -212,7 +212,7 @@ func AgentCertRenew(ctx context.Context, env map[string]string, colonyID, finger
 		args = append(args, "--force")
 	}
 
-	result := RunCLIWithEnv(ctx, env, args...)
+	result := env.Run(ctx, args...)
 
 	crr := &CertRenewResult{
 		Success:  result.ExitCode == 0 && result.Err == nil,

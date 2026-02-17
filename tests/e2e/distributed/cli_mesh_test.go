@@ -169,7 +169,7 @@ func (s *CLIMeshSuite) TestColonyStatusCommand() {
 	s.T().Log("Testing 'coral colony status' command...")
 
 	// Test table format (default)
-	result := helpers.ColonyStatus(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.ColonyStatus(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
@@ -186,7 +186,7 @@ func (s *CLIMeshSuite) TestColonyStatusCommand() {
 	s.Require().GreaterOrEqual(len(rows), 1, "Table should have at least 1 row")
 
 	// Test JSON format
-	status, err := helpers.ColonyStatusJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	status, err := helpers.ColonyStatusJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON query should succeed")
 
 	// Validate JSON structure
@@ -209,7 +209,7 @@ func (s *CLIMeshSuite) TestColonyAgentsCommand() {
 	s.T().Log("Testing 'coral colony agents' command...")
 
 	// Test table format
-	result := helpers.ColonyAgents(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.ColonyAgents(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
@@ -219,7 +219,7 @@ func (s *CLIMeshSuite) TestColonyAgentsCommand() {
 	helpers.AssertContains(s.T(), result.Output, "agent")
 
 	// Test JSON format
-	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON query should succeed")
 	s.Require().GreaterOrEqual(len(agents), 1, "Should have at least 1 agent")
 
@@ -245,7 +245,7 @@ func (s *CLIMeshSuite) TestAgentListCommand() {
 	s.T().Log("Testing 'coral colony agents' command...")
 
 	// Test with table output
-	result := helpers.AgentList(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.AgentList(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
@@ -256,7 +256,7 @@ func (s *CLIMeshSuite) TestAgentListCommand() {
 	s.Require().GreaterOrEqual(len(rows), 1, "Should have at least headers")
 
 	// Test with JSON output
-	agents, err := helpers.AgentListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.AgentListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON query should succeed")
 	s.Require().GreaterOrEqual(len(agents), 1, "Should have at least 1 agent")
 
@@ -272,14 +272,14 @@ func (s *CLIMeshSuite) TestServiceListCommand() {
 	s.T().Log("Testing 'coral colony service list' command...")
 
 	// Test with table output
-	result := helpers.ServiceList(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.ServiceList(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Table output:")
 	s.T().Log(result.Output)
 
 	// Test with JSON output (may be empty if no services registered yet)
-	services, err := helpers.ServiceListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	services, err := helpers.ServiceListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON query should succeed")
 
 	s.T().Logf("✓ Service list validated (%d services)", len(services))
@@ -297,6 +297,7 @@ func (s *CLIMeshSuite) TestInvalidColonyEndpoint() {
 	s.T().Log("Testing error handling for invalid endpoint...")
 
 	// Use an invalid endpoint that will definitely fail
+	// Note: Using RunCLIWithEnv directly here for simple isolated error test
 	result := helpers.RunCLIWithEnv(s.ctx, map[string]string{
 		"CORAL_COLONY_ENDPOINT": "http://invalid-colony-host:99999",
 	}, "colony", "status")
@@ -323,7 +324,7 @@ func (s *CLIMeshSuite) TestTableOutputFormatting() {
 	s.T().Log("Testing table output formatting...")
 
 	// Get colony status table
-	result := helpers.ColonyStatus(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.ColonyStatus(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	rows := helpers.ParseTableOutput(result.Output)
@@ -344,19 +345,19 @@ func (s *CLIMeshSuite) TestJSONOutputValidity() {
 	s.T().Log("Testing JSON output validity...")
 
 	// Test colony status JSON
-	_, err := helpers.ColonyStatusJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	_, err := helpers.ColonyStatusJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Colony status JSON should be valid")
 
 	// Test colony agents JSON
-	_, err = helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	_, err = helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Colony agents JSON should be valid")
 
 	// Test agent list JSON
-	_, err = helpers.AgentListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	_, err = helpers.AgentListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Agent list JSON should be valid")
 
 	// Test service list JSON
-	_, err = helpers.ServiceListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	_, err = helpers.ServiceListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Service list JSON should be valid")
 
 	s.T().Log("✓ All JSON outputs are valid")
@@ -385,15 +386,13 @@ func (s *CLIMeshSuite) TestAddRemoteConnectionFailsWithoutCA() {
 	defer freshEnv.Cleanup()
 
 	// Try to connect to public endpoint without CA.
-	env := freshEnv.WithEnv(map[string]string{
-		"CORAL_COLONY_ENDPOINT": s.publicEndpoint,
-		"CORAL_API_TOKEN":       s.testToken,
-	})
-
 	s.T().Log("endpoint", s.publicEndpoint)
 	s.T().Log("token", s.testToken)
 
-	result := helpers.RunCLIWithEnv(s.ctx, env, "colony", "agents")
+	result := freshEnv.Clone().
+		WithEndpoint(s.publicEndpoint).
+		WithEnv(map[string]string{"CORAL_API_TOKEN": s.testToken}).
+		Run(s.ctx, "colony", "agents")
 
 	// The command should fail with a certificate error.
 	s.True(result.HasError(), "Command should fail without CA certificate")
@@ -419,18 +418,13 @@ func (s *CLIMeshSuite) TestAddRemoteFromDiscoverySuccess() {
 	defer freshEnv.Cleanup()
 
 	remoteColonyName := "test-remote-colony"
-	env := freshEnv.WithEnv(map[string]string{
-		"HOME": freshEnv.HomeDir,
-	})
-
-	result := helpers.RunCLIWithEnv(s.ctx, env,
+	result := freshEnv.Run(s.ctx,
 		"colony", "add-remote", remoteColonyName,
 		"--from-discovery",
 		"--colony-id", s.fixture.ColonyID,
 		"--ca-fingerprint", s.caFingerprint,
 		"--discovery-endpoint", s.discoveryURL,
 	)
-
 	result.MustSucceed(s.T())
 
 	// Verify CA cert file was created.
@@ -458,11 +452,7 @@ func (s *CLIMeshSuite) TestAddRemoteWithWrongFingerprint() {
 	// Use a wrong fingerprint (valid format but wrong value).
 	wrongFingerprint := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-	env := freshEnv.WithEnv(map[string]string{
-		"HOME": freshEnv.HomeDir,
-	})
-
-	result := helpers.RunCLIWithEnv(s.ctx, env,
+	result := freshEnv.Run(s.ctx,
 		"colony", "add-remote", "wrong-fp-colony",
 		"--from-discovery",
 		"--colony-id", s.fixture.ColonyID,
@@ -498,11 +488,7 @@ func (s *CLIMeshSuite) TestAddRemoteConnectionSucceedsWithStoredCA() {
 
 	// First, add the remote colony.
 	remoteColonyName := "stored-ca-colony"
-	env := freshEnv.WithEnv(map[string]string{
-		"HOME": freshEnv.HomeDir,
-	})
-
-	result := helpers.RunCLIWithEnv(s.ctx, env,
+	result := freshEnv.Run(s.ctx,
 		"colony", "add-remote", remoteColonyName,
 		"--from-discovery",
 		"--colony-id", s.fixture.ColonyID,
@@ -514,11 +500,9 @@ func (s *CLIMeshSuite) TestAddRemoteConnectionSucceedsWithStoredCA() {
 
 	// Verify that --set-default correctly set the new colony as default.
 	// Clear CORAL_COLONY_ID so get-contexts shows the global default, not env override.
-	checkEnv := freshEnv.WithEnv(map[string]string{
-		"HOME":            freshEnv.HomeDir,
-		"CORAL_COLONY_ID": "", // Clear to see global default
-	})
-	contextsResult := helpers.RunCLIWithEnv(s.ctx, checkEnv, "config", "get-contexts")
+	contextsResult := freshEnv.Clone().
+		Without("CORAL_COLONY_ID").
+		Run(s.ctx, "config", "get-contexts")
 	contextsResult.MustSucceed(s.T())
 	// The output has columns: CURRENT, COLONY-ID, ... The default has "*" in CURRENT column.
 	// Look for a line starting with "*" followed by spaces then the colony name.
@@ -527,14 +511,10 @@ func (s *CLIMeshSuite) TestAddRemoteConnectionSucceedsWithStoredCA() {
 
 	// Now try to connect using the stored config and CA.
 	// Clear env vars so CLI uses global default (set by --set-default) with stored CA.
-	connEnv := freshEnv.WithEnv(map[string]string{
-		"HOME":                  freshEnv.HomeDir,
-		"CORAL_API_TOKEN":       s.testToken,
-		"CORAL_COLONY_ID":       "", // Clear to use global default from --set-default
-		"CORAL_COLONY_ENDPOINT": "", // Clear to use stored config
-	})
-
-	statusResult := helpers.RunCLIWithEnv(s.ctx, connEnv, "colony", "agents")
+	statusResult := freshEnv.Clone().
+		WithEnv(map[string]string{"CORAL_API_TOKEN": s.testToken}).
+		Without("CORAL_COLONY_ID", "CORAL_COLONY_ENDPOINT").
+		Run(s.ctx, "colony", "agents")
 
 	// Should not fail with certificate error.
 	if statusResult.HasError() {
@@ -562,14 +542,13 @@ func (s *CLIMeshSuite) TestAddRemoteCADataEnvVar() {
 	caCertBase64 := base64.StdEncoding.EncodeToString(s.caCertPEM)
 
 	// Try to connect using CORAL_CA_DATA.
-	env := freshEnv.WithEnv(map[string]string{
-		"HOME":                  freshEnv.HomeDir,
-		"CORAL_COLONY_ENDPOINT": s.publicEndpoint,
-		"CORAL_API_TOKEN":       s.testToken,
-		"CORAL_CA_DATA":         caCertBase64,
-	})
-
-	result := helpers.RunCLIWithEnv(s.ctx, env, "colony", "agents")
+	result := freshEnv.Clone().
+		WithEndpoint(s.publicEndpoint).
+		WithEnv(map[string]string{
+			"CORAL_API_TOKEN": s.testToken,
+			"CORAL_CA_DATA":   caCertBase64,
+		}).
+		Run(s.ctx, "colony", "agents")
 
 	// Should not fail with certificate error.
 	if result.HasError() {

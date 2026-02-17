@@ -55,7 +55,7 @@ func (s *CLIConfigSuite) TestConfigGetContextsCommand() {
 	s.T().Log("Testing 'coral config get-contexts' command...")
 
 	// Test table format
-	result := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts")
+	result := s.cliEnv.Run(s.ctx, "config", "get-contexts")
 
 	// May fail if no contexts exist yet, which is acceptable
 	if result.HasError() {
@@ -71,7 +71,7 @@ func (s *CLIConfigSuite) TestConfigGetContextsCommand() {
 	}
 
 	// Test JSON format
-	result = helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts", "-o", "json")
+	result = s.cliEnv.Run(s.ctx, "config", "get-contexts", "-o", "json")
 
 	if result.HasError() {
 		s.T().Logf("Get contexts JSON failed (acceptable if no contexts): %v", result.Err)
@@ -93,7 +93,7 @@ func (s *CLIConfigSuite) TestConfigGetContextsCommand() {
 func (s *CLIConfigSuite) TestConfigCurrentContextCommand() {
 	s.T().Log("Testing 'coral config current-context' command...")
 
-	result := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "current-context")
+	result := s.cliEnv.Run(s.ctx, "config", "current-context")
 
 	// May fail if no context set, which is acceptable
 	if result.HasError() {
@@ -117,7 +117,7 @@ func (s *CLIConfigSuite) TestConfigUseContextCommand() {
 	s.T().Log("Testing 'coral config use-context' command...")
 
 	// Try to use a context (may fail if colony not in config)
-	result := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(),
+	result := s.cliEnv.Run(s.ctx,
 		"config", "use-context", s.cliEnv.ColonyID)
 
 	if result.HasError() {
@@ -127,7 +127,7 @@ func (s *CLIConfigSuite) TestConfigUseContextCommand() {
 		s.T().Log("✓ Context switch succeeded")
 
 		// Verify current context was updated
-		checkResult := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "current-context")
+		checkResult := s.cliEnv.Run(s.ctx, "config", "current-context")
 		if !checkResult.HasError() {
 			helpers.AssertContains(s.T(), checkResult.Output, s.cliEnv.ColonyID)
 		}
@@ -145,7 +145,7 @@ func (s *CLIConfigSuite) TestConfigInvalidContext() {
 	s.T().Log("Testing error handling for invalid context...")
 
 	// Try to use a context that doesn't exist
-	result := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(),
+	result := s.cliEnv.Run(s.ctx,
 		"config", "use-context", "non-existent-colony-12345")
 
 	// Should fail
@@ -169,8 +169,8 @@ func (s *CLIConfigSuite) TestConfigOutputFormats() {
 	s.T().Log("Testing config output format consistency...")
 
 	// Test get-contexts with both formats
-	tableResult := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts")
-	jsonResult := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts", "-o", "json")
+	tableResult := s.cliEnv.Run(s.ctx, "config", "get-contexts")
+	jsonResult := s.cliEnv.Run(s.ctx, "config", "get-contexts", "-o", "json")
 
 	// Both should either succeed or fail consistently
 	if tableResult.HasError() != jsonResult.HasError() {
@@ -204,12 +204,12 @@ func (s *CLIConfigSuite) TestConfigCommandsWithoutColony() {
 	// Config commands should work even without a running colony
 	// They only read/write local config files
 
-	result := helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "get-contexts")
+	result := s.cliEnv.Run(s.ctx, "config", "get-contexts")
 
 	// Should not crash (may have no contexts, which is fine)
 	s.T().Logf("Get contexts exit code: %d", result.ExitCode)
 
-	result = helpers.RunCLIWithEnv(s.ctx, s.cliEnv.EnvVars(), "config", "current-context")
+	result = s.cliEnv.Run(s.ctx, "config", "current-context")
 
 	// Should not crash
 	s.T().Logf("Current context exit code: %d", result.ExitCode)

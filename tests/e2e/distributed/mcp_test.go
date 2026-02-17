@@ -65,7 +65,7 @@ func (s *MCPSuite) TestMCPListToolsCommand() {
 	s.T().Log("Testing 'coral colony mcp list-tools' command...")
 
 	// Test table format
-	result := helpers.MCPListTools(s.ctx, s.cliEnv.ColonyEndpoint)
+	result := helpers.MCPListTools(s.ctx, s.cliEnv)
 	result.MustSucceed(s.T())
 
 	s.T().Log("List tools output:")
@@ -78,7 +78,7 @@ func (s *MCPSuite) TestMCPListToolsCommand() {
 	s.Require().Contains(result.Output, "coral_query_summary", "Should list coral_query_summary tool")
 
 	// Test JSON format
-	tools, err := helpers.MCPListToolsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	tools, err := helpers.MCPListToolsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "JSON list should succeed")
 	s.Require().NotEmpty(tools, "Should have at least one tool")
 
@@ -110,7 +110,7 @@ func (s *MCPSuite) TestMCPTestToolCommand() {
 	s.T().Log("Testing 'coral colony mcp test-tool' command...")
 
 	// Test simple tool with no arguments
-	result := helpers.MCPTestTool(s.ctx, s.cliEnv.ColonyEndpoint, "coral_list_services", "")
+	result := helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_list_services", "")
 	result.MustSucceed(s.T())
 
 	s.T().Log("Test tool output:")
@@ -121,7 +121,7 @@ func (s *MCPSuite) TestMCPTestToolCommand() {
 
 	// Test tool with JSON arguments
 	queryArgs := `{"service_filter":"*","time_range":"5m"}`
-	queryResult := helpers.MCPTestTool(s.ctx, s.cliEnv.ColonyEndpoint, "coral_query_summary", queryArgs)
+	queryResult := helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_query_summary", queryArgs)
 	queryResult.MustSucceed(s.T())
 
 	s.T().Log("Query summary result (truncated):")
@@ -132,7 +132,7 @@ func (s *MCPSuite) TestMCPTestToolCommand() {
 	s.T().Log(output)
 
 	// Test invalid tool name
-	invalidResult := helpers.MCPTestTool(s.ctx, s.cliEnv.ColonyEndpoint, "invalid_tool_name", "")
+	invalidResult := helpers.MCPTestTool(s.ctx, s.cliEnv, "invalid_tool_name", "")
 	invalidResult.MustFail(s.T())
 
 	s.Require().Contains(strings.ToLower(invalidResult.Output), "unknown tool", "Should indicate tool not found")
@@ -150,7 +150,7 @@ func (s *MCPSuite) TestMCPGenerateConfigCommand() {
 	s.T().Log("Testing 'coral colony mcp generate-config' command...")
 
 	// Generate config for current colony
-	result := helpers.MCPGenerateConfig(s.ctx, s.cliEnv.ColonyEndpoint, "test-colony-e2e", false)
+	result := helpers.MCPGenerateConfig(s.ctx, s.cliEnv, "test-colony-e2e", false)
 	result.MustSucceed(s.T())
 
 	s.T().Log("Generated config:")
@@ -455,7 +455,7 @@ func (s *MCPSuite) TestMCPToolShellExec() {
 	s.Require().NoError(err, "Initialize should succeed")
 
 	// Get agent ID (use first available agent)
-	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Should list agents")
 	s.Require().NotEmpty(agents, "Should have at least one agent")
 	s.Require().Contains(agents[0], "agent_id", "Should have agent id")
@@ -748,7 +748,7 @@ func (s *MCPSuite) TestMCPToolContainerExec() {
 	s.Require().NoError(err, "Initialize should succeed")
 
 	// Get agent ID
-	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Should list agents")
 	s.Require().NotEmpty(agents, "Should have at least one agent")
 	s.Require().Contains(agents[0], "agent_id", "Should have agent id")

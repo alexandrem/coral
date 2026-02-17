@@ -34,6 +34,11 @@ type InitSuite struct {
 func (s *InitSuite) SetupSuite() {
 	s.ctx = context.Background()
 
+	// Validate coral binary exists before running any tests.
+	err := helpers.EnsureCoralBinary()
+	s.Require().NoError(err, "coral binary validation failed")
+	s.T().Log("✓ coral binary found and accessible")
+
 	// Create temporary directory for this test colony
 	tempDir, err := os.MkdirTemp("", "coral-init-test-*")
 	s.Require().NoError(err, "Failed to create temp directory")
