@@ -2,188 +2,59 @@
 
 **Root cause in seconds, not hours.**
 
-The open-source nervous system for your distributed apps.
+The open-source AI debugger for distributed apps.
 
 [![CI](https://github.com/alexandrem/coral/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandrem/coral/actions/workflows/ci.yml)
 [![Golang](https://img.shields.io/github/go-mod/go-version/alexandrem/coral?color=7fd5ea)](https://golang.org/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alexandrem/coral)](https://goreportcard.com/report/github.com/alexandrem/coral)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-> 🚧 **Very early & experimental** — APIs will change, but the vision is solid.
+> 🚧 **Very early & experimental** — The vision is solid, the APIs are shifting.
 
-> TL;DR: Ask your running system “why is it slow?” in plain English → get the exact
-> function and line blocking it, without redeploying.
+> **TL;DR**: Coral gives AI assistants "hands" inside your running code.
+> Ask: "Why is the payment service slow?" — Coral deploys eBPF probes, profiles
+> live code, and returns the exact bottleneck, down to the line.
 
-## Overview
+## What is Coral?
 
-Coral is the **Application Intelligence Mesh**. It brings the "observe
-everything" philosophy of DTrace to distributed systems, replacing esoteric
-scripts with natural language and sandboxed TypeScript. It unites the deep,
-kernel-level visibility of eBPF with the reasoning power of Large Language
-Models.
+Coral gives your AI assistant direct access to your running distributed system
+— without instrumentation, redeployment, or hunting through dashboards.
 
-Unlike traditional tools that just show you dashboards, Coral is
-building a Programmable Observability Engine capable of writing and deploying
-its own safe, ephemeral diagnostics to solve problems faster than any human can
-type.
+Connect any AI (Claude, Cursor, or the built-in `coral ask` CLI) to your mesh, and it can investigate your system in real time.
 
-## The Problem: Observability is Fragmented and Passive
+### AI-Powered Investigation
 
-Modern distributed applications run across a "chaos of environments" — laptops,
-Kubernetes clusters, edge nodes, and multiple clouds. Current tools fail this
-reality in three ways:
+Coral agents collect eBPF metrics and profiles across every host and expose them
+as tools the AI can call:
 
-1. **The Context Gap**: Metrics tell you _that_ something is wrong, but not
-   _where_ in the code. You’re forced to jump between dashboards, traces, and
-   source code, manually trying to correlate timestamps.
-2. **The "Observer Effect"**: To get deeper data, you often have to add logging,
-   redeploy, and pray the issue happens again. This is slow, risky, and often
-   changes the very behavior you’re trying to debug.
-3. **Passive Data, Active Toil**: Traditional tools are passive collectors. They
-   wait for you to ask the right question. In a distributed mesh, finding the "
-   right question" is 90% of the work.
+- Profile this service
+- Trace this function
+- Capture this request
 
-**Coral turns this upside down.** We provide the **depth of a kernel debugger**
-with the **reasoning of an AI**, unified into a single intelligence mesh.
+The AI reasons over live, correlated data and returns a root cause — not a list
+of graphs to interpret.
 
-## One Interface for Everything
+It also understands your code. Coral indexes service binaries so the AI can
+locate *the function that handles Stripe webhooks* even if you don’t know
+the exact symbol name.
 
-Coral integrates four layers of data collection to provide complete visibility:
+### Direct Tool Access (No AI Required)
 
-| Level | Feature                 | Description                                                                           |
-| ----- | ----------------------- | ------------------------------------------------------------------------------------- |
-| **0** | **Passive RED Metrics** | Zero-config service metrics (Rate, Errors, Duration) via eBPF. No code changes.       |
-| **1** | **External Telemetry**  | Ingests traces/metrics from apps already using OpenTelemetry/OTLP.                    |
-| **2** | **Continuous Intel**    | Always-on host metrics (CPU/Mem/Disk) and low-overhead continuous CPU/memory profiling. |
-| **3** | **Deep Introspection**  | On-demand CPU/memory profiling, function-level tracing, and active investigation.     |
+Because the AI calls real tools under the hood, you can use them directly.
 
-### 👁️ Observe
+From your terminal, you can:
 
-**Passive, always-on data collection.**
+- Run commands inside a service’s namespace (via nsenter)
+- Inspect processes or read files as the container sees them
+- Open a shell on the agent host
+- Capture live traffic
+- Trigger on-demand CPU or memory profiles
 
-Coral automatically gathers telemetry from your applications and infrastructure
-without any configuration.
+No redeploys. No dashboard spelunking. No AI required.
 
-- **Zero-config eBPF**: Metrics for every service, instantly.
-- **Host Health**: Continuous monitoring of CPU, memory, disk, and network.
-- **Continuous Profiling**: Low-overhead background CPU and memory profiling to identify
-  hot paths and allocation hotspots over time (<1% overhead).
-- **Dependency Mapping**: Automatically discovers how services connect.
+## See It in Action
 
-### 🔍 Explore
-
-**Deep introspection and investigation tools.**
-
-When you need to dig deeper, Coral gives you the tools to investigate actively
-or automate the discovery of hotspots.
-
-- **Remote Execution**: Run standard tools like `netstat`, `curl`, and `grep` on
-  any agent.
-- **Remote Shell**: Jump into any agent's shell.
-- **On-Demand Profiling**: High-frequency CPU and memory profiling with Flame Graphs for
-  line-level analysis. Track allocation hotspots, memory leaks, and GC pressure.
-- **Live Debugging**: Attach eBPF uprobes (SDK) to specific functions to capture
-  args and return values.
-- **Traffic Capture**: Sample live requests to understand payload structures.
-
-### 🤖 Diagnose
-
-**AI-powered insights for intelligent Root Cause Analysis (RCA).**
-
-Coral's killer app is its ability to pre-correlate metrics and profiling data
-into structured summaries that LLMs can understand instantly.
-
-- **Profiling-Enriched Summaries**: AI gets metrics + code-level hotspots in one
-  call.
-- **Regression Detection**: Automatically identifies performance shifts across
-  deployment versions.
-- **Built-in Assistant**: Use `coral ask` directly from your terminal.
-- **Universal AI integration**: Works with Claude Desktop, IDEs, any MCP client.
-
-## Architecture: Universal AI Integration via MCP
-
-Colony acts as an MCP server - any AI assistant can query your observability
-data in real-time.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  External AI Assistants / coral ask                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
-│  │ Claude       │  │ VS Code /    │  │ coral ask    │           │
-│  │ Desktop      │  │ Cursor       │  │ (terminal)   │           │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
-│         │ Anthropic       │ OpenAI          │ Ollama            │
-│         └─────────────────┴─────────────────┘                   │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │ MCP Protocol (stdio)
-                          │ Natural language queries
-                          ▼
-                 ┌────────────────────┐
-                 │  MCP Proxy         │
-                 │  (Protocol Bridge) │
-                 └─────────┬──────────┘
-                           │ gRPC
-                           ▼
-                 ┌────────────────────┐
-                 │  Colony Server     │
-                 │  • MCP Server      │
-                 │  • Tool Registry   │
-                 │  • DuckDB          │
-                 └─────────┬──────────┘
-                           │ Mesh Network
-                           ▼
-      ┌────────────────────┴────────────────────┐
-      │                                         │
-      ▼                                         ▼
-┌───────────┐                             ┌───────────┐
-│  Agent    │                             │  Agent    │
-│  • eBPF   │        ...more agents...    │  • eBPF   │
-│  • OTLP   │                             │  • OTLP   │
-└─────┬─────┘                             └─────┬─────┘
-      │                                         │
-┌─────▼─────┐                             ┌─────▼─────┐
-│ Service A │                             │ Service B │
-│ (+ SDK)   │                             │ (No SDK)  │
-└───────────┘                             └───────────┘
-```
-
-## 🔒 Privacy & Sovereignty
-
-Coral is designed for **complete data sovereignty**.
-
-- **Decentralized**: You run the Colony (control plane) on your own
-  infrastructure—laptop, VM, or Kubernetes.
-- **No SaaS Dependency**: There is no central Coral cloud service. You don't
-  send us any data.
-- **Bring Your Own LLM**: Your API keys (OpenAI, Anthropic, Google) stay on your
-  machine. Or use local models (Ollama) for an air-gapped experience.
-- **Encrypted Mesh**: All traffic between your laptop, colony, and agents is
-  secured via WireGuard.
-
-## How It Works
-
-1. **Observe Everywhere**: Agents collect telemetry via eBPF (zero-config) and
-   OTLP.
-2. **Aggregate Intelligently**: Colony receives data, stores it in DuckDB, and
-   correlates dependencies.
-3. **Query with AI**: Connect any MCP client (Claude, IDE) to ask questions in
-   natural language.
-4. **Act on Insights**: Get root cause analysis and recommendations.
-
-## Live Debugging & Profiling
-
-**Coral can debug your running code without redeploying.**
-
-Unlike traditional observability (metrics, logs, traces), Coral can **actively
-instrument** your code on-demand using eBPF uprobes, high-frequency CPU
-profiling, and memory allocation tracking.
-
-> [!NOTE]
-> Detailed function-level tracing requires integrating the **Coral Language
-> Runtime SDK**, while CPU/memory profiling and system metrics work
-> **agentlessly** on any binary.
-
-### CPU Profiling Example
+### Diagnosing a latency spike
 
 ```bash
 $ coral ask "Why is the payment API slow?"
@@ -200,10 +71,11 @@ $ coral ask "Why is the payment API slow?"
        └─ Mutex Contention: 1.8s (Blocked by Logger.Write)
        └─ VFS Write (Disk I/O): 1.7s (Wait on /var/log/app.log)
 
-   Root Cause: Synchronous logging to a slow disk volume is blocking the main execution thread.
+   Root Cause: Synchronous logging to a slow disk volume is blocking the main
+   execution thread.
 ```
 
-### Memory Profiling Example
+### Tracking down a memory leak
 
 ```bash
 $ coral ask "Why is the order-processor using 10GB of RAM?"
@@ -224,89 +96,123 @@ $ coral ask "Why is the order-processor using 10GB of RAM?"
 
    GC Correlation: High GC CPU overhead (28%) caused by cache allocation rate.
 
-   Root Cause: cache.Store retains entries indefinitely, causing unbounded memory growth.
+   Root Cause: cache.Store retains entries indefinitely, causing unbounded
+   memory growth.
    Recommendation: Add TTL-based eviction or size-based LRU policy.
 ```
 
+## How It Works
+
+Agents run alongside your services and collect telemetry continuously via eBPF
+— zero code changes required. The Colony aggregates data across all agents and
+exposes it as tools over MCP. Your AI uses those tools to investigate, correlate,
+and reason its way to a root cause.
+
+**👁️ Observe** — Zero-config RED metrics, host health, continuous CPU and memory
+profiling (<1% overhead), and automatic dependency mapping.
+
+**🔍 Explore** — On-demand profiling with flame graphs, remote execution, shell
+access, and live traffic capture across any agent.
+
+**🤖 Diagnose** — Pre-correlated metrics and profiling summaries for instant LLM
+reasoning, with automatic regression detection across deployments.
+
+Each agent keeps a rolling window of high-resolution data (a few hours by
+default). The Colony aggregates summaries across the mesh for historical
+comparisons and regression detection. Unlike tools built around infinite
+retention, Coral is specialized for live investigation — full fidelity where
+it matters, near-zero storage cost everywhere else.
+
+> [!NOTE]
+> Function-level argument tracing requires the **Coral SDK**. CPU/memory
+> profiling and system metrics work agentlessly on any binary.
+
 ## What Makes Coral Different?
 
-| Feature          | Coral                                                        | Traditional Tools             |
-| ---------------- | ------------------------------------------------------------ | ----------------------------- |
-| **Network**      | **Unified WireGuard Mesh** (Laptop ↔ Cloud ↔ On-prem)        | VPNs, Firewalls, Fragmented   |
-| **Debugging**    | **Continuous & On-demand eBPF** (CPU/Memory Profiling & Probes) | Logs, Metrics, Profiling.     |
-| **AI Model**     | **Bring Your Own LLM** (You own the data)                    | Vendor-hosted, Privacy risks  |
-| **Architecture** | **Decentralized** (No central SaaS)                          | Centralized SaaS / Data Silos |
-| **Analysis**     | **LLM-Driven RCA** (Pre-correlated hotspots)                 | Manual Dashboard Diving       |
+| Traditional Observability                       | Coral                                             |
+|-------------------------------------------------|---------------------------------------------------|
+| Dashboards, alerts, and log search              | On-demand investigation tools                     |
+| You interpret metrics and traces                | AI (or you) invoke profiling and tracing directly |
+| Requires pre-instrumentation                    | Works on running services via eBPF                |
+| Optimized for retention and historical analysis | Optimized for live debugging                      |
+| You ask “what looks wrong?”                     | You ask “why is this happening?”                  |
 
-**Nothing else does this yet.**
+## Architecture
 
-Coral is the first tool that combines:
+Colony acts as an MCP server — any AI assistant can query your observability
+data in real-time.
 
-- LLM-driven analysis with pre-correlated CPU and memory hotspots
-- On-demand eBPF instrumentation
-- Continuous CPU and memory profiling with <1% overhead
-- Distributed debugging across any environment
-- Zero standing overhead with intelligent sampling
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Your AI Assistant                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │ Claude       │  │ VS Code /    │  │ coral ask    │           │
+│  │ Desktop      │  │ Cursor       │  │ (terminal)   │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+│         └─────────────────┴─────────────────┘                   │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ MCP Protocol
+                           ▼
+                  ┌────────────────────┐
+                  │  Colony            │
+                  │  (Control Plane)   │
+                  └─────────┬──────────┘
+                            │ Encrypted Mesh (WireGuard + gRPC)
+                            ▼
+       ┌────────────────────┴────────────────────┐
+       │                                         │
+       ▼                                         ▼
+ ┌───────────┐                             ┌───────────┐
+ │  Agent    │                             │  Agent    │
+ │  • eBPF   │        ...more agents...    │  • eBPF   │
+ │  • OTLP   │                             │  • OTLP   │
+ └─────┬─────┘                             └─────┬─────┘
+       │                                         │
+ ┌─────▼─────┐                             ┌─────▼─────┐
+ │ Service A │                             │ Service B │
+ │ (+ SDK)   │                             │ (No SDK)  │
+ └───────────┘                             └───────────┘
+```
+
+## 🔒 Privacy & Sovereignty
+
+Coral is designed for **complete data sovereignty**.
+
+- **Decentralized**: You run the Colony on your own infrastructure — laptop, VM,
+  or Kubernetes. No central Coral cloud service.
+- **Bring Your Own LLM**: Your API keys (OpenAI, Anthropic, Google) stay on your
+  machine. Or use Ollama for a fully air-gapped setup.
+- **Encrypted Mesh**: All traffic between hosts is secured via WireGuard.
 
 ## Quick Start
 
-### 1. Build
-
 ```bash
-make build-dev
-```
+# Build
+make build
 
-### 2. Initialize
-
-```bash
-# Initialize the colony configuration
+# Initialize and run
 bin/coral init my-colony
-```
+bin/coral colony start   # terminal 1
+bin/coral agent start    # terminal 2
 
-### 3. Run
-
-```bash
-# Start the colony (central coordinator)
-bin/coral colony start
-
-# In another terminal, start the agent
-bin/coral agent start
-```
-
-### 4. Connect (optional)
-
-Connect the agent explicitly to your services to observe them.
-
-By default, the agent will observe all services it can find on the system
-
-```bash
-# Connect agent to observe services
-bin/coral connect frontend:3000 api:8080:/health
-```
-
-### 5. Ask
-
-```bash
-# Configure your LLM (first time only)
-bin/coral ask config
-
-# Ask questions
+# Ask
+bin/coral ask config     # configure your LLM (first time)
 bin/coral ask "Why is the API slow?"
+```
+
+To observe specific services explicitly (default: all services on the host):
+
+```bash
+bin/coral connect frontend:3000 api:8080:/health
 ```
 
 ## Documentation
 
-- **[Installation & Permissions](docs/INSTALLATION.md)**: Setup guide and
-  security options.
-- **[CLI](docs/CLI.md)**: Command-line interface guide.
+- **[Installation & Permissions](docs/INSTALLATION.md)**: Setup guide and security options.
 - **[CLI Reference](docs/CLI_REFERENCE.md)**: Complete command reference.
-- **[Architecture](docs/ARCHITECTURE.md)**: Deep dive into the system
-  architecture.
-- **[Config](docs/CONFIG.md)**: Configuration guide.
-- **[Design](docs/DESIGN.md)**: High-level design principles.
-- **[Live Debugging](docs/LIVE_DEBUGGING.md)**: How the on-demand
-  instrumentation works.
-- **[Instrumentation](docs/INSTRUMENTATION.md)**: How to instrument your code.
+- **[Architecture](docs/ARCHITECTURE.md)**: Deep dive into the system design.
+- **[Live Debugging](docs/LIVE_DEBUGGING.md)**: How on-demand instrumentation works.
+- **[Instrumentation](docs/INSTRUMENTATION.md)**: How to instrument your code with the SDK.
 
 ## License
 
