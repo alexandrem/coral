@@ -51,10 +51,11 @@ This creates three gaps:
 
 **Why this matters:**
 
-Coral's live debugging value proposition is "production DTrace with natural
-language." DTrace's power comes from being able to express stateful predicates
-close to the data. Without agent-side correlation, Coral is limited to
-offline analysis of event snapshots, not live pattern detection.
+Coral's value proposition is giving AI assistants direct, real-time access to
+running distributed systems. That requires not just collecting events but
+detecting meaningful patterns close to the data. Without agent-side
+correlation, Coral is limited to offline analysis of event snapshots, not
+live pattern detection.
 
 **Use cases affected:**
 
