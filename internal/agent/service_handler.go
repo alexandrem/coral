@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
@@ -70,9 +72,12 @@ func (h *ServiceHandler) ConnectService(
 		Labels:         req.Msg.Labels,
 	}
 
-	// Connect to service.
+	// Connect to service. Treat AlreadyExists as a soft error so that
+	// subsequent calls can still update SDK capabilities (e.g. when a second
+	// suite connects the same service with an SdkAddr that the first suite omitted).
 	err := h.agent.ConnectService(serviceInfo)
-	if err != nil {
+	alreadyConnected := status.Code(err) == codes.AlreadyExists
+	if err != nil && !alreadyConnected {
 		return connect.NewResponse(&agentv1.ConnectServiceResponse{
 			Success: false,
 			Error:   err.Error(),
