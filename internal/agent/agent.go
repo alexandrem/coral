@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/beyla"
@@ -315,7 +317,7 @@ func (a *Agent) ConnectService(service *meshv1.ServiceInfo) error {
 
 	// Check if service already exists.
 	if _, exists := a.monitors[service.Name]; exists {
-		return fmt.Errorf("service %s already connected", service.Name)
+		return status.Errorf(codes.AlreadyExists, "service %s already connected", service.Name)
 	}
 
 	// Create and start new monitor.

@@ -177,6 +177,9 @@ func EnsureServicesConnected(
 
 		if svc.SdkAddr != "" {
 			// Pass SDK capabilities explicitly so the agent can resolve the SDK address.
+			// Try connecting first; if already connected, disconnect then reconnect so that
+			// SDK capabilities are always registered (a plain re-connect call cannot update
+			// capabilities on an existing monitor on older server versions).
 			req := connect.NewRequest(&agentv1.ConnectServiceRequest{
 				Name:           svc.Name,
 				Port:           svc.Port,
@@ -189,16 +192,26 @@ func EnsureServicesConnected(
 				},
 			})
 			resp, connectErr := agentClient.ConnectService(ctx, req)
-			if connectErr != nil {
-				if !isAlreadyConnected(connectErr) {
-					t.Errorf("Failed to connect %s: %v", svc.Name, connectErr)
+			alreadyConn := (connectErr != nil && isAlreadyConnected(connectErr)) ||
+				(connectErr == nil && !resp.Msg.Success && isAlreadyConnected(fmt.Errorf(resp.Msg.Error)))
+			if alreadyConn {
+				// Disconnect then reconnect so SDK capabilities are set on the fresh monitor.
+				t.Logf("Service %s already connected; disconnecting to re-register with SDK capabilities", svc.Name)
+				_, _ = DisconnectService(ctx, agentClient, svc.Name)
+				resp2, connectErr2 := agentClient.ConnectService(ctx, req)
+				if connectErr2 != nil {
+					t.Errorf("Failed to reconnect %s: %v", svc.Name, connectErr2)
+					t.FailNow()
+				} else if !resp2.Msg.Success {
+					t.Errorf("Failed to reconnect %s: %s", svc.Name, resp2.Msg.Error)
 					t.FailNow()
 				}
+			} else if connectErr != nil {
+				t.Errorf("Failed to connect %s: %v", svc.Name, connectErr)
+				t.FailNow()
 			} else if !resp.Msg.Success {
-				if !isAlreadyConnected(fmt.Errorf(resp.Msg.Error)) {
-					t.Errorf("Failed to connect %s: %s", svc.Name, resp.Msg.Error)
-					t.FailNow()
-				}
+				t.Errorf("Failed to connect %s: %s", svc.Name, resp.Msg.Error)
+				t.FailNow()
 			}
 		} else {
 			_, err = ConnectService(ctx, agentClient, svc.Name, svc.Port, svc.HealthEndpoint)
