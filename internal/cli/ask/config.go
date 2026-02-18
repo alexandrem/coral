@@ -432,11 +432,7 @@ func validateSetup(providerName, modelID, apiKeyEnv string) error {
 
 	apiKey := os.Getenv(apiKeyEnv)
 	if apiKey == "" {
-		fmt.Printf("⚠ Environment variable %s is not set — set it before running coral ask:\n  export %s=your-api-key\n", apiKeyEnv, apiKeyEnv)
-		if modelID != "" {
-			fmt.Printf("✓ Model %s selected\n", modelID)
-		}
-		return nil
+		return fmt.Errorf("environment variable %s is not set — set it before running coral ask:\n  export %s=your-api-key", apiKeyEnv, apiKeyEnv)
 	}
 	fmt.Printf("✓ Environment variable %s found\n", apiKeyEnv)
 
