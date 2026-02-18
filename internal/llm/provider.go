@@ -90,6 +90,12 @@ type ModelMetadata struct {
 	Description  string   // Model description
 	Capabilities []string // e.g., ["tools", "streaming", "vision"]
 	Deprecated   bool     // Whether model is deprecated
+
+	// Wizard fields used by coral ask config (RFD 055).
+	UseCase         string  // "fast", "balanced", "quality"
+	CostPer1MTokens float64 // Estimated cost in USD per million tokens
+	ContextWindow   int     // Maximum context window in tokens
+	Recommended     bool    // Whether to highlight as the recommended choice
 }
 
 // ProviderFactory creates a Provider instance.

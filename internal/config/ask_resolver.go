@@ -18,6 +18,16 @@ func ResolveAskConfig(globalCfg *GlobalConfig, colonyCfg *ColonyConfig) (*AskCon
 	// Start with global config defaults.
 	resolved := globalCfg.AI.Ask
 
+	// Deep-copy APIKeys to avoid mutating the original globalCfg map when
+	// resolveAPIKeyReferences replaces env:// references with their values.
+	if resolved.APIKeys != nil {
+		copy := make(map[string]string, len(resolved.APIKeys))
+		for k, v := range resolved.APIKeys {
+			copy[k] = v
+		}
+		resolved.APIKeys = copy
+	}
+
 	// Apply colony-specific overrides if present.
 	if colonyCfg != nil && colonyCfg.Ask != nil {
 		if colonyCfg.Ask.DefaultModel != "" {
@@ -125,10 +135,12 @@ func ValidateAskConfig(cfg *AskConfig) error {
 		return fmt.Errorf("context_window must be non-negative, got %d", cfg.Conversation.ContextWindow)
 	}
 
-	// Validate agent mode.
-	validModes := map[string]bool{"embedded": true, "daemon": true, "ephemeral": true}
-	if !validModes[cfg.Agent.Mode] {
-		return fmt.Errorf("invalid agent mode %q, must be one of: embedded, daemon, ephemeral", cfg.Agent.Mode)
+	// Validate agent mode. Empty string is treated as "embedded" (the default).
+	if cfg.Agent.Mode != "" {
+		validModes := map[string]bool{"embedded": true, "daemon": true, "ephemeral": true}
+		if !validModes[cfg.Agent.Mode] {
+			return fmt.Errorf("invalid agent mode %q, must be one of: embedded, daemon, ephemeral", cfg.Agent.Mode)
+		}
 	}
 
 	return nil
