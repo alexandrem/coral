@@ -11,7 +11,7 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -20,8 +20,8 @@ import (
 type NetworkResult struct {
 	WireGuardDevice       *wireguard.Device
 	AgentKeys             *auth.WireGuardKeyPair
-	ColonyInfo            *discoveryclient.LookupColonyResponse
-	AgentObservedEndpoint *discoveryclient.Endpoint
+	ColonyInfo            *discovery.LookupColonyResponse
+	AgentObservedEndpoint *discovery.Endpoint
 	STUNServers           []string
 	MeshIP                string
 	MeshSubnet            string
@@ -213,7 +213,7 @@ func (n *NetworkInitializer) ConfigureMesh(
 
 // getSTUNServers determines which STUN servers to use for NAT traversal.
 // Priority: agent config (with env override via MergeFromEnv) > discovery response > default.
-func (n *NetworkInitializer) getSTUNServers(_ *discoveryclient.LookupColonyResponse) []string {
+func (n *NetworkInitializer) getSTUNServers(_ *discovery.LookupColonyResponse) []string {
 	// Check agent config (env var CORAL_STUN_SERVERS is merged via MergeFromEnv).
 	if len(n.agentCfg.Agent.NAT.STUNServers) > 0 {
 		return n.agentCfg.Agent.NAT.STUNServers

@@ -67,10 +67,6 @@ build: generate ## Build the coral binary
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral
 	@chmod +x $(BUILD_DIR)/$(BINARY_NAME)
 	@echo "✓ Built $(BUILD_DIR)/$(BINARY_NAME)"
-	@echo "Building coral-discovery..."
-	go build $(LDFLAGS) -o $(BUILD_DIR)/coral-discovery ./cmd/discovery
-	@chmod +x $(BUILD_DIR)/coral-discovery
-	@echo "✓ Built $(BUILD_DIR)/coral-discovery"
 	@# Copy Deno binary for current platform
 	@DENO_SRC="internal/cli/run/binaries/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
 	DENO_DST="$(BUILD_DIR)/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
@@ -85,9 +81,8 @@ build: generate ## Build the coral binary
 	@# Create symlinks in bin/ for e2e tests (only when using default platform-specific BUILD_DIR)
 	@# Skip if BUILD_DIR is overridden (e.g., in Docker builds)
 	@if [ "$(BUILD_DIR)" = "bin/$(shell go env GOOS)_$(shell go env GOARCH)" ]; then \
-		rm -f bin/$(BINARY_NAME) bin/coral-discovery; \
+		rm -f bin/$(BINARY_NAME); \
 		ln -s $(shell go env GOOS)_$(shell go env GOARCH)/$(BINARY_NAME) bin/$(BINARY_NAME); \
-		ln -s $(shell go env GOOS)_$(shell go env GOARCH)/coral-discovery bin/coral-discovery; \
 		echo "✓ Created symlinks: bin/$(BINARY_NAME) → $(BUILD_DIR)/$(BINARY_NAME)"; \
 	else \
 		echo "✓ Skipping symlink creation (BUILD_DIR override detected)"; \
@@ -114,7 +109,7 @@ build-dev: build ## Build and grant TUN creation privileges (Linux: capabilities
 clean: ## Remove build artifacts
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR)
-	@rm -f bin/$(BINARY_NAME) bin/coral-discovery
+	@rm -f bin/$(BINARY_NAME)
 	@echo "✓ Cleaned"
 
 install: build ## Install the binary to $GOPATH/bin

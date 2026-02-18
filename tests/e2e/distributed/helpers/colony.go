@@ -8,15 +8,15 @@ import (
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 )
 
 // LookupColony queries the discovery service for colony information.
 func LookupColony(
 	ctx context.Context,
-	client *discoveryclient.Client,
+	client *discovery.Client,
 	meshID string,
-) (*discoveryclient.LookupColonyResponse, error) {
+) (*discovery.LookupColonyResponse, error) {
 	resp, err := client.LookupColony(ctx, meshID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup colony: %w", err)

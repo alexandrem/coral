@@ -8,7 +8,7 @@ import (
 	"github.com/pion/stun"
 
 	discoveryv1 "github.com/coral-mesh/coral/coral/discovery/v1"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -18,7 +18,7 @@ func DiscoverPublicEndpoint(
 	stunServers []string,
 	localPort int,
 	logger logging.Logger,
-) *discoveryclient.Endpoint {
+) *discovery.Endpoint {
 	if len(stunServers) == 0 {
 		logger.Debug().Msg("No STUN servers configured, skipping public endpoint discovery")
 		return nil
@@ -74,7 +74,7 @@ func DiscoverPublicEndpoint(
 }
 
 // querySTUNServer sends a STUN binding request to the specified server.
-func querySTUNServer(conn *net.UDPConn, stunServer string, logger logging.Logger) (*discoveryclient.Endpoint, error) {
+func querySTUNServer(conn *net.UDPConn, stunServer string, logger logging.Logger) (*discovery.Endpoint, error) {
 	// Resolve STUN server address
 	logger.Debug().Str("stun_server", stunServer).Msg("Resolving STUN server address")
 	serverAddr, err := net.ResolveUDPAddr("udp4", stunServer)
@@ -120,7 +120,7 @@ func querySTUNServer(conn *net.UDPConn, stunServer string, logger logging.Logger
 		return nil, fmt.Errorf("failed to get XOR-MAPPED-ADDRESS: %w", err)
 	}
 
-	return &discoveryclient.Endpoint{
+	return &discovery.Endpoint{
 		IP:       xorAddr.IP.String(),
 		Port:     uint32(xorAddr.Port),
 		Protocol: "udp",

@@ -5,13 +5,13 @@ import (
 
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 )
 
 // NewDiscoveryClient creates a new discovery service client.
 // Uses JSON encoding for compatibility with Cloudflare Workers (which only supports JSON).
-func NewDiscoveryClient(endpoint string) *discoveryclient.Client {
-	return discoveryclient.New(endpoint)
+func NewDiscoveryClient(endpoint string) *discovery.Client {
+	return discovery.NewClient(endpoint)
 }
 
 // NewColonyClient creates a new colony service client.
