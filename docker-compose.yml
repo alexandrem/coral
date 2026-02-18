@@ -62,8 +62,16 @@ services:
               echo "sha256:$$FINGERPRINT" > /shared/ca_fingerprint
               echo "CA fingerprint saved: sha256:$$FINGERPRINT"
             fi
-            # Note: Bootstrap PSK was shared during initial colony init (RFD 088).
-            # On re-use of existing volumes, the PSK file should already be in /shared/.
+            # Re-share Bootstrap PSK if missing from shared volume (RFD 088).
+            # Re-run coral init (idempotent) to extract the PSK from the existing CA.
+            if [ ! -f /shared/bootstrap_psk ]; then
+              REINIT_OUTPUT=$$(/usr/local/bin/coral init coral-dev --env dev --storage /var/lib/coral --discovery $${CORAL_DISCOVERY_ENDPOINT} 2>&1)
+              PSK=$$(echo "$$REINIT_OUTPUT" | grep -o 'coral-psk:[a-f0-9]*' | head -1)
+              if [ -n "$$PSK" ]; then
+                echo "$$PSK" > /shared/bootstrap_psk
+                echo "Bootstrap PSK re-shared to shared volume"
+              fi
+            fi
           fi
         fi
         # Read the actual colony ID and configure settings

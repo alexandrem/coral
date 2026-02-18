@@ -6,7 +6,7 @@ import (
 	"time"
 
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
 
@@ -57,7 +57,7 @@ func (s *MeshSuite) TestColonyRegistration() {
 	// Query discovery service for the colony.
 	s.T().Logf("Looking up colony with mesh_id: %s", s.fixture.ColonyID)
 
-	var lookupResp *discoveryclient.LookupColonyResponse
+	var lookupResp *discovery.LookupColonyResponse
 	err = helpers.WaitForCondition(s.ctx, func() bool {
 		resp, lookupErr := helpers.LookupColony(s.ctx, client, s.fixture.ColonyID)
 		if lookupErr != nil {

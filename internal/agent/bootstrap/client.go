@@ -20,7 +20,7 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/constants"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/retry"
 	"github.com/coral-mesh/coral/internal/safe"
 )
@@ -133,9 +133,9 @@ func (c *Client) Renew(ctx context.Context, certPath, keyPath, rootCAPath string
 
 // requestBootstrapToken requests a bootstrap token from Discovery.
 func (c *Client) requestBootstrapToken(ctx context.Context) (string, error) {
-	client := discoveryclient.New(c.cfg.DiscoveryEndpoint)
+	client := discovery.NewClient(c.cfg.DiscoveryEndpoint)
 
-	req := &discoveryclient.CreateBootstrapTokenRequest{
+	req := &discovery.CreateBootstrapTokenRequest{
 		ReefID:   c.cfg.ReefID,
 		ColonyID: c.cfg.ColonyID,
 		AgentID:  c.cfg.AgentID,
@@ -209,7 +209,7 @@ func (c *Client) findValidColonyEndpoint(ctx context.Context) (string, error) {
 
 // lookupAndValidateFromDiscovery lookups endpoints and validates the TLS handshake/fingerprint.
 func (c *Client) lookupAndValidateFromDiscovery(ctx context.Context) (string, error) {
-	var colonyInfo *discoveryclient.LookupColonyResponse
+	var colonyInfo *discovery.LookupColonyResponse
 
 	retryCfg := retry.Config{
 		MaxRetries:     30,
@@ -225,7 +225,7 @@ func (c *Client) lookupAndValidateFromDiscovery(ctx context.Context) (string, er
 
 	// 1. Lookup with Retry
 	err := retry.Do(ctx, retryCfg, func() error {
-		client := discoveryclient.New(c.cfg.DiscoveryEndpoint)
+		client := discovery.NewClient(c.cfg.DiscoveryEndpoint)
 		resp, err := client.LookupColony(ctx, c.cfg.ColonyID)
 		if err != nil {
 			return err

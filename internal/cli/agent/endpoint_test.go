@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -20,17 +20,17 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		colonyInfo       *discoveryclient.LookupColonyResponse
+		colonyInfo       *discovery.LookupColonyResponse
 		lastSuccessful   string
 		expectedEndpoint string
 		description      string
 	}{
 		{
 			name: "skip localhost in observed endpoints",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
-				ObservedEndpoints: []discoveryclient.Endpoint{
+				ObservedEndpoints: []discovery.Endpoint{
 					{IP: "127.0.0.1", Port: 41580},   // Should be skipped (loopback)
 					{IP: "192.168.5.2", Port: 41820}, // Should be selected
 				},
@@ -41,7 +41,7 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "skip localhost in regular endpoints",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
 				Endpoints: []string{
@@ -59,7 +59,7 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "skip multiple localhost variants",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
 				Endpoints: []string{
@@ -77,10 +77,10 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "prefer observed endpoints over regular",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
-				ObservedEndpoints: []discoveryclient.Endpoint{
+				ObservedEndpoints: []discovery.Endpoint{
 					{IP: "203.0.113.10", Port: 41820}, // Should be selected (observed)
 				},
 				Endpoints: []string{
@@ -93,7 +93,7 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "reuse last successful endpoint if valid",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
 				Endpoints: []string{
@@ -111,7 +111,7 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "reuse_last_successful_localhost_for_same_host",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
 				Endpoints: []string{
@@ -128,7 +128,7 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "use localhost as last resort for same_host deployment",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
 				Endpoints: []string{
@@ -145,10 +145,10 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "extract WireGuard port from observed endpoints",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
-				ObservedEndpoints: []discoveryclient.Endpoint{
+				ObservedEndpoints: []discovery.Endpoint{
 					{IP: "192.168.5.2", Port: 12345}, // Custom WireGuard port
 				},
 			},
@@ -158,7 +158,7 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "extract WireGuard port from metadata for regular endpoints",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
 				Endpoints: []string{
@@ -174,7 +174,7 @@ func TestConnectionManager_GetColonyEndpoint(t *testing.T) {
 		},
 		{
 			name: "use default port when not specified",
-			colonyInfo: &discoveryclient.LookupColonyResponse{
+			colonyInfo: &discovery.LookupColonyResponse{
 				MeshID: "test-colony",
 				Pubkey: "test-pubkey",
 				Endpoints: []string{
@@ -233,7 +233,7 @@ func TestConnectionManager_GetColonyEndpoint_RealWorldScenario(t *testing.T) {
 		// - Colony registered with endpoints: [127.0.0.1:41580, <public-ip>:9000, ...]
 		// - Agent should NOT select localhost as WireGuard peer endpoint
 		// - Agent is running in container and cannot reach colony at localhost
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshID: "test-colony",
 			Pubkey: "test-pubkey",
 			Endpoints: []string{
@@ -268,10 +268,10 @@ func TestConnectionManager_GetColonyEndpoint_RealWorldScenario(t *testing.T) {
 
 	t.Run("docker-compose scenario - multiple networks", func(t *testing.T) {
 		// Docker Compose scenario where colony has multiple network interfaces
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshID: "test-colony",
 			Pubkey: "test-pubkey",
-			ObservedEndpoints: []discoveryclient.Endpoint{
+			ObservedEndpoints: []discovery.Endpoint{
 				{IP: "127.0.0.1", Port: 41580},   // Loopback - should be skipped
 				{IP: "172.18.0.10", Port: 41820}, // Docker network - should be selected
 			},
@@ -298,10 +298,10 @@ func TestConnectionManager_GetColonyEndpoint_RealWorldScenario(t *testing.T) {
 
 	t.Run("production scenario - NAT traversal with STUN", func(t *testing.T) {
 		// Production scenario where colony has STUN-discovered public endpoint
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshID: "test-colony",
 			Pubkey: "test-pubkey",
-			ObservedEndpoints: []discoveryclient.Endpoint{
+			ObservedEndpoints: []discovery.Endpoint{
 				{IP: "203.0.113.10", Port: 41820}, // STUN-discovered public IP
 			},
 			Endpoints: []string{
@@ -332,7 +332,7 @@ func TestConnectionManager_GetColonyEndpoint_RealWorldScenario(t *testing.T) {
 	t.Run("endpoint failover scenario", func(t *testing.T) {
 		// Scenario where agent previously connected to one endpoint,
 		// but now needs to failover to another
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshID: "test-colony",
 			Pubkey: "test-pubkey",
 			Endpoints: []string{
@@ -390,10 +390,10 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty endpoints lists", func(t *testing.T) {
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshID:            "test-colony",
 			Pubkey:            "test-pubkey",
-			ObservedEndpoints: []discoveryclient.Endpoint{},
+			ObservedEndpoints: []discovery.Endpoint{},
 			Endpoints:         []string{},
 		}
 
@@ -413,7 +413,7 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("malformed endpoints", func(t *testing.T) {
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshID: "test-colony",
 			Pubkey: "test-pubkey",
 			Endpoints: []string{
@@ -442,10 +442,10 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty observed endpoints", func(t *testing.T) {
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshID: "test-colony",
 			Pubkey: "test-pubkey",
-			ObservedEndpoints: []discoveryclient.Endpoint{
+			ObservedEndpoints: []discovery.Endpoint{
 				{IP: ""},
 				{IP: "192.168.5.2", Port: 41820},
 				{IP: ""},
@@ -468,10 +468,10 @@ func TestConnectionManager_GetColonyEndpoint_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("observed endpoints with empty IP", func(t *testing.T) {
-		colonyInfo := &discoveryclient.LookupColonyResponse{
+		colonyInfo := &discovery.LookupColonyResponse{
 			MeshID: "test-colony",
 			Pubkey: "test-pubkey",
-			ObservedEndpoints: []discoveryclient.Endpoint{
+			ObservedEndpoints: []discovery.Endpoint{
 				{IP: "", Port: 41820},
 				{IP: "192.168.5.2", Port: 41820},
 			},
