@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -80,6 +81,23 @@ func (s *Server) executeShellExecTool(ctx context.Context, argumentsJSON string)
 
 	resp, err := client.ShellExec(execCtx, connect.NewRequest(req))
 	if err != nil {
+		// If the agent attached partial output as an error detail (e.g. stdout/
+		// stderr captured before a timeout kill), format and include it so the
+		// caller receives the full context alongside the error signal.
+		var connectErr *connect.Error
+		if errors.As(err, &connectErr) {
+			for _, detail := range connectErr.Details() {
+				msg, valueErr := detail.Value()
+				if valueErr != nil {
+					continue
+				}
+				if partial, ok := msg.(*agentv1.ShellExecResponse); ok {
+					return "", fmt.Errorf("%s\n\n%s",
+						connectErr.Message(),
+						formatShellExecResponse(agent, partial))
+				}
+			}
+		}
 		return "", fmt.Errorf("failed to execute command on agent %s: %w", agent.AgentID, err)
 	}
 

@@ -392,6 +392,29 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 	s.Run("MCP_ToolErrorScenarios", mcpSuite.TestMCPToolErrorScenarios)
 	s.Run("MCP_ToolInputValidation", mcpSuite.TestMCPToolInputValidation)
 
+	// Group J: Error Coverage (Sprint 2, Task 2.1)
+	s.Run("MCP_ErrorShellExecEmptyCommand", mcpSuite.TestShellExecErrorEmptyCommand)
+	s.Run("MCP_ErrorShellExecTimeout", mcpSuite.TestShellExecErrorTimeout)
+	s.Run("MCP_ErrorShellExecInvalidCommand", mcpSuite.TestShellExecErrorInvalidCommand)
+	s.Run("MCP_ErrorAttachUprobeNotFound", mcpSuite.TestAttachUprobeErrorFunctionNotFound)
+	s.Run("MCP_ErrorDiscoverFunctionsEmptyQuery", mcpSuite.TestDiscoverFunctionsErrorEmptyQuery)
+	s.Run("MCP_ErrorQueryMetricsInvalidTimeRange", mcpSuite.TestQueryMetricsErrorInvalidTimeRange)
+	s.Run("MCP_ErrorQueryMetricsInvalidProtocol", mcpSuite.TestQueryMetricsErrorInvalidProtocol)
+	s.Run("MCP_ContainerExecSidecarMode", mcpSuite.TestContainerExecSidecarMode)
+
+	// Group K: Parameter Coverage (Sprint 2, Task 2.2)
+	s.Run("MCP_ParamShellExecWorkingDir", mcpSuite.TestShellExecWithWorkingDir)
+	s.Run("MCP_ParamShellExecEnvVars", mcpSuite.TestShellExecWithEnvVars)
+	s.Run("MCP_ParamShellExecCustomTimeout", mcpSuite.TestShellExecWithCustomTimeout)
+	s.Run("MCP_ParamQueryMetricsHTTPRoute", mcpSuite.TestQueryMetricsWithHTTPRoute)
+	s.Run("MCP_ParamQueryMetricsStatusCodeRange", mcpSuite.TestQueryMetricsWithStatusCodeRange)
+	s.Run("MCP_ParamDiscoverFunctionsPrioritizeSlow", mcpSuite.TestDiscoverFunctionsWithPrioritizeSlow)
+	s.Run("MCP_ParamProfileFunctionsSampleRate", mcpSuite.TestProfileFunctionsWithSampleRate)
+	s.Run("MCP_ParamProfileFunctionsStrategyCriticalPath", mcpSuite.TestProfileFunctionsStrategyCriticalPath)
+	s.Run("MCP_ParamProfileFunctionsStrategyAll", mcpSuite.TestProfileFunctionsStrategyAll)
+	s.Run("MCP_ParamQueryTracesWithTraceID", mcpSuite.TestQueryTracesWithTraceID)
+	s.Run("MCP_ParamQueryTracesMinDuration", mcpSuite.TestQueryTracesWithMinDuration)
+
 	// Group H: Response Validation (Sprint 1)
 	validationSuite := &ResponseValidationSuite{
 		E2EDistributedSuite: s.E2EDistributedSuite,
