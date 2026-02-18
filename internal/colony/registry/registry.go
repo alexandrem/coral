@@ -8,22 +8,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
-	"github.com/rs/zerolog/log"
-)
-
-const (
-	// Status thresholds based on last_seen timestamp.
-	StatusHealthyThreshold  = 30 * time.Second
-	StatusDegradedThreshold = 2 * time.Minute
-
-	// registryProcessTimeout is the timeout for processing service info updates.
-	registryProcessTimeout = 10 * time.Second
-
-	// registryCleanupTimeout is the timeout for database cleanup operations.
-	registryCleanupTimeout = 5 * time.Second
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // AgentStatus represents the health status of an agent.
@@ -211,7 +201,7 @@ func (r *Registry) Register(
 		copy(servicesCopy, services)
 
 		go func(agentID, agentName string, services []*meshv1.ServiceInfo, lastSeen time.Time) {
-			ctx, cancel := context.WithTimeout(context.Background(), registryProcessTimeout)
+			ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultColonyAgentQueryTimeout)
 			defer cancel()
 
 			// Handle legacy agents that only provide ComponentName (name)
@@ -293,7 +283,7 @@ func (r *Registry) UpdateHeartbeat(agentID string) error {
 	// Update persistence.
 	if r.db != nil {
 		go func(agentID string, lastSeen time.Time) {
-			ctx, cancel := context.WithTimeout(context.Background(), registryCleanupTimeout)
+			ctx, cancel := context.WithTimeout(context.Background(), constants.DefaultColonyServiceQueryTimeout)
 			defer cancel()
 
 			if err := r.db.UpdateServiceLastSeen(ctx, agentID, lastSeen); err != nil {
@@ -381,9 +371,9 @@ func (r *Registry) Count() int {
 func DetermineStatus(lastSeen, now time.Time) AgentStatus {
 	elapsed := now.Sub(lastSeen)
 
-	if elapsed < StatusHealthyThreshold {
+	if elapsed < constants.DefaultAgentHealthyThreshold {
 		return StatusHealthy
-	} else if elapsed < StatusDegradedThreshold {
+	} else if elapsed < constants.DefaultAgentDegradedThreshold {
 		return StatusDegraded
 	}
 	return StatusUnhealthy

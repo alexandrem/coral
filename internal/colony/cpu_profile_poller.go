@@ -44,12 +44,12 @@ func NewCPUProfilePoller(
 ) *CPUProfilePoller {
 	// Default to 30 days if not specified.
 	if retentionDays <= 0 {
-		retentionDays = 30
+		retentionDays = constants.DefaultCPUProfilingRetentionDays
 	}
 
 	// Default to 30 seconds poll interval (captures 2 agent samples per poll).
 	if pollInterval == 0 {
-		pollInterval = 30 * time.Second
+		pollInterval = constants.DefaultCPUProfilingPollerInterval
 	}
 
 	componentLogger := logger.With().Str("component", "cpu_profile_poller").Logger()
@@ -162,7 +162,7 @@ func (p *CPUProfilePoller) pollAgent(ctx context.Context, agent *registry.Entry)
 	client := p.clientFactory(nil, buildAgentURL(agent), connect.WithGRPC())
 	req := connect.NewRequest(&agentv1.QueryCPUProfileSamplesRequest{
 		StartSeqId: startSeqID,
-		MaxRecords: 5000,
+		MaxRecords: int32(constants.DefaultColonyDebugQueryMaxRecords),
 	})
 
 	queryCtx, cancel := context.WithTimeout(ctx, agentQueryTimeout)

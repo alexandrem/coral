@@ -13,6 +13,7 @@ import (
 	coreebpf "github.com/coral-mesh/coral/internal/agent/ebpf"
 	"github.com/coral-mesh/coral/internal/agent/ebpf/uprobe"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // ServiceResolver resolves service name to address.
@@ -61,7 +62,7 @@ func NewSessionManager(cfg config.DebugConfig, logger zerolog.Logger, resolver S
 		logger:           logger,
 		sessions:         make(map[string]*DebugSession),
 		resolver:         resolver,
-		eventCh:          make(chan *agentv1.DebugEvent, 1000), // Buffer events
+		eventCh:          make(chan *agentv1.DebugEvent, constants.DefaultDebugEventBufferSize), // Buffer events
 		kernelSymbolizer: kernelSymbolizer,
 	}
 }

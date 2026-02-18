@@ -12,6 +12,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 const memoryProfileDataType = "memory_profile"
@@ -38,12 +39,12 @@ func NewMemoryProfilePoller(
 	logger zerolog.Logger,
 ) *MemoryProfilePoller {
 	if retentionDays <= 0 {
-		retentionDays = 30
+		retentionDays = constants.DefaultMemoryProfileRetentionDays
 	}
 
 	// Default to 60 seconds poll interval (matches agent's 60s snapshot interval).
 	if pollInterval == 0 {
-		pollInterval = 60 * time.Second
+		pollInterval = constants.DefaultMemoryProfilingPollerInterval
 	}
 
 	componentLogger := logger.With().Str("component", "memory_profile_poller").Logger()
@@ -149,7 +150,7 @@ func (p *MemoryProfilePoller) pollAgent(ctx context.Context, agent *registry.Ent
 	client := p.clientFactory(nil, buildAgentURL(agent), connect.WithGRPC())
 	req := connect.NewRequest(&agentv1.QueryMemoryProfileSamplesRequest{
 		StartSeqId: startSeqID,
-		MaxRecords: 5000,
+		MaxRecords: int32(constants.DefaultColonyDebugQueryMaxRecords),
 	})
 
 	queryCtx, cancel := context.WithTimeout(ctx, agentQueryTimeout)

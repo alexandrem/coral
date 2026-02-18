@@ -18,6 +18,7 @@ import (
 
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // Agent manages periodic heartbeats to the colony.
@@ -48,7 +49,7 @@ func (a *Agent) StartHeartbeat(ctx context.Context, interval time.Duration) {
 			return
 		case <-ticker.C:
 			// Use a timeout context for each heartbeat to prevent hanging.
-			heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			heartbeatCtx, cancel := context.WithTimeout(ctx, constants.DefaultHeartbeatTimeout)
 			_, _ = a.client.Heartbeat(heartbeatCtx, connect.NewRequest(&meshv1.HeartbeatRequest{
 				AgentId: a.id,
 				Status:  "healthy",
