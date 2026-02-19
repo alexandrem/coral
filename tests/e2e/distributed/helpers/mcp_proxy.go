@@ -65,6 +65,7 @@ type MCPTool struct {
 // MCPCallToolResponse represents the response from the tools/call method.
 type MCPCallToolResponse struct {
 	Content []MCPContent `json:"content"`
+	IsError bool         `json:"isError,omitempty"`
 }
 
 // MCPContent represents content in an MCP response.
@@ -92,26 +93,6 @@ func StartMCPProxyWithEnv(ctx context.Context, colonyID string, cliEnv *CLITestE
 	for key, value := range cliEnv.EnvVars() {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
-
-	return startMCPProxyWithCmd(ctx, proxyCtx, cancel, cmd)
-}
-
-// StartMCPProxy starts the MCP proxy subprocess for the given colony.
-//
-// Deprecated: Use StartMCPProxyWithEnv instead for E2E tests.
-// This function is kept for backward compatibility.
-func StartMCPProxy(ctx context.Context, colonyEndpoint, colonyID string) (*MCPProxyClient, error) {
-	// Create cancellable context for subprocess
-	proxyCtx, cancel := context.WithCancel(ctx)
-
-	// Get coral binary path
-	coralBin := getCoralBinaryPath()
-
-	// Create command
-	cmd := exec.CommandContext(proxyCtx, coralBin, "colony", "mcp", "proxy", "--colony", colonyID)
-
-	// Set environment - start with parent env to inherit PATH, etc.
-	cmd.Env = append(os.Environ(), fmt.Sprintf("CORAL_COLONY_ENDPOINT=%s", colonyEndpoint))
 
 	return startMCPProxyWithCmd(ctx, proxyCtx, cancel, cmd)
 }
@@ -283,7 +264,9 @@ func (c *MCPProxyClient) CallTool(toolName string, arguments map[string]interfac
 }
 
 // CallToolExpectError sends a tools/call request and expects an error response.
-// Returns the error object if the call failed as expected, or an error if it succeeded.
+// Returns an MCPError if the call produced either a JSON-RPC protocol error or
+// a tool-level error (isError: true in result content), or an error if it
+// succeeded without any error indication.
 func (c *MCPProxyClient) CallToolExpectError(toolName string, arguments map[string]interface{}, requestID int) (*MCPError, error) {
 	params := map[string]interface{}{
 		"name":      toolName,
@@ -295,11 +278,25 @@ func (c *MCPProxyClient) CallToolExpectError(toolName string, arguments map[stri
 		return nil, fmt.Errorf("tools/call request failed: %w", err)
 	}
 
-	if response.Error == nil {
-		return nil, fmt.Errorf("expected error but tools/call succeeded")
+	// JSON-RPC protocol-level error (e.g., unknown method, invalid params).
+	if response.Error != nil {
+		return response.Error, nil
 	}
 
-	return response.Error, nil
+	// Tool-level error: successful transport but isError:true in result content.
+	// This is what mcp.NewToolResultError produces.
+	if response.Result != nil {
+		var callResp MCPCallToolResponse
+		if err := json.Unmarshal(response.Result, &callResp); err == nil && callResp.IsError {
+			msg := ""
+			if len(callResp.Content) > 0 {
+				msg = callResp.Content[0].Text
+			}
+			return &MCPError{Code: -1, Message: msg}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("expected error but tools/call succeeded")
 }
 
 // Close closes the MCP proxy subprocess and cleans up resources.

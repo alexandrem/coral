@@ -11,16 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
-
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
-	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/coral/mesh/v1/meshv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
+	"github.com/coral-mesh/coral/internal/agent/heartbeat"
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 	wg "github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -64,7 +62,7 @@ func (s ConnectionState) String() string {
 type ConnectionManager struct {
 	// Configuration
 	agentID        string
-	colonyInfo     *discoveryclient.LookupColonyResponse // May be nil if discovery hasn't succeeded yet
+	colonyInfo     *discovery.LookupColonyResponse // May be nil if discovery hasn't succeeded yet
 	config         *config.ResolvedConfig
 	serviceSpecs   []*types.ServiceSpec
 	agentPubKey    string
@@ -130,7 +128,7 @@ func (b *ExponentialBackoff) Reset() {
 // runtimeService may be nil if runtime detection is not available yet.
 func NewConnectionManager(
 	agentID string,
-	colonyInfo *discoveryclient.LookupColonyResponse,
+	colonyInfo *discovery.LookupColonyResponse,
 	cfg *config.ResolvedConfig,
 	serviceSpecs []*types.ServiceSpec,
 	agentPubKey string,
@@ -195,7 +193,7 @@ func (cm *ConnectionManager) setState(newState ConnectionState) {
 
 // AttemptDiscovery attempts to query the discovery service for colony information.
 // Returns the colony info on success, or an error on failure.
-func (cm *ConnectionManager) AttemptDiscovery() (*discoveryclient.LookupColonyResponse, error) {
+func (cm *ConnectionManager) AttemptDiscovery() (*discovery.LookupColonyResponse, error) {
 	cm.logger.Info().
 		Str("colony_id", cm.config.ColonyID).
 		Str("discovery_url", cm.config.DiscoveryURL).
@@ -225,7 +223,7 @@ func (cm *ConnectionManager) AttemptDiscovery() (*discoveryclient.LookupColonyRe
 }
 
 // GetColonyInfo safely returns the current colony info.
-func (cm *ConnectionManager) GetColonyInfo() *discoveryclient.LookupColonyResponse {
+func (cm *ConnectionManager) GetColonyInfo() *discovery.LookupColonyResponse {
 	cm.colonyInfoMu.RLock()
 	defer cm.colonyInfoMu.RUnlock()
 	return cm.colonyInfo
@@ -366,13 +364,13 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 			connectPort)))
 		client := meshv1connect.NewMeshServiceClient(http.DefaultClient, colonyURL)
 
+		// Use the composable Agent for the actual heartbeat call.
+		agent := heartbeat.NewAgent(cm.agentID, client)
+
 		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
-		resp, err := client.Heartbeat(heartbeatCtx, connect.NewRequest(&meshv1.HeartbeatRequest{
-			AgentId: cm.agentID,
-			Status:  "healthy",
-		}))
+		resp, err := agent.SendHeartbeat(heartbeatCtx)
 
 		if err != nil {
 			cm.consecutiveFailures++
@@ -384,7 +382,7 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 			return false
 		}
 
-		if !resp.Msg.Ok {
+		if !resp.Ok {
 			cm.consecutiveFailures++
 			cm.logger.Warn().
 				Str("agent_id", cm.agentID).
@@ -441,7 +439,7 @@ func (cm *ConnectionManager) StartHeartbeatLoop(ctx context.Context, interval ti
 // StartDiscoveryLoop runs a background loop that attempts discovery when in waiting_discovery state.
 func (cm *ConnectionManager) StartDiscoveryLoop(
 	ctx context.Context,
-	onDiscoverySuccess func(*discoveryclient.LookupColonyResponse),
+	onDiscoverySuccess func(*discovery.LookupColonyResponse),
 ) {
 	cm.logger.Info().Msg("Starting discovery loop")
 
@@ -465,7 +463,7 @@ func (cm *ConnectionManager) StartDiscoveryLoop(
 // attemptDiscovery performs a discovery attempt with exponential backoff.
 func (cm *ConnectionManager) attemptDiscovery(
 	ctx context.Context,
-	onSuccess func(*discoveryclient.LookupColonyResponse),
+	onSuccess func(*discovery.LookupColonyResponse),
 ) {
 	state := cm.GetState()
 	if state != StateWaitingDiscovery {

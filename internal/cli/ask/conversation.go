@@ -3,13 +3,14 @@ package ask
 import (
 	"sync"
 
-	"github.com/coral-mesh/coral/internal/agent/llm"
+	"github.com/coral-mesh/coral/internal/llm"
 )
 
 // Message represents a conversation message.
 type Message struct {
 	Role          string
 	Content       string
+	ToolCalls     []llm.ToolCall
 	ToolResponses []llm.ToolResponse
 }
 

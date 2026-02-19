@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/coral-mesh/coral/internal/config"
 )
 
 // MockInteraction represents a single expected interaction in the mock script.
@@ -161,4 +163,17 @@ func abbreviate(s string) string {
 		return s[:47] + "..."
 	}
 	return s
+}
+
+func init() {
+	Register(ProviderMetadata{
+		Name:            "mock",
+		DisplayName:     "Mock Provider",
+		Description:     "Mock provider for testing (modelID is script path)",
+		DefaultEnvVar:   "",
+		RequiresAPIKey:  false,
+		SupportedModels: []ModelMetadata{}, // Accepts any path
+	}, func(ctx context.Context, modelID string, cfg *config.AskConfig, debug bool) (Provider, error) {
+		return NewMockProvider(ctx, modelID)
+	})
 }

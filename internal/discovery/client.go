@@ -1,5 +1,5 @@
-// Package client provides a client for the discovery service.
-package client
+// Package discovery provides a client for the discovery service.
+package discovery
 
 import (
 	"context"
@@ -41,18 +41,22 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// New creates a raw Connect client for the discovery service.
+// NewClient creates a raw Connect client for the discovery service.
 // Uses JSON encoding for compatibility with Cloudflare Workers.
-func New(endpoint string, opts ...Option) *Client {
+func NewClient(endpoint string, opts ...Option) *Client {
 	c := &Client{
-		timeout:    defaultTimeout,
-		httpClient: http.DefaultClient,
+		timeout: defaultTimeout,
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 
-	c.httpClient.Timeout = c.timeout
+	// Create a dedicated HTTP client with the configured timeout.
+	// Never mutate http.DefaultClient — that would apply the timeout globally
+	// and break any long-running callers (e.g. CPU profiling handlers).
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{Timeout: c.timeout}
+	}
 
 	c.client = discoveryv1connect.NewDiscoveryServiceClient(
 		c.httpClient,

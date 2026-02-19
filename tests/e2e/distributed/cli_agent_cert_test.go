@@ -38,6 +38,11 @@ type CLIAgentCertSuite struct {
 func (s *CLIAgentCertSuite) SetupSuite() {
 	s.ctx = context.Background()
 
+	// Validate coral binary exists before running any tests.
+	err := helpers.EnsureCoralBinary()
+	s.Require().NoError(err, "coral binary validation failed")
+	s.T().Log("✓ coral binary found and accessible")
+
 	// Create temporary directory for this test suite.
 	tempDir, err := os.MkdirTemp("", "coral-cert-test-*")
 	s.Require().NoError(err, "Failed to create temp directory")
@@ -102,9 +107,10 @@ func (s *CLIAgentCertSuite) TestCertStatusNoCertificate() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "empty-certs"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
-	})
+	env := s.cliEnv.Clone().
+		WithEnv(map[string]string{
+			"CORAL_CERTS_DIR": certsDir,
+		}).Env()
 
 	result := helpers.AgentCertStatus(s.ctx, env, certsDir)
 
@@ -122,15 +128,12 @@ func (s *CLIAgentCertSuite) TestBootstrapRequiresFingerprint() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "no-fp-certs"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
-		"HOME":            s.cliEnv.HomeDir,
-	})
-
 	// Try bootstrap without fingerprint.
-	result := helpers.RunCLIWithEnv(s.ctx, env, "agent", "bootstrap",
-		"--colony", s.colonyID,
-		"--discovery", "http://localhost:18080")
+	result := s.cliEnv.Clone().
+		WithEnv(map[string]string{"CORAL_CERTS_DIR": certsDir}).
+		Run(s.ctx, "agent", "bootstrap",
+			"--colony", s.colonyID,
+			"--discovery", "http://localhost:18080")
 
 	s.NotEqual(0, result.ExitCode, "Bootstrap should fail without fingerprint")
 	s.True(
@@ -148,16 +151,15 @@ func (s *CLIAgentCertSuite) TestBootstrapInvalidFingerprint() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "invalid-fp-certs"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR":     certsDir,
-		"HOME":                s.cliEnv.HomeDir,
-		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
-	})
-
 	// Use a fake fingerprint.
 	fakeFingerprint := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-	result := helpers.AgentBootstrap(s.ctx, env, s.colonyID, fakeFingerprint, "http://localhost:18080")
+	result := helpers.AgentBootstrap(s.ctx,
+		s.cliEnv.Clone().
+			WithEnv(map[string]string{
+				"CORAL_CERTS_DIR": certsDir,
+			}).Env(),
+		s.colonyID, s.bootstrapPSK, fakeFingerprint, "http://localhost:18080")
 
 	s.False(result.Success, "Bootstrap should fail with invalid fingerprint")
 	s.True(
@@ -176,17 +178,26 @@ func (s *CLIAgentCertSuite) TestBootstrapRequiresDiscovery() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "no-discovery-certs"))
 	s.Require().NoError(err)
 
-	// Create environment without discovery endpoint.
-	env := map[string]string{
-		"HOME":                filepath.Join(s.tempDir, "isolated-home"),
-		"CORAL_CERTS_DIR":     certsDir,
-		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
-	}
-
 	// Create isolated home without any config.
-	s.Require().NoError(os.MkdirAll(env["HOME"], 0755))
+	isolatedHome := filepath.Join(s.tempDir, "isolated-home")
+	s.Require().NoError(os.MkdirAll(isolatedHome, 0755))
 
-	result := helpers.AgentBootstrap(s.ctx, env, s.colonyID, s.fingerprint, "")
+	// Create test environment with bootstrap PSK but NO discovery endpoint.
+	// Using Clone() creates a fresh env builder that we can configure.
+	testEnv := s.cliEnv.Clone().
+		WithEnv(map[string]string{
+			"HOME":                isolatedHome,   // Isolated config location
+			"CORAL_CERTS_DIR":     certsDir,       // Where to store certificates
+			"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK, // Auth for bootstrap
+		}).
+		Env() // Get the CLITestEnv to pass to helper
+
+	// Call bootstrap with empty discovery URL ("") - should fail
+	result := helpers.AgentBootstrap(s.ctx, testEnv,
+		s.colonyID,     // CLI arg: --colony
+		s.fingerprint,  // CLI arg: --fingerprint
+		s.bootstrapPSK, // CLI arg: --psk
+		"")             // CLI arg: --discovery (EMPTY - should fail!)
 
 	s.False(result.Success, "Bootstrap should fail without discovery endpoint")
 	s.True(
@@ -204,11 +215,11 @@ func (s *CLIAgentCertSuite) TestCertRenewRequiresCertificate() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "no-cert-renew"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
-	})
-
-	result := helpers.AgentCertRenew(s.ctx, env, s.colonyID, s.fingerprint,
+	result := helpers.AgentCertRenew(s.ctx,
+		s.cliEnv.Clone().
+			WithEnv(map[string]string{"CORAL_CERTS_DIR": certsDir}).
+			Env(),
+		s.colonyID, s.fingerprint,
 		"https://localhost:9000", "", false)
 
 	s.False(result.Success, "Renewal should fail without existing certificate")
@@ -228,12 +239,12 @@ func (s *CLIAgentCertSuite) TestCertRenewRequiresColonyEndpoint() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "no-endpoint-renew"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
-	})
-
 	// Try renewal without colony endpoint or discovery.
-	result := helpers.AgentCertRenew(s.ctx, env, s.colonyID, s.fingerprint, "", "", false)
+	result := helpers.AgentCertRenew(s.ctx,
+		s.cliEnv.Clone().
+			WithEnv(map[string]string{"CORAL_CERTS_DIR": certsDir}).
+			Env(),
+		s.colonyID, s.fingerprint, "", "", false)
 
 	s.False(result.Success, "Renewal should fail without endpoint")
 	s.True(
@@ -252,11 +263,6 @@ func (s *CLIAgentCertSuite) TestCAFingerprintFormat() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "fp-format-certs"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR":     certsDir,
-		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
-	})
-
 	// Test invalid fingerprint format.
 	invalidFormats := []string{
 		"invalid",         // No prefix
@@ -265,8 +271,13 @@ func (s *CLIAgentCertSuite) TestCAFingerprintFormat() {
 		"sha256:xyz",      // Not hex
 	}
 
+	env := s.cliEnv.Clone().
+		WithEnv(map[string]string{
+			"CORAL_CERTS_DIR": certsDir,
+		}).Env()
+
 	for _, fp := range invalidFormats {
-		result := helpers.AgentBootstrap(s.ctx, env, s.colonyID, fp, "http://localhost:18080")
+		result := helpers.AgentBootstrap(s.ctx, env, s.colonyID, fp, s.bootstrapPSK, "http://localhost:18080")
 		s.False(result.Success, "Bootstrap should fail with invalid fingerprint format: %s", fp)
 	}
 
@@ -280,13 +291,11 @@ func (s *CLIAgentCertSuite) TestCertStatusOutputFormat() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "format-certs"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
-	})
-
 	// Test table format (default).
-	result := helpers.RunCLIWithEnv(s.ctx, env, "agent", "cert", "status",
-		"--certs-dir", certsDir)
+	result := s.cliEnv.Clone().
+		WithEnv(map[string]string{"CORAL_CERTS_DIR": certsDir}).
+		Run(s.ctx, "agent", "cert", "status",
+			"--certs-dir", certsDir)
 
 	// Should have some recognizable output structure.
 	s.Contains(result.Output, "Certificate", "Should have certificate header")
@@ -301,19 +310,19 @@ func (s *CLIAgentCertSuite) TestBootstrapWithCustomAgentID() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "custom-agent-certs"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR":     certsDir,
-		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
-	})
-
 	customAgentID := "custom-test-agent-123"
 
 	// Bootstrap with custom agent ID (will fail to connect, but should accept the ID).
-	result := helpers.RunCLIWithEnv(s.ctx, env, "agent", "bootstrap",
-		"--colony", s.colonyID,
-		"--fingerprint", s.fingerprint,
-		"--agent", customAgentID,
-		"--discovery", "http://localhost:18080")
+	result := s.cliEnv.Clone().
+		WithEnv(map[string]string{
+			"CORAL_CERTS_DIR":     certsDir,
+			"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
+		}).
+		Run(s.ctx, "agent", "bootstrap",
+			"--colony", s.colonyID,
+			"--fingerprint", s.fingerprint,
+			"--agent", customAgentID,
+			"--discovery", "http://localhost:18080")
 
 	// The bootstrap will fail (no discovery running), but the agent ID should be in output.
 	s.Contains(result.Output, customAgentID,
@@ -329,12 +338,12 @@ func (s *CLIAgentCertSuite) TestCertsDirectoryCreation() {
 	// Test with non-existent directory path.
 	nonExistentDir := filepath.Join(s.tempDir, "new", "certs", "path")
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": nonExistentDir,
-	})
-
 	// Cert status should handle non-existent directory gracefully.
-	result := helpers.AgentCertStatus(s.ctx, env, nonExistentDir)
+	result := helpers.AgentCertStatus(s.ctx,
+		s.cliEnv.Clone().
+			WithEnv(map[string]string{"CORAL_CERTS_DIR": nonExistentDir}).
+			Env(),
+		nonExistentDir)
 
 	s.Contains(result.Output, "No certificate found",
 		"Should handle non-existent directory: %s", result.Output)
@@ -349,17 +358,17 @@ func (s *CLIAgentCertSuite) TestBootstrapForceFlag() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "force-certs"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR":     certsDir,
-		"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
-	})
-
 	// Run with --force flag (will fail due to no discovery, but should accept the flag).
-	result := helpers.RunCLIWithEnv(s.ctx, env, "agent", "bootstrap",
-		"--colony", s.colonyID,
-		"--fingerprint", s.fingerprint,
-		"--discovery", "http://localhost:18080",
-		"--force")
+	result := s.cliEnv.Clone().
+		WithEnv(map[string]string{
+			"CORAL_CERTS_DIR":     certsDir,
+			"CORAL_BOOTSTRAP_PSK": s.bootstrapPSK,
+		}).
+		Run(s.ctx, "agent", "bootstrap",
+			"--colony", s.colonyID,
+			"--fingerprint", s.fingerprint,
+			"--discovery", "http://localhost:18080",
+			"--force")
 
 	// Should have attempted bootstrap (not just returned early).
 	s.True(
@@ -378,12 +387,12 @@ func (s *CLIAgentCertSuite) TestCertRenewForceFlag() {
 	certsDir, err := helpers.CreateCertsDir(filepath.Join(s.tempDir, "renew-force-certs"))
 	s.Require().NoError(err)
 
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir,
-	})
-
 	// Run renewal with --force flag.
-	result := helpers.AgentCertRenew(s.ctx, env, s.colonyID, s.fingerprint,
+	result := helpers.AgentCertRenew(s.ctx,
+		s.cliEnv.Clone().
+			WithEnv(map[string]string{"CORAL_CERTS_DIR": certsDir}).
+			Env(),
+		s.colonyID, s.fingerprint,
 		"https://localhost:9000", "", true)
 
 	// Will fail (no cert), but --force should be accepted.
@@ -402,14 +411,11 @@ func (s *CLIAgentCertSuite) TestEnvironmentVariablePrecedence() {
 	s.Require().NoError(os.MkdirAll(certsDir1, 0700))
 	s.Require().NoError(os.MkdirAll(certsDir2, 0700))
 
-	// Set env var to certsDir1.
-	env := s.cliEnv.WithEnv(map[string]string{
-		"CORAL_CERTS_DIR": certsDir1,
-	})
-
-	// Run with --certs-dir pointing to certsDir2 (should override env).
-	result := helpers.RunCLIWithEnv(s.ctx, env, "agent", "cert", "status",
-		"--certs-dir", certsDir2)
+	// Set env var to certsDir1, run with --certs-dir pointing to certsDir2 (should override env).
+	result := s.cliEnv.Clone().
+		WithEnv(map[string]string{"CORAL_CERTS_DIR": certsDir1}).
+		Run(s.ctx, "agent", "cert", "status",
+			"--certs-dir", certsDir2)
 
 	// Command should succeed (checking certsDir2, not certsDir1).
 	s.NotNil(result, "Command should complete")

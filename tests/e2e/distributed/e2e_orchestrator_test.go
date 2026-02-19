@@ -1,6 +1,7 @@
 package distributed
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -186,6 +187,11 @@ func (s *E2EOrchestratorSuite) Test3_PassiveObservability() {
 // Test4_OnDemandProbes runs deep introspection tests.
 // Requires: All previous groups
 func (s *E2EOrchestratorSuite) Test4_OnDemandProbes() {
+	// Skip Test4 if SKIP_E2E_TEST4 env var is set (useful for CI)
+	if os.Getenv("SKIP_E2E_TEST4") == "true" {
+		s.T().Skip("Skipping Test4_OnDemandProbes (SKIP_E2E_TEST4=true)")
+	}
+
 	s.T().Log("")
 	s.T().Log("========================================")
 	s.T().Log("GROUP 4: On-Demand Probes")
@@ -299,6 +305,28 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_AskWithTools", cliAskSuite.TestAskWithTools)
 	s.Run("CLI_AskContinuation", cliAskSuite.TestAskContinuation)
 
+	// Run CLIAskConfigSuite (ask config wizard — RFD 055)
+	cliAskConfigSuite := &CLIAskConfigSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	cliAskConfigSuite.SetT(s.T())
+	cliAskConfigSuite.SetupSuite()
+	defer cliAskConfigSuite.TearDownSuite()
+
+	s.Run("CLI_AskConfigHelpText", cliAskConfigSuite.TestAskConfigHelpText)
+	s.Run("CLI_AskConfigDryRun", cliAskConfigSuite.TestAskConfigDryRun)
+	s.Run("CLI_AskConfigNonInteractiveGoogle", cliAskConfigSuite.TestAskConfigNonInteractiveGoogle)
+	s.Run("CLI_AskConfigNonInteractiveOpenAI", cliAskConfigSuite.TestAskConfigNonInteractiveOpenAI)
+	s.Run("CLI_AskConfigDoesNotWriteAIProvider", cliAskConfigSuite.TestAskConfigDoesNotWriteAIProvider)
+	s.Run("CLI_AskConfigCreatesBackup", cliAskConfigSuite.TestAskConfigCreatesBackup)
+	s.Run("CLI_AskConfigShow", cliAskConfigSuite.TestAskConfigShow)
+	s.Run("CLI_AskConfigShowUnconfigured", cliAskConfigSuite.TestAskConfigShowUnconfigured)
+	s.Run("CLI_AskConfigValidateWithEnvVar", cliAskConfigSuite.TestAskConfigValidateWithEnvVar)
+	s.Run("CLI_AskConfigValidateMissingModel", cliAskConfigSuite.TestAskConfigValidateMissingModel)
+	s.Run("CLI_AskConfigUnknownProvider", cliAskConfigSuite.TestAskConfigUnknownProvider)
+	s.Run("CLI_AskConfigListProvidersShowsModels", cliAskConfigSuite.TestAskConfigListProvidersShowsModels)
+	s.Run("CLI_AskConfigMissingAPIKeyEnvVar", cliAskConfigSuite.TestAskConfigMissingAPIKeyEnvVar)
+
 	// Discovery CA tests (RFD 085) - using CLIMeshSuite.
 	s.Run("CLI_AddRemoteConnectionFailsWithoutCA", cliMeshSuite.TestAddRemoteConnectionFailsWithoutCA)
 	s.Run("CLI_AddRemoteFromDiscoverySuccess", cliMeshSuite.TestAddRemoteFromDiscoverySuccess)
@@ -363,6 +391,77 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 	// Group G: Error Handling
 	s.Run("MCP_ToolErrorScenarios", mcpSuite.TestMCPToolErrorScenarios)
 	s.Run("MCP_ToolInputValidation", mcpSuite.TestMCPToolInputValidation)
+
+	// Group J: Error Coverage (Sprint 2, Task 2.1)
+
+	// coral_shell_exec
+	s.Run("MCP_ErrorShellExecEmptyCommand", mcpSuite.TestShellExecErrorEmptyCommand)
+	s.Run("MCP_ErrorShellExecTimeout", mcpSuite.TestShellExecErrorTimeout)
+	s.Run("MCP_ErrorShellExecInvalidCommand", mcpSuite.TestShellExecErrorInvalidCommand)
+	s.Run("MCP_ErrorShellExecNonZeroExitCode", mcpSuite.TestShellExecNonZeroExitCode)
+	s.Run("MCP_ErrorShellExecMissingAgentTarget", mcpSuite.TestMissingRequiredAgentTarget)
+	s.Run("MCP_ErrorMalformedArgumentType", mcpSuite.TestMalformedArgumentType)
+
+	// coral_container_exec
+	s.Run("MCP_ContainerExecSidecarMode", mcpSuite.TestContainerExecSidecarMode)
+	s.Run("MCP_ErrorContainerExecEmptyCommand", mcpSuite.TestContainerExecErrorEmptyCommand)
+
+	// coral_query_summary
+	s.Run("MCP_ErrorQuerySummaryUnknownService", mcpSuite.TestQuerySummaryUnknownService)
+
+	// coral_query_metrics
+	s.Run("MCP_ErrorQueryMetricsInvalidTimeRange", mcpSuite.TestQueryMetricsErrorInvalidTimeRange)
+	s.Run("MCP_ErrorQueryMetricsInvalidProtocol", mcpSuite.TestQueryMetricsErrorInvalidProtocol)
+	s.Run("MCP_ErrorQueryMetricsInvalidHTTPMethod", mcpSuite.TestQueryMetricsInvalidHTTPMethod)
+
+	// coral_query_traces
+	s.Run("MCP_ErrorQueryTracesInvalidTraceID", mcpSuite.TestQueryTracesInvalidTraceID)
+	s.Run("MCP_ErrorQueryTracesExcessiveMinDuration", mcpSuite.TestQueryTracesExcessiveMinDuration)
+
+	// coral_attach_uprobe
+	s.Run("MCP_ErrorAttachUprobeNotFound", mcpSuite.TestAttachUprobeErrorFunctionNotFound)
+	s.Run("MCP_ErrorAttachUprobeInvalidDuration", mcpSuite.TestAttachUprobeInvalidDuration)
+
+	// coral_discover_functions
+	s.Run("MCP_ErrorDiscoverFunctionsEmptyQuery", mcpSuite.TestDiscoverFunctionsErrorEmptyQuery)
+	s.Run("MCP_ErrorDiscoverFunctionsUnknownService", mcpSuite.TestDiscoverFunctionsUnknownService)
+	s.Run("MCP_ErrorDiscoverFunctionsMaxResultsExceedsLimit", mcpSuite.TestDiscoverFunctionsMaxResultsExceedsLimit)
+
+	// coral_profile_functions
+	s.Run("MCP_ErrorProfileFunctionsInvalidStrategy", mcpSuite.TestProfileFunctionsInvalidStrategy)
+	s.Run("MCP_ErrorProfileFunctionsNoMatchingFunctions", mcpSuite.TestProfileFunctionsNoMatchingFunctions)
+
+	// coral_debug_cpu_profile
+	s.Run("MCP_ErrorDebugCPUProfileDurationClamped", mcpSuite.TestDebugCPUProfileDurationClamped)
+	s.Run("MCP_ErrorDebugCPUProfileFrequencyClamped", mcpSuite.TestDebugCPUProfileFrequencyClamped)
+
+	// Group K: Parameter Coverage (Sprint 2, Task 2.2)
+	s.Run("MCP_ParamShellExecWorkingDir", mcpSuite.TestShellExecWithWorkingDir)
+	s.Run("MCP_ParamShellExecEnvVars", mcpSuite.TestShellExecWithEnvVars)
+	s.Run("MCP_ParamShellExecCustomTimeout", mcpSuite.TestShellExecWithCustomTimeout)
+	s.Run("MCP_ParamQueryMetricsHTTPRoute", mcpSuite.TestQueryMetricsWithHTTPRoute)
+	s.Run("MCP_ParamQueryMetricsStatusCodeRange", mcpSuite.TestQueryMetricsWithStatusCodeRange)
+	s.Run("MCP_ParamDiscoverFunctionsPrioritizeSlow", mcpSuite.TestDiscoverFunctionsWithPrioritizeSlow)
+	s.Run("MCP_ParamProfileFunctionsSampleRate", mcpSuite.TestProfileFunctionsWithSampleRate)
+	s.Run("MCP_ParamProfileFunctionsStrategyCriticalPath", mcpSuite.TestProfileFunctionsStrategyCriticalPath)
+	s.Run("MCP_ParamProfileFunctionsStrategyAll", mcpSuite.TestProfileFunctionsStrategyAll)
+	s.Run("MCP_ParamQueryTracesWithTraceID", mcpSuite.TestQueryTracesWithTraceID)
+	s.Run("MCP_ParamQueryTracesMinDuration", mcpSuite.TestQueryTracesWithMinDuration)
+
+	// Group H: Response Validation (Sprint 1)
+	validationSuite := &ResponseValidationSuite{
+		E2EDistributedSuite: s.E2EDistributedSuite,
+	}
+	validationSuite.SetT(s.T())
+	validationSuite.SetupSuite()
+	defer validationSuite.TearDownSuite()
+
+	s.Run("MCP_ResponseValidationListServices", validationSuite.TestResponseValidationListServices)
+	s.Run("MCP_ResponseValidationDiscoverFunctions", validationSuite.TestResponseValidationDiscoverFunctions)
+	s.Run("MCP_ResponseValidationQueryMetrics", validationSuite.TestResponseValidationQueryMetrics)
+	s.Run("MCP_ResponseValidationQueryTraces", validationSuite.TestResponseValidationQueryTraces)
+	s.Run("MCP_ResponseValidationQuerySummary", validationSuite.TestResponseValidationQuerySummary)
+	s.Run("MCP_ResponseValidationErrorFormat", validationSuite.TestResponseValidationErrorFormat)
 
 	if !s.T().Failed() {
 		s.mcpTestsPassed = true

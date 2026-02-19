@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 )
 
@@ -20,7 +20,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		observedEndpoints []*discoveryclient.Endpoint
+		observedEndpoints []*discovery.Endpoint
 		peerHost          string
 		expectedIP        string
 		expectedPort      uint32
@@ -29,7 +29,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 	}{
 		{
 			name: "skip localhost and select matching endpoint",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "127.0.0.1", Port: 41580},   // Should be skipped (localhost)
 				{IP: "192.168.5.2", Port: 41820}, // Should be selected (matches peer)
 				{IP: "10.0.0.5", Port: 41820},    // Alternative endpoint
@@ -42,7 +42,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "skip localhost when it's first in list",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "127.0.0.1", Port: 41580},    // Should be skipped (localhost)
 				{IP: "203.0.113.10", Port: 41820}, // Should be selected (first non-localhost)
 				{IP: "198.51.100.5", Port: 41820}, // Alternative endpoint
@@ -55,7 +55,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "skip multiple localhost variants",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "127.0.0.1", Port: 41580}, // Should be skipped (localhost IPv4)
 				{IP: "::1", Port: 41580},       // Should be skipped (localhost IPv6)
 				{IP: "10.42.0.5", Port: 41820}, // Should be selected
@@ -68,7 +68,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "skip localhost keyword",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "localhost", Port: 41580}, // Should be skipped
 				{IP: "192.168.1.5", Port: 41820},
 			},
@@ -80,7 +80,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "prefer matching endpoint over first when both non-localhost",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "198.51.100.1", Port: 41820},  // First but doesn't match
 				{IP: "192.168.1.100", Port: 41820}, // Matches peer address
 				{IP: "10.0.0.1", Port: 41820},      // Alternative
@@ -93,7 +93,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "handle all localhost endpoints gracefully",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "127.0.0.1", Port: 41580},
 				{IP: "::1", Port: 41580},
 				{IP: "localhost", Port: 41580},
@@ -106,7 +106,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "no peer host - use first non-localhost",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "127.0.0.1", Port: 41580},
 				{IP: "10.0.0.5", Port: 41820},
 				{IP: "192.168.1.5", Port: 41820},
@@ -119,7 +119,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name:              "empty endpoint list",
-			observedEndpoints: []*discoveryclient.Endpoint{},
+			observedEndpoints: []*discovery.Endpoint{},
 			peerHost:          "192.168.1.1",
 			expectedIP:        "",
 			expectedPort:      0,
@@ -128,7 +128,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "nil endpoints in list",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				nil,
 				{IP: "192.168.1.5", Port: 41820},
 				nil,
@@ -141,7 +141,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "endpoints with empty IP",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "", Port: 41820},
 				{IP: "192.168.1.5", Port: 41820},
 			},
@@ -153,7 +153,7 @@ func TestSelectBestAgentEndpoint(t *testing.T) {
 		},
 		{
 			name: "multiple matching endpoints - use first match",
-			observedEndpoints: []*discoveryclient.Endpoint{
+			observedEndpoints: []*discovery.Endpoint{
 				{IP: "192.168.1.5", Port: 41820},
 				{IP: "192.168.1.5", Port: 41821}, // Same IP, different port
 				{IP: "10.0.0.1", Port: 41820},
@@ -205,7 +205,7 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 		// - Colony registered with endpoints: [127.0.0.1:41580, <public-ip>:9000, ...]
 		// - Agent connected via the port 9000 endpoint
 		// - Colony should NOT use 127.0.0.1 for WireGuard peer
-		observedEndpoints := []*discoveryclient.Endpoint{
+		observedEndpoints := []*discovery.Endpoint{
 			{IP: "127.0.0.1", Port: 41580},   // This was being incorrectly selected
 			{IP: "192.168.5.2", Port: 41820}, // Agent's actual public IP
 			{IP: "10.0.0.5", Port: 41820},    // Alternative public endpoint
@@ -234,7 +234,7 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 
 	t.Run("production scenario - multiple public endpoints", func(t *testing.T) {
 		// Production scenario with multiple public IPs/hostnames
-		observedEndpoints := []*discoveryclient.Endpoint{
+		observedEndpoints := []*discovery.Endpoint{
 			{IP: "127.0.0.1", Port: 41580},     // Local testing endpoint - should be skipped
 			{IP: "203.0.113.10", Port: 41820},  // Primary public IP
 			{IP: "198.51.100.50", Port: 41820}, // Secondary public IP
@@ -261,7 +261,7 @@ func TestSelectBestAgentEndpoint_RealWorldScenario(t *testing.T) {
 
 	t.Run("docker-compose scenario - agent from different network", func(t *testing.T) {
 		// Docker Compose scenario where agent is on different Docker network
-		observedEndpoints := []*discoveryclient.Endpoint{
+		observedEndpoints := []*discovery.Endpoint{
 			{IP: "127.0.0.1", Port: 41580},     // Should be skipped
 			{IP: "172.18.0.10", Port: 41820},   // Docker network IP
 			{IP: "192.168.1.100", Port: 41820}, // Host network IP
@@ -293,7 +293,7 @@ func BenchmarkSelectBestAgentEndpoint(b *testing.B) {
 	}, "bench")
 
 	// Create a realistic list of endpoints
-	endpoints := []*discoveryclient.Endpoint{
+	endpoints := []*discovery.Endpoint{
 		{IP: "127.0.0.1", Port: 41580},
 		{IP: "::1", Port: 41580},
 		{IP: "192.168.1.10", Port: 41820},

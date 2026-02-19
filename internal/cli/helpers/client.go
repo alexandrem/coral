@@ -109,6 +109,20 @@ func GetColonyClient(colonyID string) (colonyv1connect.ColonyServiceClient, erro
 	}
 
 	// Prepare interceptors for authentication.
+	opts := getInterceptorOptsFromEnv()
+
+	client := colonyv1connect.NewColonyServiceClient(
+		httpClient,
+		url,
+		opts...,
+	)
+
+	return client, nil
+}
+
+// getInterceptorOptsFromEnv returns client options with authentication interceptor
+// if CORAL_API_TOKEN is set.
+func getInterceptorOptsFromEnv() []connect.ClientOption {
 	var opts []connect.ClientOption
 	if token := os.Getenv("CORAL_API_TOKEN"); token != "" {
 		interceptor := connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
@@ -119,14 +133,7 @@ func GetColonyClient(colonyID string) (colonyv1connect.ColonyServiceClient, erro
 		}))
 		opts = append(opts, interceptor)
 	}
-
-	client := colonyv1connect.NewColonyServiceClient(
-		httpClient,
-		url,
-		opts...,
-	)
-
-	return client, nil
+	return opts
 }
 
 // buildHTTPClient creates an HTTP client with appropriate TLS configuration.
@@ -296,6 +303,9 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 		httpClient = http.DefaultClient
 	}
 
+	// Prepare interceptors for authentication.
+	opts := getInterceptorOptsFromEnv()
+
 	// Get connect port (default: 9000).
 	connectPort := colonyConfig.Services.ConnectPort
 	if connectPort == 0 {
@@ -305,7 +315,7 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 	// Try remote endpoint first if configured (CORAL_COLONY_ENDPOINT env var merged here).
 	if colonyConfig.Remote.Endpoint != "" {
 		remoteURL := colonyConfig.Remote.Endpoint
-		client := colonyv1connect.NewColonyServiceClient(httpClient, remoteURL)
+		client := colonyv1connect.NewColonyServiceClient(httpClient, remoteURL, opts...)
 
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -322,7 +332,7 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 
 	// Try localhost.
 	localhostURL := fmt.Sprintf("http://localhost:%d", connectPort)
-	client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, localhostURL)
+	client := colonyv1connect.NewColonyServiceClient(http.DefaultClient, localhostURL, opts...)
 
 	ctxWithTimeout2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel2()
@@ -339,7 +349,7 @@ func GetColonyClientWithFallback(ctx context.Context, colonyID string) (colonyv1
 		meshIP = "10.42.0.1"
 	}
 	meshURL := fmt.Sprintf("http://%s:%d", meshIP, connectPort)
-	client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, meshURL)
+	client = colonyv1connect.NewColonyServiceClient(http.DefaultClient, meshURL, opts...)
 
 	ctxWithTimeout3, cancel3 := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel3()

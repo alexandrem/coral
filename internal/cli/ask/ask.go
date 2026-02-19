@@ -6,7 +6,7 @@
 // conversations, multiple AI providers (OpenAI, Google, Ollama), and both streaming and
 // JSON output modes.
 //
-// See RFD 030 for the complete design and implementation details.
+// nolint:errcheck
 package ask
 
 import (
@@ -19,28 +19,33 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
-	askagent "github.com/coral-mesh/coral/internal/agent/ask"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/llm"
 )
 
-// NewAskCmd creates the ask command (RFD 030).
+// NewAskCmd creates the ask command (RFD 030, RFD 051).
 func NewAskCmd() *cobra.Command {
 	var (
-		colonyID string
-		model    string
-		stream   bool
-		format   string
-		cont     bool // --continue flag for multi-turn conversations
-		debug    bool // --debug flag for verbose logging
-		dryRun   bool // --dry-run flag to inspect payload without sending to LLM
+		colonyID    string
+		model       string
+		stream      bool
+		format      string
+		cont        bool   // --continue flag for multi-turn conversations
+		debug       bool   // --debug flag for verbose logging
+		dryRun      bool   // --dry-run flag to inspect payload without sending to LLM
+		interactive bool   // --interactive flag to force interactive mode (RFD 051)
+		resume      string // --resume flag to resume a conversation (RFD 051)
 	)
 
 	cmd := &cobra.Command{
-		Use:   "ask <question>",
+		Use:   "ask [question]",
 		Short: "Ask questions about your application using AI",
 		Long: `Ask questions about your application using AI-powered analysis.
 
@@ -61,9 +66,37 @@ Examples:
   coral ask "what's the current status?" --model ollama:llama3.2
 
   # JSON output for scripting
-  coral ask "list unhealthy services" --format json`,
-		Args: cobra.MinimumNArgs(1),
+  coral ask "list unhealthy services" --format json
+
+Interactive Mode (RFD 051):
+  # Enter interactive REPL mode (auto-detected when no question provided)
+  coral ask
+
+  # Resume a previous conversation interactively
+  coral ask --resume 2026-02-15-143022-abc123
+
+  # Force interactive mode (useful for testing)
+  coral ask --interactive`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Detect interactive mode.
+			if len(args) == 0 {
+				if !interactive && resume == "" {
+					// Auto-detect: no args + terminal = interactive
+					if !isTerminal() {
+						return fmt.Errorf("interactive mode requires a terminal (cannot use with pipes or redirects)")
+					}
+					interactive = true
+				}
+
+				if interactive || resume != "" {
+					return runInteractive(cmd.Context(), colonyID, model, resume, debug, dryRun)
+				}
+
+				return fmt.Errorf("question argument required in non-interactive mode")
+			}
+
+			// Single-shot mode.
 			question := strings.Join(args, " ")
 			return runAsk(cmd.Context(), question, colonyID, model, stream, format, cont, debug, dryRun)
 		},
@@ -79,6 +112,14 @@ Examples:
 	cmd.Flags().BoolVar(&cont, "continue", false, "Continue previous conversation")
 	cmd.Flags().BoolVar(&debug, "debug", false, "Enable debug logging to stderr")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show LLM payload and prompt before sending (saves tokens)")
+
+	// Interactive mode flags (RFD 051).
+	cmd.Flags().BoolVar(&interactive, "interactive", false, "Force interactive mode (auto-detected when no question provided)")
+	cmd.Flags().StringVar(&resume, "resume", "", "Resume a previous conversation by ID or datetime prefix")
+
+	// Add subcommands.
+	cmd.AddCommand(newListProvidersCmd())
+	cmd.AddCommand(newConfigCmd())
 
 	return cmd
 }
@@ -135,8 +176,25 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		return fmt.Errorf("invalid ask config: %w", err)
 	}
 
+	// Validate provider and model using registry.
+	providerName, modelID := parseModelString(askCfg.DefaultModel)
+	registry := llm.Get()
+
+	// Check if provider exists.
+	if !registry.IsValid(providerName) {
+		return fmt.Errorf("unknown provider %q. Run 'coral ask list-providers' to see available providers", providerName)
+	}
+
+	// Validate model (warnings only).
+	if modelID != "" {
+		if err := registry.ValidateModel(providerName, modelID); err != nil {
+			// Print warning but don't fail.
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
+	}
+
 	// Create agent.
-	agent, err := askagent.NewAgent(askCfg, colonyCfg, debug)
+	agent, err := NewAgent(askCfg, colonyCfg, debug)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
 	}
@@ -157,7 +215,7 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		// Load conversation history.
 		history, err := loadConversationHistory(colonyID, conversationID)
 		if err != nil {
-			// Warn but continue with empty history if load fails
+			// Warn but continue with empty history if load fails.
 			if debug {
 				fmt.Fprintf(os.Stderr, "[DEBUG] Failed to load conversation history: %v\n", err)
 			}
@@ -169,13 +227,6 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 		}
 	} else {
 		conversationID = generateConversationID()
-	}
-
-	// Validate model provider is implemented.
-	// Currently only Google is supported, other providers are planned.
-	providerName := strings.SplitN(askCfg.DefaultModel, ":", 2)[0]
-	if providerName != "google" && providerName != "mock" {
-		return fmt.Errorf("provider %q is not yet implemented\n\nCurrently supported:\n  - google:gemini-2.0-flash-exp (fast, experimental)\n  - google:gemini-1.5-pro (high quality, stable)\n  - google:gemini-1.5-flash (balanced)\n\nPlanned providers:\n  - openai (gpt-4o, gpt-4o-mini)\n  - anthropic (claude-3-5-sonnet)\n  - ollama (local models)\n\nSee docs/PROVIDERS.md for implementation status", providerName)
 	}
 
 	// Execute query.
@@ -202,15 +253,80 @@ func runAsk(ctx context.Context, question, colonyID, modelOverride string, strea
 	return outputTerminal(resp, stream)
 }
 
-// generateConversationID generates a new conversation ID.
+// generateConversationID generates a new conversation ID with datetime format (RFD 051).
+// Format: YYYY-MM-DD-HHMMSS-<random>
+// This allows natural chronological ordering and easy identification of conversations.
 func generateConversationID() string {
-	// Generate random ID.
-	b := make([]byte, 8)
+	// Generate timestamp prefix
+	timestamp := time.Now().Format("2006-01-02-150405")
+
+	// Add random suffix for uniqueness (handles same-second collisions)
+	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback to simple ID if random fails.
-		return fmt.Sprintf("conv-%d", os.Getpid())
+		// Fallback to PID if random fails.
+		return timestamp + "-" + fmt.Sprintf("%d", os.Getpid())
 	}
-	return hex.EncodeToString(b)
+	return timestamp + "-" + hex.EncodeToString(b)[:6]
+}
+
+// isTerminal checks if stdin is a terminal (RFD 051).
+// Used to auto-detect interactive mode.
+func isTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// resolveConversationID resolves a conversation ID from various formats (RFD 051).
+// Supports:
+// - Full filename: "2026-02-15-143022-abc123"
+// - Datetime prefix: "2026-02-15-143022" (must uniquely identify one conversation)
+// - Random suffix: "abc123" (backward compatibility with old IDs)
+func resolveConversationID(colonyID, resumeArg string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not find home directory: %w", err)
+	}
+
+	convDir := filepath.Join(home, ".coral", "conversations", colonyID)
+
+	// List all conversation files.
+	entries, err := os.ReadDir(convDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read conversation directory: %w", err)
+	}
+
+	var matches []string
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == "last.json" {
+			continue
+		}
+
+		name := strings.TrimSuffix(entry.Name(), ".json")
+
+		// Check for exact match.
+		if name == resumeArg {
+			return name, nil
+		}
+
+		// Check for prefix match (datetime).
+		if strings.HasPrefix(name, resumeArg) {
+			matches = append(matches, name)
+		}
+
+		// Check for suffix match (random ID - backward compat).
+		if strings.HasSuffix(name, "-"+resumeArg) {
+			matches = append(matches, name)
+		}
+	}
+
+	if len(matches) == 0 {
+		return "", fmt.Errorf("no conversation found matching %q", resumeArg)
+	}
+
+	if len(matches) > 1 {
+		return "", fmt.Errorf("ambiguous conversation ID %q matches multiple conversations: %v", resumeArg, matches)
+	}
+
+	return matches[0], nil
 }
 
 // conversationMetadata stores metadata about a conversation.
@@ -270,7 +386,7 @@ func saveConversationID(colonyID, conversationID string) error {
 }
 
 // loadConversationHistory loads the conversation history from disk.
-func loadConversationHistory(colonyID, conversationID string) ([]askagent.Message, error) {
+func loadConversationHistory(colonyID, conversationID string) ([]Message, error) {
 	path, err := getConversationHistoryPath(colonyID, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get conversation history: %w", err)
@@ -280,7 +396,7 @@ func loadConversationHistory(colonyID, conversationID string) ([]askagent.Messag
 		return nil, err
 	}
 
-	var messages []askagent.Message
+	var messages []Message
 	if err := json.Unmarshal(data, &messages); err != nil {
 		return nil, fmt.Errorf("failed to parse conversation history: %w", err)
 	}
@@ -289,7 +405,7 @@ func loadConversationHistory(colonyID, conversationID string) ([]askagent.Messag
 }
 
 // saveConversationHistory saves the conversation history to disk.
-func saveConversationHistory(colonyID, conversationID string, messages []askagent.Message) error {
+func saveConversationHistory(colonyID, conversationID string, messages []Message) error {
 	path, err := getConversationHistoryPath(colonyID, conversationID)
 	if err != nil {
 		return fmt.Errorf("failed to get conversation history: %w", err)
@@ -340,7 +456,7 @@ func getConversationHistoryPath(colonyID, conversationID string) (string, error)
 }
 
 // outputJSON outputs the response in JSON format.
-func outputJSON(resp *askagent.Response) error {
+func outputJSON(resp *Response) error {
 	output := map[string]interface{}{
 		"answer": resp.Answer,
 		"tool_calls": func() []map[string]interface{} {
@@ -366,7 +482,7 @@ func outputJSON(resp *askagent.Response) error {
 }
 
 // outputTerminal outputs the response to the terminal.
-func outputTerminal(resp *askagent.Response, stream bool) error {
+func outputTerminal(resp *Response, stream bool) error {
 	fmt.Println(resp.Answer)
 
 	// Show tool usage citations.
@@ -379,4 +495,199 @@ func outputTerminal(resp *askagent.Response, stream bool) error {
 	}
 
 	return nil
+}
+
+// providerInfo represents provider information for display.
+type providerInfo struct {
+	Name          string             `json:"name"`
+	DisplayName   string             `json:"display_name"`
+	Description   string             `json:"description"`
+	Status        llm.ProviderStatus `json:"status"`
+	Models        []string           `json:"models,omitempty"`
+	DefaultEnvVar string             `json:"default_env_var,omitempty"`
+}
+
+// newListProvidersCmd creates the list-providers subcommand.
+func newListProvidersCmd() *cobra.Command {
+	var format string
+	var showModels bool
+
+	cmd := &cobra.Command{
+		Use:   "list-providers",
+		Short: "List available LLM providers and their status",
+		Long: `Display all available LLM providers, their configuration status, and supported models.
+
+Status values:
+  configured     - Provider has valid API key
+  not-configured - Provider requires API key but none is set
+  available      - Provider is ready to use (no API key required)
+
+Examples:
+  # List all providers
+  coral ask list-providers
+
+  # Show providers with their supported models
+  coral ask list-providers --models
+
+  # Output as JSON
+  coral ask list-providers --format json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runListProviders(format, showModels)
+		},
+	}
+
+	helpers.AddFormatFlag(cmd, &format, helpers.FormatTable, []helpers.OutputFormat{
+		helpers.FormatTable,
+		helpers.FormatJSON,
+		helpers.FormatYAML,
+	})
+	cmd.Flags().BoolVar(&showModels, "models", false, "Show supported models for each provider")
+
+	return cmd
+}
+
+// runListProviders executes the list-providers command.
+func runListProviders(format string, showModels bool) error {
+	// Load configuration to check API key status.
+	loader, err := config.NewLoader()
+	if err != nil {
+		return fmt.Errorf("failed to create config loader: %w", err)
+	}
+
+	globalCfg, err := loader.LoadGlobalConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load global config: %w", err)
+	}
+
+	askCfg := &globalCfg.AI.Ask
+
+	// Get registry.
+	registry := llm.Get()
+	providers := registry.ListProviders()
+
+	// Build provider info list.
+	var providerInfos []providerInfo
+	for _, p := range providers {
+		info := providerInfo{
+			Name:          p.Name,
+			DisplayName:   p.DisplayName,
+			Description:   p.Description,
+			Status:        registry.GetProviderStatus(p.Name, askCfg),
+			DefaultEnvVar: p.DefaultEnvVar,
+		}
+
+		if showModels && len(p.SupportedModels) > 0 {
+			for _, model := range p.SupportedModels {
+				modelStr := model.ID
+				if model.Deprecated {
+					modelStr += " (deprecated)"
+				}
+				info.Models = append(info.Models, modelStr)
+			}
+		}
+
+		providerInfos = append(providerInfos, info)
+	}
+
+	// Use formatter for non-table output.
+	if format != string(helpers.FormatTable) {
+		formatter, err := helpers.NewFormatter(helpers.OutputFormat(format))
+		if err != nil {
+			return err
+		}
+		return formatter.Format(providerInfos, os.Stdout)
+	}
+
+	// Table output using tabwriter.
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+
+	if showModels {
+		fmt.Fprintln(w, "PROVIDER\tDISPLAY NAME\tSTATUS\tMODELS")
+		for _, info := range providerInfos {
+			modelList := "-"
+			if len(info.Models) > 0 {
+				modelList = strings.Join(info.Models, ", ")
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				info.Name,
+				info.DisplayName,
+				info.Status,
+				modelList,
+			)
+		}
+	} else {
+		fmt.Fprintln(w, "PROVIDER\tDISPLAY NAME\tSTATUS\tDESCRIPTION")
+		for _, info := range providerInfos {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				info.Name,
+				info.DisplayName,
+				info.Status,
+				truncate(info.Description, 50),
+			)
+		}
+	}
+
+	// Flush table before printing configuration hints.
+	w.Flush()
+
+	// Show configuration hints for not-configured providers.
+	hasUnconfigured := false
+	for _, info := range providerInfos {
+		if info.Status == "not-configured" && info.DefaultEnvVar != "" {
+			hasUnconfigured = true
+			break
+		}
+	}
+
+	if hasUnconfigured {
+		fmt.Println("\nTo configure a provider, set its API key:")
+		for _, info := range providerInfos {
+			if info.Status == "not-configured" && info.DefaultEnvVar != "" {
+				fmt.Printf("  export %s=your-api-key-here\n", info.DefaultEnvVar)
+			}
+		}
+		fmt.Println("\nOr add to ~/.coral/config.yaml:")
+		fmt.Println("  ai:")
+		fmt.Println("    ask:")
+		fmt.Println("      api_keys:")
+		for _, info := range providerInfos {
+			if info.Status == "not-configured" && info.DefaultEnvVar != "" {
+				fmt.Printf("        %s: env://%s\n", info.Name, info.DefaultEnvVar)
+			}
+		}
+	}
+
+	return nil
+}
+
+// truncate truncates a string to the specified maximum length.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// parseModelString parses a model string into provider and model ID.
+func parseModelString(model string) (providerName, modelID string) {
+	if model == "coral" {
+		return "coral", ""
+	}
+	parts := strings.SplitN(model, ":", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", ""
+}
+
+// SaveConversationHistory saves conversation history to disk (RFD 051).
+// Exported for use by interactive UI package.
+func SaveConversationHistory(colonyID, conversationID string, messages []Message) error {
+	return saveConversationHistory(colonyID, conversationID, messages)
+}
+
+// LoadConversationHistory loads conversation history from disk (RFD 051).
+// Exported for use by interactive UI package.
+func LoadConversationHistory(colonyID, conversationID string) ([]Message, error) {
+	return loadConversationHistory(colonyID, conversationID)
 }

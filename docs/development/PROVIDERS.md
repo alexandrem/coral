@@ -17,7 +17,7 @@ This provides:
 ### Provider Interface
 
 All providers implement a simple `Provider` interface defined in
-`internal/agent/llm/provider.go`:
+`internal/llm/provider.go`:
 
 ```go
 type Provider interface {
@@ -39,7 +39,7 @@ To implement a new provider, follow these steps:
 
 ### 1. Create Provider Implementation
 
-Create a new file in `internal/agent/llm/` (e.g., `openai.go`):
+Create a new file in `internal/llm/` (e.g., `openai.go`):
 
 ```go
 package llm
@@ -106,8 +106,8 @@ coral ask "test question" --model openai:gpt-4o-mini
 
 ## Related Files
 
-- **Provider interface:** `internal/agent/llm/provider.go`
-- **Google implementation:** `internal/agent/llm/google.go`
+- **Provider interface:** `internal/llm/provider.go`
+- **Google implementation:** `internal/llm/google.go`
 - **Agent initialization:** `internal/agent/ask/agent.go`
 - **CLI command:** `internal/cli/ask/ask.go`
 - **Configuration:** `internal/config/ask.go`
@@ -125,10 +125,10 @@ coral ask "test question" --model openai:gpt-4o-mini
 export GOOGLE_API_KEY=your-key-here
 
 # Test with a simple query
-coral ask "list all services" --model google:gemini-2.0-flash-exp
+coral ask "list all services" --model google:gemini-3-fast
 
 # Test streaming
-coral ask "what is the current status?" --model google:gemini-1.5-flash
+coral ask "what is the current status?" --model google:gemini-3-fast
 
 # Test multi-turn conversation
 coral ask "show me HTTP latency"
@@ -138,15 +138,31 @@ coral ask "what are the slowest endpoints?" --continue
 coral ask "analyze error rates" --debug
 ```
 
+### Testing OpenAI Provider
+
+```bash
+# Set API key
+export OPENAI_API_KEY=your-key-here
+
+# Test with a simple query
+coral ask "list all services" --model openai:gpt-4o-mini
+
+# Test with high quality model
+coral ask "analyze error rates" --model openai:gpt-4o
+
+# Test with debug output
+coral ask "what is the current status?" --model openai:gpt-4o-mini --debug
+```
+
 ### Troubleshooting
 
 If queries fail, check:
 
-1. **API Key**: Ensure `GOOGLE_API_KEY` is set correctly
+1. **API Key**: Ensure `GOOGLE_API_KEY` or `OPENAI_API_KEY` is set correctly
 2. **Model Format**: Use format `provider:model-id` (e.g.,
-   `google:gemini-2.0-flash-exp`)
+   `google:gemini-3-fast`, `openai:gpt-4o-mini`)
 3. **Colony Running**: Colony MCP server must be running (`coral colony list`)
-4. **Network**: Ensure you can reach Google AI API endpoints
+4. **Network**: Ensure you can reach the provider's API endpoints
 5. **Debug Mode**: Use `--debug` flag to see detailed error messages
 
 ### Common Errors
@@ -155,9 +171,9 @@ If queries fail, check:
 
 - Solution: Set `GOOGLE_API_KEY` environment variable
 
-**"unsupported provider: openai"**
+**"OpenAI API key not configured"**
 
-- Solution: Provider not yet implemented, use `google:` models for now
+- Solution: Set `OPENAI_API_KEY` environment variable
 
 **"failed to connect to colony MCP server"**
 

@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/coral-mesh/coral/internal/config"
-	"github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/safe"
 )
 
@@ -332,7 +332,7 @@ func fetchFromDiscovery(colonyID, caFingerprint, discoveryEndpoint, colonyDir st
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	discoveryClient := client.New(discoveryEndpoint)
+	discoveryClient := discovery.NewClient(discoveryEndpoint)
 	resp, err := discoveryClient.LookupColony(ctx, colonyID)
 	if err != nil {
 		return config.RemoteConfig{}, "", fmt.Errorf("failed to lookup colony from Discovery: %w", err)

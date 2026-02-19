@@ -5,9 +5,7 @@ name: coral-e2e
 services:
   # Local Discovery Service - Cloudflare Workers compatible, running via wrangler
   discovery:
-    build:
-      context: ../
-      dockerfile: coral-discovery-workers/Dockerfile
+    image: ghcr.io/coral-mesh/discovery:latest
     environment:
       - DISCOVERY_SIGNING_KEY={"id":"01H7X0X7X0X7X0X7X0X7X0X7X0","privateKey":"hXIqNNX5M2H9WuNmTPcAYgwRSWpJMqONpL3HPPoxsdoitbpmLL7H2ArTXJV0YXj89bxfbePj0GTKqEB+N9g8SA=="}
       - ENVIRONMENT=test

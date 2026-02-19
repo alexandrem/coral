@@ -74,14 +74,45 @@ func (e *CLITestEnv) Cleanup() error {
 	return nil
 }
 
-// EnvVars returns environment variables map for CLI commands.
-// These variables tell the CLI where to find config and which colony to use.
+// Run executes a coral CLI command using this environment.
+// This is the primary way to run CLI commands in tests.
+func (e *CLITestEnv) Run(ctx context.Context, args ...string) *CLIResult {
+	return RunCLIWithEnv(ctx, e.buildEnvMap(), args...)
+}
+
+// Clone creates a copy of this environment with optional overrides.
+// Use this when you need to run a command with modified settings.
+//
+// Example:
+//
+//	env.Clone().WithColonyID("other-colony").Run(ctx, "colony", "status")
+func (e *CLITestEnv) Clone() *CLITestEnvBuilder {
+	return &CLITestEnvBuilder{
+		env: &CLITestEnv{
+			ColonyID:       e.ColonyID,
+			ColonyEndpoint: e.ColonyEndpoint,
+			ConfigDir:      e.ConfigDir,
+			TempDir:        e.TempDir,
+			HomeDir:        e.HomeDir,
+		},
+		extraVars: make(map[string]string),
+		unsetVars: make(map[string]bool),
+	}
+}
+
+// EnvVars returns the environment variables map for this test environment.
+// This is a public method for backward compatibility and direct access to env vars.
 func (e *CLITestEnv) EnvVars() map[string]string {
+	return e.buildEnvMap()
+}
+
+// buildEnvMap constructs the environment variable map for this test environment.
+func (e *CLITestEnv) buildEnvMap() map[string]string {
 	env := map[string]string{
-		"HOME": e.HomeDir,
+		"HOME":         e.HomeDir,
+		"CORAL_CONFIG": e.HomeDir,
 	}
 
-	// Add colony-specific vars if set
 	if e.ColonyID != "" {
 		env["CORAL_COLONY_ID"] = e.ColonyID
 	}
@@ -93,27 +124,74 @@ func (e *CLITestEnv) EnvVars() map[string]string {
 	return env
 }
 
-// WithColonyID returns a copy of environment variables with colony ID set.
-func (e *CLITestEnv) WithColonyID(colonyID string) map[string]string {
-	env := e.EnvVars()
-	env["CORAL_COLONY_ID"] = colonyID
-	return env
+// CLITestEnvBuilder provides a fluent interface for modifying CLITestEnv.
+type CLITestEnvBuilder struct {
+	env       *CLITestEnv
+	extraVars map[string]string
+	unsetVars map[string]bool
 }
 
-// WithEndpoint returns a copy of environment variables with custom endpoint.
-func (e *CLITestEnv) WithEndpoint(endpoint string) map[string]string {
-	env := e.EnvVars()
-	env["CORAL_COLONY_ENDPOINT"] = endpoint
-	return env
+// WithColonyID sets the colony ID for this environment.
+func (b *CLITestEnvBuilder) WithColonyID(colonyID string) *CLITestEnvBuilder {
+	b.env.ColonyID = colonyID
+	delete(b.unsetVars, "CORAL_COLONY_ID")
+	return b
 }
 
-// WithEnv returns a copy of environment variables with additional custom vars.
-func (e *CLITestEnv) WithEnv(customEnv map[string]string) map[string]string {
-	env := e.EnvVars()
-	for key, value := range customEnv {
-		env[key] = value
+// WithEndpoint sets the colony endpoint for this environment.
+func (b *CLITestEnvBuilder) WithEndpoint(endpoint string) *CLITestEnvBuilder {
+	b.env.ColonyEndpoint = endpoint
+	delete(b.unsetVars, "CORAL_COLONY_ENDPOINT")
+	return b
+}
+
+// WithEnv adds custom environment variables.
+func (b *CLITestEnvBuilder) WithEnv(vars map[string]string) *CLITestEnvBuilder {
+	for k, v := range vars {
+		b.extraVars[k] = v
+		delete(b.unsetVars, k)
 	}
-	return env
+	return b
+}
+
+// Without unsets the specified environment variables.
+// This is clearer than setting them to empty strings.
+func (b *CLITestEnvBuilder) Without(varNames ...string) *CLITestEnvBuilder {
+	for _, name := range varNames {
+		b.unsetVars[name] = true
+		delete(b.extraVars, name)
+
+		// Also clear from env struct if it's a known field
+		switch name {
+		case "CORAL_COLONY_ID":
+			b.env.ColonyID = ""
+		case "CORAL_COLONY_ENDPOINT":
+			b.env.ColonyEndpoint = ""
+		}
+	}
+	return b
+}
+
+// Run executes a CLI command with the configured environment.
+func (b *CLITestEnvBuilder) Run(ctx context.Context, args ...string) *CLIResult {
+	envMap := b.env.buildEnvMap()
+
+	// Add extra vars
+	for k, v := range b.extraVars {
+		envMap[k] = v
+	}
+
+	// Remove unset vars
+	for k := range b.unsetVars {
+		delete(envMap, k)
+	}
+
+	return RunCLIWithEnv(ctx, envMap, args...)
+}
+
+// Env returns the underlying CLITestEnv (for compatibility).
+func (b *CLITestEnvBuilder) Env() *CLITestEnv {
+	return b.env
 }
 
 // ConfigPath returns the path to the .coral config directory.

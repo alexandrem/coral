@@ -22,7 +22,7 @@ import (
 	"github.com/coral-mesh/coral/internal/cli/agent/types"
 	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/constants"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/duckdb"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
@@ -53,7 +53,7 @@ type ServiceRegistry struct {
 	functionCache *agent.FunctionCache
 	agentInstance *agent.Agent
 	wgDevice      *wireguard.Device
-	colonyInfo    *discoveryclient.LookupColonyResponse
+	colonyInfo    *discovery.LookupColonyResponse
 	meshIP        string // Deprecated: Use connectionManager.GetAssignedIP()
 	meshSubnet    string // Deprecated: Use connectionManager.GetAssignedIP()
 	connectionMgr *ConnectionManager
@@ -73,7 +73,7 @@ func NewServiceRegistry(
 	functionCache *agent.FunctionCache,
 	agentInstance *agent.Agent,
 	wgDevice *wireguard.Device,
-	colonyInfo *discoveryclient.LookupColonyResponse,
+	colonyInfo *discovery.LookupColonyResponse,
 	meshIP string,
 	meshSubnet string,
 	connectionMgr *ConnectionManager,

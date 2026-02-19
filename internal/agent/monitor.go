@@ -15,6 +15,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/coral-mesh/coral/internal/sys/proc"
 	"github.com/coral-mesh/coral/pkg/sdk/debug"
 )
@@ -70,8 +71,8 @@ func NewServiceMonitor(parentCtx context.Context, service *meshv1.ServiceInfo, f
 	return &ServiceMonitor{
 		service:       service,
 		status:        ServiceStatusUnknown,
-		checkInterval: 10 * time.Second,
-		checkTimeout:  2 * time.Second,
+		checkInterval: constants.DefaultServiceCheckInterval,
+		checkTimeout:  constants.DefaultServiceCheckTimeout,
 		functionCache: functionCache,
 		logger:        logger.With().Str("service", service.Name).Logger(),
 		ctx:           ctx,
@@ -120,7 +121,7 @@ func (m *ServiceMonitor) GetStatus() ServiceStatusInfo {
 func (m *ServiceMonitor) monitorLoop() {
 	// Add random initial delay (up to 30% of check interval) to prevent thundering
 	// herd when multiple services start simultaneously.
-	maxJitter := int64(m.checkInterval) * 30 / 100
+	maxJitter := int64(m.checkInterval) * int64(constants.DefaultThunderingHerdJitterFactor) / 100
 	//nolint:gosec // G404: Weak random is acceptable for jitter to prevent thundering herd.
 	initialDelay := time.Duration(rand.Int64N(maxJitter))
 
@@ -403,7 +404,7 @@ func (m *ServiceMonitor) discoverSDKCapabilities() {
 	}
 
 	// Default to localhost:9002, but could be configurable or derived.
-	discoveryAddr := "localhost:9002"
+	discoveryAddr := constants.DefaultSDKDiscoveryAddress
 
 	caps := discoverSDKCapabilities(m.ctx, discoveryAddr, m.logger)
 	if caps == nil {
@@ -435,7 +436,7 @@ func (m *ServiceMonitor) GetSdkCapabilities() *agentv1.ServiceSdkCapabilities {
 // This is a shared utility function used by both ServiceHandler and ServiceMonitor.
 func discoverSDKCapabilities(ctx context.Context, addr string, logger zerolog.Logger) *agentv1.ServiceSdkCapabilities {
 	// Simple HTTP GET request with short timeout.
-	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, constants.DefaultHealthTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+addr+"/debug/capabilities", nil)

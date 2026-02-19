@@ -1,4 +1,3 @@
-// Package ask provides the LLM agent implementation for coral ask.
 package ask
 
 import (
@@ -12,8 +11,8 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/coral-mesh/coral/internal/agent/llm"
 	"github.com/coral-mesh/coral/internal/config"
+	"github.com/coral-mesh/coral/internal/llm"
 )
 
 // Agent represents an LLM agent that connects to Colony MCP server.
@@ -40,6 +39,67 @@ type ToolCall struct {
 	Output any
 }
 
+// AgentEvent represents an event during query execution (RFD 051).
+// Used for streaming updates to interactive UI.
+type AgentEvent struct {
+	Type     string    // "stream", "tool_start", "tool_complete", "error"
+	Content  string    // For stream chunks
+	ToolName string    // For tool events
+	Duration float64   // For tool_complete (seconds)
+	Error    error     // For error events
+	Response *Response // For complete event
+}
+
+// eventEmitter is an interface for emitting agent events (RFD 051).
+// Implementations:
+// - stdoutEmitter: prints to stdout (existing behavior for single-shot mode)
+// - channelEmitter: sends events to a channel (for interactive mode)
+type eventEmitter interface {
+	EmitStream(chunk string) error
+	EmitToolStart(toolName string)
+	EmitToolComplete(toolName string, duration float64)
+}
+
+// stdoutEmitter emits events to stdout (RFD 051).
+// Used for single-shot mode to maintain existing behavior.
+type stdoutEmitter struct {
+	stream bool
+}
+
+func (e *stdoutEmitter) EmitStream(chunk string) error {
+	if e.stream {
+		fmt.Print(chunk)
+	}
+	return nil
+}
+
+func (e *stdoutEmitter) EmitToolStart(toolName string) {
+	// No-op for stdout mode (could add spinner in future)
+}
+
+func (e *stdoutEmitter) EmitToolComplete(toolName string, duration float64) {
+	// No-op for stdout mode
+}
+
+// channelEmitter emits events to a channel (RFD 051).
+// Used for interactive mode to provide real-time updates to Bubbletea UI.
+type channelEmitter struct {
+	ch chan<- AgentEvent
+}
+
+func (e *channelEmitter) EmitStream(chunk string) error {
+	e.ch <- AgentEvent{Type: "stream", Content: chunk}
+	return nil
+}
+
+func (e *channelEmitter) EmitToolStart(toolName string) {
+	e.ch <- AgentEvent{Type: "tool_start", ToolName: toolName}
+}
+
+func (e *channelEmitter) EmitToolComplete(toolName string, duration float64) {
+	e.ch <- AgentEvent{Type: "tool_complete", ToolName: toolName, Duration: duration}
+}
+
 // NewAgent creates a new LLM agent with the given configuration.
 func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bool) (*Agent, error) {
 	if debug {
@@ -59,14 +119,18 @@ func NewAgent(askCfg *config.AskConfig, colonyCfg *config.ColonyConfig, debug bo
 		fmt.Fprintf(os.Stderr, "[DEBUG] Model configuration: %s\n", askCfg.DefaultModel)
 	}
 
-	// Parse model string (format: "provider:model-id").
-	parts := strings.SplitN(askCfg.DefaultModel, ":", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid model format %q, expected provider:model-id", askCfg.DefaultModel)
+	// Parse model string (format: "provider:model-id" or bare "coral").
+	var providerName, modelID string
+	if askCfg.DefaultModel == "coral" {
+		providerName = "coral"
+	} else {
+		parts := strings.SplitN(askCfg.DefaultModel, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid model format %q, expected provider:model-id (or bare \"coral\")", askCfg.DefaultModel)
+		}
+		providerName = parts[0]
+		modelID = parts[1]
 	}
-
-	providerName := parts[0]
-	modelID := parts[1]
 
 	// Initialize the LLM provider.
 	provider, err := createProvider(ctx, providerName, modelID, askCfg, debug)
@@ -119,31 +183,10 @@ func (a *Agent) GetConversationHistory(conversationID string) []Message {
 	return nil
 }
 
-// createProvider creates an LLM provider based on the provider name.
+// createProvider creates an LLM provider based on the provider name using the registry.
 func createProvider(ctx context.Context, providerName string, modelID string, cfg *config.AskConfig, debug bool) (llm.Provider, error) {
-	switch providerName {
-	case "google":
-		apiKey := cfg.APIKeys["google"]
-		if apiKey == "" {
-			return nil, fmt.Errorf("Google AI API key not configured (set GOOGLE_API_KEY)") // nolint: staticcheck
-		}
-		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Google AI API key found (length: %d)\n", len(apiKey))
-		}
-		return llm.NewGoogleProvider(ctx, apiKey, modelID)
-
-	case "mock":
-		// For mock provider, the modelID is the path to the replay script
-		return llm.NewMockProvider(ctx, modelID)
-
-	// TODO: Add other providers
-	// case "openai":
-	// case "anthropic":
-	// case "grok", "xai":
-
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s (supported: google, mock)", providerName)
-	}
+	registry := llm.Get()
+	return registry.GetProvider(ctx, providerName, modelID, cfg, debug)
 }
 
 // connectToColonyMCP connects to the Colony's MCP server via stdio subprocess.
@@ -195,7 +238,11 @@ func connectToColonyMCP(ctx context.Context, colonyCfg *config.ColonyConfig, deb
 			Experimental: map[string]interface{}{},
 		}
 
-		if _, err := res.client.Initialize(ctx, initReq); err != nil {
+		initCtx, initCancel := context.WithTimeout(ctx, connectionTimeout)
+		defer initCancel()
+
+		if _, err := res.client.Initialize(initCtx, initReq); err != nil {
+			res.client.Close() // nolint:errcheck // cli command will exit anyway
 			return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
 		}
 
@@ -219,15 +266,22 @@ func (a *Agent) Close() error {
 
 // buildSystemPrompt builds the system prompt with service context (RFD 054).
 func (a *Agent) buildSystemPrompt(ctx context.Context) string {
-	// Fetch available services from the colony.
-	serviceList := a.fetchServiceList(ctx)
+	serviceCtx := a.fetchServiceContext(ctx)
+	healthAlerts := a.fetchHealthAlerts(ctx)
 
-	// Build system prompt with parameter extraction rules.
-	prompt := `You are an observability assistant for Coral distributed systems.
+	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
+	prompt := "You are an observability assistant for Coral distributed systems.\n"
+	prompt += "Current time: " + now + "\n"
+
+	if healthAlerts != "" {
+		prompt += "\nALERTS (last 5m):\n" + healthAlerts + "\n"
+	}
+
+	prompt += `
 PARAMETER EXTRACTION RULES:
 1. Service names: Extract exactly as mentioned (e.g., "coral service" → "coral")
-   Available services: ` + serviceList + `
+   Available services: ` + serviceCtx + `
 2. Time ranges: Convert natural language (e.g., "last hour" → "1h", "30 min" → "30m")
 3. HTTP methods: Extract from context (e.g., "GET requests" → "GET")
 4. Status codes: Map phrases (e.g., "errors" → "5xx", "success" → "2xx")
@@ -237,9 +291,8 @@ Always extract ALL relevant parameters from the user's query before asking for c
 	return prompt
 }
 
-// fetchServiceList fetches the list of available services from the colony.
-func (a *Agent) fetchServiceList(ctx context.Context) string {
-	// Call coral_list_services tool to get available services.
+// fetchServiceContext fetches the list of available services with their status.
+func (a *Agent) fetchServiceContext(ctx context.Context) string {
 	req := mcp.CallToolRequest{}
 	req.Params.Name = "coral_list_services"
 	req.Params.Arguments = map[string]interface{}{}
@@ -252,23 +305,26 @@ func (a *Agent) fetchServiceList(ctx context.Context) string {
 		return "(service list unavailable)"
 	}
 
-	// Parse the result to extract service names.
 	if len(result.Content) > 0 {
 		if textContent, ok := mcp.AsTextContent(result.Content[0]); ok {
-			// Parse JSON response.
 			var output struct {
 				Services []struct {
-					Name string `json:"name"`
+					Name   string `json:"name"`
+					Status string `json:"status"`
 				} `json:"services"`
 			}
 			if err := json.Unmarshal([]byte(textContent.Text), &output); err == nil {
-				// Build comma-separated list of service names.
-				names := make([]string, 0, len(output.Services))
+				entries := make([]string, 0, len(output.Services))
 				for _, svc := range output.Services {
-					names = append(names, svc.Name)
+					entry := svc.Name
+					// Only annotate non-normal statuses so healthy services don't add noise.
+					if svc.Status != "" && svc.Status != "ACTIVE" {
+						entry += " (" + svc.Status + ")"
+					}
+					entries = append(entries, entry)
 				}
-				if len(names) > 0 {
-					return strings.Join(names, ", ")
+				if len(entries) > 0 {
+					return strings.Join(entries, ", ")
 				}
 			}
 		}
@@ -277,8 +333,77 @@ func (a *Agent) fetchServiceList(ctx context.Context) string {
 	return "(no services registered)"
 }
 
-// Ask sends a question to the agent and returns the response.
-func (a *Agent) Ask(ctx context.Context, question string, conversationID string, stream bool, dryRun bool) (*Response, error) {
+// fetchHealthAlerts calls coral_query_summary and returns a compact alert string
+// containing only degraded or critical services. Returns empty string if all healthy.
+func (a *Agent) fetchHealthAlerts(ctx context.Context) string {
+	req := mcp.CallToolRequest{}
+	req.Params.Name = "coral_query_summary"
+	req.Params.Arguments = map[string]interface{}{
+		"time_range":        "5m",
+		"include_profiling": false,
+	}
+
+	result, err := a.mcpClient.CallTool(ctx, req)
+	if err != nil {
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch health snapshot: %v\n", err)
+		}
+		return ""
+	}
+
+	if len(result.Content) == 0 {
+		return ""
+	}
+	textContent, ok := mcp.AsTextContent(result.Content[0])
+	if !ok {
+		return ""
+	}
+	return parseHealthAlerts(textContent.Text)
+}
+
+// parseHealthAlerts extracts compact one-liners for degraded/critical services from
+// the coral_query_summary text output. Returns empty string if no issues found.
+func parseHealthAlerts(summaryText string) string {
+	// Each service block is separated by a blank line.
+	blocks := strings.Split(summaryText, "\n\n")
+	var alerts []string
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		lines := strings.Split(block, "\n")
+		if len(lines) == 0 {
+			continue
+		}
+		firstLine := strings.TrimSpace(lines[0])
+		// Include only degraded (⚠️) or critical (❌) services.
+		if !strings.HasPrefix(firstLine, "⚠️") && !strings.HasPrefix(firstLine, "❌") {
+			continue
+		}
+		alerts = append(alerts, compactServiceAlert(firstLine, lines[1:]))
+	}
+	return strings.Join(alerts, "\n")
+}
+
+// compactServiceAlert formats a single degraded/critical service as a one-liner.
+func compactServiceAlert(header string, lines []string) string {
+	parts := []string{header}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Status:") ||
+			strings.HasPrefix(line, "Error Rate:") ||
+			strings.HasPrefix(line, "Avg Latency:") ||
+			strings.HasPrefix(line, "Requests:") {
+			parts = append(parts, line)
+		}
+	}
+	return strings.Join(parts, " | ")
+}
+
+// ask is the internal implementation that sends a question to the agent (RFD 051).
+// Takes an eventEmitter to support both stdout (single-shot) and channel (interactive) modes.
+func (a *Agent) ask(ctx context.Context, question string, conversationID string, stream bool, dryRun bool, emitter eventEmitter) (*Response, error) {
 	if a.debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Processing question: %q\n", question)
 	}
@@ -358,11 +483,9 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 	}
 
 	// Call LLM with tools.
+	// Use emitter for streaming (supports both stdout and channel modes).
 	streamCallback := func(chunk string) error {
-		if stream {
-			fmt.Print(chunk)
-		}
-		return nil
+		return emitter.EmitStream(chunk)
 	}
 
 	generateReq := llm.GenerateRequest{
@@ -442,6 +565,9 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 				fmt.Fprintf(os.Stderr, "[DEBUG] Executing tool: %s\n", tc.Name)
 			}
 
+			// Emit tool start event (RFD 051).
+			emitter.EmitToolStart(tc.Name)
+
 			// Parse arguments.
 			var args map[string]interface{}
 			if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
@@ -453,10 +579,16 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 			req.Params.Name = tc.Name
 			req.Params.Arguments = args
 
+			toolStart := time.Now()
 			toolResult, err := a.mcpClient.CallTool(ctx, req)
+			toolDuration := time.Since(toolStart).Seconds()
+
 			if err != nil {
 				return nil, fmt.Errorf("tool call failed: %w", err)
 			}
+
+			// Emit tool complete event (RFD 051).
+			emitter.EmitToolComplete(tc.Name, toolDuration)
 
 			// Extract text content from tool result.
 			var resultContent string
@@ -599,4 +731,16 @@ func (a *Agent) Ask(ctx context.Context, question string, conversationID string,
 		Answer:    resp.Content,
 		ToolCalls: toolCallResults,
 	}, nil
+}
+
+// Ask sends a question to the agent and returns the response (RFD 030).
+// This is the public API for single-shot mode (prints to stdout).
+func (a *Agent) Ask(ctx context.Context, question string, conversationID string, stream bool, dryRun bool) (*Response, error) {
+	return a.ask(ctx, question, conversationID, stream, dryRun, &stdoutEmitter{stream: stream})
+}
+
+// AskWithChannel sends a question and streams events to a channel (RFD 051).
+// This is used by interactive mode for real-time updates to Bubbletea UI.
+func (a *Agent) AskWithChannel(ctx context.Context, question string, conversationID string, dryRun bool, ch chan<- AgentEvent) (*Response, error) {
+	return a.ask(ctx, question, conversationID, true, dryRun, &channelEmitter{ch: ch})
 }

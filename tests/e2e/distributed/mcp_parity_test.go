@@ -88,7 +88,7 @@ func (s *MCPParitySuite) TestParityQuerySummary() {
 	s.T().Log(mcpText)
 
 	// 2. Query via CLI command
-	cliResult := helpers.QuerySummary(s.ctx, s.cliEnv.ColonyEndpoint, "otel-app", "10m")
+	cliResult := helpers.QuerySummary(s.ctx, s.cliEnv, "otel-app", "10m")
 	cliResult.MustSucceed(s.T())
 
 	s.T().Log("CLI summary result:")
@@ -143,7 +143,7 @@ func (s *MCPParitySuite) TestParityListServices() {
 	s.Require().NoError(err, "Should parse MCP JSON")
 
 	// 2. Query via CLI command
-	cliServices, err := helpers.ServiceListJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	cliServices, err := helpers.ServiceListJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "CLI list should succeed")
 
 	s.T().Logf("CLI services count: %d", len(cliServices))
@@ -216,7 +216,7 @@ func (s *MCPParitySuite) TestParityQueryTraces() {
 	}
 
 	// 2. Query via CLI command
-	cliResult := helpers.QueryTraces(s.ctx, s.cliEnv.ColonyEndpoint, "otel-app", "10m", 0)
+	cliResult := helpers.QueryTraces(s.ctx, s.cliEnv, "otel-app", "10m", 0)
 	cliResult.MustSucceed(s.T())
 
 	s.T().Log("CLI traces result (truncated):")
@@ -270,7 +270,7 @@ func (s *MCPParitySuite) TestParityQueryMetrics() {
 	}
 
 	// 2. Query via CLI command
-	cliResult := helpers.QueryMetrics(s.ctx, s.cliEnv.ColonyEndpoint, "otel-app", "10m")
+	cliResult := helpers.QueryMetrics(s.ctx, s.cliEnv, "otel-app", "10m")
 	cliResult.MustSucceed(s.T())
 
 	s.T().Log("CLI metrics result (truncated):")
@@ -301,7 +301,7 @@ func (s *MCPParitySuite) TestParityShellExec() {
 	s.T().Log("Testing MCP shell exec consistency...")
 
 	// Get agent ID
-	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv.ColonyEndpoint)
+	agents, err := helpers.ColonyAgentsJSON(s.ctx, s.cliEnv)
 	s.Require().NoError(err, "Should list agents")
 	s.Require().NotEmpty(agents, "Should have at least one agent")
 	s.Require().Contains(agents[0], "agent_id", "Should have agent id")

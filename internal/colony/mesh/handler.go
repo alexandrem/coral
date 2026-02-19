@@ -14,7 +14,7 @@ import (
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/config"
-	discoveryclient "github.com/coral-mesh/coral/internal/discovery/client"
+	"github.com/coral-mesh/coral/internal/discovery"
 	"github.com/coral-mesh/coral/internal/logging"
 	"github.com/coral-mesh/coral/internal/wireguard"
 )
@@ -25,7 +25,7 @@ type Handler struct {
 	wgDevice        *wireguard.Device
 	registry        *registry.Registry
 	logger          logging.Logger
-	discoveryClient *discoveryclient.Client
+	discoveryClient *discovery.Client
 }
 
 // NewHandler creates a new mesh service handler.
@@ -33,7 +33,7 @@ func NewHandler(
 	cfg *config.ResolvedConfig,
 	wgDevice *wireguard.Device,
 	registry *registry.Registry,
-	discoveryClient *discoveryclient.Client,
+	discoveryClient *discovery.Client,
 	logger logging.Logger,
 ) *Handler {
 	return &Handler{
@@ -290,13 +290,13 @@ func (h *Handler) Heartbeat(
 //
 // Returns the selected endpoint and a match type ("matching" or "first"), or (nil, "") if no valid endpoint found.
 func selectBestAgentEndpoint(
-	observedEndpoints []*discoveryclient.Endpoint,
+	observedEndpoints []*discovery.Endpoint,
 	peerHost string,
 	logger logging.Logger,
 	agentID string,
-) (*discoveryclient.Endpoint, string) {
+) (*discovery.Endpoint, string) {
 	var (
-		selectedEp, matchingEp *discoveryclient.Endpoint
+		selectedEp, matchingEp *discovery.Endpoint
 	)
 
 	for _, ep := range observedEndpoints {

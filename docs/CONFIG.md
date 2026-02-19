@@ -98,7 +98,7 @@ ai:
 
     # Coral Ask configuration (RFD 030)
     ask:
-        default_model: "google:gemini-2.0-flash-exp"
+        default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"
         conversation:
@@ -137,8 +137,8 @@ observability data.
 
 | Provider      | Model Examples                                               | API Key Required | Local/Cloud | MCP Tool Support | Status       |
 | ------------- | ------------------------------------------------------------ | ---------------- | ----------- | ---------------- | ------------ |
-| **Google**    | `gemini-2.0-flash-exp`, `gemini-1.5-pro`, `gemini-1.5-flash` | Yes              | Cloud       | ✅ Full          | ✅ Supported |
-| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`                       | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
+| **Google**    | `gemini-3-fast`                                              | Yes              | Cloud       | ✅ Full          | ✅ Supported |
+| **OpenAI**    | `gpt-4o`, `gpt-4o-mini`                                      | Yes              | Cloud       | ✅ Full          | ✅ Supported |
 | **Anthropic** | `claude-3-5-sonnet`, `claude-3-opus`                         | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
 | **Ollama**    | `llama3.2`, `mistral`, `codellama`                           | No               | Local       | ⚠️ Pending       | 🚧 Planned   |
 | **Grok**      | `grok-2-1212`, `grok-2-vision-1212`, `grok-beta`             | Yes              | Cloud       | ⚠️ Pending       | 🚧 Planned   |
@@ -148,22 +148,21 @@ observability data.
 >
 > **Currently Supported:**
 >
-> - **Google Gemini**: Only provider currently implemented. Uses direct SDK
-
-    integration with full MCP tool calling support.
-
+> - **Google Gemini**: Uses direct SDK integration with full MCP tool calling support.
+> - **OpenAI**: Uses official SDK with full MCP tool calling support. Compatible
+>   with any OpenAI-compatible API.
+>
 > **Planned Providers:**
 >
-> - **OpenAI**: Implementation needed for GPT-4o and GPT-4o-mini support
 > - **Anthropic**: Native tool calling support available, implementation planned
 > - **Ollama**: For air-gapped/offline deployments
 > - **Grok**: Evaluate tool calling support and implement if viable
 >
-> **Recommendation:** Use Google models for `coral ask`:
+> **Recommendation:**
 >
-> - Production: `google:gemini-1.5-pro` (stable, long context)
-> - Development: `google:gemini-2.0-flash-exp` (fast, experimental)
-> - Cost-effective: `google:gemini-1.5-flash` (balanced)
+> - `google:gemini-3-fast` (fast, recommended)
+> - `openai:gpt-4o` (high quality)
+> - `openai:gpt-4o-mini` (fast, cost-effective)
 >
 > See `docs/PROVIDERS.md` for detailed implementation status and roadmap.
 
@@ -183,32 +182,20 @@ observability data.
 
 Models are specified as `provider:model-id`:
 
-**Google (Currently Supported):**
+**Google:**
 
-- `google:gemini-2.0-flash-exp` - Gemini 2.0 Flash (fast, experimental)
-- `google:gemini-1.5-pro` - Gemini 1.5 Pro (long context window, most capable)
-- `google:gemini-1.5-flash` - Gemini 1.5 Flash (balanced, cost-effective)
+- `google:gemini-3-fast` - Gemini 3 Fast (fast, recommended)
+
+**OpenAI:**
+
+- `openai:gpt-4o` - GPT-4o (high quality)
+- `openai:gpt-4o-mini` - GPT-4o-mini (fast, cost-effective)
 
 **Planned Providers (Not Yet Implemented):**
 
-- `openai:gpt-4o` - Latest GPT-4 Omni (planned)
-- `openai:gpt-4o-mini` - Faster, cheaper GPT-4 Omni (planned)
 - `anthropic:claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet (planned)
 - `ollama:llama3.2` - Local Llama 3.2 (planned for air-gapped deployments)
 - `ollama:mistral` - Local Mistral (planned)
-
-**Current Limitation:**
-
-If you specify a non-Google provider, you'll receive an error:
-
-```
-provider "openai" is not yet implemented
-
-Currently supported:
-  - google:gemini-2.0-flash-exp (fast, experimental)
-  - google:gemini-1.5-pro (high quality, stable)
-  - google:gemini-1.5-flash (balanced)
-```
 
 #### API Key Configuration
 
@@ -254,7 +241,7 @@ colony_id: "my-app-prod"
 ask:
     default_model: "openai:gpt-4o"  # Use better model for production
     fallback_models:
-        - "google:gemini-2.0-flash-exp"
+        - "google:gemini-3-fast"
 ```
 
 ## Colony Configuration
@@ -1063,7 +1050,7 @@ Environment variables override configuration file values.
 | `CORAL_COLONY_ENDPOINT`    | -                                | `https://colony:8443`      | **Public API:** Public HTTPS endpoint for CLI/SDK access (RFD 031)     |
 | `CORAL_API_TOKEN`          | -                                | `cpt_abc123...`            | API token for authenticating to the public endpoint (RFD 031)          |
 | `CORAL_DEFAULT_COLONY`     | `default_colony` (Global)        | `my-default-colony`        | Default colony for global config                                       |
-| `CORAL_ASK_MODEL`          | `ask.default_model`              | `google:gemini-1.5-pro`    | Default model for Coral Ask                                            |
+| `CORAL_ASK_MODEL`          | `ask.default_model`              | `google:gemini-3-fast`     | Default model for Coral Ask                                            |
 | `CORAL_ASK_MAX_TURNS`      | `ask.conversation.max_turns`     | `20`                       | Max conversation turns for Coral Ask                                   |
 
 ### Polling Interval Environment Variables
@@ -1338,7 +1325,7 @@ ai:
     provider: "google"
     api_key_source: "env"
     ask:
-        default_model: "google:gemini-2.0-flash-exp"
+        default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"
 ```
@@ -1649,7 +1636,7 @@ ai:
 
     # Configure coral ask (RFD 030)
     ask:
-        default_model: "google:gemini-2.0-flash-exp"
+        default_model: "google:gemini-3-fast"
         api_keys:
             google: "env://GOOGLE_API_KEY"
         conversation:
@@ -1670,7 +1657,7 @@ environment: "production"
 
 # Use more stable model for production troubleshooting
 ask:
-    default_model: "google:gemini-1.5-pro"  # More capable, stable model
+    default_model: "google:gemini-3-fast"
 
 wireguard:
     mesh_network_ipv4: "100.64.0.0/10"
@@ -1700,28 +1687,25 @@ coral ask "what's the p95 latency?"
 coral ask "show me the slowest endpoints" --continue
 
 # 5. Override model for specific queries
-coral ask "complex root cause analysis" --model google:gemini-1.5-pro
+coral ask "complex root cause analysis" --model google:gemini-3-fast
 
 # 6. JSON output for scripting
 coral ask "list unhealthy services" --json
-
-# 7. Use different Gemini models
-coral ask "quick status check" --model google:gemini-1.5-flash  # Faster
-coral ask "deep analysis" --model google:gemini-1.5-pro  # More capable
 ```
 
 **Key Features:**
 
 - **MCP Integration:** LLM accesses all Colony MCP tools (service health,
   traces, metrics, logs)
-- **Google Gemini:** Currently supported provider with full tool calling
+- **Google Gemini:** Supported provider with full tool calling
+- **OpenAI:** Supported provider with full tool calling, compatible with any
+  OpenAI-compatible API
 - **Conversation Context:** Multi-turn conversations with automatic context
   pruning
 - **Per-Colony Models:** Use faster models for dev, more capable for production
-- **Model Selection:** Choose between speed (Flash) and quality (Pro)
 
-**Future Support:** OpenAI, Anthropic, and Ollama providers are planned but not
-yet implemented. See `docs/PROVIDERS.md` for implementation status.
+**Future Support:** Anthropic and Ollama providers are planned but not yet
+implemented. See `docs/PROVIDERS.md` for implementation status.
 
 ### Validation Rules
 

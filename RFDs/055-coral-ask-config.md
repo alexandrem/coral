@@ -1,7 +1,7 @@
 ---
 rfd: "055"
 title: "Coral Ask Config - Interactive LLM Configuration"
-state: "draft"
+state: "implemented"
 breaking_changes: false
 testing_required: true
 database_changes: false
@@ -13,7 +13,7 @@ areas: [ "ai", "cli", "ux" ]
 
 # RFD 055 - Coral Ask Config: Interactive LLM Configuration
 
-**Status:** 🚧 Draft
+**Status:** 🎉 Implemented
 
 <!--
 Status progression:
@@ -97,7 +97,7 @@ Implement `coral ask config` as an interactive command that:
 User runs: coral ask config
           ↓
 ┌─────────────────────────────────────────┐
-│ 1. Detect Current State                │
+│ 1. Detect Current State                 │
 │    - Check ~/.coral/config.yaml         │
 │    - Detect existing providers          │
 │    - Check environment variables        │
@@ -106,9 +106,9 @@ User runs: coral ask config
 ┌─────────────────────────────────────────┐
 │ 2. Interactive Prompts                  │
 │    - Select provider (Google/OpenAI/    │
-│      Anthropic/Ollama)                  │
+│      Coral AI)                          │
 │    - Choose use case (fast/balanced/    │
-│      quality/local)                     │
+│      quality)                           │
 │    - Suggest model based on use case    │
 │    - Guide API key setup                │
 └─────────────────────────────────────────┘
@@ -153,13 +153,17 @@ User runs: coral ask config
    - Test API keys against provider APIs
    - Verify model availability
    - Check configuration completeness
+   - Note: basic format validation already exists in `config.ValidateAskConfig`
+     (`internal/config/ask_resolver.go`); this file extends it for the wizard
 
-3. **Provider Registry** (`internal/agent/llm/registry.go` - new file):
+3. **Provider Registry** (`internal/llm/provider.go` - **already implemented**, PR #177):
 
-   - Central registry of supported providers
-   - Provider metadata (available models, features, costs)
-   - Validation functions per provider
-   - Model recommendation logic
+   - Registry with `ProviderMetadata` / `ModelMetadata` structs is live
+   - Currently registered: `google`, `openai`, `coral`
+   - `coral ask list-providers` already uses the registry for display
+   - **Action required**: extend `ModelMetadata` with `UseCase`, `CostPer1MTokens`,
+     `ContextWindow`, and `Recommended` fields before Step 2 (use-case selection)
+     and cost display can be built
 
 4. **Interactive Helpers** (`internal/cli/ask/prompts.go` - new file):
    - Reusable prompt functions
@@ -175,18 +179,16 @@ The command generates configuration like:
 # ~/.coral/config.yaml (global configuration)
 version: "1"
 ai:
-  provider: "google" # Default provider for coral ask
-  api_key_source: "env"
-
+  # Note: ai.provider is not used by coral ask. Provider is inferred from
+  # ai.ask.default_model (e.g., "google:gemini-2.0-flash"). Do not write this field.
   ask:
     # Default model for all colonies
-    default_model: "google:gemini-2.0-flash-exp"
+    default_model: "google:gemini-2.0-flash"
 
     # API keys (environment variable references)
     api_keys:
       google: "env://GOOGLE_API_KEY"
-      openai: "env://OPENAI_API_KEY" # Optional fallback
-      anthropic: "env://ANTHROPIC_API_KEY"
+      openai: "env://OPENAI_API_KEY" # Optional, for OpenAI models
 
     # Conversation settings
     conversation:
@@ -194,8 +196,13 @@ ai:
       context_window: 8192
       auto_prune: true
 
+    # Agent deployment mode (required — ValidateAskConfig rejects empty string)
+    agent:
+      mode: embedded
+
 # Per-colony override (optional)
 # Generated when using: coral ask config --colony production
+# Colony ask overrides live in ~/.coral/colonies/<colony-id>.yaml, not here.
 colonies:
   my-app-production-xyz:
     ask:
@@ -206,42 +213,42 @@ colonies:
 
 ### Phase 1: Foundation
 
-- [ ] Create `internal/cli/ask/config.go` for command implementation
-- [ ] Add `github.com/AlecAivazis/survey/v2` dependency for interactive prompts
-- [ ] Define provider registry structure (`internal/agent/llm/registry.go`)
-- [ ] Create configuration validator (`internal/config/ask_validator.go`)
+- [x] Create `internal/cli/ask/config.go` for command implementation
+- [x] Use existing charmbracelet stack (bubbletea/lipgloss already in go.mod — `survey/v2` not needed)
+- [x] Extend `ModelMetadata` in `internal/llm/provider.go` with wizard fields
+      (`UseCase`, `CostPer1MTokens`, `ContextWindow`, `Recommended`)
+- [x] Fix `ValidateAskConfig`: empty `agent.mode` now treated as `"embedded"` default
+- [ ] `GlobalConfig.Validate` still only accepts "anthropic"/"openai" for `ai.provider` —
+      wizard omits the field entirely, so this is not a blocker
 
 ### Phase 2: Core Implementation
 
-- [ ] Implement provider registry with metadata for Google, OpenAI, Anthropic,
-      Ollama
-- [ ] Implement interactive prompts for provider/model selection
-- [ ] Add API key validation (env variable check + API connectivity test)
-- [ ] Implement configuration preview and confirmation flow
-- [ ] Add YAML config generation and merging logic
+- [x] Extend `ModelMetadata` with `UseCase`, `CostPer1MTokens`, `ContextWindow`,
+      `Recommended` fields — populated for `google` and `openai` providers
+- [x] Implement interactive prompts for provider/model selection
+- [x] Add API key validation (env variable check + HTTP connectivity test)
+- [x] Implement configuration preview and confirmation flow
+- [x] Add YAML config generation and merging logic
 
 ### Phase 3: Validation & Testing
 
-- [ ] Implement API key testing for each provider
-- [ ] Add model availability verification
-- [ ] Implement configuration backup/restore
-- [ ] Add dry-run mode for testing without saving
+- [x] Implement API key testing for Google and OpenAI providers (HTTP endpoint check)
+- [x] Model availability verification via `registry.ValidateModel`
+- [x] Implement configuration backup (timestamped, keeps last 5)
+- [x] Dry-run mode (`--dry-run`) implemented
 
 ### Phase 4: Enhancement & Polish
 
-- [ ] Add non-interactive mode with flags (for scripting)
-- [ ] Implement migration from old config format (if needed)
-- [ ] Add `coral ask config validate` subcommand
-- [ ] Add `coral ask config show` to display current config
-- [ ] Add cost estimation for cloud providers
+- [x] Non-interactive mode with `--provider`, `--model`, `--api-key-env`, `--yes` flags
+- [x] `coral ask config validate` subcommand
+- [x] `coral ask config show` subcommand with colony overrides display
+- [x] Cost display during model selection
 
 ### Phase 5: Testing & Documentation
 
-- [ ] Unit tests for validator and registry
+- [ ] Unit tests for config wizard logic
 - [ ] Integration tests for end-to-end flow
-- [ ] CLI output testing (interactive prompts)
 - [ ] Update documentation with setup guides
-- [ ] Add troubleshooting guide
 
 ## API Changes
 
@@ -253,24 +260,27 @@ coral ask config
 
 # Expected output:
 ╔═══════════════════════════════════════════════════════════╗
-║           Coral Ask Configuration Wizard                 ║
+║           Coral Ask Configuration Wizard                  ║
 ╚═══════════════════════════════════════════════════════════╝
 
 ? Select an LLM provider:
   ▸ Google (Gemini) - Fast, cost-effective [RECOMMENDED]
     OpenAI (GPT) - High quality reasoning
-    Anthropic (Claude) - Best for code analysis
-    Ollama - Local/offline (no API key required)
+    Coral AI - Hosted diagnostics (free tier, no API key required)
+    ──────────
+    I already have my config set up (skip)
+
+Note: Anthropic and Ollama providers are not yet implemented and will not appear
+until their integrations are added to internal/llm/.
 
 ? What's your primary use case?
   ▸ Fast debugging (low cost, quick responses)
     Balanced (good quality, reasonable cost)
     Complex analysis (best quality, higher cost)
-    Local/offline (air-gapped environments)
 
 Based on your selection:
   Provider: Google (Gemini)
-  Recommended model: gemini-2.0-flash-exp
+  Recommended model: gemini-2.0-flash
   Cost: ~$0.01 per 1000 queries
   Speed: ~500ms average response
 
@@ -285,11 +295,12 @@ Based on your selection:
 Configuration preview:
 ───────────────────────────────────────────────────────────
 ai:
-  provider: google
   ask:
-    default_model: "google:gemini-2.0-flash-exp"
+    default_model: "google:gemini-2.0-flash"
     api_keys:
       google: "env://GOOGLE_API_KEY"
+    agent:
+      mode: embedded
 ───────────────────────────────────────────────────────────
 
 ? Save this configuration? (Y/n) ▸ Yes
@@ -317,7 +328,7 @@ Current global config:
 
 ? Select model for production colony:
   ▸ google:gemini-1.5-pro (More capable, better for production)
-    google:gemini-2.0-flash-exp (Current global default)
+    google:gemini-2.0-flash (Current global default)
     openai:gpt-4o (Highest quality)
     [Custom model...]
 
@@ -328,7 +339,7 @@ Current global config:
 # Non-interactive mode (for scripts)
 coral ask config \
   --provider google \
-  --model gemini-2.0-flash-exp \
+  --model gemini-2.0-flash \
   --api-key-env GOOGLE_API_KEY \
   --yes  # Skip confirmation
 
@@ -339,7 +350,7 @@ coral ask config validate
 ✓ Global configuration is valid
 ✓ API key GOOGLE_API_KEY is set
 ✓ API connectivity test passed
-✓ Model gemini-2.0-flash-exp is available
+✓ Model gemini-2.0-flash is available
 
 Warnings:
   ⚠ No fallback models configured
@@ -353,7 +364,7 @@ coral ask config show
 # Expected output:
 Global Configuration (default for all colonies):
   Provider: google
-  Model: gemini-2.0-flash-exp
+  Model: gemini-2.0-flash
   API Key: env://GOOGLE_API_KEY ✓
   Fallback: none
 
@@ -371,6 +382,17 @@ Last validated: 2025-11-25 14:30:00
 No schema changes - the command generates existing `AskConfig` structure. It
 provides a user-friendly interface to create/update the configuration defined in
 RFD 030.
+
+**Known issues to fix before implementation:**
+
+- `GlobalConfig.Validate()` (`internal/config/validator.go:77`) only accepts
+  `"anthropic"` or `"openai"` for `ai.provider`. The wizard must not write this
+  field, or the validator must be extended to accept all registered providers.
+- `ValidateAskConfig()` (`internal/config/ask_resolver.go:129`) rejects an empty
+  `agent.mode`. The wizard must always write `agent.mode: embedded` (or a chosen
+  mode), or the validator must treat empty as the `embedded` default.
+- `ai.api_key_source` is not used by `coral ask`. The wizard must not write this
+  field.
 
 ### New Flags
 
@@ -526,13 +548,12 @@ models, err := client.ListModels(ctx)
 // OpenAI: Get model info (minimal cost)
 model, err := client.GetModel(ctx, "gpt-4o-mini")
 
-// Anthropic: Send minimal message (lowest cost)
-resp, err := client.CreateMessage(ctx, &MessageRequest{
-    Model: "claude-3-5-haiku",
-    Messages: []Message{{Role: "user", Content: "Hi"}},
-    MaxTokens: 1,
-})
+// Coral AI: Validate endpoint URL format and basic connectivity only.
+// No API call or cost — token is optional (free tier allows anonymous access).
 ```
+
+Note: Anthropic and Ollama are not yet implemented providers. Validation
+examples for them will be added when the providers land in `internal/llm/`.
 
 ### Configuration Backup
 
@@ -615,76 +636,13 @@ Or configure manually:
 
 ## Appendix
 
-### Provider Metadata Structure
-
-```go
-// ProviderInfo contains metadata about an LLM provider.
-type ProviderInfo struct {
-    ID          string   // "google", "openai", "anthropic", "ollama"
-    Name        string   // "Google (Gemini)"
-    Description string   // "Fast, cost-effective models"
-    Features    []string // ["tool_calling", "streaming", "long_context"]
-    RequiresKey bool     // true for cloud, false for local (Ollama)
-    Models      []ModelInfo
-}
-
-// ModelInfo contains metadata about a specific model.
-type ModelInfo struct {
-    ID              string  // "gemini-2.0-flash-exp"
-    DisplayName     string  // "Gemini 2.0 Flash (Experimental)"
-    Provider        string  // "google"
-    UseCase         string  // "fast", "balanced", "quality"
-    CostPer1MTokens float64 // Estimated cost
-    ContextWindow   int     // Max tokens
-    Features        []string
-    Recommended     bool // Highlight in UI
-}
-```
-
-### Example Registry
-
-```go
-var ProviderRegistry = []ProviderInfo{
-    {
-        ID:          "google",
-        Name:        "Google (Gemini)",
-        Description: "Fast, cost-effective models with tool calling",
-        Features:    []string{"tool_calling", "streaming", "long_context"},
-        RequiresKey: true,
-        Models: []ModelInfo{
-            {
-                ID:              "gemini-2.0-flash-exp",
-                DisplayName:     "Gemini 2.0 Flash (Experimental)",
-                Provider:        "google",
-                UseCase:         "fast",
-                CostPer1MTokens: 0.01,
-                ContextWindow:   1000000,
-                Features:        []string{"tool_calling", "streaming"},
-                Recommended:     true,
-            },
-            {
-                ID:              "gemini-1.5-pro",
-                DisplayName:     "Gemini 1.5 Pro",
-                Provider:        "google",
-                UseCase:         "quality",
-                CostPer1MTokens: 0.50,
-                ContextWindow:   2000000,
-                Features:        []string{"tool_calling", "streaming", "long_context"},
-                Recommended:     false,
-            },
-        },
-    },
-    // ... other providers
-}
-```
-
 ### Interactive Flow Mockup
 
 ```
 $ coral ask config
 
 ╔═══════════════════════════════════════════════════════════╗
-║           Coral Ask Configuration Wizard                 ║
+║           Coral Ask Configuration Wizard                  ║
 ╚═══════════════════════════════════════════════════════════╝
 
 Let's set up your LLM provider for coral ask.
@@ -697,10 +655,13 @@ Step 1/5: Provider Selection
 ? Select an LLM provider:
   ▸ Google (Gemini)    [RECOMMENDED - Fast, cost-effective]
     OpenAI (GPT)       [High quality reasoning]
-    Anthropic (Claude) [Best for code analysis]
-    Ollama            [Local/offline, no API key needed]
+    Coral AI           [Hosted diagnostics, free tier]
     ──────────
     I already have my config set up (skip)
+
+Note: Anthropic and Ollama will appear here once their provider integrations
+are added. Coral AI uses a different configuration flow (endpoint URL +
+optional token) and requires a dedicated branch in the wizard.
 
 Step 2/5: Use Case
 ───────────────────────────────────────────────────────────
@@ -713,16 +674,20 @@ You selected: Google (Gemini)
     Complex analysis       ($0.50/1k queries, ~2s)
     I'll choose manually
 
+Note: Use-case display and cost estimates require adding UseCase,
+CostPer1MTokens, ContextWindow, and Recommended fields to ModelMetadata
+(internal/llm/provider.go) before this step can be implemented.
+
 Step 3/5: API Key Setup
 ───────────────────────────────────────────────────────────
 
-Recommended model: gemini-2.0-flash-exp
+Recommended model: gemini-2.0-flash
   • Tool calling: ✓
   • Streaming: ✓
   • Context: 1M tokens
 
 You'll need a Google API key:
-  1. Visit: https://makersuite.google.com/app/apikey
+  1. Visit: https://aistudio.google.com/app/apikey
   2. Create a new API key
   3. Set environment variable: export GOOGLE_API_KEY=your-key
 
@@ -749,16 +714,16 @@ Configuration to be saved:
   File: ~/.coral/config.yaml
 
   ai:
-    provider: google
-    api_key_source: env
     ask:
-      default_model: "google:gemini-2.0-flash-exp"
+      default_model: "google:gemini-2.0-flash"
       api_keys:
         google: "env://GOOGLE_API_KEY"
       conversation:
         max_turns: 10
         context_window: 8192
         auto_prune: true
+      agent:
+        mode: embedded
 
 ? Save this configuration? (Y/n) ▸
 
@@ -779,15 +744,35 @@ For help: coral ask --help
 
 ## Implementation Status
 
-**Core Capability:** ⏳ Not Started
+**Core Capability:** 🎉 Implemented
 
-The `coral ask config` command has not been implemented yet. This RFD defines
-the design for the interactive configuration wizard.
+`coral ask config` is implemented in `internal/cli/ask/config.go`.
 
-**Dependencies:**
+**What's implemented:**
 
 - ✅ RFD 030: `coral ask` command (implemented)
 - ✅ Configuration schema: `AskConfig` structure (implemented)
-- ⏳ Provider registry: Not yet implemented
-- ⏳ Interactive prompts: Not yet implemented
-- ⏳ Validation logic: Not yet implemented
+- ✅ Provider registry: `internal/llm/provider.go` — `google`, `openai`, `coral`
+- ✅ `coral ask list-providers`: Uses registry directly
+- ✅ `ModelMetadata` wizard extensions: `UseCase`, `CostPer1MTokens`,
+  `ContextWindow`, `Recommended` added; populated for `google` and `openai`
+- ✅ `ValidateAskConfig`: Empty `agent.mode` now treated as `"embedded"` default
+- ✅ Wizard does not write `ai.provider` (avoids `GlobalConfig.Validate` issue)
+- ✅ Interactive wizard with 5-step flow (uses stdlib `bufio` — no extra dep)
+- ✅ Non-interactive flags: `--provider`, `--model`, `--api-key-env`, `--yes`
+- ✅ API key env var validation + HTTP connectivity test (Google, OpenAI)
+- ✅ Coral AI special case (endpoint URL + optional token)
+- ✅ Config preview before saving
+- ✅ Timestamped backup (keeps last 5)
+- ✅ `--dry-run` mode
+- ✅ `coral ask config validate` subcommand
+- ✅ `coral ask config show` subcommand with colony overrides
+
+**Remaining / future work:**
+
+- ⏳ `GlobalConfig.Validate()` still only accepts "anthropic"/"openai" for
+  `ai.provider` — not a blocker since the wizard omits the field entirely
+- ⏳ Anthropic and Ollama providers: not yet in `internal/llm/`; will appear in
+  wizard automatically once implemented (registry-driven)
+- ⏳ Unit and integration tests for wizard
+- ⏳ `coral ask config restore <timestamp>` subcommand

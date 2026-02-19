@@ -114,28 +114,45 @@ func (h *ShellHandler) ShellExec(
 	errorMsg := ""
 
 	if execErr != nil {
-		// Check if it's a timeout.
+		// Check if it's a timeout.  A timeout means the RPC contract could not
+		// be fulfilled — the process was killed before completing.  Surface this
+		// as a gRPC DeadlineExceeded error rather than a successful response
+		// with error metadata, so callers receive an unambiguous failure signal.
 		if execCtx.Err() == context.DeadlineExceeded {
-			errorMsg = fmt.Sprintf("command timed out after %s", timeout)
-			exitCode = -1
 			h.logger.Warn().
 				Str("session_id", sessionID).
-				Str("error", errorMsg).
-				Msg("Command execution timeout")
-		} else {
-			// Extract exit code from error.
-			if exitError, ok := execErr.(*exec.ExitError); ok {
-				exitCode = int32(exitError.ExitCode())
-			} else {
-				exitCode = -1
-				errorMsg = execErr.Error()
+				Dur("timeout", timeout).
+				Msg("Command execution timed out")
+			// Return a DeadlineExceeded error. Attach whatever stdout/stderr
+			// was captured before the kill as an error detail so callers can
+			// surface the partial output alongside the timeout signal.
+			connectErr := connect.NewError(connect.CodeDeadlineExceeded,
+				fmt.Errorf("command timed out after %s", timeout))
+			if detail, detailErr := connect.NewErrorDetail(&agentv1.ShellExecResponse{
+				Stdout:     stdout,
+				Stderr:     stderr,
+				ExitCode:   -1,
+				SessionId:  sessionID,
+				DurationMs: uint32(duration.Milliseconds()),
+				Error:      fmt.Sprintf("command timed out after %s", timeout),
+			}); detailErr == nil {
+				connectErr.AddDetail(detail)
 			}
-			h.logger.Warn().
-				Err(execErr).
-				Str("session_id", sessionID).
-				Int32("exit_code", exitCode).
-				Msg("Command execution failed")
+			return nil, connectErr
 		}
+		// Non-timeout errors: extract exit code and include in the response so
+		// the caller retains full context (stdout/stderr captured so far).
+		if exitError, ok := execErr.(*exec.ExitError); ok {
+			exitCode = int32(exitError.ExitCode())
+		} else {
+			exitCode = -1
+			errorMsg = execErr.Error()
+		}
+		h.logger.Warn().
+			Err(execErr).
+			Str("session_id", sessionID).
+			Int32("exit_code", exitCode).
+			Msg("Command execution failed")
 	}
 
 	// Log execution complete.

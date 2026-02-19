@@ -154,7 +154,7 @@ Developer Machine                      Colony (Control Plane)
     - Execute LLM reasoning with tool calls
     - Manage conversation context and token budgets
 
-3. **LLM Provider** (`internal/agent/llm`)** (new package):
+3. **LLM Provider** (`internal/llm`)** (new package):
     - Provider abstraction for multi-LLM support
     - Google AI provider (Gemini models) - **currently supported**
     - Convert MCP tool schemas to provider-specific formats
@@ -750,8 +750,8 @@ coral ask "show me the slowest endpoints" --continue
   output formatting
 - `internal/agent/ask/agent.go` - Ask agent with Colony RPC client integration
 - `internal/agent/ask/conversation.go` - Multi-turn conversation management
-- `internal/agent/llm/provider.go` - LLM provider abstraction
-- `internal/agent/llm/google.go` - Google AI (Gemini) provider implementation
+- `internal/llm/provider.go` - LLM provider abstraction
+- `internal/llm/google.go` - Google AI (Gemini) provider implementation
 - `internal/colony/mcp/server.go` - MCP server with schema generation fixes
 - `internal/colony/mcp/tools_observability.go` - Tool registration with
   consistent schema generation
@@ -796,9 +796,9 @@ schema.Items = convertJSONSchemaToGemini(items)
 }
 ```
 
-**Files:** `internal/agent/llm/google.go:251-255`
+**Files:** `internal/llm/google.go:251-255`
 
-**Tests:** `internal/agent/llm/google_test.go` - Added comprehensive tests for
+**Tests:** `internal/llm/google_test.go` - Added comprehensive tests for
 array schema conversion
 
 ### 3. MCP Client Initialization
@@ -821,8 +821,8 @@ deferred to future work:
 **Current:** Only Google AI (Gemini) is supported
 **Planned:** Add OpenAI and Anthropic providers with fallback support
 
-- Implement OpenAI provider (`internal/agent/llm/openai.go`)
-- Implement Anthropic provider (`internal/agent/llm/anthropic.go`)
+- Implement OpenAI provider (`internal/llm/openai.go`)
+- Implement Anthropic provider (`internal/llm/anthropic.go`)
 - Add provider fallback logic (try primary, fall back on errors)
 - Update configuration schema to support multiple API keys
 - Add Ollama provider for local/offline use

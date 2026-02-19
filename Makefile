@@ -65,6 +65,7 @@ build: generate ## Build the full coral CLI binary
 	@echo "Building for $(GOOS)/$(GOARCH) → $(BUILD_DIR)"
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/coral
+	@chmod +x $(BUILD_DIR)/$(BINARY_NAME)
 	@echo "✓ Built $(BUILD_DIR)/$(BINARY_NAME)"
 	@# Copy Deno binary for current platform.
 	@DENO_SRC="internal/cli/run/binaries/deno-$(shell go env GOOS)-$(shell go env GOARCH)"; \
@@ -110,6 +111,15 @@ build-all: generate ## Build all binaries (coral, coral-colony, coral-agent)
 		echo "⚠️  Deno binary not found at $$DENO_SRC"; \
 		echo "   Run 'make generate' to download Deno binaries"; \
 	fi
+	@# Create symlinks in bin/ for e2e tests (only when using default platform-specific BUILD_DIR)
+	@# Skip if BUILD_DIR is overridden (e.g., in Docker builds)
+	@if [ "$(BUILD_DIR)" = "bin/$(shell go env GOOS)_$(shell go env GOARCH)" ]; then \
+		rm -f bin/$(BINARY_NAME); \
+		ln -s $(shell go env GOOS)_$(shell go env GOARCH)/$(BINARY_NAME) bin/$(BINARY_NAME); \
+		echo "✓ Created symlinks: bin/$(BINARY_NAME) → $(BUILD_DIR)/$(BINARY_NAME)"; \
+	else \
+		echo "✓ Skipping symlink creation (BUILD_DIR override detected)"; \
+	fi
 
 build-dev: build ## Build and grant TUN creation privileges (Linux: capabilities, macOS: setuid)
 	@echo "Granting TUN device creation privileges..."
@@ -132,6 +142,7 @@ build-dev: build ## Build and grant TUN creation privileges (Linux: capabilities
 clean: ## Remove build artifacts
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR)
+	@rm -f bin/$(BINARY_NAME)
 	@echo "✓ Cleaned"
 
 install: build ## Install the binary to $GOPATH/bin

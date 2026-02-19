@@ -18,6 +18,16 @@ func ResolveAskConfig(globalCfg *GlobalConfig, colonyCfg *ColonyConfig) (*AskCon
 	// Start with global config defaults.
 	resolved := globalCfg.AI.Ask
 
+	// Deep-copy APIKeys to avoid mutating the original globalCfg map when
+	// resolveAPIKeyReferences replaces env:// references with their values.
+	if resolved.APIKeys != nil {
+		copy := make(map[string]string, len(resolved.APIKeys))
+		for k, v := range resolved.APIKeys {
+			copy[k] = v
+		}
+		resolved.APIKeys = copy
+	}
+
 	// Apply colony-specific overrides if present.
 	if colonyCfg != nil && colonyCfg.Ask != nil {
 		if colonyCfg.Ask.DefaultModel != "" {
@@ -84,6 +94,8 @@ func resolveAPIKeyReferences(cfg *AskConfig) error {
 }
 
 // getDefaultAPIKey attempts to get API key from common environment variables.
+// Note: This uses hardcoded env var names to avoid import cycles.
+// Provider metadata (including env var names) is managed in internal/llm.
 func getDefaultAPIKey(provider string) string {
 	switch provider {
 	case "openai":
@@ -92,21 +104,27 @@ func getDefaultAPIKey(provider string) string {
 		return os.Getenv("ANTHROPIC_API_KEY")
 	case "google":
 		return os.Getenv("GOOGLE_API_KEY")
+	case "coral":
+		return os.Getenv("CORAL_AI_TOKEN")
 	default:
 		return ""
 	}
 }
 
 // ValidateAskConfig validates the ask configuration.
+// Note: This performs basic format validation only. Provider/model validation
+// happens in the CLI layer to avoid import cycles.
 func ValidateAskConfig(cfg *AskConfig) error {
 	if cfg.DefaultModel == "" {
 		return fmt.Errorf("default_model is required")
 	}
 
-	// Validate model format (provider:model-id).
-	parts := strings.SplitN(cfg.DefaultModel, ":", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid model format %q, expected provider:model-id (e.g., openai:gpt-4o-mini)", cfg.DefaultModel)
+	// Validate model format (provider:model-id, or bare "coral").
+	if cfg.DefaultModel != "coral" {
+		parts := strings.SplitN(cfg.DefaultModel, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid model format %q, expected provider:model-id (e.g., google:gemini-2.0-flash) or \"coral\"", cfg.DefaultModel)
+		}
 	}
 
 	// Validate conversation settings.
@@ -117,10 +135,12 @@ func ValidateAskConfig(cfg *AskConfig) error {
 		return fmt.Errorf("context_window must be non-negative, got %d", cfg.Conversation.ContextWindow)
 	}
 
-	// Validate agent mode.
-	validModes := map[string]bool{"embedded": true, "daemon": true, "ephemeral": true}
-	if !validModes[cfg.Agent.Mode] {
-		return fmt.Errorf("invalid agent mode %q, must be one of: embedded, daemon, ephemeral", cfg.Agent.Mode)
+	// Validate agent mode. Empty string is treated as "embedded" (the default).
+	if cfg.Agent.Mode != "" {
+		validModes := map[string]bool{"embedded": true, "daemon": true, "ephemeral": true}
+		if !validModes[cfg.Agent.Mode] {
+			return fmt.Errorf("invalid agent mode %q, must be one of: embedded, daemon, ephemeral", cfg.Agent.Mode)
+		}
 	}
 
 	return nil

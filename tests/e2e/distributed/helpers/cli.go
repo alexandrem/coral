@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -21,20 +22,105 @@ type CLIResult struct {
 // getCoralBinaryPath returns the path to the coral binary.
 // Looks in project bin/ folder first (for locally built binaries),
 // then falls back to PATH.
+// Returns absolute path with symlinks resolved for better compatibility in CI.
 func getCoralBinaryPath() string {
 	// Try project bin/ folder first (relative to test directory)
 	// tests/e2e/distributed -> ../../../bin/coral
 	testDir, err := os.Getwd()
 	if err == nil {
 		projectRoot := filepath.Join(testDir, "../../..")
+
+		// Try generic bin/coral first (symlink created by make build).
 		localBinary := filepath.Join(projectRoot, "bin", "coral")
 		if _, err := os.Stat(localBinary); err == nil {
+			// Resolve symlinks and convert to absolute path for CI compatibility.
+			if absPath, err := filepath.Abs(localBinary); err == nil {
+				if resolvedPath, err := filepath.EvalSymlinks(absPath); err == nil {
+					return resolvedPath
+				}
+				return absPath
+			}
 			return localBinary
+		}
+
+		// Try architecture-specific binary (e.g., bin/darwin_arm64/coral).
+		archBinary := filepath.Join(projectRoot, "bin", fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH), "coral")
+		if _, err := os.Stat(archBinary); err == nil {
+			// Resolve to absolute path.
+			if absPath, err := filepath.Abs(archBinary); err == nil {
+				return absPath
+			}
+			return archBinary
 		}
 	}
 
 	// Fall back to PATH
 	return "coral"
+}
+
+// EnsureCoralBinary validates that the coral binary exists and is accessible.
+// This should be called early in test setup to fail fast with a clear error message.
+// Returns an error if the binary cannot be found in either the project bin/ folder or PATH.
+func EnsureCoralBinary() error {
+	// Try project bin/ folder first (relative to test directory)
+	// tests/e2e/distributed -> ../../../bin/coral
+	testDir, err := os.Getwd()
+	var localBinaryPath, archBinaryPath string
+	if err == nil {
+		projectRoot := filepath.Join(testDir, "../../..")
+
+		// Try generic bin/coral first (symlink created by make build).
+		localBinaryPath = filepath.Join(projectRoot, "bin", "coral")
+		if _, err := os.Stat(localBinaryPath); err == nil {
+			// Resolve symlinks to check actual binary permissions.
+			if absPath, err := filepath.Abs(localBinaryPath); err == nil {
+				if resolvedPath, err := filepath.EvalSymlinks(absPath); err == nil {
+					// Check if the resolved binary is executable.
+					if resolvedInfo, err := os.Stat(resolvedPath); err == nil {
+						if resolvedInfo.Mode()&0111 == 0 {
+							// Binary exists but is not executable - try to fix it.
+							if err := os.Chmod(resolvedPath, resolvedInfo.Mode()|0111); err != nil {
+								return fmt.Errorf("binary found at %s but is not executable and chmod failed: %w", resolvedPath, err)
+							}
+						}
+					}
+				}
+			}
+			return nil // Found in project bin/
+		}
+
+		// Try architecture-specific binary (e.g., bin/darwin_arm64/coral).
+		archBinaryPath = filepath.Join(projectRoot, "bin", fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH), "coral")
+		if info, err := os.Stat(archBinaryPath); err == nil {
+			// Check if binary is executable.
+			if info.Mode()&0111 == 0 {
+				// Binary exists but is not executable - try to fix it.
+				if err := os.Chmod(archBinaryPath, info.Mode()|0111); err != nil {
+					return fmt.Errorf("binary found at %s but is not executable and chmod failed: %w", archBinaryPath, err)
+				}
+			}
+			return nil // Found in architecture-specific bin/
+		}
+	}
+
+	// Check if coral is in PATH
+	if path, err := exec.LookPath("coral"); err == nil && path != "" {
+		return nil // Found in PATH
+	}
+
+	// Binary not found - provide helpful error message
+	return fmt.Errorf(
+		"coral binary not found.\n"+
+			"Tried:\n"+
+			"  1. Project bin/: %s (not found)\n"+
+			"  2. Project bin/ (arch-specific): %s (not found)\n"+
+			"  3. System PATH: 'coral' (not found)\n\n"+
+			"Please build the binary first:\n"+
+			"  make build\n\n"+
+			"Or ensure 'coral' is in your PATH.",
+		localBinaryPath,
+		archBinaryPath,
+	)
 }
 
 // RunCLI executes a coral CLI command and returns the result.
@@ -56,31 +142,63 @@ func RunCLI(ctx context.Context, args ...string) *CLIResult {
 }
 
 // RunCLIWithEnv executes a coral CLI command with custom environment variables.
+// Only inherits specific safe environment variables for test isolation.
 func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *CLIResult {
 	coralBin := getCoralBinaryPath()
 	cmd := exec.CommandContext(ctx, coralBin, args...)
 
-	// Create a map of override keys for efficient lookup.
-	overrideKeys := make(map[string]bool)
-	for key := range env {
-		overrideKeys[key] = true
+	// Start with a clean environment map.
+	envMap := make(map[string]string)
+
+	// Inherit only specific safe variables needed for tests to work.
+	// This provides minimal environment while maintaining test isolation.
+	safeVars := []string{
+		"HOME",            // Required for config file resolution
+		"USER",            // May be needed by some commands
+		"TMPDIR",          // Temp directory
+		"PATH",            // System PATH (will be modified below)
+		"TERM",            // Terminal type for output formatting
+		"LANG",            // Locale settings
+		"LC_ALL",          // Locale settings
+		"TZ",              // Timezone
+		"CORAL_COLONY_ID", // Coral-specific vars
+		"CORAL_CONFIG",    // Coral-specific vars
 	}
 
-	// Add custom environment variables (these take precedence).
+	// For safe vars: test-specific values take precedence over parent env.
+	for _, varName := range safeVars {
+		// First check if test explicitly sets this variable.
+		if value, ok := env[varName]; ok && value != "" {
+			// Only add non-empty values - empty string means "unset" in tests.
+			envMap[varName] = value
+		} else if value := os.Getenv(varName); value != "" {
+			// Fall back to parent environment if not overridden.
+			envMap[varName] = value
+		}
+	}
+
+	// Add any additional test-specific environment variables not in safeVars.
 	for key, value := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
-	}
-
-	// Add current HOME unless it's overridden.
-	if _, exists := overrideKeys["HOME"]; !exists {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("HOME=%s", os.Getenv("HOME")))
+		// Only add non-empty values - empty string means "unset" in tests.
+		if value != "" {
+			envMap[key] = value
+		}
 	}
 
 	// Ensure the directory containing the coral binary is in PATH.
 	// This is required for commands that spawn subprocesses using "coral" (e.g. ask).
 	coralDir := filepath.Dir(coralBin)
-	pathVar := "PATH"
-	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", pathVar, coralDir))
+	if currentPath, ok := envMap["PATH"]; ok {
+		envMap["PATH"] = coralDir + string(os.PathListSeparator) + currentPath
+	} else {
+		envMap["PATH"] = coralDir
+	}
+
+	// Convert map to []string for cmd.Env.
+	cmd.Env = make([]string, 0, len(envMap))
+	for key, value := range envMap {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
 
 	output, err := cmd.CombinedOutput()
 
@@ -97,17 +215,13 @@ func RunCLIWithEnv(ctx context.Context, env map[string]string, args ...string) *
 }
 
 // AgentList executes `coral agent list` and returns the output.
-func AgentList(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents")
+func AgentList(ctx context.Context, env *CLITestEnv) *CLIResult {
+	return env.Run(ctx, "colony", "agents")
 }
 
 // AgentListJSON executes `coral agent list --format json` and parses the output.
-func AgentListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents", "-o", "json")
+func AgentListJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interface{}, error) {
+	result := env.Run(ctx, "colony", "agents", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("agent list failed: %w\nOutput: %s", result.Err, result.Output)
@@ -122,17 +236,13 @@ func AgentListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]int
 }
 
 // ServiceList executes `coral service list` and returns the output.
-func ServiceList(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "service", "list")
+func ServiceList(ctx context.Context, env *CLITestEnv) *CLIResult {
+	return env.Run(ctx, "colony", "service", "list")
 }
 
 // ServiceListJSON executes `coral service list --format json` and parses the output.
-func ServiceListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "service", "list", "-o", "json")
+func ServiceListJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interface{}, error) {
+	result := env.Run(ctx, "colony", "service", "list", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("service list failed: %w\nOutput: %s", result.Err, result.Output)
@@ -169,7 +279,7 @@ func ServiceListJSON(ctx context.Context, colonyEndpoint string) ([]map[string]i
 }
 
 // QuerySummary executes `coral query summary` and returns the output.
-func QuerySummary(ctx context.Context, colonyEndpoint, service, timeRange string) *CLIResult {
+func QuerySummary(ctx context.Context, env *CLITestEnv, service, timeRange string) *CLIResult {
 	args := []string{"query", "summary"}
 
 	if service != "" {
@@ -180,13 +290,11 @@ func QuerySummary(ctx context.Context, colonyEndpoint, service, timeRange string
 		args = append(args, "--since", timeRange)
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return env.Run(ctx, args...)
 }
 
 // QuerySummaryJSON executes `coral query summary --format json` and parses the output.
-func QuerySummaryJSON(ctx context.Context, colonyEndpoint, service, timeRange string) (map[string]interface{}, error) {
+func QuerySummaryJSON(ctx context.Context, env *CLITestEnv, service, timeRange string) (map[string]interface{}, error) {
 	args := []string{"query", "summary", "--format", "json"}
 
 	if service != "" {
@@ -197,9 +305,7 @@ func QuerySummaryJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 		args = append(args, "--since", timeRange)
 	}
 
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	result := env.Run(ctx, args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("query summary failed: %w\nOutput: %s", result.Err, result.Output)
@@ -214,7 +320,7 @@ func QuerySummaryJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 }
 
 // QueryTraces executes `coral query traces` and returns the output.
-func QueryTraces(ctx context.Context, colonyEndpoint, service, timeRange string, limit int) *CLIResult {
+func QueryTraces(ctx context.Context, env *CLITestEnv, service, timeRange string, limit int) *CLIResult {
 	args := []string{"query", "traces"}
 
 	if service != "" {
@@ -229,13 +335,11 @@ func QueryTraces(ctx context.Context, colonyEndpoint, service, timeRange string,
 		args = append(args, "--limit", fmt.Sprintf("%d", limit))
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return env.Run(ctx, args...)
 }
 
 // QueryTracesJSON executes `coral query traces --format json` and parses the output.
-func QueryTracesJSON(ctx context.Context, colonyEndpoint, service, timeRange string, limit int) (map[string]interface{}, error) {
+func QueryTracesJSON(ctx context.Context, env *CLITestEnv, service, timeRange string, limit int) (map[string]interface{}, error) {
 	args := []string{"query", "traces", "--format", "json"}
 
 	if service != "" {
@@ -250,9 +354,7 @@ func QueryTracesJSON(ctx context.Context, colonyEndpoint, service, timeRange str
 		args = append(args, "--limit", fmt.Sprintf("%d", limit))
 	}
 
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	result := env.Run(ctx, args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("query traces failed: %w\nOutput: %s", result.Err, result.Output)
@@ -267,7 +369,7 @@ func QueryTracesJSON(ctx context.Context, colonyEndpoint, service, timeRange str
 }
 
 // QueryMetrics executes `coral query metrics` and returns the output.
-func QueryMetrics(ctx context.Context, colonyEndpoint, service, timeRange string) *CLIResult {
+func QueryMetrics(ctx context.Context, env *CLITestEnv, service, timeRange string) *CLIResult {
 	args := []string{"query", "metrics"}
 
 	if service != "" {
@@ -278,13 +380,11 @@ func QueryMetrics(ctx context.Context, colonyEndpoint, service, timeRange string
 		args = append(args, "--since", timeRange)
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return env.Run(ctx, args...)
 }
 
 // QueryMetricsJSON executes `coral query metrics --format json` and parses the output.
-func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange string) (map[string]interface{}, error) {
+func QueryMetricsJSON(ctx context.Context, env *CLITestEnv, service, timeRange string) (map[string]interface{}, error) {
 	args := []string{"query", "metrics", "--format", "json"}
 
 	if service != "" {
@@ -295,9 +395,7 @@ func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 		args = append(args, "--since", timeRange)
 	}
 
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	result := env.Run(ctx, args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("query metrics failed: %w\nOutput: %s", result.Err, result.Output)
@@ -312,7 +410,7 @@ func QueryMetricsJSON(ctx context.Context, colonyEndpoint, service, timeRange st
 }
 
 // DebugCPUProfile executes `coral profile cpu` and returns the output.
-func DebugCPUProfile(ctx context.Context, colonyEndpoint, agentID, serviceName string, duration int) *CLIResult {
+func DebugCPUProfile(ctx context.Context, env *CLITestEnv, agentID, serviceName string, duration int) *CLIResult {
 	args := []string{"profile", "cpu"}
 
 	if agentID != "" {
@@ -327,23 +425,17 @@ func DebugCPUProfile(ctx context.Context, colonyEndpoint, agentID, serviceName s
 		args = append(args, "--duration", fmt.Sprintf("%d", duration))
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return env.Run(ctx, args...)
 }
 
 // ColonyStatus executes `coral colony status` and returns the output.
-func ColonyStatus(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "status")
+func ColonyStatus(ctx context.Context, env *CLITestEnv) *CLIResult {
+	return env.Run(ctx, "colony", "status")
 }
 
 // ColonyStatusJSON executes `coral colony status --format json` and parses the output.
-func ColonyStatusJSON(ctx context.Context, colonyEndpoint string) (map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "status", "-o", "json")
+func ColonyStatusJSON(ctx context.Context, env *CLITestEnv) (map[string]interface{}, error) {
+	result := env.Run(ctx, "colony", "status", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("colony status failed: %w\nOutput: %s", result.Err, result.Output)
@@ -358,17 +450,13 @@ func ColonyStatusJSON(ctx context.Context, colonyEndpoint string) (map[string]in
 }
 
 // ColonyAgents executes `coral colony agents` and returns the output.
-func ColonyAgents(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents")
+func ColonyAgents(ctx context.Context, env *CLITestEnv) *CLIResult {
+	return env.Run(ctx, "colony", "agents")
 }
 
 // ColonyAgentsJSON executes `coral colony agents --format json` and parses the output.
-func ColonyAgentsJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "colony", "agents", "-o", "json")
+func ColonyAgentsJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interface{}, error) {
+	result := env.Run(ctx, "colony", "agents", "-o", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("colony agents failed: %w\nOutput: %s", result.Err, result.Output)
@@ -393,29 +481,25 @@ func ColonyTokenCreate(ctx context.Context, env map[string]string, tokenID, perm
 }
 
 // AgentStatus executes `coral agent status` for a specific agent and returns the output.
-func AgentStatus(ctx context.Context, colonyEndpoint, agentID string) *CLIResult {
+func AgentStatus(ctx context.Context, env *CLITestEnv, agentID string) *CLIResult {
 	args := []string{"agent", "status"}
 
 	if agentID != "" {
 		args = append(args, "--agent", agentID)
 	}
 
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	return env.Run(ctx, args...)
 }
 
 // AgentStatusJSON executes `coral agent status --format json` and parses the output.
-func AgentStatusJSON(ctx context.Context, colonyEndpoint, agentID string) (map[string]interface{}, error) {
+func AgentStatusJSON(ctx context.Context, env *CLITestEnv, agentID string) (map[string]interface{}, error) {
 	args := []string{"agent", "status", "--format", "json"}
 
 	if agentID != "" {
 		args = append(args, "--agent", agentID)
 	}
 
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, args...)
+	result := env.Run(ctx, args...)
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("agent status failed: %w\nOutput: %s", result.Err, result.Output)
@@ -430,17 +514,13 @@ func AgentStatusJSON(ctx context.Context, colonyEndpoint, agentID string) (map[s
 }
 
 // QueryServices executes `coral query services` and returns the output.
-func QueryServices(ctx context.Context, colonyEndpoint string) *CLIResult {
-	return RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "query", "services")
+func QueryServices(ctx context.Context, env *CLITestEnv) *CLIResult {
+	return env.Run(ctx, "query", "services")
 }
 
 // QueryServicesJSON executes `coral query services --format json` and parses the output.
-func QueryServicesJSON(ctx context.Context, colonyEndpoint string) ([]map[string]interface{}, error) {
-	result := RunCLIWithEnv(ctx, map[string]string{
-		"CORAL_COLONY_ENDPOINT": colonyEndpoint,
-	}, "query", "services", "--format", "json")
+func QueryServicesJSON(ctx context.Context, env *CLITestEnv) ([]map[string]interface{}, error) {
+	result := env.Run(ctx, "query", "services", "--format", "json")
 
 	if result.Err != nil {
 		return nil, fmt.Errorf("query services failed: %w\nOutput: %s", result.Err, result.Output)
