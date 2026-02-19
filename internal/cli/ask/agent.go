@@ -266,15 +266,22 @@ func (a *Agent) Close() error {
 
 // buildSystemPrompt builds the system prompt with service context (RFD 054).
 func (a *Agent) buildSystemPrompt(ctx context.Context) string {
-	// Fetch available services from the colony.
-	serviceList := a.fetchServiceList(ctx)
+	serviceCtx := a.fetchServiceContext(ctx)
+	healthAlerts := a.fetchHealthAlerts(ctx)
 
-	// Build system prompt with parameter extraction rules.
-	prompt := `You are an observability assistant for Coral distributed systems.
+	now := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
 
+	prompt := "You are an observability assistant for Coral distributed systems.\n"
+	prompt += "Current time: " + now + "\n"
+
+	if healthAlerts != "" {
+		prompt += "\nALERTS (last 5m):\n" + healthAlerts + "\n"
+	}
+
+	prompt += `
 PARAMETER EXTRACTION RULES:
 1. Service names: Extract exactly as mentioned (e.g., "coral service" → "coral")
-   Available services: ` + serviceList + `
+   Available services: ` + serviceCtx + `
 2. Time ranges: Convert natural language (e.g., "last hour" → "1h", "30 min" → "30m")
 3. HTTP methods: Extract from context (e.g., "GET requests" → "GET")
 4. Status codes: Map phrases (e.g., "errors" → "5xx", "success" → "2xx")
@@ -284,9 +291,8 @@ Always extract ALL relevant parameters from the user's query before asking for c
 	return prompt
 }
 
-// fetchServiceList fetches the list of available services from the colony.
-func (a *Agent) fetchServiceList(ctx context.Context) string {
-	// Call coral_list_services tool to get available services.
+// fetchServiceContext fetches the list of available services with their status.
+func (a *Agent) fetchServiceContext(ctx context.Context) string {
 	req := mcp.CallToolRequest{}
 	req.Params.Name = "coral_list_services"
 	req.Params.Arguments = map[string]interface{}{}
@@ -299,29 +305,100 @@ func (a *Agent) fetchServiceList(ctx context.Context) string {
 		return "(service list unavailable)"
 	}
 
-	// Parse the result to extract service names.
 	if len(result.Content) > 0 {
 		if textContent, ok := mcp.AsTextContent(result.Content[0]); ok {
-			// Parse JSON response.
 			var output struct {
 				Services []struct {
-					Name string `json:"name"`
+					Name   string `json:"name"`
+					Status string `json:"status"`
 				} `json:"services"`
 			}
 			if err := json.Unmarshal([]byte(textContent.Text), &output); err == nil {
-				// Build comma-separated list of service names.
-				names := make([]string, 0, len(output.Services))
+				entries := make([]string, 0, len(output.Services))
 				for _, svc := range output.Services {
-					names = append(names, svc.Name)
+					entry := svc.Name
+					// Only annotate non-normal statuses so healthy services don't add noise.
+					if svc.Status != "" && svc.Status != "ACTIVE" {
+						entry += " (" + svc.Status + ")"
+					}
+					entries = append(entries, entry)
 				}
-				if len(names) > 0 {
-					return strings.Join(names, ", ")
+				if len(entries) > 0 {
+					return strings.Join(entries, ", ")
 				}
 			}
 		}
 	}
 
 	return "(no services registered)"
+}
+
+// fetchHealthAlerts calls coral_query_summary and returns a compact alert string
+// containing only degraded or critical services. Returns empty string if all healthy.
+func (a *Agent) fetchHealthAlerts(ctx context.Context) string {
+	req := mcp.CallToolRequest{}
+	req.Params.Name = "coral_query_summary"
+	req.Params.Arguments = map[string]interface{}{
+		"time_range":        "5m",
+		"include_profiling": false,
+	}
+
+	result, err := a.mcpClient.CallTool(ctx, req)
+	if err != nil {
+		if a.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to fetch health snapshot: %v\n", err)
+		}
+		return ""
+	}
+
+	if len(result.Content) == 0 {
+		return ""
+	}
+	textContent, ok := mcp.AsTextContent(result.Content[0])
+	if !ok {
+		return ""
+	}
+	return parseHealthAlerts(textContent.Text)
+}
+
+// parseHealthAlerts extracts compact one-liners for degraded/critical services from
+// the coral_query_summary text output. Returns empty string if no issues found.
+func parseHealthAlerts(summaryText string) string {
+	// Each service block is separated by a blank line.
+	blocks := strings.Split(summaryText, "\n\n")
+	var alerts []string
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		lines := strings.Split(block, "\n")
+		if len(lines) == 0 {
+			continue
+		}
+		firstLine := strings.TrimSpace(lines[0])
+		// Include only degraded (⚠️) or critical (❌) services.
+		if !strings.HasPrefix(firstLine, "⚠️") && !strings.HasPrefix(firstLine, "❌") {
+			continue
+		}
+		alerts = append(alerts, compactServiceAlert(firstLine, lines[1:]))
+	}
+	return strings.Join(alerts, "\n")
+}
+
+// compactServiceAlert formats a single degraded/critical service as a one-liner.
+func compactServiceAlert(header string, lines []string) string {
+	parts := []string{header}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Status:") ||
+			strings.HasPrefix(line, "Error Rate:") ||
+			strings.HasPrefix(line, "Avg Latency:") ||
+			strings.HasPrefix(line, "Requests:") {
+			parts = append(parts, line)
+		}
+	}
+	return strings.Join(parts, " | ")
 }
 
 // ask is the internal implementation that sends a question to the agent (RFD 051).

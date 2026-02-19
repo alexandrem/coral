@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,104 @@ import (
 
 	"github.com/coral-mesh/coral/internal/config"
 )
+
+func TestParseHealthAlerts(t *testing.T) {
+	// buildSummary constructs a coral_query_summary-style text block.
+	buildSummary := func(blocks ...string) string {
+		return "Service Health Summary:\n\n" + strings.Join(blocks, "\n\n") + "\n\n"
+	}
+	healthy := "✅ api-gateway (ebpf)\n   Status: OK\n   Requests: 500\n   Error Rate: 0.00%\n   Avg Latency: 12.50ms\n"
+	idle := "💤 worker (ebpf)\n   Status: IDLE\n   Requests: 0\n   Error Rate: 0.00%\n   Avg Latency: 0.00ms\n"
+	degraded := "⚠️ user-service (registered+ebpf)\n   Status: DEGRADED\n   Requests: 50\n   Error Rate: 23.50%\n   Avg Latency: 1200.00ms\n"
+	critical := "❌ db-proxy (registered)\n   Status: CRITICAL\n   Requests: 12\n   Error Rate: 98.00%\n   Avg Latency: 5000.00ms\n"
+
+	t.Run("empty input", func(t *testing.T) {
+		assert.Equal(t, "", parseHealthAlerts(""))
+	})
+
+	t.Run("all healthy services", func(t *testing.T) {
+		assert.Equal(t, "", parseHealthAlerts(buildSummary(healthy, idle)))
+	})
+
+	t.Run("single degraded service", func(t *testing.T) {
+		result := parseHealthAlerts(buildSummary(healthy, degraded))
+		assert.Contains(t, result, "⚠️ user-service")
+		assert.Contains(t, result, "Status: DEGRADED")
+		assert.Contains(t, result, "Error Rate: 23.50%")
+		assert.Contains(t, result, "Avg Latency: 1200.00ms")
+		assert.Contains(t, result, "Requests: 50")
+		assert.NotContains(t, result, "api-gateway")
+	})
+
+	t.Run("single critical service", func(t *testing.T) {
+		result := parseHealthAlerts(buildSummary(critical))
+		assert.Contains(t, result, "❌ db-proxy")
+		assert.Contains(t, result, "Status: CRITICAL")
+		assert.Contains(t, result, "Error Rate: 98.00%")
+	})
+
+	t.Run("mixed: healthy and degraded and critical", func(t *testing.T) {
+		result := parseHealthAlerts(buildSummary(healthy, degraded, idle, critical))
+		assert.Contains(t, result, "⚠️ user-service")
+		assert.Contains(t, result, "❌ db-proxy")
+		assert.NotContains(t, result, "api-gateway")
+		assert.NotContains(t, result, "worker")
+		// Each alert is on its own line.
+		lines := strings.Split(strings.TrimSpace(result), "\n")
+		assert.Equal(t, 2, len(lines))
+	})
+
+	t.Run("regression and host resource lines are excluded", func(t *testing.T) {
+		withExtras := "⚠️ svc (ebpf)\n   Status: DEGRADED\n   Requests: 10\n   Error Rate: 50.00%\n   Avg Latency: 800.00ms\n   Host Resources:\n     CPU: 95%\n   Regressions:\n     ⚠️  error rate spike\n"
+		result := parseHealthAlerts(buildSummary(withExtras))
+		assert.Contains(t, result, "⚠️ svc")
+		assert.Contains(t, result, "Error Rate: 50.00%")
+		assert.NotContains(t, result, "Host Resources")
+		assert.NotContains(t, result, "CPU:")
+		assert.NotContains(t, result, "error rate spike")
+	})
+
+	t.Run("header-only input (no service blocks)", func(t *testing.T) {
+		assert.Equal(t, "", parseHealthAlerts("Service Health Summary:\n\n"))
+	})
+}
+
+func TestCompactServiceAlert(t *testing.T) {
+	t.Run("header only", func(t *testing.T) {
+		result := compactServiceAlert("⚠️ svc (ebpf)", nil)
+		assert.Equal(t, "⚠️ svc (ebpf)", result)
+	})
+
+	t.Run("includes all key fields", func(t *testing.T) {
+		lines := []string{
+			"   Status: DEGRADED",
+			"   Requests: 50",
+			"   Error Rate: 23.50%",
+			"   Avg Latency: 1200.00ms",
+		}
+		result := compactServiceAlert("⚠️ user-service (ebpf)", lines)
+		assert.Equal(t, "⚠️ user-service (ebpf) | Status: DEGRADED | Requests: 50 | Error Rate: 23.50% | Avg Latency: 1200.00ms", result)
+	})
+
+	t.Run("ignores non-key lines", func(t *testing.T) {
+		lines := []string{
+			"   Status: CRITICAL",
+			"   Host Resources:",
+			"     CPU: 99%",
+			"   Regressions:",
+			"     ⚠️  latency spike",
+		}
+		result := compactServiceAlert("❌ db-proxy (registered)", lines)
+		assert.Equal(t, "❌ db-proxy (registered) | Status: CRITICAL", result)
+	})
+
+	t.Run("handles leading whitespace in lines", func(t *testing.T) {
+		lines := []string{"   Error Rate: 5.00%", "   Avg Latency: 200.00ms"}
+		result := compactServiceAlert("⚠️ svc (ebpf)", lines)
+		assert.Contains(t, result, "Error Rate: 5.00%")
+		assert.Contains(t, result, "Avg Latency: 200.00ms")
+	})
+}
 
 func TestConversationPersistence(t *testing.T) {
 	// Setup minimalist agent
