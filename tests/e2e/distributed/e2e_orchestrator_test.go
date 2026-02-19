@@ -393,14 +393,47 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 	s.Run("MCP_ToolInputValidation", mcpSuite.TestMCPToolInputValidation)
 
 	// Group J: Error Coverage (Sprint 2, Task 2.1)
+
+	// coral_shell_exec
 	s.Run("MCP_ErrorShellExecEmptyCommand", mcpSuite.TestShellExecErrorEmptyCommand)
 	s.Run("MCP_ErrorShellExecTimeout", mcpSuite.TestShellExecErrorTimeout)
 	s.Run("MCP_ErrorShellExecInvalidCommand", mcpSuite.TestShellExecErrorInvalidCommand)
-	s.Run("MCP_ErrorAttachUprobeNotFound", mcpSuite.TestAttachUprobeErrorFunctionNotFound)
-	s.Run("MCP_ErrorDiscoverFunctionsEmptyQuery", mcpSuite.TestDiscoverFunctionsErrorEmptyQuery)
+	s.Run("MCP_ErrorShellExecNonZeroExitCode", mcpSuite.TestShellExecNonZeroExitCode)
+	s.Run("MCP_ErrorShellExecMissingAgentTarget", mcpSuite.TestMissingRequiredAgentTarget)
+	s.Run("MCP_ErrorMalformedArgumentType", mcpSuite.TestMalformedArgumentType)
+
+	// coral_container_exec
+	s.Run("MCP_ContainerExecSidecarMode", mcpSuite.TestContainerExecSidecarMode)
+	s.Run("MCP_ErrorContainerExecEmptyCommand", mcpSuite.TestContainerExecErrorEmptyCommand)
+
+	// coral_query_summary
+	s.Run("MCP_ErrorQuerySummaryUnknownService", mcpSuite.TestQuerySummaryUnknownService)
+
+	// coral_query_metrics
 	s.Run("MCP_ErrorQueryMetricsInvalidTimeRange", mcpSuite.TestQueryMetricsErrorInvalidTimeRange)
 	s.Run("MCP_ErrorQueryMetricsInvalidProtocol", mcpSuite.TestQueryMetricsErrorInvalidProtocol)
-	s.Run("MCP_ContainerExecSidecarMode", mcpSuite.TestContainerExecSidecarMode)
+	s.Run("MCP_ErrorQueryMetricsInvalidHTTPMethod", mcpSuite.TestQueryMetricsInvalidHTTPMethod)
+
+	// coral_query_traces
+	s.Run("MCP_ErrorQueryTracesInvalidTraceID", mcpSuite.TestQueryTracesInvalidTraceID)
+	s.Run("MCP_ErrorQueryTracesExcessiveMinDuration", mcpSuite.TestQueryTracesExcessiveMinDuration)
+
+	// coral_attach_uprobe
+	s.Run("MCP_ErrorAttachUprobeNotFound", mcpSuite.TestAttachUprobeErrorFunctionNotFound)
+	s.Run("MCP_ErrorAttachUprobeInvalidDuration", mcpSuite.TestAttachUprobeInvalidDuration)
+
+	// coral_discover_functions
+	s.Run("MCP_ErrorDiscoverFunctionsEmptyQuery", mcpSuite.TestDiscoverFunctionsErrorEmptyQuery)
+	s.Run("MCP_ErrorDiscoverFunctionsUnknownService", mcpSuite.TestDiscoverFunctionsUnknownService)
+	s.Run("MCP_ErrorDiscoverFunctionsMaxResultsExceedsLimit", mcpSuite.TestDiscoverFunctionsMaxResultsExceedsLimit)
+
+	// coral_profile_functions
+	s.Run("MCP_ErrorProfileFunctionsInvalidStrategy", mcpSuite.TestProfileFunctionsInvalidStrategy)
+	s.Run("MCP_ErrorProfileFunctionsNoMatchingFunctions", mcpSuite.TestProfileFunctionsNoMatchingFunctions)
+
+	// coral_debug_cpu_profile
+	s.Run("MCP_ErrorDebugCPUProfileDurationClamped", mcpSuite.TestDebugCPUProfileDurationClamped)
+	s.Run("MCP_ErrorDebugCPUProfileFrequencyClamped", mcpSuite.TestDebugCPUProfileFrequencyClamped)
 
 	// Group K: Parameter Coverage (Sprint 2, Task 2.2)
 	s.Run("MCP_ParamShellExecWorkingDir", mcpSuite.TestShellExecWithWorkingDir)
