@@ -16,8 +16,7 @@ and provides a unified API for querying and debugging distributed applications.
     - [Service Discovery](#service-discovery)
     - [Security and Access Control](#security-and-access-control)
     - [MCP Server](#mcp-server)
-    - [Colony Context Management](#colony-context-management)
-    - [Configuration](#configuration)
+    - [Colony Credentials](#colony-credentials)
 - [Deployment](#deployment)
     - [Docker](#docker)
     - [SystemD](#systemd)
@@ -245,36 +244,12 @@ coral-colony mcp generate-config
 coral-colony mcp proxy
 ```
 
-### Colony Context Management
-
-Manage multiple colony configurations on a single machine.
-
-```bash
-# List all configured colonies
-coral-colony list
-
-# Set the default colony
-coral-colony use <colony-id>
-
-# Show current default
-coral-colony current
-
-# Add a remote colony connection
-coral-colony add-remote <name> <endpoint> [--insecure]
+### Colony Credentials
 
 # Export/import colony credentials
 coral-colony export > colony-creds.yaml
 coral-colony import < colony-creds.yaml
 ```
-
-### Configuration
-
-```bash
-# View and manage Coral configuration
-coral-colony config --help
-```
-
-See [CONFIG.md](CONFIG.md) for detailed configuration options.
 
 ---
 

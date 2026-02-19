@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/coral-mesh/coral/internal/cli/colony"
-	"github.com/coral-mesh/coral/internal/cli/config"
 	"github.com/coral-mesh/coral/internal/cli/debug"
 	"github.com/coral-mesh/coral/internal/cli/duckdb"
 	initcmd "github.com/coral-mesh/coral/internal/cli/init"
@@ -29,6 +28,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	// Register colony subcommands directly on root for a flat hierarchy
 	// (e.g. "coral-colony start" instead of "coral-colony colony start").
@@ -41,7 +41,6 @@ func main() {
 	rootCmd.AddCommand(profile.NewProfileCmd())
 
 	rootCmd.AddCommand(initcmd.NewInitCmd())
-	rootCmd.AddCommand(config.NewConfigCmd())
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(tunhelper.New())
 

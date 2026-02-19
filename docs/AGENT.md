@@ -96,15 +96,6 @@ coral-agent duckdb query agent-local \
   "SELECT service_name, COUNT(*) FROM otel_spans_local GROUP BY service_name"
 ```
 
-### Configuration
-
-```bash
-# View and manage Coral configuration
-coral-agent config --help
-```
-
-See [CONFIG.md](CONFIG.md) for detailed configuration options.
-
 ---
 
 ## Architecture Overview
