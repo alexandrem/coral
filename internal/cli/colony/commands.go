@@ -4,7 +4,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewColonyCmd creates the colony command and its subcommands
+// NewColonyCmd creates the colony command and its subcommands.
 func NewColonyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "colony",
@@ -13,21 +13,36 @@ func NewColonyCmd() *cobra.Command {
 It aggregates observations from agents, runs AI analysis, and provides insights.`,
 	}
 
+	addColonyCommands(cmd)
+
+	// Client-side context management commands (not included in the server binary).
+	cmd.AddCommand(newListCmd())
+	cmd.AddCommand(newUseCmd())
+	cmd.AddCommand(newCurrentCmd())
+	cmd.AddCommand(newAddRemoteCmd()) // RFD 031 - Add remote colony connection.
+
+	return cmd
+}
+
+// RegisterCommands adds colony server subcommands directly to the given parent
+// command. This is used by the coral-colony server binary to flatten the
+// command hierarchy (e.g. "coral-colony start" instead of "coral-colony colony start").
+// Client-side context management commands (list, use, current, add-remote) are
+// intentionally excluded — they belong in the full coral CLI only.
+func RegisterCommands(parent *cobra.Command) {
+	addColonyCommands(parent)
+}
+
+func addColonyCommands(cmd *cobra.Command) {
 	cmd.AddCommand(newStartCmd())
 	cmd.AddCommand(newStopCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newAgentsCmd())
-	cmd.AddCommand(newListCmd())
-	cmd.AddCommand(newUseCmd())
-	cmd.AddCommand(newCurrentCmd())
 	cmd.AddCommand(newExportCmd())
 	cmd.AddCommand(newImportCmd())
 	cmd.AddCommand(newMCPCmd())
-	cmd.AddCommand(newServiceCmd())   // RFD 052 - Service-centric CLI.
-	cmd.AddCommand(NewCACmd())        // RFD 047 - CA management commands.
-	cmd.AddCommand(NewPSKCmd())       // RFD 088 - Bootstrap PSK management.
-	cmd.AddCommand(newTokenCmd())     // RFD 031 - API token management for public endpoint.
-	cmd.AddCommand(newAddRemoteCmd()) // RFD 031 - Add remote colony connection.
-
-	return cmd
+	cmd.AddCommand(newServiceCmd()) // RFD 052 - Service-centric CLI.
+	cmd.AddCommand(NewCACmd())      // RFD 047 - CA management commands.
+	cmd.AddCommand(NewPSKCmd())     // RFD 088 - Bootstrap PSK management.
+	cmd.AddCommand(newTokenCmd())   // RFD 031 - API token management for public endpoint.
 }

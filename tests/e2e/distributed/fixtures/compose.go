@@ -21,6 +21,9 @@ const (
 	localOTELAppEndpoint    = "127.0.0.1:8082" // otel-app on port 8090 in agent-0 namespace, exposed as 8082.
 	localSDKAppEndpoint     = "127.0.0.1:3001"
 	localMemoryAppEndpoint  = "127.0.0.1:8083" // memory-app on port 8080 in agent-1 namespace, exposed as 8083.
+
+	colonyBinary = "/usr/local/bin/coral-colony"
+	agentBinary  = "/usr/local/bin/coral-agent"
 )
 
 // isDiscoveryContainerRunning checks whether a "discovery" docker container exists and is running.
@@ -279,7 +282,7 @@ func (f *ComposeFixture) RestartService(ctx context.Context, serviceName string)
 // and API tokens from disk without restarting the container.
 func (f *ComposeFixture) ReloadColonyConfig(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1",
-		"sh", "-c", "kill -HUP $(pidof coral)")
+		"sh", "-c", "kill -HUP $(pidof coral-colony)")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to send SIGHUP to colony: %w\nOutput: %s", err, string(output))
 	}
@@ -290,8 +293,9 @@ func (f *ComposeFixture) ReloadColonyConfig(ctx context.Context) error {
 // to talk to the colony endpoint hosted in the container.
 func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 	// Run coral colony export inside the colony container
-	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1", "/usr/local/bin/coral",
-		"colony", "export", f.ColonyID)
+	cmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1", colonyBinary,
+		"export", f.ColonyID,
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to run coral colony export in container: %w\nOutput: %s", err, string(output))
@@ -324,8 +328,8 @@ func (f *ComposeFixture) CreateDotEnvFile(ctx context.Context) error {
 	}
 
 	// Create an admin API token for the CLI
-	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1",
-		"/usr/local/bin/coral", "colony", "token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
+	tokenCmd := exec.CommandContext(ctx, "docker", "exec", "coral-e2e-colony-1", colonyBinary,
+		"token", "create", "e2e-cli-admin", "--permissions", "admin", "--recreate")
 	tokenOutput, err := tokenCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to run token create in container: %w\nOutput: %s", err, string(tokenOutput))
