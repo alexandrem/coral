@@ -932,3 +932,69 @@ func generateMockEvents(count int, latency time.Duration) []*agentv1.UprobeEvent
 
 	return events
 }
+
+type mockUpdateFilterClient struct {
+	agentv1connect.AgentDebugServiceClient // Embed for unimplemented methods
+	called                                 bool
+	t                                      *testing.T
+	expectedCollectorID                    string
+}
+
+func (m *mockUpdateFilterClient) UpdateProbeFilter(ctx context.Context, req *connect.Request[agentv1.UpdateProbeFilterRequest]) (*connect.Response[agentv1.UpdateProbeFilterResponse], error) {
+	m.called = true
+	if req.Msg.CollectorId != m.expectedCollectorID {
+		m.t.Errorf("Expected CollectorId %q, got %q", m.expectedCollectorID, req.Msg.CollectorId)
+	}
+	if req.Msg.Filter.SampleRate != 42 {
+		m.t.Errorf("Expected filter SampleRate 42, got %d", req.Msg.Filter.SampleRate)
+	}
+	return connect.NewResponse(&agentv1.UpdateProbeFilterResponse{}), nil
+}
+
+func TestUpdateProbeFilter(t *testing.T) {
+	orch, db := setupTestOrchestrator(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// 1. Create a session in the database
+	sessionID := "test-session-update-filter"
+	collectorID := "collector-123"
+	err := db.InsertDebugSession(context.Background(), &database.DebugSession{
+		SessionID:    sessionID,
+		CollectorID:  collectorID,
+		ServiceName:  "test-service",
+		FunctionName: "TestFunction",
+		AgentID:      "test-agent", // This agent exists in registry
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("Failed to insert test session: %v", err)
+	}
+
+	// 2. Setup mock client factory
+	mockClient := &mockUpdateFilterClient{
+		t:                   t,
+		expectedCollectorID: collectorID,
+	}
+	orch.clientFactory = func(httpClient connect.HTTPClient, url string, opts ...connect.ClientOption) agentv1connect.AgentDebugServiceClient {
+		return mockClient
+	}
+
+	// 3. Make the orchestrator call
+	req := connect.NewRequest(&debugpb.UpdateProbeFilterRequest{
+		SessionId: sessionID,
+		Filter: &agentv1.UprobeFilter{
+			SampleRate: 42,
+		},
+	})
+
+	_, err = orch.UpdateProbeFilter(ctx, req)
+	if err != nil {
+		t.Fatalf("UpdateProbeFilter failed: %v", err)
+	}
+
+	if !mockClient.called {
+		t.Error("Expected UpdateProbeFilter to be called on the agent client")
+	}
+}
