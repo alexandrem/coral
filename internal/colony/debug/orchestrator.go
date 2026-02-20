@@ -143,6 +143,14 @@ func (o *Orchestrator) QueryUprobeEvents(
 	return o.queryRouter.QueryUprobeEvents(ctx, req)
 }
 
+// UpdateProbeFilter routes a kernel-level filter update to the agent hosting the session (RFD 090).
+func (o *Orchestrator) UpdateProbeFilter(
+	ctx context.Context,
+	req *connect.Request[debugpb.UpdateProbeFilterRequest],
+) (*connect.Response[debugpb.UpdateProbeFilterResponse], error) {
+	return o.sessionManager.UpdateProbeFilter(ctx, req)
+}
+
 // ListDebugSessions lists all active debug sessions.
 func (o *Orchestrator) ListDebugSessions(
 	ctx context.Context,

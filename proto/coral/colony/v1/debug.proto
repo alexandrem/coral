@@ -13,6 +13,9 @@ service ColonyDebugService {
   // Start uprobe debug session.
   rpc AttachUprobe(AttachUprobeRequest) returns (AttachUprobeResponse);
 
+  // UpdateProbeFilter routes a filter update to the agent hosting the session (RFD 090).
+  rpc UpdateProbeFilter(UpdateProbeFilterRequest) returns (UpdateProbeFilterResponse);
+
   // Stop uprobe session.
   rpc DetachUprobe(DetachUprobeRequest) returns (DetachUprobeResponse);
 
@@ -55,7 +58,18 @@ message AttachUprobeRequest {
   coral.agent.v1.UprobeConfig config = 4;
   string agent_id = 5;              // Manual override (until service discovery integration)
   string sdk_addr = 6;              // Manual override (until service discovery integration)
+  coral.agent.v1.UprobeFilter filter = 7;  // Optional kernel-level filter (RFD 090).
 }
+
+// UpdateProbeFilterRequest updates filter parameters for an active debug session (RFD 090).
+message UpdateProbeFilterRequest {
+  string session_id = 1;
+  string agent_id = 2;
+  coral.agent.v1.UprobeFilter filter = 3;
+}
+
+// UpdateProbeFilterResponse confirms the filter update.
+message UpdateProbeFilterResponse {}
 
 // AttachUprobeResponse confirms debug session creation.
 message AttachUprobeResponse {

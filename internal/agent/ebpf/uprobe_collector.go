@@ -32,6 +32,15 @@ type uprobeEvent struct {
 	DurationNs  uint64
 }
 
+// uprobeFilterConfig matches the C struct filter_config in bpf/uprobe.c (RFD 090).
+// Field layout must be kept in sync with the C definition.
+type uprobeFilterConfig struct {
+	MinDurationNs uint64
+	MaxDurationNs uint64
+	SampleRate    uint32
+	_             [4]byte // padding to 8-byte alignment
+}
+
 // UprobeCollector implements the Collector interface for uprobe-based debugging.
 type UprobeCollector struct {
 	logger       zerolog.Logger
@@ -56,6 +65,17 @@ type UprobeCollector struct {
 	mu     sync.Mutex
 }
 
+// UprobeFilter holds runtime filter criteria applied at the eBPF level (RFD 090).
+// Zero values mean no filter is applied for that dimension, preserving backward compatibility.
+type UprobeFilter struct {
+	// MinDurationNs drops return events shorter than this threshold. 0 = no minimum.
+	MinDurationNs uint64
+	// MaxDurationNs drops return events longer than this threshold. 0 = no maximum.
+	MaxDurationNs uint64
+	// SampleRate emits 1 in every N events. 0 or 1 = emit all events.
+	SampleRate uint32
+}
+
 // UprobeConfig contains configuration for an uprobe collector.
 type UprobeConfig struct {
 	ServiceName   string
@@ -67,6 +87,7 @@ type UprobeConfig struct {
 	SampleRate    uint32
 	MaxEvents     uint32
 	Duration      time.Duration
+	Filter        UprobeFilter // Optional kernel-level filter (RFD 090).
 
 	// Discovery configuration (optional, uses defaults if nil).
 	DiscoveryConfig *DiscoveryConfig
@@ -151,6 +172,13 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 	}
 
 	c.logger.Debug().Msg("Loaded eBPF objects")
+
+	// Step 2b: Write initial filter config if one was specified (RFD 090).
+	// The filter_config_map is optional; if the compiled .o lacks it the field is nil.
+	if err := c.writeFilterConfig(c.config.Filter); err != nil {
+		c.objs.Close() //nolint:errcheck
+		return fmt.Errorf("failed to write initial filter config: %w", err)
+	}
 
 	// Step 3: Attach uprobe using shared attacher.
 	// NOTE: Uretprobes are disabled for Go programs due to runtime incompatibility.
@@ -314,6 +342,43 @@ func (c *UprobeCollector) readEvents() {
 			Uint64("duration_ns", event.DurationNs).
 			Msg("Collected uprobe event")
 	}
+}
+
+// UpdateFilter updates the kernel-level event filter for an active collector session
+// without detaching or interrupting event collection (RFD 090).
+// Returns nil when filter maps are unavailable (old compiled .o without filter support).
+func (c *UprobeCollector) UpdateFilter(f UprobeFilter) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.writeFilterConfig(f)
+}
+
+// writeFilterConfig writes f into the filter_config BPF map.
+// Must be called with c.mu held (or before the reader goroutine is started).
+func (c *UprobeCollector) writeFilterConfig(f UprobeFilter) error {
+	if c.objs == nil || c.objs.FilterConfigMap == nil {
+		// Filter maps absent (old compiled .o); silently skip.
+		return nil
+	}
+
+	cfg := uprobeFilterConfig{
+		MinDurationNs: f.MinDurationNs,
+		MaxDurationNs: f.MaxDurationNs,
+		SampleRate:    f.SampleRate,
+	}
+
+	const filterKey uint32 = 0
+	if err := c.objs.FilterConfigMap.Put(filterKey, cfg); err != nil {
+		return fmt.Errorf("update filter_config_map: %w", err)
+	}
+
+	c.logger.Debug().
+		Uint64("min_duration_ns", f.MinDurationNs).
+		Uint64("max_duration_ns", f.MaxDurationNs).
+		Uint32("sample_rate", f.SampleRate).
+		Msg("Updated eBPF filter config")
+
+	return nil
 }
 
 // eventTypeString converts event type byte to string.

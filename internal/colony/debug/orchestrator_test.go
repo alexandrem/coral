@@ -580,6 +580,10 @@ func (m *mockFailingDebugServiceClient) QueryMemoryProfileSamples(ctx context.Co
 	return nil, fmt.Errorf("simulated RPC failure")
 }
 
+func (m *mockFailingDebugServiceClient) UpdateProbeFilter(ctx context.Context, req *connect.Request[agentv1.UpdateProbeFilterRequest]) (*connect.Response[agentv1.UpdateProbeFilterResponse], error) {
+	return nil, fmt.Errorf("simulated RPC failure")
+}
+
 func TestConcurrentSessionOperations(t *testing.T) {
 	orch, db := setupTestOrchestrator(t)
 	defer db.Close()
@@ -905,6 +909,10 @@ func (m *mockDebugServiceClient) ProfileMemory(ctx context.Context, req *connect
 
 func (m *mockDebugServiceClient) QueryMemoryProfileSamples(ctx context.Context, req *connect.Request[agentv1.QueryMemoryProfileSamplesRequest]) (*connect.Response[agentv1.QueryMemoryProfileSamplesResponse], error) {
 	return connect.NewResponse(&agentv1.QueryMemoryProfileSamplesResponse{}), nil
+}
+
+func (m *mockDebugServiceClient) UpdateProbeFilter(ctx context.Context, req *connect.Request[agentv1.UpdateProbeFilterRequest]) (*connect.Response[agentv1.UpdateProbeFilterResponse], error) {
+	return connect.NewResponse(&agentv1.UpdateProbeFilterResponse{}), nil
 }
 
 // Generate mock events with specified latency

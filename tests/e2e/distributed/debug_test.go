@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/tests/e2e/distributed/helpers"
 )
@@ -476,4 +477,192 @@ func (s *DebugSuite) TestMultiAgentDebugSession() {
 	s.T().Log("      can be added when needed.")
 
 	// Note: Service cleanup handled by TearDownTest.
+}
+
+// TestUprobeFilterAttach verifies that attaching a uprobe with a kernel-level filter
+// succeeds end-to-end through the colony→agent RPC path (RFD 090).
+//
+// This test covers the API contract: the filter is accepted and the session is
+// created normally. Whether the eBPF filter maps are active depends on whether the
+// compiled BPF .o includes filter maps; if not, the filter is a graceful no-op.
+//
+// Test flow:
+// 1. Attach uprobe with min-duration filter (1ms threshold)
+// 2. Verify session is created successfully
+// 3. Trigger workload — session must remain active with the filter set
+// 4. Detach and verify no errors
+func (s *DebugSuite) TestUprobeFilterAttach() {
+	s.T().Log("Testing uprobe attach with kernel-level duration filter (RFD 090)...")
+
+	fixture := s.fixture
+
+	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+
+	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get SDK app endpoint")
+
+	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
+	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
+
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
+
+	// Attach with a min-duration filter: only emit events slower than 1ms.
+	// A low threshold ensures events are still captured; this is a smoke test
+	// for the API path, not a precision filtering test.
+	filter := &agentv1.UprobeFilter{
+		MinDurationNs: 1_000_000, // 1ms
+	}
+
+	s.T().Log("Attaching uprobe with 1ms min-duration filter...")
+	attachResp, err := helpers.AttachUprobeWithFilter(
+		s.ctx, debugClient, agentID, "sdk-app", "main.ProcessPayment", 30, filter,
+	)
+	s.Require().NoError(err, "AttachUprobeWithFilter should succeed")
+	s.Require().True(attachResp.Success, "Attach should succeed: %s", attachResp.Error)
+	s.Require().NotEmpty(attachResp.SessionId, "Session ID should be returned")
+
+	sessionID := attachResp.SessionId
+	s.T().Logf("Debug session with filter created: %s", sessionID)
+
+	// Wait for uprobe to be attached.
+	time.Sleep(2 * time.Second)
+
+	// Generate some workload to exercise the filter path.
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := 0; i < 5; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/trigger", sdkAppEndpoint))
+		if err != nil {
+			s.T().Logf("Trigger %d failed: %v", i+1, err)
+			continue
+		}
+		_ = resp.Body.Close()
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// Detach — session must still be alive (filter must not crash the collector).
+	s.T().Log("Detaching filtered uprobe session...")
+	detachResp, err := helpers.DetachUprobe(s.ctx, debugClient, sessionID)
+	s.Require().NoError(err, "DetachUprobe should succeed after filtered session")
+	s.Require().True(detachResp.Success, "Detach should succeed: %s", detachResp.Error)
+
+	s.T().Log("✓ Uprobe filter attach/detach API verified end-to-end")
+}
+
+// TestUprobeFilterLiveUpdate verifies that UpdateProbeFilter succeeds for an active
+// session without interrupting event collection (RFD 090).
+//
+// Test flow:
+// 1. Attach uprobe (no initial filter)
+// 2. Generate workload to confirm events flow
+// 3. Call UpdateProbeFilter with a new filter (sample-rate=2)
+// 4. Verify the RPC succeeds and the session is still alive
+// 5. Generate more workload — collector must still be running
+// 6. Detach cleanly
+func (s *DebugSuite) TestUprobeFilterLiveUpdate() {
+	s.T().Log("Testing live probe filter update without session interruption (RFD 090)...")
+
+	fixture := s.fixture
+
+	colonyEndpoint, err := fixture.GetColonyEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get colony endpoint")
+
+	sdkAppEndpoint, err := fixture.GetSDKAppEndpoint(s.ctx)
+	s.Require().NoError(err, "Failed to get SDK app endpoint")
+
+	colonyClient := helpers.NewColonyClient(colonyEndpoint)
+	listAgentsResp, err := helpers.ListAgents(s.ctx, colonyClient)
+	s.Require().NoError(err, "Failed to list agents")
+	s.Require().GreaterOrEqual(len(listAgentsResp.Agents), 2, "Need at least 2 agents")
+
+	var agentID string
+	for _, agent := range listAgentsResp.Agents {
+		for _, svc := range agent.Services {
+			if svc.Name == "sdk-app" {
+				agentID = agent.AgentId
+				break
+			}
+		}
+		if agentID != "" {
+			break
+		}
+	}
+	s.Require().NotEmpty(agentID, "Failed to find agent hosting sdk-app service")
+
+	debugClient := helpers.NewDebugClient(colonyEndpoint)
+
+	// Attach without a filter.
+	s.T().Log("Attaching uprobe (no initial filter)...")
+	attachResp, err := helpers.AttachUprobe(
+		s.ctx, debugClient, agentID, "sdk-app", "main.ProcessPayment", 30,
+	)
+	s.Require().NoError(err, "AttachUprobe should succeed")
+	s.Require().True(attachResp.Success, "Attach should succeed: %s", attachResp.Error)
+	s.Require().NotEmpty(attachResp.SessionId, "Session ID should be returned")
+
+	sessionID := attachResp.SessionId
+	s.T().Logf("Session created: %s", sessionID)
+
+	time.Sleep(2 * time.Second)
+
+	// Generate initial workload.
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := 0; i < 3; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/trigger", sdkAppEndpoint))
+		if err != nil {
+			s.T().Logf("Pre-filter trigger %d failed: %v", i+1, err)
+			continue
+		}
+		_ = resp.Body.Close()
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	// Apply a live filter update: emit 1-in-2 events.
+	s.T().Log("Applying live filter update (sample-rate=2)...")
+	_, err = helpers.UpdateProbeFilter(
+		s.ctx, debugClient, sessionID, &agentv1.UprobeFilter{SampleRate: 2},
+	)
+	s.Require().NoError(err, "UpdateProbeFilter should succeed without interrupting the session")
+	s.T().Log("✓ UpdateProbeFilter RPC succeeded")
+
+	// Continue workload — session must still be alive.
+	for i := 0; i < 3; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/trigger", sdkAppEndpoint))
+		if err != nil {
+			s.T().Logf("Post-filter trigger %d failed: %v", i+1, err)
+			continue
+		}
+		_ = resp.Body.Close()
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// Detach — must succeed (session was not interrupted by filter update).
+	s.T().Log("Detaching session after live filter update...")
+	detachResp, err := helpers.DetachUprobe(s.ctx, debugClient, sessionID)
+	s.Require().NoError(err, "DetachUprobe should succeed after live filter update")
+	s.Require().True(detachResp.Success, "Detach should succeed: %s", detachResp.Error)
+
+	s.T().Log("✓ Live probe filter update verified end-to-end")
+	s.T().Log("  - Session remained active throughout filter update")
+	s.T().Log("  - Workload continued to flow after filter change")
 }

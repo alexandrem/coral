@@ -15,6 +15,7 @@ message StartUprobeCollectorRequest {
   google.protobuf.Duration duration = 4;  // Max 600s
   UprobeConfig config = 5;
   string sdk_addr = 6;              // SDK debug service address (e.g., "localhost:50051")
+  UprobeFilter filter = 7;          // Optional kernel-level filter (RFD 090).
 }
 
 // UprobeConfig specifies what data to capture from function calls.
@@ -24,6 +25,35 @@ message UprobeConfig {
   uint32 sample_rate = 3;           // Sample every Nth call (0 = all)
   uint32 max_events = 4;            // Max events to collect (safety limit)
 }
+
+// UprobeFilter defines runtime filter criteria applied at the eBPF level (RFD 090).
+// All fields default to zero, meaning no filter is applied for that dimension.
+// Zero values preserve backward compatibility — an agent that does not set a filter
+// behaves exactly as before this change.
+message UprobeFilter {
+  // min_duration_ns drops return events shorter than this threshold.
+  // 0 = no minimum.
+  uint64 min_duration_ns = 1;
+
+  // max_duration_ns drops return events longer than this threshold.
+  // 0 = no maximum.
+  uint64 max_duration_ns = 2;
+
+  // sample_rate emits 1 in every N events.
+  // 0 or 1 = emit all events.
+  uint32 sample_rate = 3;
+}
+
+// UpdateProbeFilterRequest updates the kernel-level filter for an active probe session
+// without detaching or interrupting event collection (RFD 090).
+message UpdateProbeFilterRequest {
+  string collector_id = 1;
+  UprobeFilter filter = 2;
+}
+
+// UpdateProbeFilterResponse confirms the filter update.
+message UpdateProbeFilterResponse {}
+
 
 // StartUprobeCollectorResponse confirms uprobe attachment.
 message StartUprobeCollectorResponse {
@@ -263,6 +293,10 @@ service AgentDebugService {
 
   // Query events from a uprobe collector.
   rpc QueryUprobeEvents(QueryUprobeEventsRequest) returns (QueryUprobeEventsResponse);
+
+  // UpdateProbeFilter updates filter parameters for an active probe session
+  // without detaching or interrupting event collection (RFD 090).
+  rpc UpdateProbeFilter(UpdateProbeFilterRequest) returns (UpdateProbeFilterResponse);
 
   // Collect CPU profile samples for a target process (RFD 070).
   rpc ProfileCPU(ProfileCPUAgentRequest) returns (ProfileCPUAgentResponse);

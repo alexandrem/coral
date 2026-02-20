@@ -25,6 +25,11 @@ func NewAttachCmd() *cobra.Command {
 		sampleRate    uint32
 		agentID       string
 		format        string
+
+		// Kernel-level filter flags (RFD 090).
+		minDuration time.Duration
+		maxDuration time.Duration
+		filterRate  uint32
 	)
 
 	cmd := &cobra.Command{
@@ -64,6 +69,15 @@ func NewAttachCmd() *cobra.Command {
 				AgentId: agentID,
 			}
 
+			// Attach kernel-level filter if any filter flag was provided (RFD 090).
+			if minDuration > 0 || maxDuration > 0 || filterRate > 1 {
+				req.Filter = &agentv1.UprobeFilter{
+					MinDurationNs: uint64(minDuration.Nanoseconds()),
+					MaxDurationNs: uint64(maxDuration.Nanoseconds()),
+					SampleRate:    filterRate,
+				}
+			}
+
 			resp, err := client.AttachUprobe(ctx, connect.NewRequest(req))
 			if err != nil {
 				// Check if this is a connection error (colony not running)
@@ -101,6 +115,11 @@ func NewAttachCmd() *cobra.Command {
 	cmd.Flags().Uint32Var(&sampleRate, "sample-rate", 0, "Sample rate (0 = all calls)")
 	cmd.Flags().StringVar(&agentID, "agent-id", "", "Agent ID (manual override)")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json, csv)")
+
+	// Kernel-level filter flags (RFD 090).
+	cmd.Flags().DurationVar(&minDuration, "min-duration", 0, "Only emit events slower than this threshold (e.g. 50ms)")
+	cmd.Flags().DurationVar(&maxDuration, "max-duration", 0, "Only emit events faster than this threshold (e.g. 500ms)")
+	cmd.Flags().Uint32Var(&filterRate, "filter-rate", 0, "Emit 1 in every N events at kernel level (0 or 1 = all)")
 
 	if err := cmd.MarkFlagRequired("function"); err != nil {
 		fmt.Printf("failed to mark flag as required: %v\n", err)

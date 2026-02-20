@@ -61,8 +61,10 @@ type uprobeProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type uprobeMapSpecs struct {
-	EntryTimes *ebpf.MapSpec `ebpf:"entry_times"`
-	Events     *ebpf.MapSpec `ebpf:"events"`
+	EntryTimes      *ebpf.MapSpec `ebpf:"entry_times"`
+	Events          *ebpf.MapSpec `ebpf:"events"`
+	FilterConfigMap *ebpf.MapSpec `ebpf:"filter_config_map,optional"`
+	SampleCounter   *ebpf.MapSpec `ebpf:"sample_counter,optional"`
 }
 
 // uprobeObjects contains all objects after they have been loaded into the kernel.
@@ -84,15 +86,21 @@ func (o *uprobeObjects) Close() error {
 //
 // It can be passed to loadUprobeObjects or ebpf.CollectionSpec.LoadAndAssign.
 type uprobeMaps struct {
-	EntryTimes *ebpf.Map `ebpf:"entry_times"`
-	Events     *ebpf.Map `ebpf:"events"`
+	EntryTimes      *ebpf.Map `ebpf:"entry_times"`
+	Events          *ebpf.Map `ebpf:"events"`
+	FilterConfigMap *ebpf.Map `ebpf:"filter_config_map,optional"`
+	SampleCounter   *ebpf.Map `ebpf:"sample_counter,optional"`
 }
 
 func (m *uprobeMaps) Close() error {
-	return _UprobeClose(
-		m.EntryTimes,
-		m.Events,
-	)
+	closers := []io.Closer{m.EntryTimes, m.Events}
+	if m.FilterConfigMap != nil {
+		closers = append(closers, m.FilterConfigMap)
+	}
+	if m.SampleCounter != nil {
+		closers = append(closers, m.SampleCounter)
+	}
+	return _UprobeClose(closers...)
 }
 
 // uprobePrograms contains all programs after they have been loaded into the kernel.
