@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
@@ -350,7 +351,7 @@ func TestServer_GetTopology(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "test-colony", resp.Msg.ColonyId)
 		assert.Len(t, resp.Msg.Agents, 2)
-		assert.Empty(t, resp.Msg.Connections) // Connections deferred for future enhancement.
+		assert.Empty(t, resp.Msg.Connections) // No trace data inserted → no connections.
 
 		// Verify agents are present.
 		agentIDs := make(map[string]bool)
@@ -360,6 +361,55 @@ func TestServer_GetTopology(t *testing.T) {
 		assert.True(t, agentIDs["agent-1"])
 		assert.True(t, agentIDs["agent-2"])
 	})
+}
+
+func TestServer_GetTopology_WithConnections(t *testing.T) {
+	config := Config{
+		ColonyID:        "test-colony",
+		ApplicationName: "TestApp",
+		Environment:     "test",
+	}
+	server, cleanup := newTestServer(t, config)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Insert a cross-service span pair: api-gateway → user-service.
+	parent := &agentv1.EbpfTraceSpan{
+		TraceId:     "trace000000000000000000000000099",
+		SpanId:      "parentspan000099",
+		ServiceName: "api-gateway",
+		SpanName:    "GET /users",
+		SpanKind:    "server",
+		StartTime:   now.UnixMilli(),
+		DurationUs:  1000,
+		StatusCode:  200,
+	}
+	child := &agentv1.EbpfTraceSpan{
+		TraceId:      "trace000000000000000000000000099",
+		SpanId:       "childspan0000099",
+		ParentSpanId: "parentspan000099",
+		ServiceName:  "user-service",
+		SpanName:     "GET /internal/users",
+		SpanKind:     "client",
+		StartTime:    now.UnixMilli(),
+		DurationUs:   500,
+		StatusCode:   200,
+	}
+	require.NoError(t, server.database.InsertBeylaTraces(ctx, "agent-1", []*agentv1.EbpfTraceSpan{parent, child}))
+
+	req := connect.NewRequest(&colonyv1.GetTopologyRequest{})
+	resp, err := server.GetTopology(ctx, req)
+
+	require.NoError(t, err)
+	assert.Equal(t, "test-colony", resp.Msg.ColonyId)
+	require.Len(t, resp.Msg.Connections, 1, "One cross-service edge should be returned")
+
+	conn := resp.Msg.Connections[0]
+	assert.Equal(t, "api-gateway", conn.SourceId)
+	assert.Equal(t, "user-service", conn.TargetId)
+	assert.NotEmpty(t, conn.ConnectionType)
 }
 
 func TestServer_determineColonyStatus(t *testing.T) {

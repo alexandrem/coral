@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -40,6 +41,10 @@ type Database struct {
 	debugSessionsTable  *duckdb.Table[DebugSession]
 	debugEventsTable    *duckdb.Table[DebugEvent]
 	connectionsTable    *duckdb.Table[ServiceConnection]
+
+	// Cache state for GetServiceConnections (RFD 092).
+	connectionsMu               sync.Mutex
+	connectionsLastMaterialized time.Time
 }
 
 // New creates and initializes a DuckDB database for the colony.

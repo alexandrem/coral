@@ -1,6 +1,7 @@
 package distributed
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -1381,4 +1382,83 @@ func (s *MCPSuite) ensureTelemetryData() {
 	time.Sleep(2 * time.Second)
 
 	s.T().Log("Telemetry data generated")
+}
+
+// =============================================================================
+// Group N: Service Topology (RFD 092)
+// =============================================================================
+
+// TestMCPTopologyTool tests the coral_topology MCP tool (RFD 092).
+//
+// Validates:
+//   - coral_topology is present in the tool list
+//   - Tool executes without error
+//   - Output contains the expected call-graph header
+//   - Tool accepts an explicit "since" parameter
+func (s *MCPSuite) TestMCPTopologyTool() {
+	s.T().Log("Testing coral_topology MCP tool (RFD 092)...")
+
+	// Verify coral_topology appears in the tool list.
+	tools, err := helpers.MCPListToolsJSON(s.ctx, s.cliEnv)
+	s.Require().NoError(err, "Tool list should succeed")
+
+	foundTopology := false
+	for _, tool := range tools {
+		if name, ok := tool["name"].(string); ok && name == "coral_topology" {
+			foundTopology = true
+			desc, _ := tool["description"].(string)
+			s.Require().NotEmpty(desc, "coral_topology should have a description")
+			break
+		}
+	}
+	s.Require().True(foundTopology, "coral_topology must appear in the tool list")
+
+	// Execute coral_topology with no arguments (default 1h window).
+	result := helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", "")
+	result.MustSucceed(s.T())
+	s.Require().NotEmpty(result.Output, "Tool output should not be empty")
+
+	// Output must include either a call graph or the "no calls" message.
+	hasCallGraph := strings.Contains(strings.ToLower(result.Output), "call graph")
+	s.Require().True(hasCallGraph, "Output should contain the 'call graph' header")
+
+	s.T().Logf("coral_topology output:\n%s", result.Output)
+
+	// Execute coral_topology with an explicit since parameter.
+	result30m := helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", `{"since":"30m"}`)
+	result30m.MustSucceed(s.T())
+	s.Require().Contains(result30m.Output, "30m", "Output should reflect the requested time window")
+
+	s.T().Log("✓ coral_topology tool validated")
+}
+
+// TestCLIQueryTopology tests 'coral query topology' CLI command (RFD 092).
+//
+// Validates:
+//   - Command executes without error against the live colony
+//   - Default text output is produced
+//   - JSON output flag works
+func (s *MCPSuite) TestCLIQueryTopology() {
+	s.T().Log("Testing 'coral query topology' CLI command (RFD 092)...")
+
+	// Default text output.
+	result := s.cliEnv.Run(s.ctx, "query", "topology")
+	result.MustSucceed(s.T())
+	s.Require().NotEmpty(result.Output, "CLI topology output should not be empty")
+
+	s.T().Logf("coral query topology output:\n%s", result.Output)
+
+	// JSON output format.
+	jsonResult := s.cliEnv.Run(s.ctx, "query", "topology", "--format", "json")
+	jsonResult.MustSucceed(s.T())
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonResult.Output), &parsed); err != nil {
+		s.T().Logf("JSON parse error (output was): %s", jsonResult.Output)
+		s.Require().NoError(err, "JSON output should be valid JSON")
+	}
+	s.Require().Contains(parsed, "colony_id", "JSON output must include colony_id field")
+	s.Require().Contains(parsed, "connections", "JSON output must include connections field")
+
+	s.T().Log("✓ coral query topology CLI validated")
 }

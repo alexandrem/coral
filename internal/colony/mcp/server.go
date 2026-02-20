@@ -144,9 +144,11 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 	case "coral_container_exec":
 		return s.executeContainerExecTool(ctx, argumentsJSON)
 
-	// Service discovery (RFD 054)
+	// Service discovery (RFD 054) and topology (RFD 092).
 	case "coral_list_services":
 		return s.executeListServicesTool(ctx, argumentsJSON)
+	case "coral_topology":
+		return s.executeTopologyTool(ctx, argumentsJSON)
 
 	// Live debugging tools (RFD 062)
 	case "coral_attach_uprobe":
@@ -234,13 +236,15 @@ func (s *Server) getToolSchemas() map[string]string {
 	// Generate schema for each tool's input type.
 	// Use the same input types as tool registration.
 	toolInputTypes := map[string]interface{}{
-		"coral_query_summary":       UnifiedSummaryInput{},
-		"coral_query_traces":        UnifiedTracesInput{},
-		"coral_query_metrics":       UnifiedMetricsInput{},
-		"coral_query_logs":          UnifiedLogsInput{},
-		"coral_shell_exec":          ShellExecInput{},
-		"coral_container_exec":      ContainerExecInput{},
-		"coral_list_services":       ListServicesInput{},
+		"coral_query_summary":  UnifiedSummaryInput{},
+		"coral_query_traces":   UnifiedTracesInput{},
+		"coral_query_metrics":  UnifiedMetricsInput{},
+		"coral_query_logs":     UnifiedLogsInput{},
+		"coral_shell_exec":     ShellExecInput{},
+		"coral_container_exec": ContainerExecInput{},
+		"coral_list_services":  ListServicesInput{},
+		// RFD 092: Service topology
+		"coral_topology":            TopologyInput{},
 		"coral_attach_uprobe":       AttachUprobeInput{},
 		"coral_trace_request_path":  TraceRequestPathInput{},
 		"coral_list_debug_sessions": ListDebugSessionsInput{},
@@ -286,13 +290,15 @@ func (s *Server) getToolSchemas() map[string]string {
 // These descriptions are used when serving tools via both MCP and RPC APIs.
 func (s *Server) getToolDescriptions() map[string]string {
 	return map[string]string{
-		"coral_query_summary":       "Get an enriched health summary for a service including system metrics, CPU profiling hotspots, deployment context, and regression indicators. Use this as the FIRST tool when diagnosing performance issues.",
-		"coral_query_traces":        "Query distributed traces from all sources (eBPF + OTLP).",
-		"coral_query_metrics":       "Query metrics from all sources (eBPF + OTLP).",
-		"coral_query_logs":          "Query logs from OTLP.",
-		"coral_shell_exec":          "Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
-		"coral_container_exec":      "Execute a command in a container's namespace using nsenter. Access container-mounted configs, logs, and volumes that are not visible from the agent's host filesystem. Works in sidecar and node agent deployments. Returns stdout, stderr, exit code, and container PID. Use for commands like 'cat /app/config.yaml', 'ls /data'.",
-		"coral_list_services":       "List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
+		"coral_query_summary":  "Get an enriched health summary for a service including system metrics, CPU profiling hotspots, deployment context, and regression indicators. Use this as the FIRST tool when diagnosing performance issues.",
+		"coral_query_traces":   "Query distributed traces from all sources (eBPF + OTLP).",
+		"coral_query_metrics":  "Query metrics from all sources (eBPF + OTLP).",
+		"coral_query_logs":     "Query logs from OTLP.",
+		"coral_shell_exec":     "Execute a one-off command in the agent's host environment. Returns stdout, stderr, and exit code. Command runs with 30s timeout (max 300s). Use for diagnostic commands like 'ps aux', 'ss -tlnp', 'tcpdump -c 10'.",
+		"coral_container_exec": "Execute a command in a container's namespace using nsenter. Access container-mounted configs, logs, and volumes that are not visible from the agent's host filesystem. Works in sidecar and node agent deployments. Returns stdout, stderr, exit code, and container PID. Use for commands like 'cat /app/config.yaml', 'ls /data'.",
+		"coral_list_services":  "List all services known to the colony - includes both currently connected services and historical services from observability data. Returns service names, ports, and types. Useful for discovering available services before querying metrics or traces.",
+		// RFD 092: Service topology
+		"coral_topology":            "Get the live service dependency graph derived from observed trace data. Returns all cross-service call relationships (from → to, protocol, call count) discovered in the given time window. Call this BEFORE investigating cross-service performance issues or latency spikes.",
 		"coral_attach_uprobe":       "Attach eBPF uprobe to application function for live debugging. Captures entry/exit events, measures duration. Time-limited and production-safe.",
 		"coral_trace_request_path":  "Trace all functions called during HTTP request execution. Auto-discovers call chain and builds execution tree.",
 		"coral_list_debug_sessions": "List active and recent debug sessions across services.",
@@ -317,8 +323,9 @@ func (s *Server) registerTools() error {
 	s.registerShellExecTool()
 	s.registerContainerExecTool()
 
-	// Register service discovery tools (RFD 054).
+	// Register service discovery and topology tools (RFD 054, RFD 092).
 	s.registerQueryServicesTool()
+	s.registerTopologyTool()
 
 	// Register live debugging tools (RFD 062).
 	s.registerAttachUprobeTool()
@@ -361,6 +368,8 @@ func (s *Server) listToolNames() []string {
 		"coral_shell_exec",
 		"coral_container_exec",
 		"coral_list_services",
+		// RFD 092: Service topology
+		"coral_topology",
 		"coral_attach_uprobe",
 		"coral_trace_request_path",
 		"coral_list_debug_sessions",
