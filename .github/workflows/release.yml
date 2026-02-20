@@ -1,0 +1,221 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# Assumes the tagged commit already passed CI. Tests are not re-run here.
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # create GitHub Release
+  packages: write   # push to ghcr.io
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.org
+  GO_VERSION: "1.25.1"
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # CLI binaries — cross-platform (coral)
+  # ──────────────────────────────────────────────────────────────
+  cli:
+    name: Build CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os: linux-amd64
+            goos: linux
+            goarch: amd64
+          - runner: macos-15          # Intel
+            os: darwin-amd64
+            goos: darwin
+            goarch: amd64
+          - runner: macos-latest      # Apple Silicon
+            os: darwin-arm64
+            goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install APT packages
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
+
+      - name: Install Homebrew packages
+        if: matrix.goos == 'darwin'
+        run: brew install llvm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install tools
+        run: make install-tools || make install-tools
+
+      - name: Generate
+        run: make generate
+
+      - name: Build
+        run: make build
+
+      - name: Stage binary
+        run: |
+          mkdir -p dist/
+          cp bin/${{ matrix.goos }}_${{ matrix.goarch }}/coral dist/coral-${{ matrix.os }}
+          chmod +x dist/coral-${{ matrix.os }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # ──────────────────────────────────────────────────────────────
+  # Server binaries — Linux only (coral-colony, coral-agent)
+  # ──────────────────────────────────────────────────────────────
+  server:
+    name: Build server binaries (linux-amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install APT packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y $(cat .github/apt-packages.txt || echo "")
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install tools
+        run: make install-tools || make install-tools
+
+      - name: Generate
+        run: make generate
+
+      - name: Build server binaries
+        run: make build-colony && make build-agent
+
+      - name: Stage binaries
+        run: |
+          mkdir -p dist/
+          cp bin/linux_amd64/coral-colony dist/coral-colony-linux-amd64
+          cp bin/linux_amd64/coral-agent  dist/coral-agent-linux-amd64
+          chmod +x dist/coral-colony-linux-amd64 dist/coral-agent-linux-amd64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-server-linux-amd64
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # ──────────────────────────────────────────────────────────────
+  # Container images — pushed to ghcr.io
+  # Depends on cli + server so images aren't pushed if builds fail.
+  # Dockerfiles build from source internally; they don't consume
+  # the artifacts from the jobs above.
+  # ──────────────────────────────────────────────────────────────
+  images:
+    name: Push container images
+    runs-on: ubuntu-latest
+    needs: [cli, server]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Colony image metadata
+        id: meta-colony
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/coral-colony
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Agent image metadata
+        id: meta-agent
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/coral-agent
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push coral-colony
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build/Dockerfile.colony
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-colony.outputs.tags }}
+          labels: ${{ steps.meta-colony.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push coral-agent
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build/Dockerfile.agent
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-agent.outputs.tags }}
+          labels: ${{ steps.meta-agent.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ──────────────────────────────────────────────────────────────
+  # GitHub Release — attach binaries + checksums
+  # ──────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [cli, server, images]
+    steps:
+      - name: Download all dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist/
+          sha256sum * | tee SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: dist/*
