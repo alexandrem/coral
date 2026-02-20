@@ -1,3 +1,5 @@
+//go:build linux
+
 package ebpf
 
 import (
@@ -6,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coral-mesh/coral/internal/agent/ebpf/bpfgen"
 )
 
 func TestUprobeEventStructLayout(t *testing.T) {
@@ -55,7 +59,7 @@ func TestUprobeFilterConfigStructLayout(t *testing.T) {
 // when the filter map is absent (old compiled .o without filter support).
 func TestUprobeCollectorWriteFilterConfigNilMap(t *testing.T) {
 	c := &UprobeCollector{
-		objs: &uprobeObjects{}, // FilterConfigMap is nil — simulates old .o without filter maps.
+		objs: &bpfgen.Objects{}, // FilterConfigMap is nil — simulates old .o without filter maps.
 	}
 
 	f := UprobeFilter{
@@ -73,7 +77,7 @@ func TestUprobeCollectorWriteFilterConfigNilMap(t *testing.T) {
 // when the filter map is absent.
 func TestUprobeCollectorUpdateFilterNilMap(t *testing.T) {
 	c := &UprobeCollector{
-		objs: &uprobeObjects{},
+		objs: &bpfgen.Objects{},
 	}
 
 	f := UprobeFilter{SampleRate: 10}

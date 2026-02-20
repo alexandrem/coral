@@ -1,3 +1,5 @@
+//go:build linux
+
 package ebpf
 
 import (
@@ -17,10 +19,9 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/ebpf/bpfgen"
 	"github.com/coral-mesh/coral/internal/agent/ebpf/uprobe"
 )
-
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go uprobe ./bpf/uprobe.c -- -I./bpf/headers
 
 // uprobeEvent matches the C struct uprobe_event in bpf/uprobe.c
 type uprobeEvent struct {
@@ -54,7 +55,7 @@ type UprobeCollector struct {
 	pid              uint32
 
 	// eBPF resources
-	objs         *uprobeObjects
+	objs         *bpfgen.Objects
 	attachResult *uprobe.AttachResult
 	reader       *ringbuf.Reader
 
@@ -63,34 +64,6 @@ type UprobeCollector struct {
 	cancel context.CancelFunc
 	events []*agentv1.UprobeEvent
 	mu     sync.Mutex
-}
-
-// UprobeFilter holds runtime filter criteria applied at the eBPF level (RFD 090).
-// Zero values mean no filter is applied for that dimension, preserving backward compatibility.
-type UprobeFilter struct {
-	// MinDurationNs drops return events shorter than this threshold. 0 = no minimum.
-	MinDurationNs uint64
-	// MaxDurationNs drops return events longer than this threshold. 0 = no maximum.
-	MaxDurationNs uint64
-	// SampleRate emits 1 in every N events. 0 or 1 = emit all events.
-	SampleRate uint32
-}
-
-// UprobeConfig contains configuration for an uprobe collector.
-type UprobeConfig struct {
-	ServiceName   string
-	FunctionName  string
-	SDKAddr       string
-	PID           uint32 // Target process PID (required for agentless discovery)
-	CaptureArgs   bool
-	CaptureReturn bool
-	SampleRate    uint32
-	MaxEvents     uint32
-	Duration      time.Duration
-	Filter        UprobeFilter // Optional kernel-level filter (RFD 090).
-
-	// Discovery configuration (optional, uses defaults if nil).
-	DiscoveryConfig *DiscoveryConfig
 }
 
 // NewUprobeCollector creates a new uprobe collector.
@@ -166,8 +139,8 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 		Msg("Successfully discovered function metadata")
 
 	// Step 2: Load eBPF program
-	c.objs = &uprobeObjects{}
-	if err := loadUprobeObjects(c.objs, nil); err != nil {
+	c.objs = &bpfgen.Objects{}
+	if err := bpfgen.LoadObjects(c.objs, nil); err != nil {
 		return fmt.Errorf("failed to load eBPF objects: %w", err)
 	}
 

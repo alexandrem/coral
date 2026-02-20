@@ -1,5 +1,11 @@
 version: "2"
 
+run:
+  # bpfgen contains bpf2go-generated eBPF bindings that embed Linux-only .o files.
+  # Excluded from linting since they're generated code and Linux-only.
+  skip-dirs:
+    - internal/agent/ebpf/bpfgen
+
 linters:
   enable:
     - gosec
