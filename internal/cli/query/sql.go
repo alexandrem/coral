@@ -3,14 +3,12 @@ package query
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
@@ -34,17 +32,11 @@ Examples:
 			sqlQuery := args[0]
 			ctx := context.Background()
 
-			// Resolve colony URL
-			colonyAddr, err := helpers.GetColonyURL("")
-			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
-			}
-
 			// Create colony client
-			client := colonyv1connect.NewColonyServiceClient(
-				http.DefaultClient,
-				colonyAddr,
-			)
+			client, err := helpers.GetColonyClient("")
+			if err != nil {
+				return fmt.Errorf("failed to create colony client: %w", err)
+			}
 
 			// Execute RPC
 			req := &colonypb.ExecuteQueryRequest{

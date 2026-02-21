@@ -5,12 +5,13 @@ import (
 	"os"
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
-// getColonyURL returns the colony URL using shared config resolution.
-func getColonyURL() (string, error) {
-	return helpers.GetColonyURL("")
+// getColonyDebugClient returns a colony debug client.
+func getColonyDebugClient() (colonyv1connect.ColonyDebugServiceClient, error) {
+	return helpers.GetColonyDebugClient("")
 }
 
 // printCPUProfileFolded prints the profile in folded stack format.

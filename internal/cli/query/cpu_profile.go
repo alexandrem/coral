@@ -3,7 +3,6 @@ package query
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
@@ -87,17 +85,11 @@ Examples:
 			fmt.Fprintf(os.Stderr, "Querying historical CPU profiles for service '%s'\n", serviceName)
 			fmt.Fprintf(os.Stderr, "Time range: %s to %s\n", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
-			// Get colony URL.
-			colonyURL, err := helpers.GetColonyURL("")
-			if err != nil {
-				return fmt.Errorf("failed to get colony URL: %w", err)
-			}
-
 			// Create gRPC client.
-			client := colonyv1connect.NewColonyDebugServiceClient(
-				http.DefaultClient,
-				colonyURL,
-			)
+			client, err := helpers.GetColonyDebugClient("")
+			if err != nil {
+				return fmt.Errorf("failed to create colony debug client: %w", err)
+			}
 
 			// Create request.
 			req := connect.NewRequest(&colonypb.QueryHistoricalCPUProfileRequest{

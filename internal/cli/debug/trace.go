@@ -3,7 +3,6 @@ package debug
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 func NewTraceCmd() *cobra.Command {
@@ -31,16 +29,11 @@ func NewTraceCmd() *cobra.Command {
 			serviceName := args[0]
 			ctx := context.Background()
 
-			// Resolve colony URL from config
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(
-				http.DefaultClient,
-				colonyAddr,
-			)
 
 			if format == "text" {
 				fmt.Printf("🔍 Tracing %s on %s for %s...\n", path, serviceName, duration)

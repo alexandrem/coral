@@ -14,6 +14,7 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
+	"github.com/coral-mesh/coral/internal/config"
 	"github.com/coral-mesh/coral/internal/duckdb"
 )
 
@@ -194,9 +195,13 @@ func listAgentDatabases(ctx context.Context, meshIP string) ([]string, error) {
 // resolveColonyAddress returns the colony HTTP address from config.
 // For CLI usage, we use localhost since the CLI typically runs on the same host as the colony.
 func resolveColonyAddress() (string, error) {
-	// Use the shared helper to get colony URL.
+	// Use config resolver to get colony URL.
 	// This returns http://localhost:{port} based on config.
-	url, err := helpers.GetColonyURL("")
+	resolver, err := config.NewResolver()
+	if err != nil {
+		return "", fmt.Errorf("failed to create config resolver: %w", err)
+	}
+	url, err := resolver.ResolveColonyURL("")
 	if err != nil {
 		return "", fmt.Errorf("failed to get colony URL: %w", err)
 	}

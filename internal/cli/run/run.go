@@ -11,9 +11,8 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/coral-mesh/coral/internal/config"
 	"github.com/spf13/cobra"
-
-	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
 // NewRunCmd creates the 'run' command.
@@ -75,7 +74,11 @@ func executeScript(ctx context.Context, scriptPath string, watch bool) error {
 	}
 
 	// Resolve colony address for --allow-net permission
-	colonyURL, err := helpers.GetColonyURL("")
+	var colonyURL string
+	resolver, err := config.NewResolver()
+	if err == nil {
+		colonyURL, err = resolver.ResolveColonyURL("")
+	}
 	if err != nil {
 		// Not fatal - script may not need colony access
 		colonyURL = "http://localhost:9090"
