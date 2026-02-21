@@ -18,7 +18,7 @@ func TestGetColonyURL_EnvVarPrecedence(t *testing.T) {
 	os.Setenv("CORAL_COLONY_ENDPOINT", expected)
 
 	// Call function
-	url, err := GetColonyURL("test-colony")
+	url, err := getColonyURL("test-colony")
 	require.NoError(t, err)
 
 	// Verify env var takes precedence
@@ -36,14 +36,14 @@ func TestGetColonyClientWithFallback_EnvVarPrecedence(t *testing.T) {
 
 	// We can't easily test the actual client connection failing without mocking,
 	// but we can at least verify that the function attempts to use the env var first.
-	// However, GetColonyClientWithFallback logic currently starts with resolving config first.
+	// However, GetColonyClient logic currently starts with resolving config first.
 	// We want to ensure it respects the env var.
 
-	// Since GetColonyClientWithFallback makes network calls, we can't fully unit test it
+	// Since GetColonyClient makes network calls, we can't fully unit test it
 	// without significant mocking of the network layer or the helper implementation itself.
-	// But we can check if the underlying GetColonyURL is working (which we did above).
+	// But we can check if the underlying getColonyURL is working (which we did above).
 
-	// For now, let's rely on the GetColonyURL test and manual verification,
+	// For now, let's rely on the getColonyURL test and manual verification,
 	// as mocking the entire connect client construction inside the helper function
 	// requires dependency injection refactoring which might be out of scope for a quick fix.
 	//
@@ -54,5 +54,5 @@ func TestGetColonyClientWithFallback_EnvVarPrecedence(t *testing.T) {
 	// the network call succeeds. But since we can't make it succeed against a fake URL...
 
 	// Let's assume the integration/manual test covers the E2E part.
-	// The critical piece is GetColonyURL returning the right thing.
+	// The critical piece is getColonyURL returning the right thing.
 }

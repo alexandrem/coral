@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 func NewSessionCmd() *cobra.Command {
@@ -44,12 +42,11 @@ func newSessionListCmd() *cobra.Command {
 		Short: "List active debug sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			req := &colonypb.ListDebugSessionsRequest{
 				ServiceName: serviceName,
@@ -88,12 +85,11 @@ func newSessionGetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]
 			ctx := context.Background()
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			// We have to list all sessions and filter because there is no GetSession RPC
 			req := &colonypb.ListDebugSessionsRequest{}
@@ -143,12 +139,11 @@ func newSessionEventsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]
 			ctx := context.Background()
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			var startTime *timestamppb.Timestamp
 			if since > 0 {
@@ -201,12 +196,11 @@ func newSessionStopCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]
 			ctx := context.Background()
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			fmt.Printf("Stopping session %s...\n", sessionID)
 
@@ -262,16 +256,11 @@ Examples:
 				return fmt.Errorf("either --function or --session-id must be provided")
 			}
 
-			// Resolve colony URL from config.
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(
-				http.DefaultClient,
-				colonyAddr,
-			)
 
 			if format == "text" {
 				if sessionID != "" {

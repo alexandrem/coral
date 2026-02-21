@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 func NewSearchCmd() *cobra.Command {
@@ -29,12 +27,11 @@ func NewSearchCmd() *cobra.Command {
 			query := args[0]
 			ctx := context.Background()
 
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			req := &colonypb.QueryFunctionsRequest{
 				ServiceName:    serviceName,
@@ -110,12 +107,11 @@ func NewInfoCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			req := &colonypb.QueryFunctionsRequest{
 				ServiceName:    serviceName,
@@ -218,12 +214,11 @@ func NewProfileCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
-			colonyAddr, err := getColonyURL()
+			// Create Colony client
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(http.DefaultClient, colonyAddr)
 
 			// Parse duration
 			durationProto, err := parseDuration(duration)

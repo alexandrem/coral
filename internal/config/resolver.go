@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // Resolver handles configuration resolution with priority order.
@@ -172,6 +174,43 @@ func (r *Resolver) ResolveConfig(colonyID string) (*ResolvedConfig, error) {
 	}
 
 	return resolved, nil
+}
+
+// ResolveColonyURL resolves the colony endpoint URL.
+// Priority: CORAL_COLONY_ENDPOINT standalone > remote.endpoint config > localhost:{connectPort}.
+func (r *Resolver) ResolveColonyURL(colonyID string) (string, error) {
+	// 1. Special case: CORAL_COLONY_ENDPOINT can be used without colony config (remote-only mode).
+	if endpoint := os.Getenv("CORAL_COLONY_ENDPOINT"); endpoint != "" {
+		return endpoint, nil
+	}
+
+	// 2. Resolve colony ID if not specified.
+	if colonyID == "" {
+		var err error
+		colonyID, err = r.ResolveColonyID()
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// 3. Load colony configuration.
+	colonyConfig, err := r.loader.LoadColonyConfig(colonyID)
+	if err != nil {
+		return "", fmt.Errorf("failed to load colony config: %w", err)
+	}
+
+	// 4. Check remote endpoint in config.
+	if colonyConfig.Remote.Endpoint != "" {
+		return colonyConfig.Remote.Endpoint, nil
+	}
+
+	// 5. Fall back to localhost URL.
+	connectPort := colonyConfig.Services.ConnectPort
+	if connectPort == 0 {
+		connectPort = constants.DefaultColonyPort
+	}
+
+	return fmt.Sprintf("http://localhost:%d", connectPort), nil
 }
 
 // GetLoader returns the underlying config loader.

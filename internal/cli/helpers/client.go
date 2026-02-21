@@ -37,59 +37,15 @@ import (
 //  3. Colony config remote.certificate_authority (env: CORAL_CA_FILE)
 //  4. System CA pool (default)
 
-// GetColonyURL returns the colony URL using config resolution.
-// Special case: If CORAL_COLONY_ENDPOINT is set, it can be used standalone without colony config.
-// Otherwise, env vars are merged into config via struct tags (CORAL_COLONY_ENDPOINT -> remote.endpoint).
-// Priority: CORAL_COLONY_ENDPOINT standalone > remote.endpoint config > localhost:{connectPort}.
-func GetColonyURL(colonyID string) (string, error) {
-	// Special case: CORAL_COLONY_ENDPOINT can be used without colony config (remote-only mode).
-	// This allows connecting to remote colonies without local config files.
-	if endpoint := os.Getenv("CORAL_COLONY_ENDPOINT"); endpoint != "" {
-		return endpoint, nil
-	}
-
+// getColonyURL returns the colony URL using config resolution.
+func getColonyURL(colonyID string) (string, error) {
 	// Create resolver.
 	resolver, err := config.NewResolver()
 	if err != nil {
 		return "", fmt.Errorf("failed to create config resolver: %w", err)
 	}
 
-	// Resolve colony ID if not specified.
-	if colonyID == "" {
-		colonyID, err = resolver.ResolveColonyID()
-		if err != nil {
-			// Check if config exists at all.
-			home, homeErr := os.UserHomeDir()
-			if homeErr == nil {
-				configPath := filepath.Join(home, ".coral", "config.yaml")
-				if _, statErr := os.Stat(configPath); statErr != nil {
-					return "", fmt.Errorf("colony config not found: run 'coral init' first")
-				}
-			}
-			return "", fmt.Errorf("failed to resolve colony: %w", err)
-		}
-	}
-
-	// Load colony configuration (env vars merged via MergeFromEnv).
-	loader := resolver.GetLoader()
-	colonyConfig, err := loader.LoadColonyConfig(colonyID)
-	if err != nil {
-		return "", fmt.Errorf("failed to load colony config: %w", err)
-	}
-
-	// Check remote endpoint in config (CORAL_COLONY_ENDPOINT would also be merged here,
-	// but we already handled it above for the remote-only use case).
-	if colonyConfig.Remote.Endpoint != "" {
-		return colonyConfig.Remote.Endpoint, nil
-	}
-
-	// Fall back to localhost URL (CLI commands run on same host as colony).
-	connectPort := colonyConfig.Services.ConnectPort
-	if connectPort == 0 {
-		connectPort = constants.DefaultColonyPort
-	}
-
-	return fmt.Sprintf("http://localhost:%d", connectPort), nil
+	return resolver.ResolveColonyURL(colonyID)
 }
 
 // GetColonyClient creates a colony service client for the specified colony.
@@ -97,7 +53,7 @@ func GetColonyURL(colonyID string) (string, error) {
 // Supports CORAL_API_TOKEN for authentication (RFD 031).
 // Supports custom TLS configuration via config or environment variables.
 func GetColonyClient(colonyID string) (colonyv1connect.ColonyServiceClient, error) {
-	url, err := GetColonyURL(colonyID)
+	url, err := getColonyURL(colonyID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +80,7 @@ func GetColonyClient(colonyID string) (colonyv1connect.ColonyServiceClient, erro
 // If colonyID is empty, uses the default colony from config.
 // Supports custom TLS configuration via config or environment variables.
 func GetColonyDebugClient(colonyID string) (colonyv1connect.ColonyDebugServiceClient, error) {
-	url, err := GetColonyURL(colonyID)
+	url, err := getColonyURL(colonyID)
 	if err != nil {
 		return nil, err
 	}
