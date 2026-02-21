@@ -120,6 +120,33 @@ func GetColonyClient(colonyID string) (colonyv1connect.ColonyServiceClient, erro
 	return client, nil
 }
 
+// GetColonyDebugClient creates a colony debug service client for the specified colony.
+// If colonyID is empty, uses the default colony from config.
+// Supports custom TLS configuration via config or environment variables.
+func GetColonyDebugClient(colonyID string) (colonyv1connect.ColonyDebugServiceClient, error) {
+	url, err := GetColonyURL(colonyID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build HTTP client with appropriate TLS configuration.
+	httpClient, err := buildHTTPClient(colonyID, url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build HTTP client: %w", err)
+	}
+
+	// Prepare interceptors for authentication.
+	opts := getInterceptorOptsFromEnv()
+
+	client := colonyv1connect.NewColonyDebugServiceClient(
+		httpClient,
+		url,
+		opts...,
+	)
+
+	return client, nil
+}
+
 // getInterceptorOptsFromEnv returns client options with authentication interceptor
 // if CORAL_API_TOKEN is set.
 func getInterceptorOptsFromEnv() []connect.ClientOption {

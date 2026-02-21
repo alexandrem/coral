@@ -3,7 +3,6 @@ package query
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
@@ -77,15 +75,10 @@ Examples:
 			fmt.Fprintf(os.Stderr, "Querying historical memory profiles for service '%s'\n", serviceName)
 			fmt.Fprintf(os.Stderr, "Time range: %s to %s\n", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
-			colonyURL, err := helpers.GetColonyURL("")
+			client, err := helpers.GetColonyDebugClient("")
 			if err != nil {
-				return fmt.Errorf("failed to get colony URL: %w", err)
+				return fmt.Errorf("failed to create colony debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(
-				http.DefaultClient,
-				colonyURL,
-			)
 
 			req := connect.NewRequest(&colonypb.QueryHistoricalMemoryProfileRequest{
 				ServiceName: serviceName,

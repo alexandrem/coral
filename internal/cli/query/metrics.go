@@ -3,7 +3,6 @@ package query
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -48,17 +47,11 @@ Examples:
 
 			ctx := context.Background()
 
-			// Resolve colony URL
-			colonyAddr, err := helpers.GetColonyURL("")
-			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w", err)
-			}
-
 			// Create colony client
-			client := colonyv1connect.NewColonyServiceClient(
-				http.DefaultClient,
-				colonyAddr,
-			)
+			client, err := helpers.GetColonyClient("")
+			if err != nil {
+				return fmt.Errorf("failed to create colony client: %w", err)
+			}
 
 			// RFD 076: Focused percentile query if --metric and --percentile are specified
 			if metric != "" && percentile > 0 {
