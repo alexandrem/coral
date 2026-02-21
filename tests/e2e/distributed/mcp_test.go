@@ -1383,6 +1383,40 @@ func (s *MCPSuite) ensureTelemetryData() {
 	s.T().Log("Telemetry data generated")
 }
 
+// ensureCrossServiceData drives traffic through otel-app's /chain endpoint,
+// which calls cpu-app and injects the W3C traceparent header. Beyla captures
+// both sides of the call as a parent-child span pair, giving
+// MaterializeConnections the cross-service edge data it needs to build the
+// service topology graph.
+func (s *MCPSuite) ensureCrossServiceData() {
+	s.T().Log("Generating cross-service traffic (otel-app → cpu-app)...")
+
+	otelAppURL := "http://localhost:8082"
+
+	if err := helpers.WaitForHTTPEndpoint(s.ctx, otelAppURL+"/health", 10*time.Second); err != nil {
+		s.T().Log("otel-app not reachable, cross-service traffic generation skipped")
+		return
+	}
+
+	const calls = 5
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := 0; i < calls; i++ {
+		resp, err := client.Get(otelAppURL + "/chain")
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Allow time for Beyla to capture both span sides, the colony's Beyla poll
+	// (1s in e2e config) to forward them, and the first topology materialization
+	// to run. Ten seconds gives comfortable headroom across that pipeline.
+	s.T().Log("Waiting for cross-service spans to propagate to colony...")
+	time.Sleep(10 * time.Second)
+
+	s.T().Logf("Generated %d cross-service calls", calls)
+}
+
 // =============================================================================
 // Group N: Service Topology (RFD 092)
 // =============================================================================
@@ -1390,9 +1424,9 @@ func (s *MCPSuite) ensureTelemetryData() {
 // TestMCPTopologyTool tests the coral_topology MCP tool (RFD 092).
 //
 // Validates:
-//   - coral_topology is present in the tool list
-//   - Tool executes without error
-//   - Output contains the expected call-graph header
+//   - coral_topology is present in the tool list with a description
+//   - Actual cross-service edges (otel-app → cpu-app) appear after generating traffic
+//   - Connection count reflects the number of calls made
 //   - Tool accepts an explicit "since" parameter
 func (s *MCPSuite) TestMCPTopologyTool() {
 	s.T().Log("Testing coral_topology MCP tool (RFD 092)...")
@@ -1412,21 +1446,34 @@ func (s *MCPSuite) TestMCPTopologyTool() {
 	}
 	s.Require().True(foundTopology, "coral_topology must appear in the tool list")
 
-	// Execute coral_topology with no arguments (default 1h window).
+	// Generate real cross-service HTTP traffic so MaterializeConnections has
+	// parent-child span relationships to mine across service boundaries.
+	s.ensureCrossServiceData()
+
+	// Execute coral_topology with the default 1h window.
 	result := helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", "")
 	result.MustSucceed(s.T())
 	s.Require().NotEmpty(result.Output, "Tool output should not be empty")
 
-	// Output must include either a call graph or the "no calls" message.
-	hasCallGraph := strings.Contains(strings.ToLower(result.Output), "call graph")
-	s.Require().True(hasCallGraph, "Output should contain the 'call graph' header")
-
 	s.T().Logf("coral_topology output:\n%s", result.Output)
+
+	// The output must contain the call-graph header.
+	s.Require().True(
+		strings.Contains(strings.ToLower(result.Output), "call graph"),
+		"Output should contain the 'call graph' header",
+	)
+
+	// The output must include a detected edge between the two services.
+	// otel-app calls cpu-app via the /chain endpoint with traceparent injection,
+	// so Beyla records a parent-child span relationship across service boundaries.
+	s.Require().Contains(result.Output, "otel-app", "Output should name the caller service")
+	s.Require().Contains(result.Output, "cpu-app", "Output should name the callee service")
+	s.Require().Contains(result.Output, "→", "Output should show a directed call edge")
 
 	// Execute coral_topology with an explicit since parameter.
 	result30m := helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", `{"since":"30m"}`)
 	result30m.MustSucceed(s.T())
 	s.Require().Contains(result30m.Output, "30m", "Output should reflect the requested time window")
 
-	s.T().Log("✓ coral_topology tool validated")
+	s.T().Log("✓ coral_topology tool validated with real cross-service connections")
 }

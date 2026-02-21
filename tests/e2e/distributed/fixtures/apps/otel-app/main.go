@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -35,6 +36,16 @@ var (
 	requestCounter  metric.Int64Counter
 	requestDuration metric.Float64Histogram
 	activeRequests  metric.Int64UpDownCounter
+
+	// cpuAppURL is the URL of the cpu-app upstream service. Configurable via
+	// CPU_APP_URL for different deployment topologies; defaults to localhost
+	// since both apps share agent-0's network namespace in docker-compose.
+	cpuAppURL = func() string {
+		if u := os.Getenv("CPU_APP_URL"); u != "" {
+			return u
+		}
+		return "http://localhost:8080"
+	}()
 )
 
 func main() {
@@ -105,6 +116,7 @@ func main() {
 	mux.HandleFunc("/api/users", handleUsers)
 	mux.HandleFunc("/api/products", handleProducts)
 	mux.HandleFunc("/api/checkout", handleCheckout)
+	mux.HandleFunc("/chain", handleChain)
 	mux.HandleFunc("/health", handleHealth)
 
 	server := &http.Server{
@@ -165,6 +177,13 @@ func initOTel(ctx context.Context, endpoint string) (shutdown func(context.Conte
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
 	otel.SetTracerProvider(tracerProvider)
+
+	// Register the W3C TraceContext propagator so outgoing HTTP requests carry
+	// the traceparent header, allowing Beyla to correlate cross-service spans.
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 
 	// Create OTLP metrics exporter.
 	metricExporter, err := otlpmetricgrpc.New(ctx,
@@ -365,6 +384,37 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status": "success", "order_id": "%d"}`, rand.Intn(10000))
+	})(w, r)
+}
+
+// handleChain calls the cpu-app upstream service, propagating the current
+// trace context via the W3C traceparent header. This allows Beyla to record a
+// parent–child span relationship across service boundaries, which is what
+// MaterializeConnections mines to build the service topology graph.
+func handleChain(w http.ResponseWriter, r *http.Request) {
+	instrumentHandler("GET /chain", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cpuAppURL+"/", nil)
+		if err != nil {
+			http.Error(w, "failed to build upstream request", http.StatusInternalServerError)
+			return
+		}
+
+		// Inject the active span's trace context so Beyla can correlate the
+		// incoming cpu-app span as a child of this otel-app span.
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, "upstream call failed", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok","upstream_status":%d}`, resp.StatusCode)
 	})(w, r)
 }
 
