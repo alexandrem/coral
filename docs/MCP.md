@@ -381,6 +381,11 @@ Returns: Session ID, expiration time, success status
 **Note:** Uprobes are production-safe and time-limited. They capture function
 entry/exit events and measure duration without modifying application behavior.
 
+**Kernel-level filtering** (RFD 090) is available via the CLI (`coral debug attach
+--min-duration`, `--max-duration`, `--filter-rate`) but is not yet exposed through
+this MCP tool. Use the CLI for high-volume hot paths where kernel-level event
+dropping is necessary.
+
 #### `coral_detach_uprobe`
 
 Stop debug session early and detach eBPF probes.

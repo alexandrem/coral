@@ -483,8 +483,12 @@ historical profiling data.
 
 ```bash
 # Attach probes
-coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return]
+coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return] \
+  [--sample-rate <n>] [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
 coral debug trace <service> --path <path> [--duration <time>]
+
+# Update kernel-level filter for an active session (without detaching)
+coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
 
 # Manage debug sessions
 coral debug session list [--service <name>] [--status <status>] [--format text|json|csv]
@@ -493,6 +497,16 @@ coral debug session query <service> --function <name> [--since <duration>] [--fo
 coral debug session query <service> --session-id <id> [--format text|json|csv]
 coral debug session events <session-id> [--max <n>] [--follow] [--since <duration>]
 coral debug session stop <session-id>
+
+# Examples - Attach with kernel-level filters:
+coral debug attach api --function processOrder              # Attach without filters (all events)
+coral debug attach api --function processOrder --min-duration 50ms   # Only slow calls (>50ms)
+coral debug attach api --function processOrder --filter-rate 100     # Sample 1 in 100 events
+
+# Examples - Live filter updates:
+coral debug filter abc123 --min-duration 100ms              # Raise threshold on active session
+coral debug filter abc123 --filter-rate 10                  # Switch to 1-in-10 sampling
+coral debug filter abc123 --min-duration 0 --filter-rate 1  # Reset to capture all events
 
 # Examples - Session management:
 coral debug session list                                    # List all active sessions
@@ -503,6 +517,21 @@ coral debug session query api --session-id abc123           # Query specific ses
 coral debug session events abc123 --follow                  # Stream events from session
 coral debug session stop abc123                             # Stop a debug session
 ```
+
+### Kernel-level Filter Flags
+
+Filter flags (`--min-duration`, `--max-duration`, `--filter-rate`) configure an eBPF BPF map
+that drops events **inside the kernel** before they ever reach userspace. This eliminates
+unnecessary data copies on high-volume hot paths (10K+ calls/sec).
+
+| Flag               | Description                                           | Example       |
+|--------------------|-------------------------------------------------------|---------------|
+| `--min-duration`   | Only emit events slower than this threshold           | `50ms`, `1s`  |
+| `--max-duration`   | Only emit events faster than this threshold           | `500ms`       |
+| `--filter-rate`    | Emit 1 in every N events (0 or 1 = all events)        | `100`         |
+
+Use `coral debug filter <session-id>` to adjust these thresholds on an active session without
+detaching the probe or losing collected data.
 
 ---
 

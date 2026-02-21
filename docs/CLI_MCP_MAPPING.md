@@ -17,6 +17,7 @@ integration.
 | eBPF Metrics & Traces     | `coral_query_summary`, `coral_query_traces`, `coral_query_metrics`              | ✅ Available                       |
 | Memory Profiling          | `coral_query_memory_profile`, `coral_profile_memory`                            | ✅ Available                       |
 | Live Debugging            | `coral_attach_uprobe`, `coral_detach_uprobe`, `coral_list_debug_sessions`, etc. | ✅ Available                       |
+| Probe Filter Updates      | ❌ No MCP equivalent                                                             | Use `coral debug filter` CLI      |
 | Container Execution       | `coral_container_exec`                                                          | ✅ Available                       |
 | Agent Shell Access        | `coral_shell_exec`                                                              | ✅ Available                       |
 | Service Discovery         | `coral_list_services`                                                           | ✅ Available                       |
@@ -414,18 +415,26 @@ higher-level abstractions:
 ### Attach Probes
 
 ```bash
-coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return]
+coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return] \
+  [--sample-rate <n>] [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
 ```
 
 **MCP Equivalent:** `coral_attach_uprobe`
 
-| CLI Parameter       | MCP Parameter      | Example            |
-|---------------------|--------------------|--------------------|
-| `<service>`         | `service_name`     | `"payments-api"`   |
-| `--function <name>` | `function_name`    | `"ProcessPayment"` |
-| `--duration <time>` | `duration_seconds` | `300` (5 minutes)  |
-| `--capture-args`    | `capture_args`     | `true`             |
-| `--capture-return`  | `capture_return`   | `true`             |
+| CLI Parameter          | MCP Parameter      | Example            |
+|------------------------|--------------------|--------------------|
+| `<service>`            | `service_name`     | `"payments-api"`   |
+| `--function <name>`    | `function_name`    | `"ProcessPayment"` |
+| `--duration <time>`    | `duration_seconds` | `300` (5 minutes)  |
+| `--capture-args`       | `capture_args`     | `true`             |
+| `--capture-return`     | `capture_return`   | `true`             |
+| `--min-duration <dur>` | ❌ CLI only        | `50ms`             |
+| `--max-duration <dur>` | ❌ CLI only        | `500ms`            |
+| `--filter-rate <n>`    | ❌ CLI only        | `100`              |
+
+**Note:** Kernel-level filter flags (`--min-duration`, `--max-duration`, `--filter-rate`) are
+CLI-only. They configure a BPF map that drops events inside the kernel before reaching userspace,
+which is most useful on high-volume hot paths. This feature is not yet exposed via MCP.
 
 **Example:**
 
@@ -443,6 +452,36 @@ coral debug attach <service> --function <name> [--duration <time>] [--capture-ar
 ```
 
 **Response:** Session ID for later querying
+
+---
+
+### Update Probe Filter
+
+```bash
+coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
+```
+
+**MCP Equivalent:** ❌ None - CLI only
+
+Live filter updates are not yet exposed as an MCP tool. Use the CLI to adjust kernel-level
+filter thresholds on an active session without detaching the probe.
+
+| CLI Parameter          | Description                                     | Example |
+|------------------------|-------------------------------------------------|---------|
+| `<session-id>`         | Active debug session ID (required)              | `abc123` |
+| `--min-duration <dur>` | Only emit events slower than this threshold     | `100ms` |
+| `--max-duration <dur>` | Only emit events faster than this threshold     | `500ms` |
+| `--filter-rate <n>`    | Emit 1 in every N events (0 or 1 = all)         | `10`    |
+
+**Example:**
+
+```bash
+# Narrow focus to only slow calls after initial broad capture
+coral debug filter abc123 --min-duration 100ms
+
+# Switch to 1-in-10 sampling on a very hot path
+coral debug filter abc123 --filter-rate 10
+```
 
 ---
 
