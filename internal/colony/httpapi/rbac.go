@@ -30,14 +30,15 @@ var MethodPermissions = map[string]auth.Permission{
 	"/coral.colony.v1.ColonyService/StreamTool": auth.PermissionAnalyze,
 
 	// Debug operations (PermissionDebug).
-	"/coral.colony.v1.ColonyDebugService/StartSession":  auth.PermissionDebug,
-	"/coral.colony.v1.ColonyDebugService/StopSession":   auth.PermissionDebug,
-	"/coral.colony.v1.ColonyDebugService/AttachProbe":   auth.PermissionDebug,
-	"/coral.colony.v1.ColonyDebugService/DetachProbe":   auth.PermissionDebug,
-	"/coral.colony.v1.ColonyDebugService/GetResults":    auth.PermissionQuery,
-	"/coral.colony.v1.ColonyDebugService/ListSessions":  auth.PermissionQuery,
-	"/coral.colony.v1.ColonyDebugService/StreamEvents":  auth.PermissionDebug,
-	"/coral.colony.v1.ColonyDebugService/ListFunctions": auth.PermissionQuery,
+	"/coral.colony.v1.ColonyDebugService/StartSession":      auth.PermissionDebug,
+	"/coral.colony.v1.ColonyDebugService/StopSession":       auth.PermissionDebug,
+	"/coral.colony.v1.ColonyDebugService/AttachProbe":       auth.PermissionDebug,
+	"/coral.colony.v1.ColonyDebugService/DetachProbe":       auth.PermissionDebug,
+	"/coral.colony.v1.ColonyDebugService/GetResults":        auth.PermissionQuery,
+	"/coral.colony.v1.ColonyDebugService/ListSessions":      auth.PermissionQuery,
+	"/coral.colony.v1.ColonyDebugService/StreamEvents":      auth.PermissionDebug,
+	"/coral.colony.v1.ColonyDebugService/ListFunctions":     auth.PermissionQuery,
+	"/coral.colony.v1.ColonyDebugService/UpdateProbeFilter": auth.PermissionDebug, // RFD 090
 
 	// Certificate operations (PermissionAdmin).
 	"/coral.colony.v1.ColonyService/RequestCertificate": auth.PermissionAdmin,

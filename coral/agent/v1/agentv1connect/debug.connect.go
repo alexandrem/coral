@@ -43,6 +43,9 @@ const (
 	// AgentDebugServiceQueryUprobeEventsProcedure is the fully-qualified name of the
 	// AgentDebugService's QueryUprobeEvents RPC.
 	AgentDebugServiceQueryUprobeEventsProcedure = "/coral.agent.v1.AgentDebugService/QueryUprobeEvents"
+	// AgentDebugServiceUpdateProbeFilterProcedure is the fully-qualified name of the
+	// AgentDebugService's UpdateProbeFilter RPC.
+	AgentDebugServiceUpdateProbeFilterProcedure = "/coral.agent.v1.AgentDebugService/UpdateProbeFilter"
 	// AgentDebugServiceProfileCPUProcedure is the fully-qualified name of the AgentDebugService's
 	// ProfileCPU RPC.
 	AgentDebugServiceProfileCPUProcedure = "/coral.agent.v1.AgentDebugService/ProfileCPU"
@@ -65,6 +68,9 @@ type AgentDebugServiceClient interface {
 	StopUprobeCollector(context.Context, *connect.Request[v1.StopUprobeCollectorRequest]) (*connect.Response[v1.StopUprobeCollectorResponse], error)
 	// Query events from a uprobe collector.
 	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
+	// UpdateProbeFilter updates filter parameters for an active probe session
+	// without detaching or interrupting event collection (RFD 090).
+	UpdateProbeFilter(context.Context, *connect.Request[v1.UpdateProbeFilterRequest]) (*connect.Response[v1.UpdateProbeFilterResponse], error)
 	// Collect CPU profile samples for a target process (RFD 070).
 	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error)
 	// Query historical CPU profile samples from continuous profiling (RFD 072).
@@ -104,6 +110,12 @@ func NewAgentDebugServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(agentDebugServiceMethods.ByName("QueryUprobeEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		updateProbeFilter: connect.NewClient[v1.UpdateProbeFilterRequest, v1.UpdateProbeFilterResponse](
+			httpClient,
+			baseURL+AgentDebugServiceUpdateProbeFilterProcedure,
+			connect.WithSchema(agentDebugServiceMethods.ByName("UpdateProbeFilter")),
+			connect.WithClientOptions(opts...),
+		),
 		profileCPU: connect.NewClient[v1.ProfileCPUAgentRequest, v1.ProfileCPUAgentResponse](
 			httpClient,
 			baseURL+AgentDebugServiceProfileCPUProcedure,
@@ -136,6 +148,7 @@ type agentDebugServiceClient struct {
 	startUprobeCollector      *connect.Client[v1.StartUprobeCollectorRequest, v1.StartUprobeCollectorResponse]
 	stopUprobeCollector       *connect.Client[v1.StopUprobeCollectorRequest, v1.StopUprobeCollectorResponse]
 	queryUprobeEvents         *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
+	updateProbeFilter         *connect.Client[v1.UpdateProbeFilterRequest, v1.UpdateProbeFilterResponse]
 	profileCPU                *connect.Client[v1.ProfileCPUAgentRequest, v1.ProfileCPUAgentResponse]
 	queryCPUProfileSamples    *connect.Client[v1.QueryCPUProfileSamplesRequest, v1.QueryCPUProfileSamplesResponse]
 	profileMemory             *connect.Client[v1.ProfileMemoryAgentRequest, v1.ProfileMemoryAgentResponse]
@@ -155,6 +168,11 @@ func (c *agentDebugServiceClient) StopUprobeCollector(ctx context.Context, req *
 // QueryUprobeEvents calls coral.agent.v1.AgentDebugService.QueryUprobeEvents.
 func (c *agentDebugServiceClient) QueryUprobeEvents(ctx context.Context, req *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
 	return c.queryUprobeEvents.CallUnary(ctx, req)
+}
+
+// UpdateProbeFilter calls coral.agent.v1.AgentDebugService.UpdateProbeFilter.
+func (c *agentDebugServiceClient) UpdateProbeFilter(ctx context.Context, req *connect.Request[v1.UpdateProbeFilterRequest]) (*connect.Response[v1.UpdateProbeFilterResponse], error) {
+	return c.updateProbeFilter.CallUnary(ctx, req)
 }
 
 // ProfileCPU calls coral.agent.v1.AgentDebugService.ProfileCPU.
@@ -185,6 +203,9 @@ type AgentDebugServiceHandler interface {
 	StopUprobeCollector(context.Context, *connect.Request[v1.StopUprobeCollectorRequest]) (*connect.Response[v1.StopUprobeCollectorResponse], error)
 	// Query events from a uprobe collector.
 	QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error)
+	// UpdateProbeFilter updates filter parameters for an active probe session
+	// without detaching or interrupting event collection (RFD 090).
+	UpdateProbeFilter(context.Context, *connect.Request[v1.UpdateProbeFilterRequest]) (*connect.Response[v1.UpdateProbeFilterResponse], error)
 	// Collect CPU profile samples for a target process (RFD 070).
 	ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error)
 	// Query historical CPU profile samples from continuous profiling (RFD 072).
@@ -220,6 +241,12 @@ func NewAgentDebugServiceHandler(svc AgentDebugServiceHandler, opts ...connect.H
 		connect.WithSchema(agentDebugServiceMethods.ByName("QueryUprobeEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentDebugServiceUpdateProbeFilterHandler := connect.NewUnaryHandler(
+		AgentDebugServiceUpdateProbeFilterProcedure,
+		svc.UpdateProbeFilter,
+		connect.WithSchema(agentDebugServiceMethods.ByName("UpdateProbeFilter")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentDebugServiceProfileCPUHandler := connect.NewUnaryHandler(
 		AgentDebugServiceProfileCPUProcedure,
 		svc.ProfileCPU,
@@ -252,6 +279,8 @@ func NewAgentDebugServiceHandler(svc AgentDebugServiceHandler, opts ...connect.H
 			agentDebugServiceStopUprobeCollectorHandler.ServeHTTP(w, r)
 		case AgentDebugServiceQueryUprobeEventsProcedure:
 			agentDebugServiceQueryUprobeEventsHandler.ServeHTTP(w, r)
+		case AgentDebugServiceUpdateProbeFilterProcedure:
+			agentDebugServiceUpdateProbeFilterHandler.ServeHTTP(w, r)
 		case AgentDebugServiceProfileCPUProcedure:
 			agentDebugServiceProfileCPUHandler.ServeHTTP(w, r)
 		case AgentDebugServiceQueryCPUProfileSamplesProcedure:
@@ -279,6 +308,10 @@ func (UnimplementedAgentDebugServiceHandler) StopUprobeCollector(context.Context
 
 func (UnimplementedAgentDebugServiceHandler) QueryUprobeEvents(context.Context, *connect.Request[v1.QueryUprobeEventsRequest]) (*connect.Response[v1.QueryUprobeEventsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.QueryUprobeEvents is not implemented"))
+}
+
+func (UnimplementedAgentDebugServiceHandler) UpdateProbeFilter(context.Context, *connect.Request[v1.UpdateProbeFilterRequest]) (*connect.Response[v1.UpdateProbeFilterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.agent.v1.AgentDebugService.UpdateProbeFilter is not implemented"))
 }
 
 func (UnimplementedAgentDebugServiceHandler) ProfileCPU(context.Context, *connect.Request[v1.ProfileCPUAgentRequest]) (*connect.Response[v1.ProfileCPUAgentResponse], error) {

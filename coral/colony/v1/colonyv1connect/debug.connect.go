@@ -37,6 +37,9 @@ const (
 	// ColonyDebugServiceAttachUprobeProcedure is the fully-qualified name of the ColonyDebugService's
 	// AttachUprobe RPC.
 	ColonyDebugServiceAttachUprobeProcedure = "/coral.colony.v1.ColonyDebugService/AttachUprobe"
+	// ColonyDebugServiceUpdateProbeFilterProcedure is the fully-qualified name of the
+	// ColonyDebugService's UpdateProbeFilter RPC.
+	ColonyDebugServiceUpdateProbeFilterProcedure = "/coral.colony.v1.ColonyDebugService/UpdateProbeFilter"
 	// ColonyDebugServiceDetachUprobeProcedure is the fully-qualified name of the ColonyDebugService's
 	// DetachUprobe RPC.
 	ColonyDebugServiceDetachUprobeProcedure = "/coral.colony.v1.ColonyDebugService/DetachUprobe"
@@ -76,6 +79,8 @@ const (
 type ColonyDebugServiceClient interface {
 	// Start uprobe debug session.
 	AttachUprobe(context.Context, *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error)
+	// UpdateProbeFilter routes a filter update to the agent hosting the session (RFD 090).
+	UpdateProbeFilter(context.Context, *connect.Request[v1.UpdateProbeFilterRequest]) (*connect.Response[v1.UpdateProbeFilterResponse], error)
 	// Stop uprobe session.
 	DetachUprobe(context.Context, *connect.Request[v1.DetachUprobeRequest]) (*connect.Response[v1.DetachUprobeResponse], error)
 	// Query uprobe events (pull-based, like Beyla).
@@ -115,6 +120,12 @@ func NewColonyDebugServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			httpClient,
 			baseURL+ColonyDebugServiceAttachUprobeProcedure,
 			connect.WithSchema(colonyDebugServiceMethods.ByName("AttachUprobe")),
+			connect.WithClientOptions(opts...),
+		),
+		updateProbeFilter: connect.NewClient[v1.UpdateProbeFilterRequest, v1.UpdateProbeFilterResponse](
+			httpClient,
+			baseURL+ColonyDebugServiceUpdateProbeFilterProcedure,
+			connect.WithSchema(colonyDebugServiceMethods.ByName("UpdateProbeFilter")),
 			connect.WithClientOptions(opts...),
 		),
 		detachUprobe: connect.NewClient[v1.DetachUprobeRequest, v1.DetachUprobeResponse](
@@ -189,6 +200,7 @@ func NewColonyDebugServiceClient(httpClient connect.HTTPClient, baseURL string, 
 // colonyDebugServiceClient implements ColonyDebugServiceClient.
 type colonyDebugServiceClient struct {
 	attachUprobe                 *connect.Client[v1.AttachUprobeRequest, v1.AttachUprobeResponse]
+	updateProbeFilter            *connect.Client[v1.UpdateProbeFilterRequest, v1.UpdateProbeFilterResponse]
 	detachUprobe                 *connect.Client[v1.DetachUprobeRequest, v1.DetachUprobeResponse]
 	queryUprobeEvents            *connect.Client[v1.QueryUprobeEventsRequest, v1.QueryUprobeEventsResponse]
 	listDebugSessions            *connect.Client[v1.ListDebugSessionsRequest, v1.ListDebugSessionsResponse]
@@ -205,6 +217,11 @@ type colonyDebugServiceClient struct {
 // AttachUprobe calls coral.colony.v1.ColonyDebugService.AttachUprobe.
 func (c *colonyDebugServiceClient) AttachUprobe(ctx context.Context, req *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error) {
 	return c.attachUprobe.CallUnary(ctx, req)
+}
+
+// UpdateProbeFilter calls coral.colony.v1.ColonyDebugService.UpdateProbeFilter.
+func (c *colonyDebugServiceClient) UpdateProbeFilter(ctx context.Context, req *connect.Request[v1.UpdateProbeFilterRequest]) (*connect.Response[v1.UpdateProbeFilterResponse], error) {
+	return c.updateProbeFilter.CallUnary(ctx, req)
 }
 
 // DetachUprobe calls coral.colony.v1.ColonyDebugService.DetachUprobe.
@@ -267,6 +284,8 @@ func (c *colonyDebugServiceClient) QueryHistoricalMemoryProfile(ctx context.Cont
 type ColonyDebugServiceHandler interface {
 	// Start uprobe debug session.
 	AttachUprobe(context.Context, *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error)
+	// UpdateProbeFilter routes a filter update to the agent hosting the session (RFD 090).
+	UpdateProbeFilter(context.Context, *connect.Request[v1.UpdateProbeFilterRequest]) (*connect.Response[v1.UpdateProbeFilterResponse], error)
 	// Stop uprobe session.
 	DetachUprobe(context.Context, *connect.Request[v1.DetachUprobeRequest]) (*connect.Response[v1.DetachUprobeResponse], error)
 	// Query uprobe events (pull-based, like Beyla).
@@ -302,6 +321,12 @@ func NewColonyDebugServiceHandler(svc ColonyDebugServiceHandler, opts ...connect
 		ColonyDebugServiceAttachUprobeProcedure,
 		svc.AttachUprobe,
 		connect.WithSchema(colonyDebugServiceMethods.ByName("AttachUprobe")),
+		connect.WithHandlerOptions(opts...),
+	)
+	colonyDebugServiceUpdateProbeFilterHandler := connect.NewUnaryHandler(
+		ColonyDebugServiceUpdateProbeFilterProcedure,
+		svc.UpdateProbeFilter,
+		connect.WithSchema(colonyDebugServiceMethods.ByName("UpdateProbeFilter")),
 		connect.WithHandlerOptions(opts...),
 	)
 	colonyDebugServiceDetachUprobeHandler := connect.NewUnaryHandler(
@@ -374,6 +399,8 @@ func NewColonyDebugServiceHandler(svc ColonyDebugServiceHandler, opts ...connect
 		switch r.URL.Path {
 		case ColonyDebugServiceAttachUprobeProcedure:
 			colonyDebugServiceAttachUprobeHandler.ServeHTTP(w, r)
+		case ColonyDebugServiceUpdateProbeFilterProcedure:
+			colonyDebugServiceUpdateProbeFilterHandler.ServeHTTP(w, r)
 		case ColonyDebugServiceDetachUprobeProcedure:
 			colonyDebugServiceDetachUprobeHandler.ServeHTTP(w, r)
 		case ColonyDebugServiceQueryUprobeEventsProcedure:
@@ -407,6 +434,10 @@ type UnimplementedColonyDebugServiceHandler struct{}
 
 func (UnimplementedColonyDebugServiceHandler) AttachUprobe(context.Context, *connect.Request[v1.AttachUprobeRequest]) (*connect.Response[v1.AttachUprobeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.AttachUprobe is not implemented"))
+}
+
+func (UnimplementedColonyDebugServiceHandler) UpdateProbeFilter(context.Context, *connect.Request[v1.UpdateProbeFilterRequest]) (*connect.Response[v1.UpdateProbeFilterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("coral.colony.v1.ColonyDebugService.UpdateProbeFilter is not implemented"))
 }
 
 func (UnimplementedColonyDebugServiceHandler) DetachUprobe(context.Context, *connect.Request[v1.DetachUprobeRequest]) (*connect.Response[v1.DetachUprobeResponse], error) {

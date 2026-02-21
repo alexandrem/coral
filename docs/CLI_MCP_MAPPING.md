@@ -17,6 +17,7 @@ integration.
 | eBPF Metrics & Traces     | `coral_query_summary`, `coral_query_traces`, `coral_query_metrics`              | ✅ Available                       |
 | Memory Profiling          | `coral_query_memory_profile`, `coral_profile_memory`                            | ✅ Available                       |
 | Live Debugging            | `coral_attach_uprobe`, `coral_detach_uprobe`, `coral_list_debug_sessions`, etc. | ✅ Available                       |
+| Probe Filter Updates      | `coral_update_probe_filter`                                                     | ✅ Available                       |
 | Container Execution       | `coral_container_exec`                                                          | ✅ Available                       |
 | Agent Shell Access        | `coral_shell_exec`                                                              | ✅ Available                       |
 | Service Discovery         | `coral_list_services`, `coral_topology`                                         | ✅ Available                       |
@@ -481,18 +482,22 @@ higher-level abstractions:
 ### Attach Probes
 
 ```bash
-coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return]
+coral debug attach <service> --function <name> [--duration <time>] [--capture-args] [--capture-return] \
+  [--sample-rate <n>] [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
 ```
 
 **MCP Equivalent:** `coral_attach_uprobe`
 
-| CLI Parameter       | MCP Parameter      | Example            |
-|---------------------|--------------------|--------------------|
-| `<service>`         | `service_name`     | `"payments-api"`   |
-| `--function <name>` | `function_name`    | `"ProcessPayment"` |
-| `--duration <time>` | `duration_seconds` | `300` (5 minutes)  |
-| `--capture-args`    | `capture_args`     | `true`             |
-| `--capture-return`  | `capture_return`   | `true`             |
+| CLI Parameter          | MCP Parameter    | Example            |
+|------------------------|------------------|--------------------|
+| `<service>`            | `service`        | `"payments-api"`   |
+| `--function <name>`    | `function`       | `"ProcessPayment"` |
+| `--duration <time>`    | `duration`       | `"5m"`             |
+| `--capture-args`       | N/A              | —                  |
+| `--capture-return`     | N/A              | —                  |
+| `--min-duration <dur>` | `min_duration`   | `"50ms"`           |
+| `--max-duration <dur>` | `max_duration`   | `"500ms"`          |
+| `--filter-rate <n>`    | `filter_rate`    | `100`              |
 
 **Example:**
 
@@ -510,6 +515,47 @@ coral debug attach <service> --function <name> [--duration <time>] [--capture-ar
 ```
 
 **Response:** Session ID for later querying
+
+---
+
+### Update Probe Filter
+
+```bash
+coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
+```
+
+**MCP Equivalent:** `coral_update_probe_filter`
+
+| CLI Parameter          | MCP Parameter    | Example  |
+|------------------------|------------------|----------|
+| `<session-id>`         | `session_id`     | `"abc123"` |
+| `--min-duration <dur>` | `min_duration`   | `"100ms"` |
+| `--max-duration <dur>` | `max_duration`   | `"500ms"` |
+| `--filter-rate <n>`    | `filter_rate`    | `10`      |
+
+**Example - narrow focus after initial broad capture:**
+
+```json
+{
+    "name": "coral_update_probe_filter",
+    "arguments": {
+        "session_id": "abc123",
+        "min_duration": "100ms"
+    }
+}
+```
+
+**Example - switch to 1-in-10 sampling on a hot path:**
+
+```json
+{
+    "name": "coral_update_probe_filter",
+    "arguments": {
+        "session_id": "abc123",
+        "filter_rate": 10
+    }
+}
+```
 
 ---
 
@@ -759,14 +805,15 @@ coral exec <service> <command> [args...] [flags]
 
 | Tool Name                        | Description                | Key Parameters                                                                        |
 |----------------------------------|----------------------------|---------------------------------------------------------------------------------------|
-| `coral_attach_uprobe`            | Attach uprobe to function  | `service_name`, `function_name`, `duration_seconds`, `capture_args`, `capture_return` |
-| `coral_trace_request_path`       | Trace HTTP request path    | `service_name`, `request_path`, `duration_seconds`                                    |
-| `coral_list_debug_sessions`      | List active debug sessions | `service_name`                                                                        |
-| `coral_detach_uprobe`            | Detach uprobe              | `session_id`                                                                          |
-| `coral_get_debug_results`        | Get uprobe results         | `service_name`, `function_name`, `time_range`                                         |
-| `coral_search_functions`         | Search for functions       | `service_name`, `search_query`                                                        |
-| `coral_get_function_context`     | Get function details       | `service_name`, `function_name`                                                       |
-| `coral_list_probeable_functions` | List probeable functions   | `service_name`, `agent_id`                                                            |
+| `coral_attach_uprobe`            | Attach uprobe to function                    | `service`, `function`, `duration`, `min_duration`, `max_duration`, `filter_rate` |
+| `coral_update_probe_filter`      | Update kernel filter for an active session   | `session_id`, `min_duration`, `max_duration`, `filter_rate`                      |
+| `coral_trace_request_path`       | Trace HTTP request path                      | `service_name`, `request_path`, `duration_seconds`                               |
+| `coral_list_debug_sessions`      | List active debug sessions                   | `service_name`                                                                   |
+| `coral_detach_uprobe`            | Detach uprobe                                | `session_id`                                                                     |
+| `coral_get_debug_results`        | Get uprobe results                           | `service_name`, `function_name`, `time_range`                                    |
+| `coral_search_functions`         | Search for functions                         | `service_name`, `search_query`                                                   |
+| `coral_get_function_context`     | Get function details                         | `service_name`, `function_name`                                                  |
+| `coral_list_probeable_functions` | List probeable functions                     | `service_name`, `agent_id`                                                       |
 
 ### Shell & Execution
 

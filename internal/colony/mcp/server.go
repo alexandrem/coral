@@ -161,6 +161,9 @@ func (s *Server) ExecuteTool(ctx context.Context, toolName string, argumentsJSON
 		return s.executeDetachUprobeTool(ctx, argumentsJSON)
 	case "coral_get_debug_results":
 		return s.executeGetDebugResultsTool(ctx, argumentsJSON)
+	// Probe filter update tool (RFD 090)
+	case "coral_update_probe_filter":
+		return s.executeUpdateProbeFilterTool(ctx, argumentsJSON)
 
 	// Function discovery and profiling tools (RFD 069)
 	case "coral_discover_functions":
@@ -250,6 +253,7 @@ func (s *Server) getToolSchemas() map[string]string {
 		"coral_list_debug_sessions": ListDebugSessionsInput{},
 		"coral_detach_uprobe":       DetachUprobeInput{},
 		"coral_get_debug_results":   GetDebugResultsInput{},
+		"coral_update_probe_filter": UpdateProbeFilterInput{},
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions": DiscoverFunctionsInput{},
 		"coral_profile_functions":  ProfileFunctionsInput{},
@@ -304,6 +308,7 @@ func (s *Server) getToolDescriptions() map[string]string {
 		"coral_list_debug_sessions": "List active and recent debug sessions across services.",
 		"coral_detach_uprobe":       "Stop debug session early and detach eBPF probes. Returns collected data summary.",
 		"coral_get_debug_results":   "Get aggregated results from debug session: call counts, duration percentiles, slow outliers.",
+		"coral_update_probe_filter": "Update the kernel-level eBPF filter for an active debug session without detaching. Adjusts thresholds live to narrow focus or reduce volume on hot paths.",
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions": "Unified function discovery with semantic search. Returns functions with embedded metrics, instrumentation info, and actionable suggestions. Use this for all function discovery needs.",
 		"coral_profile_functions":  "Intelligent batch profiling with automatic analysis. Discovers functions via semantic search, applies selection strategy, attaches probes to multiple functions simultaneously, waits and collects data, analyzes bottlenecks automatically, and returns actionable recommendations. Use this for performance investigation.",
@@ -333,6 +338,9 @@ func (s *Server) registerTools() error {
 	s.registerListDebugSessionsTool()
 	s.registerDetachUprobeTool()
 	s.registerGetDebugResultsTool()
+
+	// Register probe filter update tool (RFD 090).
+	s.registerUpdateProbeFilterTool()
 
 	// Register function discovery and profiling tools (RFD 069).
 	// These replace coral_search_functions, coral_get_function_context, and coral_list_probeable_functions.
@@ -375,6 +383,7 @@ func (s *Server) listToolNames() []string {
 		"coral_list_debug_sessions",
 		"coral_detach_uprobe",
 		"coral_get_debug_results",
+		"coral_update_probe_filter",
 		// RFD 069: New unified function discovery and profiling tools
 		"coral_discover_functions",
 		"coral_profile_functions",

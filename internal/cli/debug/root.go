@@ -25,6 +25,7 @@ For CPU and memory profiling, use 'coral profile' and 'coral query' commands.`,
 	// Instrumentation
 	cmd.AddCommand(NewAttachCmd())
 	cmd.AddCommand(NewProfileCmd())
+	cmd.AddCommand(NewFilterCmd())
 
 	// Session Management
 	cmd.AddCommand(NewSessionCmd())

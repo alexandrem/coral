@@ -33,6 +33,7 @@ type StartUprobeCollectorRequest struct {
 	Duration      *durationpb.Duration   `protobuf:"bytes,4,opt,name=duration,proto3" json:"duration,omitempty"`                             // Max 600s
 	Config        *UprobeConfig          `protobuf:"bytes,5,opt,name=config,proto3" json:"config,omitempty"`
 	SdkAddr       string                 `protobuf:"bytes,6,opt,name=sdk_addr,json=sdkAddr,proto3" json:"sdk_addr,omitempty"` // SDK debug service address (e.g., "localhost:50051")
+	Filter        *UprobeFilter          `protobuf:"bytes,7,opt,name=filter,proto3" json:"filter,omitempty"`                  // Optional kernel-level filter (RFD 090).
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -109,6 +110,13 @@ func (x *StartUprobeCollectorRequest) GetSdkAddr() string {
 	return ""
 }
 
+func (x *StartUprobeCollectorRequest) GetFilter() *UprobeFilter {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
 // UprobeConfig specifies what data to capture from function calls.
 type UprobeConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -178,6 +186,167 @@ func (x *UprobeConfig) GetMaxEvents() uint32 {
 	return 0
 }
 
+// UprobeFilter defines runtime filter criteria applied at the eBPF level (RFD 090).
+// All fields default to zero, meaning no filter is applied for that dimension.
+// Zero values preserve backward compatibility — an agent that does not set a filter
+// behaves exactly as before this change.
+type UprobeFilter struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// min_duration_ns drops return events shorter than this threshold.
+	// 0 = no minimum.
+	MinDurationNs uint64 `protobuf:"varint,1,opt,name=min_duration_ns,json=minDurationNs,proto3" json:"min_duration_ns,omitempty"`
+	// max_duration_ns drops return events longer than this threshold.
+	// 0 = no maximum.
+	MaxDurationNs uint64 `protobuf:"varint,2,opt,name=max_duration_ns,json=maxDurationNs,proto3" json:"max_duration_ns,omitempty"`
+	// sample_rate emits 1 in every N events.
+	// 0 or 1 = emit all events.
+	SampleRate    uint32 `protobuf:"varint,3,opt,name=sample_rate,json=sampleRate,proto3" json:"sample_rate,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UprobeFilter) Reset() {
+	*x = UprobeFilter{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UprobeFilter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UprobeFilter) ProtoMessage() {}
+
+func (x *UprobeFilter) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UprobeFilter.ProtoReflect.Descriptor instead.
+func (*UprobeFilter) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *UprobeFilter) GetMinDurationNs() uint64 {
+	if x != nil {
+		return x.MinDurationNs
+	}
+	return 0
+}
+
+func (x *UprobeFilter) GetMaxDurationNs() uint64 {
+	if x != nil {
+		return x.MaxDurationNs
+	}
+	return 0
+}
+
+func (x *UprobeFilter) GetSampleRate() uint32 {
+	if x != nil {
+		return x.SampleRate
+	}
+	return 0
+}
+
+// UpdateProbeFilterRequest updates the kernel-level filter for an active probe session
+// without detaching or interrupting event collection (RFD 090).
+type UpdateProbeFilterRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CollectorId   string                 `protobuf:"bytes,1,opt,name=collector_id,json=collectorId,proto3" json:"collector_id,omitempty"`
+	Filter        *UprobeFilter          `protobuf:"bytes,2,opt,name=filter,proto3" json:"filter,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateProbeFilterRequest) Reset() {
+	*x = UpdateProbeFilterRequest{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateProbeFilterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateProbeFilterRequest) ProtoMessage() {}
+
+func (x *UpdateProbeFilterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateProbeFilterRequest.ProtoReflect.Descriptor instead.
+func (*UpdateProbeFilterRequest) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *UpdateProbeFilterRequest) GetCollectorId() string {
+	if x != nil {
+		return x.CollectorId
+	}
+	return ""
+}
+
+func (x *UpdateProbeFilterRequest) GetFilter() *UprobeFilter {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+// UpdateProbeFilterResponse confirms the filter update.
+type UpdateProbeFilterResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateProbeFilterResponse) Reset() {
+	*x = UpdateProbeFilterResponse{}
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateProbeFilterResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateProbeFilterResponse) ProtoMessage() {}
+
+func (x *UpdateProbeFilterResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateProbeFilterResponse.ProtoReflect.Descriptor instead.
+func (*UpdateProbeFilterResponse) Descriptor() ([]byte, []int) {
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{4}
+}
+
 // StartUprobeCollectorResponse confirms uprobe attachment.
 type StartUprobeCollectorResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -191,7 +360,7 @@ type StartUprobeCollectorResponse struct {
 
 func (x *StartUprobeCollectorResponse) Reset() {
 	*x = StartUprobeCollectorResponse{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[2]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -203,7 +372,7 @@ func (x *StartUprobeCollectorResponse) String() string {
 func (*StartUprobeCollectorResponse) ProtoMessage() {}
 
 func (x *StartUprobeCollectorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[2]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -216,7 +385,7 @@ func (x *StartUprobeCollectorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartUprobeCollectorResponse.ProtoReflect.Descriptor instead.
 func (*StartUprobeCollectorResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{2}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *StartUprobeCollectorResponse) GetCollectorId() string {
@@ -257,7 +426,7 @@ type StopUprobeCollectorRequest struct {
 
 func (x *StopUprobeCollectorRequest) Reset() {
 	*x = StopUprobeCollectorRequest{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[3]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -269,7 +438,7 @@ func (x *StopUprobeCollectorRequest) String() string {
 func (*StopUprobeCollectorRequest) ProtoMessage() {}
 
 func (x *StopUprobeCollectorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[3]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -282,7 +451,7 @@ func (x *StopUprobeCollectorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopUprobeCollectorRequest.ProtoReflect.Descriptor instead.
 func (*StopUprobeCollectorRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{3}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *StopUprobeCollectorRequest) GetCollectorId() string {
@@ -303,7 +472,7 @@ type StopUprobeCollectorResponse struct {
 
 func (x *StopUprobeCollectorResponse) Reset() {
 	*x = StopUprobeCollectorResponse{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[4]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -315,7 +484,7 @@ func (x *StopUprobeCollectorResponse) String() string {
 func (*StopUprobeCollectorResponse) ProtoMessage() {}
 
 func (x *StopUprobeCollectorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[4]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -328,7 +497,7 @@ func (x *StopUprobeCollectorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopUprobeCollectorResponse.ProtoReflect.Descriptor instead.
 func (*StopUprobeCollectorResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{4}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StopUprobeCollectorResponse) GetSuccess() bool {
@@ -358,7 +527,7 @@ type QueryUprobeEventsRequest struct {
 
 func (x *QueryUprobeEventsRequest) Reset() {
 	*x = QueryUprobeEventsRequest{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[5]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -370,7 +539,7 @@ func (x *QueryUprobeEventsRequest) String() string {
 func (*QueryUprobeEventsRequest) ProtoMessage() {}
 
 func (x *QueryUprobeEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[5]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -383,7 +552,7 @@ func (x *QueryUprobeEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUprobeEventsRequest.ProtoReflect.Descriptor instead.
 func (*QueryUprobeEventsRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{5}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *QueryUprobeEventsRequest) GetCollectorId() string {
@@ -426,7 +595,7 @@ type FunctionArgument struct {
 
 func (x *FunctionArgument) Reset() {
 	*x = FunctionArgument{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[6]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -438,7 +607,7 @@ func (x *FunctionArgument) String() string {
 func (*FunctionArgument) ProtoMessage() {}
 
 func (x *FunctionArgument) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[6]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -451,7 +620,7 @@ func (x *FunctionArgument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FunctionArgument.ProtoReflect.Descriptor instead.
 func (*FunctionArgument) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{6}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *FunctionArgument) GetName() string {
@@ -488,7 +657,7 @@ type FunctionReturnValue struct {
 
 func (x *FunctionReturnValue) Reset() {
 	*x = FunctionReturnValue{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[7]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -500,7 +669,7 @@ func (x *FunctionReturnValue) String() string {
 func (*FunctionReturnValue) ProtoMessage() {}
 
 func (x *FunctionReturnValue) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[7]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -513,7 +682,7 @@ func (x *FunctionReturnValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FunctionReturnValue.ProtoReflect.Descriptor instead.
 func (*FunctionReturnValue) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{7}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *FunctionReturnValue) GetType() string {
@@ -566,7 +735,7 @@ type UprobeEvent struct {
 
 func (x *UprobeEvent) Reset() {
 	*x = UprobeEvent{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[8]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -578,7 +747,7 @@ func (x *UprobeEvent) String() string {
 func (*UprobeEvent) ProtoMessage() {}
 
 func (x *UprobeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[8]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -591,7 +760,7 @@ func (x *UprobeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UprobeEvent.ProtoReflect.Descriptor instead.
 func (*UprobeEvent) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{8}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UprobeEvent) GetTimestamp() *timestamppb.Timestamp {
@@ -691,7 +860,7 @@ type QueryUprobeEventsResponse struct {
 
 func (x *QueryUprobeEventsResponse) Reset() {
 	*x = QueryUprobeEventsResponse{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[9]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -703,7 +872,7 @@ func (x *QueryUprobeEventsResponse) String() string {
 func (*QueryUprobeEventsResponse) ProtoMessage() {}
 
 func (x *QueryUprobeEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[9]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -716,7 +885,7 @@ func (x *QueryUprobeEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUprobeEventsResponse.ProtoReflect.Descriptor instead.
 func (*QueryUprobeEventsResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{9}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *QueryUprobeEventsResponse) GetEvents() []*UprobeEvent {
@@ -747,7 +916,7 @@ type ProfileCPUAgentRequest struct {
 
 func (x *ProfileCPUAgentRequest) Reset() {
 	*x = ProfileCPUAgentRequest{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[10]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -759,7 +928,7 @@ func (x *ProfileCPUAgentRequest) String() string {
 func (*ProfileCPUAgentRequest) ProtoMessage() {}
 
 func (x *ProfileCPUAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[10]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -772,7 +941,7 @@ func (x *ProfileCPUAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfileCPUAgentRequest.ProtoReflect.Descriptor instead.
 func (*ProfileCPUAgentRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{10}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ProfileCPUAgentRequest) GetAgentId() string {
@@ -821,7 +990,7 @@ type StackSample struct {
 
 func (x *StackSample) Reset() {
 	*x = StackSample{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[11]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -833,7 +1002,7 @@ func (x *StackSample) String() string {
 func (*StackSample) ProtoMessage() {}
 
 func (x *StackSample) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[11]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -846,7 +1015,7 @@ func (x *StackSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StackSample.ProtoReflect.Descriptor instead.
 func (*StackSample) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{11}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StackSample) GetFrameNames() []string {
@@ -877,7 +1046,7 @@ type ProfileCPUAgentResponse struct {
 
 func (x *ProfileCPUAgentResponse) Reset() {
 	*x = ProfileCPUAgentResponse{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[12]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -889,7 +1058,7 @@ func (x *ProfileCPUAgentResponse) String() string {
 func (*ProfileCPUAgentResponse) ProtoMessage() {}
 
 func (x *ProfileCPUAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[12]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -902,7 +1071,7 @@ func (x *ProfileCPUAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfileCPUAgentResponse.ProtoReflect.Descriptor instead.
 func (*ProfileCPUAgentResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{12}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ProfileCPUAgentResponse) GetSamples() []*StackSample {
@@ -957,7 +1126,7 @@ type QueryCPUProfileSamplesRequest struct {
 
 func (x *QueryCPUProfileSamplesRequest) Reset() {
 	*x = QueryCPUProfileSamplesRequest{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[13]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -969,7 +1138,7 @@ func (x *QueryCPUProfileSamplesRequest) String() string {
 func (*QueryCPUProfileSamplesRequest) ProtoMessage() {}
 
 func (x *QueryCPUProfileSamplesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[13]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -982,7 +1151,7 @@ func (x *QueryCPUProfileSamplesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryCPUProfileSamplesRequest.ProtoReflect.Descriptor instead.
 func (*QueryCPUProfileSamplesRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{13}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *QueryCPUProfileSamplesRequest) GetServiceName() string {
@@ -1029,7 +1198,7 @@ type CPUProfileSample struct {
 
 func (x *CPUProfileSample) Reset() {
 	*x = CPUProfileSample{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[14]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1041,7 +1210,7 @@ func (x *CPUProfileSample) String() string {
 func (*CPUProfileSample) ProtoMessage() {}
 
 func (x *CPUProfileSample) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[14]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1054,7 +1223,7 @@ func (x *CPUProfileSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPUProfileSample.ProtoReflect.Descriptor instead.
 func (*CPUProfileSample) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{14}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CPUProfileSample) GetTimestamp() *timestamppb.Timestamp {
@@ -1115,7 +1284,7 @@ type QueryCPUProfileSamplesResponse struct {
 
 func (x *QueryCPUProfileSamplesResponse) Reset() {
 	*x = QueryCPUProfileSamplesResponse{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[15]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1127,7 +1296,7 @@ func (x *QueryCPUProfileSamplesResponse) String() string {
 func (*QueryCPUProfileSamplesResponse) ProtoMessage() {}
 
 func (x *QueryCPUProfileSamplesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[15]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1140,7 +1309,7 @@ func (x *QueryCPUProfileSamplesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryCPUProfileSamplesResponse.ProtoReflect.Descriptor instead.
 func (*QueryCPUProfileSamplesResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{15}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *QueryCPUProfileSamplesResponse) GetSamples() []*CPUProfileSample {
@@ -1193,7 +1362,7 @@ type ProfileMemoryAgentRequest struct {
 
 func (x *ProfileMemoryAgentRequest) Reset() {
 	*x = ProfileMemoryAgentRequest{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[16]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1205,7 +1374,7 @@ func (x *ProfileMemoryAgentRequest) String() string {
 func (*ProfileMemoryAgentRequest) ProtoMessage() {}
 
 func (x *ProfileMemoryAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[16]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1218,7 +1387,7 @@ func (x *ProfileMemoryAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfileMemoryAgentRequest.ProtoReflect.Descriptor instead.
 func (*ProfileMemoryAgentRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{16}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ProfileMemoryAgentRequest) GetAgentId() string {
@@ -1277,7 +1446,7 @@ type MemoryStats struct {
 
 func (x *MemoryStats) Reset() {
 	*x = MemoryStats{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[17]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1289,7 +1458,7 @@ func (x *MemoryStats) String() string {
 func (*MemoryStats) ProtoMessage() {}
 
 func (x *MemoryStats) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[17]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1302,7 +1471,7 @@ func (x *MemoryStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryStats.ProtoReflect.Descriptor instead.
 func (*MemoryStats) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{17}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *MemoryStats) GetAllocBytes() int64 {
@@ -1352,7 +1521,7 @@ type MemoryStackSample struct {
 
 func (x *MemoryStackSample) Reset() {
 	*x = MemoryStackSample{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[18]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1364,7 +1533,7 @@ func (x *MemoryStackSample) String() string {
 func (*MemoryStackSample) ProtoMessage() {}
 
 func (x *MemoryStackSample) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[18]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1377,7 +1546,7 @@ func (x *MemoryStackSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryStackSample.ProtoReflect.Descriptor instead.
 func (*MemoryStackSample) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{18}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *MemoryStackSample) GetFrameNames() []string {
@@ -1414,7 +1583,7 @@ type TopAllocFunction struct {
 
 func (x *TopAllocFunction) Reset() {
 	*x = TopAllocFunction{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[19]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1426,7 +1595,7 @@ func (x *TopAllocFunction) String() string {
 func (*TopAllocFunction) ProtoMessage() {}
 
 func (x *TopAllocFunction) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[19]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1439,7 +1608,7 @@ func (x *TopAllocFunction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopAllocFunction.ProtoReflect.Descriptor instead.
 func (*TopAllocFunction) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{19}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *TopAllocFunction) GetFunction() string {
@@ -1483,7 +1652,7 @@ type TopAllocType struct {
 
 func (x *TopAllocType) Reset() {
 	*x = TopAllocType{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[20]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1495,7 +1664,7 @@ func (x *TopAllocType) String() string {
 func (*TopAllocType) ProtoMessage() {}
 
 func (x *TopAllocType) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[20]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1508,7 +1677,7 @@ func (x *TopAllocType) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopAllocType.ProtoReflect.Descriptor instead.
 func (*TopAllocType) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{20}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *TopAllocType) GetTypeName() string {
@@ -1554,7 +1723,7 @@ type ProfileMemoryAgentResponse struct {
 
 func (x *ProfileMemoryAgentResponse) Reset() {
 	*x = ProfileMemoryAgentResponse{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[21]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1566,7 +1735,7 @@ func (x *ProfileMemoryAgentResponse) String() string {
 func (*ProfileMemoryAgentResponse) ProtoMessage() {}
 
 func (x *ProfileMemoryAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[21]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1579,7 +1748,7 @@ func (x *ProfileMemoryAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfileMemoryAgentResponse.ProtoReflect.Descriptor instead.
 func (*ProfileMemoryAgentResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{21}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ProfileMemoryAgentResponse) GetSamples() []*MemoryStackSample {
@@ -1641,7 +1810,7 @@ type QueryMemoryProfileSamplesRequest struct {
 
 func (x *QueryMemoryProfileSamplesRequest) Reset() {
 	*x = QueryMemoryProfileSamplesRequest{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[22]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1653,7 +1822,7 @@ func (x *QueryMemoryProfileSamplesRequest) String() string {
 func (*QueryMemoryProfileSamplesRequest) ProtoMessage() {}
 
 func (x *QueryMemoryProfileSamplesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[22]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1666,7 +1835,7 @@ func (x *QueryMemoryProfileSamplesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryMemoryProfileSamplesRequest.ProtoReflect.Descriptor instead.
 func (*QueryMemoryProfileSamplesRequest) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{22}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *QueryMemoryProfileSamplesRequest) GetServiceName() string {
@@ -1714,7 +1883,7 @@ type MemoryProfileSample struct {
 
 func (x *MemoryProfileSample) Reset() {
 	*x = MemoryProfileSample{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[23]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1726,7 +1895,7 @@ func (x *MemoryProfileSample) String() string {
 func (*MemoryProfileSample) ProtoMessage() {}
 
 func (x *MemoryProfileSample) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[23]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1739,7 +1908,7 @@ func (x *MemoryProfileSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryProfileSample.ProtoReflect.Descriptor instead.
 func (*MemoryProfileSample) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{23}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *MemoryProfileSample) GetTimestamp() *timestamppb.Timestamp {
@@ -1807,7 +1976,7 @@ type QueryMemoryProfileSamplesResponse struct {
 
 func (x *QueryMemoryProfileSamplesResponse) Reset() {
 	*x = QueryMemoryProfileSamplesResponse{}
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[24]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1819,7 +1988,7 @@ func (x *QueryMemoryProfileSamplesResponse) String() string {
 func (*QueryMemoryProfileSamplesResponse) ProtoMessage() {}
 
 func (x *QueryMemoryProfileSamplesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coral_agent_v1_debug_proto_msgTypes[24]
+	mi := &file_coral_agent_v1_debug_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1832,7 +2001,7 @@ func (x *QueryMemoryProfileSamplesResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryMemoryProfileSamplesResponse.ProtoReflect.Descriptor instead.
 func (*QueryMemoryProfileSamplesResponse) Descriptor() ([]byte, []int) {
-	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{24}
+	return file_coral_agent_v1_debug_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *QueryMemoryProfileSamplesResponse) GetSamples() []*MemoryProfileSample {
@@ -1874,21 +2043,31 @@ var File_coral_agent_v1_debug_proto protoreflect.FileDescriptor
 
 const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\n" +
-	"\x1acoral/agent/v1/debug.proto\x12\x0ecoral.agent.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\x88\x02\n" +
+	"\x1acoral/agent/v1/debug.proto\x12\x0ecoral.agent.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1acoral/agent/v1/agent.proto\"\xbe\x02\n" +
 	"\x1bStartUprobeCollectorRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12!\n" +
 	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12#\n" +
 	"\rfunction_name\x18\x03 \x01(\tR\ffunctionName\x125\n" +
 	"\bduration\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\bduration\x124\n" +
 	"\x06config\x18\x05 \x01(\v2\x1c.coral.agent.v1.UprobeConfigR\x06config\x12\x19\n" +
-	"\bsdk_addr\x18\x06 \x01(\tR\asdkAddr\"\x98\x01\n" +
+	"\bsdk_addr\x18\x06 \x01(\tR\asdkAddr\x124\n" +
+	"\x06filter\x18\a \x01(\v2\x1c.coral.agent.v1.UprobeFilterR\x06filter\"\x98\x01\n" +
 	"\fUprobeConfig\x12!\n" +
 	"\fcapture_args\x18\x01 \x01(\bR\vcaptureArgs\x12%\n" +
 	"\x0ecapture_return\x18\x02 \x01(\bR\rcaptureReturn\x12\x1f\n" +
 	"\vsample_rate\x18\x03 \x01(\rR\n" +
 	"sampleRate\x12\x1d\n" +
 	"\n" +
-	"max_events\x18\x04 \x01(\rR\tmaxEvents\"\xb0\x01\n" +
+	"max_events\x18\x04 \x01(\rR\tmaxEvents\"\x7f\n" +
+	"\fUprobeFilter\x12&\n" +
+	"\x0fmin_duration_ns\x18\x01 \x01(\x04R\rminDurationNs\x12&\n" +
+	"\x0fmax_duration_ns\x18\x02 \x01(\x04R\rmaxDurationNs\x12\x1f\n" +
+	"\vsample_rate\x18\x03 \x01(\rR\n" +
+	"sampleRate\"s\n" +
+	"\x18UpdateProbeFilterRequest\x12!\n" +
+	"\fcollector_id\x18\x01 \x01(\tR\vcollectorId\x124\n" +
+	"\x06filter\x18\x02 \x01(\v2\x1c.coral.agent.v1.UprobeFilterR\x06filter\"\x1b\n" +
+	"\x19UpdateProbeFilterResponse\"\xb0\x01\n" +
 	"\x1cStartUprobeCollectorResponse\x12!\n" +
 	"\fcollector_id\x18\x01 \x01(\tR\vcollectorId\x129\n" +
 	"\n" +
@@ -2036,11 +2215,12 @@ const file_coral_agent_v1_debug_proto_rawDesc = "" +
 	"\n" +
 	"max_seq_id\x18\x04 \x01(\x04R\bmaxSeqId\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x05 \x01(\tR\tsessionId2\xa3\x06\n" +
+	"session_id\x18\x05 \x01(\tR\tsessionId2\x8d\a\n" +
 	"\x11AgentDebugService\x12q\n" +
 	"\x14StartUprobeCollector\x12+.coral.agent.v1.StartUprobeCollectorRequest\x1a,.coral.agent.v1.StartUprobeCollectorResponse\x12n\n" +
 	"\x13StopUprobeCollector\x12*.coral.agent.v1.StopUprobeCollectorRequest\x1a+.coral.agent.v1.StopUprobeCollectorResponse\x12h\n" +
-	"\x11QueryUprobeEvents\x12(.coral.agent.v1.QueryUprobeEventsRequest\x1a).coral.agent.v1.QueryUprobeEventsResponse\x12]\n" +
+	"\x11QueryUprobeEvents\x12(.coral.agent.v1.QueryUprobeEventsRequest\x1a).coral.agent.v1.QueryUprobeEventsResponse\x12h\n" +
+	"\x11UpdateProbeFilter\x12(.coral.agent.v1.UpdateProbeFilterRequest\x1a).coral.agent.v1.UpdateProbeFilterResponse\x12]\n" +
 	"\n" +
 	"ProfileCPU\x12&.coral.agent.v1.ProfileCPUAgentRequest\x1a'.coral.agent.v1.ProfileCPUAgentResponse\x12w\n" +
 	"\x16QueryCPUProfileSamples\x12-.coral.agent.v1.QueryCPUProfileSamplesRequest\x1a..coral.agent.v1.QueryCPUProfileSamplesResponse\x12f\n" +
@@ -2061,76 +2241,83 @@ func file_coral_agent_v1_debug_proto_rawDescGZIP() []byte {
 	return file_coral_agent_v1_debug_proto_rawDescData
 }
 
-var file_coral_agent_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_coral_agent_v1_debug_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_coral_agent_v1_debug_proto_goTypes = []any{
 	(*StartUprobeCollectorRequest)(nil),       // 0: coral.agent.v1.StartUprobeCollectorRequest
 	(*UprobeConfig)(nil),                      // 1: coral.agent.v1.UprobeConfig
-	(*StartUprobeCollectorResponse)(nil),      // 2: coral.agent.v1.StartUprobeCollectorResponse
-	(*StopUprobeCollectorRequest)(nil),        // 3: coral.agent.v1.StopUprobeCollectorRequest
-	(*StopUprobeCollectorResponse)(nil),       // 4: coral.agent.v1.StopUprobeCollectorResponse
-	(*QueryUprobeEventsRequest)(nil),          // 5: coral.agent.v1.QueryUprobeEventsRequest
-	(*FunctionArgument)(nil),                  // 6: coral.agent.v1.FunctionArgument
-	(*FunctionReturnValue)(nil),               // 7: coral.agent.v1.FunctionReturnValue
-	(*UprobeEvent)(nil),                       // 8: coral.agent.v1.UprobeEvent
-	(*QueryUprobeEventsResponse)(nil),         // 9: coral.agent.v1.QueryUprobeEventsResponse
-	(*ProfileCPUAgentRequest)(nil),            // 10: coral.agent.v1.ProfileCPUAgentRequest
-	(*StackSample)(nil),                       // 11: coral.agent.v1.StackSample
-	(*ProfileCPUAgentResponse)(nil),           // 12: coral.agent.v1.ProfileCPUAgentResponse
-	(*QueryCPUProfileSamplesRequest)(nil),     // 13: coral.agent.v1.QueryCPUProfileSamplesRequest
-	(*CPUProfileSample)(nil),                  // 14: coral.agent.v1.CPUProfileSample
-	(*QueryCPUProfileSamplesResponse)(nil),    // 15: coral.agent.v1.QueryCPUProfileSamplesResponse
-	(*ProfileMemoryAgentRequest)(nil),         // 16: coral.agent.v1.ProfileMemoryAgentRequest
-	(*MemoryStats)(nil),                       // 17: coral.agent.v1.MemoryStats
-	(*MemoryStackSample)(nil),                 // 18: coral.agent.v1.MemoryStackSample
-	(*TopAllocFunction)(nil),                  // 19: coral.agent.v1.TopAllocFunction
-	(*TopAllocType)(nil),                      // 20: coral.agent.v1.TopAllocType
-	(*ProfileMemoryAgentResponse)(nil),        // 21: coral.agent.v1.ProfileMemoryAgentResponse
-	(*QueryMemoryProfileSamplesRequest)(nil),  // 22: coral.agent.v1.QueryMemoryProfileSamplesRequest
-	(*MemoryProfileSample)(nil),               // 23: coral.agent.v1.MemoryProfileSample
-	(*QueryMemoryProfileSamplesResponse)(nil), // 24: coral.agent.v1.QueryMemoryProfileSamplesResponse
-	nil,                           // 25: coral.agent.v1.UprobeEvent.LabelsEntry
-	(*durationpb.Duration)(nil),   // 26: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 27: google.protobuf.Timestamp
+	(*UprobeFilter)(nil),                      // 2: coral.agent.v1.UprobeFilter
+	(*UpdateProbeFilterRequest)(nil),          // 3: coral.agent.v1.UpdateProbeFilterRequest
+	(*UpdateProbeFilterResponse)(nil),         // 4: coral.agent.v1.UpdateProbeFilterResponse
+	(*StartUprobeCollectorResponse)(nil),      // 5: coral.agent.v1.StartUprobeCollectorResponse
+	(*StopUprobeCollectorRequest)(nil),        // 6: coral.agent.v1.StopUprobeCollectorRequest
+	(*StopUprobeCollectorResponse)(nil),       // 7: coral.agent.v1.StopUprobeCollectorResponse
+	(*QueryUprobeEventsRequest)(nil),          // 8: coral.agent.v1.QueryUprobeEventsRequest
+	(*FunctionArgument)(nil),                  // 9: coral.agent.v1.FunctionArgument
+	(*FunctionReturnValue)(nil),               // 10: coral.agent.v1.FunctionReturnValue
+	(*UprobeEvent)(nil),                       // 11: coral.agent.v1.UprobeEvent
+	(*QueryUprobeEventsResponse)(nil),         // 12: coral.agent.v1.QueryUprobeEventsResponse
+	(*ProfileCPUAgentRequest)(nil),            // 13: coral.agent.v1.ProfileCPUAgentRequest
+	(*StackSample)(nil),                       // 14: coral.agent.v1.StackSample
+	(*ProfileCPUAgentResponse)(nil),           // 15: coral.agent.v1.ProfileCPUAgentResponse
+	(*QueryCPUProfileSamplesRequest)(nil),     // 16: coral.agent.v1.QueryCPUProfileSamplesRequest
+	(*CPUProfileSample)(nil),                  // 17: coral.agent.v1.CPUProfileSample
+	(*QueryCPUProfileSamplesResponse)(nil),    // 18: coral.agent.v1.QueryCPUProfileSamplesResponse
+	(*ProfileMemoryAgentRequest)(nil),         // 19: coral.agent.v1.ProfileMemoryAgentRequest
+	(*MemoryStats)(nil),                       // 20: coral.agent.v1.MemoryStats
+	(*MemoryStackSample)(nil),                 // 21: coral.agent.v1.MemoryStackSample
+	(*TopAllocFunction)(nil),                  // 22: coral.agent.v1.TopAllocFunction
+	(*TopAllocType)(nil),                      // 23: coral.agent.v1.TopAllocType
+	(*ProfileMemoryAgentResponse)(nil),        // 24: coral.agent.v1.ProfileMemoryAgentResponse
+	(*QueryMemoryProfileSamplesRequest)(nil),  // 25: coral.agent.v1.QueryMemoryProfileSamplesRequest
+	(*MemoryProfileSample)(nil),               // 26: coral.agent.v1.MemoryProfileSample
+	(*QueryMemoryProfileSamplesResponse)(nil), // 27: coral.agent.v1.QueryMemoryProfileSamplesResponse
+	nil,                           // 28: coral.agent.v1.UprobeEvent.LabelsEntry
+	(*durationpb.Duration)(nil),   // 29: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil), // 30: google.protobuf.Timestamp
 }
 var file_coral_agent_v1_debug_proto_depIdxs = []int32{
-	26, // 0: coral.agent.v1.StartUprobeCollectorRequest.duration:type_name -> google.protobuf.Duration
+	29, // 0: coral.agent.v1.StartUprobeCollectorRequest.duration:type_name -> google.protobuf.Duration
 	1,  // 1: coral.agent.v1.StartUprobeCollectorRequest.config:type_name -> coral.agent.v1.UprobeConfig
-	27, // 2: coral.agent.v1.StartUprobeCollectorResponse.expires_at:type_name -> google.protobuf.Timestamp
-	27, // 3: coral.agent.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
-	27, // 4: coral.agent.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
-	27, // 5: coral.agent.v1.UprobeEvent.timestamp:type_name -> google.protobuf.Timestamp
-	6,  // 6: coral.agent.v1.UprobeEvent.args:type_name -> coral.agent.v1.FunctionArgument
-	7,  // 7: coral.agent.v1.UprobeEvent.return_value:type_name -> coral.agent.v1.FunctionReturnValue
-	25, // 8: coral.agent.v1.UprobeEvent.labels:type_name -> coral.agent.v1.UprobeEvent.LabelsEntry
-	8,  // 9: coral.agent.v1.QueryUprobeEventsResponse.events:type_name -> coral.agent.v1.UprobeEvent
-	11, // 10: coral.agent.v1.ProfileCPUAgentResponse.samples:type_name -> coral.agent.v1.StackSample
-	27, // 11: coral.agent.v1.CPUProfileSample.timestamp:type_name -> google.protobuf.Timestamp
-	14, // 12: coral.agent.v1.QueryCPUProfileSamplesResponse.samples:type_name -> coral.agent.v1.CPUProfileSample
-	18, // 13: coral.agent.v1.ProfileMemoryAgentResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
-	17, // 14: coral.agent.v1.ProfileMemoryAgentResponse.stats:type_name -> coral.agent.v1.MemoryStats
-	19, // 15: coral.agent.v1.ProfileMemoryAgentResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
-	20, // 16: coral.agent.v1.ProfileMemoryAgentResponse.top_types:type_name -> coral.agent.v1.TopAllocType
-	27, // 17: coral.agent.v1.MemoryProfileSample.timestamp:type_name -> google.protobuf.Timestamp
-	23, // 18: coral.agent.v1.QueryMemoryProfileSamplesResponse.samples:type_name -> coral.agent.v1.MemoryProfileSample
-	0,  // 19: coral.agent.v1.AgentDebugService.StartUprobeCollector:input_type -> coral.agent.v1.StartUprobeCollectorRequest
-	3,  // 20: coral.agent.v1.AgentDebugService.StopUprobeCollector:input_type -> coral.agent.v1.StopUprobeCollectorRequest
-	5,  // 21: coral.agent.v1.AgentDebugService.QueryUprobeEvents:input_type -> coral.agent.v1.QueryUprobeEventsRequest
-	10, // 22: coral.agent.v1.AgentDebugService.ProfileCPU:input_type -> coral.agent.v1.ProfileCPUAgentRequest
-	13, // 23: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:input_type -> coral.agent.v1.QueryCPUProfileSamplesRequest
-	16, // 24: coral.agent.v1.AgentDebugService.ProfileMemory:input_type -> coral.agent.v1.ProfileMemoryAgentRequest
-	22, // 25: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:input_type -> coral.agent.v1.QueryMemoryProfileSamplesRequest
-	2,  // 26: coral.agent.v1.AgentDebugService.StartUprobeCollector:output_type -> coral.agent.v1.StartUprobeCollectorResponse
-	4,  // 27: coral.agent.v1.AgentDebugService.StopUprobeCollector:output_type -> coral.agent.v1.StopUprobeCollectorResponse
-	9,  // 28: coral.agent.v1.AgentDebugService.QueryUprobeEvents:output_type -> coral.agent.v1.QueryUprobeEventsResponse
-	12, // 29: coral.agent.v1.AgentDebugService.ProfileCPU:output_type -> coral.agent.v1.ProfileCPUAgentResponse
-	15, // 30: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:output_type -> coral.agent.v1.QueryCPUProfileSamplesResponse
-	21, // 31: coral.agent.v1.AgentDebugService.ProfileMemory:output_type -> coral.agent.v1.ProfileMemoryAgentResponse
-	24, // 32: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:output_type -> coral.agent.v1.QueryMemoryProfileSamplesResponse
-	26, // [26:33] is the sub-list for method output_type
-	19, // [19:26] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	2,  // 2: coral.agent.v1.StartUprobeCollectorRequest.filter:type_name -> coral.agent.v1.UprobeFilter
+	2,  // 3: coral.agent.v1.UpdateProbeFilterRequest.filter:type_name -> coral.agent.v1.UprobeFilter
+	30, // 4: coral.agent.v1.StartUprobeCollectorResponse.expires_at:type_name -> google.protobuf.Timestamp
+	30, // 5: coral.agent.v1.QueryUprobeEventsRequest.start_time:type_name -> google.protobuf.Timestamp
+	30, // 6: coral.agent.v1.QueryUprobeEventsRequest.end_time:type_name -> google.protobuf.Timestamp
+	30, // 7: coral.agent.v1.UprobeEvent.timestamp:type_name -> google.protobuf.Timestamp
+	9,  // 8: coral.agent.v1.UprobeEvent.args:type_name -> coral.agent.v1.FunctionArgument
+	10, // 9: coral.agent.v1.UprobeEvent.return_value:type_name -> coral.agent.v1.FunctionReturnValue
+	28, // 10: coral.agent.v1.UprobeEvent.labels:type_name -> coral.agent.v1.UprobeEvent.LabelsEntry
+	11, // 11: coral.agent.v1.QueryUprobeEventsResponse.events:type_name -> coral.agent.v1.UprobeEvent
+	14, // 12: coral.agent.v1.ProfileCPUAgentResponse.samples:type_name -> coral.agent.v1.StackSample
+	30, // 13: coral.agent.v1.CPUProfileSample.timestamp:type_name -> google.protobuf.Timestamp
+	17, // 14: coral.agent.v1.QueryCPUProfileSamplesResponse.samples:type_name -> coral.agent.v1.CPUProfileSample
+	21, // 15: coral.agent.v1.ProfileMemoryAgentResponse.samples:type_name -> coral.agent.v1.MemoryStackSample
+	20, // 16: coral.agent.v1.ProfileMemoryAgentResponse.stats:type_name -> coral.agent.v1.MemoryStats
+	22, // 17: coral.agent.v1.ProfileMemoryAgentResponse.top_functions:type_name -> coral.agent.v1.TopAllocFunction
+	23, // 18: coral.agent.v1.ProfileMemoryAgentResponse.top_types:type_name -> coral.agent.v1.TopAllocType
+	30, // 19: coral.agent.v1.MemoryProfileSample.timestamp:type_name -> google.protobuf.Timestamp
+	26, // 20: coral.agent.v1.QueryMemoryProfileSamplesResponse.samples:type_name -> coral.agent.v1.MemoryProfileSample
+	0,  // 21: coral.agent.v1.AgentDebugService.StartUprobeCollector:input_type -> coral.agent.v1.StartUprobeCollectorRequest
+	6,  // 22: coral.agent.v1.AgentDebugService.StopUprobeCollector:input_type -> coral.agent.v1.StopUprobeCollectorRequest
+	8,  // 23: coral.agent.v1.AgentDebugService.QueryUprobeEvents:input_type -> coral.agent.v1.QueryUprobeEventsRequest
+	3,  // 24: coral.agent.v1.AgentDebugService.UpdateProbeFilter:input_type -> coral.agent.v1.UpdateProbeFilterRequest
+	13, // 25: coral.agent.v1.AgentDebugService.ProfileCPU:input_type -> coral.agent.v1.ProfileCPUAgentRequest
+	16, // 26: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:input_type -> coral.agent.v1.QueryCPUProfileSamplesRequest
+	19, // 27: coral.agent.v1.AgentDebugService.ProfileMemory:input_type -> coral.agent.v1.ProfileMemoryAgentRequest
+	25, // 28: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:input_type -> coral.agent.v1.QueryMemoryProfileSamplesRequest
+	5,  // 29: coral.agent.v1.AgentDebugService.StartUprobeCollector:output_type -> coral.agent.v1.StartUprobeCollectorResponse
+	7,  // 30: coral.agent.v1.AgentDebugService.StopUprobeCollector:output_type -> coral.agent.v1.StopUprobeCollectorResponse
+	12, // 31: coral.agent.v1.AgentDebugService.QueryUprobeEvents:output_type -> coral.agent.v1.QueryUprobeEventsResponse
+	4,  // 32: coral.agent.v1.AgentDebugService.UpdateProbeFilter:output_type -> coral.agent.v1.UpdateProbeFilterResponse
+	15, // 33: coral.agent.v1.AgentDebugService.ProfileCPU:output_type -> coral.agent.v1.ProfileCPUAgentResponse
+	18, // 34: coral.agent.v1.AgentDebugService.QueryCPUProfileSamples:output_type -> coral.agent.v1.QueryCPUProfileSamplesResponse
+	24, // 35: coral.agent.v1.AgentDebugService.ProfileMemory:output_type -> coral.agent.v1.ProfileMemoryAgentResponse
+	27, // 36: coral.agent.v1.AgentDebugService.QueryMemoryProfileSamples:output_type -> coral.agent.v1.QueryMemoryProfileSamplesResponse
+	29, // [29:37] is the sub-list for method output_type
+	21, // [21:29] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_coral_agent_v1_debug_proto_init() }
@@ -2145,7 +2332,7 @@ func file_coral_agent_v1_debug_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coral_agent_v1_debug_proto_rawDesc), len(file_coral_agent_v1_debug_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -85,4 +86,49 @@ func filterEvents(events []*meshv1.EbpfEvent, req *agentv1.QueryUprobeEventsRequ
 		}
 	}
 	return filteredEvents
+}
+
+func TestUpdateProbeFilter(t *testing.T) {
+	agentCfg := Config{
+		AgentID: "test-agent",
+		Context: context.Background(),
+	}
+	a, err := New(agentCfg)
+	assert.NoError(t, err)
+
+	svc := NewDebugService(a, a.logger)
+
+	tests := []struct {
+		name        string
+		req         *agentv1.UpdateProbeFilterRequest
+		wantSuccess bool
+	}{
+		{
+			name:        "Nil filter returns quickly",
+			req:         &agentv1.UpdateProbeFilterRequest{CollectorId: "some-id", Filter: nil},
+			wantSuccess: true, // Should succeed with no-op
+		},
+		{
+			name: "Fails gracefully when collector not found",
+			req: &agentv1.UpdateProbeFilterRequest{
+				CollectorId: "non-existent",
+				Filter: &agentv1.UprobeFilter{
+					SampleRate: 42,
+				},
+			},
+			wantSuccess: false, // ebpfManager will return collector not found
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.UpdateProbeFilter(context.Background(), tt.req)
+			if tt.wantSuccess {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "collector not found")
+			}
+		})
+	}
 }

@@ -112,6 +112,7 @@ func (sm *SessionManager) AttachUprobe(
 		Duration:     duration,
 		Config:       req.Msg.Config,
 		SdkAddr:      req.Msg.SdkAddr,
+		Filter:       req.Msg.Filter, // Forward kernel-level filter to agent (RFD 090).
 	})
 
 	startResp, err := agentClient.StartUprobeCollector(ctx, startReq)
@@ -292,6 +293,64 @@ func (sm *SessionManager) DetachUprobe(
 	return connect.NewResponse(&debugpb.DetachUprobeResponse{
 		Success: true,
 	}), nil
+}
+
+// UpdateProbeFilter routes a kernel-level filter update to the agent hosting the session (RFD 090).
+func (sm *SessionManager) UpdateProbeFilter(
+	ctx context.Context,
+	req *connect.Request[debugpb.UpdateProbeFilterRequest],
+) (*connect.Response[debugpb.UpdateProbeFilterResponse], error) {
+	sm.logger.Info().
+		Str("session_id", req.Msg.SessionId).
+		Msg("Updating probe filter")
+
+	if req.Msg.Filter == nil {
+		return connect.NewResponse(&debugpb.UpdateProbeFilterResponse{}), nil
+	}
+
+	// Resolve session to find the collector ID and agent.
+	session, err := sm.db.GetDebugSession(ctx, req.Msg.SessionId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("database error: %w", err))
+	}
+	if session == nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.SessionId))
+	}
+
+	agentID := session.AgentID
+	if req.Msg.AgentId != "" {
+		agentID = req.Msg.AgentId
+	}
+
+	entry, err := sm.registry.Get(agentID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("agent not found: %w", err))
+	}
+
+	agentAddr := buildAgentAddress(entry.MeshIPv4)
+	agentClient := sm.clientFactory(
+		http.DefaultClient,
+		fmt.Sprintf("http://%s", agentAddr),
+	)
+
+	filterReq := connect.NewRequest(&agentv1.UpdateProbeFilterRequest{
+		CollectorId: session.CollectorID,
+		Filter:      req.Msg.Filter,
+	})
+
+	if _, err := agentClient.UpdateProbeFilter(ctx, filterReq); err != nil {
+		sm.logger.Error().Err(err).
+			Str("session_id", req.Msg.SessionId).
+			Str("collector_id", session.CollectorID).
+			Msg("Failed to update probe filter on agent")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update filter: %w", err))
+	}
+
+	sm.logger.Info().
+		Str("session_id", req.Msg.SessionId).
+		Msg("Probe filter updated")
+
+	return connect.NewResponse(&debugpb.UpdateProbeFilterResponse{}), nil
 }
 
 // ListDebugSessions lists all active debug sessions.

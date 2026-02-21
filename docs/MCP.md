@@ -420,6 +420,10 @@ Returns: Session ID, expiration time, success status
 **Note:** Uprobes are production-safe and time-limited. They capture function
 entry/exit events and measure duration without modifying application behavior.
 
+Kernel-level filter parameters drop events **inside the kernel** before they reach
+userspace — useful on high-volume hot paths (10K+ calls/sec). Use
+`coral_update_probe_filter` to adjust thresholds on a running session.
+
 #### `coral_detach_uprobe`
 
 Stop debug session early and detach eBPF probes.
@@ -456,6 +460,24 @@ Returns: Call counts, duration percentiles, slow outliers
 
 **Note:** This tool is not yet fully implemented. Use `coral_detach_uprobe` to
 get basic session summary.
+
+#### `coral_update_probe_filter`
+
+Update the kernel-level eBPF filter for an active debug session without detaching
+or interrupting event collection (RFD 090).
+
+```
+Input:
+  session_id (required): Active debug session ID to update
+  min_duration (optional): Only emit events slower than this threshold (e.g. '50ms', '1s')
+  max_duration (optional): Only emit events faster than this threshold (e.g. '500ms')
+  filter_rate (optional): Emit 1 in every N events at kernel level (0 or 1 = all events)
+
+Returns: Confirmation message
+```
+
+At least one filter parameter must be provided. Filter changes take effect immediately
+via BPF map update — no probe detach/reattach required.
 
 ## CLI Commands
 

@@ -202,6 +202,25 @@ func (m *Manager) GetEvents(collectorID string) ([]*meshv1.EbpfEvent, error) {
 	return running.collector.GetEvents()
 }
 
+// UpdateFilter updates the kernel-level event filter for an active uprobe collector
+// without detaching or interrupting event collection (RFD 090).
+func (m *Manager) UpdateFilter(collectorID string, filter UprobeFilter) error {
+	m.mu.RLock()
+	running, ok := m.collectors[collectorID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("collector not found: %s", collectorID)
+	}
+
+	uc, ok := running.collector.(*UprobeCollector)
+	if !ok {
+		return fmt.Errorf("collector %s does not support filter updates", collectorID)
+	}
+
+	return uc.UpdateFilter(filter)
+}
+
 // Stop stops all running collectors and shuts down the manager.
 func (m *Manager) Stop() error {
 	m.mu.Lock()
@@ -280,6 +299,23 @@ func (m *Manager) createCollector(kind agentv1.EbpfCollectorKind, config map[str
 		if maxEvents, ok := config["max_events"]; ok {
 			if _, err := fmt.Sscanf(maxEvents, "%d", &uprobeConfig.MaxEvents); err != nil {
 				return nil, fmt.Errorf("unable to scan max_events: %w", err)
+			}
+		}
+
+		// Parse optional kernel-level filter params (RFD 090).
+		if v, ok := config["filter_min_duration_ns"]; ok {
+			if _, err := fmt.Sscanf(v, "%d", &uprobeConfig.Filter.MinDurationNs); err != nil {
+				return nil, fmt.Errorf("unable to scan filter_min_duration_ns: %w", err)
+			}
+		}
+		if v, ok := config["filter_max_duration_ns"]; ok {
+			if _, err := fmt.Sscanf(v, "%d", &uprobeConfig.Filter.MaxDurationNs); err != nil {
+				return nil, fmt.Errorf("unable to scan filter_max_duration_ns: %w", err)
+			}
+		}
+		if v, ok := config["filter_sample_rate"]; ok {
+			if _, err := fmt.Sscanf(v, "%d", &uprobeConfig.Filter.SampleRate); err != nil {
+				return nil, fmt.Errorf("unable to scan filter_sample_rate: %w", err)
 			}
 		}
 
