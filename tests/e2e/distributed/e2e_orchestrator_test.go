@@ -276,6 +276,7 @@ func (s *E2EOrchestratorSuite) Test5_CLICommands() {
 	s.Run("CLI_QueryInvalidFlags", cliQuerySuite.TestQueryInvalidFlags)
 	s.Run("CLI_QueryJSONValidity", cliQuerySuite.TestQueryJSONOutputValidity)
 	s.Run("CLI_QueryTableFormatting", cliQuerySuite.TestQueryTableOutputFormatting)
+	s.Run("CLI_QueryTopology", cliQuerySuite.TestCLIQueryTopology)
 
 	// Run CLIConfigSuite (config commands - Phase 3)
 	cliConfigSuite := &CLIConfigSuite{
@@ -465,7 +466,6 @@ func (s *E2EOrchestratorSuite) Test6_MCPCommands() {
 
 	// Group N: Service Topology (RFD 092)
 	s.Run("MCP_TopologyTool", mcpSuite.TestMCPTopologyTool)
-	s.Run("CLI_QueryTopology", mcpSuite.TestCLIQueryTopology)
 
 	if !s.T().Failed() {
 		s.mcpTestsPassed = true
