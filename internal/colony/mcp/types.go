@@ -113,6 +113,19 @@ type AttachUprobeInput struct {
 	SDKAddr    *string `json:"sdk_addr,omitempty" jsonschema:"description=SDK address (optional, for direct targeting)"`
 	Duration   *string `json:"duration,omitempty" jsonschema:"description=Collection duration (e.g., '30s', '5m'). Default: 60s, max: 600s"`
 	SampleRate *int    `json:"sample_rate,omitempty" jsonschema:"description=Sample every Nth call (1 = all calls). Default: 1"`
+
+	// RFD 090: Kernel-level filter fields. Dropped in the BPF program before reaching userspace.
+	MinDuration *string `json:"min_duration,omitempty" jsonschema:"description=Optional: only emit events slower than this threshold (e.g. '50ms'\\, '1s'). Filtered in the kernel via BPF map."`
+	MaxDuration *string `json:"max_duration,omitempty" jsonschema:"description=Optional: only emit events faster than this threshold (e.g. '500ms'). Filtered in the kernel via BPF map."`
+	FilterRate  *uint32 `json:"filter_rate,omitempty" jsonschema:"description=Optional: emit 1 in every N events at kernel level. 0 or 1 = all events. Useful for high-volume hot paths."`
+}
+
+// UpdateProbeFilterInput is the input for coral_update_probe_filter (RFD 090).
+type UpdateProbeFilterInput struct {
+	SessionID   string  `json:"session_id" jsonschema:"description=Active debug session ID to update"`
+	MinDuration *string `json:"min_duration,omitempty" jsonschema:"description=Only emit events slower than this threshold (e.g. '50ms'\\, '1s'). Filtered in the kernel via BPF map."`
+	MaxDuration *string `json:"max_duration,omitempty" jsonschema:"description=Only emit events faster than this threshold (e.g. '500ms'). Filtered in the kernel via BPF map."`
+	FilterRate  *uint32 `json:"filter_rate,omitempty" jsonschema:"description=Emit 1 in every N events at kernel level. 0 or 1 = all events."`
 }
 
 // TraceRequestPathInput is the input for coral_trace_request_path.

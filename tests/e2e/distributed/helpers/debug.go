@@ -37,6 +37,52 @@ func AttachUprobe(
 	return resp.Msg, nil
 }
 
+// AttachUprobeWithFilter attaches a uprobe with a kernel-level filter (RFD 090).
+func AttachUprobeWithFilter(
+	ctx context.Context,
+	client colonyv1connect.ColonyDebugServiceClient,
+	agentID string,
+	serviceName string,
+	functionName string,
+	durationSeconds int32,
+	filter *agentv1.UprobeFilter,
+) (*colonyv1.AttachUprobeResponse, error) {
+	req := connect.NewRequest(&colonyv1.AttachUprobeRequest{
+		AgentId:      agentID,
+		ServiceName:  serviceName,
+		FunctionName: functionName,
+		Duration:     &durationpb.Duration{Seconds: int64(durationSeconds)},
+		Filter:       filter,
+	})
+
+	resp, err := client.AttachUprobe(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach uprobe with filter: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
+// UpdateProbeFilter updates the kernel-level filter for an active debug session (RFD 090).
+func UpdateProbeFilter(
+	ctx context.Context,
+	client colonyv1connect.ColonyDebugServiceClient,
+	sessionID string,
+	filter *agentv1.UprobeFilter,
+) (*colonyv1.UpdateProbeFilterResponse, error) {
+	req := connect.NewRequest(&colonyv1.UpdateProbeFilterRequest{
+		SessionId: sessionID,
+		Filter:    filter,
+	})
+
+	resp, err := client.UpdateProbeFilter(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update probe filter: %w", err)
+	}
+
+	return resp.Msg, nil
+}
+
 // DetachUprobe detaches a uprobe and retrieves final events.
 func DetachUprobe(
 	ctx context.Context,

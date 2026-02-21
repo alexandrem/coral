@@ -10,6 +10,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
 	"github.com/coral-mesh/coral/internal/agent/debug"
+	"github.com/coral-mesh/coral/internal/agent/ebpf"
 	"github.com/coral-mesh/coral/internal/agent/profiler"
 	"github.com/rs/zerolog"
 )
@@ -78,6 +79,19 @@ func (s *DebugService) StartUprobeCollector(
 		}
 		if req.Config.MaxEvents > 0 {
 			config["max_events"] = fmt.Sprintf("%d", req.Config.MaxEvents)
+		}
+	}
+
+	// Forward kernel-level filter if provided (RFD 090).
+	if req.Filter != nil {
+		if req.Filter.MinDurationNs > 0 {
+			config["filter_min_duration_ns"] = fmt.Sprintf("%d", req.Filter.MinDurationNs)
+		}
+		if req.Filter.MaxDurationNs > 0 {
+			config["filter_max_duration_ns"] = fmt.Sprintf("%d", req.Filter.MaxDurationNs)
+		}
+		if req.Filter.SampleRate > 1 {
+			config["filter_sample_rate"] = fmt.Sprintf("%d", req.Filter.SampleRate)
 		}
 	}
 
@@ -175,6 +189,34 @@ func (s *DebugService) QueryUprobeEvents(
 		Events:  filteredEvents,
 		HasMore: len(events) > len(filteredEvents),
 	}, nil
+}
+
+// UpdateProbeFilter updates the kernel-level event filter for an active probe session
+// without detaching or interrupting event collection (RFD 090).
+func (s *DebugService) UpdateProbeFilter(
+	ctx context.Context,
+	req *agentv1.UpdateProbeFilterRequest,
+) (*agentv1.UpdateProbeFilterResponse, error) {
+	s.logger.Info().
+		Str("collector_id", req.CollectorId).
+		Msg("Updating probe filter")
+
+	if req.Filter == nil {
+		return &agentv1.UpdateProbeFilterResponse{}, nil
+	}
+
+	filter := ebpf.UprobeFilter{
+		MinDurationNs: req.Filter.MinDurationNs,
+		MaxDurationNs: req.Filter.MaxDurationNs,
+		SampleRate:    req.Filter.SampleRate,
+	}
+
+	if err := s.agent.ebpfManager.UpdateFilter(req.CollectorId, filter); err != nil {
+		s.logger.Error().Err(err).Str("collector_id", req.CollectorId).Msg("Failed to update probe filter")
+		return nil, fmt.Errorf("failed to update probe filter: %w", err)
+	}
+
+	return &agentv1.UpdateProbeFilterResponse{}, nil
 }
 
 // ProfileCPU handles requests to collect CPU profile samples (RFD 070).
@@ -483,6 +525,18 @@ func (a *DebugServiceAdapter) QueryUprobeEvents(
 	req *connect.Request[agentv1.QueryUprobeEventsRequest],
 ) (*connect.Response[agentv1.QueryUprobeEventsResponse], error) {
 	resp, err := a.service.QueryUprobeEvents(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// UpdateProbeFilter implements the Connect RPC handler interface (RFD 090).
+func (a *DebugServiceAdapter) UpdateProbeFilter(
+	ctx context.Context,
+	req *connect.Request[agentv1.UpdateProbeFilterRequest],
+) (*connect.Response[agentv1.UpdateProbeFilterResponse], error) {
+	resp, err := a.service.UpdateProbeFilter(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

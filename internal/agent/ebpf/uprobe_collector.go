@@ -1,3 +1,5 @@
+//go:build linux
+
 package ebpf
 
 import (
@@ -17,10 +19,9 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	"github.com/coral-mesh/coral/internal/agent/ebpf/bpfgen"
 	"github.com/coral-mesh/coral/internal/agent/ebpf/uprobe"
 )
-
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go uprobe ./bpf/uprobe.c -- -I./bpf/headers
 
 // uprobeEvent matches the C struct uprobe_event in bpf/uprobe.c
 type uprobeEvent struct {
@@ -30,6 +31,15 @@ type uprobeEvent struct {
 	EventType   uint8
 	_           [7]byte // padding
 	DurationNs  uint64
+}
+
+// uprobeFilterConfig matches the C struct filter_config in bpf/uprobe.c (RFD 090).
+// Field layout must be kept in sync with the C definition.
+type uprobeFilterConfig struct {
+	MinDurationNs uint64
+	MaxDurationNs uint64
+	SampleRate    uint32
+	_             [4]byte // padding to 8-byte alignment
 }
 
 // UprobeCollector implements the Collector interface for uprobe-based debugging.
@@ -45,7 +55,7 @@ type UprobeCollector struct {
 	pid              uint32
 
 	// eBPF resources
-	objs         *uprobeObjects
+	objs         *bpfgen.Objects
 	attachResult *uprobe.AttachResult
 	reader       *ringbuf.Reader
 
@@ -54,22 +64,6 @@ type UprobeCollector struct {
 	cancel context.CancelFunc
 	events []*agentv1.UprobeEvent
 	mu     sync.Mutex
-}
-
-// UprobeConfig contains configuration for an uprobe collector.
-type UprobeConfig struct {
-	ServiceName   string
-	FunctionName  string
-	SDKAddr       string
-	PID           uint32 // Target process PID (required for agentless discovery)
-	CaptureArgs   bool
-	CaptureReturn bool
-	SampleRate    uint32
-	MaxEvents     uint32
-	Duration      time.Duration
-
-	// Discovery configuration (optional, uses defaults if nil).
-	DiscoveryConfig *DiscoveryConfig
 }
 
 // NewUprobeCollector creates a new uprobe collector.
@@ -145,12 +139,19 @@ func (c *UprobeCollector) Start(ctx context.Context) error {
 		Msg("Successfully discovered function metadata")
 
 	// Step 2: Load eBPF program
-	c.objs = &uprobeObjects{}
-	if err := loadUprobeObjects(c.objs, nil); err != nil {
+	c.objs = &bpfgen.Objects{}
+	if err := bpfgen.LoadObjects(c.objs, nil); err != nil {
 		return fmt.Errorf("failed to load eBPF objects: %w", err)
 	}
 
 	c.logger.Debug().Msg("Loaded eBPF objects")
+
+	// Step 2b: Write initial filter config if one was specified (RFD 090).
+	// The filter_config_map is optional; if the compiled .o lacks it the field is nil.
+	if err := c.writeFilterConfig(c.config.Filter); err != nil {
+		c.objs.Close() //nolint:errcheck
+		return fmt.Errorf("failed to write initial filter config: %w", err)
+	}
 
 	// Step 3: Attach uprobe using shared attacher.
 	// NOTE: Uretprobes are disabled for Go programs due to runtime incompatibility.
@@ -314,6 +315,43 @@ func (c *UprobeCollector) readEvents() {
 			Uint64("duration_ns", event.DurationNs).
 			Msg("Collected uprobe event")
 	}
+}
+
+// UpdateFilter updates the kernel-level event filter for an active collector session
+// without detaching or interrupting event collection (RFD 090).
+// Returns nil when filter maps are unavailable (old compiled .o without filter support).
+func (c *UprobeCollector) UpdateFilter(f UprobeFilter) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.writeFilterConfig(f)
+}
+
+// writeFilterConfig writes f into the filter_config BPF map.
+// Must be called with c.mu held (or before the reader goroutine is started).
+func (c *UprobeCollector) writeFilterConfig(f UprobeFilter) error {
+	if c.objs == nil || c.objs.FilterConfigMap == nil {
+		// Filter maps absent (old compiled .o); silently skip.
+		return nil
+	}
+
+	cfg := uprobeFilterConfig{
+		MinDurationNs: f.MinDurationNs,
+		MaxDurationNs: f.MaxDurationNs,
+		SampleRate:    f.SampleRate,
+	}
+
+	const filterKey uint32 = 0
+	if err := c.objs.FilterConfigMap.Put(filterKey, cfg); err != nil {
+		return fmt.Errorf("update filter_config_map: %w", err)
+	}
+
+	c.logger.Debug().
+		Uint64("min_duration_ns", f.MinDurationNs).
+		Uint64("max_duration_ns", f.MaxDurationNs).
+		Uint32("sample_rate", f.SampleRate).
+		Msg("Updated eBPF filter config")
+
+	return nil
 }
 
 // eventTypeString converts event type byte to string.

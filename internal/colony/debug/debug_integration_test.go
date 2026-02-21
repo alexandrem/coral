@@ -65,6 +65,10 @@ func (m *mockDebugClient) QueryMemoryProfileSamples(ctx context.Context, req *co
 	return connect.NewResponse(&agentv1.QueryMemoryProfileSamplesResponse{}), nil
 }
 
+func (m *mockDebugClient) UpdateProbeFilter(ctx context.Context, req *connect.Request[agentv1.UpdateProbeFilterRequest]) (*connect.Response[agentv1.UpdateProbeFilterResponse], error) {
+	return connect.NewResponse(&agentv1.UpdateProbeFilterResponse{}), nil
+}
+
 // mockAgentClient implements agentv1connect.AgentServiceClient for testing.
 type mockAgentClient struct {
 	listServicesFunc func(context.Context, *connect.Request[agentv1.ListServicesRequest]) (*connect.Response[agentv1.ListServicesResponse], error)
