@@ -17,7 +17,7 @@ integration.
 | eBPF Metrics & Traces     | `coral_query_summary`, `coral_query_traces`, `coral_query_metrics`              | ✅ Available                       |
 | Memory Profiling          | `coral_query_memory_profile`, `coral_profile_memory`                            | ✅ Available                       |
 | Live Debugging            | `coral_attach_uprobe`, `coral_detach_uprobe`, `coral_list_debug_sessions`, etc. | ✅ Available                       |
-| Probe Filter Updates      | ❌ No MCP equivalent                                                             | Use `coral debug filter` CLI      |
+| Probe Filter Updates      | `coral_update_probe_filter`                                                     | ✅ Available                       |
 | Container Execution       | `coral_container_exec`                                                          | ✅ Available                       |
 | Agent Shell Access        | `coral_shell_exec`                                                              | ✅ Available                       |
 | Service Discovery         | `coral_list_services`                                                           | ✅ Available                       |
@@ -421,20 +421,16 @@ coral debug attach <service> --function <name> [--duration <time>] [--capture-ar
 
 **MCP Equivalent:** `coral_attach_uprobe`
 
-| CLI Parameter          | MCP Parameter      | Example            |
-|------------------------|--------------------|--------------------|
-| `<service>`            | `service_name`     | `"payments-api"`   |
-| `--function <name>`    | `function_name`    | `"ProcessPayment"` |
-| `--duration <time>`    | `duration_seconds` | `300` (5 minutes)  |
-| `--capture-args`       | `capture_args`     | `true`             |
-| `--capture-return`     | `capture_return`   | `true`             |
-| `--min-duration <dur>` | ❌ CLI only        | `50ms`             |
-| `--max-duration <dur>` | ❌ CLI only        | `500ms`            |
-| `--filter-rate <n>`    | ❌ CLI only        | `100`              |
-
-**Note:** Kernel-level filter flags (`--min-duration`, `--max-duration`, `--filter-rate`) are
-CLI-only. They configure a BPF map that drops events inside the kernel before reaching userspace,
-which is most useful on high-volume hot paths. This feature is not yet exposed via MCP.
+| CLI Parameter          | MCP Parameter    | Example            |
+|------------------------|------------------|--------------------|
+| `<service>`            | `service`        | `"payments-api"`   |
+| `--function <name>`    | `function`       | `"ProcessPayment"` |
+| `--duration <time>`    | `duration`       | `"5m"`             |
+| `--capture-args`       | N/A              | —                  |
+| `--capture-return`     | N/A              | —                  |
+| `--min-duration <dur>` | `min_duration`   | `"50ms"`           |
+| `--max-duration <dur>` | `max_duration`   | `"500ms"`          |
+| `--filter-rate <n>`    | `filter_rate`    | `100`              |
 
 **Example:**
 
@@ -461,26 +457,37 @@ which is most useful on high-volume hot paths. This feature is not yet exposed v
 coral debug filter <session-id> [--min-duration <duration>] [--max-duration <duration>] [--filter-rate <n>]
 ```
 
-**MCP Equivalent:** ❌ None - CLI only
+**MCP Equivalent:** `coral_update_probe_filter`
 
-Live filter updates are not yet exposed as an MCP tool. Use the CLI to adjust kernel-level
-filter thresholds on an active session without detaching the probe.
+| CLI Parameter          | MCP Parameter    | Example  |
+|------------------------|------------------|----------|
+| `<session-id>`         | `session_id`     | `"abc123"` |
+| `--min-duration <dur>` | `min_duration`   | `"100ms"` |
+| `--max-duration <dur>` | `max_duration`   | `"500ms"` |
+| `--filter-rate <n>`    | `filter_rate`    | `10`      |
 
-| CLI Parameter          | Description                                     | Example |
-|------------------------|-------------------------------------------------|---------|
-| `<session-id>`         | Active debug session ID (required)              | `abc123` |
-| `--min-duration <dur>` | Only emit events slower than this threshold     | `100ms` |
-| `--max-duration <dur>` | Only emit events faster than this threshold     | `500ms` |
-| `--filter-rate <n>`    | Emit 1 in every N events (0 or 1 = all)         | `10`    |
+**Example - narrow focus after initial broad capture:**
 
-**Example:**
+```json
+{
+    "name": "coral_update_probe_filter",
+    "arguments": {
+        "session_id": "abc123",
+        "min_duration": "100ms"
+    }
+}
+```
 
-```bash
-# Narrow focus to only slow calls after initial broad capture
-coral debug filter abc123 --min-duration 100ms
+**Example - switch to 1-in-10 sampling on a hot path:**
 
-# Switch to 1-in-10 sampling on a very hot path
-coral debug filter abc123 --filter-rate 10
+```json
+{
+    "name": "coral_update_probe_filter",
+    "arguments": {
+        "session_id": "abc123",
+        "filter_rate": 10
+    }
+}
 ```
 
 ---
@@ -730,14 +737,15 @@ coral exec <service> <command> [args...] [flags]
 
 | Tool Name                        | Description                | Key Parameters                                                                        |
 |----------------------------------|----------------------------|---------------------------------------------------------------------------------------|
-| `coral_attach_uprobe`            | Attach uprobe to function  | `service_name`, `function_name`, `duration_seconds`, `capture_args`, `capture_return` |
-| `coral_trace_request_path`       | Trace HTTP request path    | `service_name`, `request_path`, `duration_seconds`                                    |
-| `coral_list_debug_sessions`      | List active debug sessions | `service_name`                                                                        |
-| `coral_detach_uprobe`            | Detach uprobe              | `session_id`                                                                          |
-| `coral_get_debug_results`        | Get uprobe results         | `service_name`, `function_name`, `time_range`                                         |
-| `coral_search_functions`         | Search for functions       | `service_name`, `search_query`                                                        |
-| `coral_get_function_context`     | Get function details       | `service_name`, `function_name`                                                       |
-| `coral_list_probeable_functions` | List probeable functions   | `service_name`, `agent_id`                                                            |
+| `coral_attach_uprobe`            | Attach uprobe to function                    | `service`, `function`, `duration`, `min_duration`, `max_duration`, `filter_rate` |
+| `coral_update_probe_filter`      | Update kernel filter for an active session   | `session_id`, `min_duration`, `max_duration`, `filter_rate`                      |
+| `coral_trace_request_path`       | Trace HTTP request path                      | `service_name`, `request_path`, `duration_seconds`                               |
+| `coral_list_debug_sessions`      | List active debug sessions                   | `service_name`                                                                   |
+| `coral_detach_uprobe`            | Detach uprobe                                | `session_id`                                                                     |
+| `coral_get_debug_results`        | Get uprobe results                           | `service_name`, `function_name`, `time_range`                                    |
+| `coral_search_functions`         | Search for functions                         | `service_name`, `search_query`                                                   |
+| `coral_get_function_context`     | Get function details                         | `service_name`, `function_name`                                                  |
+| `coral_list_probeable_functions` | List probeable functions                     | `service_name`, `agent_id`                                                       |
 
 ### Shell & Execution
 
