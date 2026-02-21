@@ -3,7 +3,6 @@ package profile
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 // NewCPUCmd creates the cpu profiling command.
@@ -68,17 +66,11 @@ Examples:
 				return fmt.Errorf("frequency cannot exceed 1000Hz")
 			}
 
-			// Get colony URL.
-			colonyURL, err := getColonyURL()
-			if err != nil {
-				return fmt.Errorf("failed to get colony URL: %w", err)
-			}
-
 			// Create client.
-			client := colonyv1connect.NewColonyDebugServiceClient(
-				http.DefaultClient,
-				colonyURL,
-			)
+			client, err := getColonyDebugClient()
+			if err != nil {
+				return fmt.Errorf("failed to create debug client: %w", err)
+			}
 
 			// Show progress message.
 			fmt.Fprintf(os.Stderr, "Profiling CPU for service '%s' (%ds at %dHz)...\n",

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	debugpb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 // NewMemoryCmd creates the memory profiling command.
@@ -50,15 +48,10 @@ Examples:
 				return fmt.Errorf("duration cannot exceed 300 seconds")
 			}
 
-			colonyURL, err := getColonyURL()
+			client, err := getColonyDebugClient()
 			if err != nil {
-				return fmt.Errorf("failed to get colony URL: %w", err)
+				return fmt.Errorf("failed to create debug client: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(
-				http.DefaultClient,
-				colonyURL,
-			)
 
 			fmt.Fprintf(os.Stderr, "Profiling memory for service '%s' (%ds)...\n",
 				serviceName, duration)

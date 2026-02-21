@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
 
-// getColonyURL returns the colony URL using shared config resolution.
-// Delegates to the shared CLI helper to avoid duplication.
-func getColonyURL() (string, error) {
-	return helpers.GetColonyURL("")
+// getColonyDebugClient returns a colony debug client using shared config resolution.
+func getColonyDebugClient() (colonyv1connect.ColonyDebugServiceClient, error) {
+	return helpers.GetColonyDebugClient("")
 }
 
 // parseDuration parses a duration string and returns a protobuf Duration.

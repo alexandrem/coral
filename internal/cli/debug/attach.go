@@ -3,7 +3,6 @@ package debug
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 func NewAttachCmd() *cobra.Command {
@@ -35,17 +33,11 @@ func NewAttachCmd() *cobra.Command {
 			serviceName := args[0]
 			ctx := context.Background()
 
-			// Resolve colony URL from config
-			colonyAddr, err := getColonyURL()
-			if err != nil {
-				return fmt.Errorf("failed to resolve colony address: %w\n\nMake sure the colony is configured and running", err)
-			}
-
 			// Create Colony client
-			client := colonyv1connect.NewColonyDebugServiceClient(
-				http.DefaultClient,
-				colonyAddr,
-			)
+			client, err := getColonyDebugClient()
+			if err != nil {
+				return fmt.Errorf("failed to create debug client: %w", err)
+			}
 
 			// Show progress indicator (simple version without spinner library for now)
 			if format == "text" {
@@ -68,9 +60,9 @@ func NewAttachCmd() *cobra.Command {
 			if err != nil {
 				// Check if this is a connection error (colony not running)
 				if connect.CodeOf(err) == connect.CodeUnavailable {
-					return fmt.Errorf("colony is not reachable at %s\n"+
+					return fmt.Errorf("colony is not reachable\n"+
 						"Please ensure the colony is running with: bin/coral colony start\n"+
-						"Original error: %w", colonyAddr, err)
+						"Original error: %w", err)
 				}
 				return fmt.Errorf("failed to attach uprobe: %w", err)
 			}
