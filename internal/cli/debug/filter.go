@@ -3,7 +3,6 @@ package debug
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
@@ -11,7 +10,6 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonypb "github.com/coral-mesh/coral/coral/colony/v1"
-	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 )
 
 // NewFilterCmd creates the debug filter command for live probe filter updates (RFD 090).
@@ -39,15 +37,10 @@ dimension unchanged (i.e. set to zero = passthrough).`,
 				return fmt.Errorf("at least one filter flag must be provided (--min-duration, --max-duration, or --filter-rate)")
 			}
 
-			colonyAddr, err := getColonyURL()
+			client, err := getColonyDebugClient()
 			if err != nil {
 				return fmt.Errorf("failed to resolve colony address: %w", err)
 			}
-
-			client := colonyv1connect.NewColonyDebugServiceClient(
-				http.DefaultClient,
-				colonyAddr,
-			)
 
 			req := &colonypb.UpdateProbeFilterRequest{
 				SessionId: sessionID,
