@@ -143,6 +143,10 @@ func (m *ServiceMonitor) monitorLoop() {
 	// This ensures SDK capabilities are discovered when using --connect flag.
 	m.discoverSDKCapabilities()
 
+	// Initial process discovery (RFD 072).
+	// This ensures the PID is available as soon as possible for profiling/tracing.
+	m.discoverProcessInfo()
+
 	ticker := time.NewTicker(m.checkInterval)
 	defer ticker.Stop()
 

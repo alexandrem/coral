@@ -19,7 +19,7 @@ NC='\033[0m' # No Color
 
 # Configuration.
 SERVICE_NAME="${1:-cpu-app}"  # Allow service name as first argument
-REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 BINARY_PATH="${REPO_ROOT}/bin/coral"
 DOCKER_COMPOSE_DIR="${REPO_ROOT}/tests/e2e/distributed"
 WAIT_FOR_SAMPLES_SECONDS=45  # Wait for at least 3 collection cycles (15s each)
