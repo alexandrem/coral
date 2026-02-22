@@ -477,7 +477,7 @@ func (s *ProfilingSuite) TestContinuousMemoryProfiling() {
 // This uses the shared helper for idempotent service connection.
 func (s *ProfilingSuite) ensureServicesConnected() {
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 0, []helpers.ServiceConfig{
-		{Name: "cpu-app", Port: 8081, HealthEndpoint: "/health"},
+		{Name: "cpu-app", Port: 8080, HealthEndpoint: "/health"},
 	})
 	helpers.EnsureServicesConnected(s.T(), s.ctx, s.fixture, 1, []helpers.ServiceConfig{
 		{Name: "memory-app", Port: 8080, HealthEndpoint: "/health", SdkAddr: "localhost:9004"},
