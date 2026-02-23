@@ -14,6 +14,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // setupTestServerWithMetrics creates a test server with real Beyla metrics data.
@@ -22,7 +23,7 @@ func setupTestServerWithMetrics(t *testing.T) (*Server, *database.Database) {
 
 	// Create temporary database for testing.
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "test-colony", logger)
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -143,7 +144,7 @@ func TestListServicesIntegration(t *testing.T) {
 	t.Run("returns empty list when database is empty", func(t *testing.T) {
 		logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 		tmpDir := t.TempDir()
-		db, err := database.New(tmpDir, "empty-colony", logger)
+		db, err := database.New(tmpDir, "empty-colony", constants.DefaultConnectionsCacheTTL, logger)
 		require.NoError(t, err)
 
 		server := &Server{
@@ -287,7 +288,7 @@ func TestExecuteQueryIntegration(t *testing.T) {
 func TestListServicesDualSourceDiscovery(t *testing.T) {
 	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "dual-source-test", logger)
+	db, err := database.New(tmpDir, "dual-source-test", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -499,7 +500,7 @@ func TestListServicesDualSourceDiscovery(t *testing.T) {
 func TestTableNameRegression(t *testing.T) {
 	logger := zerolog.New(os.Stdout).Level(zerolog.Disabled)
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, "regression-test", logger)
+	db, err := database.New(tmpDir, "regression-test", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 
 	// Insert data into the CORRECT table (beyla_http_metrics).

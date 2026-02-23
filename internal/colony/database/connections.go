@@ -6,10 +6,6 @@ import (
 	"time"
 )
 
-// connectionsCacheTTL is the maximum age of materialized connection data before a
-// re-derivation is triggered.
-const connectionsCacheTTL = 30 * time.Second
-
 // ServiceConnection represents a discovered connection between services.
 type ServiceConnection struct {
 	FromService     string    `duckdb:"from_service,pk"`
@@ -25,9 +21,14 @@ type ServiceConnection struct {
 // The derivation uses a parent-span self-join to identify calls that cross service
 // boundaries within the given time window.
 func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) error {
-	const upsert = `
-		INSERT INTO service_connections
-			(from_service, to_service, protocol, first_observed, last_observed, connection_count)
+	d.logger.Info().
+		Time("since", since).
+		Msg("Materializing service connections")
+
+	// Query trace pairs across service boundaries to discover dependency edges.
+	// We join spans sharing the same Trace ID where one's Span ID is another's Parent ID.
+	res, err := d.db.ExecContext(ctx, `
+		INSERT INTO service_connections (from_service, to_service, protocol, first_observed, last_observed, connection_count)
 		SELECT
 			parent.service_name   AS from_service,
 			child.service_name    AS to_service,
@@ -45,13 +46,14 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 		ON CONFLICT (from_service, to_service, protocol) DO UPDATE SET
 			last_observed    = EXCLUDED.last_observed,
 			connection_count = EXCLUDED.connection_count
-	`
-	if _, err := d.db.ExecContext(ctx, upsert, since); err != nil {
-		return fmt.Errorf("failed to materialize service connections: %w", err)
+	`, since)
+	if err != nil {
+		return fmt.Errorf("failed to materialize connections: %w", err)
 	}
 
-	d.logger.Debug().
-		Time("since", since).
+	rowsAffected, _ := res.RowsAffected()
+	d.logger.Info().
+		Int64("rows_affected", rowsAffected).
 		Msg("Materialized service connections")
 
 	return nil
@@ -61,7 +63,7 @@ func (d *Database) MaterializeConnections(ctx context.Context, since time.Time) 
 // from trace data when the cached data is stale (TTL 30 s) (RFD 092).
 func (d *Database) GetServiceConnections(ctx context.Context, since time.Time) ([]*ServiceConnection, error) {
 	d.connectionsMu.Lock()
-	needsMaterialization := time.Since(d.connectionsLastMaterialized) >= connectionsCacheTTL
+	needsMaterialization := time.Since(d.connectionsLastMaterialized) >= d.connectionsCacheTTL
 	d.connectionsMu.Unlock()
 
 	if needsMaterialization {

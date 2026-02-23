@@ -45,23 +45,24 @@ type Database struct {
 	// Cache state for GetServiceConnections (RFD 092).
 	connectionsMu               sync.Mutex
 	connectionsLastMaterialized time.Time
+	connectionsCacheTTL         time.Duration
 }
 
 // New creates and initializes a DuckDB database for the colony.
 // It creates the storage directory if it doesn't exist, opens the database
 // connection, and initializes the schema.
-func New(storagePath, colonyID string, logger zerolog.Logger) (*Database, error) {
-	return open(storagePath, colonyID, logger, false)
+func New(storagePath, colonyID string, connectionsCacheTTL time.Duration, logger zerolog.Logger) (*Database, error) {
+	return open(storagePath, colonyID, connectionsCacheTTL, logger, false)
 }
 
 // NewReadOnly opens the database in read-only mode for read-only access.
 // This allows multiple processes to read from the same database without lock conflicts.
-func NewReadOnly(storagePath, colonyID string, logger zerolog.Logger) (*Database, error) {
-	return open(storagePath, colonyID, logger, true)
+func NewReadOnly(storagePath, colonyID string, connectionsCacheTTL time.Duration, logger zerolog.Logger) (*Database, error) {
+	return open(storagePath, colonyID, connectionsCacheTTL, logger, true)
 }
 
 // open is the internal function that opens the database with optional read-only mode.
-func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*Database, error) {
+func open(storagePath, colonyID string, connectionsCacheTTL time.Duration, logger zerolog.Logger, readOnly bool) (*Database, error) {
 	// Ensure storage directory exists.
 	if err := os.MkdirAll(storagePath, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
@@ -113,11 +114,12 @@ func open(storagePath, colonyID string, logger zerolog.Logger, readOnly bool) (*
 	}
 
 	database := &Database{
-		db:                db,
-		path:              dbPath,
-		colonyID:          colonyID,
-		logger:            logger,
-		profileFrameStore: NewProfileFrameStore(), // RFD 072.
+		db:                  db,
+		path:                dbPath,
+		colonyID:            colonyID,
+		logger:              logger,
+		profileFrameStore:   NewProfileFrameStore(), // RFD 072.
+		connectionsCacheTTL: connectionsCacheTTL,
 
 		servicesTable:       duckdb.NewTable[Service](db, "services"),
 		heartbeatsTable:     duckdb.NewTable[ServiceHeartbeat](db, "service_heartbeats"),

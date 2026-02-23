@@ -146,8 +146,14 @@ Examples:
 				Int("wireguard_port", cfg.WireGuard.Port).
 				Msg("Colony configuration loaded")
 
+			// Determine connections cache TTL (RFD 092).
+			connectionsCacheTTL := constants.DefaultConnectionsCacheTTL
+			if colonyConfigForEndpoints != nil && colonyConfigForEndpoints.Beyla.ConnectionsCacheTTL > 0 {
+				connectionsCacheTTL = colonyConfigForEndpoints.Beyla.ConnectionsCacheTTL
+			}
+
 			// Initialize DuckDB storage.
-			db, err := database.New(cfg.StoragePath, cfg.ColonyID, logger)
+			db, err := database.New(cfg.StoragePath, cfg.ColonyID, connectionsCacheTTL, logger)
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %w", err)
 			}

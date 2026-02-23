@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 )
 
@@ -15,7 +16,7 @@ func TestInitSchema_TablesCreated(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -47,14 +48,14 @@ func TestInitSchema_Idempotency(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database first time.
-	db1, err := New(tempDir, "test-colony", logger)
+	db1, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database first time: %v", err)
 	}
 	_ = db1.Close()
 
 	// Initialize database second time (should reuse existing database).
-	db2, err := New(tempDir, "test-colony", logger)
+	db2, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database second time: %v", err)
 	}
@@ -75,7 +76,7 @@ func TestInitSchema_Indexes(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestInitSchema_ColumnTypes(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
@@ -184,7 +185,7 @@ func TestInitSchema_PrimaryKeys(t *testing.T) {
 	logger := zerolog.New(os.Stdout)
 
 	// Initialize database.
-	db, err := New(tempDir, "test-colony", logger)
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}

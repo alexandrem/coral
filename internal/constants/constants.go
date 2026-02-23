@@ -165,6 +165,9 @@ const (
 
 	// DefaultBeylaMetricsPollInterval is how often the agent polls the local Beyla OTLP receiver.
 	DefaultBeylaMetricsPollInterval = 5 * time.Second
+
+	// DefaultConnectionsCacheTTL is the default TTL for materialized connections cache.
+	DefaultConnectionsCacheTTL = 30 * time.Second
 )
 
 // Retention Periods.

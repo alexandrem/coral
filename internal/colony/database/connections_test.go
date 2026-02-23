@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
+	"github.com/coral-mesh/coral/internal/constants"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,7 @@ import (
 func newTestDatabase(t *testing.T) (*Database, func()) {
 	t.Helper()
 	tempDir := t.TempDir()
-	db, err := New(tempDir, "test-colony", zerolog.Nop())
+	db, err := New(tempDir, "test-colony", constants.DefaultConnectionsCacheTTL, zerolog.Nop())
 	require.NoError(t, err, "Failed to create test database")
 	return db, func() { _ = db.Close() }
 }

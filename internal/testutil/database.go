@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // NewTestDatabase creates an in-memory test database.
@@ -20,7 +21,7 @@ func NewTestDatabase(t *testing.T) *database.Database {
 	logger := NewTestLogger(t)
 
 	// Create database.
-	db, err := database.New(tmpDir, "test-colony", logger)
+	db, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("failed to create test database: %v", err)
 	}

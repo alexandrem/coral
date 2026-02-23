@@ -387,23 +387,26 @@ func handleCheckout(w http.ResponseWriter, r *http.Request) {
 	})(w, r)
 }
 
-// handleChain calls the cpu-app upstream service, propagating the current
-// trace context via the W3C traceparent header. This allows Beyla to record a
-// parent–child span relationship across service boundaries, which is what
-// MaterializeConnections mines to build the service topology graph.
+// handleChain calls the cpu-app upstream service. Beyla's eBPF interceptor
+// owns the traceparent header for the outgoing call: it creates a CLIENT span
+// for otel-app, injects that span_id as the traceparent parent-id, and the
+// cpu-app SERVER span records it as parent_span_id. This keeps the span_id
+// chain inside beyla_traces consistent so MaterializeConnections' parent-span
+// JOIN can find the cross-service edge.
+//
+// The outgoing request uses context.Background() (not the OTel-instrumented
+// request context) so that the active OTel SDK span on the goroutine is not
+// visible to Beyla when it fires its http.Client.Do uprobe. If Beyla sees the
+// OTel span context it may propagate the OTel span_id rather than its own,
+// which would place the parent in otel_spans_local instead of beyla_traces and
+// break the JOIN.
 func handleChain(w http.ResponseWriter, r *http.Request) {
 	instrumentHandler("GET /chain", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cpuAppURL+"/", nil)
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, cpuAppURL+"/", nil)
 		if err != nil {
 			http.Error(w, "failed to build upstream request", http.StatusInternalServerError)
 			return
 		}
-
-		// Inject the active span's trace context so Beyla can correlate the
-		// incoming cpu-app span as a child of this otel-app span.
-		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)

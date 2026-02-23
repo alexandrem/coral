@@ -18,6 +18,7 @@ import (
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 func newTestServer(t *testing.T, config Config) (*Server, func()) {
@@ -25,7 +26,7 @@ func newTestServer(t *testing.T, config Config) (*Server, func()) {
 
 	// Create temporary database for testing.
 	tmpDir := t.TempDir()
-	db, err := database.New(tmpDir, config.ColonyID, logger)
+	db, err := database.New(tmpDir, config.ColonyID, constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}

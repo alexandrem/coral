@@ -433,6 +433,14 @@ func (m *Manager) startOTLPReceiver() error {
 	// Configure OTLP receiver for Beyla's output.
 	// Use ports 4319/4320 to avoid conflict with the shared OTLP receiver (4317/4318)
 	// which handles user application telemetry.
+	// Beyla already performs its own eBPF-level filtering; default to capturing
+	// 100% of spans so that normal-latency cross-service calls are never dropped
+	// by the OTLP receiver filter (required for topology materialisation).
+	sampleRate := m.config.SamplingRate
+	if sampleRate == 0 {
+		sampleRate = constants.DefaultBeylaSampleRate
+	}
+
 	otlpConfig := telemetry.Config{
 		Disabled:              false,
 		GRPCEndpoint:          fmt.Sprintf("127.0.0.1:%d", constants.DefaultBeylaGRPCPort), // Beyla-specific gRPC port (avoids 4317 conflict).
@@ -441,7 +449,7 @@ func (m *Manager) startOTLPReceiver() error {
 		Filters: telemetry.FilterConfig{
 			AlwaysCaptureErrors:    true,
 			HighLatencyThresholdMs: 500.0,
-			SampleRate:             m.config.SamplingRate,
+			SampleRate:             sampleRate,
 		},
 		// Route Beyla traces to beyla_traces_local instead of otel_spans_local.
 		SpanHandler: m.handleBeylaSpan,
@@ -504,7 +512,7 @@ func (m *Manager) handleBeylaSpan(ctx context.Context, span telemetry.Span) erro
 		"", // agentID - not available from OTLP span, will be empty
 		span.TraceID,
 		span.SpanID,
-		"", // parentSpanID - not available from telemetry.Span
+		span.ParentSpanID,
 		span.ServiceName,
 		spanName,
 		span.SpanKind,

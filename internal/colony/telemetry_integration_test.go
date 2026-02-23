@@ -12,6 +12,7 @@ import (
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/colony/database"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // TestPullBasedTelemetry_EndToEnd tests the full pull-based telemetry flow:
@@ -130,7 +131,7 @@ func TestPullBasedTelemetry_EndToEnd(t *testing.T) {
 	// === Setup Colony ===
 	// Create colony database.
 	tmpDir := t.TempDir()
-	colonyDB, err := database.New(tmpDir, "test-colony", logger)
+	colonyDB, err := database.New(tmpDir, "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	if err != nil {
 		t.Fatalf("Failed to create colony database: %v", err)
 	}

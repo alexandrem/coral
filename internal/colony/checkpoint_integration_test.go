@@ -17,6 +17,7 @@ import (
 	"github.com/coral-mesh/coral/internal/agent/telemetry"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/poller"
+	"github.com/coral-mesh/coral/internal/constants"
 )
 
 // TestCheckpointPolling_EndToEnd tests the full checkpoint-based polling flow:
@@ -38,7 +39,7 @@ func TestCheckpointPolling_EndToEnd(t *testing.T) {
 	require.NoError(t, err)
 
 	// === Setup Colony Database ===
-	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = colonyDB.Close() }()
 
@@ -128,7 +129,7 @@ func TestCheckpointPolling_SessionReset(t *testing.T) {
 	ctx := context.Background()
 	logger := zerolog.Nop()
 
-	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = colonyDB.Close() }()
 
@@ -198,7 +199,7 @@ func TestCheckpointPolling_GapDetection(t *testing.T) {
 	ctx := context.Background()
 	logger := zerolog.Nop()
 
-	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = colonyDB.Close() }()
 
@@ -259,7 +260,7 @@ func TestChaos_ClockSkew(t *testing.T) {
 	require.NoError(t, err)
 
 	// === Setup Colony Database ===
-	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = colonyDB.Close() }()
 
@@ -365,7 +366,7 @@ func TestChaos_NetworkPartition(t *testing.T) {
 	require.NoError(t, err)
 
 	// === Setup Colony Database ===
-	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = colonyDB.Close() }()
 
@@ -467,7 +468,7 @@ func TestChaos_PollingStorageFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// === Setup Colony Database ===
-	colonyDB, err := database.New(t.TempDir(), "test-colony", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = colonyDB.Close() }()
 
@@ -608,7 +609,7 @@ func TestLoad_HighVolumePolling(t *testing.T) {
 	)
 
 	// === Setup Colony Database ===
-	colonyDB, err := database.New(t.TempDir(), "test-colony-load", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony-load", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = colonyDB.Close() }()
 
@@ -735,7 +736,7 @@ func TestLoad_CatchUpScenario(t *testing.T) {
 	)
 
 	// === Setup Colony Database (fresh — simulates restart) ===
-	colonyDB, err := database.New(t.TempDir(), "test-colony-catchup", logger)
+	colonyDB, err := database.New(t.TempDir(), "test-colony-catchup", constants.DefaultConnectionsCacheTTL, logger)
 	require.NoError(t, err)
 	defer func() { _ = colonyDB.Close() }()
 
