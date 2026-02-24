@@ -1477,8 +1477,31 @@ func (s *MCPSuite) TestMCPTopologyTool() {
 	// parent-child span relationships to mine across service boundaries.
 	s.ensureCrossServiceData()
 
-	// Execute coral_topology with the default 1h window.
-	result := helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", "")
+	// Poll coral_topology until the otel-app → cpu-app edge appears or the
+	// deadline is exceeded. Beyla captures both span sides asynchronously, the
+	// colony's 1-second Beyla poller must forward them, and then
+	// MaterializeConnections must run — a retry budget avoids flaky failures
+	// from end-to-end pipeline latency.
+	const (
+		topologyTimeout  = 90 * time.Second
+		topologyInterval = 5 * time.Second
+	)
+	deadline := time.Now().Add(topologyTimeout)
+	var result *helpers.CLIResult
+	for {
+		result = helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", "")
+		if result.Err == nil && strings.Contains(result.Output, "otel-app") {
+			break
+		}
+		if time.Now().After(deadline) {
+			s.T().Logf("coral_topology last output:\n%s", result.Output)
+			s.Require().Fail("timed out waiting for otel-app to appear in coral_topology output")
+			return
+		}
+		s.T().Logf("otel-app not yet in topology output, retrying in %s...", topologyInterval)
+		time.Sleep(topologyInterval)
+	}
+
 	result.MustSucceed(s.T())
 	s.Require().NotEmpty(result.Output, "Tool output should not be empty")
 
@@ -1491,8 +1514,9 @@ func (s *MCPSuite) TestMCPTopologyTool() {
 	)
 
 	// The output must include a detected edge between the two services.
-	// otel-app calls cpu-app via the /chain endpoint with traceparent injection,
-	// so Beyla records a parent-child span relationship across service boundaries.
+	// otel-app calls cpu-app via the /chain endpoint; Beyla's eBPF interceptor
+	// owns the traceparent header so the parent-child span pair lives entirely
+	// in beyla_traces, letting MaterializeConnections find the edge.
 	s.Require().Contains(result.Output, "otel-app", "Output should name the caller service")
 	s.Require().Contains(result.Output, "cpu-app", "Output should name the callee service")
 	s.Require().Contains(result.Output, "→", "Output should show a directed call edge")
