@@ -737,7 +737,7 @@ func (m *Manager) generateBeylaConfig() (string, error) {
 	return configFile.Name(), nil
 }
 
-// monitorBeylaProcess monitors the Beyla process and logs when it exits.
+// monitorBeylaProcess monitors the Beyla process and restarts it on unexpected exit.
 func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	err := cmd.Wait()
 
@@ -749,22 +749,40 @@ func (m *Manager) monitorBeylaProcess(cmd *exec.Cmd) {
 	wasReplaced := m.beylaCmd != cmd
 	m.mu.RUnlock()
 
-	if err != nil && m.ctx.Err() == nil && !wasReplaced {
-		// Process exited unexpectedly (not due to restart or context cancellation).
-		m.logger.Error().
-			Err(err).
-			Int("pid", cmd.Process.Pid).
-			Msg("Beyla process exited unexpectedly")
-	} else if wasReplaced {
+	if wasReplaced {
 		// Expected exit during restart.
 		m.logger.Debug().
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process stopped for restart")
-	} else {
-		// Normal shutdown.
+		return
+	}
+
+	if m.ctx.Err() != nil {
+		// Normal shutdown due to context cancellation.
 		m.logger.Info().
 			Int("pid", cmd.Process.Pid).
 			Msg("Beyla process exited")
+		return
+	}
+
+	// Unexpected exit: restart Beyla so trace capture resumes automatically.
+	// This can happen if Beyla crashes or if the eBPF subsystem encounters an error.
+	m.logger.Error().
+		Err(err).
+		Int("pid", cmd.Process.Pid).
+		Msg("Beyla process exited unexpectedly, restarting")
+
+	// Brief pause before restart to avoid tight restart loops.
+	time.Sleep(2 * time.Second)
+
+	if m.ctx.Err() != nil {
+		return
+	}
+
+	if err := m.restartBeyla(); err != nil {
+		m.logger.Error().Err(err).Msg("Failed to restart Beyla after unexpected exit")
+	} else {
+		m.logger.Info().Msg("Beyla restarted successfully after unexpected exit")
 	}
 }
 

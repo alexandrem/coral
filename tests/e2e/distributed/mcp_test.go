@@ -1478,17 +1478,27 @@ func (s *MCPSuite) TestMCPTopologyTool() {
 	s.ensureCrossServiceData()
 
 	// Poll coral_topology until the otel-app → cpu-app edge appears or the
-	// deadline is exceeded. Beyla captures both span sides asynchronously, the
-	// colony's 1-second Beyla poller must forward them, and then
-	// MaterializeConnections must run — a retry budget avoids flaky failures
-	// from end-to-end pipeline latency.
+	// deadline is exceeded. On each cycle, send a few more /chain calls so
+	// fresh Beyla spans are always available — this handles cases where the
+	// otel-app container restarted mid-suite and Beyla's eBPF uprobes needed
+	// time to re-attach to the new process.
 	const (
-		topologyTimeout  = 90 * time.Second
+		topologyTimeout  = 320 * time.Second
 		topologyInterval = 5 * time.Second
 	)
+	otelAppURL := "http://localhost:8082"
+	chainClient := &http.Client{Timeout: 3 * time.Second}
 	deadline := time.Now().Add(topologyTimeout)
 	var result *helpers.CLIResult
 	for {
+		// Keep generating cross-service calls so there is always fresh traffic
+		// for Beyla to capture once its uprobe attaches to the new process.
+		for i := 0; i < 3; i++ {
+			if resp, err := chainClient.Get(otelAppURL + "/chain"); err == nil {
+				_ = resp.Body.Close()
+			}
+		}
+
 		result = helpers.MCPTestTool(s.ctx, s.cliEnv, "coral_topology", "")
 		if result.Err == nil && strings.Contains(result.Output, "otel-app") {
 			break
