@@ -94,6 +94,7 @@ func (s *E2EOrchestratorSuite) Test1_MeshConnectivity() {
 	s.Run("MultiAgentMesh", meshSuite.TestMultiAgentMesh)
 	s.Run("Heartbeat", meshSuite.TestHeartbeat)
 	s.Run("AgentReconnection", meshSuite.TestAgentReconnection)
+	s.Run("AgentMeshConfiguration", meshSuite.TestAgentMeshConfiguration)
 
 	// Mark as passed if all subtests succeeded.
 	if !s.T().Failed() {

@@ -13,7 +13,9 @@ import (
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/proto"
 
+	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
 	"github.com/coral-mesh/coral/internal/agent"
 	"github.com/coral-mesh/coral/internal/agent/collector"
@@ -408,6 +410,7 @@ func (s *ServiceRegistry) createHTTPServers(
 	// Create service handler and HTTP server for gRPC API.
 	serviceHandler := agent.NewServiceHandler(s.agentInstance, runtimeService, otlpReceiver, shellHandler, containerHandler, s.functionCache, systemMetricsHandler)
 	serviceHandler.SetSessionID(s.sessionID)
+	serviceHandler.SetMeshInfoProvider(s.gatherMeshNetworkInfo)
 	systemMetricsHandler.SetSessionID(s.sessionID)
 	path, handler := agentv1connect.NewAgentServiceHandler(serviceHandler)
 
@@ -498,19 +501,23 @@ func (s *ServiceRegistry) createHTTPServers(
 func (s *ServiceRegistry) createStatusHandler(runtimeService *agent.RuntimeService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get runtime context from cache directly.
-		runtimeCtx := runtimeService.GetCachedContext()
-		if runtimeCtx == nil {
+		cachedCtx := runtimeService.GetCachedContext()
+		if cachedCtx == nil {
 			http.Error(w, "runtime context not yet detected", http.StatusServiceUnavailable)
 			return
 		}
+
+		// Clone prior to stripping the raw mesh json bytes so we don't leak it in HTTP GET
+		runtimeCtx := proto.Clone(cachedCtx).(*agentv1.RuntimeContextResponse)
+		runtimeCtx.Wireguard = nil
 
 		// Gather mesh network information for debugging.
 		meshInfo := s.gatherMeshNetworkInfo()
 
 		// Combine runtime context with mesh info.
 		status := map[string]interface{}{
-			"runtime": runtimeCtx,
-			"mesh":    meshInfo,
+			"runtime":   runtimeCtx,
+			"wireguard": meshInfo,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -610,21 +617,51 @@ func (s *ServiceRegistry) gatherMeshNetworkInfo() map[string]interface{} {
 			wgInfo["interface_exists"] = false
 		}
 
+		// Try to get dynamic stats from UAPI.
+		stats, err := s.wgDevice.GetStats()
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to gather dynamic WireGuard stats via UAPI")
+		}
+
 		// Get peer information.
 		peers := s.wgDevice.ListPeers()
 		peerInfos := make([]map[string]interface{}, 0, len(peers))
 		for _, peer := range peers {
 			peerInfo := make(map[string]interface{})
 			peerInfo["public_key"] = peer.PublicKey[:16] + "..."
-			peerInfo["endpoint"] = peer.Endpoint
+
+			// Base properties from internal configuration.
+			peerInfo["configured_endpoint"] = peer.Endpoint
 			peerInfo["allowed_ips"] = peer.AllowedIPs
 			peerInfo["persistent_keepalive"] = peer.PersistentKeepalive
+
+			// Dynamic properties from UAPI.
+			if stats != nil {
+				pStats, ok := stats.Peers[peer.PublicKey]
+				if ok {
+					if pStats.Endpoint != "" {
+						peerInfo["endpoint"] = pStats.Endpoint
+					}
+					peerInfo["rx_bytes"] = pStats.RxBytes
+					peerInfo["tx_bytes"] = pStats.TxBytes
+
+					if !pStats.LastHandshakeTime.IsZero() {
+						peerInfo["last_handshake_time"] = pStats.LastHandshakeTime.UTC().Format("2006-01-02T15:04:05Z")
+					}
+				}
+			}
+
+			// Fallback to configured endpoint if dynamic wasn't discovered
+			if peerInfo["endpoint"] == nil {
+				peerInfo["endpoint"] = peer.Endpoint
+			}
+
 			peerInfos = append(peerInfos, peerInfo)
 		}
 		wgInfo["peers"] = peerInfos
 		wgInfo["peer_count"] = len(peers)
 
-		info["wireguard"] = wgInfo
+		info["status"] = wgInfo
 	}
 
 	// Colony info.

@@ -16,12 +16,17 @@ import (
 	colonyv1 "github.com/coral-mesh/coral/coral/colony/v1"
 	"github.com/coral-mesh/coral/coral/colony/v1/colonyv1connect"
 	meshv1 "github.com/coral-mesh/coral/coral/mesh/v1"
+	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 	"github.com/coral-mesh/coral/internal/colony/ca"
 	"github.com/coral-mesh/coral/internal/colony/database"
 	"github.com/coral-mesh/coral/internal/colony/registry"
 	"github.com/coral-mesh/coral/internal/colony/storage"
 	"github.com/coral-mesh/coral/internal/constants"
+	"github.com/coral-mesh/coral/internal/wireguard"
 )
+
+// MeshInfoProvider is a callback that fetches live WireGuard/mesh statistics.
+type MeshInfoProvider func() map[string]interface{}
 
 // Config contains configuration for the colony server.
 type Config struct {
@@ -41,14 +46,15 @@ type Config struct {
 
 // Server implements the ColonyService.
 type Server struct {
-	registry    *registry.Registry
-	database    *database.Database
-	caManager   *ca.Manager // RFD 047 - certificate authority manager.
-	mcpServer   interface{} // *mcp.Server - using interface to avoid import cycle
-	ebpfService interface{} // EbpfQueryService - using interface to avoid import cycle
-	config      Config
-	startTime   time.Time
-	logger      zerolog.Logger
+	registry         *registry.Registry
+	database         *database.Database
+	caManager        *ca.Manager // RFD 047 - certificate authority manager.
+	mcpServer        interface{} // *mcp.Server - using interface to avoid import cycle
+	ebpfService      interface{} // EbpfQueryService - using interface to avoid import cycle
+	config           Config
+	startTime        time.Time
+	logger           zerolog.Logger
+	meshInfoProvider MeshInfoProvider
 }
 
 // New creates a new colony server.
@@ -61,6 +67,11 @@ func New(reg *registry.Registry, db *database.Database, caManager *ca.Manager, c
 		startTime: time.Now(),
 		logger:    logger,
 	}
+}
+
+// SetMeshInfoProvider sets the callback used for providing mesh metrics dynamically.
+func (s *Server) SetMeshInfoProvider(provider MeshInfoProvider) {
+	s.meshInfoProvider = provider
 }
 
 // SetEbpfService sets the eBPF query service instance.
@@ -116,6 +127,14 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		Int64("uptime_seconds", uptimeSeconds).
 		Msg("Colony status response prepared")
 
+	// Fetch dynamic mesh telemetry and map to strictly typed Protobuf struct
+	var meshTelemetry *networkv1.MeshTelemetry
+	if s.meshInfoProvider != nil {
+		if meshInfo := s.meshInfoProvider(); meshInfo != nil {
+			meshTelemetry = wireguard.MapToMeshTelemetryProto(meshInfo)
+		}
+	}
+
 	// Build response.
 	return &colonyv1.GetStatusResponse{
 		ColonyId:           s.config.ColonyID,
@@ -136,6 +155,7 @@ func (s *Server) GetStatusResponse() *colonyv1.GetStatusResponse {
 		MeshIpv4:           s.config.MeshIPv4,
 		MeshIpv6:           s.config.MeshIPv6,
 		PublicEndpointUrl:  s.config.PublicEndpointURL,
+		Wireguard:          meshTelemetry,
 	}
 }
 

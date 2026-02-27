@@ -14,6 +14,7 @@ import (
 
 	agentv1 "github.com/coral-mesh/coral/coral/agent/v1"
 	"github.com/coral-mesh/coral/coral/agent/v1/agentv1connect"
+	networkv1 "github.com/coral-mesh/coral/coral/network/v1"
 	"github.com/coral-mesh/coral/internal/agent/certs"
 	"github.com/coral-mesh/coral/internal/cli/helpers"
 )
@@ -111,12 +112,19 @@ The agent must be running and accessible.`,
 				certInfo = getLocalCertificateInfo(certsDir)
 			}
 
-			// Output in requested format.
-			if format != string(helpers.FormatTable) {
-				return outputAgentStatusFormattedWithCert(runtimeCtx, services, certInfo, format)
+			// Extract dynamic mesh info from the gRPC context, ensuring parity with /status
+			var meshTelemetry *networkv1.MeshTelemetry
+			if runtimeCtx.Wireguard != nil {
+				meshTelemetry = runtimeCtx.Wireguard
+				runtimeCtx.Wireguard = nil // prevent object payload cascade from showing in json dump
 			}
 
-			return outputAgentStatusTableWithCert(runtimeCtx, services, certInfo)
+			// Output in requested format.
+			if format != string(helpers.FormatTable) {
+				return outputAgentStatusFormattedWithCert(runtimeCtx, services, certInfo, meshTelemetry, format)
+			}
+
+			return outputAgentStatusTableWithCert(runtimeCtx, services, certInfo, meshTelemetry)
 		},
 	}
 
@@ -439,13 +447,17 @@ func getLocalCertificateInfo(certsDir string) *certs.CertificateInfo {
 }
 
 // outputAgentStatusFormattedWithCert outputs agent status with cert info in structured format.
-func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, format string) error {
+func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry, format string) error {
 	output := map[string]interface{}{
 		"runtime_context": ctx,
 	}
 
 	if len(services) > 0 {
 		output["services"] = services
+	}
+
+	if meshTelemetry != nil {
+		output["wireguard"] = meshTelemetry
 	}
 
 	if certInfo != nil {
@@ -471,7 +483,7 @@ func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, ser
 }
 
 // outputAgentStatusTableWithCert outputs agent status with cert info in human-readable format.
-func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo) error {
+func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshTelemetry *networkv1.MeshTelemetry) error {
 	// Output standard status info first.
 	if err := outputAgentStatusTable(ctx, services); err != nil {
 		return err
@@ -482,7 +494,82 @@ func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, service
 		printCertificateStatus(certInfo)
 	}
 
+	// Output mesh status if available.
+	if meshTelemetry != nil {
+		printAgentMeshStatus(meshTelemetry)
+	}
+
 	return nil
+}
+
+// printAgentMeshStatus formats and prints WireGuard mesh telemetry natively for the agent.
+func printAgentMeshStatus(info *networkv1.MeshTelemetry) {
+	fmt.Println("Mesh Network:")
+
+	if info == nil {
+		fmt.Println("  Status:         Not connected to mesh")
+		fmt.Println()
+		return
+	}
+
+	if info.MeshIp != "" {
+		fmt.Printf("  Mesh IP:        %s\n", info.MeshIp)
+		if info.MeshSubnet != "" {
+			fmt.Printf("  Subnet:         %s\n", info.MeshSubnet)
+		}
+	} else {
+		fmt.Println("  Status:         Not connected to mesh")
+		fmt.Println()
+		return
+	}
+
+	if info.Status == nil {
+		fmt.Println("  WireGuard:      Not configured or unavailable")
+		fmt.Println()
+		return
+	}
+
+	if !info.Status.InterfaceExists {
+		fmt.Println("  WireGuard:      Interface does not exist")
+		fmt.Println()
+		return
+	}
+
+	statusDisp := "Unknown"
+	if info.Status.LinkStatus != "" {
+		if strings.Contains(info.Status.LinkStatus, "UP") {
+			statusDisp = "UP"
+		} else if strings.Contains(info.Status.LinkStatus, "DOWN") {
+			statusDisp = "DOWN"
+		}
+	}
+	fmt.Printf("  WireGuard:      %s\n", statusDisp)
+
+	peers := info.Status.Peers
+	if len(peers) == 0 {
+		fmt.Println("  Peers:          0")
+		fmt.Println()
+		return
+	}
+
+	fmt.Printf("  Peers:          %d\n", len(peers))
+	for _, p := range peers {
+		fmt.Printf("    - %s\n", p.PublicKey)
+
+		if p.Endpoint != "" {
+			fmt.Printf("        Endpoint:   %s\n", p.Endpoint)
+		}
+		if p.RxBytes > 0 {
+			fmt.Printf("        Rx Bytes:   %d\n", p.RxBytes)
+		}
+		if p.TxBytes > 0 {
+			fmt.Printf("        Tx Bytes:   %d\n", p.TxBytes)
+		}
+		if p.LastHandshakeTime != "" {
+			fmt.Printf("        Handshake:  %s\n", p.LastHandshakeTime)
+		}
+	}
+	fmt.Println()
 }
 
 // printCertificateStatus prints certificate information and warnings (RFD 048).
