@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -111,12 +112,29 @@ The agent must be running and accessible.`,
 				certInfo = getLocalCertificateInfo(certsDir)
 			}
 
-			// Output in requested format.
-			if format != string(helpers.FormatTable) {
-				return outputAgentStatusFormattedWithCert(runtimeCtx, services, certInfo, format)
+			// Query mesh status via HTTP /status endpoint
+			var meshInfo map[string]interface{}
+			statusReq, err := http.NewRequestWithContext(ctx, "GET", agentURL+"/status", nil)
+			if err == nil {
+				if statusResp, err := http.DefaultClient.Do(statusReq); err == nil {
+					defer statusResp.Body.Close()
+					if statusResp.StatusCode == http.StatusOK {
+						var fullStatus map[string]interface{}
+						if err := json.NewDecoder(statusResp.Body).Decode(&fullStatus); err == nil {
+							if mesh, ok := fullStatus["mesh"].(map[string]interface{}); ok {
+								meshInfo = mesh
+							}
+						}
+					}
+				}
 			}
 
-			return outputAgentStatusTableWithCert(runtimeCtx, services, certInfo)
+			// Output in requested format.
+			if format != string(helpers.FormatTable) {
+				return outputAgentStatusFormattedWithCert(runtimeCtx, services, certInfo, meshInfo, format)
+			}
+
+			return outputAgentStatusTableWithCert(runtimeCtx, services, certInfo, meshInfo)
 		},
 	}
 
@@ -439,13 +457,17 @@ func getLocalCertificateInfo(certsDir string) *certs.CertificateInfo {
 }
 
 // outputAgentStatusFormattedWithCert outputs agent status with cert info in structured format.
-func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, format string) error {
+func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshInfo map[string]interface{}, format string) error {
 	output := map[string]interface{}{
 		"runtime_context": ctx,
 	}
 
 	if len(services) > 0 {
 		output["services"] = services
+	}
+
+	if meshInfo != nil {
+		output["mesh"] = meshInfo
 	}
 
 	if certInfo != nil {
@@ -471,7 +493,7 @@ func outputAgentStatusFormattedWithCert(ctx *agentv1.RuntimeContextResponse, ser
 }
 
 // outputAgentStatusTableWithCert outputs agent status with cert info in human-readable format.
-func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo) error {
+func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, services []*agentv1.ServiceStatus, certInfo *certs.CertificateInfo, meshInfo map[string]interface{}) error {
 	// Output standard status info first.
 	if err := outputAgentStatusTable(ctx, services); err != nil {
 		return err
@@ -482,7 +504,86 @@ func outputAgentStatusTableWithCert(ctx *agentv1.RuntimeContextResponse, service
 		printCertificateStatus(certInfo)
 	}
 
+	// Output mesh status if available.
+	if meshInfo != nil {
+		printMeshStatus(meshInfo)
+	}
+
 	return nil
+}
+
+// printMeshStatus formats and prints WireGuard mesh telemetry.
+func printMeshStatus(info map[string]interface{}) {
+	fmt.Println("Mesh Network:")
+
+	if meshIP, ok := info["mesh_ip"].(string); ok && meshIP != "" {
+		fmt.Printf("  Mesh IP:        %s\n", meshIP)
+		if subnet, ok := info["mesh_subnet"].(string); ok && subnet != "" {
+			fmt.Printf("  Subnet:         %s\n", subnet)
+		}
+	} else {
+		fmt.Println("  Status:         Not connected to mesh")
+		fmt.Println()
+		return
+	}
+
+	wgInfo, wgOk := info["wireguard"].(map[string]interface{})
+	if !wgOk {
+		fmt.Println("  WireGuard:      Not configured or unavailable")
+		fmt.Println()
+		return
+	}
+
+	if exists, _ := wgInfo["interface_exists"].(bool); !exists {
+		fmt.Println("  WireGuard:      Interface does not exist")
+		fmt.Println()
+		return
+	}
+
+	statusDisp := "Unknown"
+	if linkStatus, ok := wgInfo["link_status"].(string); ok {
+		if strings.Contains(linkStatus, "UP") {
+			statusDisp = "UP"
+		} else if strings.Contains(linkStatus, "DOWN") {
+			statusDisp = "DOWN"
+		}
+	}
+	fmt.Printf("  WireGuard:      %s\n", statusDisp)
+
+	peers, ok := wgInfo["peers"].([]interface{})
+	if !ok || len(peers) == 0 {
+		fmt.Println("  Peers:          0")
+		fmt.Println()
+		return
+	}
+
+	fmt.Printf("  Peers:          %d\n", len(peers))
+	for _, p := range peers {
+		peerMap, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		pubKey, _ := peerMap["public_key"].(string)
+		fmt.Printf("    - %s\n", pubKey)
+
+		if endpoint, ok := peerMap["endpoint"].(string); ok && endpoint != "" {
+			fmt.Printf("        Endpoint:   %s\n", endpoint)
+		}
+
+		if rx, ok := peerMap["rx_bytes"].(float64); ok && rx > 0 {
+			fmt.Printf("        Rx Bytes:   %.0f\n", rx)
+		}
+
+		if tx, ok := peerMap["tx_bytes"].(float64); ok && tx > 0 {
+			fmt.Printf("        Tx Bytes:   %.0f\n", tx)
+		}
+
+		if hs, ok := peerMap["last_handshake_time"].(string); ok && hs != "" {
+			fmt.Printf("        Handshake:  %s\n", hs)
+		}
+	}
+	fmt.Println()
 }
 
 // printCertificateStatus prints certificate information and warnings (RFD 048).
